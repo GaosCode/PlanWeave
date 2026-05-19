@@ -38,6 +38,7 @@ describe("basic MVP-0 loop", () => {
     const retryPrompt = await getPrompt({ projectRoot: root, taskId: "T-001" });
     expect(retryPrompt).toContain("Needs a test adjustment.");
     expect(await claimNextTask({ projectRoot: root })).toMatchObject({ taskId: "T-001", status: "claimed" });
+    expect(await getPrompt({ projectRoot: root, taskId: "T-001" })).toContain("Needs a test adjustment.");
 
     const secondImplementation = join(init.workspace.workspaceRoot, "implementation-2.md");
     const secondReview = join(init.workspace.workspaceRoot, "review-2.md");

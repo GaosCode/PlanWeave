@@ -13,8 +13,8 @@ export type ManagedSectionContext = {
 };
 
 async function readReviewIfNeeded(context: ManagedSectionContext): Promise<string | null> {
-  const taskState = context.state.tasks[context.task.id];
-  if (taskState?.status !== "needs_changes") {
+  const index = await readResultIndex(join(context.workspace.resultsDir, context.task.id, "index.json"));
+  if (index?.review?.status !== "needs_changes") {
     return null;
   }
   const reviewPath = join(context.workspace.resultsDir, context.task.id, "review.md");
