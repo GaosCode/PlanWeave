@@ -1,18 +1,17 @@
 import { join } from "node:path";
 import { loadPackage } from "../package/loadPackage.js";
-import { ensureStateForManifest, readState, taskNodes, writeState } from "../state.js";
 import { appendTaskEvent } from "../results/events.js";
 import { readResultIndex, writeResultIndex } from "../results/indexFile.js";
-import type { MarkDivergedResult, ResultIndex } from "../types.js";
+import { ensureStateForManifest, readState, taskNodes, writeState } from "../state.js";
+import type { MarkBlockedResult, ResultIndex } from "../types.js";
 
-export async function markDiverged(options: {
+export async function markBlocked(options: {
   projectRoot: string;
   taskId: string;
   reason: string;
-}): Promise<MarkDivergedResult> {
-  const reason = options.reason.trim();
-  if (!reason) {
-    throw new Error("mark-diverged requires a non-empty reason.");
+}): Promise<MarkBlockedResult> {
+  if (!options.reason.trim()) {
+    throw new Error("mark-blocked requires a non-empty reason.");
   }
   const { workspace, manifest } = await loadPackage(options.projectRoot);
   if (!taskNodes(manifest).some((task) => task.id === options.taskId)) {
@@ -21,14 +20,14 @@ export async function markDiverged(options: {
 
   const state = ensureStateForManifest(manifest, await readState(workspace.stateFile));
   if (state.tasks[options.taskId]?.status === "verified") {
-    throw new Error("A verified task cannot be marked as diverged.");
+    throw new Error("A verified task cannot be marked as blocked.");
   }
-  const divergence = { reason, recordedAt: new Date().toISOString() };
+  const blockage = { reason: options.reason.trim(), recordedAt: new Date().toISOString() };
   state.tasks[options.taskId] = {
     ...state.tasks[options.taskId],
-    status: "diverged",
+    status: "blocked",
     claimedBy: null,
-    divergence
+    blockage
   };
   state.currentTaskId = state.currentTaskId === options.taskId ? null : state.currentTaskId;
   await writeState(workspace.stateFile, state);
@@ -37,15 +36,21 @@ export async function markDiverged(options: {
   const previous = await readResultIndex(indexPath);
   const index: ResultIndex = {
     taskId: options.taskId,
-    status: "diverged",
+    status: "blocked",
     latestRunId: previous?.latestRunId ?? null,
     runCount: previous?.runCount ?? 0,
     ...(previous?.review ? { review: previous.review } : {}),
     ...(previous?.reviewHistory ? { reviewHistory: previous.reviewHistory } : {}),
-    divergence,
-    events: appendTaskEvent(previous, { type: "diverged", taskId: options.taskId, reason, at: divergence.recordedAt })
+    ...(previous?.divergence ? { divergence: previous.divergence } : {}),
+    blockage,
+    events: appendTaskEvent(previous, {
+      type: "blocked",
+      taskId: options.taskId,
+      reason: blockage.reason,
+      at: blockage.recordedAt
+    })
   };
   await writeResultIndex(indexPath, index);
 
-  return { taskId: options.taskId, status: "diverged", reason };
+  return { taskId: options.taskId, status: "blocked", reason: blockage.reason };
 }

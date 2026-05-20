@@ -108,6 +108,10 @@ export type TaskState = {
   claimedBy: string | null;
   lastRunId: string | null;
   blockedBy: string[];
+  blockage?: {
+    reason: string;
+    recordedAt: string;
+  };
   divergence?: {
     reason: string;
     recordedAt: string;
@@ -132,6 +136,7 @@ export type GraphContext = {
   decisions: ManifestNode[];
   components: ManifestNode[];
   conflicts: ManifestNode[];
+  supersedes: ManifestNode[];
   supersededBy: ManifestNode[];
 };
 
@@ -182,6 +187,21 @@ export type InitWorkspaceResult = {
   workspace: ProjectWorkspace;
   project: ProjectMetadata;
   created: boolean;
+  backup?: {
+    backupDir: string;
+    packageDir?: string;
+    stateFile?: string;
+    resultsDir?: string;
+  };
+};
+
+export type ProjectPathsResult = {
+  workspaceDir: string;
+  projectId: string;
+  projectDir: string;
+  packageDir: string;
+  statePath: string;
+  resultsDir: string;
 };
 
 export type PromptSurface = {
@@ -201,9 +221,64 @@ export type ClaimResult = {
 };
 
 export type ParallelClaimResult = {
-  tasks: string[];
+  taskIds: string[];
   status: "claimed" | "disabled" | "current" | "none";
 };
+
+export type VerificationSource = "review" | "manual";
+
+export type TaskLifecycleEvent =
+  | {
+      type: "claimed";
+      taskId: string;
+      at: string;
+      source: "agent";
+    }
+  | {
+      type: "run_submitted";
+      taskId: string;
+      runId: string;
+      status: RunSubmitStatus;
+      at: string;
+    }
+  | {
+      type: "review_submitted";
+      taskId: string;
+      reviewId: string;
+      status: ReviewStatus;
+      taskStatus: "verified" | "needs_changes";
+      reviewer: "human";
+      at: string;
+    }
+  | {
+      type: "verified";
+      taskId: string;
+      source: VerificationSource;
+      at: string;
+    }
+  | {
+      type: "diverged";
+      taskId: string;
+      reason: string;
+      at: string;
+    }
+  | {
+      type: "blocked";
+      taskId: string;
+      reason: string;
+      at: string;
+    }
+  | {
+      type: "unblocked";
+      taskId: string;
+      at: string;
+    }
+  | {
+      type: "divergence_resolved";
+      taskId: string;
+      reason: string;
+      at: string;
+    };
 
 export type ResultIndex = {
   taskId: string;
@@ -214,11 +289,30 @@ export type ResultIndex = {
     status: ReviewStatus;
     reviewedAt: string;
     reviewer: "human";
+    reviewId?: string;
+    path?: string;
   };
+  reviewHistory?: Array<{
+    reviewId: string;
+    status: ReviewStatus;
+    reviewedAt: string;
+    reviewer: "human";
+    path: string;
+    runId: string;
+  }>;
   divergence?: {
     reason: string;
     recordedAt: string;
   };
+  verification?: {
+    source: VerificationSource;
+    verifiedAt: string;
+  };
+  blockage?: {
+    reason: string;
+    recordedAt: string;
+  };
+  events?: TaskLifecycleEvent[];
 };
 
 export type SubmitResult = {
@@ -246,12 +340,53 @@ export type MarkDivergedResult = {
   reason: string;
 };
 
+export type MarkBlockedResult = {
+  taskId: string;
+  status: "blocked";
+  reason: string;
+};
+
+export type UnblockResult = {
+  taskId: string;
+  status: "planned" | "ready" | "needs_changes";
+};
+
+export type ResolveDivergenceResult = {
+  taskId: string;
+  status: "planned" | "ready" | "needs_changes";
+  reason: string;
+};
+
+export type TaskReasonSummary = {
+  taskId: string;
+  reason: string | null;
+};
+
+export type OrphanStateSummary = {
+  taskId: string;
+  status: TaskStatus;
+  lastRunId: string | null;
+};
+
+export type OrphanResultSummary = {
+  taskId: string;
+  path: string;
+};
+
 export type PlanStatus = {
   projectId: string;
   projectRoot: string;
   taskTotal: number;
   counts: Record<TaskStatus, number>;
   currentTaskId: string | null;
+  inProgress: string[];
+  nextClaimable: string[];
+  blockedTasks: TaskReasonSummary[];
+  needsChangesTasks: string[];
+  divergedTasks: TaskReasonSummary[];
+  orphanState: OrphanStateSummary[];
+  orphanResults: OrphanResultSummary[];
+  noClaimReason: "has_claimable" | "all_done" | "dependency_blocked" | "blocked" | "diverged" | "no_tasks";
   needsChanges: number;
   diverged: number;
 };

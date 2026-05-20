@@ -1,4 +1,4 @@
-import { access, mkdir, realpath, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { constants } from "node:fs";
 import { resolveProjectWorkspace } from "./project.js";
@@ -37,6 +37,8 @@ async function exists(path: string): Promise<boolean> {
 export async function initWorkspace(options: {
   projectRoot: string;
   force?: boolean;
+  resetPackage?: boolean;
+  resetResults?: boolean;
 }): Promise<InitWorkspaceResult> {
   const rootPath = await realpath(options.projectRoot);
   const workspace = await resolveProjectWorkspace(rootPath);
@@ -49,10 +51,53 @@ export async function initWorkspace(options: {
   };
 
   const alreadyExists = await exists(workspace.projectFile);
+  if (alreadyExists && options.force) {
+    throw new Error(
+      `init --force would overwrite existing Plan Package or state at '${workspace.workspaceRoot}'. Refusing to continue.`
+    );
+  }
+
+  const resetting = options.resetPackage || options.resetResults;
+  if (resetting && !alreadyExists) {
+    throw new Error(`PlanWeave workspace for project '${rootPath}' has not been initialized.`);
+  }
+
+  let backup: InitWorkspaceResult["backup"];
+  if (resetting) {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupDir = join(workspace.workspaceRoot, "backups", timestamp);
+    await mkdir(backupDir, { recursive: true });
+    backup = { backupDir };
+
+    if (options.resetPackage) {
+      const packageBackup = join(backupDir, "package");
+      if (await exists(workspace.packageDir)) {
+        await cp(workspace.packageDir, packageBackup, { recursive: true });
+        backup.packageDir = packageBackup;
+      }
+      if (await exists(workspace.stateFile)) {
+        const stateBackup = join(backupDir, "state.json");
+        await cp(workspace.stateFile, stateBackup);
+        backup.stateFile = stateBackup;
+      }
+      await rm(workspace.packageDir, { recursive: true, force: true });
+      await rm(workspace.stateFile, { force: true });
+    }
+
+    if (options.resetResults) {
+      const resultsBackup = join(backupDir, "results");
+      if (await exists(workspace.resultsDir)) {
+        await cp(workspace.resultsDir, resultsBackup, { recursive: true });
+        backup.resultsDir = resultsBackup;
+      }
+      await rm(workspace.resultsDir, { recursive: true, force: true });
+    }
+  }
+
   await mkdir(join(workspace.packageDir, "nodes"), { recursive: true });
   await mkdir(workspace.resultsDir, { recursive: true });
 
-  if (!alreadyExists || options.force) {
+  if (!alreadyExists || options.resetPackage) {
     await writeJsonFile(workspace.projectFile, project);
     await writeJsonFile(workspace.manifestFile, initialManifest(projectName));
     await writeFile(join(workspace.packageDir, "global-prompt.md"), "# Global Prompt\n", "utf8");
@@ -62,6 +107,7 @@ export async function initWorkspace(options: {
   return {
     workspace,
     project,
-    created: !alreadyExists
+    created: !alreadyExists,
+    ...(backup ? { backup } : {})
   };
 }

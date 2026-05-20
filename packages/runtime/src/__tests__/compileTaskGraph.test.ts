@@ -48,7 +48,9 @@ function manifest(): PlanPackageManifest {
       { from: "T-001", to: "R-001", type: "implements" },
       { from: "T-001", to: "C-001", type: "constrained_by" },
       { from: "T-001", to: "CMP-001", type: "touches" },
-      { from: "T-002", to: "CMP-001", type: "touches" }
+      { from: "T-002", to: "CMP-001", type: "touches" },
+      { from: "T-001", to: "R-001", type: "supersedes" },
+      { from: "T-002", to: "T-001", type: "supersedes" }
     ]
   };
 }
@@ -89,6 +91,60 @@ describe("compileTaskGraph", () => {
     expect(context.requirements.map((node) => node.id)).toEqual(["R-001"]);
     expect(context.constraints.map((node) => node.id)).toEqual(["C-001"]);
     expect(context.components.map((node) => node.id)).toEqual(["CMP-001"]);
+    expect(context.supersedes.map((node) => node.id)).toEqual(["R-001"]);
+    expect(context.supersededBy.map((node) => node.id)).toEqual(["T-002"]);
+  });
+
+  it("reports edge endpoint type mismatches for every edge semantic", () => {
+    const graph = compileTaskGraph({
+      ...manifest(),
+      edges: [
+        { from: "G-001", to: "C-001", type: "implements" },
+        { from: "T-001", to: "G-001", type: "constrained_by" },
+        { from: "T-001", to: "R-001", type: "touches" },
+        { from: "T-001", to: "G-001", type: "conflicts_with" },
+        { from: "T-001", to: "G-001", type: "depends_on" }
+      ]
+    });
+
+    expect(graph.diagnostics.errors.map((error) => error.code)).toEqual([
+      "edge_endpoint_type_invalid",
+      "edge_endpoint_type_invalid",
+      "edge_endpoint_type_invalid",
+      "edge_endpoint_type_invalid",
+      "depends_on_non_task"
+    ]);
+  });
+
+  it("allows documented conflicts_with and supersedes endpoint semantics", () => {
+    const graph = compileTaskGraph({
+      ...manifest(),
+      edges: [
+        { from: "G-001", to: "R-001", type: "supersedes" },
+        { from: "G-001", to: "T-001", type: "conflicts_with" },
+        { from: "CMP-001", to: "C-001", type: "conflicts_with" }
+      ]
+    });
+
+    expect(graph.diagnostics.errors).toEqual([]);
+    expect(graph.diagnostics.warnings.map((warning) => warning.code)).toEqual([
+      "conflict_edge_warning",
+      "conflict_edge_warning",
+      "task_without_goal_or_requirement",
+      "task_without_goal_or_requirement"
+    ]);
+  });
+
+  it("reports duplicate edges as graph diagnostics", () => {
+    const graph = compileTaskGraph({
+      ...manifest(),
+      edges: [
+        { from: "T-001", to: "G-001", type: "implements" },
+        { from: "T-001", to: "G-001", type: "implements" }
+      ]
+    });
+
+    expect(graph.diagnostics.errors.map((error) => error.code)).toContain("edge_duplicate");
   });
 
   it("reports missing edge references and depends_on cycles as compiler diagnostics", () => {

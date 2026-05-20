@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { addEdge, addNode, affectedTasksForPackageFileChange, removeEdge, updateNode, updatePromptSurface } from "../graph/editGraph.js";
 import { readJsonFile } from "../json.js";
 import type { PlanPackageManifest } from "../types.js";
@@ -60,6 +61,21 @@ describe("graph edit APIs", () => {
 
     expect(result.ok).toBe(false);
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("depends_on_cycle");
+    delete process.env.PLANWEAVE_HOME;
+  });
+
+  it("rejects non-dependency edges with invalid endpoint types before writing manifest.json", async () => {
+    const { root, init } = await createPackageWorkspace();
+
+    const result = await addEdge({
+      projectRoot: root,
+      edge: { from: "G-001", to: "T-001", type: "implements" }
+    });
+    const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("edge_endpoint_type_invalid");
+    expect(manifest.edges).not.toContainEqual({ from: "G-001", to: "T-001", type: "implements" });
     delete process.env.PLANWEAVE_HOME;
   });
 
@@ -276,5 +292,124 @@ describe("graph edit APIs", () => {
       "T-001",
       "T-002"
     ]);
+  });
+
+  it("uses an existing graph for file-level manifest changes and updates it in place", () => {
+    const before: PlanPackageManifest = {
+      version: "plan-package/v0",
+      project: { title: "Project", description: "" },
+      execution: { parallel: { enabled: false, maxConcurrent: 1 } },
+      global_prompt: "global-prompt.md",
+      nodes: [
+        { id: "G-001", type: "goal", title: "Goal", summary: "Goal summary." },
+        {
+          id: "T-001",
+          type: "task",
+          title: "First",
+          prompt: "nodes/T-001.prompt.md",
+          acceptance: ["done"],
+          parallel: { safe: true, locks: [] }
+        },
+        {
+          id: "T-002",
+          type: "task",
+          title: "Second",
+          prompt: "nodes/T-002.prompt.md",
+          acceptance: ["done"],
+          parallel: { safe: true, locks: [] }
+        }
+      ],
+      edges: [{ from: "T-001", to: "G-001", type: "implements" }]
+    };
+    const graph = compileTaskGraph(before);
+    const after = {
+      ...before,
+      edges: [...before.edges, { from: "T-002", to: "T-001", type: "depends_on" as const }]
+    };
+
+    const result = affectedTasksForPackageFileChange({ kind: "manifest", before, after, graph });
+
+    expect(result).toMatchObject({ ok: true, affectedTasks: ["T-002", "T-001"], fullRefresh: false });
+    expect(result.graph).toBe(graph);
+    expect(graph.dependenciesByTask.get("T-002")).toEqual(["T-001"]);
+    expect(graph.reachable("T-002", "T-001")).toBe(true);
+  });
+
+  it("does not mutate the existing graph when a file-level manifest change is invalid", () => {
+    const before: PlanPackageManifest = {
+      version: "plan-package/v0",
+      project: { title: "Project", description: "" },
+      execution: { parallel: { enabled: false, maxConcurrent: 1 } },
+      global_prompt: "global-prompt.md",
+      nodes: [
+        { id: "G-001", type: "goal", title: "Goal", summary: "Goal summary." },
+        {
+          id: "T-001",
+          type: "task",
+          title: "First",
+          prompt: "nodes/T-001.prompt.md",
+          acceptance: ["done"],
+          parallel: { safe: true, locks: [] }
+        }
+      ],
+      edges: [{ from: "T-001", to: "G-001", type: "implements" }]
+    };
+    const graph = compileTaskGraph(before);
+    const after: PlanPackageManifest = {
+      ...before,
+      nodes: [
+        ...before.nodes,
+        {
+          id: "T-002",
+          type: "task",
+          title: "Second",
+          prompt: "nodes/T-002.prompt.md",
+          acceptance: ["done"],
+          parallel: { safe: true, locks: [] }
+        }
+      ],
+      edges: [...before.edges, { from: "G-001", to: "T-002", type: "implements" }]
+    };
+
+    const result = affectedTasksForPackageFileChange({ kind: "manifest", before, after, graph });
+
+    expect(result).toMatchObject({ ok: false, fullRefresh: true });
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("edge_endpoint_type_invalid");
+    expect(result.graph).not.toBe(graph);
+    expect(graph.nodesById.has("T-002")).toBe(false);
+    expect(graph.outgoingEdgesByNode.get("G-001")).toEqual([]);
+  });
+
+  it("rejects duplicate edges in file-level manifest changes before diff folding", () => {
+    const before: PlanPackageManifest = {
+      version: "plan-package/v0",
+      project: { title: "Project", description: "" },
+      execution: { parallel: { enabled: false, maxConcurrent: 1 } },
+      global_prompt: "global-prompt.md",
+      nodes: [
+        { id: "G-001", type: "goal", title: "Goal", summary: "Goal summary." },
+        {
+          id: "T-001",
+          type: "task",
+          title: "First",
+          prompt: "nodes/T-001.prompt.md",
+          acceptance: ["done"],
+          parallel: { safe: true, locks: [] }
+        }
+      ],
+      edges: [{ from: "T-001", to: "G-001", type: "implements" }]
+    };
+    const graph = compileTaskGraph(before);
+    const after: PlanPackageManifest = {
+      ...before,
+      edges: [...before.edges, { from: "T-001", to: "G-001", type: "implements" }]
+    };
+
+    const result = affectedTasksForPackageFileChange({ kind: "manifest", before, after, graph });
+
+    expect(result).toMatchObject({ ok: false, fullRefresh: true });
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("edge_duplicate");
+    expect(result.graph).not.toBe(graph);
+    expect(graph.outgoingEdgesByNode.get("T-001")).toEqual(before.edges);
   });
 });

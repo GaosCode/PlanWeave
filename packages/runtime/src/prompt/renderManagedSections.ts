@@ -45,6 +45,7 @@ function renderGraphContext(context: ManagedSectionContext): string {
     ...renderNodeGroup("Related Decisions", related.decisions),
     ...renderNodeGroup("Touched Components", related.components),
     ...renderNodeGroup("Conflict Warnings", related.conflicts),
+    ...renderNodeGroup("Supersedes", related.supersedes),
     ...renderNodeGroup("Superseded By", related.supersededBy)
   ];
 
@@ -83,6 +84,12 @@ export async function renderManagedSections(context: ManagedSectionContext): Pro
     "graph-context": renderGraphContext(context),
     "dependency-status": renderDependencyStatus(context),
     "latest-run": await renderLatestRun(context),
-    completion: "## Completion\n\n- Submit implementation with `planweave submit-result`.\n- Submit review with `planweave submit-review`."
+    completion: [
+      "## Completion",
+      "",
+      `- Submit implementation with \`planweave submit-result ${context.task.id} --report <implementation.md>\`.`,
+      `- If implementation diverges from the plan, submit with \`planweave submit-result ${context.task.id} --report <implementation.md> --status diverged --reason \"<reason>\"\`.`,
+      `- If the task is blocked, use \`planweave mark-blocked ${context.task.id} --reason \"<reason>\"\`.`
+    ].join("\n")
   };
 }

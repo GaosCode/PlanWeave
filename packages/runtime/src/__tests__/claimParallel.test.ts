@@ -48,7 +48,7 @@ describe("claimNextParallel", () => {
     const result = await claimNextParallel({ projectRoot: root });
 
     expect(result.status).toBe("claimed");
-    expect(result.tasks).toEqual(["T-001", "T-003"]);
+    expect(result.taskIds).toEqual(["T-001", "T-003"]);
     delete process.env.PLANWEAVE_HOME;
   });
 });

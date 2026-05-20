@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { claimNextTask } from "../tasks/claimNext.js";
 import { readState, writeState } from "../state.js";
-import { createPackageWorkspace } from "./promptTestHelpers.js";
+import { writeJsonFile } from "../json.js";
+import type { PlanPackageManifest } from "../types.js";
+import { baseManifest, createPackageWorkspace } from "./promptTestHelpers.js";
 
 describe("claimNextTask", () => {
   it("claims the first ready task and returns it while in progress", async () => {
@@ -25,6 +27,25 @@ describe("claimNextTask", () => {
     const result = await claimNextTask({ projectRoot: root });
 
     expect(result).toMatchObject({ taskId: "T-001", status: "claimed" });
+    delete process.env.PLANWEAVE_HOME;
+  });
+
+  it("reconciles stale in-progress task state after the task is removed from the manifest", async () => {
+    const { root, init } = await createPackageWorkspace();
+    await claimNextTask({ projectRoot: root });
+
+    const manifest: PlanPackageManifest = baseManifest({
+      nodes: [{ id: "G-001", type: "goal", title: "Goal", summary: "Keep context visible." }],
+      edges: []
+    });
+    await writeJsonFile(init.workspace.manifestFile, manifest);
+
+    const result = await claimNextTask({ projectRoot: root });
+    const state = await readState(init.workspace.stateFile);
+
+    expect(result).toEqual({ taskId: null, status: "none" });
+    expect(state.currentTaskId).toBeNull();
+    expect(state.tasks["T-001"]).toBeUndefined();
     delete process.env.PLANWEAVE_HOME;
   });
 });

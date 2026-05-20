@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { compilePackageGraph } from "../graph/compileTaskGraph.js";
+import { compilePackageGraph, compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { affectedTasksForPackageFileChange, type PackageChangeImpact } from "../graph/editGraph.js";
 import { loadPackage } from "./loadPackage.js";
+import { PackagePathError, resolvePackagePath } from "./resolvePackagePath.js";
 import { refreshPrompt } from "../prompt/refreshPrompt.js";
 import { refreshPrompts } from "../prompt/refreshPrompts.js";
-import type { PlanPackageManifest, PromptSurface, ValidationIssue } from "../types.js";
+import { findPromptSectionBoundaryIssues, hasUserSection } from "../prompt/sections.js";
+import type { CompiledTaskGraph, ManifestTaskNode, PlanPackageManifest, PromptSurface, ValidationIssue } from "../types.js";
 
 type FileFingerprint = {
   path: string;
@@ -16,10 +18,13 @@ type FileFingerprint = {
 
 export type PackageFileSnapshot = {
   manifest: PlanPackageManifest;
+  graph: CompiledTaskGraph;
   manifestFile: FileFingerprint;
   globalPrompt: FileFingerprint | null;
   promptFiles: Record<string, FileFingerprint>;
 };
+
+type PackageFileSnapshotFiles = Omit<PackageFileSnapshot, "graph">;
 
 export type PackageFileSyncResult = {
   snapshot: PackageFileSnapshot | null;
@@ -87,7 +92,49 @@ function taskByPromptPath(manifest: PlanPackageManifest): Map<string, string> {
   return map;
 }
 
-export async function createPackageFileSnapshot(projectRoot: string): Promise<PackageFileSnapshot> {
+function taskById(manifest: PlanPackageManifest): Map<string, ManifestTaskNode> {
+  const map = new Map<string, ManifestTaskNode>();
+  for (const node of manifest.nodes) {
+    if (node.type === "task") {
+      map.set(node.id, node);
+    }
+  }
+  return map;
+}
+
+async function validatePromptSurfacesForTasks(
+  packageDir: string,
+  manifest: PlanPackageManifest,
+  taskIds: string[]
+): Promise<ValidationIssue[]> {
+  const tasks = taskById(manifest);
+  const diagnostics: ValidationIssue[] = [];
+  for (const taskId of new Set(taskIds)) {
+    const task = tasks.get(taskId);
+    if (!task) {
+      continue;
+    }
+    let prompt: string;
+    try {
+      prompt = await readFile(await resolvePackagePath(packageDir, task.prompt, { requireExisting: true }), "utf8");
+    } catch (error) {
+      if (error instanceof PackagePathError) {
+        diagnostics.push(issue(error.code, error.message, task.prompt));
+        continue;
+      }
+      diagnostics.push(issue("prompt_missing", `Prompt Surface file for '${task.id}' does not exist.`, task.prompt));
+      continue;
+    }
+
+    diagnostics.push(...findPromptSectionBoundaryIssues(prompt, task.prompt));
+    if (!hasUserSection(prompt, "task-body")) {
+      diagnostics.push(issue("task_body_missing", `Prompt Surface for '${task.id}' is missing user section 'task-body'.`, task.prompt));
+    }
+  }
+  return diagnostics;
+}
+
+async function createPackageFileSnapshotFiles(projectRoot: string): Promise<PackageFileSnapshotFiles> {
   const { workspace, manifest } = await loadPackage(projectRoot);
   const promptFiles: Record<string, FileFingerprint> = {};
   for (const file of await listMarkdownFiles(join(workspace.packageDir, "nodes"))) {
@@ -96,8 +143,11 @@ export async function createPackageFileSnapshot(projectRoot: string): Promise<Pa
 
   let globalPrompt: FileFingerprint | null = null;
   try {
-    globalPrompt = await fingerprint(join(workspace.packageDir, manifest.global_prompt));
-  } catch {
+    globalPrompt = await fingerprint(await resolvePackagePath(workspace.packageDir, manifest.global_prompt, { requireExisting: true }));
+  } catch (error) {
+    if (error instanceof PackagePathError) {
+      throw error;
+    }
     globalPrompt = null;
   }
 
@@ -109,13 +159,22 @@ export async function createPackageFileSnapshot(projectRoot: string): Promise<Pa
   };
 }
 
+export async function createPackageFileSnapshot(projectRoot: string): Promise<PackageFileSnapshot> {
+  const { workspace } = await loadPackage(projectRoot);
+  const snapshot = await createPackageFileSnapshotFiles(projectRoot);
+  return {
+    ...snapshot,
+    graph: await compilePackageGraph(snapshot.manifest, workspace.packageDir)
+  };
+}
+
 export async function detectPackageFileChanges(
   projectRoot: string,
   previous: PackageFileSnapshot
 ): Promise<{ snapshot: PackageFileSnapshot | null; impact: PackageChangeImpact }> {
-  let snapshot: PackageFileSnapshot;
+  let snapshotFiles: PackageFileSnapshotFiles;
   try {
-    snapshot = await createPackageFileSnapshot(projectRoot);
+    snapshotFiles = await createPackageFileSnapshotFiles(projectRoot);
   } catch (error) {
     return {
       snapshot: null,
@@ -128,27 +187,30 @@ export async function detectPackageFileChanges(
     };
   }
 
-  const { workspace } = await loadPackage(projectRoot);
   let impact: PackageChangeImpact = {
     ok: true,
     affectedTasks: [],
     diagnostics: [],
     fullRefresh: false,
-    graph: await compilePackageGraph(snapshot.manifest, workspace.packageDir)
+    graph: previous.graph
   };
 
-  if (!sameManifest(previous.manifest, snapshot.manifest)) {
-    impact = mergeImpact(impact, affectedTasksForPackageFileChange({ kind: "manifest", before: previous.manifest, after: snapshot.manifest }));
+  if (!sameManifest(previous.manifest, snapshotFiles.manifest)) {
+    const graph = compileTaskGraph(previous.manifest);
+    impact = mergeImpact(
+      impact,
+      affectedTasksForPackageFileChange({ kind: "manifest", before: previous.manifest, after: snapshotFiles.manifest, graph })
+    );
   }
 
-  if (changed(previous.globalPrompt, snapshot.globalPrompt)) {
-    impact = mergeImpact(impact, affectedTasksForPackageFileChange({ kind: "global-prompt", manifest: snapshot.manifest }));
+  if (changed(previous.globalPrompt, snapshotFiles.globalPrompt)) {
+    impact = mergeImpact(impact, affectedTasksForPackageFileChange({ kind: "global-prompt", manifest: snapshotFiles.manifest, graph: impact.graph }));
   }
 
-  const promptToTask = taskByPromptPath(snapshot.manifest);
-  const promptPaths = new Set([...Object.keys(previous.promptFiles), ...Object.keys(snapshot.promptFiles)]);
+  const promptToTask = taskByPromptPath(snapshotFiles.manifest);
+  const promptPaths = new Set([...Object.keys(previous.promptFiles), ...Object.keys(snapshotFiles.promptFiles)]);
   for (const path of promptPaths) {
-    if (!changed(previous.promptFiles[path], snapshot.promptFiles[path])) {
+    if (!changed(previous.promptFiles[path], snapshotFiles.promptFiles[path])) {
       continue;
     }
     const taskId = promptToTask.get(path);
@@ -159,9 +221,40 @@ export async function detectPackageFileChanges(
       };
       continue;
     }
-    impact = mergeImpact(impact, affectedTasksForPackageFileChange({ kind: "prompt", manifest: snapshot.manifest, taskId }));
+    impact = mergeImpact(impact, affectedTasksForPackageFileChange({ kind: "prompt", manifest: snapshotFiles.manifest, taskId, graph: impact.graph }));
   }
 
+  if (impact.ok && !snapshotFiles.globalPrompt) {
+    impact = {
+      ...impact,
+      ok: false,
+      diagnostics: [
+        ...impact.diagnostics,
+        issue("global_prompt_missing", `Global Prompt file '${snapshotFiles.manifest.global_prompt}' does not exist.`, snapshotFiles.manifest.global_prompt)
+      ]
+    };
+  }
+
+  if (impact.ok && impact.affectedTasks.length > 0) {
+    const { workspace } = await loadPackage(projectRoot);
+    const promptDiagnostics = await validatePromptSurfacesForTasks(workspace.packageDir, snapshotFiles.manifest, impact.affectedTasks);
+    if (promptDiagnostics.length > 0) {
+      impact = {
+        ...impact,
+        ok: false,
+        diagnostics: [...impact.diagnostics, ...promptDiagnostics]
+      };
+    }
+  }
+
+  if (!impact.ok) {
+    return { snapshot: null, impact };
+  }
+
+  const snapshot: PackageFileSnapshot = {
+    ...snapshotFiles,
+    graph: impact.graph ?? previous.graph
+  };
   return { snapshot, impact };
 }
 

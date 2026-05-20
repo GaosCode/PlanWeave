@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { loadPackage } from "../package/loadPackage.js";
 import { ensureStateForManifest, readState, taskNodes, writeState } from "../state.js";
+import { appendTaskEvent } from "../results/events.js";
 import { readResultIndex, writeResultIndex } from "../results/indexFile.js";
 import type { MarkVerifiedResult, ResultIndex } from "../types.js";
 
@@ -21,13 +22,16 @@ export async function markVerified(options: { projectRoot: string; taskId: strin
 
   const indexPath = join(workspace.resultsDir, options.taskId, "index.json");
   const previous = await readResultIndex(indexPath);
+  const verifiedAt = new Date().toISOString();
   const index: ResultIndex = {
     taskId: options.taskId,
     status: "verified",
     latestRunId: previous?.latestRunId ?? null,
     runCount: previous?.runCount ?? 0,
     ...(previous?.review ? { review: previous.review } : {}),
-    ...(previous?.divergence ? { divergence: previous.divergence } : {})
+    ...(previous?.reviewHistory ? { reviewHistory: previous.reviewHistory } : {}),
+    verification: { source: "manual", verifiedAt },
+    events: appendTaskEvent(previous, { type: "verified", taskId: options.taskId, source: "manual", at: verifiedAt })
   };
   await writeResultIndex(indexPath, index);
 

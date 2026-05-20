@@ -1,11 +1,12 @@
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
+import { PackagePathError, resolvePackagePath } from "../package/resolvePackagePath.js";
 import { findPromptSectionBoundaryIssues, getPromptSection, replacePromptSection } from "../prompt/sections.js";
 import { manifestSchema } from "../schema/manifest.js";
-import { compileTaskGraph } from "./compileTaskGraph.js";
+import { compileTaskGraph, validateEdgeEndpointTypes } from "./compileTaskGraph.js";
 import type {
   CompiledTaskGraph,
   GraphEditResult,
@@ -17,9 +18,9 @@ import type {
 } from "../types.js";
 
 export type PackageFileChange =
-  | { kind: "manifest"; before: PlanPackageManifest; after: PlanPackageManifest }
-  | { kind: "global-prompt"; manifest: PlanPackageManifest }
-  | { kind: "prompt"; manifest: PlanPackageManifest; taskId: string };
+  | { kind: "manifest"; before: PlanPackageManifest; after: PlanPackageManifest; graph?: CompiledTaskGraph }
+  | { kind: "global-prompt"; manifest: PlanPackageManifest; graph?: CompiledTaskGraph }
+  | { kind: "prompt"; manifest: PlanPackageManifest; taskId: string; graph?: CompiledTaskGraph };
 
 export type PackageChangeImpact = GraphEditResult & {
   fullRefresh: boolean;
@@ -62,6 +63,111 @@ function sameNodeContent(left: ManifestNode, right: ManifestNode): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function findDuplicateNodeIds(nodes: ManifestNode[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const node of nodes) {
+    if (seen.has(node.id)) {
+      duplicates.add(node.id);
+    }
+    seen.add(node.id);
+  }
+  return [...duplicates];
+}
+
+function findDuplicateEdges(edges: ManifestEdge[]): ManifestEdge[] {
+  const seen = new Set<string>();
+  const duplicates = new Map<string, ManifestEdge>();
+  for (const edge of edges) {
+    const key = edgeKey(edge);
+    if (seen.has(key)) {
+      duplicates.set(key, edge);
+    }
+    seen.add(key);
+  }
+  return [...duplicates.values()];
+}
+
+function findDependsOnCycleInAdjacency(adjacency: Map<string, string[]>): string[] | null {
+  const inDegree = new Map<string, number>();
+  for (const [id, dependencies] of adjacency) {
+    inDegree.set(id, inDegree.get(id) ?? 0);
+    for (const dependency of dependencies) {
+      inDegree.set(dependency, (inDegree.get(dependency) ?? 0) + 1);
+    }
+  }
+
+  const queue = [...inDegree.entries()].filter(([, degree]) => degree === 0).map(([id]) => id);
+  let visited = 0;
+  while (queue.length > 0) {
+    const id = queue.shift();
+    if (!id) {
+      continue;
+    }
+    visited += 1;
+    for (const dependency of adjacency.get(id) ?? []) {
+      const nextDegree = (inDegree.get(dependency) ?? 0) - 1;
+      inDegree.set(dependency, nextDegree);
+      if (nextDegree === 0) {
+        queue.push(dependency);
+      }
+    }
+  }
+
+  if (visited === inDegree.size) {
+    return null;
+  }
+  return [...inDegree.entries()].filter(([, degree]) => degree > 0).map(([id]) => id);
+}
+
+function validateManifestGraphSemantics(manifest: PlanPackageManifest): ValidationIssue[] {
+  const diagnostics: ValidationIssue[] = [];
+  const nodesById = new Map(manifest.nodes.map((node) => [node.id, node]));
+  const duplicateNodeIds = findDuplicateNodeIds(manifest.nodes);
+  for (const id of duplicateNodeIds) {
+    diagnostics.push(issue("node_id_duplicate", `Node id '${id}' is duplicated.`, "nodes"));
+  }
+  for (const edge of findDuplicateEdges(manifest.edges)) {
+    diagnostics.push(issue("edge_duplicate", `Edge '${edge.from} --${edge.type}--> ${edge.to}' is duplicated.`, "edges"));
+  }
+
+  const dependencyAdjacency = new Map<string, string[]>();
+  for (const node of manifest.nodes) {
+    if (node.type === "task") {
+      dependencyAdjacency.set(node.id, []);
+    }
+  }
+
+  for (const edge of manifest.edges) {
+    const from = nodesById.get(edge.from);
+    const to = nodesById.get(edge.to);
+    if (!from) {
+      diagnostics.push(issue("edge_from_missing", `Edge references missing from node '${edge.from}'.`, "edges"));
+    }
+    if (!to) {
+      diagnostics.push(issue("edge_to_missing", `Edge references missing to node '${edge.to}'.`, "edges"));
+    }
+    if (!from || !to) {
+      continue;
+    }
+
+    const endpointIssues = validateEdgeEndpointTypes(edge, from, to);
+    diagnostics.push(...endpointIssues);
+    if (endpointIssues.length === 0 && edge.type === "depends_on") {
+      dependencyAdjacency.get(edge.from)?.push(edge.to);
+    }
+  }
+
+  if (diagnostics.length === 0) {
+    const cycle = findDependsOnCycleInAdjacency(dependencyAdjacency);
+    if (cycle) {
+      diagnostics.push(issue("depends_on_cycle", `depends_on cycle detected: ${cycle.join(" -> ")}.`, "edges"));
+    }
+  }
+
+  return diagnostics;
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await access(path, constants.R_OK);
@@ -89,14 +195,6 @@ function collectDependentsFromGraph(graph: CompiledTaskGraph, startTaskIds: stri
     }
   }
   return [...affected];
-}
-
-function collectDependents(manifest: PlanPackageManifest, startTaskIds: string[]): string[] {
-  return collectDependentsFromGraph(compileTaskGraph(manifest), startTaskIds);
-}
-
-function affectedByEdge(manifest: PlanPackageManifest, edge: ManifestEdge): string[] {
-  return affectedByEdgeInGraph(compileTaskGraph(manifest), edge);
 }
 
 function affectedByEdgeInGraph(graph: CompiledTaskGraph, edge: ManifestEdge): string[] {
@@ -287,7 +385,15 @@ function applyNodeRemoved(graph: CompiledTaskGraph, node: ManifestNode): void {
 }
 
 async function validateTaskPrompt(packageDir: string, task: ManifestTaskNode, promptMarkdown?: string): Promise<ValidationIssue[]> {
-  const promptPath = join(packageDir, task.prompt);
+  let promptPath: string;
+  try {
+    promptPath = await resolvePackagePath(packageDir, task.prompt);
+  } catch (error) {
+    if (error instanceof PackagePathError) {
+      return [issue(error.code, error.message, task.prompt)];
+    }
+    throw error;
+  }
   if (promptMarkdown === undefined && !(await exists(promptPath))) {
     return [issue("prompt_missing", `Prompt Surface file for '${task.id}' does not exist.`, task.prompt)];
   }
@@ -303,14 +409,13 @@ async function validateTaskPrompt(packageDir: string, task: ManifestTaskNode, pr
   return [];
 }
 
-function affectedByNode(graphManifest: PlanPackageManifest, nodeId: string): string[] {
-  const graph = compileTaskGraph(graphManifest);
+function affectedByNodeInGraph(graph: CompiledTaskGraph, nodeId: string): string[] {
   const node = graph.nodesById.get(nodeId);
   if (!node) {
     return [];
   }
   if (node.type === "task") {
-    return collectDependents(graphManifest, [node.id]);
+    return collectDependentsFromGraph(graph, [node.id]);
   }
   return unique(
     (graph.incomingEdgesByNode.get(nodeId) ?? [])
@@ -320,9 +425,134 @@ function affectedByNode(graphManifest: PlanPackageManifest, nodeId: string): str
   );
 }
 
+function graphFromManifestChange(before: PlanPackageManifest, after: PlanPackageManifest, baseGraph?: CompiledTaskGraph): PackageChangeImpact {
+  const graph = baseGraph ?? compileTaskGraph(before);
+  if (graph.diagnostics.errors.length > 0) {
+    return {
+      ok: false,
+      affectedTasks: graph.tasksInManifestOrder.map((task) => task.id),
+      diagnostics: graph.diagnostics.errors,
+      fullRefresh: true,
+      graph
+    };
+  }
+
+  const preflightDiagnostics = validateManifestGraphSemantics(after);
+  if (preflightDiagnostics.length > 0) {
+    const fallbackGraph = compileTaskGraph(after);
+    return {
+      ok: false,
+      affectedTasks: fallbackGraph.tasksInManifestOrder.map((task) => task.id),
+      diagnostics: fallbackGraph.diagnostics.errors.length > 0 ? fallbackGraph.diagnostics.errors : preflightDiagnostics,
+      fullRefresh: true,
+      graph: fallbackGraph
+    };
+  }
+
+  const affected = new Set<string>();
+  const beforeNodes = new Map(before.nodes.map((node) => [node.id, node]));
+  const afterNodes = new Map(after.nodes.map((node) => [node.id, node]));
+  const beforeEdges = new Map(before.edges.map((edge) => [edgeKey(edge), edge]));
+  const afterEdges = new Map(after.edges.map((edge) => [edgeKey(edge), edge]));
+
+  for (const [id, node] of afterNodes) {
+    const beforeNode = beforeNodes.get(id);
+    if (beforeNode && beforeNode.type !== node.type) {
+      const fallbackGraph = compileTaskGraph(after);
+      return {
+        ok: fallbackGraph.diagnostics.errors.length === 0,
+        affectedTasks: fallbackGraph.tasksInManifestOrder.map((task) => task.id),
+        diagnostics: fallbackGraph.diagnostics.errors,
+        fullRefresh: true,
+        graph: fallbackGraph
+      };
+    }
+  }
+
+  for (const [key, edge] of beforeEdges) {
+    if (!afterEdges.has(key)) {
+      for (const taskId of affectedByEdgeInGraph(graph, edge)) {
+        affected.add(taskId);
+      }
+      applyEdgeRemoved(graph, edge);
+    }
+  }
+
+  for (const [id, node] of beforeNodes) {
+    if (!afterNodes.has(id)) {
+      for (const taskId of affectedByNodeInGraph(graph, id)) {
+        affected.add(taskId);
+      }
+      applyNodeRemoved(graph, node);
+    }
+  }
+
+  for (const [id, node] of afterNodes) {
+    const beforeNode = beforeNodes.get(id);
+    if (!beforeNode) {
+      applyNodeAdded(graph, node);
+      if (node.type === "task") {
+        affected.add(node.id);
+      }
+      continue;
+    }
+    if (!sameNodeContent(beforeNode, node)) {
+      for (const taskId of affectedByNodeInGraph(graph, id)) {
+        affected.add(taskId);
+      }
+      applyNodeUpdated(graph, beforeNode, node);
+    }
+  }
+
+  const diagnostics: ValidationIssue[] = [];
+  for (const [key, edge] of afterEdges) {
+    if (beforeEdges.has(key)) {
+      continue;
+    }
+
+    const from = graph.nodesById.get(edge.from);
+    const to = graph.nodesById.get(edge.to);
+    if (!from) {
+      diagnostics.push(issue("edge_from_missing", `Edge references missing from node '${edge.from}'.`, "edges"));
+    }
+    if (!to) {
+      diagnostics.push(issue("edge_to_missing", `Edge references missing to node '${edge.to}'.`, "edges"));
+    }
+    if (!from || !to) {
+      continue;
+    }
+
+    diagnostics.push(...validateEdgeEndpointTypes(edge, from, to));
+    if (edge.type === "depends_on" && diagnostics.length === 0 && (edge.from === edge.to || graph.reachable(edge.to, edge.from))) {
+      diagnostics.push(issue("depends_on_cycle", `Adding ${edge.from} -> ${edge.to} would create a depends_on cycle.`, "edges"));
+    }
+    if (diagnostics.length > 0) {
+      continue;
+    }
+
+    for (const taskId of affectedByEdgeInGraph(graph, edge)) {
+      affected.add(taskId);
+    }
+    applyEdgeAdded(graph, edge);
+  }
+
+  if (diagnostics.length > 0) {
+    const fallbackGraph = compileTaskGraph(after);
+    return {
+      ok: false,
+      affectedTasks: fallbackGraph.tasksInManifestOrder.map((task) => task.id),
+      diagnostics: fallbackGraph.diagnostics.errors.length > 0 ? fallbackGraph.diagnostics.errors : diagnostics,
+      fullRefresh: true,
+      graph: fallbackGraph
+    };
+  }
+
+  return { ok: true, affectedTasks: [...affected], diagnostics: [], fullRefresh: false, graph };
+}
+
 export function affectedTasksForPackageFileChange(change: PackageFileChange): PackageChangeImpact {
   if (change.kind === "global-prompt") {
-    const graph = compileTaskGraph(change.manifest);
+    const graph = change.graph ?? compileTaskGraph(change.manifest);
     return {
       ok: graph.diagnostics.errors.length === 0,
       affectedTasks: graph.tasksInManifestOrder.map((task) => task.id),
@@ -332,7 +562,7 @@ export function affectedTasksForPackageFileChange(change: PackageFileChange): Pa
   }
 
   if (change.kind === "prompt") {
-    const graph = compileTaskGraph(change.manifest);
+    const graph = change.graph ?? compileTaskGraph(change.manifest);
     const node = graph.nodesById.get(change.taskId);
     if (!node || node.type !== "task") {
       return {
@@ -345,55 +575,7 @@ export function affectedTasksForPackageFileChange(change: PackageFileChange): Pa
     return { ok: true, affectedTasks: [change.taskId], diagnostics: [], fullRefresh: false };
   }
 
-  const beforeGraph = compileTaskGraph(change.before);
-  const afterGraph = compileTaskGraph(change.after);
-  const diagnostics = [...beforeGraph.diagnostics.errors, ...afterGraph.diagnostics.errors];
-  if (diagnostics.length > 0) {
-    return {
-      ok: false,
-      affectedTasks: afterGraph.tasksInManifestOrder.map((task) => task.id),
-      diagnostics,
-      fullRefresh: true
-    };
-  }
-
-  const affected = new Set<string>();
-  const beforeNodes = beforeGraph.nodesById;
-  const afterNodes = afterGraph.nodesById;
-  for (const [id, node] of afterNodes) {
-    const beforeNode = beforeNodes.get(id);
-    if (!beforeNode || !sameNodeContent(beforeNode, node)) {
-      for (const taskId of affectedByNode(change.after, id)) {
-        affected.add(taskId);
-      }
-    }
-  }
-  for (const id of beforeNodes.keys()) {
-    if (!afterNodes.has(id)) {
-      for (const taskId of affectedByNode(change.before, id)) {
-        affected.add(taskId);
-      }
-    }
-  }
-
-  const beforeEdges = new Map(change.before.edges.map((edge) => [edgeKey(edge), edge]));
-  const afterEdges = new Map(change.after.edges.map((edge) => [edgeKey(edge), edge]));
-  for (const [key, edge] of afterEdges) {
-    if (!beforeEdges.has(key)) {
-      for (const taskId of affectedByEdge(change.after, edge)) {
-        affected.add(taskId);
-      }
-    }
-  }
-  for (const [key, edge] of beforeEdges) {
-    if (!afterEdges.has(key)) {
-      for (const taskId of affectedByEdge(change.before, edge)) {
-        affected.add(taskId);
-      }
-    }
-  }
-
-  return { ok: true, affectedTasks: [...affected], diagnostics: [], fullRefresh: false };
+  return graphFromManifestChange(change.before, change.after, change.graph);
 }
 
 async function writeManifest(manifestFile: string, manifest: PlanPackageManifest): Promise<void> {
@@ -401,7 +583,15 @@ async function writeManifest(manifestFile: string, manifest: PlanPackageManifest
 }
 
 async function writeNewTaskPrompt(packageDir: string, task: ManifestTaskNode, promptMarkdown: string): Promise<{ ok: true; path: string } | { ok: false; diagnostics: ValidationIssue[] }> {
-  const promptPath = join(packageDir, task.prompt);
+  let promptPath: string;
+  try {
+    promptPath = await resolvePackagePath(packageDir, task.prompt, { forWrite: true });
+  } catch (error) {
+    if (error instanceof PackagePathError) {
+      return { ok: false, diagnostics: [issue(error.code, error.message, task.prompt)] };
+    }
+    throw error;
+  }
   if (await exists(promptPath)) {
     return {
       ok: false,
@@ -544,7 +734,7 @@ export async function removeNode(options: { projectRoot: string; nodeId: string;
   await writeManifest(workspace.manifestFile, parsed.manifest);
 
   if (isTaskNode(node) && options.removePrompt) {
-    await rm(join(workspace.packageDir, node.prompt), { force: true });
+    await rm(await resolvePackagePath(workspace.packageDir, node.prompt, { requireExisting: true }), { force: true });
   }
   applyNodeRemoved(graph, node);
 
@@ -566,10 +756,11 @@ export async function addEdge(options: { projectRoot: string; edge: ManifestEdge
   if (manifest.edges.some((edge) => sameEdge(edge, options.edge))) {
     diagnostics.push(issue("edge_duplicate", "Edge already exists.", "edges"));
   }
+  if (from && to) {
+    diagnostics.push(...validateEdgeEndpointTypes(options.edge, from, to));
+  }
   if (options.edge.type === "depends_on") {
-    if (from?.type !== "task" || to?.type !== "task") {
-      diagnostics.push(issue("depends_on_non_task", "depends_on edges must connect task nodes.", "edges"));
-    } else if (options.edge.from === options.edge.to || graph.reachable(options.edge.to, options.edge.from)) {
+    if (from && to && diagnostics.length === 0 && (options.edge.from === options.edge.to || graph.reachable(options.edge.to, options.edge.from))) {
       diagnostics.push(issue("depends_on_cycle", `Adding ${options.edge.from} -> ${options.edge.to} would create a depends_on cycle.`, "edges"));
     }
   }
@@ -621,7 +812,7 @@ export async function updatePromptSurface(options: {
     return { ok: false, affectedTasks: [], diagnostics: [issue("task_missing", `Task '${options.taskId}' does not exist.`, "nodes")] };
   }
 
-  const promptPath = join(workspace.packageDir, node.prompt);
+  const promptPath = await resolvePackagePath(workspace.packageDir, node.prompt, { requireExisting: true });
   const prompt = await readFile(promptPath, "utf8");
   const boundaryIssues = findPromptSectionBoundaryIssues(prompt, node.prompt);
   if (boundaryIssues.length > 0) {

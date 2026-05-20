@@ -1,6 +1,7 @@
 import { access, readdir, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, relative } from "node:path";
+import { PackagePathError, resolvePackagePath } from "../package/resolvePackagePath.js";
 import { findPromptSectionBoundaryIssues, hasUserSection } from "../prompt/sections.js";
 import { edgeTypes } from "../types.js";
 import type {
@@ -56,6 +57,7 @@ function emptyGraphContext(): GraphContext {
     decisions: [],
     components: [],
     conflicts: [],
+    supersedes: [],
     supersededBy: []
   };
 }
@@ -66,40 +68,83 @@ function addUniqueNode(nodes: ManifestNode[], node: ManifestNode): void {
   }
 }
 
+function edgeKey(edge: ManifestEdge): string {
+  return `${edge.from}\u0000${edge.type}\u0000${edge.to}`;
+}
+
 function isDependencySatisfied(status: TaskStatus | undefined): boolean {
   return status === "implemented" || status === "verified";
+}
+
+export function validateEdgeEndpointTypes(edge: ManifestEdge, from: ManifestNode, to: ManifestNode): ValidationIssue[] {
+  if (edge.type === "depends_on") {
+    return from.type === "task" && to.type === "task"
+      ? []
+      : [issue("depends_on_non_task", "depends_on edges must connect task nodes.", "edges")];
+  }
+
+  if (edge.type === "implements") {
+    return from.type === "task" && (to.type === "goal" || to.type === "requirement")
+      ? []
+      : [issue("edge_endpoint_type_invalid", "implements edges must connect task -> goal/requirement.", "edges")];
+  }
+
+  if (edge.type === "constrained_by") {
+    return from.type === "task" && to.type === "constraint"
+      ? []
+      : [issue("edge_endpoint_type_invalid", "constrained_by edges must connect task -> constraint.", "edges")];
+  }
+
+  if (edge.type === "touches") {
+    return from.type === "task" && to.type === "component"
+      ? []
+      : [issue("edge_endpoint_type_invalid", "touches edges must connect task -> component.", "edges")];
+  }
+
+  if (edge.type === "conflicts_with") {
+    return to.type === "risk" || to.type === "constraint" || to.type === "task"
+      ? []
+      : [issue("edge_endpoint_type_invalid", "conflicts_with edges must point to risk/constraint/task.", "edges")];
+  }
+
+  return [];
 }
 
 function findDependsOnCycle(dependencyAdjacency: Map<string, string[]>): string[] | null {
   const visiting = new Set<string>();
   const visited = new Set<string>();
-  const stack: string[] = [];
-
-  function visit(id: string): string[] | null {
-    if (visiting.has(id)) {
-      return stack.slice(stack.indexOf(id)).concat(id);
-    }
-    if (visited.has(id)) {
-      return null;
-    }
-    visiting.add(id);
-    stack.push(id);
-    for (const next of dependencyAdjacency.get(id) ?? []) {
-      const cycle = visit(next);
-      if (cycle) {
-        return cycle;
-      }
-    }
-    stack.pop();
-    visiting.delete(id);
-    visited.add(id);
-    return null;
-  }
 
   for (const id of dependencyAdjacency.keys()) {
-    const cycle = visit(id);
-    if (cycle) {
-      return cycle;
+    if (visited.has(id)) {
+      continue;
+    }
+
+    const stack: Array<{ id: string; nextIndex: number }> = [{ id, nextIndex: 0 }];
+    visiting.add(id);
+
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1];
+      const next = dependencyAdjacency.get(frame.id)?.[frame.nextIndex];
+
+      if (!next) {
+        visiting.delete(frame.id);
+        visited.add(frame.id);
+        stack.pop();
+        continue;
+      }
+
+      frame.nextIndex += 1;
+      if (!dependencyAdjacency.has(next)) {
+        continue;
+      }
+      if (visiting.has(next)) {
+        const cycleStart = stack.findIndex((item) => item.id === next);
+        return stack.slice(cycleStart).map((item) => item.id).concat(next);
+      }
+      if (!visited.has(next)) {
+        visiting.add(next);
+        stack.push({ id: next, nextIndex: 0 });
+      }
     }
   }
   return null;
@@ -146,6 +191,19 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledTaskGra
   for (const type of edgeTypes) {
     edgesByType.set(type, []);
   }
+  const seenEdges = new Set<string>();
+  const duplicateEdges = new Set<string>();
+  for (const edge of manifest.edges) {
+    const key = edgeKey(edge);
+    if (seenEdges.has(key)) {
+      duplicateEdges.add(key);
+    }
+    seenEdges.add(key);
+  }
+  for (const key of duplicateEdges) {
+    const [from, type, to] = key.split("\u0000");
+    errors.push(issue("edge_duplicate", `Edge '${from} --${type}--> ${to}' is duplicated.`, "edges"));
+  }
 
   const outgoingEdgesByNode = new Map<string, ManifestEdge[]>();
   const incomingEdgesByNode = new Map<string, ManifestEdge[]>();
@@ -172,11 +230,13 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledTaskGra
     outgoingEdgesByNode.get(edge.from)?.push(edge);
     incomingEdgesByNode.get(edge.to)?.push(edge);
 
+    const endpointIssues = validateEdgeEndpointTypes(edge, from, to);
+    if (endpointIssues.length > 0) {
+      errors.push(...endpointIssues);
+      continue;
+    }
+
     if (edge.type === "depends_on") {
-      if (!taskIds.has(edge.from) || !taskIds.has(edge.to)) {
-        errors.push(issue("depends_on_non_task", "depends_on edges must connect task nodes.", "edges"));
-        continue;
-      }
       dependenciesByTask.get(edge.from)?.push(edge.to);
       dependentsByTask.get(edge.to)?.push(edge.from);
       dependencyAdjacency.get(edge.from)?.push(edge.to);
@@ -298,7 +358,11 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledTaskGra
         continue;
       }
       if (edge.type === "supersedes") {
-        addUniqueNode(context.supersededBy, other);
+        if (edge.from === taskId) {
+          addUniqueNode(context.supersedes, other);
+        } else {
+          addUniqueNode(context.supersededBy, other);
+        }
         continue;
       }
       if (edge.type === "constrained_by" || other.type === "constraint") {
@@ -349,7 +413,16 @@ export async function compilePackageGraph(manifest: PlanPackageManifest, package
 
   for (const task of graph.tasksInManifestOrder) {
     referencedPrompts.add(task.prompt);
-    const promptPath = join(packageDir, task.prompt);
+    let promptPath: string;
+    try {
+      promptPath = await resolvePackagePath(packageDir, task.prompt);
+    } catch (error) {
+      if (error instanceof PackagePathError) {
+        graph.diagnostics.errors.push(issue(error.code, error.message, task.prompt));
+        continue;
+      }
+      throw error;
+    }
     if (!(await exists(promptPath))) {
       graph.diagnostics.errors.push(issue("prompt_missing", `Prompt Surface file for '${task.id}' does not exist.`, task.prompt));
       continue;

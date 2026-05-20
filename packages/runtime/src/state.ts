@@ -66,28 +66,37 @@ export function createDefaultTaskState(
 
 export function ensureStateForManifest(manifest: PlanPackageManifest, state: RuntimeState): RuntimeState {
   const graph = compileTaskGraph(manifest);
+  const taskIds = new Set(graph.tasksInManifestOrder.map((task) => task.id));
   const next: RuntimeState = {
-    currentTaskId: state.currentTaskId,
-    tasks: { ...state.tasks }
+    currentTaskId: state.currentTaskId && taskIds.has(state.currentTaskId) ? state.currentTaskId : null,
+    tasks: {}
   };
 
   for (const task of graph.tasksInManifestOrder) {
-    next.tasks[task.id] = next.tasks[task.id] ?? createDefaultTaskState(manifest, next, task.id, graph);
-    if (next.tasks[task.id].status === "planned" && dependenciesSatisfied(manifest, next, task.id, graph)) {
+    next.tasks[task.id] = state.tasks[task.id] ?? createDefaultTaskState(manifest, next, task.id, graph);
+    if (
+      (next.tasks[task.id].status === "planned" || next.tasks[task.id].status === "ready") &&
+      dependenciesSatisfied(manifest, next, task.id, graph)
+    ) {
       next.tasks[task.id] = {
         ...next.tasks[task.id],
         status: "ready",
         blockedBy: []
       };
-    } else if (next.tasks[task.id].status === "planned") {
+    } else if (next.tasks[task.id].status === "planned" || next.tasks[task.id].status === "ready") {
       next.tasks[task.id] = {
         ...next.tasks[task.id],
+        status: "planned",
         blockedBy: dependencyIds(manifest, task.id, graph).filter((id) => {
           const status = next.tasks[id]?.status;
           return status !== "implemented" && status !== "verified";
         })
       };
     }
+  }
+
+  if (next.currentTaskId && next.tasks[next.currentTaskId]?.status !== "in_progress") {
+    next.currentTaskId = null;
   }
 
   return next;

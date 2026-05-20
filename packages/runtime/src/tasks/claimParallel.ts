@@ -1,6 +1,9 @@
+import { join } from "node:path";
 import { loadPackage } from "../package/loadPackage.js";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { ensureStateForManifest, readState, writeState } from "../state.js";
+import { appendTaskEvent } from "../results/events.js";
+import { readResultIndex, writeResultIndex } from "../results/indexFile.js";
 import { orderedClaimableTasks } from "./claimNext.js";
 import { canShareParallelBatch } from "./parallelSafety.js";
 import type { ManifestTaskNode, ParallelClaimResult } from "../types.js";
@@ -12,14 +15,15 @@ export async function claimNextParallel(options: { projectRoot: string; force?: 
 
   if (!manifest.execution.parallel.enabled) {
     await writeState(workspace.stateFile, state);
-    return { tasks: [], status: "disabled" };
+    return { taskIds: [], status: "disabled" };
   }
 
   const current = Object.entries(state.tasks)
     .filter(([, task]) => task.status === "in_progress")
     .map(([taskId]) => taskId);
   if (current.length > 0 && !options.force) {
-    return { tasks: current, status: "current" };
+    await writeState(workspace.stateFile, state);
+    return { taskIds: current, status: "current" };
   }
 
   const selected: ManifestTaskNode[] = [];
@@ -43,8 +47,26 @@ export async function claimNextParallel(options: { projectRoot: string; force?: 
   state.currentTaskId = selected[0]?.id ?? state.currentTaskId;
   await writeState(workspace.stateFile, state);
 
+  const claimedAt = new Date().toISOString();
+  for (const task of selected) {
+    const indexPath = join(workspace.resultsDir, task.id, "index.json");
+    const previous = await readResultIndex(indexPath);
+    await writeResultIndex(indexPath, {
+      taskId: task.id,
+      status: "in_progress",
+      latestRunId: previous?.latestRunId ?? null,
+      runCount: previous?.runCount ?? 0,
+      ...(previous?.review ? { review: previous.review } : {}),
+      ...(previous?.reviewHistory ? { reviewHistory: previous.reviewHistory } : {}),
+      ...(previous?.divergence ? { divergence: previous.divergence } : {}),
+      ...(previous?.verification ? { verification: previous.verification } : {}),
+      ...(previous?.blockage ? { blockage: previous.blockage } : {}),
+      events: appendTaskEvent(previous, { type: "claimed", taskId: task.id, at: claimedAt, source: "agent" })
+    });
+  }
+
   return {
-    tasks: selected.map((task) => task.id),
+    taskIds: selected.map((task) => task.id),
     status: selected.length > 0 ? "claimed" : "none"
   };
 }

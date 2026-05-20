@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { loadPackage } from "../package/loadPackage.js";
+import { resolvePackagePath } from "../package/resolvePackagePath.js";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { readState, ensureStateForManifest, writeState } from "../state.js";
 import { assertPromptSectionsWellFormed, formatSection, getPromptSection } from "./sections.js";
@@ -19,7 +19,7 @@ export async function refreshPrompt(options: { projectRoot: string; taskId: stri
   const { workspace, manifest } = await loadPackage(options.projectRoot);
   const graph = compileTaskGraph(manifest);
   const task = findTask(graph.tasksInManifestOrder, options.taskId);
-  const promptPath = join(workspace.packageDir, task.prompt);
+  const promptPath = await resolvePackagePath(workspace.packageDir, task.prompt, { requireExisting: true });
   const existing = await readFile(promptPath, "utf8");
   assertPromptSectionsWellFormed(existing, task.prompt);
   const taskBody = getPromptSection(existing, "user", "task-body");
@@ -29,7 +29,7 @@ export async function refreshPrompt(options: { projectRoot: string; taskId: stri
 
   const state = ensureStateForManifest(manifest, await readState(workspace.stateFile));
   await writeState(workspace.stateFile, state);
-  const globalPrompt = await readFile(join(workspace.packageDir, manifest.global_prompt), "utf8");
+  const globalPrompt = await readFile(await resolvePackagePath(workspace.packageDir, manifest.global_prompt, { requireExisting: true }), "utf8");
   const managed = await renderManagedSections({ workspace, manifest, graph, state, task, globalPrompt });
   const markdown = [
     `# ${task.id}: ${task.title}`,

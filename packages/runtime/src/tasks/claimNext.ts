@@ -1,6 +1,9 @@
+import { join } from "node:path";
 import { loadPackage } from "../package/loadPackage.js";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { ensureStateForManifest, readState, writeState } from "../state.js";
+import { appendTaskEvent } from "../results/events.js";
+import { readResultIndex, writeResultIndex } from "../results/indexFile.js";
 import type { ClaimResult, CompiledTaskGraph, ManifestTaskNode, PlanPackageManifest, RuntimeState } from "../types.js";
 
 function existingInProgress(state: RuntimeState): string | null {
@@ -32,6 +35,7 @@ export async function claimNextTask(options: { projectRoot: string; force?: bool
   const graph = compileTaskGraph(manifest);
   const current = existingInProgress(state);
   if (current && !options.force) {
+    await writeState(workspace.stateFile, state);
     return { taskId: current, status: "current", task: state.tasks[current] };
   }
 
@@ -49,5 +53,21 @@ export async function claimNextTask(options: { projectRoot: string; force?: bool
   };
   state.currentTaskId = next.id;
   await writeState(workspace.stateFile, state);
+
+  const indexPath = join(workspace.resultsDir, next.id, "index.json");
+  const previous = await readResultIndex(indexPath);
+  await writeResultIndex(indexPath, {
+    taskId: next.id,
+    status: "in_progress",
+    latestRunId: previous?.latestRunId ?? null,
+    runCount: previous?.runCount ?? 0,
+    ...(previous?.review ? { review: previous.review } : {}),
+    ...(previous?.reviewHistory ? { reviewHistory: previous.reviewHistory } : {}),
+    ...(previous?.divergence ? { divergence: previous.divergence } : {}),
+    ...(previous?.verification ? { verification: previous.verification } : {}),
+    ...(previous?.blockage ? { blockage: previous.blockage } : {}),
+    events: appendTaskEvent(previous, { type: "claimed", taskId: next.id, at: new Date().toISOString(), source: "agent" })
+  });
+
   return { taskId: next.id, status: "claimed", task: state.tasks[next.id] };
 }
