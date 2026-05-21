@@ -365,6 +365,11 @@ export type ClaimResult =
       reason: string;
     };
 
+export type ClaimScope =
+  | { kind: "project" }
+  | { kind: "task"; taskId: string }
+  | { kind: "block"; blockRef: string };
+
 export type ParallelClaimResult = ClaimResult;
 
 export type ExecutorAdapterResult =

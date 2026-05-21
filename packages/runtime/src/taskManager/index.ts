@@ -13,6 +13,7 @@ import { readJsonFile, writeJsonFile } from "../json.js";
 import { createExecutionGraphSession, drainGraphReadQueue } from "../graph/session.js";
 import type {
   BlockStatus,
+  ClaimScope,
   ClaimResult,
   CompiledExecutionGraph,
   ExecutionGraphSession,
@@ -126,6 +127,34 @@ function claimResultForBlock(ref: string, graph: CompiledExecutionGraph, reason:
   };
 }
 
+function normalizeClaimScope(scope?: ClaimScope): ClaimScope {
+  return scope ?? { kind: "project" };
+}
+
+function validateClaimScope(scope: ClaimScope, graph: CompiledExecutionGraph): ClaimResult | null {
+  if (scope.kind === "task" && !graph.tasksById.has(scope.taskId)) {
+    return { kind: "blocked", reason: `Task '${scope.taskId}' does not exist.` };
+  }
+  if (scope.kind === "block" && !graph.blocksByRef.has(scope.blockRef)) {
+    return { kind: "blocked", reason: `Block '${scope.blockRef}' does not exist.` };
+  }
+  return null;
+}
+
+function blockInScope(ref: string, graph: CompiledExecutionGraph, scope: ClaimScope): boolean {
+  if (scope.kind === "project") {
+    return true;
+  }
+  if (scope.kind === "block") {
+    return ref === scope.blockRef;
+  }
+  return graph.blockTaskByRef.get(ref) === scope.taskId;
+}
+
+function feedbackInScope(feedback: FeedbackEnvelopeState, graph: CompiledExecutionGraph, scope: ClaimScope): boolean {
+  return blockInScope(feedback.sourceReviewBlockRef, graph, scope);
+}
+
 function requiredImplementationRefs(graph: CompiledExecutionGraph, taskId: string): string[] {
   return (graph.blocksByTask.get(taskId) ?? []).filter((ref) => {
     const block = graph.blocksByRef.get(ref);
@@ -234,16 +263,29 @@ function openFeedbackForReview(state: RuntimeState, reviewBlockRef: string): [st
   );
 }
 
-export async function claimNext(options: { projectRoot: string; parallel?: boolean; session?: ExecutionGraphSession }): Promise<ClaimResult> {
+export async function claimNext(options: {
+  projectRoot: string;
+  parallel?: boolean;
+  scope?: ClaimScope;
+  session?: ExecutionGraphSession;
+}): Promise<ClaimResult> {
   const context = await loadRuntime(options);
   let { state } = context;
   const { graph, manifest, workspace } = context;
+  const scope = normalizeClaimScope(options.scope);
+  const invalidScope = validateClaimScope(scope, graph);
+  if (invalidScope) {
+    return invalidScope;
+  }
   const openFeedback = activeOpenFeedback(state);
   if (openFeedback.length > 1) {
     return { kind: "blocked", reason: "Multiple open feedback envelopes exist; resolve or dismiss one before continuing." };
   }
   if (openFeedback.length === 1) {
     const [feedbackId, feedback] = openFeedback[0];
+    if (!feedbackInScope(feedback, graph, scope)) {
+      return { kind: "none", reason: "no_claimable_blocks_in_scope" };
+    }
     feedback.status = "in_progress";
     state.currentFeedbackId = feedbackId;
     state.currentReviewBlockRef = feedback.sourceReviewBlockRef;
@@ -260,6 +302,9 @@ export async function claimNext(options: { projectRoot: string; parallel?: boole
   if (inProgressReview && state.currentFeedbackId) {
     const currentFeedback = state.feedback[state.currentFeedbackId];
     if (currentFeedback?.status === "resolved") {
+      if (!blockInScope(inProgressReview, graph, scope)) {
+        return { kind: "blocked", ref: inProgressReview, reason: "A review block is in progress outside the selected Auto Run scope." };
+      }
       state.currentRefs = [inProgressReview];
       state.currentFeedbackId = null;
       state.currentReviewBlockRef = inProgressReview;
@@ -268,6 +313,9 @@ export async function claimNext(options: { projectRoot: string; parallel?: boole
     }
   }
   if (inProgressReview) {
+    if (!blockInScope(inProgressReview, graph, scope)) {
+      return { kind: "blocked", ref: inProgressReview, reason: "A review block is in progress outside the selected Auto Run scope." };
+    }
     state.currentRefs = [inProgressReview];
     state.currentReviewBlockRef = inProgressReview;
     await writeState(workspace.stateFile, refreshDerivedState(manifest, state));
@@ -279,6 +327,9 @@ export async function claimNext(options: { projectRoot: string; parallel?: boole
     return state.blocks[ref]?.status === "in_progress" && block?.type !== "review";
   });
   if (current) {
+    if (!blockInScope(current, graph, scope)) {
+      return { kind: "blocked", ref: current, reason: "A block is in progress outside the selected Auto Run scope." };
+    }
     return claimResultForBlock(current, graph, "current");
   }
 
@@ -288,6 +339,9 @@ export async function claimNext(options: { projectRoot: string; parallel?: boole
     }
     const selected: string[] = [];
     for (const ref of graph.blockRefsInManifestOrder) {
+      if (!blockInScope(ref, graph, scope)) {
+        continue;
+      }
       const taskId = graph.blockTaskByRef.get(ref);
       const block = graph.blocksByRef.get(ref);
       if (!taskId || !block || block.type === "review") {
@@ -323,6 +377,9 @@ export async function claimNext(options: { projectRoot: string; parallel?: boole
   }
 
   for (const ref of graph.blockRefsInManifestOrder) {
+    if (!blockInScope(ref, graph, scope)) {
+      continue;
+    }
     const taskId = graph.blockTaskByRef.get(ref);
     const block = graph.blocksByRef.get(ref);
     if (!taskId || !block || block.type === "review") {
@@ -336,6 +393,9 @@ export async function claimNext(options: { projectRoot: string; parallel?: boole
   }
 
   for (const ref of graph.blockRefsInManifestOrder) {
+    if (!blockInScope(ref, graph, scope)) {
+      continue;
+    }
     const taskId = graph.blockTaskByRef.get(ref);
     const block = graph.blocksByRef.get(ref);
     if (!taskId || block?.type !== "review") {
@@ -348,7 +408,7 @@ export async function claimNext(options: { projectRoot: string; parallel?: boole
     }
   }
 
-  const blockedRef = graph.blockRefsInManifestOrder.find((ref) => state.blocks[ref]?.status === "blocked");
+  const blockedRef = graph.blockRefsInManifestOrder.find((ref) => blockInScope(ref, graph, scope) && state.blocks[ref]?.status === "blocked");
   if (blockedRef) {
     return {
       kind: "blocked",

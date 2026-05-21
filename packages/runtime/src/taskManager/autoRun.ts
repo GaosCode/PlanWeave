@@ -9,6 +9,7 @@ import type {
   AutoRunLatestRunSummary,
   AutoRunStatus,
   AutoRunStepResult,
+  ClaimScope,
   ClaimResult,
   ExecutionGraphSession,
   ExecutorAdapter,
@@ -145,9 +146,10 @@ export async function runAutoRunStep(options: {
   executor?: ExecutorAdapter;
   executorName?: string;
   parallel?: boolean;
+  scope?: ClaimScope;
   session?: ExecutionGraphSession;
 }): Promise<AutoRunStepResult> {
-  const claim = await claimNext({ projectRoot: options.projectRoot, parallel: options.parallel, session: options.session });
+  const claim = await claimNext({ projectRoot: options.projectRoot, parallel: options.parallel, scope: options.scope, session: options.session });
   if (claim.kind === "none") {
     return { kind: "idle", claim };
   }
