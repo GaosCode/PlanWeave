@@ -15,6 +15,9 @@ import { registerResolveDivergenceCommand } from "./commands/resolveDivergence.j
 import { registerUnblockCommand } from "./commands/unblock.js";
 import { registerStatusCommand } from "./commands/status.js";
 import { registerPathsCommand } from "./commands/paths.js";
+import { registerRunCommand } from "./commands/run.js";
+import { registerExecutorsCommand } from "./commands/executors.js";
+import { registerRunStatusCommand } from "./commands/runStatus.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -38,6 +41,9 @@ export function createProgram(): Command {
   registerUnblockCommand(program);
   registerStatusCommand(program);
   registerPathsCommand(program);
+  registerRunCommand(program);
+  registerExecutorsCommand(program);
+  registerRunStatusCommand(program);
 
   return program;
 }

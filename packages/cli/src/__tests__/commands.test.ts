@@ -14,7 +14,17 @@ describe("planweave CLI contract", () => {
     const commandNames = createProgram().commands.map((command) => command.name());
 
     expect(commandNames).toEqual(
-      expect.arrayContaining(["paths", "resolve-divergence", "mark-blocked", "unblock", "claim-next", "submit-feedback"])
+      expect.arrayContaining([
+        "paths",
+        "resolve-divergence",
+        "mark-blocked",
+        "unblock",
+        "claim-next",
+        "submit-feedback",
+        "run",
+        "executors",
+        "run-status"
+      ])
     );
   });
 
@@ -26,5 +36,7 @@ describe("planweave CLI contract", () => {
     expect(commandOptionLongs("status")).toContain("--json");
     expect(commandOptionLongs("resolve-divergence")).toContain("--reason");
     expect(commandOptionLongs("unblock")).toContain("--reason");
+    expect(commandOptionLongs("run")).toEqual(expect.arrayContaining(["--once", "--parallel", "--executor", "--json"]));
+    expect(commandOptionLongs("run-status")).toContain("--json");
   });
 });
