@@ -41,6 +41,8 @@ export type ReviewHookDefinition = {
   executionPolicy: "trusted-local";
 };
 
+export type ReviewTriggerCondition = "after_required_work_completed" | "manual";
+
 export type ManualExecutorProfile = {
   adapter: "manual";
 };
@@ -86,6 +88,11 @@ export type ManifestReviewBlock = {
   review: {
     required: boolean;
     maxFeedbackCycles: number;
+    preset?: string;
+    triggerCondition?: ReviewTriggerCondition;
+    inputContext?: string;
+    passCriteria?: string;
+    feedbackFormat?: string;
     hook: ReviewHookDefinition | null;
   };
 };

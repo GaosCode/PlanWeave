@@ -60,6 +60,11 @@ const reviewBlockSchema = z
       .object({
         required: z.boolean().default(true),
         maxFeedbackCycles: z.number().int().nonnegative().default(1),
+        preset: z.string().min(1).optional(),
+        triggerCondition: z.enum(["after_required_work_completed", "manual"]).optional(),
+        inputContext: z.string().min(1).optional(),
+        passCriteria: z.string().min(1).optional(),
+        feedbackFormat: z.string().min(1).optional(),
         hook: reviewHookSchema.nullable().default(null)
       })
       .strict()
