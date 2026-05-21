@@ -13,6 +13,7 @@ export { refreshPrompts } from "./prompt/refreshPrompts.js";
 export { getPrompt } from "./prompt/getPrompt.js";
 export { validatePackage } from "./validatePackage.js";
 export { compileTaskGraph } from "./graph/compileTaskGraph.js";
+export { parseBlockRef } from "./graph/compileTaskGraph.js";
 export { compilePackageGraph } from "./graph/compileTaskGraph.js";
 export {
   addEdge,
@@ -28,17 +29,26 @@ export {
   detectPackageFileChanges,
   refreshChangedPackagePrompts
 } from "./package/fileChanges.js";
-export { readTaskStatusSnapshot } from "./tasks/status.js";
-export { dependencyIds, hasDependencyPath, tasksHaveDependencyRelationship } from "./tasks/dependencies.js";
-export { claimNextTask } from "./tasks/claimNext.js";
-export { claimNextParallel } from "./tasks/claimParallel.js";
-export { submitRunResult } from "./results/submitResult.js";
-export { submitReview } from "./results/submitReview.js";
-export { markVerified } from "./tasks/markVerified.js";
-export { markDiverged } from "./tasks/markDiverged.js";
-export { markBlocked } from "./tasks/markBlocked.js";
-export { resolveDivergence } from "./tasks/resolveDivergence.js";
-export { unblockTask } from "./tasks/unblock.js";
-export { getStatus } from "./status/getStatus.js";
+export {
+  createExecutionGraphSession,
+  drainGraphReadQueue,
+  enqueueGraphEditOperations,
+  enqueuePackageFileChanges
+} from "./graph/session.js";
+export { consumeAutoRunClaim } from "./autoRun/contract.js";
+export type { AutoRunDecision, AutoRunExecutorAdapter } from "./autoRun/contract.js";
+export {
+  claimNext,
+  renderPrompt,
+  submitBlockResult,
+  submitReviewResult,
+  submitFeedback,
+  markBlockBlocked,
+  markBlockDiverged,
+  unblockBlock,
+  resolveBlockDivergence,
+  getExecutionStatus
+} from "./taskManager/index.js";
+export { runAutoRunStep } from "./taskManager/autoRun.js";
 export { edgeTypes, runSubmitStatuses, reviewStatuses } from "./types.js";
 export type * from "./types.js";

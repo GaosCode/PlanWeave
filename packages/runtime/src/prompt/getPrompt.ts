@@ -1,6 +1,5 @@
-import { refreshPrompt } from "./refreshPrompt.js";
+import { renderPrompt } from "../taskManager/index.js";
 
-export async function getPrompt(options: { projectRoot: string; taskId: string }): Promise<string> {
-  const surface = await refreshPrompt(options);
-  return surface.markdown;
+export async function getPrompt(options: { projectRoot: string; ref: string }): Promise<string> {
+  return renderPrompt(options);
 }
