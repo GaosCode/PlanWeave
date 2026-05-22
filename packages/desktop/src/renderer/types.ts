@@ -96,6 +96,7 @@ export type DesktopUiSettings = {
   defaultExecutor: string;
   appearance: AppearanceMode;
   language: Language;
+  pinnedProjectIds: string[];
   notifications: {
     autoRunFailure: boolean;
     graphExceptions: boolean;

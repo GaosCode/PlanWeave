@@ -8,6 +8,7 @@ export const defaultDesktopSettings: DesktopUiSettings = {
   defaultExecutor: "",
   appearance: "system",
   language: "zh-CN",
+  pinnedProjectIds: [],
   notifications: {
     autoRunFailure: true,
     graphExceptions: true,
@@ -51,6 +52,7 @@ export function mergeDesktopSettings(current: DesktopUiSettings, patch: Partial<
   return {
     ...current,
     ...patch,
+    pinnedProjectIds: patch.pinnedProjectIds ?? current.pinnedProjectIds,
     notifications: {
       ...current.notifications,
       ...patch.notifications
@@ -82,6 +84,27 @@ export function mergeDesktopSettings(current: DesktopUiSettings, patch: Partial<
       }
     }
   };
+}
+
+export function orderProjectsByPinnedIds<T extends { projectId: string }>(projects: T[], pinnedProjectIds: string[]): T[] {
+  if (pinnedProjectIds.length === 0) {
+    return projects;
+  }
+  const pinOrder = new Map(pinnedProjectIds.map((projectId, index) => [projectId, index]));
+  return [...projects].sort((left, right) => {
+    const leftOrder = pinOrder.get(left.projectId);
+    const rightOrder = pinOrder.get(right.projectId);
+    if (leftOrder !== undefined && rightOrder !== undefined) {
+      return leftOrder - rightOrder;
+    }
+    if (leftOrder !== undefined) {
+      return -1;
+    }
+    if (rightOrder !== undefined) {
+      return 1;
+    }
+    return 0;
+  });
 }
 
 export function loadDesktopSettings(): DesktopUiSettings {

@@ -1,11 +1,12 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import {
   BellIcon,
   ChartNoAxesColumnIncreasingIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
   FilePlus2Icon,
   FolderOpenIcon,
   GitBranchIcon,
-  MoreHorizontalIcon,
   ListTodoIcon,
   PanelLeftCloseIcon,
   PencilIcon,
@@ -14,7 +15,8 @@ import {
   SearchIcon,
   SettingsIcon,
   SquarePenIcon,
-  Trash2Icon
+  Trash2Icon,
+  WorkflowIcon
 } from "lucide-react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave/runtime";
 import { Badge } from "@/components/ui/badge";
@@ -27,13 +29,6 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from "@/components/ui/context-menu";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import type { createTranslator } from "../i18n";
@@ -47,18 +42,21 @@ type ProjectSidebarProps = {
   expandedProjectId: string | null;
   graph: DesktopGraphViewModel | null;
   handleDeleteProject: (project: DesktopProjectSummary) => Promise<void>;
-  handleDeleteTaskCanvas: (project: DesktopProjectSummary) => Promise<void>;
+  handleDeleteTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleDeleteTaskNode: (taskId: string) => Promise<void>;
   handleOpenProject: () => Promise<void>;
   handleProjectNewGraph: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealProject: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
-  loadProject: (project: DesktopProjectSummary) => Promise<void>;
+  loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
   notificationItems: NotificationItem[];
   onToggleSidebar: () => void;
+  onTogglePinnedProject: (projectId: string) => void;
+  pinnedProjectIds: Set<string>;
   projects: DesktopProjectSummary[];
   resetLayout: () => Promise<void>;
   selectedProject: DesktopProjectSummary | null;
+  selectedCanvasId: string | null;
   selectedTaskPanelId: string | null;
   setActiveView: Dispatch<SetStateAction<AppView>>;
   t: ReturnType<typeof createTranslator>;
@@ -79,16 +77,62 @@ export function ProjectSidebar({
   loadProject,
   notificationItems,
   onToggleSidebar,
+  onTogglePinnedProject,
+  pinnedProjectIds,
   projects,
   resetLayout,
   selectedProject,
+  selectedCanvasId,
   selectedTaskPanelId,
   setActiveView,
   t
 }: ProjectSidebarProps) {
+  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
+  const [collapsedCanvasIds, setCollapsedCanvasIds] = useState<Set<string>>(() => new Set());
+
   if (collapsed) {
     return null;
   }
+
+  const toggleProject = (projectId: string) => {
+    setCollapsedProjectIds((current) => {
+      const next = new Set(current);
+      if (next.has(projectId)) {
+        next.delete(projectId);
+      } else {
+        next.add(projectId);
+      }
+      return next;
+    });
+  };
+
+  const expandProject = (projectId: string) => {
+    setCollapsedProjectIds((current) => {
+      const next = new Set(current);
+      next.delete(projectId);
+      return next;
+    });
+  };
+
+  const toggleCanvas = (canvasId: string) => {
+    setCollapsedCanvasIds((current) => {
+      const next = new Set(current);
+      if (next.has(canvasId)) {
+        next.delete(canvasId);
+      } else {
+        next.add(canvasId);
+      }
+      return next;
+    });
+  };
+
+  const expandCanvas = (canvasId: string) => {
+    setCollapsedCanvasIds((current) => {
+      const next = new Set(current);
+      next.delete(canvasId);
+      return next;
+    });
+  };
 
   return (
     <aside className="flex w-[280px] shrink-0 flex-col overflow-hidden border-r bg-sidebar">
@@ -134,162 +178,162 @@ export function ProjectSidebar({
             <FolderOpenIcon data-icon="inline-start" />
           </Button>
         </div>
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="flex flex-col gap-1 pr-2">
+        <ScrollArea className="min-h-0 flex-1 overflow-x-hidden">
+          <div className="flex min-w-0 flex-col gap-1 overflow-x-hidden pr-2">
             {projects.length === 0 ? <div className="text-sm text-muted-foreground">{t("projectMissing")}</div> : null}
             {projects.map((project) => {
               const isSelectedProject = selectedProject?.projectId === project.projectId;
-              const isExpandedProject = expandedProjectId === project.projectId && isSelectedProject;
+              const isExpandedProject = expandedProjectId === project.projectId && isSelectedProject && !collapsedProjectIds.has(project.projectId);
+              const isPinnedProject = pinnedProjectIds.has(project.projectId);
               return (
-                <div className="flex flex-col gap-1" key={project.projectId}>
-                  <ContextMenu>
-                    <ContextMenuTrigger asChild>
-                      <div className="group/project relative">
+                <div className="flex min-w-0 flex-col gap-1" key={project.projectId}>
+                  <div className="group/project grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1">
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
                         <Button
-                          className="h-auto w-full justify-start whitespace-normal py-2 pr-20 text-left"
+                          className="h-auto min-w-0 flex-1 justify-start overflow-hidden whitespace-normal py-2 text-left"
                           variant={isSelectedProject ? "secondary" : "ghost"}
                           onClick={() => void loadProject(project)}
                         >
-                          <GitBranchIcon data-icon="inline-start" />
-                          <span className="min-w-0 truncate">{project.name}</span>
+                          <GitBranchIcon className="shrink-0" data-icon="inline-start" />
+                          <span className="min-w-0 flex-1 truncate">{project.name}</span>
                         </Button>
-                        <div className="absolute right-1 top-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/project:opacity-100 group-focus-within/project:opacity-100">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56">
+                        <ContextMenuLabel>{project.name}</ContextMenuLabel>
+                        <ContextMenuItem onSelect={() => onTogglePinnedProject(project.projectId)}>
+                          <PinIcon data-icon="inline-start" />
+                          {isPinnedProject ? t("unpinProject") : t("pinProject")}
+                        </ContextMenuItem>
+                        <ContextMenuItem onSelect={() => void handleRevealProject(project)}>
+                          <FolderOpenIcon data-icon="inline-start" />
+                          {t("openInFinder")}
+                        </ContextMenuItem>
+                        <ContextMenuItem onSelect={() => void handleProjectNewGraph(project)}>
+                          <SquarePenIcon data-icon="inline-start" />
+                          {t("newGraph")}
+                        </ContextMenuItem>
+                        <ContextMenuItem disabled>
+                          <PencilIcon data-icon="inline-start" />
+                          {t("renameProject")}
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem variant="destructive" onSelect={() => void handleDeleteProject(project)}>
+                          <Trash2Icon data-icon="inline-start" />
+                          {t("deleteProject")}
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                    <Button
+                      aria-label={isExpandedProject ? t("collapseProject") : t("expandProject")}
+                      className="relative z-10 size-7 shrink-0 border-0 bg-transparent text-muted-foreground shadow-none opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (!isSelectedProject) {
+                          expandProject(project.projectId);
+                          void loadProject(project);
+                          return;
+                        }
+                        toggleProject(project.projectId);
+                      }}
+                    >
+                      {isExpandedProject ? <ChevronDownIcon className="size-4" /> : <ChevronRightIcon className="size-4" />}
+                    </Button>
+                  </div>
+                  {isExpandedProject ? (
+                    <div className="flex min-w-0 flex-col gap-1 pl-5">
+                      {project.taskCanvases.map((canvas) => {
+                        const isSelectedCanvas = selectedCanvasId === canvas.canvasId;
+                        const isGraphCanvas =
+                          isSelectedCanvas || (selectedCanvasId === null && isSelectedProject && project.taskCanvases.length === 1);
+                        const isExpandedCanvas = isGraphCanvas && !collapsedCanvasIds.has(canvas.canvasId);
+                        return (
+                          <div className="flex min-w-0 flex-col gap-1" key={canvas.canvasId}>
+                            <div className="group/canvas grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1">
+                              <ContextMenu>
+                                <ContextMenuTrigger asChild>
+                                  <Button
+                                    className="h-8 min-w-0 flex-1 justify-between gap-2 overflow-hidden px-2 text-xs"
+                                    variant={isGraphCanvas && selectedTaskPanelId === null ? "secondary" : "ghost"}
+                                    onClick={() => {
+                                      void loadProject(project, canvas.canvasId).then(() => handleTaskPanelSelect(null));
+                                    }}
+                                  >
+                                    <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
+                                      <WorkflowIcon className="shrink-0" data-icon="inline-start" />
+                                      <span className="truncate">{canvas.name || t("taskCanvas")}</span>
+                                    </span>
+                                    <Badge className="shrink-0" variant="outline">
+                                      {canvas.taskCount}
+                                    </Badge>
+                                  </Button>
+                                </ContextMenuTrigger>
+                                <ContextMenuContent className="w-52">
+                                  <ContextMenuLabel>{canvas.name || t("taskCanvas")}</ContextMenuLabel>
+                                  <ContextMenuItem onSelect={() => void handleProjectNewGraph(project)}>
+                                    <SquarePenIcon data-icon="inline-start" />
+                                    {t("newGraph")}
+                                  </ContextMenuItem>
+                                  <ContextMenuSeparator />
+                                  <ContextMenuItem variant="destructive" onSelect={() => void handleDeleteTaskCanvas(project, canvas.canvasId)}>
+                                    <Trash2Icon data-icon="inline-start" />
+                                    {t("deleteTaskCanvas")}
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
+                              </ContextMenu>
                               <Button
-                                aria-label={t("projectMore")}
-                                className="h-7 w-7 bg-sidebar/80"
+                                aria-label={isExpandedCanvas ? t("collapseTaskCanvas") : t("expandTaskCanvas")}
+                                className="relative z-10 h-8 w-7 shrink-0 border-0 bg-transparent text-muted-foreground shadow-none opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                                 size="icon-sm"
                                 variant="ghost"
-                                onClick={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  if (!isGraphCanvas) {
+                                    expandCanvas(canvas.canvasId);
+                                    void loadProject(project, canvas.canvasId);
+                                    return;
+                                  }
+                                  toggleCanvas(canvas.canvasId);
+                                }}
                               >
-                                <MoreHorizontalIcon data-icon="inline-start" />
+                                {isExpandedCanvas ? <ChevronDownIcon className="size-4" /> : <ChevronRightIcon className="size-4" />}
                               </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start" side="right" className="w-56">
-                              <DropdownMenuItem disabled>
-                                <PinIcon data-icon="inline-start" />
-                                {t("pinProject")}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => void handleRevealProject(project)}>
-                                <FolderOpenIcon data-icon="inline-start" />
-                                {t("openInFinder")}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => void handleProjectNewGraph(project)}>
-                                <SquarePenIcon data-icon="inline-start" />
-                                {t("newGraph")}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem disabled>
-                                <GitBranchIcon data-icon="inline-start" />
-                                {t("createPermanentWorktree")}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem disabled>
-                                <PencilIcon data-icon="inline-start" />
-                                {t("renameProject")}
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem variant="destructive" onClick={() => void handleDeleteProject(project)}>
-                                <Trash2Icon data-icon="inline-start" />
-                                {t("deleteProject")}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                          <Button
-                            aria-label={t("newGraph")}
-                            className="h-7 w-7 bg-sidebar/80"
-                            size="icon-sm"
-                            variant="ghost"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleProjectNewGraph(project);
-                            }}
-                          >
-                            <SquarePenIcon data-icon="inline-start" />
-                          </Button>
-                        </div>
-                      </div>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent className="w-56">
-                      <ContextMenuLabel>{project.name}</ContextMenuLabel>
-                      <ContextMenuItem disabled>
-                        <PinIcon data-icon="inline-start" />
-                        {t("pinProject")}
-                      </ContextMenuItem>
-                      <ContextMenuItem onSelect={() => void handleRevealProject(project)}>
-                        <FolderOpenIcon data-icon="inline-start" />
-                        {t("openInFinder")}
-                      </ContextMenuItem>
-                      <ContextMenuItem onSelect={() => void handleProjectNewGraph(project)}>
-                        <SquarePenIcon data-icon="inline-start" />
-                        {t("newGraph")}
-                      </ContextMenuItem>
-                      <ContextMenuItem disabled>
-                        <GitBranchIcon data-icon="inline-start" />
-                        {t("createPermanentWorktree")}
-                      </ContextMenuItem>
-                      <ContextMenuItem disabled>
-                        <PencilIcon data-icon="inline-start" />
-                        {t("renameProject")}
-                      </ContextMenuItem>
-                      <ContextMenuSeparator />
-                      <ContextMenuItem variant="destructive" onSelect={() => void handleDeleteProject(project)}>
-                        <Trash2Icon data-icon="inline-start" />
-                        {t("deleteProject")}
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
-                  {isExpandedProject && graph ? (
-                    <div className="flex flex-col gap-1 pl-5">
-                      <ContextMenu>
-                        <ContextMenuTrigger asChild>
-                          <Button
-                            className="h-8 justify-between gap-2 px-2 text-xs"
-                            variant={selectedTaskPanelId === null ? "secondary" : "ghost"}
-                            onClick={() => handleTaskPanelSelect(null)}
-                          >
-                            <span className="flex min-w-0 items-center gap-2 truncate">
-                              <SquarePenIcon className="size-4 shrink-0" />
-                              <span className="truncate">{graph.projectTitle || t("taskCanvas")}</span>
-                            </span>
-                            <Badge variant="outline">{graph.tasks.length}</Badge>
-                          </Button>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-52">
-                          <ContextMenuLabel>{t("taskCanvas")}</ContextMenuLabel>
-                          <ContextMenuItem onSelect={() => void handleProjectNewGraph(project)}>
-                            <SquarePenIcon data-icon="inline-start" />
-                            {t("newGraph")}
-                          </ContextMenuItem>
-                          <ContextMenuSeparator />
-                          <ContextMenuItem variant="destructive" onSelect={() => void handleDeleteTaskCanvas(project)}>
-                            <Trash2Icon data-icon="inline-start" />
-                            {t("deleteTaskCanvas")}
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
-                      <div className="flex flex-col gap-1 pl-4">
-                        {graph.tasks.map((task) => (
-                          <ContextMenu key={task.taskId}>
-                            <ContextMenuTrigger asChild>
-                              <Button
-                                className="h-8 justify-between gap-2 px-2 text-xs"
-                                variant={selectedTaskPanelId === task.taskId ? "secondary" : "ghost"}
-                                onClick={() => handleTaskPanelSelect(task.taskId)}
-                              >
-                                <span className="min-w-0 truncate">{task.title}</span>
-                                <Badge variant={task.exceptions.length > 0 ? "destructive" : statusVariant[task.status]}>{task.taskId}</Badge>
-                              </Button>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-48">
-                              <ContextMenuLabel>{task.title}</ContextMenuLabel>
-                              <ContextMenuItem variant="destructive" onSelect={() => void handleDeleteTaskNode(task.taskId)}>
-                                <Trash2Icon data-icon="inline-start" />
-                                {t("deleteTask")}
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        ))}
-                      </div>
+                            </div>
+                            {isExpandedCanvas && graph ? (
+                              <div className="flex min-w-0 flex-col gap-1 pl-4">
+                                {graph.tasks.map((task) => (
+                                  <ContextMenu key={task.taskId}>
+                                    <ContextMenuTrigger asChild>
+                                      <Button
+                                        className="h-8 w-full min-w-0 justify-start gap-2 overflow-hidden rounded-md bg-muted/60 px-2 text-xs text-foreground hover:bg-muted"
+                                        variant={selectedTaskPanelId === task.taskId ? "secondary" : "ghost"}
+                                        onClick={() => handleTaskPanelSelect(task.taskId)}
+                                      >
+                                        <span className="min-w-0 flex-1 truncate text-left text-sm font-medium text-foreground">{task.title}</span>
+                                        <Badge
+                                          className="ml-auto shrink-0 border-border bg-background text-xs text-foreground"
+                                          variant={task.exceptions.length > 0 ? "destructive" : statusVariant[task.status]}
+                                        >
+                                          {task.taskId}
+                                        </Badge>
+                                      </Button>
+                                    </ContextMenuTrigger>
+                                    <ContextMenuContent className="w-48">
+                                      <ContextMenuLabel>{task.title}</ContextMenuLabel>
+                                      <ContextMenuItem variant="destructive" onSelect={() => void handleDeleteTaskNode(task.taskId)}>
+                                        <Trash2Icon data-icon="inline-start" />
+                                        {t("deleteTask")}
+                                      </ContextMenuItem>
+                                    </ContextMenuContent>
+                                  </ContextMenu>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : null}
                 </div>
