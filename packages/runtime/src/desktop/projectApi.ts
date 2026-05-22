@@ -1,6 +1,6 @@
-import { access, readdir } from "node:fs/promises";
+import { access, readdir, rm } from "node:fs/promises";
 import { constants } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { initWorkspace } from "../initWorkspace.js";
 import { readJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
@@ -50,6 +50,21 @@ export async function listProjects(): Promise<DesktopProjectSummary[]> {
   } catch {
     return [];
   }
+}
+
+export async function removeProject(projectId: string): Promise<void> {
+  const projectsRoot = resolve(resolvePlanweaveHome(), "projects");
+  const workspaceRoot = resolve(projectsRoot, projectId);
+  const relativeWorkspace = relative(projectsRoot, workspaceRoot);
+  if (
+    !relativeWorkspace ||
+    relativeWorkspace !== projectId ||
+    relativeWorkspace.startsWith("..") ||
+    isAbsolute(relativeWorkspace)
+  ) {
+    throw new Error(`Project '${projectId}' cannot be removed from the PlanWeave registry.`);
+  }
+  await rm(workspaceRoot, { recursive: true, force: true });
 }
 
 export async function initOrOpenProject(rootPath: string): Promise<DesktopProjectSummary> {

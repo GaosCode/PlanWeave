@@ -185,7 +185,7 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       };
 
       const covered = [];
-      await clickByText("新建任务图版");
+      await clickByText("新建任务画布");
       covered.push("open-new-task-view");
       await waitForText("需求 / 计划 / 任务说明");
       const taskInput = [...document.querySelectorAll("textarea")].find(visible);

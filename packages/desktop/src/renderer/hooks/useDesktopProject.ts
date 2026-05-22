@@ -100,6 +100,34 @@ export function useDesktopProject({
     }
   }, [loadProject, setError]);
 
+  const removeProject = useCallback(
+    async (project: DesktopProjectSummary) => {
+      if (!bridge) {
+        return;
+      }
+      await bridge.removeProject(project.projectId);
+      const nextProjects = await bridge.listProjects();
+      setProjects(nextProjects);
+      if (selectedProject?.projectId !== project.projectId) {
+        return;
+      }
+      const nextProject = nextProjects[0] ?? null;
+      if (nextProject) {
+        await loadProject(nextProject);
+        return;
+      }
+      setSelectedProject(null);
+      setExpandedProjectId(null);
+      setSelectedTaskPanelId(null);
+      setSelectedContextNodeId(null);
+      setGraph(null);
+      setLayout(null);
+      setTodoGroups(null);
+      setStatistics(null);
+    },
+    [loadProject, selectedProject?.projectId, setSelectedContextNodeId, setSelectedTaskPanelId]
+  );
+
   return {
     expandedProjectId,
     graph,
@@ -108,6 +136,7 @@ export function useDesktopProject({
     loadProject,
     projects,
     refreshGraph,
+    removeProject,
     selectedProject,
     setLayout,
     statistics,

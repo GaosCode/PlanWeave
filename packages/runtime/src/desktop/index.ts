@@ -2,7 +2,8 @@ export {
   getProjectOverview,
   initOrOpenProject,
   listProjects,
-  openProject
+  openProject,
+  removeProject
 } from "./projectApi.js";
 export {
   addContextNode,

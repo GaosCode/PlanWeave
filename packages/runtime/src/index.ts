@@ -88,6 +88,7 @@ export {
   refreshPackageFileChanges,
   removeBlock,
   removeDependencyEdge,
+  removeProject,
   removeTaskNode,
   pauseAutoRun,
   resumeAutoRun,

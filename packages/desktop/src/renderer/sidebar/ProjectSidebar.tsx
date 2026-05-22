@@ -20,6 +20,14 @@ import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave/ru
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger
+} from "@/components/ui/context-menu";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -38,6 +46,9 @@ type ProjectSidebarProps = {
   collapsed: boolean;
   expandedProjectId: string | null;
   graph: DesktopGraphViewModel | null;
+  handleDeleteProject: (project: DesktopProjectSummary) => Promise<void>;
+  handleDeleteTaskCanvas: (project: DesktopProjectSummary) => Promise<void>;
+  handleDeleteTaskNode: (taskId: string) => Promise<void>;
   handleOpenProject: () => Promise<void>;
   handleProjectNewGraph: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealProject: (project: DesktopProjectSummary) => Promise<void>;
@@ -58,6 +69,9 @@ export function ProjectSidebar({
   collapsed,
   expandedProjectId,
   graph,
+  handleDeleteProject,
+  handleDeleteTaskCanvas,
+  handleDeleteTaskNode,
   handleOpenProject,
   handleProjectNewGraph,
   handleRevealProject,
@@ -128,80 +142,154 @@ export function ProjectSidebar({
               const isExpandedProject = expandedProjectId === project.projectId && isSelectedProject;
               return (
                 <div className="flex flex-col gap-1" key={project.projectId}>
-                  <div className="group/project relative">
-                    <Button
-                      className="h-auto w-full justify-start whitespace-normal py-2 pr-20 text-left"
-                      variant={isSelectedProject ? "secondary" : "ghost"}
-                      onClick={() => void loadProject(project)}
-                    >
-                      <GitBranchIcon data-icon="inline-start" />
-                      <span className="min-w-0 truncate">{project.name}</span>
-                    </Button>
-                    <div className="absolute right-1 top-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/project:opacity-100 group-focus-within/project:opacity-100">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                  <ContextMenu>
+                    <ContextMenuTrigger asChild>
+                      <div className="group/project relative">
+                        <Button
+                          className="h-auto w-full justify-start whitespace-normal py-2 pr-20 text-left"
+                          variant={isSelectedProject ? "secondary" : "ghost"}
+                          onClick={() => void loadProject(project)}
+                        >
+                          <GitBranchIcon data-icon="inline-start" />
+                          <span className="min-w-0 truncate">{project.name}</span>
+                        </Button>
+                        <div className="absolute right-1 top-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/project:opacity-100 group-focus-within/project:opacity-100">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                aria-label={t("projectMore")}
+                                className="h-7 w-7 bg-sidebar/80"
+                                size="icon-sm"
+                                variant="ghost"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <MoreHorizontalIcon data-icon="inline-start" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" side="right" className="w-56">
+                              <DropdownMenuItem disabled>
+                                <PinIcon data-icon="inline-start" />
+                                {t("pinProject")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => void handleRevealProject(project)}>
+                                <FolderOpenIcon data-icon="inline-start" />
+                                {t("openInFinder")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => void handleProjectNewGraph(project)}>
+                                <SquarePenIcon data-icon="inline-start" />
+                                {t("newGraph")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem disabled>
+                                <GitBranchIcon data-icon="inline-start" />
+                                {t("createPermanentWorktree")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem disabled>
+                                <PencilIcon data-icon="inline-start" />
+                                {t("renameProject")}
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem variant="destructive" onClick={() => void handleDeleteProject(project)}>
+                                <Trash2Icon data-icon="inline-start" />
+                                {t("deleteProject")}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                           <Button
-                            aria-label={t("projectMore")}
+                            aria-label={t("newGraph")}
                             className="h-7 w-7 bg-sidebar/80"
                             size="icon-sm"
                             variant="ghost"
-                            onClick={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleProjectNewGraph(project);
+                            }}
                           >
-                            <MoreHorizontalIcon data-icon="inline-start" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" side="right" className="w-56">
-                          <DropdownMenuItem disabled>
-                            <PinIcon data-icon="inline-start" />
-                            {t("pinProject")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => void handleRevealProject(project)}>
-                            <FolderOpenIcon data-icon="inline-start" />
-                            {t("openInFinder")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem disabled>
-                            <GitBranchIcon data-icon="inline-start" />
-                            {t("createPermanentWorktree")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem disabled>
-                            <PencilIcon data-icon="inline-start" />
-                            {t("renameProject")}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem disabled>
-                            <Trash2Icon data-icon="inline-start" />
-                            {t("removeProject")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <Button
-                        aria-label={t("newGraph")}
-                        className="h-7 w-7 bg-sidebar/80"
-                        size="icon-sm"
-                        variant="ghost"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleProjectNewGraph(project);
-                        }}
-                      >
-                        <SquarePenIcon data-icon="inline-start" />
-                      </Button>
-                    </div>
-                  </div>
-                  {isExpandedProject && graph ? (
-                    <div className="flex flex-col gap-1 pl-6">
-                      {graph.tasks.map((task) => (
-                        <div className="flex flex-col gap-1" key={task.taskId}>
-                          <Button
-                            className="h-8 justify-between gap-2 px-2 text-xs"
-                            variant={selectedTaskPanelId === task.taskId ? "secondary" : "ghost"}
-                            onClick={() => handleTaskPanelSelect(task.taskId)}
-                          >
-                            <span className="min-w-0 truncate">{task.title}</span>
-                            <Badge variant={task.exceptions.length > 0 ? "destructive" : statusVariant[task.status]}>{task.taskId}</Badge>
+                            <SquarePenIcon data-icon="inline-start" />
                           </Button>
                         </div>
-                      ))}
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="w-56">
+                      <ContextMenuLabel>{project.name}</ContextMenuLabel>
+                      <ContextMenuItem disabled>
+                        <PinIcon data-icon="inline-start" />
+                        {t("pinProject")}
+                      </ContextMenuItem>
+                      <ContextMenuItem onSelect={() => void handleRevealProject(project)}>
+                        <FolderOpenIcon data-icon="inline-start" />
+                        {t("openInFinder")}
+                      </ContextMenuItem>
+                      <ContextMenuItem onSelect={() => void handleProjectNewGraph(project)}>
+                        <SquarePenIcon data-icon="inline-start" />
+                        {t("newGraph")}
+                      </ContextMenuItem>
+                      <ContextMenuItem disabled>
+                        <GitBranchIcon data-icon="inline-start" />
+                        {t("createPermanentWorktree")}
+                      </ContextMenuItem>
+                      <ContextMenuItem disabled>
+                        <PencilIcon data-icon="inline-start" />
+                        {t("renameProject")}
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem variant="destructive" onSelect={() => void handleDeleteProject(project)}>
+                        <Trash2Icon data-icon="inline-start" />
+                        {t("deleteProject")}
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                  {isExpandedProject && graph ? (
+                    <div className="flex flex-col gap-1 pl-5">
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <Button
+                            className="h-8 justify-between gap-2 px-2 text-xs"
+                            variant={selectedTaskPanelId === null ? "secondary" : "ghost"}
+                            onClick={() => handleTaskPanelSelect(null)}
+                          >
+                            <span className="flex min-w-0 items-center gap-2 truncate">
+                              <SquarePenIcon className="size-4 shrink-0" />
+                              <span className="truncate">{graph.projectTitle || t("taskCanvas")}</span>
+                            </span>
+                            <Badge variant="outline">{graph.tasks.length}</Badge>
+                          </Button>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-52">
+                          <ContextMenuLabel>{t("taskCanvas")}</ContextMenuLabel>
+                          <ContextMenuItem onSelect={() => void handleProjectNewGraph(project)}>
+                            <SquarePenIcon data-icon="inline-start" />
+                            {t("newGraph")}
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem variant="destructive" onSelect={() => void handleDeleteTaskCanvas(project)}>
+                            <Trash2Icon data-icon="inline-start" />
+                            {t("deleteTaskCanvas")}
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+                      <div className="flex flex-col gap-1 pl-4">
+                        {graph.tasks.map((task) => (
+                          <ContextMenu key={task.taskId}>
+                            <ContextMenuTrigger asChild>
+                              <Button
+                                className="h-8 justify-between gap-2 px-2 text-xs"
+                                variant={selectedTaskPanelId === task.taskId ? "secondary" : "ghost"}
+                                onClick={() => handleTaskPanelSelect(task.taskId)}
+                              >
+                                <span className="min-w-0 truncate">{task.title}</span>
+                                <Badge variant={task.exceptions.length > 0 ? "destructive" : statusVariant[task.status]}>{task.taskId}</Badge>
+                              </Button>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent className="w-48">
+                              <ContextMenuLabel>{task.title}</ContextMenuLabel>
+                              <ContextMenuItem variant="destructive" onSelect={() => void handleDeleteTaskNode(task.taskId)}>
+                                <Trash2Icon data-icon="inline-start" />
+                                {t("deleteTask")}
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                 </div>

@@ -1,5 +1,6 @@
+import { access } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
-import { listProjects } from "../desktop/index.js";
+import { listProjects, removeProject } from "../desktop/index.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 
 afterEach(() => {
@@ -16,5 +17,14 @@ describe("desktop project API", () => {
         rootPath: init.workspace.rootPath
       })
     ]);
+  });
+
+  it("removes a project from the PlanWeave registry without deleting the source root", async () => {
+    const { init, root } = await createTestWorkspace();
+
+    await expect(removeProject(init.workspace.id)).resolves.toBeUndefined();
+
+    await expect(listProjects()).resolves.toEqual([]);
+    await expect(access(root)).resolves.toBeUndefined();
   });
 });
