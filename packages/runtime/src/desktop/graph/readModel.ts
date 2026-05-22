@@ -24,7 +24,7 @@ export async function getGraphViewModel(projectRoot: string): Promise<DesktopGra
       const taskStatus = status.tasks.find((item) => item.taskId === taskId)?.status ?? "planned";
       const markdown = await readOptionalFile(await resolvePackagePath(workspace.packageDir, task.prompt));
       const orderedRefs = sortBlockRefsForTask(graph, taskId);
-      const blockPreview: DesktopBlockPreview[] = orderedRefs.slice(0, 4).map((ref) => {
+      const blocks: DesktopBlockPreview[] = orderedRefs.map((ref) => {
         const block = getBlock(graph, ref);
         const blockStatus = statusByBlock.get(ref);
         return {
@@ -37,6 +37,7 @@ export async function getGraphViewModel(projectRoot: string): Promise<DesktopGra
           exceptionReason: blockStatus?.reason ?? null
         };
       });
+      const blockPreview = blocks.slice(0, 4);
       const exceptions = orderedRefs
         .map((ref) => {
           const blockStatus = statusByBlock.get(ref);
@@ -61,7 +62,9 @@ export async function getGraphViewModel(projectRoot: string): Promise<DesktopGra
         executorLabel: executorLabel(task),
         promptMarkdown: markdown,
         promptPreview: promptPreview(markdown),
+        blocks,
         blockPreview,
+        hiddenBlockRefs: orderedRefs.slice(blockPreview.length),
         overflowBlockCount: Math.max(0, orderedRefs.length - blockPreview.length),
         exceptions
       };

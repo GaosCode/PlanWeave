@@ -32,9 +32,11 @@ describe("desktop graph read API", () => {
       title: "Implement test task",
       status: "ready",
       executorLabel: "manual",
+      hiddenBlockRefs: [],
       overflowBlockCount: 0
     });
     expect(graph.tasks[0].promptPreview).toContain("T-001 task prompt");
+    expect(graph.tasks[0].blocks.map((block) => block.ref)).toEqual(["T-001#B-001", "T-001#C-001", "T-001#R-001"]);
     expect(graph.tasks[0].blockPreview.map((block) => block.ref)).toEqual(["T-001#B-001", "T-001#C-001", "T-001#R-001"]);
   });
 

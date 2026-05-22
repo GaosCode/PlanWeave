@@ -32,7 +32,9 @@ export type DesktopTaskNodeViewModel = {
   executorLabel: string;
   promptMarkdown: string;
   promptPreview: string;
+  blocks: DesktopBlockPreview[];
   blockPreview: DesktopBlockPreview[];
+  hiddenBlockRefs: string[];
   overflowBlockCount: number;
   exceptions: DesktopTaskException[];
 };
