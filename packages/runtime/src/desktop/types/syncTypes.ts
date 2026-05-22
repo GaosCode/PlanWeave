@@ -18,6 +18,7 @@ export type DesktopPackageFileSnapshotRef = {
 
 export type DesktopPackageFileChangeEvent = {
   projectRoot: string;
+  canvasId?: string | null;
   paths: string[];
   triggeredAt: string;
 };

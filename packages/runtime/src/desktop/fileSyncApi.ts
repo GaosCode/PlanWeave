@@ -3,9 +3,11 @@ import {
   detectPackageFileChanges as detectRuntimePackageFileChanges,
   refreshChangedPackagePrompts as refreshRuntimeChangedPackagePrompts
 } from "../package/fileChanges.js";
+import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type {
   CompiledExecutionGraph,
   FileFingerprint,
+  PackageWorkspaceRef,
   PackageFileSnapshot
 } from "../types.js";
 import type { DesktopPackageFileSnapshotRef, DesktopPackageFileSyncResult } from "./types.js";
@@ -52,6 +54,10 @@ function dirtyPromptRefs(previous: PackageFileSnapshot, next: PackageFileSnapsho
   );
 }
 
+async function snapshotKey(projectRoot: PackageWorkspaceRef): Promise<string> {
+  return (await resolvePackageWorkspace(projectRoot)).workspaceRoot;
+}
+
 function snapshotRef(projectRoot: string, snapshot: PackageFileSnapshot): DesktopPackageFileSnapshotRef {
   const snapshotId = nextSnapshotId();
   snapshotsById.set(snapshotId, snapshot);
@@ -63,9 +69,9 @@ function snapshotRef(projectRoot: string, snapshot: PackageFileSnapshot): Deskto
   };
 }
 
-function previousSnapshot(projectRoot: string, snapshotId?: string | null): PackageFileSnapshot | null {
+function previousSnapshot(projectKey: string, snapshotId?: string | null): PackageFileSnapshot | null {
   if (!snapshotId) {
-    return snapshots.get(projectRoot) ?? null;
+    return snapshots.get(projectKey) ?? null;
   }
   const snapshot = snapshotsById.get(snapshotId);
   if (!snapshot) {
@@ -93,18 +99,21 @@ function syncResult(options: {
   };
 }
 
-export async function createDesktopPackageFileSnapshot(projectRoot: string): Promise<DesktopPackageFileSnapshotRef> {
+export async function createDesktopPackageFileSnapshot(projectRoot: PackageWorkspaceRef): Promise<DesktopPackageFileSnapshotRef> {
+  const projectKey = await snapshotKey(projectRoot);
+  const displayProjectRoot = typeof projectRoot === "string" ? projectRoot : projectRoot.rootPath;
   const snapshot = await createRuntimePackageFileSnapshot(projectRoot);
-  snapshots.set(projectRoot, snapshot);
-  dirtyRefsByProject.set(projectRoot, []);
-  return snapshotRef(projectRoot, snapshot);
+  snapshots.set(projectKey, snapshot);
+  dirtyRefsByProject.set(projectKey, []);
+  return snapshotRef(displayProjectRoot, snapshot);
 }
 
 export async function detectDesktopPackageFileChanges(
-  projectRoot: string,
+  projectRoot: PackageWorkspaceRef,
   snapshotId?: string | null
 ): Promise<DesktopPackageFileSyncResult> {
-  const previous = previousSnapshot(projectRoot, snapshotId);
+  const projectKey = await snapshotKey(projectRoot);
+  const previous = previousSnapshot(projectKey, snapshotId);
   if (!previous) {
     await createDesktopPackageFileSnapshot(projectRoot);
     return {
@@ -125,15 +134,16 @@ export async function detectDesktopPackageFileChanges(
     affectedTasks: result.impact.affectedTasks,
     diagnostics: result.impact.diagnostics
   });
-  dirtyRefsByProject.set(projectRoot, detected.dirtyPromptRefs);
+  dirtyRefsByProject.set(projectKey, detected.dirtyPromptRefs);
   return detected;
 }
 
 export async function refreshChangedDesktopPackagePrompts(
-  projectRoot: string,
+  projectRoot: PackageWorkspaceRef,
   snapshotId?: string | null
 ): Promise<DesktopPackageFileSyncResult> {
-  const previous = previousSnapshot(projectRoot, snapshotId);
+  const projectKey = await snapshotKey(projectRoot);
+  const previous = previousSnapshot(projectKey, snapshotId);
   if (!previous) {
     await createDesktopPackageFileSnapshot(projectRoot);
     return {
@@ -155,11 +165,11 @@ export async function refreshChangedDesktopPackagePrompts(
       affectedTasks: result.impact.affectedTasks,
       diagnostics: result.impact.diagnostics
     });
-    dirtyRefsByProject.set(projectRoot, failed.dirtyPromptRefs);
+    dirtyRefsByProject.set(projectKey, failed.dirtyPromptRefs);
     return failed;
   }
-  snapshots.set(projectRoot, result.snapshot);
-  snapshotRef(projectRoot, result.snapshot);
+  snapshots.set(projectKey, result.snapshot);
+  snapshotRef(projectKey, result.snapshot);
   const refreshed = syncResult({
     previous,
     next: result.snapshot,
@@ -168,12 +178,13 @@ export async function refreshChangedDesktopPackagePrompts(
     affectedTasks: result.impact.affectedTasks,
     diagnostics: result.impact.diagnostics
   });
-  dirtyRefsByProject.set(projectRoot, refreshed.dirtyPromptRefs);
+  dirtyRefsByProject.set(projectKey, refreshed.dirtyPromptRefs);
   return refreshed;
 }
 
-export async function refreshPackageFileChanges(projectRoot: string): Promise<DesktopPackageFileSyncResult> {
-  const previous = snapshots.get(projectRoot);
+export async function refreshPackageFileChanges(projectRoot: PackageWorkspaceRef): Promise<DesktopPackageFileSyncResult> {
+  const projectKey = await snapshotKey(projectRoot);
+  const previous = snapshots.get(projectKey);
   if (!previous) {
     await createDesktopPackageFileSnapshot(projectRoot);
     return {
@@ -188,7 +199,7 @@ export async function refreshPackageFileChanges(projectRoot: string): Promise<De
 
   const result = await refreshRuntimeChangedPackagePrompts(projectRoot, previous);
   if (!result.snapshot) {
-    dirtyRefsByProject.set(projectRoot, []);
+    dirtyRefsByProject.set(projectKey, []);
     return {
       ok: result.impact.ok,
       primed: false,
@@ -198,10 +209,10 @@ export async function refreshPackageFileChanges(projectRoot: string): Promise<De
       diagnostics: result.impact.diagnostics
     };
   }
-  snapshots.set(projectRoot, result.snapshot);
-  snapshotRef(projectRoot, result.snapshot);
+  snapshots.set(projectKey, result.snapshot);
+  snapshotRef(projectKey, result.snapshot);
   const dirtyPromptRefsForResult = dirtyPromptRefs(previous, result.snapshot);
-  dirtyRefsByProject.set(projectRoot, dirtyPromptRefsForResult);
+  dirtyRefsByProject.set(projectKey, dirtyPromptRefsForResult);
   return {
     ok: result.impact.ok,
     primed: false,
@@ -212,6 +223,6 @@ export async function refreshPackageFileChanges(projectRoot: string): Promise<De
   };
 }
 
-export async function getDirtyPromptRefs(projectRoot: string): Promise<string[]> {
-  return dirtyRefsByProject.get(projectRoot) ?? [];
+export async function getDirtyPromptRefs(projectRoot: PackageWorkspaceRef): Promise<string[]> {
+  return dirtyRefsByProject.get(await snapshotKey(projectRoot)) ?? [];
 }
