@@ -13,7 +13,7 @@ describe("desktop renderer workflow wiring", () => {
     ]);
 
     expect(smokeSource).toContain("async function runRendererManualSmoke");
-    expect(smokeSource).toContain('await clickByText("新建任务图版")');
+    expect(smokeSource).toContain('await clickByText("新建任务画布")');
     expect(smokeSource).toContain('await clickByText("生成 Draft")');
     expect(smokeSource).toContain('await clickByText("确认写入")');
     expect(smokeSource).toContain('await clickByText("统计")');
@@ -33,14 +33,19 @@ describe("desktop renderer workflow wiring", () => {
     expect(mainSource).toContain('app.setPath("userData", process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR)');
   });
 
-  it("expands the selected project into task panels without adding bridge APIs", async () => {
+  it("expands the selected project into a task canvas and task rows", async () => {
     const [sidebarSource, taskNodeSource] = await Promise.all([
       readFile(resolve(sourceDir, "renderer", "sidebar", "ProjectSidebar.tsx"), "utf8"),
       readFile(resolve(sourceDir, "renderer", "graph", "TaskNodeCard.tsx"), "utf8")
     ]);
 
     expect(sidebarSource).toContain("graph.tasks.map((task)");
+    expect(sidebarSource).toContain('t("taskCanvas")');
+    expect(sidebarSource).toContain("handleTaskPanelSelect(null)");
     expect(sidebarSource).toContain("handleTaskPanelSelect(task.taskId)");
+    expect(sidebarSource).toContain("handleDeleteTaskCanvas(project)");
+    expect(sidebarSource).toContain("handleDeleteTaskNode(task.taskId)");
+    expect(sidebarSource).toContain("handleDeleteProject(project)");
     expect(sidebarSource).not.toContain("task.blocks.map((block)");
     expect(sidebarSource).not.toContain("handleBlockSelect(block.ref)");
     expect(taskNodeSource).toContain("task.blocks.map((block)");
@@ -105,10 +110,11 @@ describe("desktop renderer workflow wiring", () => {
   });
 
   it("opens settings as a full-page surface with focused settings sections", async () => {
-    const [appSource, settingsSource, workspaceSource] = await Promise.all([
+    const [appSource, settingsSource, workspaceSource, detectedAgentsHookSource] = await Promise.all([
       readFile(resolve(sourceDir, "renderer", "App.tsx"), "utf8"),
       readFile(resolve(sourceDir, "renderer", "views", "SettingsView.tsx"), "utf8"),
-      readFile(resolve(sourceDir, "renderer", "views", "WorkspaceTabs.tsx"), "utf8")
+      readFile(resolve(sourceDir, "renderer", "views", "WorkspaceTabs.tsx"), "utf8"),
+      readFile(resolve(sourceDir, "renderer", "hooks", "useDetectedAgents.ts"), "utf8")
     ]);
 
     expect(appSource).toContain('if (activeView === "settings")');
@@ -120,7 +126,8 @@ describe("desktop renderer workflow wiring", () => {
     expect(settingsSource).toContain('t("settingsAgents")');
     expect(settingsSource).toContain("<SettingsSwitchRow");
     expect(settingsSource).toContain("<AgentSettingsPanel");
-    expect(settingsSource).toContain("bridge.detectAgentTools()");
+    expect(appSource).toContain("useDetectedAgents()");
+    expect(detectedAgentsHookSource).toContain("bridge.detectAgentTools()");
     expect(settingsSource).not.toContain("<Select");
     expect(settingsSource).not.toContain("<ReviewPipelineView");
     expect(workspaceSource).not.toContain("SettingsView");
@@ -192,12 +199,11 @@ describe("desktop renderer workflow wiring", () => {
   });
 
   it("loads lightweight block execution records when a block is selected", async () => {
-    const [blockHookSource, previewSource, inspectorSource, connectionsSource, zoomSource] = await Promise.all([
+    const [blockHookSource, previewSource, inspectorSource, connectionsSource] = await Promise.all([
       readFile(resolve(sourceDir, "renderer", "hooks", "useSelectedBlock.ts"), "utf8"),
       readFile(resolve(sourceDir, "renderer", "graph", "BlockPreviewButton.tsx"), "utf8"),
       readFile(resolve(sourceDir, "renderer", "inspector", "BlockInspector.tsx"), "utf8"),
-      readFile(resolve(sourceDir, "renderer", "inspector", "BlockConnectionsCard.tsx"), "utf8"),
-      readFile(resolve(sourceDir, "renderer", "inspector", "BlockInspectorZoomControls.tsx"), "utf8")
+      readFile(resolve(sourceDir, "renderer", "inspector", "BlockConnectionsCard.tsx"), "utf8")
     ]);
 
     expect(blockHookSource).toContain("bridge.listBlockRunRecords(selectedProject.rootPath, ref)");
@@ -206,14 +212,17 @@ describe("desktop renderer workflow wiring", () => {
     expect(previewSource).toContain("ContextMenuTrigger asChild");
     expect(previewSource).toContain("labels.deleteBlock");
     expect(connectionsSource).toContain("Block 连接");
-    expect(inspectorSource).toContain("resizeHandlers");
-    expect(zoomSource).toContain("ZoomInIcon");
+    expect(connectionsSource).toContain("onBlockSelect(block.ref)");
+    expect(inspectorSource).not.toContain("resizeHandlers");
+    expect(inspectorSource).not.toContain("ZoomInIcon");
   });
 
-  it("edits block details from the unified floating block inspector", async () => {
-    const [previewSource, appSource, deleteHookSource, taskNodeSource] = await Promise.all([
+  it("edits block details from a native block inspector window", async () => {
+    const [previewSource, appSource, windowSource, mainWindowSource, deleteHookSource, taskNodeSource] = await Promise.all([
       readFile(resolve(sourceDir, "renderer", "graph", "BlockPreviewButton.tsx"), "utf8"),
       readFile(resolve(sourceDir, "renderer", "App.tsx"), "utf8"),
+      readFile(resolve(sourceDir, "renderer", "BlockInspectorWindow.tsx"), "utf8"),
+      readFile(resolve(sourceDir, "main", "blockInspectorWindow.ts"), "utf8"),
       readFile(resolve(sourceDir, "renderer", "hooks", "useGraphDeleteActions.ts"), "utf8"),
       readFile(resolve(sourceDir, "renderer", "graph", "TaskNodeCard.tsx"), "utf8")
     ]);
@@ -222,6 +231,11 @@ describe("desktop renderer workflow wiring", () => {
     expect(previewSource).toContain("onSelect(block.ref)");
     expect(previewSource).not.toContain("<PopoverTrigger asChild>");
     expect(appSource).toContain("handleOpenBlockInspector");
+    expect(appSource).toContain("bridge.openBlockInspectorWindow");
+    expect(appSource).not.toContain("<BlockInspector");
+    expect(windowSource).toContain("<BlockInspector");
+    expect(mainWindowSource).toContain("new BrowserWindow");
+    expect(mainWindowSource).toContain('window: "block-inspector"');
     expect(deleteHookSource).toContain("bridge.removeTaskNode");
     expect(deleteHookSource).toContain("bridge.removeBlock");
     expect(taskNodeSource).toContain("labels.deleteTask");

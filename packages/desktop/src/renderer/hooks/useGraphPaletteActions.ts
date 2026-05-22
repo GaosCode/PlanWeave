@@ -45,11 +45,12 @@ export function useGraphPaletteActions({
 }: UseGraphPaletteActionsArgs) {
   const handleNodeDragStop = useCallback(
     async (_event: React.MouseEvent, node: Node) => {
-      if (!bridge || !selectedProject || !layout) {
+      if (!bridge || !selectedProject) {
         return;
       }
+      const baseLayout = layout ?? (await bridge.getDesktopLayout(selectedProject.rootPath));
       const nextLayout: DesktopLayout = {
-        ...layout,
+        ...baseLayout,
         nodes: nodes.map((item) => ({
           nodeId: item.id,
           x: item.id === node.id ? node.position.x : item.position.x,

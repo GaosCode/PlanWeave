@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
-import type { CSSProperties, Dispatch, PointerEvent, SetStateAction } from "react";
+import { useMemo } from "react";
+import type { CSSProperties, Dispatch, SetStateAction } from "react";
 import type { DesktopBlockDetail, DesktopBlockRunRecordSummary, DesktopFeedbackRecord, DesktopGraphViewModel, DesktopReviewAttemptSummary, DesktopRunRecord } from "@planweave/runtime";
-import { GripIcon } from "lucide-react";
+import { XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -13,7 +13,6 @@ import { cn } from "@/lib/utils";
 import type { createTranslator } from "../i18n";
 import { statusVariant } from "../viewHelpers";
 import { BlockConnectionsCard } from "./BlockConnectionsCard";
-import { BlockInspectorZoomControls } from "./BlockInspectorZoomControls";
 import { BlockRunRecordCard } from "./BlockRunRecordCard";
 
 type BlockInspectorProps = {
@@ -21,21 +20,11 @@ type BlockInspectorProps = {
   blockReviewAttempts: DesktopReviewAttemptSummary[];
   blockRunRecords: DesktopBlockRunRecordSummary[];
   className?: string;
-  dragHandlers?: {
-    onPointerCancel: (event: PointerEvent<HTMLDivElement>) => void;
-    onPointerDown: (event: PointerEvent<HTMLDivElement>) => void;
-    onPointerMove: (event: PointerEvent<HTMLDivElement>) => void;
-    onPointerUp: (event: PointerEvent<HTMLDivElement>) => void;
-  };
-  resizeHandlers?: {
-    onPointerCancel: (event: PointerEvent<HTMLDivElement>) => void;
-    onPointerDown: (event: PointerEvent<HTMLDivElement>) => void;
-    onPointerMove: (event: PointerEvent<HTMLDivElement>) => void;
-    onPointerUp: (event: PointerEvent<HTMLDivElement>) => void;
-  };
   error: string | null;
+  executorOptions: string[];
   graph: DesktopGraphViewModel | null;
   handleOpenRunRecord: (recordId: string | null | undefined) => Promise<void>;
+  onBlockSelect: (ref: string) => Promise<void>;
   onClose: () => void;
   saveSelectedBlockExecutor: (executorName: string | null) => Promise<void>;
   saveSelectedBlockPrompt: () => Promise<void>;
@@ -53,17 +42,17 @@ export function BlockInspector({
   blockReviewAttempts,
   blockRunRecords,
   className,
-  dragHandlers,
   error,
+  executorOptions,
   graph,
   handleOpenRunRecord,
+  onBlockSelect,
   onClose,
   saveSelectedBlockExecutor,
   saveSelectedBlockPrompt,
   saveSelectedBlockTitle,
   selectedBlock,
   selectedRunRecord,
-  resizeHandlers,
   setSelectedBlock,
   setSelectedRunRecord,
   style,
@@ -72,7 +61,7 @@ export function BlockInspector({
   const latestBlockRun = blockRunRecords[0];
   const latestReviewAttempt = blockReviewAttempts[0];
   const latestFeedbackRecord = blockFeedbackRecords[0];
-  const [zoom, setZoom] = useState(1);
+  const selectedExecutor = selectedBlock?.executor && executorOptions.includes(selectedBlock.executor) ? selectedBlock.executor : "__inherit";
   const taskBlocks = useMemo(() => {
     if (!graph || !selectedBlock) {
       return [];
@@ -85,11 +74,13 @@ export function BlockInspector({
   }
 
   return (
-    <Card className={cn("absolute flex min-h-[420px] min-w-[380px] flex-col overflow-hidden bg-background shadow-xl", className)} size="sm" style={style}>
-      <CardHeader className="cursor-move border-b" {...dragHandlers}>
+    <Card className={cn("flex min-h-[420px] min-w-[380px] flex-col overflow-hidden bg-background shadow-xl", className)} size="sm" style={style}>
+      <CardHeader className="border-b">
         <CardTitle>{selectedRunRecord ? t("runRecordDetail") : t("selectedBlock")}</CardTitle>
         <CardAction className="flex items-center gap-1">
-          <BlockInspectorZoomControls onClose={onClose} setZoom={setZoom} t={t} zoom={zoom} />
+          <Button size="icon-sm" variant="ghost" aria-label={t("close")} onClick={onClose}>
+            <XIcon data-icon="inline-start" />
+          </Button>
         </CardAction>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
@@ -97,7 +88,7 @@ export function BlockInspector({
           <BlockRunRecordCard selectedRunRecord={selectedRunRecord} setSelectedRunRecord={setSelectedRunRecord} t={t} />
         ) : null}
         {selectedBlock ? (
-          <div className="flex min-h-0 flex-1 origin-top-left flex-col gap-3" style={{ transform: `scale(${zoom})`, transformOrigin: "top left", width: `${100 / zoom}%` }}>
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
               <Input
                 aria-label={t("title")}
@@ -110,14 +101,14 @@ export function BlockInspector({
             </div>
             <div className="flex flex-col gap-1">
               <div className="text-xs font-medium text-muted-foreground">{t("agent")}</div>
-              <Select value={selectedBlock.executor ?? "__inherit"} onValueChange={(value) => void saveSelectedBlockExecutor(value === "__inherit" ? null : value)}>
+              <Select value={selectedExecutor} onValueChange={(value) => void saveSelectedBlockExecutor(value === "__inherit" ? null : value)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
                     <SelectItem value="__inherit">{t("inheritExecutor")}</SelectItem>
-                    {graph?.executorOptions.map((executor) => (
+                    {executorOptions.map((executor) => (
                       <SelectItem value={executor} key={executor}>
                         {executor}
                       </SelectItem>
@@ -125,16 +116,11 @@ export function BlockInspector({
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <div className="text-xs text-muted-foreground">
-                {t("effectiveExecutor")}: {selectedBlock.effectiveExecutor ?? t("manualExecutor")}
-              </div>
             </div>
-            <Card size="sm">
-              <CardHeader>
-                <CardTitle className="text-sm">{t("blockExecutionSummary")}</CardTitle>
-                <CardDescription>{selectedBlock.ref}</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-2 text-xs">
+            <div className="shrink-0 rounded-lg border bg-card p-3 text-xs">
+              <div className="text-sm font-semibold">{t("blockExecutionSummary")}</div>
+              <div className="mt-1 text-muted-foreground">{selectedBlock.ref}</div>
+              <div className="mt-3 flex flex-col gap-2">
                 {latestBlockRun ? (
                   <button className="flex items-center justify-between gap-2 rounded-md border p-2 text-left hover:bg-muted/50" type="button" onClick={() => void handleOpenRunRecord(latestBlockRun.recordId)}>
                     <span className="min-w-0 truncate">
@@ -153,7 +139,7 @@ export function BlockInspector({
                       <span className="font-medium">{t("latestReviewAttempt")}</span>
                       <Badge variant={latestReviewAttempt.verdict === "passed" ? "secondary" : "outline"}>{latestReviewAttempt.verdict ?? "-"}</Badge>
                     </div>
-                    <div className="line-clamp-2 text-muted-foreground">{latestReviewAttempt.contentPreview}</div>
+                    <div className="max-h-40 overflow-auto whitespace-pre-wrap text-muted-foreground">{latestReviewAttempt.contentPreview}</div>
                   </div>
                 ) : null}
                 {latestFeedbackRecord ? (
@@ -162,14 +148,14 @@ export function BlockInspector({
                       <span className="font-medium">{t("feedbackMarker")}</span>
                       <Badge variant={latestFeedbackRecord.status === "resolved" ? "secondary" : "destructive"}>{latestFeedbackRecord.status}</Badge>
                     </div>
-                    <div className="line-clamp-2 text-muted-foreground">{latestFeedbackRecord.content}</div>
+                    <div className="max-h-40 overflow-auto whitespace-pre-wrap text-muted-foreground">{latestFeedbackRecord.content}</div>
                   </div>
                 ) : null}
                 {selectedBlock.exceptionReason ? <div className="rounded-md border border-destructive p-2 text-destructive">{selectedBlock.exceptionReason}</div> : null}
-              </CardContent>
-            </Card>
-            <BlockConnectionsCard blocks={taskBlocks} dependencies={selectedBlock.dependencies} selectedBlockRef={selectedBlock.ref} />
-            <Textarea className="h-56 resize-none" value={selectedBlock.promptMarkdown} onChange={(event) => setSelectedBlock({ ...selectedBlock, promptMarkdown: event.target.value })} />
+              </div>
+            </div>
+            <BlockConnectionsCard blocks={taskBlocks} dependencies={selectedBlock.dependencies} selectedBlockRef={selectedBlock.ref} onBlockSelect={onBlockSelect} />
+            <Textarea className="min-h-56 flex-1 resize-none" value={selectedBlock.promptMarkdown} onChange={(event) => setSelectedBlock({ ...selectedBlock, promptMarkdown: event.target.value })} />
           </div>
         ) : (
           <div className="text-sm text-muted-foreground">{t("blocks")}</div>
@@ -190,9 +176,6 @@ export function BlockInspector({
           </Button>
         </CardFooter>
       ) : null}
-      <div className="absolute bottom-1 right-1 flex h-5 w-5 cursor-nwse-resize items-center justify-center rounded-sm text-muted-foreground hover:bg-muted" aria-label="调整 Block 面板大小" role="separator" {...resizeHandlers}>
-        <GripIcon className="h-4 w-4" />
-      </div>
     </Card>
   );
 }

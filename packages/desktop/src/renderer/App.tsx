@@ -6,12 +6,11 @@ import { Button } from "@/components/ui/button";
 import { bridge } from "./bridge";
 import { ComponentPalette } from "./palette/ComponentPalette";
 import { WindowTitleBar } from "./components/WindowTitleBar";
-import { BlockInspector } from "./inspector/BlockInspector";
 import { nodeTypes, graphEdges, graphNodes } from "./graph/flowModel";
 import { createTranslator } from "./i18n";
 import { ProjectSidebar } from "./sidebar/ProjectSidebar";
 import { buildNotificationItems } from "./notifications";
-import { loadDesktopSettings } from "./settings";
+import { loadDesktopSettings, mergeDesktopSettings } from "./settings";
 import type { AppFlowNode, AppView, DesktopUiSettings } from "./types";
 import { WorkspaceTabs } from "./views/WorkspaceTabs";
 import { useReviewPipeline } from "./hooks/useReviewPipeline";
@@ -22,12 +21,12 @@ import { useSelectedBlock } from "./hooks/useSelectedBlock";
 import { useDesktopSearch } from "./hooks/useDesktopSearch";
 import { useTaskDraft } from "./hooks/useTaskDraft";
 import { useDesktopProject } from "./hooks/useDesktopProject";
-import { useDraggablePanel } from "./hooks/useDraggablePanel";
 import { usePromptDrafts } from "./hooks/usePromptDrafts";
 import { useAppViewHistory } from "./hooks/useAppViewHistory";
 import { useGraphDeleteActions } from "./hooks/useGraphDeleteActions";
 import { useDesktopSettingsEffects } from "./hooks/useDesktopSettingsEffects";
 import { useVisibleGraphTasks } from "./hooks/useVisibleGraphTasks";
+import { useDetectedAgents } from "./hooks/useDetectedAgents";
 import { SettingsView } from "./views/SettingsView";
 import { HistoryNavigationButtons } from "./components/HistoryNavigationButtons";
 
@@ -38,7 +37,8 @@ export function App() {
   const [activeView, setActiveView] = useAppViewHistory("graph");
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
-  const [blockInspectorOpen, setBlockInspectorOpen] = useState(false);
+  const [, setBlockInspectorOpen] = useState(false);
+  const { agentDetections, executorOptions } = useDetectedAgents();
   const [selectedTaskPanelId, setSelectedTaskPanelId] = useState<string | null>(null);
   const [selectedContextNodeId, setSelectedContextNodeId] = useState<string | null>(null);
   const [, setProjectPath] = useState(settings.runtimePath);
@@ -49,50 +49,9 @@ export function App() {
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<AppFlowNode, Edge> | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<AppFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const {
-    dragHandlers: blockInspectorDragHandlers,
-    panelStyle: blockInspectorStyle,
-    resizeHandlers: blockInspectorResizeHandlers
-  } = useDraggablePanel(
-    { left: 560, top: 116 },
-    { width: 520, height: 620, maxHeight: 820, maxWidth: 760, minHeight: 420, minTop: 56, minWidth: 380, viewportHeightOffset: 44 }
-  );
 
   const updateSettings = useCallback((patch: Partial<DesktopUiSettings>) => {
-    setSettings((current) => ({
-      ...current,
-      ...patch,
-      notifications: {
-        ...current.notifications,
-        ...patch.notifications
-      },
-      review: {
-        ...current.review,
-        ...patch.review
-      },
-      palette: {
-        ...current.palette,
-        ...patch.palette,
-        visible: {
-          ...current.palette.visible,
-          ...patch.palette?.visible
-        }
-      },
-      agents: {
-        codex: {
-          ...current.agents.codex,
-          ...patch.agents?.codex
-        },
-        "claude-code": {
-          ...current.agents["claude-code"],
-          ...patch.agents?.["claude-code"]
-        },
-        opencode: {
-          ...current.agents.opencode,
-          ...patch.agents?.opencode
-        }
-      }
-    }));
+    setSettings((current) => mergeDesktopSettings(current, patch));
   }, []);
 
   useDesktopSettingsEffects(settings);
@@ -105,6 +64,7 @@ export function App() {
     loadProject,
     projects,
     refreshGraph,
+    removeProject,
     selectedProject,
     setLayout,
     statistics,
@@ -127,7 +87,6 @@ export function App() {
     saveSelectedBlockPrompt,
     saveSelectedBlockTitle,
     selectedBlock,
-    selectedRunRecord,
     setSelectedBlock,
     setSelectedRunRecord
   } = useSelectedBlock({
@@ -188,16 +147,22 @@ export function App() {
 
   const handleOpenBlockInspector = useCallback(
     async (ref: string) => {
-      setBlockInspectorOpen(true);
-      await handleBlockSelect(ref);
+      try {
+        await handleBlockSelect(ref);
+        if (!bridge || !selectedProject) {
+          return;
+        }
+        await bridge.openBlockInspectorWindow({
+          blockRef: ref,
+          language,
+          projectRoot: selectedProject.rootPath
+        });
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
     },
-    [handleBlockSelect]
+    [handleBlockSelect, language, selectedProject]
   );
-
-  const closeBlockInspector = useCallback(() => {
-    setBlockInspectorOpen(false);
-    setSelectedRunRecord(null);
-  }, [setSelectedRunRecord]);
 
   const { handleDeleteBlock, handleDeleteTaskNode } = useGraphDeleteActions({
     clearSelectedBlockRecords,
@@ -309,6 +274,44 @@ export function App() {
     [t]
   );
 
+  const handleDeleteProject = useCallback(
+    async (project: DesktopProjectSummary) => {
+      if (!window.confirm(t("deleteProjectConfirm"))) {
+        return;
+      }
+      try {
+        await removeProject(project);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    [removeProject, t]
+  );
+
+  const handleDeleteTaskCanvas = useCallback(
+    async (project: DesktopProjectSummary) => {
+      if (!bridge || !selectedProject || selectedProject.projectId !== project.projectId || !graph) {
+        return;
+      }
+      if (!window.confirm(t("deleteTaskCanvasConfirm"))) {
+        return;
+      }
+      try {
+        for (const task of graph.tasks) {
+          const result = await bridge.removeTaskNode(project.rootPath, task.taskId);
+          if (!result.ok) {
+            setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
+            return;
+          }
+        }
+        await loadProjectWithSelectionReset(project);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    [graph, loadProjectWithSelectionReset, selectedProject, t]
+  );
+
 
   useEffect(() => {
     if (!graph) {
@@ -320,6 +323,7 @@ export function App() {
       graphNodes(
         graph,
         layout,
+        executorOptions,
         titleDrafts,
         promptDrafts,
         saveStates,
@@ -338,12 +342,10 @@ export function App() {
           taskPrompt: t("taskPrompt"),
           title: t("title"),
           agent: t("agent"),
-          effectiveExecutor: t("effectiveExecutor"),
           blockExecutionSummary: t("blockExecutionSummary"),
           latestRun: t("latestRun"),
           latestReviewAttempt: t("latestReviewAttempt"),
           feedbackMarker: t("feedbackMarker"),
-          manualExecutor: t("manualExecutor"),
           deleteTask: t("deleteTask"),
           deleteBlock: t("deleteBlock"),
           deleteTaskConfirm: t("deleteTaskConfirm"),
@@ -373,6 +375,7 @@ export function App() {
     setEdges(graphEdges(graph));
   }, [
     graph,
+    executorOptions,
     blockFeedbackRecords,
     blockReviewAttempts,
     blockRunRecords,
@@ -435,9 +438,6 @@ export function App() {
   });
 
   const { visibleTaskIds, visibleTasks } = useVisibleGraphTasks(graph, searchQuery, selectedTaskPanelId);
-  const latestBlockRun = blockRunRecords[0];
-  const latestReviewAttempt = blockReviewAttempts[0];
-  const latestFeedbackRecord = blockFeedbackRecords[0];
   const notificationItems = buildNotificationItems({
     autoRunState,
     dirtyPromptRefs,
@@ -454,6 +454,7 @@ export function App() {
         <WindowTitleBar t={t} />
         <SettingsView
           graph={graph}
+          agents={agentDetections}
           language={language}
           setActiveView={setActiveView}
           settings={settings}
@@ -474,6 +475,9 @@ export function App() {
           graph={graph}
           handleOpenProject={handleOpenProject}
           handleProjectNewGraph={handleProjectNewGraph}
+          handleDeleteProject={handleDeleteProject}
+          handleDeleteTaskCanvas={handleDeleteTaskCanvas}
+          handleDeleteTaskNode={handleDeleteTaskNode}
           handleRevealProject={handleRevealProject}
           handleTaskPanelSelect={handleTaskPanelSelect}
           loadProject={loadProjectWithSelectionReset}
@@ -566,28 +570,6 @@ export function App() {
             <ComponentPalette addPaletteComponent={addPaletteComponent} handlePaletteDragStart={handlePaletteDragStart} settings={settings} t={t} />
           </aside>
         )}
-        {blockInspectorOpen || selectedRunRecord ? (
-          <BlockInspector
-            blockFeedbackRecords={blockFeedbackRecords}
-            blockReviewAttempts={blockReviewAttempts}
-            blockRunRecords={blockRunRecords}
-            dragHandlers={blockInspectorDragHandlers}
-            error={null}
-            graph={graph}
-            handleOpenRunRecord={handleOpenRunRecord}
-            onClose={closeBlockInspector}
-            saveSelectedBlockExecutor={saveSelectedBlockExecutor}
-            saveSelectedBlockPrompt={saveSelectedBlockPrompt}
-            saveSelectedBlockTitle={saveSelectedBlockTitle}
-            selectedBlock={selectedBlock}
-            selectedRunRecord={selectedRunRecord}
-            resizeHandlers={blockInspectorResizeHandlers}
-            setSelectedBlock={setSelectedBlock}
-            setSelectedRunRecord={setSelectedRunRecord}
-            style={blockInspectorStyle}
-            t={t}
-          />
-        ) : null}
       </main>
       {leftSidebarCollapsed ? (
         <div className="app-drag-region absolute left-0 top-0 z-20 flex h-11 w-[280px] items-center border-b bg-background px-3 pl-[124px]">

@@ -121,6 +121,7 @@ export function GraphView({
           onInit={setFlowInstance}
           proOptions={{ hideAttribution: true }}
           fitView
+          fitViewOptions={{ maxZoom: 1 }}
         >
           <Background />
           <Controls />

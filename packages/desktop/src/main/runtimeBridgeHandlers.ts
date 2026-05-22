@@ -31,6 +31,7 @@ import {
   refreshPackageFileChanges,
   removeBlock,
   removeDependencyEdge,
+  removeProject,
   removeTaskNode,
   resetDesktopLayout,
   resumeAutoRun,
@@ -49,6 +50,7 @@ import {
 } from "@planweave/runtime";
 import type { DesktopAutoRunScope, DesktopGraphEditResult, DesktopLayout, GraphEditResult } from "@planweave/runtime";
 import { detectAgentTools } from "./agentTools.js";
+import { openBlockInspectorWindow } from "./blockInspectorWindow.js";
 
 function cloneableGraphEditResult(result: GraphEditResult): DesktopGraphEditResult {
   const { graph: _graph, ...cloneable } = result;
@@ -74,8 +76,12 @@ export function registerRuntimeBridgeHandlers(): void {
     await shell.openPath(rootPath);
   });
   ipcMain.handle("planweave:detectAgentTools", () => detectAgentTools());
+  ipcMain.handle("planweave:openBlockInspectorWindow", (_event, input: { blockRef: string; language: string; projectRoot: string }) =>
+    openBlockInspectorWindow(input)
+  );
   ipcMain.handle("planweave:openProject", (_event, input: { projectId?: string; rootPath?: string }) => openProject(input));
   ipcMain.handle("planweave:initOrOpenProject", (_event, rootPath: string) => initOrOpenProject(rootPath));
+  ipcMain.handle("planweave:removeProject", (_event, projectId: string) => removeProject(projectId));
   ipcMain.handle("planweave:getProjectOverview", (_event, projectRoot: string) => getProjectOverview(projectRoot));
   ipcMain.handle("planweave:getGraphViewModel", (_event, projectRoot: string) => getGraphViewModel(projectRoot));
   ipcMain.handle("planweave:getTaskDetail", (_event, projectRoot: string, taskId: string) => getTaskDetail(projectRoot, taskId));

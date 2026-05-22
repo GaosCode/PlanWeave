@@ -14,6 +14,7 @@ export type AppNodeTypes = typeof nodeTypes;
 export function graphNodes(
   graph: DesktopGraphViewModel,
   layout: DesktopLayout | null,
+  executorOptions: string[],
   titleDrafts: Record<string, string>,
   promptDrafts: Record<string, string>,
   saveStates: Record<string, TaskNodeData["saveState"]>,
@@ -50,7 +51,7 @@ export function graphNodes(
         titleDraft: titleDrafts[task.taskId] ?? task.title,
         promptDraft: promptDrafts[task.taskId] ?? task.promptMarkdown,
         saveState: saveStates[task.taskId] ?? "idle",
-        executorOptions: graph.executorOptions,
+        executorOptions,
         labels,
         selectedBlock,
         blockRunRecords,

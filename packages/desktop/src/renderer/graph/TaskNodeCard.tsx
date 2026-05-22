@@ -31,13 +31,14 @@ export function TaskNodeCard({ data }: NodeProps<TaskFlowNode>) {
     onBlockDelete
   } = data;
   const hasException = task.exceptions.length > 0;
+  const selectedExecutor = task.executor && executorOptions.includes(task.executor) ? task.executor : "__inherit";
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <Card className="h-auto min-h-[260px] w-[360px] border bg-card shadow-sm" size="sm">
+        <Card className="h-auto min-h-[220px] w-[320px] border bg-card shadow-sm" size="sm">
           <Handle type="target" position={Position.Left} />
-          <CardHeader className="min-h-14">
+          <CardHeader className="min-h-12">
             <CardTitle className="flex min-w-0 items-center justify-between gap-2">
               <Input
                 aria-label={`${task.taskId} title`}
@@ -52,8 +53,8 @@ export function TaskNodeCard({ data }: NodeProps<TaskFlowNode>) {
               </Badge>
             </CardTitle>
             <CardDescription className="flex items-center gap-2">
-              <Select value={task.executor ?? "__inherit"} onValueChange={(value) => onExecutorChange(task.taskId, value === "__inherit" ? null : value)}>
-                <SelectTrigger className="h-7 w-32">
+              <Select value={selectedExecutor} onValueChange={(value) => onExecutorChange(task.taskId, value === "__inherit" ? null : value)}>
+                <SelectTrigger className="h-7 w-28">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -67,7 +68,6 @@ export function TaskNodeCard({ data }: NodeProps<TaskFlowNode>) {
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <span className="inline-flex h-7 shrink-0 items-center rounded-md border bg-background px-2 text-xs font-medium">{task.executorLabel}</span>
             </CardDescription>
             <CardAction>
               {hasException ? (
@@ -95,12 +95,12 @@ export function TaskNodeCard({ data }: NodeProps<TaskFlowNode>) {
               ) : null}
             </CardAction>
           </CardHeader>
-          <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
+          <CardContent className="flex min-h-0 flex-1 flex-col gap-2.5">
             <div className="flex flex-col gap-1">
               <div className="text-xs font-medium text-muted-foreground">{labels.taskPrompt}</div>
               <Textarea
                 aria-label={`${task.taskId} prompt`}
-                className="h-20 resize-none"
+                className="h-16 resize-none"
                 value={promptDraft}
                 onChange={(event) => onPromptChange(task.taskId, event.target.value)}
                 onBlur={() => onPromptSave(task.taskId)}

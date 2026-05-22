@@ -59,8 +59,10 @@ export type DesktopBridgeApi = {
   chooseProjectFolder(): Promise<string | null>;
   revealProjectInFinder(rootPath: string): Promise<void>;
   detectAgentTools(): Promise<DesktopAgentDetection[]>;
+  openBlockInspectorWindow(input: { blockRef: string; language: string; projectRoot: string }): Promise<void>;
   openProject(input: { projectId?: string; rootPath?: string }): Promise<DesktopProjectSummary>;
   initOrOpenProject(rootPath: string): Promise<DesktopProjectSummary>;
+  removeProject(projectId: string): Promise<void>;
   getProjectOverview(projectRoot: string): Promise<DesktopProjectSummary>;
   getGraphViewModel(projectRoot: string): Promise<DesktopGraphViewModel>;
   getTaskDetail(projectRoot: string, taskId: string): Promise<DesktopTaskDetail>;
