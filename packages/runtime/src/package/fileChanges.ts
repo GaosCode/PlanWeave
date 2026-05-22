@@ -5,7 +5,7 @@ import { compilePackageGraph } from "../graph/compileTaskGraph.js";
 import { affectedTasksForPackageFileChange, type PackageChangeImpact } from "../graph/editGraph.js";
 import { loadPackage } from "./loadPackage.js";
 import { refreshPrompts } from "../prompt/refreshPrompts.js";
-import type { CompiledTaskGraph, FileFingerprint, PackageFileSnapshot, PlanPackageManifest, PromptSurface } from "../types.js";
+import type { CompiledTaskGraph, FileFingerprint, PackageFileSnapshot, PackageWorkspaceRef, PlanPackageManifest, PromptSurface } from "../types.js";
 
 export type PackageFileSyncResult = {
   snapshot: PackageFileSnapshot | null;
@@ -72,7 +72,7 @@ function affectedTasksForPromptPaths(graph: CompiledTaskGraph, paths: string[]):
   return [...affected];
 }
 
-export async function createPackageFileSnapshot(projectRoot: string): Promise<PackageFileSnapshot> {
+export async function createPackageFileSnapshot(projectRoot: PackageWorkspaceRef): Promise<PackageFileSnapshot> {
   const { workspace, manifest } = await loadPackage(projectRoot);
   return {
     manifest,
@@ -83,7 +83,7 @@ export async function createPackageFileSnapshot(projectRoot: string): Promise<Pa
 }
 
 export async function detectPackageFileChanges(
-  projectRoot: string,
+  projectRoot: PackageWorkspaceRef,
   previous: PackageFileSnapshot
 ): Promise<{ snapshot: PackageFileSnapshot | null; impact: PackageChangeImpact }> {
   try {
@@ -135,7 +135,7 @@ export async function detectPackageFileChanges(
 }
 
 export async function refreshChangedPackagePrompts(
-  projectRoot: string,
+  projectRoot: PackageWorkspaceRef,
   previous: PackageFileSnapshot
 ): Promise<PackageFileSyncResult> {
   const detected = await detectPackageFileChanges(projectRoot, previous);

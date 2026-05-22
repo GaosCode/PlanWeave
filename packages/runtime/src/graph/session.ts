@@ -1,14 +1,14 @@
 import { compilePackageGraph } from "./compileTaskGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { createPackageFileSnapshot } from "../package/fileChanges.js";
-import type { DrainGraphReadQueueResult, ExecutionGraphSession, GraphEditOperation, PackageFileChange, ValidationIssue } from "../types.js";
+import type { DrainGraphReadQueueResult, ExecutionGraphSession, GraphEditOperation, PackageFileChange, PackageWorkspaceRef, ValidationIssue } from "../types.js";
 import { applyGraphEditOperation } from "./session/applyOperation.js";
 import { dedupeFileChanges, normalizePackagePath, promptPathToRefs } from "./session/fileQueue.js";
 import { alignGraphOrder, rebuildEdgeIndexes, refreshReachability } from "./session/graphIndexes.js";
 import { diffManifestToGraphOps } from "./session/manifestDiff.js";
 import { readManifest, rebuildSessionFromPackage } from "./session/rebuild.js";
 
-export async function createExecutionGraphSession(projectRoot: string): Promise<ExecutionGraphSession> {
+export async function createExecutionGraphSession(projectRoot: PackageWorkspaceRef): Promise<ExecutionGraphSession> {
   const { workspace, manifest } = await loadPackage(projectRoot);
   const graph = await compilePackageGraph(manifest, workspace.packageDir);
   return {

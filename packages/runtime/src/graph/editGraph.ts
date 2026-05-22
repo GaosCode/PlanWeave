@@ -10,6 +10,7 @@ import type {
   GraphEditResult,
   ManifestEdge,
   ManifestNode,
+  PackageWorkspaceRef,
   PlanPackageManifest,
   ValidationIssue
 } from "../types.js";
@@ -51,7 +52,7 @@ function result(manifest: PlanPackageManifest, affectedTasks: string[], diagnost
   };
 }
 
-async function writeManifest(projectRoot: string, manifest: PlanPackageManifest): Promise<void> {
+async function writeManifest(projectRoot: PackageWorkspaceRef, manifest: PlanPackageManifest): Promise<void> {
   const diagnostics = validateForWrite(manifest);
   if (diagnostics.length > 0) {
     throw new Error(diagnostics.map((item) => `${item.code}: ${item.message}`).join("; "));
@@ -151,7 +152,7 @@ function affectedTaskIdsForManifestChange(
 }
 
 export async function addNode(options: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   node: ManifestNode;
   promptMarkdown?: string;
 }): Promise<GraphEditResult> {
@@ -173,7 +174,7 @@ export async function addNode(options: {
   return result(next, options.node.type === "task" ? [options.node.id] : []);
 }
 
-export async function updateNode(options: { projectRoot: string; node: ManifestNode }): Promise<GraphEditResult> {
+export async function updateNode(options: { projectRoot: PackageWorkspaceRef; node: ManifestNode }): Promise<GraphEditResult> {
   const { manifest } = await loadPackage(options.projectRoot);
   if (!manifest.nodes.some((node) => node.id === options.node.id)) {
     return result(manifest, [], [issue("node_missing", `Node '${options.node.id}' does not exist.`, "nodes")]);
@@ -188,7 +189,7 @@ export async function updateNode(options: { projectRoot: string; node: ManifestN
 }
 
 export async function removeNode(options: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   nodeId: string;
   removePrompt?: boolean;
 }): Promise<GraphEditResult> {
@@ -213,7 +214,7 @@ export async function removeNode(options: {
   return result(next, node.type === "task" ? [node.id] : affectedTaskIdsForNode(manifest, node.id));
 }
 
-export async function addEdge(options: { projectRoot: string; edge: ManifestEdge }): Promise<GraphEditResult> {
+export async function addEdge(options: { projectRoot: PackageWorkspaceRef; edge: ManifestEdge }): Promise<GraphEditResult> {
   const { manifest } = await loadPackage(options.projectRoot);
   if (manifest.edges.some((edge) => sameEdge(edge, options.edge))) {
     return result(manifest, [], [issue("edge_duplicate", "Edge already exists.", "edges")]);
@@ -227,7 +228,7 @@ export async function addEdge(options: { projectRoot: string; edge: ManifestEdge
   return result(next, affectedTaskIdsForNode(next, options.edge.from));
 }
 
-export async function removeEdge(options: { projectRoot: string; edge: ManifestEdge }): Promise<GraphEditResult> {
+export async function removeEdge(options: { projectRoot: PackageWorkspaceRef; edge: ManifestEdge }): Promise<GraphEditResult> {
   const { manifest } = await loadPackage(options.projectRoot);
   const next = { ...manifest, edges: manifest.edges.filter((edge) => !sameEdge(edge, options.edge)) };
   await writeManifest(options.projectRoot, next);
@@ -235,7 +236,7 @@ export async function removeEdge(options: { projectRoot: string; edge: ManifestE
 }
 
 export async function updatePromptSurface(options: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   taskId: string;
   taskBody: string;
 }): Promise<GraphEditResult> {

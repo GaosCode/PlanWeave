@@ -165,6 +165,8 @@ export type ProjectWorkspace = {
   projectPromptFile: string;
 };
 
+export type PackageWorkspaceRef = string | ProjectWorkspace;
+
 export type TaskState = {
   status: TaskStatus;
   openFeedbackCount: number;
@@ -242,7 +244,7 @@ export type CompiledExecutionGraph = {
 export type CompiledTaskGraph = CompiledExecutionGraph;
 
 export type ExecutionGraphSession = {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   projectId: string;
   packageRoot: string;
   graph: CompiledExecutionGraph;
