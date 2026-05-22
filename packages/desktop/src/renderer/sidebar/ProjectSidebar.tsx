@@ -5,15 +5,27 @@ import {
   FilePlus2Icon,
   FolderOpenIcon,
   GitBranchIcon,
+  MoreHorizontalIcon,
   ListTodoIcon,
   PanelLeftCloseIcon,
+  PencilIcon,
+  PinIcon,
   RotateCcwIcon,
   SearchIcon,
-  SettingsIcon
+  SettingsIcon,
+  SquarePenIcon,
+  Trash2Icon
 } from "lucide-react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave/runtime";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import type { createTranslator } from "../i18n";
@@ -27,6 +39,8 @@ type ProjectSidebarProps = {
   expandedProjectId: string | null;
   graph: DesktopGraphViewModel | null;
   handleOpenProject: () => Promise<void>;
+  handleProjectNewGraph: (project: DesktopProjectSummary) => Promise<void>;
+  handleRevealProject: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
   loadProject: (project: DesktopProjectSummary) => Promise<void>;
   notificationItems: NotificationItem[];
@@ -45,6 +59,8 @@ export function ProjectSidebar({
   expandedProjectId,
   graph,
   handleOpenProject,
+  handleProjectNewGraph,
+  handleRevealProject,
   handleTaskPanelSelect,
   loadProject,
   notificationItems,
@@ -112,10 +128,66 @@ export function ProjectSidebar({
               const isExpandedProject = expandedProjectId === project.projectId && isSelectedProject;
               return (
                 <div className="flex flex-col gap-1" key={project.projectId}>
-                  <Button className="h-auto justify-start whitespace-normal py-2 text-left" variant={isSelectedProject ? "secondary" : "ghost"} onClick={() => void loadProject(project)}>
-                    <GitBranchIcon data-icon="inline-start" />
-                    <span className="min-w-0 truncate">{project.name}</span>
-                  </Button>
+                  <div className="group/project relative">
+                    <Button
+                      className="h-auto w-full justify-start whitespace-normal py-2 pr-20 text-left"
+                      variant={isSelectedProject ? "secondary" : "ghost"}
+                      onClick={() => void loadProject(project)}
+                    >
+                      <GitBranchIcon data-icon="inline-start" />
+                      <span className="min-w-0 truncate">{project.name}</span>
+                    </Button>
+                    <div className="absolute right-1 top-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/project:opacity-100 group-focus-within/project:opacity-100">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            aria-label={t("projectMore")}
+                            className="h-7 w-7 bg-sidebar/80"
+                            size="icon-sm"
+                            variant="ghost"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <MoreHorizontalIcon data-icon="inline-start" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" side="right" className="w-56">
+                          <DropdownMenuItem disabled>
+                            <PinIcon data-icon="inline-start" />
+                            {t("pinProject")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => void handleRevealProject(project)}>
+                            <FolderOpenIcon data-icon="inline-start" />
+                            {t("openInFinder")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem disabled>
+                            <GitBranchIcon data-icon="inline-start" />
+                            {t("createPermanentWorktree")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem disabled>
+                            <PencilIcon data-icon="inline-start" />
+                            {t("renameProject")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem disabled>
+                            <Trash2Icon data-icon="inline-start" />
+                            {t("removeProject")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <Button
+                        aria-label={t("newGraph")}
+                        className="h-7 w-7 bg-sidebar/80"
+                        size="icon-sm"
+                        variant="ghost"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleProjectNewGraph(project);
+                        }}
+                      >
+                        <SquarePenIcon data-icon="inline-start" />
+                      </Button>
+                    </div>
+                  </div>
                   {isExpandedProject && graph ? (
                     <div className="flex flex-col gap-1 pl-6">
                       {graph.tasks.map((task) => (

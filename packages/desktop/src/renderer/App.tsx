@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Edge, type ReactFlowInstance, useEdgesState, useNodesState } from "@xyflow/react";
-import type { DesktopPackageFileChangeEvent } from "@planweave/runtime";
+import type { DesktopPackageFileChangeEvent, DesktopProjectSummary } from "@planweave/runtime";
 import { PanelLeftOpenIcon, PanelRightCloseIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { bridge } from "./bridge";
@@ -66,12 +66,30 @@ export function App() {
         ...current.notifications,
         ...patch.notifications
       },
+      review: {
+        ...current.review,
+        ...patch.review
+      },
       palette: {
         ...current.palette,
         ...patch.palette,
         visible: {
           ...current.palette.visible,
           ...patch.palette?.visible
+        }
+      },
+      agents: {
+        codex: {
+          ...current.agents.codex,
+          ...patch.agents?.codex
+        },
+        "claude-code": {
+          ...current.agents["claude-code"],
+          ...patch.agents?.["claude-code"]
+        },
+        opencode: {
+          ...current.agents.opencode,
+          ...patch.agents?.opencode
         }
       }
     }));
@@ -268,6 +286,29 @@ export function App() {
     setActiveView("graph");
   }, []);
 
+  const handleProjectNewGraph = useCallback(
+    async (project: DesktopProjectSummary) => {
+      await loadProjectWithSelectionReset(project);
+      setActiveView("new-task");
+    },
+    [loadProjectWithSelectionReset, setActiveView]
+  );
+
+  const handleRevealProject = useCallback(
+    async (project: DesktopProjectSummary) => {
+      if (!bridge) {
+        setError(t("bridgeUnavailable"));
+        return;
+      }
+      try {
+        await bridge.revealProjectInFinder(project.rootPath);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    [t]
+  );
+
 
   useEffect(() => {
     if (!graph) {
@@ -412,23 +453,11 @@ export function App() {
       <div className="flex h-screen min-h-0 flex-col overflow-hidden bg-background text-foreground">
         <WindowTitleBar t={t} />
         <SettingsView
-          addReviewStep={addReviewStep}
           graph={graph}
           language={language}
-          moveReviewStep={moveReviewStep}
-          removeReviewStep={removeReviewStep}
-          reviewDefaultCyclesDraft={reviewDefaultCyclesDraft}
-          reviewDraft={reviewDraft}
-          reviewPipeline={reviewPipeline}
-          reviewTaskId={reviewTaskId}
-          saveReviewPipeline={saveReviewPipeline}
           setActiveView={setActiveView}
-          setProjectPath={setProjectPath}
-          setReviewDefaultCyclesDraft={setReviewDefaultCyclesDraft}
-          setReviewTaskId={setReviewTaskId}
           settings={settings}
           t={t}
-          updateReviewStep={updateReviewStep}
           updateSettings={updateSettings}
         />
       </div>
@@ -444,6 +473,8 @@ export function App() {
           expandedProjectId={expandedProjectId}
           graph={graph}
           handleOpenProject={handleOpenProject}
+          handleProjectNewGraph={handleProjectNewGraph}
+          handleRevealProject={handleRevealProject}
           handleTaskPanelSelect={handleTaskPanelSelect}
           loadProject={loadProjectWithSelectionReset}
           notificationItems={notificationItems}

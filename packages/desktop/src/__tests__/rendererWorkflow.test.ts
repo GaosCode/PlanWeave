@@ -13,7 +13,7 @@ describe("desktop renderer workflow wiring", () => {
     ]);
 
     expect(smokeSource).toContain("async function runRendererManualSmoke");
-    expect(smokeSource).toContain('await clickByText("新任务")');
+    expect(smokeSource).toContain('await clickByText("新建任务图版")');
     expect(smokeSource).toContain('await clickByText("生成 Draft")');
     expect(smokeSource).toContain('await clickByText("确认写入")');
     expect(smokeSource).toContain('await clickByText("统计")');
@@ -21,14 +21,14 @@ describe("desktop renderer workflow wiring", () => {
     expect(smokeSource).toContain('await clickByText("设置")');
     expect(smokeSource).toContain('await clickByText("组件")');
     expect(smokeSource).toContain('await clickByText("审查")');
+    expect(smokeSource).toContain('await clickByText("Agent")');
     expect(smokeSource).toContain('await clickByText("UI Smoke Task")');
     expect(smokeSource).toContain('await waitForSelector("[data-auto-run-control]", "Floating Auto Run control")');
     expect(smokeSource).toContain('await clickByLabel("Auto Run")');
     expect(smokeSource).toContain('await clickByText("Todo")');
-    expect(smokeSource).toContain('await clickByText("添加 Review Step")');
-    expect(smokeSource).toContain('await clickByText("保存 Review Pipeline")');
+    expect(smokeSource).toContain('await waitForText("启用 Review Pipeline")');
     expect(smokeSource).toContain('await clickByText("返回应用")');
-    expect(smokeSource).toContain('await waitForText("组件设置")');
+    expect(smokeSource).toContain('await waitForText("组件可见性")');
     expect(smokeSource).not.toContain("planweave:rendererSmoke");
     expect(mainSource).toContain('app.setPath("userData", process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR)');
   });
@@ -94,6 +94,11 @@ describe("desktop renderer workflow wiring", () => {
     expect(projectHookSource).toContain("bridge.initOrOpenProject(selectedPath)");
     expect(projectHookSource).not.toContain("projectPath.trim()");
     expect(sidebarSource).toContain("selectedTaskPanelId === task.taskId");
+    expect(sidebarSource).toContain("DropdownMenuTrigger asChild");
+    expect(sidebarSource).toContain('aria-label={t("projectMore")}');
+    expect(sidebarSource).toContain('aria-label={t("newGraph")}');
+    expect(sidebarSource).toContain("void handleProjectNewGraph(project)");
+    expect(sidebarSource).toContain("void handleRevealProject(project)");
     expect(sidebarSource).not.toContain("<Select");
     expect(sidebarSource).not.toContain("LanguagesIcon");
     expect(sidebarSource).not.toContain('aria-label={t("projectPath")}');
@@ -107,12 +112,17 @@ describe("desktop renderer workflow wiring", () => {
     ]);
 
     expect(appSource).toContain('if (activeView === "settings")');
-    expect(settingsSource).toContain('type SettingsSection = "general" | "components" | "review"');
+    expect(settingsSource).toContain('type SettingsSection = "general" | "components" | "review" | "agents"');
     expect(settingsSource).toContain('t("backToApp")');
     expect(settingsSource).toContain('t("settingsGeneral")');
     expect(settingsSource).toContain('t("settingsComponents")');
     expect(settingsSource).toContain('t("settingsReview")');
-    expect(settingsSource).toContain("<ReviewPipelineView");
+    expect(settingsSource).toContain('t("settingsAgents")');
+    expect(settingsSource).toContain("<SettingsSwitchRow");
+    expect(settingsSource).toContain("<AgentSettingsPanel");
+    expect(settingsSource).toContain("bridge.detectAgentTools()");
+    expect(settingsSource).not.toContain("<Select");
+    expect(settingsSource).not.toContain("<ReviewPipelineView");
     expect(workspaceSource).not.toContain("SettingsView");
   });
 
@@ -166,7 +176,7 @@ describe("desktop renderer workflow wiring", () => {
     expect(paletteSource).toContain('t("nodeComponents")');
     expect(paletteSource).toContain('t("blockComponents")');
     expect(graphViewSource).toContain("onInit={setFlowInstance}");
-    expect(settingsSource).toContain("<PaletteSettingsPanel");
+    expect(settingsSource).toContain("<SettingsSwitchRow");
     expect(appSource).not.toContain('setActiveView("component-settings")');
     expect(appSource).not.toContain('value="component-settings"');
     expect(paletteHookSource).toContain('event.dataTransfer.setData("application/x-planweave-palette", type)');

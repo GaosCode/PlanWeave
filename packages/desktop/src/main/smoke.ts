@@ -185,7 +185,7 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       };
 
       const covered = [];
-      await clickByText("新任务");
+      await clickByText("新建任务图版");
       covered.push("open-new-task-view");
       await waitForText("需求 / 计划 / 任务说明");
       const taskInput = [...document.querySelectorAll("textarea")].find(visible);
@@ -217,16 +217,15 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       covered.push("open-notifications");
       await clickByText("设置");
       await waitForText("返回应用");
-      await waitForText("Runtime 路径");
+      await waitForText("界面");
       await clickByText("组件");
-      await waitForText("组件设置");
+      await waitForText("组件可见性");
       covered.push("open-settings-with-component-settings");
       await clickByText("审查");
-      await waitForText("保存 Review Pipeline");
-      await clickByText("添加 Review Step");
-      await waitForText("新 Review Step");
-      await clickByText("保存 Review Pipeline");
-      covered.push("edit-review-pipeline");
+      await waitForText("启用 Review Pipeline");
+      await clickByText("Agent");
+      await waitForText("Codex");
+      covered.push("open-settings-sections");
       await clickByText("返回应用");
       await waitForText("UI Smoke Task");
       if (!(await waitForSelector("[data-graph-surface]", "graph surface", { required: false }))) {

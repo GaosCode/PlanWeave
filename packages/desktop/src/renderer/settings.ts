@@ -14,6 +14,12 @@ export const defaultDesktopSettings: DesktopUiSettings = {
     dirtyPrompts: true,
     fileSyncConflict: true
   },
+  review: {
+    pipelineEnabled: true,
+    strictReview: true,
+    feedbackLoop: true,
+    autoAppendReviewBlock: true
+  },
   palette: {
     visible: {
       task: true,
@@ -24,6 +30,20 @@ export const defaultDesktopSettings: DesktopUiSettings = {
     },
     defaultBlockSet: ["implementation", "check", "review"],
     dragHint: true
+  },
+  agents: {
+    codex: {
+      enabled: false,
+      fullAccess: false
+    },
+    "claude-code": {
+      enabled: false,
+      fullAccess: false
+    },
+    opencode: {
+      enabled: false,
+      fullAccess: false
+    }
   }
 };
 
@@ -44,12 +64,30 @@ export function loadDesktopSettings(): DesktopUiSettings {
         ...defaultDesktopSettings.notifications,
         ...parsed.notifications
       },
+      review: {
+        ...defaultDesktopSettings.review,
+        ...parsed.review
+      },
       palette: {
         ...defaultDesktopSettings.palette,
         ...parsed.palette,
         visible: {
           ...defaultDesktopSettings.palette.visible,
           ...parsed.palette?.visible
+        }
+      },
+      agents: {
+        codex: {
+          ...defaultDesktopSettings.agents.codex,
+          ...parsed.agents?.codex
+        },
+        "claude-code": {
+          ...defaultDesktopSettings.agents["claude-code"],
+          ...parsed.agents?.["claude-code"]
+        },
+        opencode: {
+          ...defaultDesktopSettings.agents.opencode,
+          ...parsed.agents?.opencode
         }
       }
     };

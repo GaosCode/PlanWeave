@@ -3,6 +3,7 @@ import type {
   BlockType,
   DesktopBlockDetail,
   DesktopBlockRunRecordSummary,
+  DesktopAgentKind,
   DesktopContextNodeViewModel,
   DesktopFeedbackRecord,
   DesktopReviewAttemptSummary,
@@ -103,11 +104,21 @@ export type DesktopUiSettings = {
     dirtyPrompts: boolean;
     fileSyncConflict: boolean;
   };
+  review: {
+    pipelineEnabled: boolean;
+    strictReview: boolean;
+    feedbackLoop: boolean;
+    autoAppendReviewBlock: boolean;
+  };
   palette: {
     visible: Record<PaletteComponentKey, boolean>;
     defaultBlockSet: BlockType[];
     dragHint: boolean;
   };
+  agents: Record<DesktopAgentKind, {
+    enabled: boolean;
+    fullAccess: boolean;
+  }>;
 };
 
 export type NotificationItem = {

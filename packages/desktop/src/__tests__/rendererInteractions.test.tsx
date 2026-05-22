@@ -4,7 +4,8 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PaletteSettingsPanel } from "../renderer/components/PaletteSettingsPanel";
+import { AgentSettingsPanel } from "../renderer/components/AgentSettingsPanel";
+import { SettingsSwitchRow } from "../renderer/components/SettingsSwitchRow";
 import { HistoryNavigationButtons } from "../renderer/components/HistoryNavigationButtons";
 import { appViewHistoryChangedEvent } from "../renderer/hooks/useAppViewHistory";
 import { SearchResultList, searchNavigationTarget } from "../renderer/components/SearchResultList";
@@ -111,24 +112,44 @@ describe("desktop renderer component interactions", () => {
     expect(onOpenResult).toHaveBeenCalledWith(expect.objectContaining({ kind: "feedback", targetRef: "T-001#R-001" }));
   });
 
-  it("renders Component Palette settings as a settings-page section", () => {
+  it("renders settings rows as switch controls", async () => {
+    const onCheckedChange = vi.fn();
+
     render(
-      <PaletteSettingsPanel
+      <SettingsSwitchRow
+        checked={false}
+        title="Component visibility"
+        description="Show this component in the palette."
+        onCheckedChange={onCheckedChange}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("switch", { name: "Component visibility" }));
+    expect(onCheckedChange).toHaveBeenCalledWith(true);
+  });
+
+  it("disables agent switches when the CLI is not detected", () => {
+    render(
+      <AgentSettingsPanel
+        agents={[
+          {
+            kind: "codex",
+            name: "Codex",
+            command: "codex",
+            versionArgs: ["--version"],
+            execArgs: ["exec", "-"],
+            fullAccessArgs: ["exec", "--sandbox", "danger-full-access", "-"],
+            installed: false,
+            version: null,
+            unavailableReason: "not found"
+          }
+        ]}
         labels={{
-          blockSetImplementation: "Implementation",
-          blockSetImplementationCheck: "Implementation + Check",
-          blockSetImplementationCheckReview: "Implementation + Check + Review",
-          checkBlock: "Check Block",
-          componentVisibility: "Component visibility",
-          contextNode: "Context Node",
-          defaultBlockSet: "Default block set",
-          disabled: "Disabled",
-          dragHint: "Drag hint",
-          enabled: "Enabled",
-          implementationBlock: "Implementation Block",
-          paletteSettings: "Component Palette settings",
-          reviewBlock: "Review Block",
-          taskNode: "Task Node"
+          agentDetected: "CLI detected",
+          agentEnableDescription: "Run {command}",
+          agentFullAccess: "Full access",
+          agentFullAccessDescription: "Run {command}",
+          agentMissing: "CLI not detected"
         }}
         settings={{
           runtimePath: "/tmp/project",
@@ -151,14 +172,33 @@ describe("desktop renderer component interactions", () => {
             },
             defaultBlockSet: ["implementation", "check", "review"],
             dragHint: true
+          },
+          review: {
+            autoAppendReviewBlock: true,
+            feedbackLoop: true,
+            pipelineEnabled: true,
+            strictReview: true
+          },
+          agents: {
+            codex: {
+              enabled: false,
+              fullAccess: false
+            },
+            "claude-code": {
+              enabled: false,
+              fullAccess: false
+            },
+            opencode: {
+              enabled: false,
+              fullAccess: false
+            }
           }
         }}
         updateSettings={vi.fn()}
       />
     );
 
-    expect(screen.getByText("Component Palette settings")).toBeInTheDocument();
-    expect(screen.getByText("Default block set")).toBeInTheDocument();
-    expect(screen.getByText("Component visibility")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Codex" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Full access" })).toBeDisabled();
   });
 });

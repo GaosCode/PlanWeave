@@ -1,36 +1,63 @@
-import { useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
-import type { DesktopGraphViewModel } from "@planweave/runtime";
-import { ArrowLeftIcon, BlocksIcon, GitPullRequestIcon, SettingsIcon } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
+import type { BlockType, DesktopAgentDetection, DesktopGraphViewModel } from "@planweave/runtime";
+import { ArrowLeftIcon, BlocksIcon, BotIcon, GitPullRequestIcon, SettingsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PaletteSettingsPanel } from "../components/PaletteSettingsPanel";
+import { Separator } from "@/components/ui/separator";
+import { bridge } from "../bridge";
+import { AgentSettingsPanel } from "../components/AgentSettingsPanel";
+import { SettingsSwitchRow } from "../components/SettingsSwitchRow";
 import type { createTranslator, Language } from "../i18n";
-import type { AppView, AppearanceMode, DesktopUiSettings } from "../types";
-import { ReviewPipelineView, type ReviewPipelineViewProps } from "./ReviewPipelineView";
+import type { AppView, DesktopUiSettings, PaletteComponentKey } from "../types";
 
-type SettingsSection = "general" | "components" | "review";
+type SettingsSection = "general" | "components" | "review" | "agents";
 
-type SettingsViewProps = ReviewPipelineViewProps & {
+type SettingsViewProps = {
   graph: DesktopGraphViewModel | null;
   language: Language;
   setActiveView: Dispatch<SetStateAction<AppView>>;
-  setProjectPath: Dispatch<SetStateAction<string>>;
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
   updateSettings: (patch: Partial<DesktopUiSettings>) => void;
 };
 
-export function SettingsView({ graph, language, setActiveView, setProjectPath, settings, t, updateSettings, ...reviewProps }: SettingsViewProps) {
+function SettingGroup({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-base font-semibold">{title}</h2>
+      <div className="overflow-hidden rounded-lg border bg-background">{children}</div>
+    </section>
+  );
+}
+
+function toggleBlockSet(settings: DesktopUiSettings, blockType: BlockType, checked: boolean): BlockType[] {
+  const current = new Set(settings.palette.defaultBlockSet);
+  if (checked) {
+    current.add(blockType);
+  } else {
+    current.delete(blockType);
+  }
+  const ordered = (["implementation", "check", "review"] as BlockType[]).filter((type) => current.has(type));
+  return ordered.length > 0 ? ordered : ["implementation"];
+}
+
+export function SettingsView({ graph, language, setActiveView, settings, t, updateSettings }: SettingsViewProps) {
   const [section, setSection] = useState<SettingsSection>("general");
+  const [agents, setAgents] = useState<DesktopAgentDetection[]>([]);
   const navItems = [
     { key: "general", label: t("settingsGeneral"), icon: SettingsIcon },
     { key: "components", label: t("settingsComponents"), icon: BlocksIcon },
-    { key: "review", label: t("settingsReview"), icon: GitPullRequestIcon }
+    { key: "review", label: t("settingsReview"), icon: GitPullRequestIcon },
+    { key: "agents", label: t("settingsAgents"), icon: BotIcon }
   ] satisfies Array<{ key: SettingsSection; label: string; icon: typeof SettingsIcon }>;
+
+  useEffect(() => {
+    if (!bridge) {
+      return;
+    }
+    void bridge.detectAgentTools().then(setAgents);
+  }, []);
 
   return (
     <main className="flex h-full min-h-0 bg-background text-foreground">
@@ -59,105 +86,43 @@ export function SettingsView({ graph, language, setActiveView, setProjectPath, s
                 <h1 className="text-2xl font-semibold tracking-normal">{t("settingsGeneral")}</h1>
                 <p className="mt-1 text-sm text-muted-foreground">{t("settingsGeneralHint")}</p>
               </div>
-              <FieldGroup>
-                <div className="grid grid-cols-3 gap-4">
-                  <Field>
-                    <FieldLabel>{t("runtimePath")}</FieldLabel>
-                    <Input
-                      value={settings.runtimePath}
-                      onChange={(event) => {
-                        updateSettings({ runtimePath: event.target.value });
-                        setProjectPath(event.target.value);
-                      }}
-                    />
-                    <FieldDescription>{t("runtimePathHint")}</FieldDescription>
-                  </Field>
-                  <Field>
-                    <FieldLabel>{t("defaultExecutor")}</FieldLabel>
-                    <Select value={settings.defaultExecutor || "__manual"} onValueChange={(value) => updateSettings({ defaultExecutor: value === "__manual" ? "" : value })}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value="__manual">{t("manualExecutor")}</SelectItem>
-                          {graph?.executorOptions.map((executor) => (
-                            <SelectItem value={executor} key={executor}>
-                              {executor}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field>
-                    <FieldLabel>{t("appearance")}</FieldLabel>
-                    <Select value={settings.appearance} onValueChange={(value) => updateSettings({ appearance: value as AppearanceMode })}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value="system">{t("appearanceSystem")}</SelectItem>
-                          <SelectItem value="light">{t("appearanceLight")}</SelectItem>
-                          <SelectItem value="dark">{t("appearanceDark")}</SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </div>
-                <div className="grid grid-cols-3 gap-4">
-                  <Field>
-                    <FieldLabel>{t("language")}</FieldLabel>
-                    <Select value={language} onValueChange={(value) => updateSettings({ language: value as Language })}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value="system">{t("systemLanguage")}</SelectItem>
-                          <SelectItem value="zh-CN">简体中文</SelectItem>
-                          <SelectItem value="en">English</SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </div>
-                <Field>
-                  <FieldLabel>{t("notificationRules")}</FieldLabel>
-                  <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
-                    {[
-                      { key: "autoRunFailure", label: t("notifyAutoRun") },
-                      { key: "graphExceptions", label: t("notifyGraphExceptions") },
-                      { key: "dirtyPrompts", label: t("notifyDirtyPrompts") },
-                      { key: "fileSyncConflict", label: t("notifyFileSync") }
-                    ].map(({ key, label }) => (
-                      <Select
-                        key={key}
-                        value={settings.notifications[key as keyof DesktopUiSettings["notifications"]] ? "enabled" : "disabled"}
-                        onValueChange={(value) =>
-                          updateSettings({
-                            notifications: {
-                              ...settings.notifications,
-                              [key]: value === "enabled"
-                            }
-                          })
+              <SettingGroup title={t("interfaceSettings")}>
+                <SettingsSwitchRow
+                  checked={language === "zh-CN"}
+                  title={t("useSimplifiedChinese")}
+                  description={t("useSimplifiedChineseHint")}
+                  onCheckedChange={(checked) => updateSettings({ language: checked ? "zh-CN" : "en" })}
+                />
+                <SettingsSwitchRow
+                  checked={settings.appearance === "dark"}
+                  title={t("useDarkAppearance")}
+                  description={t("useDarkAppearanceHint")}
+                  onCheckedChange={(checked) => updateSettings({ appearance: checked ? "dark" : "system" })}
+                />
+              </SettingGroup>
+              <SettingGroup title={t("notificationRules")}>
+                {[
+                  { key: "autoRunFailure", label: t("notifyAutoRun"), description: t("notifyAutoRunHint") },
+                  { key: "graphExceptions", label: t("notifyGraphExceptions"), description: t("notifyGraphExceptionsHint") },
+                  { key: "dirtyPrompts", label: t("notifyDirtyPrompts"), description: t("notifyDirtyPromptsHint") },
+                  { key: "fileSyncConflict", label: t("notifyFileSync"), description: t("notifyFileSyncHint") }
+                ].map(({ key, label, description }) => (
+                  <SettingsSwitchRow
+                    checked={settings.notifications[key as keyof DesktopUiSettings["notifications"]]}
+                    key={key}
+                    title={label}
+                    description={description}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        notifications: {
+                          ...settings.notifications,
+                          [key]: checked
                         }
-                      >
-                        <SelectTrigger className="w-full min-w-0">
-                          <SelectValue placeholder={label} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            <SelectItem value="enabled">{label}</SelectItem>
-                            <SelectItem value="disabled">{t("disabled")}</SelectItem>
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    ))}
-                  </div>
-                </Field>
-              </FieldGroup>
+                      })
+                    }
+                  />
+                ))}
+              </SettingGroup>
             </section>
           ) : null}
           {section === "components" ? (
@@ -166,35 +131,117 @@ export function SettingsView({ graph, language, setActiveView, setProjectPath, s
                 <h1 className="text-2xl font-semibold tracking-normal">{t("settingsComponents")}</h1>
                 <p className="mt-1 text-sm text-muted-foreground">{t("settingsComponentsHint")}</p>
               </div>
-              <PaletteSettingsPanel
-                labels={{
-                  blockSetImplementation: t("blockSetImplementation"),
-                  blockSetImplementationCheck: t("blockSetImplementationCheck"),
-                  blockSetImplementationCheckReview: t("blockSetImplementationCheckReview"),
-                  checkBlock: t("checkBlock"),
-                  componentVisibility: t("componentVisibility"),
-                  contextNode: t("contextNode"),
-                  defaultBlockSet: t("defaultBlockSet"),
-                  disabled: t("disabled"),
-                  dragHint: t("dragHint"),
-                  enabled: t("enabled"),
-                  implementationBlock: t("implementationBlock"),
-                  paletteSettings: t("paletteSettings"),
-                  reviewBlock: t("reviewBlock"),
-                  taskNode: t("taskNode")
-                }}
-                settings={settings}
-                updateSettings={updateSettings}
-              />
+              <SettingGroup title={t("componentVisibility")}>
+                {[
+                  { key: "task", title: t("taskNode"), description: t("taskNodeHint") },
+                  { key: "context", title: t("contextNode"), description: t("contextNodeHint") },
+                  { key: "implementation", title: t("implementationBlock"), description: t("implementationBlockHint") },
+                  { key: "check", title: t("checkBlock"), description: t("checkBlockHint") },
+                  { key: "review", title: t("reviewBlock"), description: t("reviewBlockHint") }
+                ].map(({ key, title, description }) => (
+                  <SettingsSwitchRow
+                    checked={settings.palette.visible[key as PaletteComponentKey]}
+                    key={key}
+                    title={title}
+                    description={description}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        palette: {
+                          ...settings.palette,
+                          visible: {
+                            ...settings.palette.visible,
+                            [key]: checked
+                          }
+                        }
+                      })
+                    }
+                  />
+                ))}
+              </SettingGroup>
+              <SettingGroup title={t("defaultBlockSet")}>
+                {[
+                  { key: "implementation", title: t("implementationBlock"), description: t("defaultImplementationBlockHint") },
+                  { key: "check", title: t("checkBlock"), description: t("defaultCheckBlockHint") },
+                  { key: "review", title: t("reviewBlock"), description: t("defaultReviewBlockHint") }
+                ].map(({ key, title, description }) => (
+                  <SettingsSwitchRow
+                    checked={settings.palette.defaultBlockSet.includes(key as BlockType)}
+                    key={key}
+                    title={title}
+                    description={description}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        palette: {
+                          ...settings.palette,
+                          defaultBlockSet: toggleBlockSet(settings, key as BlockType, checked)
+                        }
+                      })
+                    }
+                  />
+                ))}
+                <SettingsSwitchRow
+                  checked={settings.palette.dragHint}
+                  title={t("dragHint")}
+                  description={t("dragHintHint")}
+                  onCheckedChange={(checked) => updateSettings({ palette: { ...settings.palette, dragHint: checked } })}
+                />
+              </SettingGroup>
             </section>
           ) : null}
           {section === "review" ? (
-            <section className="flex h-[calc(100vh-5rem)] min-h-[640px] flex-col gap-6">
+            <section className="flex flex-col gap-6">
               <div>
                 <h1 className="text-2xl font-semibold tracking-normal">{t("settingsReview")}</h1>
                 <p className="mt-1 text-sm text-muted-foreground">{t("settingsReviewHint")}</p>
               </div>
-              <ReviewPipelineView graph={graph} t={t} {...reviewProps} />
+              <SettingGroup title={t("reviewPipeline")}>
+                <SettingsSwitchRow
+                  checked={settings.review.pipelineEnabled}
+                  title={t("reviewPipelineEnabled")}
+                  description={t("reviewPipelineEnabledHint")}
+                  onCheckedChange={(checked) => updateSettings({ review: { ...settings.review, pipelineEnabled: checked } })}
+                />
+                <SettingsSwitchRow
+                  checked={settings.review.strictReview}
+                  title={t("strictReview")}
+                  description={t("strictReviewHint")}
+                  onCheckedChange={(checked) => updateSettings({ review: { ...settings.review, strictReview: checked } })}
+                />
+                <SettingsSwitchRow
+                  checked={settings.review.feedbackLoop}
+                  title={t("feedbackLoop")}
+                  description={t("feedbackLoopHint")}
+                  onCheckedChange={(checked) => updateSettings({ review: { ...settings.review, feedbackLoop: checked } })}
+                />
+                <SettingsSwitchRow
+                  checked={settings.review.autoAppendReviewBlock}
+                  title={t("autoAppendReviewBlock")}
+                  description={t("autoAppendReviewBlockHint")}
+                  onCheckedChange={(checked) => updateSettings({ review: { ...settings.review, autoAppendReviewBlock: checked } })}
+                />
+              </SettingGroup>
+              <Separator />
+              <p className="text-sm text-muted-foreground">{graph ? t("reviewSettingsProjectScoped") : t("reviewSettingsNoProject")}</p>
+            </section>
+          ) : null}
+          {section === "agents" ? (
+            <section className="flex flex-col gap-6">
+              <div>
+                <h1 className="text-2xl font-semibold tracking-normal">{t("settingsAgents")}</h1>
+                <p className="mt-1 text-sm text-muted-foreground">{t("settingsAgentsHint")}</p>
+              </div>
+              <AgentSettingsPanel
+                agents={agents}
+                labels={{
+                  agentDetected: t("agentDetected"),
+                  agentMissing: t("agentMissing"),
+                  agentEnableDescription: t("agentEnableDescription"),
+                  agentFullAccess: t("agentFullAccess"),
+                  agentFullAccessDescription: t("agentFullAccessDescription")
+                }}
+                settings={settings}
+                updateSettings={updateSettings}
+              />
             </section>
           ) : null}
         </div>
