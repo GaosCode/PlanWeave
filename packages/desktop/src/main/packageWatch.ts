@@ -1,7 +1,7 @@
 import { ipcMain } from "electron";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { resolveProjectWorkspace } from "@planweave/runtime";
+import { resolveTaskCanvasWorkspace } from "@planweave/runtime";
 import type { DesktopPackageFileChangeEvent } from "@planweave/runtime";
 import type { WebContents } from "electron";
 
@@ -15,6 +15,10 @@ type PackageWatch = {
 };
 
 const packageWatches = new Map<string, PackageWatch>();
+
+function watchKey(projectRoot: string, canvasId?: string | null): string {
+  return `${projectRoot}::${canvasId ?? "default"}`;
+}
 
 function toPosixPath(path: string): string {
   return path.split("\\").join("/");
@@ -42,8 +46,8 @@ function watchRoot(projectRoot: string, rootPath: string, recordChange: (path: s
   }
 }
 
-function flushPackageFileChange(projectRoot: string): void {
-  const activeWatch = packageWatches.get(projectRoot);
+function flushPackageFileChange(projectRoot: string, canvasId?: string | null): void {
+  const activeWatch = packageWatches.get(watchKey(projectRoot, canvasId));
   if (!activeWatch) {
     return;
   }
@@ -55,6 +59,7 @@ function flushPackageFileChange(projectRoot: string): void {
   }
   const payload: DesktopPackageFileChangeEvent = {
     projectRoot,
+    canvasId: canvasId ?? null,
     paths,
     triggeredAt: new Date().toISOString()
   };
@@ -65,12 +70,13 @@ function flushPackageFileChange(projectRoot: string): void {
   }
 }
 
-async function startPackageWatch(projectRoot: string, webContents: WebContents): Promise<void> {
-  let activeWatch = packageWatches.get(projectRoot);
+async function startPackageWatch(projectRoot: string, canvasId: string | null | undefined, webContents: WebContents): Promise<void> {
+  const key = watchKey(projectRoot, canvasId);
+  let activeWatch = packageWatches.get(key);
   if (!activeWatch) {
-    const workspace = await resolveProjectWorkspace(projectRoot);
+    const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
     const recordChange = (path: string) => {
-      const currentWatch = packageWatches.get(projectRoot);
+      const currentWatch = packageWatches.get(key);
       if (!currentWatch) {
         return;
       }
@@ -78,7 +84,7 @@ async function startPackageWatch(projectRoot: string, webContents: WebContents):
       if (currentWatch.timer) {
         clearTimeout(currentWatch.timer);
       }
-      currentWatch.timer = setTimeout(() => flushPackageFileChange(projectRoot), 150);
+      currentWatch.timer = setTimeout(() => flushPackageFileChange(projectRoot, canvasId), 150);
     };
     const watchers = [
       watchRoot(workspace.workspaceRoot, workspace.packageDir, recordChange),
@@ -94,14 +100,15 @@ async function startPackageWatch(projectRoot: string, webContents: WebContents):
       changedPaths: new Set(),
       timer: null
     };
-    packageWatches.set(projectRoot, activeWatch);
+    packageWatches.set(key, activeWatch);
   }
   activeWatch.subscribers.set(webContents.id, webContents);
-  webContents.once("destroyed", () => stopPackageWatch(projectRoot, webContents));
+  webContents.once("destroyed", () => stopPackageWatch(projectRoot, canvasId, webContents));
 }
 
-function stopPackageWatch(projectRoot: string, webContents: WebContents): void {
-  const activeWatch = packageWatches.get(projectRoot);
+function stopPackageWatch(projectRoot: string, canvasId: string | null | undefined, webContents: WebContents): void {
+  const key = watchKey(projectRoot, canvasId);
+  const activeWatch = packageWatches.get(key);
   if (!activeWatch) {
     return;
   }
@@ -115,10 +122,10 @@ function stopPackageWatch(projectRoot: string, webContents: WebContents): void {
   if (activeWatch.timer) {
     clearTimeout(activeWatch.timer);
   }
-  packageWatches.delete(projectRoot);
+  packageWatches.delete(key);
 }
 
 export function registerPackageWatchHandlers(): void {
-  ipcMain.handle("planweave:watchPackageFiles", (event, projectRoot: string) => startPackageWatch(projectRoot, event.sender));
-  ipcMain.handle("planweave:unwatchPackageFiles", (event, projectRoot: string) => stopPackageWatch(projectRoot, event.sender));
+  ipcMain.handle("planweave:watchPackageFiles", (event, projectRoot: string, canvasId?: string | null) => startPackageWatch(projectRoot, canvasId, event.sender));
+  ipcMain.handle("planweave:unwatchPackageFiles", (event, projectRoot: string, canvasId?: string | null) => stopPackageWatch(projectRoot, canvasId, event.sender));
 }

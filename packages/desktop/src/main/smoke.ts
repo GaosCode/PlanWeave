@@ -34,7 +34,8 @@ async function runSmokeWorkflow(window: BrowserWindow): Promise<Record<string, u
     (async () => {
       const api = window.planweave;
       const projectRoot = ${JSON.stringify(projectRoot)};
-      const added = await api.addTaskNode(projectRoot, {
+      const canvasId = null;
+      const added = await api.addTaskNode(projectRoot, canvasId, {
         title: "Smoke task",
         promptMarkdown: "# Smoke task\\n",
         acceptance: ["Smoke task source prompt is editable."],
@@ -44,14 +45,14 @@ async function runSmokeWorkflow(window: BrowserWindow): Promise<Record<string, u
       if (!added.ok) {
         throw new Error("addTaskNode failed: " + added.diagnostics.map((item) => item.message).join("; "));
       }
-      const graph = await api.getGraphViewModel(projectRoot);
+      const graph = await api.getGraphViewModel(projectRoot, canvasId);
       const task = graph.tasks.find((item) => item.title === "Smoke task");
       if (!task || !task.promptMarkdown.includes("# Smoke task")) {
         throw new Error("Smoke task full prompt was not exposed in the graph view model.");
       }
-      await api.updateTaskPrompt(projectRoot, task.taskId, "# Smoke task\\n\\nUpdated from smoke.");
-      await api.addDependencyEdge(projectRoot, task.taskId, "T-001");
-      const savedLayout = await api.saveDesktopLayout(projectRoot, {
+      await api.updateTaskPrompt(projectRoot, canvasId, task.taskId, "# Smoke task\\n\\nUpdated from smoke.");
+      await api.addDependencyEdge(projectRoot, canvasId, task.taskId, "T-001");
+      const savedLayout = await api.saveDesktopLayout(projectRoot, canvasId, {
         version: "desktop-layout/v1",
         projectId: "ignored",
         nodes: [{ nodeId: task.taskId, x: 111, y: 222 }],
@@ -60,16 +61,16 @@ async function runSmokeWorkflow(window: BrowserWindow): Promise<Record<string, u
       if (!savedLayout.nodes.some((node) => node.nodeId === task.taskId && node.x === 111 && node.y === 222)) {
         throw new Error("Desktop layout did not persist the smoke task position.");
       }
-      await api.resetDesktopLayout(projectRoot);
+      await api.resetDesktopLayout(projectRoot, canvasId);
       const filteredSearch = await api.searchProject(projectRoot, "Updated from smoke", { kinds: ["prompt"] });
       if (!filteredSearch.some((item) => item.kind === "prompt" && item.ref === task.taskId)) {
         throw new Error("Filtered prompt search did not find the updated smoke task prompt.");
       }
-      const pipeline = await api.getReviewPipeline(projectRoot, "T-001");
+      const pipeline = await api.getReviewPipeline(projectRoot, canvasId, "T-001");
       if (!pipeline.steps.some((step) => step.blockId === "R-001")) {
         throw new Error("Review Pipeline did not expose the fixture review step.");
       }
-      const run = await api.startAutoRun(projectRoot, { kind: "block", blockRef: "T-001#B-001" }, 1);
+      const run = await api.startAutoRun(projectRoot, canvasId, { kind: "block", blockRef: "T-001#B-001" }, 1);
       let state = run;
       for (let attempt = 0; attempt < 20 && state.phase === "running"; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 50));

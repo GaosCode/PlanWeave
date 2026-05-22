@@ -7,6 +7,7 @@ const blockInspectorWindows = new Map<string, BrowserWindow>();
 
 type OpenBlockInspectorWindowInput = {
   blockRef: string;
+  canvasId?: string | null;
   language: string;
   projectRoot: string;
 };
@@ -16,12 +17,13 @@ function rendererEntry(): string {
 }
 
 function blockWindowKey(input: OpenBlockInspectorWindowInput): string {
-  return `${input.projectRoot}:${input.blockRef}`;
+  return `${input.projectRoot}:${input.canvasId ?? "default"}:${input.blockRef}`;
 }
 
 function blockWindowQuery(input: OpenBlockInspectorWindowInput): Record<string, string> {
   return {
     blockRef: input.blockRef,
+    canvasId: input.canvasId ?? "",
     language: input.language,
     projectRoot: input.projectRoot,
     window: "block-inspector"

@@ -43,7 +43,7 @@ describe("desktop IPC contract", () => {
   it("watches package files from the runtime workspace instead of the project root", async () => {
     const packageWatchSource = await readDesktopSource("main/packageWatch.ts");
 
-    expect(packageWatchSource).toContain("const workspace = await resolveProjectWorkspace(projectRoot)");
+    expect(packageWatchSource).toContain("const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId)");
     expect(packageWatchSource).toContain("watchRoot(workspace.workspaceRoot, workspace.packageDir");
     expect(packageWatchSource).toContain("dirname(workspace.projectPromptFile)");
     expect(packageWatchSource).not.toContain('watchRoot(projectRoot, join(projectRoot, "package")');
@@ -55,7 +55,7 @@ describe("desktop IPC contract", () => {
     expect(runtimeBridgeSource).toContain("function cloneableGraphEditResult(result: GraphEditResult): DesktopGraphEditResult");
     expect(runtimeBridgeSource).toContain("const { graph: _graph, ...cloneable } = result");
     expect(runtimeBridgeSource).toContain('ipcMain.handle("planweave:addTaskNode"');
-    expect(runtimeBridgeSource).toContain("invokeGraphEdit(addTaskNode(projectRoot, input))");
-    expect(runtimeBridgeSource).toContain("invokeGraphEdit(updateTaskPrompt(projectRoot, taskId, markdown))");
+    expect(runtimeBridgeSource).toContain("invokeGraphEdit(addTaskNode(await canvasWorkspace(projectRoot, canvasId), input))");
+    expect(runtimeBridgeSource).toContain("invokeGraphEdit(updateTaskPrompt(await canvasWorkspace(projectRoot, canvasId), taskId, markdown))");
   });
 });
