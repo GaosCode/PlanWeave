@@ -1,20 +1,37 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DesktopAgentDetection } from "@planweave/runtime";
 import { bridge } from "../bridge";
 
 export function useDetectedAgents() {
   const [agentDetections, setAgentDetections] = useState<DesktopAgentDetection[]>([]);
+  const [agentDetectionRefreshing, setAgentDetectionRefreshing] = useState(false);
 
-  useEffect(() => {
+  const refreshAgentDetections = useCallback(async () => {
     if (!bridge) {
       return;
     }
+    setAgentDetectionRefreshing(true);
+    try {
+      const detectedAgents = await bridge.detectAgentTools();
+      setAgentDetections(detectedAgents);
+    } finally {
+      setAgentDetectionRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
-    void bridge.detectAgentTools().then((detectedAgents) => {
+    const refreshInitialAgents = async () => {
+      if (!bridge) {
+        return;
+      }
+      const detectedAgents = await bridge.detectAgentTools();
       if (!cancelled) {
         setAgentDetections(detectedAgents);
       }
-    });
+    };
+
+    void refreshInitialAgents();
     return () => {
       cancelled = true;
     };
@@ -22,5 +39,5 @@ export function useDetectedAgents() {
 
   const executorOptions = useMemo(() => agentDetections.filter((agent) => agent.installed).map((agent) => agent.command), [agentDetections]);
 
-  return { agentDetections, executorOptions };
+  return { agentDetectionRefreshing, agentDetections, executorOptions, refreshAgentDetections };
 }

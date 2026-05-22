@@ -13,9 +13,11 @@ import type { AppView, DesktopUiSettings, PaletteComponentKey } from "../types";
 type SettingsSection = "general" | "components" | "review" | "agents";
 
 type SettingsViewProps = {
+  agentDetectionRefreshing: boolean;
   agents: DesktopAgentDetection[];
   graph: DesktopGraphViewModel | null;
   language: Language;
+  refreshAgentDetections: () => Promise<void>;
   setActiveView: Dispatch<SetStateAction<AppView>>;
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
@@ -57,7 +59,17 @@ function updateReviewSettings(settings: DesktopUiSettings, checked: boolean): De
   };
 }
 
-export function SettingsView({ agents, graph, language, setActiveView, settings, t, updateSettings }: SettingsViewProps) {
+export function SettingsView({
+  agentDetectionRefreshing,
+  agents,
+  graph,
+  language,
+  refreshAgentDetections,
+  setActiveView,
+  settings,
+  t,
+  updateSettings
+}: SettingsViewProps) {
   const [section, setSection] = useState<SettingsSection>("general");
   const reviewDisabled = !settings.review.pipelineEnabled;
   const navItems = [
@@ -242,14 +254,19 @@ export function SettingsView({ agents, graph, language, setActiveView, settings,
                 <p className="mt-1 text-sm text-muted-foreground">{t("settingsAgentsHint")}</p>
               </div>
               <AgentSettingsPanel
+                agentDetectionRefreshing={agentDetectionRefreshing}
                 agents={agents}
                 labels={{
                   agentDetected: t("agentDetected"),
+                  agentInstallStatus: t("agentInstallStatus"),
+                  agentRefresh: t("agentRefresh"),
+                  agentRefreshing: t("agentRefreshing"),
                   agentMissing: t("agentMissing"),
                   agentEnableDescription: t("agentEnableDescription"),
                   agentFullAccess: t("agentFullAccess"),
                   agentFullAccessDescription: t("agentFullAccessDescription")
                 }}
+                refreshAgentDetections={refreshAgentDetections}
                 settings={settings}
                 updateSettings={updateSettings}
               />

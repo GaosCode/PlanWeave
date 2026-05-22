@@ -1,12 +1,13 @@
 import { useState } from "react";
 import type { DesktopAgentDetection, DesktopAgentKind } from "@planweave/runtime";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import type { DesktopUiSettings } from "../types";
 
 type AgentSettingsPanelProps = {
+  agentDetectionRefreshing: boolean;
   agents: DesktopAgentDetection[];
   labels: {
     agentDetected: string;
@@ -14,7 +15,11 @@ type AgentSettingsPanelProps = {
     agentEnableDescription: string;
     agentFullAccessDescription: string;
     agentFullAccess: string;
+    agentInstallStatus: string;
+    agentRefresh: string;
+    agentRefreshing: string;
   };
+  refreshAgentDetections: () => Promise<void>;
   settings: DesktopUiSettings;
   updateSettings: (patch: Partial<DesktopUiSettings>) => void;
 };
@@ -33,11 +38,25 @@ function updateAgentSettings(
   };
 }
 
-export function AgentSettingsPanel({ agents, labels, settings, updateSettings }: AgentSettingsPanelProps) {
+export function AgentSettingsPanel({
+  agentDetectionRefreshing,
+  agents,
+  labels,
+  refreshAgentDetections,
+  settings,
+  updateSettings
+}: AgentSettingsPanelProps) {
   const [expandedAgent, setExpandedAgent] = useState<DesktopAgentKind | null>(null);
 
   return (
     <div className="overflow-hidden rounded-lg border bg-background">
+      <div className="flex items-center justify-between gap-4 border-b px-5 py-4">
+        <div className="text-sm text-muted-foreground">{labels.agentInstallStatus}</div>
+        <Button disabled={agentDetectionRefreshing} size="sm" variant="outline" onClick={() => void refreshAgentDetections()}>
+          <RefreshCwIcon className={cn("size-4", agentDetectionRefreshing ? "animate-spin" : "")} data-icon="inline-start" />
+          {agentDetectionRefreshing ? labels.agentRefreshing : labels.agentRefresh}
+        </Button>
+      </div>
       {agents.map((agent) => {
         const agentSettings = settings.agents[agent.kind] ?? { enabled: false, fullAccess: false };
         const command = `${agent.command} ${agent.execArgs.join(" ")}`;
