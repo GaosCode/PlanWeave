@@ -29,7 +29,7 @@ export function App() {
   const [activeView, setActiveView] = useState<AppView>("graph");
   const [selectedTaskPanelId, setSelectedTaskPanelId] = useState<string | null>(null);
   const [selectedContextNodeId, setSelectedContextNodeId] = useState<string | null>(null);
-  const [projectPath, setProjectPath] = useState(settings.runtimePath);
+  const [, setProjectPath] = useState(settings.runtimePath);
   const [lastFileChange, setLastFileChange] = useState<DesktopPackageFileChangeEvent | null>(null);
   const [fileSyncDiagnostics, setFileSyncDiagnostics] = useState<string[]>([]);
   const [dirtyPromptRefs, setDirtyPromptRefs] = useState<string[]>([]);
@@ -86,7 +86,6 @@ export function App() {
     statistics,
     todoGroups
   } = useDesktopProject({
-    projectPath,
     setError,
     setSelectedContextNodeId,
     setSelectedTaskPanelId,

@@ -39,6 +39,7 @@ import type {
 
 export type DesktopBridgeApi = {
   listProjects(): Promise<DesktopProjectSummary[]>;
+  chooseProjectFolder(): Promise<string | null>;
   openProject(input: { projectId?: string; rootPath?: string }): Promise<DesktopProjectSummary>;
   initOrOpenProject(rootPath: string): Promise<DesktopProjectSummary>;
   getProjectOverview(projectRoot: string): Promise<DesktopProjectSummary>;

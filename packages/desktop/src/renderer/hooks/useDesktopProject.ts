@@ -4,7 +4,6 @@ import { bridge } from "../bridge";
 import type { DesktopUiSettings } from "../types";
 
 type UseDesktopProjectArgs = {
-  projectPath: string;
   setError: (message: string | null) => void;
   setSelectedContextNodeId: (nodeId: string | null) => void;
   setSelectedTaskPanelId: (taskId: string | null) => void;
@@ -12,7 +11,6 @@ type UseDesktopProjectArgs = {
 };
 
 export function useDesktopProject({
-  projectPath,
   setError,
   setSelectedContextNodeId,
   setSelectedTaskPanelId,
@@ -86,17 +84,21 @@ export function useDesktopProject({
   }, [selectedProject]);
 
   const handleOpenProject = useCallback(async () => {
-    if (!bridge || !projectPath.trim()) {
+    if (!bridge) {
       return;
     }
     try {
-      const project = await bridge.initOrOpenProject(projectPath.trim());
+      const selectedPath = await bridge.chooseProjectFolder();
+      if (!selectedPath) {
+        return;
+      }
+      const project = await bridge.initOrOpenProject(selectedPath);
       setProjects((items) => (items.some((item) => item.projectId === project.projectId) ? items : [...items, project]));
       await loadProject(project);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [loadProject, projectPath, setError]);
+  }, [loadProject, setError]);
 
   return {
     expandedProjectId,

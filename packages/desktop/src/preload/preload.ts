@@ -11,6 +11,7 @@ const packageFileChangedChannel = "planweave:packageFileChanged";
 
 const api: DesktopBridgeApi = {
   listProjects: () => ipcRenderer.invoke("planweave:listProjects") as Promise<DesktopProjectSummary[]>,
+  chooseProjectFolder: () => ipcRenderer.invoke("planweave:chooseProjectFolder") as Promise<string | null>,
   openProject: (input) => ipcRenderer.invoke("planweave:openProject", input) as Promise<DesktopProjectSummary>,
   initOrOpenProject: (rootPath) => ipcRenderer.invoke("planweave:initOrOpenProject", rootPath) as Promise<DesktopProjectSummary>,
   getProjectOverview: (projectRoot) => ipcRenderer.invoke("planweave:getProjectOverview", projectRoot),

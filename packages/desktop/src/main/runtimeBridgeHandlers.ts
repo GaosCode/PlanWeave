@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
 import {
   addBlock,
   addContextNode,
@@ -60,6 +60,15 @@ async function invokeGraphEdit(promise: Promise<GraphEditResult>): Promise<Deskt
 
 export function registerRuntimeBridgeHandlers(): void {
   ipcMain.handle("planweave:listProjects", () => listProjects());
+  ipcMain.handle("planweave:chooseProjectFolder", async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const options: OpenDialogOptions = { properties: ["openDirectory", "createDirectory"] };
+    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+    return result.filePaths[0] ?? null;
+  });
   ipcMain.handle("planweave:openProject", (_event, input: { projectId?: string; rootPath?: string }) => openProject(input));
   ipcMain.handle("planweave:initOrOpenProject", (_event, rootPath: string) => initOrOpenProject(rootPath));
   ipcMain.handle("planweave:getProjectOverview", (_event, projectRoot: string) => getProjectOverview(projectRoot));
