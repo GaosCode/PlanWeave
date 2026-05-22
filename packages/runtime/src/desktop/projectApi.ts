@@ -7,6 +7,7 @@ import { resolvePlanweaveHome } from "../paths.js";
 import { readProject, resolveProjectWorkspace } from "../project.js";
 import type { ProjectMetadata } from "../types.js";
 import type { DesktopProjectSummary } from "./types.js";
+import { listTaskCanvases } from "./canvasApi.js";
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -17,12 +18,13 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-function projectSummary(project: ProjectMetadata, workspaceRoot: string): DesktopProjectSummary {
+async function projectSummary(project: ProjectMetadata, workspaceRoot: string): Promise<DesktopProjectSummary> {
   return {
     projectId: project.id,
     name: project.name,
     rootPath: project.rootPath,
-    workspaceRoot
+    workspaceRoot,
+    taskCanvases: await listTaskCanvases(project.rootPath)
   };
 }
 

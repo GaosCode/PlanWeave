@@ -6,6 +6,12 @@ export {
   removeProject
 } from "./projectApi.js";
 export {
+  createTaskCanvas,
+  listTaskCanvases,
+  removeTaskCanvas,
+  resolveTaskCanvasWorkspace
+} from "./canvasApi.js";
+export {
   addContextNode,
   addBlock,
   addDependencyEdge,

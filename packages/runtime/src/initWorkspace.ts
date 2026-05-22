@@ -7,7 +7,7 @@ import { createEmptyState } from "./state.js";
 import { writeJsonFile } from "./json.js";
 import type { InitWorkspaceResult, PlanPackageManifest, ProjectMetadata } from "./types.js";
 
-function initialManifest(projectName: string): PlanPackageManifest {
+export function initialManifest(projectName: string): PlanPackageManifest {
   return {
     version: "plan-package/v1",
     project: {
