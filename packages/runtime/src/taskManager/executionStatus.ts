@@ -1,9 +1,9 @@
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
-import type { BlockStatus, ExecutionGraphSession, ValidationIssue } from "../types.js";
+import type { BlockStatus, ExecutionGraphSession, PackageWorkspaceRef, ValidationIssue } from "../types.js";
 import { loadRuntime } from "./runtimeContext.js";
 import { blockDependenciesCompleted, getBlock, taskDependenciesSatisfied } from "./selectors.js";
 
-export async function getExecutionStatus(options: { projectRoot: string; session?: ExecutionGraphSession }) {
+export async function getExecutionStatus(options: { projectRoot: PackageWorkspaceRef; session?: ExecutionGraphSession }) {
   const context = await loadRuntime(options);
   const { workspace, graph, state } = context;
   const taskCounts = Object.fromEntries(["planned", "ready", "in_progress", "implemented"].map((status) => [status, 0])) as Record<

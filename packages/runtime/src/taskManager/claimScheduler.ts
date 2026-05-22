@@ -1,5 +1,5 @@
 import { writeState } from "../state.js";
-import type { ClaimResult, ClaimScope, ExecutionGraphSession } from "../types.js";
+import type { ClaimResult, ClaimScope, ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import {
   activeOpenFeedback,
@@ -15,7 +15,7 @@ import {
 } from "./selectors.js";
 
 export async function claimNext(options: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   parallel?: boolean;
   scope?: ClaimScope;
   session?: ExecutionGraphSession;

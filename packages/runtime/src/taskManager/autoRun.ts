@@ -16,6 +16,7 @@ import type {
   ExecutorProfile,
   PlanPackageManifest
 } from "../types.js";
+import type { PackageWorkspaceRef } from "../types.js";
 import { claimNext, getExecutionStatus, markBlockBlocked, renderPrompt, submitBlockResult, submitFeedback, submitReviewResult } from "./index.js";
 
 type BlockClaim = Extract<ClaimResult, { kind: "block" }>;
@@ -62,7 +63,7 @@ async function latestRunId(runRoot: string): Promise<string | null> {
 }
 
 async function claimForBatchRef(options: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   ref: string;
   session?: ExecutionGraphSession;
 }): Promise<BlockClaim> {
@@ -87,7 +88,7 @@ async function claimForBatchRef(options: {
 }
 
 async function executeBlockClaim(options: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
   executor: ExecutorAdapter;
   session?: ExecutionGraphSession;
@@ -142,7 +143,7 @@ async function executeBlockClaim(options: {
 }
 
 export async function runAutoRunStep(options: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   executor?: ExecutorAdapter;
   executorName?: string;
   parallel?: boolean;
@@ -206,7 +207,7 @@ export async function runAutoRunStep(options: {
   return executeBlockClaim({ projectRoot: options.projectRoot, claim, executor, session: options.session });
 }
 
-export async function getAutoRunStatus(options: { projectRoot: string; session?: ExecutionGraphSession }): Promise<AutoRunStatus> {
+export async function getAutoRunStatus(options: { projectRoot: PackageWorkspaceRef; session?: ExecutionGraphSession }): Promise<AutoRunStatus> {
   const { workspace } = await loadPackage(options.projectRoot);
   const executionStatus = await getExecutionStatus({ projectRoot: options.projectRoot, session: options.session });
   const latestRuns: AutoRunLatestRunSummary[] = [];

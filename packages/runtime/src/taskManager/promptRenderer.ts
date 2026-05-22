@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
 import { resolvePlanweaveHome } from "../paths.js";
-import type { ExecutionGraphSession } from "../types.js";
+import type { ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
 import { loadRuntime, readOptionalFile, type RuntimeContext } from "./runtimeContext.js";
 import { getBlock, getTask, requiredImplementationRefs } from "./selectors.js";
 
@@ -62,7 +62,7 @@ async function renderFocusedReviewLines(context: RuntimeContext, reviewBlockRef:
   ];
 }
 
-export async function renderPrompt(options: { projectRoot: string; ref: string; session?: ExecutionGraphSession }): Promise<string> {
+export async function renderPrompt(options: { projectRoot: PackageWorkspaceRef; ref: string; session?: ExecutionGraphSession }): Promise<string> {
   const context = await loadRuntime(options);
   const { workspace, graph, manifest, state } = context;
   const { taskId } = parseBlockRef(options.ref);

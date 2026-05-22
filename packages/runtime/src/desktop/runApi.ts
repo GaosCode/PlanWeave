@@ -1,5 +1,6 @@
 import { getAutoRunStatus, runAutoRunStep } from "../taskManager/autoRun.js";
-import type { AutoRunStepResult, ClaimScope } from "../types.js";
+import type { AutoRunStepResult, ClaimScope, ProjectWorkspace } from "../types.js";
+import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import type { DesktopAutoRunScope, DesktopAutoRunState } from "./types.js";
 
 const runs = new Map<string, DesktopAutoRunState>();
@@ -90,8 +91,8 @@ function terminalPatch(step: AutoRunStepResult): Partial<DesktopAutoRunState> | 
   return null;
 }
 
-async function latestRecord(projectRoot: string): Promise<{ recordId: string; path: string } | null> {
-  const status = await getAutoRunStatus({ projectRoot });
+async function latestRecord(workspace: ProjectWorkspace): Promise<{ recordId: string; path: string } | null> {
+  const status = await getAutoRunStatus({ projectRoot: workspace });
   const latestRun = status.latestRuns[0];
   if (!latestRun) {
     return null;
@@ -123,9 +124,10 @@ async function runLoop(runId: string): Promise<void> {
       return;
     }
     try {
-      const step = await runAutoRunStep({ projectRoot: current.projectRoot, scope: claimScope(current.scope) });
+      const workspace = await resolveTaskCanvasWorkspace(current.projectRoot, current.canvasId);
+      const step = await runAutoRunStep({ projectRoot: workspace, scope: claimScope(current.scope) });
       const patch = terminalPatch(step);
-      const record = await latestRecord(current.projectRoot);
+      const record = await latestRecord(workspace);
       setState(runId, {
         stepCount: current.stepCount + 1,
         currentRef: claimRef(step),
@@ -147,13 +149,16 @@ async function runLoop(runId: string): Promise<void> {
 
 export async function startAutoRun(
   projectRoot: string,
+  canvasId: string | null | undefined,
   scope: DesktopAutoRunScope = { kind: "project" },
   stepLimit = 20
 ): Promise<DesktopAutoRunState> {
+  await resolveTaskCanvasWorkspace(projectRoot, canvasId);
   const runId = nextRunId();
   const state: DesktopAutoRunState = {
     runId,
     projectRoot,
+    canvasId: canvasId ?? null,
     scope,
     phase: "running",
     stepCount: 0,
@@ -195,9 +200,9 @@ export async function getAutoRunState(runId: string): Promise<DesktopAutoRunStat
   return clone(state);
 }
 
-export async function getLatestAutoRunSummary(projectRoot: string): Promise<DesktopAutoRunState | null> {
+export async function getLatestAutoRunSummary(projectRoot: string, canvasId?: string | null): Promise<DesktopAutoRunState | null> {
   const latest = [...runs.values()]
-    .filter((run) => run.projectRoot === projectRoot)
+    .filter((run) => run.projectRoot === projectRoot && run.canvasId === (canvasId ?? null))
     .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt))
     .at(-1);
   return latest ? clone(latest) : null;

@@ -4,14 +4,15 @@ import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
-import { loadPackage } from "../package/loadPackage.js";
+import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
 import type {
   ClaimResult,
   ExecutorAdapter,
   ExecutorAdapterResult,
   ExecutorProfile,
   ExecutorProfileSummary,
-  ManifestTaskNode
+  ManifestTaskNode,
+  PackageWorkspaceRef
 } from "../types.js";
 
 const builtinExecutors: Record<string, ExecutorProfile> = {
@@ -68,7 +69,7 @@ function profilesByName(manifest: Awaited<ReturnType<typeof loadPackage>>["manif
 }
 
 async function resolveProfileForClaim(options: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
   executorName?: string;
 }): Promise<{ name: string; profile: ExecutorProfile }> {
@@ -82,7 +83,7 @@ async function resolveProfileForClaim(options: {
 }
 
 async function prepareBlockRun(options: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
   executorName: string;
   profile: ExecutorProfile;
@@ -211,7 +212,7 @@ function extractCodexSessionId(output: string): string | null {
 }
 
 function createProfiledAdapter(options: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   executorName?: string;
   expectedAdapter?: ExecutorProfile["adapter"];
 }): ExecutorAdapter {
@@ -247,10 +248,11 @@ function createProfiledAdapter(options: {
         };
       }
       const codexProfile = assertCodexExecProfile(profile, name);
+      const workspace = await resolvePackageWorkspace(options.projectRoot);
       const result = await execWithStdin({
         command: codexProfile.command,
         args: codexExecArgs(codexProfile),
-        cwd: options.projectRoot,
+        cwd: workspace.rootPath,
         stdin: prompt,
         timeoutMs: codexProfile.timeoutMs
       });
@@ -261,7 +263,7 @@ function createProfiledAdapter(options: {
         const resumeResult = await execWithStdin({
           command: codexProfile.command,
           args: codexResumeArgs(codexProfile, codexSessionId, "continue this block and produce the required report"),
-          cwd: options.projectRoot,
+          cwd: workspace.rootPath,
           stdin: "",
           timeoutMs: codexProfile.timeoutMs
         });
@@ -336,7 +338,7 @@ function createProfiledAdapter(options: {
       }
       const codexProfile = assertCodexExecProfile(profile, name);
       return runCodexFeedback({
-        projectRoot: options.projectRoot,
+        projectRoot: workspace.rootPath,
         workspaceResultsDir: workspace.resultsDir,
         claim,
         name,
@@ -390,19 +392,19 @@ async function runCodexFeedback(options: {
   return { kind: "feedback", reportPath, runId, executor: options.name, adapter: "codex-exec", ...result };
 }
 
-export function createManualExecutorAdapter(options: { projectRoot: string; executorName?: string }): ExecutorAdapter {
+export function createManualExecutorAdapter(options: { projectRoot: PackageWorkspaceRef; executorName?: string }): ExecutorAdapter {
   return createProfiledAdapter({ ...options, expectedAdapter: "manual" });
 }
 
-export function createCodexExecAdapter(options: { projectRoot: string; executorName?: string }): ExecutorAdapter {
+export function createCodexExecAdapter(options: { projectRoot: PackageWorkspaceRef; executorName?: string }): ExecutorAdapter {
   return createProfiledAdapter({ ...options, expectedAdapter: "codex-exec" });
 }
 
-export function createExecutorAdapter(options: { projectRoot: string; executorName?: string }): ExecutorAdapter {
+export function createExecutorAdapter(options: { projectRoot: PackageWorkspaceRef; executorName?: string }): ExecutorAdapter {
   return createProfiledAdapter(options);
 }
 
-export async function listExecutorProfiles(options: { projectRoot: string }): Promise<ExecutorProfileSummary[]> {
+export async function listExecutorProfiles(options: { projectRoot: PackageWorkspaceRef }): Promise<ExecutorProfileSummary[]> {
   const { manifest } = await loadPackage(options.projectRoot);
   const packageProfiles = manifest.executors ?? {};
   const summaries: ExecutorProfileSummary[] = Object.entries(builtinExecutors).map(([name, profile]) => ({
@@ -422,7 +424,7 @@ export async function listExecutorProfiles(options: { projectRoot: string }): Pr
   return summaries;
 }
 
-export async function testExecutorProfile(options: { projectRoot: string; executorName: string }): Promise<{
+export async function testExecutorProfile(options: { projectRoot: PackageWorkspaceRef; executorName: string }): Promise<{
   name: string;
   adapter: ExecutorProfile["adapter"];
   ok: boolean;
@@ -439,7 +441,7 @@ export async function testExecutorProfile(options: { projectRoot: string; execut
   const result = await execWithStdin({
     command: profile.command,
     args: ["--version"],
-    cwd: options.projectRoot,
+    cwd: (await resolvePackageWorkspace(options.projectRoot)).rootPath,
     stdin: ""
   });
   return {

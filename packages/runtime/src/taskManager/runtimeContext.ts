@@ -3,7 +3,7 @@ import { access, readFile } from "node:fs/promises";
 import { createExecutionGraphSession, drainGraphReadQueue } from "../graph/session.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { ensureStateForManifest, readState, writeState } from "../state.js";
-import type { CompiledExecutionGraph, ExecutionGraphSession, PlanPackageManifest, ProjectWorkspace, RuntimeState } from "../types.js";
+import type { CompiledExecutionGraph, ExecutionGraphSession, PackageWorkspaceRef, PlanPackageManifest, ProjectWorkspace, RuntimeState } from "../types.js";
 
 export type RuntimeContext = {
   workspace: ProjectWorkspace;
@@ -13,7 +13,7 @@ export type RuntimeContext = {
 };
 
 export type RuntimeOptions = {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   session?: ExecutionGraphSession;
 };
 

@@ -2,12 +2,12 @@ import { copyFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import { writeState } from "../state.js";
-import type { ExecutionGraphSession, SubmitFeedbackResult } from "../types.js";
+import type { ExecutionGraphSession, PackageWorkspaceRef, SubmitFeedbackResult } from "../types.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { incrementTaskIndexCount, listDirCount, nextId, updateTaskIndex } from "./resultIndex.js";
 
 export async function submitFeedback(options: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   reportPath: string;
   session?: ExecutionGraphSession;
 }): Promise<SubmitFeedbackResult> {

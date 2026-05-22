@@ -8,6 +8,7 @@ export type DesktopAutoRunPhase = "idle" | "running" | "paused" | "manual" | "co
 export type DesktopAutoRunState = {
   runId: string;
   projectRoot: string;
+  canvasId: string | null;
   scope: DesktopAutoRunScope;
   phase: DesktopAutoRunPhase;
   stepCount: number;

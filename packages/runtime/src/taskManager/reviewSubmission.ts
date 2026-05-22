@@ -9,6 +9,7 @@ import type {
   ExecutionGraphSession,
   ManifestReviewBlock,
   ManifestTaskNode,
+  PackageWorkspaceRef,
   ProjectWorkspace,
   ReviewHookOutput,
   ReviewResult,
@@ -142,7 +143,7 @@ async function recordReviewCompletionReason(options: {
 }
 
 export async function submitReviewResult(options: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   ref: string;
   resultPath: string;
   session?: ExecutionGraphSession;
@@ -223,7 +224,7 @@ export async function submitReviewResult(options: {
   let feedbackContent: string;
   try {
     const hookOutput = await executeReviewHook({
-      projectRoot: options.projectRoot,
+      projectRoot: workspace.rootPath,
       reviewBlock: block,
       reviewResult: parsed,
       task,

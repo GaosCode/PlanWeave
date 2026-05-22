@@ -3,13 +3,13 @@ import { join } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { writeState } from "../state.js";
-import type { ExecutionGraphSession, SubmitResult } from "../types.js";
+import type { ExecutionGraphSession, PackageWorkspaceRef, SubmitResult } from "../types.js";
 import { exists, loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { getBlock } from "./selectors.js";
 import { incrementTaskIndexCount, listDirCount, nextId, updateTaskIndex } from "./resultIndex.js";
 
 export async function submitBlockResult(options: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   ref: string;
   reportPath: string;
   runId?: string;

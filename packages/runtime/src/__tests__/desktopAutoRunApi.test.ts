@@ -29,7 +29,7 @@ describe("desktop auto run API", () => {
     manifest.execution.defaultExecutor = "fake-codex";
     const { root } = await createTestWorkspace(manifest);
 
-    const started = await startAutoRun(root, { kind: "project" }, 1);
+    const started = await startAutoRun(root, null, { kind: "project" }, 1);
     expect(started.phase).toBe("running");
 
     let current = await getAutoRunState(started.runId);
@@ -49,7 +49,7 @@ describe("desktop auto run API", () => {
     expect(current.latestOutputSummary).toContain("desktop auto run");
     expect(current.latestRecordId).toBe("T-001#B-001::RUN-001");
     expect(current.latestRecordPath).toContain("metadata.json");
-    await expect(getLatestAutoRunSummary(root)).resolves.toMatchObject({ runId: started.runId });
+    await expect(getLatestAutoRunSummary(root, null)).resolves.toMatchObject({ runId: started.runId });
 
     await expect(resumeAutoRun(started.runId)).resolves.toMatchObject({ phase: "running" });
     await expect(pauseAutoRun(started.runId)).resolves.toMatchObject({ phase: "paused" });
@@ -71,7 +71,7 @@ describe("desktop auto run API", () => {
     manifest.execution.defaultExecutor = "fake-codex";
     const { root } = await createTestWorkspace(manifest);
 
-    const taskRun = await startAutoRun(root, { kind: "task", taskId: "T-002" }, 1);
+    const taskRun = await startAutoRun(root, null, { kind: "task", taskId: "T-002" }, 1);
     let taskState = await getAutoRunState(taskRun.runId);
     for (let attempt = 0; attempt < 20 && taskState.phase === "running"; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -85,7 +85,7 @@ describe("desktop auto run API", () => {
       stepCount: 1
     });
 
-    const blockRun = await startAutoRun(root, { kind: "block", blockRef: "T-001#B-001" }, 1);
+    const blockRun = await startAutoRun(root, null, { kind: "block", blockRef: "T-001#B-001" }, 1);
     let blockState = await getAutoRunState(blockRun.runId);
     for (let attempt = 0; attempt < 20 && blockState.phase === "running"; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 20));

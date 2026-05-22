@@ -1,9 +1,9 @@
 import { writeState } from "../state.js";
-import type { BlockStatus, ExecutionGraphSession } from "../types.js";
+import type { BlockStatus, ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { blockDependenciesCompleted, getBlock, openFeedbackForReview } from "./selectors.js";
 
-export async function markBlockBlocked(options: { projectRoot: string; ref: string; reason: string; session?: ExecutionGraphSession }) {
+export async function markBlockBlocked(options: { projectRoot: PackageWorkspaceRef; ref: string; reason: string; session?: ExecutionGraphSession }) {
   const context = await loadRuntime(options);
   const { workspace, manifest, graph } = context;
   const block = getBlock(graph, options.ref);
@@ -23,7 +23,7 @@ export async function markBlockBlocked(options: { projectRoot: string; ref: stri
   return { ref: options.ref, status: "blocked" as BlockStatus, reason: options.reason.trim() };
 }
 
-export async function markBlockDiverged(options: { projectRoot: string; ref: string; reason: string; session?: ExecutionGraphSession }) {
+export async function markBlockDiverged(options: { projectRoot: PackageWorkspaceRef; ref: string; reason: string; session?: ExecutionGraphSession }) {
   const context = await loadRuntime(options);
   const { workspace, manifest, graph } = context;
   getBlock(graph, options.ref);
@@ -40,7 +40,7 @@ export async function markBlockDiverged(options: { projectRoot: string; ref: str
   return { ref: options.ref, status: "diverged" as BlockStatus, reason: options.reason.trim() };
 }
 
-export async function unblockBlock(options: { projectRoot: string; ref: string; reason: string; session?: ExecutionGraphSession }) {
+export async function unblockBlock(options: { projectRoot: PackageWorkspaceRef; ref: string; reason: string; session?: ExecutionGraphSession }) {
   const context = await loadRuntime(options);
   const { workspace, manifest, graph } = context;
   getBlock(graph, options.ref);
@@ -60,7 +60,7 @@ export async function unblockBlock(options: { projectRoot: string; ref: string; 
   return { ref: options.ref, status: context.state.blocks[options.ref].status, reason: options.reason.trim() };
 }
 
-export async function resolveBlockDivergence(options: { projectRoot: string; ref: string; reason: string; session?: ExecutionGraphSession }) {
+export async function resolveBlockDivergence(options: { projectRoot: PackageWorkspaceRef; ref: string; reason: string; session?: ExecutionGraphSession }) {
   const context = await loadRuntime(options);
   const { workspace, manifest, graph } = context;
   getBlock(graph, options.ref);
