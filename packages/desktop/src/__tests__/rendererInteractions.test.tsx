@@ -10,14 +10,132 @@ import { HistoryNavigationButtons } from "../renderer/components/HistoryNavigati
 import { appViewHistoryChangedEvent } from "../renderer/hooks/useAppViewHistory";
 import { SearchResultList, searchNavigationTarget } from "../renderer/components/SearchResultList";
 import { TodoGroupCard } from "../renderer/components/TodoGroupCard";
-import type { DesktopSearchResult, DesktopTodoItem } from "@planweave/runtime";
+import { createTranslator } from "../renderer/i18n";
+import { ProjectSidebar } from "../renderer/sidebar/ProjectSidebar";
+import { orderProjectsByPinnedIds } from "../renderer/settings";
+import type { DesktopGraphViewModel, DesktopProjectSummary, DesktopSearchResult, DesktopTodoItem } from "@planweave/runtime";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("desktop renderer component interactions", () => {
+  it("keeps sidebar tree labels visible while right-side controls collapse rows", async () => {
+    class ResizeObserverMock {
+      disconnect = vi.fn();
+      observe = vi.fn();
+      unobserve = vi.fn();
+    }
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+    const project: DesktopProjectSummary = {
+      projectId: "P-001",
+      name: "frontend-example",
+      rootPath: "/tmp/frontend-example",
+      workspaceRoot: "/tmp/frontend-example",
+      taskCanvases: [
+        {
+          canvasId: "default",
+          name: "frontend-example",
+          taskCount: 2,
+          createdAt: "2026-05-22T00:00:00.000Z",
+          updatedAt: "2026-05-22T00:00:00.000Z"
+        }
+      ]
+    };
+    const graph: DesktopGraphViewModel = {
+      projectId: project.projectId,
+      projectTitle: project.name,
+      executorOptions: ["manual"],
+      tasks: [
+        {
+          taskId: "T-TASK",
+          title: "新",
+          status: "ready",
+          executor: null,
+          executorLabel: "inherit",
+          promptMarkdown: "# 新 Task",
+          promptPreview: "新 Task",
+          blocks: [],
+          blockPreview: [],
+          hiddenBlockRefs: [],
+          overflowBlockCount: 0,
+          exceptions: []
+        },
+        {
+          taskId: "T-002",
+          title: "新 Task",
+          status: "ready",
+          executor: null,
+          executorLabel: "inherit",
+          promptMarkdown: "# 新 Task",
+          promptPreview: "新 Task",
+          blocks: [],
+          blockPreview: [],
+          hiddenBlockRefs: [],
+          overflowBlockCount: 0,
+          exceptions: []
+        }
+      ],
+      contextNodes: [],
+      edges: [],
+      diagnostics: [],
+      dirtyPromptRefs: []
+    };
+
+    render(
+      <ProjectSidebar
+        activeView="graph"
+        collapsed={false}
+        expandedProjectId={project.projectId}
+        graph={graph}
+        handleDeleteProject={vi.fn().mockResolvedValue(undefined)}
+        handleDeleteTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleDeleteTaskNode={vi.fn().mockResolvedValue(undefined)}
+        handleOpenProject={vi.fn().mockResolvedValue(undefined)}
+        handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
+        handleRevealProject={vi.fn().mockResolvedValue(undefined)}
+        handleTaskPanelSelect={vi.fn()}
+        loadProject={vi.fn().mockResolvedValue(undefined)}
+        notificationItems={[]}
+        onToggleSidebar={vi.fn()}
+        onTogglePinnedProject={vi.fn()}
+        pinnedProjectIds={new Set()}
+        projects={[project]}
+        resetLayout={vi.fn().mockResolvedValue(undefined)}
+        selectedProject={project}
+        selectedCanvasId={null}
+        selectedTaskPanelId={null}
+        setActiveView={vi.fn()}
+        t={createTranslator("zh-CN")}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "frontend-example" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /frontend-example\s*2/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: "收起任务画布" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /新\s*T-TASK/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /新 Task\s*T-002/ })).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "收起项目" }));
+
+    expect(screen.getByRole("button", { name: "frontend-example" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "展开项目" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /frontend-example\s*2/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /新\s*T-TASK/ })).not.toBeInTheDocument();
+  });
+
+  it("orders pinned projects before unpinned projects without changing unpinned order", () => {
+    const projects = [
+      { projectId: "P-1", name: "first" },
+      { projectId: "P-2", name: "second" },
+      { projectId: "P-3", name: "third" }
+    ];
+
+    expect(orderProjectsByPinnedIds(projects, ["P-3", "P-1"]).map((project) => project.projectId)).toEqual(["P-3", "P-1", "P-2"]);
+  });
+
   it("disables history navigation buttons when no app history is available", () => {
     window.history.replaceState(null, "", "/");
 
@@ -83,7 +201,7 @@ describe("desktop renderer component interactions", () => {
     expect(screen.getByText("package/manifest.json")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /Implement dependency-aware Todo/ }));
-    expect(onSelect).toHaveBeenCalledWith("T-001#B-001");
+    expect(onSelect).toHaveBeenCalledWith(item);
   });
 
   it("routes every searchable result kind to a canvas node or record target", async () => {
@@ -129,8 +247,11 @@ describe("desktop renderer component interactions", () => {
   });
 
   it("disables agent switches when the CLI is not detected", async () => {
+    const refreshAgentDetections = vi.fn().mockResolvedValue(undefined);
+
     render(
       <AgentSettingsPanel
+        agentDetectionRefreshing={false}
         agents={[
           {
             kind: "codex",
@@ -149,8 +270,12 @@ describe("desktop renderer component interactions", () => {
           agentEnableDescription: "Run {command}",
           agentFullAccess: "Full access",
           agentFullAccessDescription: "Run {command}",
-          agentMissing: "CLI not detected"
+          agentInstallStatus: "Local agent installation status",
+          agentMissing: "CLI not detected",
+          agentRefresh: "Refresh",
+          agentRefreshing: "Refreshing"
         }}
+        refreshAgentDetections={refreshAgentDetections}
         settings={{
           runtimePath: "/tmp/project",
           defaultExecutor: "",
@@ -198,6 +323,8 @@ describe("desktop renderer component interactions", () => {
       />
     );
 
+    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(refreshAgentDetections).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("switch", { name: "Codex" })).toBeDisabled();
     expect(screen.queryByText("Full access")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Codex options" }));

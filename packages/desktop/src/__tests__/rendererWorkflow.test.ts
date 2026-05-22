@@ -41,9 +41,29 @@ describe("desktop renderer workflow wiring", () => {
 
     expect(sidebarSource).toContain("graph.tasks.map((task)");
     expect(sidebarSource).toContain('t("taskCanvas")');
+    expect(sidebarSource).toContain("WorkflowIcon");
+    expect(sidebarSource).toContain("ChevronDownIcon");
+    expect(sidebarSource).toContain("ChevronRightIcon");
+    expect(sidebarSource).toContain("collapsedProjectIds");
+    expect(sidebarSource).toContain("collapsedCanvasIds");
+    expect(sidebarSource).toContain("expandProject(project.projectId)");
+    expect(sidebarSource).toContain("expandCanvas(canvas.canvasId)");
+    expect(sidebarSource).toContain('t("collapseProject")');
+    expect(sidebarSource).toContain('t("collapseTaskCanvas")');
+    expect(sidebarSource).toContain('className="flex min-w-0 flex-col gap-1"');
+    expect(sidebarSource).toContain('className="group/project grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1"');
+    expect(sidebarSource).toContain('className="relative z-10 size-7 shrink-0 border-0 bg-transparent text-muted-foreground shadow-none opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"');
+    expect(sidebarSource).toContain('className="group/canvas grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1"');
+    expect(sidebarSource).toContain('className="relative z-10 h-8 w-7 shrink-0 border-0 bg-transparent text-muted-foreground shadow-none opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"');
+    expect(sidebarSource).not.toContain("border-2 border-border");
+    expect(sidebarSource).not.toContain('aria-hidden="true"');
+    expect(sidebarSource).toContain("selectedCanvasId === null && isSelectedProject && project.taskCanvases.length === 1");
+    expect(sidebarSource).toContain("py-2 text-left");
+    expect(sidebarSource).toContain("overflow-hidden px-2 text-xs");
+    expect(sidebarSource).toContain("h-8 w-full min-w-0 justify-start");
     expect(sidebarSource).toContain("handleTaskPanelSelect(null)");
     expect(sidebarSource).toContain("handleTaskPanelSelect(task.taskId)");
-    expect(sidebarSource).toContain("handleDeleteTaskCanvas(project)");
+    expect(sidebarSource).toContain("handleDeleteTaskCanvas(project, canvas.canvasId)");
     expect(sidebarSource).toContain("handleDeleteTaskNode(task.taskId)");
     expect(sidebarSource).toContain("handleDeleteProject(project)");
     expect(sidebarSource).not.toContain("task.blocks.map((block)");
@@ -65,9 +85,17 @@ describe("desktop renderer workflow wiring", () => {
     expect(searchListSource).toContain("function searchNavigationTarget");
     expect(searchHookSource).toContain('target.kind === "context"');
     expect(searchHookSource).toContain("setSelectedContextNodeId(target.ref)");
-    expect(todoSource).toContain("onSelect={(ref) => void handleBlockSelect(ref)}");
+    expect(todoSource).toContain("onSelect={(item) => void handleBlockSelect(item.ref, item.canvasId)}");
     expect(todoSource).toContain('"implemented"].includes(status)');
     expect(todoSource).not.toContain('"completed"].includes(status)');
+  });
+
+  it("keeps task selection from filtering other canvas tasks out of the graph", async () => {
+    const visibleTasksHookSource = await readFile(resolve(sourceDir, "renderer", "hooks", "useVisibleGraphTasks.ts"), "utf8");
+
+    expect(visibleTasksHookSource).toContain("searchQuery.trim().toLowerCase()");
+    expect(visibleTasksHookSource).not.toContain("task.taskId === selectedTaskPanelId");
+    expect(visibleTasksHookSource).not.toContain("matchesPanel");
   });
 
   it("keeps workspace navigation in the sidebar instead of the graph toolbar", async () => {
@@ -99,22 +127,25 @@ describe("desktop renderer workflow wiring", () => {
     expect(projectHookSource).toContain("bridge.initOrOpenProject(selectedPath)");
     expect(projectHookSource).not.toContain("projectPath.trim()");
     expect(sidebarSource).toContain("selectedTaskPanelId === task.taskId");
-    expect(sidebarSource).toContain("DropdownMenuTrigger asChild");
-    expect(sidebarSource).toContain('aria-label={t("projectMore")}');
-    expect(sidebarSource).toContain('aria-label={t("newGraph")}');
     expect(sidebarSource).toContain("void handleProjectNewGraph(project)");
     expect(sidebarSource).toContain("void handleRevealProject(project)");
+    expect(sidebarSource).toContain("onTogglePinnedProject(project.projectId)");
+    expect(sidebarSource).toContain('isPinnedProject ? t("unpinProject") : t("pinProject")');
+    expect(sidebarSource).not.toContain('t("createPermanentWorktree")');
+    expect(sidebarSource).not.toContain("DropdownMenuTrigger asChild");
+    expect(sidebarSource).not.toContain('aria-label={t("projectMore")}');
     expect(sidebarSource).not.toContain("<Select");
     expect(sidebarSource).not.toContain("LanguagesIcon");
     expect(sidebarSource).not.toContain('aria-label={t("projectPath")}');
   });
 
   it("opens settings as a full-page surface with focused settings sections", async () => {
-    const [appSource, settingsSource, workspaceSource, detectedAgentsHookSource] = await Promise.all([
+    const [appSource, settingsSource, workspaceSource, detectedAgentsHookSource, agentPanelSource] = await Promise.all([
       readFile(resolve(sourceDir, "renderer", "App.tsx"), "utf8"),
       readFile(resolve(sourceDir, "renderer", "views", "SettingsView.tsx"), "utf8"),
       readFile(resolve(sourceDir, "renderer", "views", "WorkspaceTabs.tsx"), "utf8"),
-      readFile(resolve(sourceDir, "renderer", "hooks", "useDetectedAgents.ts"), "utf8")
+      readFile(resolve(sourceDir, "renderer", "hooks", "useDetectedAgents.ts"), "utf8"),
+      readFile(resolve(sourceDir, "renderer", "components", "AgentSettingsPanel.tsx"), "utf8")
     ]);
 
     expect(appSource).toContain('if (activeView === "settings")');
@@ -127,7 +158,13 @@ describe("desktop renderer workflow wiring", () => {
     expect(settingsSource).toContain("<SettingsSwitchRow");
     expect(settingsSource).toContain("<AgentSettingsPanel");
     expect(appSource).toContain("useDetectedAgents()");
+    expect(appSource).toContain("refreshAgentDetections={refreshAgentDetections}");
     expect(detectedAgentsHookSource).toContain("bridge.detectAgentTools()");
+    expect(detectedAgentsHookSource).toContain("refreshAgentDetections");
+    expect(detectedAgentsHookSource).toContain("agentDetectionRefreshing");
+    expect(settingsSource).toContain("refreshAgentDetections={refreshAgentDetections}");
+    expect(agentPanelSource).toContain("RefreshCwIcon");
+    expect(agentPanelSource).toContain("onClick={() => void refreshAgentDetections()}");
     expect(settingsSource).not.toContain("<Select");
     expect(settingsSource).not.toContain("<ReviewPipelineView");
     expect(workspaceSource).not.toContain("SettingsView");
@@ -182,6 +219,13 @@ describe("desktop renderer workflow wiring", () => {
     expect(paletteSource).toContain("handlePaletteDragStart");
     expect(paletteSource).toContain('t("nodeComponents")');
     expect(paletteSource).toContain('t("blockComponents")');
+    expect(appSource).toContain("PanelRightCloseIcon");
+    expect(appSource).not.toContain("PanelRightOpenIcon");
+    expect(appSource).toContain("setRightSidebarCollapsed(true)");
+    expect(appSource).toContain("setRightSidebarCollapsed(false)");
+    expect(appSource).toContain("{rightSidebarCollapsed ? null : (");
+    expect(appSource).toContain('className="app-drag-region absolute right-0 top-0 z-30 flex h-11 w-11 items-center justify-center border-b bg-background"');
+    expect(appSource).not.toContain('className="flex w-11 shrink-0 flex-col overflow-hidden border-l bg-background"');
     expect(graphViewSource).toContain("onInit={setFlowInstance}");
     expect(settingsSource).toContain("<SettingsSwitchRow");
     expect(appSource).not.toContain('setActiveView("component-settings")');
@@ -193,7 +237,7 @@ describe("desktop renderer workflow wiring", () => {
     expect(paletteHookSource).toContain("previousTaskIds");
     expect(paletteHookSource).toContain("previousContextIds");
     expect(paletteHookSource).toContain("nodeId: createdContext.nodeId");
-    expect(paletteHookSource).toContain("bridge.saveDesktopLayout(selectedProject.rootPath, nextLayout)");
+    expect(paletteHookSource).toContain("bridge.saveDesktopLayout(selectedProject.rootPath, selectedCanvasId, nextLayout)");
     expect(paletteHookSource).toContain('void addPaletteComponent(type, type === "task" || type === "context" ? dropPosition : undefined)');
     expect(paletteHookSource).not.toContain("dragPaletteComponent(");
   });
@@ -206,9 +250,9 @@ describe("desktop renderer workflow wiring", () => {
       readFile(resolve(sourceDir, "renderer", "inspector", "BlockConnectionsCard.tsx"), "utf8")
     ]);
 
-    expect(blockHookSource).toContain("bridge.listBlockRunRecords(selectedProject.rootPath, ref)");
-    expect(blockHookSource).toContain("bridge.getReviewAttempts(selectedProject.rootPath, ref)");
-    expect(blockHookSource).toContain("bridge.getFeedbackRecords(selectedProject.rootPath, ref)");
+    expect(blockHookSource).toContain("bridge.listBlockRunRecords(selectedProject.rootPath, canvasId, ref)");
+    expect(blockHookSource).toContain("bridge.getReviewAttempts(selectedProject.rootPath, canvasId, ref)");
+    expect(blockHookSource).toContain("bridge.getFeedbackRecords(selectedProject.rootPath, canvasId, ref)");
     expect(previewSource).toContain("ContextMenuTrigger asChild");
     expect(previewSource).toContain("labels.deleteBlock");
     expect(connectionsSource).toContain("Block 连接");
@@ -260,11 +304,11 @@ describe("desktop renderer workflow wiring", () => {
 
     expect(appSource).toContain("useDesktopProject({");
     expect(projectHookSource).toContain(".listProjects()");
-    expect(projectHookSource).toContain("bridge.getGraphViewModel(project.rootPath)");
-    expect(projectHookSource).toContain("bridge.getDesktopLayout(project.rootPath)");
+    expect(projectHookSource).toContain("bridge.getGraphViewModel(project.rootPath, canvasId)");
+    expect(projectHookSource).toContain("bridge.getDesktopLayout(project.rootPath, canvasId)");
     expect(projectHookSource).toContain("bridge.getTodoGroups(project.rootPath)");
     expect(projectHookSource).toContain("bridge.getStatistics(project.rootPath)");
-    expect(projectHookSource).toContain("bridge.watchPackageFiles(project.rootPath)");
-    expect(projectHookSource).toContain("bridge.unwatchPackageFiles(projectRoot)");
+    expect(projectHookSource).toContain("bridge.watchPackageFiles(project.rootPath, canvasId)");
+    expect(projectHookSource).toContain("bridge.unwatchPackageFiles(projectRoot, canvasId)");
   });
 });
