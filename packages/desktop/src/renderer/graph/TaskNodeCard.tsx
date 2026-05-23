@@ -1,6 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { MessageSquareWarningIcon } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -8,9 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import type { TaskFlowNode } from "../types";
-import { statusIcon, statusVariant } from "../viewHelpers";
 import { BlockPreviewButton } from "./BlockPreviewButton";
+import { taskNodeStatusVisual, TaskNodeStatusMarker } from "./taskNodeStatus";
 
 export function TaskNodeCard({ data }: NodeProps<TaskFlowNode>) {
   const {
@@ -32,25 +32,23 @@ export function TaskNodeCard({ data }: NodeProps<TaskFlowNode>) {
   } = data;
   const hasException = task.exceptions.length > 0;
   const selectedExecutor = task.executor && executorOptions.includes(task.executor) ? task.executor : "__inherit";
+  const statusVisual = taskNodeStatusVisual(task.status, hasException);
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <Card className="h-auto min-h-[220px] w-[320px] border bg-card shadow-sm" size="sm">
+        <Card className={cn("h-auto min-h-[220px] w-[320px] border", statusVisual.cardClassName)} size="sm">
           <Handle type="target" position={Position.Left} />
           <CardHeader className="min-h-12">
             <CardTitle className="flex min-w-0 items-center justify-between gap-2">
               <Input
                 aria-label={`${task.taskId} title`}
-                className="h-8 min-w-0 flex-1 border-transparent px-1 font-semibold shadow-none"
+                className="h-8 min-w-0 flex-1 border-transparent bg-transparent px-1 font-semibold shadow-none"
                 value={titleDraft}
                 onChange={(event) => onTitleChange(task.taskId, event.target.value)}
                 onBlur={() => onTitleSave(task.taskId)}
               />
-              <Badge className="h-6 shrink-0 gap-1 px-2" variant={hasException ? "destructive" : statusVariant[task.status]}>
-                {statusIcon(hasException ? "blocked" : task.status)}
-                {hasException ? labels.exception : task.status}
-              </Badge>
+              <TaskNodeStatusMarker hasException={hasException} label={hasException ? labels.exception : task.status} status={task.status} />
             </CardTitle>
             <CardDescription className="flex items-center gap-2">
               <Select value={selectedExecutor} onValueChange={(value) => onExecutorChange(task.taskId, value === "__inherit" ? null : value)}>

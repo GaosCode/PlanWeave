@@ -1,4 +1,3 @@
-import { ActivityIcon, CheckCircle2Icon, CircleAlertIcon, CircleIcon } from "lucide-react";
 import type { BlockType } from "@planweave/runtime";
 import type { createTranslator } from "./i18n";
 
@@ -12,19 +11,6 @@ export const statusVariant = {
   blocked: "destructive",
   diverged: "destructive"
 } as const;
-
-export function statusIcon(status: string) {
-  if (status === "implemented" || status === "completed") {
-    return <CheckCircle2Icon />;
-  }
-  if (status === "blocked" || status === "diverged" || status === "needs_changes") {
-    return <CircleAlertIcon />;
-  }
-  if (status === "in_progress") {
-    return <ActivityIcon />;
-  }
-  return <CircleIcon />;
-}
 
 export function defaultBlockTitleForUi(type: BlockType, t: ReturnType<typeof createTranslator>): string {
   if (type === "check") {
