@@ -3,8 +3,8 @@ import { join, relative } from "node:path";
 import { loadPackage } from "../../package/loadPackage.js";
 import { getExecutionStatus } from "../../taskManager/index.js";
 import type { PackageWorkspaceRef } from "../../types.js";
-import { listTaskCanvases, resolveTaskCanvasWorkspace } from "../canvasApi.js";
 import type { DesktopStatistics } from "../types.js";
+import { mapProjectTaskCanvases } from "./projectCanvasAggregation.js";
 
 async function listResultFiles(root: string): Promise<string[]> {
   try {
@@ -66,30 +66,27 @@ async function getStatisticsForWorkspace(projectRoot: PackageWorkspaceRef): Prom
     implementationDurations,
     reviewBlockCount,
     stats: {
-    taskTotal: status.taskTotal,
-    implementedTaskCount: status.counts.tasks.implemented,
-    implementedRatio: status.taskTotal === 0 ? 0 : status.counts.tasks.implemented / status.taskTotal,
-    taskThroughput: status.counts.tasks.implemented,
-    blockTotal: status.blockTotal,
-    completedBlockCount: status.counts.blocks.completed,
-    averageImplementationTimeMs:
-      implementationDurations.length === 0
-        ? null
-        : Math.round(implementationDurations.reduce((sum, duration) => sum + duration, 0) / implementationDurations.length),
-    reviewPassedCount,
-    reviewPassedRatio: reviewBlockCount === 0 ? 0 : reviewPassedCount / reviewBlockCount,
-    feedbackEnvelopeCount,
-    reworkCount: feedbackEnvelopeCount,
-    estimatedRemainingBlocks: status.blockTotal - status.counts.blocks.completed
+      taskTotal: status.taskTotal,
+      implementedTaskCount: status.counts.tasks.implemented,
+      implementedRatio: status.taskTotal === 0 ? 0 : status.counts.tasks.implemented / status.taskTotal,
+      taskThroughput: status.counts.tasks.implemented,
+      blockTotal: status.blockTotal,
+      completedBlockCount: status.counts.blocks.completed,
+      averageImplementationTimeMs:
+        implementationDurations.length === 0
+          ? null
+          : Math.round(implementationDurations.reduce((sum, duration) => sum + duration, 0) / implementationDurations.length),
+      reviewPassedCount,
+      reviewPassedRatio: reviewBlockCount === 0 ? 0 : reviewPassedCount / reviewBlockCount,
+      feedbackEnvelopeCount,
+      reworkCount: feedbackEnvelopeCount,
+      estimatedRemainingBlocks: status.blockTotal - status.counts.blocks.completed
     }
   };
 }
 
 export async function getStatistics(projectRoot: string): Promise<DesktopStatistics> {
-  const canvases = await listTaskCanvases(projectRoot);
-  const parts = await Promise.all(
-    canvases.map(async (canvas) => getStatisticsForWorkspace(await resolveTaskCanvasWorkspace(projectRoot, canvas.canvasId)))
-  );
+  const parts = await mapProjectTaskCanvases(projectRoot, ({ workspace }) => getStatisticsForWorkspace(workspace));
   const totals = parts.reduce(
     (sum, part) => ({
       taskTotal: sum.taskTotal + part.stats.taskTotal,

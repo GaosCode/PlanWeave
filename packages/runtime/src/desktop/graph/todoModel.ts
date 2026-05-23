@@ -2,9 +2,9 @@ import { compileTaskGraph } from "../../graph/compileTaskGraph.js";
 import { loadPackage } from "../../package/loadPackage.js";
 import { getExecutionStatus } from "../../taskManager/index.js";
 import type { PackageWorkspaceRef } from "../../types.js";
-import { listTaskCanvases, resolveTaskCanvasWorkspace } from "../canvasApi.js";
 import type { DesktopTodoGroups, DesktopTodoItem } from "../types.js";
 import { getBlock } from "./graphHelpers.js";
+import { mapProjectTaskCanvases } from "./projectCanvasAggregation.js";
 
 function emptyTodoGroups(): DesktopTodoGroups {
   return {
@@ -57,10 +57,10 @@ async function getTodoGroupsForWorkspace(
 
 export async function getTodoGroups(projectRoot: string): Promise<DesktopTodoGroups> {
   const groups = emptyTodoGroups();
-  const canvases = await listTaskCanvases(projectRoot);
-  for (const canvas of canvases) {
-    const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvas.canvasId);
-    const canvasGroups = await getTodoGroupsForWorkspace(workspace, { canvasId: canvas.canvasId, canvasName: canvas.name });
+  const canvasGroupItems = await mapProjectTaskCanvases(projectRoot, ({ canvasId, canvasName, workspace }) =>
+    getTodoGroupsForWorkspace(workspace, { canvasId, canvasName })
+  );
+  for (const canvasGroups of canvasGroupItems) {
     for (const [groupName, items] of Object.entries(canvasGroups) as Array<[keyof DesktopTodoGroups, DesktopTodoItem[]]>) {
       groups[groupName].push(...items);
     }

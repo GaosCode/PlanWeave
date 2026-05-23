@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { getGraphViewModel, getStatistics, getTodoGroups, searchProject } from "../desktop/index.js";
+import { createTaskCanvas, getGraphViewModel, getStatistics, getTodoGroups, searchProject } from "../desktop/index.js";
+import { mapProjectTaskCanvases } from "../desktop/graph/projectCanvasAggregation.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { claimNext, submitBlockResult, submitReviewResult } from "../taskManager/index.js";
 import type { PlanPackageManifest } from "../types.js";
@@ -10,6 +11,29 @@ afterEach(() => {
 });
 
 describe("desktop search and statistics API", () => {
+  it("maps project task canvases in registry order including empty canvases", async () => {
+    const { root, init } = await createTestWorkspace();
+    const secondCanvas = await createTaskCanvas(root, { name: "Empty follow-up canvas" });
+
+    const seen = await mapProjectTaskCanvases(root, async ({ canvasId, canvasName, workspace }) => ({
+      canvasId,
+      canvasName,
+      manifestFile: workspace.manifestFile
+    }));
+
+    expect(seen).toEqual([
+      {
+        canvasId: "default",
+        canvasName: "Test Plan",
+        manifestFile: init.workspace.manifestFile
+      },
+      expect.objectContaining({
+        canvasId: secondCanvas.canvasId,
+        canvasName: "Empty follow-up canvas"
+      })
+    ]);
+  });
+
   it("derives todo, statistics, and search from runtime/package sources", async () => {
     const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] }));
     const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);

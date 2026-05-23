@@ -5,9 +5,9 @@ import { loadPackage } from "../../package/loadPackage.js";
 import { resolvePackagePath } from "../../package/resolvePackagePath.js";
 import { readState } from "../../state.js";
 import type { PackageWorkspaceRef } from "../../types.js";
-import { listTaskCanvases, resolveTaskCanvasWorkspace } from "../canvasApi.js";
 import type { DesktopSearchFilters, DesktopSearchResult, DesktopSearchResultKind } from "../types.js";
 import { blockRef, getTask, promptPreview, readOptionalFile } from "./graphHelpers.js";
+import { mapProjectTaskCanvases } from "./projectCanvasAggregation.js";
 
 async function listResultFiles(root: string): Promise<string[]> {
   try {
@@ -145,10 +145,11 @@ async function searchWorkspace(
 
 export async function searchProject(projectRoot: string, query: string, filters: DesktopSearchFilters = {}): Promise<DesktopSearchResult[]> {
   const results: DesktopSearchResult[] = [];
-  const canvases = await listTaskCanvases(projectRoot);
-  for (const canvas of canvases) {
-    const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvas.canvasId);
-    results.push(...(await searchWorkspace(workspace, query, filters, { canvasId: canvas.canvasId, canvasName: canvas.name })));
+  const canvasResults = await mapProjectTaskCanvases(projectRoot, ({ canvasId, canvasName, workspace }) =>
+    searchWorkspace(workspace, query, filters, { canvasId, canvasName })
+  );
+  for (const items of canvasResults) {
+    results.push(...items);
   }
   return results;
 }
