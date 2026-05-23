@@ -3,6 +3,7 @@ import type * as React from "react";
 import type { Connection, Edge, Node, ReactFlowInstance } from "@xyflow/react";
 import type { DesktopBlockDetail, DesktopGraphViewModel, DesktopLayout, DesktopProjectSummary } from "@planweave/runtime";
 import { bridge, desktopCanvasReference } from "../bridge";
+import { dependencyConnectionToManifestEndpoints, dependencyDisplayEdgeToManifestEndpoints } from "../graph/dependencyEdges";
 import type { createTranslator } from "../i18n";
 import { visibleBlockSet } from "../settings";
 import type { AppFlowNode, DesktopUiSettings, PaletteDropComponent, PaletteDropPosition } from "../types";
@@ -75,11 +76,12 @@ export function useGraphPaletteActions({
 
   const handleConnect = useCallback(
     async (connection: Connection) => {
-      if (!bridge || !selectedProject || !connection.source || !connection.target || connection.source === connection.target) {
+      const manifestEdge = dependencyConnectionToManifestEndpoints(connection);
+      if (!bridge || !selectedProject || !manifestEdge) {
         return;
       }
       try {
-        const result = await bridge.addDependencyEdge(desktopCanvasReference(selectedProject, selectedCanvasId), connection.source, connection.target);
+        const result = await bridge.addDependencyEdge(desktopCanvasReference(selectedProject, selectedCanvasId), manifestEdge.from, manifestEdge.to);
         if (!result.ok) {
           setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
           return;
@@ -98,8 +100,9 @@ export function useGraphPaletteActions({
         return;
       }
       for (const edge of deletedEdges) {
-        if (edge.source && edge.target) {
-          await bridge.removeDependencyEdge(desktopCanvasReference(selectedProject, selectedCanvasId), edge.source, edge.target);
+        const manifestEdge = dependencyDisplayEdgeToManifestEndpoints(edge);
+        if (manifestEdge) {
+          await bridge.removeDependencyEdge(desktopCanvasReference(selectedProject, selectedCanvasId), manifestEdge.from, manifestEdge.to);
         }
       }
       await refreshGraph();

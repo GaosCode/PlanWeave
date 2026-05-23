@@ -3,6 +3,7 @@ import type { DesktopBlockDetail, DesktopBlockRunRecordSummary, DesktopFeedbackR
 import type { AppFlowNode, ContextFlowNode, TaskFlowNode, TaskNodeData } from "../types";
 import { TaskNodeCard } from "./TaskNodeCard";
 import { ContextNodeCard } from "./ContextNodeCard";
+import { displayEdgeManifestData, executionFlowEndpoints } from "./dependencyEdges";
 
 export const nodeTypes = {
   task: TaskNodeCard,
@@ -89,10 +90,12 @@ export function graphEdges(graph: DesktopGraphViewModel): Edge[] {
     .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to))
     .map((edge) => {
       const isTaskDependency = edge.type === "depends_on";
+      const endpoints = executionFlowEndpoints(edge);
       return {
         id: `${edge.from}-${edge.type}-${edge.to}`,
-        source: edge.from,
-        target: edge.to,
+        source: endpoints.source,
+        target: endpoints.target,
+        data: displayEdgeManifestData(edge),
         animated: false,
         type: isTaskDependency ? "smoothstep" : "default",
         markerEnd: {
