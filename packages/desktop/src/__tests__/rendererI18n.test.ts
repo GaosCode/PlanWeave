@@ -2,13 +2,23 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { createTranslator, resources, resolveLanguage } from "../renderer/i18n";
+import { createTranslator, resolveLanguage } from "../renderer/i18n";
+import { resources } from "../renderer/i18nCatalog";
 
 const sourceDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 describe("desktop renderer i18n", () => {
   it("keeps zh-CN and en resources on the same key contract", () => {
     expect(Object.keys(resources["zh-CN"]).sort()).toEqual(Object.keys(resources.en).sort());
+  });
+
+  it("keeps catalog data outside the translator runtime module", async () => {
+    const i18nSource = await readFile(resolve(sourceDir, "renderer", "i18n.ts"), "utf8");
+
+    expect(i18nSource).not.toContain("export const resources");
+    expect(i18nSource).not.toContain('newTask: "');
+    expect(i18nSource).toContain("createTranslator");
+    expect(i18nSource).toContain("resolveLanguage");
   });
 
   it("resolves explicit and system languages", () => {
