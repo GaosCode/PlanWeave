@@ -13,22 +13,33 @@ describe("desktop renderer workflow wiring", () => {
     ]);
 
     expect(smokeSource).toContain("async function runRendererManualSmoke");
-    expect(smokeSource).toContain('await clickByText("新建任务画布")');
-    expect(smokeSource).toContain('await clickByText("生成 Draft")');
-    expect(smokeSource).toContain('await clickByText("确认写入")');
-    expect(smokeSource).toContain('await clickByText("统计")');
-    expect(smokeSource).toContain('await clickByText("搜索")');
-    expect(smokeSource).toContain('await clickByText("设置")');
-    expect(smokeSource).toContain('await clickByText("组件")');
-    expect(smokeSource).toContain('await clickByText("审查")');
-    expect(smokeSource).toContain('await clickByText("Agent")');
-    expect(smokeSource).toContain('await clickByText("UI Smoke Task")');
+    expect(smokeSource).toContain("const clickByTestId = async");
+    expect(smokeSource).toContain('await clickByTestId("sidebar-new-task")');
+    expect(smokeSource).toContain('await clickByTestId("new-task-generate-draft")');
+    expect(smokeSource).toContain('await clickByTestId("new-task-confirm-write")');
+    expect(smokeSource).toContain('await clickByTestId("sidebar-statistics")');
+    expect(smokeSource).toContain('await clickByTestId("sidebar-search")');
+    expect(smokeSource).toContain('await clickByTestId("sidebar-settings")');
+    expect(smokeSource).toContain('await clickByTestId("settings-nav-components")');
+    expect(smokeSource).toContain('await clickByTestId("settings-nav-review")');
+    expect(smokeSource).toContain('await clickByTestId("settings-nav-agents")');
+    expect(smokeSource).toContain('await clickByTestId("settings-back-to-app")');
     expect(smokeSource).toContain('await waitForSelector("[data-auto-run-control]", "Floating Auto Run control")');
     expect(smokeSource).toContain('await clickByLabel("Auto Run")');
-    expect(smokeSource).toContain('await clickByText("Todo")');
-    expect(smokeSource).toContain('await waitForText("启用 Review Pipeline")');
-    expect(smokeSource).toContain('await clickByText("返回应用")');
-    expect(smokeSource).toContain('await waitForText("组件可见性")');
+    expect(smokeSource).toContain('await clickByTestId("sidebar-todo")');
+    expect(smokeSource).toContain('await waitForSelector(\'[data-testid="settings-section-components"]\', "component settings section")');
+    expect(smokeSource).toContain('await waitForSelector(\'[data-testid="settings-section-review"]\', "review settings section")');
+    expect(smokeSource).toContain('await waitForSelector(\'[data-testid="settings-section-agents"]\', "agent settings section")');
+    expect(smokeSource).not.toContain('await clickByText("新建任务画布")');
+    expect(smokeSource).not.toContain('await clickByText("生成 Draft")');
+    expect(smokeSource).not.toContain('await clickByText("确认写入")');
+    expect(smokeSource).not.toContain('await clickByText("统计")');
+    expect(smokeSource).not.toContain('await clickByText("搜索")');
+    expect(smokeSource).not.toContain('await clickByText("设置")');
+    expect(smokeSource).not.toContain('await clickByText("组件")');
+    expect(smokeSource).not.toContain('await clickByText("审查")');
+    expect(smokeSource).not.toContain('await clickByText("Agent")');
+    expect(smokeSource).not.toContain('await clickByText("Todo")');
     expect(smokeSource).not.toContain("planweave:rendererSmoke");
     expect(mainSource).toContain('app.setPath("userData", process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR)');
   });
@@ -91,11 +102,17 @@ describe("desktop renderer workflow wiring", () => {
   });
 
   it("keeps task selection from filtering other canvas tasks out of the graph", async () => {
-    const visibleTasksHookSource = await readFile(resolve(sourceDir, "renderer", "hooks", "useVisibleGraphTasks.ts"), "utf8");
+    const [visibleTasksHookSource, graphViewSource] = await Promise.all([
+      readFile(resolve(sourceDir, "renderer", "hooks", "useVisibleGraphTasks.ts"), "utf8"),
+      readFile(resolve(sourceDir, "renderer", "views", "GraphView.tsx"), "utf8")
+    ]);
 
     expect(visibleTasksHookSource).toContain("searchQuery.trim().toLowerCase()");
     expect(visibleTasksHookSource).not.toContain("task.taskId === selectedTaskPanelId");
     expect(visibleTasksHookSource).not.toContain("matchesPanel");
+    expect(graphViewSource).toContain('node.type !== "task" || visibleTaskIds.has(node.id)');
+    expect(graphViewSource).toContain("visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)");
+    expect(graphViewSource).not.toContain("visibleTaskIds.has(edge.source) && visibleTaskIds.has(edge.target)");
   });
 
   it("keeps workspace navigation in the sidebar instead of the graph toolbar", async () => {
@@ -155,6 +172,8 @@ describe("desktop renderer workflow wiring", () => {
     expect(settingsSource).toContain('t("settingsComponents")');
     expect(settingsSource).toContain('t("settingsReview")');
     expect(settingsSource).toContain('t("settingsAgents")');
+    expect(settingsSource).toContain("<Select");
+    expect(settingsSource).toContain('aria-label={t("language")}');
     expect(settingsSource).toContain("<SettingsSwitchRow");
     expect(settingsSource).toContain("<AgentSettingsPanel");
     expect(appSource).toContain("useDetectedAgents()");
@@ -165,7 +184,6 @@ describe("desktop renderer workflow wiring", () => {
     expect(settingsSource).toContain("refreshAgentDetections={refreshAgentDetections}");
     expect(agentPanelSource).toContain("RefreshCwIcon");
     expect(agentPanelSource).toContain("onClick={() => void refreshAgentDetections()}");
-    expect(settingsSource).not.toContain("<Select");
     expect(settingsSource).not.toContain("<ReviewPipelineView");
     expect(workspaceSource).not.toContain("SettingsView");
   });
@@ -195,6 +213,15 @@ describe("desktop renderer workflow wiring", () => {
     expect(runHookSource).toContain("setPointerCapture(event.pointerId)");
     expect(runControlSource).toContain("onPointerMove={moveAutoRunControl}");
     expect(runHookSource).not.toContain("planweave:saveAutoRunControl");
+  });
+
+  it("themes ReactFlow built-in controls for dark mode", async () => {
+    const cssSource = await readFile(resolve(sourceDir, "renderer", "index.css"), "utf8");
+
+    expect(cssSource).toContain(".dark .react-flow__controls");
+    expect(cssSource).toContain(".dark .react-flow__controls-button");
+    expect(cssSource).toContain(".dark .react-flow__controls-button svg");
+    expect(cssSource).toContain(".dark .react-flow__minimap");
   });
 
   it("supports right-click or long-press Auto Run scope selection", async () => {

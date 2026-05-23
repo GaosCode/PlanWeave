@@ -1,22 +1,28 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "../renderer/components/AgentSettingsPanel";
 import { SettingsSwitchRow } from "../renderer/components/SettingsSwitchRow";
 import { HistoryNavigationButtons } from "../renderer/components/HistoryNavigationButtons";
 import { appViewHistoryChangedEvent } from "../renderer/hooks/useAppViewHistory";
+import { BlockInspector } from "../renderer/inspector/BlockInspector";
+import { BlockRunRecordCard } from "../renderer/inspector/BlockRunRecordCard";
 import { SearchResultList, searchNavigationTarget } from "../renderer/components/SearchResultList";
 import { TodoGroupCard } from "../renderer/components/TodoGroupCard";
 import { createTranslator } from "../renderer/i18n";
 import { ProjectSidebar } from "../renderer/sidebar/ProjectSidebar";
+import { NotificationsView } from "../renderer/views/NotificationsView";
+import { SettingsView } from "../renderer/views/SettingsView";
 import { orderProjectsByPinnedIds } from "../renderer/settings";
-import type { DesktopGraphViewModel, DesktopProjectSummary, DesktopSearchResult, DesktopTodoItem } from "@planweave/runtime";
+import type { DesktopBlockDetail, DesktopGraphViewModel, DesktopProjectSummary, DesktopRunRecord, DesktopSearchResult, DesktopTodoItem } from "@planweave/runtime";
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -230,6 +236,182 @@ describe("desktop renderer component interactions", () => {
     expect(onOpenResult).toHaveBeenCalledWith(expect.objectContaining({ kind: "feedback", targetRef: "T-001#R-001" }));
   });
 
+  it("labels successful agent stderr as terminal output instead of an error", () => {
+    const runRecord: DesktopRunRecord = {
+      recordId: "T-001#B-001::RUN-001",
+      ref: "T-001#B-001",
+      taskId: "T-001",
+      blockId: "B-001",
+      runId: "RUN-001",
+      executor: "opencode",
+      adapter: "opencode-exec",
+      executionCwd: "/tmp/project",
+      projectRoot: "/tmp/project",
+      agentSessionId: "ses_123",
+      codexSessionId: null,
+      exitCode: 0,
+      startedAt: null,
+      finishedAt: "2026-05-23T01:49:38.307Z",
+      promptPath: null,
+      reportPath: null,
+      metadataPath: "/tmp/project/.planweave/results/T-001/blocks/B-001/runs/RUN-001/metadata.json",
+      stdoutSummary: "",
+      stderrSummary: "> build · mimo-v2.5-pro → Read README.md ← Write CHECKLIST.md Wrote file successfully.",
+      promptMarkdown: "",
+      reportMarkdown: "## Implementation Report",
+      metadata: {}
+    };
+
+    const { rerender } = render(<BlockRunRecordCard selectedRunRecord={runRecord} setSelectedRunRecord={vi.fn()} t={createTranslator("zh-CN")} />);
+
+    expect(screen.getByText(/终端输出:/)).toBeInTheDocument();
+    expect(screen.queryByText(/错误输出:/)).not.toBeInTheDocument();
+
+    rerender(
+      <BlockRunRecordCard
+        selectedRunRecord={{ ...runRecord, recordId: "T-001#B-001::RUN-LEGACY", runId: "RUN-LEGACY", exitCode: undefined as unknown as number | null }}
+        setSelectedRunRecord={vi.fn()}
+        t={createTranslator("zh-CN")}
+      />
+    );
+
+    expect(screen.getByText(/终端输出:/)).toBeInTheDocument();
+    expect(screen.queryByText(/错误输出:/)).not.toBeInTheDocument();
+  });
+
+  it("autosaves block prompt edits without rendering the manual save button", async () => {
+    vi.useFakeTimers();
+    const saveSelectedBlockPrompt = vi.fn().mockResolvedValue(undefined);
+    const initialBlock: DesktopBlockDetail = {
+      ref: "T-001#B-001",
+      taskId: "T-001",
+      blockId: "B-001",
+      type: "implementation",
+      title: "Create README and sample note",
+      status: "ready",
+      executor: "codex",
+      effectiveExecutor: "codex",
+      promptMarkdown: "# Existing block prompt\n",
+      dependencies: [],
+      latestRunId: null,
+      latestReviewAttemptId: null,
+      activeFeedbackId: null,
+      exceptionReason: null
+    };
+    const graph: DesktopGraphViewModel = {
+      projectId: "P-001",
+      projectTitle: "Tiny Notes",
+      executorOptions: ["codex"],
+      tasks: [
+        {
+          taskId: "T-001",
+          title: "Create starter docs",
+          status: "ready",
+          executor: "codex",
+          executorLabel: "codex",
+          promptMarkdown: "# Task",
+          promptPreview: "Task",
+          blocks: [
+            {
+              ref: "T-001#B-001",
+              blockId: "B-001",
+              type: "implementation",
+              title: "Create README and sample note",
+              status: "ready",
+              executor: "codex",
+              executorLabel: "codex",
+              dependencies: []
+            }
+          ],
+          blockPreview: [],
+          hiddenBlockRefs: [],
+          overflowBlockCount: 0,
+          exceptions: []
+        }
+      ],
+      contextNodes: [],
+      edges: [],
+      diagnostics: [],
+      dirtyPromptRefs: []
+    };
+
+    function BlockInspectorHarness() {
+      const [selectedBlock, setSelectedBlock] = useState<DesktopBlockDetail | null>(initialBlock);
+
+      return (
+        <BlockInspector
+          blockFeedbackRecords={[]}
+          blockReviewAttempts={[]}
+          blockRunRecords={[]}
+          error={null}
+          executorOptions={["codex"]}
+          graph={graph}
+          handleOpenRunRecord={vi.fn()}
+          onBlockSelect={vi.fn()}
+          onClose={vi.fn()}
+          saveSelectedBlockExecutor={vi.fn()}
+          saveSelectedBlockPrompt={saveSelectedBlockPrompt}
+          saveSelectedBlockTitle={vi.fn()}
+          selectedBlock={selectedBlock}
+          selectedRunRecord={null}
+          setSelectedBlock={setSelectedBlock}
+          setSelectedRunRecord={vi.fn()}
+          t={createTranslator("zh-CN")}
+        />
+      );
+    }
+
+    render(<BlockInspectorHarness />);
+
+    try {
+      expect(screen.queryByRole("button", { name: "保存 Prompt" })).not.toBeInTheDocument();
+      fireEvent.change(screen.getAllByRole("textbox")[1]!, { target: { value: "# Updated block prompt\n" } });
+      expect(saveSelectedBlockPrompt).not.toHaveBeenCalled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(800);
+      });
+
+      expect(saveSelectedBlockPrompt).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("marks individual notifications as read from the message close button", async () => {
+    const onMarkNotificationRead = vi.fn();
+
+    render(
+      <NotificationsView
+        notificationItems={[
+          {
+            id: "latest-record:/tmp/record.json",
+            title: "最新记录",
+            detail: "/tmp/record.json",
+            tone: "outline",
+            read: false
+          },
+          {
+            id: "dirty-T-001",
+            title: "Dirty prompt",
+            detail: "T-001",
+            tone: "secondary",
+            read: true
+          }
+        ]}
+        onMarkNotificationRead={onMarkNotificationRead}
+        t={createTranslator("zh-CN")}
+      />
+    );
+
+    expect(screen.getByText("通知").closest("[data-slot='card']")).toBeNull();
+    expect(screen.getByText("未读")).toBeInTheDocument();
+    expect(screen.getByText("已读")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "标记为已读: 最新记录" }));
+
+    expect(onMarkNotificationRead).toHaveBeenCalledWith("latest-record:/tmp/record.json");
+  });
+
   it("renders settings rows as switch controls", async () => {
     const onCheckedChange = vi.fn();
 
@@ -244,6 +426,83 @@ describe("desktop renderer component interactions", () => {
 
     await userEvent.click(screen.getByRole("switch", { name: "Component visibility" }));
     expect(onCheckedChange).toHaveBeenCalledWith(true);
+  });
+
+  it("renders the interface language setting as a dropdown select", async () => {
+    class ResizeObserverMock {
+      disconnect = vi.fn();
+      observe = vi.fn();
+      unobserve = vi.fn();
+    }
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+    Object.defineProperty(window.HTMLElement.prototype, "hasPointerCapture", { configurable: true, value: vi.fn(() => false) });
+    Object.defineProperty(window.HTMLElement.prototype, "setPointerCapture", { configurable: true, value: vi.fn() });
+    Object.defineProperty(window.HTMLElement.prototype, "releasePointerCapture", { configurable: true, value: vi.fn() });
+    Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+    const updateSettings = vi.fn();
+
+    render(
+      <SettingsView
+        agentDetectionRefreshing={false}
+        agents={[]}
+        graph={null}
+        language="zh-CN"
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        setActiveView={vi.fn()}
+        settings={{
+          runtimePath: "/tmp/project",
+          defaultExecutor: "",
+          appearance: "system",
+          language: "zh-CN",
+          readNotificationIds: [],
+          notifications: {
+            autoRunFailure: true,
+            graphExceptions: true,
+            dirtyPrompts: true,
+            fileSyncConflict: true
+          },
+          palette: {
+            visible: {
+              task: true,
+              implementation: true,
+              check: true,
+              review: true,
+              context: true
+            },
+            defaultBlockSet: ["implementation", "check", "review"],
+            dragHint: true
+          },
+          review: {
+            autoAppendReviewBlock: true,
+            feedbackLoop: true,
+            pipelineEnabled: true,
+            strictReview: true
+          },
+          agents: {
+            codex: {
+              enabled: false,
+              fullAccess: false
+            },
+            "claude-code": {
+              enabled: false,
+              fullAccess: false
+            },
+            opencode: {
+              enabled: false,
+              fullAccess: false
+            }
+          }
+        }}
+        t={createTranslator("zh-CN")}
+        updateSettings={updateSettings}
+      />
+    );
+
+    expect(screen.queryByRole("switch", { name: "语言" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("combobox", { name: "语言" }));
+    await userEvent.click(screen.getByRole("option", { name: "English" }));
+
+    expect(updateSettings).toHaveBeenCalledWith({ language: "en" });
   });
 
   it("disables agent switches when the CLI is not detected", async () => {
@@ -281,6 +540,7 @@ describe("desktop renderer component interactions", () => {
           defaultExecutor: "",
           appearance: "system",
           language: "en",
+          readNotificationIds: [],
           notifications: {
             autoRunFailure: true,
             graphExceptions: true,

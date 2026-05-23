@@ -89,6 +89,7 @@ export function ProjectSidebar({
 }: ProjectSidebarProps) {
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
   const [collapsedCanvasIds, setCollapsedCanvasIds] = useState<Set<string>>(() => new Set());
+  const unreadNotificationCount = notificationItems.filter((item) => !item.read).length;
 
   if (collapsed) {
     return null;
@@ -145,28 +146,33 @@ export function ProjectSidebar({
         </div>
       </div>
       <nav className="flex flex-col gap-1 p-3 pt-1">
-        <Button className="justify-start" variant={activeView === "new-task" ? "secondary" : "ghost"} onClick={() => setActiveView("new-task")}>
+        <Button data-testid="sidebar-new-task" className="justify-start" variant={activeView === "new-task" ? "secondary" : "ghost"} onClick={() => setActiveView("new-task")}>
           <FilePlus2Icon data-icon="inline-start" />
           {t("newTask")}
         </Button>
-        <Button className="justify-start" variant={activeView === "statistics" ? "secondary" : "ghost"} onClick={() => setActiveView("statistics")}>
+        <Button data-testid="sidebar-statistics" className="justify-start" variant={activeView === "statistics" ? "secondary" : "ghost"} onClick={() => setActiveView("statistics")}>
           <ChartNoAxesColumnIncreasingIcon data-icon="inline-start" />
           {t("statistics")}
         </Button>
-        <Button className="justify-start" variant={activeView === "todo" ? "secondary" : "ghost"} onClick={() => setActiveView("todo")}>
+        <Button data-testid="sidebar-todo" className="justify-start" variant={activeView === "todo" ? "secondary" : "ghost"} onClick={() => setActiveView("todo")}>
           <ListTodoIcon data-icon="inline-start" />
           {t("todo")}
         </Button>
-        <Button className="justify-start" variant={activeView === "search" ? "secondary" : "ghost"} onClick={() => setActiveView("search")}>
+        <Button data-testid="sidebar-search" className="justify-start" variant={activeView === "search" ? "secondary" : "ghost"} onClick={() => setActiveView("search")}>
           <SearchIcon data-icon="inline-start" />
           {t("search")}
         </Button>
-        <Button className="justify-start" variant={activeView === "notifications" ? "secondary" : "ghost"} onClick={() => setActiveView("notifications")}>
+        <Button
+          data-testid="sidebar-notifications"
+          className="justify-start"
+          variant={activeView === "notifications" ? "secondary" : "ghost"}
+          onClick={() => setActiveView("notifications")}
+        >
           <BellIcon data-icon="inline-start" />
           {t("notifications")}
-          {notificationItems.length > 0 ? <Badge variant="destructive">{notificationItems.length}</Badge> : null}
+          {unreadNotificationCount > 0 ? <Badge variant="destructive">{unreadNotificationCount}</Badge> : null}
         </Button>
-        <Button className="justify-start" variant={activeView === "settings" ? "secondary" : "ghost"} onClick={() => setActiveView("settings")}>
+        <Button data-testid="sidebar-settings" className="justify-start" variant={activeView === "settings" ? "secondary" : "ghost"} onClick={() => setActiveView("settings")}>
           <SettingsIcon data-icon="inline-start" />
           {t("settings")}
         </Button>

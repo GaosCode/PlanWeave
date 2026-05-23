@@ -60,6 +60,7 @@ type WorkspaceTabsProps = {
   nodeTypes: AppNodeTypes;
   nodes: AppFlowNode[];
   notificationItems: NotificationItem[];
+  onMarkNotificationRead: (notificationId: string) => void;
   onEdgesChange: OnEdgesChange<Edge>;
   onNodeDragStop: (event: MouseEvent, node: Node) => Promise<void>;
   onNodesChange: OnNodesChange<AppFlowNode>;

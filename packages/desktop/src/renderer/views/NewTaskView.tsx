@@ -85,11 +85,13 @@ export function NewTaskView({
             ) : null}
             <Field>
               <FieldLabel>{t("taskInput")}</FieldLabel>
-              <Textarea className="min-h-64 resize-none" value={newTaskText} onChange={(event) => setNewTaskText(event.target.value)} />
+              <Textarea data-testid="new-task-input" className="min-h-64 resize-none" value={newTaskText} onChange={(event) => setNewTaskText(event.target.value)} />
               <FieldDescription>{t("taskInputHint")}</FieldDescription>
             </Field>
             <div className="flex gap-2">
-              <Button onClick={() => void generateTaskDraft()}>{t("generateDraft")}</Button>
+              <Button data-testid="new-task-generate-draft" onClick={() => void generateTaskDraft()}>
+                {t("generateDraft")}
+              </Button>
               <Button variant="outline" onClick={() => setActiveView("graph")}>
                 {t("skipToCanvas")}
               </Button>
@@ -123,7 +125,7 @@ export function NewTaskView({
               ))}
             </div>
           </ScrollArea>
-          <Button disabled={!taskDraft} onClick={() => void confirmTaskDraft()}>
+          <Button data-testid="new-task-confirm-write" disabled={!taskDraft} onClick={() => void confirmTaskDraft()}>
             {t("confirmWrite")}
           </Button>
         </CardContent>

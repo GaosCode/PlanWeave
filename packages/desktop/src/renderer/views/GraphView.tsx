@@ -91,6 +91,9 @@ export function GraphView({
   visibleTasks
 }: GraphViewProps) {
   const dirtyPromptCount = Math.max(dirtyPromptRefs.length, graph?.dirtyPromptRefs.length ?? 0);
+  const visibleNodes = visibleTasks ? nodes.filter((node) => node.type !== "task" || visibleTaskIds.has(node.id)) : nodes;
+  const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
+  const visibleEdges = visibleTasks ? edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)) : edges;
 
   return (
     <div className="relative h-full min-h-0" data-graph-surface onDragOver={handleGraphDragOver} onDrop={handleGraphDrop}>
@@ -110,8 +113,8 @@ export function GraphView({
         </div>
       ) : (
         <ReactFlow
-          nodes={visibleTasks ? nodes.filter((node) => node.type !== "task" || visibleTaskIds.has(node.id)) : nodes}
-          edges={visibleTasks ? edges.filter((edge) => visibleTaskIds.has(edge.source) && visibleTaskIds.has(edge.target)) : edges}
+          nodes={visibleNodes}
+          edges={visibleEdges}
           nodeTypes={nodeTypes}
           onConnect={(connection) => void handleConnect(connection)}
           onEdgesDelete={(deletedEdges) => void handleEdgesDelete(deletedEdges)}

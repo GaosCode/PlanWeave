@@ -19,12 +19,13 @@ export function buildNotificationItems({
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
 }): NotificationItem[] {
-  const notificationItems: NotificationItem[] = [];
+  const readNotificationIds = new Set(settings.readNotificationIds);
+  const notificationItems: Omit<NotificationItem, "read">[] = [];
   if (settings.notifications.autoRunFailure && autoRunState?.error) {
-    notificationItems.push({ id: "auto-run-error", title: t("notifyAutoRun"), detail: autoRunState.error, tone: "destructive" });
+    notificationItems.push({ id: `auto-run-error:${autoRunState.error}`, title: t("notifyAutoRun"), detail: autoRunState.error, tone: "destructive" });
   }
   if (settings.notifications.autoRunFailure && autoRunState?.latestRecordPath) {
-    notificationItems.push({ id: "latest-record", title: t("latestRecord"), detail: autoRunState.latestRecordPath, tone: "outline" });
+    notificationItems.push({ id: `latest-record:${autoRunState.latestRecordPath}`, title: t("latestRecord"), detail: autoRunState.latestRecordPath, tone: "outline" });
   }
   if (settings.notifications.graphExceptions) {
     for (const task of graph?.tasks ?? []) {
@@ -40,11 +41,12 @@ export function buildNotificationItems({
   }
   if (settings.notifications.fileSyncConflict) {
     if (lastFileChange) {
-      notificationItems.push({ id: "file-change", title: t("fileChangesDetected"), detail: lastFileChange.paths.join(", "), tone: "outline" });
+      const detail = lastFileChange.paths.join(", ");
+      notificationItems.push({ id: `file-change:${detail}`, title: t("fileChangesDetected"), detail, tone: "outline" });
     }
     for (const diagnostic of fileSyncDiagnostics) {
       notificationItems.push({ id: `sync-${diagnostic}`, title: t("fileSyncConflict"), detail: diagnostic, tone: "destructive" });
     }
   }
-  return notificationItems;
+  return notificationItems.map((item) => ({ ...item, read: readNotificationIds.has(item.id) }));
 }

@@ -97,6 +97,7 @@ export type DesktopUiSettings = {
   appearance: AppearanceMode;
   language: Language;
   pinnedProjectIds: string[];
+  readNotificationIds: string[];
   notifications: {
     autoRunFailure: boolean;
     graphExceptions: boolean;
@@ -125,4 +126,5 @@ export type NotificationItem = {
   title: string;
   detail: string;
   tone: "destructive" | "secondary" | "outline";
+  read: boolean;
 };

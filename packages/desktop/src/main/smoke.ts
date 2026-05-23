@@ -122,18 +122,16 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
         target.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
         await wait(120);
       };
-      const clickByText = async (text) => {
+      const clickByTestId = async (testId) => {
         for (let attempt = 0; attempt < 30; attempt += 1) {
-          const target = [...document.querySelectorAll("button")]
-            .filter(visible)
-            .find((element) => textOf(element).includes(text));
-          if (target) {
+          const target = document.querySelector('[data-testid="' + testId + '"]');
+          if (target && visible(target)) {
             await clickElement(target);
-            return textOf(target);
+            return testId;
           }
           await wait(100);
         }
-        throw new Error("Unable to click visible button containing: " + text);
+        throw new Error("Unable to click visible element with data-testid: " + testId);
       };
       const clickByLabel = async (label) => {
         for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -186,52 +184,48 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       };
 
       const covered = [];
-      await clickByText("新建任务画布");
+      await clickByTestId("sidebar-new-task");
       covered.push("open-new-task-view");
       await waitForText("需求 / 计划 / 任务说明");
-      const taskInput = [...document.querySelectorAll("textarea")].find(visible);
+      const taskInput = document.querySelector('[data-testid="new-task-input"]');
       if (!taskInput) {
         throw new Error("New Task textarea was not visible.");
       }
       dispatchTextInput(taskInput, "# UI Smoke Task\\n\\nCreate a task through renderer controls.");
       covered.push("enter-task-brief");
-      await clickByText("生成 Draft");
+      await clickByTestId("new-task-generate-draft");
       await waitForText("UI Smoke Task");
       covered.push("generate-draft");
-      await clickByText("确认写入");
+      await clickByTestId("new-task-confirm-write");
       await waitForText("UI Smoke Task");
       covered.push("confirm-write-plan-package");
-      await clickByText("统计");
+      await clickByTestId("sidebar-statistics");
       await waitForText("Implemented Ratio");
       covered.push("open-statistics");
-      await clickByText("搜索");
-      const searchInputs = [...document.querySelectorAll("input")].filter(visible);
-      const searchInput = searchInputs.at(-1);
+      await clickByTestId("sidebar-search");
+      const searchInput = document.querySelector('[data-testid="search-query-input"]');
       if (!searchInput) {
         throw new Error("Search input was not visible.");
       }
       dispatchTextInput(searchInput, "UI Smoke Task");
       await waitForText("UI Smoke Task");
       covered.push("search-created-task");
-      await clickByText("通知");
+      await clickByTestId("sidebar-notifications");
       await waitForText("通知");
       covered.push("open-notifications");
-      await clickByText("设置");
-      await waitForText("返回应用");
-      await waitForText("界面");
-      await clickByText("组件");
-      await waitForText("组件可见性");
+      await clickByTestId("sidebar-settings");
+      await waitForSelector('[data-testid="settings-back-to-app"]', "settings back button");
+      await waitForSelector('[data-testid="settings-section-general"]', "general settings section");
+      await clickByTestId("settings-nav-components");
+      await waitForSelector('[data-testid="settings-section-components"]', "component settings section");
       covered.push("open-settings-with-component-settings");
-      await clickByText("审查");
-      await waitForText("启用 Review Pipeline");
-      await clickByText("Agent");
-      await waitForText("Codex");
+      await clickByTestId("settings-nav-review");
+      await waitForSelector('[data-testid="settings-section-review"]', "review settings section");
+      await clickByTestId("settings-nav-agents");
+      await waitForSelector('[data-testid="settings-section-agents"]', "agent settings section");
       covered.push("open-settings-sections");
-      await clickByText("返回应用");
+      await clickByTestId("settings-back-to-app");
       await waitForText("UI Smoke Task");
-      if (!(await waitForSelector("[data-graph-surface]", "graph surface", { required: false }))) {
-        await clickByText("UI Smoke Task");
-      }
       await waitForSelector("[data-graph-surface]", "graph surface");
       covered.push("return-graph");
       await waitForSelector("[data-auto-run-control]", "Floating Auto Run control");
@@ -240,7 +234,7 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       await waitForText("运行面板");
       await waitForText("当前 Block");
       covered.push("open-mini-run-panel");
-      await clickByText("Todo");
+      await clickByTestId("sidebar-todo");
       await waitForText("ready");
       covered.push("open-todo");
       return {

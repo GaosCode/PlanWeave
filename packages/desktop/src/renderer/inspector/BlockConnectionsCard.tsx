@@ -15,13 +15,13 @@ export function BlockConnectionsCard({ blocks, dependencies, onBlockSelect, sele
   const dependencyRefs = useMemo(() => new Set(dependencies), [dependencies]);
 
   return (
-    <Card size="sm">
+    <Card className="shrink-0 overflow-visible" size="sm">
       <CardHeader>
         <CardTitle className="text-sm">Block 连接</CardTitle>
         <CardDescription>{selectedBlockRef}</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-2 text-xs">
-        <div className="flex flex-wrap gap-1">
+      <CardContent className="flex flex-col gap-2 pb-3 text-xs">
+        <div className="flex flex-wrap items-center gap-1">
           {blocks.map((block, index) => {
             const selected = block.ref === selectedBlockRef;
             return (

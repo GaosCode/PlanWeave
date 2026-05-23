@@ -1,10 +1,10 @@
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties, Dispatch, SetStateAction } from "react";
 import type { DesktopBlockDetail, DesktopBlockRunRecordSummary, DesktopFeedbackRecord, DesktopGraphViewModel, DesktopReviewAttemptSummary, DesktopRunRecord } from "@planweave/runtime";
 import { XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -37,6 +37,8 @@ type BlockInspectorProps = {
   t: ReturnType<typeof createTranslator>;
 };
 
+const blockPromptAutosaveDelayMs = 700;
+
 export function BlockInspector({
   blockFeedbackRecords,
   blockReviewAttempts,
@@ -62,12 +64,44 @@ export function BlockInspector({
   const latestReviewAttempt = blockReviewAttempts[0];
   const latestFeedbackRecord = blockFeedbackRecords[0];
   const selectedExecutor = selectedBlock?.executor && executorOptions.includes(selectedBlock.executor) ? selectedBlock.executor : "__inherit";
+  const blockPromptBaselineRef = useRef<{ promptMarkdown: string; ref: string } | null>(null);
   const taskBlocks = useMemo(() => {
     if (!graph || !selectedBlock) {
       return [];
     }
     return graph.tasks.find((task) => task.taskId === selectedBlock.taskId)?.blocks ?? [];
   }, [graph, selectedBlock]);
+  useEffect(() => {
+    if (!selectedBlock) {
+      blockPromptBaselineRef.current = null;
+      return;
+    }
+    if (blockPromptBaselineRef.current?.ref !== selectedBlock.ref) {
+      blockPromptBaselineRef.current = { promptMarkdown: selectedBlock.promptMarkdown, ref: selectedBlock.ref };
+    }
+  }, [selectedBlock]);
+  const saveBlockPromptIfDirty = useCallback(() => {
+    if (!selectedBlock || selectedRunRecord) {
+      return;
+    }
+    const baseline = blockPromptBaselineRef.current;
+    if (!baseline || baseline.ref !== selectedBlock.ref || baseline.promptMarkdown === selectedBlock.promptMarkdown) {
+      return;
+    }
+    blockPromptBaselineRef.current = { promptMarkdown: selectedBlock.promptMarkdown, ref: selectedBlock.ref };
+    void saveSelectedBlockPrompt();
+  }, [saveSelectedBlockPrompt, selectedBlock, selectedRunRecord]);
+  useEffect(() => {
+    if (!selectedBlock || selectedRunRecord) {
+      return undefined;
+    }
+    const baseline = blockPromptBaselineRef.current;
+    if (!baseline || baseline.ref !== selectedBlock.ref || baseline.promptMarkdown === selectedBlock.promptMarkdown) {
+      return undefined;
+    }
+    const timer = window.setTimeout(saveBlockPromptIfDirty, blockPromptAutosaveDelayMs);
+    return () => window.clearTimeout(timer);
+  }, [saveBlockPromptIfDirty, selectedBlock, selectedRunRecord]);
 
   if (!selectedBlock && !selectedRunRecord && !error) {
     return null;
@@ -86,8 +120,7 @@ export function BlockInspector({
       <CardContent className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
         {selectedRunRecord ? (
           <BlockRunRecordCard selectedRunRecord={selectedRunRecord} setSelectedRunRecord={setSelectedRunRecord} t={t} />
-        ) : null}
-        {selectedBlock ? (
+        ) : selectedBlock ? (
           <div className="flex min-h-0 flex-1 flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
               <Input
@@ -155,7 +188,12 @@ export function BlockInspector({
               </div>
             </div>
             <BlockConnectionsCard blocks={taskBlocks} dependencies={selectedBlock.dependencies} selectedBlockRef={selectedBlock.ref} onBlockSelect={onBlockSelect} />
-            <Textarea className="min-h-56 flex-1 resize-none" value={selectedBlock.promptMarkdown} onChange={(event) => setSelectedBlock({ ...selectedBlock, promptMarkdown: event.target.value })} />
+            <Textarea
+              className="min-h-56 flex-1 resize-none"
+              value={selectedBlock.promptMarkdown}
+              onBlur={saveBlockPromptIfDirty}
+              onChange={(event) => setSelectedBlock({ ...selectedBlock, promptMarkdown: event.target.value })}
+            />
           </div>
         ) : (
           <div className="text-sm text-muted-foreground">{t("blocks")}</div>
@@ -168,13 +206,6 @@ export function BlockInspector({
             <Badge variant="destructive">{error}</Badge>
           </CardContent>
         </>
-      ) : null}
-      {selectedBlock ? (
-        <CardFooter>
-          <Button className="w-full" onClick={() => void saveSelectedBlockPrompt()}>
-            {t("savePrompt")}
-          </Button>
-        </CardFooter>
       ) : null}
     </Card>
   );

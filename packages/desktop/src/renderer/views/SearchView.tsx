@@ -17,7 +17,7 @@ export function SearchView({ handleSearchResultOpen, searchQuery, searchResults,
   return (
     <div className="flex flex-col gap-3">
       <div className="text-sm font-medium">{t("query")}</div>
-      <Input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
+      <Input data-testid="search-query-input" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
       <ScrollArea className="h-[520px]">
         <SearchResultList results={searchResults} targetMissingLabel={t("searchTargetMissing")} onOpenResult={handleSearchResultOpen} />
       </ScrollArea>

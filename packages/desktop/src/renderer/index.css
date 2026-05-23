@@ -145,3 +145,44 @@
 .app-no-drag {
   -webkit-app-region: no-drag;
 }
+
+.dark .react-flow__controls {
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 30px oklch(0 0 0 / 35%);
+}
+
+.dark .react-flow__controls-button {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground);
+}
+
+.dark .react-flow__controls-button:hover {
+  background: var(--muted);
+}
+
+.dark .react-flow__controls-button svg {
+  color: var(--foreground);
+  fill: none;
+  stroke: currentColor;
+}
+
+.dark .react-flow__controls-button:disabled svg {
+  color: var(--muted-foreground);
+}
+
+.dark .react-flow__minimap {
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 30px oklch(0 0 0 / 30%);
+}
+
+.dark .react-flow__minimap-mask {
+  fill: var(--muted);
+  opacity: 0.65;
+}
+
+.dark .react-flow__minimap-node {
+  fill: var(--muted-foreground);
+}

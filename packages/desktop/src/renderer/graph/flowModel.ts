@@ -1,4 +1,4 @@
-import type { Edge } from "@xyflow/react";
+import { MarkerType, type Edge } from "@xyflow/react";
 import type { DesktopBlockDetail, DesktopBlockRunRecordSummary, DesktopFeedbackRecord, DesktopGraphViewModel, DesktopLayout, DesktopReviewAttemptSummary } from "@planweave/runtime";
 import type { AppFlowNode, ContextFlowNode, TaskFlowNode, TaskNodeData } from "../types";
 import { TaskNodeCard } from "./TaskNodeCard";
@@ -87,12 +87,25 @@ export function graphEdges(graph: DesktopGraphViewModel): Edge[] {
   const nodeIds = new Set([...graph.tasks.map((task) => task.taskId), ...graph.contextNodes.map((node) => node.nodeId)]);
   return graph.edges
     .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to))
-    .map((edge) => ({
-      id: `${edge.from}-${edge.type}-${edge.to}`,
-      source: edge.from,
-      target: edge.to,
-      animated: false,
-      type: "smoothstep",
-      label: edge.type
-    }));
+    .map((edge) => {
+      const isTaskDependency = edge.type === "depends_on";
+      return {
+        id: `${edge.from}-${edge.type}-${edge.to}`,
+        source: edge.from,
+        target: edge.to,
+        animated: false,
+        type: isTaskDependency ? "smoothstep" : "default",
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: isTaskDependency ? "#ea580c" : "#2563eb",
+          width: 18,
+          height: 18
+        },
+        style: {
+          stroke: isTaskDependency ? "#ea580c" : "#2563eb",
+          strokeWidth: isTaskDependency ? 2.4 : 2,
+          opacity: 0.95
+        }
+      } satisfies Edge;
+    });
 }

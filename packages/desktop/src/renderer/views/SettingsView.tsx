@@ -3,7 +3,9 @@ import type { Dispatch, ReactNode, SetStateAction } from "react";
 import type { BlockType, DesktopAgentDetection, DesktopGraphViewModel } from "@planweave/runtime";
 import { ArrowLeftIcon, BlocksIcon, BotIcon, GitPullRequestIcon, SettingsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { AgentSettingsPanel } from "../components/AgentSettingsPanel";
 import { SettingsSwitchRow } from "../components/SettingsSwitchRow";
@@ -23,6 +25,11 @@ type SettingsViewProps = {
   t: ReturnType<typeof createTranslator>;
   updateSettings: (patch: Partial<DesktopUiSettings>) => void;
 };
+
+const languageOptions = [
+  { value: "zh-CN", label: "简体中文" },
+  { value: "en", label: "English" }
+] satisfies Array<{ value: Language; label: string }>;
 
 function SettingGroup({ children, title }: { children: ReactNode; title: string }) {
   return (
@@ -82,7 +89,7 @@ export function SettingsView({
   return (
     <main className="flex h-full min-h-0 bg-background text-foreground">
       <aside className="flex w-[260px] shrink-0 flex-col border-r bg-sidebar p-3">
-        <Button className="mb-4 justify-start text-muted-foreground" variant="ghost" onClick={() => setActiveView("graph")}>
+        <Button data-testid="settings-back-to-app" className="mb-4 justify-start text-muted-foreground" variant="ghost" onClick={() => setActiveView("graph")}>
           <ArrowLeftIcon data-icon="inline-start" />
           {t("backToApp")}
         </Button>
@@ -90,7 +97,13 @@ export function SettingsView({
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <Button className="justify-start" key={item.key} variant={section === item.key ? "secondary" : "ghost"} onClick={() => setSection(item.key)}>
+              <Button
+                data-testid={`settings-nav-${item.key}`}
+                className="justify-start"
+                key={item.key}
+                variant={section === item.key ? "secondary" : "ghost"}
+                onClick={() => setSection(item.key)}
+              >
                 <Icon data-icon="inline-start" />
                 {item.label}
               </Button>
@@ -101,18 +114,32 @@ export function SettingsView({
       <ScrollArea className="min-w-0 flex-1">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-12 py-10">
           {section === "general" ? (
-            <section className="flex flex-col gap-6">
+            <section data-testid="settings-section-general" className="flex flex-col gap-6">
               <div>
                 <h1 className="text-2xl font-semibold tracking-normal">{t("settingsGeneral")}</h1>
                 <p className="mt-1 text-sm text-muted-foreground">{t("settingsGeneralHint")}</p>
               </div>
               <SettingGroup title={t("interfaceSettings")}>
-                <SettingsSwitchRow
-                  checked={language === "zh-CN"}
-                  title={t("useSimplifiedChinese")}
-                  description={t("useSimplifiedChineseHint")}
-                  onCheckedChange={(checked) => updateSettings({ language: checked ? "zh-CN" : "en" })}
-                />
+                <Field orientation="horizontal" className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0">
+                  <FieldContent>
+                    <FieldLabel className="text-sm font-semibold">{t("language")}</FieldLabel>
+                    <FieldDescription>{t("languageSettingHint")}</FieldDescription>
+                  </FieldContent>
+                  <Select value={language} onValueChange={(value) => updateSettings({ language: value as Language })}>
+                    <SelectTrigger aria-label={t("language")} className="w-40">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {languageOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
                 <SettingsSwitchRow
                   checked={settings.appearance === "dark"}
                   title={t("useDarkAppearance")}
@@ -146,7 +173,7 @@ export function SettingsView({
             </section>
           ) : null}
           {section === "components" ? (
-            <section className="flex flex-col gap-6">
+            <section data-testid="settings-section-components" className="flex flex-col gap-6">
               <div>
                 <h1 className="text-2xl font-semibold tracking-normal">{t("settingsComponents")}</h1>
                 <p className="mt-1 text-sm text-muted-foreground">{t("settingsComponentsHint")}</p>
@@ -209,7 +236,7 @@ export function SettingsView({
             </section>
           ) : null}
           {section === "review" ? (
-            <section className="flex flex-col gap-6">
+            <section data-testid="settings-section-review" className="flex flex-col gap-6">
               <div>
                 <h1 className="text-2xl font-semibold tracking-normal">{t("settingsReview")}</h1>
                 <p className="mt-1 text-sm text-muted-foreground">{t("settingsReviewHint")}</p>
@@ -248,7 +275,7 @@ export function SettingsView({
             </section>
           ) : null}
           {section === "agents" ? (
-            <section className="flex flex-col gap-6">
+            <section data-testid="settings-section-agents" className="flex flex-col gap-6">
               <div>
                 <h1 className="text-2xl font-semibold tracking-normal">{t("settingsAgents")}</h1>
                 <p className="mt-1 text-sm text-muted-foreground">{t("settingsAgentsHint")}</p>

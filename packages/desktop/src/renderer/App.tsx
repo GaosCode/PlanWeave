@@ -479,6 +479,15 @@ export function App() {
     settings,
     t
   });
+  const handleMarkNotificationRead = useCallback(
+    (notificationId: string) => {
+      if (settings.readNotificationIds.includes(notificationId)) {
+        return;
+      }
+      updateSettings({ readNotificationIds: [...settings.readNotificationIds, notificationId] });
+    },
+    [settings.readNotificationIds, updateSettings]
+  );
 
   if (activeView === "settings") {
     return (
@@ -558,6 +567,7 @@ export function App() {
           nodeTypes={nodeTypes}
           nodes={nodes}
           notificationItems={notificationItems}
+          onMarkNotificationRead={handleMarkNotificationRead}
           onEdgesChange={onEdgesChange}
           onNodeDragStop={handleNodeDragStop}
           onNodesChange={onNodesChange}

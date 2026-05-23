@@ -9,6 +9,7 @@ export const defaultDesktopSettings: DesktopUiSettings = {
   appearance: "system",
   language: "zh-CN",
   pinnedProjectIds: [],
+  readNotificationIds: [],
   notifications: {
     autoRunFailure: true,
     graphExceptions: true,
@@ -53,6 +54,7 @@ export function mergeDesktopSettings(current: DesktopUiSettings, patch: Partial<
     ...current,
     ...patch,
     pinnedProjectIds: patch.pinnedProjectIds ?? current.pinnedProjectIds,
+    readNotificationIds: patch.readNotificationIds ?? current.readNotificationIds,
     notifications: {
       ...current.notifications,
       ...patch.notifications
