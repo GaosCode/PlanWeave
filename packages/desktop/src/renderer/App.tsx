@@ -3,6 +3,7 @@ import { type Edge, type ReactFlowInstance, useEdgesState, useNodesState } from 
 import type { DesktopPackageFileChangeEvent, DesktopProjectSummary } from "@planweave/runtime";
 import { bridge, desktopCanvasReference } from "./bridge";
 import { nodeTypes, graphEdges, graphNodes } from "./graph/flowModel";
+import { taskNodeLabels } from "./graph/taskNodeLabels";
 import { createTranslator } from "./i18n";
 import { ProjectSidebar } from "./sidebar/ProjectSidebar";
 import { buildNotificationItems } from "./notifications";
@@ -24,6 +25,7 @@ import { useGraphDeleteActions } from "./hooks/useGraphDeleteActions";
 import { useDesktopSettingsEffects } from "./hooks/useDesktopSettingsEffects";
 import { useVisibleGraphTasks } from "./hooks/useVisibleGraphTasks";
 import { useDetectedAgents } from "./hooks/useDetectedAgents";
+import { useTaskNodeFocus } from "./hooks/useTaskNodeFocus";
 import { CollapsedSidebarControls, RightPaletteSidebar } from "./AppSidebars";
 import { AppSettingsRoute } from "./AppSettingsRoute";
 
@@ -124,6 +126,12 @@ export function App() {
     stopAutoRunClick,
     stopAutoRunControlDrag
   } = useAutoRunControl({ selectedCanvasId, selectedBlock, selectedProject, selectedTaskPanelId, setError, t });
+  const { requestTaskFocus } = useTaskNodeFocus({
+    activeView,
+    flowInstance,
+    nodes,
+    selectedTaskPanelId
+  });
 
   const {
     createTaskCanvas: createTaskCanvasInSession,
@@ -246,7 +254,8 @@ export function App() {
     setSelectedTaskPanelId(taskId);
     setSelectedContextNodeId(null);
     setActiveView("graph");
-  }, []);
+    requestTaskFocus(taskId);
+  }, [requestTaskFocus]);
 
   const handleProjectNewGraph = useCallback(
     async (project: DesktopProjectSummary) => {
@@ -325,30 +334,7 @@ export function App() {
         titleDrafts,
         promptDrafts,
         saveStates,
-        {
-          blockStack: t("blockStack"),
-          exception: t("exception"),
-          exceptionOverlay: t("exceptionOverlay"),
-          inherit: t("inherit"),
-          more: t("more"),
-          noBlockRecords: t("noBlockRecords"),
-          openRecord: t("openRecord"),
-          savePrompt: t("savePrompt"),
-          selectedBlock: t("selectedBlock"),
-          sourcePrompt: t("sourcePrompt"),
-          taskException: t("taskException"),
-          taskPrompt: t("taskPrompt"),
-          title: t("title"),
-          agent: t("agent"),
-          blockExecutionSummary: t("blockExecutionSummary"),
-          latestRun: t("latestRun"),
-          latestReviewAttempt: t("latestReviewAttempt"),
-          feedbackMarker: t("feedbackMarker"),
-          deleteTask: t("deleteTask"),
-          deleteBlock: t("deleteBlock"),
-          deleteTaskConfirm: t("deleteTaskConfirm"),
-          deleteBlockConfirm: t("deleteBlockConfirm")
-        },
+        taskNodeLabels(t),
         selectedBlock,
         blockRunRecords,
         blockReviewAttempts,
