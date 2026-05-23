@@ -40,7 +40,9 @@ export type { AutoRunDecision, AutoRunExecutorAdapter } from "./autoRun/contract
 export {
   createCodexExecAdapter,
   createExecutorAdapter,
+  createLocalReviewAdapter,
   createManualExecutorAdapter,
+  createOpencodeExecAdapter,
   listExecutorProfiles,
   testExecutorProfile
 } from "./autoRun/executors.js";

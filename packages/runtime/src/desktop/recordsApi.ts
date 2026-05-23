@@ -26,6 +26,13 @@ async function readOptionalFile(path: string): Promise<string> {
   return (await exists(path)) ? readFile(path, "utf8") : "";
 }
 
+function cleanOutputSummary(value: string): string {
+  return value
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .trim()
+    .slice(0, 400);
+}
+
 async function listDirectories(path: string): Promise<string[]> {
   try {
     const entries = await readdir(path, { withFileTypes: true });
@@ -66,6 +73,16 @@ function stringField(metadata: Record<string, unknown>, key: string): string | n
   return typeof value === "string" ? value : null;
 }
 
+function firstStringField(metadata: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = stringField(metadata, key);
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
+
 function numberField(metadata: Record<string, unknown>, key: string): number | null {
   const value = metadata[key];
   return typeof value === "number" ? value : null;
@@ -73,7 +90,19 @@ function numberField(metadata: Record<string, unknown>, key: string): number | n
 
 function adapterField(metadata: Record<string, unknown>): ExecutorProfile["adapter"] | null {
   const value = metadata.adapter;
-  return value === "manual" || value === "codex-exec" ? value : null;
+  return value === "manual" || value === "codex-exec" || value === "opencode-exec" || value === "local-review" ? value : null;
+}
+
+function runOrderValue(record: DesktopBlockRunRecordSummary): string {
+  return record.finishedAt ?? record.startedAt ?? record.runId;
+}
+
+function compareRunRecordsNewestFirst(left: DesktopBlockRunRecordSummary, right: DesktopBlockRunRecordSummary): number {
+  const byTime = runOrderValue(right).localeCompare(runOrderValue(left));
+  if (byTime !== 0) {
+    return byTime;
+  }
+  return right.runId.localeCompare(left.runId, undefined, { numeric: true });
 }
 
 function verdictField(value: unknown): ReviewVerdict | null {
@@ -99,21 +128,25 @@ async function runRecordSummary(options: {
     runId: options.runId,
     executor: stringField(metadata, "executor"),
     adapter: adapterField(metadata),
+    executionCwd: stringField(metadata, "executionCwd"),
+    projectRoot: stringField(metadata, "projectRoot"),
+    agentSessionId: firstStringField(metadata, ["agentSessionId", "codexSessionId", "sessionId", "session_id", "threadId", "thread_id"]),
+    codexSessionId: stringField(metadata, "codexSessionId"),
     exitCode: numberField(metadata, "exitCode"),
     startedAt: stringField(metadata, "startedAt"),
     finishedAt: stringField(metadata, "finishedAt"),
     promptPath: (await exists(promptPath)) ? promptPath : null,
     reportPath: (await exists(reportPath)) ? reportPath : null,
     metadataPath,
-    stdoutSummary: (await readOptionalFile(join(runDir, "stdout.md"))).trim().slice(0, 400),
-    stderrSummary: (await readOptionalFile(join(runDir, "stderr.log"))).trim().slice(0, 400)
+    stdoutSummary: cleanOutputSummary(await readOptionalFile(join(runDir, "stdout.md"))),
+    stderrSummary: cleanOutputSummary(await readOptionalFile(join(runDir, "stderr.log")))
   };
 }
 
 export async function listBlockRunRecords(projectRoot: PackageWorkspaceRef, blockRef: string): Promise<DesktopBlockRunRecordSummary[]> {
   const { workspace } = await loadPackage(projectRoot);
   const runIds = await listDirectories(blockRunRoot(workspace.resultsDir, blockRef));
-  return Promise.all(runIds.map((runId) => runRecordSummary({ resultsDir: workspace.resultsDir, blockRef, runId })));
+  return (await Promise.all(runIds.map((runId) => runRecordSummary({ resultsDir: workspace.resultsDir, blockRef, runId })))).sort(compareRunRecordsNewestFirst);
 }
 
 export async function getRunRecord(projectRoot: PackageWorkspaceRef, recordId: string): Promise<DesktopRunRecord> {

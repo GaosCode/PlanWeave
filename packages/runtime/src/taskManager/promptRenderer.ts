@@ -62,7 +62,12 @@ async function renderFocusedReviewLines(context: RuntimeContext, reviewBlockRef:
   ];
 }
 
-export async function renderPrompt(options: { projectRoot: PackageWorkspaceRef; ref: string; session?: ExecutionGraphSession }): Promise<string> {
+export async function renderPrompt(options: {
+  projectRoot: PackageWorkspaceRef;
+  ref: string;
+  session?: ExecutionGraphSession;
+  includeSubmissionInstructions?: boolean;
+}): Promise<string> {
   const context = await loadRuntime(options);
   const { workspace, graph, manifest, state } = context;
   const { taskId } = parseBlockRef(options.ref);
@@ -94,6 +99,7 @@ export async function renderPrompt(options: { projectRoot: PackageWorkspaceRef; 
           "```"
         ].join("\n")
       : "";
+  const includeSubmissionInstructions = options.includeSubmissionInstructions ?? true;
   const submitInstruction =
     block.type === "review"
       ? `Submit review with \`planweave submit-review ${options.ref} --result review-result.json\`.`
@@ -131,8 +137,8 @@ export async function renderPrompt(options: { projectRoot: PackageWorkspaceRef; 
     renderNodeList("Latest Implementation / Feedback Summary", latestImplementationReports),
     focusedReviewLines.length > 0 ? renderNodeList("Focused Re-review Context", focusedReviewLines) : "",
     reviewSchema,
-    "## Submission Instructions",
-    submitInstruction
+    includeSubmissionInstructions ? "## Submission Instructions" : "",
+    includeSubmissionInstructions ? submitInstruction : ""
   ]
     .filter((section) => section.trim().length > 0)
     .join("\n\n")

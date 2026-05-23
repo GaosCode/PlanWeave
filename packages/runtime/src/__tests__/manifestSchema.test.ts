@@ -23,6 +23,16 @@ describe("plan-package/v1 manifest schema", () => {
         command: "codex",
         args: ["exec", "-"],
         role: "reviewer"
+      },
+      opencode: {
+        adapter: "opencode-exec",
+        command: "opencode",
+        args: ["run", "-"]
+      },
+      "local-review": {
+        adapter: "local-review",
+        command: "node",
+        args: ["review.js"]
       }
     };
     const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
@@ -42,6 +52,8 @@ describe("plan-package/v1 manifest schema", () => {
     expect(result.data?.execution.defaultExecutor).toBe("codex-auto");
     expect(result.data?.executors?.["codex-auto"]?.timeoutMs).toBe(120000);
     expect(result.data?.executors?.["codex-reviewer"]?.role).toBe("reviewer");
+    expect(result.data?.executors?.opencode?.adapter).toBe("opencode-exec");
+    expect(result.data?.executors?.["local-review"]?.adapter).toBe("local-review");
   });
 
   it("rejects non-positive codex executor timeouts", () => {

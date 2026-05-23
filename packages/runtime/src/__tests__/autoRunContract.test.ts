@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   createCodexExecAdapter,
   createManualExecutorAdapter,
+  createLocalReviewAdapter,
+  createOpencodeExecAdapter,
   getAutoRunStatus,
   getExecutionStatus,
   listExecutorProfiles,
@@ -81,6 +83,16 @@ describe("Auto Run contract", () => {
         },
         manual: {
           adapter: "manual"
+        },
+        opencode: {
+          adapter: "opencode-exec",
+          command: "opencode",
+          args: ["run", "-"]
+        },
+        "local-review": {
+          adapter: "local-review",
+          command: "node",
+          args: ["review.js"]
         }
       },
       review: {
@@ -116,6 +128,8 @@ describe("Auto Run contract", () => {
 
     expect(parsed.execution.defaultExecutor).toBe("codex-auto");
     expect(parsed.executors.manual.adapter).toBe("manual");
+    expect(parsed.executors.opencode.adapter).toBe("opencode-exec");
+    expect(parsed.executors["local-review"].adapter).toBe("local-review");
     const task = parsed.nodes[0];
     expect(task.type).toBe("task");
     expect(task.executor).toBe("codex-auto");
@@ -157,7 +171,21 @@ describe("Auto Run contract", () => {
       "fake-codex": {
         adapter: "codex-exec",
         command: process.execPath,
-        args: ["-e", "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => console.log('report:' + input.includes('Implement task')));"]
+        args: [
+          "-e",
+          [
+            "const fs = require('node:fs');",
+            "const path = require('node:path');",
+            "let input='';",
+            "process.stdin.on('data', c => input += c);",
+            "process.stdin.on('end', () => {",
+            "  fs.writeFileSync(path.join(process.cwd(), 'executor-cwd.txt'), process.cwd());",
+            "  console.error('memory says thread_id=019e4ab3-ddfe-7c20-a2e0-86919e1a62ab but this is not a Codex resume session');",
+            "  console.error('│  Session:                     019e52a6-030c-71c1-9146-712651be1d65                      │');",
+            "  console.log('report:' + input.includes('Implement task'));",
+            "});"
+          ].join("")
+        ]
       }
     };
     manifest.execution.defaultExecutor = "fake-codex";
@@ -178,9 +206,63 @@ describe("Auto Run contract", () => {
       submitResult: { ref: "T-001#B-001", runId: "RUN-001", status: "completed" }
     });
     await expect(readFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "stdout.md"), "utf8")).resolves.toContain("report:true");
+    await expect(readFile(join(root, "executor-cwd.txt"), "utf8")).resolves.toBe(init.workspace.rootPath);
     await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
       executor: "fake-codex",
       adapter: "codex-exec",
+      projectRoot: init.workspace.rootPath,
+      executionCwd: init.workspace.rootPath,
+      codexSessionId: "019e52a6-030c-71c1-9146-712651be1d65",
+      agentSessionId: "019e52a6-030c-71c1-9146-712651be1d65",
+      exitCode: 0
+    });
+  });
+
+  it("opencode-exec adapter records OpenCode runs without Codex resume/session handling", async () => {
+    const manifest = basicManifest() as any;
+    manifest.executors = {
+      "fake-opencode": {
+        adapter: "opencode-exec",
+        command: process.execPath,
+        args: [
+          "-e",
+          [
+            "let input='';",
+            "process.stdin.on('data', c => input += c);",
+            "process.stdin.on('end', () => {",
+            "  console.error('  Session   New session - 2026-05-23T01:49:25.978Z');",
+            "  console.error('  Continue  opencode -s ses_1ad7a1fa5ffeDAcFVbSB6Z2z9j');",
+            "  console.log('opencode report:' + input.includes('Implement task'));",
+            "});"
+          ].join("")
+        ]
+      }
+    };
+    manifest.execution.defaultExecutor = "fake-opencode";
+    const { root, init } = await createTestWorkspace(manifest);
+
+    const step = await runAutoRunStep({
+      projectRoot: root,
+      executor: createOpencodeExecAdapter({
+        projectRoot: root,
+        executorName: "fake-opencode"
+      })
+    });
+
+    expect(step).toMatchObject({
+      kind: "submitted",
+      claim: { kind: "block", ref: "T-001#B-001" },
+      adapterResult: { kind: "block", adapter: "opencode-exec", agentSessionId: "ses_1ad7a1fa5ffeDAcFVbSB6Z2z9j" },
+      submitResult: { ref: "T-001#B-001", runId: "RUN-001", status: "completed" }
+    });
+    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+      executor: "fake-opencode",
+      adapter: "opencode-exec",
+      projectRoot: init.workspace.rootPath,
+      executionCwd: init.workspace.rootPath,
+      agentSessionId: "ses_1ad7a1fa5ffeDAcFVbSB6Z2z9j",
+      opencodeSessionId: "ses_1ad7a1fa5ffeDAcFVbSB6Z2z9j",
+      resumed: false,
       exitCode: 0
     });
   });
@@ -332,7 +414,7 @@ describe("Auto Run contract", () => {
         "  console.log('resumed report from ' + args[args.indexOf('resume') + 1]);",
         "  process.exit(0);",
         "}",
-        "console.log(JSON.stringify({ session_id: 'SESSION-123' }));",
+        "console.log(JSON.stringify({ type: 'session.updated', session: { id: 'SESSION-123' } }));",
         "console.error('first attempt failed');",
         "process.exit(1);"
       ].join("\n"),
@@ -373,6 +455,7 @@ describe("Auto Run contract", () => {
       join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json")
     );
     expect(metadata.codexSessionId).toBe("SESSION-123");
+    expect(metadata.agentSessionId).toBe("SESSION-123");
     expect(metadata.resumed).toBe(true);
     await expect(readFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "stderr.log"), "utf8")).resolves.toContain(
       "first attempt failed"
@@ -439,6 +522,73 @@ describe("Auto Run contract", () => {
     });
     await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "R-001", "runs", "RUN-001", "review-result.json"))).resolves.toMatchObject({
       verdict: "passed"
+    });
+  });
+
+  it("local-review adapter submits review JSON without creating an agent session", async () => {
+    const reviewJson = JSON.stringify({
+      reviewBlockRef: "T-001#R-001",
+      taskId: "T-001",
+      verdict: "passed",
+      content: "passed by local review"
+    });
+    const manifest = basicManifest() as any;
+    manifest.executors = {
+      "fake-local-review": {
+        adapter: "local-review",
+        command: process.execPath,
+        args: ["-e", `console.log(${JSON.stringify(reviewJson)})`]
+      }
+    };
+    manifest.execution.defaultExecutor = "fake-local-review";
+    const { root, init } = await createTestWorkspace(manifest);
+    await runAutoRunStep({
+      projectRoot: root,
+      executor: {
+        async runBlock() {
+          const reportPath = join(root, "implementation.md");
+          await writeFile(reportPath, "implemented\n", "utf8");
+          return { kind: "block", reportPath };
+        },
+        async runFeedback() {
+          throw new Error("feedback should not run");
+        }
+      }
+    });
+    await runAutoRunStep({
+      projectRoot: root,
+      executor: {
+        async runBlock() {
+          const reportPath = join(root, "check.md");
+          await writeFile(reportPath, "checked\n", "utf8");
+          return { kind: "block", reportPath };
+        },
+        async runFeedback() {
+          throw new Error("feedback should not run");
+        }
+      }
+    });
+
+    const step = await runAutoRunStep({
+      projectRoot: root,
+      executor: createLocalReviewAdapter({
+        projectRoot: root,
+        executorName: "fake-local-review"
+      })
+    });
+
+    expect(step).toMatchObject({
+      kind: "submitted",
+      claim: { kind: "block", ref: "T-001#R-001", blockType: "review" },
+      adapterResult: { kind: "review", adapter: "local-review", agentSessionId: null },
+      submitResult: { ref: "T-001#R-001", verdict: "passed", status: "completed" }
+    });
+    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "R-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+      executor: "fake-local-review",
+      adapter: "local-review",
+      agentSessionId: null,
+      codexSessionId: null,
+      exitCode: 0
     });
   });
 

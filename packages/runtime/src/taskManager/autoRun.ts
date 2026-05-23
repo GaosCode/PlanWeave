@@ -44,7 +44,7 @@ function errorMessage(error: unknown): string {
 }
 
 function isExecutorAdapter(value: unknown): value is ExecutorProfile["adapter"] {
-  return value === "manual" || value === "codex-exec";
+  return value === "manual" || value === "codex-exec" || value === "opencode-exec" || value === "local-review";
 }
 
 async function latestRunId(runRoot: string): Promise<string | null> {
@@ -93,7 +93,12 @@ async function executeBlockClaim(options: {
   executor: ExecutorAdapter;
   session?: ExecutionGraphSession;
 }): Promise<SubmittedOrManualStep | BlockedStep> {
-  const prompt = await renderPrompt({ projectRoot: options.projectRoot, ref: options.claim.ref, session: options.session });
+  const prompt = await renderPrompt({
+    projectRoot: options.projectRoot,
+    ref: options.claim.ref,
+    session: options.session,
+    includeSubmissionInstructions: false
+  });
   let adapterResult: Awaited<ReturnType<ExecutorAdapter["runBlock"]>>;
   try {
     adapterResult = await options.executor.runBlock({ claim: options.claim, prompt });

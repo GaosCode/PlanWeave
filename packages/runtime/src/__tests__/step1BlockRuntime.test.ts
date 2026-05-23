@@ -250,6 +250,7 @@ describe("STEP-1 block runtime", () => {
         async runBlock({ claim, prompt }) {
           expect(claim.ref).toBe("T-001#B-001");
           expect(prompt).toContain("Updated block prompt.");
+          expect(prompt).not.toContain("planweave submit-result");
           return { kind: "block", reportPath: autoRunReport };
         },
         async runFeedback() {

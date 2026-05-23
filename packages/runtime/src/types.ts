@@ -56,7 +56,23 @@ export type CodexExecExecutorProfile = {
   timeoutMs?: number;
 };
 
-export type ExecutorProfile = ManualExecutorProfile | CodexExecExecutorProfile;
+export type OpencodeExecExecutorProfile = {
+  adapter: "opencode-exec";
+  command: string;
+  args: string[];
+  sandbox?: "read-only" | "workspace-write" | "danger-full-access";
+  timeoutMs?: number;
+};
+
+export type LocalReviewExecutorProfile = {
+  adapter: "local-review";
+  command: string;
+  args: string[];
+  sandbox?: "read-only" | "workspace-write" | "danger-full-access";
+  timeoutMs?: number;
+};
+
+export type ExecutorProfile = ManualExecutorProfile | CodexExecExecutorProfile | OpencodeExecExecutorProfile | LocalReviewExecutorProfile;
 
 export type ExecutorProfileSummary = ExecutorProfile & {
   name: string;
@@ -386,6 +402,7 @@ export type ExecutorAdapterResult =
       exitCode?: number;
       startedAt?: string;
       finishedAt?: string;
+      agentSessionId?: string | null;
       codexSessionId?: string | null;
     }
   | {
@@ -399,6 +416,7 @@ export type ExecutorAdapterResult =
       exitCode?: number;
       startedAt?: string;
       finishedAt?: string;
+      agentSessionId?: string | null;
       codexSessionId?: string | null;
     }
   | {
@@ -412,6 +430,7 @@ export type ExecutorAdapterResult =
       exitCode?: number;
       startedAt?: string;
       finishedAt?: string;
+      agentSessionId?: string | null;
       codexSessionId?: string | null;
     }
   | {

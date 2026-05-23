@@ -11,6 +11,10 @@ export type DesktopBlockRunRecordSummary = {
   runId: string;
   executor: string | null;
   adapter: string | null;
+  executionCwd: string | null;
+  projectRoot: string | null;
+  agentSessionId: string | null;
+  codexSessionId: string | null;
   exitCode: number | null;
   startedAt: string | null;
   finishedAt: string | null;

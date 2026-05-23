@@ -33,6 +33,24 @@ const executorProfileSchema = z.discriminatedUnion("adapter", [
       role: z.string().min(1).optional(),
       timeoutMs: z.number().int().positive().optional()
     })
+    .strict(),
+  z
+    .object({
+      adapter: z.literal("opencode-exec"),
+      command: z.string().min(1),
+      args: z.array(z.string()).default(["run", "-"]),
+      sandbox: z.enum(["read-only", "workspace-write", "danger-full-access"]).optional(),
+      timeoutMs: z.number().int().positive().optional()
+    })
+    .strict(),
+  z
+    .object({
+      adapter: z.literal("local-review"),
+      command: z.string().min(1),
+      args: z.array(z.string()).default([]),
+      sandbox: z.enum(["read-only", "workspace-write", "danger-full-access"]).optional(),
+      timeoutMs: z.number().int().positive().optional()
+    })
     .strict()
 ]);
 
