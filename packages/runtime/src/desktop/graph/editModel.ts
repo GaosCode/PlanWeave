@@ -1,10 +1,8 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import { parseBlockRef } from "../../graph/compileTaskGraph.js";
 import { compileTaskGraph } from "../../graph/compileTaskGraph.js";
-import { addEdge, addNode, removeEdge, removeNode, updateNode } from "../../graph/editGraph.js";
+import { addEdge, addNode, commitPlanPackageGraphMutation, removeEdge, updateNode } from "../../graph/editGraph.js";
+import { buildPlanPackageGraphMutation } from "../../graph/mutation.js";
 import { loadPackage } from "../../package/loadPackage.js";
-import { resolvePackagePath } from "../../package/resolvePackagePath.js";
 import type { BlockType, GraphEditResult, ManifestBlock, ManifestTaskNode, NodeType, PackageWorkspaceRef, PlanPackageManifest } from "../../types.js";
 import type { DesktopAddBlockInput, DesktopAddContextNodeInput, DesktopAddTaskInput, DesktopGraphEditValidationInput } from "../types.js";
 import { getBlock, getTask } from "./graphHelpers.js";
@@ -20,6 +18,10 @@ function requireNonEmptyTitle(title: string): string {
     throw new Error("Title must not be empty.");
   }
   return trimmed;
+}
+
+function promptFileMarkdown(markdown: string): string {
+  return markdown.endsWith("\n") ? markdown : `${markdown}\n`;
 }
 
 function slugPart(value: string): string {
@@ -155,14 +157,8 @@ function graphEditResult(manifest: PlanPackageManifest, affectedTasks: string[] 
   };
 }
 
-async function writePromptFile(packageDir: string, packagePath: string, markdown: string): Promise<void> {
-  const promptPath = await resolvePackagePath(packageDir, packagePath, { forWrite: true });
-  await mkdir(dirname(promptPath), { recursive: true });
-  await writeFile(promptPath, markdown.endsWith("\n") ? markdown : `${markdown}\n`, "utf8");
-}
-
 export async function addTaskNode(projectRoot: PackageWorkspaceRef, input: DesktopAddTaskInput): Promise<GraphEditResult> {
-  const { workspace, manifest } = await loadPackage(projectRoot);
+  const { manifest } = await loadPackage(projectRoot);
   const title = requireNonEmptyTitle(input.title);
   const taskId = nextTaskId(manifest, title);
   const blockTypes = input.blockTypes?.length ? input.blockTypes : (["implementation", "check", "review"] satisfies BlockType[]);
@@ -189,18 +185,22 @@ export async function addTaskNode(projectRoot: PackageWorkspaceRef, input: Deskt
     acceptance: input.acceptance?.length ? input.acceptance : ["Task is implemented and reviewed."],
     blocks
   };
-  const result = await addNode({ projectRoot, node, promptMarkdown: input.promptMarkdown });
-  if (!result.ok) {
-    return result;
-  }
-  for (const block of blocks) {
-    await writePromptFile(workspace.packageDir, block.prompt, `# ${block.title}\n\n${input.promptMarkdown}`);
-  }
-  return result;
+  return commitPlanPackageGraphMutation({
+    projectRoot,
+    mutation: buildPlanPackageGraphMutation(manifest, {
+      kind: "addTaskNode",
+      node,
+      taskPromptMarkdown: input.promptMarkdown,
+      blockPromptMarkdown: blocks.map((block) => ({
+        blockId: block.id,
+        markdown: promptFileMarkdown(`# ${block.title}\n\n${input.promptMarkdown}`)
+      }))
+    })
+  });
 }
 
 export async function addBlock(projectRoot: PackageWorkspaceRef, input: DesktopAddBlockInput): Promise<GraphEditResult> {
-  const { workspace, manifest } = await loadPackage(projectRoot);
+  const { manifest } = await loadPackage(projectRoot);
   const graph = compileTaskGraph(manifest);
   const task = getTask(graph, input.taskId);
   const blockId = nextBlockId(task, input.type);
@@ -213,13 +213,15 @@ export async function addBlock(projectRoot: PackageWorkspaceRef, input: DesktopA
     executor: normalizeOptionalText(input.executor ?? null),
     maxFeedbackCycles: manifest.review.maxFeedbackCycles
   });
-  const nextTask: ManifestTaskNode = { ...task, blocks: [...task.blocks, block] };
-  const result = await updateNode({ projectRoot, node: nextTask });
-  if (!result.ok) {
-    return result;
-  }
-  await writePromptFile(workspace.packageDir, block.prompt, input.promptMarkdown);
-  return result;
+  return commitPlanPackageGraphMutation({
+    projectRoot,
+    mutation: buildPlanPackageGraphMutation(manifest, {
+      kind: "addBlock",
+      taskId: task.id,
+      block,
+      promptMarkdown: promptFileMarkdown(input.promptMarkdown)
+    })
+  });
 }
 
 export async function addContextNode(projectRoot: PackageWorkspaceRef, input: DesktopAddContextNodeInput): Promise<GraphEditResult> {
@@ -237,84 +239,44 @@ export async function addContextNode(projectRoot: PackageWorkspaceRef, input: De
 }
 
 export async function removeTaskNode(projectRoot: PackageWorkspaceRef, taskId: string): Promise<GraphEditResult> {
-  const { workspace, manifest } = await loadPackage(projectRoot);
-  const task = getTask(compileTaskGraph(manifest), taskId);
-  const result = await removeNode({ projectRoot, nodeId: taskId, removePrompt: false });
-  if (!result.ok) {
-    return result;
-  }
-  await rm(dirname(await resolvePackagePath(workspace.packageDir, task.prompt)), { recursive: true, force: true });
-  return result;
+  const { manifest } = await loadPackage(projectRoot);
+  getTask(compileTaskGraph(manifest), taskId);
+  return commitPlanPackageGraphMutation({
+    projectRoot,
+    mutation: buildPlanPackageGraphMutation(manifest, { kind: "removeNode", nodeId: taskId, removeTaskDirectory: true })
+  });
 }
 
 export async function removeBlock(projectRoot: PackageWorkspaceRef, ref: string): Promise<GraphEditResult> {
-  const { workspace, manifest } = await loadPackage(projectRoot);
-  const graph = compileTaskGraph(manifest);
-  const { taskId, blockId } = parseBlockRef(ref);
-  const task = getTask(graph, taskId);
-  const block = getBlock(graph, ref);
-  const nextTask: ManifestTaskNode = {
-    ...task,
-    blocks: task.blocks
-      .filter((candidate) => candidate.id !== blockId)
-      .map((candidate) => ({
-        ...candidate,
-        depends_on: candidate.depends_on.filter((dependency) => dependency !== blockId)
-      }))
-  };
-  const result = await updateNode({ projectRoot, node: nextTask });
-  if (!result.ok) {
-    return result;
-  }
-  await rm(await resolvePackagePath(workspace.packageDir, block.prompt), { force: true });
-  return result;
+  const { manifest } = await loadPackage(projectRoot);
+  return commitPlanPackageGraphMutation({
+    projectRoot,
+    mutation: buildPlanPackageGraphMutation(manifest, { kind: "removeBlock", blockRef: ref })
+  });
 }
 
 export async function validateGraphEdit(projectRoot: PackageWorkspaceRef, input: DesktopGraphEditValidationInput): Promise<GraphEditResult> {
   const { manifest } = await loadPackage(projectRoot);
   if (input.kind === "addDependencyEdge") {
-    return graphEditResult({ ...manifest, edges: [...manifest.edges, { from: input.fromTaskId, to: input.toTaskId, type: "depends_on" }] }, [input.fromTaskId]);
+    const mutation = buildPlanPackageGraphMutation(manifest, {
+      kind: "addEdge",
+      edge: { from: input.fromTaskId, to: input.toTaskId, type: "depends_on" }
+    });
+    return graphEditResult(mutation.nextManifest, mutation.affectedTasks);
   }
   if (input.kind === "removeDependencyEdge") {
-    return graphEditResult(
-      {
-        ...manifest,
-        edges: manifest.edges.filter((edge) => !(edge.from === input.fromTaskId && edge.to === input.toTaskId && edge.type === "depends_on"))
-      },
-      [input.fromTaskId]
-    );
+    const mutation = buildPlanPackageGraphMutation(manifest, {
+      kind: "removeEdge",
+      edge: { from: input.fromTaskId, to: input.toTaskId, type: "depends_on" }
+    });
+    return graphEditResult(mutation.nextManifest, mutation.affectedTasks);
   }
   if (input.kind === "removeTaskNode") {
-    return graphEditResult(
-      {
-        ...manifest,
-        nodes: manifest.nodes.filter((node) => node.id !== input.taskId),
-        edges: manifest.edges.filter((edge) => edge.from !== input.taskId && edge.to !== input.taskId)
-      },
-      [input.taskId]
-    );
+    const mutation = buildPlanPackageGraphMutation(manifest, { kind: "removeNode", nodeId: input.taskId });
+    return graphEditResult(mutation.nextManifest, mutation.affectedTasks);
   }
-
-  const graph = compileTaskGraph(manifest);
-  const { taskId, blockId } = parseBlockRef(input.blockRef);
-  const task = getTask(graph, taskId);
-  getBlock(graph, input.blockRef);
-  return graphEditResult(
-    {
-      ...manifest,
-      nodes: manifest.nodes.map((node) =>
-        node.id === taskId && node.type === "task"
-          ? {
-              ...task,
-              blocks: task.blocks
-                .filter((block) => block.id !== blockId)
-                .map((block) => ({ ...block, depends_on: block.depends_on.filter((dependency) => dependency !== blockId) }))
-            }
-          : node
-      )
-    },
-    [taskId]
-  );
+  const mutation = buildPlanPackageGraphMutation(manifest, { kind: "removeBlock", blockRef: input.blockRef });
+  return graphEditResult(mutation.nextManifest, mutation.affectedTasks);
 }
 
 export async function updateTaskTitle(projectRoot: PackageWorkspaceRef, taskId: string, title: string): Promise<GraphEditResult> {
@@ -325,12 +287,11 @@ export async function updateTaskTitle(projectRoot: PackageWorkspaceRef, taskId: 
 }
 
 export async function updateTaskPrompt(projectRoot: PackageWorkspaceRef, taskId: string, markdown: string): Promise<GraphEditResult> {
-  const { workspace, manifest } = await loadPackage(projectRoot);
-  const task = getTask(compileTaskGraph(manifest), taskId);
-  const promptPath = await resolvePackagePath(workspace.packageDir, task.prompt);
-  await mkdir(dirname(promptPath), { recursive: true });
-  await writeFile(promptPath, markdown, "utf8");
-  return { ok: true, affectedTasks: [taskId], diagnostics: [], graph: compileTaskGraph(manifest) };
+  const { manifest } = await loadPackage(projectRoot);
+  return commitPlanPackageGraphMutation({
+    projectRoot,
+    mutation: buildPlanPackageGraphMutation(manifest, { kind: "writeTaskPrompt", taskId, markdown })
+  });
 }
 
 export async function updateBlockTitle(projectRoot: PackageWorkspaceRef, ref: string, title: string): Promise<GraphEditResult> {
@@ -351,13 +312,11 @@ export async function updateBlockTitle(projectRoot: PackageWorkspaceRef, ref: st
 }
 
 export async function updateBlockPrompt(projectRoot: PackageWorkspaceRef, ref: string, markdown: string): Promise<GraphEditResult> {
-  const { workspace, manifest } = await loadPackage(projectRoot);
-  const graph = compileTaskGraph(manifest);
-  const block = getBlock(graph, ref);
-  const promptPath = await resolvePackagePath(workspace.packageDir, block.prompt);
-  await mkdir(dirname(promptPath), { recursive: true });
-  await writeFile(promptPath, markdown, "utf8");
-  return { ok: true, affectedTasks: [graph.blockTaskByRef.get(ref) ?? parseBlockRef(ref).taskId], diagnostics: [], graph };
+  const { manifest } = await loadPackage(projectRoot);
+  return commitPlanPackageGraphMutation({
+    projectRoot,
+    mutation: buildPlanPackageGraphMutation(manifest, { kind: "writeBlockPrompt", blockRef: ref, markdown })
+  });
 }
 
 export async function updateTaskExecutor(projectRoot: PackageWorkspaceRef, taskId: string, executorName: string | null): Promise<GraphEditResult> {
