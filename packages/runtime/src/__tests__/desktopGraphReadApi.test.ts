@@ -40,6 +40,26 @@ describe("desktop graph read API", () => {
     expect(graph.tasks[0].blockPreview.map((block) => block.ref)).toEqual(["T-001#B-001", "T-001#C-001", "T-001#R-001"]);
   });
 
+  it("returns graph view models for persisted state with malformed current refs", async () => {
+    const { root, init } = await createTestWorkspace();
+    await writeJsonFile(init.workspace.stateFile, {
+      currentRefs: {},
+      currentFeedbackId: null,
+      currentReviewBlockRef: null,
+      tasks: {},
+      blocks: {},
+      feedback: {}
+    });
+
+    const graph = await getGraphViewModel(root);
+
+    expect(graph.tasks.map((task) => task.taskId)).toEqual(["T-001"]);
+    expect(graph.tasks[0]).toMatchObject({
+      title: "Implement test task",
+      status: "ready"
+    });
+  });
+
   it("returns task-local execution order", async () => {
     const { root } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
 

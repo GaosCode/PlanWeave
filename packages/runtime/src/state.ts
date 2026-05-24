@@ -93,9 +93,11 @@ export function ensureStateForManifest(manifest: PlanPackageManifest, state: Run
   const graph = compileTaskGraph(manifest);
   const validTaskIds = new Set(graph.taskNodesInManifestOrder);
   const validBlockRefs = new Set(graph.blockRefsInManifestOrder);
+  const currentRefs = Array.isArray(state.currentRefs) ? state.currentRefs.filter((ref) => typeof ref === "string") : [];
+  const feedback = state.feedback ?? {};
   const next: RuntimeState = {
-    currentRefs: state.currentRefs.filter((ref) => validBlockRefs.has(ref)),
-    currentFeedbackId: state.currentFeedbackId && state.feedback[state.currentFeedbackId] ? state.currentFeedbackId : null,
+    currentRefs: currentRefs.filter((ref) => validBlockRefs.has(ref)),
+    currentFeedbackId: state.currentFeedbackId && feedback[state.currentFeedbackId] ? state.currentFeedbackId : null,
     currentReviewBlockRef:
       state.currentReviewBlockRef && validBlockRefs.has(state.currentReviewBlockRef) ? state.currentReviewBlockRef : null,
     tasks: {},
@@ -103,9 +105,9 @@ export function ensureStateForManifest(manifest: PlanPackageManifest, state: Run
     feedback: {}
   };
 
-  for (const [feedbackId, feedback] of Object.entries(state.feedback ?? {})) {
-    if (validBlockRefs.has(feedback.sourceReviewBlockRef)) {
-      next.feedback[feedbackId] = feedback as FeedbackEnvelopeState;
+  for (const [feedbackId, feedbackState] of Object.entries(feedback)) {
+    if (validBlockRefs.has(feedbackState.sourceReviewBlockRef)) {
+      next.feedback[feedbackId] = feedbackState as FeedbackEnvelopeState;
     }
   }
 
