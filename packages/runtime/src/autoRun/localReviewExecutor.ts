@@ -1,9 +1,11 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { ExecutorAdapterResult, LocalReviewExecutorProfile, PackageWorkspaceRef } from "../types.js";
-import { execWithStdin, finishRunMetadata, nextRunId, prepareBlockRun, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
+import { execWithStreaming, execWithStdin, finishRunMetadata, nextRunId, prepareBlockRun, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
+import { createTmuxSessionInfo, tmuxMetadataPatch } from "./tmuxExecutor.js";
 
 export async function runLocalReviewBlock(options: {
   projectRoot: PackageWorkspaceRef;
@@ -23,15 +25,32 @@ export async function runLocalReviewBlock(options: {
     prompt: options.prompt
   });
   const workspace = await resolvePackageWorkspace(options.projectRoot);
-  const result = await execWithStdin({
+  const { blockId } = parseBlockRef(options.claim.ref);
+  const stdoutPath = join(run.runDir, "stdout.md");
+  const stderrPath = join(run.runDir, "stderr.log");
+  const tmux = await createTmuxSessionInfo({ runDir: run.runDir, runId: run.runId, ref: options.claim.ref, kind: "block" });
+  await finishRunMetadata(run.metadataPath, tmuxMetadataPatch(tmux));
+  const streamed = await execWithStreaming({
     command: options.profile.command,
     args: options.profile.args,
     cwd: workspace.rootPath,
     stdin: options.prompt,
-    timeoutMs: options.profile.timeoutMs
+    env: {
+      PLANWEAVE_REVIEW_BLOCK_REF: options.claim.ref,
+      PLANWEAVE_TASK_ID: options.claim.taskId,
+      PLANWEAVE_BLOCK_ID: blockId
+    },
+    timeoutMs: options.profile.timeoutMs,
+    stdoutPath,
+    stderrPath,
+    tmux
   });
-  await writeFile(join(run.runDir, "stdout.md"), result.stdout, "utf8");
-  await writeFile(join(run.runDir, "stderr.log"), result.stderr, "utf8");
+  const result = {
+    stdout: await readFile(stdoutPath, "utf8"),
+    stderr: await readFile(stderrPath, "utf8"),
+    exitCode: streamed.exitCode,
+    timedOut: streamed.timedOut
+  };
   await finishRunMetadata(run.metadataPath, {
     finishedAt: new Date().toISOString(),
     exitCode: result.exitCode,

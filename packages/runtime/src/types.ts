@@ -404,6 +404,7 @@ export type ExecutorAdapterResult =
       finishedAt?: string;
       agentSessionId?: string | null;
       codexSessionId?: string | null;
+      opencodeSessionId?: string | null;
     }
   | {
       kind: "review";
@@ -418,6 +419,7 @@ export type ExecutorAdapterResult =
       finishedAt?: string;
       agentSessionId?: string | null;
       codexSessionId?: string | null;
+      opencodeSessionId?: string | null;
     }
   | {
       kind: "feedback";
@@ -432,6 +434,7 @@ export type ExecutorAdapterResult =
       finishedAt?: string;
       agentSessionId?: string | null;
       codexSessionId?: string | null;
+      opencodeSessionId?: string | null;
     }
   | {
       kind: "manual";

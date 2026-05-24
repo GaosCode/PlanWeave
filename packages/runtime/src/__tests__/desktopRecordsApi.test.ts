@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { writeJsonFile } from "../json.js";
 import { getFeedbackRecords, getReviewAttempts, getRunRecord, listBlockRunRecords, searchProject } from "../desktop/index.js";
-import { claimNext, submitBlockResult, submitReviewResult } from "../taskManager/index.js";
-import { createTestWorkspace, writeReport, writeReviewResult } from "./promptTestHelpers.js";
+import { claimNext, submitBlockResult, submitFeedback, submitReviewResult } from "../taskManager/index.js";
+import { basicManifest, createTestWorkspace, writeReport, writeReviewResult } from "./promptTestHelpers.js";
 
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
@@ -44,6 +44,37 @@ describe("desktop records API", () => {
     });
   });
 
+  it("derives live OpenCode run record display text from streamed JSON before report exists", async () => {
+    const { root, init } = await createTestWorkspace();
+    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
+    await mkdir(runDir, { recursive: true });
+    await writeJsonFile(join(runDir, "metadata.json"), {
+      runId: "RUN-001",
+      ref: "T-001#B-001",
+      executor: "opencode",
+      adapter: "opencode-exec",
+      startedAt: "2026-05-23T02:00:00.000Z",
+      finishedAt: null,
+      exitCode: null
+    });
+    await writeFile(
+      join(runDir, "stdout.md"),
+      [
+        JSON.stringify({ type: "step_start", sessionID: "ses_live_123" }),
+        JSON.stringify({ type: "message_part_updated", part: { type: "text", text: "Live progress one." } }),
+        JSON.stringify({ type: "message_part_updated", part: { type: "text", text: "Live progress two." } })
+      ].join("\n"),
+      "utf8"
+    );
+
+    await expect(getRunRecord(root, "T-001#B-001::RUN-001")).resolves.toMatchObject({
+      displayMarkdown: "Live progress one.\n\nLive progress two.",
+      displayMarkdownSource: "live-output",
+      reportMarkdown: "",
+      stdoutSummary: "Live progress one.\n\nLive progress two."
+    });
+  });
+
   it("searches run records, review attempts, and feedback records from runtime results/state", async () => {
     const { root, init } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
@@ -61,6 +92,9 @@ describe("desktop records API", () => {
       executionCwd: root,
       agentSessionId: "THREAD-123",
       codexSessionId: "THREAD-123",
+      tmuxSessionId: "planweave-T-001-B-001-RUN-001-abcd1234",
+      tmuxAttachCommand: "tmux attach-session -t planweave-T-001-B-001-RUN-001-abcd1234",
+      tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-T-001-B-001-RUN-001-abcd1234",
       exitCode: 0
     });
     await claimNext({ projectRoot: root });
@@ -87,6 +121,8 @@ describe("desktop records API", () => {
         executionCwd: root,
         agentSessionId: "THREAD-123",
         codexSessionId: "THREAD-123",
+        tmuxSessionId: "planweave-T-001-B-001-RUN-001-abcd1234",
+        tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-T-001-B-001-RUN-001-abcd1234",
         reportPath: expect.stringContaining("report.md")
       })
     ]);
@@ -129,5 +165,45 @@ describe("desktop records API", () => {
         expect.objectContaining({ kind: "feedback", ref: "FE-001", targetRef: "T-001#R-001" })
       ])
     );
+  });
+
+  it("lists review attempts and feedback records newest first", async () => {
+    const { root } = await createTestWorkspace(basicManifest({ reviewMaxFeedbackCycles: 2 }));
+    await claimNext({ projectRoot: root });
+    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await claimNext({ projectRoot: root });
+    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
+    await claimNext({ projectRoot: root });
+    await submitReviewResult({
+      projectRoot: root,
+      ref: "T-001#R-001",
+      resultPath: await writeReviewResult(root, "needs_changes", "first feedback")
+    });
+    await claimNext({ projectRoot: root });
+    await submitFeedback({ projectRoot: root, reportPath: await writeReport(root, "feedback-1.md", "first fix\n") });
+    await claimNext({ projectRoot: root });
+    await submitReviewResult({
+      projectRoot: root,
+      ref: "T-001#R-001",
+      resultPath: await writeReviewResult(root, "needs_changes", "second feedback")
+    });
+    await claimNext({ projectRoot: root });
+    await submitFeedback({ projectRoot: root, reportPath: await writeReport(root, "feedback-2.md", "second fix\n") });
+    await claimNext({ projectRoot: root });
+    await submitReviewResult({
+      projectRoot: root,
+      ref: "T-001#R-001",
+      resultPath: await writeReviewResult(root, "passed", "passed after fixes")
+    });
+
+    await expect(getReviewAttempts(root, "T-001#R-001")).resolves.toMatchObject([
+      { attemptId: "REV-003", verdict: "passed", contentPreview: "passed after fixes" },
+      { attemptId: "REV-002", verdict: "needs_changes", contentPreview: "second feedback" },
+      { attemptId: "REV-001", verdict: "needs_changes", contentPreview: "first feedback" }
+    ]);
+    await expect(getFeedbackRecords(root, "T-001#R-001")).resolves.toMatchObject([
+      { feedbackId: "FE-002", status: "resolved", latestSubmissionId: "FS-001", content: "second feedback" },
+      { feedbackId: "FE-001", status: "resolved", latestSubmissionId: "FS-001", content: "first feedback" }
+    ]);
   });
 });

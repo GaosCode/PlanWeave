@@ -1,33 +1,41 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { ExecutorAdapterResult, OpencodeExecExecutorProfile, PackageWorkspaceRef } from "../types.js";
-import { execWithStdin, finishRunMetadata, nextRunId, prepareBlockRun, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
+import { finishRunMetadata, nextRunId, prepareBlockRun, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
+import { opencodeInvocation } from "./opencodeInvocation.js";
+import { extractOpencodeSessionId, opencodeReport, parseOpencodeJsonOutput } from "./opencodeOutput.js";
+import { appendReviewResultFileInstruction, reviewResultEnvironment } from "./reviewResultContract.js";
+import { runStreamingCommandWithSessionCapture, type StreamedCommandResult } from "./streamingExecutor.js";
+import { createTmuxSessionInfo, tmuxMetadataPatch, type TmuxSessionInfo } from "./tmuxExecutor.js";
 
-function extractOpencodeSessionId(output: string): string | null {
-  for (const line of output.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    try {
-      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-      const sessionId = parsed.sessionId ?? parsed.session_id ?? parsed.threadId ?? parsed.thread_id;
-      if (typeof sessionId === "string" && sessionId.trim()) {
-        return sessionId;
-      }
-    } catch {
-      const match =
-        trimmed.match(/^(?:opencodeSessionId|sessionId|session_id|session id|threadId|thread_id)\s*[:=]\s*([A-Za-z0-9_.:-]+)$/i) ??
-        trimmed.match(/^\*\*Session ID:\*\*\s*([A-Za-z0-9_.:-]+)$/i) ??
-        trimmed.match(/^Continue\s+opencode\s+-s\s+([A-Za-z0-9_.:-]+)$/i);
-      if (match) {
-        return match[1];
-      }
-    }
-  }
-  return null;
+async function runOpencodeStreamingCommand(options: {
+  command: string;
+  args: string[];
+  cwd: string;
+  stdin: string;
+  env?: NodeJS.ProcessEnv;
+  timeoutMs?: number;
+  stdoutPath: string;
+  stderrPath: string;
+  tmux?: TmuxSessionInfo | null;
+  onSessionId: (sessionId: string) => Promise<void>;
+}): Promise<StreamedCommandResult> {
+  return runStreamingCommandWithSessionCapture({
+    command: options.command,
+    args: options.args,
+    cwd: options.cwd,
+    stdin: options.stdin,
+    env: options.env,
+    stdoutPath: options.stdoutPath,
+    stderrPath: options.stderrPath,
+    tmux: options.tmux,
+    timeoutMs: options.timeoutMs,
+    sessionIdFromOutput: extractOpencodeSessionId,
+    onSessionId: options.onSessionId
+  });
 }
 
 export async function runOpencodeBlock(options: {
@@ -45,21 +53,56 @@ export async function runOpencodeBlock(options: {
     prompt: options.prompt
   });
   const workspace = await resolvePackageWorkspace(options.projectRoot);
-  const result = await execWithStdin({
+  const reviewResultPath = options.claim.blockType === "review" ? join(run.runDir, "review-result.json") : null;
+  const prompt = reviewResultPath
+    ? appendReviewResultFileInstruction(options.prompt, {
+        resultPath: reviewResultPath,
+        reviewBlockRef: options.claim.ref,
+        taskId: options.claim.taskId
+      })
+    : options.prompt;
+  const invocation = opencodeInvocation(options.profile, prompt, workspace.rootPath);
+  const tmux = await createTmuxSessionInfo({ runDir: run.runDir, runId: run.runId, ref: options.claim.ref, kind: "block" });
+  await finishRunMetadata(run.metadataPath, tmuxMetadataPatch(tmux));
+  let agentSessionId: string | null = null;
+  const onSessionId = async (sessionId: string): Promise<void> => {
+    if (agentSessionId) {
+      return;
+    }
+    agentSessionId = sessionId;
+    await finishRunMetadata(run.metadataPath, {
+      agentSessionId: sessionId,
+      opencodeSessionId: sessionId
+    });
+  };
+  const result = await runOpencodeStreamingCommand({
     command: options.profile.command,
-    args: options.profile.args,
+    args: invocation.args,
     cwd: workspace.rootPath,
-    stdin: options.prompt,
-    timeoutMs: options.profile.timeoutMs
+    stdin: invocation.stdin,
+    env: reviewResultPath
+      ? reviewResultEnvironment({
+          resultPath: reviewResultPath,
+          reviewBlockRef: options.claim.ref,
+          taskId: options.claim.taskId
+        })
+      : undefined,
+    timeoutMs: options.profile.timeoutMs,
+    stdoutPath: join(run.runDir, "stdout.md"),
+    stderrPath: join(run.runDir, "stderr.log"),
+    tmux,
+    onSessionId
   });
-  const agentSessionId = extractOpencodeSessionId(`${result.stdout}\n${result.stderr}`);
-  await writeFile(join(run.runDir, "stdout.md"), result.stdout, "utf8");
-  await writeFile(join(run.runDir, "stderr.log"), result.stderr, "utf8");
+  const jsonOutput = parseOpencodeJsonOutput(result.stdout);
+  agentSessionId = agentSessionId ?? jsonOutput.sessionId ?? extractOpencodeSessionId(`${result.stdout}\n${result.stderr}`);
+  if (jsonOutput.parsedAny || invocation.jsonMode) {
+    await writeFile(join(run.runDir, "events.ndjson"), result.stdout, "utf8");
+  }
   await finishRunMetadata(run.metadataPath, {
     finishedAt: new Date().toISOString(),
     exitCode: result.exitCode,
     command: options.profile.command,
-    args: options.profile.args,
+    args: invocation.args,
     projectRoot: workspace.rootPath,
     executionCwd: workspace.rootPath,
     sandbox: options.profile.sandbox ?? null,
@@ -76,14 +119,32 @@ export async function runOpencodeBlock(options: {
         : result.stderr.trim() || `Executor '${options.executorName}' exited with code ${result.exitCode}.`
     );
   }
+  if (jsonOutput.error) {
+    throw new Error(`Executor '${options.executorName}' returned an OpenCode error event: ${jsonOutput.error}`);
+  }
   if (options.claim.blockType === "review") {
-    const resultPath = join(run.runDir, "review-result.json");
-    await writeJsonFile(resultPath, JSON.parse(result.stdout.trim()));
-    return { kind: "review", resultPath, runId: run.runId, executor: options.executorName, adapter: "opencode-exec", agentSessionId, ...result };
+    if (!reviewResultPath) {
+      throw new Error(`Executor '${options.executorName}' did not prepare a review result path.`);
+    }
+    try {
+      await access(reviewResultPath, constants.R_OK);
+    } catch {
+      throw new Error(`Executor '${options.executorName}' did not create review result JSON at ${reviewResultPath}.`);
+    }
+    return {
+      kind: "review",
+      resultPath: reviewResultPath,
+      runId: run.runId,
+      executor: options.executorName,
+      adapter: "opencode-exec",
+      agentSessionId,
+      opencodeSessionId: agentSessionId,
+      ...result
+    };
   }
   const reportPath = join(run.runDir, "report.md");
-  await writeFile(reportPath, result.stdout, "utf8");
-  return { kind: "block", reportPath, runId: run.runId, executor: options.executorName, adapter: "opencode-exec", agentSessionId, ...result };
+  await writeFile(reportPath, opencodeReport(jsonOutput, result.stdout, result.stderr), "utf8");
+  return { kind: "block", reportPath, runId: run.runId, executor: options.executorName, adapter: "opencode-exec", agentSessionId, opencodeSessionId: agentSessionId, ...result };
 }
 
 export async function runOpencodeFeedback(options: {
@@ -96,27 +157,61 @@ export async function runOpencodeFeedback(options: {
   const runRoot = join(options.workspaceResultsDir, "feedback-runs");
   const runId = await nextRunId(runRoot);
   const runDir = join(runRoot, runId);
+  const metadataPath = join(runDir, "metadata.json");
+  const startedAt = new Date().toISOString();
   await mkdir(runDir, { recursive: true });
   await writeFile(join(runDir, "prompt.md"), options.claim.content, "utf8");
-  const result = await execWithStdin({
-    command: options.profile.command,
-    args: options.profile.args,
-    cwd: options.projectRoot,
-    stdin: options.claim.content,
-    timeoutMs: options.profile.timeoutMs
-  });
-  const agentSessionId = extractOpencodeSessionId(`${result.stdout}\n${result.stderr}`);
-  await writeFile(join(runDir, "stdout.md"), result.stdout, "utf8");
-  await writeFile(join(runDir, "stderr.log"), result.stderr, "utf8");
-  await writeJsonFile(join(runDir, "metadata.json"), {
+  const invocation = opencodeInvocation(options.profile, options.claim.content, options.projectRoot);
+  const tmux = await createTmuxSessionInfo({ runDir, runId, kind: "feedback" });
+  await writeJsonFile(metadataPath, {
     runId,
     executor: options.executorName,
     adapter: "opencode-exec",
     projectRoot: options.projectRoot,
     executionCwd: options.projectRoot,
-    startedAt: null,
+    startedAt,
+    finishedAt: null,
+    exitCode: null,
+    command: options.profile.command,
+    args: invocation.args,
+    timeoutMs: options.profile.timeoutMs ?? null,
+    timedOut: false,
+    agentSessionId: null,
+    opencodeSessionId: null,
+    ...tmuxMetadataPatch(tmux)
+  });
+  let agentSessionId: string | null = null;
+  const onSessionId = async (sessionId: string): Promise<void> => {
+    if (agentSessionId) {
+      return;
+    }
+    agentSessionId = sessionId;
+    await finishRunMetadata(metadataPath, {
+      agentSessionId: sessionId,
+      opencodeSessionId: sessionId
+    });
+  };
+  const result = await runOpencodeStreamingCommand({
+    command: options.profile.command,
+    args: invocation.args,
+    cwd: options.projectRoot,
+    stdin: invocation.stdin,
+    timeoutMs: options.profile.timeoutMs,
+    stdoutPath: join(runDir, "stdout.md"),
+    stderrPath: join(runDir, "stderr.log"),
+    tmux,
+    onSessionId
+  });
+  const jsonOutput = parseOpencodeJsonOutput(result.stdout);
+  agentSessionId = agentSessionId ?? jsonOutput.sessionId ?? extractOpencodeSessionId(`${result.stdout}\n${result.stderr}`);
+  if (jsonOutput.parsedAny || invocation.jsonMode) {
+    await writeFile(join(runDir, "events.ndjson"), result.stdout, "utf8");
+  }
+  await finishRunMetadata(metadataPath, {
     finishedAt: new Date().toISOString(),
     exitCode: result.exitCode,
+    command: options.profile.command,
+    args: invocation.args,
     timeoutMs: options.profile.timeoutMs ?? null,
     timedOut: result.timedOut,
     agentSessionId,
@@ -129,7 +224,10 @@ export async function runOpencodeFeedback(options: {
         : result.stderr.trim() || `Executor '${options.executorName}' exited with code ${result.exitCode}.`
     );
   }
+  if (jsonOutput.error) {
+    throw new Error(`Executor '${options.executorName}' returned an OpenCode error event: ${jsonOutput.error}`);
+  }
   const reportPath = join(runDir, "report.md");
-  await writeFile(reportPath, result.stdout, "utf8");
-  return { kind: "feedback", reportPath, runId, executor: options.executorName, adapter: "opencode-exec", agentSessionId, ...result };
+  await writeFile(reportPath, opencodeReport(jsonOutput, result.stdout, result.stderr), "utf8");
+  return { kind: "feedback", reportPath, runId, executor: options.executorName, adapter: "opencode-exec", agentSessionId, opencodeSessionId: agentSessionId, ...result };
 }

@@ -15,6 +15,9 @@ export type DesktopBlockRunRecordSummary = {
   projectRoot: string | null;
   agentSessionId: string | null;
   codexSessionId: string | null;
+  tmuxSessionId?: string | null;
+  tmuxAttachCommand?: string | null;
+  tmuxReadOnlyAttachCommand?: string | null;
   exitCode: number | null;
   startedAt: string | null;
   finishedAt: string | null;
@@ -28,6 +31,8 @@ export type DesktopBlockRunRecordSummary = {
 export type DesktopRunRecord = DesktopBlockRunRecordSummary & {
   promptMarkdown: string;
   reportMarkdown: string;
+  displayMarkdown: string;
+  displayMarkdownSource: "report" | "live-output" | "none";
   metadata: Record<string, unknown>;
 };
 

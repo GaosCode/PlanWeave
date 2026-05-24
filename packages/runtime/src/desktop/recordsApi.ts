@@ -6,6 +6,7 @@ import { readJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { readState } from "../state.js";
 import type { ExecutorProfile, PackageWorkspaceRef, ReviewVerdict } from "../types.js";
+import { cleanOutputSummary, displayMarkdownForRecord, outputSummaryForRecord } from "./runRecordOutput.js";
 import type {
   DesktopBlockRunRecordSummary,
   DesktopFeedbackRecord,
@@ -24,13 +25,6 @@ async function exists(path: string): Promise<boolean> {
 
 async function readOptionalFile(path: string): Promise<string> {
   return (await exists(path)) ? readFile(path, "utf8") : "";
-}
-
-function cleanOutputSummary(value: string): string {
-  return value
-    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
-    .trim()
-    .slice(0, 400);
 }
 
 async function listDirectories(path: string): Promise<string[]> {
@@ -105,6 +99,10 @@ function compareRunRecordsNewestFirst(left: DesktopBlockRunRecordSummary, right:
   return right.runId.localeCompare(left.runId, undefined, { numeric: true });
 }
 
+function compareIdsNewestFirst(left: string, right: string): number {
+  return right.localeCompare(left, undefined, { numeric: true });
+}
+
 function verdictField(value: unknown): ReviewVerdict | null {
   return value === "passed" || value === "needs_changes" ? value : null;
 }
@@ -118,6 +116,9 @@ async function runRecordSummary(options: {
   const runDir = join(blockRunRoot(options.resultsDir, options.blockRef), options.runId);
   const metadataPath = join(runDir, "metadata.json");
   const metadata = (await exists(metadataPath)) ? await readJsonFile<Record<string, unknown>>(metadataPath) : {};
+  const adapter = adapterField(metadata);
+  const stdout = await readOptionalFile(join(runDir, "stdout.md"));
+  const stderr = await readOptionalFile(join(runDir, "stderr.log"));
   const promptPath = join(runDir, "prompt.md");
   const reportPath = join(runDir, "report.md");
   return {
@@ -127,19 +128,22 @@ async function runRecordSummary(options: {
     blockId,
     runId: options.runId,
     executor: stringField(metadata, "executor"),
-    adapter: adapterField(metadata),
+    adapter,
     executionCwd: stringField(metadata, "executionCwd"),
     projectRoot: stringField(metadata, "projectRoot"),
-    agentSessionId: firstStringField(metadata, ["agentSessionId", "codexSessionId", "sessionId", "session_id", "threadId", "thread_id"]),
+    agentSessionId: firstStringField(metadata, ["agentSessionId", "codexSessionId", "opencodeSessionId", "sessionId", "session_id", "threadId", "thread_id"]),
     codexSessionId: stringField(metadata, "codexSessionId"),
+    tmuxSessionId: firstStringField(metadata, ["tmuxSessionId", "tmuxSessionName"]),
+    tmuxAttachCommand: stringField(metadata, "tmuxAttachCommand"),
+    tmuxReadOnlyAttachCommand: stringField(metadata, "tmuxReadOnlyAttachCommand"),
     exitCode: numberField(metadata, "exitCode"),
     startedAt: stringField(metadata, "startedAt"),
     finishedAt: stringField(metadata, "finishedAt"),
     promptPath: (await exists(promptPath)) ? promptPath : null,
     reportPath: (await exists(reportPath)) ? reportPath : null,
     metadataPath,
-    stdoutSummary: cleanOutputSummary(await readOptionalFile(join(runDir, "stdout.md"))),
-    stderrSummary: cleanOutputSummary(await readOptionalFile(join(runDir, "stderr.log")))
+    stdoutSummary: outputSummaryForRecord(adapter, stdout, ""),
+    stderrSummary: cleanOutputSummary(stderr)
   };
 }
 
@@ -155,10 +159,20 @@ export async function getRunRecord(projectRoot: PackageWorkspaceRef, recordId: s
   const summary = await runRecordSummary({ resultsDir: workspace.resultsDir, blockRef, runId });
   const runDir = join(blockRunRoot(workspace.resultsDir, blockRef), runId);
   const metadata = (await exists(summary.metadataPath)) ? await readJsonFile<Record<string, unknown>>(summary.metadataPath) : {};
+  const reportMarkdown = await readOptionalFile(join(runDir, "report.md"));
+  const stdout = await readOptionalFile(join(runDir, "stdout.md"));
+  const stderr = await readOptionalFile(join(runDir, "stderr.log"));
+  const display = displayMarkdownForRecord({
+    adapter: summary.adapter as ExecutorProfile["adapter"] | null,
+    reportMarkdown,
+    stdout,
+    stderr
+  });
   return {
     ...summary,
     promptMarkdown: await readOptionalFile(join(runDir, "prompt.md")),
-    reportMarkdown: await readOptionalFile(join(runDir, "report.md")),
+    reportMarkdown,
+    ...display,
     metadata
   };
 }
@@ -166,7 +180,7 @@ export async function getRunRecord(projectRoot: PackageWorkspaceRef, recordId: s
 export async function getReviewAttempts(projectRoot: PackageWorkspaceRef, blockRef: string): Promise<DesktopReviewAttemptSummary[]> {
   const { workspace } = await loadPackage(projectRoot);
   const { taskId, blockId } = parseBlockRef(blockRef);
-  const attemptIds = await listDirectories(reviewAttemptRoot(workspace.resultsDir, blockRef));
+  const attemptIds = (await listDirectories(reviewAttemptRoot(workspace.resultsDir, blockRef))).sort(compareIdsNewestFirst);
   return Promise.all(
     attemptIds.map(async (attemptId) => {
       const attemptDir = join(reviewAttemptRoot(workspace.resultsDir, blockRef), attemptId);
@@ -193,6 +207,7 @@ export async function getFeedbackRecords(projectRoot: PackageWorkspaceRef, block
   const state = await readState(workspace.stateFile);
   return Object.entries(state.feedback)
     .filter(([, feedback]) => feedback.sourceReviewBlockRef === blockRef)
+    .sort(([leftId], [rightId]) => compareIdsNewestFirst(leftId, rightId))
     .map(([feedbackId, feedback]) => ({
       feedbackId,
       sourceReviewBlockRef: feedback.sourceReviewBlockRef,

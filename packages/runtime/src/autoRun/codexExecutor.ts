@@ -3,81 +3,34 @@ import { join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { CodexExecExecutorProfile, ExecutorAdapterResult, PackageWorkspaceRef } from "../types.js";
-import { execWithStdin, finishRunMetadata, nextRunId, prepareBlockRun, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
+import { codexExecArgs, codexResumeArgs, extractCodexSessionId } from "./codexProtocol.js";
+import { finishRunMetadata, nextRunId, prepareBlockRun, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
+import { runStreamingCommandWithSessionCapture, type StreamedCommandResult } from "./streamingExecutor.js";
+import { createTmuxSessionInfo, tmuxMetadataPatch, type TmuxSessionInfo } from "./tmuxExecutor.js";
 
-const CODEX_STATUS_SESSION_PATTERN = /(?:^|[\s│|>])Session\s*:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=\s|[│|]|$)/i;
-
-function codexExecArgs(profile: CodexExecExecutorProfile): string[] {
-  if (!profile.sandbox) {
-    return profile.args;
-  }
-  const stdinPromptIndex = profile.args.lastIndexOf("-");
-  const sandboxArgs = ["--sandbox", profile.sandbox];
-  if (stdinPromptIndex === -1) {
-    return [...profile.args, ...sandboxArgs];
-  }
-  return [...profile.args.slice(0, stdinPromptIndex), ...sandboxArgs, ...profile.args.slice(stdinPromptIndex)];
-}
-
-function codexResumeArgs(profile: CodexExecExecutorProfile, sessionId: string, prompt: string): string[] {
-  const execIndex = profile.args.indexOf("exec");
-  const prefix = execIndex === -1 ? [] : profile.args.slice(0, execIndex);
-  const sandboxArgs = profile.sandbox ? ["--sandbox", profile.sandbox] : [];
-  return [...prefix, "exec", ...sandboxArgs, "resume", sessionId, prompt];
-}
-
-function findSessionIdValue(value: unknown): string | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const object = value as Record<string, unknown>;
-  for (const key of ["codexSessionId", "sessionId", "session_id", "threadId", "thread_id"]) {
-    const sessionId = object[key];
-    if (typeof sessionId === "string" && sessionId.trim()) {
-      return sessionId;
-    }
-  }
-  for (const key of ["session", "thread"]) {
-    const nested = object[key];
-    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
-      const id = (nested as Record<string, unknown>).id;
-      if (typeof id === "string" && id.trim()) {
-        return id;
-      }
-    }
-  }
-  for (const nested of Object.values(object)) {
-    const sessionId = findSessionIdValue(nested);
-    if (sessionId) {
-      return sessionId;
-    }
-  }
-  return null;
-}
-
-export function extractCodexSessionId(output: string): string | null {
-  for (const line of output.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    try {
-      const sessionId = findSessionIdValue(JSON.parse(trimmed));
-      if (sessionId) {
-        return sessionId;
-      }
-    } catch {
-      const match = trimmed.match(/^(?:codexSessionId|sessionId|session_id|session id|threadId|thread_id)\s*[:=]\s*([A-Za-z0-9_.:-]+)$/i);
-      if (match) {
-        return match[1];
-      }
-      const statusSessionMatch = trimmed.match(CODEX_STATUS_SESSION_PATTERN);
-      if (statusSessionMatch) {
-        return statusSessionMatch[1];
-      }
-    }
-  }
-  return null;
+async function runCodexStreamingCommand(options: {
+  command: string;
+  args: string[];
+  cwd: string;
+  stdin: string;
+  timeoutMs?: number;
+  stdoutPath: string;
+  stderrPath: string;
+  tmux?: TmuxSessionInfo | null;
+  onSessionId: (sessionId: string) => Promise<void>;
+}): Promise<StreamedCommandResult> {
+  return runStreamingCommandWithSessionCapture({
+    command: options.command,
+    args: options.args,
+    cwd: options.cwd,
+    stdin: options.stdin,
+    stdoutPath: options.stdoutPath,
+    stderrPath: options.stderrPath,
+    tmux: options.tmux,
+    timeoutMs: options.timeoutMs,
+    sessionIdFromOutput: extractCodexSessionId,
+    onSessionId: options.onSessionId
+  });
 }
 
 export async function runCodexBlock(options: {
@@ -96,23 +49,54 @@ export async function runCodexBlock(options: {
   });
   const workspace = await resolvePackageWorkspace(options.projectRoot);
   const args = codexExecArgs(options.profile);
-  const result = await execWithStdin({
+  const stdoutPath = join(run.runDir, "stdout.md");
+  const stderrPath = join(run.runDir, "stderr.log");
+  const tmux = await createTmuxSessionInfo({ runDir: run.runDir, runId: run.runId, ref: options.claim.ref, kind: "block" });
+  await finishRunMetadata(run.metadataPath, tmuxMetadataPatch(tmux));
+  let codexSessionId: string | null = null;
+  const onSessionId = async (sessionId: string): Promise<void> => {
+    if (codexSessionId) {
+      return;
+    }
+    codexSessionId = sessionId;
+    await finishRunMetadata(run.metadataPath, {
+      agentSessionId: sessionId,
+      codexSessionId: sessionId
+    });
+  };
+  const result = await runCodexStreamingCommand({
     command: options.profile.command,
     args,
     cwd: workspace.rootPath,
     stdin: options.prompt,
-    timeoutMs: options.profile.timeoutMs
+    timeoutMs: options.profile.timeoutMs,
+    stdoutPath,
+    stderrPath,
+    tmux,
+    onSessionId
   });
   let finalResult = result;
-  let codexSessionId = extractCodexSessionId(`${result.stdout}\n${result.stderr}`);
+  codexSessionId = codexSessionId ?? extractCodexSessionId(`${result.stdout}\n${result.stderr}`);
   let resumed = false;
   if (result.exitCode !== 0 && codexSessionId) {
-    const resumeResult = await execWithStdin({
+    const resumeStdoutPath = join(run.runDir, "resume-stdout.md");
+    const resumeStderrPath = join(run.runDir, "resume-stderr.log");
+    const resumeTmux = await createTmuxSessionInfo({
+      runDir: join(run.runDir, "resume"),
+      runId: `${run.runId}-resume`,
+      ref: options.claim.ref,
+      kind: "block"
+    });
+    const resumeResult = await runCodexStreamingCommand({
       command: options.profile.command,
       args: codexResumeArgs(options.profile, codexSessionId, "continue this block and produce the required report"),
       cwd: workspace.rootPath,
       stdin: "",
-      timeoutMs: options.profile.timeoutMs
+      timeoutMs: options.profile.timeoutMs,
+      stdoutPath: resumeStdoutPath,
+      stderrPath: resumeStderrPath,
+      tmux: resumeTmux,
+      onSessionId
     });
     finalResult = {
       stdout: [result.stdout.trim(), "--- resume stdout ---", resumeResult.stdout.trim()].filter(Boolean).join("\n"),
@@ -169,28 +153,55 @@ export async function runCodexFeedback(options: {
   const runRoot = join(options.workspaceResultsDir, "feedback-runs");
   const runId = await nextRunId(runRoot);
   const runDir = join(runRoot, runId);
+  const metadataPath = join(runDir, "metadata.json");
+  const startedAt = new Date().toISOString();
   await mkdir(runDir, { recursive: true });
   await writeFile(join(runDir, "prompt.md"), options.claim.content, "utf8");
   const args = codexExecArgs(options.profile);
-  const result = await execWithStdin({
-    command: options.profile.command,
-    args,
-    cwd: options.projectRoot,
-    stdin: options.claim.content,
-    timeoutMs: options.profile.timeoutMs
-  });
-  await writeFile(join(runDir, "stdout.md"), result.stdout, "utf8");
-  await writeFile(join(runDir, "stderr.log"), result.stderr, "utf8");
-  const codexSessionId = extractCodexSessionId(`${result.stdout}\n${result.stderr}`);
-  await writeJsonFile(join(runDir, "metadata.json"), {
+  const tmux = await createTmuxSessionInfo({ runDir, runId, kind: "feedback" });
+  await writeJsonFile(metadataPath, {
     runId,
     executor: options.executorName,
     adapter: "codex-exec",
     projectRoot: options.projectRoot,
     executionCwd: options.projectRoot,
-    startedAt: null,
+    startedAt,
+    finishedAt: null,
+    exitCode: null,
+    timeoutMs: options.profile.timeoutMs ?? null,
+    timedOut: false,
+    agentSessionId: null,
+    codexSessionId: null,
+    ...tmuxMetadataPatch(tmux)
+  });
+  let codexSessionId: string | null = null;
+  const onSessionId = async (sessionId: string): Promise<void> => {
+    if (codexSessionId) {
+      return;
+    }
+    codexSessionId = sessionId;
+    await finishRunMetadata(metadataPath, {
+      agentSessionId: sessionId,
+      codexSessionId: sessionId
+    });
+  };
+  const result = await runCodexStreamingCommand({
+    command: options.profile.command,
+    args,
+    cwd: options.projectRoot,
+    stdin: options.claim.content,
+    timeoutMs: options.profile.timeoutMs,
+    stdoutPath: join(runDir, "stdout.md"),
+    stderrPath: join(runDir, "stderr.log"),
+    tmux,
+    onSessionId
+  });
+  codexSessionId = codexSessionId ?? extractCodexSessionId(`${result.stdout}\n${result.stderr}`);
+  await finishRunMetadata(metadataPath, {
     finishedAt: new Date().toISOString(),
     exitCode: result.exitCode,
+    command: options.profile.command,
+    args,
     timeoutMs: options.profile.timeoutMs ?? null,
     timedOut: result.timedOut,
     agentSessionId: codexSessionId,
