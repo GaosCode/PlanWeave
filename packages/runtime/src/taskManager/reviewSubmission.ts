@@ -16,6 +16,7 @@ import type {
   SubmitReviewResult,
   ValidationIssue
 } from "../types.js";
+import { writeFeedbackArtifact } from "./feedbackArtifacts.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { incrementTaskIndexCount, listDirCount, nextId, updateTaskIndex } from "./resultIndex.js";
 import { computeWorkRevision, getBlock, getTask } from "./selectors.js";
@@ -142,6 +143,19 @@ async function recordReviewCompletionReason(options: {
   }));
 }
 
+async function nextFeedbackId(options: { workspace: ProjectWorkspace; taskId: string; state: { feedback: Record<string, unknown> } }): Promise<string> {
+  let count = Math.max(
+    Object.keys(options.state.feedback).length,
+    await listDirCount(join(options.workspace.resultsDir, options.taskId, "feedback"))
+  );
+  let feedbackId = nextId("FE", count);
+  while (options.state.feedback[feedbackId]) {
+    count += 1;
+    feedbackId = nextId("FE", count);
+  }
+  return feedbackId;
+}
+
 export async function submitReviewResult(options: {
   projectRoot: PackageWorkspaceRef;
   ref: string;
@@ -245,10 +259,8 @@ export async function submitReviewResult(options: {
     return { ref: options.ref, reviewAttemptId: attemptId, verdict: "needs_changes", status: "blocked" };
   }
 
-  const feedbackId = nextId("FE", previousFeedbackCount);
-  const feedbackDir = join(workspace.resultsDir, taskId, "feedback", feedbackId);
-  await mkdir(feedbackDir, { recursive: true });
-  await writeJsonFile(join(feedbackDir, "feedback.json"), {
+  const feedbackId = await nextFeedbackId({ workspace, taskId, state });
+  await writeFeedbackArtifact(workspace, taskId, {
     feedbackId,
     sourceReviewBlockRef: options.ref,
     content: feedbackContent,

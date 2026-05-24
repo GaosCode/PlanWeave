@@ -155,7 +155,10 @@ export async function runAutoRunStep(options: {
   scope?: ClaimScope;
   session?: ExecutionGraphSession;
 }): Promise<AutoRunStepResult> {
-  const claim = await claimNext({ projectRoot: options.projectRoot, parallel: options.parallel, scope: options.scope, session: options.session });
+  let claim = await claimNext({ projectRoot: options.projectRoot, parallel: options.parallel, scope: options.scope, session: options.session });
+  if (claim.kind === "none" && claim.reason === "no_parallel_blocks") {
+    claim = await claimNext({ projectRoot: options.projectRoot, scope: options.scope, session: options.session });
+  }
   if (claim.kind === "none") {
     return { kind: "idle", claim };
   }

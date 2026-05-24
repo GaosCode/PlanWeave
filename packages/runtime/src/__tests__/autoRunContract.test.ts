@@ -526,18 +526,23 @@ describe("Auto Run contract", () => {
   });
 
   it("local-review adapter submits review JSON without creating an agent session", async () => {
-    const reviewJson = JSON.stringify({
-      reviewBlockRef: "T-001#R-001",
-      taskId: "T-001",
-      verdict: "passed",
-      content: "passed by local review"
-    });
     const manifest = basicManifest() as any;
     manifest.executors = {
       "fake-local-review": {
         adapter: "local-review",
         command: process.execPath,
-        args: ["-e", `console.log(${JSON.stringify(reviewJson)})`]
+        args: [
+          "-e",
+          [
+            "const result = {",
+            "  reviewBlockRef: process.env.PLANWEAVE_REVIEW_BLOCK_REF,",
+            "  taskId: process.env.PLANWEAVE_TASK_ID,",
+            "  verdict: process.env.PLANWEAVE_BLOCK_ID === 'R-001' ? 'passed' : 'needs_changes',",
+            "  content: 'passed by local review'",
+            "};",
+            "console.log(JSON.stringify(result));"
+          ].join("")
+        ]
       }
     };
     manifest.execution.defaultExecutor = "fake-local-review";
@@ -640,6 +645,39 @@ describe("Auto Run contract", () => {
     const status = await getExecutionStatus({ projectRoot: root });
     expect(status.blocks.find((block) => block.ref === "T-001#B-001")?.status).toBe("completed");
     expect(status.blocks.find((block) => block.ref === "T-002#B-001")?.status).toBe("completed");
+  });
+
+  it("falls back to sequential claims for reviews when parallel batches are exhausted", async () => {
+    const { root } = await createTestWorkspace(basicManifest({ parallel: true, maxConcurrent: 2, includeSecondTask: true }));
+    const executor = {
+      async runBlock({ claim }) {
+        if (claim.blockType === "review") {
+          const resultPath = join(root, `${claim.taskId}-${claim.blockId}.json`);
+          await writeFile(resultPath, JSON.stringify({ reviewBlockRef: claim.ref, taskId: claim.taskId, verdict: "passed", content: "ok" }), "utf8");
+          return { kind: "review" as const, resultPath };
+        }
+        const reportPath = join(root, `${claim.taskId}-${claim.blockId}.md`);
+        await writeFile(reportPath, `${claim.ref} completed\n`, "utf8");
+        return { kind: "block" as const, reportPath };
+      },
+      async runFeedback() {
+        throw new Error("feedback should not run");
+      }
+    };
+
+    await expect(runAutoRunStep({ projectRoot: root, parallel: true, executor })).resolves.toMatchObject({
+      kind: "batch_submitted",
+      claim: { refs: ["T-001#B-001", "T-002#B-001"] }
+    });
+    await expect(runAutoRunStep({ projectRoot: root, parallel: true, executor })).resolves.toMatchObject({
+      kind: "batch_submitted",
+      claim: { refs: ["T-001#C-001"] }
+    });
+    await expect(runAutoRunStep({ projectRoot: root, parallel: true, executor })).resolves.toMatchObject({
+      kind: "submitted",
+      claim: { kind: "block", ref: "T-001#R-001", blockType: "review" },
+      submitResult: { verdict: "passed", status: "completed" }
+    });
   });
 
   it("reports runner status with executor, stdio summaries, state changes, and failure reason", async () => {

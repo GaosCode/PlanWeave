@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import { writeState } from "../state.js";
 import type { ExecutionGraphSession, PackageWorkspaceRef, SubmitFeedbackResult } from "../types.js";
+import { patchFeedbackArtifact } from "./feedbackArtifacts.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { incrementTaskIndexCount, listDirCount, nextId, updateTaskIndex } from "./resultIndex.js";
 
@@ -46,6 +47,11 @@ export async function submitFeedback(options: {
     },
     counts: incrementTaskIndexCount(index, "feedbackSubmissions")
   }));
+  await patchFeedbackArtifact(workspace, taskId, feedbackId, {
+    status: "resolved",
+    latestSubmissionId: submissionId,
+    resolvedAt: new Date().toISOString()
+  });
   state.feedback[feedbackId] = {
     ...feedback,
     status: "resolved",

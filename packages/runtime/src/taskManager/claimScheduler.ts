@@ -1,5 +1,7 @@
 import { writeState } from "../state.js";
 import type { ClaimResult, ClaimScope, ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
+import { patchFeedbackArtifact } from "./feedbackArtifacts.js";
+import { updateTaskIndex } from "./resultIndex.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import {
   activeOpenFeedback,
@@ -37,6 +39,18 @@ export async function claimNext(options: {
     if (!feedbackInScope(feedback, graph, scope)) {
       return { kind: "none", reason: "no_claimable_blocks_in_scope" };
     }
+    const taskId = graph.blockTaskByRef.get(feedback.sourceReviewBlockRef);
+    if (!taskId) {
+      throw new Error(`Feedback '${feedbackId}' points to an unknown review block.`);
+    }
+    await patchFeedbackArtifact(workspace, taskId, feedbackId, { status: "in_progress" });
+    await updateTaskIndex(workspace, taskId, (index) => ({
+      ...index,
+      feedbackStatusById: {
+        ...(index.feedbackStatusById ?? {}),
+        [feedbackId]: "in_progress"
+      }
+    }));
     feedback.status = "in_progress";
     state.currentFeedbackId = feedbackId;
     state.currentReviewBlockRef = feedback.sourceReviewBlockRef;

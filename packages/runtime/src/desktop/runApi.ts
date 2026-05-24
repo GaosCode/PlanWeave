@@ -1,150 +1,106 @@
-import { getAutoRunStatus, runAutoRunStep } from "../taskManager/autoRun.js";
-import type { AutoRunStepResult, ClaimScope, ProjectWorkspace } from "../types.js";
+import { join } from "node:path";
+import { killActiveTmuxSessions } from "../autoRun/tmuxExecutor.js";
+import { runAutoRunStep } from "../taskManager/autoRun.js";
+import { resetMaxCycleReviewsForRetry } from "../taskManager/reviewRetry.js";
+import { loadPackage } from "../package/loadPackage.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import type { DesktopAutoRunScope, DesktopAutoRunState } from "./types.js";
+import { appendAutoRunEvent, autoRunRoot, cloneAutoRunState, nextRunId, now, writeAutoRunState } from "./runStateStore.js";
+import { claimRef, claimScope, executorName, latestStatus, outputSummary, phaseAfterStep, terminalPatch } from "./runStepState.js";
 
 const runs = new Map<string, DesktopAutoRunState>();
-let nextRunNumber = 1;
+const activeLoops = new Set<string>();
 
-function now(): string {
-  return new Date().toISOString();
-}
-
-function nextRunId(): string {
-  return `DESKTOP-RUN-${String(nextRunNumber++).padStart(4, "0")}`;
-}
-
-function clone(state: DesktopAutoRunState): DesktopAutoRunState {
-  const endTime = state.phase === "running" ? Date.now() : Date.parse(state.updatedAt);
-  return {
-    ...state,
-    elapsedMs: Math.max(0, endTime - Date.parse(state.startedAt)),
-    scope: { ...state.scope }
-  };
-}
-
-function setState(runId: string, patch: Partial<DesktopAutoRunState>): DesktopAutoRunState {
+async function setState(runId: string, patch: Partial<DesktopAutoRunState>, eventType?: string, data: Record<string, unknown> = {}): Promise<DesktopAutoRunState> {
   const current = runs.get(runId);
   if (!current) {
     throw new Error(`Auto Run '${runId}' does not exist.`);
   }
+  const previousPhase = current.phase;
   const next = { ...current, ...patch, updatedAt: now() };
-  runs.set(runId, next);
+  const immediateVisibility = eventType === "pause_requested" || eventType === "run_stopped";
+  if (immediateVisibility) {
+    runs.set(runId, next);
+  }
+  await writeAutoRunState(next);
+  if (eventType || previousPhase !== next.phase) {
+    await appendAutoRunEvent(next, eventType ?? "phase_change", { previousPhase, nextPhase: next.phase, ...data });
+  }
+  if (!immediateVisibility) {
+    runs.set(runId, next);
+  }
   return next;
 }
 
-function claimRef(step: AutoRunStepResult): string | null {
-  if (step.kind === "submitted" || step.kind === "manual") {
-    return step.claim.kind === "block" ? step.claim.ref : null;
-  }
-  if (step.kind === "blocked") {
-    return step.claim.kind === "blocked" ? step.claim.ref ?? null : null;
-  }
-  if (step.kind === "batch_submitted") {
-    return step.claim.refs[0] ?? null;
-  }
-  return null;
-}
-
-function executorName(step: AutoRunStepResult): string | null {
-  if (step.kind === "submitted" || step.kind === "manual") {
-    return step.adapterResult.executor ?? null;
-  }
-  if (step.kind === "batch_submitted") {
-    return step.steps.find((item) => item.adapterResult.executor)?.adapterResult.executor ?? null;
-  }
-  return null;
-}
-
-function outputSummary(step: AutoRunStepResult): string | null {
-  if (step.kind === "submitted") {
-    return "stdout" in step.adapterResult ? step.adapterResult.stdout?.trim().slice(0, 300) || null : null;
-  }
-  if (step.kind === "manual") {
-    return step.adapterResult.nextCommand;
-  }
-  if (step.kind === "batch_submitted") {
-    return `${step.steps.length} block(s) submitted.`;
-  }
-  if (step.kind === "blocked") {
-    return step.claim.kind === "blocked" ? step.claim.reason : "Auto Run blocked.";
-  }
-  if (step.kind === "idle") {
-    return step.claim.kind === "none" ? step.claim.reason ?? "No claimable work." : "No claimable work.";
-  }
-  return null;
-}
-
-function terminalPatch(step: AutoRunStepResult): Partial<DesktopAutoRunState> | null {
-  if (step.kind === "idle") {
-    return { phase: "completed" };
-  }
-  if (step.kind === "blocked") {
-    return { phase: "blocked", error: step.claim.kind === "blocked" ? step.claim.reason : "Auto Run blocked." };
-  }
-  if (step.kind === "manual") {
-    return { phase: "manual" };
-  }
-  if (step.kind === "batch") {
-    return { phase: "blocked", error: "Parallel batch was not submitted." };
-  }
-  return null;
-}
-
-async function latestRecord(workspace: ProjectWorkspace): Promise<{ recordId: string; path: string } | null> {
-  const status = await getAutoRunStatus({ projectRoot: workspace });
-  const latestRun = status.latestRuns[0];
-  if (!latestRun) {
-    return null;
-  }
-  return {
-    recordId: `${latestRun.ref}::${latestRun.runId}`,
-    path: latestRun.metadataPath
-  };
-}
-
-function claimScope(scope: DesktopAutoRunScope): ClaimScope {
-  if (scope.kind === "task") {
-    return { kind: "task", taskId: scope.taskId };
-  }
-  if (scope.kind === "block") {
-    return { kind: "block", blockRef: scope.blockRef };
-  }
-  return { kind: "project" };
-}
-
 async function runLoop(runId: string): Promise<void> {
-  while (true) {
-    const current = runs.get(runId);
-    if (!current || current.phase !== "running") {
-      return;
-    }
-    if (current.stepCount >= current.stepLimit) {
-      setState(runId, { phase: "paused", error: "Step limit reached." });
-      return;
-    }
-    try {
-      const workspace = await resolveTaskCanvasWorkspace(current.projectRoot, current.canvasId);
-      const step = await runAutoRunStep({ projectRoot: workspace, scope: claimScope(current.scope) });
-      const patch = terminalPatch(step);
-      const record = await latestRecord(workspace);
-      setState(runId, {
-        stepCount: current.stepCount + 1,
-        currentRef: claimRef(step),
-        currentExecutor: executorName(step),
-        latestOutputSummary: outputSummary(step),
-        latestRecordId: record?.recordId ?? null,
-        latestRecordPath: record?.path ?? null,
-        ...(patch ?? {})
-      });
-    } catch (error) {
-      setState(runId, {
-        phase: "failed",
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return;
-    }
+  if (activeLoops.has(runId)) {
+    return;
   }
+  activeLoops.add(runId);
+  try {
+    while (true) {
+      const current = runs.get(runId);
+      if (!current || (current.phase !== "running" && current.phase !== "pausing")) {
+        return;
+      }
+      if (current.phase === "pausing") {
+        await setState(runId, { phase: "paused" }, "pause_completed");
+        return;
+      }
+      if (current.stepCount >= current.stepLimit) {
+        await setState(runId, { phase: "paused", error: "Step limit reached." }, "step_limit_reached");
+        return;
+      }
+      try {
+        const workspace = await resolveTaskCanvasWorkspace(current.projectRoot, current.canvasId);
+        const { manifest } = await loadPackage(workspace);
+        await appendAutoRunEvent(current, "step_start", { scope: current.scope });
+        const step = await runAutoRunStep({ projectRoot: workspace, parallel: manifest.execution.parallel.enabled, scope: claimScope(current.scope) });
+        const { record, warnings } = await latestStatus(workspace);
+        const patch = terminalPatch(step, warnings);
+        const afterStep = runs.get(runId);
+        if (!afterStep || afterStep.phase === "stopped") {
+          return;
+        }
+        const nextPhase = phaseAfterStep(afterStep, patch);
+        await setState(
+          runId,
+          {
+            stepCount: afterStep.stepCount + 1,
+            currentRef: claimRef(step),
+            currentExecutor: executorName(step),
+            latestOutputSummary: outputSummary(step),
+            latestRecordId: record?.recordId ?? null,
+            latestRecordPath: record?.path ?? null,
+            ...(patch ?? {}),
+            phase: nextPhase
+          },
+          "step_finish",
+          { stepKind: step.kind, pausedAfterStep: afterStep.phase === "pausing" }
+        );
+      } catch (error) {
+        const afterError = runs.get(runId);
+        if (!afterError || afterError.phase === "stopped") {
+          return;
+        }
+        await setState(
+          runId,
+          {
+            phase: "failed",
+            error: error instanceof Error ? error.message : String(error)
+          },
+          "run_failed"
+        );
+        return;
+      }
+    }
+  } finally {
+    activeLoops.delete(runId);
+  }
+}
+
+function launchRunLoop(runId: string): void {
+  void runLoop(runId);
 }
 
 export async function startAutoRun(
@@ -153,8 +109,11 @@ export async function startAutoRun(
   scope: DesktopAutoRunScope = { kind: "project" },
   stepLimit = 20
 ): Promise<DesktopAutoRunState> {
-  await resolveTaskCanvasWorkspace(projectRoot, canvasId);
+  const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
+  const resetReviews = await resetMaxCycleReviewsForRetry({ projectRoot: workspace, scope: claimScope(scope) });
   const runId = nextRunId();
+  const root = autoRunRoot(workspace, runId);
+  const timestamp = now();
   const state: DesktopAutoRunState = {
     runId,
     projectRoot,
@@ -169,27 +128,50 @@ export async function startAutoRun(
     latestOutputSummary: null,
     latestRecordId: null,
     latestRecordPath: null,
+    statePath: join(root, "state.json"),
+    eventLogPath: join(root, "events.ndjson"),
     error: null,
-    startedAt: now(),
-    updatedAt: now()
+    startedAt: timestamp,
+    updatedAt: timestamp
   };
   runs.set(runId, state);
-  void runLoop(runId);
-  return clone(state);
+  await writeAutoRunState(state);
+  await appendAutoRunEvent(state, "run_started", { scope, resetMaxCycleReviewRefs: resetReviews.refs });
+  launchRunLoop(runId);
+  return cloneAutoRunState(state);
 }
 
 export async function pauseAutoRun(runId: string): Promise<DesktopAutoRunState> {
-  return clone(setState(runId, { phase: "paused" }));
+  const state = runs.get(runId);
+  if (!state) {
+    throw new Error(`Auto Run '${runId}' does not exist.`);
+  }
+  if (state.phase === "running") {
+    return cloneAutoRunState(await setState(runId, { phase: "pausing" }, "pause_requested"));
+  }
+  return cloneAutoRunState(state);
 }
 
 export async function resumeAutoRun(runId: string): Promise<DesktopAutoRunState> {
-  const state = setState(runId, { phase: "running", error: null });
-  void runLoop(runId);
-  return clone(state);
+  const current = runs.get(runId);
+  if (!current) {
+    throw new Error(`Auto Run '${runId}' does not exist.`);
+  }
+  if (current.phase !== "paused" && current.phase !== "pausing") {
+    return cloneAutoRunState(current);
+  }
+  const state = await setState(runId, { phase: "running", error: null }, "run_resumed");
+  launchRunLoop(runId);
+  return cloneAutoRunState(state);
 }
 
 export async function stopAutoRun(runId: string): Promise<DesktopAutoRunState> {
-  return clone(setState(runId, { phase: "stopped" }));
+  const current = runs.get(runId);
+  if (!current) {
+    throw new Error(`Auto Run '${runId}' does not exist.`);
+  }
+  const killed = current.phase === "running" || current.phase === "pausing" ? await killActiveTmuxSessions() : [];
+  return cloneAutoRunState(await setState(runId, { phase: "stopped" }, "run_stopped", { killedTmuxSessions: killed }));
 }
 
 export async function getAutoRunState(runId: string): Promise<DesktopAutoRunState> {
@@ -197,7 +179,7 @@ export async function getAutoRunState(runId: string): Promise<DesktopAutoRunStat
   if (!state) {
     throw new Error(`Auto Run '${runId}' does not exist.`);
   }
-  return clone(state);
+  return cloneAutoRunState(state);
 }
 
 export async function getLatestAutoRunSummary(projectRoot: string, canvasId?: string | null): Promise<DesktopAutoRunState | null> {
@@ -205,5 +187,5 @@ export async function getLatestAutoRunSummary(projectRoot: string, canvasId?: st
     .filter((run) => run.projectRoot === projectRoot && run.canvasId === (canvasId ?? null))
     .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt))
     .at(-1);
-  return latest ? clone(latest) : null;
+  return latest ? cloneAutoRunState(latest) : null;
 }

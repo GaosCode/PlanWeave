@@ -46,8 +46,24 @@ describe("submitReviewResult", () => {
       ref: "T-001#R-001",
       resultPath: await writeReviewResult(root, "needs_changes", "Fix the edge case.")
     });
+    const feedbackArtifactPath = join(init.workspace.resultsDir, "T-001", "feedback", "FE-001", "feedback.json");
+    await expect(readJsonFile(feedbackArtifactPath)).resolves.toMatchObject({
+      feedbackId: "FE-001",
+      sourceReviewBlockRef: "T-001#R-001",
+      sourceReviewAttemptId: "REV-001",
+      status: "open"
+    });
     await claimNext({ projectRoot: root });
+    await expect(readJsonFile(feedbackArtifactPath)).resolves.toMatchObject({
+      feedbackId: "FE-001",
+      status: "in_progress"
+    });
     await submitFeedback({ projectRoot: root, reportPath: await writeReport(root, "feedback.md", "Fixed edge case.\n") });
+    await expect(readJsonFile(feedbackArtifactPath)).resolves.toMatchObject({
+      feedbackId: "FE-001",
+      status: "resolved",
+      latestSubmissionId: "FS-001"
+    });
     await claimNext({ projectRoot: root });
     const second = await submitReviewResult({
       projectRoot: root,

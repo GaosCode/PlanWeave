@@ -3,7 +3,7 @@ export type DesktopAutoRunScope =
   | { kind: "task"; taskId: string }
   | { kind: "block"; blockRef: string };
 
-export type DesktopAutoRunPhase = "idle" | "running" | "paused" | "manual" | "completed" | "blocked" | "failed" | "stopped";
+export type DesktopAutoRunPhase = "idle" | "running" | "pausing" | "paused" | "manual" | "completed" | "blocked" | "failed" | "stopped";
 
 export type DesktopAutoRunState = {
   runId: string;
@@ -19,6 +19,8 @@ export type DesktopAutoRunState = {
   latestOutputSummary: string | null;
   latestRecordId: string | null;
   latestRecordPath: string | null;
+  statePath: string;
+  eventLogPath: string;
   error: string | null;
   startedAt: string;
   updatedAt: string;
