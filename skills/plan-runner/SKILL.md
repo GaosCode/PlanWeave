@@ -32,6 +32,13 @@ Use this skill when a user wants an agent to execute work from an existing PlanW
 - Use `planweave run --once --executor manual` only to write the next rendered prompt artifact and leave the block `in_progress` for manual submission.
 - Use `planweave executors list` and `planweave executors test <profile>` before asking PlanWeave to call an external executor.
 
+## Prompt Source Editing
+
+- PlanWeave Global Prompt, Project Prompt, Task Node Prompt, and Block Prompt are editable source prompts, not immutable system policy.
+- Agents may update those source prompts when the user asks for it or the claimed plan work requires prompt maintenance.
+- Do not write rendered prompt output back into source prompt files. Rendered prompts are derived artifacts from `planweave prompt <ref>`.
+- Keep prompt edits scoped to the relevant source file and preserve the normal CLI submit flow for execution results.
+
 ## Claim Result Contract
 
 ```ts
