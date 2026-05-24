@@ -6,6 +6,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.main.json && vite build",
     "dev": "vite --host 127.0.0.1",
+    "pack:mac": "pnpm build && electron-builder --mac --dir --publish never",
+    "dist:mac": "pnpm build && electron-builder --mac dmg zip --publish never",
     "start": "electron dist/main/main.js",
     "smoke": "tsx scripts/electron-smoke.ts"
   },
@@ -16,7 +18,6 @@
     "@xyflow/react": "^12.9.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "electron": "^39.2.6",
     "lucide-react": "^0.554.0",
     "radix-ui": "^1.4.3",
     "react": "^19.2.0",
@@ -33,7 +34,32 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "electron": "^39.2.6",
+    "electron-builder": "^26.8.1",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.0"
+  },
+  "build": {
+    "appId": "dev.planweave.desktop",
+    "productName": "PlanWeave",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
   }
 }

@@ -1,3 +1,5 @@
 node_modules/
 packages/*/dist/
+packages/*/release/
+packages/desktop/build/icon.iconset/
 .coverage/
