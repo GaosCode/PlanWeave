@@ -9,6 +9,7 @@ import { registerClaimCommand } from "./commands/claim.js";
 import { registerClaimTaskCommand } from "./commands/claimTask.js";
 import { registerClaimNextCommand } from "./commands/claimNext.js";
 import { registerCurrentCommand } from "./commands/current.js";
+import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerExplainCommand, registerWhyNotCommand } from "./commands/explain.js";
 import { registerSubmitResultCommand } from "./commands/submitResult.js";
 import { registerSubmitReviewCommand } from "./commands/submitReview.js";
@@ -40,6 +41,7 @@ export function createProgram(): Command {
   registerExplainCommand(program);
   registerWhyNotCommand(program);
   registerCurrentCommand(program);
+  registerDoctorCommand(program);
   registerPromptCommand(program);
   registerSubmitResultCommand(program);
   registerSubmitReviewCommand(program);

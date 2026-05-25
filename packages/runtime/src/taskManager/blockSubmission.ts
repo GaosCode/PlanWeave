@@ -1,4 +1,5 @@
-import { copyFile, mkdir, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { copyFile, mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
@@ -8,21 +9,40 @@ import { exists, loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { getBlock } from "./selectors.js";
 import { incrementTaskIndexCount, listDirCount, nextId, readTaskIndex, updateTaskIndex } from "./resultIndex.js";
 
-async function runHasSubmittedResult(runDir: string, ref: string, runId: string): Promise<boolean> {
+async function fileHash(path: string): Promise<string> {
+  return createHash("sha256").update(await readFile(path)).digest("hex");
+}
+
+async function runHasSubmittedResult(runDir: string, ref: string, runId: string, reportHash?: string): Promise<boolean> {
   const metadataPath = join(runDir, "metadata.json");
   const reportPath = join(runDir, "report.md");
   if (!(await exists(metadataPath)) || !(await exists(reportPath))) {
     return false;
   }
   const metadata = await readJsonFile<Record<string, unknown>>(metadataPath);
-  return metadata.ref === ref && metadata.runId === runId;
+  if (metadata.ref !== ref || metadata.runId !== runId) {
+    return false;
+  }
+  if (!reportHash) {
+    return true;
+  }
+  if (metadata.reportHash === reportHash) {
+    return true;
+  }
+  return (await fileHash(reportPath)) === reportHash;
 }
 
-async function findPersistedRun(workspace: ProjectWorkspace, taskId: string, blockId: string, ref: string): Promise<string | null> {
+async function findPersistedRun(
+  workspace: ProjectWorkspace,
+  taskId: string,
+  blockId: string,
+  ref: string,
+  reportHash?: string
+): Promise<string | null> {
   const runRoot = join(workspace.resultsDir, taskId, "blocks", blockId, "runs");
   const index = await readTaskIndex(workspace, taskId);
   const indexedRunId = index.latestRunByBlock?.[ref];
-  if (indexedRunId && (await runHasSubmittedResult(join(runRoot, indexedRunId), ref, indexedRunId))) {
+  if (indexedRunId && (await runHasSubmittedResult(join(runRoot, indexedRunId), ref, indexedRunId, reportHash))) {
     return indexedRunId;
   }
   let entries;
@@ -40,7 +60,7 @@ async function findPersistedRun(workspace: ProjectWorkspace, taskId: string, blo
     .sort()
     .reverse();
   for (const runId of runIds) {
-    if (await runHasSubmittedResult(join(runRoot, runId), ref, runId)) {
+    if (await runHasSubmittedResult(join(runRoot, runId), ref, runId, reportHash)) {
       return runId;
     }
   }
@@ -62,10 +82,11 @@ export async function submitBlockResult(options: {
   if (block.type === "review") {
     throw new Error("submit-result only accepts implementation/check blocks.");
   }
-  if (state.blocks[options.ref]?.status !== "in_progress") {
-    throw new Error(`Block '${options.ref}' must be in_progress before submit-result.`);
-  }
-  const persistedRunId = await findPersistedRun(workspace, taskId, blockId, options.ref);
+  const reportHash = await fileHash(options.reportPath);
+  const inProgress = state.blocks[options.ref]?.status === "in_progress";
+  const persistedRunId =
+    (await findPersistedRun(workspace, taskId, blockId, options.ref, reportHash)) ??
+    (inProgress ? await findPersistedRun(workspace, taskId, blockId, options.ref) : null);
   if (persistedRunId) {
     await updateTaskIndex(workspace, taskId, (index) => ({
       ...index,
@@ -79,6 +100,9 @@ export async function submitBlockResult(options: {
     state = refreshDerivedState(manifest, state);
     await writeState(workspace.stateFile, state);
     return { ref: options.ref, runId: persistedRunId, status: "completed" };
+  }
+  if (!inProgress) {
+    throw new Error(`Block '${options.ref}' must be in_progress before submit-result.`);
   }
   const runRoot = join(workspace.resultsDir, taskId, "blocks", blockId, "runs");
   const runId = options.runId ?? nextId("RUN", await listDirCount(runRoot));
@@ -97,6 +121,7 @@ export async function submitBlockResult(options: {
     blockId,
     runId,
     submittedAt: new Date().toISOString(),
+    reportHash,
     sourceReportPath: options.reportPath
   });
   await updateTaskIndex(workspace, taskId, (index) => ({

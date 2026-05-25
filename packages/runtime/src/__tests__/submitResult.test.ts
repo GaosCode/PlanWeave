@@ -60,4 +60,16 @@ describe("submitBlockResult", () => {
       counts: { runs: 1 }
     });
   });
+
+  it("returns the same run id when the same report is submitted again", async () => {
+    const { root } = await createTestWorkspace();
+    await claimNext({ projectRoot: root });
+    const reportPath = await writeReport(root, "same-report.md", "same report\n");
+
+    const first = await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath });
+    const second = await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath });
+
+    expect(first).toEqual({ ref: "T-001#B-001", runId: "RUN-001", status: "completed" });
+    expect(second).toEqual(first);
+  });
 });

@@ -606,6 +606,21 @@ export type CurrentWork = {
   blockingReason: string | null;
 };
 
+export type DoctorIssue = {
+  code: "stale_current_ref" | "orphan_result" | "index_state_mismatch";
+  message: string;
+  ref?: string;
+  taskId?: string;
+  path?: string;
+  stateRunId?: string | null;
+  indexRunId?: string | null;
+};
+
+export type DoctorReport = {
+  ok: boolean;
+  issues: DoctorIssue[];
+};
+
 export type PlanStatus = {
   projectId: string;
   projectRoot: string;

@@ -25,6 +25,7 @@ describe("planweave CLI contract", () => {
         "explain",
         "why-not",
         "current",
+        "doctor",
         "submit-feedback",
         "run",
         "executors",

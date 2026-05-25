@@ -53,6 +53,7 @@ export {
   claimTask,
   explainBlock,
   getCurrentWork,
+  runDoctor,
   renderPrompt,
   submitBlockResult,
   submitReviewResult,
