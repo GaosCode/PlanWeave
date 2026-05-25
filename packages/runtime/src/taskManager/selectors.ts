@@ -1,6 +1,15 @@
 import { createHash } from "node:crypto";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
-import type { ClaimResult, ClaimScope, CompiledExecutionGraph, FeedbackEnvelopeState, ManifestBlock, ManifestTaskNode, RuntimeState } from "../types.js";
+import type {
+  ClaimResult,
+  ClaimScope,
+  CompiledExecutionGraph,
+  FeedbackEnvelopeState,
+  FeedbackStatus,
+  ManifestBlock,
+  ManifestTaskNode,
+  RuntimeState
+} from "../types.js";
 
 export function getTask(graph: CompiledExecutionGraph, taskId: string): ManifestTaskNode {
   const task = graph.tasksById.get(taskId);
@@ -26,8 +35,12 @@ export function blockDependenciesCompleted(graph: CompiledExecutionGraph, state:
   return (graph.blockDependenciesByRef.get(ref) ?? []).every((dependency) => state.blocks[dependency]?.status === "completed");
 }
 
+export function isActiveFeedbackStatus(status: FeedbackStatus | undefined): boolean {
+  return status === "open" || status === "in_progress";
+}
+
 export function activeOpenFeedback(state: RuntimeState): Array<[string, FeedbackEnvelopeState]> {
-  return Object.entries(state.feedback).filter(([, feedback]) => feedback.status === "open" || feedback.status === "in_progress");
+  return Object.entries(state.feedback).filter(([, feedback]) => isActiveFeedbackStatus(feedback.status));
 }
 
 export function claimResultForBlock(ref: string, graph: CompiledExecutionGraph, reason: "claimed" | "current" | "feedback_resolved"): ClaimResult {

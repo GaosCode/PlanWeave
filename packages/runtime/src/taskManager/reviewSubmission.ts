@@ -21,7 +21,7 @@ import type {
 import { writeFeedbackArtifact, type FeedbackArtifact } from "./feedbackArtifacts.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { incrementTaskIndexCount, listDirCount, nextId, updateTaskIndex } from "./resultIndex.js";
-import { computeWorkRevision, getBlock, getTask } from "./selectors.js";
+import { computeWorkRevision, getBlock, getTask, isActiveFeedbackStatus } from "./selectors.js";
 
 const reviewResultSchema = z
   .object({
@@ -42,6 +42,11 @@ const reviewHookOutputSchema = z
 function reviewResultHash(result: ReviewResult): string {
   return createHash("sha256").update(JSON.stringify(result)).digest("hex");
 }
+
+type PersistedReviewAttempt = {
+  attemptId: string;
+  reviewedWorkRevision: string | null;
+};
 
 async function executeReviewHook(options: {
   projectRoot: string;
@@ -146,20 +151,26 @@ async function writeReviewAttempt(options: {
   return attemptId;
 }
 
-async function reviewAttemptMatches(options: {
+async function readMatchingReviewAttempt(options: {
   attemptDir: string;
   reviewBlockRef: string;
   attemptId: string;
   resultHash: string;
-}): Promise<boolean> {
+}): Promise<PersistedReviewAttempt | null> {
   try {
     const metadata = await readJsonFile<Record<string, unknown>>(join(options.attemptDir, "metadata.json"));
     if (metadata.reviewBlockRef !== options.reviewBlockRef || metadata.attemptId !== options.attemptId) {
-      return false;
+      return null;
     }
-    return reviewResultHash(reviewResultSchema.parse(await readJsonFile<unknown>(join(options.attemptDir, "review-result.json")))) === options.resultHash;
+    if (reviewResultHash(reviewResultSchema.parse(await readJsonFile<unknown>(join(options.attemptDir, "review-result.json")))) !== options.resultHash) {
+      return null;
+    }
+    return {
+      attemptId: options.attemptId,
+      reviewedWorkRevision: typeof metadata.reviewedWorkRevision === "string" ? metadata.reviewedWorkRevision : null
+    };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -167,7 +178,7 @@ async function findPersistedReviewAttempt(options: {
   workspace: ProjectWorkspace;
   reviewBlockRef: string;
   resultHash: string;
-}): Promise<string | null> {
+}): Promise<PersistedReviewAttempt | null> {
   const { taskId, blockId } = parseBlockRef(options.reviewBlockRef);
   const attemptRoot = join(options.workspace.resultsDir, taskId, "reviews", blockId, "attempts");
   let entries;
@@ -185,15 +196,14 @@ async function findPersistedReviewAttempt(options: {
     .sort()
     .reverse();
   for (const attemptId of attemptIds) {
-    if (
-      await reviewAttemptMatches({
-        attemptDir: join(attemptRoot, attemptId),
-        reviewBlockRef: options.reviewBlockRef,
-        attemptId,
-        resultHash: options.resultHash
-      })
-    ) {
-      return attemptId;
+    const attempt = await readMatchingReviewAttempt({
+      attemptDir: join(attemptRoot, attemptId),
+      reviewBlockRef: options.reviewBlockRef,
+      attemptId,
+      resultHash: options.resultHash
+    });
+    if (attempt) {
+      return attempt;
     }
   }
   return null;
@@ -311,55 +321,76 @@ export async function submitReviewResult(options: {
     throw new Error(`Review block '${options.ref}' must be in_progress before submit-review.`);
   }
   const workRevision = computeWorkRevision(graph, state, options.ref);
-  const persistedAttemptId = await findPersistedReviewAttempt({ workspace, reviewBlockRef: options.ref, resultHash });
+  const persistedAttempt = await findPersistedReviewAttempt({ workspace, reviewBlockRef: options.ref, resultHash });
+  const persistedAttemptId = persistedAttempt?.attemptId ?? null;
+  const persistedFeedback =
+    persistedAttemptId && parsed.verdict === "needs_changes"
+      ? await findFeedbackForReviewAttempt({ workspace, taskId, reviewBlockRef: options.ref, attemptId: persistedAttemptId })
+      : null;
+  const shouldReusePersistedAttempt =
+    persistedAttemptId !== null &&
+    (parsed.verdict !== "needs_changes" ||
+      persistedFeedback === null ||
+      isActiveFeedbackStatus(persistedFeedback.status) ||
+      state.currentFeedbackId === persistedFeedback.feedbackId);
   const attemptId =
-    persistedAttemptId ??
-    (await writeReviewAttempt({
+    shouldReusePersistedAttempt && persistedAttemptId
+      ? persistedAttemptId
+      : await writeReviewAttempt({
+          workspace,
+          reviewBlockRef: options.ref,
+          reviewResult: parsed,
+          workRevision,
+          resultHash
+        });
+  if (shouldReusePersistedAttempt && persistedAttemptId) {
+    await recordReviewAttemptIndexes({
       workspace,
       reviewBlockRef: options.ref,
       reviewResult: parsed,
-      workRevision,
-      resultHash
-    }));
-  if (persistedAttemptId) {
-    await recordReviewAttemptIndexes({ workspace, reviewBlockRef: options.ref, reviewResult: parsed, workRevision, attemptId, incrementCount: false });
-    if (parsed.verdict === "needs_changes") {
-      const persistedFeedback = await findFeedbackForReviewAttempt({ workspace, taskId, reviewBlockRef: options.ref, attemptId });
-      if (persistedFeedback && (persistedFeedback.status === "open" || persistedFeedback.status === "in_progress")) {
-        await recordFeedbackEnvelopeIndexes({
-          workspace,
-          taskId,
-          reviewBlockRef: options.ref,
-          feedbackId: persistedFeedback.feedbackId,
-          feedbackStatus: persistedFeedback.status,
-          incrementCount: false
-        });
-        state.feedback[persistedFeedback.feedbackId] = {
-          status: persistedFeedback.status,
-          sourceReviewBlockRef: options.ref,
-          latestSubmissionId: persistedFeedback.latestSubmissionId ?? null,
-          content: persistedFeedback.content
-        };
-        state.blocks[options.ref] = {
-          ...state.blocks[options.ref],
-          status: "in_progress",
-          latestReviewAttemptId: attemptId,
-          activeFeedbackId: persistedFeedback.feedbackId,
-          completionReason: null
-        };
+      workRevision: persistedAttempt?.reviewedWorkRevision ?? workRevision,
+      attemptId,
+      incrementCount: false
+    });
+    if (parsed.verdict === "needs_changes" && persistedFeedback) {
+      const activeFeedback = isActiveFeedbackStatus(persistedFeedback.status);
+      await recordFeedbackEnvelopeIndexes({
+        workspace,
+        taskId,
+        reviewBlockRef: options.ref,
+        feedbackId: persistedFeedback.feedbackId,
+        feedbackStatus: persistedFeedback.status,
+        incrementCount: false
+      });
+      state.feedback[persistedFeedback.feedbackId] = {
+        status: persistedFeedback.status,
+        sourceReviewBlockRef: options.ref,
+        latestSubmissionId: persistedFeedback.latestSubmissionId ?? null,
+        content: persistedFeedback.content
+      };
+      state.blocks[options.ref] = {
+        ...state.blocks[options.ref],
+        status: "in_progress",
+        latestReviewAttemptId: attemptId,
+        activeFeedbackId: activeFeedback ? persistedFeedback.feedbackId : null,
+        completionReason: null
+      };
+      state.currentReviewBlockRef = options.ref;
+      if (activeFeedback) {
         state.currentFeedbackId = persistedFeedback.feedbackId;
-        state.currentReviewBlockRef = options.ref;
         state.currentRefs = [];
-        state = refreshDerivedState(manifest, state);
-        await writeState(workspace.stateFile, state);
-        return {
-          ref: options.ref,
-          reviewAttemptId: attemptId,
-          verdict: "needs_changes",
-          feedbackId: persistedFeedback.feedbackId,
-          status: "in_progress"
-        };
+      } else {
+        state.currentRefs = state.currentRefs.includes(options.ref) ? state.currentRefs : [options.ref];
       }
+      state = refreshDerivedState(manifest, state);
+      await writeState(workspace.stateFile, state);
+      return {
+        ref: options.ref,
+        reviewAttemptId: attemptId,
+        verdict: "needs_changes",
+        feedbackId: persistedFeedback.feedbackId,
+        status: "in_progress"
+      };
     }
   }
   const task = getTask(graph, taskId);
