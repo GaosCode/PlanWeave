@@ -365,6 +365,9 @@ export type ClaimResult =
       blockId: string;
       blockType: BlockType;
       reason?: "claimed" | "current" | "feedback_resolved";
+      requestedMode?: "parallel";
+      parallelFallbackReason?: "review_requires_sequential_claim";
+      nextParallelClaimable?: string[];
     }
   | {
       kind: "feedback";

@@ -98,6 +98,17 @@ describe("claimNext", () => {
     const status = await getExecutionStatus({ projectRoot: root });
     expect(status.nextClaimable).toEqual(["T-001#R-001"]);
 
+    expect(await claimNext({ projectRoot: root, parallel: true, dryRun: true })).toEqual({
+      kind: "block",
+      ref: "T-001#R-001",
+      taskId: "T-001",
+      blockId: "R-001",
+      blockType: "review",
+      reason: "claimed",
+      requestedMode: "parallel",
+      parallelFallbackReason: "review_requires_sequential_claim",
+      nextParallelClaimable: []
+    });
     expect(await claimNext({ projectRoot: root, parallel: true })).toEqual({
       kind: "block",
       ref: "T-001#R-001",

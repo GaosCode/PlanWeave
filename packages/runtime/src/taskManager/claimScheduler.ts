@@ -206,6 +206,14 @@ export async function claimNext(options: {
     if (selected.length === 0) {
       const reviewClaim = await claimSequentialReviewBlock();
       if (reviewClaim) {
+        if (dryRun && reviewClaim.kind === "block" && reviewClaim.blockType === "review") {
+          return {
+            ...reviewClaim,
+            requestedMode: "parallel",
+            parallelFallbackReason: "review_requires_sequential_claim",
+            nextParallelClaimable: []
+          };
+        }
         return reviewClaim;
       }
       state.currentRefs = [];
