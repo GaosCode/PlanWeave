@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import type { BlockExplanation, CurrentWork, CurrentWorkItem, ManifestBlock, PackageWorkspaceRef } from "../types.js";
 import { getExecutionStatus } from "./executionStatus.js";
@@ -12,16 +12,29 @@ function submitCommand(ref: string, block: ManifestBlock): string {
   return `planweave submit-result ${ref} --report <report.md>`;
 }
 
+function reportPath(block: ManifestBlock): string {
+  if (block.type === "review") {
+    return "<review-result.json>";
+  }
+  return "<report.md>";
+}
+
 function currentItem(ref: string, block: ManifestBlock, packageDir: string): CurrentWorkItem {
   const { taskId, blockId } = parseBlockRef(ref);
   return {
+    kind: "block",
     ref,
     taskId,
     blockId,
     blockType: block.type,
     promptPath: join(packageDir, block.prompt),
+    reportPath: reportPath(block),
     submitCommand: submitCommand(ref, block)
   };
+}
+
+function canvasIdForWorkspace(workspaceRoot: string): string | null {
+  return basename(dirname(workspaceRoot)) === "canvases" ? basename(workspaceRoot) : null;
 }
 
 export async function explainBlock(options: { projectRoot: PackageWorkspaceRef; ref: string }): Promise<BlockExplanation> {
@@ -42,6 +55,23 @@ export async function explainBlock(options: { projectRoot: PackageWorkspaceRef; 
 export async function getCurrentWork(options: { projectRoot: PackageWorkspaceRef }): Promise<CurrentWork> {
   const context = await loadRuntime(options);
   const items = context.state.currentRefs.map((ref) => currentItem(ref, getBlock(context.graph, ref), context.workspace.packageDir));
+  if (context.state.currentFeedbackId) {
+    const feedback = context.state.feedback[context.state.currentFeedbackId];
+    const taskId = feedback ? context.graph.blockTaskByRef.get(feedback.sourceReviewBlockRef) : null;
+    if (feedback && taskId) {
+      items.push({
+        kind: "feedback",
+        ref: context.state.currentFeedbackId,
+        feedbackId: context.state.currentFeedbackId,
+        sourceReviewBlockRef: feedback.sourceReviewBlockRef,
+        taskId,
+        promptPath: join(context.workspace.resultsDir, taskId, "feedback", context.state.currentFeedbackId, "feedback.json"),
+        reportPath: "<feedback-report.md>",
+        submitCommand: "planweave submit-feedback --report <feedback-report.md>"
+      });
+    }
+  }
+  const taskIds = Array.from(new Set(items.map((item) => item.taskId)));
   const blockingReason =
     items.length > 0 || context.state.currentFeedbackId
       ? null
@@ -50,6 +80,11 @@ export async function getCurrentWork(options: { projectRoot: PackageWorkspaceRef
     currentRefs: context.state.currentRefs,
     currentFeedbackId: context.state.currentFeedbackId,
     currentReviewBlockRef: context.state.currentReviewBlockRef,
+    owner: {
+      projectRoot: context.workspace.rootPath,
+      canvasId: canvasIdForWorkspace(context.workspace.workspaceRoot),
+      taskIds
+    },
     items,
     blockingReason
   };

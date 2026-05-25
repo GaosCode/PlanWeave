@@ -600,19 +600,41 @@ export type BlockExplanation = ClaimHint & {
   submitCommand: string;
 };
 
-export type CurrentWorkItem = {
+export type CurrentWorkOwner = {
+  projectRoot: string;
+  canvasId: string | null;
+  taskIds: string[];
+};
+
+export type CurrentBlockWorkItem = {
+  kind: "block";
   ref: string;
   taskId: string;
   blockId: string;
   blockType: BlockType;
   promptPath: string;
+  reportPath: string;
   submitCommand: string;
 };
+
+export type CurrentFeedbackWorkItem = {
+  kind: "feedback";
+  ref: string;
+  feedbackId: string;
+  sourceReviewBlockRef: string;
+  taskId: string;
+  promptPath: string;
+  reportPath: string;
+  submitCommand: string;
+};
+
+export type CurrentWorkItem = CurrentBlockWorkItem | CurrentFeedbackWorkItem;
 
 export type CurrentWork = {
   currentRefs: string[];
   currentFeedbackId: string | null;
   currentReviewBlockRef: string | null;
+  owner: CurrentWorkOwner;
   items: CurrentWorkItem[];
   blockingReason: string | null;
 };
