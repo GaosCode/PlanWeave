@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claimNext, explainBlock, getCurrentWork, getExecutionStatus, submitBlockResult, submitReviewResult } from "../taskManager/index.js";
+import { claimNext, explainBlock, getCurrentWork, getExecutionStatus, submitBlockResult, submitFeedback, submitReviewResult } from "../taskManager/index.js";
 import { basicManifest, createTestWorkspace, writeReport, writeReviewResult } from "./promptTestHelpers.js";
 
 describe("executor API helpers", () => {
@@ -107,6 +107,42 @@ describe("executor API helpers", () => {
         }
       ]
     });
+  });
+
+  it("does not report resolved feedback as executable current work", async () => {
+    const { root } = await createTestWorkspace();
+    await claimNext({ projectRoot: root });
+    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await claimNext({ projectRoot: root });
+    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
+    await claimNext({ projectRoot: root });
+    await submitReviewResult({
+      projectRoot: root,
+      ref: "T-001#R-001",
+      resultPath: await writeReviewResult(root, "needs_changes", "Fix the implementation.")
+    });
+    await claimNext({ projectRoot: root });
+    await submitFeedback({ projectRoot: root, reportPath: await writeReport(root, "feedback.md", "Fixed implementation.\n") });
+
+    const current = await getCurrentWork({ projectRoot: root });
+
+    expect(current).toMatchObject({
+      currentRefs: ["T-001#R-001"],
+      currentFeedbackId: null,
+      owner: {
+        canvasId: null,
+        taskIds: ["T-001"]
+      },
+      items: [
+        {
+          kind: "block",
+          ref: "T-001#R-001",
+          reportPath: "<review-result.json>",
+          submitCommand: "planweave submit-review T-001#R-001 --result <review-result.json>"
+        }
+      ]
+    });
+    expect(current.items).toHaveLength(1);
   });
 
   it("explains review blocks as gates", async () => {

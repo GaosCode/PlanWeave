@@ -1,7 +1,22 @@
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
-import type { BlockState, BlockStatus, CompiledExecutionGraph, ExecutionGraphSession, PackageWorkspaceRef, RuntimeState, ValidationIssue } from "../types.js";
+import type {
+  BlockState,
+  BlockStatus,
+  CompiledExecutionGraph,
+  ExecutionGraphSession,
+  PackageWorkspaceRef,
+  RuntimeState,
+  ValidationIssue
+} from "../types.js";
 import { loadRuntime } from "./runtimeContext.js";
-import { blockDependenciesCompleted, canClaimReviewBlock, getBlock, requiredImplementationRefs, taskDependenciesSatisfied } from "./selectors.js";
+import {
+  blockDependenciesCompleted,
+  canClaimReviewBlock,
+  getBlock,
+  isActiveFeedbackStatus,
+  requiredImplementationRefs,
+  taskDependenciesSatisfied
+} from "./selectors.js";
 
 function reviewGateUnlocksTasks(taskId: string, downstreamTasks: string[], state: RuntimeState, graph: CompiledExecutionGraph): string[] {
   return downstreamTasks.filter((downstreamTaskId) =>
@@ -42,6 +57,8 @@ export async function getExecutionStatus(options: { projectRoot: PackageWorkspac
   for (const feedback of Object.values(state.feedback)) {
     feedbackCounts[feedback.status] += 1;
   }
+  const currentFeedbackId =
+    state.currentFeedbackId && isActiveFeedbackStatus(state.feedback[state.currentFeedbackId]?.status) ? state.currentFeedbackId : null;
   const claimHints = graph.blockRefsInManifestOrder.map((ref) => {
     const taskId = graph.blockTaskByRef.get(ref);
     const block = graph.blocksByRef.get(ref);
@@ -145,7 +162,7 @@ export async function getExecutionStatus(options: { projectRoot: PackageWorkspac
       };
     }),
     currentRefs: state.currentRefs,
-    currentFeedbackId: state.currentFeedbackId,
+    currentFeedbackId,
     currentReviewBlockRef: state.currentReviewBlockRef,
     openFeedback: Object.entries(state.feedback)
       .filter(([, feedback]) => feedback.status === "open" || feedback.status === "in_progress")

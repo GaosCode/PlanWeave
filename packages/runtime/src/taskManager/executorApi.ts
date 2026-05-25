@@ -3,7 +3,7 @@ import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import type { BlockExplanation, CurrentWork, CurrentWorkItem, ManifestBlock, PackageWorkspaceRef } from "../types.js";
 import { getExecutionStatus } from "./executionStatus.js";
 import { loadRuntime } from "./runtimeContext.js";
-import { getBlock } from "./selectors.js";
+import { getBlock, isActiveFeedbackStatus } from "./selectors.js";
 
 function submitCommand(ref: string, block: ManifestBlock): string {
   if (block.type === "review") {
@@ -55,17 +55,21 @@ export async function explainBlock(options: { projectRoot: PackageWorkspaceRef; 
 export async function getCurrentWork(options: { projectRoot: PackageWorkspaceRef }): Promise<CurrentWork> {
   const context = await loadRuntime(options);
   const items = context.state.currentRefs.map((ref) => currentItem(ref, getBlock(context.graph, ref), context.workspace.packageDir));
-  if (context.state.currentFeedbackId) {
-    const feedback = context.state.feedback[context.state.currentFeedbackId];
+  const activeFeedbackId =
+    context.state.currentFeedbackId && isActiveFeedbackStatus(context.state.feedback[context.state.currentFeedbackId]?.status)
+      ? context.state.currentFeedbackId
+      : null;
+  if (activeFeedbackId) {
+    const feedback = context.state.feedback[activeFeedbackId];
     const taskId = feedback ? context.graph.blockTaskByRef.get(feedback.sourceReviewBlockRef) : null;
     if (feedback && taskId) {
       items.push({
         kind: "feedback",
-        ref: context.state.currentFeedbackId,
-        feedbackId: context.state.currentFeedbackId,
+        ref: activeFeedbackId,
+        feedbackId: activeFeedbackId,
         sourceReviewBlockRef: feedback.sourceReviewBlockRef,
         taskId,
-        promptPath: join(context.workspace.resultsDir, taskId, "feedback", context.state.currentFeedbackId, "feedback.json"),
+        promptPath: join(context.workspace.resultsDir, taskId, "feedback", activeFeedbackId, "feedback.json"),
         reportPath: "<feedback-report.md>",
         submitCommand: "planweave submit-feedback --report <feedback-report.md>"
       });
@@ -73,12 +77,12 @@ export async function getCurrentWork(options: { projectRoot: PackageWorkspaceRef
   }
   const taskIds = Array.from(new Set(items.map((item) => item.taskId)));
   const blockingReason =
-    items.length > 0 || context.state.currentFeedbackId
+    items.length > 0 || activeFeedbackId
       ? null
       : "No current claim. Run `planweave claim-next`, `planweave claim <ref>`, or `planweave status`.";
   return {
     currentRefs: context.state.currentRefs,
-    currentFeedbackId: context.state.currentFeedbackId,
+    currentFeedbackId: activeFeedbackId,
     currentReviewBlockRef: context.state.currentReviewBlockRef,
     owner: {
       projectRoot: context.workspace.rootPath,
