@@ -595,6 +595,7 @@ export type ReviewGateHint = {
   required: boolean;
   requiredReason: string;
   executorRole: "reviewer";
+  downstreamTasks: string[];
   unlocksTasks: string[];
   needsChangesReturnsTo: string[];
 };

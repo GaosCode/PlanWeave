@@ -81,4 +81,35 @@ describe("getExecutionStatus", () => {
       statusReason: "Prompt no longer matches the manifest."
     });
   });
+
+  it("only reports review gate unlocks for downstream tasks with no other unfinished task dependencies", async () => {
+    const manifest = basicManifest({ includeSecondTask: true });
+    manifest.nodes.push({
+      id: "T-003",
+      type: "task",
+      title: "Third task",
+      prompt: "nodes/T-003/prompt.md",
+      acceptance: ["Third implementation is complete."],
+      blocks: [
+        {
+          id: "B-001",
+          type: "implementation",
+          title: "Implement third task",
+          prompt: "nodes/T-003/blocks/B-001.prompt.md",
+          depends_on: [],
+          parallel: { safe: true, locks: ["third"] }
+        }
+      ]
+    });
+    manifest.edges.push({ from: "T-002", to: "T-001", type: "depends_on" });
+    manifest.edges.push({ from: "T-002", to: "T-003", type: "depends_on" });
+    const { root } = await createTestWorkspace(manifest);
+
+    const status = await getExecutionStatus({ projectRoot: root });
+
+    expect(status.claimHints.find((hint) => hint.ref === "T-001#R-001")?.reviewGate).toMatchObject({
+      downstreamTasks: ["T-002"],
+      unlocksTasks: []
+    });
+  });
 });

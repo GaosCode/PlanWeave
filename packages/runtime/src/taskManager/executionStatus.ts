@@ -1,7 +1,13 @@
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
-import type { BlockStatus, ExecutionGraphSession, PackageWorkspaceRef, ValidationIssue } from "../types.js";
+import type { BlockStatus, CompiledExecutionGraph, ExecutionGraphSession, PackageWorkspaceRef, RuntimeState, ValidationIssue } from "../types.js";
 import { loadRuntime } from "./runtimeContext.js";
 import { blockDependenciesCompleted, canClaimReviewBlock, getBlock, requiredImplementationRefs, taskDependenciesSatisfied } from "./selectors.js";
+
+function reviewGateUnlocksTasks(taskId: string, downstreamTasks: string[], state: RuntimeState, graph: CompiledExecutionGraph): string[] {
+  return downstreamTasks.filter((downstreamTaskId) =>
+    (graph.taskDependenciesByTask.get(downstreamTaskId) ?? []).every((dependency) => dependency === taskId || state.tasks[dependency]?.status === "implemented")
+  );
+}
 
 export async function getExecutionStatus(options: { projectRoot: PackageWorkspaceRef; session?: ExecutionGraphSession }) {
   const context = await loadRuntime(options);
@@ -46,6 +52,7 @@ export async function getExecutionStatus(options: { projectRoot: PackageWorkspac
       taskDependenciesSatisfied(graph, state, taskId) &&
       (block?.type === "review" ? canClaimReviewBlock(graph, state, ref) : blockDependenciesCompleted(graph, state, ref));
     const parallelSafe = block?.type !== "review" && !!graph.parallelSafeByBlockRef.get(ref);
+    const downstreamTasks = taskId && block?.type === "review" ? (graph.taskDependentsByTask.get(taskId) ?? []) : [];
     const reviewGate =
       taskId && block?.type === "review"
         ? {
@@ -53,7 +60,8 @@ export async function getExecutionStatus(options: { projectRoot: PackageWorkspac
             required: block.review.required,
             requiredReason: block.review.required ? "Required review gate for task completion." : "Optional review gate.",
             executorRole: "reviewer" as const,
-            unlocksTasks: graph.taskDependentsByTask.get(taskId) ?? [],
+            downstreamTasks,
+            unlocksTasks: reviewGateUnlocksTasks(taskId, downstreamTasks, state, graph),
             needsChangesReturnsTo: requiredImplementationRefs(graph, taskId)
           }
         : null;
