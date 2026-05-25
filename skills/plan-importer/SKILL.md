@@ -5,7 +5,19 @@ description: Generate a block-level PlanWeave Plan Package from project document
 
 # Plan Importer
 
-Use this skill when a user wants to turn project documents into a PlanWeave Plan Package.
+Use this skill when a user wants to turn a project's own planning documents into a PlanWeave Plan Package for that project.
+
+## Workspace Location
+
+- Run PlanWeave commands from the target project's root, not from the PlanWeave repository unless PlanWeave itself is the target project.
+- Do not create or write `./.planweave` inside the target project by hand.
+- PlanWeave stores project plans under `PLANWEAVE_HOME` when that environment variable is set.
+- When `PLANWEAVE_HOME` is not set, the default home is the user's `.planweave` directory:
+  - macOS: `~/.planweave`
+  - Linux: `~/.planweave`
+  - Windows: `%USERPROFILE%\.planweave`
+- A specific project package is nested under that home as `projects/<project-id>/package`; never guess `<project-id>`.
+- Always read the exact package path from `planweave init --json` or `planweave paths --json`, then write only inside that returned `workspace.packageDir` / `packageDir`.
 
 ## Workflow
 
@@ -18,9 +30,9 @@ Use this skill when a user wants to turn project documents into a PlanWeave Plan
    - important component impact should be linked with `touches`;
    - known risks should be risk nodes linked with `conflicts_with` or other relevant context edges;
    - task `acceptance` entries must be concrete, verifiable outcomes.
-5. Run `planweave init --json`.
-6. Read `.workspace.packageDir` from the JSON output.
-7. Write `manifest.json` into the package directory.
+5. Run `planweave init --json` from the target project root.
+6. Read `.workspace.packageDir` from the JSON output. If the workspace already exists and you need to confirm paths, run `planweave paths --json`.
+7. Write `manifest.json` into the returned package directory.
 8. Write task prompts as `nodes/<task-id>/prompt.md`.
 9. Write block prompts as `nodes/<task-id>/blocks/<block-id>.prompt.md`.
 10. Add executor profiles only when the source plan needs Auto Run; otherwise rely on the built-in `manual` executor.
@@ -90,6 +102,7 @@ Use the built-in manual executor unless the plan explicitly needs Auto Run:
 ## Rules
 
 - Treat `package/manifest.json`, `nodes/<task-id>/prompt.md`, and `nodes/<task-id>/blocks/*.prompt.md` as the plan content source of truth.
+- Treat the CLI-returned package directory as the only writable Plan Package location.
 - Do not write `package/global-prompt.md`.
 - Do not write `manifest.global_prompt`.
 - Do not create `feedback` block types.

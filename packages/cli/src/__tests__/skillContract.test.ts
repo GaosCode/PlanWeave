@@ -5,6 +5,19 @@ import { describe, expect, it } from "vitest";
 const repoRoot = resolve(import.meta.dirname, "../../../..");
 
 describe("agent skill contract docs", () => {
+  it("documents cross-platform PlanWeave home and package path discovery in plan-importer", async () => {
+    const skill = await readFile(join(repoRoot, "skills/plan-importer/SKILL.md"), "utf8");
+
+    expect(skill).toContain("Do not create or write `./.planweave` inside the target project by hand.");
+    expect(skill).toContain("PLANWEAVE_HOME");
+    expect(skill).toContain("macOS: `~/.planweave`");
+    expect(skill).toContain("Linux: `~/.planweave`");
+    expect(skill).toContain("Windows: `%USERPROFILE%\\.planweave`");
+    expect(skill).toContain("planweave paths --json");
+    expect(skill).toContain("workspace.packageDir");
+    expect(skill).toContain("Treat the CLI-returned package directory as the only writable Plan Package location.");
+  });
+
   it("documents JSON Claim Result branches and block-ref recovery commands in plan-runner", async () => {
     const skill = await readFile(join(repoRoot, "skills/plan-runner/SKILL.md"), "utf8");
 
