@@ -8,6 +8,7 @@ import { readJsonFile, writeJsonFile } from "../json.js";
 import { writeState } from "../state.js";
 import type {
   ExecutionGraphSession,
+  FeedbackStatus,
   ManifestReviewBlock,
   ManifestTaskNode,
   PackageWorkspaceRef,
@@ -17,7 +18,7 @@ import type {
   SubmitReviewResult,
   ValidationIssue
 } from "../types.js";
-import { writeFeedbackArtifact } from "./feedbackArtifacts.js";
+import { writeFeedbackArtifact, type FeedbackArtifact } from "./feedbackArtifacts.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { incrementTaskIndexCount, listDirCount, nextId, updateTaskIndex } from "./resultIndex.js";
 import { computeWorkRevision, getBlock, getTask } from "./selectors.js";
@@ -215,6 +216,65 @@ async function recordReviewCompletionReason(options: {
   }));
 }
 
+async function recordFeedbackEnvelopeIndexes(options: {
+  workspace: ProjectWorkspace;
+  taskId: string;
+  reviewBlockRef: string;
+  feedbackId: string;
+  feedbackStatus: FeedbackStatus;
+  incrementCount: boolean;
+}): Promise<void> {
+  await updateTaskIndex(options.workspace, options.taskId, (index) => ({
+    ...index,
+    latestFeedbackByReviewBlock: {
+      ...(index.latestFeedbackByReviewBlock ?? {}),
+      [options.reviewBlockRef]: options.feedbackId
+    },
+    feedbackStatusById: {
+      ...(index.feedbackStatusById ?? {}),
+      [options.feedbackId]: options.feedbackStatus
+    },
+    counts: options.incrementCount ? incrementTaskIndexCount(index, "feedbackEnvelopes") : index.counts
+  }));
+}
+
+async function findFeedbackForReviewAttempt(options: {
+  workspace: ProjectWorkspace;
+  taskId: string;
+  reviewBlockRef: string;
+  attemptId: string;
+}): Promise<FeedbackArtifact | null> {
+  const feedbackRoot = join(options.workspace.resultsDir, options.taskId, "feedback");
+  let entries;
+  try {
+    entries = await readdir(feedbackRoot, { withFileTypes: true });
+  } catch (error) {
+    if ((error as { code?: string }).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+  const feedbackIds = entries
+    .filter((entry) => entry.isDirectory() && /^FE-\d+$/.test(entry.name))
+    .map((entry) => entry.name)
+    .sort();
+  for (const feedbackId of feedbackIds) {
+    try {
+      const artifact = await readJsonFile<FeedbackArtifact>(join(feedbackRoot, feedbackId, "feedback.json"));
+      if (
+        artifact.feedbackId === feedbackId &&
+        artifact.sourceReviewBlockRef === options.reviewBlockRef &&
+        artifact.sourceReviewAttemptId === options.attemptId
+      ) {
+        return artifact;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 async function nextFeedbackId(options: { workspace: ProjectWorkspace; taskId: string; state: { feedback: Record<string, unknown> } }): Promise<string> {
   let count = Math.max(
     Object.keys(options.state.feedback).length,
@@ -263,6 +323,44 @@ export async function submitReviewResult(options: {
     }));
   if (persistedAttemptId) {
     await recordReviewAttemptIndexes({ workspace, reviewBlockRef: options.ref, reviewResult: parsed, workRevision, attemptId, incrementCount: false });
+    if (parsed.verdict === "needs_changes") {
+      const persistedFeedback = await findFeedbackForReviewAttempt({ workspace, taskId, reviewBlockRef: options.ref, attemptId });
+      if (persistedFeedback && (persistedFeedback.status === "open" || persistedFeedback.status === "in_progress")) {
+        await recordFeedbackEnvelopeIndexes({
+          workspace,
+          taskId,
+          reviewBlockRef: options.ref,
+          feedbackId: persistedFeedback.feedbackId,
+          feedbackStatus: persistedFeedback.status,
+          incrementCount: false
+        });
+        state.feedback[persistedFeedback.feedbackId] = {
+          status: persistedFeedback.status,
+          sourceReviewBlockRef: options.ref,
+          latestSubmissionId: persistedFeedback.latestSubmissionId ?? null,
+          content: persistedFeedback.content
+        };
+        state.blocks[options.ref] = {
+          ...state.blocks[options.ref],
+          status: "in_progress",
+          latestReviewAttemptId: attemptId,
+          activeFeedbackId: persistedFeedback.feedbackId,
+          completionReason: null
+        };
+        state.currentFeedbackId = persistedFeedback.feedbackId;
+        state.currentReviewBlockRef = options.ref;
+        state.currentRefs = [];
+        state = refreshDerivedState(manifest, state);
+        await writeState(workspace.stateFile, state);
+        return {
+          ref: options.ref,
+          reviewAttemptId: attemptId,
+          verdict: "needs_changes",
+          feedbackId: persistedFeedback.feedbackId,
+          status: "in_progress"
+        };
+      }
+    }
   }
   const task = getTask(graph, taskId);
   const previousFeedbackCount = Object.values(state.feedback).filter((feedback) => feedback.sourceReviewBlockRef === options.ref).length;
@@ -348,18 +446,14 @@ export async function submitReviewResult(options: {
     status: "open",
     createdAt: new Date().toISOString()
   });
-  await updateTaskIndex(workspace, taskId, (index) => ({
-    ...index,
-    latestFeedbackByReviewBlock: {
-      ...(index.latestFeedbackByReviewBlock ?? {}),
-      [options.ref]: feedbackId
-    },
-    feedbackStatusById: {
-      ...(index.feedbackStatusById ?? {}),
-      [feedbackId]: "open"
-    },
-    counts: incrementTaskIndexCount(index, "feedbackEnvelopes")
-  }));
+  await recordFeedbackEnvelopeIndexes({
+    workspace,
+    taskId,
+    reviewBlockRef: options.ref,
+    feedbackId,
+    feedbackStatus: "open",
+    incrementCount: true
+  });
   state.feedback[feedbackId] = {
     status: "open",
     sourceReviewBlockRef: options.ref,

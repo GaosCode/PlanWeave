@@ -107,6 +107,38 @@ describe("submitReviewResult", () => {
     expect(taskIndex.counts).toMatchObject({ runs: 2, reviewAttempts: 2, feedbackEnvelopes: 1, feedbackSubmissions: 1 });
   });
 
+  it("treats retrying the same needs_changes review result as idempotent", async () => {
+    const { root, init } = await createTestWorkspace();
+    await completeImplementation(root);
+    const resultPath = await writeReviewResult(root, "needs_changes", "Fix the edge case.");
+
+    const first = await submitReviewResult({ projectRoot: root, ref: "T-001#R-001", resultPath });
+    const second = await submitReviewResult({ projectRoot: root, ref: "T-001#R-001", resultPath });
+    const status = await getExecutionStatus({ projectRoot: root });
+
+    expect(first).toMatchObject({ reviewAttemptId: "REV-001", feedbackId: "FE-001", status: "in_progress" });
+    expect(second).toEqual(first);
+    expect(status.currentFeedbackId).toBe("FE-001");
+    expect(status.blocks.find((block) => block.ref === "T-001#R-001")).toMatchObject({
+      status: "in_progress",
+      latestReviewAttemptId: "REV-001",
+      activeFeedbackId: "FE-001",
+      completionReason: null
+    });
+    await expect(access(join(init.workspace.resultsDir, "T-001", "reviews", "R-001", "attempts", "REV-002"))).rejects.toThrow();
+    await expect(access(join(init.workspace.resultsDir, "T-001", "feedback", "FE-002"))).rejects.toThrow();
+    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "feedback", "FE-001", "feedback.json"))).resolves.toMatchObject({
+      status: "open",
+      sourceReviewAttemptId: "REV-001"
+    });
+    await expect(readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"))).resolves.toMatchObject({
+      latestReviewAttemptByBlock: { "T-001#R-001": "REV-001" },
+      latestFeedbackByReviewBlock: { "T-001#R-001": "FE-001" },
+      feedbackStatusById: { "FE-001": "open" },
+      counts: { runs: 2, reviewAttempts: 1, feedbackEnvelopes: 1 }
+    });
+  });
+
   it("recovers an already persisted feedback submission without creating a duplicate", async () => {
     const { root, init } = await createTestWorkspace();
     await completeImplementation(root);
