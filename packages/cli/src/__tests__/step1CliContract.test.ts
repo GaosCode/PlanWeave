@@ -41,7 +41,7 @@ describe("STEP-1 CLI contract", () => {
     await writeFile(implementation, "Implemented.\n", "utf8");
     await planweave(["submit-result", "T-001#B-001", "--report", implementation], env);
 
-    expect(JSON.parse((await planweave(["claim-next"], env)).stdout)).toMatchObject({
+    expect(JSON.parse((await planweave(["claim", "--type", "review"], env)).stdout)).toMatchObject({
       kind: "block",
       ref: "T-001#R-001"
     });

@@ -5,6 +5,8 @@ import { registerValidateCommand } from "./commands/validate.js";
 import { registerRefreshPromptCommand } from "./commands/refreshPrompt.js";
 import { registerRefreshPromptsCommand } from "./commands/refreshPrompts.js";
 import { registerPromptCommand } from "./commands/prompt.js";
+import { registerClaimCommand } from "./commands/claim.js";
+import { registerClaimTaskCommand } from "./commands/claimTask.js";
 import { registerClaimNextCommand } from "./commands/claimNext.js";
 import { registerSubmitResultCommand } from "./commands/submitResult.js";
 import { registerSubmitReviewCommand } from "./commands/submitReview.js";
@@ -30,6 +32,8 @@ export function createProgram(): Command {
   registerValidateCommand(program);
   registerRefreshPromptCommand(program);
   registerRefreshPromptsCommand(program);
+  registerClaimCommand(program);
+  registerClaimTaskCommand(program);
   registerClaimNextCommand(program);
   registerPromptCommand(program);
   registerSubmitResultCommand(program);

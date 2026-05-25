@@ -1,5 +1,5 @@
 import { writeState } from "../state.js";
-import type { ClaimResult, ClaimScope, ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
+import type { BlockType, ClaimResult, ClaimScope, ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
 import { patchFeedbackArtifact } from "./feedbackArtifacts.js";
 import { updateTaskIndex } from "./resultIndex.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
@@ -19,6 +19,7 @@ import {
 export async function claimNext(options: {
   projectRoot: PackageWorkspaceRef;
   parallel?: boolean;
+  blockType?: BlockType;
   scope?: ClaimScope;
   session?: ExecutionGraphSession;
 }): Promise<ClaimResult> {
@@ -26,6 +27,7 @@ export async function claimNext(options: {
   let { state } = context;
   const { graph, manifest, workspace } = context;
   const scope = normalizeClaimScope(options.scope);
+  const blockType = options.blockType;
   const invalidScope = validateClaimScope(scope, graph);
   if (invalidScope) {
     return invalidScope;
@@ -65,6 +67,9 @@ export async function claimNext(options: {
     return block?.type === "review" && state.blocks[ref]?.status === "in_progress";
   });
   if (inProgressReview && state.currentFeedbackId) {
+    if (blockType && blockType !== "review") {
+      return { kind: "blocked", ref: inProgressReview, reason: "A review block is in progress outside the selected claim type." };
+    }
     const currentFeedback = state.feedback[state.currentFeedbackId];
     if (currentFeedback?.status === "resolved") {
       if (!blockInScope(inProgressReview, graph, scope)) {
@@ -78,6 +83,9 @@ export async function claimNext(options: {
     }
   }
   if (inProgressReview) {
+    if (blockType && blockType !== "review") {
+      return { kind: "blocked", ref: inProgressReview, reason: "A review block is in progress outside the selected claim type." };
+    }
     if (!blockInScope(inProgressReview, graph, scope)) {
       return { kind: "blocked", ref: inProgressReview, reason: "A review block is in progress outside the selected Auto Run scope." };
     }
@@ -92,6 +100,10 @@ export async function claimNext(options: {
     return state.blocks[ref]?.status === "in_progress" && block?.type !== "review";
   });
   if (current) {
+    const currentBlock = graph.blocksByRef.get(current);
+    if (blockType && currentBlock?.type !== blockType) {
+      return { kind: "blocked", ref: current, reason: "A block is in progress outside the selected claim type." };
+    }
     if (!blockInScope(current, graph, scope)) {
       return { kind: "blocked", ref: current, reason: "A block is in progress outside the selected Auto Run scope." };
     }
@@ -105,6 +117,9 @@ export async function claimNext(options: {
       }
       const taskId = graph.blockTaskByRef.get(ref);
       const block = graph.blocksByRef.get(ref);
+      if (blockType && blockType !== "review") {
+        continue;
+      }
       if (!taskId || block?.type !== "review") {
         continue;
       }
@@ -129,6 +144,9 @@ export async function claimNext(options: {
       }
       const taskId = graph.blockTaskByRef.get(ref);
       const block = graph.blocksByRef.get(ref);
+      if (blockType && block?.type !== blockType) {
+        continue;
+      }
       if (!taskId || !block || block.type === "review") {
         continue;
       }
@@ -176,6 +194,9 @@ export async function claimNext(options: {
     }
     const taskId = graph.blockTaskByRef.get(ref);
     const block = graph.blocksByRef.get(ref);
+    if (blockType && block?.type !== blockType) {
+      continue;
+    }
     if (!taskId || !block || block.type === "review") {
       continue;
     }
@@ -202,4 +223,28 @@ export async function claimNext(options: {
 
   await writeState(workspace.stateFile, refreshDerivedState(manifest, state));
   return { kind: "none", reason: "no_claimable_blocks" };
+}
+
+export async function claimBlock(options: {
+  projectRoot: PackageWorkspaceRef;
+  ref: string;
+  session?: ExecutionGraphSession;
+}): Promise<ClaimResult> {
+  return claimNext({ projectRoot: options.projectRoot, scope: { kind: "block", blockRef: options.ref }, session: options.session });
+}
+
+export async function claimTask(options: {
+  projectRoot: PackageWorkspaceRef;
+  taskId: string;
+  session?: ExecutionGraphSession;
+}): Promise<ClaimResult> {
+  return claimNext({ projectRoot: options.projectRoot, scope: { kind: "task", taskId: options.taskId }, session: options.session });
+}
+
+export async function claimBlockType(options: {
+  projectRoot: PackageWorkspaceRef;
+  blockType: BlockType;
+  session?: ExecutionGraphSession;
+}): Promise<ClaimResult> {
+  return claimNext({ projectRoot: options.projectRoot, blockType: options.blockType, session: options.session });
 }

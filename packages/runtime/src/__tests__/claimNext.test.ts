@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { claimNext, getExecutionStatus, renderPrompt, submitBlockResult, submitReviewResult, submitFeedback } from "../taskManager/index.js";
+import {
+  claimBlock,
+  claimBlockType,
+  claimNext,
+  claimTask,
+  getExecutionStatus,
+  renderPrompt,
+  submitBlockResult,
+  submitReviewResult,
+  submitFeedback
+} from "../taskManager/index.js";
 import { basicManifest, createTestWorkspace, writeReport, writeReviewResult } from "./promptTestHelpers.js";
 
 describe("claimNext", () => {
@@ -93,6 +103,41 @@ describe("claimNext", () => {
       ref: "T-001#R-001",
       taskId: "T-001",
       blockId: "R-001",
+      blockType: "review",
+      reason: "claimed"
+    });
+  });
+
+  it("claims an explicit ready block by ref", async () => {
+    const { root } = await createTestWorkspace();
+
+    expect(await claimBlock({ projectRoot: root, ref: "T-001#B-001" })).toMatchObject({
+      kind: "block",
+      ref: "T-001#B-001",
+      reason: "claimed"
+    });
+  });
+
+  it("claims the next executable block inside an explicit task", async () => {
+    const { root } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
+
+    expect(await claimTask({ projectRoot: root, taskId: "T-002" })).toMatchObject({
+      kind: "block",
+      ref: "T-002#B-001",
+      reason: "claimed"
+    });
+  });
+
+  it("claims an explicit review type without selecting implementation blocks", async () => {
+    const { root } = await createTestWorkspace();
+    await claimNext({ projectRoot: root });
+    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await claimNext({ projectRoot: root });
+    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
+
+    expect(await claimBlockType({ projectRoot: root, blockType: "review" })).toMatchObject({
+      kind: "block",
+      ref: "T-001#R-001",
       blockType: "review",
       reason: "claimed"
     });

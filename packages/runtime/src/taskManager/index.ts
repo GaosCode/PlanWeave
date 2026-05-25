@@ -1,4 +1,4 @@
-export { claimNext } from "./claimScheduler.js";
+export { claimBlock, claimBlockType, claimNext, claimTask } from "./claimScheduler.js";
 export { renderPrompt } from "./promptRenderer.js";
 export { submitBlockResult } from "./blockSubmission.js";
 export { submitReviewResult } from "./reviewSubmission.js";

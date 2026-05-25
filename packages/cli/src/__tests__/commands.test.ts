@@ -19,6 +19,8 @@ describe("planweave CLI contract", () => {
         "resolve-divergence",
         "mark-blocked",
         "unblock",
+        "claim",
+        "claim-task",
         "claim-next",
         "submit-feedback",
         "run",
@@ -34,6 +36,7 @@ describe("planweave CLI contract", () => {
     expect(commandOptionLongs("init")).toContain("--reset-results");
     expect(commandOptionLongs("validate")).toContain("--json");
     expect(commandOptionLongs("status")).toContain("--json");
+    expect(commandOptionLongs("claim")).toContain("--type");
     expect(commandOptionLongs("resolve-divergence")).toContain("--reason");
     expect(commandOptionLongs("unblock")).toContain("--reason");
     expect(commandOptionLongs("run")).toEqual(expect.arrayContaining(["--once", "--parallel", "--executor", "--json"]));

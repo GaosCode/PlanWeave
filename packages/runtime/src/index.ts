@@ -48,6 +48,9 @@ export {
 } from "./autoRun/executors.js";
 export {
   claimNext,
+  claimBlock,
+  claimBlockType,
+  claimTask,
   renderPrompt,
   submitBlockResult,
   submitReviewResult,
