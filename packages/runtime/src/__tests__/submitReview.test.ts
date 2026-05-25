@@ -175,6 +175,38 @@ describe("submitReviewResult", () => {
     expect(taskIndex.reviewCompletionReasonByBlock?.["T-001#R-001"]).toBeUndefined();
   });
 
+  it("does not advance review state when retrying stale needs_changes after re-review is claimed", async () => {
+    const { root, init } = await createTestWorkspace();
+    await completeImplementation(root);
+    const resultPath = await writeReviewResult(root, "needs_changes", "Fix the edge case.");
+
+    const first = await submitReviewResult({ projectRoot: root, ref: "T-001#R-001", resultPath });
+    await claimNext({ projectRoot: root });
+    await submitFeedback({ projectRoot: root, reportPath: await writeReport(root, "feedback.md", "Fixed edge case.\n") });
+    await claimNext({ projectRoot: root });
+    const retry = await submitReviewResult({ projectRoot: root, ref: "T-001#R-001", resultPath });
+    const status = await getExecutionStatus({ projectRoot: root });
+    const taskIndex = await readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"));
+
+    expect(retry).toEqual(first);
+    expect(status.currentRefs).toEqual(["T-001#R-001"]);
+    expect(status.currentFeedbackId).toBeNull();
+    expect(status.blocks.find((block) => block.ref === "T-001#R-001")).toMatchObject({
+      status: "in_progress",
+      latestReviewAttemptId: "REV-001",
+      activeFeedbackId: null,
+      completionReason: null
+    });
+    expect(status.warnings.map((warning) => warning.code)).not.toContain("review_max_cycles_reached");
+    await expect(access(join(init.workspace.resultsDir, "T-001", "reviews", "R-001", "attempts", "REV-002"))).rejects.toThrow();
+    await expect(access(join(init.workspace.resultsDir, "T-001", "feedback", "FE-002"))).rejects.toThrow();
+    expect(taskIndex.latestReviewAttemptByBlock).toMatchObject({ "T-001#R-001": "REV-001" });
+    expect(taskIndex.latestFeedbackByReviewBlock).toMatchObject({ "T-001#R-001": "FE-001" });
+    expect(taskIndex.feedbackStatusById).toMatchObject({ "FE-001": "resolved" });
+    expect(taskIndex.counts).toMatchObject({ runs: 2, reviewAttempts: 1, feedbackEnvelopes: 1, feedbackSubmissions: 1 });
+    expect(taskIndex.reviewCompletionReasonByBlock?.["T-001#R-001"]).toBeUndefined();
+  });
+
   it("recovers an already persisted feedback submission without creating a duplicate", async () => {
     const { root, init } = await createTestWorkspace();
     await completeImplementation(root);

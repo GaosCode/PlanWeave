@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
@@ -285,6 +285,21 @@ async function findFeedbackForReviewAttempt(options: {
   return null;
 }
 
+async function resultFilePredatesFeedbackResolution(resultPath: string, feedback: FeedbackArtifact): Promise<boolean> {
+  if (!feedback.resolvedAt) {
+    return false;
+  }
+  const resolvedAtMs = Date.parse(feedback.resolvedAt);
+  if (!Number.isFinite(resolvedAtMs)) {
+    return false;
+  }
+  try {
+    return (await stat(resultPath)).mtimeMs <= resolvedAtMs;
+  } catch {
+    return false;
+  }
+}
+
 async function nextFeedbackId(options: { workspace: ProjectWorkspace; taskId: string; state: { feedback: Record<string, unknown> } }): Promise<string> {
   let count = Math.max(
     Object.keys(options.state.feedback).length,
@@ -327,12 +342,20 @@ export async function submitReviewResult(options: {
     persistedAttemptId && parsed.verdict === "needs_changes"
       ? await findFeedbackForReviewAttempt({ workspace, taskId, reviewBlockRef: options.ref, attemptId: persistedAttemptId })
       : null;
+  const persistedFeedbackIsActive = persistedFeedback ? isActiveFeedbackStatus(persistedFeedback.status) : false;
+  const staleResolvedFeedbackRetry =
+    persistedFeedback !== null &&
+    !persistedFeedbackIsActive &&
+    persistedAttempt?.reviewedWorkRevision !== null &&
+    persistedAttempt?.reviewedWorkRevision !== workRevision &&
+    (await resultFilePredatesFeedbackResolution(options.resultPath, persistedFeedback));
   const shouldReusePersistedAttempt =
     persistedAttemptId !== null &&
     (parsed.verdict !== "needs_changes" ||
       persistedFeedback === null ||
-      isActiveFeedbackStatus(persistedFeedback.status) ||
-      state.currentFeedbackId === persistedFeedback.feedbackId);
+      persistedFeedbackIsActive ||
+      state.currentFeedbackId === persistedFeedback.feedbackId ||
+      staleResolvedFeedbackRetry);
   const attemptId =
     shouldReusePersistedAttempt && persistedAttemptId
       ? persistedAttemptId
@@ -353,7 +376,6 @@ export async function submitReviewResult(options: {
       incrementCount: false
     });
     if (parsed.verdict === "needs_changes" && persistedFeedback) {
-      const activeFeedback = isActiveFeedbackStatus(persistedFeedback.status);
       await recordFeedbackEnvelopeIndexes({
         workspace,
         taskId,
@@ -372,11 +394,11 @@ export async function submitReviewResult(options: {
         ...state.blocks[options.ref],
         status: "in_progress",
         latestReviewAttemptId: attemptId,
-        activeFeedbackId: activeFeedback ? persistedFeedback.feedbackId : null,
+        activeFeedbackId: persistedFeedbackIsActive ? persistedFeedback.feedbackId : null,
         completionReason: null
       };
       state.currentReviewBlockRef = options.ref;
-      if (activeFeedback) {
+      if (persistedFeedbackIsActive) {
         state.currentFeedbackId = persistedFeedback.feedbackId;
         state.currentRefs = [];
       } else {
