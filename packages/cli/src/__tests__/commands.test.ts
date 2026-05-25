@@ -70,4 +70,33 @@ describe("planweave CLI contract", () => {
       })
     ).toContain("blocked: Waiting for external API access.");
   });
+
+  it("prints optional review claimability reasons before raw ready status", () => {
+    expect(
+      formatClaimHint({
+        ref: "T-001#R-001",
+        taskId: "T-001",
+        blockId: "R-001",
+        blockType: "review",
+        status: "ready",
+        statusReason: "Optional review gate is not required and is not claimable; task can complete without it.",
+        ready: false,
+        readyReason: null,
+        blockedByBlocks: [],
+        blockedByTasks: [],
+        parallelSafe: false,
+        sequentialOnly: true,
+        recommendedCommand: null,
+        reviewGate: {
+          isGate: true,
+          required: false,
+          requiredReason: "Optional review gate; not required for task completion.",
+          executorRole: "reviewer",
+          downstreamTasks: [],
+          unlocksTasks: [],
+          needsChangesReturnsTo: ["T-001#B-001", "T-001#C-001"]
+        }
+      })
+    ).toContain("ready: Optional review gate is not required and is not claimable; task can complete without it.");
+  });
 });

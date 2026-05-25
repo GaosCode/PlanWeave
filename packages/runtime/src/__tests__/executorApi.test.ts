@@ -126,4 +126,27 @@ describe("executor API helpers", () => {
       }
     });
   });
+
+  it("explains optional review blocks as not claimable", async () => {
+    const manifest = basicManifest();
+    const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    const reviewBlock = task?.type === "task" ? task.blocks.find((block) => block.id === "R-001") : null;
+    if (reviewBlock?.type !== "review") {
+      throw new Error("missing review block");
+    }
+    reviewBlock.review.required = false;
+    const { root } = await createTestWorkspace(manifest);
+
+    const explanation = await explainBlock({ projectRoot: root, ref: "T-001#R-001" });
+
+    expect(explanation).toMatchObject({
+      ready: false,
+      statusReason: "Optional review gate is not required and is not claimable; task can complete without it.",
+      recommendedCommand: null,
+      reviewGate: {
+        required: false,
+        requiredReason: "Optional review gate; not required for task completion."
+      }
+    });
+  });
 });

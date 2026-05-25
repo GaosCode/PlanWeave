@@ -112,4 +112,33 @@ describe("getExecutionStatus", () => {
       unlocksTasks: []
     });
   });
+
+  it("explains optional review gates as not claimable", async () => {
+    const manifest = basicManifest();
+    const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    const reviewBlock = task?.type === "task" ? task.blocks.find((block) => block.id === "R-001") : null;
+    if (reviewBlock?.type !== "review") {
+      throw new Error("missing review block");
+    }
+    reviewBlock.review.required = false;
+    const { root } = await createTestWorkspace(manifest);
+
+    await claimNext({ projectRoot: root });
+    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await claimNext({ projectRoot: root });
+    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
+    const status = await getExecutionStatus({ projectRoot: root });
+
+    expect(status.nextClaimable).toEqual([]);
+    expect(status.claimHints.find((hint) => hint.ref === "T-001#R-001")).toMatchObject({
+      status: "ready",
+      statusReason: "Optional review gate is not required and is not claimable; task can complete without it.",
+      ready: false,
+      recommendedCommand: null,
+      reviewGate: {
+        required: false,
+        requiredReason: "Optional review gate; not required for task completion."
+      }
+    });
+  });
 });

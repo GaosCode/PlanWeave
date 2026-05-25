@@ -183,6 +183,7 @@ describe("desktop renderer component interactions", () => {
         required: true,
         requiredReason: "Required review gate for task completion.",
         executorRole: "reviewer",
+        downstreamTasks: ["T-003"],
         unlocksTasks: ["T-003"],
         needsChangesReturnsTo: ["T-001#B-001"]
       }
@@ -246,6 +247,7 @@ describe("desktop renderer component interactions", () => {
         required: true,
         requiredReason: "Required review gate for task completion.",
         executorRole: "reviewer",
+        downstreamTasks: ["T-002"],
         unlocksTasks: ["T-002"],
         needsChangesReturnsTo: ["T-001#B-001", "T-001#C-001"]
       }

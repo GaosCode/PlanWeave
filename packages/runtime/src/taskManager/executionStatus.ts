@@ -58,7 +58,9 @@ export async function getExecutionStatus(options: { projectRoot: PackageWorkspac
         ? {
             isGate: true as const,
             required: block.review.required,
-            requiredReason: block.review.required ? "Required review gate for task completion." : "Optional review gate.",
+            requiredReason: block.review.required
+              ? "Required review gate for task completion."
+              : "Optional review gate; not required for task completion.",
             executorRole: "reviewer" as const,
             downstreamTasks,
             unlocksTasks: reviewGateUnlocksTasks(taskId, downstreamTasks, state, graph),
@@ -72,13 +74,17 @@ export async function getExecutionStatus(options: { projectRoot: PackageWorkspac
           ? "Block is ready and parallel-safe."
           : "Block is ready for sequential claim."
       : null;
+    const statusReason =
+      block?.type === "review" && !block.review.required
+        ? "Optional review gate is not required and is not claimable; task can complete without it."
+        : (blockState?.blockedReason ?? blockState?.divergenceReason ?? null);
     return {
       ref,
       taskId: taskId ?? "",
       blockId,
       blockType: block?.type ?? "implementation",
       status: blockState?.status ?? "planned",
-      statusReason: blockState?.blockedReason ?? blockState?.divergenceReason ?? null,
+      statusReason,
       ready,
       readyReason,
       blockedByBlocks,
