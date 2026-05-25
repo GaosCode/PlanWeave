@@ -2,6 +2,7 @@ import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join } from "node:path";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
+import { readJsonFile } from "../json.js";
 import { findOrphanResults } from "../package/orphans.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { ensureStateForManifest, readState, writeState } from "../state.js";
@@ -17,13 +18,18 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-async function resultRunExists(workspace: ProjectWorkspace, ref: string, taskId: string, runId: string): Promise<boolean> {
+async function resultRunMatchesIndex(workspace: ProjectWorkspace, ref: string, taskId: string, runId: string): Promise<boolean> {
   const blockId = ref.split("#")[1];
   if (!blockId) {
     return false;
   }
   const runDir = join(workspace.resultsDir, taskId, "blocks", blockId, "runs", runId);
-  return (await exists(join(runDir, "metadata.json"))) && (await exists(join(runDir, "report.md")));
+  const metadataPath = join(runDir, "metadata.json");
+  if (!(await exists(metadataPath)) || !(await exists(join(runDir, "report.md")))) {
+    return false;
+  }
+  const metadata = await readJsonFile<Record<string, unknown>>(metadataPath);
+  return metadata.ref === ref && metadata.taskId === taskId && metadata.blockId === blockId && metadata.runId === runId;
 }
 
 function repairStaleCurrentRef(state: RuntimeState, ref: string): boolean {
@@ -42,7 +48,7 @@ async function repairStateRunMismatch(options: {
   taskId: string;
   indexRunId: string;
 }): Promise<boolean> {
-  if (!(await resultRunExists(options.workspace, options.ref, options.taskId, options.indexRunId))) {
+  if (!(await resultRunMatchesIndex(options.workspace, options.ref, options.taskId, options.indexRunId))) {
     return false;
   }
   options.state.blocks[options.ref] = {
