@@ -642,6 +642,7 @@ export type CurrentWork = {
 export type DoctorIssue = {
   code: "stale_current_ref" | "orphan_result" | "index_state_mismatch";
   message: string;
+  repaired?: boolean;
   ref?: string;
   taskId?: string;
   path?: string;

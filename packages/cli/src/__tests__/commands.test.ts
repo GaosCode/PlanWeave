@@ -42,6 +42,7 @@ describe("planweave CLI contract", () => {
     expect(commandOptionLongs("status")).toContain("--json");
     expect(commandOptionLongs("claim")).toContain("--type");
     expect(commandOptionLongs("claim-next")).toContain("--dry-run");
+    expect(commandOptionLongs("doctor")).toContain("--repair");
     expect(commandOptionLongs("resolve-divergence")).toContain("--reason");
     expect(commandOptionLongs("unblock")).toContain("--reason");
     expect(commandOptionLongs("run")).toEqual(expect.arrayContaining(["--once", "--parallel", "--executor", "--json"]));
