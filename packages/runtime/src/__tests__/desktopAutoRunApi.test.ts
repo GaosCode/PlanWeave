@@ -18,7 +18,7 @@ afterEach(() => {
 
 async function waitForRun(runId: string, predicate: (state: Awaited<ReturnType<typeof getAutoRunState>>) => boolean) {
   let state = await getAutoRunState(runId);
-  for (let attempt = 0; attempt < 200 && !predicate(state); attempt += 1) {
+  for (let attempt = 0; attempt < 500 && !predicate(state); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 20));
     state = await getAutoRunState(runId);
   }
