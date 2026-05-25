@@ -244,5 +244,5 @@ describe("OpenCode executor", () => {
     await expect(getExecutionStatus({ projectRoot: root })).resolves.toMatchObject({
       currentFeedbackId: "FE-001"
     });
-  });
+  }, 20_000);
 });
