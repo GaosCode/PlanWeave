@@ -13,7 +13,7 @@ The handoff should include:
 
 - assigned review ref.
 - rendered review prompt or prompt path.
-- upstream implementation/check reports.
+- upstream implementation reports.
 - changed files or diff summary.
 - acceptance criteria and validation evidence.
 - expected `review-result.json` path or instruction to return the JSON.
@@ -25,7 +25,7 @@ If key evidence is missing, ask the coordinator for it instead of guessing.
 1. Confirm the assigned ref is a review block.
 2. Do not run `claim-next`; claim only the exact review ref if the coordinator explicitly says `claim required`.
 3. Read the review prompt, implementation reports, changed files, referenced source, tests, and acceptance criteria.
-4. Check only the assigned gate and its upstream implementation/check work.
+4. Check only the assigned gate and its upstream implementation work.
 5. Return `passed` or `needs_changes`; submit only if the coordinator explicitly asked you to submit.
 
 ## Review Checks

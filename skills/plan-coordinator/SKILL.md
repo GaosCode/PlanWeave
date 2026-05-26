@@ -11,7 +11,7 @@ Use this skill as the main agent/controller for a PlanWeave package. Do not impl
 
 1. Resolve the CLI entry. Use `<pw> help work`, `<pw> help submit`, and `<pw> help recovery` for command syntax.
 2. Run preflight: confirm `PLANWEAVE_HOME`, project id, package/canvas paths, source prompt paths, current refs, and active feedback.
-3. Decide whether to assign implementation/check work, review work, feedback work, or recovery work.
+3. Decide whether to assign implementation work, review work, feedback work, or recovery work.
 4. Give each subagent exactly one work item, claim ownership, rendered prompt path/content, expected artifact, submit command, and validation expectations.
 5. Collect reports/results, submit or verify submission, then re-check status.
 6. Continue until the plan is complete, genuinely blocked, or diverged and needs user/plan reconciliation.
@@ -27,10 +27,10 @@ Use this skill as the main agent/controller for a PlanWeave package. Do not impl
 ## Routing
 
 - Treat PlanWeave skills as execution roles. The coordinator owns routing and must tell each subagent which skill to use.
-- Use `plan-runner` for one implementation/check block.
+- Use `plan-runner` for one implementation block.
 - Use `plan-reviewer` for one review gate.
 - Use `plan-recovery` for doctor findings, stale current refs, orphan results, state/index drift, blocked/diverged work, or submit retry confusion.
-- If no subagents are available and the work is small, run a single implementation/check block with `plan-runner`.
+- If no subagents are available and the work is small, run a single implementation block with `plan-runner`.
 - Do not send review gates to implementation agents.
 - Do not send recovery work to normal implementation agents.
 

@@ -1,11 +1,11 @@
 ---
 name: plan-runner
-description: Execute one assigned PlanWeave implementation or check block with scoped code changes, validation, and a completion report. Use when a coordinator assigns a specific implementation/check ref, prompt, scope, and reporting expectation.
+description: Execute one assigned PlanWeave implementation block with scoped code changes, validation, and a completion report. Use when a coordinator assigns a specific implementation ref, prompt, scope, and reporting expectation.
 ---
 
 # Plan Runner
 
-Use this skill after the coordinator assigns one implementation/check block. Focus on completing that block precisely; do not schedule, discover, or repair PlanWeave state.
+Use this skill after the coordinator assigns one implementation block. Focus on completing that block precisely; do not schedule, discover, or repair PlanWeave state.
 
 ## Required Packet
 
@@ -22,7 +22,7 @@ If any required item is missing, ask the coordinator for it instead of claiming 
 
 ## Execution Loop
 
-1. Confirm the assigned ref is implementation/check work.
+1. Confirm the assigned ref is implementation work.
 2. If ownership is `already claimed`, do not run `claim` or `claim-next`.
 3. If ownership is `claim required`, claim only the exact assigned ref/task and stop if a different ref is returned.
 4. Read the rendered prompt and referenced files.

@@ -21,8 +21,8 @@ describe("agent skill contract docs", () => {
   it("documents importer task-only defaults, prompt placement, and canvas/review strategy", async () => {
     const skill = await readFile(join(repoRoot, "skills/plan-importer/SKILL.md"), "utf8");
 
-    expect(skill).toContain("Do not create context nodes by default.");
-    expect(skill).toContain("Create context nodes only when the user explicitly asks for them.");
+    expect(skill).toContain("Do not create context nodes.");
+    expect(skill).toContain("Put goals, requirements, constraints, risks, references, and architecture gates into project/global prompt");
     expect(skill).toContain("Do not write rendered prompt output back into source prompt files.");
     expect(skill).toContain("Prompt Placement");
     expect(skill).toContain("100+ tasks/nodes");
@@ -64,7 +64,7 @@ describe("agent skill contract docs", () => {
     expect(coordinator).toContain("Run preflight: confirm `PLANWEAVE_HOME`, project id, package/canvas paths");
     expect(coordinator).toContain("Treat PlanWeave skills as execution roles.");
     expect(coordinator).toContain("Use skill: plan-runner");
-    expect(coordinator).toContain("Use `plan-runner` for one implementation/check block.");
+    expect(coordinator).toContain("Use `plan-runner` for one implementation block.");
     expect(coordinator).toContain("Use `plan-reviewer` for one review gate.");
     expect(coordinator).toContain("Use `plan-recovery` for doctor findings");
     expect(coordinator).toContain("claim ownership: `already claimed` or `claim required`");
@@ -81,10 +81,10 @@ describe("agent skill contract docs", () => {
     expect(recovery).toContain("verdict: `RECOVERED`, `NEEDS_PLAN_UPDATE`, or `BLOCKED`.");
   });
 
-  it("documents runner as assigned implementation/check block execution", async () => {
+  it("documents runner as assigned implementation block execution", async () => {
     const skill = await readFile(join(repoRoot, "skills/plan-runner/SKILL.md"), "utf8");
 
-    expect(skill).toContain("Use this skill after the coordinator assigns one implementation/check block.");
+    expect(skill).toContain("Use this skill after the coordinator assigns one implementation block.");
     expect(skill).toContain("Focus on completing that block precisely");
     expect(skill).toContain("If any required item is missing, ask the coordinator for it instead of claiming other work.");
     expect(skill).toContain("Do not execute review gates; use `plan-reviewer`.");

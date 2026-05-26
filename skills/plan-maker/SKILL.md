@@ -82,7 +82,7 @@ For each task include:
 ## Rules
 
 - This skill produces a plan draft, not runtime state.
-- Do not create context nodes by default; place context in prompts, acceptance, or references.
+- Do not create context nodes; place context in prompts, acceptance, or references.
 - Do not create `feedback` blocks; feedback is runtime state.
 - Do not write package files, run `planweave init`, or submit work unless the user explicitly asks to materialize or execute the plan.
 - If the draft is intended for execution, recommend auditing it before import when risk is high.

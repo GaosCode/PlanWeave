@@ -33,8 +33,8 @@ Write examples as `<pw> ...`, where `<pw>` is the resolved command.
 
 1. Scan README, planning docs, ADRs, issues, specs, domain notes, and referenced source files.
 2. Record the scanned source list before writing.
-3. Extract executable Task Nodes and Blocks; default to task-only graph nodes.
-4. Do not create context nodes by default. Put goals, requirements, constraints, risks, references, and architecture gates into project/global prompt, task acceptance, task prompt, or block prompt. Create context nodes only when the user explicitly asks for them.
+3. Extract executable Task Nodes and Blocks; graph nodes are task-only.
+4. Do not create context nodes. Put goals, requirements, constraints, risks, references, and architecture gates into project/global prompt, task acceptance, task prompt, or block prompt.
 5. Run the Plan Quality Gate below before writing. Build a coverage map: each task has concrete acceptance, each block has verifiable done criteria, and key requirements have an explicit prompt placement.
 6. Run `<pw> init --json`, then write `manifest.json`, task prompts, and block prompts under the returned package directory.
 7. Run `<pw> validate --json`; fix validation errors and weak importer-created coverage.
@@ -67,7 +67,7 @@ Write examples as `<pw> ...`, where `<pw>` is the resolved command.
 
 - Do not split for the sake of splitting. Split by data flow, ownership boundary, dependency, risk, or independently verifiable acceptance.
 - Merge tasks that are too small to claim, test, or report independently.
-- Prefer `implementation` blocks for work and `check` blocks for explicit verification work.
+- Use `implementation` blocks for executable work and encode explicit verification in done criteria, validation commands, or review gates.
 - Add review blocks only for complex code, cross-contract changes, database/schema migration, provider integration, security/privacy, architecture changes, or high-risk user-visible behavior.
 - Do not add review blocks for simple docs, config tweaks, local copy edits, or low-risk single-file changes unless the user asks.
 
@@ -81,7 +81,7 @@ Write examples as `<pw> ...`, where `<pw>` is the resolved command.
 
 ## Block Shape
 
-Each block needs `id`, `type`, `title`, `prompt`, `depends_on`, parallel safety/locks, done criteria, validation, and report expectations. If review is justified, add `R-001` after implementation/check blocks with `review.required: true` and a clear review prompt.
+Each block needs `id`, `type`, `title`, `prompt`, `depends_on`, parallel safety/locks, done criteria, validation, and report expectations. If review is justified, add `R-001` after implementation blocks with `review.required: true` and a clear review prompt.
 
 ## Rules
 

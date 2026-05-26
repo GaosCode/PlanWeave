@@ -35,12 +35,6 @@
   },
   "nodes": [
     {
-      "id": "G-001",
-      "type": "goal",
-      "title": "Exercise the PlanWeave loop",
-      "summary": "The agent should claim, execute, report, review, handle feedback, and re-review one task through CLI-backed runtime state."
-    },
-    {
       "id": "T-001",
       "type": "task",
       "title": "Implement a tiny example change",
@@ -76,11 +70,5 @@
       ]
     }
   ],
-  "edges": [
-    {
-      "from": "T-001",
-      "to": "G-001",
-      "type": "implements"
-    }
-  ]
+  "edges": []
 }
