@@ -15,6 +15,16 @@ export const planweaveHelpTopics: HelpTopic[] = [
     notes: ["Use the CLI-returned package directory as the writable Plan Package location.", "Run validate after editing manifest or prompt sources."]
   },
   {
+    name: "schema",
+    summary: "Navigate PlanWeave manifest, state, and desktop layout schemas.",
+    commands: ["schema", "schema manifest", "schema state", "schema layout", "schema all"],
+    notes: [
+      "help schema is a short navigation topic; use planweave schema <topic> for the full schema.",
+      "Do not hand-author manifest, state, or layout from memory.",
+      "Manifest and prompt sources are editable; state and layout are runtime/desktop owned."
+    ]
+  },
+  {
     name: "plan",
     summary: "Inspect and refresh plan prompt surfaces without changing source prompts.",
     commands: ["refresh-prompt <block-ref>", "refresh-prompts", "prompt <block-ref>"],

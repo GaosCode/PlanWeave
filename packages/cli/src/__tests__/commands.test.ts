@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createProgram } from "../index.js";
 import { formatClaimHint } from "../commands/status.js";
 import { formatPlanweaveHelp, planweaveHelpTopics } from "../commands/help.js";
+import { formatSchemaHelp, schemaDocuments } from "../commands/schema.js";
 
 function commandOptionLongs(name: string): string[] {
   const command = createProgram().commands.find((item) => item.name() === name);
@@ -32,6 +33,7 @@ describe("planweave CLI contract", () => {
         "run",
         "executors",
         "run-status",
+        "schema",
         "help"
       ])
     );
@@ -50,17 +52,33 @@ describe("planweave CLI contract", () => {
     expect(commandOptionLongs("unblock")).toContain("--reason");
     expect(commandOptionLongs("run")).toEqual(expect.arrayContaining(["--once", "--parallel", "--executor", "--json"]));
     expect(commandOptionLongs("run-status")).toContain("--json");
+    expect(commandOptionLongs("schema")).toContain("--json");
     expect(commandOptionLongs("help")).toContain("--json");
   });
 
   it("prints PlanWeave-specific help topics for agent CLI workflows", () => {
-    expect(planweaveHelpTopics.map((topic) => topic.name)).toEqual(["setup", "plan", "work", "submit", "explain", "recovery", "autorun"]);
+    expect(planweaveHelpTopics.map((topic) => topic.name)).toEqual(["setup", "schema", "plan", "work", "submit", "explain", "recovery", "autorun"]);
     expect(formatPlanweaveHelp()).toContain("Common agent loop:");
+    expect(formatPlanweaveHelp("schema")).toContain("planweave schema manifest");
+    expect(formatPlanweaveHelp("schema")).toContain("Do not hand-author manifest, state, or layout from memory.");
     expect(formatPlanweaveHelp("work")).toContain("planweave claim-next --parallel --dry-run");
     expect(formatPlanweaveHelp("submit")).toContain("planweave submit-review <review-block-ref> --result <review-result.json>");
     expect(formatPlanweaveHelp("recovery")).toContain("planweave doctor --repair");
     expect(formatPlanweaveHelp("recovery")).toContain("Doctor checks state/results consistency; it is not a general Plan Package repair tool.");
     expect(formatPlanweaveHelp("recovery")).toContain("Fix bad dependencies, unsafe parallelization, missing prompts, or review-gate design");
+  });
+
+  it("prints focused schema navigation and full schema topics", () => {
+    expect(formatSchemaHelp()).toContain("Use `planweave schema <topic>`");
+    expect(formatSchemaHelp()).toContain("planweave schema manifest");
+    expect(formatSchemaHelp("manifest")).toContain('"plan-package/v1"');
+    expect(formatSchemaHelp("manifest")).toContain("Only task nodes are supported");
+    expect(formatSchemaHelp("manifest")).toContain("Only implementation and review block types are supported.");
+    expect(formatSchemaHelp("state")).toContain('"planned"');
+    expect(formatSchemaHelp("state")).toContain('"implemented"');
+    expect(formatSchemaHelp("layout")).toContain('"desktop-layout/v1"');
+    expect(formatSchemaHelp("all")).toContain("manifest: Plan Package source graph schema.");
+    expect(schemaDocuments.manifest.schema).toHaveProperty("nodes");
   });
 
   it("prints claim hint status reasons", () => {

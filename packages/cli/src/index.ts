@@ -25,6 +25,7 @@ import { registerRunCommand } from "./commands/run.js";
 import { registerExecutorsCommand } from "./commands/executors.js";
 import { registerRunStatusCommand } from "./commands/runStatus.js";
 import { registerHelpCommand } from "./commands/help.js";
+import { registerSchemaCommand } from "./commands/schema.js";
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json") as { version: string };
@@ -61,6 +62,7 @@ export function createProgram(): Command {
   registerRunCommand(program);
   registerExecutorsCommand(program);
   registerRunStatusCommand(program);
+  registerSchemaCommand(program);
   registerHelpCommand(program);
 
   return program;
