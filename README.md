@@ -13,11 +13,11 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.0.0-orange" />
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f" />
-  <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178c6" />
-  <img alt="runtime" src="https://img.shields.io/badge/runtime-Node.js-43853d" />
-  <img alt="desktop" src="https://img.shields.io/badge/desktop-Electron-47848f" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.0.0-orange?style=for-the-badge" />
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-yellow.svg?style=for-the-badge" />
+  <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178c6?style=for-the-badge" />
+  <img alt="runtime" src="https://img.shields.io/badge/runtime-Node.js-43853d?style=for-the-badge" />
+  <img alt="desktop" src="https://img.shields.io/badge/desktop-Electron-47848f?style=for-the-badge" />
 </p>
 
 

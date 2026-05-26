@@ -7,23 +7,23 @@
 <p align="center">
   PlanWeave 是一个文件驱动的协调系统，可以把项目计划转化为可领取、可评审、可恢复的任务，并交给本地或远端 Coding Agent 协作完成。
 </p>
+<p align="center">
+  <img src="assets/planweave-readme-animation.svg" width="860" alt="PlanWeave 品牌动效。" />
+</p>
 
 <p align="center">
   <a href="../README.md">English README</a>
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.0.0-orange" />
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f" />
-  <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178c6" />
-  <img alt="runtime" src="https://img.shields.io/badge/runtime-Node.js-43853d" />
-  <img alt="desktop" src="https://img.shields.io/badge/desktop-Electron-47848f" />
-  <img alt="agents" src="https://img.shields.io/badge/agents-Codex%20%7C%20OpenCode-6f42c1" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.0.0-orange?style=for-the-badge" />
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-yellow.svg?style=for-the-badge" />
+  <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178c6?style=for-the-badge" />
+  <img alt="runtime" src="https://img.shields.io/badge/runtime-Node.js-43853d?style=for-the-badge" />
+  <img alt="desktop" src="https://img.shields.io/badge/desktop-Electron-47848f?style=for-the-badge" />
+  <img alt="agents" src="https://img.shields.io/badge/agents-Codex%20%7C%20OpenCode-6f42c1?style=for-the-badge" />
 </p>
 
-<p align="center">
-  <img src="assets/planweave-readme-animation.svg" width="860" alt="PlanWeave 品牌动效。" />
-</p>
 
 ## PlanWeave 是什么
 
