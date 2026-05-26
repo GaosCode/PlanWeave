@@ -2,6 +2,8 @@ import { access, mkdir, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { claimNext, getExecutionStatus, resetMaxCycleReviewsForRetry, submitBlockResult, submitFeedback, submitReviewResult } from "../taskManager/index.js";
+import { loadRuntime } from "../taskManager/runtimeContext.js";
+import { computeWorkRevision } from "../taskManager/selectors.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import type { TaskResultIndex } from "../types.js";
 import { basicManifest, createTestWorkspace, writeReport, writeReviewResult } from "./promptTestHelpers.js";
@@ -10,6 +12,11 @@ async function completeImplementation(root: string): Promise<void> {
   await claimNext({ projectRoot: root });
   await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
   await claimNext({ projectRoot: root });
+}
+
+async function readWorkRevision(root: string, reviewBlockRef = "T-001#R-001"): Promise<string> {
+  const { graph, state } = await loadRuntime({ projectRoot: root });
+  return computeWorkRevision(graph, state, reviewBlockRef);
 }
 
 describe("submitReviewResult", () => {
@@ -47,7 +54,7 @@ describe("submitReviewResult", () => {
     await writeJsonFile(join(attemptDir, "metadata.json"), {
       reviewBlockRef: "T-001#R-001",
       attemptId: "REV-001",
-      reviewedWorkRevision: "rev-placeholder",
+      reviewedWorkRevision: await readWorkRevision(root),
       sourceResultPath: resultPath,
       reviewedAt: "2026-05-25T00:00:00.000Z"
     });
@@ -174,8 +181,8 @@ describe("submitReviewResult", () => {
     expect(taskIndex.reviewCompletionReasonByBlock?.["T-001#R-001"]).toBeUndefined();
   });
 
-  it("does not advance review state when retrying stale needs_changes after re-review is claimed", async () => {
-    const { root, init } = await createTestWorkspace();
+  it("creates a new feedback cycle when re-review reuses the same result path and content", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ reviewMaxFeedbackCycles: 2 }));
     await completeImplementation(root);
     const resultPath = await writeReviewResult(root, "needs_changes", "Fix the edge case.");
 
@@ -183,31 +190,39 @@ describe("submitReviewResult", () => {
     await claimNext({ projectRoot: root });
     await submitFeedback({ projectRoot: root, reportPath: await writeReport(root, "feedback.md", "Fixed edge case.\n") });
     await claimNext({ projectRoot: root });
-    const retry = await submitReviewResult({ projectRoot: root, ref: "T-001#R-001", resultPath });
+    const second = await submitReviewResult({ projectRoot: root, ref: "T-001#R-001", resultPath });
     const status = await getExecutionStatus({ projectRoot: root });
     const taskIndex = await readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"));
 
-    expect(retry).toEqual(first);
-    expect(status.currentRefs).toEqual(["T-001#R-001"]);
-    expect(status.currentFeedbackId).toBeNull();
+    expect(first).toMatchObject({ reviewAttemptId: "REV-001", feedbackId: "FE-001", status: "in_progress" });
+    expect(second).toMatchObject({ reviewAttemptId: "REV-002", feedbackId: "FE-002", status: "in_progress" });
+    expect(status.currentRefs).toEqual([]);
+    expect(status.currentFeedbackId).toBe("FE-002");
+    expect(status.openFeedback).toEqual([{ feedbackId: "FE-002", sourceReviewBlockRef: "T-001#R-001", status: "open" }]);
     expect(status.blocks.find((block) => block.ref === "T-001#R-001")).toMatchObject({
       status: "in_progress",
-      latestReviewAttemptId: "REV-001",
-      activeFeedbackId: null,
+      latestReviewAttemptId: "REV-002",
+      activeFeedbackId: "FE-002",
       completionReason: null
     });
-    expect(status.warnings.map((warning) => warning.code)).not.toContain("review_max_cycles_reached");
-    await expect(access(join(init.workspace.resultsDir, "T-001", "reviews", "R-001", "attempts", "REV-002"))).rejects.toThrow();
-    await expect(access(join(init.workspace.resultsDir, "T-001", "feedback", "FE-002"))).rejects.toThrow();
-    expect(taskIndex.latestReviewAttemptByBlock).toMatchObject({ "T-001#R-001": "REV-001" });
-    expect(taskIndex.latestFeedbackByReviewBlock).toMatchObject({ "T-001#R-001": "FE-001" });
-    expect(taskIndex.feedbackStatusById).toMatchObject({ "FE-001": "resolved" });
-    expect(taskIndex.counts).toMatchObject({ runs: 1, reviewAttempts: 1, feedbackEnvelopes: 1, feedbackSubmissions: 1 });
+    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "feedback", "FE-001", "feedback.json"))).resolves.toMatchObject({
+      status: "resolved",
+      sourceReviewAttemptId: "REV-001",
+      latestSubmissionId: "FS-001"
+    });
+    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "feedback", "FE-002", "feedback.json"))).resolves.toMatchObject({
+      status: "open",
+      sourceReviewAttemptId: "REV-002"
+    });
+    expect(taskIndex.latestReviewAttemptByBlock).toMatchObject({ "T-001#R-001": "REV-002" });
+    expect(taskIndex.latestFeedbackByReviewBlock).toMatchObject({ "T-001#R-001": "FE-002" });
+    expect(taskIndex.feedbackStatusById).toMatchObject({ "FE-001": "resolved", "FE-002": "open" });
+    expect(taskIndex.counts).toMatchObject({ runs: 1, reviewAttempts: 2, feedbackEnvelopes: 2, feedbackSubmissions: 1 });
     expect(taskIndex.reviewCompletionReasonByBlock?.["T-001#R-001"]).toBeUndefined();
   });
 
-  it("does not advance review state when retrying rewritten same-hash needs_changes after re-review is claimed", async () => {
-    const { root, init } = await createTestWorkspace();
+  it("creates a new feedback cycle when a fixed-path re-review rewrites the same needs_changes content", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ reviewMaxFeedbackCycles: 2 }));
     await completeImplementation(root);
     const resultPath = await writeReviewResult(root, "needs_changes", "Fix the edge case.");
 
@@ -228,25 +243,34 @@ describe("submitReviewResult", () => {
     const future = new Date(Date.now() + 10_000);
     await utimes(resultPath, future, future);
 
-    const retry = await submitReviewResult({ projectRoot: root, ref: "T-001#R-001", resultPath });
+    const second = await submitReviewResult({ projectRoot: root, ref: "T-001#R-001", resultPath });
     const status = await getExecutionStatus({ projectRoot: root });
     const taskIndex = await readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"));
 
-    expect(retry).toEqual(first);
-    expect(status.currentRefs).toEqual(["T-001#R-001"]);
-    expect(status.currentFeedbackId).toBeNull();
+    expect(first).toMatchObject({ reviewAttemptId: "REV-001", feedbackId: "FE-001", status: "in_progress" });
+    expect(second).toMatchObject({ reviewAttemptId: "REV-002", feedbackId: "FE-002", status: "in_progress" });
+    expect(status.currentRefs).toEqual([]);
+    expect(status.currentFeedbackId).toBe("FE-002");
+    expect(status.openFeedback).toEqual([{ feedbackId: "FE-002", sourceReviewBlockRef: "T-001#R-001", status: "open" }]);
     expect(status.blocks.find((block) => block.ref === "T-001#R-001")).toMatchObject({
       status: "in_progress",
-      latestReviewAttemptId: "REV-001",
-      activeFeedbackId: null,
+      latestReviewAttemptId: "REV-002",
+      activeFeedbackId: "FE-002",
       completionReason: null
     });
-    await expect(access(join(init.workspace.resultsDir, "T-001", "reviews", "R-001", "attempts", "REV-002"))).rejects.toThrow();
-    await expect(access(join(init.workspace.resultsDir, "T-001", "feedback", "FE-002"))).rejects.toThrow();
-    expect(taskIndex.latestReviewAttemptByBlock).toMatchObject({ "T-001#R-001": "REV-001" });
-    expect(taskIndex.latestFeedbackByReviewBlock).toMatchObject({ "T-001#R-001": "FE-001" });
-    expect(taskIndex.feedbackStatusById).toMatchObject({ "FE-001": "resolved" });
-    expect(taskIndex.counts).toMatchObject({ runs: 1, reviewAttempts: 1, feedbackEnvelopes: 1, feedbackSubmissions: 1 });
+    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "feedback", "FE-001", "feedback.json"))).resolves.toMatchObject({
+      status: "resolved",
+      sourceReviewAttemptId: "REV-001",
+      latestSubmissionId: "FS-001"
+    });
+    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "feedback", "FE-002", "feedback.json"))).resolves.toMatchObject({
+      status: "open",
+      sourceReviewAttemptId: "REV-002"
+    });
+    expect(taskIndex.latestReviewAttemptByBlock).toMatchObject({ "T-001#R-001": "REV-002" });
+    expect(taskIndex.latestFeedbackByReviewBlock).toMatchObject({ "T-001#R-001": "FE-002" });
+    expect(taskIndex.feedbackStatusById).toMatchObject({ "FE-001": "resolved", "FE-002": "open" });
+    expect(taskIndex.counts).toMatchObject({ runs: 1, reviewAttempts: 2, feedbackEnvelopes: 2, feedbackSubmissions: 1 });
     expect(taskIndex.reviewCompletionReasonByBlock?.["T-001#R-001"]).toBeUndefined();
   });
 

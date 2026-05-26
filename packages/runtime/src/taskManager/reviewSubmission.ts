@@ -346,7 +346,6 @@ export async function submitReviewResult(options: {
     throw new Error(`Review block '${options.ref}' must be in_progress before submit-review.`);
   }
   const workRevision = computeWorkRevision(graph, state, options.ref);
-  const sourceResultPath = resolve(options.resultPath);
   const persistedAttempt = await findPersistedReviewAttempt({ workspace, reviewBlockRef: options.ref, resultHash });
   const persistedAttemptId = persistedAttempt?.attemptId ?? null;
   const persistedFeedback =
@@ -358,9 +357,13 @@ export async function submitReviewResult(options: {
       ? await reviewCompletionReasonForAttempt({ workspace, taskId, reviewBlockRef: options.ref, attemptId: persistedAttemptId })
       : null;
   const persistedFeedbackIsActive = persistedFeedback ? isActiveFeedbackStatus(persistedFeedback.status) : false;
-  const shouldReusePersistedAttempt =
-    persistedAttemptId !== null &&
-    (persistedAttempt?.reviewedWorkRevision === workRevision || persistedAttempt?.sourceResultPath === sourceResultPath);
+  const isSameWorkRevision = persistedAttempt?.reviewedWorkRevision === workRevision;
+  const isCurrentFeedbackRetry =
+    parsed.verdict === "needs_changes" &&
+    persistedFeedback !== null &&
+    state.currentFeedbackId === persistedFeedback.feedbackId &&
+    state.currentReviewBlockRef === options.ref;
+  const shouldReusePersistedAttempt = persistedAttemptId !== null && (isSameWorkRevision || isCurrentFeedbackRetry);
   const attemptId =
     shouldReusePersistedAttempt && persistedAttemptId
       ? persistedAttemptId
