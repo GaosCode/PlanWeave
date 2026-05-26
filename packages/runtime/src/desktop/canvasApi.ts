@@ -9,25 +9,10 @@ import { manifestSchema } from "../schema/manifest.js";
 import { createEmptyState } from "../state.js";
 import type { PlanPackageManifest, ProjectWorkspace } from "../types.js";
 import { canvasDiagnostics } from "./canvasDiagnostics.js";
+import { normalizeRegistry, registryVersion, type TaskCanvasRecord, type TaskCanvasRegistry } from "./canvasRegistry.js";
 import type { DesktopTaskCanvasSummary } from "./types.js";
 
-const registryVersion = "desktop-canvases/v1" as const;
 const defaultCanvasId = "default";
-
-type TaskCanvasRecord = {
-  canvasId: string;
-  name: string;
-  packageDir: string;
-  stateFile: string;
-  resultsDir: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type TaskCanvasRegistry = {
-  version: typeof registryVersion;
-  canvases: TaskCanvasRecord[];
-};
 
 export type DesktopTaskCanvasWorkspace = {
   canvasId: string;
@@ -97,11 +82,7 @@ async function readRegistry(
     await writeJsonFile(path, registry);
     return { projectWorkspace, registry };
   }
-  const registry = await readJsonFile<TaskCanvasRegistry>(path);
-  if (registry.version !== registryVersion) {
-    throw new Error(`Unsupported task canvas registry '${registry.version}'.`);
-  }
-  return { projectWorkspace, registry };
+  return { projectWorkspace, registry: normalizeRegistry(await readJsonFile<unknown>(path)) };
 }
 
 async function writeRegistry(workspace: ProjectWorkspace, registry: TaskCanvasRegistry): Promise<void> {
@@ -131,6 +112,13 @@ function requireCanvasRecord(registry: TaskCanvasRegistry, canvasId: string): Ta
     throw new Error(`Task canvas '${canvasId}' does not exist.`);
   }
   return record;
+}
+
+function selectedCanvasRecord(registry: TaskCanvasRegistry, canvasId?: string | null): TaskCanvasRecord | undefined {
+  if (canvasId) {
+    return requireCanvasRecord(registry, canvasId);
+  }
+  return registry.activeCanvasId ? requireCanvasRecord(registry, registry.activeCanvasId) : registry.canvases[0];
 }
 
 async function taskCount(workspace: ProjectWorkspace): Promise<number> {
@@ -197,7 +185,7 @@ export async function listTaskCanvasWorkspaces(
 
 export async function resolveTaskCanvasWorkspace(projectRoot: string, canvasId?: string | null): Promise<ProjectWorkspace> {
   const { projectWorkspace, registry } = await readRegistry(projectRoot);
-  const record = canvasId ? requireCanvasRecord(registry, canvasId) : registry.canvases[0];
+  const record = selectedCanvasRecord(registry, canvasId);
   if (!record) {
     throw new Error("Project has no task canvas.");
   }

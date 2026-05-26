@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, resolve } from "node:path";
+import { resolveTaskCanvasWorkspace } from "./desktop/canvasApi.js";
 import { resolveProjectWorkspace } from "./project.js";
 import type { ProjectPathsResult } from "./types.js";
 
@@ -10,17 +11,18 @@ export function resolvePlanweaveHome(): string {
 }
 
 export async function readProjectPaths(projectRoot: string): Promise<ProjectPathsResult> {
-  const workspace = await resolveProjectWorkspace(projectRoot);
+  const projectWorkspace = await resolveProjectWorkspace(projectRoot);
   try {
-    await access(workspace.projectFile, constants.R_OK);
+    await access(projectWorkspace.projectFile, constants.R_OK);
   } catch {
-    throw new Error(`PlanWeave workspace for project '${workspace.rootPath}' has not been initialized.`);
+    throw new Error(`PlanWeave workspace for project '${projectWorkspace.rootPath}' has not been initialized.`);
   }
+  const workspace = await resolveTaskCanvasWorkspace(projectRoot);
 
   return {
     workspaceDir: resolvePlanweaveHome(),
     projectId: workspace.id,
-    projectDir: workspace.workspaceRoot,
+    projectDir: projectWorkspace.workspaceRoot,
     packageDir: workspace.packageDir,
     statePath: workspace.stateFile,
     resultsDir: workspace.resultsDir

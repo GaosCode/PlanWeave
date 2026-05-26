@@ -1,6 +1,6 @@
 import { join } from "node:path";
+import { resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
 import { readJsonFile } from "../json.js";
-import { resolveProjectWorkspace } from "../project.js";
 import { manifestSchema } from "../schema/manifest.js";
 import type { PackageWorkspaceRef, PlanPackageManifest, ProjectWorkspace } from "../types.js";
 
@@ -10,7 +10,7 @@ export type LoadedPlanPackage = {
 };
 
 export async function resolvePackageWorkspace(workspaceRef: PackageWorkspaceRef): Promise<ProjectWorkspace> {
-  return typeof workspaceRef === "string" ? resolveProjectWorkspace(workspaceRef) : workspaceRef;
+  return typeof workspaceRef === "string" ? resolveTaskCanvasWorkspace(workspaceRef) : workspaceRef;
 }
 
 export async function loadPackage(workspaceRef: PackageWorkspaceRef): Promise<LoadedPlanPackage> {

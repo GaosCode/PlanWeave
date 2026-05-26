@@ -13,8 +13,10 @@ import {
   saveDesktopLayout,
   searchProject
 } from "../desktop/index.js";
-import { writeJsonFile } from "../json.js";
-import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
+import { readJsonFile, writeJsonFile } from "../json.js";
+import { readProjectPaths } from "../paths.js";
+import { claimNext, getCurrentWork, getExecutionStatus } from "../taskManager/index.js";
+import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
@@ -121,5 +123,69 @@ describe("desktop task canvas API", () => {
       missingPromptCount: 3,
       diagnostics: expect.arrayContaining([expect.objectContaining({ code: "prompt_missing" })])
     });
+  });
+
+  it("loads legacy canvas registry records with id and inferred state paths", async () => {
+    const { root, init } = await createTestWorkspace();
+    const manifest = basicManifest();
+    const legacyPackageDir = join(init.workspace.workspaceRoot, "canvases", "legacy-import", "package");
+    await writeJsonFile(join(legacyPackageDir, "manifest.json"), manifest);
+    await writePromptFiles(legacyPackageDir, manifest);
+    await writeJsonFile(join(init.workspace.workspaceRoot, "desktop", "canvases.json"), {
+      version: "desktop-canvases/v1",
+      canvases: [
+        {
+          id: "legacy-import",
+          name: "Legacy imported canvas",
+          packageDir: "canvases/legacy-import/package",
+          createdAt: "2026-05-26T00:00:00.000Z",
+          updatedAt: "2026-05-26T00:00:00.000Z"
+        }
+      ]
+    });
+
+    const canvases = await listTaskCanvases(root);
+    const workspace = await resolveTaskCanvasWorkspace(root, "legacy-import");
+
+    expect(canvases).toEqual([
+      expect.objectContaining({
+        canvasId: "legacy-import",
+        name: "Legacy imported canvas",
+        taskCount: 1
+      })
+    ]);
+    expect(workspace.stateFile).toBe(join(init.workspace.workspaceRoot, "canvases", "legacy-import", "state.json"));
+    expect(workspace.resultsDir).toBe(join(init.workspace.workspaceRoot, "canvases", "legacy-import", "results"));
+  });
+
+  it("uses the active canvas for CLI-style package resolution", async () => {
+    const { root, init } = await createTestWorkspace();
+    const secondCanvas = await createTaskCanvas(root, { name: "Active plan" });
+    const secondWorkspace = await resolveTaskCanvasWorkspace(root, secondCanvas.canvasId);
+    await addTaskNode(secondWorkspace, {
+      title: "Active canvas work",
+      promptMarkdown: "# Active canvas prompt\n",
+      acceptance: ["Active canvas work is claimed through the CLI root."],
+      blockTypes: ["implementation"],
+      executor: "manual"
+    });
+    const registryPath = join(init.workspace.workspaceRoot, "desktop", "canvases.json");
+    const registry = await readJsonFile<Record<string, unknown>>(registryPath);
+    await writeJsonFile(registryPath, { ...registry, activeCanvasId: secondCanvas.canvasId });
+
+    const activeWorkspace = await resolveTaskCanvasWorkspace(root);
+    const paths = await readProjectPaths(root);
+    const status = await getExecutionStatus({ projectRoot: root });
+    const claim = await claimNext({ projectRoot: root });
+    const current = await getCurrentWork({ projectRoot: root });
+
+    expect(activeWorkspace.packageDir).toBe(secondWorkspace.packageDir);
+    expect(paths.projectDir).toBe(init.workspace.workspaceRoot);
+    expect(paths.packageDir).toBe(secondWorkspace.packageDir);
+    expect(paths.statePath).toBe(secondWorkspace.stateFile);
+    expect(paths.resultsDir).toBe(secondWorkspace.resultsDir);
+    expect(status.nextClaimable).toEqual(["T-ACTIVE-CANVAS-WORK#B-001"]);
+    expect(claim).toMatchObject({ kind: "block", ref: "T-ACTIVE-CANVAS-WORK#B-001" });
+    expect(current.owner).toMatchObject({ canvasId: secondCanvas.canvasId, taskIds: ["T-ACTIVE-CANVAS-WORK"] });
   });
 });
