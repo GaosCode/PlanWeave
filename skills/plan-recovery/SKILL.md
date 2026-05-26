@@ -20,7 +20,7 @@ Use this skill for abnormal PlanWeave execution state. Do not perform normal imp
 
 - `doctor` detects narrow runtime state/results consistency issues such as stale current refs, orphan results, and state/index run drift.
 - `doctor --repair` is not a general plan repair tool.
-- Do not use doctor to fix bad dependencies, unsafe parallelization, missing prompts, wrong review-gate design, or unclear task/block granularity.
+- Do not use doctor to fix bad dependencies, unsafe parallelization, missing prompts, wrong review-gate design, unclear task/block granularity, or schema-invalid package structure.
 - For plan defects, report `NEEDS_PLAN_UPDATE` and guide manual edits to the Plan Package, prompts, dependencies, or review gates.
 
 ## Diagnose First
@@ -52,7 +52,7 @@ Check:
 
 Direct file inspection is allowed when CLI output contradicts files:
 
-- read `package/manifest.json`, source prompts, `state.json`, and `results/`.
+- read `package/manifest.json`, source prompts, `state.json`, `results/`, and `planweave schema manifest/state/layout` when structure is suspect.
 - verify metadata belongs to the same task/block/run before trusting indexes.
 - do not edit `state.json` or `results/` directly unless CLI repair cannot express the fix and the user accepts the risk.
 - preserve evidence paths and explain why CLI write-back was unavailable.

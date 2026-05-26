@@ -9,7 +9,7 @@ Use this skill to audit an existing PlanWeave plan. Do not import a new plan, ex
 
 ## Quick Start
 1. Find the authority sources: user request, PRD, schema, design docs, current code, and the PlanWeave package.
-2. Read `manifest.json`, source prompts, task/block definitions, canvas structure, dependencies, and validation output when available.
+2. Read `manifest.json`, source prompts, task/block definitions, canvas structure, dependencies, validation output, and `planweave schema` output when available.
 3. Compare the plan against real goals, object lifecycles, contracts, execution order, prompts, failure paths, and verification criteria.
 4. Report a verdict first: `PASS`, `NEEDS_REVISION`, or `BLOCKED`.
 5. List findings by severity, with evidence and concrete plan changes.
@@ -76,6 +76,7 @@ Use this skill to audit an existing PlanWeave plan. Do not import a new plan, ex
 
 ### PlanWeave Executability
 - Check whether PlanWeave can actually run the plan: prompts exist, blocks can be claimed, dependencies unlock, reviews can be submitted, prompt sources are editable, and canvas order is clear.
+- Compare suspicious manifest/state/layout structure against `planweave schema manifest`, `planweave schema state`, and `planweave schema layout`.
 - Separate plan design defects from PlanWeave toolchain defects.
 
 ## Finding Format

@@ -1,6 +1,6 @@
 ---
 name: plan-importer
-description: Generate a block-level PlanWeave Plan Package from project documentation and validate it through the PlanWeave CLI. Use when importing plans, PRDs, roadmaps, issue sets, or architecture notes into a PlanWeave package.
+description: Generate a schema-checked PlanWeave Plan Package from project documentation and validate it through the PlanWeave CLI. Use when importing plans, PRDs, roadmaps, issue sets, or architecture notes into a PlanWeave package.
 ---
 
 # Plan Importer
@@ -17,6 +17,7 @@ Resolve the command before writing files:
 4. If the repo defines another local script, use that exact entry and show it in the report.
 
 Write examples as `<pw> ...`, where `<pw>` is the resolved command.
+Use `<pw> help schema` for schema navigation and `<pw> schema manifest` before writing package JSON.
 
 ## Workspace
 
@@ -36,7 +37,7 @@ Write examples as `<pw> ...`, where `<pw>` is the resolved command.
 3. Extract executable Task Nodes and Blocks; graph nodes are task-only.
 4. Do not create context nodes. Put goals, requirements, constraints, risks, references, and architecture gates into project/global prompt, task acceptance, task prompt, or block prompt.
 5. Run the Plan Quality Gate below before writing. Build a coverage map: each task has concrete acceptance, each block has verifiable done criteria, and key requirements have an explicit prompt placement.
-6. Run `<pw> init --json`, then write `manifest.json`, task prompts, and block prompts under the returned package directory.
+6. Run `<pw> init --json` and `<pw> schema manifest`, then write `manifest.json`, task prompts, and block prompts under the returned package directory.
 7. Run `<pw> validate --json`; fix validation errors and weak importer-created coverage.
 8. Output a Plan Import Report listing source docs, command entry, package path, prompt placement, canvas strategy, review strategy, and validation result.
 
@@ -86,6 +87,7 @@ Each block needs `id`, `type`, `title`, `prompt`, `depends_on`, parallel safety/
 ## Rules
 
 - Treat `package/manifest.json`, source prompts, and task/block prompt files as plan content source of truth.
+- Do not hand-author manifest, state, or layout from memory; use `<pw> schema manifest`, `<pw> schema state`, or `<pw> schema layout`.
 - Do not create `feedback` block types; feedback is runtime state.
 - Do not write implementation state into the manifest.
 - Use `state.json` only for runtime task/block/feedback state.

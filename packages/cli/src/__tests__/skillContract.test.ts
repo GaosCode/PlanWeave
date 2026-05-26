@@ -16,6 +16,8 @@ describe("agent skill contract docs", () => {
     expect(skill).toContain("<pw> paths --json");
     expect(skill).toContain("workspace.packageDir");
     expect(skill).toContain("Treat the CLI-returned package directory as the only writable Plan Package location.");
+    expect(skill).toContain("Use `<pw> help schema` for schema navigation");
+    expect(skill).toContain("<pw> schema manifest");
   });
 
   it("documents importer task-only defaults, prompt placement, and canvas/review strategy", async () => {
@@ -50,6 +52,7 @@ describe("agent skill contract docs", () => {
     expect(skill).toContain("If strong source docs exist, prefer `plan-importer` instead of this skill.");
     expect(skill).toContain("Design around core object lifecycles");
     expect(skill).toContain("Do not import other projects' skills");
+    expect(skill).toContain("Do not invent PlanWeave JSON structure");
     expect(skill).toContain("complex blocks must include architecture boundaries");
     expect(skill).toContain("## Task Graph");
     expect(skill).toContain("This skill produces a plan draft, not runtime state.");
@@ -77,6 +80,8 @@ describe("agent skill contract docs", () => {
     expect(reviewer).toContain("Do not encode blocked, diverged, missing evidence, or tool failure as a review verdict");
     expect(recovery).toContain("Do not perform normal implementation or review work.");
     expect(recovery).toContain("`doctor --repair` is not a general plan repair tool.");
+    expect(recovery).toContain("schema-invalid package structure");
+    expect(recovery).toContain("planweave schema manifest/state/layout");
     expect(recovery).toContain("For plan defects, report `NEEDS_PLAN_UPDATE`");
     expect(recovery).toContain("verdict: `RECOVERED`, `NEEDS_PLAN_UPDATE`, or `BLOCKED`.");
   });
@@ -109,6 +114,7 @@ describe("agent skill contract docs", () => {
     expect(skill).toContain("Do not import a new plan, execute blocks, repair state, or rewrite the package");
     expect(skill).toContain("Core Object Lifecycle");
     expect(skill).toContain("schema without runtime use");
+    expect(skill).toContain("Compare suspicious manifest/state/layout structure against `planweave schema manifest`");
     expect(skill).toContain("Check that prompt placement summary identifies global/project/task/block source of truth.");
     expect(skill).toContain("Flag copied skills");
     expect(skill).toContain("Separate plan design defects from PlanWeave toolchain defects.");

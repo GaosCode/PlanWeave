@@ -14,7 +14,7 @@ Use this skill to design a PlanWeave plan draft from incomplete input. Do not ex
 3. Gather lightweight context from README, current code, schemas, tests, examples, and nearby docs.
 4. Identify core objects, lifecycle stages, contracts, risks, and validation paths.
 5. Draft canvases, tasks, blocks, dependencies, prompt placement, review gates, and verification.
-6. End with open assumptions and the recommended handoff: refine with the user, audit with `plan-auditor`, or materialize with `plan-importer`.
+6. End with open assumptions and the recommended handoff: refine with the user, audit with `plan-auditor`, or materialize with `plan-importer` using `<pw> schema manifest`.
 
 ## Context Discovery
 
@@ -82,6 +82,7 @@ For each task include:
 ## Rules
 
 - This skill produces a plan draft, not runtime state.
+- Do not invent PlanWeave JSON structure; use `plan-importer` plus `planweave schema manifest` when materializing.
 - Do not create context nodes; place context in prompts, acceptance, or references.
 - Do not create `feedback` blocks; feedback is runtime state.
 - Do not write package files, run `planweave init`, or submit work unless the user explicitly asks to materialize or execute the plan.
