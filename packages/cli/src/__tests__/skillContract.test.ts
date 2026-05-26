@@ -40,6 +40,17 @@ describe("agent skill contract docs", () => {
     expect(skill).toContain("Separate plan defects from PlanWeave toolchain defects in the report.");
   });
 
+  it("documents plan-maker as a focused draft-planning skill before a package exists", async () => {
+    const skill = await readFile(join(repoRoot, "skills/plan-maker/SKILL.md"), "utf8");
+
+    expect(skill).toContain("Use when the user asks to make, draft, design, break down, or plan PlanWeave work");
+    expect(skill).toContain("Do not execute work, audit an existing package, or write a Plan Package unless the user explicitly asks.");
+    expect(skill).toContain("If strong source docs exist, prefer `plan-importer` instead of this skill.");
+    expect(skill).toContain("Design around core object lifecycles");
+    expect(skill).toContain("## Task Graph");
+    expect(skill).toContain("This skill produces a plan draft, not runtime state.");
+  });
+
   it("documents runner work kinds and recovery protocol without duplicating CLI help", async () => {
     const skill = await readFile(join(repoRoot, "skills/plan-runner/SKILL.md"), "utf8");
 

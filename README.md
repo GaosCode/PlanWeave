@@ -167,6 +167,7 @@ Each block run writes durable output under the PlanWeave workspace, including pr
 
 The repository includes focused agent skills under `skills/`:
 
+- `plan-maker`: design a PlanWeave plan draft from a fuzzy goal or sparse codebase context before a formal package exists.
 - `plan-importer`: create a PlanWeave Plan Package from project docs, with plan-quality checks before writing.
 - `plan-auditor`: review an already-authored PlanWeave plan for coverage, lifecycle gaps, contract drift, weak prompts, and unverifiable completion criteria.
 - `plan-runner`: execute already-authored PlanWeave work items. For command syntax, use `planweave help` instead of copying CLI reference into the skill.
