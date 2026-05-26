@@ -83,6 +83,7 @@ Run the CLI from this workspace:
 
 ```bash
 pnpm --filter @planweave/cli planweave --help
+pnpm --filter @planweave/cli planweave help
 ```
 
 Initialize or open a project workspace:
@@ -105,6 +106,52 @@ pnpm --filter @planweave/cli planweave status
 pnpm --filter @planweave/cli planweave run-status
 ```
 
+## CLI Help
+
+PlanWeave includes a product-level help command for agent workflows:
+
+```bash
+pnpm --filter @planweave/cli planweave help
+pnpm --filter @planweave/cli planweave help work
+pnpm --filter @planweave/cli planweave help submit
+pnpm --filter @planweave/cli planweave help recovery
+```
+
+Use `planweave --help` for the raw command list, and `planweave help <command>` for command-specific options. Use `planweave help <topic>` for workflow guidance:
+
+- `setup`: locate or initialize the PlanWeave workspace.
+- `plan`: inspect and refresh prompt surfaces.
+- `work`: inspect current work, preview claims, and claim executable blocks.
+- `submit`: submit implementation, review, and feedback results.
+- `explain`: understand why a block is or is not claimable.
+- `recovery`: diagnose blocked, diverged, or inconsistent state.
+- `autorun`: inspect executors and run controlled auto-run steps.
+
+## Agent Workflow
+
+A typical manual agent loop is:
+
+```bash
+pnpm --filter @planweave/cli planweave current
+pnpm --filter @planweave/cli planweave claim-next --dry-run
+pnpm --filter @planweave/cli planweave prompt T-001#B-001
+pnpm --filter @planweave/cli planweave submit-result T-001#B-001 --report report.md
+```
+
+For review gates, submit a structured review result:
+
+```bash
+pnpm --filter @planweave/cli planweave submit-review T-001#R-001 --result review-result.json
+```
+
+If a review returns `needs_changes`, PlanWeave creates runtime feedback work. Handle it with:
+
+```bash
+pnpm --filter @planweave/cli planweave submit-feedback --report feedback-report.md
+```
+
+When scheduling is unclear, prefer `planweave explain <ref>`, `planweave why-not <ref>`, and `planweave doctor` before editing package or state files.
+
 ## Agent Execution
 
 PlanWeave supports executor profiles, so different blocks can run through different agents or local commands. A typical graph can mix:
@@ -115,6 +162,14 @@ PlanWeave supports executor profiles, so different blocks can run through differ
 - Review-feedback loops that continue automatically when feedback is enabled.
 
 Each block run writes durable output under the PlanWeave workspace, including prompt, stdout, stderr, report, metadata, and monitor commands when available.
+
+## Agent Skills
+
+The repository includes focused agent skills under `skills/`:
+
+- `plan-importer`: create a PlanWeave Plan Package from project docs, with plan-quality checks before writing.
+- `plan-auditor`: review an already-authored PlanWeave plan for coverage, lifecycle gaps, contract drift, weak prompts, and unverifiable completion criteria.
+- `plan-runner`: execute already-authored PlanWeave work items. For command syntax, use `planweave help` instead of copying CLI reference into the skill.
 
 ## Development
 
