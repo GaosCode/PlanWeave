@@ -1,12 +1,11 @@
+<h1 align="center">PlanWeave</h1>
+
+<p align="center">
+  PlanWeave is a file-backed coordination system for turning project plans into claimable, reviewable, and recoverable work across local or remote coding agents.
+</p>
 
 <p align="center">
   <img src="readme/assets/planweave-readme-animation.svg" width="860" alt="PlanWeave brand motion." />
-</p>
-<h1 align="center">PlanWeave</h1>
-
-
-<p align="center">
-  A file-backed agent workflow canvas where tasks become nodes, docs become blocks, and the whole project stays visible to your agents.
 </p>
 
 <p align="center">
@@ -99,6 +98,8 @@ Run one automatic step:
 pnpm --filter @planweave/cli planweave run --once
 ```
 
+Auto Run is experimental. It can run the current plan with one command, but the scheduling, executor integration, and recovery behavior may still be unstable; inspect `planweave run-status` and generated run artifacts before relying on it for unattended work.
+
 Inspect execution state:
 
 ```bash
@@ -163,6 +164,14 @@ PlanWeave supports executor profiles, so different blocks can run through differ
 
 Each block run writes durable output under the PlanWeave workspace, including prompt, stdout, stderr, report, metadata, and monitor commands when available.
 
+## Future Direction
+
+PlanWeave is still early, and several directions can make plan-based agent work smoother:
+
+- **Better Auto Run UX and reliability**: make automatic execution easier to understand, monitor, pause, resume, recover, and trust, while improving scheduling correctness, failure recovery, and long-running stability.
+- **Collaborative planning board**: let multiple people edit the same task board, refine plan structure together, and turn shared planning decisions into executable blocks.
+- **Cross-host coordination**: PlanWeave already supports routing different blocks to different local agents or executor profiles. A future coordinator could let remote Agent Hosts register capabilities, claim plan blocks through leases, report heartbeats, and submit artifacts safely, making it possible to run specialized frontend, review, runtime, docs, or other agents on different machines.
+
 ## Agent Skills
 
 The repository includes focused agent skills under `skills/`:
@@ -171,9 +180,18 @@ The repository includes focused agent skills under `skills/`:
 - `plan-importer`: create a PlanWeave Plan Package from project docs, with plan-quality checks before writing.
 - `plan-auditor`: review an already-authored PlanWeave plan for coverage, lifecycle gaps, contract drift, weak prompts, and unverifiable completion criteria.
 - `plan-coordinator`: keep a full PlanWeave execution loop moving as the main agent, dispatching implementation, review, and recovery work.
-- `plan-runner`: execute one implementation/check block and produce a completion report.
+- `plan-runner`: execute one implementation block and produce a completion report.
 - `plan-reviewer`: execute one review gate and produce a structured `passed` or `needs_changes` result.
 - `plan-recovery`: diagnose and recover stale current refs, state/results drift, blocked/diverged work, and submit retry confusion.
+
+Install them with the `skills` CLI:
+
+```bash
+npx skills@latest add GaosCode/PlanWeave --list
+npx skills@latest add GaosCode/PlanWeave -g -a codex --skill '*' -y
+```
+
+The first command lists the available skills before installing. The second command installs all PlanWeave skills globally for Codex. To install into the current project instead, remove `-g`; to target OpenClaw, replace `codex` with `openclaw`. To opt out of anonymous installer telemetry, prefix the command with `DISABLE_TELEMETRY=1`.
 
 For simple tasks, one agent can use `plan-runner` directly. For larger plans, use `plan-coordinator` as the main agent and route subagent work to `plan-runner`, `plan-reviewer`, or `plan-recovery`. For command syntax, use `planweave help`.
 
