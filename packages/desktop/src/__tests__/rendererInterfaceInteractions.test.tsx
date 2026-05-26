@@ -29,11 +29,9 @@ const settings: DesktopUiSettings = {
     visible: {
       task: true,
       implementation: true,
-      check: true,
-      review: true,
-      context: true
+      review: true
     },
-    defaultBlockSet: ["implementation", "check", "review"],
+    defaultBlockSet: ["implementation", "review"],
     dragHint: true
   },
   review: {
@@ -111,7 +109,6 @@ const graph: DesktopGraphViewModel = {
       exceptions: []
     }
   ],
-  contextNodes: [],
   edges: [],
   diagnostics: [],
   dirtyPromptRefs: []
@@ -185,12 +182,12 @@ describe("desktop renderer interface interactions", () => {
     render(<ComponentPalette addPaletteComponent={addPaletteComponent} handlePaletteDragStart={handlePaletteDragStart} settings={settings} t={t} />);
 
     await userEvent.click(screen.getByRole("button", { name: "Task Node" }));
-    fireEvent.dragStart(screen.getByRole("button", { name: "Context Node" }));
+    fireEvent.dragStart(screen.getByRole("button", { name: "Review Block" }));
 
     expect(screen.getByText("Nodes")).toBeInTheDocument();
     expect(screen.getByText("Blocks")).toBeInTheDocument();
     expect(addPaletteComponent).toHaveBeenCalledWith("task");
-    expect(handlePaletteDragStart).toHaveBeenCalledWith(expect.any(Object), "context");
+    expect(handlePaletteDragStart).toHaveBeenCalledWith(expect.any(Object), "review");
   });
 
   it("shows Auto Run runtime state and dispatches scope, sync, run, and record actions", async () => {

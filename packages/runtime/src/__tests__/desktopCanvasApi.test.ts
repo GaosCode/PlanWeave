@@ -50,7 +50,7 @@ describe("desktop task canvas API", () => {
         title: "Canvas two work",
         promptMarkdown: "# Canvas two prompt\n\nUnique canvas two prompt.",
         acceptance: ["Canvas two work is represented independently."],
-        blockTypes: ["implementation", "check", "review"],
+        blockTypes: ["implementation", "review"],
         executor: "manual"
       })
     ).resolves.toMatchObject({ ok: true });
@@ -102,8 +102,8 @@ describe("desktop task canvas API", () => {
     expect(new Set(searchResults.map((result) => result.canvasId))).toEqual(new Set([secondCanvas.canvasId]));
     await expect(getStatistics(root)).resolves.toMatchObject({
       taskTotal: 2,
-      blockTotal: 6,
-      estimatedRemainingBlocks: 6
+      blockTotal: 4,
+      estimatedRemainingBlocks: 4
     });
   });
 
@@ -118,7 +118,7 @@ describe("desktop task canvas API", () => {
     expect(canvases.find((item) => item.canvasId === canvas.canvasId)).toMatchObject({
       canvasId: canvas.canvasId,
       taskCount: 1,
-      missingPromptCount: 4,
+      missingPromptCount: 3,
       diagnostics: expect.arrayContaining([expect.objectContaining({ code: "prompt_missing" })])
     });
   });

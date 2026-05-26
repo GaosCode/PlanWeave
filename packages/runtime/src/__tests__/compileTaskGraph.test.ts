@@ -6,9 +6,8 @@ describe("compileTaskGraph", () => {
   it("indexes block refs, block dependencies, and review blocks", () => {
     const graph = compileTaskGraph(basicManifest());
 
-    expect(graph.blockRefsInManifestOrder).toEqual(["T-001#B-001", "T-001#C-001", "T-001#R-001"]);
-    expect(graph.blockDependenciesByRef.get("T-001#C-001")).toEqual(["T-001#B-001"]);
-    expect(graph.blockDependenciesByRef.get("T-001#R-001")).toEqual(["T-001#C-001"]);
+    expect(graph.blockRefsInManifestOrder).toEqual(["T-001#B-001", "T-001#R-001"]);
+    expect(graph.blockDependenciesByRef.get("T-001#R-001")).toEqual(["T-001#B-001"]);
     expect(graph.reviewBlocksByTask.get("T-001")).toEqual(["T-001#R-001"]);
     expect(graph.diagnostics.errors).toEqual([]);
   });
@@ -23,7 +22,7 @@ describe("compileTaskGraph", () => {
 
     const graph = compileTaskGraph(manifest);
 
-    expect(graph.blockRefsInManifestOrder).toEqual(["T-001#B-001", "T-001#C-001"]);
+    expect(graph.blockRefsInManifestOrder).toEqual(["T-001#B-001"]);
     expect(graph.reviewBlocksByTask.get("T-001")).toEqual([]);
     expect(graph.diagnostics.errors).toEqual([]);
   });

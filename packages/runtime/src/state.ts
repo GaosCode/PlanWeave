@@ -78,7 +78,7 @@ function aggregateTaskStatus(taskId: string, graph: CompiledExecutionGraph, stat
   const requiredNonReviewComplete = refs
     .filter((ref) => {
       const block = graph.blocksByRef.get(ref);
-      return block?.type === "implementation" || block?.type === "check";
+      return block?.type === "implementation";
     })
     .every((ref) => state.blocks[ref]?.status === "completed");
   const requiredReviewsPassed = refs

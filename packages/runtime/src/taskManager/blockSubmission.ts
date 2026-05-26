@@ -80,7 +80,7 @@ export async function submitBlockResult(options: {
   const { taskId, blockId } = parseBlockRef(options.ref);
   const block = getBlock(graph, options.ref);
   if (block.type === "review") {
-    throw new Error("submit-result only accepts implementation/check blocks.");
+    throw new Error("submit-result only accepts implementation blocks.");
   }
   const reportHash = await fileHash(options.reportPath);
   const inProgress = state.blocks[options.ref]?.status === "in_progress";

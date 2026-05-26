@@ -27,7 +27,7 @@ describe("desktop graph read API", () => {
     expect(graph.projectId).toBe(init.workspace.id);
     expect(graph.projectTitle).toBe("Test Plan");
     expect(graph.executorOptions).toEqual(expect.arrayContaining(["default", "manual", "codex-auto", "codex-reviewer"]));
-    expect(graph.edges).toContainEqual({ from: "T-001", to: "G-001", type: "implements" });
+    expect(graph.edges).toEqual([]);
     expect(graph.tasks[0]).toMatchObject({
       taskId: "T-001",
       title: "Implement test task",
@@ -37,8 +37,8 @@ describe("desktop graph read API", () => {
       overflowBlockCount: 0
     });
     expect(graph.tasks[0].promptPreview).toContain("T-001 task prompt");
-    expect(graph.tasks[0].blocks.map((block) => block.ref)).toEqual(["T-001#B-001", "T-001#C-001", "T-001#R-001"]);
-    expect(graph.tasks[0].blockPreview.map((block) => block.ref)).toEqual(["T-001#B-001", "T-001#C-001", "T-001#R-001"]);
+    expect(graph.tasks[0].blocks.map((block) => block.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
+    expect(graph.tasks[0].blockPreview.map((block) => block.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
   });
 
   it("returns graph view models for persisted state with malformed current refs", async () => {
@@ -66,7 +66,7 @@ describe("desktop graph read API", () => {
 
     await expect(getTaskExecutionOrder(root, "T-001")).resolves.toEqual({
       taskId: "T-001",
-      blockRefs: ["T-001#B-001", "T-001#C-001", "T-001#R-001"]
+      blockRefs: ["T-001#B-001", "T-001#R-001"]
     });
   });
 
@@ -91,7 +91,7 @@ describe("desktop graph read API", () => {
       executor: "codex-auto",
       executorLabel: "opencode"
     });
-    expect(graph.tasks[0].blocks.map((block) => block.executor)).toEqual(["opencode", "opencode", "opencode"]);
+    expect(graph.tasks[0].blocks.map((block) => block.executor)).toEqual(["opencode", "opencode"]);
   });
 
   it("reads details and writes task/block source prompts through package files", async () => {
@@ -153,7 +153,7 @@ describe("desktop graph read API", () => {
       reviewGate: {
         required: true,
         executorRole: "reviewer",
-        needsChangesReturnsTo: ["T-001#B-001", "T-001#C-001"]
+        needsChangesReturnsTo: ["T-001#B-001"]
       }
     });
     const todo = await getTodoGroups(root);
@@ -161,7 +161,7 @@ describe("desktop graph read API", () => {
       reviewGate: {
         required: true,
         executorRole: "reviewer",
-        needsChangesReturnsTo: ["T-001#B-001", "T-001#C-001"]
+        needsChangesReturnsTo: ["T-001#B-001"]
       }
     });
   });

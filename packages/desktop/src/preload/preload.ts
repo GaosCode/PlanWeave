@@ -37,7 +37,6 @@ const api: DesktopBridgeApi = {
   createTaskDraft: (ref, input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.createTaskDraft, ref, input),
   addTaskNode: (ref, input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.addTaskNode, ref, input),
   addBlock: (ref, input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.addBlock, ref, input),
-  addContextNode: (ref, input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.addContextNode, ref, input),
   removeTaskNode: (ref, taskId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.removeTaskNode, ref, taskId),
   removeBlock: (ref, blockRef) => ipcRenderer.invoke(desktopBridgeInvokeChannels.removeBlock, ref, blockRef),
   validateGraphEdit: (ref, input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.validateGraphEdit, ref, input),

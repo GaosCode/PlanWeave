@@ -96,7 +96,7 @@ export async function getExecutionStatus(options: { projectRoot: PackageWorkspac
         : null;
     const readyReason = ready
       ? block?.type === "review"
-        ? "Review gate is ready after required implementation/check blocks completed."
+        ? "Review gate is ready after required implementation blocks completed."
         : parallelSafe
           ? "Block is ready and parallel-safe."
           : "Block is ready for sequential claim."

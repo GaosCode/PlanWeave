@@ -42,7 +42,7 @@ export const planweaveHelpTopics: HelpTopic[] = [
       "submit-review <review-block-ref> --result <review-result.json>",
       "submit-feedback --report <feedback-report.md>"
     ],
-    notes: ["submit-result is for implementation/check blocks.", "submit-review verdicts are passed or needs_changes.", "Feedback is runtime state; do not create feedback blocks in the package."]
+    notes: ["submit-result is for implementation blocks.", "submit-review verdicts are passed or needs_changes.", "Feedback is runtime state; do not create feedback blocks in the package."]
   },
   {
     name: "explain",

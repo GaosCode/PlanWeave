@@ -104,7 +104,6 @@ export async function renderPrompt(options: {
     block.type === "review"
       ? `Submit review with \`planweave submit-review ${options.ref} --result review-result.json\`.`
       : `Submit result with \`planweave submit-result ${options.ref} --report implementation.md\`.`;
-  const related = graph.relatedContext(taskId);
   return [
     `# ${task.id}#${block.id}: ${block.title}`,
     "## PlanWeave Global Prompt",
@@ -125,15 +124,6 @@ export async function renderPrompt(options: {
       ]
     ),
     renderNodeList("Dependency / Block Status", dependencyLines),
-    renderNodeList(
-      "Graph Context",
-      [
-        ...related.goals.map((node) => `${node.id} goal: ${node.title}`),
-        ...related.requirements.map((node) => `${node.id} requirement: ${node.title}`),
-        ...related.constraints.map((node) => `${node.id} constraint: ${node.title}`),
-        ...related.components.map((node) => `${node.id} component: ${node.title}`)
-      ]
-    ),
     renderNodeList("Latest Implementation / Feedback Summary", latestImplementationReports),
     focusedReviewLines.length > 0 ? renderNodeList("Focused Re-review Context", focusedReviewLines) : "",
     reviewSchema,

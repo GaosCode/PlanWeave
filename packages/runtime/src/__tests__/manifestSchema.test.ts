@@ -3,8 +3,42 @@ import { manifestSchema } from "../schema/manifest.js";
 import { basicManifest } from "./promptTestHelpers.js";
 
 describe("plan-package/v1 manifest schema", () => {
-  it("accepts task nodes with implementation/check/review blocks", () => {
+  it("accepts task nodes with implementation/review blocks", () => {
     expect(() => manifestSchema.parse(basicManifest())).not.toThrow();
+  });
+
+  it("rejects context nodes because context belongs in task prompts and acceptance", () => {
+    const manifest = basicManifest();
+    manifest.nodes.unshift({
+      id: "G-001",
+      type: "goal",
+      title: "Goal",
+      summary: "Goal summary."
+    } as never);
+
+    const result = manifestSchema.safeParse(manifest);
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects review blocks because review blocks own verification gates", () => {
+    const manifest = basicManifest();
+    const task = manifest.nodes.find((node) => node.type === "task");
+    if (task?.type !== "task") {
+      throw new Error("missing task");
+    }
+    task.blocks.splice(1, 0, {
+      id: "C-001",
+      type: "check",
+      title: "Check task",
+      prompt: "nodes/T-001/blocks/C-001.prompt.md",
+      depends_on: ["B-001"],
+      parallel: { safe: true, locks: ["check"] }
+    } as never);
+
+    const result = manifestSchema.safeParse(manifest);
+
+    expect(result.success).toBe(false);
   });
 
   it("accepts executor profiles with task and block executor inheritance points", () => {

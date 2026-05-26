@@ -58,8 +58,6 @@ describe("executor API helpers", () => {
     await claimNext({ projectRoot: root });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
-    await claimNext({ projectRoot: root });
 
     expect(await getCurrentWork({ projectRoot: root })).toMatchObject({
       currentRefs: ["T-001#R-001"],
@@ -78,8 +76,6 @@ describe("executor API helpers", () => {
     const { root } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
-    await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
     await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,
@@ -114,8 +110,6 @@ describe("executor API helpers", () => {
     await claimNext({ projectRoot: root });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
-    await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,
       ref: "T-001#R-001",
@@ -149,8 +143,6 @@ describe("executor API helpers", () => {
     const { root } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
-    await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
 
     expect(await explainBlock({ projectRoot: root, ref: "T-001#R-001" })).toMatchObject({
       reviewGate: {
@@ -158,7 +150,7 @@ describe("executor API helpers", () => {
         required: true,
         requiredReason: "Required review gate for task completion.",
         executorRole: "reviewer",
-        needsChangesReturnsTo: ["T-001#B-001", "T-001#C-001"]
+        needsChangesReturnsTo: ["T-001#B-001"]
       }
     });
   });

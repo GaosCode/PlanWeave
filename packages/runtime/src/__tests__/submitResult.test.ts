@@ -22,7 +22,7 @@ describe("submitBlockResult", () => {
 
     await expect(
       submitBlockResult({ projectRoot: root, ref: "T-001#R-001", reportPath: await writeReport(root, "review.md") })
-    ).rejects.toThrow("submit-result only accepts implementation/check blocks");
+    ).rejects.toThrow("submit-result only accepts implementation blocks");
   });
 
   it("recovers an already persisted run when state was not updated", async () => {

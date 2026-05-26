@@ -49,7 +49,7 @@ function toggleBlockSet(settings: DesktopUiSettings, blockType: BlockType, check
   } else {
     current.delete(blockType);
   }
-  const ordered = (["implementation", "check", "review"] as BlockType[]).filter((type) => current.has(type));
+  const ordered = (["implementation", "review"] as BlockType[]).filter((type) => current.has(type));
   return ordered.length > 0 ? ordered : ["implementation"];
 }
 
@@ -199,9 +199,7 @@ export function SettingsView({
               <SettingGroup title={t("componentVisibility")}>
                 {[
                   { key: "task", title: t("taskNode"), description: t("taskNodeHint") },
-                  { key: "context", title: t("contextNode"), description: t("contextNodeHint") },
                   { key: "implementation", title: t("implementationBlock"), description: t("implementationBlockHint") },
-                  { key: "check", title: t("checkBlock"), description: t("checkBlockHint") },
                   { key: "review", title: t("reviewBlock"), description: t("reviewBlockHint") }
                 ].map(({ key, title, description }) => (
                   <SettingsSwitchRow
@@ -226,7 +224,6 @@ export function SettingsView({
               <SettingGroup title={t("defaultBlockSet")}>
                 {[
                   { key: "implementation", title: t("implementationBlock"), description: t("defaultImplementationBlockHint") },
-                  { key: "check", title: t("checkBlock"), description: t("defaultCheckBlockHint") },
                   { key: "review", title: t("reviewBlock"), description: t("defaultReviewBlockHint") }
                 ].map(({ key, title, description }) => (
                   <SettingsSwitchRow

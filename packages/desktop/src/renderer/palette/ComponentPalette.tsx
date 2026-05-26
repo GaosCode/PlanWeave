@@ -27,12 +27,10 @@ export function ComponentPalette({ addPaletteComponent, handlePaletteDragStart, 
         <div className="grid grid-cols-1 gap-2">
           <div className="text-xs font-medium text-muted-foreground">{t("nodeComponents")}</div>
           {settings.palette.visible.task ? renderPaletteButton("task", t("taskNode")) : null}
-          {settings.palette.visible.context ? renderPaletteButton("context", t("contextNode")) : null}
         </div>
         <div className="grid grid-cols-1 gap-2">
           <div className="text-xs font-medium text-muted-foreground">{t("blockComponents")}</div>
           {settings.palette.visible.implementation ? renderPaletteButton("implementation", t("implementationBlock")) : null}
-          {settings.palette.visible.check ? renderPaletteButton("check", t("checkBlock")) : null}
           {settings.palette.visible.review ? renderPaletteButton("review", t("reviewBlock")) : null}
         </div>
       </div>

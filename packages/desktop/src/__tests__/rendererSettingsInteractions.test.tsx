@@ -25,11 +25,9 @@ const settings: DesktopUiSettings = {
     visible: {
       task: true,
       implementation: true,
-      check: true,
-      review: true,
-      context: true
+      review: true
     },
-    defaultBlockSet: ["implementation", "check", "review"],
+    defaultBlockSet: ["implementation", "review"],
     dragHint: true
   },
   review: {

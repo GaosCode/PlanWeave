@@ -9,7 +9,6 @@ describe("task status aggregation", () => {
     expect(state.tasks["T-001"]?.status).toBe("ready");
 
     state.blocks["T-001#B-001"] = { ...state.blocks["T-001#B-001"], status: "completed" };
-    state.blocks["T-001#C-001"] = { ...state.blocks["T-001#C-001"], status: "completed" };
     state.blocks["T-001#R-001"] = { ...state.blocks["T-001#R-001"], status: "completed", completionReason: "passed" };
     state = ensureStateForManifest(manifest, state);
 

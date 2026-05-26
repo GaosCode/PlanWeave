@@ -19,7 +19,7 @@ describe("package file changes", () => {
     expect(detected.impact.ok).toBe(true);
     expect(detected.impact.fullRefresh).toBe(true);
     expect(detected.impact.affectedTasks).toEqual(["T-001"]);
-    expect(refreshed.refreshed.map((prompt) => prompt.ref)).toEqual(["T-001#B-001", "T-001#C-001", "T-001#R-001"]);
+    expect(refreshed.refreshed.map((prompt) => prompt.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
   });
 
   it("drains Graph Read Queue prompt changes into dirty prompt refs without replacing plan truth", async () => {
@@ -79,8 +79,8 @@ describe("package file changes", () => {
     expect(session.graph.nodesById.get("T-001")).toMatchObject({ title: "Updated task title" });
     expect(session.graph.tasksById.get("T-001")).toMatchObject({ title: "Updated task title" });
     expect(session.graph.taskNodesInManifestOrder).toEqual(["T-001", "T-002"]);
-    expect(session.graph.blockRefsInManifestOrder.slice(0, 3)).toEqual(["T-001#B-001", "T-001#C-001", "T-001#R-001"]);
-    expect(session.graph.blocksByTask.get("T-001")).toEqual(["T-001#B-001", "T-001#C-001", "T-001#R-001"]);
+    expect(session.graph.blockRefsInManifestOrder.slice(0, 2)).toEqual(["T-001#B-001", "T-001#R-001"]);
+    expect(session.graph.blocksByTask.get("T-001")).toEqual(["T-001#B-001", "T-001#R-001"]);
   });
 
   it("removes dirty prompt refs for deleted task blocks", async () => {

@@ -1,25 +1,10 @@
 export const supportedManifestVersion = "plan-package/v1" as const;
 
-export const nodeTypes = [
-  "goal",
-  "requirement",
-  "constraint",
-  "decision",
-  "component",
-  "task",
-  "risk"
-] as const;
+export const nodeTypes = ["task"] as const;
 
-export const edgeTypes = [
-  "implements",
-  "depends_on",
-  "constrained_by",
-  "touches",
-  "conflicts_with",
-  "supersedes"
-] as const;
+export const edgeTypes = ["depends_on"] as const;
 
-export const blockTypes = ["implementation", "check", "review"] as const;
+export const blockTypes = ["implementation", "review"] as const;
 export const taskStatuses = ["planned", "ready", "in_progress", "implemented"] as const;
 export const blockStatuses = ["planned", "ready", "in_progress", "completed", "needs_changes", "blocked", "diverged"] as const;
 export const feedbackStatuses = ["open", "in_progress", "resolved", "dismissed"] as const;
@@ -86,7 +71,7 @@ export type BlockParallelPolicy = {
 
 export type ManifestImplementationBlock = {
   id: string;
-  type: "implementation" | "check";
+  type: "implementation";
   title: string;
   prompt: string;
   depends_on: string[];
@@ -125,14 +110,7 @@ export type ManifestTaskNode = {
   blocks: ManifestBlock[];
 };
 
-export type ManifestContextNode = {
-  id: string;
-  type: Exclude<NodeType, "task">;
-  title: string;
-  summary: string;
-};
-
-export type ManifestNode = ManifestTaskNode | ManifestContextNode;
+export type ManifestNode = ManifestTaskNode;
 
 export type ManifestEdge = {
   from: string;
@@ -222,24 +200,12 @@ export type ValidationIssue = {
   path?: string;
 };
 
-export type GraphContext = {
-  goals: ManifestNode[];
-  requirements: ManifestNode[];
-  constraints: ManifestNode[];
-  decisions: ManifestNode[];
-  components: ManifestNode[];
-  conflicts: ManifestNode[];
-  supersedes: ManifestNode[];
-  supersededBy: ManifestNode[];
-};
-
 export type CompiledExecutionGraph = {
   nodesById: Map<string, ManifestNode>;
   taskNodesInManifestOrder: string[];
   tasksById: Map<string, ManifestTaskNode>;
   taskDependenciesByTask: Map<string, string[]>;
   taskDependentsByTask: Map<string, string[]>;
-  contextEdgesByTask: Map<string, ManifestEdge[]>;
   blockRefsInManifestOrder: string[];
   blocksByRef: Map<string, ManifestBlock>;
   blockTaskByRef: Map<string, string>;
@@ -255,7 +221,6 @@ export type CompiledExecutionGraph = {
   };
   taskReachable(from: string, to: string): boolean;
   blockReachable(fromRef: string, toRef: string): boolean;
-  relatedContext(taskId: string): GraphContext;
 };
 
 export type CompiledTaskGraph = CompiledExecutionGraph;

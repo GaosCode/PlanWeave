@@ -135,7 +135,7 @@ async function executeBlockClaim(options: {
     return { kind: "submitted", claim: options.claim, adapterResult, submitResult };
   }
   if (adapterResult.kind !== "block") {
-    throw new Error("Executor adapter must return a block report for implementation/check block claims.");
+    throw new Error("Executor adapter must return a block report for implementation block claims.");
   }
   const submitResult = await submitBlockResult({
     projectRoot: options.projectRoot,

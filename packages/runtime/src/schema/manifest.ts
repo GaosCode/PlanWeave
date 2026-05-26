@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { blockTypes, edgeTypes, nodeTypes, supportedManifestVersion } from "../types.js";
+import { edgeTypes, supportedManifestVersion } from "../types.js";
 
 const blockParallelPolicySchema = z
   .object({
@@ -57,7 +57,7 @@ const executorProfileSchema = z.discriminatedUnion("adapter", [
 const implementationBlockSchema = z
   .object({
     id: z.string().min(1),
-    type: z.enum(["implementation", "check"]),
+    type: z.literal("implementation"),
     title: z.string().min(1),
     prompt: z.string().min(1),
     depends_on: z.array(z.string().min(1)).default([]),
@@ -103,16 +103,7 @@ const taskNodeSchema = z
   })
   .strict();
 
-const contextNodeSchema = z
-  .object({
-    id: z.string().min(1),
-    type: z.enum(nodeTypes).exclude(["task"]),
-    title: z.string().min(1),
-    summary: z.string().min(1)
-  })
-  .strict();
-
-export const manifestNodeSchema = z.discriminatedUnion("type", [taskNodeSchema, contextNodeSchema]);
+export const manifestNodeSchema = taskNodeSchema;
 
 export const manifestSchema = z
   .object({
@@ -164,20 +155,6 @@ export const manifestSchema = z
         message: key === "global_prompt" ? "manifest.global_prompt is not supported in plan-package/v1." : `Unrecognized key: "${key}"`,
         path: [key]
       });
-    }
-    for (const [nodeIndex, node] of manifest.nodes.entries()) {
-      if (node.type !== "task") {
-        continue;
-      }
-      for (const [blockIndex, block] of node.blocks.entries()) {
-        if (!(blockTypes as readonly string[]).includes(block.type)) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "feedback blocks are not supported; feedback is runtime state.",
-            path: ["nodes", nodeIndex, "blocks", blockIndex, "type"]
-          });
-        }
-      }
     }
     const knownExecutors = new Set(["default", "manual", "codex-auto", "codex-reviewer", ...Object.keys(manifest.executors ?? {})]);
     if (manifest.execution.defaultExecutor && !knownExecutors.has(manifest.execution.defaultExecutor)) {

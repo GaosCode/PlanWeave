@@ -40,7 +40,7 @@ async function runSmokeWorkflow(window: BrowserWindow): Promise<Record<string, u
         title: "Smoke task",
         promptMarkdown: "# Smoke task\\n",
         acceptance: ["Smoke task source prompt is editable."],
-        blockTypes: ["implementation", "check", "review"],
+        blockTypes: ["implementation", "review"],
         executor: "manual"
       });
       if (!added.ok) {

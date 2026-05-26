@@ -29,11 +29,9 @@ export const defaultDesktopSettings: DesktopUiSettings = {
     visible: {
       task: true,
       implementation: true,
-      check: true,
-      review: true,
-      context: true
+      review: true
     },
-    defaultBlockSet: ["implementation", "check", "review"],
+    defaultBlockSet: ["implementation", "review"],
     dragHint: true
   },
   agents: {
@@ -133,6 +131,8 @@ export function loadDesktopSettings(): DesktopUiSettings {
 }
 
 export function visibleBlockSet(settings: DesktopUiSettings): BlockType[] {
-  const configured = settings.palette.defaultBlockSet.filter((type) => settings.palette.visible[type]);
+  const configured = settings.palette.defaultBlockSet.filter((type): type is BlockType =>
+    (["implementation", "review"] as BlockType[]).includes(type) && settings.palette.visible[type]
+  );
   return configured.length > 0 ? configured : ["implementation"];
 }

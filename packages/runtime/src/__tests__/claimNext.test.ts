@@ -33,8 +33,6 @@ describe("claimNext", () => {
     await claimNext({ projectRoot: root });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
-    await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,
       ref: "T-001#R-001",
@@ -58,8 +56,6 @@ describe("claimNext", () => {
     await claimNext({ projectRoot: root });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
-    await claimNext({ projectRoot: root });
 
     const status = await getExecutionStatus({ projectRoot: root });
     expect(status.blocks.find((block) => block.ref === "T-001#R-001")?.status).toBe("in_progress");
@@ -77,8 +73,6 @@ describe("claimNext", () => {
     const { root } = await createTestWorkspace(manifest);
     await claimNext({ projectRoot: root });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
-    await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
 
     expect(await claimNext({ projectRoot: root })).toEqual({ kind: "none", reason: "no_claimable_blocks" });
 
@@ -88,12 +82,10 @@ describe("claimNext", () => {
     expect(status.nextClaimable).not.toContain("T-001#R-001");
   });
 
-  it("falls back to a sequential review claim when no parallel implementation or check block is available", async () => {
+  it("falls back to a sequential review claim when no parallel implementation block is available", async () => {
     const { root } = await createTestWorkspace(basicManifest({ parallel: true }));
     await claimNext({ projectRoot: root, parallel: true });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
-    await claimNext({ projectRoot: root, parallel: true });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
 
     const status = await getExecutionStatus({ projectRoot: root });
     expect(status.nextClaimable).toEqual(["T-001#R-001"]);
@@ -165,8 +157,6 @@ describe("claimNext", () => {
     const { root } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
-    await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
 
     expect(await claimBlockType({ projectRoot: root, blockType: "review" })).toMatchObject({
       kind: "block",
@@ -176,7 +166,7 @@ describe("claimNext", () => {
     });
   });
 
-  it("implements a task after required non-review blocks complete when no review block exists", async () => {
+  it("implements a task after required implementation blocks complete when no review block exists", async () => {
     const manifest = basicManifest();
     const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
     if (task?.type !== "task") {
@@ -187,14 +177,12 @@ describe("claimNext", () => {
     const { root } = await createTestWorkspace(manifest);
     await claimNext({ projectRoot: root });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
-    await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
 
     expect(await claimNext({ projectRoot: root })).toEqual({ kind: "none", reason: "no_claimable_blocks" });
 
     const status = await getExecutionStatus({ projectRoot: root });
     expect(status.tasks.find((taskStatus) => taskStatus.taskId === "T-001")?.status).toBe("implemented");
-    expect(status.blocks.map((block) => block.ref)).toEqual(["T-001#B-001", "T-001#C-001"]);
+    expect(status.blocks.map((block) => block.ref)).toEqual(["T-001#B-001"]);
     expect(status.nextClaimable).toEqual([]);
   });
 });

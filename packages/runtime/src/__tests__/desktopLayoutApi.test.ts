@@ -17,20 +17,14 @@ describe("desktop layout API", () => {
     const saved = await saveDesktopLayout(root, {
       version: "desktop-layout/v1",
       projectId: "ignored",
-      nodes: [
-        { nodeId: "T-001", x: 120, y: 240 },
-        { nodeId: "G-001", x: 300, y: 420 }
-      ],
+      nodes: [{ nodeId: "T-001", x: 120, y: 240 }],
       updatedAt: new Date(0).toISOString()
     });
 
     expect(saved.projectId).toBe(init.workspace.id);
     expect(await getDesktopLayout(root)).toMatchObject({
       projectId: init.workspace.id,
-      nodes: [
-        { nodeId: "T-001", x: 120, y: 240 },
-        { nodeId: "G-001", x: 300, y: 420 }
-      ]
+      nodes: [{ nodeId: "T-001", x: 120, y: 240 }]
     });
     expect(await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile)).not.toHaveProperty("layout");
     expect(await resetDesktopLayout(root)).toMatchObject({ projectId: init.workspace.id, nodes: [] });

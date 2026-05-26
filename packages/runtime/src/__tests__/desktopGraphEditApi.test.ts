@@ -3,11 +3,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   addBlock,
-  addContextNode,
   addDependencyEdge,
   addTaskNode,
   createTaskDraft,
-  getGraphViewModel,
   removeBlock,
   removeDependencyEdge,
   removeTaskNode,
@@ -84,7 +82,7 @@ describe("desktop graph edit API", () => {
     await expect(
       validateGraphEdit(root, {
         kind: "removeBlock",
-        blockRef: "T-001#C-001"
+        blockRef: "T-001#R-001"
       })
     ).resolves.toMatchObject({ ok: true, affectedTasks: ["T-001"] });
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
@@ -92,7 +90,7 @@ describe("desktop graph edit API", () => {
     if (firstTask?.type !== "task") {
       throw new Error("Fixture task missing.");
     }
-    expect(firstTask.blocks.map((block) => block.id)).toEqual(["B-001", "C-001", "R-001"]);
+    expect(firstTask.blocks.map((block) => block.id)).toEqual(["B-001", "R-001"]);
   });
 
   it("creates task drafts and writes new task nodes and blocks through package files", async () => {
@@ -107,7 +105,7 @@ describe("desktop graph edit API", () => {
       tasks: [
         {
           title: "Add export flow",
-          blockTypes: ["implementation", "check", "review"]
+          blockTypes: ["implementation", "review"]
         }
       ]
     });
@@ -119,17 +117,17 @@ describe("desktop graph edit API", () => {
       throw new Error("Created task missing.");
     }
     expect(createdTask.id).toBe("T-ADD-EXPORT-FLOW");
-    expect(createdTask.blocks.map((block) => block.type)).toEqual(["implementation", "check", "review"]);
-    expect(createdTask.blocks.map((block) => block.depends_on)).toEqual([[], ["B-001"], ["C-001"]]);
+    expect(createdTask.blocks.map((block) => block.type)).toEqual(["implementation", "review"]);
+    expect(createdTask.blocks.map((block) => block.depends_on)).toEqual([[], ["B-001"]]);
     expect(await readFile(join(init.workspace.packageDir, createdTask.prompt), "utf8")).toContain("Users can export");
     expect(await readFile(join(init.workspace.packageDir, createdTask.blocks[0].prompt), "utf8")).toContain("Add export flow");
 
     await expect(
       addBlock(root, {
         taskId: createdTask.id,
-        type: "check",
-        title: "Check export",
-        promptMarkdown: "# Check export\n"
+        type: "implementation",
+        title: "Implement export follow-up",
+        promptMarkdown: "# Implement export follow-up\n"
       })
     ).resolves.toMatchObject({ ok: true });
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
@@ -139,12 +137,12 @@ describe("desktop graph edit API", () => {
     }
     const addedBlock = updatedTask.blocks.at(-1);
     expect(addedBlock).toMatchObject({
-      id: "C-002",
-      type: "check",
-      title: "Check export",
+      id: "B-002",
+      type: "implementation",
+      title: "Implement export follow-up",
       depends_on: ["R-001"]
     });
-    expect(await readFile(join(init.workspace.packageDir, addedBlock?.prompt ?? ""), "utf8")).toBe("# Check export\n");
+    expect(await readFile(join(init.workspace.packageDir, addedBlock?.prompt ?? ""), "utf8")).toBe("# Implement export follow-up\n");
 
     const appendDraft = await createTaskDraft(root, {
       mode: "blocks",
@@ -154,51 +152,17 @@ describe("desktop graph edit API", () => {
     expect(appendDraft.blocks).toMatchObject([{ taskId: createdTask.id, type: "implementation", title: "Add a follow-up validation block." }]);
   });
 
-  it("creates context nodes through the desktop graph API", async () => {
-    const { root, init } = await createTestWorkspace();
-
-    await expect(
-      addContextNode(root, {
-        type: "component",
-        title: "Desktop Renderer",
-        summary: "The Electron renderer workspace."
-      })
-    ).resolves.toMatchObject({ ok: true, affectedTasks: [] });
-
-    const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    expect(manifest.nodes).toContainEqual({
-      id: "CMP-DESKTOP-RENDERER",
-      type: "component",
-      title: "Desktop Renderer",
-      summary: "The Electron renderer workspace."
-    });
-    await expect(getGraphViewModel(root)).resolves.toMatchObject({
-      contextNodes: [
-        expect.objectContaining({
-          nodeId: "G-001",
-          type: "goal"
-        }),
-        expect.objectContaining({
-          nodeId: "CMP-DESKTOP-RENDERER",
-          type: "component",
-          title: "Desktop Renderer"
-        })
-      ]
-    });
-  });
-
   it("removes task/block package surfaces through graph APIs", async () => {
     const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
 
-    await expect(removeBlock(root, "T-001#C-001")).resolves.toMatchObject({ ok: true, affectedTasks: ["T-001"] });
+    await expect(removeBlock(root, "T-001#R-001")).resolves.toMatchObject({ ok: true, affectedTasks: ["T-001"] });
     let manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     const firstTask = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
     if (firstTask?.type !== "task") {
       throw new Error("Fixture task missing.");
     }
-    expect(firstTask.blocks.map((block) => block.id)).toEqual(["B-001", "R-001"]);
-    expect(firstTask.blocks.find((block) => block.id === "R-001")?.depends_on).toEqual([]);
-    await expect(readFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "C-001.prompt.md"), "utf8")).rejects.toThrow();
+    expect(firstTask.blocks.map((block) => block.id)).toEqual(["B-001"]);
+    await expect(readFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "R-001.prompt.md"), "utf8")).rejects.toThrow();
 
     await expect(removeTaskNode(root, "T-002")).resolves.toMatchObject({ ok: true });
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);

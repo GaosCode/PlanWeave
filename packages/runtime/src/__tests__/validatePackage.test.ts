@@ -29,7 +29,7 @@ describe("validatePackage", () => {
 
   it("warns about stale prompt files instead of treating them as active contract", async () => {
     const { root, init } = await createTestWorkspace();
-    await rm(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "C-001.prompt.md"));
+    await rm(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "R-001.prompt.md"));
 
     const report = await validatePackage({ projectRoot: root });
 

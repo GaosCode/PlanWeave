@@ -12,6 +12,6 @@ describe("refreshPrompt", () => {
 
     expect(one.ref).toBe("T-001#B-001");
     expect(one.markdown).toContain("planweave submit-result T-001#B-001 --report");
-    expect(all.prompts.map((prompt) => prompt.ref)).toEqual(["T-001#B-001", "T-001#C-001", "T-001#R-001"]);
+    expect(all.prompts.map((prompt) => prompt.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
   });
 });

@@ -1,13 +1,11 @@
 import { MarkerType, type Edge } from "@xyflow/react";
 import type { DesktopBlockDetail, DesktopBlockRunRecordSummary, DesktopFeedbackRecord, DesktopGraphViewModel, DesktopLayout, DesktopReviewAttemptSummary } from "@planweave/runtime";
-import type { AppFlowNode, ContextFlowNode, TaskFlowNode, TaskNodeData } from "../types";
+import type { AppFlowNode, TaskFlowNode, TaskNodeData } from "../types";
 import { TaskNodeCard } from "./TaskNodeCard";
-import { ContextNodeCard } from "./ContextNodeCard";
 import { displayEdgeManifestData, executionFlowEndpoints } from "./dependencyEdges";
 
 export const nodeTypes = {
-  task: TaskNodeCard,
-  context: ContextNodeCard
+  task: TaskNodeCard
 };
 
 export type AppNodeTypes = typeof nodeTypes;
@@ -39,8 +37,7 @@ export function graphNodes(
   onBlockTitleSave: TaskNodeData["onBlockTitleSave"],
   onBlockExecutorChange: TaskNodeData["onBlockExecutorChange"],
   onBlockPromptSave: TaskNodeData["onBlockPromptSave"],
-  onOpenRunRecord: TaskNodeData["onOpenRunRecord"],
-  selectedContextNodeId: string | null
+  onOpenRunRecord: TaskNodeData["onOpenRunRecord"]
 ): AppFlowNode[] {
   const layoutByNode = new Map(layout?.nodes.map((node) => [node.nodeId, node]) ?? []);
   const taskNodes: TaskFlowNode[] = graph.tasks.map((task, index) => {
@@ -79,17 +76,11 @@ export function graphNodes(
       }
     };
   });
-  const contextNodes: ContextFlowNode[] = graph.contextNodes.map((node, index) => ({
-    id: node.nodeId,
-    type: "context",
-    position: layoutByNode.get(node.nodeId) ?? { x: 560 + (index % 2) * 380, y: 120 + Math.floor(index / 2) * 220 },
-    data: { node, selected: node.nodeId === selectedContextNodeId }
-  }));
-  return [...taskNodes, ...contextNodes];
+  return taskNodes;
 }
 
 export function graphEdges(graph: DesktopGraphViewModel): Edge[] {
-  const nodeIds = new Set([...graph.tasks.map((task) => task.taskId), ...graph.contextNodes.map((node) => node.nodeId)]);
+  const nodeIds = new Set(graph.tasks.map((task) => task.taskId));
   return graph.edges
     .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to))
     .map((edge) => {

@@ -95,20 +95,6 @@ async function searchWorkspace(
       }
     }
   }
-  for (const node of manifest.nodes) {
-    if (node.type === "task") {
-      continue;
-    }
-    if (node.title.toLowerCase().includes(normalized) || node.summary.toLowerCase().includes(normalized)) {
-      pushResult({
-        kind: "context",
-        ref: node.id,
-        targetRef: node.id,
-        title: node.title,
-        excerpt: promptPreview(node.summary)
-      });
-    }
-  }
   for (const [feedbackId, feedback] of Object.entries(state.feedback)) {
     if (feedback.content.toLowerCase().includes(normalized)) {
       pushResult({

@@ -50,7 +50,7 @@ describe("desktop search and statistics API", () => {
 
     const stats = await getStatistics(root);
     expect(stats.taskTotal).toBe(2);
-    expect(stats.estimatedRemainingBlocks).toBe(5);
+    expect(stats.estimatedRemainingBlocks).toBe(4);
     expect(stats).toMatchObject({
       taskThroughput: 0,
       implementedRatio: 0,
@@ -76,8 +76,6 @@ describe("desktop search and statistics API", () => {
     await claimNext({ projectRoot: root });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "implemented-b.md") });
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "implemented-c.md") });
-    await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,
       ref: "T-001#R-001",
@@ -85,7 +83,7 @@ describe("desktop search and statistics API", () => {
     });
 
     const todo = await getTodoGroups(root);
-    expect(todo.implemented.map((item) => item.ref)).toEqual(["T-001#B-001", "T-001#C-001", "T-001#R-001"]);
+    expect(todo.implemented.map((item) => item.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
     expect(todo.completed).toEqual([]);
   });
 });

@@ -1,10 +1,10 @@
 import { parseBlockRef } from "../../graph/compileTaskGraph.js";
 import { compileTaskGraph } from "../../graph/compileTaskGraph.js";
-import { addEdge, addNode, commitPlanPackageGraphMutation, removeEdge, updateNode } from "../../graph/editGraph.js";
+import { addEdge, commitPlanPackageGraphMutation, removeEdge, updateNode } from "../../graph/editGraph.js";
 import { buildPlanPackageGraphMutation } from "../../graph/mutation.js";
 import { loadPackage } from "../../package/loadPackage.js";
-import type { BlockType, GraphEditResult, ManifestBlock, ManifestTaskNode, NodeType, PackageWorkspaceRef, PlanPackageManifest } from "../../types.js";
-import type { DesktopAddBlockInput, DesktopAddContextNodeInput, DesktopAddTaskInput, DesktopGraphEditValidationInput } from "../types.js";
+import type { BlockType, GraphEditResult, ManifestBlock, ManifestTaskNode, PackageWorkspaceRef, PlanPackageManifest } from "../../types.js";
+import type { DesktopAddBlockInput, DesktopAddTaskInput, DesktopGraphEditValidationInput } from "../types.js";
 import { getBlock, getTask } from "./graphHelpers.js";
 
 function normalizeOptionalText(value: string | null): string | undefined {
@@ -46,43 +46,7 @@ function nextTaskId(manifest: PlanPackageManifest, title: string): string {
   return `T-${String(index).padStart(3, "0")}`;
 }
 
-function contextPrefix(type: Exclude<NodeType, "task">): string {
-  if (type === "requirement") {
-    return "REQ";
-  }
-  if (type === "constraint") {
-    return "CON";
-  }
-  if (type === "decision") {
-    return "DEC";
-  }
-  if (type === "component") {
-    return "CMP";
-  }
-  if (type === "risk") {
-    return "RSK";
-  }
-  return "G";
-}
-
-function nextContextId(manifest: PlanPackageManifest, type: Exclude<NodeType, "task">, title: string): string {
-  const existing = new Set(manifest.nodes.map((node) => node.id));
-  const prefix = contextPrefix(type);
-  const base = slugPart(title);
-  if (base && !existing.has(`${prefix}-${base}`)) {
-    return `${prefix}-${base}`;
-  }
-  let index = manifest.nodes.filter((node) => node.type === type).length + 1;
-  while (existing.has(`${prefix}-${String(index).padStart(3, "0")}`)) {
-    index += 1;
-  }
-  return `${prefix}-${String(index).padStart(3, "0")}`;
-}
-
 function blockPrefix(type: BlockType): string {
-  if (type === "check") {
-    return "C";
-  }
   if (type === "review") {
     return "R";
   }
@@ -100,9 +64,6 @@ function nextBlockId(task: ManifestTaskNode, type: BlockType): string {
 }
 
 function defaultBlockTitle(type: BlockType): string {
-  if (type === "check") {
-    return "Check work";
-  }
   if (type === "review") {
     return "Review work";
   }
@@ -161,7 +122,7 @@ export async function addTaskNode(projectRoot: PackageWorkspaceRef, input: Deskt
   const { manifest } = await loadPackage(projectRoot);
   const title = requireNonEmptyTitle(input.title);
   const taskId = nextTaskId(manifest, title);
-  const blockTypes = input.blockTypes?.length ? input.blockTypes : (["implementation", "check", "review"] satisfies BlockType[]);
+  const blockTypes = input.blockTypes?.length ? input.blockTypes : (["implementation", "review"] satisfies BlockType[]);
   const blocks: ManifestBlock[] = [];
   for (const type of blockTypes) {
     const blockId = nextBlockId({ id: taskId, type: "task", title, prompt: "", acceptance: [], blocks }, type);
@@ -221,20 +182,6 @@ export async function addBlock(projectRoot: PackageWorkspaceRef, input: DesktopA
       block,
       promptMarkdown: promptFileMarkdown(input.promptMarkdown)
     })
-  });
-}
-
-export async function addContextNode(projectRoot: PackageWorkspaceRef, input: DesktopAddContextNodeInput): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(projectRoot);
-  const title = requireNonEmptyTitle(input.title);
-  return addNode({
-    projectRoot,
-    node: {
-      id: nextContextId(manifest, input.type, title),
-      type: input.type,
-      title,
-      summary: input.summary.trim() || `${title}.`
-    }
   });
 }
 

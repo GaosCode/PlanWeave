@@ -36,13 +36,12 @@ describe("desktop graph dependency edge direction", () => {
     });
   });
 
-  it("does not treat non-dependency display edges as removable dependency edges", () => {
+  it("does not treat self-loop display edges as removable dependency edges", () => {
     expect(
       dependencyDisplayEdgeToManifestEndpoints({
         id: "edge-1",
         source: "T-001",
-        target: "G-001",
-        data: displayEdgeManifestData({ from: "T-001", to: "G-001", type: "implements" })
+        target: "T-001"
       })
     ).toBeNull();
   });
@@ -56,7 +55,6 @@ describe("desktop graph dependency edge direction", () => {
         task("T-001", "Dependent task", "planned"),
         task("T-002", "Prerequisite task", "ready")
       ],
-      contextNodes: [],
       edges: [{ from: "T-001", to: "T-002", type: "depends_on" }],
       diagnostics: [],
       dirtyPromptRefs: []

@@ -41,7 +41,6 @@ export function App() {
   const { agentDetectionRefreshing, agentDetections, executorOptions, refreshAgentDetections } = useDetectedAgents();
   const { refreshRuntimeTools, runtimeTools } = useRuntimeTools();
   const [selectedTaskPanelId, setSelectedTaskPanelId] = useState<string | null>(null);
-  const [selectedContextNodeId, setSelectedContextNodeId] = useState<string | null>(null);
   const [, setProjectPath] = useState(settings.runtimePath);
   const [lastFileChange, setLastFileChange] = useState<DesktopPackageFileChangeEvent | null>(null);
   const [fileSyncDiagnostics, setFileSyncDiagnostics] = useState<string[]>([]);
@@ -59,7 +58,6 @@ export function App() {
 
   const desktopProject = useDesktopProject({
     setError,
-    setSelectedContextNodeId,
     setSelectedTaskPanelId,
     updateSettings
   });
@@ -110,7 +108,6 @@ export function App() {
     selectedProject,
     setActiveView,
     setError,
-    setSelectedContextNodeId,
     setSelectedTaskPanelId
   });
 
@@ -183,7 +180,6 @@ export function App() {
       const canvasId = canvasIdOverride === undefined ? selectedCanvasId : canvasIdOverride;
       try {
         setSelectedTaskPanelId(taskId);
-        setSelectedContextNodeId(null);
         setActiveView("graph");
         requestTaskFocus(taskId);
         if (!bridge || !selectedProject) {
@@ -238,7 +234,6 @@ export function App() {
     selectedProject,
     setActiveView,
     setError,
-    setSelectedContextNodeId,
     setSelectedTaskPanelId
   });
 
@@ -287,7 +282,6 @@ export function App() {
 
   const handleTaskPanelSelect = useCallback((taskId: string | null) => {
     setSelectedTaskPanelId(taskId);
-    setSelectedContextNodeId(null);
     setActiveView("graph");
     requestTaskFocus(taskId);
   }, [requestTaskFocus]);
@@ -403,8 +397,7 @@ export function App() {
         saveSelectedBlockTitle,
         saveSelectedBlockExecutor,
         saveSelectedBlockPrompt,
-        handleOpenRunRecord,
-        selectedContextNodeId
+        handleOpenRunRecord
       )
     );
     setEdges(graphEdges(graph));
@@ -433,7 +426,6 @@ export function App() {
     saveSelectedBlockPrompt,
     saveSelectedBlockTitle,
     selectedBlock,
-    selectedContextNodeId,
     t,
     titleDrafts
   ]);

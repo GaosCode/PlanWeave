@@ -87,7 +87,7 @@ export function feedbackInScope(feedback: FeedbackEnvelopeState, graph: Compiled
 export function requiredImplementationRefs(graph: CompiledExecutionGraph, taskId: string): string[] {
   return (graph.blocksByTask.get(taskId) ?? []).filter((ref) => {
     const block = graph.blocksByRef.get(ref);
-    return block?.type === "implementation" || block?.type === "check";
+    return block?.type === "implementation";
   });
 }
 

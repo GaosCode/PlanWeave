@@ -145,20 +145,6 @@ describe("OpenCode executor", () => {
         }
       }
     });
-    await runAutoRunStep({
-      projectRoot: root,
-      executor: {
-        async runBlock() {
-          const reportPath = join(root, "check.md");
-          await writeFile(reportPath, "checked\n", "utf8");
-          return { kind: "block", reportPath };
-        },
-        async runFeedback() {
-          throw new Error("feedback should not run");
-        }
-      }
-    });
-
     const step = await runAutoRunStep({
       projectRoot: root,
       executor: createOpencodeExecAdapter({

@@ -82,7 +82,6 @@ describe("desktop renderer component interactions", () => {
           exceptions: []
         }
       ],
-      contextNodes: [],
       edges: [],
       diagnostics: [],
       dirtyPromptRefs: []
@@ -237,7 +236,7 @@ describe("desktop renderer component interactions", () => {
       executor: null,
       effectiveExecutor: "codex-reviewer",
       promptMarkdown: "# Review",
-      dependencies: ["T-001#C-001"],
+      dependencies: ["T-001#B-001"],
       latestRunId: null,
       latestReviewAttemptId: null,
       activeFeedbackId: null,
@@ -249,7 +248,7 @@ describe("desktop renderer component interactions", () => {
         executorRole: "reviewer",
         downstreamTasks: ["T-002"],
         unlocksTasks: ["T-002"],
-        needsChangesReturnsTo: ["T-001#B-001", "T-001#C-001"]
+        needsChangesReturnsTo: ["T-001#B-001"]
       }
     };
 
@@ -282,14 +281,13 @@ describe("desktop renderer component interactions", () => {
     expect(screen.getByText("Unlocks")).toBeInTheDocument();
     expect(screen.getByText("T-002")).toBeInTheDocument();
     expect(screen.getByText("Needs changes returns to")).toBeInTheDocument();
-    expect(screen.getByText("T-001#B-001, T-001#C-001")).toBeInTheDocument();
+    expect(screen.getByText("T-001#B-001")).toBeInTheDocument();
   });
 
   it("routes every searchable result kind to a canvas node or record target", async () => {
     const results: DesktopSearchResult[] = [
       { kind: "prompt", ref: "T-001", targetRef: "T-001", title: "Task prompt", excerpt: "task prompt" },
       { kind: "prompt", ref: "T-001#B-001", targetRef: "T-001#B-001", title: "Block prompt", excerpt: "block prompt" },
-      { kind: "context", ref: "CMP-CLI", targetRef: "CMP-CLI", title: "CLI", excerpt: "context" },
       { kind: "review_attempt", ref: "T-001/reviews/R-001/attempts/REV-001/review-result.json", targetRef: "T-001#R-001", title: "Review", excerpt: "review" },
       { kind: "feedback", ref: "FE-001", targetRef: "T-001#R-001", title: "Feedback", excerpt: "feedback" },
       { kind: "run_record", ref: "T-001/blocks/B-001/runs/RUN-001/report.md", recordId: "T-001#B-001::RUN-001", title: "Run", excerpt: "run" }
@@ -299,7 +297,6 @@ describe("desktop renderer component interactions", () => {
     expect(results.map(searchNavigationTarget)).toEqual([
       { kind: "task", ref: "T-001" },
       { kind: "block", ref: "T-001#B-001" },
-      { kind: "context", ref: "CMP-CLI" },
       { kind: "block", ref: "T-001#R-001" },
       { kind: "block", ref: "T-001#R-001" },
       { kind: "record", recordId: "T-001#B-001::RUN-001" }
@@ -412,7 +409,6 @@ describe("desktop renderer component interactions", () => {
           exceptions: []
         }
       ],
-      contextNodes: [],
       edges: [],
       diagnostics: [],
       dirtyPromptRefs: []

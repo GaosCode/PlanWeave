@@ -67,12 +67,6 @@ export function basicManifest(options: {
     },
     nodes: [
       {
-        id: "G-001",
-        type: "goal",
-        title: "Goal",
-        summary: "Goal summary."
-      },
-      {
         id: "T-001",
         type: "task",
         title: "Implement test task",
@@ -88,19 +82,11 @@ export function basicManifest(options: {
             parallel: { safe: true, locks: ["shared"] }
           },
           {
-            id: "C-001",
-            type: "check",
-            title: "Check task",
-            prompt: "nodes/T-001/blocks/C-001.prompt.md",
-            depends_on: ["B-001"],
-            parallel: { safe: true, locks: ["check"] }
-          },
-          {
             id: "R-001",
             type: "review",
             title: "Review task",
             prompt: "nodes/T-001/blocks/R-001.prompt.md",
-            depends_on: ["C-001"],
+            depends_on: ["B-001"],
             review: {
               required: true,
               maxFeedbackCycles: options.reviewMaxFeedbackCycles ?? 1,
@@ -111,10 +97,7 @@ export function basicManifest(options: {
       },
       ...secondTask
     ],
-    edges: [
-      { from: "T-001", to: "G-001", type: "implements" },
-      ...edges
-    ]
+    edges
   };
 }
 

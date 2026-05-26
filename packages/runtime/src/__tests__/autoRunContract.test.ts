@@ -492,20 +492,6 @@ describe("Auto Run contract", () => {
         }
       }
     });
-    await runAutoRunStep({
-      projectRoot: root,
-      executor: {
-        async runBlock() {
-          const reportPath = join(root, "check.md");
-          await writeFile(reportPath, "checked\n", "utf8");
-          return { kind: "block", reportPath };
-        },
-        async runFeedback() {
-          throw new Error("feedback should not run");
-        }
-      }
-    });
-
     const step = await runAutoRunStep({
       projectRoot: root,
       executor: createCodexExecAdapter({
@@ -560,20 +546,6 @@ describe("Auto Run contract", () => {
         }
       }
     });
-    await runAutoRunStep({
-      projectRoot: root,
-      executor: {
-        async runBlock() {
-          const reportPath = join(root, "check.md");
-          await writeFile(reportPath, "checked\n", "utf8");
-          return { kind: "block", reportPath };
-        },
-        async runFeedback() {
-          throw new Error("feedback should not run");
-        }
-      }
-    });
-
     const step = await runAutoRunStep({
       projectRoot: root,
       executor: createLocalReviewAdapter({
@@ -668,10 +640,6 @@ describe("Auto Run contract", () => {
     await expect(runAutoRunStep({ projectRoot: root, parallel: true, executor })).resolves.toMatchObject({
       kind: "batch_submitted",
       claim: { refs: ["T-001#B-001", "T-002#B-001"] }
-    });
-    await expect(runAutoRunStep({ projectRoot: root, parallel: true, executor })).resolves.toMatchObject({
-      kind: "batch_submitted",
-      claim: { refs: ["T-001#C-001"] }
     });
     await expect(runAutoRunStep({ projectRoot: root, parallel: true, executor })).resolves.toMatchObject({
       kind: "submitted",

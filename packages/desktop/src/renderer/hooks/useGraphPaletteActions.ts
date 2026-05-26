@@ -150,35 +150,6 @@ export function useGraphPaletteActions({
           await loadProject(selectedProject, selectedCanvasId);
           return;
         }
-        if (type === "context") {
-          const previousContextIds = new Set(graph?.contextNodes.map((node) => node.nodeId) ?? []);
-          const result = await bridge.addContextNode(canvas, {
-            type: "component",
-            title: t("defaultContextTitle"),
-            summary: t("defaultContextSummary")
-          });
-          if (!result.ok) {
-            setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
-            return;
-          }
-          if (dropPosition) {
-            const nextGraph = await bridge.getGraphViewModel(canvas);
-            const createdContext = nextGraph.contextNodes.find((node) => !previousContextIds.has(node.nodeId));
-            if (createdContext) {
-              const baseLayout = await bridge.getDesktopLayout(canvas);
-              const nextLayout: DesktopLayout = {
-                ...baseLayout,
-                nodes: [...baseLayout.nodes.filter((node) => node.nodeId !== createdContext.nodeId), { nodeId: createdContext.nodeId, x: dropPosition.x, y: dropPosition.y }]
-              };
-              const savedLayout = await bridge.saveDesktopLayout(canvas, nextLayout);
-              await loadProject(selectedProject, selectedCanvasId);
-              setLayout(savedLayout);
-              return;
-            }
-          }
-          await loadProject(selectedProject, selectedCanvasId);
-          return;
-        }
         const targetTaskId = selectedBlock?.taskId ?? selectedTaskPanelId ?? graph?.tasks[0]?.taskId;
         if (!targetTaskId) {
           setError(t("selectTaskBeforeBlock"));
@@ -223,7 +194,7 @@ export function useGraphPaletteActions({
       }
       event.preventDefault();
       const dropPosition = flowInstance?.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-      void addPaletteComponent(type, type === "task" || type === "context" ? dropPosition : undefined);
+      void addPaletteComponent(type, type === "task" ? dropPosition : undefined);
     },
     [addPaletteComponent, flowInstance]
   );

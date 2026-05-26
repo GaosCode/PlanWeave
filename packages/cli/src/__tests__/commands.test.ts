@@ -107,7 +107,7 @@ describe("planweave CLI contract", () => {
           executorRole: "reviewer",
           downstreamTasks: [],
           unlocksTasks: [],
-          needsChangesReturnsTo: ["T-001#B-001", "T-001#C-001"]
+          needsChangesReturnsTo: ["T-001#B-001"]
         }
       })
     ).toContain("ready: Optional review gate is not required and is not claimable; task can complete without it.");

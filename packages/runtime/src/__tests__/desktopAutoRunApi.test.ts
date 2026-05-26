@@ -107,7 +107,7 @@ describe("desktop auto run API", () => {
         command: process.execPath,
         args: [
           "-e",
-          "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { setTimeout(() => console.log('slow auto run ' + input.split('\\n')[0]), 120); });"
+          "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { setTimeout(() => { if (input.includes('Review task')) { console.log(JSON.stringify({ reviewBlockRef: 'T-001#R-001', taskId: 'T-001', verdict: 'passed', content: 'slow review passed' })); } else { console.log('slow auto run ' + input.split('\\n')[0]); } }, 120); });"
         ]
       }
     };

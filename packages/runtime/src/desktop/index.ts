@@ -12,7 +12,6 @@ export {
   resolveTaskCanvasWorkspace
 } from "./canvasApi.js";
 export {
-  addContextNode,
   addBlock,
   addDependencyEdge,
   addTaskNode,

@@ -65,7 +65,7 @@ export async function createTaskDraft(
         title: draftTitle(section),
         promptMarkdown: section,
         acceptance: acceptanceFromText(section),
-        blockTypes: ["implementation", "check", "review"]
+        blockTypes: ["implementation", "review"]
       })),
       blocks: []
     };
@@ -78,7 +78,7 @@ export async function createTaskDraft(
         title: draftTitle(text),
         promptMarkdown: text,
         acceptance: acceptanceFromText(text),
-        blockTypes: ["implementation", "check", "review"]
+        blockTypes: ["implementation", "review"]
       }
     ],
     blocks: []

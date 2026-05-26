@@ -13,9 +13,6 @@ export const statusVariant = {
 } as const;
 
 export function defaultBlockTitleForUi(type: BlockType, t: ReturnType<typeof createTranslator>): string {
-  if (type === "check") {
-    return t("defaultCheckBlockTitle");
-  }
   if (type === "review") {
     return t("defaultReviewBlockTitle");
   }

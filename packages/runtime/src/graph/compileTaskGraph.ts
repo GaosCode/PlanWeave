@@ -6,7 +6,6 @@ import { edgeTypes } from "../types.js";
 import type {
   CompiledExecutionGraph,
   EdgeType,
-  GraphContext,
   ManifestBlock,
   ManifestEdge,
   ManifestNode,
@@ -56,25 +55,6 @@ export function parseBlockRef(ref: string): { taskId: string; blockId: string } 
     throw new Error(`Invalid block ref '${ref}'. Expected '<task-id>#<block-id>'.`);
   }
   return { taskId: parts[0], blockId: parts[1] };
-}
-
-function emptyGraphContext(): GraphContext {
-  return {
-    goals: [],
-    requirements: [],
-    constraints: [],
-    decisions: [],
-    components: [],
-    conflicts: [],
-    supersedes: [],
-    supersededBy: []
-  };
-}
-
-function addUniqueNode(nodes: ManifestNode[], node: ManifestNode): void {
-  if (!nodes.some((item) => item.id === node.id)) {
-    nodes.push(node);
-  }
 }
 
 function edgeKey(edge: ManifestEdge): string {
@@ -143,27 +123,7 @@ function validateEdgeEndpointTypes(edge: ManifestEdge, from: ManifestNode, to: M
       ? []
       : [issue("depends_on_non_task", "depends_on edges must connect task nodes.", "edges")];
   }
-  if (edge.type === "implements") {
-    return from.type === "task" && (to.type === "goal" || to.type === "requirement")
-      ? []
-      : [issue("edge_endpoint_type_invalid", "implements edges must connect task -> goal/requirement.", "edges")];
-  }
-  if (edge.type === "constrained_by") {
-    return from.type === "task" && to.type === "constraint"
-      ? []
-      : [issue("edge_endpoint_type_invalid", "constrained_by edges must connect task -> constraint.", "edges")];
-  }
-  if (edge.type === "touches") {
-    return from.type === "task" && to.type === "component"
-      ? []
-      : [issue("edge_endpoint_type_invalid", "touches edges must connect task -> component.", "edges")];
-  }
-  if (edge.type === "conflicts_with") {
-    return to.type === "risk" || to.type === "constraint" || to.type === "task"
-      ? []
-      : [issue("edge_endpoint_type_invalid", "conflicts_with edges must point to risk/constraint/task.", "edges")];
-  }
-  return [];
+  return [issue("edge_type_invalid", `Edge type '${edge.type}' is not supported.`, "edges")];
 }
 
 export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecutionGraph {
@@ -190,7 +150,6 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
 
   const taskDependenciesByTask = new Map<string, string[]>();
   const taskDependentsByTask = new Map<string, string[]>();
-  const contextEdgesByTask = new Map<string, ManifestEdge[]>();
   const taskAdjacency = new Map<string, string[]>();
   const blockRefsInManifestOrder: string[] = [];
   const blocksByRef = new Map<string, ManifestBlock>();
@@ -205,7 +164,6 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
   for (const taskId of taskNodesInManifestOrder) {
     taskDependenciesByTask.set(taskId, []);
     taskDependentsByTask.set(taskId, []);
-    contextEdgesByTask.set(taskId, []);
     taskAdjacency.set(taskId, []);
     blocksByTask.set(taskId, []);
     reviewBlocksByTask.set(taskId, []);
@@ -227,7 +185,7 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
       if (block.type === "review") {
         reviewBlocksByTask.get(taskId)?.push(ref);
       }
-      if (block.type === "implementation" || block.type === "check") {
+      if (block.type === "implementation") {
         locksByBlockRef.set(ref, block.parallel.locks);
         parallelSafeByBlockRef.set(ref, block.parallel.safe);
       } else {
@@ -295,18 +253,9 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
       errors.push(...endpointIssues);
       continue;
     }
-    if (edge.type === "depends_on") {
-      taskDependenciesByTask.get(edge.from)?.push(edge.to);
-      taskDependentsByTask.get(edge.to)?.push(edge.from);
-      taskAdjacency.get(edge.from)?.push(edge.to);
-    } else {
-      if (tasksById.has(edge.from)) {
-        contextEdgesByTask.get(edge.from)?.push(edge);
-      }
-      if (tasksById.has(edge.to)) {
-        contextEdgesByTask.get(edge.to)?.push(edge);
-      }
-    }
+    taskDependenciesByTask.get(edge.from)?.push(edge.to);
+    taskDependentsByTask.get(edge.to)?.push(edge.from);
+    taskAdjacency.get(edge.from)?.push(edge.to);
   }
 
   const taskCycle = findCycle(taskAdjacency);
@@ -325,40 +274,12 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
     }
   }
 
-  function relatedContext(taskId: string): GraphContext {
-    const context = emptyGraphContext();
-    for (const edge of contextEdgesByTask.get(taskId) ?? []) {
-      const otherId = edge.from === taskId ? edge.to : edge.from;
-      const other = nodesById.get(otherId);
-      if (!other) {
-        continue;
-      }
-      if (edge.type === "conflicts_with") {
-        addUniqueNode(context.conflicts, other);
-      } else if (edge.type === "supersedes") {
-        addUniqueNode(edge.from === taskId ? context.supersedes : context.supersededBy, other);
-      } else if (edge.type === "constrained_by" || other.type === "constraint") {
-        addUniqueNode(context.constraints, other);
-      } else if (edge.type === "touches" || other.type === "component") {
-        addUniqueNode(context.components, other);
-      } else if (other.type === "goal") {
-        addUniqueNode(context.goals, other);
-      } else if (other.type === "requirement") {
-        addUniqueNode(context.requirements, other);
-      } else if (other.type === "decision") {
-        addUniqueNode(context.decisions, other);
-      }
-    }
-    return context;
-  }
-
   return {
     nodesById,
     taskNodesInManifestOrder,
     tasksById,
     taskDependenciesByTask,
     taskDependentsByTask,
-    contextEdgesByTask,
     blockRefsInManifestOrder,
     blocksByRef,
     blockTaskByRef,
@@ -370,8 +291,7 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
     parallelSafeByBlockRef,
     diagnostics: { errors, warnings },
     taskReachable: (from, to) => reachable(taskAdjacency, from, to),
-    blockReachable: (fromRef, toRef) => reachable(blockDependenciesByRef, fromRef, toRef),
-    relatedContext
+    blockReachable: (fromRef, toRef) => reachable(blockDependenciesByRef, fromRef, toRef)
   };
 }
 

@@ -12,7 +12,6 @@ type UseDesktopSearchArgs = {
   selectedProject: DesktopProjectSummary | null;
   setActiveView: (view: AppView) => void;
   setError: (message: string | null) => void;
-  setSelectedContextNodeId: (nodeId: string | null) => void;
   setSelectedTaskPanelId: (taskId: string | null) => void;
 };
 
@@ -24,7 +23,6 @@ export function useDesktopSearch({
   selectedProject,
   setActiveView,
   setError,
-  setSelectedContextNodeId,
   setSelectedTaskPanelId
 }: UseDesktopSearchArgs) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -61,7 +59,6 @@ export function useDesktopSearch({
       const target = searchNavigationTarget(result);
       if (target.kind === "task") {
         setSelectedTaskPanelId(target.ref);
-        setSelectedContextNodeId(null);
         setActiveView("graph");
         return;
       }
@@ -69,17 +66,11 @@ export function useDesktopSearch({
         await handleBlockSelect(target.ref, result.canvasId ?? selectedCanvasId);
         return;
       }
-      if (target.kind === "context") {
-        setSelectedTaskPanelId(null);
-        setSelectedContextNodeId(target.ref);
-        setActiveView("graph");
-        return;
-      }
       if (target.kind === "record") {
         await handleOpenRunRecord(target.recordId, result.canvasId ?? selectedCanvasId);
       }
     },
-    [handleBlockSelect, handleOpenRunRecord, loadProject, selectedCanvasId, selectedProject, setActiveView, setSelectedContextNodeId, setSelectedTaskPanelId]
+    [handleBlockSelect, handleOpenRunRecord, loadProject, selectedCanvasId, selectedProject, setActiveView, setSelectedTaskPanelId]
   );
 
   return { handleSearchResultOpen, searchQuery, searchResults, setSearchQuery };

@@ -4,7 +4,6 @@ export type DesktopBridgeInvokeMethod = Exclude<keyof DesktopBridgeApi, "onPacka
 
 export const desktopBridgeInvokeChannels = {
   addBlock: "planweave:addBlock",
-  addContextNode: "planweave:addContextNode",
   addDependencyEdge: "planweave:addDependencyEdge",
   addTaskNode: "planweave:addTaskNode",
   chooseProjectFolder: "planweave:chooseProjectFolder",

@@ -11,7 +11,7 @@ describe("getExecutionStatus", () => {
     const status = await getExecutionStatus({ projectRoot: root });
 
     expect(status.taskTotal).toBe(1);
-    expect(status.blockTotal).toBe(3);
+    expect(status.blockTotal).toBe(2);
     expect(status.counts.blocks.completed).toBe(1);
     expect(status.counts.blocks.ready).toBe(1);
     expect(status.counts.feedback.open).toBe(0);
@@ -40,8 +40,6 @@ describe("getExecutionStatus", () => {
     const { root } = await createTestWorkspace(basicManifest({ parallel: true }));
     await claimNext({ projectRoot: root, parallel: true });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
-    await claimNext({ projectRoot: root, parallel: true });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
 
     const status = await getExecutionStatus({ projectRoot: root });
 
@@ -51,7 +49,7 @@ describe("getExecutionStatus", () => {
     expect(status.claimHints.find((hint) => hint.ref === "T-001#R-001")).toMatchObject({
       ref: "T-001#R-001",
       ready: true,
-      readyReason: "Review gate is ready after required implementation/check blocks completed.",
+      readyReason: "Review gate is ready after required implementation blocks completed.",
       parallelSafe: false,
       sequentialOnly: true,
       recommendedCommand: "planweave claim T-001#R-001",
@@ -60,7 +58,7 @@ describe("getExecutionStatus", () => {
         required: true,
         requiredReason: "Required review gate for task completion.",
         executorRole: "reviewer",
-        needsChangesReturnsTo: ["T-001#B-001", "T-001#C-001"]
+        needsChangesReturnsTo: ["T-001#B-001"]
       }
     });
   });
@@ -68,7 +66,7 @@ describe("getExecutionStatus", () => {
   it("includes blocked and diverged reasons in claim hints", async () => {
     const { root } = await createTestWorkspace();
     await markBlockBlocked({ projectRoot: root, ref: "T-001#B-001", reason: "Waiting for external API access." });
-    await markBlockDiverged({ projectRoot: root, ref: "T-001#C-001", reason: "Prompt no longer matches the manifest." });
+    await markBlockDiverged({ projectRoot: root, ref: "T-001#R-001", reason: "Prompt no longer matches the manifest." });
 
     const status = await getExecutionStatus({ projectRoot: root });
 
@@ -76,7 +74,7 @@ describe("getExecutionStatus", () => {
       status: "blocked",
       statusReason: "Waiting for external API access."
     });
-    expect(status.claimHints.find((hint) => hint.ref === "T-001#C-001")).toMatchObject({
+    expect(status.claimHints.find((hint) => hint.ref === "T-001#R-001")).toMatchObject({
       status: "diverged",
       statusReason: "Prompt no longer matches the manifest."
     });
@@ -125,8 +123,6 @@ describe("getExecutionStatus", () => {
 
     await claimNext({ projectRoot: root });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
-    await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
     const status = await getExecutionStatus({ projectRoot: root });
 
     expect(status.nextClaimable).toEqual([]);

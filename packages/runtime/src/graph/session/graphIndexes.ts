@@ -86,7 +86,6 @@ export function removeTaskIndexes(graph: CompiledExecutionGraph, taskId: string)
   );
   graph.taskDependenciesByTask.delete(taskId);
   graph.taskDependentsByTask.delete(taskId);
-  graph.contextEdgesByTask.delete(taskId);
   graph.blocksByTask.delete(taskId);
   graph.reviewBlocksByTask.delete(taskId);
   return removedRefs;
@@ -100,7 +99,6 @@ export function addTaskIndexes(graph: CompiledExecutionGraph, task: ManifestTask
   }
   graph.taskDependenciesByTask.set(task.id, graph.taskDependenciesByTask.get(task.id) ?? []);
   graph.taskDependentsByTask.set(task.id, graph.taskDependentsByTask.get(task.id) ?? []);
-  graph.contextEdgesByTask.set(task.id, graph.contextEdgesByTask.get(task.id) ?? []);
   graph.blocksByTask.set(task.id, []);
   graph.reviewBlocksByTask.set(task.id, []);
   for (const block of task.blocks) {
@@ -175,17 +173,8 @@ export function validateEdge(graph: CompiledExecutionGraph, edge: ManifestEdge):
 }
 
 export function addEdgeIndexes(graph: CompiledExecutionGraph, edge: ManifestEdge): void {
-  if (edge.type === "depends_on") {
-    graph.taskDependenciesByTask.get(edge.from)?.push(edge.to);
-    graph.taskDependentsByTask.get(edge.to)?.push(edge.from);
-  } else {
-    if (graph.tasksById.has(edge.from)) {
-      graph.contextEdgesByTask.get(edge.from)?.push(edge);
-    }
-    if (graph.tasksById.has(edge.to)) {
-      graph.contextEdgesByTask.get(edge.to)?.push(edge);
-    }
-  }
+  graph.taskDependenciesByTask.get(edge.from)?.push(edge.to);
+  graph.taskDependentsByTask.get(edge.to)?.push(edge.from);
 }
 
 export function removeEdgeIndexes(graph: CompiledExecutionGraph, edge: ManifestEdge): void {
@@ -198,24 +187,14 @@ export function removeEdgeIndexes(graph: CompiledExecutionGraph, edge: ManifestE
       items.splice(index, 1);
     }
   };
-  if (edge.type === "depends_on") {
-    remove(graph.taskDependenciesByTask.get(edge.from), edge.to);
-    remove(graph.taskDependentsByTask.get(edge.to), edge.from);
-  } else {
-    for (const edges of graph.contextEdgesByTask.values()) {
-      const index = edges.findIndex((item) => sameEdge(item, edge));
-      if (index >= 0) {
-        edges.splice(index, 1);
-      }
-    }
-  }
+  remove(graph.taskDependenciesByTask.get(edge.from), edge.to);
+  remove(graph.taskDependentsByTask.get(edge.to), edge.from);
 }
 
 export function rebuildEdgeIndexes(graph: CompiledExecutionGraph, manifest: PlanPackageManifest): void {
   for (const taskId of graph.taskNodesInManifestOrder) {
     graph.taskDependenciesByTask.set(taskId, []);
     graph.taskDependentsByTask.set(taskId, []);
-    graph.contextEdgesByTask.set(taskId, []);
   }
   for (const edge of manifest.edges) {
     if (graph.nodesById.has(edge.from) && graph.nodesById.has(edge.to)) {

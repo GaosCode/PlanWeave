@@ -1,7 +1,6 @@
 export { createTaskDraft } from "./graph/draftModel.js";
 export {
   addBlock,
-  addContextNode,
   addDependencyEdge,
   addTaskNode,
   removeBlock,

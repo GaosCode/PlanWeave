@@ -4,7 +4,6 @@ import { Badge } from "@/components/ui/badge";
 export type SearchNavigationTarget =
   | { kind: "task"; ref: string }
   | { kind: "block"; ref: string }
-  | { kind: "context"; ref: string }
   | { kind: "record"; recordId: string }
   | { kind: "none" };
 
@@ -15,9 +14,6 @@ export function searchNavigationTarget(result: DesktopSearchResult): SearchNavig
   }
   if (targetRef.includes("#")) {
     return { kind: "block", ref: targetRef };
-  }
-  if (result.kind === "context") {
-    return { kind: "context", ref: targetRef };
   }
   if (result.kind === "task" || result.kind === "prompt") {
     return { kind: "task", ref: targetRef };

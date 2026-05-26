@@ -1,6 +1,5 @@
 import type {
   DesktopAddBlockInput,
-  DesktopAddContextNodeInput,
   DesktopAddTaskInput,
   DesktopBlockDetail,
   DesktopGraphEditResult,
@@ -96,7 +95,6 @@ export type DesktopBridgeApi = {
   createTaskDraft(ref: DesktopCanvasReference, input: { mode: DesktopTaskDraftMode; text: string; targetTaskId?: string | null }): Promise<DesktopTaskDraft>;
   addTaskNode(ref: DesktopCanvasReference, input: DesktopAddTaskInput): Promise<DesktopGraphEditResult>;
   addBlock(ref: DesktopCanvasReference, input: DesktopAddBlockInput): Promise<DesktopGraphEditResult>;
-  addContextNode(ref: DesktopCanvasReference, input: DesktopAddContextNodeInput): Promise<DesktopGraphEditResult>;
   removeTaskNode(ref: DesktopCanvasReference, taskId: string): Promise<DesktopGraphEditResult>;
   removeBlock(ref: DesktopCanvasReference, blockRef: string): Promise<DesktopGraphEditResult>;
   validateGraphEdit(ref: DesktopCanvasReference, input: DesktopGraphEditValidationInput): Promise<DesktopGraphEditResult>;

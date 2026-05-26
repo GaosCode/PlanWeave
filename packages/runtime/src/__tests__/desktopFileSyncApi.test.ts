@@ -21,7 +21,7 @@ describe("desktop file sync API", () => {
     const snapshot = await createDesktopPackageFileSnapshot(root);
     expect(snapshot).toMatchObject({
       projectRoot: root,
-      promptFileCount: 4
+      promptFileCount: 3
     });
     expect(snapshot.snapshotId).toMatch(/^PKG-SNAPSHOT-/);
 

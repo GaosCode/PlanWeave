@@ -81,7 +81,7 @@ describe("desktop review pipeline API", () => {
     expect(reviews[0]).toMatchObject({
       id: "R-001",
       title: "Architecture review",
-      depends_on: ["C-001"],
+      depends_on: ["B-001"],
       review: {
         required: false,
         maxFeedbackCycles: 2,
@@ -126,7 +126,7 @@ describe("desktop review pipeline API", () => {
     if (task?.type !== "task") {
       throw new Error("Fixture task missing.");
     }
-    expect(task.blocks.map((block) => block.type)).toEqual(["implementation", "check"]);
+    expect(task.blocks.map((block) => block.type)).toEqual(["implementation"]);
     await expect(readFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "R-001.prompt.md"), "utf8")).rejects.toMatchObject({
       code: "ENOENT"
     });

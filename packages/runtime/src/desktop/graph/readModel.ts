@@ -5,7 +5,7 @@ import { resolvePackagePath } from "../../package/resolvePackagePath.js";
 import { readState } from "../../state.js";
 import { getExecutionStatus } from "../../taskManager/index.js";
 import { listExecutorProfiles } from "../../autoRun/executors.js";
-import type { ManifestContextNode, PackageWorkspaceRef, ValidationIssue } from "../../types.js";
+import type { PackageWorkspaceRef, ValidationIssue } from "../../types.js";
 import type { DesktopBlockDetail, DesktopBlockPreview, DesktopGraphViewModel, DesktopTaskDetail, DesktopTaskException, DesktopTaskExecutionOrder } from "../types.js";
 import { exceptionForBlock, executorLabel, getBlock, getTask, promptPreview, readOptionalFile, sortBlockRefsForTask } from "./graphHelpers.js";
 
@@ -92,14 +92,6 @@ export async function getGraphViewModel(projectRoot: PackageWorkspaceRef): Promi
     projectTitle: manifest.project.title,
     executorOptions,
     tasks,
-    contextNodes: manifest.nodes
-      .filter((node): node is ManifestContextNode => node.type !== "task")
-      .map((node) => ({
-        nodeId: node.id,
-        type: node.type,
-        title: node.title,
-        summary: node.summary
-      })),
     edges: manifest.edges.map((edge) => ({ from: edge.from, to: edge.to, type: edge.type })),
     diagnostics,
     dirtyPromptRefs: [...dirtyPromptRefs]

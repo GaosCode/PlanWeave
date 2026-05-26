@@ -3,7 +3,7 @@ import { claimBlock, claimBlockType } from "@planweave/runtime";
 import type { BlockType } from "@planweave/runtime";
 import { resolveCliProjectRoot } from "../projectRoot.js";
 
-const blockTypes = new Set(["implementation", "check", "review"]);
+const blockTypes = new Set(["implementation", "review"]);
 
 function parseBlockType(value: string): BlockType | null {
   return blockTypes.has(value) ? (value as BlockType) : null;
@@ -13,7 +13,7 @@ export function registerClaimCommand(program: Command): void {
   program
     .command("claim [ref]")
     .description("Claim a specific block by ref, or the next executable block matching a type")
-    .option("--type <type>", "claim the next executable block of a type: implementation, check, or review")
+    .option("--type <type>", "claim the next executable block of a type: implementation or review")
     .action(async (ref: string | undefined, options: { type?: string }) => {
       if (ref) {
         console.log(JSON.stringify(await claimBlock({ projectRoot: resolveCliProjectRoot(), ref }), null, 2));

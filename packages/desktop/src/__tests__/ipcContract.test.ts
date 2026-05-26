@@ -5,7 +5,6 @@ import { desktopBridgeInvokeChannels, packageFileChangedChannel, type DesktopBri
 
 const expectedBridgeInvokeMethods = [
   "addBlock",
-  "addContextNode",
   "addDependencyEdge",
   "addTaskNode",
   "chooseProjectFolder",

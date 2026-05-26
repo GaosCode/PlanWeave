@@ -13,17 +13,16 @@ describe("editGraph", () => {
 
     const mutation = buildPlanPackageGraphMutation(manifest, {
       kind: "removeBlock",
-      blockRef: "T-001#C-001"
+      blockRef: "T-001#R-001"
     });
 
     const task = mutation.nextManifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
     if (task?.type !== "task") {
       throw new Error("Fixture task missing.");
     }
-    expect(task.blocks.map((block) => block.id)).toEqual(["B-001", "R-001"]);
-    expect(task.blocks.find((block) => block.id === "R-001")?.depends_on).toEqual([]);
+    expect(task.blocks.map((block) => block.id)).toEqual(["B-001"]);
     expect(mutation.affectedTasks).toEqual(["T-001"]);
-    expect(mutation.sideEffects).toEqual([{ kind: "removePrompt", packagePath: "nodes/T-001/blocks/C-001.prompt.md" }]);
+    expect(mutation.sideEffects).toEqual([{ kind: "removePrompt", packagePath: "nodes/T-001/blocks/R-001.prompt.md" }]);
   });
 
   it("builds task and block package surface side effects in the graph mutation seam", async () => {
@@ -106,10 +105,10 @@ describe("editGraph", () => {
   it("validates edge endpoint contracts before writing", async () => {
     const { root } = await createTestWorkspace();
 
-    const result = await addEdge({ projectRoot: root, edge: { from: "G-001", to: "T-001", type: "depends_on" } });
+    const result = await addEdge({ projectRoot: root, edge: { from: "missing-task", to: "T-001", type: "depends_on" } });
 
     expect(result.ok).toBe(false);
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("depends_on_non_task");
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("edge_from_missing");
   });
 
   it("updates the task prompt source rather than a rendered task surface", async () => {

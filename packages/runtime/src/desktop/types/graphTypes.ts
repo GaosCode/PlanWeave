@@ -3,7 +3,6 @@ import type {
   BlockType,
   EdgeType,
   GraphEditResult,
-  NodeType,
   ReviewGateHint,
   TaskStatus,
   ValidationIssue
@@ -48,19 +47,11 @@ export type DesktopGraphEdgeViewModel = {
   type: EdgeType;
 };
 
-export type DesktopContextNodeViewModel = {
-  nodeId: string;
-  type: Exclude<NodeType, "task">;
-  title: string;
-  summary: string;
-};
-
 export type DesktopGraphViewModel = {
   projectId: string;
   projectTitle: string;
   executorOptions: string[];
   tasks: DesktopTaskNodeViewModel[];
-  contextNodes: DesktopContextNodeViewModel[];
   edges: DesktopGraphEdgeViewModel[];
   diagnostics: ValidationIssue[];
   dirtyPromptRefs: string[];
@@ -147,7 +138,7 @@ export type DesktopStatistics = {
   estimatedRemainingBlocks: number;
 };
 
-export type DesktopSearchResultKind = "task" | "block" | "context" | "prompt" | "run_record" | "review_attempt" | "feedback";
+export type DesktopSearchResultKind = "task" | "block" | "prompt" | "run_record" | "review_attempt" | "feedback";
 
 export type DesktopSearchFilters = {
   kinds?: DesktopSearchResultKind[];
@@ -199,12 +190,6 @@ export type DesktopAddBlockInput = {
   promptMarkdown: string;
   executor?: string | null;
   dependsOn?: string[];
-};
-
-export type DesktopAddContextNodeInput = {
-  type: Exclude<NodeType, "task">;
-  title: string;
-  summary: string;
 };
 
 export type DesktopGraphEditValidationInput =

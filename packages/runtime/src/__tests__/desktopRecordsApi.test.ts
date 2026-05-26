@@ -98,12 +98,6 @@ describe("desktop records API", () => {
       exitCode: 0
     });
     await claimNext({ projectRoot: root });
-    await submitBlockResult({
-      projectRoot: root,
-      ref: "T-001#C-001",
-      reportPath: await writeReport(root, "check-record.md", "check complete\n")
-    });
-    await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,
       ref: "T-001#R-001",
@@ -171,8 +165,6 @@ describe("desktop records API", () => {
     const { root } = await createTestWorkspace(basicManifest({ reviewMaxFeedbackCycles: 2 }));
     await claimNext({ projectRoot: root });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
-    await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
     await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,

@@ -5,14 +5,12 @@ import type { DesktopUiSettings } from "../types";
 
 export type UseDesktopProjectArgs = {
   setError: (message: string | null) => void;
-  setSelectedContextNodeId: (nodeId: string | null) => void;
   setSelectedTaskPanelId: (taskId: string | null) => void;
   updateSettings: (patch: Partial<DesktopUiSettings>) => void;
 };
 
 export function useDesktopProject({
   setError,
-  setSelectedContextNodeId,
   setSelectedTaskPanelId,
   updateSettings
 }: UseDesktopProjectArgs) {
@@ -37,7 +35,6 @@ export function useDesktopProject({
       setSelectedCanvasId(canvasId);
       setExpandedProjectId(project.projectId);
       setSelectedTaskPanelId(null);
-      setSelectedContextNodeId(null);
       setError(null);
       const [nextGraph, nextLayout, nextTodo, nextStats] = await Promise.all([
         bridge.getGraphViewModel(desktopCanvasReference(project, canvasId)),
@@ -53,7 +50,7 @@ export function useDesktopProject({
       await bridge.watchPackageFiles(desktopCanvasReference(project, canvasId));
       updateSettings({ runtimePath: project.workspaceRoot });
     },
-    [setError, setSelectedContextNodeId, setSelectedTaskPanelId, updateSettings]
+    [setError, setSelectedTaskPanelId, updateSettings]
   );
 
   useEffect(() => {
@@ -145,13 +142,12 @@ export function useDesktopProject({
       setSelectedCanvasId(null);
       setExpandedProjectId(null);
       setSelectedTaskPanelId(null);
-      setSelectedContextNodeId(null);
       setGraph(null);
       setLayout(null);
       setTodoGroups(null);
       setStatistics(null);
     },
-    [loadProject, selectedProject?.projectId, setSelectedContextNodeId, setSelectedTaskPanelId]
+    [loadProject, selectedProject?.projectId, setSelectedTaskPanelId]
   );
 
   return {

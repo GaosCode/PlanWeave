@@ -1,7 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, shell, type OpenDialogOptions } from "electron";
 import {
   addBlock,
-  addContextNode,
   addDependencyEdge,
   addTaskNode,
   createTaskCanvas,
@@ -122,9 +121,6 @@ export function registerRuntimeBridgeHandlers(): void {
     invokeGraphEdit(addTaskNode(await resolveDesktopCanvasReference(ref), input))
   );
   ipcMain.handle(desktopBridgeInvokeChannels.addBlock, async (_event, ref: DesktopCanvasReference, input: Parameters<typeof addBlock>[1]) => invokeGraphEdit(addBlock(await resolveDesktopCanvasReference(ref), input)));
-  ipcMain.handle(desktopBridgeInvokeChannels.addContextNode, async (_event, ref: DesktopCanvasReference, input: Parameters<typeof addContextNode>[1]) =>
-    invokeGraphEdit(addContextNode(await resolveDesktopCanvasReference(ref), input))
-  );
   ipcMain.handle(desktopBridgeInvokeChannels.removeTaskNode, async (_event, ref: DesktopCanvasReference, taskId: string) => invokeGraphEdit(removeTaskNode(await resolveDesktopCanvasReference(ref), taskId)));
   ipcMain.handle(desktopBridgeInvokeChannels.removeBlock, async (_event, ref: DesktopCanvasReference, blockRef: string) => invokeGraphEdit(removeBlock(await resolveDesktopCanvasReference(ref), blockRef)));
   ipcMain.handle(desktopBridgeInvokeChannels.validateGraphEdit, async (_event, ref: DesktopCanvasReference, input: Parameters<typeof validateGraphEdit>[1]) =>

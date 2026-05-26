@@ -7,7 +7,7 @@ export function registerSubmitResultCommand(program: Command): void {
     .command("submit-result")
     .argument("<block-ref>")
     .requiredOption("--report <path>", "implementation report markdown path")
-    .description("Record an implementation/check block run")
+    .description("Record an implementation block run")
     .action(async (ref: string, options: { report: string }) => {
       const result = await submitBlockResult({
         projectRoot: resolveCliProjectRoot(),

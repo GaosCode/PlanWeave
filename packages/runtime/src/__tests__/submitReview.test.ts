@@ -10,8 +10,6 @@ async function completeImplementation(root: string): Promise<void> {
   await claimNext({ projectRoot: root });
   await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
   await claimNext({ projectRoot: root });
-  await submitBlockResult({ projectRoot: root, ref: "T-001#C-001", reportPath: await writeReport(root, "c.md") });
-  await claimNext({ projectRoot: root });
 }
 
 describe("submitReviewResult", () => {
@@ -29,11 +27,11 @@ describe("submitReviewResult", () => {
 
     expect(result).toMatchObject({ ref: "T-001#R-001", verdict: "passed", status: "completed" });
     expect(status.tasks[0]).toMatchObject({ taskId: "T-001", status: "implemented" });
-    expect(taskIndex.latestRunByBlock).toMatchObject({ "T-001#B-001": "RUN-001", "T-001#C-001": "RUN-001" });
+    expect(taskIndex.latestRunByBlock).toMatchObject({ "T-001#B-001": "RUN-001" });
     expect(taskIndex.latestReviewAttemptByBlock).toMatchObject({ "T-001#R-001": "REV-001" });
     expect(taskIndex.latestReviewVerdictByBlock).toMatchObject({ "T-001#R-001": "passed" });
     expect(taskIndex.reviewCompletionReasonByBlock).toMatchObject({ "T-001#R-001": "passed" });
-    expect(taskIndex.counts).toMatchObject({ runs: 2, reviewAttempts: 1 });
+    expect(taskIndex.counts).toMatchObject({ runs: 1, reviewAttempts: 1 });
     await expect(access(join(init.workspace.resultsDir, "T-001", "reviews", "R-001", "attempts", "REV-001", "review-result.json"))).resolves.toBeUndefined();
   });
 
@@ -105,7 +103,7 @@ describe("submitReviewResult", () => {
     expect(taskIndex.latestFeedbackByReviewBlock).toMatchObject({ "T-001#R-001": "FE-001" });
     expect(taskIndex.latestFeedbackSubmissionByFeedback).toMatchObject({ "FE-001": "FS-001" });
     expect(taskIndex.feedbackStatusById).toMatchObject({ "FE-001": "resolved" });
-    expect(taskIndex.counts).toMatchObject({ runs: 2, reviewAttempts: 2, feedbackEnvelopes: 1, feedbackSubmissions: 1 });
+    expect(taskIndex.counts).toMatchObject({ runs: 1, reviewAttempts: 2, feedbackEnvelopes: 1, feedbackSubmissions: 1 });
   });
 
   it("treats retrying the same needs_changes review result as idempotent", async () => {
@@ -136,7 +134,7 @@ describe("submitReviewResult", () => {
       latestReviewAttemptByBlock: { "T-001#R-001": "REV-001" },
       latestFeedbackByReviewBlock: { "T-001#R-001": "FE-001" },
       feedbackStatusById: { "FE-001": "open" },
-      counts: { runs: 2, reviewAttempts: 1, feedbackEnvelopes: 1 }
+      counts: { runs: 1, reviewAttempts: 1, feedbackEnvelopes: 1 }
     });
   });
 
@@ -172,7 +170,7 @@ describe("submitReviewResult", () => {
     expect(taskIndex.latestReviewAttemptByBlock).toMatchObject({ "T-001#R-001": "REV-001" });
     expect(taskIndex.latestFeedbackByReviewBlock).toMatchObject({ "T-001#R-001": "FE-001" });
     expect(taskIndex.feedbackStatusById).toMatchObject({ "FE-001": "resolved" });
-    expect(taskIndex.counts).toMatchObject({ runs: 2, reviewAttempts: 1, feedbackEnvelopes: 1, feedbackSubmissions: 1 });
+    expect(taskIndex.counts).toMatchObject({ runs: 1, reviewAttempts: 1, feedbackEnvelopes: 1, feedbackSubmissions: 1 });
     expect(taskIndex.reviewCompletionReasonByBlock?.["T-001#R-001"]).toBeUndefined();
   });
 
@@ -204,7 +202,7 @@ describe("submitReviewResult", () => {
     expect(taskIndex.latestReviewAttemptByBlock).toMatchObject({ "T-001#R-001": "REV-001" });
     expect(taskIndex.latestFeedbackByReviewBlock).toMatchObject({ "T-001#R-001": "FE-001" });
     expect(taskIndex.feedbackStatusById).toMatchObject({ "FE-001": "resolved" });
-    expect(taskIndex.counts).toMatchObject({ runs: 2, reviewAttempts: 1, feedbackEnvelopes: 1, feedbackSubmissions: 1 });
+    expect(taskIndex.counts).toMatchObject({ runs: 1, reviewAttempts: 1, feedbackEnvelopes: 1, feedbackSubmissions: 1 });
     expect(taskIndex.reviewCompletionReasonByBlock?.["T-001#R-001"]).toBeUndefined();
   });
 
@@ -248,7 +246,7 @@ describe("submitReviewResult", () => {
     expect(taskIndex.latestReviewAttemptByBlock).toMatchObject({ "T-001#R-001": "REV-001" });
     expect(taskIndex.latestFeedbackByReviewBlock).toMatchObject({ "T-001#R-001": "FE-001" });
     expect(taskIndex.feedbackStatusById).toMatchObject({ "FE-001": "resolved" });
-    expect(taskIndex.counts).toMatchObject({ runs: 2, reviewAttempts: 1, feedbackEnvelopes: 1, feedbackSubmissions: 1 });
+    expect(taskIndex.counts).toMatchObject({ runs: 1, reviewAttempts: 1, feedbackEnvelopes: 1, feedbackSubmissions: 1 });
     expect(taskIndex.reviewCompletionReasonByBlock?.["T-001#R-001"]).toBeUndefined();
   });
 
@@ -292,7 +290,7 @@ describe("submitReviewResult", () => {
     expect(taskIndex.latestReviewAttemptByBlock).toMatchObject({ "T-001#R-001": "REV-002" });
     expect(taskIndex.latestFeedbackByReviewBlock).toMatchObject({ "T-001#R-001": "FE-002" });
     expect(taskIndex.feedbackStatusById).toMatchObject({ "FE-001": "resolved", "FE-002": "open" });
-    expect(taskIndex.counts).toMatchObject({ runs: 2, reviewAttempts: 2, feedbackEnvelopes: 2, feedbackSubmissions: 1 });
+    expect(taskIndex.counts).toMatchObject({ runs: 1, reviewAttempts: 2, feedbackEnvelopes: 2, feedbackSubmissions: 1 });
   });
 
   it("does not create feedback when retrying rewritten same-hash max-cycle review after retry reset", async () => {
@@ -333,7 +331,7 @@ describe("submitReviewResult", () => {
     await expect(access(join(init.workspace.resultsDir, "T-001", "feedback", "FE-001"))).rejects.toThrow();
     expect(taskIndex.latestReviewAttemptByBlock).toMatchObject({ "T-001#R-001": "REV-001" });
     expect(taskIndex.reviewCompletionReasonByBlock).toMatchObject({ "T-001#R-001": "max_cycles_reached" });
-    expect(taskIndex.counts).toMatchObject({ runs: 2, reviewAttempts: 1 });
+    expect(taskIndex.counts).toMatchObject({ runs: 1, reviewAttempts: 1 });
     expect(taskIndex.counts?.feedbackEnvelopes).toBeUndefined();
   });
 

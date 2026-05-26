@@ -57,7 +57,6 @@ const graph: DesktopGraphViewModel = {
       exceptions: []
     }
   ],
-  contextNodes: [],
   edges: [],
   diagnostics: [],
   dirtyPromptRefs: []
@@ -103,7 +102,6 @@ describe("desktop renderer hook interfaces", () => {
     renderHook(() =>
       useDesktopProject({
         setError: vi.fn(),
-        setSelectedContextNodeId: vi.fn(),
         setSelectedTaskPanelId: vi.fn(),
         updateSettings
       })

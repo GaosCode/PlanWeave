@@ -5,7 +5,6 @@ import type {
   DesktopBlockDetail,
   DesktopBlockRunRecordSummary,
   DesktopAgentKind,
-  DesktopContextNodeViewModel,
   DesktopFeedbackRecord,
   DesktopReviewAttemptSummary,
   DesktopTaskNodeViewModel
@@ -71,18 +70,12 @@ export type TaskNodeData = {
 
 export type TaskFlowNode = Node<TaskNodeData, "task">;
 
-export type ContextNodeData = {
-  node: DesktopContextNodeViewModel;
-  selected: boolean;
-};
-
-export type ContextFlowNode = Node<ContextNodeData, "context">;
-export type AppFlowNode = TaskFlowNode | ContextFlowNode;
+export type AppFlowNode = TaskFlowNode;
 export type AppView = "new-task" | "graph" | "review-pipeline" | "todo" | "statistics" | "search" | "notifications" | "settings";
 export type AutoRunScopeMode = "project" | "selectedTask" | "selectedBlock";
 export type AppearanceMode = "system" | "light" | "dark";
-export type PaletteComponentKey = "task" | "implementation" | "check" | "review" | "context";
-export type PaletteDropComponent = "task" | "context" | BlockType;
+export type PaletteComponentKey = "task" | "implementation" | "review";
+export type PaletteDropComponent = "task" | BlockType;
 export type PaletteDropPosition = { x: number; y: number };
 export type FloatingControlPosition = { left: number; top: number };
 export type FloatingControlDrag = {

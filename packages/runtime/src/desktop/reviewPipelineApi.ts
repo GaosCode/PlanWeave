@@ -147,7 +147,7 @@ export async function getReviewPipeline(projectRoot: PackageWorkspaceRef, taskId
       enabled: block.review.required,
       preset: block.review.preset ?? "general",
       triggerCondition: normalizeTrigger(block.review.triggerCondition),
-      inputContext: block.review.inputContext ?? "latest implementation and check reports",
+      inputContext: block.review.inputContext ?? "latest implementation reports",
       passCriteria: block.review.passCriteria ?? "All acceptance criteria are satisfied.",
       feedbackFormat: block.review.feedbackFormat ?? "Actionable feedback for implementation blocks.",
       maxFeedbackCycles: block.review.maxFeedbackCycles,

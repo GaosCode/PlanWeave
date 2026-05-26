@@ -92,9 +92,9 @@ describe("runDoctor", () => {
     await mkdir(runDir, { recursive: true });
     await writeFile(join(runDir, "report.md"), "persisted report\n", "utf8");
     await writeJsonFile(join(runDir, "metadata.json"), {
-      ref: "T-001#C-001",
+      ref: "T-001#R-001",
       taskId: "T-001",
-      blockId: "C-001",
+      blockId: "R-001",
       runId: "RUN-002",
       submittedAt: "2026-05-25T00:00:00.000Z"
     });
