@@ -130,6 +130,7 @@ export function GraphView({
           onNodeDragStop={(event, node) => void onNodeDragStop(event, node)}
           onInit={setFlowInstance}
           proOptions={{ hideAttribution: true }}
+          minZoom={0.1}
           fitView
           fitViewOptions={{ maxZoom: 1 }}
         >
