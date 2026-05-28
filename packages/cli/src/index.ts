@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { registerInitCommand } from "./commands/init.js";
 import { registerValidateCommand } from "./commands/validate.js";
 import { registerRefreshPromptCommand } from "./commands/refreshPrompt.js";
@@ -74,6 +76,18 @@ export function createProgram(): Command {
   return program;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+export function isCliEntrypoint(moduleUrl: string, argvPath: string | undefined): boolean {
+  if (!argvPath) {
+    return false;
+  }
+
+  try {
+    return realpathSync(argvPath) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+
+if (isCliEntrypoint(import.meta.url, process.argv[1])) {
   await createProgram().parseAsync(process.argv);
 }
