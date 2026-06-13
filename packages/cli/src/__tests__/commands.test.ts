@@ -90,10 +90,13 @@ describe("planweave CLI contract", () => {
 
   it("prints focused schema navigation and full schema topics", () => {
     expect(formatSchemaHelp()).toContain("Use `planweave schema <topic>`");
+    expect(formatSchemaHelp()).toContain("planweave schema project");
     expect(formatSchemaHelp()).toContain("planweave schema manifest");
     expect(formatSchemaHelp()).toContain("planweave edit-task <task-id>");
     expect(formatSchemaHelp()).toContain("planweave edit-block <block-ref>");
     expect(formatSchemaHelp()).not.toContain("edit package/manifest.json");
+    expect(formatSchemaHelp("project")).toContain('"plan-project/v1"');
+    expect(formatSchemaHelp("project")).toContain("from waits for to");
     expect(formatSchemaHelp("manifest")).toContain('"plan-package/v1"');
     expect(formatSchemaHelp("manifest")).toContain("Only task nodes are supported");
     expect(formatSchemaHelp("manifest")).toContain("Only implementation and review block types are supported.");
@@ -102,7 +105,9 @@ describe("planweave CLI contract", () => {
     expect(formatSchemaHelp("layout")).toContain('"desktop-layout/v1"');
     expect(formatSchemaHelp("layout")).toContain("legacy_layout_schema");
     expect(formatSchemaHelp("all")).toContain("manifest: Plan Package source graph schema.");
+    expect(formatSchemaHelp("all")).toContain("project: Project-level canvas graph schema.");
     expect(schemaDocuments.manifest.schema).toHaveProperty("nodes");
+    expect(schemaDocuments.project.schema).toHaveProperty("canvases");
   });
 
   it("prints claim hint status reasons", () => {

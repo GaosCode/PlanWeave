@@ -9,7 +9,7 @@ type AppViewHistoryState = {
   planweaveHistoryMaxIndex?: number;
 };
 
-const appViews = new Set<AppView>(["new-task", "graph", "review-pipeline", "todo", "statistics", "search", "notifications", "settings"]);
+const appViews = new Set<AppView>(["new-task", "graph", "canvas-map", "review-pipeline", "todo", "statistics", "search", "notifications", "settings"]);
 
 function isAppView(value: unknown): value is AppView {
   return typeof value === "string" && appViews.has(value as AppView);

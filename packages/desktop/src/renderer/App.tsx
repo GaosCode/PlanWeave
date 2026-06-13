@@ -569,6 +569,7 @@ export function App() {
           handleRevealPathInFinder={handleRevealPathInFinder}
           handleSearchResultOpen={handleSearchResultOpen}
           language={language}
+          loadProject={openProjectInSession}
           miniRunPanelOpen={miniRunPanelOpen}
           moveAutoRunControl={moveAutoRunControl}
           moveReviewStep={moveReviewStep}
@@ -593,9 +594,11 @@ export function App() {
           searchQuery={searchQuery}
           searchResults={searchResults}
           selectedBlockPresent={Boolean(selectedBlock)}
+          selectedCanvasId={selectedCanvasId}
           selectedProject={selectedProject}
           selectedTaskPanelId={selectedTaskPanelId}
           setActiveView={setActiveView}
+          setError={setError}
           setAutoRunScopeMode={setAutoRunScopeMode}
           setFlowInstance={setFlowInstance}
           setMiniRunPanelOpen={setMiniRunPanelOpen}

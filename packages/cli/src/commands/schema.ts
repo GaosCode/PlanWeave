@@ -35,12 +35,14 @@ export function formatSchemaHelp(topicName?: string): string {
     "",
     "Topics:",
     "- manifest: package/manifest.json source graph",
+    "- project: project-graph.json canvas graph",
     "- state: runtime state.json",
     "- layout: desktop/layout.json",
     "- all: print every schema topic",
     "",
     "Recommended flow:",
     "- planweave paths --json",
+    "- planweave schema project",
     "- planweave schema manifest",
     "- planweave edit-task <task-id> --title <title>",
     "- planweave edit-block <block-ref> --review-required false",
@@ -62,7 +64,7 @@ function schemaJson(topicName?: string): unknown {
   }
   return {
     topics: schemaTopicOrder,
-    commands: ["schema manifest", "schema state", "schema layout", "schema all"],
+    commands: ["schema manifest", "schema project", "schema state", "schema layout", "schema all"],
     selected: topicName ?? null,
     unknown: topicName && topicName !== "all" ? topicName : null
   };
@@ -73,7 +75,7 @@ export { schemaDocuments };
 export function registerSchemaCommand(program: Command): void {
   program
     .command("schema [topic]")
-    .description("Show PlanWeave schema reference for manifest, state, or desktop layout")
+    .description("Show PlanWeave schema reference for project, manifest, state, or desktop layout")
     .option("--json", "print machine-readable output")
     .action((topicName: string | undefined, options: { json?: boolean }) => {
       if (options.json) {

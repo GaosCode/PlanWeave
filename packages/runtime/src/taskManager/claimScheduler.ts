@@ -1,6 +1,7 @@
 import { writeState } from "../state.js";
 import type { BlockType, ClaimResult, ClaimScope, ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
 import { patchFeedbackArtifact } from "./feedbackArtifacts.js";
+import { createProjectGraphClaimGuard, type ProjectGraphClaimGuard } from "./projectGraphClaimGuard.js";
 import { updateTaskIndex } from "./resultIndex.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import {
@@ -25,6 +26,10 @@ function withoutCurrentRef(currentRefs: string[], ref: string): string[] {
   return currentRefs.filter((currentRef) => currentRef !== ref);
 }
 
+function projectBlockerReason(projectGuard: ProjectGraphClaimGuard, taskId: string | undefined): string | null {
+  return taskId ? projectGuard.blockerReasonForTask(taskId) : null;
+}
+
 export async function claimNext(options: {
   projectRoot: PackageWorkspaceRef;
   parallel?: boolean;
@@ -43,6 +48,7 @@ export async function claimNext(options: {
   if (invalidScope) {
     return invalidScope;
   }
+  const projectGuard = await createProjectGraphClaimGuard(context);
   const openFeedback = activeOpenFeedback(state);
   if (openFeedback.length > 1) {
     return { kind: "blocked", reason: "Multiple open feedback envelopes exist; resolve or dismiss one before continuing." };
@@ -55,6 +61,10 @@ export async function claimNext(options: {
     const taskId = graph.blockTaskByRef.get(feedback.sourceReviewBlockRef);
     if (!taskId) {
       throw new Error(`Feedback '${feedbackId}' points to an unknown review block.`);
+    }
+    const projectBlocker = projectBlockerReason(projectGuard, taskId);
+    if (projectBlocker) {
+      return { kind: "blocked", ref: feedback.sourceReviewBlockRef, reason: projectBlocker };
     }
     if (dryRun) {
       return { kind: "feedback", content: feedback.content };
@@ -133,6 +143,35 @@ export async function claimNext(options: {
     return claimResultForBlock(current, graph, "current");
   }
 
+  const localBlockClaimableWithoutProjectBlockers = (ref: string): boolean => {
+    if (!blockInScope(ref, graph, scope)) {
+      return false;
+    }
+    const taskId = graph.blockTaskByRef.get(ref);
+    const block = graph.blocksByRef.get(ref);
+    if (blockType && block?.type !== blockType) {
+      return false;
+    }
+    if (!taskId || !block || state.blocks[ref]?.status !== "ready" || !taskDependenciesSatisfied(graph, state, taskId)) {
+      return false;
+    }
+    return block.type === "review" ? canClaimReviewBlock(graph, state, ref) : blockDependenciesCompleted(graph, state, ref);
+  };
+
+  const firstProjectBlockedRef = (): string | undefined =>
+    graph.blockRefsInManifestOrder.find((ref) => {
+      if (!localBlockClaimableWithoutProjectBlockers(ref)) {
+        return false;
+      }
+      return Boolean(projectBlockerReason(projectGuard, graph.blockTaskByRef.get(ref)));
+    });
+
+  const blockedByProjectGraphResult = (ref: string): ClaimResult => ({
+    kind: "blocked",
+    ref,
+    reason: projectBlockerReason(projectGuard, graph.blockTaskByRef.get(ref)) ?? "Project graph blockers are not complete."
+  });
+
   const claimSequentialReviewBlock = async (): Promise<ClaimResult | null> => {
     for (const ref of graph.blockRefsInManifestOrder) {
       if (!blockInScope(ref, graph, scope)) {
@@ -146,7 +185,12 @@ export async function claimNext(options: {
       if (!taskId || block?.type !== "review") {
         continue;
       }
-      if (taskDependenciesSatisfied(graph, state, taskId) && state.blocks[ref]?.status === "ready" && canClaimReviewBlock(graph, state, ref)) {
+      if (
+        taskDependenciesSatisfied(graph, state, taskId) &&
+        !projectBlockerReason(projectGuard, taskId) &&
+        state.blocks[ref]?.status === "ready" &&
+        canClaimReviewBlock(graph, state, ref)
+      ) {
         if (dryRun) {
           return claimResultForBlock(ref, graph, "claimed");
         }
@@ -170,6 +214,9 @@ export async function claimNext(options: {
         return false;
       }
       if (!taskId || !block || state.blocks[ref]?.status !== "ready" || !taskDependenciesSatisfied(graph, state, taskId)) {
+        return false;
+      }
+      if (projectBlockerReason(projectGuard, taskId)) {
         return false;
       }
       const ready =
@@ -197,7 +244,7 @@ export async function claimNext(options: {
       if (selected.length >= manifest.execution.parallel.maxConcurrent) {
         break;
       }
-      if (!taskDependenciesSatisfied(graph, state, taskId) || !blockDependenciesCompleted(graph, state, ref)) {
+      if (!taskDependenciesSatisfied(graph, state, taskId) || projectBlockerReason(projectGuard, taskId) || !blockDependenciesCompleted(graph, state, ref)) {
         continue;
       }
       if (!graph.parallelSafeByBlockRef.get(ref) || state.blocks[ref]?.status !== "ready") {
@@ -228,6 +275,10 @@ export async function claimNext(options: {
         }
         return reviewClaim;
       }
+      const projectBlockedRef = firstProjectBlockedRef();
+      if (projectBlockedRef) {
+        return blockedByProjectGraphResult(projectBlockedRef);
+      }
       state.currentRefs = [];
       if (!dryRun) {
         await writeState(workspace.stateFile, refreshDerivedState(manifest, state));
@@ -257,7 +308,12 @@ export async function claimNext(options: {
     if (!taskId || !block || block.type === "review") {
       continue;
     }
-    if (taskDependenciesSatisfied(graph, state, taskId) && blockDependenciesCompleted(graph, state, ref) && state.blocks[ref]?.status === "ready") {
+    if (
+      taskDependenciesSatisfied(graph, state, taskId) &&
+      !projectBlockerReason(projectGuard, taskId) &&
+      blockDependenciesCompleted(graph, state, ref) &&
+      state.blocks[ref]?.status === "ready"
+    ) {
       if (dryRun) {
         return claimResultForBlock(ref, graph, "claimed");
       }
@@ -270,6 +326,11 @@ export async function claimNext(options: {
   const reviewClaim = await claimSequentialReviewBlock();
   if (reviewClaim) {
     return reviewClaim;
+  }
+
+  const projectBlockedRef = firstProjectBlockedRef();
+  if (projectBlockedRef) {
+    return blockedByProjectGraphResult(projectBlockedRef);
   }
 
   const blockedRef = graph.blockRefsInManifestOrder.find((ref) => blockInScope(ref, graph, scope) && state.blocks[ref]?.status === "blocked");
@@ -303,6 +364,11 @@ export async function claimBlock(options: {
     const block = graph.blocksByRef.get(options.ref);
     if (block?.type !== "implementation") {
       return { kind: "blocked", ref: options.ref, reason: "dispatch claims only support implementation blocks." };
+    }
+    const taskId = graph.blockTaskByRef.get(options.ref);
+    const projectBlocker = projectBlockerReason(await createProjectGraphClaimGuard(context), taskId);
+    if (projectBlocker) {
+      return { kind: "blocked", ref: options.ref, reason: projectBlocker };
     }
     if (!graph.parallelSafeByBlockRef.get(options.ref)) {
       return { kind: "blocked", ref: options.ref, reason: `Block '${options.ref}' is not parallel-safe.` };

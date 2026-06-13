@@ -163,6 +163,13 @@ describe("desktop renderer hook interfaces", () => {
     expect(bridge.watchPackageFiles).toHaveBeenCalledWith({ projectRoot: activeProject.rootPath, canvasId: "canvas-active" });
   });
 
+  it("keeps a requested project graph canvas even when it is absent from the project summary", async () => {
+    vi.resetModules();
+    const { resolveProjectCanvasId } = await import("../renderer/hooks/useDesktopProject");
+
+    expect(resolveProjectCanvasId(project, "manual-canvas")).toBe("manual-canvas");
+  });
+
   it("keeps project prompt state when the active canvas graph fails to load", async () => {
     const bridge = createDesktopBridgeMock({
       listProjects: vi.fn().mockResolvedValue([project]),

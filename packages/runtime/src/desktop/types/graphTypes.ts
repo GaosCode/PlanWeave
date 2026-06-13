@@ -58,6 +58,53 @@ export type DesktopGraphViewModel = {
   dirtyPromptRefs: string[];
 };
 
+export type DesktopCanvasNodeViewModel = {
+  canvasId: string;
+  title: string;
+  packageDir: string;
+  diagnostics: ValidationIssue[];
+};
+
+export type DesktopCanvasGraphEdgeViewModel = {
+  from: string;
+  to: string;
+  type: "depends_on";
+};
+
+export type DesktopCrossCanvasTaskEdgeViewModel = {
+  from: {
+    canvasId: string;
+    taskId: string;
+  };
+  to: {
+    canvasId: string;
+    taskId: string;
+  };
+  type: "depends_on";
+};
+
+export type DesktopCanvasGraphViewModel = {
+  projectId: string;
+  projectTitle: string;
+  canvases: DesktopCanvasNodeViewModel[];
+  edges: DesktopCanvasGraphEdgeViewModel[];
+  crossTaskEdges: DesktopCrossCanvasTaskEdgeViewModel[];
+  diagnostics: ValidationIssue[];
+};
+
+export type DesktopCanvasMapLayoutNode = {
+  canvasId: string;
+  x: number;
+  y: number;
+};
+
+export type DesktopCanvasMapLayout = {
+  version: "desktop-canvas-map-layout/v1";
+  projectId: string;
+  nodes: DesktopCanvasMapLayoutNode[];
+  updatedAt: string;
+};
+
 export type DesktopTaskDetail = {
   taskId: string;
   title: string;

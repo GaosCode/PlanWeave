@@ -2,6 +2,8 @@ import type {
   DesktopAddBlockInput,
   DesktopAddTaskInput,
   DesktopBlockDetail,
+  DesktopCanvasGraphViewModel,
+  DesktopCanvasMapLayout,
   DesktopGraphEditResult,
   DesktopGraphEditValidationInput,
   DesktopGraphViewModel,
@@ -83,6 +85,10 @@ export type DesktopBridgeApi = {
   createTaskCanvas(projectRoot: string, input?: { name?: string | null }): Promise<DesktopTaskCanvasSummary>;
   removeTaskCanvas(projectRoot: string, canvasId: string): Promise<DesktopTaskCanvasSummary[]>;
   getProjectOverview(projectRoot: string): Promise<DesktopProjectSummary>;
+  getCanvasGraphViewModel(projectRoot: string): Promise<DesktopCanvasGraphViewModel>;
+  getCanvasMapLayout(projectRoot: string): Promise<DesktopCanvasMapLayout>;
+  saveCanvasMapLayout(projectRoot: string, layout: DesktopCanvasMapLayout): Promise<DesktopCanvasMapLayout>;
+  resetCanvasMapLayout(projectRoot: string): Promise<DesktopCanvasMapLayout>;
   getGraphViewModel(ref: DesktopCanvasReference): Promise<DesktopGraphViewModel>;
   getTaskDetail(ref: DesktopCanvasReference, taskId: string): Promise<DesktopTaskDetail>;
   getBlockDetail(ref: DesktopCanvasReference, blockRef: string): Promise<DesktopBlockDetail>;

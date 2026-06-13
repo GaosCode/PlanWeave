@@ -1,4 +1,4 @@
-export type SchemaTopicName = "manifest" | "state" | "layout";
+export type SchemaTopicName = "manifest" | "project" | "state" | "layout";
 
 export type SchemaDocument = {
   name: SchemaTopicName;

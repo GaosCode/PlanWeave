@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type {
   DesktopBridgeApi,
+  DesktopCanvasMapLayout,
   DesktopLayout,
   DesktopPackageFileChangeEvent,
   DesktopProjectSummary
@@ -23,6 +24,10 @@ const api: DesktopBridgeApi = {
   createTaskCanvas: (projectRoot, input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.createTaskCanvas, projectRoot, input),
   removeTaskCanvas: (projectRoot, canvasId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.removeTaskCanvas, projectRoot, canvasId),
   getProjectOverview: (projectRoot) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getProjectOverview, projectRoot),
+  getCanvasGraphViewModel: (projectRoot) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getCanvasGraphViewModel, projectRoot),
+  getCanvasMapLayout: (projectRoot) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getCanvasMapLayout, projectRoot),
+  saveCanvasMapLayout: (projectRoot, layout: DesktopCanvasMapLayout) => ipcRenderer.invoke(desktopBridgeInvokeChannels.saveCanvasMapLayout, projectRoot, layout),
+  resetCanvasMapLayout: (projectRoot) => ipcRenderer.invoke(desktopBridgeInvokeChannels.resetCanvasMapLayout, projectRoot),
   getGraphViewModel: (ref) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getGraphViewModel, ref),
   getTaskDetail: (ref, taskId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getTaskDetail, ref, taskId),
   getBlockDetail: (ref, blockRef) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getBlockDetail, ref, blockRef),

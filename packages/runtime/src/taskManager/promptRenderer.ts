@@ -5,10 +5,11 @@ import { resolvePackagePath } from "../package/resolvePackagePath.js";
 import { resolvePlanweaveHome } from "../paths.js";
 import { readProjectPromptPolicy } from "../projectPromptPolicy.js";
 import type { ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
+import { renderProjectCanvasContext } from "./projectCanvasContext.js";
 import { loadRuntime, type RuntimeContext } from "./runtimeContext.js";
 import { getBlock, getTask, requiredImplementationRefs } from "./selectors.js";
 
-export type PromptSourceKind = "global" | "projectCanvas" | "taskNode" | "block";
+export type PromptSourceKind = "global" | "projectCanvas" | "projectGraph" | "taskNode" | "block";
 
 export type PromptSourceSummary = {
   kind: PromptSourceKind;
@@ -157,6 +158,7 @@ export async function renderPromptSurface(options: {
   const blockPrompt = await readPromptFile(await resolvePackagePath(workspace.packageDir, block.prompt, { requireExisting: !allowMissingPromptSources }), {
     allowMissing: allowMissingPromptSources
   });
+  const projectCanvasContext = await renderProjectCanvasContext(context, taskId);
   const promptSources = [
     promptSourceSummary({
       kind: "global",
@@ -172,6 +174,14 @@ export async function renderPromptSurface(options: {
       markdown: projectPrompt.markdown,
       included: true,
       missing: projectPrompt.missing
+    }),
+    promptSourceSummary({
+      kind: "projectGraph",
+      label: "Project Canvas Context",
+      markdown: projectCanvasContext.markdown,
+      included: true,
+      missing: projectCanvasContext.missing,
+      disabledReason: projectCanvasContext.disabledReason
     }),
     promptSourceSummary({
       kind: "taskNode",
@@ -221,6 +231,8 @@ export async function renderPromptSurface(options: {
     promptPolicy.includeGlobalPrompt ? globalPrompt.markdown.trim() || "- No global prompt." : "",
     "## Project/Canvas Prompt",
     projectPrompt.markdown.trim() || "- No project/canvas prompt.",
+    "## Project Canvas Context",
+    projectCanvasContext.markdown.trim(),
     "## Task Node Prompt",
     taskPrompt.markdown.trim(),
     "## Block Prompt",

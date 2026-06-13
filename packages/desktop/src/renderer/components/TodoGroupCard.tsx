@@ -36,7 +36,7 @@ export function TodoGroupCard({
       {items.slice(0, 6).map((item) => (
         <button
           className="flex flex-col gap-2 rounded-md bg-muted/50 px-2 py-2 text-left text-xs"
-          key={item.ref}
+          key={`${item.canvasId ?? "default"}:${item.ref}`}
           type="button"
           onClick={() => onSelect(item)}
         >

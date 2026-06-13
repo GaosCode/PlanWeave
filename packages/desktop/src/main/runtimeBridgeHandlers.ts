@@ -9,6 +9,8 @@ import {
   detectDesktopPackageFileChanges,
   getAutoRunState,
   getBlockDetail,
+  getCanvasGraphViewModel,
+  getCanvasMapLayout,
   getDesktopLayout,
   getDirtyPromptRefs,
   getFeedbackRecords,
@@ -37,9 +39,12 @@ import {
   removeProject,
   removeTaskCanvas,
   removeTaskNode,
+  resetCanvasMapLayout,
   resetDesktopLayout,
+  resolveProjectCanvasWorkspace,
   resolveTaskCanvasWorkspace,
   resumeAutoRun,
+  saveCanvasMapLayout,
   saveDesktopLayout,
   searchProject,
   startAutoRun,
@@ -56,7 +61,7 @@ import {
   updateTaskTitle,
   validateGraphEdit
 } from "@planweave-ai/runtime";
-import type { DesktopAutoRunScope, DesktopCanvasReference, DesktopGraphEditResult, DesktopLayout, GraphEditResult } from "@planweave-ai/runtime";
+import type { DesktopAutoRunScope, DesktopCanvasMapLayout, DesktopCanvasReference, DesktopGraphEditResult, DesktopLayout, GraphEditResult } from "@planweave-ai/runtime";
 import type { DesktopAutoRunOptions } from "@planweave-ai/runtime";
 import { desktopBridgeInvokeChannels } from "../shared/ipcChannels.js";
 import { detectAgentTools } from "./agentTools.js";
@@ -70,7 +75,7 @@ async function invokeGraphEdit(promise: Promise<GraphEditResult>): Promise<Deskt
 }
 
 async function resolveDesktopCanvasReference(ref: DesktopCanvasReference) {
-  return resolveTaskCanvasWorkspace(ref.projectRoot, ref.canvasId);
+  return ref.canvasId ? resolveProjectCanvasWorkspace(ref.projectRoot, ref.canvasId) : resolveTaskCanvasWorkspace(ref.projectRoot);
 }
 
 export function registerRuntimeBridgeHandlers(): void {
@@ -104,6 +109,10 @@ export function registerRuntimeBridgeHandlers(): void {
   ipcMain.handle(desktopBridgeInvokeChannels.createTaskCanvas, (_event, projectRoot: string, input?: Parameters<typeof createTaskCanvas>[1]) => createTaskCanvas(projectRoot, input));
   ipcMain.handle(desktopBridgeInvokeChannels.removeTaskCanvas, (_event, projectRoot: string, canvasId: string) => removeTaskCanvas(projectRoot, canvasId));
   ipcMain.handle(desktopBridgeInvokeChannels.getProjectOverview, (_event, projectRoot: string) => getProjectOverview(projectRoot));
+  ipcMain.handle(desktopBridgeInvokeChannels.getCanvasGraphViewModel, (_event, projectRoot: string) => getCanvasGraphViewModel(projectRoot));
+  ipcMain.handle(desktopBridgeInvokeChannels.getCanvasMapLayout, (_event, projectRoot: string) => getCanvasMapLayout(projectRoot));
+  ipcMain.handle(desktopBridgeInvokeChannels.saveCanvasMapLayout, (_event, projectRoot: string, layout: DesktopCanvasMapLayout) => saveCanvasMapLayout(projectRoot, layout));
+  ipcMain.handle(desktopBridgeInvokeChannels.resetCanvasMapLayout, (_event, projectRoot: string) => resetCanvasMapLayout(projectRoot));
   ipcMain.handle(desktopBridgeInvokeChannels.getGraphViewModel, async (_event, ref: DesktopCanvasReference) => getGraphViewModel(await resolveDesktopCanvasReference(ref)));
   ipcMain.handle(desktopBridgeInvokeChannels.getTaskDetail, async (_event, ref: DesktopCanvasReference, taskId: string) => getTaskDetail(await resolveDesktopCanvasReference(ref), taskId));
   ipcMain.handle(desktopBridgeInvokeChannels.getBlockDetail, async (_event, ref: DesktopCanvasReference, blockRef: string) => getBlockDetail(await resolveDesktopCanvasReference(ref), blockRef));

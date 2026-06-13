@@ -18,7 +18,7 @@ export type UseDesktopProjectArgs = {
 };
 
 export function resolveProjectCanvasId(project: DesktopProjectSummary, requestedCanvasId?: string | null): string | null {
-  if (requestedCanvasId !== undefined && project.taskCanvases.some((canvas) => canvas.canvasId === requestedCanvasId)) {
+  if (requestedCanvasId !== undefined) {
     return requestedCanvasId;
   }
   if (project.activeCanvasId && project.taskCanvases.some((canvas) => canvas.canvasId === project.activeCanvasId)) {

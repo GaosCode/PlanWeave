@@ -2,11 +2,14 @@ import { access, mkdir, rm } from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { ZodError } from "zod";
 import { initialManifest } from "../initWorkspace.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolveProjectWorkspace } from "../project.js";
+import { loadProjectGraph, projectCanvasWorkspace as workspaceForProjectCanvas, resolveProjectCanvasWorkspace } from "../projectGraph/index.js";
+import type { ProjectCanvasNode } from "../projectGraph/index.js";
 import { createEmptyState } from "../state.js";
-import type { ProjectWorkspace } from "../types.js";
+import type { ProjectWorkspace, ValidationIssue } from "../types.js";
 import { canvasDiagnostics } from "./canvasDiagnostics.js";
 import { normalizeRegistry, registryVersion, type TaskCanvasRecord, type TaskCanvasRegistry } from "./canvasRegistry.js";
 import type { DesktopTaskCanvasSummary } from "./types.js";
@@ -42,6 +45,31 @@ function fromWorkspaceRelative(workspace: ProjectWorkspace, path: string): strin
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function issue(code: string, message: string, path?: string): ValidationIssue {
+  return { code, message, path };
+}
+
+function projectGraphReadDiagnostics(error: unknown): ValidationIssue[] {
+  if (error instanceof ZodError) {
+    return error.issues.map((zodIssue) =>
+      issue("project_graph_schema", zodIssue.message, zodIssue.path.length > 0 ? `project-graph.json:${zodIssue.path.join(".")}` : "project-graph.json")
+    );
+  }
+  return [issue("project_graph_read_failed", error instanceof Error ? error.message : String(error), "project-graph.json")];
+}
+
+function projectGraphDiagnosticCanvas(diagnostics: ValidationIssue[]): DesktopTaskCanvasSummary {
+  return {
+    canvasId: "project-graph",
+    name: "Project graph",
+    taskCount: 0,
+    missingPromptCount: 0,
+    diagnostics,
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString()
+  };
 }
 
 function defaultCanvasRecord(workspace: ProjectWorkspace, name: string): TaskCanvasRecord {
@@ -149,6 +177,20 @@ async function summarizeCanvas(projectWorkspace: ProjectWorkspace, record: TaskC
   };
 }
 
+async function summarizeProjectCanvas(projectWorkspace: ProjectWorkspace, canvas: ProjectCanvasNode): Promise<DesktopTaskCanvasSummary> {
+  const workspace = workspaceForProjectCanvas(projectWorkspace, canvas);
+  const diagnostics = await canvasDiagnostics(workspace);
+  return {
+    canvasId: canvas.id,
+    name: canvas.title,
+    taskCount: await taskCount(workspace),
+    missingPromptCount: diagnostics.filter((diagnostic) => diagnostic.code === "prompt_missing").length,
+    diagnostics,
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString()
+  };
+}
+
 function nextCanvasName(existing: TaskCanvasRecord[]): string {
   const names = new Set(existing.map((canvas) => canvas.name));
   let index = existing.length + 1;
@@ -171,12 +213,37 @@ function assertWorkspaceChild(projectWorkspace: ProjectWorkspace, path: string):
   }
 }
 
+async function assertLegacyCanvasRegistryEditable(projectRoot: string): Promise<void> {
+  const loaded = await loadProjectGraph(projectRoot);
+  if (loaded.source === "project_graph") {
+    throw new Error("Task canvas create/delete is disabled when project-graph.json is the canvas source; edit project-graph.json manually.");
+  }
+}
+
 export async function listTaskCanvases(projectRoot: string): Promise<DesktopTaskCanvasSummary[]> {
+  let loaded: Awaited<ReturnType<typeof loadProjectGraph>>;
+  try {
+    loaded = await loadProjectGraph(projectRoot);
+  } catch (error) {
+    return [projectGraphDiagnosticCanvas(projectGraphReadDiagnostics(error))];
+  }
+  if (loaded.source === "project_graph") {
+    return Promise.all(loaded.manifest.canvases.map((canvas) => summarizeProjectCanvas(loaded.workspace, canvas)));
+  }
   const { projectWorkspace, registry } = await readRegistry(projectRoot);
   return Promise.all(registry.canvases.map((record) => summarizeCanvas(projectWorkspace, record)));
 }
 
 export async function getActiveTaskCanvasId(projectRoot: string): Promise<string | null> {
+  let loaded: Awaited<ReturnType<typeof loadProjectGraph>>;
+  try {
+    loaded = await loadProjectGraph(projectRoot);
+  } catch {
+    return null;
+  }
+  if (loaded.source === "project_graph") {
+    return loaded.manifest.canvases[0]?.id ?? null;
+  }
   const { registry } = await readRegistry(projectRoot);
   return selectedCanvasRecord(registry)?.canvasId ?? null;
 }
@@ -185,6 +252,14 @@ export async function listTaskCanvasWorkspaces(
   projectRoot: string,
   options: { createRegistry?: boolean } = {}
 ): Promise<DesktopTaskCanvasWorkspace[]> {
+  const loaded = await loadProjectGraph(projectRoot);
+  if (loaded.source === "project_graph") {
+    return loaded.manifest.canvases.map((canvas) => ({
+      canvasId: canvas.id,
+      canvasName: canvas.title,
+      workspace: workspaceForProjectCanvas(loaded.workspace, canvas)
+    }));
+  }
   const { projectWorkspace, registry } = await readRegistry(projectRoot, { createDefault: options.createRegistry ?? false });
   return registry.canvases.map((record) => ({
     canvasId: record.canvasId,
@@ -194,6 +269,17 @@ export async function listTaskCanvasWorkspaces(
 }
 
 export async function resolveTaskCanvasWorkspace(projectRoot: string, canvasId?: string | null): Promise<ProjectWorkspace> {
+  const loaded = await loadProjectGraph(projectRoot);
+  if (canvasId) {
+    return resolveProjectCanvasWorkspace(projectRoot, canvasId);
+  }
+  if (loaded.source === "project_graph") {
+    const canvas = loaded.manifest.canvases[0];
+    if (!canvas) {
+      throw new Error("Project has no task canvas.");
+    }
+    return workspaceForProjectCanvas(loaded.workspace, canvas);
+  }
   const { projectWorkspace, registry } = await readRegistry(projectRoot);
   const record = selectedCanvasRecord(registry, canvasId);
   if (!record) {
@@ -203,6 +289,7 @@ export async function resolveTaskCanvasWorkspace(projectRoot: string, canvasId?:
 }
 
 export async function createTaskCanvas(projectRoot: string, input: { name?: string | null } = {}): Promise<DesktopTaskCanvasSummary> {
+  await assertLegacyCanvasRegistryEditable(projectRoot);
   const { projectWorkspace, registry } = await readRegistry(projectRoot);
   const canvasId = newCanvasId();
   const record: TaskCanvasRecord = {
@@ -225,6 +312,7 @@ export async function createTaskCanvas(projectRoot: string, input: { name?: stri
 }
 
 export async function removeTaskCanvas(projectRoot: string, canvasId: string): Promise<DesktopTaskCanvasSummary[]> {
+  await assertLegacyCanvasRegistryEditable(projectRoot);
   const { projectWorkspace, registry } = await readRegistry(projectRoot);
   const record = requireCanvasRecord(registry, canvasId);
   const workspace = canvasWorkspace(projectWorkspace, record);

@@ -162,12 +162,14 @@ describe("desktop renderer interface interactions", () => {
     );
 
     await userEvent.click(screen.getByTestId("sidebar-todo"));
+    await userEvent.click(screen.getByTestId("sidebar-canvas-map"));
     await userEvent.click(screen.getByTestId("sidebar-settings"));
     await userEvent.click(screen.getByRole("button", { name: "Demo" }));
     await userEvent.click(screen.getByRole("button", { name: /Main canvas\s*2/ }));
     await userEvent.click(screen.getByRole("button", { name: /Write interface tests\s*T-002/ }));
 
     expect(setActiveView).toHaveBeenCalledWith("todo");
+    expect(setActiveView).toHaveBeenCalledWith("canvas-map");
     expect(setActiveView).toHaveBeenCalledWith("settings");
     expect(loadProject).toHaveBeenCalledWith(project);
     expect(loadProject).toHaveBeenCalledWith(project, "canvas-main");
@@ -176,7 +178,7 @@ describe("desktop renderer interface interactions", () => {
     expect(screen.getByText("1")).toBeInTheDocument();
   });
 
-  it("marks schema-invalid canvases as errors instead of showing a normal task count", () => {
+  it("marks diagnostic canvases as errors instead of showing a normal task count", () => {
     class ResizeObserverMock {
       disconnect = vi.fn();
       observe = vi.fn();
@@ -193,9 +195,9 @@ describe("desktop renderer interface interactions", () => {
           missingPromptCount: 0,
           diagnostics: [
             {
-              code: "manifest_schema",
-              message: "Invalid discriminator value. Expected 'implementation' | 'review'",
-              path: "nodes.0.blocks.1.type"
+              code: "project_graph_schema",
+              message: "Expected array, received string",
+              path: "project-graph.json:canvases"
             }
           ],
           createdAt: "2026-05-23T00:00:00.000Z",
@@ -232,7 +234,7 @@ describe("desktop renderer interface interactions", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: /Broken canvas Error: Invalid discriminator value/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /Broken canvas Error: Expected array/ })).toBeVisible();
     expect(screen.queryByRole("button", { name: /Broken canvas\s*2/ })).not.toBeInTheDocument();
   });
 

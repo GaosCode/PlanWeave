@@ -16,6 +16,8 @@ const expectedBridgeInvokeMethods = [
   "detectRuntimeTools",
   "getAutoRunState",
   "getBlockDetail",
+  "getCanvasGraphViewModel",
+  "getCanvasMapLayout",
   "getDesktopLayout",
   "getDirtyPromptRefs",
   "getFeedbackRecords",
@@ -47,9 +49,11 @@ const expectedBridgeInvokeMethods = [
   "removeTaskCanvas",
   "removeTaskNode",
   "resetDesktopLayout",
+  "resetCanvasMapLayout",
   "resumeAutoRun",
   "revealPathInFinder",
   "revealProjectInFinder",
+  "saveCanvasMapLayout",
   "saveDesktopLayout",
   "searchProject",
   "startAutoRun",
@@ -84,6 +88,8 @@ describe("desktop IPC contract", () => {
 
   it("uses the desktop canvas reference channel for canvas-scoped bridge calls", () => {
     expect(desktopBridgeInvokeChannels.getGraphViewModel).toBe("planweave:getGraphViewModel");
+    expect(desktopBridgeInvokeChannels.getCanvasGraphViewModel).toBe("planweave:getCanvasGraphViewModel");
+    expect(desktopBridgeInvokeChannels.getCanvasMapLayout).toBe("planweave:getCanvasMapLayout");
     expect(desktopBridgeInvokeChannels.getDesktopLayout).toBe("planweave:getDesktopLayout");
     expect(desktopBridgeInvokeChannels.watchPackageFiles).toBe("planweave:watchPackageFiles");
     expect(desktopBridgeInvokeChannels.getTodoGroups).toBe("planweave:getTodoGroups");

@@ -23,6 +23,7 @@ import type {
 import type { createTranslator, Language } from "../i18n";
 import type { AppNodeTypes } from "../graph/flowModel";
 import type { AppFlowNode, AppView, AutoRunScopeMode, DesktopUiSettings, NotificationItem } from "../types";
+import { CanvasMapView } from "./CanvasMapView";
 import { GraphView } from "./GraphView";
 import { NewTaskView } from "./NewTaskView";
 import { NotificationsView } from "./NotificationsView";
@@ -54,6 +55,7 @@ type WorkspaceTabsProps = {
   handleRevealPathInFinder: (path: string | null | undefined) => Promise<void>;
   handleSearchResultOpen: (result: DesktopSearchResult) => Promise<void>;
   language: Language;
+  loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
   miniRunPanelOpen: boolean;
   moveAutoRunControl: (event: PointerEvent<HTMLButtonElement>) => void;
   moveReviewStep: (index: number, direction: -1 | 1) => void;
@@ -78,9 +80,11 @@ type WorkspaceTabsProps = {
   searchQuery: string;
   searchResults: DesktopSearchResult[];
   selectedBlockPresent: boolean;
+  selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
   selectedTaskPanelId: string | null;
   setActiveView: Dispatch<SetStateAction<AppView>>;
+  setError: (message: string | null) => void;
   setAutoRunScopeMode: Dispatch<SetStateAction<AutoRunScopeMode>>;
   setFlowInstance: Dispatch<SetStateAction<ReactFlowInstance<AppFlowNode, Edge> | null>>;
   setMiniRunPanelOpen: Dispatch<SetStateAction<boolean>>;
@@ -124,6 +128,8 @@ export function WorkspaceTabs(props: WorkspaceTabsProps) {
         return <SearchView {...props} />;
       case "notifications":
         return <NotificationsView {...props} />;
+      case "canvas-map":
+        return <CanvasMapView {...props} />;
       case "graph":
       default:
         return <GraphView {...props} />;
@@ -133,7 +139,7 @@ export function WorkspaceTabs(props: WorkspaceTabsProps) {
   return (
     <section className="flex min-w-0 flex-1 flex-col">
       <div className="app-drag-region h-11 shrink-0 border-b bg-background" />
-      <div className={`min-h-0 flex-1 ${activeView === "graph" ? "" : "p-4"}`}>
+      <div className={`min-h-0 flex-1 ${activeView === "graph" || activeView === "canvas-map" ? "" : "p-4"}`}>
         <div className="h-full min-h-0">
           {content}
         </div>

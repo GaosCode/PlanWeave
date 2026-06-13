@@ -2,12 +2,12 @@ import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { ZodError } from "zod";
-import { listTaskCanvasWorkspaces } from "./desktop/canvasApi.js";
 import { validateDesktopLayout } from "./desktop/layoutApi.js";
 import { compilePackageGraph } from "./graph/compileTaskGraph.js";
 import { readJsonFile } from "./json.js";
 import { findOrphanResults, findOrphanState } from "./package/orphans.js";
 import { resolveProjectWorkspace } from "./project.js";
+import { compileProjectGraph, loadProjectGraph, projectCanvasWorkspace } from "./projectGraph/index.js";
 import { manifestSchema } from "./schema/manifest.js";
 import { readState } from "./state.js";
 import type { PlanPackageManifest, ProjectWorkspace, ValidationIssue, ValidationReport } from "./types.js";
@@ -60,6 +60,20 @@ function prefixIssue(projectWorkspace: ProjectWorkspace, workspace: ProjectWorks
   return {
     ...validationIssue,
     path: prefixIssuePath(projectWorkspace, workspace, manifest, validationIssue.path)
+  };
+}
+
+function projectGraphIssuePath(path?: string): string {
+  if (!path || path === "project-graph.json") {
+    return "project-graph.json";
+  }
+  return `project-graph.json:${path}`;
+}
+
+function prefixProjectGraphIssue(validationIssue: ValidationIssue): ValidationIssue {
+  return {
+    ...validationIssue,
+    path: projectGraphIssuePath(validationIssue.path)
   };
 }
 
@@ -117,19 +131,33 @@ export async function validatePackage(options: { projectRoot: string }): Promise
   const warnings: ValidationIssue[] = [];
   const workspace = await resolveProjectWorkspace(options.projectRoot);
   const seenPackageDirs = new Set<string>();
-  const workspaceReports = [await validateWorkspacePackage(workspace, workspace)];
-  seenPackageDirs.add(workspace.packageDir);
+  const workspaceReports: Array<{ errors: ValidationIssue[]; warnings: ValidationIssue[] }> = [];
 
   try {
-    for (const canvas of await listTaskCanvasWorkspaces(options.projectRoot, { createRegistry: false })) {
-      if (seenPackageDirs.has(canvas.workspace.packageDir)) {
+    const loaded = await loadProjectGraph(options.projectRoot);
+    const graph = await compileProjectGraph(loaded);
+    errors.push(...graph.diagnostics.errors.map(prefixProjectGraphIssue));
+    warnings.push(...graph.diagnostics.warnings.map(prefixProjectGraphIssue));
+    for (const canvasId of graph.canvasIdsInOrder) {
+      const canvas = graph.canvasesById.get(canvasId);
+      if (!canvas) {
         continue;
       }
-      seenPackageDirs.add(canvas.workspace.packageDir);
-      workspaceReports.push(await validateWorkspacePackage(workspace, canvas.workspace));
+      const canvasWorkspace = projectCanvasWorkspace(loaded.workspace, canvas);
+      if (seenPackageDirs.has(canvasWorkspace.packageDir)) {
+        continue;
+      }
+      seenPackageDirs.add(canvasWorkspace.packageDir);
+      workspaceReports.push(await validateWorkspacePackage(workspace, canvasWorkspace));
     }
   } catch (error) {
-    errors.push(issue("canvas_registry_read_failed", error instanceof Error ? error.message : String(error), "desktop/canvases.json"));
+    if (error instanceof ZodError) {
+      for (const zodIssue of error.issues) {
+        errors.push(issue("project_graph_schema", zodIssue.message, projectGraphIssuePath(zodIssue.path.join("."))));
+      }
+    } else {
+      errors.push(issue("project_graph_read_failed", error instanceof Error ? error.message : String(error), "project-graph.json"));
+    }
   }
 
   for (const report of workspaceReports) {

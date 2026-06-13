@@ -12,6 +12,12 @@ export {
   resolveTaskCanvasWorkspace
 } from "./canvasApi.js";
 export {
+  getCanvasGraphViewModel,
+  getCanvasMapLayout,
+  resetCanvasMapLayout,
+  saveCanvasMapLayout
+} from "./canvasGraphApi.js";
+export {
   addBlock,
   addDependencyEdge,
   addTaskNode,

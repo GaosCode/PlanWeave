@@ -37,7 +37,11 @@ async function readProjectById(projectId: string): Promise<DesktopProjectSummary
     return null;
   }
   try {
-    return await projectSummary(await readJsonFile<ProjectMetadata>(projectFile), workspaceRoot);
+    const project = await readJsonFile<ProjectMetadata>(projectFile);
+    if (!(await exists(project.rootPath))) {
+      return null;
+    }
+    return await projectSummary(project, workspaceRoot);
   } catch {
     return null;
   }

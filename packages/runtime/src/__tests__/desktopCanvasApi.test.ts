@@ -10,12 +10,14 @@ import {
   getStatistics,
   getTodoGroups,
   listTaskCanvases,
+  removeTaskCanvas,
   resolveTaskCanvasWorkspace,
   saveDesktopLayout,
   searchProject
 } from "../desktop/index.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { readProjectPaths } from "../paths.js";
+import { writeProjectGraph } from "../projectGraph/index.js";
 import { claimNext, getCurrentWork, getExecutionStatus } from "../taskManager/index.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 
@@ -214,5 +216,27 @@ describe("desktop task canvas API", () => {
     expect(status.nextClaimable).toEqual(["T-ACTIVE-CANVAS-WORK#B-001"]);
     expect(claim).toMatchObject({ kind: "block", ref: "T-ACTIVE-CANVAS-WORK#B-001" });
     expect(current.owner).toMatchObject({ canvasId: secondCanvas.canvasId, taskIds: ["T-ACTIVE-CANVAS-WORK"] });
+  });
+
+  it("rejects registry canvas edits when a formal project graph is present", async () => {
+    const { root, init } = await createTestWorkspace();
+    await writeProjectGraph(init.workspace, {
+      version: "plan-project/v1",
+      canvases: [
+        {
+          id: "default",
+          type: "canvas",
+          title: "Test Plan",
+          packageDir: "package",
+          stateFile: "state.json",
+          resultsDir: "results"
+        }
+      ],
+      edges: [],
+      crossTaskEdges: []
+    });
+
+    await expect(createTaskCanvas(root, { name: "Hidden canvas" })).rejects.toThrow("project-graph.json");
+    await expect(removeTaskCanvas(root, "default")).rejects.toThrow("project-graph.json");
   });
 });

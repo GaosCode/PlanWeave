@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createTaskCanvas, getGraphViewModel, getProjectExecutionPlan, getStatistics, getTodoGroups, resolveTaskCanvasWorkspace, searchProject } from "../desktop/index.js";
 import { mapProjectTaskCanvases } from "../desktop/graph/projectCanvasAggregation.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
+import { writeProjectGraph } from "../projectGraph/index.js";
+import { runAutoRunStep } from "../taskManager/autoRun.js";
 import { claimNext, submitBlockResult, submitReviewResult } from "../taskManager/index.js";
 import type { PlanPackageManifest } from "../types.js";
 import { basicManifest, createTestWorkspace, writePromptFiles, writeReport, writeReviewResult } from "./promptTestHelpers.js";
@@ -91,7 +93,161 @@ describe("desktop search and statistics API", () => {
       "default:T-001#B-001",
       `${secondCanvas.canvasId}:T-001#B-001`
     ]);
-    expect(plan.notes).toContain("Cross-canvas dependency order is registry order until a project-level canvas dependency contract exists.");
+    expect(plan.notes).toContain("Project graph dependencies gate ready queues; canvases without upstream blockers may run in parallel.");
+  });
+
+  it("orders project execution phases by project graph blockers", async () => {
+    const { root, init } = await createTestWorkspace();
+    const secondCanvas = await createTaskCanvas(root, { name: "Dependent canvas" });
+    const secondWorkspace = await resolveTaskCanvasWorkspace(root, secondCanvas.canvasId);
+    await writeJsonFile(secondWorkspace.manifestFile, basicManifest());
+    await writePromptFiles(secondWorkspace.packageDir, basicManifest());
+    await writeProjectGraph(init.workspace, {
+      version: "plan-project/v1",
+      canvases: [
+        {
+          id: secondCanvas.canvasId,
+          type: "canvas",
+          title: "Dependent canvas",
+          packageDir: `canvases/${secondCanvas.canvasId}/package`,
+          stateFile: `canvases/${secondCanvas.canvasId}/state.json`,
+          resultsDir: `canvases/${secondCanvas.canvasId}/results`
+        },
+        {
+          id: "default",
+          type: "canvas",
+          title: "Test Plan",
+          packageDir: "package",
+          stateFile: "state.json",
+          resultsDir: "results"
+        }
+      ],
+      edges: [{ from: secondCanvas.canvasId, to: "default", type: "depends_on" }],
+      crossTaskEdges: []
+    });
+
+    const plan = await getProjectExecutionPlan(root);
+    const todo = await getTodoGroups(root);
+
+    expect(plan.phases.map((phase) => phase.canvasId)).toEqual(["default", secondCanvas.canvasId]);
+    expect(plan.phases[0].readyQueue.map((item) => item.ref)).toEqual(["T-001#B-001"]);
+    expect(plan.phases[1].readyQueue).toEqual([]);
+    expect(plan.phases[1].blockedCount).toBe(1);
+    expect(plan.readyQueue.map((item) => `${item.canvasId}:${item.ref}`)).toEqual(["default:T-001#B-001"]);
+    expect(todo.ready.map((item) => `${item.canvasId}:${item.ref}`)).toEqual(["default:T-001#B-001"]);
+    expect(todo.planned.find((item) => item.canvasId === secondCanvas.canvasId && item.ref === "T-001#B-001")?.dependencyBlockers).toEqual([
+      "canvas:default"
+    ]);
+    await expect(claimNext({ projectRoot: secondWorkspace })).resolves.toMatchObject({
+      kind: "blocked",
+      ref: "T-001#B-001",
+      reason: expect.stringContaining("canvas:default")
+    });
+    await expect(runAutoRunStep({ projectRoot: secondWorkspace })).resolves.toMatchObject({
+      kind: "blocked",
+      claim: {
+        kind: "blocked",
+        ref: "T-001#B-001",
+        reason: expect.stringContaining("canvas:default")
+      }
+    });
+  });
+
+  it("keeps explicit cross-task blockers distinct from canvas-level blockers", async () => {
+    const { root, init } = await createTestWorkspace();
+    const secondCanvas = await createTaskCanvas(root, { name: "Cross-task dependent canvas" });
+    const secondWorkspace = await resolveTaskCanvasWorkspace(root, secondCanvas.canvasId);
+    await writeJsonFile(secondWorkspace.manifestFile, basicManifest());
+    await writePromptFiles(secondWorkspace.packageDir, basicManifest());
+    await writeProjectGraph(init.workspace, {
+      version: "plan-project/v1",
+      canvases: [
+        {
+          id: "default",
+          type: "canvas",
+          title: "Test Plan",
+          packageDir: "package",
+          stateFile: "state.json",
+          resultsDir: "results"
+        },
+        {
+          id: secondCanvas.canvasId,
+          type: "canvas",
+          title: "Cross-task dependent canvas",
+          packageDir: `canvases/${secondCanvas.canvasId}/package`,
+          stateFile: `canvases/${secondCanvas.canvasId}/state.json`,
+          resultsDir: `canvases/${secondCanvas.canvasId}/results`
+        }
+      ],
+      edges: [],
+      crossTaskEdges: [
+        {
+          from: { canvasId: secondCanvas.canvasId, taskId: "T-001" },
+          to: { canvasId: "default", taskId: "T-001" },
+          type: "depends_on"
+        }
+      ]
+    });
+
+    const todo = await getTodoGroups(root);
+
+    expect(todo.ready.map((item) => `${item.canvasId}:${item.ref}`)).toEqual(["default:T-001#B-001"]);
+    expect(todo.planned.find((item) => item.canvasId === secondCanvas.canvasId && item.ref === "T-001#B-001")?.dependencyBlockers).toEqual([
+      "default:T-001"
+    ]);
+  });
+
+  it("blocks open feedback claims when project graph upstream blockers are incomplete", async () => {
+    const { root, init } = await createTestWorkspace();
+    const secondCanvas = await createTaskCanvas(root, { name: "Feedback dependent canvas" });
+    const secondWorkspace = await resolveTaskCanvasWorkspace(root, secondCanvas.canvasId);
+    await writeJsonFile(secondWorkspace.manifestFile, basicManifest());
+    await writePromptFiles(secondWorkspace.packageDir, basicManifest());
+    await claimNext({ projectRoot: secondWorkspace });
+    await submitBlockResult({ projectRoot: secondWorkspace, ref: "T-001#B-001", reportPath: await writeReport(root, "downstream-report.md") });
+    await claimNext({ projectRoot: secondWorkspace });
+    await submitReviewResult({
+      projectRoot: secondWorkspace,
+      ref: "T-001#R-001",
+      resultPath: await writeReviewResult(root, "needs_changes", "Fix downstream work.")
+    });
+    await writeProjectGraph(init.workspace, {
+      version: "plan-project/v1",
+      canvases: [
+        {
+          id: "default",
+          type: "canvas",
+          title: "Test Plan",
+          packageDir: "package",
+          stateFile: "state.json",
+          resultsDir: "results"
+        },
+        {
+          id: secondCanvas.canvasId,
+          type: "canvas",
+          title: "Feedback dependent canvas",
+          packageDir: `canvases/${secondCanvas.canvasId}/package`,
+          stateFile: `canvases/${secondCanvas.canvasId}/state.json`,
+          resultsDir: `canvases/${secondCanvas.canvasId}/results`
+        }
+      ],
+      edges: [{ from: secondCanvas.canvasId, to: "default", type: "depends_on" }],
+      crossTaskEdges: []
+    });
+
+    await expect(claimNext({ projectRoot: secondWorkspace })).resolves.toMatchObject({
+      kind: "blocked",
+      ref: "T-001#R-001",
+      reason: expect.stringContaining("canvas:default")
+    });
+    await expect(runAutoRunStep({ projectRoot: secondWorkspace })).resolves.toMatchObject({
+      kind: "blocked",
+      claim: {
+        kind: "blocked",
+        ref: "T-001#R-001",
+        reason: expect.stringContaining("canvas:default")
+      }
+    });
   });
 
   it("groups blocks under implemented once their task is implemented", async () => {

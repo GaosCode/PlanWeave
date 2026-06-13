@@ -1,7 +1,7 @@
 import { access, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { listProjects, removeProject } from "../desktop/index.js";
+import { listProjects, openProject, removeProject } from "../desktop/index.js";
 import { writeJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
@@ -39,6 +39,35 @@ describe("desktop project API", () => {
         rootPath: init.workspace.rootPath
       })
     ]);
+  });
+
+  it("keeps projects visible when project-graph.json has schema errors", async () => {
+    const { init } = await createTestWorkspace();
+    await writeJsonFile(join(init.workspace.workspaceRoot, "project-graph.json"), {
+      version: "plan-project/v1",
+      canvases: "invalid"
+    });
+
+    await expect(listProjects()).resolves.toEqual([
+      expect.objectContaining({
+        projectId: init.workspace.id,
+        taskCanvases: [
+          expect.objectContaining({
+            canvasId: "project-graph",
+            diagnostics: [expect.objectContaining({ code: "project_graph_schema" })]
+          })
+        ]
+      })
+    ]);
+    await expect(openProject({ projectId: init.workspace.id })).resolves.toMatchObject({
+      projectId: init.workspace.id,
+      taskCanvases: [
+        expect.objectContaining({
+          canvasId: "project-graph",
+          diagnostics: [expect.objectContaining({ code: "project_graph_schema" })]
+        })
+      ]
+    });
   });
 
   it("removes a project from the PlanWeave registry without deleting the source root", async () => {

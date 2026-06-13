@@ -5,6 +5,7 @@ import type {
   DesktopBlockDetail,
   DesktopBlockRunRecordSummary,
   DesktopAgentKind,
+  DesktopCanvasNodeViewModel,
   DesktopFeedbackRecord,
   DesktopReviewAttemptSummary,
   DesktopTaskNodeViewModel
@@ -70,8 +71,23 @@ export type TaskNodeData = {
 
 export type TaskFlowNode = Node<TaskNodeData, "task">;
 
+export type CanvasNodeLabels = {
+  error: string;
+  open: string;
+};
+
+export type CanvasNodeData = {
+  canvas: DesktopCanvasNodeViewModel;
+  labels: CanvasNodeLabels;
+  selected: boolean;
+  onOpen: (canvasId: string) => void;
+  onSelect: (canvasId: string) => void;
+};
+
+export type CanvasFlowNode = Node<CanvasNodeData, "canvas">;
+
 export type AppFlowNode = TaskFlowNode;
-export type AppView = "new-task" | "graph" | "review-pipeline" | "todo" | "statistics" | "search" | "notifications" | "settings";
+export type AppView = "new-task" | "graph" | "canvas-map" | "review-pipeline" | "todo" | "statistics" | "search" | "notifications" | "settings";
 export type AutoRunScopeMode = "project" | "selectedTask" | "selectedBlock";
 export type AppearanceMode = "system" | "light" | "dark";
 export type PaletteComponentKey = "task" | "implementation" | "review";

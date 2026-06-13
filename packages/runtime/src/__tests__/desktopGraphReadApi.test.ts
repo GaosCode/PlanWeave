@@ -136,11 +136,14 @@ describe("desktop graph read API", () => {
 
     expect(inheritedDetail.promptSurfaceMarkdown).toContain("Global policy from parent flow.");
     expect(inheritedDetail.promptSurfaceMarkdown).toContain("Project canvas policy.");
+    expect(inheritedDetail.promptSurfaceMarkdown).toContain("## Project Canvas Context");
+    expect(inheritedDetail.promptSurfaceMarkdown).toContain("Current canvas: Test Plan (default)");
     expect(inheritedDetail.promptSurfaceMarkdown).toContain("# T-001 task prompt");
     expect(inheritedDetail.promptSurfaceMarkdown).toContain("# T-001#B-001 implementation prompt");
     expect(inheritedDetail.promptSources).toEqual([
       expect.objectContaining({ kind: "global", label: "PlanWeave Global Prompt", included: true }),
       expect.objectContaining({ kind: "projectCanvas", label: "Project/Canvas Prompt", included: true }),
+      expect.objectContaining({ kind: "projectGraph", label: "Project Canvas Context", included: true, missing: true }),
       expect.objectContaining({ kind: "taskNode", label: "Task Node Prompt", included: true }),
       expect.objectContaining({ kind: "block", label: "Block Prompt", included: true })
     ]);

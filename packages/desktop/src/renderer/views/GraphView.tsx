@@ -12,9 +12,10 @@ import {
   type OnNodesChange
 } from "@xyflow/react";
 import type { DesktopAutoRunState, DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
-import { FolderOpenIcon } from "lucide-react";
+import { ChevronRightIcon, FolderOpenIcon, NetworkIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AppNodeTypes } from "../graph/flowModel";
+import type { AppView } from "../types";
 import type { createTranslator } from "../i18n";
 import { FloatingAutoRunControl } from "../run/FloatingAutoRunControl";
 import type { AppFlowNode, AutoRunScopeMode } from "../types";
@@ -42,11 +43,13 @@ type GraphViewProps = {
   onTaskPanelSelect: (taskId: string | null) => void;
   refreshPackageFiles: () => Promise<void>;
   selectedBlockPresent: boolean;
+  selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
   selectedTaskPanelId: string | null;
   setAutoRunScopeMode: Dispatch<SetStateAction<AutoRunScopeMode>>;
   setFlowInstance: Dispatch<SetStateAction<ReactFlowInstance<AppFlowNode, Edge> | null>>;
   setMiniRunPanelOpen: Dispatch<SetStateAction<boolean>>;
+  setActiveView: Dispatch<SetStateAction<AppView>>;
   startAutoRunControlDrag: (event: PointerEvent<HTMLButtonElement>) => void;
   stopAutoRunClick: () => Promise<void>;
   stopAutoRunControlDrag: (event: PointerEvent<HTMLButtonElement>) => void;
@@ -80,8 +83,10 @@ export function GraphView({
   onTaskPanelSelect,
   refreshPackageFiles,
   selectedBlockPresent,
+  selectedCanvasId,
   selectedProject,
   selectedTaskPanelId,
+  setActiveView,
   setAutoRunScopeMode,
   setFlowInstance,
   setMiniRunPanelOpen,
@@ -96,6 +101,7 @@ export function GraphView({
   const visibleNodes = visibleTasks ? nodes.filter((node) => node.type !== "task" || visibleTaskIds.has(node.id)) : nodes;
   const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
   const visibleEdges = visibleTasks ? edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)) : edges;
+  const currentCanvasName = selectedProject?.taskCanvases.find((canvas) => canvas.canvasId === selectedCanvasId)?.name ?? t("taskCanvas");
 
   return (
     <div className="relative h-full min-h-0" data-graph-surface onDragOver={handleGraphDragOver} onDrop={handleGraphDrop}>
@@ -139,6 +145,16 @@ export function GraphView({
           <MiniMap pannable zoomable />
         </ReactFlow>
       )}
+      {graph ? (
+        <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1 rounded-md border bg-background/95 px-2 py-1 text-sm shadow-sm">
+          <Button className="pointer-events-auto h-7 gap-1 px-2 text-xs" variant="ghost" onClick={() => setActiveView("canvas-map")}>
+            <NetworkIcon data-icon="inline-start" />
+            {t("canvasMap")}
+          </Button>
+          <ChevronRightIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+          <span className="max-w-[220px] truncate px-1 text-xs font-medium">{currentCanvasName}</span>
+        </div>
+      ) : null}
       <FloatingAutoRunControl
         autoRunScopeMode={autoRunScopeMode}
         autoRunState={autoRunState}

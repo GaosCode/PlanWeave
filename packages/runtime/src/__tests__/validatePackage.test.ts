@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/index.js";
 import { writeJsonFile } from "../json.js";
+import { writeProjectGraph } from "../projectGraph/index.js";
 import { validatePackage } from "../validatePackage.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 
@@ -86,5 +87,75 @@ describe("validatePackage", () => {
         })
       ])
     );
+  });
+
+  it("reports formal project graph dependency diagnostics", async () => {
+    const { root, init } = await createTestWorkspace();
+    await writeProjectGraph(init.workspace, {
+      version: "plan-project/v1",
+      canvases: [
+        {
+          id: "default",
+          type: "canvas",
+          title: "Default",
+          packageDir: "package",
+          stateFile: "state.json",
+          resultsDir: "results"
+        }
+      ],
+      edges: [{ from: "default", to: "missing-canvas", type: "depends_on" }],
+      crossTaskEdges: [
+        {
+          from: { canvasId: "default", taskId: "T-MISSING" },
+          to: { canvasId: "default", taskId: "T-001" },
+          type: "depends_on"
+        }
+      ]
+    });
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "project_canvas_edge_to_missing",
+          path: "project-graph.json:edges"
+        }),
+        expect.objectContaining({
+          code: "project_cross_task_from_missing",
+          path: "project-graph.json:crossTaskEdges"
+        })
+      ])
+    );
+  });
+
+  it("validates only canvases referenced by a formal project graph", async () => {
+    const { root, init } = await createTestWorkspace();
+    await writeJsonFile(init.workspace.manifestFile, { version: "plan-package/v1", nodes: "invalid" });
+    const packageDir = join(init.workspace.workspaceRoot, "manual-only", "package");
+    const manifest = basicManifest();
+    await writeJsonFile(join(packageDir, "manifest.json"), manifest);
+    await writePromptFiles(packageDir, manifest);
+    await writeProjectGraph(init.workspace, {
+      version: "plan-project/v1",
+      canvases: [
+        {
+          id: "manual-only",
+          type: "canvas",
+          title: "Manual only",
+          packageDir: "manual-only/package",
+          stateFile: "manual-only/state.json",
+          resultsDir: "manual-only/results"
+        }
+      ],
+      edges: [],
+      crossTaskEdges: []
+    });
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(true);
+    expect(report.errors).toEqual([]);
   });
 });

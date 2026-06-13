@@ -19,6 +19,19 @@ export { compileTaskGraph } from "./graph/compileTaskGraph.js";
 export { parseBlockRef } from "./graph/compileTaskGraph.js";
 export { compilePackageGraph } from "./graph/compileTaskGraph.js";
 export {
+  compileProjectGraph,
+  defaultCanvasProjectGraph,
+  loadProjectGraph,
+  loadProjectGraphForWorkspace,
+  projectGraphFromLegacyRegistry,
+  projectCanvasWorkspace,
+  projectGraphPath,
+  projectGraphManifestSchema,
+  projectGraphSchema,
+  resolveProjectCanvasWorkspace,
+  writeProjectGraph
+} from "./projectGraph/index.js";
+export {
   addEdge,
   addNode,
   affectedTasksForPackageFileChange,
@@ -79,6 +92,8 @@ export {
   createTaskDraft,
   detectDesktopPackageFileChanges,
   getBlockDetail,
+  getCanvasGraphViewModel,
+  getCanvasMapLayout,
   getDesktopLayout,
   getDirtyPromptRefs,
   getFeedbackRecords,
@@ -109,7 +124,9 @@ export {
   removeTaskNode,
   pauseAutoRun,
   resumeAutoRun,
+  resetCanvasMapLayout,
   resetDesktopLayout,
+  saveCanvasMapLayout,
   saveDesktopLayout,
   searchProject,
   startAutoRun,
@@ -124,5 +141,13 @@ export {
   validateGraphEdit
 } from "./desktop/index.js";
 export { edgeTypes, runSubmitStatuses, reviewStatuses } from "./types.js";
+export {
+  projectGraphCanvasNodeTypes,
+  projectGraphEdgeTypes,
+  projectGraphNodeTypes,
+  projectGraphVersion,
+  supportedProjectGraphVersion
+} from "./projectGraph/index.js";
 export type * from "./desktop/index.js";
+export type * from "./projectGraph/index.js";
 export type * from "./types.js";

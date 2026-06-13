@@ -9,6 +9,7 @@ import {
   FolderOpenIcon,
   GitBranchIcon,
   ListTodoIcon,
+  NetworkIcon,
   PanelLeftCloseIcon,
   PencilIcon,
   PinIcon,
@@ -159,6 +160,16 @@ export function ProjectSidebar({
           <ListTodoIcon data-icon="inline-start" />
           {t("todo")}
         </Button>
+        <Button
+          data-testid="sidebar-canvas-map"
+          className="justify-start"
+          disabled={!selectedProject}
+          variant={activeView === "canvas-map" ? "secondary" : "ghost"}
+          onClick={() => setActiveView("canvas-map")}
+        >
+          <NetworkIcon data-icon="inline-start" />
+          {t("canvasMap")}
+        </Button>
         <Button data-testid="sidebar-search" className="justify-start" variant={activeView === "search" ? "secondary" : "ghost"} onClick={() => setActiveView("search")}>
           <SearchIcon data-icon="inline-start" />
           {t("search")}
@@ -256,7 +267,7 @@ export function ProjectSidebar({
                         const isGraphCanvas =
                           isSelectedCanvas || (selectedCanvasId === null && isSelectedProject && project.taskCanvases.length === 1);
                         const isExpandedCanvas = isGraphCanvas && !collapsedCanvasIds.has(canvas.canvasId);
-                        const schemaDiagnostic = canvas.diagnostics?.find((diagnostic) => diagnostic.code === "manifest_schema");
+                        const firstDiagnostic = canvas.diagnostics?.[0] ?? null;
                         const canvasLabel = canvas.name || t("taskCanvas");
                         return (
                           <div className="flex min-w-0 flex-col gap-1" key={canvas.canvasId}>
@@ -265,12 +276,12 @@ export function ProjectSidebar({
                                 <ContextMenuTrigger asChild>
                                   <Button
                                     aria-label={
-                                      schemaDiagnostic
-                                        ? `${canvasLabel} ${t("error")}: ${schemaDiagnostic.message}`
+                                      firstDiagnostic
+                                        ? `${canvasLabel} ${t("error")}: ${firstDiagnostic.message}`
                                         : undefined
                                     }
                                     className="h-8 min-w-0 flex-1 justify-between gap-2 overflow-hidden px-2 text-xs"
-                                    title={schemaDiagnostic ? schemaDiagnostic.message : undefined}
+                                    title={firstDiagnostic ? firstDiagnostic.message : undefined}
                                     variant={isGraphCanvas && selectedTaskPanelId === null ? "secondary" : "ghost"}
                                     onClick={() => {
                                       void loadProject(project, canvas.canvasId).then(() => handleTaskPanelSelect(null));
@@ -280,7 +291,7 @@ export function ProjectSidebar({
                                       <WorkflowIcon className="shrink-0" data-icon="inline-start" />
                                       <span className="truncate">{canvasLabel}</span>
                                     </span>
-                                    {schemaDiagnostic ? (
+                                    {firstDiagnostic ? (
                                       <Badge className="shrink-0 gap-1" variant="destructive">
                                         <AlertTriangleIcon className="size-3" aria-hidden="true" />
                                         {t("error")}
