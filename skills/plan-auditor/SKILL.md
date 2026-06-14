@@ -9,7 +9,7 @@ Use this skill to audit an existing PlanWeave plan. Do not import a new plan, ex
 
 ## Quick Start
 1. Find the authority sources: user request, PRD, schema, design docs, current code, and the PlanWeave package.
-2. Read `manifest.json`, source prompts, task/block definitions, canvas structure, dependencies, validation output, and `planweave schema` output when available.
+2. Read `project-graph.json` when present, every canvas `manifest.json`, source prompts, task/block definitions, canvas structure, dependencies, validation output, and `planweave schema` output when available.
 3. Before judging task completeness, identify the plan's main value flows or lifecycle flows and fill the required Flow Coverage table.
 4. Compare the plan against real goals, data-flow coverage, object lifecycles, contracts, execution order, prompts, failure paths, and verification criteria.
 5. Report a verdict first: `PASS`, `NEEDS_REVISION`, or `BLOCKED`.
@@ -57,9 +57,11 @@ For every cell, cite exact PlanWeave task/block ids, prompts, reference files, a
 - Flag fallback/default/`any`/mock-only paths that hide missing contracts.
 
 ### Execution Graph
-- Check whether tasks, blocks, canvases, and dependency edges express the real execution order.
+- Check whether tasks, blocks, canvases, project graph edges, and dependency edges express the real execution order.
 - Parallel tasks must be independent in data flow, locks, and contract timing.
-- Different canvases are not automatically parallel; cross-canvas dependencies must be explicit.
+- Different canvases are not automatically parallel; cross-canvas dependencies must be explicit in `project-graph.json` when a formal project graph exists.
+- Canvas-level dependencies must be project graph canvas edges; cross-canvas task blockers must be explicit `crossTaskEdges`.
+- Flag plans that express canvas order only in project/global prompt prose, README text, or agent instructions.
 - Sequential gates must be explicit.
 - Flag tasks split only for count, and tasks that cross too many boundaries.
 - Each canvas should represent a clear phase, capability area, or parallel work group.
@@ -99,7 +101,9 @@ For every cell, cite exact PlanWeave task/block ids, prompts, reference files, a
 
 ### PlanWeave Executability
 - Check whether PlanWeave can actually run the plan: prompts exist, blocks can be claimed, dependencies unlock, reviews can be submitted, prompt sources are editable, and canvas order is clear.
-- Compare suspicious manifest/state/layout structure against `planweave schema manifest`, `planweave schema state`, and `planweave schema layout`.
+- For formal multi-canvas plans, verify `project-graph.json` exists, every canvas points at an existing package, every cross-task ref resolves to a real task, and canvas/cross-task dependency cycles are absent.
+- Confirm single-canvas `manifest.json` semantics stay local to that canvas; cross-canvas dependency enforcement must not be hidden in local manifests or prompt prose.
+- Compare suspicious project graph, manifest, state, and layout structure against `planweave schema project`, `planweave schema manifest`, `planweave schema state`, and `planweave schema layout`.
 - Separate plan design defects from PlanWeave toolchain defects.
 
 ## Finding Format

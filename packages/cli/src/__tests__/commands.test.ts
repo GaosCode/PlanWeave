@@ -77,8 +77,10 @@ describe("planweave CLI contract", () => {
   it("prints PlanWeave-specific help topics for agent CLI workflows", () => {
     expect(planweaveHelpTopics.map((topic) => topic.name)).toEqual(["setup", "schema", "plan", "work", "submit", "explain", "recovery", "autorun"]);
     expect(formatPlanweaveHelp()).toContain("Common agent loop:");
+    expect(formatPlanweaveHelp("schema")).toContain("planweave schema project");
     expect(formatPlanweaveHelp("schema")).toContain("planweave schema manifest");
-    expect(formatPlanweaveHelp("schema")).toContain("Do not hand-author manifest, state, or layout from memory.");
+    expect(formatPlanweaveHelp("schema")).toContain("Use schema project before writing formal multi-canvas project-graph.json.");
+    expect(formatPlanweaveHelp("schema")).toContain("Do not hand-author project graph, manifest, state, or layout from memory.");
     expect(formatPlanweaveHelp("work")).toContain("planweave claim-next --parallel --dry-run");
     expect(formatPlanweaveHelp("submit")).toContain("planweave submit-review <review-block-ref> --result <review-result.json>");
     expect(formatPlanweaveHelp("recovery")).toContain("planweave doctor --repair");

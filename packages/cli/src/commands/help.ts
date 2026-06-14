@@ -16,12 +16,13 @@ export const planweaveHelpTopics: HelpTopic[] = [
   },
   {
     name: "schema",
-    summary: "Navigate PlanWeave manifest, state, and desktop layout schemas.",
-    commands: ["schema", "schema manifest", "schema state", "schema layout", "schema all"],
+    summary: "Navigate PlanWeave project graph, manifest, state, and desktop layout schemas.",
+    commands: ["schema", "schema project", "schema manifest", "schema state", "schema layout", "schema all"],
     notes: [
       "help schema is a short navigation topic; use planweave schema <topic> for the full schema.",
-      "Do not hand-author manifest, state, or layout from memory.",
-      "Manifest and prompt sources are editable; state and layout are runtime/desktop owned."
+      "Use schema project before writing formal multi-canvas project-graph.json.",
+      "Do not hand-author project graph, manifest, state, or layout from memory.",
+      "Project graph, manifest, and prompt sources are editable; state and layout are runtime/desktop owned."
     ]
   },
   {

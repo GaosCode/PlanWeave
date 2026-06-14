@@ -10,7 +10,7 @@ Use this skill as the main agent/controller for a PlanWeave package. Do not impl
 ## Quick Start
 
 1. Resolve the CLI entry. Use `<pw> help work`, `<pw> help submit`, and `<pw> help recovery` for command syntax.
-2. Run preflight: confirm `PLANWEAVE_HOME`, project id, package/canvas paths, source prompt paths, current refs, and active feedback.
+2. Run preflight: confirm `PLANWEAVE_HOME`, project id, project graph path when present, package/canvas paths, source prompt paths, current refs, and active feedback.
 3. Decide whether to assign implementation work, review work, feedback work, or recovery work.
 4. Give each subagent exactly one work item, claim ownership, rendered prompt path/content, expected artifact, submit command, and validation expectations.
 5. Collect reports/results, submit or verify submission, then re-check status.
@@ -20,6 +20,8 @@ Use this skill as the main agent/controller for a PlanWeave package. Do not impl
 
 - Read `<pw> paths --json` before dispatching and record project id, package dir, state path, and results dir.
 - Identify the active canvas/package scope and where cross-canvas dependencies are expressed.
+- For formal multi-canvas projects, treat `project-graph.json` as the authority for canvas-level dependencies and explicit cross-task blockers.
+- Do not infer runnable canvas order from prompt prose when a formal project graph exists.
 - Confirm source of truth for global, project, task, and block prompts; rendered prompts are derived output.
 - Produce a prompt source summary when prompts look empty, inherited, or surprising.
 - Surface inherited prompt sources before dispatching work, including global prompt, project/canvas prompt, task node prompt, block prompt, and any higher-level flow requirements.
@@ -57,7 +59,9 @@ Use this skill as the main agent/controller for a PlanWeave package. Do not impl
 ## Parallel Dispatch
 
 - Within one canvas, dispatch only ready blocks whose dependency edges are satisfied and whose locks/parallel safety do not conflict.
-- Different canvases are not automatically parallel; cross-canvas dependencies must be task/package dependencies or explicitly documented canvas order.
+- Different canvases are not automatically parallel; cross-canvas dependencies must come from formal project graph canvas edges and explicit `crossTaskEdges` when `project-graph.json` exists.
+- If no formal project graph exists, require explicit documented canvas order before dispatching across canvases and report that this is legacy compatibility rather than enforced project graph behavior.
+- Do not dispatch downstream canvas work while upstream canvas blockers or explicit cross-task blockers remain incomplete.
 - Use dry-run/status to build the next batch, then assign refs explicitly.
 - Review gates are sequential control points unless the plan explicitly models otherwise.
 
