@@ -1,14 +1,42 @@
 {
   "name": "@planweave-ai/desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "description": "Desktop application for PlanWeave plan packages, task graphs, and agent workflows.",
   "license": "MIT",
+  "author": "GaosCode <GaosCode@users.noreply.github.com>",
   "type": "module",
   "main": "./dist/main/main.js",
+  "homepage": "https://github.com/GaosCode/PlanWeave#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GaosCode/PlanWeave.git",
+    "directory": "packages/desktop"
+  },
+  "bugs": {
+    "url": "https://github.com/GaosCode/PlanWeave/issues"
+  },
+  "keywords": [
+    "planweave",
+    "desktop",
+    "ai-agents",
+    "task-graph",
+    "workflow"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.main.json && vite build",
     "dev": "vite --host 127.0.0.1",
-    "pack:mac": "pnpm build && electron-builder --mac --dir --publish never",
+    "dist:all": "pnpm build && electron-builder --mac dmg zip --linux AppImage deb tar.gz --win nsis zip --publish never",
+    "dist:linux": "pnpm build && electron-builder --linux AppImage deb tar.gz --publish never",
     "dist:mac": "pnpm build && electron-builder --mac dmg zip --publish never",
+    "dist:win": "pnpm build && electron-builder --win nsis zip --publish never",
+    "pack:all": "pnpm build && electron-builder --mac --linux --win --dir --publish never",
+    "pack:linux": "pnpm build && electron-builder --linux --dir --publish never",
+    "pack:mac": "pnpm build && electron-builder --mac --dir --publish never",
+    "pack:win": "pnpm build && electron-builder --win --dir --publish never",
+    "release:all": "pnpm build && electron-builder --mac dmg zip --linux AppImage deb tar.gz --win nsis zip --publish always",
+    "release:linux": "pnpm build && electron-builder --linux AppImage deb tar.gz --publish always",
+    "release:mac": "pnpm build && electron-builder --mac dmg zip --publish always",
+    "release:win": "pnpm build && electron-builder --win nsis zip --publish always",
     "start": "electron dist/main/main.js",
     "smoke": "tsx scripts/electron-smoke.ts"
   },
@@ -53,11 +81,41 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
+      "identity": null,
       "target": [
         "dmg",
         "zip"
       ]
     },
+    "linux": {
+      "category": "Development",
+      "icon": "build/icon.png",
+      "maintainer": "GaosCode <GaosCode@users.noreply.github.com>",
+      "target": [
+        "AppImage",
+        "deb",
+        "tar.gz"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "allowToChangeInstallationDirectory": true,
+      "oneClick": false,
+      "perMachine": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "GaosCode",
+        "repo": "PlanWeave",
+        "releaseType": "release"
+      }
+    ],
     "dmg": {
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
