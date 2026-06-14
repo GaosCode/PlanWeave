@@ -69,4 +69,5 @@ export {
   getReviewPipeline,
   updateReviewPipeline
 } from "./reviewPipelineApi.js";
+export { cloneDesktopGraphEditResult } from "./graphEditResult.js";
 export type * from "./types.js";

@@ -6,6 +6,7 @@ import {
   createTaskCanvas,
   createDesktopPackageFileSnapshot,
   createTaskDraft,
+  cloneDesktopGraphEditResult,
   detectDesktopPackageFileChanges,
   getAutoRunState,
   getBlockDetail,
@@ -41,7 +42,6 @@ import {
   removeTaskNode,
   resetCanvasMapLayout,
   resetDesktopLayout,
-  resolveProjectCanvasWorkspace,
   resolveTaskCanvasWorkspace,
   resumeAutoRun,
   saveCanvasMapLayout,
@@ -68,14 +68,13 @@ import { detectAgentTools } from "./agentTools.js";
 import { openBlockInspectorWindow } from "./blockInspectorWindow.js";
 import { openTaskInspectorWindow } from "./taskInspectorWindow.js";
 import { detectRuntimeTools } from "./runtimeTools.js";
-import { cloneableGraphEditResult } from "./runtimeBridgeResult.js";
 
 async function invokeGraphEdit(promise: Promise<GraphEditResult>): Promise<DesktopGraphEditResult> {
-  return cloneableGraphEditResult(await promise);
+  return cloneDesktopGraphEditResult(await promise);
 }
 
 async function resolveDesktopCanvasReference(ref: DesktopCanvasReference) {
-  return ref.canvasId ? resolveProjectCanvasWorkspace(ref.projectRoot, ref.canvasId) : resolveTaskCanvasWorkspace(ref.projectRoot);
+  return resolveTaskCanvasWorkspace(ref.projectRoot, ref.canvasId);
 }
 
 export function registerRuntimeBridgeHandlers(): void {

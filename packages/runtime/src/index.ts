@@ -135,6 +135,7 @@ export {
   updateBlockExecutor,
   updateBlockPrompt,
   updateBlockTitle,
+  cloneDesktopGraphEditResult,
   updateTaskExecutor,
   updateTaskPrompt,
   updateTaskTitle,

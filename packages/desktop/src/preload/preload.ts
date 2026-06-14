@@ -2,86 +2,18 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type {
   DesktopBridgeApi,
-  DesktopCanvasMapLayout,
-  DesktopLayout,
-  DesktopPackageFileChangeEvent,
-  DesktopProjectSummary
+  DesktopPackageFileChangeEvent
 } from "@planweave-ai/runtime";
-import { desktopBridgeInvokeChannels, packageFileChangedChannel } from "../shared/ipcChannels.js";
+import { packageFileChangedChannel } from "../shared/ipcChannels.js";
+import { createDesktopBridgeInvokeApi } from "./bridgeInvocation.js";
 
 const api: DesktopBridgeApi = {
-  listProjects: () => ipcRenderer.invoke(desktopBridgeInvokeChannels.listProjects) as Promise<DesktopProjectSummary[]>,
-  chooseProjectFolder: () => ipcRenderer.invoke(desktopBridgeInvokeChannels.chooseProjectFolder) as Promise<string | null>,
-  revealProjectInFinder: (rootPath) => ipcRenderer.invoke(desktopBridgeInvokeChannels.revealProjectInFinder, rootPath) as Promise<void>,
-  revealPathInFinder: (path) => ipcRenderer.invoke(desktopBridgeInvokeChannels.revealPathInFinder, path) as Promise<void>,
-  detectAgentTools: () => ipcRenderer.invoke(desktopBridgeInvokeChannels.detectAgentTools),
-  detectRuntimeTools: () => ipcRenderer.invoke(desktopBridgeInvokeChannels.detectRuntimeTools),
-  openBlockInspectorWindow: (input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.openBlockInspectorWindow, input) as Promise<void>,
-  openTaskInspectorWindow: (input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.openTaskInspectorWindow, input) as Promise<void>,
-  openProject: (input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.openProject, input) as Promise<DesktopProjectSummary>,
-  initOrOpenProject: (rootPath) => ipcRenderer.invoke(desktopBridgeInvokeChannels.initOrOpenProject, rootPath) as Promise<DesktopProjectSummary>,
-  removeProject: (projectId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.removeProject, projectId) as Promise<void>,
-  createTaskCanvas: (projectRoot, input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.createTaskCanvas, projectRoot, input),
-  removeTaskCanvas: (projectRoot, canvasId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.removeTaskCanvas, projectRoot, canvasId),
-  getProjectOverview: (projectRoot) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getProjectOverview, projectRoot),
-  getCanvasGraphViewModel: (projectRoot) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getCanvasGraphViewModel, projectRoot),
-  getCanvasMapLayout: (projectRoot) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getCanvasMapLayout, projectRoot),
-  saveCanvasMapLayout: (projectRoot, layout: DesktopCanvasMapLayout) => ipcRenderer.invoke(desktopBridgeInvokeChannels.saveCanvasMapLayout, projectRoot, layout),
-  resetCanvasMapLayout: (projectRoot) => ipcRenderer.invoke(desktopBridgeInvokeChannels.resetCanvasMapLayout, projectRoot),
-  getGraphViewModel: (ref) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getGraphViewModel, ref),
-  getTaskDetail: (ref, taskId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getTaskDetail, ref, taskId),
-  getBlockDetail: (ref, blockRef) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getBlockDetail, ref, blockRef),
-  getTaskExecutionOrder: (ref, taskId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getTaskExecutionOrder, ref, taskId),
-  getTodoGroups: (projectRoot) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getTodoGroups, projectRoot),
-  getProjectExecutionPlan: (projectRoot) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getProjectExecutionPlan, projectRoot),
-  readProjectPrompt: (projectRoot) => ipcRenderer.invoke(desktopBridgeInvokeChannels.readProjectPrompt, projectRoot),
-  updateProjectPrompt: (projectRoot, markdown) => ipcRenderer.invoke(desktopBridgeInvokeChannels.updateProjectPrompt, projectRoot, markdown),
-  readProjectPromptPolicy: (projectRoot) => ipcRenderer.invoke(desktopBridgeInvokeChannels.readProjectPromptPolicy, projectRoot),
-  updateProjectPromptPolicy: (projectRoot, patch) => ipcRenderer.invoke(desktopBridgeInvokeChannels.updateProjectPromptPolicy, projectRoot, patch),
-  listBlockRunRecords: (ref, blockRef) => ipcRenderer.invoke(desktopBridgeInvokeChannels.listBlockRunRecords, ref, blockRef),
-  getRunRecord: (ref, recordId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getRunRecord, ref, recordId),
-  getReviewAttempts: (ref, blockRef) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getReviewAttempts, ref, blockRef),
-  getFeedbackRecords: (ref, blockRef) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getFeedbackRecords, ref, blockRef),
-  getReviewPipeline: (ref, taskId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getReviewPipeline, ref, taskId),
-  updateReviewPipeline: (ref, taskId, input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.updateReviewPipeline, ref, taskId, input),
-  createTaskDraft: (ref, input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.createTaskDraft, ref, input),
-  addTaskNode: (ref, input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.addTaskNode, ref, input),
-  addBlock: (ref, input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.addBlock, ref, input),
-  removeTaskNode: (ref, taskId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.removeTaskNode, ref, taskId),
-  removeBlock: (ref, blockRef) => ipcRenderer.invoke(desktopBridgeInvokeChannels.removeBlock, ref, blockRef),
-  validateGraphEdit: (ref, input) => ipcRenderer.invoke(desktopBridgeInvokeChannels.validateGraphEdit, ref, input),
-  updateTaskTitle: (ref, taskId, title) => ipcRenderer.invoke(desktopBridgeInvokeChannels.updateTaskTitle, ref, taskId, title),
-  updateTaskPrompt: (ref, taskId, markdown) => ipcRenderer.invoke(desktopBridgeInvokeChannels.updateTaskPrompt, ref, taskId, markdown),
-  updateBlockTitle: (ref, blockRef, title) => ipcRenderer.invoke(desktopBridgeInvokeChannels.updateBlockTitle, ref, blockRef, title),
-  updateBlockPrompt: (ref, blockRef, markdown) => ipcRenderer.invoke(desktopBridgeInvokeChannels.updateBlockPrompt, ref, blockRef, markdown),
-  updateTaskExecutor: (ref, taskId, executorName) => ipcRenderer.invoke(desktopBridgeInvokeChannels.updateTaskExecutor, ref, taskId, executorName),
-  updateBlockExecutor: (ref, blockRef, executorName) => ipcRenderer.invoke(desktopBridgeInvokeChannels.updateBlockExecutor, ref, blockRef, executorName),
-  addDependencyEdge: (ref, fromTaskId, toTaskId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.addDependencyEdge, ref, fromTaskId, toTaskId),
-  removeDependencyEdge: (ref, fromTaskId, toTaskId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.removeDependencyEdge, ref, fromTaskId, toTaskId),
-  getDesktopLayout: (ref) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getDesktopLayout, ref),
-  saveDesktopLayout: (ref, layout: DesktopLayout) => ipcRenderer.invoke(desktopBridgeInvokeChannels.saveDesktopLayout, ref, layout),
-  resetDesktopLayout: (ref) => ipcRenderer.invoke(desktopBridgeInvokeChannels.resetDesktopLayout, ref),
-  createPackageFileSnapshot: (ref) => ipcRenderer.invoke(desktopBridgeInvokeChannels.createPackageFileSnapshot, ref),
-  detectPackageFileChanges: (ref, snapshotId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.detectPackageFileChanges, ref, snapshotId),
-  refreshChangedPackagePrompts: (ref, snapshotId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.refreshChangedPackagePrompts, ref, snapshotId),
-  refreshPackageFileChanges: (ref) => ipcRenderer.invoke(desktopBridgeInvokeChannels.refreshPackageFileChanges, ref),
-  getDirtyPromptRefs: (ref) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getDirtyPromptRefs, ref),
-  watchPackageFiles: (ref) => ipcRenderer.invoke(desktopBridgeInvokeChannels.watchPackageFiles, ref) as Promise<void>,
-  unwatchPackageFiles: (ref) => ipcRenderer.invoke(desktopBridgeInvokeChannels.unwatchPackageFiles, ref) as Promise<void>,
+  ...createDesktopBridgeInvokeApi((channel, ...args) => ipcRenderer.invoke(channel, ...args)),
   onPackageFileChanged: (callback) => {
     const listener = (_event: IpcRendererEvent, payload: DesktopPackageFileChangeEvent) => callback(payload);
     ipcRenderer.on(packageFileChangedChannel, listener);
     return () => ipcRenderer.off(packageFileChangedChannel, listener);
-  },
-  startAutoRun: (ref, scope, stepLimit, options) => ipcRenderer.invoke(desktopBridgeInvokeChannels.startAutoRun, ref, scope, stepLimit, options),
-  unblockBlock: (ref, blockRef, reason) => ipcRenderer.invoke(desktopBridgeInvokeChannels.unblockBlock, ref, blockRef, reason) as Promise<void>,
-  pauseAutoRun: (runId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.pauseAutoRun, runId),
-  resumeAutoRun: (runId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.resumeAutoRun, runId),
-  stopAutoRun: (runId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.stopAutoRun, runId),
-  getAutoRunState: (runId) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getAutoRunState, runId),
-  getLatestAutoRunSummary: (ref) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getLatestAutoRunSummary, ref),
-  getStatistics: (projectRoot) => ipcRenderer.invoke(desktopBridgeInvokeChannels.getStatistics, projectRoot),
-  searchProject: (projectRoot, query, filters) => ipcRenderer.invoke(desktopBridgeInvokeChannels.searchProject, projectRoot, query, filters)
+  }
 };
 
 contextBridge.exposeInMainWorld("planweave", api);

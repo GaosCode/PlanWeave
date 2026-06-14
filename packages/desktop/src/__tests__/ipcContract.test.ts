@@ -1,84 +1,16 @@
-import type { GraphEditResult } from "@planweave-ai/runtime";
+import { cloneDesktopGraphEditResult, type GraphEditResult } from "@planweave-ai/runtime";
 import { describe, expect, it } from "vitest";
-import { cloneableGraphEditResult } from "../main/runtimeBridgeResult";
-import { desktopBridgeInvokeChannels, packageFileChangedChannel, type DesktopBridgeInvokeMethod } from "../shared/ipcChannels";
-
-const expectedBridgeInvokeMethods = [
-  "addBlock",
-  "addDependencyEdge",
-  "addTaskNode",
-  "chooseProjectFolder",
-  "createPackageFileSnapshot",
-  "createTaskCanvas",
-  "createTaskDraft",
-  "detectAgentTools",
-  "detectPackageFileChanges",
-  "detectRuntimeTools",
-  "getAutoRunState",
-  "getBlockDetail",
-  "getCanvasGraphViewModel",
-  "getCanvasMapLayout",
-  "getDesktopLayout",
-  "getDirtyPromptRefs",
-  "getFeedbackRecords",
-  "getGraphViewModel",
-  "getLatestAutoRunSummary",
-  "getProjectExecutionPlan",
-  "getProjectOverview",
-  "getReviewAttempts",
-  "getReviewPipeline",
-  "getRunRecord",
-  "getStatistics",
-  "getTaskDetail",
-  "getTaskExecutionOrder",
-  "getTodoGroups",
-  "initOrOpenProject",
-  "listBlockRunRecords",
-  "listProjects",
-  "openBlockInspectorWindow",
-  "openTaskInspectorWindow",
-  "openProject",
-  "pauseAutoRun",
-  "refreshChangedPackagePrompts",
-  "refreshPackageFileChanges",
-  "readProjectPrompt",
-  "readProjectPromptPolicy",
-  "removeBlock",
-  "removeDependencyEdge",
-  "removeProject",
-  "removeTaskCanvas",
-  "removeTaskNode",
-  "resetDesktopLayout",
-  "resetCanvasMapLayout",
-  "resumeAutoRun",
-  "revealPathInFinder",
-  "revealProjectInFinder",
-  "saveCanvasMapLayout",
-  "saveDesktopLayout",
-  "searchProject",
-  "startAutoRun",
-  "stopAutoRun",
-  "unblockBlock",
-  "unwatchPackageFiles",
-  "updateBlockExecutor",
-  "updateBlockPrompt",
-  "updateBlockTitle",
-  "updateProjectPrompt",
-  "updateReviewPipeline",
-  "updateProjectPromptPolicy",
-  "updateTaskExecutor",
-  "updateTaskPrompt",
-  "updateTaskTitle",
-  "validateGraphEdit",
-  "watchPackageFiles"
-] satisfies DesktopBridgeInvokeMethod[];
+import { desktopBridgeInvokeChannels, packageFileChangedChannel } from "../shared/ipcChannels";
 
 describe("desktop IPC contract", () => {
-  it("keeps every bridge invoke method in the shared channel registry", () => {
-    const registryMethods = Object.keys(desktopBridgeInvokeChannels).sort();
+  it("uses stable, unique invoke channel names", () => {
+    const entries = Object.entries(desktopBridgeInvokeChannels);
+    const channels = entries.map(([, channel]) => channel);
 
-    expect(registryMethods).toEqual([...expectedBridgeInvokeMethods].sort());
-    expect(new Set(Object.values(desktopBridgeInvokeChannels)).size).toBe(Object.values(desktopBridgeInvokeChannels).length);
+    for (const [method, channel] of entries) {
+      expect(channel).toBe(`planweave:${method}`);
+    }
+    expect(new Set(channels).size).toBe(channels.length);
   });
 
   it("keeps package file change events outside the invoke channel registry", () => {
@@ -103,7 +35,7 @@ describe("desktop IPC contract", () => {
       graph: { indexes: "not cloneable over IPC" } as never
     };
 
-    expect(cloneableGraphEditResult(result)).toEqual({
+    expect(cloneDesktopGraphEditResult(result)).toEqual({
       ok: true,
       affectedTasks: ["T-001"],
       diagnostics: []
