@@ -1,20 +1,24 @@
-import { parseBlockRef } from "../../graph/compileTaskGraph.js";
 import { compileTaskGraph } from "../../graph/compileTaskGraph.js";
-import { addEdge, commitPlanPackageGraphMutation, removeEdge, updateNode } from "../../graph/editGraph.js";
+import { addEdge, commitPlanPackageGraphMutation, removeEdge } from "../../graph/editGraph.js";
+import {
+  buildPlanPackageBlockFieldEditMutation,
+  buildPlanPackageTaskFieldEditMutation,
+  type PlanPackageBlockFieldEditInput,
+  type PlanPackageTaskFieldEditInput
+} from "../../graph/fieldEditMutation.js";
 import { buildPlanPackageGraphMutation } from "../../graph/mutation.js";
 import { loadPackage } from "../../package/loadPackage.js";
 import type { BlockType, GraphEditResult, ManifestBlock, ManifestTaskNode, PackageWorkspaceRef, PlanPackageManifest } from "../../types.js";
 import type { DesktopAddBlockInput, DesktopAddTaskInput, DesktopGraphEditValidationInput } from "../types.js";
-import { getBlock, getTask } from "./graphHelpers.js";
+import { getTask } from "./graphHelpers.js";
 
 function normalizeOptionalText(value: string | null): string | undefined {
-  const trimmed = value?.trim() ?? "";
-  return trimmed.length > 0 ? trimmed : undefined;
+  return value?.trim() || undefined;
 }
 
 function requireNonEmptyTitle(title: string): string {
   const trimmed = title.trim();
-  if (trimmed.length === 0) {
+  if (!trimmed) {
     throw new Error("Title must not be empty.");
   }
   return trimmed;
@@ -46,28 +50,14 @@ function nextTaskId(manifest: PlanPackageManifest, title: string): string {
   return `T-${String(index).padStart(3, "0")}`;
 }
 
-function blockPrefix(type: BlockType): string {
-  if (type === "review") {
-    return "R";
-  }
-  return "B";
-}
-
 function nextBlockId(task: ManifestTaskNode, type: BlockType): string {
-  const prefix = blockPrefix(type);
+  const prefix = type === "review" ? "R" : "B";
   const existing = new Set(task.blocks.map((block) => block.id));
   let index = task.blocks.filter((block) => block.id.startsWith(`${prefix}-`)).length + 1;
   while (existing.has(`${prefix}-${String(index).padStart(3, "0")}`)) {
     index += 1;
   }
   return `${prefix}-${String(index).padStart(3, "0")}`;
-}
-
-function defaultBlockTitle(type: BlockType): string {
-  if (type === "review") {
-    return "Review work";
-  }
-  return "Implement work";
 }
 
 function createBlock(options: {
@@ -91,21 +81,10 @@ function createBlock(options: {
     return {
       ...common,
       type: "review",
-      review: {
-        required: true,
-        maxFeedbackCycles: options.maxFeedbackCycles,
-        hook: null
-      }
+      review: { required: true, maxFeedbackCycles: options.maxFeedbackCycles, hook: null }
     };
   }
-  return {
-    ...common,
-    type: options.type,
-    parallel: {
-      safe: false,
-      locks: []
-    }
-  };
+  return { ...common, type: options.type, parallel: { safe: false, locks: [] } };
 }
 
 function graphEditResult(manifest: PlanPackageManifest, affectedTasks: string[] = []): GraphEditResult {
@@ -116,6 +95,22 @@ function graphEditResult(manifest: PlanPackageManifest, affectedTasks: string[] 
     diagnostics: graph.diagnostics.errors,
     graph
   };
+}
+
+async function commitTaskEdit(projectRoot: PackageWorkspaceRef, input: PlanPackageTaskFieldEditInput): Promise<GraphEditResult> {
+  const { manifest } = await loadPackage(projectRoot);
+  return commitPlanPackageGraphMutation({
+    projectRoot,
+    mutation: buildPlanPackageTaskFieldEditMutation(manifest, input)
+  });
+}
+
+async function commitBlockEdit(projectRoot: PackageWorkspaceRef, input: PlanPackageBlockFieldEditInput): Promise<GraphEditResult> {
+  const { manifest } = await loadPackage(projectRoot);
+  return commitPlanPackageGraphMutation({
+    projectRoot,
+    mutation: buildPlanPackageBlockFieldEditMutation(manifest, input)
+  });
 }
 
 export async function addTaskNode(projectRoot: PackageWorkspaceRef, input: DesktopAddTaskInput): Promise<GraphEditResult> {
@@ -131,7 +126,7 @@ export async function addTaskNode(projectRoot: PackageWorkspaceRef, input: Deskt
         taskId,
         blockId,
         type,
-        title: defaultBlockTitle(type),
+        title: type === "review" ? "Review work" : "Implement work",
         dependsOn: blocks.length > 0 ? [blocks[blocks.length - 1].id] : [],
         maxFeedbackCycles: manifest.review.maxFeedbackCycles
       })
@@ -152,10 +147,7 @@ export async function addTaskNode(projectRoot: PackageWorkspaceRef, input: Deskt
       kind: "addTaskNode",
       node,
       taskPromptMarkdown: input.promptMarkdown,
-      blockPromptMarkdown: blocks.map((block) => ({
-        blockId: block.id,
-        markdown: promptFileMarkdown(`# ${block.title}\n\n${input.promptMarkdown}`)
-      }))
+      blockPromptMarkdown: blocks.map((block) => ({ blockId: block.id, markdown: promptFileMarkdown(`# ${block.title}\n\n${input.promptMarkdown}`) }))
     })
   });
 }
@@ -227,75 +219,27 @@ export async function validateGraphEdit(projectRoot: PackageWorkspaceRef, input:
 }
 
 export async function updateTaskTitle(projectRoot: PackageWorkspaceRef, taskId: string, title: string): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(projectRoot);
-  const graph = compileTaskGraph(manifest);
-  const task = getTask(graph, taskId);
-  return updateNode({ projectRoot, node: { ...task, title: requireNonEmptyTitle(title) } });
+  return commitTaskEdit(projectRoot, { taskId, title: requireNonEmptyTitle(title) });
 }
 
 export async function updateTaskPrompt(projectRoot: PackageWorkspaceRef, taskId: string, markdown: string): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(projectRoot);
-  return commitPlanPackageGraphMutation({
-    projectRoot,
-    mutation: buildPlanPackageGraphMutation(manifest, { kind: "writeTaskPrompt", taskId, markdown })
-  });
+  return commitTaskEdit(projectRoot, { taskId, promptMarkdown: markdown });
 }
 
 export async function updateBlockTitle(projectRoot: PackageWorkspaceRef, ref: string, title: string): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(projectRoot);
-  const graph = compileTaskGraph(manifest);
-  const { taskId, blockId } = parseBlockRef(ref);
-  const task = getTask(graph, taskId);
-  if (!task.blocks.some((block) => block.id === blockId)) {
-    throw new Error(`Block '${ref}' does not exist.`);
-  }
-  return updateNode({
-    projectRoot,
-    node: {
-      ...task,
-      blocks: task.blocks.map((block) => (block.id === blockId ? { ...block, title: requireNonEmptyTitle(title) } : block))
-    }
-  });
+  return commitBlockEdit(projectRoot, { blockRef: ref, title: requireNonEmptyTitle(title) });
 }
 
 export async function updateBlockPrompt(projectRoot: PackageWorkspaceRef, ref: string, markdown: string): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(projectRoot);
-  return commitPlanPackageGraphMutation({
-    projectRoot,
-    mutation: buildPlanPackageGraphMutation(manifest, { kind: "writeBlockPrompt", blockRef: ref, markdown })
-  });
+  return commitBlockEdit(projectRoot, { blockRef: ref, promptMarkdown: markdown });
 }
 
 export async function updateTaskExecutor(projectRoot: PackageWorkspaceRef, taskId: string, executorName: string | null): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(projectRoot);
-  const graph = compileTaskGraph(manifest);
-  const task = getTask(graph, taskId);
-  const executor = normalizeOptionalText(executorName);
-  return updateNode({
-    projectRoot,
-    node: {
-      ...(executor === undefined ? { ...task, executor: undefined } : { ...task, executor }),
-      blocks: task.blocks.map((block) => ({ ...block, executor: undefined }))
-    }
-  });
+  return commitTaskEdit(projectRoot, { taskId, executor: executorName });
 }
 
 export async function updateBlockExecutor(projectRoot: PackageWorkspaceRef, ref: string, executorName: string | null): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(projectRoot);
-  const graph = compileTaskGraph(manifest);
-  const { taskId, blockId } = parseBlockRef(ref);
-  const task = getTask(graph, taskId);
-  if (!task.blocks.some((block) => block.id === blockId)) {
-    throw new Error(`Block '${ref}' does not exist.`);
-  }
-  const executor = normalizeOptionalText(executorName);
-  return updateNode({
-    projectRoot,
-    node: {
-      ...task,
-      blocks: task.blocks.map((block) => (block.id === blockId ? { ...block, executor } : block))
-    }
-  });
+  return commitBlockEdit(projectRoot, { blockRef: ref, executor: executorName });
 }
 
 export function addDependencyEdge(projectRoot: PackageWorkspaceRef, fromTaskId: string, toTaskId: string): Promise<GraphEditResult> {

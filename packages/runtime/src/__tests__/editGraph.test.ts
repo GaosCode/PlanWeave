@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { addEdge, addNode, commitPlanPackageGraphMutation, updatePromptSurface } from "../graph/editGraph.js";
+import { buildPlanPackageBlockFieldEditMutation, buildPlanPackageTaskFieldEditMutation } from "../graph/fieldEditMutation.js";
 import { buildPlanPackageGraphMutation } from "../graph/mutation.js";
 import { readJsonFile } from "../json.js";
 import type { PlanPackageManifest } from "../types.js";
@@ -65,6 +66,60 @@ describe("editGraph", () => {
     expect(updatedTask.blocks.at(-1)).toEqual(block);
     expect(addBlockMutation.affectedTasks).toEqual(["T-001"]);
     expect(addBlockMutation.sideEffects).toEqual([{ kind: "writePrompt", packagePath: block.prompt, markdown: "# New block\n" }]);
+  });
+
+  it("builds task and block field edits in the graph mutation seam", async () => {
+    const manifest = basicManifest();
+    const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    if (task?.type !== "task") {
+      throw new Error("Fixture task missing.");
+    }
+    const manifestWithOverrides: PlanPackageManifest = {
+      ...manifest,
+      nodes: manifest.nodes.map((node) =>
+        node.id === "T-001" && node.type === "task"
+          ? {
+              ...node,
+              executor: "manual",
+              blocks: node.blocks.map((block) => ({ ...block, executor: "manual" }))
+            }
+          : node
+      )
+    };
+
+    const taskMutation = buildPlanPackageTaskFieldEditMutation(manifestWithOverrides, {
+      taskId: "T-001",
+      executor: "codex-auto"
+    });
+    const updatedTask = taskMutation.nextManifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    if (updatedTask?.type !== "task") {
+      throw new Error("Fixture task missing.");
+    }
+    expect(taskMutation.updatedFields).toEqual(["executor"]);
+    expect(updatedTask.executor).toBe("codex-auto");
+    expect(updatedTask.blocks.every((block) => !("executor" in block) || block.executor === undefined)).toBe(true);
+
+    const blockMutation = buildPlanPackageBlockFieldEditMutation(taskMutation.nextManifest, {
+      blockRef: "T-001#B-001",
+      title: "Updated implementation",
+      promptMarkdown: "# Updated implementation\n",
+      executor: "manual",
+      parallelSafe: false,
+      parallelLocks: ["db"]
+    });
+    const blockTask = blockMutation.nextManifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    if (blockTask?.type !== "task") {
+      throw new Error("Fixture task missing.");
+    }
+    expect(blockMutation.updatedFields).toEqual(["title", "prompt", "executor", "parallel.safe", "parallel.locks"]);
+    expect(blockMutation.sideEffects).toEqual([
+      { kind: "writePrompt", packagePath: "nodes/T-001/blocks/B-001.prompt.md", markdown: "# Updated implementation\n" }
+    ]);
+    expect(blockTask.blocks.find((block) => block.id === "B-001")).toMatchObject({
+      title: "Updated implementation",
+      executor: "manual",
+      parallel: { safe: false, locks: ["db"] }
+    });
   });
 
   it("removes task package directories through commit-only mutation side effects", async () => {
