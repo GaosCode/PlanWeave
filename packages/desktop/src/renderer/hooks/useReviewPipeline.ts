@@ -5,14 +5,14 @@ import type { createTranslator } from "../i18n";
 
 type UseReviewPipelineArgs = {
   graph: DesktopGraphViewModel | null;
-  loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
+  reloadCurrentCanvas: () => Promise<void>;
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
   setError: (message: string | null) => void;
   t: ReturnType<typeof createTranslator>;
 };
 
-export function useReviewPipeline({ graph, loadProject, selectedCanvasId, selectedProject, setError, t }: UseReviewPipelineArgs) {
+export function useReviewPipeline({ graph, reloadCurrentCanvas, selectedCanvasId, selectedProject, setError, t }: UseReviewPipelineArgs) {
   const [reviewTaskId, setReviewTaskId] = useState<string | null>(null);
   const [reviewPipeline, setReviewPipeline] = useState<DesktopReviewPipeline | null>(null);
   const [reviewDraft, setReviewDraft] = useState<DesktopReviewPipelineStepInput[]>([]);
@@ -115,11 +115,11 @@ export function useReviewPipeline({ graph, loadProject, selectedCanvasId, select
       const pipeline = await bridge.getReviewPipeline(canvas, reviewTaskId);
       setReviewPipeline(pipeline);
       setReviewDraft(pipeline.steps);
-      await loadProject(selectedProject, selectedCanvasId);
+      await reloadCurrentCanvas();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [loadProject, reviewDefaultCyclesDraft, reviewDraft, reviewTaskId, selectedCanvasId, selectedProject, setError]);
+  }, [reloadCurrentCanvas, reviewDefaultCyclesDraft, reviewDraft, reviewTaskId, selectedCanvasId, selectedProject, setError]);
 
   return {
     addReviewStep,

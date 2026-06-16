@@ -3,7 +3,7 @@ import type { DesktopPackageFileChangeEvent, DesktopProjectSummary } from "@plan
 import { bridge, desktopCanvasReference } from "../bridge";
 
 type UsePackageFileSyncArgs = {
-  loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
+  reloadCurrentCanvas: () => Promise<void>;
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
   setDirtyPromptRefs: (refs: string[]) => void;
@@ -13,7 +13,7 @@ type UsePackageFileSyncArgs = {
 };
 
 export function usePackageFileSync({
-  loadProject,
+  reloadCurrentCanvas,
   selectedCanvasId,
   selectedProject,
   setDirtyPromptRefs,
@@ -33,12 +33,12 @@ export function usePackageFileSync({
         setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
         return;
       }
-      await loadProject(selectedProject, selectedCanvasId);
+      await reloadCurrentCanvas();
       setDirtyPromptRefs(result.dirtyPromptRefs);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [loadProject, selectedCanvasId, selectedProject, setDirtyPromptRefs, setError, setFileSyncDiagnostics]);
+  }, [reloadCurrentCanvas, selectedCanvasId, selectedProject, setDirtyPromptRefs, setError, setFileSyncDiagnostics]);
 
   useEffect(() => {
     if (!bridge || !selectedProject) {

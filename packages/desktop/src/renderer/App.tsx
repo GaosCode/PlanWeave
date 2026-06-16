@@ -153,6 +153,7 @@ export function App() {
     openBlockInspector: handleOpenBlockInspector,
     openProject: openProjectInSession,
     openTaskInspector: handleOpenTaskInspector,
+    reloadCurrentCanvas,
     selectTaskPanel: handleTaskPanelSelect
   } = useDesktopProjectSession({
     clearSelectedBlockRecords,
@@ -221,7 +222,7 @@ export function App() {
     setReviewDefaultCyclesDraft,
     setReviewTaskId,
     updateReviewStep
-  } = useReviewPipeline({ graph, loadProject: openProjectInSession, selectedCanvasId, selectedProject, setError, t });
+  } = useReviewPipeline({ graph, reloadCurrentCanvas, selectedCanvasId, selectedProject, setError, t });
 
   const {
     handlePromptChange,
@@ -424,7 +425,7 @@ export function App() {
     t
   });
   const { refreshPackageFiles } = usePackageFileSync({
-    loadProject: openProjectInSession,
+    reloadCurrentCanvas,
     selectedCanvasId,
     selectedProject,
     setDirtyPromptRefs,

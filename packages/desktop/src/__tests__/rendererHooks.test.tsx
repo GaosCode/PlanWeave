@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import type { DesktopGraphViewModel, DesktopLayout, DesktopProjectSummary } from "@planweave-ai/runtime";
+import type { DesktopGraphViewModel, DesktopLayout, DesktopProjectSummary, DesktopReviewPipeline } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { useVisibleGraphTasks } from "../renderer/hooks/useVisibleGraphTasks";
@@ -64,6 +64,31 @@ const graph: DesktopGraphViewModel = {
 };
 
 const layout: DesktopLayout = { nodes: [] };
+
+const reviewPipeline: DesktopReviewPipeline = {
+  taskId: "T-ALPHA",
+  taskTitle: "Alpha task",
+  packageDefaults: {
+    maxFeedbackCycles: 1,
+    completionPolicy: "strict"
+  },
+  steps: [
+    {
+      blockRef: "B-001",
+      blockId: "B-001",
+      title: "Review implementation",
+      enabled: true,
+      preset: "review",
+      triggerCondition: "after_required_work_completed",
+      inputContext: "Implementation",
+      passCriteria: "Looks correct",
+      feedbackFormat: "Notes",
+      maxFeedbackCycles: 1,
+      hook: null,
+      promptMarkdown: "# Review"
+    }
+  ]
+};
 
 afterEach(() => {
   cleanup();
@@ -391,6 +416,88 @@ describe("desktop renderer hook interfaces", () => {
       canvas: { projectRoot: project.rootPath, canvasId: "canvas-main" },
       language: "zh-CN"
     });
+  });
+
+  it("refreshes package files through the Desktop Project Session reload action", async () => {
+    const bridge = createDesktopBridgeMock({
+      refreshPackageFileChanges: vi.fn().mockResolvedValue({
+        ok: true,
+        diagnostics: [],
+        dirtyPromptRefs: ["tasks/T-ALPHA/prompt.md"]
+      })
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { usePackageFileSync } = await import("../renderer/hooks/usePackageFileSync");
+
+    const reloadCurrentCanvas = vi.fn().mockResolvedValue(undefined);
+    const setDirtyPromptRefs = vi.fn();
+    const setFileSyncDiagnostics = vi.fn();
+    const { result } = renderHook(() =>
+      usePackageFileSync({
+        reloadCurrentCanvas,
+        selectedCanvasId: "canvas-main",
+        selectedProject: project,
+        setDirtyPromptRefs,
+        setError: vi.fn(),
+        setFileSyncDiagnostics,
+        setLastFileChange: vi.fn()
+      })
+    );
+
+    await act(async () => {
+      await result.current.refreshPackageFiles();
+    });
+
+    expect(bridge.refreshPackageFileChanges).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" });
+    expect(reloadCurrentCanvas).toHaveBeenCalled();
+    expect(setFileSyncDiagnostics).toHaveBeenCalledWith([]);
+    expect(setDirtyPromptRefs).toHaveBeenLastCalledWith(["tasks/T-ALPHA/prompt.md"]);
+  });
+
+  it("reloads the current Desktop Project Session after saving a review pipeline", async () => {
+    const bridge = createDesktopBridgeMock({
+      getLatestAutoRunSummary: vi.fn().mockResolvedValue(null),
+      getReviewPipeline: vi.fn().mockResolvedValue(reviewPipeline),
+      updateReviewPipeline: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] })
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const [{ useReviewPipeline }, { createTranslator }] = await Promise.all([
+      import("../renderer/hooks/useReviewPipeline"),
+      import("../renderer/i18n")
+    ]);
+
+    const reloadCurrentCanvas = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() =>
+      useReviewPipeline({
+        graph,
+        reloadCurrentCanvas,
+        selectedCanvasId: "canvas-main",
+        selectedProject: project,
+        setError: vi.fn(),
+        t: createTranslator("en")
+      })
+    );
+
+    await waitFor(() => expect(result.current.reviewPipeline).toEqual(reviewPipeline));
+
+    await act(async () => {
+      await result.current.saveReviewPipeline();
+    });
+
+    expect(bridge.updateReviewPipeline).toHaveBeenCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-main" },
+      "T-ALPHA",
+      {
+        packageDefaults: {
+          maxFeedbackCycles: 1,
+          completionPolicy: "strict"
+        },
+        steps: reviewPipeline.steps
+      }
+    );
+    expect(reloadCurrentCanvas).toHaveBeenCalled();
   });
 
 });
