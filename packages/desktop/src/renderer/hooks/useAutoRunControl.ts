@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type * as React from "react";
 import type { DesktopAutoRunScope, DesktopAutoRunState, DesktopBlockDetail, DesktopProjectSummary } from "@planweave-ai/runtime";
+import { autoRunEventMatchesCanvas, shouldRefreshGraphForAutoRunEvent } from "../autoRunEvents";
 import { bridge, desktopCanvasReference } from "../bridge";
 import type { createTranslator } from "../i18n";
 import type { AutoRunScopeMode, FloatingControlDrag, FloatingControlPosition } from "../types";
@@ -19,6 +20,10 @@ type UseAutoRunControlArgs = {
   tmuxMonitoringEnabled: boolean;
 };
 
+function isActiveAutoRunState(state: DesktopAutoRunState | null): state is DesktopAutoRunState {
+  return state?.phase === "running" || state?.phase === "pausing";
+}
+
 export function useAutoRunControl({
   autoRunState,
   onAutoRunStateRefresh,
@@ -36,41 +41,28 @@ export function useAutoRunControl({
   const [autoRunControlPosition, setAutoRunControlPosition] = useState<FloatingControlPosition | null>(null);
   const [autoRunControlDrag, setAutoRunControlDrag] = useState<FloatingControlDrag | null>(null);
 
-  const applyAutoRunState = useCallback(async (nextState: DesktopAutoRunState) => {
+  const applyAutoRunState = useCallback(async (nextState: DesktopAutoRunState, options: { refreshGraph?: boolean } = {}) => {
     setAutoRunState(nextState);
-    await onAutoRunStateRefresh?.(nextState);
-  }, [onAutoRunStateRefresh]);
-
-  const refreshAutoRunState = useCallback(async (runId: string) => {
-    if (!bridge) {
-      return;
+    if (options.refreshGraph) {
+      await onAutoRunStateRefresh?.(nextState);
     }
-    const nextState = await bridge.getAutoRunState(runId);
-    await applyAutoRunState(nextState);
-  }, [applyAutoRunState]);
-
-  const pollingRunId = autoRunState?.phase === "running" || autoRunState?.phase === "pausing" ? autoRunState.runId : null;
-  const pollingPhase = pollingRunId ? autoRunState?.phase : null;
+  }, [onAutoRunStateRefresh, setAutoRunState]);
+  const activeRunId = isActiveAutoRunState(autoRunState) ? autoRunState.runId : null;
 
   useEffect(() => {
-    if (!pollingRunId) {
+    if (!bridge || !selectedProject) {
       return;
     }
-    const timer = window.setInterval(() => {
-      void refreshAutoRunState(pollingRunId);
-    }, 600);
-    return () => window.clearInterval(timer);
-  }, [pollingPhase, pollingRunId, refreshAutoRunState]);
-
-  useEffect(() => {
-    if (!autoRunState || autoRunState.phase === "running" || autoRunState.phase === "pausing") {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void onAutoRunStateRefresh?.(autoRunState);
-    }, 800);
-    return () => window.clearTimeout(timer);
-  }, [autoRunState, onAutoRunStateRefresh]);
+    return bridge.onAutoRunChanged((event) => {
+      if (!autoRunEventMatchesCanvas(event, selectedProject.rootPath, selectedCanvasId)) {
+        return;
+      }
+      if (activeRunId && event.runId !== activeRunId) {
+        return;
+      }
+      void applyAutoRunState(event.state, { refreshGraph: shouldRefreshGraphForAutoRunEvent(event) });
+    });
+  }, [activeRunId, applyAutoRunState, selectedCanvasId, selectedProject]);
 
   const selectedAutoRunScope = useCallback((): DesktopAutoRunScope | null => {
     if (autoRunScopeMode === "project") {

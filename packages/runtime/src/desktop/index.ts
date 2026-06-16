@@ -58,7 +58,8 @@ export {
   pauseAutoRun,
   resumeAutoRun,
   startAutoRun,
-  stopAutoRun
+  stopAutoRun,
+  subscribeAutoRunEvents
 } from "./runApi.js";
 export {
   getFeedbackRecords,

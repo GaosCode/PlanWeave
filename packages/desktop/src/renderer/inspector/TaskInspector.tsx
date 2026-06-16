@@ -188,7 +188,10 @@ export function TaskInspector({
               className="min-h-80 flex-1 resize-none"
               value={selectedTask.promptMarkdown}
               onBlur={saveTaskPromptIfDirty}
-              onChange={(event) => setSelectedTask({ ...selectedTask, promptMarkdown: event.target.value })}
+              onChange={(event) => {
+                onDraftDirtyChange?.(true);
+                setSelectedTask({ ...selectedTask, promptMarkdown: event.target.value });
+              }}
             />
           </div>
         ) : (

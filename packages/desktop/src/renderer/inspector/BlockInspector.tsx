@@ -250,7 +250,10 @@ export function BlockInspector({
               className="min-h-56 flex-1 resize-none"
               value={selectedBlock.promptMarkdown}
               onBlur={saveBlockPromptIfDirty}
-              onChange={(event) => setSelectedBlock({ ...selectedBlock, promptMarkdown: event.target.value })}
+              onChange={(event) => {
+                onDraftDirtyChange?.(true);
+                setSelectedBlock({ ...selectedBlock, promptMarkdown: event.target.value });
+              }}
             />
           </div>
         ) : (

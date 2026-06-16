@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  DesktopAutoRunEvent,
   DesktopBlockDetail,
   DesktopBlockRunRecordSummary,
   DesktopFeedbackRecord,
@@ -7,6 +8,7 @@ import type {
   DesktopReviewAttemptSummary,
   DesktopRunRecord
 } from "@planweave-ai/runtime";
+import { autoRunEventMatchesCanvas } from "./autoRunEvents";
 import { bridge } from "./bridge";
 import { createTranslator, type Language } from "./i18n";
 import { useDetectedAgents } from "./hooks/useDetectedAgents";
@@ -14,6 +16,10 @@ import { BlockInspector } from "./inspector/BlockInspector";
 
 function supportedLanguage(value: string | null): Language {
   return value === "en" || value === "zh-CN" ? value : "zh-CN";
+}
+
+function latestRecordMatchesBlock(event: DesktopAutoRunEvent, blockRef: string, records: DesktopBlockRunRecordSummary[]): boolean {
+  return Boolean(event.latestRecordId && (records.some((record) => record.recordId === event.latestRecordId) || event.latestRecordId.startsWith(`${blockRef}::`)));
 }
 
 export function BlockInspectorWindow() {
@@ -34,9 +40,15 @@ export function BlockInspectorWindow() {
   const [blockFeedbackRecords, setBlockFeedbackRecords] = useState<DesktopFeedbackRecord[]>([]);
   const [error, setError] = useState<string | null>(bridge ? null : t("bridgeUnavailable"));
   const [draftDirty, setDraftDirty] = useState(false);
+  const draftDirtyRef = useRef(false);
+
+  const updateDraftDirty = useCallback((nextDraftDirty: boolean) => {
+    draftDirtyRef.current = nextDraftDirty;
+    setDraftDirty(nextDraftDirty);
+  }, []);
 
   const loadBlock = useCallback(
-    async (ref: string) => {
+    async (ref: string, options: { resetSelectedRunRecord?: boolean; skipCommitWhenDirty?: boolean } = {}) => {
       if (!bridge || !projectRoot || !ref) {
         return;
       }
@@ -49,12 +61,17 @@ export function BlockInspectorWindow() {
           bridge.getReviewAttempts(canvas, ref),
           bridge.getFeedbackRecords(canvas, ref)
         ]);
+        if (options.skipCommitWhenDirty && draftDirtyRef.current) {
+          return;
+        }
         setGraph(nextGraph);
         setSelectedBlock(block);
         setBlockRunRecords(runRecords);
         setBlockReviewAttempts(reviewAttempts);
         setBlockFeedbackRecords(feedbackRecords);
-        setSelectedRunRecord(null);
+        if (options.resetSelectedRunRecord !== false) {
+          setSelectedRunRecord(null);
+        }
         setError(null);
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : String(caught));
@@ -70,16 +87,6 @@ export function BlockInspectorWindow() {
   const refreshBlock = useCallback(async () => {
     await loadBlock(blockRef);
   }, [blockRef, loadBlock]);
-
-  useEffect(() => {
-    if (draftDirty || selectedRunRecord) {
-      return undefined;
-    }
-    const timer = window.setInterval(() => {
-      void loadBlock(blockRef);
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [blockRef, draftDirty, loadBlock, selectedRunRecord]);
 
   const handleBlockSelect = useCallback(
     async (ref: string) => {
@@ -104,19 +111,31 @@ export function BlockInspectorWindow() {
   );
 
   useEffect(() => {
-    if (!bridge || !projectRoot || !selectedRunRecord || selectedRunRecord.finishedAt) {
+    if (!bridge || !projectRoot || !blockRef) {
       return undefined;
     }
     const runtimeBridge = bridge;
-    const recordId = selectedRunRecord.recordId;
-    const timer = window.setInterval(() => {
-      void runtimeBridge
-        .getRunRecord({ projectRoot, canvasId }, recordId)
-        .then(setSelectedRunRecord)
-        .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [canvasId, projectRoot, selectedRunRecord]);
+    return runtimeBridge.onAutoRunChanged((event) => {
+      if (!autoRunEventMatchesCanvas(event, projectRoot, canvasId)) {
+        return;
+      }
+      const selectedRecordId = selectedRunRecord?.recordId ?? null;
+      const latestRecordMatchesSelectedRecord = Boolean(event.latestRecordId && event.latestRecordId === selectedRecordId);
+      const blockMatched = event.currentRef === blockRef || latestRecordMatchesBlock(event, blockRef, blockRunRecords) || latestRecordMatchesSelectedRecord;
+      if (!blockMatched) {
+        return;
+      }
+      if (latestRecordMatchesSelectedRecord && event.latestRecordId) {
+        void runtimeBridge
+          .getRunRecord({ projectRoot, canvasId }, event.latestRecordId)
+          .then(setSelectedRunRecord)
+          .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+      }
+      if (!draftDirty) {
+        void loadBlock(blockRef, { resetSelectedRunRecord: false, skipCommitWhenDirty: true });
+      }
+    });
+  }, [blockRef, blockRunRecords, canvasId, draftDirty, loadBlock, projectRoot, selectedRunRecord?.recordId]);
 
   const saveSelectedBlockTitle = useCallback(async () => {
     if (!bridge || !projectRoot || !selectedBlock) {
@@ -169,7 +188,7 @@ export function BlockInspectorWindow() {
       handleOpenRunRecord={handleOpenRunRecord}
       onBlockSelect={handleBlockSelect}
       onClose={() => window.close()}
-      onDraftDirtyChange={setDraftDirty}
+      onDraftDirtyChange={updateDraftDirty}
       saveSelectedBlockExecutor={saveSelectedBlockExecutor}
       saveSelectedBlockPrompt={saveSelectedBlockPrompt}
       saveSelectedBlockTitle={saveSelectedBlockTitle}

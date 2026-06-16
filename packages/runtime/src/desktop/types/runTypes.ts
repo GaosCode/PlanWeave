@@ -30,3 +30,18 @@ export type DesktopAutoRunState = {
   startedAt: string;
   updatedAt: string;
 };
+
+export type DesktopAutoRunEvent = {
+  projectRoot: string;
+  canvasId: string | null;
+  runId: string;
+  phase: DesktopAutoRunPhase;
+  state: DesktopAutoRunState;
+  currentRef: string | null;
+  latestRecordId: string | null;
+  latestRecordPath: string | null;
+  eventType: string;
+  triggeredAt: string;
+};
+
+export type DesktopAutoRunEventListener = (event: DesktopAutoRunEvent) => void;

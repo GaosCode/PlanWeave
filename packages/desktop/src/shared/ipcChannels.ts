@@ -1,6 +1,7 @@
 import type { DesktopBridgeApi } from "@planweave-ai/runtime";
 
-export type DesktopBridgeInvokeMethod = Exclude<keyof DesktopBridgeApi, "onPackageFileChanged">;
+export type DesktopBridgeSubscriptionMethod = "onPackageFileChanged" | "onAutoRunChanged";
+export type DesktopBridgeInvokeMethod = Exclude<keyof DesktopBridgeApi, DesktopBridgeSubscriptionMethod>;
 
 export const desktopBridgeInvokeChannels = {
   addBlock: "planweave:addBlock",
@@ -74,3 +75,4 @@ export const desktopBridgeInvokeChannels = {
 } as const satisfies Record<DesktopBridgeInvokeMethod, string>;
 
 export const packageFileChangedChannel = "planweave:packageFileChanged";
+export const autoRunChangedChannel = "planweave:autoRunChanged";

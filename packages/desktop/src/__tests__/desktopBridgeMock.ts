@@ -4,6 +4,7 @@ import { vi } from "vitest";
 export function createDesktopBridgeMock(overrides: Partial<DesktopBridgeApi> = {}): DesktopBridgeApi {
   const defaults: Partial<DesktopBridgeApi> = {
     detectRuntimeTools: vi.fn().mockResolvedValue({ tmux: { available: false, command: "tmux" } }),
+    onAutoRunChanged: () => () => undefined,
     onPackageFileChanged: () => () => undefined
   };
 

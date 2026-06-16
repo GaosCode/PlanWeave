@@ -37,6 +37,7 @@ import type {
   DesktopPackageFileSnapshotRef
 } from "./syncTypes.js";
 import type {
+  DesktopAutoRunEvent,
   DesktopAutoRunOptions,
   DesktopAutoRunScope,
   DesktopAutoRunState
@@ -132,6 +133,7 @@ export type DesktopBridgeApi = {
   watchPackageFiles(ref: DesktopCanvasReference): Promise<void>;
   unwatchPackageFiles(ref: DesktopCanvasReference): Promise<void>;
   onPackageFileChanged(callback: (event: DesktopPackageFileChangeEvent) => void): () => void;
+  onAutoRunChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;
   startAutoRun(ref: DesktopCanvasReference, scope: DesktopAutoRunScope, stepLimit?: number, options?: DesktopAutoRunOptions): Promise<DesktopAutoRunState>;
   unblockBlock(ref: DesktopCanvasReference, blockRef: string, reason: string): Promise<void>;
   pauseAutoRun(runId: string): Promise<DesktopAutoRunState>;

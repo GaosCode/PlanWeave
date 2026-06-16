@@ -135,6 +135,7 @@ export {
   searchProject,
   startAutoRun,
   stopAutoRun,
+  subscribeAutoRunEvents,
   updateBlockExecutor,
   updateBlockPrompt,
   updateBlockTitle,

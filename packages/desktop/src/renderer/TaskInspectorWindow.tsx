@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DesktopAutoRunEvent } from "@planweave-ai/runtime";
 import type { DesktopGraphViewModel, DesktopTaskDetail } from "@planweave-ai/runtime";
+import { autoRunEventMatchesCanvas } from "./autoRunEvents";
 import { bridge } from "./bridge";
 import { createTranslator, type Language } from "./i18n";
 import { useDetectedAgents } from "./hooks/useDetectedAgents";
@@ -7,6 +9,29 @@ import { TaskInspector } from "./inspector/TaskInspector";
 
 function supportedLanguage(value: string | null): Language {
   return value === "en" || value === "zh-CN" ? value : "zh-CN";
+}
+
+function taskBlockRefs(taskId: string, graph: DesktopGraphViewModel | null, task: DesktopTaskDetail | null): Set<string> {
+  const refs = new Set<string>();
+  for (const blockRef of task?.blockOrder ?? []) {
+    refs.add(blockRef);
+  }
+  const graphTask = graph?.tasks.find((candidate) => candidate.taskId === taskId);
+  for (const block of graphTask?.blocks ?? []) {
+    refs.add(block.ref);
+  }
+  return refs;
+}
+
+function eventMatchesTask(event: DesktopAutoRunEvent, taskId: string, graph: DesktopGraphViewModel | null, task: DesktopTaskDetail | null): boolean {
+  const refs = taskBlockRefs(taskId, graph, task);
+  if (refs.size === 0) {
+    return true;
+  }
+  if (event.currentRef && refs.has(event.currentRef)) {
+    return true;
+  }
+  return Boolean(event.latestRecordId && [...refs].some((ref) => event.latestRecordId?.startsWith(`${ref}::`)));
 }
 
 export function TaskInspectorWindow() {
@@ -22,8 +47,14 @@ export function TaskInspectorWindow() {
   const [graph, setGraph] = useState<DesktopGraphViewModel | null>(null);
   const [error, setError] = useState<string | null>(bridge ? null : t("bridgeUnavailable"));
   const [draftDirty, setDraftDirty] = useState(false);
+  const draftDirtyRef = useRef(false);
 
-  const loadTask = useCallback(async () => {
+  const updateDraftDirty = useCallback((nextDraftDirty: boolean) => {
+    draftDirtyRef.current = nextDraftDirty;
+    setDraftDirty(nextDraftDirty);
+  }, []);
+
+  const loadTask = useCallback(async (options: { skipCommitWhenDirty?: boolean } = {}) => {
     if (!bridge || !projectRoot || !taskId) {
       return;
     }
@@ -33,6 +64,9 @@ export function TaskInspectorWindow() {
         bridge.getGraphViewModel(canvas),
         bridge.getTaskDetail(canvas, taskId)
       ]);
+      if (options.skipCommitWhenDirty && draftDirtyRef.current) {
+        return;
+      }
       setGraph(nextGraph);
       setSelectedTask(task);
       setError(null);
@@ -46,14 +80,16 @@ export function TaskInspectorWindow() {
   }, [loadTask]);
 
   useEffect(() => {
-    if (draftDirty) {
+    if (!bridge || draftDirty || !projectRoot || !taskId) {
       return undefined;
     }
-    const timer = window.setInterval(() => {
-      void loadTask();
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [draftDirty, loadTask]);
+    return bridge.onAutoRunChanged((event) => {
+      if (!autoRunEventMatchesCanvas(event, projectRoot, canvasId) || !eventMatchesTask(event, taskId, graph, selectedTask)) {
+        return;
+      }
+      void loadTask({ skipCommitWhenDirty: true });
+    });
+  }, [canvasId, draftDirty, graph, loadTask, projectRoot, selectedTask, taskId]);
 
   const saveSelectedTaskTitle = useCallback(async () => {
     if (!bridge || !projectRoot || !selectedTask) {
@@ -101,7 +137,7 @@ export function TaskInspectorWindow() {
       executorOptions={executorOptions}
       graph={graph}
       onClose={() => window.close()}
-      onDraftDirtyChange={setDraftDirty}
+      onDraftDirtyChange={updateDraftDirty}
       saveSelectedTaskExecutor={saveSelectedTaskExecutor}
       saveSelectedTaskPrompt={saveSelectedTaskPrompt}
       saveSelectedTaskTitle={saveSelectedTaskTitle}

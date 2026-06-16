@@ -7,6 +7,7 @@ import type {
   DesktopReviewAttemptSummary,
   DesktopRunRecord
 } from "@planweave-ai/runtime";
+import { autoRunEventMatchesCanvas } from "../autoRunEvents";
 import { bridge, desktopCanvasReference } from "../bridge";
 import type { AppView } from "../types";
 
@@ -30,6 +31,26 @@ export function useSelectedBlock({
   const [blockReviewAttempts, setBlockReviewAttempts] = useState<DesktopReviewAttemptSummary[]>([]);
   const [blockFeedbackRecords, setBlockFeedbackRecords] = useState<DesktopFeedbackRecord[]>([]);
   const [selectedRunRecord, setSelectedRunRecord] = useState<DesktopRunRecord | null>(null);
+
+  const refreshSelectedBlockRecords = useCallback(
+    async (block: DesktopBlockDetail) => {
+      if (!bridge || !selectedProject) {
+        return;
+      }
+      const canvas = desktopCanvasReference(selectedProject, selectedCanvasId);
+      const [nextBlock, runRecords, reviewAttempts, feedbackRecords] = await Promise.all([
+        bridge.getBlockDetail(canvas, block.ref),
+        bridge.listBlockRunRecords(canvas, block.ref),
+        bridge.getReviewAttempts(canvas, block.ref),
+        bridge.getFeedbackRecords(canvas, block.ref)
+      ]);
+      setSelectedBlock(nextBlock);
+      setBlockRunRecords(runRecords);
+      setBlockReviewAttempts(reviewAttempts);
+      setBlockFeedbackRecords(feedbackRecords);
+    },
+    [selectedCanvasId, selectedProject]
+  );
 
   const clearSelectedBlockRecords = useCallback(() => {
     setBlockRunRecords([]);
@@ -77,19 +98,34 @@ export function useSelectedBlock({
   );
 
   useEffect(() => {
-    if (!bridge || !selectedProject || !selectedRunRecord || selectedRunRecord.finishedAt) {
+    if (!bridge || !selectedProject || !selectedBlock) {
       return undefined;
     }
     const runtimeBridge = bridge;
-    const recordId = selectedRunRecord.recordId;
-    const timer = window.setInterval(() => {
-      void runtimeBridge
-        .getRunRecord(desktopCanvasReference(selectedProject, selectedCanvasId), recordId)
-        .then(setSelectedRunRecord)
-        .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [selectedCanvasId, selectedProject, selectedRunRecord, setError]);
+    return runtimeBridge.onAutoRunChanged((event) => {
+      if (!autoRunEventMatchesCanvas(event, selectedProject.rootPath, selectedCanvasId)) {
+        return;
+      }
+      const selectedRecordId = selectedRunRecord?.recordId ?? null;
+      const latestRecordMatchesSelectedRecord = Boolean(event.latestRecordId && event.latestRecordId === selectedRecordId);
+      const latestRecordMatchesSelectedBlock = Boolean(
+        event.latestRecordId && (blockRunRecords.some((record) => record.recordId === event.latestRecordId) || event.latestRecordId.startsWith(`${selectedBlock.ref}::`))
+      );
+      const currentRefMatchesSelectedBlock = event.currentRef === selectedBlock.ref;
+      if (!latestRecordMatchesSelectedRecord && !latestRecordMatchesSelectedBlock && !currentRefMatchesSelectedBlock) {
+        return;
+      }
+      if (latestRecordMatchesSelectedRecord && event.latestRecordId) {
+        void runtimeBridge
+          .getRunRecord(desktopCanvasReference(selectedProject, selectedCanvasId), event.latestRecordId)
+          .then(setSelectedRunRecord)
+          .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+      }
+      void refreshSelectedBlockRecords(selectedBlock).catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+      void refreshGraph().catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+    });
+  }, [blockRunRecords, refreshGraph, refreshSelectedBlockRecords, selectedBlock, selectedCanvasId, selectedProject, selectedRunRecord?.recordId, setError]);
+
 
   const saveSelectedBlockTitle = useCallback(async () => {
     if (!bridge || !selectedProject || !selectedBlock) {

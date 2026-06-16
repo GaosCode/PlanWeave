@@ -5,13 +5,14 @@ import { resetMaxCycleReviewsForRetry } from "../taskManager/reviewRetry.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import type { ProjectWorkspace } from "../types.js";
-import type { DesktopAutoRunOptions, DesktopAutoRunScope, DesktopAutoRunState } from "./types.js";
-import { appendAutoRunEvent, autoRunRoot, cloneAutoRunState, nextRunId, now, writeAutoRunState } from "./runStateStore.js";
+import type { DesktopAutoRunEventListener, DesktopAutoRunOptions, DesktopAutoRunScope, DesktopAutoRunState } from "./types.js";
+import { appendAutoRunEvent, autoRunRoot, cloneAutoRunState, createAutoRunEvent, nextRunId, now, writeAutoRunState } from "./runStateStore.js";
 import { claimRef, claimScope, executorName, latestStatus, outputSummary, phaseAfterStep, terminalPatch } from "./runStepState.js";
 
 const runs = new Map<string, DesktopAutoRunState>();
 const runWorkspaces = new Map<string, ProjectWorkspace>();
 const activeLoops = new Set<string>();
+const autoRunEventListeners = new Set<DesktopAutoRunEventListener>();
 
 function normalizeAutoRunOptions(options?: DesktopAutoRunOptions): Required<DesktopAutoRunOptions> {
   return {
@@ -31,13 +32,37 @@ async function setState(runId: string, patch: Partial<DesktopAutoRunState>, even
     runs.set(runId, next);
   }
   await writeAutoRunState(next);
+  let changedEventType: string | null = null;
   if (eventType || previousPhase !== next.phase) {
-    await appendAutoRunEvent(next, eventType ?? "phase_change", { previousPhase, nextPhase: next.phase, ...data });
+    const resolvedEventType = eventType ?? "phase_change";
+    await appendAutoRunEvent(next, resolvedEventType, { previousPhase, nextPhase: next.phase, ...data });
+    changedEventType = resolvedEventType;
   }
   if (!immediateVisibility) {
     runs.set(runId, next);
   }
+  if (changedEventType) {
+    emitAutoRunChanged(next, changedEventType);
+  }
   return next;
+}
+
+function emitAutoRunChanged(state: DesktopAutoRunState, eventType: string): void {
+  for (const listener of autoRunEventListeners) {
+    const event = createAutoRunEvent(state, eventType);
+    try {
+      listener(event);
+    } catch (error) {
+      console.error("Auto Run event listener failed.", error);
+    }
+  }
+}
+
+export function subscribeAutoRunEvents(listener: DesktopAutoRunEventListener): () => void {
+  autoRunEventListeners.add(listener);
+  return () => {
+    autoRunEventListeners.delete(listener);
+  };
 }
 
 async function runLoop(runId: string): Promise<void> {
@@ -153,6 +178,7 @@ export async function startAutoRun(
   runWorkspaces.set(runId, workspace);
   await writeAutoRunState(state);
   await appendAutoRunEvent(state, "run_started", { scope, resetMaxCycleReviewRefs: resetReviews.refs });
+  emitAutoRunChanged(state, "run_started");
   launchRunLoop(runId);
   return cloneAutoRunState(state);
 }

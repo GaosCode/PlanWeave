@@ -1,6 +1,6 @@
 import { cloneDesktopGraphEditResult, type GraphEditResult } from "@planweave-ai/runtime";
 import { describe, expect, it } from "vitest";
-import { desktopBridgeInvokeChannels, packageFileChangedChannel } from "../shared/ipcChannels";
+import { autoRunChangedChannel, desktopBridgeInvokeChannels, packageFileChangedChannel } from "../shared/ipcChannels";
 
 describe("desktop IPC contract", () => {
   it("uses stable, unique invoke channel names", () => {
@@ -13,9 +13,11 @@ describe("desktop IPC contract", () => {
     expect(new Set(channels).size).toBe(channels.length);
   });
 
-  it("keeps package file change events outside the invoke channel registry", () => {
+  it("keeps subscription event channels outside the invoke channel registry", () => {
     expect(packageFileChangedChannel).toBe("planweave:packageFileChanged");
+    expect(autoRunChangedChannel).toBe("planweave:autoRunChanged");
     expect(Object.values(desktopBridgeInvokeChannels)).not.toContain(packageFileChangedChannel);
+    expect(Object.values(desktopBridgeInvokeChannels)).not.toContain(autoRunChangedChannel);
   });
 
   it("uses the desktop canvas reference channel for canvas-scoped bridge calls", () => {

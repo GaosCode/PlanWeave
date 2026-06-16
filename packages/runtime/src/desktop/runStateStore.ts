@@ -2,7 +2,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import type { ProjectWorkspace } from "../types.js";
-import type { DesktopAutoRunState } from "./types.js";
+import type { DesktopAutoRunEvent, DesktopAutoRunState } from "./types.js";
 
 let nextRunNumber = 1;
 
@@ -19,7 +19,24 @@ export function cloneAutoRunState(state: DesktopAutoRunState): DesktopAutoRunSta
   return {
     ...state,
     elapsedMs: Math.max(0, endTime - Date.parse(state.startedAt)),
-    scope: { ...state.scope }
+    scope: { ...state.scope },
+    options: { ...state.options }
+  };
+}
+
+export function createAutoRunEvent(state: DesktopAutoRunState, eventType: string): DesktopAutoRunEvent {
+  const clonedState = cloneAutoRunState(state);
+  return {
+    projectRoot: clonedState.projectRoot,
+    canvasId: clonedState.canvasId,
+    runId: clonedState.runId,
+    phase: clonedState.phase,
+    state: clonedState,
+    currentRef: clonedState.currentRef,
+    latestRecordId: clonedState.latestRecordId,
+    latestRecordPath: clonedState.latestRecordPath,
+    eventType,
+    triggeredAt: now()
   };
 }
 

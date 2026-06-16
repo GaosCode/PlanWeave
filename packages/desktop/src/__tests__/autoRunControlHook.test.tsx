@@ -2,7 +2,7 @@
 
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { useState } from "react";
-import type { DesktopAutoRunState, DesktopBlockDetail, DesktopProjectSummary } from "@planweave-ai/runtime";
+import type { DesktopAutoRunEvent, DesktopAutoRunState, DesktopBlockDetail, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { createTranslator } from "../renderer/i18n";
@@ -58,6 +58,22 @@ function autoRunState(patch: Partial<DesktopAutoRunState> = {}): DesktopAutoRunS
     error: null,
     startedAt: "2026-05-23T00:00:00.000Z",
     updatedAt: "2026-05-23T00:00:00.000Z",
+    ...patch
+  };
+}
+
+function autoRunEvent(state: DesktopAutoRunState, patch: Partial<DesktopAutoRunEvent> = {}): DesktopAutoRunEvent {
+  return {
+    projectRoot: state.projectRoot,
+    canvasId: state.canvasId,
+    runId: state.runId,
+    phase: state.phase,
+    state,
+    currentRef: state.currentRef,
+    latestRecordId: state.latestRecordId,
+    latestRecordPath: state.latestRecordPath,
+    eventType: "step_started",
+    triggeredAt: state.updatedAt,
     ...patch
   };
 }
@@ -169,23 +185,22 @@ describe("auto run control hook", () => {
     expect(result.current.autoRunState).toEqual(runningState);
   });
 
-  it("refreshes graph data while auto-run polling advances through pausing", async () => {
-    vi.useFakeTimers();
+  it("updates auto-run state from matching subscription events without polling", async () => {
     const runningState = autoRunState();
-    const pausingState = autoRunState({
+    const eventState = autoRunState({
       phase: "pausing",
       stepCount: 1,
       currentRef: selectedBlock.ref,
       updatedAt: "2026-05-23T00:00:01.000Z"
     });
-    const refreshedState = autoRunState({
-      ...pausingState,
-      phase: "paused",
-      updatedAt: "2026-05-23T00:00:02.000Z"
-    });
+    let onAutoRunChangedCallback: ((event: DesktopAutoRunEvent) => void) | null = null;
     const bridge = createDesktopBridgeMock({
       startAutoRun: vi.fn().mockResolvedValue(runningState),
-      getAutoRunState: vi.fn().mockResolvedValueOnce(pausingState).mockResolvedValueOnce(refreshedState)
+      getAutoRunState: vi.fn(),
+      onAutoRunChanged: vi.fn((callback: (event: DesktopAutoRunEvent) => void) => {
+        onAutoRunChangedCallback = callback;
+        return () => undefined;
+      })
     });
     vi.stubGlobal("planweave", bridge);
     vi.resetModules();
@@ -212,16 +227,158 @@ describe("auto run control hook", () => {
       await result.current.handleAutoRunClick();
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1200);
+      onAutoRunChangedCallback?.(autoRunEvent(eventState));
     });
 
-    expect(bridge.getAutoRunState).toHaveBeenCalledTimes(2);
-    expect(bridge.getAutoRunState).toHaveBeenCalledWith("DESKTOP-RUN-0001");
-    expect(onAutoRunStateRefresh).toHaveBeenCalledWith(refreshedState);
+    expect(bridge.getAutoRunState).not.toHaveBeenCalled();
+    expect(result.current.autoRunState).toEqual(eventState);
+    expect(onAutoRunStateRefresh).not.toHaveBeenCalled();
   });
 
-  it("refreshes graph data once after auto-run reaches a settled phase", async () => {
-    vi.useFakeTimers();
+  it("adopts an external auto-run event when no local auto-run state exists", async () => {
+    const externalRunState = autoRunState({
+      runId: "DESKTOP-RUN-EXTERNAL",
+      phase: "running",
+      updatedAt: "2026-05-23T00:00:03.000Z"
+    });
+    let onAutoRunChangedCallback: ((event: DesktopAutoRunEvent) => void) | null = null;
+    const bridge = createDesktopBridgeMock({
+      getAutoRunState: vi.fn(),
+      onAutoRunChanged: vi.fn((callback: (event: DesktopAutoRunEvent) => void) => {
+        onAutoRunChangedCallback = callback;
+        return () => undefined;
+      })
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useAutoRunControl } = await import("../renderer/hooks/useAutoRunControl");
+
+    const { result } = renderHook(() => {
+      const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(null);
+      return useAutoRunControl({
+        autoRunState: autoRunStateValue,
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setAutoRunState,
+        setError: vi.fn(),
+        t: createTranslator("zh-CN"),
+        tmuxMonitoringEnabled: true
+      });
+    });
+
+    await act(async () => {
+      onAutoRunChangedCallback?.(autoRunEvent(externalRunState, { eventType: "run_started" }));
+    });
+
+    expect(bridge.onAutoRunChanged).toHaveBeenCalled();
+    expect(bridge.getAutoRunState).not.toHaveBeenCalled();
+    expect(result.current.autoRunState).toEqual(externalRunState);
+  });
+
+  it("adopts an external run_started event over an old settled local run", async () => {
+    const oldCompletedState = autoRunState({
+      runId: "DESKTOP-RUN-OLD",
+      phase: "completed",
+      updatedAt: "2026-05-23T00:00:02.000Z"
+    });
+    const externalRunState = autoRunState({
+      runId: "DESKTOP-RUN-EXTERNAL",
+      phase: "running",
+      updatedAt: "2026-05-23T00:00:03.000Z"
+    });
+    let onAutoRunChangedCallback: ((event: DesktopAutoRunEvent) => void) | null = null;
+    const bridge = createDesktopBridgeMock({
+      getAutoRunState: vi.fn(),
+      onAutoRunChanged: vi.fn((callback: (event: DesktopAutoRunEvent) => void) => {
+        onAutoRunChangedCallback = callback;
+        return () => undefined;
+      })
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useAutoRunControl } = await import("../renderer/hooks/useAutoRunControl");
+
+    const { result } = renderHook(() => {
+      const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(oldCompletedState);
+      return useAutoRunControl({
+        autoRunState: autoRunStateValue,
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setAutoRunState,
+        setError: vi.fn(),
+        t: createTranslator("zh-CN"),
+        tmuxMonitoringEnabled: true
+      });
+    });
+
+    await act(async () => {
+      onAutoRunChangedCallback?.(autoRunEvent(externalRunState, { eventType: "run_started" }));
+    });
+
+    expect(bridge.getAutoRunState).not.toHaveBeenCalled();
+    expect(result.current.autoRunState).toEqual(externalRunState);
+  });
+
+  it("adopts an external run_started event after the current run settles", async () => {
+    const runningState = autoRunState({
+      runId: "DESKTOP-RUN-CURRENT",
+      phase: "running",
+      updatedAt: "2026-05-23T00:00:01.000Z"
+    });
+    const pausedState = autoRunState({
+      ...runningState,
+      phase: "paused",
+      updatedAt: "2026-05-23T00:00:02.000Z"
+    });
+    const externalRunState = autoRunState({
+      runId: "DESKTOP-RUN-EXTERNAL",
+      phase: "running",
+      updatedAt: "2026-05-23T00:00:03.000Z"
+    });
+    let onAutoRunChangedCallback: ((event: DesktopAutoRunEvent) => void) | null = null;
+    const bridge = createDesktopBridgeMock({
+      getAutoRunState: vi.fn(),
+      onAutoRunChanged: vi.fn((callback: (event: DesktopAutoRunEvent) => void) => {
+        onAutoRunChangedCallback = callback;
+        return () => undefined;
+      })
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useAutoRunControl } = await import("../renderer/hooks/useAutoRunControl");
+
+    const { result } = renderHook(() => {
+      const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(runningState);
+      return useAutoRunControl({
+        autoRunState: autoRunStateValue,
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setAutoRunState,
+        setError: vi.fn(),
+        t: createTranslator("zh-CN"),
+        tmuxMonitoringEnabled: true
+      });
+    });
+
+    await act(async () => {
+      onAutoRunChangedCallback?.(autoRunEvent(pausedState, { eventType: "phase_change" }));
+    });
+    await act(async () => {
+      onAutoRunChangedCallback?.(autoRunEvent(externalRunState, { eventType: "run_started" }));
+    });
+
+    expect(bridge.getAutoRunState).not.toHaveBeenCalled();
+    expect(result.current.autoRunState).toEqual(externalRunState);
+  });
+
+  it("refreshes graph data once after an auto-run event reaches a settled phase", async () => {
+    const runningState = autoRunState();
     const pausedState = autoRunState({
       phase: "paused",
       stepCount: 1,
@@ -233,7 +390,13 @@ describe("auto run control hook", () => {
       latestRecordPath: "/tmp/metadata.json",
       updatedAt: "2026-05-23T00:00:01.000Z"
     });
-    vi.stubGlobal("planweave", createDesktopBridgeMock());
+    let onAutoRunChangedCallback: ((event: DesktopAutoRunEvent) => void) | null = null;
+    vi.stubGlobal("planweave", createDesktopBridgeMock({
+      onAutoRunChanged: vi.fn((callback: (event: DesktopAutoRunEvent) => void) => {
+        onAutoRunChangedCallback = callback;
+        return () => undefined;
+      })
+    }));
     vi.resetModules();
     const { useAutoRunControl } = await import("../renderer/hooks/useAutoRunControl");
     const onAutoRunStateRefresh = vi.fn().mockResolvedValue(undefined);
@@ -255,10 +418,10 @@ describe("auto run control hook", () => {
     });
 
     await act(async () => {
-      result.current.setAutoRunState(pausedState);
+      result.current.setAutoRunState(runningState);
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(800);
+      onAutoRunChangedCallback?.(autoRunEvent(pausedState, { eventType: "phase_change" }));
     });
 
     expect(onAutoRunStateRefresh).toHaveBeenCalledWith(pausedState);
