@@ -99,6 +99,9 @@ export async function runLocalReviewFeedback(options: {
   const tmux = await createTmuxSessionInfo({ runDir, runId, kind: "feedback", enabled: options.tmuxEnabled });
   await writeJsonFile(metadataPath, {
     runId,
+    feedbackId: options.claim.feedbackId,
+    sourceReviewBlockRef: options.claim.sourceReviewBlockRef,
+    taskId: options.claim.taskId,
     executor: options.executorName,
     adapter: "local-review",
     projectRoot: options.projectRoot,

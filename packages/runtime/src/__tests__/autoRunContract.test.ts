@@ -80,7 +80,7 @@ describe("Auto Run contract", () => {
       reportPath: "T-001#B-001.md"
     });
     await expect(
-      consumeAutoRunClaim({ kind: "feedback", content: "fix" }, adapter())
+      consumeAutoRunClaim({ kind: "feedback", feedbackId: "FE-001", sourceReviewBlockRef: "T-001#R-001", taskId: "T-001", content: "fix" }, adapter())
     ).resolves.toEqual({
       kind: "submit_feedback",
       reportPath: "fix.md"
@@ -253,6 +253,41 @@ describe("Auto Run contract", () => {
         nextCommand: "planweave submit-feedback --canvas manual-canvas --report <report.md>"
       }
     });
+    await expect(getAutoRunStatus({ projectRoot: workspace })).resolves.toMatchObject({
+      current: {
+        refs: [],
+        feedbackId: "FE-001",
+        reviewBlockRef: "T-001#R-001"
+      },
+      explanation: {
+        phase: "manual",
+        currentRef: "FE-001",
+        currentExecutor: "manual",
+        latestRecordId: "FE-001::RUN-001",
+        latestRecordPath: expect.stringContaining(join("feedback-runs", "RUN-001", "metadata.json")),
+        latestOutputSummary: "planweave submit-feedback --canvas manual-canvas --report <report.md>",
+        nextAction: {
+          kind: "submit_manual_result",
+          command: "planweave submit-feedback --canvas manual-canvas --report <report.md>",
+          ref: "FE-001"
+        }
+      },
+      latestRuns: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "feedback",
+          ref: "FE-001",
+          feedbackId: "FE-001",
+          sourceReviewBlockRef: "T-001#R-001",
+          taskId: "T-001",
+          runId: "RUN-001",
+          executor: "manual",
+          adapter: "manual",
+          status: "in_progress",
+          promptPath: expect.stringContaining(join("feedback-runs", "RUN-001", "feedback.md")),
+          metadataPath: expect.stringContaining(join("feedback-runs", "RUN-001", "metadata.json"))
+        })
+      ])
+    });
   });
 
   it("codex-exec adapter runs the configured command and submits the generated block report", async () => {
@@ -403,6 +438,21 @@ describe("Auto Run contract", () => {
       ])
     });
     await expect(getAutoRunStatus({ projectRoot: root })).resolves.toMatchObject({
+      explanation: {
+        phase: "blocked",
+        currentRef: null,
+        currentExecutor: "failing-codex",
+        latestRecordId: "T-001#B-001::RUN-001",
+        latestRecordPath: expect.stringContaining("metadata.json"),
+        latestOutputSummary: expect.stringContaining("codex failed"),
+        error: expect.stringContaining("codex failed"),
+        nextAction: {
+          kind: "inspect_record",
+          message: "Inspect the latest run record, then resolve the blocker before retrying.",
+          targetPath: expect.stringContaining("metadata.json"),
+          ref: null
+        }
+      },
       latestRuns: [
         expect.objectContaining({
           ref: "T-001#B-001",
@@ -750,18 +800,54 @@ describe("Auto Run contract", () => {
           "-e",
           "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.error('stderr detail'); console.log('stdout report for ' + input.split('\\n')[0]); });"
         ]
+      },
+      "fake-local-review": {
+        adapter: "local-review",
+        command: process.execPath,
+        args: [
+          "-e",
+          [
+            "const result = {",
+            "  reviewBlockRef: process.env.PLANWEAVE_REVIEW_BLOCK_REF,",
+            "  taskId: process.env.PLANWEAVE_TASK_ID,",
+            "  verdict: 'passed',",
+            "  content: 'review passed after implementation'",
+            "};",
+            "console.log(JSON.stringify(result));"
+          ].join("")
+        ]
       }
     };
     manifest.execution.defaultExecutor = "fake-codex";
+    const task = manifest.nodes.find((node: any) => node.id === "T-001");
+    for (const block of task.blocks) {
+      block.executor = block.type === "review" ? "fake-local-review" : "fake-codex";
+    }
     const { root } = await createTestWorkspace(manifest);
 
     await runAutoRunStep({ projectRoot: root });
 
-    await expect(getAutoRunStatus({ projectRoot: root })).resolves.toMatchObject({
+    const implementationStatus = await getAutoRunStatus({ projectRoot: root });
+    expect(implementationStatus).toMatchObject({
       current: {
         refs: [],
         feedbackId: null,
         reviewBlockRef: null
+      },
+      explanation: {
+        phase: "idle",
+        currentRef: null,
+        currentExecutor: "fake-codex",
+        latestRecordId: "T-001#B-001::RUN-001",
+        latestRecordPath: expect.stringContaining("metadata.json"),
+        latestOutputSummary: expect.stringContaining("stderr detail"),
+        error: null,
+        nextAction: {
+          kind: "start",
+          command: null,
+          ref: "T-001#R-001",
+          message: "Continue Auto Run; claimable work is ready: T-001#R-001."
+        }
       },
       latestRuns: [
         {
@@ -769,11 +855,110 @@ describe("Auto Run contract", () => {
           executor: "fake-codex",
           adapter: "codex-exec",
           status: "completed",
+          startedAt: expect.any(String),
+          finishedAt: expect.any(String),
           stdoutSummary: expect.stringContaining("stdout report"),
           stderrSummary: expect.stringContaining("stderr detail"),
           failureReason: null
         }
       ]
     });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await runAutoRunStep({ projectRoot: root });
+
+    const reviewStatus = await getAutoRunStatus({ projectRoot: root });
+    expect(reviewStatus.latestRuns.map((run) => run.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
+    expect(reviewStatus).toMatchObject({
+      explanation: {
+        phase: "completed",
+        currentRef: null,
+        currentExecutor: "fake-local-review",
+        latestRecordId: "T-001#R-001::RUN-001",
+        latestRecordPath: expect.stringContaining(join("T-001", "blocks", "R-001", "runs", "RUN-001", "metadata.json")),
+        latestOutputSummary: expect.stringContaining("reviewBlockRef"),
+        error: null,
+        nextAction: {
+          kind: "review_status",
+          message: "Review the final status and latest run record."
+        }
+      }
+    });
+  });
+
+  it("keeps the latest explanation record on an automatically submitted feedback run", async () => {
+    const manifest = basicManifest() as any;
+    manifest.executors = {
+      "fake-codex": {
+        adapter: "codex-exec",
+        command: process.execPath,
+        args: [
+          "-e",
+          "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.log('feedback report for ' + input.split('\\n')[0]); });"
+        ]
+      },
+      "needs-review": {
+        adapter: "local-review",
+        command: process.execPath,
+        args: [
+          "-e",
+          [
+            "const result = {",
+            "  reviewBlockRef: process.env.PLANWEAVE_REVIEW_BLOCK_REF,",
+            "  taskId: process.env.PLANWEAVE_TASK_ID,",
+            "  verdict: 'needs_changes',",
+            "  content: 'fix the implementation'",
+            "};",
+            "console.log(JSON.stringify(result));"
+          ].join("")
+        ]
+      }
+    };
+    manifest.execution.defaultExecutor = "fake-codex";
+    const task = manifest.nodes.find((node: any) => node.id === "T-001");
+    for (const block of task.blocks) {
+      block.executor = block.type === "review" ? "needs-review" : "fake-codex";
+    }
+    const { root } = await createTestWorkspace(manifest);
+
+    await runAutoRunStep({ projectRoot: root });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await runAutoRunStep({ projectRoot: root });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await runAutoRunStep({ projectRoot: root });
+
+    const status = await getAutoRunStatus({ projectRoot: root });
+    expect(status.latestRuns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "feedback",
+          ref: "FE-001",
+          feedbackId: "FE-001",
+          sourceReviewBlockRef: "T-001#R-001",
+          status: "resolved",
+          metadataPath: expect.stringContaining(join("feedback-runs", "RUN-001", "metadata.json"))
+        })
+      ])
+    );
+    expect(status).toMatchObject({
+      current: {
+        refs: ["T-001#R-001"],
+        feedbackId: null,
+        reviewBlockRef: "T-001#R-001"
+      },
+      explanation: {
+        phase: "idle",
+        currentRef: "T-001#R-001",
+        currentExecutor: "fake-codex",
+        latestRecordId: "FE-001::RUN-001",
+        latestRecordPath: expect.stringContaining(join("feedback-runs", "RUN-001", "metadata.json")),
+        latestOutputSummary: expect.stringContaining("feedback report"),
+        nextAction: {
+          kind: "start",
+          ref: "T-001#R-001"
+        }
+      }
+    });
+    expect(status.explanation.nextAction.kind).not.toBe("wait");
   });
 });

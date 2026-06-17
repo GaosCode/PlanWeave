@@ -12,7 +12,12 @@ import { isTmuxAvailable } from "../autoRun/tmuxExecutor.js";
 import { readState } from "../state.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 
-afterEach(() => {
+const startedRunIds = new Set<string>();
+const noTmux = { tmuxEnabled: false } as const;
+
+afterEach(async () => {
+  await Promise.all([...startedRunIds].map((runId) => stopAutoRun(runId).catch(() => undefined)));
+  startedRunIds.clear();
   delete process.env.PLANWEAVE_HOME;
 });
 
@@ -41,8 +46,10 @@ describe("desktop auto run API", () => {
     manifest.execution.defaultExecutor = "fake-codex";
     const { root } = await createTestWorkspace(manifest);
 
-    const started = await startAutoRun(root, null, { kind: "project" }, 1);
+    const started = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
+    startedRunIds.add(started.runId);
     expect(started.phase).toBe("running");
+    expect(started.options.tmuxEnabled).toBe(false);
 
     const current = await waitForRun(started.runId, (nextState) => nextState.phase !== "running");
 
@@ -57,6 +64,18 @@ describe("desktop auto run API", () => {
     expect(current.latestOutputSummary).toContain("desktop auto run");
     expect(current.latestRecordId).toBe("T-001#B-001::RUN-001");
     expect(current.latestRecordPath).toContain("metadata.json");
+    expect(current.explanation).toMatchObject({
+      phase: "paused",
+      currentRef: "T-001#B-001",
+      currentExecutor: "fake-codex",
+      latestRecordId: "T-001#B-001::RUN-001",
+      latestOutputSummary: expect.stringContaining("desktop auto run"),
+      error: "Step limit reached.",
+      nextAction: {
+        kind: "resume",
+        message: "Resume Auto Run or inspect the latest record before continuing."
+      }
+    });
     expect(current.statePath).toContain("auto-runs");
     expect(current.eventLogPath).toContain("events.ndjson");
     await expect(readFile(current.statePath, "utf8")).resolves.toContain('"phase": "paused"');
@@ -83,7 +102,8 @@ describe("desktop auto run API", () => {
     manifest.execution.defaultExecutor = "fake-codex";
     const { root } = await createTestWorkspace(manifest);
 
-    const started = await startAutoRun(root, null, { kind: "project" }, 1, { tmuxEnabled: false });
+    const started = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
+    startedRunIds.add(started.runId);
     expect(started.options.tmuxEnabled).toBe(false);
     const current = await waitForRun(started.runId, (nextState) => nextState.phase !== "running");
 
@@ -114,7 +134,8 @@ describe("desktop auto run API", () => {
     manifest.execution.defaultExecutor = "slow-codex";
     const { root } = await createTestWorkspace(manifest);
 
-    const started = await startAutoRun(root, null, { kind: "project" }, 2);
+    const started = await startAutoRun(root, null, { kind: "project" }, 2, noTmux);
+    startedRunIds.add(started.runId);
     for (let attempt = 0; attempt < 30; attempt += 1) {
       const log = await readFile(started.eventLogPath, "utf8").catch(() => "");
       if (log.includes('"type":"step_start"')) {
@@ -162,6 +183,7 @@ describe("desktop auto run API", () => {
     const { root } = await createTestWorkspace(manifest);
 
     const started = await startAutoRun(root, null, { kind: "project" }, 2);
+    startedRunIds.add(started.runId);
     for (let attempt = 0; attempt < 80; attempt += 1) {
       const log = await readFile(started.eventLogPath, "utf8").catch(() => "");
       if (log.includes('"type":"step_start"')) {
@@ -192,7 +214,8 @@ describe("desktop auto run API", () => {
     manifest.execution.defaultExecutor = "fake-codex";
     const { root } = await createTestWorkspace(manifest);
 
-    const taskRun = await startAutoRun(root, null, { kind: "task", taskId: "T-002" }, 1);
+    const taskRun = await startAutoRun(root, null, { kind: "task", taskId: "T-002" }, 1, noTmux);
+    startedRunIds.add(taskRun.runId);
     const taskState = await waitForRun(taskRun.runId, (state) => state.phase !== "running");
     expect(taskState).toMatchObject({
       scope: { kind: "task", taskId: "T-002" },
@@ -202,7 +225,8 @@ describe("desktop auto run API", () => {
       stepCount: 1
     });
 
-    const blockRun = await startAutoRun(root, null, { kind: "block", blockRef: "T-001#B-001" }, 1);
+    const blockRun = await startAutoRun(root, null, { kind: "block", blockRef: "T-001#B-001" }, 1, noTmux);
+    startedRunIds.add(blockRun.runId);
     const blockState = await waitForRun(blockRun.runId, (state) => state.phase !== "running");
     expect(blockState).toMatchObject({
       scope: { kind: "block", blockRef: "T-001#B-001" },
@@ -228,7 +252,8 @@ describe("desktop auto run API", () => {
     manifest.execution.defaultExecutor = "fake-codex";
     const { root } = await createTestWorkspace(manifest);
 
-    const run = await startAutoRun(root, null, { kind: "project" }, 1);
+    const run = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
+    startedRunIds.add(run.runId);
     const state = await waitForRun(run.runId, (nextState) => nextState.phase !== "running");
 
     expect(state).toMatchObject({
@@ -267,7 +292,8 @@ describe("desktop auto run API", () => {
     }
     const { root } = await createTestWorkspace(manifest);
 
-    const run = await startAutoRun(root, null, { kind: "project" }, 5);
+    const run = await startAutoRun(root, null, { kind: "project" }, 5, noTmux);
+    startedRunIds.add(run.runId);
     const state = await waitForRun(run.runId, (nextState) => nextState.phase !== "running");
 
     expect(state).toMatchObject({
@@ -275,7 +301,8 @@ describe("desktop auto run API", () => {
       error: expect.stringContaining("reached max feedback cycles")
     });
 
-    const retried = await startAutoRun(root, null, { kind: "project" }, 1);
+    const retried = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
+    startedRunIds.add(retried.runId);
     const retryState = await waitForRun(retried.runId, (nextState) => nextState.phase !== "running");
 
     expect(retryState).toMatchObject({
@@ -315,7 +342,8 @@ describe("desktop auto run API", () => {
     }
     const { root, init } = await createTestWorkspace(manifest);
 
-    const firstRun = await startAutoRun(root, null, { kind: "project" }, 10);
+    const firstRun = await startAutoRun(root, null, { kind: "project" }, 10, noTmux);
+    startedRunIds.add(firstRun.runId);
     const firstState = await waitForRun(firstRun.runId, (nextState) => nextState.phase !== "running");
 
     expect(firstState).toMatchObject({
@@ -331,7 +359,8 @@ describe("desktop auto run API", () => {
       }
     });
 
-    const retryRun = await startAutoRun(root, null, { kind: "project" }, 1);
+    const retryRun = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
+    startedRunIds.add(retryRun.runId);
     const retryState = await waitForRun(retryRun.runId, (nextState) => nextState.phase !== "running");
 
     expect(retryState).toMatchObject({

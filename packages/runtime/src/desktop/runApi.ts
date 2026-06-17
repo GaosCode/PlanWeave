@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { killActiveTmuxSessions } from "../autoRun/tmuxExecutor.js";
-import { runAutoRunStep } from "../taskManager/autoRun.js";
+import { createAutoRunExplanation, runAutoRunStep } from "../taskManager/autoRun.js";
 import { resetMaxCycleReviewsForRetry } from "../taskManager/reviewRetry.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
@@ -26,7 +26,7 @@ async function setState(runId: string, patch: Partial<DesktopAutoRunState>, even
     throw new Error(`Auto Run '${runId}' does not exist.`);
   }
   const previousPhase = current.phase;
-  const next = { ...current, ...patch, updatedAt: now() };
+  const next = withExplanation({ ...current, ...patch, updatedAt: now() });
   const immediateVisibility = eventType === "pause_requested" || eventType === "run_stopped";
   if (immediateVisibility) {
     runs.set(runId, next);
@@ -45,6 +45,21 @@ async function setState(runId: string, patch: Partial<DesktopAutoRunState>, even
     emitAutoRunChanged(next, changedEventType);
   }
   return next;
+}
+
+function withExplanation(state: Omit<DesktopAutoRunState, "explanation"> & { explanation?: DesktopAutoRunState["explanation"] }): DesktopAutoRunState {
+  return {
+    ...state,
+    explanation: createAutoRunExplanation({
+      phase: state.phase,
+      currentRef: state.currentRef,
+      currentExecutor: state.currentExecutor,
+      latestRecordId: state.latestRecordId,
+      latestRecordPath: state.latestRecordPath,
+      latestOutputSummary: state.latestOutputSummary,
+      error: state.error
+    })
+  };
 }
 
 function emitAutoRunChanged(state: DesktopAutoRunState, eventType: string): void {
@@ -98,6 +113,9 @@ async function runLoop(runId: string): Promise<void> {
         const patch = terminalPatch(step, warnings);
         const afterStep = runs.get(runId);
         if (!afterStep || afterStep.phase === "stopped") {
+          if (afterStep?.phase === "stopped") {
+            await appendAutoRunEvent(afterStep, "stopped_step_ignored", { stepKind: step.kind, stoppedPhase: afterStep.phase });
+          }
           return;
         }
         const nextPhase = phaseAfterStep(afterStep, patch);
@@ -153,7 +171,7 @@ export async function startAutoRun(
   const runId = nextRunId();
   const root = autoRunRoot(workspace, runId);
   const timestamp = now();
-  const state: DesktopAutoRunState = {
+  const state = withExplanation({
     runId,
     projectRoot,
     canvasId: canvasId ?? null,
@@ -173,7 +191,7 @@ export async function startAutoRun(
     error: null,
     startedAt: timestamp,
     updatedAt: timestamp
-  };
+  });
   runs.set(runId, state);
   runWorkspaces.set(runId, workspace);
   await writeAutoRunState(state);

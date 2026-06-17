@@ -1,10 +1,14 @@
 import { access, chmod, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createOpencodeExecAdapter, runAutoRunStep } from "../index.js";
 import { readJsonFile } from "../json.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
+
+afterEach(() => {
+  delete process.env.PLANWEAVE_HOME;
+});
 
 async function pathExists(path: string): Promise<boolean> {
   try {
@@ -58,7 +62,8 @@ describe("OpenCode session capture", () => {
       projectRoot: init.workspace,
       executor: createOpencodeExecAdapter({
         projectRoot: init.workspace,
-        executorName: "fake-opencode-session"
+        executorName: "fake-opencode-session",
+        runtime: { tmuxEnabled: false }
       })
     }).finally(() => {
       stepSettled = true;
@@ -88,10 +93,12 @@ describe("OpenCode session capture", () => {
       "--dangerously-skip-permissions",
       expect.stringContaining("Implement task")
     ]);
-    await expect(readJsonFile(join(runDir, "metadata.json"))).resolves.toMatchObject({
+    const metadata = await readJsonFile<Record<string, unknown>>(join(runDir, "metadata.json"));
+    expect(metadata).toMatchObject({
       agentSessionId: "ses_explicit_123",
       opencodeSessionId: "ses_explicit_123"
     });
+    expect(metadata.tmuxSessionId).toBeUndefined();
     await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.not.toContain("opencode session list");
   });
 
@@ -122,7 +129,8 @@ describe("OpenCode session capture", () => {
       projectRoot: init.workspace,
       executor: createOpencodeExecAdapter({
         projectRoot: init.workspace,
-        executorName: "fake-opencode-readable"
+        executorName: "fake-opencode-readable",
+        runtime: { tmuxEnabled: false }
       })
     }).finally(() => {
       stepSettled = true;
@@ -169,7 +177,8 @@ describe("OpenCode session capture", () => {
       projectRoot: init.workspace,
       executor: createOpencodeExecAdapter({
         projectRoot: init.workspace,
-        executorName: "fake-opencode-no-session"
+        executorName: "fake-opencode-no-session",
+        runtime: { tmuxEnabled: false }
       })
     });
 

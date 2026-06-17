@@ -374,6 +374,9 @@ export type ClaimResult =
     }
   | {
       kind: "feedback";
+      feedbackId: string;
+      sourceReviewBlockRef: string;
+      taskId: string;
       content: string;
     }
   | {
@@ -481,20 +484,100 @@ export type AutoRunStepResult =
       steps: Array<Extract<AutoRunStepResult, { kind: "submitted" | "manual" }>>;
     };
 
-export type AutoRunLatestRunSummary = {
+type AutoRunLatestRunSummaryBase = {
   ref: string;
-  taskId: string;
-  blockId: string;
   runId: string;
   executor: string | null;
   adapter: ExecutorProfile["adapter"] | null;
-  status: BlockStatus;
+  startedAt: string | null;
+  finishedAt: string | null;
   stdoutSummary: string;
   stderrSummary: string;
   failureReason: string | null;
   promptPath: string;
   reportPath: string | null;
   metadataPath: string;
+};
+
+export type AutoRunLatestBlockRunSummary = AutoRunLatestRunSummaryBase & {
+  kind: "block";
+  taskId: string;
+  blockId: string;
+  status: BlockStatus;
+};
+
+export type AutoRunLatestFeedbackRunSummary = AutoRunLatestRunSummaryBase & {
+  kind: "feedback";
+  feedbackId: string | null;
+  sourceReviewBlockRef: string | null;
+  taskId: string | null;
+  status: FeedbackStatus;
+};
+
+export type AutoRunLatestRunSummary = AutoRunLatestBlockRunSummary | AutoRunLatestFeedbackRunSummary;
+
+export type AutoRunExplanationPhase = "idle" | "running" | "pausing" | "paused" | "manual" | "completed" | "blocked" | "failed" | "stopped";
+
+export type AutoRunNextAction =
+  | {
+      kind: "start";
+      message: string;
+      command: string | null;
+      targetPath: string | null;
+      ref: string | null;
+    }
+  | {
+      kind: "wait";
+      message: string;
+      command: string | null;
+      targetPath: string | null;
+      ref: string | null;
+    }
+  | {
+      kind: "resume";
+      message: string;
+      command: string | null;
+      targetPath: string | null;
+      ref: string | null;
+    }
+  | {
+      kind: "submit_manual_result";
+      message: string;
+      command: string | null;
+      targetPath: string | null;
+      ref: string | null;
+    }
+  | {
+      kind: "inspect_record";
+      message: string;
+      command: string | null;
+      targetPath: string;
+      ref: string | null;
+    }
+  | {
+      kind: "resolve_error";
+      message: string;
+      command: string | null;
+      targetPath: string | null;
+      ref: string | null;
+    }
+  | {
+      kind: "review_status";
+      message: string;
+      command: string | null;
+      targetPath: string | null;
+      ref: string | null;
+    };
+
+export type AutoRunExplanation = {
+  phase: AutoRunExplanationPhase;
+  currentRef: string | null;
+  currentExecutor: string | null;
+  latestRecordId: string | null;
+  latestRecordPath: string | null;
+  latestOutputSummary: string | null;
+  error: string | null;
+  nextAction: AutoRunNextAction;
 };
 
 export type AutoRunStatus = {
@@ -504,6 +587,7 @@ export type AutoRunStatus = {
     reviewBlockRef: string | null;
   };
   latestRuns: AutoRunLatestRunSummary[];
+  explanation: AutoRunExplanation;
   warnings: ValidationIssue[];
 };
 

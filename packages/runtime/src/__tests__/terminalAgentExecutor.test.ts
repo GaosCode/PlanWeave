@@ -1,9 +1,13 @@
 import { chmod, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createClaudeCodeExecAdapter, createPiExecAdapter, runAutoRunStep } from "../index.js";
 import { readJsonFile } from "../json.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
+
+afterEach(() => {
+  delete process.env.PLANWEAVE_HOME;
+});
 
 const terminalAgents = [
   {
@@ -49,7 +53,8 @@ describe("terminal agent executors", () => {
         projectRoot: init.workspace,
         executor: createAdapter({
           projectRoot: init.workspace,
-          executorName: name
+          executorName: name,
+          runtime: { tmuxEnabled: false }
         })
       })
     ).resolves.toMatchObject({
@@ -63,7 +68,8 @@ describe("terminal agent executors", () => {
     await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.toContain("report:true");
     await expect(readFile(join(root, `${name}-cwd.txt`), "utf8")).resolves.toBe(init.workspace.rootPath);
     await expect(readFile(join(root, `${name}-planweave-home.txt`), "utf8")).resolves.toBe(init.workspace.planweaveHome);
-    await expect(readJsonFile(join(runDir, "metadata.json"))).resolves.toMatchObject({
+    const metadata = await readJsonFile<Record<string, unknown>>(join(runDir, "metadata.json"));
+    expect(metadata).toMatchObject({
       executor: name,
       adapter,
       projectRoot: init.workspace.rootPath,
@@ -71,6 +77,7 @@ describe("terminal agent executors", () => {
       agentSessionId: null,
       exitCode: 0
     });
+    expect(metadata.tmuxSessionId).toBeUndefined();
   });
 
   it("reads review results from the injected JSON result file path", async () => {
@@ -123,7 +130,8 @@ describe("terminal agent executors", () => {
       projectRoot: init.workspace,
       executor: createClaudeCodeExecAdapter({
         projectRoot: init.workspace,
-        executorName: "fake-claude-review"
+        executorName: "fake-claude-review",
+        runtime: { tmuxEnabled: false }
       })
     });
 

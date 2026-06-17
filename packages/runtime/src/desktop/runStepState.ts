@@ -78,14 +78,13 @@ export function phaseAfterStep(current: DesktopAutoRunState, patch: Partial<Desk
 
 export async function latestStatus(workspace: ProjectWorkspace): Promise<{ record: { recordId: string; path: string } | null; warnings: ValidationIssue[] }> {
   const status = await getAutoRunStatus({ projectRoot: workspace });
-  const latestRun = status.latestRuns[0];
-  if (!latestRun) {
+  if (!status.explanation.latestRecordId || !status.explanation.latestRecordPath) {
     return { record: null, warnings: status.warnings };
   }
   return {
     record: {
-      recordId: `${latestRun.ref}::${latestRun.runId}`,
-      path: latestRun.metadataPath
+      recordId: status.explanation.latestRecordId,
+      path: status.explanation.latestRecordPath
     },
     warnings: status.warnings
   };

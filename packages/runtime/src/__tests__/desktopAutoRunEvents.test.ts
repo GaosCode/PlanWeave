@@ -2,12 +2,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getAutoRunState,
   startAutoRun,
+  stopAutoRun,
   subscribeAutoRunEvents
 } from "../desktop/index.js";
 import type { DesktopAutoRunEvent } from "../desktop/index.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 
-afterEach(() => {
+const startedRunIds = new Set<string>();
+
+afterEach(async () => {
+  await Promise.all([...startedRunIds].map((runId) => stopAutoRun(runId).catch(() => undefined)));
+  startedRunIds.clear();
   delete process.env.PLANWEAVE_HOME;
 });
 
@@ -39,6 +44,7 @@ describe("desktop auto run events", () => {
 
     try {
       const started = await startAutoRun(root, null, { kind: "project" }, 0, { tmuxEnabled: false });
+      startedRunIds.add(started.runId);
       expect(started.phase).toBe("running");
 
       const current = await waitForRun(started.runId, (nextState) => nextState.phase === "paused");

@@ -8,8 +8,17 @@ import type {
 import { autoRunChangedChannel, packageFileChangedChannel } from "../shared/ipcChannels.js";
 import { createDesktopBridgeInvokeApi } from "./bridgeInvocation.js";
 
+const invokeApi = createDesktopBridgeInvokeApi((channel, ...args) => ipcRenderer.invoke(channel, ...args));
+let lastSmokeRevealPath: string | null = null;
+
 const api: DesktopBridgeApi = {
-  ...createDesktopBridgeInvokeApi((channel, ...args) => ipcRenderer.invoke(channel, ...args)),
+  ...invokeApi,
+  revealPathInFinder: async (path) => {
+    await invokeApi.revealPathInFinder(path);
+    if (process.env.PLANWEAVE_DESKTOP_SMOKE === "1") {
+      lastSmokeRevealPath = path;
+    }
+  },
   onPackageFileChanged: (callback) => {
     const listener = (_event: IpcRendererEvent, payload: DesktopPackageFileChangeEvent) => callback(payload);
     ipcRenderer.on(packageFileChangedChannel, listener);
@@ -23,3 +32,12 @@ const api: DesktopBridgeApi = {
 };
 
 contextBridge.exposeInMainWorld("planweave", api);
+
+if (process.env.PLANWEAVE_DESKTOP_SMOKE === "1") {
+  contextBridge.exposeInMainWorld("planweaveSmoke", {
+    clearLastRevealPath: () => {
+      lastSmokeRevealPath = null;
+    },
+    getLastRevealPath: () => lastSmokeRevealPath
+  });
+}

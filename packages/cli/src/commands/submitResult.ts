@@ -7,6 +7,7 @@ export function registerSubmitResultCommand(program: Command): void {
     .command("submit-result")
     .argument("<block-ref>")
     .requiredOption("--report <path>", "implementation report markdown path")
+    .option("--json", "print machine-readable output")
     .description("Record an implementation block run"))
     .action(async (ref: string, options: { report: string } & CanvasCommandOptions) => {
       const result = await submitBlockResult({

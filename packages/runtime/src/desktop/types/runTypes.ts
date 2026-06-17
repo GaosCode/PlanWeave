@@ -1,3 +1,5 @@
+import type { AutoRunExplanation } from "../../types.js";
+
 export type DesktopAutoRunScope =
   | { kind: "project" }
   | { kind: "task"; taskId: string }
@@ -23,6 +25,7 @@ export type DesktopAutoRunState = {
   latestOutputSummary: string | null;
   latestRecordId: string | null;
   latestRecordPath: string | null;
+  explanation: AutoRunExplanation;
   statePath: string;
   eventLogPath: string;
   options: Required<DesktopAutoRunOptions>;

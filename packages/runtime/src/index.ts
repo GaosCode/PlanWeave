@@ -155,5 +155,6 @@ export {
   supportedProjectGraphVersion
 } from "./projectGraph/index.js";
 export type * from "./desktop/index.js";
+export type * from "./autoRun/executorPreflightTypes.js";
 export type * from "./projectGraph/index.js";
 export type * from "./types.js";

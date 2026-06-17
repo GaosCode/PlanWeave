@@ -2,6 +2,7 @@
 
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type {
+  AutoRunExplanation,
   DesktopAutoRunEvent,
   DesktopAutoRunState,
   DesktopBlockDetail,
@@ -94,6 +95,25 @@ function autoRunEvent(state: DesktopAutoRunState): DesktopAutoRunEvent {
   };
 }
 
+function explanationFor(state: Omit<DesktopAutoRunState, "explanation">): AutoRunExplanation {
+  return {
+    phase: state.phase,
+    currentRef: state.currentRef,
+    currentExecutor: state.currentExecutor,
+    latestRecordId: state.latestRecordId,
+    latestRecordPath: state.latestRecordPath,
+    latestOutputSummary: state.latestOutputSummary,
+    error: state.error,
+    nextAction: {
+      kind: "wait",
+      message: "Wait for the current Auto Run step to finish.",
+      command: null,
+      targetPath: null,
+      ref: state.currentRef
+    }
+  };
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -140,7 +160,7 @@ describe("selected block hook auto-run events", () => {
       await result.current.handleOpenRunRecord(runRecordSummary.recordId);
     });
 
-    const eventState: DesktopAutoRunState = {
+    const eventStateBase = {
       runId: "RUN-001",
       projectRoot: project.rootPath,
       canvasId: "canvas-main",
@@ -161,6 +181,7 @@ describe("selected block hook auto-run events", () => {
       startedAt: "2026-05-23T00:00:00.000Z",
       updatedAt: "2026-05-23T00:00:01.000Z"
     };
+    const eventState: DesktopAutoRunState = { ...eventStateBase, explanation: explanationFor(eventStateBase) };
 
     await act(async () => {
       onAutoRunChangedCallback?.(autoRunEvent(eventState));
@@ -209,7 +230,7 @@ describe("selected block hook auto-run events", () => {
       await result.current.handleBlockSelect(blockDetail.ref);
     });
 
-    const eventState: DesktopAutoRunState = {
+    const eventStateBase = {
       runId: "RUN-002",
       projectRoot: project.rootPath,
       canvasId: "canvas-main",
@@ -230,6 +251,7 @@ describe("selected block hook auto-run events", () => {
       startedAt: "2026-05-23T00:00:03.000Z",
       updatedAt: "2026-05-23T00:00:04.000Z"
     };
+    const eventState: DesktopAutoRunState = { ...eventStateBase, explanation: explanationFor(eventStateBase) };
 
     await act(async () => {
       onAutoRunChangedCallback?.(autoRunEvent(eventState));

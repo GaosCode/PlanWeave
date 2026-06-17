@@ -313,6 +313,22 @@ describe("desktop renderer hook interfaces", () => {
         latestRecordId: null,
         latestRecordPath: null,
         latestOutputSummary: null,
+        explanation: {
+          phase: "paused",
+          currentRef: null,
+          currentExecutor: null,
+          latestRecordId: null,
+          latestRecordPath: null,
+          latestOutputSummary: null,
+          error: null,
+          nextAction: {
+            kind: "resume",
+            message: "Resume Auto Run or inspect the latest record before continuing.",
+            command: null,
+            targetPath: null,
+            ref: null
+          }
+        },
         statePath: "/tmp/project/.planweave/results/auto-runs/RUN-001/state.json",
         eventLogPath: "/tmp/project/.planweave/results/auto-runs/RUN-001/events.ndjson",
         options: { tmuxEnabled: true },

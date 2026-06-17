@@ -30,6 +30,7 @@ vi.mock("electron", () => ({
 describe("preload bridge invocation", () => {
   beforeEach(() => {
     vi.resetModules();
+    delete process.env.PLANWEAVE_DESKTOP_SMOKE;
     electronMock.exposed.clear();
     electronMock.contextBridge.exposeInMainWorld.mockClear();
     electronMock.ipcRenderer.invoke.mockClear();
@@ -126,6 +127,22 @@ describe("preload bridge invocation", () => {
         latestOutputSummary: null,
         latestRecordId: null,
         latestRecordPath: null,
+        explanation: {
+          phase: "running",
+          currentRef: "T-001#B-001",
+          currentExecutor: null,
+          latestRecordId: null,
+          latestRecordPath: null,
+          latestOutputSummary: null,
+          error: null,
+          nextAction: {
+            kind: "wait",
+            message: "Wait for the current Auto Run step to finish.",
+            command: null,
+            targetPath: null,
+            ref: "T-001#B-001"
+          }
+        },
         statePath: "/tmp/project/.planweave/auto-run/RUN-001/state.json",
         eventLogPath: "/tmp/project/.planweave/auto-run/RUN-001/events.jsonl",
         options: { tmuxEnabled: false },
@@ -144,5 +161,32 @@ describe("preload bridge invocation", () => {
     expect(callback).toHaveBeenCalledWith(event);
     unsubscribe();
     expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(autoRunChangedChannel, listener);
+  });
+
+  it("exposes a smoke-only reveal path signal after the reveal IPC resolves", async () => {
+    process.env.PLANWEAVE_DESKTOP_SMOKE = "1";
+    electronMock.ipcRenderer.invoke.mockResolvedValue(undefined);
+
+    await import("../preload/preload");
+    const api = electronMock.exposed.get("planweave") as { revealPathInFinder(path: string): Promise<void> };
+    const smokeApi = electronMock.exposed.get("planweaveSmoke") as {
+      clearLastRevealPath(): void;
+      getLastRevealPath(): string | null;
+    };
+
+    expect(smokeApi.getLastRevealPath()).toBeNull();
+    await api.revealPathInFinder("/tmp/record/metadata.json");
+
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(desktopBridgeInvokeChannels.revealPathInFinder, "/tmp/record/metadata.json");
+    expect(smokeApi.getLastRevealPath()).toBe("/tmp/record/metadata.json");
+
+    smokeApi.clearLastRevealPath();
+    expect(smokeApi.getLastRevealPath()).toBeNull();
+  });
+
+  it("does not expose the smoke reveal path signal outside smoke mode", async () => {
+    await import("../preload/preload");
+
+    expect(electronMock.exposed.has("planweaveSmoke")).toBe(false);
   });
 });

@@ -120,6 +120,50 @@ const graph: DesktopGraphViewModel = {
   dirtyPromptRefs: []
 };
 
+function createAutoRunState(patch: Partial<Omit<DesktopAutoRunState, "explanation">> & { explanation?: DesktopAutoRunState["explanation"] } = {}): DesktopAutoRunState {
+  const state = {
+    runId: "RUN-001",
+    projectRoot: "/tmp/project",
+    canvasId: "canvas-main",
+    phase: "running",
+    scope: { kind: "project" },
+    currentRef: null,
+    currentExecutor: null,
+    stepCount: 0,
+    stepLimit: 20,
+    elapsedMs: 0,
+    latestRecordId: null,
+    latestRecordPath: null,
+    latestOutputSummary: null,
+    statePath: "/tmp/state.json",
+    eventLogPath: "/tmp/events.ndjson",
+    options: { tmuxEnabled: true },
+    error: null,
+    startedAt: "2026-05-23T00:00:00.000Z",
+    updatedAt: "2026-05-23T00:00:00.000Z",
+    ...patch
+  } satisfies Omit<DesktopAutoRunState, "explanation">;
+  return {
+    ...state,
+    explanation: patch.explanation ?? {
+      phase: state.phase,
+      currentRef: state.currentRef,
+      currentExecutor: state.currentExecutor,
+      latestRecordId: state.latestRecordId,
+      latestRecordPath: state.latestRecordPath,
+      latestOutputSummary: state.latestOutputSummary,
+      error: state.error,
+      nextAction: {
+        kind: "wait",
+        message: "Wait for the current Auto Run step to finish.",
+        command: null,
+        targetPath: null,
+        ref: state.currentRef
+      }
+    }
+  };
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -351,35 +395,19 @@ describe("desktop renderer interface interactions", () => {
     Object.defineProperty(window.HTMLElement.prototype, "setPointerCapture", { configurable: true, value: vi.fn() });
     Object.defineProperty(window.HTMLElement.prototype, "releasePointerCapture", { configurable: true, value: vi.fn() });
     Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
-    const autoRunState: DesktopAutoRunState = {
-      runId: "RUN-001",
-      projectRoot: "/tmp/project",
-      canvasId: "canvas-main",
-      phase: "running",
-      scope: { kind: "project" },
+    const autoRunState = createAutoRunState({
       currentRef: "T-001#B-001",
       currentExecutor: "codex",
-      stepCount: 3,
-      stepLimit: 20,
-      elapsedMs: 1250,
       latestRecordId: "T-001#B-001::RUN-001",
-      latestRecordPath: "/tmp/result.json",
-      latestOutputSummary: "Updated files",
-      statePath: "/tmp/project/.planweave/results/auto-runs/RUN-001/state.json",
-      eventLogPath: "/tmp/project/.planweave/results/auto-runs/RUN-001/events.ndjson",
-      options: { tmuxEnabled: true },
-      error: null,
-      startedAt: "2026-05-23T00:00:00.000Z",
-      updatedAt: "2026-05-23T00:00:01.000Z"
-    };
+      latestRecordPath: "/tmp/result.json"
+    });
     const handleAutoRunClick = vi.fn().mockResolvedValue(undefined);
-    const handleOpenRunRecord = vi.fn().mockResolvedValue(undefined);
     const handleRevealPathInFinder = vi.fn().mockResolvedValue(undefined);
     const refreshPackageFiles = vi.fn().mockResolvedValue(undefined);
     const setAutoRunScopeMode = vi.fn();
     const stopAutoRunClick = vi.fn().mockResolvedValue(undefined);
 
-    render(
+    const { rerender } = render(
       <FloatingAutoRunControl
         autoRunScopeMode="project"
         autoRunState={autoRunState}
@@ -402,22 +430,86 @@ describe("desktop renderer interface interactions", () => {
       />
     );
 
+    expect(screen.getByTestId("auto-run-mini-panel")).toBeVisible();
+    expect(screen.getByTestId("auto-run-mini-status")).toHaveAttribute("data-phase", "running");
+    expect(screen.getByTestId("auto-run-mini-status")).toHaveAttribute("data-run-id", "RUN-001");
     expect(screen.getByText("Current block: T-001#B-001")).toBeInTheDocument();
     expect(screen.getByText("Agent: codex")).toBeInTheDocument();
+    expect(screen.getByText("Next action: Wait for the current Auto Run step to finish.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Sync file changes" }));
     await userEvent.click(screen.getByRole("button", { name: "Auto Run" }));
     await userEvent.click(screen.getAllByRole("button", { name: "Stop" })[0]);
-    await userEvent.click(screen.getByRole("button", { name: "Open record" }));
+    expect(screen.getByTestId("auto-run-open-record")).toHaveAttribute("data-record-path", "/tmp/result.json");
+    expect(screen.getByTestId("auto-run-open-record")).toHaveAttribute("data-run-id", "RUN-001");
+    await userEvent.click(screen.getByTestId("auto-run-open-record"));
 
     expect(refreshPackageFiles).toHaveBeenCalledTimes(1);
     expect(handleAutoRunClick).toHaveBeenCalledTimes(1);
     expect(stopAutoRunClick).toHaveBeenCalledTimes(1);
-    expect(handleOpenRunRecord).not.toHaveBeenCalled();
     expect(handleRevealPathInFinder).toHaveBeenCalledWith("/tmp/result.json");
 
     await userEvent.click(screen.getByRole("combobox"));
     await userEvent.click(screen.getByRole("option", { name: "Selected Task" }));
     expect(setAutoRunScopeMode).toHaveBeenCalledWith("selectedTask");
+
+    rerender(
+      <FloatingAutoRunControl
+        autoRunScopeMode="project"
+        autoRunState={createAutoRunState({
+          runId: "RUN-FAILED",
+          phase: "failed",
+          currentRef: "T-001#B-001",
+          currentExecutor: "codex",
+          latestRecordId: "T-001#B-001::RUN-FAILED",
+          latestRecordPath: "/tmp/failed-result.json",
+          latestOutputSummary: "Executor failed",
+          explanation: {
+            phase: "failed",
+            currentRef: "T-001#B-001",
+            currentExecutor: "codex",
+            latestRecordId: "T-001#B-001::RUN-FAILED",
+            latestRecordPath: "/tmp/failed-result.json",
+            latestOutputSummary: "Executor failed",
+            error: "Executor exited with code 1.",
+            nextAction: {
+              kind: "inspect_record",
+              message: "Open the latest record and fix the failure.",
+              command: null,
+              targetPath: "/tmp/failed-result.json",
+              ref: "T-001#B-001"
+            }
+          },
+          error: "Executor exited with code 1."
+        })}
+        dirtyPromptCount={0}
+        handleAutoRunClick={handleAutoRunClick}
+        handleRevealPathInFinder={handleRevealPathInFinder}
+        miniRunPanelOpen={true}
+        moveAutoRunControl={vi.fn()}
+        refreshPackageFiles={refreshPackageFiles}
+        selectedBlockPresent={true}
+        selectedProject={project}
+        selectedTaskPanelId="T-001"
+        setAutoRunScopeMode={setAutoRunScopeMode}
+        setMiniRunPanelOpen={vi.fn()}
+        startAutoRunControlDrag={vi.fn()}
+        stopAutoRunClick={stopAutoRunClick}
+        stopAutoRunControlDrag={vi.fn()}
+        style={{ right: 24, bottom: 24 }}
+        t={t}
+      />
+    );
+
+    expect(screen.getByTestId("auto-run-mini-status")).toHaveAttribute("data-phase", "failed");
+    expect(screen.getByTestId("auto-run-mini-status")).toHaveAttribute("data-run-id", "RUN-FAILED");
+    expect(screen.getByTestId("auto-run-error")).toHaveTextContent("Executor exited with code 1.");
+    expect(screen.getByText("Next action: Open the latest record and fix the failure.")).toBeInTheDocument();
+    expect(screen.getByTestId("auto-run-open-record")).toHaveAttribute("data-record-path", "/tmp/failed-result.json");
+    expect(screen.getByTestId("auto-run-open-record")).toHaveAttribute("data-run-id", "RUN-FAILED");
+
+    await userEvent.click(screen.getByTestId("auto-run-open-record"));
+
+    expect(handleRevealPathInFinder).toHaveBeenCalledWith("/tmp/failed-result.json");
   });
 
   it("keeps Auto Run visible but disabled when no project is open", () => {

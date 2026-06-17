@@ -1,6 +1,10 @@
 import type { Command } from "commander";
 import { getAutoRunStatus } from "@planweave-ai/runtime";
-import { addCanvasOption, resolveCliPackageWorkspace, type CanvasCommandOptions } from "../cliWorkspace.js";
+import { addCanvasOption, resolveCliCanvasId, resolveCliPackageWorkspace, type CanvasCommandOptions } from "../cliWorkspace.js";
+
+function formatRunCommand(canvasId: string | null): string {
+  return ["planweave", "run", ...(canvasId ? ["--canvas", canvasId] : [])].join(" ");
+}
 
 export function registerRunStatusCommand(program: Command): void {
   addCanvasOption(program
@@ -16,6 +20,13 @@ export function registerRunStatusCommand(program: Command): void {
       console.log(`current: ${status.current.refs.join(", ") || "none"}`);
       console.log(`feedback: ${status.current.feedbackId ?? "none"}`);
       console.log(`review: ${status.current.reviewBlockRef ?? "none"}`);
+      console.log(`phase: ${status.explanation.phase}`);
+      console.log(`latest record: ${status.explanation.latestRecordId ?? "none"}${status.explanation.latestRecordPath ? ` (${status.explanation.latestRecordPath})` : ""}`);
+      console.log(`next action: ${status.explanation.nextAction.message}`);
+      const nextCommand = status.explanation.nextAction.command ?? (status.explanation.nextAction.kind === "start" ? formatRunCommand(resolveCliCanvasId(options)) : null);
+      if (nextCommand) {
+        console.log(`next command: ${nextCommand}`);
+      }
       console.log("latest runs:");
       for (const run of status.latestRuns) {
         console.log(`- ${run.ref} ${run.runId} ${run.status} ${run.executor ?? "unknown"} ${run.adapter ?? "unknown"}`);

@@ -32,16 +32,17 @@ import { registerExecutorsCommand } from "./commands/executors.js";
 import { registerRunStatusCommand } from "./commands/runStatus.js";
 import { registerHelpCommand } from "./commands/help.js";
 import { registerSchemaCommand } from "./commands/schema.js";
+import { addProjectRootOption } from "./projectRoot.js";
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json") as { version: string };
 
 export function createProgram(): Command {
   const program = new Command();
-  program
+  addProjectRootOption(program
     .name("planweave")
     .description("PlanWeave CLI")
-    .version(packageJson.version);
+    .version(packageJson.version));
   program.addHelpCommand(false);
 
   registerInitCommand(program);

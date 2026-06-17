@@ -161,6 +161,13 @@ planweave submit-review T-001#R-001 --result review-result.json
 planweave submit-feedback --report feedback-report.md
 ```
 
+PlanWeave resolves the target project root from the shell's current directory. Package managers may set `INIT_CWD`, which PlanWeave uses before `cwd`. When running from another directory, pass the global option before the subcommand:
+
+```bash
+planweave --project-root /path/to/project status --json
+planweave --project-root /path/to/project claim-next --canvas desktop
+```
+
 When scheduling is unclear, prefer `planweave explain <ref>`, `planweave why-not <ref>`, and `planweave doctor` before editing package or state files.
 
 ## Experimental Desktop App

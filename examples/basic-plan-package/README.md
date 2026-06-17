@@ -48,6 +48,14 @@ planweave status
 planweave run-status
 ```
 
+The commands above use the current directory as the target project root. If you run them from another directory, put the global root option before the subcommand, for example:
+
+```bash
+planweave --project-root /path/to/PlanWeave init --json
+planweave --project-root /path/to/PlanWeave validate --json
+planweave --project-root /path/to/PlanWeave status --canvas desktop
+```
+
 The final status output should show one implemented task and completed implementation/review blocks.
 The `run --once --executor manual` command writes the next rendered prompt under the PlanWeave results directory and stops for manual submission; it does not replace the skill/CLI submit flow.
 

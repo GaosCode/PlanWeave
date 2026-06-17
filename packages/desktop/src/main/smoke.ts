@@ -95,8 +95,14 @@ async function runSmokeWorkflow(window: BrowserWindow): Promise<Record<string, u
 }
 
 async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<string, unknown>> {
+  const projectRoot = process.env.PLANWEAVE_DESKTOP_SMOKE_PROJECT_ROOT;
+  if (!projectRoot) {
+    throw new Error("PLANWEAVE_DESKTOP_SMOKE_PROJECT_ROOT is required for renderer desktop smoke.");
+  }
   return window.webContents.executeJavaScript(`
     (async () => {
+      const projectRoot = ${JSON.stringify(projectRoot)};
+      const canvasId = null;
       const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const textOf = (element) => (element.textContent ?? "").replace(/\\s+/g, " ").trim();
       const visible = (element) => {
@@ -134,19 +140,6 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
         }
         throw new Error("Unable to click visible element with data-testid: " + testId);
       };
-      const clickByLabel = async (label) => {
-        for (let attempt = 0; attempt < 30; attempt += 1) {
-          const target = [...document.querySelectorAll("button")]
-            .filter(visible)
-            .find((element) => element.getAttribute("aria-label") === label);
-          if (target) {
-            await clickElement(target);
-            return label;
-          }
-          await wait(100);
-        }
-        throw new Error("Unable to click visible button with aria-label: " + label);
-      };
       const waitForText = async (text) => {
         for (let attempt = 0; attempt < 50; attempt += 1) {
           if ((document.body.textContent ?? "").includes(text)) {
@@ -182,6 +175,33 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
           return false;
         }
         throw new Error("Timed out waiting for visible " + label + ": " + selector);
+      };
+      const waitForAutoRunMiniStatus = async () => {
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          const target = document.querySelector('[data-testid="auto-run-mini-status"]');
+          if (target && visible(target)) {
+            const phase = target.getAttribute("data-phase");
+            if (phase && phase !== "idle") {
+              return phase;
+            }
+          }
+          await wait(100);
+        }
+        throw new Error("Timed out waiting for mini Auto Run status to reflect a runtime state.");
+      };
+      const waitForSmokeRevealPath = async (expectedPath) => {
+        const smoke = window.planweaveSmoke;
+        if (!smoke || typeof smoke.clearLastRevealPath !== "function" || typeof smoke.getLastRevealPath !== "function") {
+          throw new Error("Smoke reveal path signal was not exposed.");
+        }
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          const revealedPath = smoke.getLastRevealPath();
+          if (revealedPath === expectedPath) {
+            return revealedPath;
+          }
+          await wait(100);
+        }
+        throw new Error("Mini Auto Run record action did not invoke revealPathInFinder with " + expectedPath + ". Last signal: " + smoke.getLastRevealPath());
       };
 
       const covered = [];
@@ -231,15 +251,43 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       covered.push("return-graph");
       await waitForSelector("[data-auto-run-control]", "Floating Auto Run control");
       covered.push("auto-run-control-visible");
-      await clickByLabel("Auto Run");
-      await waitForText("运行面板");
-      await waitForText("当前 Block");
+      await clickByTestId("auto-run-trigger");
+      await waitForSelector('[data-testid="auto-run-mini-panel"]', "mini Auto Run panel");
+      const autoRunPhase = await waitForAutoRunMiniStatus();
+      const recordActionVisible = await waitForSelector('[data-testid="auto-run-open-record"]', "mini Auto Run record action", { required: false });
+      if (!recordActionVisible) {
+        const latest = await window.planweave.getLatestAutoRunSummary({ projectRoot, canvasId });
+        throw new Error("Mini Auto Run panel did not expose the latest record action. Latest state: " + JSON.stringify(latest));
+      }
+      const status = document.querySelector('[data-testid="auto-run-mini-status"]');
+      const statusRunId = status instanceof HTMLElement ? status.getAttribute("data-run-id") : null;
+      const recordAction = document.querySelector('[data-testid="auto-run-open-record"]');
+      if (!(recordAction instanceof HTMLElement)) {
+        throw new Error("Mini Auto Run record action was not available after panel status loaded.");
+      }
+      const recordActionPath = recordAction.getAttribute("data-record-path");
+      const recordRunId = recordAction.getAttribute("data-run-id");
+      if (!recordActionPath || !recordActionPath.endsWith("metadata.json")) {
+        throw new Error("Mini Auto Run record action did not target a metadata record path: " + recordActionPath);
+      }
+      if (!statusRunId || !recordRunId) {
+        throw new Error("Mini Auto Run panel or record action did not expose a run id.");
+      }
+      if (recordRunId !== statusRunId) {
+        throw new Error("Mini Auto Run record action targeted run " + recordRunId + " instead of panel run " + statusRunId);
+      }
+      window.planweaveSmoke.clearLastRevealPath();
+      await clickByTestId("auto-run-open-record");
+      const revealedRecordPath = await waitForSmokeRevealPath(recordActionPath);
       covered.push("open-mini-run-panel");
+      covered.push("open-latest-auto-run-record");
       await clickByTestId("sidebar-todo");
       await waitForText("ready");
       covered.push("open-todo");
       return {
         covered,
+        autoRunPhase,
+        revealedRecordPath,
         uiSmokeTaskVisible: (document.body.textContent ?? "").includes("UI Smoke Task")
       };
     })()

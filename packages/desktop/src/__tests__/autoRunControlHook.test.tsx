@@ -2,7 +2,7 @@
 
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { useState } from "react";
-import type { DesktopAutoRunEvent, DesktopAutoRunState, DesktopBlockDetail, DesktopProjectSummary } from "@planweave-ai/runtime";
+import type { AutoRunExplanation, DesktopAutoRunEvent, DesktopAutoRunState, DesktopBlockDetail, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { createTranslator } from "../renderer/i18n";
@@ -37,8 +37,27 @@ const selectedBlock: DesktopBlockDetail = {
   reviewGate: null
 };
 
-function autoRunState(patch: Partial<DesktopAutoRunState> = {}): DesktopAutoRunState {
+function explanationFor(state: Omit<DesktopAutoRunState, "explanation">): AutoRunExplanation {
   return {
+    phase: state.phase,
+    currentRef: state.currentRef,
+    currentExecutor: state.currentExecutor,
+    latestRecordId: state.latestRecordId,
+    latestRecordPath: state.latestRecordPath,
+    latestOutputSummary: state.latestOutputSummary,
+    error: state.error,
+    nextAction: {
+      kind: "wait",
+      message: "Wait for the current Auto Run step to finish.",
+      command: null,
+      targetPath: null,
+      ref: state.currentRef
+    }
+  };
+}
+
+function autoRunState(patch: Partial<DesktopAutoRunState> = {}): DesktopAutoRunState {
+  const state = {
     runId: "DESKTOP-RUN-0001",
     projectRoot: project.rootPath,
     canvasId: "canvas-main",
@@ -60,6 +79,7 @@ function autoRunState(patch: Partial<DesktopAutoRunState> = {}): DesktopAutoRunS
     updatedAt: "2026-05-23T00:00:00.000Z",
     ...patch
   };
+  return { ...state, explanation: patch.explanation ?? explanationFor(state) };
 }
 
 function autoRunEvent(state: DesktopAutoRunState, patch: Partial<DesktopAutoRunEvent> = {}): DesktopAutoRunEvent {

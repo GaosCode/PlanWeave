@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type {
+  AutoRunExplanation,
   DesktopAutoRunEvent,
   DesktopAutoRunState,
   DesktopGraphViewModel,
@@ -91,6 +92,25 @@ function autoRunEvent(state: DesktopAutoRunState): DesktopAutoRunEvent {
   };
 }
 
+function explanationFor(state: Omit<DesktopAutoRunState, "explanation">): AutoRunExplanation {
+  return {
+    phase: state.phase,
+    currentRef: state.currentRef,
+    currentExecutor: state.currentExecutor,
+    latestRecordId: state.latestRecordId,
+    latestRecordPath: state.latestRecordPath,
+    latestOutputSummary: state.latestOutputSummary,
+    error: state.error,
+    nextAction: {
+      kind: "wait",
+      message: "Wait for the current Auto Run step to finish.",
+      command: null,
+      targetPath: null,
+      ref: state.currentRef
+    }
+  };
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -119,7 +139,7 @@ describe("inspector auto-run event refresh", () => {
 
     await waitFor(() => expect(screen.getByDisplayValue("# Initial")).toBeTruthy());
 
-    const eventState: DesktopAutoRunState = {
+    const eventStateBase = {
       runId: "RUN-001",
       projectRoot: "/tmp/demo",
       canvasId: "canvas-main",
@@ -140,6 +160,7 @@ describe("inspector auto-run event refresh", () => {
       startedAt: "2026-05-23T00:00:00.000Z",
       updatedAt: "2026-05-23T00:00:01.000Z"
     };
+    const eventState: DesktopAutoRunState = { ...eventStateBase, explanation: explanationFor(eventStateBase) };
 
     onAutoRunChangedCallback?.(autoRunEvent(eventState));
     await waitFor(() => expect(bridge.getTaskDetail).toHaveBeenCalledTimes(2));

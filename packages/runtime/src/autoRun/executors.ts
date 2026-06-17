@@ -1,11 +1,13 @@
 import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
+import type { ExecutorPreflightCheck, ExecutorPreflightResult } from "./executorPreflightTypes.js";
 import type {
   ExecutorAdapter,
   ExecutorProfile,
   ExecutorProfileSummary,
   ManifestTaskNode,
   PackageWorkspaceRef,
-  PlanPackageManifest
+  PlanPackageManifest,
+  ProjectWorkspace
 } from "../types.js";
 import { claudeCodeIntegration } from "./claudeCodeIntegration.js";
 import { codexIntegration } from "./codexIntegration.js";
@@ -26,6 +28,7 @@ const executorIntegrations: ExecutorIntegration[] = [
 ];
 
 const builtinExecutors: Record<string, ExecutorProfile> = Object.assign({}, ...executorIntegrations.map((integration) => integration.builtinProfiles));
+export const executorPreflightVersionTimeoutMs = 5_000;
 
 function integrationForAdapter(adapter: ExecutorProfile["adapter"]): ExecutorIntegration {
   const integration = executorIntegrations.find((item) => item.adapter === adapter);
@@ -33,6 +36,10 @@ function integrationForAdapter(adapter: ExecutorProfile["adapter"]): ExecutorInt
     throw new Error(`Executor adapter '${adapter}' is not supported.`);
   }
   return integration;
+}
+
+function isSupportedAdapter(adapter: ExecutorProfile["adapter"]): boolean {
+  return executorIntegrations.some((item) => item.adapter === adapter);
 }
 
 function taskNodeForClaim(manifest: PlanPackageManifest, claim: BlockClaim): ManifestTaskNode {
@@ -172,30 +179,213 @@ export async function listExecutorProfiles(options: { projectRoot: PackageWorksp
   return listExecutorProfilesForManifest(manifest);
 }
 
-export async function testExecutorProfile(options: { projectRoot: PackageWorkspaceRef; executorName: string }): Promise<{
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : String(error);
+}
+
+function skippedCheck(check: ExecutorPreflightCheck["check"], message: string): ExecutorPreflightCheck {
+  return { check, status: "skipped", message };
+}
+
+function finalizePreflightResult(options: {
   name: string;
-  adapter: ExecutorProfile["adapter"];
-  ok: boolean;
-  message: string;
-}> {
-  const profiles = await listExecutorProfiles({ projectRoot: options.projectRoot });
+  adapter: ExecutorProfile["adapter"] | null;
+  checks: ExecutorPreflightCheck[];
+  successMessage: string;
+}): ExecutorPreflightResult {
+  const failed = options.checks.find((check) => check.status === "failed");
+  return {
+    name: options.name,
+    adapter: options.adapter,
+    ok: failed === undefined,
+    message: failed?.message ?? options.successMessage,
+    checks: options.checks
+  };
+}
+
+export async function testExecutorProfile(options: {
+  projectRoot: PackageWorkspaceRef;
+  executorName: string;
+  versionTimeoutMs?: number;
+}): Promise<ExecutorPreflightResult> {
+  let workspace: ProjectWorkspace;
+  let cwdCheck: ExecutorPreflightCheck;
+  try {
+    workspace = await resolvePackageWorkspace(options.projectRoot);
+    cwdCheck = {
+      check: "cwd_resolved",
+      status: "passed",
+      message: `Project cwd resolved to '${workspace.rootPath}'.`,
+      cwd: workspace.rootPath
+    };
+  } catch (error) {
+    return finalizePreflightResult({
+      name: options.executorName,
+      adapter: null,
+      successMessage: "executor preflight passed",
+      checks: [
+        skippedCheck("profile_exists", "Project cwd could not be resolved before loading executor profiles."),
+        skippedCheck("adapter_supported", "Project cwd could not be resolved before checking the adapter."),
+        {
+          check: "cwd_resolved",
+          status: "failed",
+          message: `Project cwd could not be resolved: ${errorMessage(error)}`
+        },
+        skippedCheck("command_started", "Project cwd could not be resolved before starting the command."),
+        skippedCheck("command_version", "Project cwd could not be resolved before checking command version.")
+      ]
+    });
+  }
+
+  const { manifest } = await loadPackage(workspace);
+  const profiles = listExecutorProfilesForManifest(manifest);
   const profile = profiles.find((item) => item.name === options.executorName);
   if (!profile) {
-    return { name: options.executorName, adapter: "manual", ok: false, message: `Executor profile '${options.executorName}' does not exist.` };
+    return finalizePreflightResult({
+      name: options.executorName,
+      adapter: null,
+      successMessage: "executor preflight passed",
+      checks: [
+        {
+          check: "profile_exists",
+          status: "failed",
+          message: `Executor profile '${options.executorName}' does not exist.`
+        },
+        skippedCheck("adapter_supported", "Executor profile does not exist."),
+        cwdCheck,
+        skippedCheck("command_started", "Executor profile does not exist."),
+        skippedCheck("command_version", "Executor profile does not exist.")
+      ]
+    });
+  }
+
+  const profileCheck: ExecutorPreflightCheck = {
+    check: "profile_exists",
+    status: "passed",
+    message: `Executor profile '${profile.name}' exists.`
+  };
+  const adapterCheck: ExecutorPreflightCheck = isSupportedAdapter(profile.adapter)
+    ? {
+        check: "adapter_supported",
+        status: "passed",
+        message: `Executor adapter '${profile.adapter}' is supported.`
+      }
+    : {
+        check: "adapter_supported",
+        status: "failed",
+        message: `Executor adapter '${profile.adapter}' is not supported.`
+      };
+  if (adapterCheck.status === "failed") {
+    return finalizePreflightResult({
+      name: profile.name,
+      adapter: profile.adapter,
+      successMessage: "executor preflight passed",
+      checks: [
+        profileCheck,
+        adapterCheck,
+        cwdCheck,
+        skippedCheck("command_started", "Executor adapter is not supported."),
+        skippedCheck("command_version", "Executor adapter is not supported.")
+      ]
+    });
   }
   if (profile.adapter === "manual") {
-    return { name: profile.name, adapter: profile.adapter, ok: true, message: "manual executor is always available" };
+    return finalizePreflightResult({
+      name: profile.name,
+      adapter: profile.adapter,
+      successMessage: "manual executor does not require a command",
+      checks: [
+        profileCheck,
+        adapterCheck,
+        cwdCheck,
+        skippedCheck("command_started", "Manual executor does not require a command."),
+        skippedCheck("command_version", "Manual executor does not require a command.")
+      ]
+    });
   }
-  const result = await execWithStdin({
-    command: profile.command,
-    args: ["--version"],
-    cwd: (await resolvePackageWorkspace(options.projectRoot)).rootPath,
-    stdin: ""
-  });
+
+  let result;
+  const versionTimeoutMs = options.versionTimeoutMs ?? executorPreflightVersionTimeoutMs;
+  try {
+    result = await execWithStdin({
+      command: profile.command,
+      args: ["--version"],
+      cwd: workspace.rootPath,
+      stdin: "",
+      timeoutMs: versionTimeoutMs
+    });
+  } catch (error) {
+    return finalizePreflightResult({
+      name: profile.name,
+      adapter: profile.adapter,
+      successMessage: "executor preflight passed",
+      checks: [
+        profileCheck,
+        adapterCheck,
+        cwdCheck,
+        {
+          check: "command_started",
+          status: "failed",
+          message: `Command '${profile.command}' could not be started: ${errorMessage(error)}`,
+          command: profile.command,
+          cwd: workspace.rootPath
+        },
+        skippedCheck("command_version", "Command could not be started.")
+      ]
+    });
+  }
+
+  const output = result.stdout.trim() || result.stderr.trim();
+  const versionCheck: ExecutorPreflightCheck =
+    result.timedOut
+      ? {
+          check: "command_version",
+          status: "failed",
+          message: `Command version check timed out after ${versionTimeoutMs}ms.`,
+          command: profile.command,
+          cwd: workspace.rootPath,
+          output,
+          exitCode: result.exitCode,
+          timedOut: true
+        }
+      : result.exitCode === 0
+      ? {
+          check: "command_version",
+          status: "passed",
+          message: output || "Command version check completed successfully.",
+          command: profile.command,
+          cwd: workspace.rootPath,
+          output,
+          exitCode: result.exitCode,
+          timedOut: result.timedOut
+        }
+      : {
+          check: "command_version",
+          status: "failed",
+          message: output || `Command version check exited with code ${result.exitCode}.`,
+          command: profile.command,
+          cwd: workspace.rootPath,
+          output,
+          exitCode: result.exitCode,
+          timedOut: result.timedOut
+        };
   return {
     name: profile.name,
     adapter: profile.adapter,
-    ok: result.exitCode === 0,
-    message: result.exitCode === 0 ? result.stdout.trim() : result.stderr.trim() || `exited with code ${result.exitCode}`
+    ok: versionCheck.status === "passed",
+    message: versionCheck.message,
+    checks: [
+      profileCheck,
+      adapterCheck,
+      cwdCheck,
+      {
+        check: "command_started",
+        status: "passed",
+        message: `Command '${profile.command}' started.`,
+        command: profile.command,
+        cwd: workspace.rootPath
+      },
+      versionCheck
+    ]
   };
 }

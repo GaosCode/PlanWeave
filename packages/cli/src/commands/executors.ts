@@ -1,6 +1,16 @@
 import type { Command } from "commander";
 import { listExecutorProfiles, testExecutorProfile } from "@planweave-ai/runtime";
+import type { ExecutorPreflightResult } from "@planweave-ai/runtime";
 import { resolveCliProjectRoot } from "../projectRoot.js";
+
+export function formatExecutorTestJson(result: ExecutorPreflightResult): string {
+  return JSON.stringify(result, null, 2);
+}
+
+export function formatExecutorTestHuman(result: ExecutorPreflightResult): string {
+  const failedCheck = result.checks.find((check) => check.status === "failed");
+  return `${result.ok ? "ok" : "failed"} ${result.name}: ${failedCheck?.message ?? result.message}`;
+}
 
 export function registerExecutorsCommand(program: Command): void {
   const executors = program.command("executors").description("Inspect PlanWeave executor profiles");
@@ -28,10 +38,10 @@ export function registerExecutorsCommand(program: Command): void {
     .action(async (executor: string, options: { json?: boolean }) => {
       const result = await testExecutorProfile({ projectRoot: resolveCliProjectRoot(), executorName: executor });
       if (options.json) {
-        console.log(JSON.stringify(result, null, 2));
+        console.log(formatExecutorTestJson(result));
         return;
       }
-      console.log(`${result.ok ? "ok" : "failed"} ${result.name}: ${result.message}`);
+      console.log(formatExecutorTestHuman(result));
       if (!result.ok) {
         process.exitCode = 1;
       }

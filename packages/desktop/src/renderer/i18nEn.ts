@@ -121,6 +121,7 @@ export const enCatalog = {
     autoRunStopped: "idle",
     miniPanelEmpty: "No active run record",
     latestOutput: "Latest output",
+    nextAction: "Next action",
     addReviewStep: "Add Review Step",
     saveReviewPipeline: "Save Review Pipeline",
     newReviewStep: "New Review Step",

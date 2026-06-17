@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createProgram } from "../index.js";
+import { formatExecutorTestHuman, formatExecutorTestJson } from "../commands/executors.js";
 import { formatClaimHint } from "../commands/status.js";
 import { formatPlanweaveHelp, planweaveHelpTopics } from "../commands/help.js";
 import { formatSchemaHelp, schemaDocuments } from "../commands/schema.js";
@@ -8,6 +9,22 @@ function commandOptionLongs(name: string): string[] {
   const command = createProgram().commands.find((item) => item.name() === name);
   if (!command) {
     throw new Error(`Missing command '${name}'.`);
+  }
+  return command.options.flatMap((option) => (option.long ? [option.long] : []));
+}
+
+function programOptionLongs(): string[] {
+  return createProgram().options.flatMap((option) => (option.long ? [option.long] : []));
+}
+
+function subcommandOptionLongs(parentName: string, name: string): string[] {
+  const parent = createProgram().commands.find((item) => item.name() === parentName);
+  if (!parent) {
+    throw new Error(`Missing command '${parentName}'.`);
+  }
+  const command = parent.commands.find((item) => item.name() === name);
+  if (!command) {
+    throw new Error(`Missing command '${parentName} ${name}'.`);
   }
   return command.options.flatMap((option) => (option.long ? [option.long] : []));
 }
@@ -43,7 +60,11 @@ describe("planweave CLI contract", () => {
     );
   });
 
-  it("supports json output for init, validate, and status", () => {
+  it("registers global project root selection once", () => {
+    expect(programOptionLongs()).toContain("--project-root");
+  });
+
+  it("supports machine-readable output options for agent-facing commands", () => {
     expect(commandOptionLongs("init")).toContain("--json");
     expect(commandOptionLongs("init")).toContain("--project-graph");
     expect(commandOptionLongs("init")).toContain("--reset-package");
@@ -55,7 +76,11 @@ describe("planweave CLI contract", () => {
     expect(commandOptionLongs("claim")).toContain("--dispatch");
     expect(commandOptionLongs("claim")).toContain("--canvas");
     expect(commandOptionLongs("claim-next")).toContain("--dry-run");
+    expect(commandOptionLongs("claim-next")).toContain("--json");
     expect(commandOptionLongs("claim-next")).toContain("--canvas");
+    expect(commandOptionLongs("submit-result")).toContain("--json");
+    expect(commandOptionLongs("submit-review")).toContain("--json");
+    expect(commandOptionLongs("submit-feedback")).toContain("--json");
     expect(commandOptionLongs("doctor")).toContain("--repair");
     expect(commandOptionLongs("doctor")).toContain("--canvas");
     expect(commandOptionLongs("retry-review")).toContain("--max-feedback-cycles");
@@ -83,6 +108,8 @@ describe("planweave CLI contract", () => {
     expect(commandOptionLongs("run")).toContain("--canvas");
     expect(commandOptionLongs("run-status")).toContain("--json");
     expect(commandOptionLongs("run-status")).toContain("--canvas");
+    expect(subcommandOptionLongs("executors", "list")).toContain("--json");
+    expect(subcommandOptionLongs("executors", "test")).toContain("--json");
     expect(commandOptionLongs("schema")).toContain("--json");
     expect(commandOptionLongs("help")).toContain("--json");
     for (const commandName of [
@@ -101,6 +128,64 @@ describe("planweave CLI contract", () => {
     ]) {
       expect(commandOptionLongs(commandName), commandName).toContain("--canvas");
     }
+  });
+
+  it("prints executor preflight facts as JSON", () => {
+    const result = JSON.parse(
+      formatExecutorTestJson({
+        name: "node-version",
+        adapter: "codex-exec",
+        ok: true,
+        message: "v26.3.0",
+        checks: [
+          { check: "profile_exists", status: "passed", message: "Executor profile 'node-version' exists." },
+          { check: "adapter_supported", status: "passed", message: "Executor adapter 'codex-exec' is supported." },
+          { check: "cwd_resolved", status: "passed", message: "Project cwd resolved.", cwd: "/tmp/project" },
+          { check: "command_started", status: "passed", message: "Command started.", command: process.execPath, cwd: "/tmp/project" },
+          {
+            check: "command_version",
+            status: "passed",
+            message: "v26.3.0",
+            command: process.execPath,
+            cwd: "/tmp/project",
+            output: "v26.3.0",
+            exitCode: 0,
+            timedOut: false
+          }
+        ]
+      })
+    );
+
+    expect(result).toMatchObject({
+      name: "node-version",
+      adapter: "codex-exec",
+      ok: true,
+      checks: [
+        { check: "profile_exists", status: "passed" },
+        { check: "adapter_supported", status: "passed" },
+        { check: "cwd_resolved", status: "passed" },
+        { check: "command_started", status: "passed", command: process.execPath },
+        { check: "command_version", status: "passed", output: "v26.3.0" }
+      ]
+    });
+  });
+
+  it("prints executor preflight failure reasons in human output", () => {
+    expect(
+      formatExecutorTestHuman({
+        name: "missing-profile",
+        adapter: null,
+        ok: false,
+        message: "Executor profile 'missing-profile' does not exist.",
+        checks: [
+          { check: "profile_exists", status: "failed", message: "Executor profile 'missing-profile' does not exist." },
+          { check: "adapter_supported", status: "skipped", message: "Executor profile does not exist." },
+          { check: "cwd_resolved", status: "passed", message: "Project cwd resolved.", cwd: "/tmp/project" },
+          { check: "command_started", status: "skipped", message: "Executor profile does not exist." },
+          { check: "command_version", status: "skipped", message: "Executor profile does not exist." }
+        ]
+      })
+    ).toBe("failed missing-profile: Executor profile 'missing-profile' does not exist.");
   });
 
   it("prints PlanWeave-specific help topics for agent CLI workflows", () => {

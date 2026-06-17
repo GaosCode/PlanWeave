@@ -123,6 +123,9 @@ export async function runTerminalAgentFeedback(options: {
   const tmux = await createTmuxSessionInfo({ runDir, runId, kind: "feedback", enabled: options.tmuxEnabled });
   await writeJsonFile(metadataPath, {
     runId,
+    feedbackId: options.claim.feedbackId,
+    sourceReviewBlockRef: options.claim.sourceReviewBlockRef,
+    taskId: options.claim.taskId,
     executor: options.executorName,
     adapter: options.profile.adapter,
     projectRoot: options.projectRoot,

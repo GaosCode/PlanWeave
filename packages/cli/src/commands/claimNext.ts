@@ -6,6 +6,7 @@ export function registerClaimNextCommand(program: Command): void {
   addCanvasOption(program
     .command("claim-next")
     .description("Claim the next executable block or feedback event")
+    .option("--json", "print machine-readable output")
     .option("--parallel", "claim a deterministic parallel batch")
     .option("--dry-run", "preview the next claim without mutating state"))
     .action(async (options: { parallel?: boolean; dryRun?: boolean } & CanvasCommandOptions) => {

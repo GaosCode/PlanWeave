@@ -7,6 +7,7 @@ export function registerSubmitReviewCommand(program: Command): void {
     .command("submit-review")
     .argument("<review-block-ref>")
     .requiredOption("--result <path>", "review-result.json path")
+    .option("--json", "print machine-readable output")
     .description("Record a structured review result for a review block"))
     .action(async (ref: string, options: { result: string } & CanvasCommandOptions) => {
       const result = await submitReviewResult({

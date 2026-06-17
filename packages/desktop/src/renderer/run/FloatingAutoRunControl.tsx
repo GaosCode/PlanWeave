@@ -62,6 +62,7 @@ export function FloatingAutoRunControl({
 }: FloatingAutoRunControlProps) {
   const canStop = autoRunState ? ["running", "pausing", "paused", "manual", "blocked", "failed"].includes(autoRunState.phase) : false;
   const hasProject = Boolean(selectedProject);
+  const explanation = autoRunState?.explanation ?? null;
 
   return (
     <div className="absolute flex items-center gap-2 rounded-xl border bg-background p-2 shadow-lg" data-auto-run-control style={style}>
@@ -91,6 +92,7 @@ export function FloatingAutoRunControl({
             <Popover open={miniRunPanelOpen} onOpenChange={setMiniRunPanelOpen}>
               <PopoverTrigger asChild>
                 <Button
+                  data-testid="auto-run-trigger"
                   size="icon-lg"
                   variant={autoRunState?.phase === "blocked" || autoRunState?.phase === "failed" ? "destructive" : "default"}
                   aria-label={t("autoRun")}
@@ -106,7 +108,7 @@ export function FloatingAutoRunControl({
                   )}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-96">
+              <PopoverContent align="end" className="w-96" data-testid="auto-run-mini-panel">
                 <PopoverHeader>
                   <PopoverTitle>{t("miniRunPanel")}</PopoverTitle>
                   <PopoverDescription>{selectedProject?.name ?? t("autoRunNoProjectHint")}</PopoverDescription>
@@ -114,16 +116,21 @@ export function FloatingAutoRunControl({
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm font-medium">{t("runStatus")}</span>
-                    <Badge variant={autoRunState?.phase === "blocked" || autoRunState?.phase === "failed" ? "destructive" : "outline"}>
+                    <Badge
+                      data-phase={autoRunState?.phase ?? "idle"}
+                      data-run-id={autoRunState?.runId ?? ""}
+                      data-testid="auto-run-mini-status"
+                      variant={autoRunState?.phase === "blocked" || autoRunState?.phase === "failed" ? "destructive" : "outline"}
+                    >
                       {autoRunState?.phase ?? t("miniPanelEmpty")}
                     </Badge>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                     <span>
-                      {t("currentBlock")}: {autoRunState?.currentRef ?? "-"}
+                      {t("currentBlock")}: {explanation?.currentRef ?? "-"}
                     </span>
                     <span>
-                      {t("agent")}: {autoRunState?.currentExecutor ?? "-"}
+                      {t("agent")}: {explanation?.currentExecutor ?? "-"}
                     </span>
                     <span>
                       {t("elapsedTime")}: {autoRunState ? formatElapsed(autoRunState.elapsedMs) : "-"}
@@ -132,15 +139,31 @@ export function FloatingAutoRunControl({
                       {t("stepCount")}: {autoRunState ? `${autoRunState.stepCount}` : "-"}
                     </span>
                   </div>
-                  {autoRunState?.latestOutputSummary ? (
+                  {explanation?.latestOutputSummary ? (
                     <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
-                      {t("latestOutput")}: {autoRunState.latestOutputSummary}
+                      {t("latestOutput")}: {explanation.latestOutputSummary}
                     </div>
                   ) : null}
-                  {autoRunState?.error ? <div className="rounded-md border border-destructive p-2 text-xs text-destructive">{autoRunState.error}</div> : null}
+                  {explanation ? (
+                    <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
+                      {t("nextAction")}: {explanation.nextAction.message}
+                    </div>
+                  ) : null}
+                  {explanation?.error ? (
+                    <div className="rounded-md border border-destructive p-2 text-xs text-destructive" data-testid="auto-run-error">
+                      {explanation.error}
+                    </div>
+                  ) : null}
                   <div className="flex justify-end gap-2">
-                    {autoRunState?.latestRecordPath ? (
-                      <Button size="sm" variant="outline" onClick={() => void handleRevealPathInFinder(autoRunState.latestRecordPath)}>
+                    {explanation?.latestRecordPath ? (
+                      <Button
+                        data-record-path={explanation.latestRecordPath}
+                        data-run-id={autoRunState?.runId ?? ""}
+                        data-testid="auto-run-open-record"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handleRevealPathInFinder(explanation.latestRecordPath)}
+                      >
                         <FolderOpenIcon data-icon="inline-start" />
                         {t("openRecord")}
                       </Button>

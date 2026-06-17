@@ -123,6 +123,7 @@ export const zhCnCatalog = {
     autoRunStopped: "idle",
     miniPanelEmpty: "没有正在运行的记录",
     latestOutput: "最新输出",
+    nextAction: "下一步",
     addReviewStep: "添加 Review Step",
     saveReviewPipeline: "保存 Review Pipeline",
     newReviewStep: "新 Review Step",

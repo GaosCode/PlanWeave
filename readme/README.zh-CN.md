@@ -162,6 +162,13 @@ planweave submit-review T-001#R-001 --result review-result.json
 planweave submit-feedback --report feedback-report.md
 ```
 
+PlanWeave 默认从当前 shell 目录解析目标项目 root。包管理器可能设置 `INIT_CWD`，PlanWeave 会优先使用它，再使用 `cwd`。如果需要从其他目录操作目标项目，把全局选项放在子命令前：
+
+```bash
+planweave --project-root /path/to/project status --json
+planweave --project-root /path/to/project claim-next --canvas desktop
+```
+
 当调度原因不清楚时，先用 `planweave explain <ref>`、`planweave why-not <ref>` 和 `planweave doctor` 诊断，再考虑修改 package 或 state 文件。
 
 ## 实验性桌面应用

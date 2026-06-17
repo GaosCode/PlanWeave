@@ -39,7 +39,13 @@ describe("claimNext", () => {
       resultPath: await writeReviewResult(root, "needs_changes", "Please update tests.")
     });
 
-    expect(await claimNext({ projectRoot: root })).toEqual({ kind: "feedback", content: "Please update tests." });
+    expect(await claimNext({ projectRoot: root })).toEqual({
+      kind: "feedback",
+      feedbackId: "FE-001",
+      sourceReviewBlockRef: "T-001#R-001",
+      taskId: "T-001",
+      content: "Please update tests."
+    });
     await submitFeedback({ projectRoot: root, reportPath: await writeReport(root, "feedback.md", "Tests updated.\n") });
 
     const reviewClaim = await claimNext({ projectRoot: root });

@@ -90,6 +90,9 @@ describe("STEP-1 block runtime", () => {
 
     expect(await claimNext({ projectRoot: root })).toEqual({
       kind: "feedback",
+      feedbackId: "FE-001",
+      sourceReviewBlockRef: "T-001#R-001",
+      taskId: "T-001",
       content: "Needs a test adjustment."
     });
     const feedbackReport = join(home, "feedback-1.md");
@@ -201,7 +204,13 @@ describe("STEP-1 block runtime", () => {
     const firstReview = join(home, "review-1.json");
     await writeReview(firstReview, "needs_changes", "Original feedback.");
     await submitReviewResult({ projectRoot: root, ref: "T-001#R-001", resultPath: firstReview });
-    expect(await claimNext({ projectRoot: root })).toEqual({ kind: "feedback", content: "Hooked feedback" });
+    expect(await claimNext({ projectRoot: root })).toEqual({
+      kind: "feedback",
+      feedbackId: "FE-001",
+      sourceReviewBlockRef: "T-001#R-001",
+      taskId: "T-001",
+      content: "Hooked feedback"
+    });
 
     const brokenHome = await mkdtemp(join(tmpdir(), "planweave-home-"));
     const brokenRoot = await mkdtemp(join(tmpdir(), "planweave-project-"));

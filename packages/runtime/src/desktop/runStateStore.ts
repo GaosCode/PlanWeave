@@ -20,7 +20,11 @@ export function cloneAutoRunState(state: DesktopAutoRunState): DesktopAutoRunSta
     ...state,
     elapsedMs: Math.max(0, endTime - Date.parse(state.startedAt)),
     scope: { ...state.scope },
-    options: { ...state.options }
+    options: { ...state.options },
+    explanation: {
+      ...state.explanation,
+      nextAction: { ...state.explanation.nextAction }
+    }
   };
 }
 

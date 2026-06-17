@@ -188,7 +188,13 @@ function buildClaimOrder(input: {
     if (projectBlocker) {
       return { kind: "blocked", result: { kind: "blocked", ref: feedback.sourceReviewBlockRef, reason: projectBlocker } };
     }
-    return { kind: "feedback", feedbackId, feedback, taskId, result: { kind: "feedback", content: feedback.content } };
+    return {
+      kind: "feedback",
+      feedbackId,
+      feedback,
+      taskId,
+      result: { kind: "feedback", feedbackId, sourceReviewBlockRef: feedback.sourceReviewBlockRef, taskId, content: feedback.content }
+    };
   }
 
   const inProgressReview = input.graph.blockRefsInManifestOrder.find((ref) => {

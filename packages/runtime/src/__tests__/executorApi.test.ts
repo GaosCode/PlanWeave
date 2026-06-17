@@ -1,10 +1,21 @@
+import { chmod, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { ExecutorPreflightCheck, ExecutorPreflightResult } from "../autoRun/executorPreflightTypes.js";
+import { testExecutorProfile } from "../autoRun/executors.js";
 import { resolveTaskCanvasWorkspace } from "../desktop/index.js";
 import { writeJsonFile } from "../json.js";
 import { writeProjectGraph } from "../projectGraph/index.js";
 import { claimNext, explainBlock, getCurrentWork, getExecutionStatus, submitBlockResult, submitFeedback, submitReviewResult } from "../taskManager/index.js";
 import { basicManifest, createTestWorkspace, writePromptFiles, writeReport, writeReviewResult } from "./promptTestHelpers.js";
+
+function preflightCheck(result: ExecutorPreflightResult, check: ExecutorPreflightCheck["check"]): ExecutorPreflightCheck {
+  const item = result.checks.find((candidate) => candidate.check === check);
+  if (!item) {
+    throw new Error(`Missing executor preflight check '${check}'.`);
+  }
+  return item;
+}
 
 async function createFormalManualCanvasWorkspace() {
   const { root, init } = await createTestWorkspace();
@@ -39,6 +50,153 @@ async function createFormalManualCanvasWorkspace() {
 }
 
 describe("executor API helpers", () => {
+  it("preflights manual executors without requiring a command", async () => {
+    const { root } = await createTestWorkspace();
+
+    const result = await testExecutorProfile({ projectRoot: root, executorName: "manual" });
+
+    expect(result).toMatchObject({
+      name: "manual",
+      adapter: "manual",
+      ok: true,
+      checks: [
+        { check: "profile_exists", status: "passed" },
+        { check: "adapter_supported", status: "passed" },
+        { check: "cwd_resolved", status: "passed" },
+        { check: "command_started", status: "skipped" },
+        { check: "command_version", status: "skipped" }
+      ]
+    });
+  });
+
+  it("preflights executor commands with the lightweight version check", async () => {
+    const manifest = basicManifest();
+    manifest.executors = {
+      "node-version": {
+        adapter: "codex-exec",
+        command: process.execPath,
+        args: ["exec", "-"]
+      }
+    };
+    const { root } = await createTestWorkspace(manifest);
+
+    const result = await testExecutorProfile({ projectRoot: root, executorName: "node-version" });
+
+    expect(result.ok).toBe(true);
+    expect(result.adapter).toBe("codex-exec");
+    expect(preflightCheck(result, "command_started")).toMatchObject({
+      status: "passed",
+      command: process.execPath
+    });
+    expect(preflightCheck(result, "command_version")).toMatchObject({
+      status: "passed",
+      output: expect.stringContaining("v"),
+      exitCode: 0
+    });
+  });
+
+  it("reports missing executor profiles as a machine-readable failed check", async () => {
+    const { root } = await createTestWorkspace();
+
+    const result = await testExecutorProfile({ projectRoot: root, executorName: "missing-profile" });
+
+    expect(result).toMatchObject({
+      name: "missing-profile",
+      adapter: null,
+      ok: false
+    });
+    expect(preflightCheck(result, "profile_exists")).toMatchObject({
+      status: "failed",
+      message: "Executor profile 'missing-profile' does not exist."
+    });
+    expect(preflightCheck(result, "command_started")).toMatchObject({
+      status: "skipped"
+    });
+  });
+
+  it("reports executor command spawn failures without running agent prompts", async () => {
+    const manifest = basicManifest();
+    manifest.executors = {
+      missing: {
+        adapter: "codex-exec",
+        command: `planweave-missing-executor-${Date.now()}`,
+        args: ["exec", "-"]
+      }
+    };
+    const { root } = await createTestWorkspace(manifest);
+
+    const result = await testExecutorProfile({ projectRoot: root, executorName: "missing" });
+
+    expect(result.ok).toBe(false);
+    expect(preflightCheck(result, "command_started")).toMatchObject({
+      status: "failed",
+      command: manifest.executors.missing.command
+    });
+    expect(preflightCheck(result, "command_version")).toMatchObject({
+      status: "skipped"
+    });
+  });
+
+  it("reports executor version failures as a distinct failed check", async () => {
+    const { root } = await createTestWorkspace();
+    const command = join(root, "failing-version.js");
+    await writeFile(command, "#!/usr/bin/env node\nconsole.error('version probe failed');\nprocess.exit(7);\n", "utf8");
+    await chmod(command, 0o755);
+    const manifest = basicManifest();
+    manifest.executors = {
+      "bad-version": {
+        adapter: "codex-exec",
+        command,
+        args: ["exec", "-"]
+      }
+    };
+    const { root: projectRoot } = await createTestWorkspace(manifest);
+
+    const result = await testExecutorProfile({ projectRoot, executorName: "bad-version" });
+
+    expect(result.ok).toBe(false);
+    expect(preflightCheck(result, "command_started")).toMatchObject({
+      status: "passed",
+      command
+    });
+    expect(preflightCheck(result, "command_version")).toMatchObject({
+      status: "failed",
+      output: "version probe failed",
+      exitCode: 7
+    });
+  });
+
+  it("times out executor version checks quickly with a failed machine-readable check", async () => {
+    const { root } = await createTestWorkspace();
+    const command = join(root, "hanging-version.js");
+    await writeFile(command, "#!/usr/bin/env node\nsetTimeout(() => {}, 60_000);\n", "utf8");
+    await chmod(command, 0o755);
+    const manifest = basicManifest();
+    manifest.executors = {
+      "hanging-version": {
+        adapter: "codex-exec",
+        command,
+        args: ["exec", "-"]
+      }
+    };
+    const { root: projectRoot } = await createTestWorkspace(manifest);
+
+    const result = await testExecutorProfile({ projectRoot, executorName: "hanging-version", versionTimeoutMs: 50 });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe("Command version check timed out after 50ms.");
+    expect(preflightCheck(result, "command_started")).toMatchObject({
+      status: "passed",
+      command
+    });
+    expect(preflightCheck(result, "command_version")).toMatchObject({
+      status: "failed",
+      message: "Command version check timed out after 50ms.",
+      timedOut: true,
+      exitCode: 124
+    });
+  });
+
   it("previews claim-next without mutating state", async () => {
     const { root } = await createTestWorkspace(basicManifest({ parallel: true }));
 

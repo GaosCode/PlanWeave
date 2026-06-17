@@ -1,10 +1,14 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { access, chmod, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createOpencodeExecAdapter, getExecutionStatus, runAutoRunStep } from "../index.js";
 import { readJsonFile } from "../json.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
+
+afterEach(() => {
+  delete process.env.PLANWEAVE_HOME;
+});
 
 async function pathExists(path: string): Promise<boolean> {
   try {
@@ -63,7 +67,8 @@ describe("OpenCode executor", () => {
       projectRoot: init.workspace,
       executor: createOpencodeExecAdapter({
         projectRoot: init.workspace,
-        executorName: "fake-opencode-json"
+        executorName: "fake-opencode-json",
+        runtime: { tmuxEnabled: false }
       })
     }).finally(() => {
       stepSettled = true;
@@ -96,10 +101,12 @@ describe("OpenCode executor", () => {
     ]);
     await expect(readFile(join(runDir, "events.ndjson"), "utf8")).resolves.toContain('"sessionID":"ses_json_123"');
     await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.toBe("json report:true");
-    await expect(readJsonFile(join(runDir, "metadata.json"))).resolves.toMatchObject({
+    const metadata = await readJsonFile<Record<string, unknown>>(join(runDir, "metadata.json"));
+    expect(metadata).toMatchObject({
       agentSessionId: "ses_json_123",
       opencodeSessionId: "ses_json_123"
     });
+    expect(metadata.tmuxSessionId).toBeUndefined();
   });
 
   it("keeps direct OpenCode runs readable and reads review JSON from the result file", async () => {
@@ -149,7 +156,8 @@ describe("OpenCode executor", () => {
       projectRoot: init.workspace,
       executor: createOpencodeExecAdapter({
         projectRoot: init.workspace,
-        executorName: "fake-opencode-review"
+        executorName: "fake-opencode-review",
+        runtime: { tmuxEnabled: false }
       })
     });
 
@@ -218,10 +226,10 @@ describe("OpenCode executor", () => {
     );
     await chmod(join(root, "opencode"), 0o755);
 
-    await runAutoRunStep({ projectRoot: init.workspace });
-    await runAutoRunStep({ projectRoot: init.workspace });
-    await runAutoRunStep({ projectRoot: init.workspace });
-    const feedbackStep = await runAutoRunStep({ projectRoot: init.workspace });
+    await runAutoRunStep({ projectRoot: init.workspace, tmuxEnabled: false });
+    await runAutoRunStep({ projectRoot: init.workspace, tmuxEnabled: false });
+    await runAutoRunStep({ projectRoot: init.workspace, tmuxEnabled: false });
+    const feedbackStep = await runAutoRunStep({ projectRoot: init.workspace, tmuxEnabled: false });
 
     expect(feedbackStep).toMatchObject({
       kind: "blocked",
