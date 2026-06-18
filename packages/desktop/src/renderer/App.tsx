@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { type Edge, type ReactFlowInstance, useEdgesState, useNodesState } from "@xyflow/react";
 import type { DesktopPackageFileChangeEvent } from "@planweave-ai/runtime";
 import { bridge } from "./bridge";
@@ -33,6 +33,13 @@ import { CollapsedSidebarControls, RightPaletteSidebar } from "./AppSidebars";
 import { AppSettingsRoute } from "./AppSettingsRoute";
 import { AppErrorBanner } from "./components/AppErrorBanner";
 
+const leftSidebarWidthBounds = { min: 220, max: 520, defaultValue: 280 };
+const rightSidebarWidthBounds = { min: 240, max: 520, defaultValue: 300 };
+
+function clampSidebarWidth(width: number, bounds: { min: number; max: number }): number {
+  return Math.min(bounds.max, Math.max(bounds.min, Math.round(width)));
+}
+
 export function App() {
   const [settings, setSettings] = useState<DesktopUiSettings>(() => loadDesktopSettings());
   const language = settings.language;
@@ -40,6 +47,8 @@ export function App() {
   const [activeView, setActiveView] = useAppViewHistory("graph");
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(leftSidebarWidthBounds.defaultValue);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(rightSidebarWidthBounds.defaultValue);
   const [, setBlockInspectorOpen] = useState(false);
   const { agentDetectionRefreshing, agentDetections, executorOptions, refreshAgentDetections } = useDetectedAgents();
   const { refreshRuntimeTools, runtimeTools } = useRuntimeTools();
@@ -56,6 +65,38 @@ export function App() {
   }, []);
 
   useDesktopSettingsEffects(settings);
+
+  const startSidebarResize = useCallback(
+    (event: ReactPointerEvent, side: "left" | "right") => {
+      event.preventDefault();
+      const startX = event.clientX;
+      const startWidth = side === "left" ? leftSidebarWidth : rightSidebarWidth;
+      const bounds = side === "left" ? leftSidebarWidthBounds : rightSidebarWidthBounds;
+      const updateWidth = side === "left" ? setLeftSidebarWidth : setRightSidebarWidth;
+      const previousCursor = window.document.body.style.cursor;
+      const previousUserSelect = window.document.body.style.userSelect;
+
+      window.document.body.style.cursor = "col-resize";
+      window.document.body.style.userSelect = "none";
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        const delta = moveEvent.clientX - startX;
+        updateWidth(clampSidebarWidth(side === "left" ? startWidth + delta : startWidth - delta, bounds));
+      };
+      const stopResize = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", stopResize);
+        window.removeEventListener("pointercancel", stopResize);
+        window.document.body.style.cursor = previousCursor;
+        window.document.body.style.userSelect = previousUserSelect;
+      };
+
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", stopResize);
+      window.addEventListener("pointercancel", stopResize);
+    },
+    [leftSidebarWidth, rightSidebarWidth]
+  );
 
   const desktopProject = useDesktopProject({
     setError,
@@ -415,6 +456,7 @@ export function App() {
           handleTaskPanelSelect={handleTaskPanelSelect}
           loadProject={openProjectInSession}
           notificationItems={notificationItems}
+          onResizeStart={(event) => startSidebarResize(event, "left")}
           onToggleSidebar={() => setLeftSidebarCollapsed((current) => !current)}
           onTogglePinnedProject={handleTogglePinnedProject}
           pinnedProjectIds={pinnedProjectIds}
@@ -424,6 +466,7 @@ export function App() {
           selectedCanvasId={selectedCanvasId}
           selectedTaskPanelId={selectedTaskPanelId}
           setActiveView={setActiveView}
+          width={leftSidebarWidth}
           t={t}
         />
         <WorkspaceTabs
@@ -511,9 +554,11 @@ export function App() {
           <RightPaletteSidebar
             addPaletteComponent={addPaletteComponent}
             handlePaletteDragStart={handlePaletteDragStart}
+            onResizeStart={(event) => startSidebarResize(event, "right")}
             rightSidebarCollapsed={rightSidebarCollapsed}
             setRightSidebarCollapsed={setRightSidebarCollapsed}
             settings={settings}
+            width={rightSidebarWidth}
             t={t}
           />
         )}

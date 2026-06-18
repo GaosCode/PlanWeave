@@ -67,8 +67,8 @@ export function ProjectTreeItem({
   t
 }: ProjectTreeItemProps) {
   return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <div className="group/project grid min-w-0 grid-cols-[2rem_minmax(0,1fr)] items-center gap-1">
+    <div className="flex w-full min-w-0 max-w-full flex-col gap-1">
+      <div className="group/project grid w-full min-w-0 max-w-full grid-cols-[2rem_minmax(0,1fr)] items-center gap-1">
         <Button
           aria-label={isExpandedProject ? t("collapseProject") : t("expandProject")}
           className="relative z-10 size-7 shrink-0 border-0 bg-transparent text-muted-foreground shadow-none opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -84,7 +84,7 @@ export function ProjectTreeItem({
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <Button
-              className="h-auto min-w-0 flex-1 justify-start overflow-hidden whitespace-normal py-2 text-left"
+              className="h-auto w-full min-w-0 max-w-full flex-1 justify-start overflow-hidden whitespace-normal py-2 text-left"
               variant={isSelectedProject ? "secondary" : "ghost"}
               onClick={() => onProjectSelect(project)}
             >
@@ -119,7 +119,7 @@ export function ProjectTreeItem({
         </ContextMenu>
       </div>
       {isExpandedProject ? (
-        <div className="flex min-w-0 flex-col gap-1 pl-5">
+        <div className="flex w-full min-w-0 max-w-full flex-col gap-1 overflow-hidden pl-5">
           {project.taskCanvases.map((canvas) => {
             const isSelectedCanvas = selectedCanvasId === canvas.canvasId;
             const isGraphCanvas = isSelectedCanvas || (selectedCanvasId === null && isSelectedProject && project.taskCanvases.length === 1);

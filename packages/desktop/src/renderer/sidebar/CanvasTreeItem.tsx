@@ -57,15 +57,16 @@ export function CanvasTreeItem({
   const canvasLabel = canvas.name || t("taskCanvas");
 
   return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <div className="group/canvas grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1">
+    <div className="flex w-full min-w-0 max-w-full flex-col gap-1 overflow-hidden">
+      <div className="group/canvas grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)_2rem] items-center gap-1">
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <Button
               aria-label={firstDiagnostic ? `${canvasLabel} ${t("error")}: ${firstDiagnostic.message}` : undefined}
-              className="h-8 min-w-0 flex-1 justify-between gap-2 overflow-hidden px-2 text-xs"
+              aria-current={isGraphCanvas ? "page" : undefined}
+              className="h-8 w-full min-w-0 max-w-full flex-1 justify-between gap-2 overflow-hidden px-2 text-xs"
               title={firstDiagnostic ? firstDiagnostic.message : undefined}
-              variant={isGraphCanvas && selectedTaskPanelId === null ? "secondary" : "ghost"}
+              variant={isGraphCanvas ? "secondary" : "ghost"}
               onClick={() => onCanvasSelect(project, canvas.canvasId)}
             >
               <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
@@ -98,8 +99,10 @@ export function CanvasTreeItem({
           </ContextMenuContent>
         </ContextMenu>
         <Button
+          aria-expanded={isExpandedCanvas}
           aria-label={isExpandedCanvas ? t("collapseTaskCanvas") : t("expandTaskCanvas")}
           className="relative z-10 h-8 w-7 shrink-0 border-0 bg-transparent text-muted-foreground shadow-none opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          data-testid={`canvas-toggle-${canvas.canvasId}`}
           size="icon-sm"
           variant="ghost"
           onClick={(event) => {
@@ -111,12 +114,12 @@ export function CanvasTreeItem({
         </Button>
       </div>
       {isExpandedCanvas && graph ? (
-        <div className="flex min-w-0 flex-col gap-1 pl-4">
+        <div className="flex w-full min-w-0 max-w-full flex-col gap-1 overflow-hidden pl-4">
           {graph.tasks.map((task) => (
             <ContextMenu key={task.taskId}>
               <ContextMenuTrigger asChild>
                 <Button
-                  className="h-8 w-full min-w-0 justify-start gap-2 overflow-hidden rounded-md bg-muted/60 px-2 text-xs text-foreground hover:bg-muted"
+                  className="h-8 w-full min-w-0 max-w-full shrink justify-start gap-2 overflow-hidden rounded-md bg-muted/60 px-2 text-xs text-foreground hover:bg-muted"
                   variant={selectedTaskPanelId === task.taskId ? "secondary" : "ghost"}
                   onClick={() => handleTaskPanelSelect(task.taskId)}
                 >

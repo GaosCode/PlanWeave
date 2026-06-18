@@ -62,8 +62,8 @@ export function ProjectTree({
           <FolderOpenIcon data-icon="inline-start" />
         </Button>
       </div>
-      <ScrollArea className="min-h-0 flex-1 overflow-x-hidden">
-        <div className="flex min-w-0 flex-col gap-1 overflow-x-hidden pr-2">
+      <ScrollArea className="min-h-0 flex-1 overflow-x-hidden" viewportClassName="[&>div]:!block [&>div]:!min-w-0 [&>div]:!w-full">
+        <div className="flex w-full min-w-0 max-w-full flex-col gap-1 overflow-x-hidden pr-2">
           {projects.length === 0 ? <div className="text-sm text-muted-foreground">{t("projectMissing")}</div> : null}
           {projects.map((project) => {
             const isSelectedProject = selectedProject?.projectId === project.projectId;

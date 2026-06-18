@@ -230,6 +230,52 @@ describe("desktop renderer interface interactions", () => {
     expect(screen.getByText("1")).toBeInTheDocument();
   });
 
+  it("keeps the selected canvas collapse control available while a task is selected", async () => {
+    class ResizeObserverMock {
+      disconnect = vi.fn();
+      observe = vi.fn();
+      unobserve = vi.fn();
+    }
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+
+    render(
+      <ProjectSidebar
+        activeView="graph"
+        collapsed={false}
+        expandedProjectId={project.projectId}
+        graph={graph}
+        handleDeleteProject={vi.fn().mockResolvedValue(undefined)}
+        handleDeleteTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleDeleteTaskNode={vi.fn().mockResolvedValue(undefined)}
+        handleOpenProject={vi.fn().mockResolvedValue(undefined)}
+        handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
+        handleRevealProject={vi.fn().mockResolvedValue(undefined)}
+        handleTaskPanelSelect={vi.fn()}
+        loadProject={vi.fn().mockResolvedValue(undefined)}
+        notificationItems={[]}
+        onToggleSidebar={vi.fn()}
+        onTogglePinnedProject={vi.fn()}
+        pinnedProjectIds={new Set()}
+        projects={[project]}
+        resetLayout={vi.fn().mockResolvedValue(undefined)}
+        selectedProject={project}
+        selectedCanvasId="canvas-main"
+        selectedTaskPanelId="T-001"
+        setActiveView={vi.fn()}
+        t={t}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /Main canvas\s*2/ })).toHaveAttribute("data-variant", "secondary");
+    expect(screen.getByTestId("canvas-toggle-canvas-main")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /Implement runtime bridge\s*T-001/ })).toBeVisible();
+
+    await userEvent.click(screen.getByTestId("canvas-toggle-canvas-main"));
+
+    expect(screen.getByTestId("canvas-toggle-canvas-main")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: /Implement runtime bridge\s*T-001/ })).not.toBeInTheDocument();
+  });
+
   it("allows editing generated New Task drafts before confirmation", async () => {
     class ResizeObserverMock {
       disconnect = vi.fn();

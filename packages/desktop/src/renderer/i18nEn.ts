@@ -67,6 +67,7 @@ export const enCatalog = {
     removeProject: "Remove",
     collapseSidebar: "Collapse sidebar",
     expandSidebar: "Expand sidebar",
+    resizeSidebar: "Resize sidebar",
     collapseProject: "Collapse project",
     expandProject: "Expand project",
     collapseTaskCanvas: "Collapse task canvas",

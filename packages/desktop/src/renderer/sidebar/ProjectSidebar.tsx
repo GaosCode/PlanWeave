@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useState, type Dispatch, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
 import {
   PanelLeftCloseIcon,
   RotateCcwIcon
@@ -26,6 +26,7 @@ type ProjectSidebarProps = {
   handleTaskPanelSelect: (taskId: string | null) => void;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
   notificationItems: NotificationItem[];
+  onResizeStart?: (event: ReactPointerEvent) => void;
   onToggleSidebar: () => void;
   onTogglePinnedProject: (projectId: string) => void;
   pinnedProjectIds: Set<string>;
@@ -36,6 +37,7 @@ type ProjectSidebarProps = {
   selectedTaskPanelId: string | null;
   setActiveView: Dispatch<SetStateAction<AppView>>;
   t: ReturnType<typeof createTranslator>;
+  width?: number;
 };
 
 export function ProjectSidebar({
@@ -52,6 +54,7 @@ export function ProjectSidebar({
   handleTaskPanelSelect,
   loadProject,
   notificationItems,
+  onResizeStart,
   onToggleSidebar,
   onTogglePinnedProject,
   pinnedProjectIds,
@@ -61,7 +64,8 @@ export function ProjectSidebar({
   selectedCanvasId,
   selectedTaskPanelId,
   setActiveView,
-  t
+  t,
+  width = 280
 }: ProjectSidebarProps) {
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
   const [collapsedCanvasIds, setCollapsedCanvasIds] = useState<Set<string>>(() => new Set());
@@ -137,7 +141,7 @@ export function ProjectSidebar({
   };
 
   return (
-    <aside className="flex w-[280px] shrink-0 flex-col overflow-hidden border-r bg-sidebar">
+    <aside className="relative flex shrink-0 flex-col overflow-hidden border-r bg-sidebar" style={{ width }}>
       <div className="app-drag-region flex h-11 shrink-0 items-center border-b px-3 pl-[124px]">
         <div className="app-no-drag flex items-center gap-1">
           <Button size="icon-sm" variant="ghost" aria-label={t("collapseSidebar")} onClick={onToggleSidebar}>
@@ -184,6 +188,16 @@ export function ProjectSidebar({
           {t("resetLayout")}
         </Button>
       </div>
+      {onResizeStart ? (
+        <div
+          aria-label={t("resizeSidebar")}
+          aria-orientation="vertical"
+          className="app-no-drag absolute inset-y-0 right-0 z-20 w-1 cursor-col-resize bg-transparent transition-colors hover:bg-border active:bg-ring"
+          role="separator"
+          tabIndex={0}
+          onPointerDown={onResizeStart}
+        />
+      ) : null}
     </aside>
   );
 }

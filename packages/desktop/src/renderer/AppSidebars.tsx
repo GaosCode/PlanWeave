@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, PointerEvent as ReactPointerEvent, SetStateAction } from "react";
 import { PanelLeftOpenIcon, PanelRightCloseIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { createTranslator } from "./i18n";
@@ -10,27 +10,41 @@ type AppSidebarsProps = {
   addPaletteComponent: (type: PaletteDropComponent) => Promise<void>;
   handlePaletteDragStart: (event: React.DragEvent, type: PaletteDropComponent) => void;
   leftSidebarCollapsed: boolean;
+  onResizeStart?: (event: ReactPointerEvent) => void;
   rightSidebarCollapsed: boolean;
   setLeftSidebarCollapsed: Dispatch<SetStateAction<boolean>>;
   setRightSidebarCollapsed: Dispatch<SetStateAction<boolean>>;
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
+  width?: number;
 };
 
 export function RightPaletteSidebar({
   addPaletteComponent,
   handlePaletteDragStart,
+  onResizeStart,
   rightSidebarCollapsed,
   setRightSidebarCollapsed,
   settings,
-  t
-}: Pick<AppSidebarsProps, "addPaletteComponent" | "handlePaletteDragStart" | "rightSidebarCollapsed" | "setRightSidebarCollapsed" | "settings" | "t">) {
+  t,
+  width = 300
+}: Pick<AppSidebarsProps, "addPaletteComponent" | "handlePaletteDragStart" | "onResizeStart" | "rightSidebarCollapsed" | "setRightSidebarCollapsed" | "settings" | "t" | "width">) {
   if (rightSidebarCollapsed) {
     return null;
   }
 
   return (
-    <aside className="flex w-[300px] shrink-0 flex-col overflow-hidden border-l bg-background">
+    <aside className="relative flex shrink-0 flex-col overflow-hidden border-l bg-background" style={{ width }}>
+      {onResizeStart ? (
+        <div
+          aria-label={t("resizeSidebar")}
+          aria-orientation="vertical"
+          className="app-no-drag absolute inset-y-0 left-0 z-20 w-1 cursor-col-resize bg-transparent transition-colors hover:bg-border active:bg-ring"
+          role="separator"
+          tabIndex={0}
+          onPointerDown={onResizeStart}
+        />
+      ) : null}
       <div className="app-drag-region flex h-11 shrink-0 items-center justify-end border-b px-2">
         <Button className="app-no-drag" size="icon-sm" variant="ghost" aria-label={t("collapseSidebar")} onClick={() => setRightSidebarCollapsed(true)}>
           <PanelRightCloseIcon data-icon="inline-start" />

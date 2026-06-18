@@ -69,6 +69,7 @@ export const zhCnCatalog = {
     removeProject: "移除",
     collapseSidebar: "收起边栏",
     expandSidebar: "展开边栏",
+    resizeSidebar: "调整边栏宽度",
     collapseProject: "收起项目",
     expandProject: "展开项目",
     collapseTaskCanvas: "收起任务画布",
