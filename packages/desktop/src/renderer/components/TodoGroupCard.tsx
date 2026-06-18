@@ -66,11 +66,11 @@ export function TodoGroupCard({
   const StatusIcon = visual.icon;
 
   return (
-    <div className="relative flex min-h-80 flex-col gap-3 overflow-hidden rounded-xl border bg-card p-3 shadow-sm ring-1 ring-foreground/5">
+    <div className="relative flex min-h-80 flex-col gap-3 overflow-hidden rounded-md border border-border/80 bg-surface-raised p-3 text-text shadow-sm ring-1 ring-foreground/5">
       <div className={cn("absolute inset-y-0 left-0 w-1 bg-gradient-to-b", visual.accent)} />
       <div className="flex items-center justify-between gap-2 pl-2">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-lg border bg-background">
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/80 bg-surface-base">
             <StatusIcon className={cn("size-4 text-muted-foreground", status === "in_progress" ? "animate-spin" : null)} aria-hidden="true" />
           </div>
           <span className="truncate font-mono text-sm font-semibold">{status}</span>
@@ -79,7 +79,7 @@ export function TodoGroupCard({
       </div>
       {items.slice(0, 6).map((item) => (
         <button
-          className="group flex flex-col gap-2 rounded-lg border bg-background px-3 py-2.5 text-left text-xs shadow-xs transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="group flex flex-col gap-2 rounded-md border border-border/80 bg-surface-base px-3 py-2.5 text-left text-xs shadow-xs transition-colors hover:bg-surface-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           key={`${item.canvasId ?? "default"}:${item.ref}`}
           type="button"
           onClick={() => onSelect(item)}
@@ -91,7 +91,7 @@ export function TodoGroupCard({
             </div>
             <Badge className="shrink-0" variant={item.parallelSafe ? "secondary" : "destructive"}>{item.parallelSafe ? labels.parallelSafe : labels.parallelBlocked}</Badge>
           </div>
-          <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-md bg-muted/35 p-2 text-muted-foreground">
+          <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-md bg-surface-muted/70 p-2 text-muted-foreground">
             <span className="font-medium text-foreground/70">{labels.dependencyBlockers}</span>
             <span className="truncate font-mono">{item.dependencyBlockers.length ? item.dependencyBlockers.join(", ") : labels.noBlockers}</span>
             <span className="font-medium text-foreground/70">{labels.parallelSafety}</span>

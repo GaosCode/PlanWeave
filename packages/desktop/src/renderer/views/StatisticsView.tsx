@@ -38,12 +38,12 @@ export function StatisticsView({ handleOpenProject, selectedProject, statistics,
     }
     return (
       <div className="flex h-full items-center justify-center">
-        <section className="flex max-w-xl flex-col gap-4 rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
+        <section className="flex max-w-xl flex-col gap-4 rounded-md border border-border/80 bg-surface-raised p-5 text-text shadow-sm">
           <div className="flex flex-col gap-2">
-            <div className="text-base font-medium">{t("statisticsNoProjectTitle")}</div>
-            <div className="text-sm text-muted-foreground">{t("statisticsNoProjectDescription")}</div>
+            <div className="text-base font-medium text-text-strong">{t("statisticsNoProjectTitle")}</div>
+            <div className="text-sm text-text-muted">{t("statisticsNoProjectDescription")}</div>
           </div>
-          <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">{t("statisticsNoProjectMetrics")}</div>
+          <div className="rounded-md border border-border/80 bg-surface-muted/70 p-3 text-sm text-text-muted">{t("statisticsNoProjectMetrics")}</div>
           <Button className="w-fit" variant="outline" onClick={() => void handleOpenProject()}>
             <FolderOpenIcon data-icon="inline-start" />
             {t("openProject")}
@@ -59,7 +59,7 @@ export function StatisticsView({ handleOpenProject, selectedProject, statistics,
   return (
     <ScrollArea className="h-full">
       <div className="flex min-h-full flex-col gap-3 pr-3 pb-2">
-        <section className="animate-in fade-in slide-in-from-bottom-2 overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-sm duration-500">
+        <section className="animate-in fade-in slide-in-from-bottom-2 overflow-hidden rounded-md border border-border/80 bg-surface-raised text-text shadow-sm duration-500">
           <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,0.95fr)]">
             <div className="flex flex-col justify-between gap-7 p-6">
               <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.18em] text-muted-foreground uppercase">
@@ -84,7 +84,7 @@ export function StatisticsView({ handleOpenProject, selectedProject, statistics,
                 </div>
               </div>
             </div>
-            <div className="grid grid-cols-3 divide-x border-t bg-muted/30 lg:border-t-0 lg:border-l">
+            <div className="grid grid-cols-3 divide-x divide-border/80 border-t border-border/80 bg-surface-muted/70 lg:border-t-0 lg:border-l">
               <HeroStat
                 label={t("tasks")}
                 value={`${statistics.implementedTaskCount}/${statistics.taskTotal}`}
@@ -144,7 +144,7 @@ function MetricTile({
 }) {
   return (
     <div
-      className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm transition-shadow duration-500 hover:shadow-md"
+      className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-3 rounded-md border border-border/80 bg-surface-raised p-4 text-text shadow-sm transition-shadow duration-500 hover:shadow-md"
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className="flex items-center gap-2">

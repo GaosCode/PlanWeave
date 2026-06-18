@@ -104,18 +104,22 @@ export function GraphView({
   const currentCanvasName = selectedProject?.taskCanvases.find((canvas) => canvas.canvasId === selectedCanvasId)?.name ?? t("taskCanvas");
 
   return (
-    <div className="relative h-full min-h-0" data-graph-surface onDragOver={handleGraphDragOver} onDrop={handleGraphDrop}>
+    <div className="relative h-full min-h-0 bg-app-canvas text-text" data-graph-surface onDragOver={handleGraphDragOver} onDrop={handleGraphDrop}>
       {!graph ? (
         <div className="flex h-full items-center justify-center p-6">
-          <div className="flex max-w-md flex-col items-center gap-3 bg-background p-5 text-center">
-            <div className="flex items-center justify-center gap-2 text-sm font-semibold">
-              <FolderOpenIcon data-icon="inline-start" />
-              {t("noProject")}
+          <div className="flex max-w-[380px] flex-col gap-3 rounded-md border border-border/80 bg-surface-raised p-4 text-left shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border/80 bg-surface-muted text-text-muted">
+                <FolderOpenIcon className="size-4" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-text-strong">{t("noProject")}</div>
+                <div className="text-xs text-text-muted">{t("openProjectSecondaryHint")}</div>
+              </div>
             </div>
-            <div className="text-sm text-muted-foreground">{t("openProjectHint")}</div>
-            <div className="text-sm text-muted-foreground">{t("openProjectSecondaryHint")}</div>
-            <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">{t("exampleProjectHint")}</div>
-            <Button className="w-fit" variant="outline" onClick={handleOpenProject}>
+            <div className="text-sm leading-5 text-text-muted">{t("openProjectHint")}</div>
+            <div className="rounded-md border border-border/70 bg-surface-muted/70 px-3 py-2 text-xs text-text-muted">{t("exampleProjectHint")}</div>
+            <Button className="h-8 w-fit gap-2 border-border/80 bg-surface-base text-text hover:bg-surface-muted hover:text-text-strong" variant="outline" onClick={handleOpenProject}>
               <FolderOpenIcon data-icon="inline-start" />
               {t("openProject")}
             </Button>
@@ -142,19 +146,23 @@ export function GraphView({
           fitView
           fitViewOptions={{ maxZoom: 1 }}
         >
-          <Background />
+          <Background color="var(--border)" gap={24} />
           <Controls />
           <MiniMap pannable zoomable />
         </ReactFlow>
       )}
       {graph ? (
-        <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1 rounded-md border bg-background/95 px-2 py-1 text-sm shadow-sm">
-          <Button className="pointer-events-auto h-7 gap-1 px-2 text-xs" variant="ghost" onClick={() => setActiveView("canvas-map")}>
+        <div className="pointer-events-none absolute left-3 top-3 z-10 flex h-9 items-center overflow-hidden rounded-md border border-border/80 bg-surface-overlay/95 text-sm text-text shadow-sm">
+          <Button
+            className="pointer-events-auto h-full rounded-none border-0 px-2.5 text-xs text-text-muted shadow-none hover:bg-surface-muted hover:text-text-strong"
+            variant="ghost"
+            onClick={() => setActiveView("canvas-map")}
+          >
             <NetworkIcon data-icon="inline-start" />
             {t("canvasMap")}
           </Button>
-          <ChevronRightIcon className="size-4 text-muted-foreground" aria-hidden="true" />
-          <span className="max-w-[220px] truncate px-1 text-xs font-medium">{currentCanvasName}</span>
+          <ChevronRightIcon className="size-4 text-text-faint" aria-hidden="true" />
+          <span className="max-w-[220px] truncate border-l border-border/70 px-2 text-xs font-medium text-text-strong">{currentCanvasName}</span>
         </div>
       ) : null}
       <FloatingAutoRunControl

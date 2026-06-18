@@ -6,6 +6,7 @@ import type {
   DesktopPackageFileChangeEvent
 } from "@planweave-ai/runtime";
 import { autoRunChangedChannel, packageFileChangedChannel } from "../shared/ipcChannels.js";
+import { windowAppearanceInvokeChannels, type PlanWeaveWindowApi } from "../shared/windowAppearance.js";
 import { createDesktopBridgeInvokeApi } from "./bridgeInvocation.js";
 
 const invokeApi = createDesktopBridgeInvokeApi((channel, ...args) => ipcRenderer.invoke(channel, ...args));
@@ -32,6 +33,16 @@ const api: DesktopBridgeApi = {
 };
 
 contextBridge.exposeInMainWorld("planweave", api);
+
+const windowApi: PlanWeaveWindowApi = {
+  getWindowMaterialCapabilities: async () =>
+    ipcRenderer.invoke(windowAppearanceInvokeChannels.getWindowMaterialCapabilities),
+  setWindowMaterial: async (settings) => {
+    await ipcRenderer.invoke(windowAppearanceInvokeChannels.setWindowMaterial, settings);
+  }
+};
+
+contextBridge.exposeInMainWorld("planweaveWindow", windowApi);
 
 if (process.env.PLANWEAVE_DESKTOP_SMOKE === "1") {
   contextBridge.exposeInMainWorld("planweaveSmoke", {

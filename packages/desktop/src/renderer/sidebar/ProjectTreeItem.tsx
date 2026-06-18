@@ -68,10 +68,10 @@ export function ProjectTreeItem({
 }: ProjectTreeItemProps) {
   return (
     <div className="flex w-full min-w-0 max-w-full flex-col gap-1">
-      <div className="group/project grid w-full min-w-0 max-w-full grid-cols-[2rem_minmax(0,1fr)] items-center gap-1">
+      <div className="group/project grid w-full min-w-0 max-w-full grid-cols-[1.75rem_minmax(0,1fr)] items-center gap-1">
         <Button
           aria-label={isExpandedProject ? t("collapseProject") : t("expandProject")}
-          className="relative z-10 size-7 shrink-0 border-0 bg-transparent text-muted-foreground shadow-none opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          className="relative z-10 size-7 shrink-0 border-0 bg-transparent text-text-faint shadow-none opacity-100 hover:bg-surface-muted hover:text-text-strong focus-visible:ring-ring/40"
           size="icon-sm"
           variant="ghost"
           onClick={(event) => {
@@ -84,7 +84,7 @@ export function ProjectTreeItem({
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <Button
-              className="h-auto w-full min-w-0 max-w-full flex-1 justify-start overflow-hidden whitespace-normal py-2 text-left"
+              className="h-8 w-full min-w-0 max-w-full flex-1 justify-start overflow-hidden rounded-md px-2 text-left text-sm text-text-muted hover:bg-surface-muted hover:text-text-strong data-[variant=secondary]:border-state-selected/25 data-[variant=secondary]:bg-state-selected-surface data-[variant=secondary]:text-text-strong data-[variant=secondary]:shadow-sm [&_svg]:size-4"
               variant={isSelectedProject ? "secondary" : "ghost"}
               onClick={() => onProjectSelect(project)}
             >
@@ -119,7 +119,7 @@ export function ProjectTreeItem({
         </ContextMenu>
       </div>
       {isExpandedProject ? (
-        <div className="flex w-full min-w-0 max-w-full flex-col gap-1 overflow-hidden pl-5">
+        <div className="ml-3 flex w-[calc(100%-0.75rem)] min-w-0 max-w-full flex-col gap-1 overflow-hidden border-l border-border/60 pl-4">
           {project.taskCanvases.map((canvas) => {
             const isSelectedCanvas = selectedCanvasId === canvas.canvasId;
             const isGraphCanvas = isSelectedCanvas || (selectedCanvasId === null && isSelectedProject && project.taskCanvases.length === 1);

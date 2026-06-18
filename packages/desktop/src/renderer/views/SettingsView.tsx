@@ -79,7 +79,7 @@ export function SettingsView({
   };
 
   return (
-    <main className="flex h-full min-h-0 bg-background text-foreground">
+    <main className="flex h-full min-h-0 bg-app-canvas text-text">
       <SettingsNav section={section} setSection={setSection} onBackToApp={() => setActiveView("graph")} t={t} />
       <ScrollArea className="min-w-0 flex-1">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-12 py-10">

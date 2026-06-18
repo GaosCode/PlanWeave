@@ -15,10 +15,10 @@ export function CanvasNodeCard({ data }: NodeProps<CanvasFlowNode>) {
   return (
     <Card
       className={cn(
-        "w-[280px] border bg-card shadow-sm",
-        data.selected ? "border-primary ring-2 ring-primary/25" : "border-border",
-        hasDiagnostics || healthSeverity === "error" ? "border-destructive/70" : null,
-        !hasDiagnostics && healthSeverity === "warning" ? "border-amber-500/80" : null
+        "w-[280px] border bg-surface-raised text-text shadow-sm transition-[border-color,box-shadow] duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-standard)]",
+        data.selected ? "border-state-selected shadow-md ring-2 ring-state-selected/25" : "border-border/80",
+        hasDiagnostics || healthSeverity === "error" ? "border-state-failed/70 bg-state-failed-surface" : null,
+        !hasDiagnostics && healthSeverity === "warning" ? "border-state-warning/75 bg-state-warning-surface" : null
       )}
       size="sm"
       onClick={() => data.onSelect(data.canvas.canvasId)}
@@ -27,7 +27,7 @@ export function CanvasNodeCard({ data }: NodeProps<CanvasFlowNode>) {
       <Handle type="target" position={Position.Left} />
       <CardHeader className="min-h-12">
         <CardTitle className="flex min-w-0 items-center gap-2 text-sm">
-          <NetworkIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <NetworkIcon className="size-4 shrink-0 text-text-muted" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate">{data.canvas.title}</span>
           {hasDiagnostics ? (
             <Badge className="shrink-0 gap-1" variant="destructive">
@@ -43,11 +43,17 @@ export function CanvasNodeCard({ data }: NodeProps<CanvasFlowNode>) {
         </CardTitle>
       </CardHeader>
       <CardContent className="flex min-w-0 items-center justify-between gap-3">
-        <div className="min-w-0 text-xs text-muted-foreground">
+        <div className="min-w-0 text-xs text-text-muted">
           <div className="truncate">{data.canvas.canvasId}</div>
           <div className="truncate">{data.canvas.packageDir}</div>
         </div>
-        <Button size="icon-sm" variant="outline" aria-label={data.labels.open} onClick={() => data.onOpen(data.canvas.canvasId)}>
+        <Button
+          className="border-border/80 bg-surface-base text-text-muted hover:bg-surface-muted hover:text-text-strong"
+          size="icon-sm"
+          variant="outline"
+          aria-label={data.labels.open}
+          onClick={() => data.onOpen(data.canvas.canvasId)}
+        >
           <ArrowRightIcon data-icon="inline-start" />
         </Button>
       </CardContent>

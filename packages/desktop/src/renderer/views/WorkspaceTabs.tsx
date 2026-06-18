@@ -143,9 +143,9 @@ export function WorkspaceTabs(props: WorkspaceTabsProps) {
   })();
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col">
-      <div className="app-drag-region h-11 shrink-0 border-b bg-background" />
-      <div className={`min-h-0 flex-1 ${activeView === "graph" || activeView === "canvas-map" ? "" : "p-4"}`}>
+    <section className="flex min-w-0 flex-1 flex-col bg-app-shell text-text">
+      <div className="app-drag-region h-11 shrink-0 border-b border-border/80 bg-app-topbar" />
+      <div className={`min-h-0 flex-1 bg-app-canvas ${activeView === "graph" || activeView === "canvas-map" ? "" : "p-4"}`}>
         <div className="h-full min-h-0">
           {content}
         </div>

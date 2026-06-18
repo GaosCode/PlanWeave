@@ -47,7 +47,7 @@ export function AppSettingsRoute({
   updateSettings
 }: AppSettingsRouteProps) {
   return (
-    <div className="flex h-screen min-h-0 flex-col overflow-hidden bg-background text-foreground">
+    <div className="flex h-screen min-h-0 flex-col overflow-hidden bg-app-shell text-foreground">
       <WindowTitleBar t={t} />
       <SettingsView
         graph={graph}

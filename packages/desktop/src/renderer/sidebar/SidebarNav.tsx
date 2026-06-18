@@ -22,12 +22,14 @@ type SidebarNavProps = {
 
 export function SidebarNav({ activeView, canOpenCanvasMap, notificationItems, onSelectView, t }: SidebarNavProps) {
   const unreadNotificationCount = notificationItems.filter((item) => !item.read).length;
+  const navButtonClass =
+    "h-8 justify-start rounded-md px-2 text-text-muted hover:bg-surface-muted hover:text-text-strong disabled:text-text-faint data-[variant=secondary]:border-state-selected/25 data-[variant=secondary]:bg-state-selected-surface data-[variant=secondary]:text-text-strong data-[variant=secondary]:shadow-sm [&_svg]:size-4";
 
   return (
-    <nav className="flex flex-col gap-1 p-3 pt-1">
+    <nav className="flex flex-col gap-1 border-b border-border/60 p-3 pt-2">
       <Button
         data-testid="sidebar-new-task"
-        className="justify-start"
+        className={navButtonClass}
         variant={activeView === "new-task" ? "secondary" : "ghost"}
         onClick={() => onSelectView("new-task")}
       >
@@ -36,7 +38,7 @@ export function SidebarNav({ activeView, canOpenCanvasMap, notificationItems, on
       </Button>
       <Button
         data-testid="sidebar-statistics"
-        className="justify-start"
+        className={navButtonClass}
         variant={activeView === "statistics" ? "secondary" : "ghost"}
         onClick={() => onSelectView("statistics")}
       >
@@ -45,7 +47,7 @@ export function SidebarNav({ activeView, canOpenCanvasMap, notificationItems, on
       </Button>
       <Button
         data-testid="sidebar-todo"
-        className="justify-start"
+        className={navButtonClass}
         variant={activeView === "todo" ? "secondary" : "ghost"}
         onClick={() => onSelectView("todo")}
       >
@@ -54,7 +56,7 @@ export function SidebarNav({ activeView, canOpenCanvasMap, notificationItems, on
       </Button>
       <Button
         data-testid="sidebar-canvas-map"
-        className="justify-start"
+        className={navButtonClass}
         disabled={!canOpenCanvasMap}
         variant={activeView === "canvas-map" ? "secondary" : "ghost"}
         onClick={() => onSelectView("canvas-map")}
@@ -64,7 +66,7 @@ export function SidebarNav({ activeView, canOpenCanvasMap, notificationItems, on
       </Button>
       <Button
         data-testid="sidebar-search"
-        className="justify-start"
+        className={navButtonClass}
         variant={activeView === "search" ? "secondary" : "ghost"}
         onClick={() => onSelectView("search")}
       >
@@ -73,7 +75,7 @@ export function SidebarNav({ activeView, canOpenCanvasMap, notificationItems, on
       </Button>
       <Button
         data-testid="sidebar-notifications"
-        className="justify-start"
+        className={navButtonClass}
         variant={activeView === "notifications" ? "secondary" : "ghost"}
         onClick={() => onSelectView("notifications")}
       >
@@ -83,7 +85,7 @@ export function SidebarNav({ activeView, canOpenCanvasMap, notificationItems, on
       </Button>
       <Button
         data-testid="sidebar-settings"
-        className="justify-start"
+        className={navButtonClass}
         variant={activeView === "settings" ? "secondary" : "ghost"}
         onClick={() => onSelectView("settings")}
       >

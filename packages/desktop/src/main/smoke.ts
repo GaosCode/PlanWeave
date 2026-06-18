@@ -126,7 +126,7 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
         }
         target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, buttons: 1 }));
         target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, buttons: 0 }));
-        target.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+        target.click();
         await wait(120);
       };
       const clickByTestId = async (testId) => {
@@ -203,6 +203,19 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
         }
         throw new Error("Mini Auto Run record action did not invoke revealPathInFinder with " + expectedPath + ". Last signal: " + smoke.getLastRevealPath());
       };
+      const waitForWindowMaterialState = async () => {
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          const rootHasMaterial = document.documentElement.dataset.windowMaterial === "true";
+          const shell = document.querySelector(".bg-app-shell");
+          const backgroundColor = shell instanceof HTMLElement ? window.getComputedStyle(shell).backgroundColor : "";
+          const shellHasAlpha = /(?:rgba|rgb|oklch|color)\\([^)]*(?:,\\s*0\\.|\\/\\s*0\\.)/.test(backgroundColor);
+          if (rootHasMaterial && shellHasAlpha) {
+            return backgroundColor;
+          }
+          await wait(100);
+        }
+        throw new Error("Window material did not apply a root state and alpha shell surface.");
+      };
 
       const covered = [];
       await clickByTestId("sidebar-new-task");
@@ -224,8 +237,9 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       await waitForText("Implemented Ratio");
       covered.push("open-statistics");
       await clickByTestId("sidebar-search");
+      await waitForSelector('[data-testid="search-query-input"]', "search input");
       const searchInput = document.querySelector('[data-testid="search-query-input"]');
-      if (!searchInput) {
+      if (!(searchInput instanceof HTMLElement)) {
         throw new Error("Search input was not visible.");
       }
       dispatchTextInput(searchInput, "UI Smoke Task");
@@ -237,6 +251,13 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       await clickByTestId("sidebar-settings");
       await waitForSelector('[data-testid="settings-back-to-app"]', "settings back button");
       await waitForSelector('[data-testid="settings-section-general"]', "general settings section");
+      const materialSwitch = document.querySelector('[role="switch"][aria-label="增强窗口材质"], [role="switch"][aria-label="Enhanced window material"]');
+      if (!(materialSwitch instanceof HTMLElement)) {
+        throw new Error("Enhanced window material switch was not visible.");
+      }
+      await clickElement(materialSwitch);
+      await waitForWindowMaterialState();
+      covered.push("enable-window-material");
       await clickByTestId("settings-nav-components");
       await waitForSelector('[data-testid="settings-section-components"]', "component settings section");
       covered.push("open-settings-with-component-settings");

@@ -2,6 +2,7 @@ import type { DesktopAutoRunEvent, DesktopPackageFileChangeEvent, DesktopProject
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeInvokeApi } from "../preload/bridgeInvocation";
 import { autoRunChangedChannel, desktopBridgeInvokeChannels, packageFileChangedChannel } from "../shared/ipcChannels";
+import { windowAppearanceInvokeChannels } from "../shared/windowAppearance";
 
 type IpcRendererListener = (event: unknown, payload: unknown) => void;
 
@@ -161,6 +162,38 @@ describe("preload bridge invocation", () => {
     expect(callback).toHaveBeenCalledWith(event);
     unsubscribe();
     expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(autoRunChangedChannel, listener);
+  });
+
+  it("exposes the window appearance API through a separate preload surface", async () => {
+    electronMock.ipcRenderer.invoke.mockImplementation(async (channel: string) => {
+      if (channel === windowAppearanceInvokeChannels.getWindowMaterialCapabilities) {
+        return {
+          platform: "darwin",
+          reason: "supported",
+          supported: true
+        };
+      }
+      return undefined;
+    });
+
+    await import("../preload/preload");
+    const api = electronMock.exposed.get("planweaveWindow") as {
+      getWindowMaterialCapabilities(): Promise<{ platform: string; reason: "supported"; supported: boolean }>;
+      setWindowMaterial(settings: { enabled: boolean; appearance: "system" | "light" | "dark" }): Promise<void>;
+    };
+
+    await expect(api.getWindowMaterialCapabilities()).resolves.toEqual({
+      platform: "darwin",
+      reason: "supported",
+      supported: true
+    });
+    await api.setWindowMaterial({ appearance: "dark", enabled: true });
+
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(windowAppearanceInvokeChannels.getWindowMaterialCapabilities);
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(windowAppearanceInvokeChannels.setWindowMaterial, {
+      appearance: "dark",
+      enabled: true
+    });
   });
 
   it("exposes a smoke-only reveal path signal after the reveal IPC resolves", async () => {

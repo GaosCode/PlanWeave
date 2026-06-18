@@ -13,17 +13,17 @@ type TaskNodeStatusVisual = {
 };
 
 const cardClassNames: Record<TaskNodeStatusTone, string> = {
-  neutral: "border-border bg-white shadow-sm dark:bg-card",
-  running: "border-sky-200 bg-sky-50 shadow-sky-950/10 dark:border-sky-700/60 dark:bg-sky-950/35",
-  complete: "border-emerald-200 bg-emerald-50 shadow-emerald-950/10 dark:border-emerald-700/60 dark:bg-emerald-950/35",
-  problem: "border-rose-200 bg-rose-50 shadow-rose-950/10 dark:border-rose-700/60 dark:bg-rose-950/35"
+  neutral: "border-border/80 bg-surface-raised text-text shadow-sm",
+  running: "border-state-running/55 bg-state-running-surface text-text-strong shadow-sm ring-1 ring-state-running/15",
+  complete: "border-state-success/55 bg-state-success-surface text-text-strong shadow-sm ring-1 ring-state-success/15",
+  problem: "border-state-failed/60 bg-state-failed-surface text-text-strong shadow-sm ring-1 ring-state-failed/15"
 };
 
 const markerClassNames: Record<TaskNodeStatusTone, string> = {
-  neutral: "border-foreground/15 bg-transparent text-muted-foreground dark:border-foreground/20",
-  running: "border-sky-300 bg-transparent text-sky-700 dark:border-sky-500/60 dark:text-sky-300",
-  complete: "border-emerald-300 bg-transparent text-emerald-700 dark:border-emerald-500/60 dark:text-emerald-300",
-  problem: "border-rose-300 bg-transparent text-rose-700 dark:border-rose-500/60 dark:text-rose-300"
+  neutral: "border-border/80 bg-surface-muted text-text-muted",
+  running: "border-state-running/45 bg-state-running-surface text-state-running",
+  complete: "border-state-success/45 bg-state-success-surface text-state-success",
+  problem: "border-state-failed/50 bg-state-failed-surface text-state-failed"
 };
 
 export function taskNodeStatusVisual(status: string, hasException: boolean): TaskNodeStatusVisual {

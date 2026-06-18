@@ -16,8 +16,8 @@ export function SettingsAgentsSection({ agentDetectionRefreshing, agents, refres
   return (
     <section data-testid="settings-section-agents" className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-normal">{t("settingsAgents")}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t("settingsAgentsHint")}</p>
+        <h1 className="text-2xl font-semibold tracking-normal text-text-strong">{t("settingsAgents")}</h1>
+        <p className="mt-1 text-sm text-text-muted">{t("settingsAgentsHint")}</p>
       </div>
       <AgentSettingsPanel
         agentDetectionRefreshing={agentDetectionRefreshing}

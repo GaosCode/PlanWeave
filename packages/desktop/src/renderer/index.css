@@ -16,6 +16,33 @@
     --color-sidebar-primary: var(--sidebar-primary);
     --color-sidebar-foreground: var(--sidebar-foreground);
     --color-sidebar: var(--sidebar);
+    --color-app-shell: var(--app-shell);
+    --color-app-sidebar: var(--app-sidebar);
+    --color-app-topbar: var(--app-topbar);
+    --color-app-canvas: var(--app-canvas);
+    --color-app-panel: var(--app-panel);
+    --color-surface-base: var(--surface-base);
+    --color-surface-muted: var(--surface-muted);
+    --color-surface-raised: var(--surface-raised);
+    --color-surface-overlay: var(--surface-overlay);
+    --color-text-strong: var(--text-strong);
+    --color-text: var(--text);
+    --color-text-muted: var(--text-muted);
+    --color-text-faint: var(--text-faint);
+    --color-state-selected: var(--state-selected);
+    --color-state-selected-surface: var(--state-selected-surface);
+    --color-state-running: var(--state-running);
+    --color-state-running-surface: var(--state-running-surface);
+    --color-state-blocked: var(--state-blocked);
+    --color-state-blocked-surface: var(--state-blocked-surface);
+    --color-state-failed: var(--state-failed);
+    --color-state-failed-surface: var(--state-failed-surface);
+    --color-state-warning: var(--state-warning);
+    --color-state-warning-surface: var(--state-warning-surface);
+    --color-state-success: var(--state-success);
+    --color-state-success-surface: var(--state-success-surface);
+    --color-state-dirty: var(--state-dirty);
+    --color-state-dirty-surface: var(--state-dirty-surface);
     --color-chart-5: var(--chart-5);
     --color-chart-4: var(--chart-4);
     --color-chart-3: var(--chart-3);
@@ -81,6 +108,42 @@
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.708 0 0);
+    --app-shell: oklch(0.973 0.006 96);
+    --app-sidebar: oklch(0.955 0.008 255);
+    --app-topbar: oklch(0.982 0.004 106);
+    --app-canvas: oklch(0.965 0.007 120);
+    --app-panel: oklch(0.99 0.002 106);
+    --app-shell-material: oklch(0.973 0.006 96 / 72%);
+    --app-sidebar-material: oklch(0.955 0.008 255 / 84%);
+    --app-topbar-material: oklch(0.982 0.004 106 / 72%);
+    --app-panel-material: oklch(0.99 0.002 106 / 86%);
+    --surface-base: oklch(0.99 0.002 106);
+    --surface-muted: oklch(0.952 0.005 248);
+    --surface-raised: oklch(1 0 0);
+    --surface-overlay: oklch(0.985 0.004 250);
+    --text-strong: oklch(0.16 0.006 248);
+    --text: oklch(0.28 0.01 248);
+    --text-muted: oklch(0.49 0.014 248);
+    --text-faint: oklch(0.67 0.012 248);
+    --state-selected: oklch(0.58 0.14 250);
+    --state-selected-surface: oklch(0.94 0.035 250);
+    --state-running: oklch(0.63 0.13 195);
+    --state-running-surface: oklch(0.94 0.04 195);
+    --state-blocked: oklch(0.67 0.13 72);
+    --state-blocked-surface: oklch(0.95 0.045 72);
+    --state-failed: oklch(0.58 0.2 28);
+    --state-failed-surface: oklch(0.94 0.05 28);
+    --state-warning: oklch(0.75 0.16 88);
+    --state-warning-surface: oklch(0.96 0.055 88);
+    --state-success: oklch(0.61 0.14 145);
+    --state-success-surface: oklch(0.94 0.045 145);
+    --state-dirty: oklch(0.66 0.15 52);
+    --state-dirty-surface: oklch(0.95 0.05 52);
+    --motion-duration-fast: 90ms;
+    --motion-duration-base: 140ms;
+    --motion-duration-panel: 180ms;
+    --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --motion-ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .dark {
@@ -115,6 +178,37 @@
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
+    --app-shell: oklch(0.18 0.006 80);
+    --app-sidebar: oklch(0.205 0.008 250);
+    --app-topbar: oklch(0.215 0.006 80);
+    --app-canvas: oklch(0.16 0.008 120);
+    --app-panel: oklch(0.225 0.006 80);
+    --app-shell-material: oklch(0.18 0.006 80 / 72%);
+    --app-sidebar-material: oklch(0.205 0.008 250 / 84%);
+    --app-topbar-material: oklch(0.215 0.006 80 / 72%);
+    --app-panel-material: oklch(0.225 0.006 80 / 86%);
+    --surface-base: oklch(0.205 0.006 80);
+    --surface-muted: oklch(0.265 0.008 248);
+    --surface-raised: oklch(0.245 0.007 80);
+    --surface-overlay: oklch(0.28 0.008 248);
+    --text-strong: oklch(0.96 0.004 100);
+    --text: oklch(0.86 0.006 100);
+    --text-muted: oklch(0.68 0.008 100);
+    --text-faint: oklch(0.5 0.01 100);
+    --state-selected: oklch(0.72 0.13 250);
+    --state-selected-surface: oklch(0.32 0.055 250);
+    --state-running: oklch(0.72 0.12 195);
+    --state-running-surface: oklch(0.31 0.05 195);
+    --state-blocked: oklch(0.75 0.13 72);
+    --state-blocked-surface: oklch(0.32 0.055 72);
+    --state-failed: oklch(0.72 0.17 28);
+    --state-failed-surface: oklch(0.32 0.065 28);
+    --state-warning: oklch(0.82 0.15 88);
+    --state-warning-surface: oklch(0.34 0.06 88);
+    --state-success: oklch(0.72 0.13 145);
+    --state-success-surface: oklch(0.32 0.055 145);
+    --state-dirty: oklch(0.76 0.14 52);
+    --state-dirty-surface: oklch(0.32 0.06 52);
 }
 
 @layer base {
@@ -138,6 +232,28 @@
     }
 }
 
+html[data-window-material="true"] {
+  --app-shell: var(--app-shell-material);
+  --app-sidebar: var(--app-sidebar-material);
+  --app-topbar: var(--app-topbar-material);
+  --app-panel: var(--app-panel-material);
+}
+
+html[data-window-material="true"],
+html[data-window-material="true"] body,
+html[data-window-material="true"] #root {
+  background: transparent;
+}
+
+html[data-reduced-motion="true"] *,
+html[data-reduced-motion="true"] *::before,
+html[data-reduced-motion="true"] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 1ms !important;
+}
+
 .app-drag-region {
   -webkit-app-region: drag;
 }
@@ -146,43 +262,59 @@
   -webkit-app-region: no-drag;
 }
 
-.dark .react-flow__controls {
-  background: var(--card);
+.react-flow {
+  background: var(--app-canvas);
+}
+
+.react-flow__controls {
+  overflow: hidden;
+  background: var(--surface-overlay);
   border: 1px solid var(--border);
-  box-shadow: 0 12px 30px oklch(0 0 0 / 35%);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 28px oklch(0 0 0 / 12%);
 }
 
-.dark .react-flow__controls-button {
-  background: var(--card);
+.react-flow__controls-button {
+  width: 30px;
+  height: 30px;
+  background: var(--surface-overlay);
   border-bottom: 1px solid var(--border);
-  color: var(--foreground);
+  color: var(--text);
 }
 
-.dark .react-flow__controls-button:hover {
-  background: var(--muted);
+.react-flow__controls-button:hover {
+  background: var(--surface-muted);
+  color: var(--text-strong);
 }
 
-.dark .react-flow__controls-button svg {
-  color: var(--foreground);
+.react-flow__controls-button svg {
+  color: currentColor;
   fill: none;
   stroke: currentColor;
 }
 
-.dark .react-flow__controls-button:disabled svg {
-  color: var(--muted-foreground);
+.react-flow__controls-button:disabled svg {
+  color: var(--text-faint);
 }
 
-.dark .react-flow__minimap {
-  background: var(--card);
+.react-flow__minimap {
+  overflow: hidden;
+  background: var(--surface-overlay);
   border: 1px solid var(--border);
-  box-shadow: 0 12px 30px oklch(0 0 0 / 30%);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 28px oklch(0 0 0 / 10%);
 }
 
-.dark .react-flow__minimap-mask {
-  fill: var(--muted);
-  opacity: 0.65;
+.react-flow__minimap-mask {
+  fill: var(--surface-muted);
+  opacity: 0.72;
 }
 
-.dark .react-flow__minimap-node {
-  fill: var(--muted-foreground);
+.react-flow__minimap-node {
+  fill: var(--text-faint);
+}
+
+.dark .react-flow__controls,
+.dark .react-flow__minimap {
+  box-shadow: 0 14px 32px oklch(0 0 0 / 32%);
 }

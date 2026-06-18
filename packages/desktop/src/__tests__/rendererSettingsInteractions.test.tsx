@@ -1,13 +1,13 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "../renderer/components/AgentSettingsPanel";
 import { SettingsView } from "../renderer/views/SettingsView";
 import { createTranslator } from "../renderer/i18n";
-import { defaultDesktopSettings } from "../renderer/settings";
+import { defaultDesktopSettings, desktopSettingsKey, loadDesktopSettings } from "../renderer/settings";
 import type { DesktopUiSettings } from "../renderer/types";
 import type { DesktopProjectSummary } from "@planweave-ai/runtime";
 
@@ -15,6 +15,7 @@ const settings: DesktopUiSettings = {
   runtimePath: "/tmp/project",
   defaultExecutor: "",
   appearance: "system",
+  reducedMotion: false,
   language: "en",
   readNotificationIds: [],
   notifications: {
@@ -40,6 +41,9 @@ const settings: DesktopUiSettings = {
   },
   execution: {
     tmuxMonitoring: true
+  },
+  windowMaterial: {
+    enabled: false
   },
   agents: {
     codex: {
@@ -92,8 +96,36 @@ function stubLayoutApis() {
   Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
 }
 
+function stubLocalStorage() {
+  const values = new Map<string, string>();
+  const storage: Storage = {
+    get length() {
+      return values.size;
+    },
+    clear: vi.fn(() => values.clear()),
+    getItem: vi.fn((key: string) => values.get(key) ?? null),
+    key: vi.fn((index: number) => Array.from(values.keys())[index] ?? null),
+    removeItem: vi.fn((key: string) => {
+      values.delete(key);
+    }),
+    setItem: vi.fn((key: string, value: string) => {
+      values.set(key, value);
+    })
+  };
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: storage
+  });
+}
+
+beforeEach(() => {
+  stubLocalStorage();
+});
+
 afterEach(() => {
   cleanup();
+  Reflect.deleteProperty(window, "localStorage");
+  Reflect.deleteProperty(window, "planweaveWindow");
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -101,6 +133,50 @@ afterEach(() => {
 describe("desktop renderer settings interactions", () => {
   it("defaults new task cards to implementation blocks only", () => {
     expect(defaultDesktopSettings.palette.defaultBlockSet).toEqual(["implementation"]);
+  });
+
+  it("falls back to defaults for invalid stored appearance and window material settings", () => {
+    window.localStorage.setItem(
+      desktopSettingsKey,
+      JSON.stringify({
+        appearance: "foo",
+        reducedMotion: "yes",
+        language: "en",
+        windowMaterial: {
+          enabled: "yes"
+        }
+      })
+    );
+
+    expect(loadDesktopSettings()).toMatchObject({
+      appearance: "system",
+      reducedMotion: false,
+      language: "en",
+      windowMaterial: {
+        enabled: false
+      }
+    });
+  });
+
+  it("keeps valid stored appearance and window material settings", () => {
+    window.localStorage.setItem(
+      desktopSettingsKey,
+      JSON.stringify({
+        appearance: "dark",
+        reducedMotion: true,
+        windowMaterial: {
+          enabled: true
+        }
+      })
+    );
+
+    expect(loadDesktopSettings()).toMatchObject({
+      appearance: "dark",
+      reducedMotion: true,
+      windowMaterial: {
+        enabled: true
+      }
+    });
   });
 
   it("renders the interface language setting as a dropdown select", async () => {
@@ -129,6 +205,167 @@ describe("desktop renderer settings interactions", () => {
     await userEvent.click(screen.getByRole("option", { name: "English" }));
 
     expect(updateSettings).toHaveBeenCalledWith({ language: "en" });
+  });
+
+  it("lets users choose system, light, and dark appearance modes", async () => {
+    stubLayoutApis();
+    const updateSettings = vi.fn();
+    const user = userEvent.setup();
+
+    const { rerender } = render(
+      <SettingsView
+        agentDetectionRefreshing={false}
+        agents={[]}
+        graph={null}
+        language="en"
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
+        runtimeTools={{ tmux: { available: true, command: "tmux" } }}
+        projects={[]}
+        setActiveView={vi.fn()}
+        settings={settings}
+        t={createTranslator("en")}
+        updateSettings={updateSettings}
+      />
+    );
+
+    expect(screen.queryByRole("switch", { name: "Appearance mode" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "Appearance mode" }));
+    await user.click(screen.getByRole("option", { name: "Light" }));
+    expect(updateSettings).toHaveBeenCalledWith({ appearance: "light" });
+
+    rerender(
+      <SettingsView
+        agentDetectionRefreshing={false}
+        agents={[]}
+        graph={null}
+        language="en"
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
+        runtimeTools={{ tmux: { available: true, command: "tmux" } }}
+        projects={[]}
+        setActiveView={vi.fn()}
+        settings={{ ...settings, appearance: "light" }}
+        t={createTranslator("en")}
+        updateSettings={updateSettings}
+      />
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Appearance mode" }));
+    await user.click(screen.getByRole("option", { name: "Dark" }));
+    expect(updateSettings).toHaveBeenCalledWith({ appearance: "dark" });
+
+    rerender(
+      <SettingsView
+        agentDetectionRefreshing={false}
+        agents={[]}
+        graph={null}
+        language="en"
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
+        runtimeTools={{ tmux: { available: true, command: "tmux" } }}
+        projects={[]}
+        setActiveView={vi.fn()}
+        settings={{ ...settings, appearance: "dark" }}
+        t={createTranslator("en")}
+        updateSettings={updateSettings}
+      />
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Appearance mode" }));
+    await user.click(screen.getByRole("option", { name: "System" }));
+    expect(updateSettings).toHaveBeenCalledWith({ appearance: "system" });
+  });
+
+  it("lets users toggle enhanced window material", async () => {
+    stubLayoutApis();
+    const updateSettings = vi.fn();
+
+    render(
+      <SettingsView
+        agentDetectionRefreshing={false}
+        agents={[]}
+        graph={null}
+        language="en"
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
+        runtimeTools={{ tmux: { available: true, command: "tmux" } }}
+        projects={[]}
+        setActiveView={vi.fn()}
+        settings={settings}
+        t={createTranslator("en")}
+        updateSettings={updateSettings}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("switch", { name: "Enhanced window material" }));
+
+    expect(updateSettings).toHaveBeenCalledWith({ windowMaterial: { enabled: true } });
+  });
+
+  it("disables enhanced window material when native material is unsupported", async () => {
+    stubLayoutApis();
+    const updateSettings = vi.fn();
+    Object.defineProperty(window, "planweaveWindow", {
+      configurable: true,
+      value: {
+        getWindowMaterialCapabilities: vi.fn().mockResolvedValue({
+          platform: "linux",
+          reason: "unsupported-platform",
+          supported: false
+        }),
+        setWindowMaterial: vi.fn()
+      }
+    });
+
+    render(
+      <SettingsView
+        agentDetectionRefreshing={false}
+        agents={[]}
+        graph={null}
+        language="en"
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
+        runtimeTools={{ tmux: { available: true, command: "tmux" } }}
+        projects={[]}
+        setActiveView={vi.fn()}
+        settings={{ ...settings, windowMaterial: { enabled: true } }}
+        t={createTranslator("en")}
+        updateSettings={updateSettings}
+      />
+    );
+
+    const switchControl = screen.getByRole("switch", { name: "Enhanced window material" });
+
+    await waitFor(() => expect(switchControl).toBeDisabled());
+    expect(switchControl).not.toBeChecked();
+    expect(screen.getByText("Native window material is not supported on this platform, so PlanWeave will keep solid surfaces.")).toBeInTheDocument();
+  });
+
+  it("lets users toggle reduced motion", async () => {
+    stubLayoutApis();
+    const updateSettings = vi.fn();
+
+    render(
+      <SettingsView
+        agentDetectionRefreshing={false}
+        agents={[]}
+        graph={null}
+        language="en"
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
+        runtimeTools={{ tmux: { available: true, command: "tmux" } }}
+        projects={[]}
+        setActiveView={vi.fn()}
+        settings={settings}
+        t={createTranslator("en")}
+        updateSettings={updateSettings}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("switch", { name: "Reduced motion" }));
+
+    expect(updateSettings).toHaveBeenCalledWith({ reducedMotion: true });
   });
 
   it("only enables tmux monitoring when the runtime tool is detected", async () => {

@@ -36,7 +36,7 @@ export function SearchResultList({
         const target = searchNavigationTarget(result);
         return (
           <button
-            className="flex flex-col gap-1 rounded-lg border p-3 text-left hover:bg-muted/50"
+            className="flex flex-col gap-1 rounded-md border border-border/80 bg-surface-raised p-3 text-left text-text shadow-sm transition-colors hover:bg-surface-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             key={`${result.canvasId ?? "project"}-${result.kind}-${result.ref}`}
             type="button"
             onClick={() => void onOpenResult(result)}

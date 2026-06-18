@@ -432,7 +432,7 @@ export function App() {
 
   if (activeView === "settings") {
     return (
-      <div className="relative h-screen min-h-0 overflow-hidden bg-background text-foreground">
+      <div className="relative h-screen min-h-0 overflow-hidden bg-app-shell text-foreground">
         <AppSettingsRoute {...settingsRouteProps} />
         <AppErrorBanner message={error} onDismiss={() => setError(null)} t={t} />
       </div>
@@ -440,7 +440,7 @@ export function App() {
   }
 
   return (
-    <div className="relative h-screen min-h-0 overflow-hidden bg-background text-foreground">
+    <div className="relative h-screen min-h-0 overflow-hidden bg-app-shell text-foreground">
       <main className="relative flex h-full min-h-0 overflow-hidden">
         <ProjectSidebar
           activeView={activeView}

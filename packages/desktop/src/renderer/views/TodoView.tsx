@@ -58,9 +58,9 @@ export function TodoView({ executionPlan, handleBlockSelect, t, todoGroups }: To
   return (
     <ScrollArea className="h-full">
       <div className="flex min-h-full flex-col gap-3 pr-3 pb-2">
-        <section className="animate-in fade-in slide-in-from-bottom-2 overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-sm duration-500">
+        <section className="animate-in fade-in slide-in-from-bottom-2 overflow-hidden rounded-md border border-border/80 bg-surface-raised text-text shadow-sm duration-500">
           <div className="grid lg:grid-cols-[minmax(220px,0.7fr)_minmax(0,1.3fr)]">
-            <div className="flex flex-col justify-between gap-7 border-b bg-muted/30 p-6 lg:border-r lg:border-b-0">
+            <div className="flex flex-col justify-between gap-7 border-b border-border/80 bg-surface-muted/70 p-6 lg:border-r lg:border-b-0">
               <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.18em] text-muted-foreground uppercase">
                 <span className="size-1.5 rounded-full bg-emerald-500" />
                 {t("todo")}
@@ -87,7 +87,7 @@ export function TodoView({ executionPlan, handleBlockSelect, t, todoGroups }: To
         </section>
 
         {executionPlan ? (
-          <section className="animate-in fade-in slide-in-from-bottom-2 rounded-2xl border bg-background p-4 shadow-sm delay-75 duration-500">
+          <section className="animate-in fade-in slide-in-from-bottom-2 rounded-md border border-border/80 bg-surface-raised p-4 shadow-sm delay-75 duration-500">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h2 className="font-heading text-base font-semibold">{t("canvasPhases")}</h2>
@@ -103,7 +103,7 @@ export function TodoView({ executionPlan, handleBlockSelect, t, todoGroups }: To
                 const sequential = phase.sequentialReadyQueue.length;
                 const blocked = phase.blockedCount;
                 return (
-                  <div className="rounded-xl border bg-card p-4 shadow-sm transition-shadow hover:shadow-md" key={phase.canvasId}>
+                  <div className="rounded-md border border-border/80 bg-surface-base p-4 shadow-sm transition-shadow hover:shadow-md" key={phase.canvasId}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">

@@ -21,6 +21,7 @@ const settings: DesktopUiSettings = {
   runtimePath: "/tmp/project",
   defaultExecutor: "",
   appearance: "system",
+  reducedMotion: false,
   language: "en",
   readNotificationIds: [],
   notifications: {
@@ -46,6 +47,9 @@ const settings: DesktopUiSettings = {
   },
   execution: {
     tmuxMonitoring: true
+  },
+  windowMaterial: {
+    enabled: false
   },
   agents: {
     codex: {

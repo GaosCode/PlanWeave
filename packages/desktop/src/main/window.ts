@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Event as ElectronEvent, WebContentsConsoleMessageEventParams } from "electron";
 import { runSmokeCheck } from "./smoke.js";
+import { windowBackgroundColor } from "./windowAppearance.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -20,7 +21,7 @@ export async function createWindow(options: { isDev: boolean; isSmoke: boolean }
     title: "PlanWeave Desktop",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 14, y: 14 },
-    backgroundColor: "#f7f8fa",
+    backgroundColor: windowBackgroundColor("system"),
     webPreferences: {
       preload: join(__dirname, "..", "preload", "preload.js"),
       contextIsolation: true,

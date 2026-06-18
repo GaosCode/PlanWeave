@@ -114,6 +114,7 @@ export type DesktopUiSettings = {
   runtimePath: string;
   defaultExecutor: string;
   appearance: AppearanceMode;
+  reducedMotion: boolean;
   language: Language;
   pinnedProjectIds: string[];
   readNotificationIds: string[];
@@ -125,6 +126,9 @@ export type DesktopUiSettings = {
   };
   execution: {
     tmuxMonitoring: boolean;
+  };
+  windowMaterial: {
+    enabled: boolean;
   };
   review: {
     pipelineEnabled: boolean;

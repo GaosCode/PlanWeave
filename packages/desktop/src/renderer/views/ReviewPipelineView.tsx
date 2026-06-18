@@ -44,10 +44,23 @@ export function ReviewPipelineView({
 }: ReviewPipelineViewProps) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-normal text-text-strong">{t("reviewPipeline")}</h1>
+          <p className="mt-1 text-sm text-text-muted">{t("settingsReviewHint")}</p>
+        </div>
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 md:w-auto md:justify-end">
+          <Button className="max-w-full min-w-0 overflow-hidden" variant="outline" onClick={addReviewStep}>
+            <PlusIcon data-icon="inline-start" />
+            {t("addReviewStep")}
+          </Button>
+          <Button className="max-w-full min-w-0 overflow-hidden" onClick={() => void saveReviewPipeline()}>{t("saveReviewPipeline")}</Button>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-end gap-3 rounded-md border border-border/80 bg-surface-raised p-4 shadow-sm">
+        <div className="min-w-[min(100%,16rem)] flex-1 sm:flex-none">
           <Select value={reviewTaskId ?? ""} onValueChange={setReviewTaskId}>
-            <SelectTrigger className="w-64">
+            <SelectTrigger className="w-full sm:w-64">
               <SelectValue aria-label={t("targetTask")} />
             </SelectTrigger>
             <SelectContent>
@@ -60,26 +73,19 @@ export function ReviewPipelineView({
               </SelectGroup>
             </SelectContent>
           </Select>
-          <Field className="w-40">
-            <FieldLabel>{t("packageDefaultCycles")}</FieldLabel>
-            <Input min={0} type="number" value={reviewDefaultCyclesDraft} onChange={(event) => setReviewDefaultCyclesDraft(Number(event.target.value))} />
-          </Field>
-          {reviewPipeline ? <Badge variant="outline">{reviewPipeline.packageDefaults.completionPolicy}</Badge> : null}
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={addReviewStep}>
-            <PlusIcon data-icon="inline-start" />
-            {t("addReviewStep")}
-          </Button>
-          <Button onClick={() => void saveReviewPipeline()}>{t("saveReviewPipeline")}</Button>
-        </div>
+        <Field className="min-w-[10rem] flex-1 sm:w-40 sm:flex-none">
+          <FieldLabel>{t("packageDefaultCycles")}</FieldLabel>
+          <Input min={0} type="number" value={reviewDefaultCyclesDraft} onChange={(event) => setReviewDefaultCyclesDraft(Number(event.target.value))} />
+        </Field>
+        {reviewPipeline ? <Badge className="max-w-full shrink-0" variant="outline">{reviewPipeline.packageDefaults.completionPolicy}</Badge> : null}
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-3 pr-3">
           {reviewDraft.map((step, index) => {
             const hookArgs = step.hook?.args.join(" ") ?? "";
             return (
-              <Card key={`${step.blockId || "new"}-${index}`}>
+              <Card className="rounded-md border-border/80 bg-surface-raised shadow-sm" key={`${step.blockId || "new"}-${index}`}>
                 <CardHeader>
                   <CardTitle className="flex min-w-0 items-center gap-2 text-base">
                     <Badge variant={step.enabled ? "secondary" : "outline"}>{index + 1}</Badge>

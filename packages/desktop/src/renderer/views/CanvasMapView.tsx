@@ -148,12 +148,12 @@ export function CanvasMapView({
   if (!selectedProject || !canvasGraph) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <div className="flex max-w-md flex-col items-center gap-3 bg-background p-5 text-center">
-          <div className="flex items-center justify-center gap-2 text-sm font-semibold">
+        <div className="flex max-w-md flex-col items-center gap-3 rounded-md border border-border/80 bg-surface-raised p-5 text-center text-text shadow-sm">
+          <div className="flex items-center justify-center gap-2 text-sm font-semibold text-text-strong">
             <FolderOpenIcon data-icon="inline-start" />
             {t("noProject")}
           </div>
-          <div className="text-sm text-muted-foreground">{t("openProjectHint")}</div>
+          <div className="text-sm text-text-muted">{t("openProjectHint")}</div>
           <Button className="w-fit" variant="outline" onClick={handleOpenProject}>
             <FolderOpenIcon data-icon="inline-start" />
             {t("openProject")}
@@ -193,8 +193,8 @@ export function CanvasMapView({
           <MiniMap pannable zoomable />
         </ReactFlow>
       </div>
-      <aside className="flex min-h-0 flex-col border-l bg-background">
-        <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b px-3">
+      <aside className="flex min-h-0 flex-col border-l border-border/80 bg-app-panel text-text">
+        <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border/80 bg-app-topbar px-3">
           <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">
             <GitBranchIcon className="size-4 shrink-0" aria-hidden="true" />
             <span className="truncate">{t("canvasMap")}</span>

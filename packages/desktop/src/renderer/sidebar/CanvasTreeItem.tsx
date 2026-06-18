@@ -58,13 +58,13 @@ export function CanvasTreeItem({
 
   return (
     <div className="flex w-full min-w-0 max-w-full flex-col gap-1 overflow-hidden">
-      <div className="group/canvas grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)_2rem] items-center gap-1">
+      <div className="group/canvas grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)_1.75rem] items-center gap-1">
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <Button
               aria-label={firstDiagnostic ? `${canvasLabel} ${t("error")}: ${firstDiagnostic.message}` : undefined}
               aria-current={isGraphCanvas ? "page" : undefined}
-              className="h-8 w-full min-w-0 max-w-full flex-1 justify-between gap-2 overflow-hidden px-2 text-xs"
+              className="h-8 w-full min-w-0 max-w-full flex-1 justify-between gap-2 overflow-hidden rounded-md px-2 text-xs text-text-muted hover:bg-surface-muted hover:text-text-strong data-[variant=secondary]:border-state-selected/25 data-[variant=secondary]:bg-state-selected-surface data-[variant=secondary]:text-text-strong data-[variant=secondary]:shadow-sm [&_svg]:size-4"
               title={firstDiagnostic ? firstDiagnostic.message : undefined}
               variant={isGraphCanvas ? "secondary" : "ghost"}
               onClick={() => onCanvasSelect(project, canvas.canvasId)}
@@ -101,7 +101,7 @@ export function CanvasTreeItem({
         <Button
           aria-expanded={isExpandedCanvas}
           aria-label={isExpandedCanvas ? t("collapseTaskCanvas") : t("expandTaskCanvas")}
-          className="relative z-10 h-8 w-7 shrink-0 border-0 bg-transparent text-muted-foreground shadow-none opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          className="relative z-10 h-8 w-7 shrink-0 border-0 bg-transparent text-text-faint shadow-none opacity-100 hover:bg-surface-muted hover:text-text-strong focus-visible:ring-ring/40"
           data-testid={`canvas-toggle-${canvas.canvasId}`}
           size="icon-sm"
           variant="ghost"
@@ -114,17 +114,17 @@ export function CanvasTreeItem({
         </Button>
       </div>
       {isExpandedCanvas && graph ? (
-        <div className="flex w-full min-w-0 max-w-full flex-col gap-1 overflow-hidden pl-4">
+        <div className="ml-3 flex w-[calc(100%-0.75rem)] min-w-0 max-w-full flex-col gap-1 overflow-hidden border-l border-border/60 pl-3">
           {graph.tasks.map((task) => (
             <ContextMenu key={task.taskId}>
               <ContextMenuTrigger asChild>
                 <Button
-                  className="h-8 w-full min-w-0 max-w-full shrink justify-start gap-2 overflow-hidden rounded-md bg-muted/60 px-2 text-xs text-foreground hover:bg-muted"
+                  className="h-8 w-full min-w-0 max-w-full shrink justify-start gap-2 overflow-hidden rounded-md bg-surface-muted/60 px-2 text-xs text-text hover:bg-surface-muted hover:text-text-strong data-[variant=secondary]:border-state-selected/25 data-[variant=secondary]:bg-state-selected-surface data-[variant=secondary]:text-text-strong data-[variant=secondary]:shadow-sm"
                   variant={selectedTaskPanelId === task.taskId ? "secondary" : "ghost"}
                   onClick={() => handleTaskPanelSelect(task.taskId)}
                 >
-                  <span className="min-w-0 flex-1 truncate text-left text-sm font-medium text-foreground">{task.title}</span>
-                  <Badge className="ml-auto shrink-0 border-border bg-background text-xs text-foreground" variant={task.exceptions.length > 0 ? "destructive" : statusVariant[task.status]}>
+                  <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">{task.title}</span>
+                  <Badge className="ml-auto shrink-0 border-border/80 bg-surface-raised text-xs text-text" variant={task.exceptions.length > 0 ? "destructive" : statusVariant[task.status]}>
                     {task.taskId}
                   </Badge>
                 </Button>

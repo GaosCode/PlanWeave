@@ -141,8 +141,8 @@ export function ProjectSidebar({
   };
 
   return (
-    <aside className="relative flex shrink-0 flex-col overflow-hidden border-r bg-sidebar" style={{ width }}>
-      <div className="app-drag-region flex h-11 shrink-0 items-center border-b px-3 pl-[124px]">
+    <aside className="relative flex shrink-0 flex-col overflow-hidden border-r border-border/80 bg-app-sidebar text-text" style={{ width }}>
+      <div className="app-drag-region flex h-11 shrink-0 items-center border-b border-border/80 bg-app-topbar/95 px-3 pl-[124px]">
         <div className="app-no-drag flex items-center gap-1">
           <Button size="icon-sm" variant="ghost" aria-label={t("collapseSidebar")} onClick={onToggleSidebar}>
             <PanelLeftCloseIcon data-icon="inline-start" />
@@ -181,9 +181,9 @@ export function ProjectSidebar({
         selectedTaskPanelId={selectedTaskPanelId}
         t={t}
       />
-      <Separator />
-      <div className="flex items-center gap-2 p-3">
-        <Button className="flex-1 justify-start" variant="ghost" onClick={() => void resetLayout()}>
+      <Separator className="bg-border/80" />
+      <div className="flex items-center gap-2 bg-app-sidebar/80 p-3">
+        <Button className="h-8 flex-1 justify-start px-2 text-text-muted hover:bg-surface-muted hover:text-text-strong" variant="ghost" onClick={() => void resetLayout()}>
           <RotateCcwIcon data-icon="inline-start" />
           {t("resetLayout")}
         </Button>
@@ -192,7 +192,7 @@ export function ProjectSidebar({
         <div
           aria-label={t("resizeSidebar")}
           aria-orientation="vertical"
-          className="app-no-drag absolute inset-y-0 right-0 z-20 w-1 cursor-col-resize bg-transparent transition-colors hover:bg-border active:bg-ring"
+          className="app-no-drag absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize bg-transparent transition-colors duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-standard)] after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:rounded-full after:bg-border/80 after:opacity-0 hover:bg-state-selected/10 hover:after:opacity-100 focus-visible:bg-state-selected/10 focus-visible:after:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 active:bg-state-selected/20"
           role="separator"
           tabIndex={0}
           onPointerDown={onResizeStart}

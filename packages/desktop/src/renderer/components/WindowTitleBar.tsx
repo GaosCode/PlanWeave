@@ -7,7 +7,7 @@ type WindowTitleBarProps = {
 
 export function WindowTitleBar({ t }: WindowTitleBarProps) {
   return (
-    <header className="app-drag-region flex h-11 shrink-0 items-center gap-1 border-b bg-background px-3 pl-24 text-foreground">
+    <header className="app-drag-region flex h-11 shrink-0 items-center gap-1 border-b border-border/80 bg-app-topbar px-3 pl-24 text-foreground">
       <div className="app-no-drag flex items-center gap-1">
         <HistoryNavigationButtons t={t} />
       </div>

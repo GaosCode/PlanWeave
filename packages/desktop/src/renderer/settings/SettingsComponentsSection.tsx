@@ -14,8 +14,8 @@ type SettingsComponentsSectionProps = {
 function SettingGroup({ children, title }: { children: ReactNode; title: string }) {
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-base font-semibold">{title}</h2>
-      <FieldGroup className="gap-0 overflow-hidden rounded-lg border bg-background">{children}</FieldGroup>
+      <h2 className="text-base font-semibold text-text-strong">{title}</h2>
+      <FieldGroup className="gap-0 overflow-hidden rounded-md border border-border/80 bg-surface-raised shadow-sm">{children}</FieldGroup>
     </section>
   );
 }
@@ -35,8 +35,8 @@ export function SettingsComponentsSection({ settings, t, updateSettings }: Setti
   return (
     <section data-testid="settings-section-components" className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-normal">{t("settingsComponents")}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t("settingsComponentsHint")}</p>
+        <h1 className="text-2xl font-semibold tracking-normal text-text-strong">{t("settingsComponents")}</h1>
+        <p className="mt-1 text-sm text-text-muted">{t("settingsComponentsHint")}</p>
       </div>
       <SettingGroup title={t("componentVisibility")}>
         {[

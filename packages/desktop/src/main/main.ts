@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from "electron";
 import { registerPackageWatchHandlers } from "./packageWatch.js";
 import { registerRuntimeBridgeHandlers } from "./runtimeBridgeHandlers.js";
+import { registerWindowAppearanceHandlers } from "./windowAppearance.js";
 import { createWindow } from "./window.js";
 
 const isDev = process.env.PLANWEAVE_DESKTOP_DEV_SERVER_URL !== undefined;
@@ -17,6 +18,7 @@ if (isSmoke && process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR) {
 
 registerRuntimeBridgeHandlers();
 registerPackageWatchHandlers();
+registerWindowAppearanceHandlers();
 
 app.whenReady().then(() => {
   void createWindow({ isDev, isSmoke }).catch((error: unknown) => {

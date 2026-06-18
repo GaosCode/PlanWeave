@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { DesktopRuntimeToolAvailability, ProjectPromptPolicy } from "@planweave-ai/runtime";
 import { Button } from "@/components/ui/button";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -6,7 +6,8 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Textarea } from "@/components/ui/textarea";
 import { SettingsSwitchRow } from "../components/SettingsSwitchRow";
 import type { createTranslator, Language } from "../i18n";
-import type { DesktopUiSettings } from "../types";
+import type { AppearanceMode, DesktopUiSettings } from "../types";
+import type { WindowMaterialCapabilities } from "../../shared/windowAppearance";
 
 type SettingsProjectOption = {
   projectId: string;
@@ -39,11 +40,21 @@ const languageOptions = [
   { value: "en", label: "English" }
 ] satisfies Array<{ value: Language; label: string }>;
 
+const appearanceOptions = [
+  { value: "system", labelKey: "appearanceSystem" },
+  { value: "light", labelKey: "appearanceLight" },
+  { value: "dark", labelKey: "appearanceDark" }
+] satisfies Array<{ value: AppearanceMode; labelKey: "appearanceSystem" | "appearanceLight" | "appearanceDark" }>;
+
+function isAppearanceMode(value: string): value is AppearanceMode {
+  return appearanceOptions.some((option) => option.value === value);
+}
+
 function SettingGroup({ children, title }: { children: ReactNode; title: string }) {
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-base font-semibold">{title}</h2>
-      <FieldGroup className="gap-0 overflow-hidden rounded-lg border bg-background">{children}</FieldGroup>
+      <h2 className="text-base font-semibold text-text-strong">{title}</h2>
+      <FieldGroup className="gap-0 overflow-hidden rounded-md border border-border/80 bg-surface-raised shadow-sm">{children}</FieldGroup>
     </section>
   );
 }
@@ -68,11 +79,32 @@ export function SettingsGeneralSection({
   updateProjectPromptPolicy,
   updateSettings
 }: SettingsGeneralSectionProps) {
+  const [windowMaterialCapabilities, setWindowMaterialCapabilities] = useState<WindowMaterialCapabilities | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const windowApi = window.planweaveWindow;
+    if (!windowApi?.getWindowMaterialCapabilities) {
+      setWindowMaterialCapabilities({ platform: "browser", reason: "supported", supported: true });
+      return;
+    }
+    void windowApi.getWindowMaterialCapabilities().then((capabilities) => {
+      if (!cancelled) {
+        setWindowMaterialCapabilities(capabilities);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const windowMaterialSupported = windowMaterialCapabilities?.supported !== false;
+
   return (
     <section data-testid="settings-section-general" className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-normal">{t("settingsGeneral")}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t("settingsGeneralHint")}</p>
+        <h1 className="text-2xl font-semibold tracking-normal text-text-strong">{t("settingsGeneral")}</h1>
+        <p className="mt-1 text-sm text-text-muted">{t("settingsGeneralHint")}</p>
       </div>
       <SettingGroup title={t("interfaceSettings")}>
         <Field orientation="horizontal" className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0">
@@ -95,11 +127,46 @@ export function SettingsGeneralSection({
             </SelectContent>
           </Select>
         </Field>
+        <Field orientation="horizontal" className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0">
+          <FieldContent>
+            <FieldLabel className="text-sm font-semibold">{t("useDarkAppearance")}</FieldLabel>
+            <FieldDescription>{t("useDarkAppearanceHint")}</FieldDescription>
+          </FieldContent>
+          <Select
+            value={settings.appearance}
+            onValueChange={(value) => {
+              if (!isAppearanceMode(value)) {
+                throw new Error(`Unsupported appearance mode: ${value}`);
+              }
+              updateSettings({ appearance: value });
+            }}
+          >
+            <SelectTrigger aria-label={t("useDarkAppearance")} className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {appearanceOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {t(option.labelKey)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
         <SettingsSwitchRow
-          checked={settings.appearance === "dark"}
-          title={t("useDarkAppearance")}
-          description={t("useDarkAppearanceHint")}
-          onCheckedChange={(checked) => updateSettings({ appearance: checked ? "dark" : "system" })}
+          checked={windowMaterialSupported && settings.windowMaterial.enabled}
+          disabled={!windowMaterialSupported}
+          title={t("enhancedWindowMaterial")}
+          description={windowMaterialSupported ? t("enhancedWindowMaterialHint") : t("enhancedWindowMaterialUnavailableHint")}
+          onCheckedChange={(checked) => updateSettings({ windowMaterial: { ...settings.windowMaterial, enabled: checked } })}
+        />
+        <SettingsSwitchRow
+          checked={settings.reducedMotion}
+          title={t("reducedMotion")}
+          description={t("reducedMotionHint")}
+          onCheckedChange={(checked) => updateSettings({ reducedMotion: checked })}
         />
       </SettingGroup>
       <SettingGroup title={t("notificationRules")}>
@@ -133,7 +200,7 @@ export function SettingsGeneralSection({
           description={runtimeTools.tmux.available ? t("tmuxMonitoringHint") : t("tmuxMonitoringUnavailableHint")}
           onCheckedChange={(checked) => updateSettings({ execution: { ...settings.execution, tmuxMonitoring: checked } })}
         />
-        <div className="flex justify-end px-5 py-3">
+        <div className="flex justify-end border-b border-border/80 px-5 py-3 last:border-b-0">
           <Button size="sm" variant="outline" onClick={() => void refreshRuntimeTools()}>
             {t("refreshRuntimeTools")}
           </Button>
