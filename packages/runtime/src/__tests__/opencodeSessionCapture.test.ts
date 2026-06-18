@@ -4,7 +4,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { createOpencodeExecAdapter, runAutoRunStep } from "../index.js";
 import { readJsonFile } from "../json.js";
-import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
+import { createTestWorkspace } from "./promptTestHelpers.js";
+import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
@@ -34,15 +35,14 @@ async function waitForMetadataSession(metadataPath: string, expectedSessionId: s
 
 describe("OpenCode session capture", () => {
   it("records an explicit OpenCode session before command output is available", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-opencode-session": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-opencode-session", {
         adapter: "opencode-exec",
         command: "./opencode",
         args: ["run", "--session", "ses_explicit_123", "--dangerously-skip-permissions", "-"]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-opencode-session";
+      })
+      .withDefaultExecutor("fake-opencode-session")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
     await writeFile(
       join(root, "opencode"),
@@ -103,15 +103,14 @@ describe("OpenCode session capture", () => {
   });
 
   it("captures an OpenCode session id from streamed readable terminal output", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-opencode-readable": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-opencode-readable", {
         adapter: "opencode-exec",
         command: "./opencode",
         args: ["run", "--dangerously-skip-permissions", "-"]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-opencode-readable";
+      })
+      .withDefaultExecutor("fake-opencode-readable")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
     await writeFile(
       join(root, "opencode"),
@@ -156,15 +155,14 @@ describe("OpenCode session capture", () => {
   });
 
   it("suggests OpenCode session list when readable output has no session id", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-opencode-no-session": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-opencode-no-session", {
         adapter: "opencode-exec",
         command: "./opencode",
         args: ["run", "--dangerously-skip-permissions", "-"]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-opencode-no-session";
+      })
+      .withDefaultExecutor("fake-opencode-no-session")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
     await writeFile(
       join(root, "opencode"),

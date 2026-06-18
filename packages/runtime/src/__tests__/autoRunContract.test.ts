@@ -20,6 +20,7 @@ import { consumeAutoRunClaim } from "../autoRun/contract.js";
 import type { AutoRunExecutorAdapter } from "../autoRun/contract.js";
 import { basicManifest, createTestWorkspace, writePromptFiles, writeReport, writeReviewResult } from "./promptTestHelpers.js";
 import { manifestSchema } from "../schema/manifest.js";
+import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
 function adapter(): AutoRunExecutorAdapter {
   return {
@@ -291,9 +292,8 @@ describe("Auto Run contract", () => {
   });
 
   it("codex-exec adapter runs the configured command and submits the generated block report", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-codex": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: [
@@ -311,9 +311,9 @@ describe("Auto Run contract", () => {
             "});"
           ].join("")
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-codex";
+      })
+      .withDefaultExecutor("fake-codex")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
 
     const step = await runAutoRunStep({
@@ -344,9 +344,8 @@ describe("Auto Run contract", () => {
   });
 
   it("opencode-exec adapter records OpenCode runs without Codex resume/session handling", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-opencode": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-opencode", {
         adapter: "opencode-exec",
         command: process.execPath,
         args: [
@@ -361,9 +360,9 @@ describe("Auto Run contract", () => {
             "});"
           ].join("")
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-opencode";
+      })
+      .withDefaultExecutor("fake-opencode")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
 
     const step = await runAutoRunStep({
@@ -393,15 +392,14 @@ describe("Auto Run contract", () => {
   });
 
   it("blocks the current block when the configured executor exits unsuccessfully", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "failing-codex": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("failing-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: ["-e", "process.stdin.resume(); console.error('codex failed'); process.exit(7);"]
-      }
-    };
-    manifest.execution.defaultExecutor = "failing-codex";
+      })
+      .withDefaultExecutor("failing-codex")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
 
     const step = await runAutoRunStep({
@@ -465,16 +463,15 @@ describe("Auto Run contract", () => {
   });
 
   it("times out a codex-exec block run and exposes the blocked failure reason", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "slow-codex": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("slow-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: ["-e", "setTimeout(() => console.log('late report'), 1000);"],
         timeoutMs: 25
-      }
-    };
-    manifest.execution.defaultExecutor = "slow-codex";
+      })
+      .withDefaultExecutor("slow-codex")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
 
     const step = await runAutoRunStep({
@@ -512,16 +509,15 @@ describe("Auto Run contract", () => {
   });
 
   it("passes executor profile sandbox to codex-exec command arguments", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-codex": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: ["-e", "console.log(JSON.stringify(process.argv.slice(1)))", "--"],
         sandbox: "workspace-write"
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-codex";
+      })
+      .withDefaultExecutor("fake-codex")
+      .build();
     const { root } = await createTestWorkspace(manifest);
 
     const step = await runAutoRunStep({
@@ -561,15 +557,14 @@ describe("Auto Run contract", () => {
       "utf8"
     );
     await chmod(fakeCodex, 0o755);
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-codex": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: fakeCodex,
         args: ["exec", "-"]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-codex";
+      })
+      .withDefaultExecutor("fake-codex")
+      .build();
     await writeFile(init.workspace.manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 
     const step = await runAutoRunStep({
@@ -609,15 +604,14 @@ describe("Auto Run contract", () => {
       verdict: "passed",
       content: "passed by fake codex"
     });
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-reviewer": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-reviewer", {
         adapter: "codex-exec",
         command: process.execPath,
         args: ["-e", `console.log(${JSON.stringify(reviewJson)})`]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-reviewer";
+      })
+      .withDefaultExecutor("fake-reviewer")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
     await runAutoRunStep({
       projectRoot: root,
@@ -652,9 +646,8 @@ describe("Auto Run contract", () => {
   });
 
   it("local-review adapter submits review JSON without creating an agent session", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-local-review": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-local-review", {
         adapter: "local-review",
         command: process.execPath,
         args: [
@@ -669,9 +662,9 @@ describe("Auto Run contract", () => {
             "console.log(JSON.stringify(result));"
           ].join("")
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-local-review";
+      })
+      .withDefaultExecutor("fake-local-review")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
     await runAutoRunStep({
       projectRoot: root,
@@ -710,14 +703,13 @@ describe("Auto Run contract", () => {
   });
 
   it("lists built-in and package-defined executor profiles", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "project-codex": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("project-codex", {
         adapter: "codex-exec",
         command: "codex",
         args: ["exec", "-"]
-      }
-    };
+      })
+      .build();
     const { root } = await createTestWorkspace(manifest);
 
     await expect(listExecutorProfiles({ projectRoot: root })).resolves.toEqual(
@@ -791,17 +783,16 @@ describe("Auto Run contract", () => {
   });
 
   it("reports runner status with executor, stdio summaries, state changes, and failure reason", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-codex": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: [
           "-e",
           "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.error('stderr detail'); console.log('stdout report for ' + input.split('\\n')[0]); });"
         ]
-      },
-      "fake-local-review": {
+      })
+      .withExecutor("fake-local-review", {
         adapter: "local-review",
         command: process.execPath,
         args: [
@@ -816,13 +807,11 @@ describe("Auto Run contract", () => {
             "console.log(JSON.stringify(result));"
           ].join("")
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-codex";
-    const task = manifest.nodes.find((node: any) => node.id === "T-001");
-    for (const block of task.blocks) {
-      block.executor = block.type === "review" ? "fake-local-review" : "fake-codex";
-    }
+      })
+      .withDefaultExecutor("fake-codex")
+      .withBlock("T-001", "B-001", (block) => ({ ...block, executor: "fake-codex" }))
+      .withBlock("T-001", "R-001", (block) => ({ ...block, executor: "fake-local-review" }))
+      .build();
     const { root } = await createTestWorkspace(manifest);
 
     await runAutoRunStep({ projectRoot: root });
@@ -887,17 +876,16 @@ describe("Auto Run contract", () => {
   });
 
   it("keeps the latest explanation record on an automatically submitted feedback run", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-codex": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: [
           "-e",
           "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.log('feedback report for ' + input.split('\\n')[0]); });"
         ]
-      },
-      "needs-review": {
+      })
+      .withExecutor("needs-review", {
         adapter: "local-review",
         command: process.execPath,
         args: [
@@ -912,13 +900,11 @@ describe("Auto Run contract", () => {
             "console.log(JSON.stringify(result));"
           ].join("")
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-codex";
-    const task = manifest.nodes.find((node: any) => node.id === "T-001");
-    for (const block of task.blocks) {
-      block.executor = block.type === "review" ? "needs-review" : "fake-codex";
-    }
+      })
+      .withDefaultExecutor("fake-codex")
+      .withBlock("T-001", "B-001", (block) => ({ ...block, executor: "fake-codex" }))
+      .withBlock("T-001", "R-001", (block) => ({ ...block, executor: "needs-review" }))
+      .build();
     const { root } = await createTestWorkspace(manifest);
 
     await runAutoRunStep({ projectRoot: root });

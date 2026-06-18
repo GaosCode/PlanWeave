@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createOpencodeExecAdapter, getExecutionStatus, runAutoRunStep } from "../index.js";
 import { readJsonFile } from "../json.js";
-import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
+import { createTestWorkspace } from "./promptTestHelpers.js";
+import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
@@ -34,15 +35,14 @@ async function waitForMetadataSession(metadataPath: string, expectedSessionId: s
 
 describe("OpenCode executor", () => {
   it("parses OpenCode JSON events into a session id and run report", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-opencode-json": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-opencode-json", {
         adapter: "opencode-exec",
         command: "./opencode",
         args: ["run", "--format", "json", "--dangerously-skip-permissions", "-"]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-opencode-json";
+      })
+      .withDefaultExecutor("fake-opencode-json")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
     await writeFile(
       join(root, "opencode"),
@@ -110,15 +110,14 @@ describe("OpenCode executor", () => {
   });
 
   it("keeps direct OpenCode runs readable and reads review JSON from the result file", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-opencode-review": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-opencode-review", {
         adapter: "opencode-exec",
         command: "./opencode",
         args: ["run", "--dangerously-skip-permissions", "-"]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-opencode-review";
+      })
+      .withDefaultExecutor("fake-opencode-review")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
     await writeFile(
       join(root, "opencode"),
@@ -185,35 +184,32 @@ describe("OpenCode executor", () => {
   });
 
   it("treats OpenCode JSON error events as executor failures", async () => {
-    const manifest = basicManifest() as any;
-    manifest.execution.defaultExecutor = "fake-opencode-error";
-    manifest.executors = {
-      "fake-block": {
+    const manifest = manifestTestBuilder()
+      .withDefaultExecutor("fake-opencode-error")
+      .withExecutor("fake-block", {
         adapter: "codex-exec",
         command: process.execPath,
         args: [
           "-e",
           "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => console.log('ok:' + input.includes('task')));"
         ]
-      },
-      "needs-review": {
+      })
+      .withExecutor("needs-review", {
         adapter: "local-review",
         command: process.execPath,
         args: [
           "-e",
           "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => console.log(JSON.stringify({ reviewBlockRef: 'T-001#R-001', taskId: 'T-001', verdict: 'needs_changes', content: 'fix it' })));"
         ]
-      },
-      "fake-opencode-error": {
+      })
+      .withExecutor("fake-opencode-error", {
         adapter: "opencode-exec",
         command: "./opencode",
         args: ["run", "--dangerously-skip-permissions", "-"]
-      }
-    };
-    const task = manifest.nodes.find((node: any) => node.id === "T-001");
-    for (const block of task.blocks) {
-      block.executor = block.type === "review" ? "needs-review" : "fake-block";
-    }
+      })
+      .withBlock("T-001", "B-001", (block) => ({ ...block, executor: "fake-block" }))
+      .withBlock("T-001", "R-001", (block) => ({ ...block, executor: "needs-review" }))
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
     await writeFile(
       join(root, "opencode"),

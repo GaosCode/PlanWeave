@@ -10,7 +10,8 @@ import {
 } from "../desktop/index.js";
 import { isTmuxAvailable } from "../autoRun/tmuxExecutor.js";
 import { readState } from "../state.js";
-import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
+import { createTestWorkspace } from "./promptTestHelpers.js";
+import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
 const startedRunIds = new Set<string>();
 const noTmux = { tmuxEnabled: false } as const;
@@ -32,18 +33,17 @@ async function waitForRun(runId: string, predicate: (state: Awaited<ReturnType<t
 
 describe("desktop auto run API", () => {
   it("starts, pauses, resumes, stops, and summarizes project-level Auto Run", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-codex": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: [
           "-e",
           "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.log('desktop auto run ' + input.split('\\n')[0]); });"
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-codex";
+      })
+      .withDefaultExecutor("fake-codex")
+      .build();
     const { root } = await createTestWorkspace(manifest);
 
     const started = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
@@ -88,18 +88,17 @@ describe("desktop auto run API", () => {
   });
 
   it("can disable tmux monitoring while preserving streaming run records", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-codex": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: [
           "-e",
           "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.log('streamed without tmux ' + input.split('\\n')[0]); });"
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-codex";
+      })
+      .withDefaultExecutor("fake-codex")
+      .build();
     const { root } = await createTestWorkspace(manifest);
 
     const started = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
@@ -120,18 +119,17 @@ describe("desktop auto run API", () => {
   });
 
   it("finishes the in-flight block before pausing and resumes the same run", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "slow-codex": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("slow-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: [
           "-e",
           "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { setTimeout(() => { if (input.includes('Review task')) { console.log(JSON.stringify({ reviewBlockRef: 'T-001#R-001', taskId: 'T-001', verdict: 'passed', content: 'slow review passed' })); } else { console.log('slow auto run ' + input.split('\\n')[0]); } }, 120); });"
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "slow-codex";
+      })
+      .withDefaultExecutor("slow-codex")
+      .build();
     const { root } = await createTestWorkspace(manifest);
 
     const started = await startAutoRun(root, null, { kind: "project" }, 2, noTmux);
@@ -168,18 +166,17 @@ describe("desktop auto run API", () => {
     if (!(await isTmuxAvailable())) {
       return;
     }
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "long-codex": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("long-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: [
           "-e",
           "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { setInterval(() => process.stdout.write('still running\\n'), 100); });"
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "long-codex";
+      })
+      .withDefaultExecutor("long-codex")
+      .build();
     const { root } = await createTestWorkspace(manifest);
 
     const started = await startAutoRun(root, null, { kind: "project" }, 2);
@@ -200,18 +197,17 @@ describe("desktop auto run API", () => {
   });
 
   it("runs selected task and selected block Auto Run through the Task Manager claim order", async () => {
-    const manifest = basicManifest({ includeSecondTask: true }) as any;
-    manifest.executors = {
-      "fake-codex": {
+    const manifest = manifestTestBuilder({ includeSecondTask: true })
+      .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: [
           "-e",
           "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.log('scoped auto run ' + input.split('\\n')[0]); });"
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-codex";
+      })
+      .withDefaultExecutor("fake-codex")
+      .build();
     const { root } = await createTestWorkspace(manifest);
 
     const taskRun = await startAutoRun(root, null, { kind: "task", taskId: "T-002" }, 1, noTmux);
@@ -238,18 +234,18 @@ describe("desktop auto run API", () => {
   });
 
   it("uses manifest parallel mode for project-level Auto Run", async () => {
-    const manifest = basicManifest({ includeSecondTask: true, maxConcurrent: 2, parallel: true }) as any;
-    manifest.executors = {
-      "fake-codex": {
+    const manifest = manifestTestBuilder({ includeSecondTask: true })
+      .withParallelExecution({ maxConcurrent: 2 })
+      .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: [
           "-e",
           "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.log('parallel auto run ' + input.split('\\n')[0]); });"
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-codex";
+      })
+      .withDefaultExecutor("fake-codex")
+      .build();
     const { root } = await createTestWorkspace(manifest);
 
     const run = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
@@ -266,30 +262,28 @@ describe("desktop auto run API", () => {
   });
 
   it("blocks the desktop run when review warnings remain after no claimable work", async () => {
-    const manifest = basicManifest({ reviewMaxFeedbackCycles: 0 }) as any;
-    manifest.executors = {
-      "fake-codex": {
+    const manifest = manifestTestBuilder()
+      .withReviewCycles(0)
+      .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: [
           "-e",
           "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.log('warning test ' + input.split('\\n')[0]); });"
         ]
-      },
-      "needs-review": {
+      })
+      .withExecutor("needs-review", {
         adapter: "local-review",
         command: process.execPath,
         args: [
           "-e",
           "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.log(JSON.stringify({ reviewBlockRef: 'T-001#R-001', taskId: 'T-001', verdict: 'needs_changes', content: 'changes required' })); });"
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-codex";
-    const task = manifest.nodes.find((node: any) => node.id === "T-001");
-    for (const block of task.blocks) {
-      block.executor = block.type === "review" ? "needs-review" : "fake-codex";
-    }
+      })
+      .withDefaultExecutor("fake-codex")
+      .withBlock("T-001", "B-001", (block) => ({ ...block, executor: "fake-codex" }))
+      .withBlock("T-001", "R-001", (block) => ({ ...block, executor: "needs-review" }))
+      .build();
     const { root } = await createTestWorkspace(manifest);
 
     const run = await startAutoRun(root, null, { kind: "project" }, 5, noTmux);
@@ -316,30 +310,28 @@ describe("desktop auto run API", () => {
   });
 
   it("starts a fresh feedback cycle when retrying a max-cycle review", async () => {
-    const manifest = basicManifest({ reviewMaxFeedbackCycles: 1 }) as any;
-    manifest.executors = {
-      "fake-codex": {
+    const manifest = manifestTestBuilder()
+      .withReviewCycles(1)
+      .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: [
           "-e",
           "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.log('retry feedback ' + input.split('\\n')[0]); });"
         ]
-      },
-      "needs-review": {
+      })
+      .withExecutor("needs-review", {
         adapter: "local-review",
         command: process.execPath,
         args: [
           "-e",
           "const fs = require('node:fs'); const counterPath = '.review-counter'; let count = 0; try { count = Number(fs.readFileSync(counterPath, 'utf8')) || 0; } catch {} count += 1; fs.writeFileSync(counterPath, String(count)); let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.log(JSON.stringify({ reviewBlockRef: 'T-001#R-001', taskId: 'T-001', verdict: 'needs_changes', content: 'changes required ' + count })); });"
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-codex";
-    const task = manifest.nodes.find((node: any) => node.id === "T-001");
-    for (const block of task.blocks) {
-      block.executor = block.type === "review" ? "needs-review" : "fake-codex";
-    }
+      })
+      .withDefaultExecutor("fake-codex")
+      .withBlock("T-001", "B-001", (block) => ({ ...block, executor: "fake-codex" }))
+      .withBlock("T-001", "R-001", (block) => ({ ...block, executor: "needs-review" }))
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
 
     const firstRun = await startAutoRun(root, null, { kind: "project" }, 10, noTmux);

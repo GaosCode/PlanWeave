@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { manifestSchema } from "../schema/manifest.js";
 import { basicManifest } from "./promptTestHelpers.js";
+import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
 describe("plan-package/v1 manifest schema", () => {
   it("accepts task nodes with implementation/review blocks", () => {
@@ -42,53 +43,44 @@ describe("plan-package/v1 manifest schema", () => {
   });
 
   it("accepts executor profiles with task and block executor inheritance points", () => {
-    const manifest = basicManifest() as any;
-    manifest.execution.defaultExecutor = "codex-auto";
-    manifest.executors = {
-      "codex-auto": {
+    const manifest = manifestTestBuilder()
+      .withDefaultExecutor("codex-auto")
+      .withExecutor("codex-auto", {
         adapter: "codex-exec",
         command: "codex",
         args: ["exec", "-"],
         sandbox: "workspace-write",
         timeoutMs: 120000
-      },
-      "codex-reviewer": {
+      })
+      .withExecutor("codex-reviewer", {
         adapter: "codex-exec",
         command: "codex",
         args: ["exec", "-"],
         role: "reviewer"
-      },
-      opencode: {
+      })
+      .withExecutor("opencode", {
         adapter: "opencode-exec",
         command: "opencode",
         args: ["run", "-"]
-      },
-      "claude-code": {
+      })
+      .withExecutor("claude-code", {
         adapter: "claude-code-exec",
         command: "claude",
         args: ["-p"]
-      },
-      pi: {
+      })
+      .withExecutor("pi", {
         adapter: "pi-exec",
         command: "pi",
         args: ["-p"]
-      },
-      "local-review": {
+      })
+      .withExecutor("local-review", {
         adapter: "local-review",
         command: "node",
         args: ["review.js"]
-      }
-    };
-    const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
-    if (task?.type !== "task") {
-      throw new Error("missing task");
-    }
-    task.executor = "codex-auto";
-    const review = task.blocks.find((block) => block.id === "R-001");
-    if (review?.type !== "review") {
-      throw new Error("missing review block");
-    }
-    review.executor = "codex-reviewer";
+      })
+      .withTask("T-001", (task) => ({ ...task, executor: "codex-auto" }))
+      .withBlock("T-001", "R-001", (block) => ({ ...block, executor: "codex-reviewer" }))
+      .build();
 
     const result = manifestSchema.safeParse(manifest);
 
@@ -103,15 +95,14 @@ describe("plan-package/v1 manifest schema", () => {
   });
 
   it("rejects non-positive codex executor timeouts", () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "codex-auto": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("codex-auto", {
         adapter: "codex-exec",
         command: "codex",
         args: ["exec", "-"],
         timeoutMs: 0
-      }
-    };
+      })
+      .build();
 
     const result = manifestSchema.safeParse(manifest);
 

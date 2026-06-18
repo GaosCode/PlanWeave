@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createClaudeCodeExecAdapter, createPiExecAdapter, runAutoRunStep } from "../index.js";
 import { readJsonFile } from "../json.js";
-import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
+import { createTestWorkspace } from "./promptTestHelpers.js";
+import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
@@ -24,9 +25,8 @@ const terminalAgents = [
 
 describe("terminal agent executors", () => {
   it.each(terminalAgents)("runs $adapter in the project directory and submits stdout as the block report", async ({ name, adapter, createAdapter }) => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      [name]: {
+    const manifest = manifestTestBuilder()
+      .withExecutor(name, {
         adapter,
         command: process.execPath,
         args: [
@@ -43,9 +43,9 @@ describe("terminal agent executors", () => {
             "});"
           ].join("")
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = name;
+      })
+      .withDefaultExecutor(name)
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
 
     await expect(
@@ -81,15 +81,14 @@ describe("terminal agent executors", () => {
   });
 
   it("reads review results from the injected JSON result file path", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-claude-review": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-claude-review", {
         adapter: "claude-code-exec",
         command: "./claude",
         args: ["-p"]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-claude-review";
+      })
+      .withDefaultExecutor("fake-claude-review")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
     await writeFile(
       join(root, "claude"),

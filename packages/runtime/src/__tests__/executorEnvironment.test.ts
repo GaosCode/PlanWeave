@@ -2,13 +2,13 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createCodexExecAdapter, createOpencodeExecAdapter, runAutoRunStep } from "../index.js";
-import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
+import { createTestWorkspace } from "./promptTestHelpers.js";
+import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
 describe("executor environment", () => {
   it("runs codex-exec in the project directory with the PlanWeave data home", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-codex": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: process.execPath,
         args: [
@@ -25,9 +25,9 @@ describe("executor environment", () => {
             "});"
           ].join("")
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-codex";
+      })
+      .withDefaultExecutor("fake-codex")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
     const previousHome = process.env.PLANWEAVE_HOME;
     process.env.PLANWEAVE_HOME = join(root, "polluted-planweave-home");
@@ -55,9 +55,8 @@ describe("executor environment", () => {
   });
 
   it("runs opencode-exec in the project directory with the PlanWeave data home", async () => {
-    const manifest = basicManifest() as any;
-    manifest.executors = {
-      "fake-opencode": {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-opencode", {
         adapter: "opencode-exec",
         command: process.execPath,
         args: [
@@ -75,9 +74,9 @@ describe("executor environment", () => {
             "});"
           ].join("")
         ]
-      }
-    };
-    manifest.execution.defaultExecutor = "fake-opencode";
+      })
+      .withDefaultExecutor("fake-opencode")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
     const previousHome = process.env.PLANWEAVE_HOME;
     process.env.PLANWEAVE_HOME = join(root, "polluted-planweave-home");
