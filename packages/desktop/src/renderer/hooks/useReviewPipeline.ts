@@ -25,11 +25,12 @@ export function useReviewPipeline({ graph, reloadCurrentCanvas, selectedCanvasId
       setReviewDraft([]);
       return;
     }
-    setReviewTaskId((current) => current ?? graph.tasks[0]?.taskId ?? null);
+    const graphTaskIds = new Set(graph.tasks.map((task) => task.taskId));
+    setReviewTaskId((current) => (current && graphTaskIds.has(current) ? current : graph.tasks[0]?.taskId ?? null));
   }, [graph]);
 
   useEffect(() => {
-    if (!bridge || !selectedProject || !reviewTaskId) {
+    if (!bridge || !selectedProject || !reviewTaskId || !graph?.tasks.some((task) => task.taskId === reviewTaskId)) {
       setReviewPipeline(null);
       setReviewDraft([]);
       return;
@@ -54,7 +55,7 @@ export function useReviewPipeline({ graph, reloadCurrentCanvas, selectedCanvasId
     return () => {
       cancelled = true;
     };
-  }, [reviewTaskId, selectedCanvasId, selectedProject, setError]);
+  }, [graph, reviewTaskId, selectedCanvasId, selectedProject, setError]);
 
   const updateReviewStep = useCallback((index: number, patch: Partial<DesktopReviewPipelineStepInput>) => {
     setReviewDraft((current) => current.map((step, stepIndex) => (stepIndex === index ? { ...step, ...patch } : step)));

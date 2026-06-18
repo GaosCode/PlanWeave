@@ -556,4 +556,66 @@ describe("desktop renderer hook interfaces", () => {
     expect(reloadCurrentCanvas).toHaveBeenCalled();
   });
 
+  it("resets the review pipeline task when the graph changes to a canvas without the previous task", async () => {
+    const getReviewPipeline = vi.fn((_canvas, taskId: string) =>
+      Promise.resolve({
+        ...reviewPipeline,
+        taskId,
+        taskTitle: `${taskId} title`
+      })
+    );
+    const bridge = createDesktopBridgeMock({
+      getReviewPipeline
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const [{ useReviewPipeline }, { createTranslator }] = await Promise.all([
+      import("../renderer/hooks/useReviewPipeline"),
+      import("../renderer/i18n")
+    ]);
+    const nextGraph: DesktopGraphViewModel = {
+      ...graph,
+      tasks: [
+        {
+          ...graph.tasks[0],
+          taskId: "T-GAMMA",
+          title: "Gamma task"
+        }
+      ]
+    };
+
+    const { result, rerender } = renderHook(
+      ({ graphValue, canvasId }: { graphValue: DesktopGraphViewModel; canvasId: string }) =>
+        useReviewPipeline({
+          graph: graphValue,
+          reloadCurrentCanvas: vi.fn().mockResolvedValue(undefined),
+          selectedCanvasId: canvasId,
+          selectedProject: project,
+          setError: vi.fn(),
+          t: createTranslator("en")
+        }),
+      {
+        initialProps: {
+          graphValue: graph,
+          canvasId: "canvas-main"
+        }
+      }
+    );
+
+    await waitFor(() =>
+      expect(getReviewPipeline).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, "T-ALPHA")
+    );
+
+    rerender({
+      graphValue: nextGraph,
+      canvasId: "canvas-alt"
+    });
+
+    await waitFor(() => expect(result.current.reviewTaskId).toBe("T-GAMMA"));
+    await waitFor(() =>
+      expect(getReviewPipeline).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-alt" }, "T-GAMMA")
+    );
+    expect(getReviewPipeline).not.toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-alt" }, "T-ALPHA");
+  });
+
 });
