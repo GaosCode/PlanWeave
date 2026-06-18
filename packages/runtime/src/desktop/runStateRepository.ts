@@ -83,7 +83,7 @@ async function listCanvasAutoRunRoots(workspace: ProjectWorkspace): Promise<stri
   }
 }
 
-async function listAutoRunRootsInPlanweaveHome(workspace: ProjectWorkspace): Promise<string[]> {
+async function listAutoRunRootsAcrossProjects(workspace: ProjectWorkspace): Promise<string[]> {
   const autoRunRoots = new Set([autoRunsRoot(workspace)]);
   for (const workspaceRoot of await listProjectWorkspaceRoots(workspace)) {
     autoRunRoots.add(join(workspaceRoot, "results", "auto-runs"));
@@ -94,9 +94,9 @@ async function listAutoRunRootsInPlanweaveHome(workspace: ProjectWorkspace): Pro
   return [...autoRunRoots];
 }
 
-async function listPersistedRunDirectoriesInPlanweaveHome(workspace: ProjectWorkspace): Promise<string[]> {
+async function listPersistedRunDirectoriesAcrossProjects(workspace: ProjectWorkspace): Promise<string[]> {
   const runIds: string[] = [];
-  for (const autoRunDirectory of await listAutoRunRootsInPlanweaveHome(workspace)) {
+  for (const autoRunDirectory of await listAutoRunRootsAcrossProjects(workspace)) {
     runIds.push(...(await listRunDirectoriesAt(autoRunDirectory)));
   }
   return runIds;
@@ -121,7 +121,7 @@ export async function nextPersistedAutoRunId(workspace: ProjectWorkspace, option
   await mkdir(autoRunsRoot(workspace), { recursive: true });
   await mkdir(globalAutoRunIdsRoot(workspace), { recursive: true });
   let nextNumber = Math.max(
-    maxRunNumber(await listPersistedRunDirectoriesInPlanweaveHome(workspace)),
+    maxRunNumber(await listPersistedRunDirectoriesAcrossProjects(workspace)),
     maxRunNumber(await listRunDirectoriesAt(globalAutoRunIdsRoot(workspace)))
   ) + 1;
   while (true) {

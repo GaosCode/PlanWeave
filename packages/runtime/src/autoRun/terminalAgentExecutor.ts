@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { ClaudeCodeExecExecutorProfile, ExecutorAdapterResult, PackageWorkspaceRef, PiExecExecutorProfile } from "../types.js";
-import { execWithStreaming, finishRunMetadata, nextRunId, planweaveExecutorEnv, prepareBlockRun, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
+import { execWithStreaming, finishRunMetadata, nextRunId, prepareBlockRun, workspaceExecutorEnv, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
 import { appendReviewResultFileInstruction, reviewResultEnvironment } from "./reviewResultContract.js";
 import { createTmuxSessionInfo, tmuxMetadataPatch } from "./tmuxExecutor.js";
 
@@ -71,7 +71,7 @@ export async function runTerminalAgentBlock(options: {
     args: options.profile.args,
     cwd: workspace.rootPath,
     stdin: prompt,
-    env: planweaveExecutorEnv(workspace, reviewContract ? reviewResultEnvironment(reviewContract) : undefined),
+    env: workspaceExecutorEnv(workspace, reviewContract ? reviewResultEnvironment(reviewContract) : undefined),
     timeoutMs: options.profile.timeoutMs,
     stdoutPath,
     stderrPath,
@@ -145,7 +145,7 @@ export async function runTerminalAgentFeedback(options: {
     args: options.profile.args,
     cwd: options.projectRoot,
     stdin: options.claim.content,
-    env: planweaveExecutorEnv({ planweaveHome: options.planweaveHome }),
+    env: workspaceExecutorEnv({ planweaveHome: options.planweaveHome }),
     timeoutMs: options.profile.timeoutMs,
     stdoutPath: join(runDir, "stdout.md"),
     stderrPath: join(runDir, "stderr.log"),

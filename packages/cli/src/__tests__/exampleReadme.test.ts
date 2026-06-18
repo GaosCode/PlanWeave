@@ -9,7 +9,7 @@ const execFileAsync = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "../../../..");
 const cliWorkflowTimeoutMs = 60_000;
 
-async function planweave(args: string[], env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
+async function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync("pnpm", ["--silent", "--filter", "@planweave-ai/cli", "planweave", ...args], {
     cwd: repoRoot,
     env
@@ -85,7 +85,7 @@ function expectNoOrphanValidation(report: ValidationReport): void {
 describe("basic Plan Package README workflow", () => {
   it("uses a pnpm wrapper that preserves JSON stdout", async () => {
     const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
-    const { stdout, stderr } = await planweave(["init", "--json"], { ...process.env, PLANWEAVE_HOME: home });
+    const { stdout, stderr } = await runCli(["init", "--json"], { ...process.env, PLANWEAVE_HOME: home });
 
     expect(stderr).toBe("");
     expect(() => JSON.parse(stdout)).not.toThrow();
@@ -98,7 +98,7 @@ describe("basic Plan Package README workflow", () => {
     const env = withoutInitCwd({ ...process.env, PLANWEAVE_HOME: home });
     const rootArgs = ["--project-root", projectRoot];
     const init = parseJson<{ workspace: { packageDir: string }; project: { rootPath: string } }>(
-      (await planweave([...rootArgs, "init", "--json"], env)).stdout
+      (await runCli([...rootArgs, "init", "--json"], env)).stdout
     );
     await cp(join(repoRoot, "examples/basic-plan-package/package"), init.workspace.packageDir, {
       recursive: true,
@@ -106,8 +106,8 @@ describe("basic Plan Package README workflow", () => {
     });
 
     expect(init.project.rootPath).toBe(await realpath(projectRoot));
-    expect(parseJson<ValidationReport>((await planweave([...rootArgs, "validate", "--json"], env)).stdout).ok).toBe(true);
-    expect(parseJson<ExampleStatus>((await planweave([...rootArgs, "status", "--json"], env)).stdout).tasks).toEqual(
+    expect(parseJson<ValidationReport>((await runCli([...rootArgs, "validate", "--json"], env)).stdout).ok).toBe(true);
+    expect(parseJson<ExampleStatus>((await runCli([...rootArgs, "status", "--json"], env)).stdout).tasks).toEqual(
       expect.arrayContaining([expect.objectContaining({ taskId: "T-001" })])
     );
   }, cliWorkflowTimeoutMs);
@@ -115,36 +115,36 @@ describe("basic Plan Package README workflow", () => {
   it("runs the documented block/review/feedback retry workflow", async () => {
     const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
     const env = { ...process.env, PLANWEAVE_HOME: home };
-    const init = parseJson<{ workspace: { packageDir: string } }>((await planweave(["init", "--json"], env)).stdout);
+    const init = parseJson<{ workspace: { packageDir: string } }>((await runCli(["init", "--json"], env)).stdout);
     await cp(join(repoRoot, "examples/basic-plan-package/package"), init.workspace.packageDir, {
       recursive: true,
       force: true
     });
 
-    expect(parseJson<{ ok: boolean }>((await planweave(["validate", "--json"], env)).stdout).ok).toBe(true);
+    expect(parseJson<{ ok: boolean }>((await runCli(["validate", "--json"], env)).stdout).ok).toBe(true);
     const manualRun = parseJson<{ kind: string; claim: { ref: string }; adapterResult: { promptPath: string } }>(
-      (await planweave(["run", "--once", "--executor", "manual", "--json"], env)).stdout
+      (await runCli(["run", "--once", "--executor", "manual", "--json"], env)).stdout
     );
     expect(manualRun).toMatchObject({
       kind: "manual",
       claim: { ref: "T-001#B-001" },
       adapterResult: { promptPath: expect.stringContaining("prompt.md") }
     });
-    expect(parseJson<{ kind: string; ref: string }>((await planweave(["claim-next"], env)).stdout)).toMatchObject({
+    expect(parseJson<{ kind: string; ref: string }>((await runCli(["claim-next"], env)).stdout)).toMatchObject({
       kind: "block",
       ref: "T-001#B-001"
     });
-    await planweave(["prompt", "T-001#B-001"], env);
+    await runCli(["prompt", "T-001#B-001"], env);
 
     const implementation = join(home, "implementation-1.md");
     await writeFile(implementation, "First implementation.\n", "utf8");
-    await planweave(["submit-result", "T-001#B-001", "--report", implementation], env);
+    await runCli(["submit-result", "T-001#B-001", "--report", implementation], env);
 
-    expect(parseJson<{ kind: string; ref: string }>((await planweave(["claim-next"], env)).stdout)).toMatchObject({
+    expect(parseJson<{ kind: string; ref: string }>((await runCli(["claim-next"], env)).stdout)).toMatchObject({
       kind: "block",
       ref: "T-001#R-001"
     });
-    await planweave(["prompt", "T-001#R-001"], env);
+    await runCli(["prompt", "T-001#R-001"], env);
 
     const firstReview = join(home, "review-1.json");
     await writeFile(
@@ -157,17 +157,17 @@ describe("basic Plan Package README workflow", () => {
       }),
       "utf8"
     );
-    await planweave(["submit-review", "T-001#R-001", "--result", firstReview], env);
+    await runCli(["submit-review", "T-001#R-001", "--result", firstReview], env);
 
-    expect(parseJson<{ kind: string; content: string }>((await planweave(["claim-next"], env)).stdout)).toMatchObject({
+    expect(parseJson<{ kind: string; content: string }>((await runCli(["claim-next"], env)).stdout)).toMatchObject({
       kind: "feedback",
       content: "Needs a test adjustment."
     });
     const feedback = join(home, "feedback-1.md");
     await writeFile(feedback, "Handled requested test adjustment.\n", "utf8");
-    await planweave(["submit-feedback", "--report", feedback], env);
+    await runCli(["submit-feedback", "--report", feedback], env);
 
-    expect(parseJson<{ kind: string; ref: string; reason: string }>((await planweave(["claim-next"], env)).stdout)).toMatchObject({
+    expect(parseJson<{ kind: string; ref: string; reason: string }>((await runCli(["claim-next"], env)).stdout)).toMatchObject({
       kind: "block",
       ref: "T-001#R-001",
       reason: "feedback_resolved"
@@ -183,30 +183,30 @@ describe("basic Plan Package README workflow", () => {
       }),
       "utf8"
     );
-    await planweave(["submit-review", "T-001#R-001", "--result", secondReview], env);
+    await runCli(["submit-review", "T-001#R-001", "--result", secondReview], env);
 
-    const status = parseJson<ExampleStatus>((await planweave(["status", "--json"], env)).stdout);
+    const status = parseJson<ExampleStatus>((await runCli(["status", "--json"], env)).stdout);
     expectCompletedExampleStatus(status);
-    expectNoOrphanValidation(parseJson<ValidationReport>((await planweave(["validate", "--json"], env)).stdout));
+    expectNoOrphanValidation(parseJson<ValidationReport>((await runCli(["validate", "--json"], env)).stdout));
   }, cliWorkflowTimeoutMs);
 
   it("runs the documented manual auto-run entrypoint without auto-submitting work", async () => {
     const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
     const env = { ...process.env, PLANWEAVE_HOME: home };
-    const init = parseJson<{ workspace: { packageDir: string } }>((await planweave(["init", "--json"], env)).stdout);
+    const init = parseJson<{ workspace: { packageDir: string } }>((await runCli(["init", "--json"], env)).stdout);
     await cp(join(repoRoot, "examples/basic-plan-package/package"), init.workspace.packageDir, {
       recursive: true,
       force: true
     });
 
     const run = parseJson<{ kind: string; adapterResult: { promptPath: string } }>(
-      (await planweave(["run", "--once", "--executor", "manual", "--json"], env)).stdout
+      (await runCli(["run", "--once", "--executor", "manual", "--json"], env)).stdout
     );
 
     expect(run.kind).toBe("manual");
     expect(run.adapterResult.promptPath).toContain("prompt.md");
     expect(await readFile(run.adapterResult.promptPath, "utf8")).toContain("# T-001#B-001");
-    const status = parseJson<{ latestRuns: Array<{ ref: string; status: string }> }>((await planweave(["run-status", "--json"], env)).stdout);
+    const status = parseJson<{ latestRuns: Array<{ ref: string; status: string }> }>((await runCli(["run-status", "--json"], env)).stdout);
     expect(status.latestRuns.find((run) => run.ref === "T-001#B-001")?.status).toBe("in_progress");
   }, cliWorkflowTimeoutMs);
 });

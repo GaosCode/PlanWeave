@@ -126,7 +126,7 @@ function formatTopic(topic: HelpTopic): string {
   return [`${topic.name}: ${topic.summary}`, "", "Commands:", ...topic.commands.map((command) => `- planweave ${command}`), "", "Notes:", ...topic.notes.map((note) => `- ${note}`)].join("\n");
 }
 
-export function formatPlanweaveHelp(topicName?: string): string {
+export function formatCliHelp(topicName?: string): string {
   const topic = topicName ? planweaveHelpTopics.find((item) => item.name === topicName) : null;
   if (topic) {
     return formatTopic(topic);
@@ -157,6 +157,6 @@ export function registerHelpCommand(program: Command): void {
         console.log(command.helpInformation());
         return;
       }
-      console.log(formatPlanweaveHelp(topicName));
+      console.log(formatCliHelp(topicName));
     });
 }

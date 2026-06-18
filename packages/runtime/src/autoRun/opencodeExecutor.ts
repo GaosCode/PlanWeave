@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { ExecutorAdapterResult, OpencodeExecExecutorProfile, PackageWorkspaceRef } from "../types.js";
-import { finishRunMetadata, nextRunId, planweaveExecutorEnv, prepareBlockRun, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
+import { finishRunMetadata, nextRunId, prepareBlockRun, workspaceExecutorEnv, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
 import { opencodeInvocation } from "./opencodeInvocation.js";
 import { extractOpencodeSessionId, opencodeReport, parseOpencodeJsonOutput } from "./opencodeOutput.js";
 import { appendReviewResultFileInstruction, reviewResultEnvironment } from "./reviewResultContract.js";
@@ -84,7 +84,7 @@ export async function runOpencodeBlock(options: {
     args: invocation.args,
     cwd: workspace.rootPath,
     stdin: invocation.stdin,
-    env: planweaveExecutorEnv(
+    env: workspaceExecutorEnv(
       workspace,
       reviewResultPath
         ? reviewResultEnvironment({
@@ -211,7 +211,7 @@ export async function runOpencodeFeedback(options: {
     args: invocation.args,
     cwd: options.projectRoot,
     stdin: invocation.stdin,
-    env: planweaveExecutorEnv({ planweaveHome: options.planweaveHome }),
+    env: workspaceExecutorEnv({ planweaveHome: options.planweaveHome }),
     timeoutMs: options.profile.timeoutMs,
     stdoutPath: join(runDir, "stdout.md"),
     stderrPath: join(runDir, "stderr.log"),

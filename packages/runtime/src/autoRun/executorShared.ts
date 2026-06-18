@@ -12,7 +12,7 @@ import { runCommandInTmux, type TmuxSessionInfo } from "./tmuxExecutor.js";
 export type BlockClaim = Extract<ClaimResult, { kind: "block" }>;
 export type FeedbackClaim = Extract<ClaimResult, { kind: "feedback" }>;
 
-export function planweaveExecutorEnv(workspace: Pick<ProjectWorkspace, "planweaveHome">, env?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function workspaceExecutorEnv(workspace: Pick<ProjectWorkspace, "planweaveHome">, env?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return {
     ...(env ?? {}),
     PLANWEAVE_HOME: workspace.planweaveHome

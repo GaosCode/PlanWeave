@@ -4,7 +4,7 @@ import { writeJsonFile } from "../json.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { CodexExecExecutorProfile, ExecutorAdapterResult, PackageWorkspaceRef } from "../types.js";
 import { codexExecArgs, codexResumeArgs, extractCodexSessionId } from "./codexProtocol.js";
-import { finishRunMetadata, nextRunId, planweaveExecutorEnv, prepareBlockRun, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
+import { finishRunMetadata, nextRunId, prepareBlockRun, workspaceExecutorEnv, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
 import { runStreamingCommandWithSessionCapture, type StreamedCommandResult } from "./streamingExecutor.js";
 import { createTmuxSessionInfo, tmuxMetadataPatch, type TmuxSessionInfo } from "./tmuxExecutor.js";
 
@@ -72,7 +72,7 @@ export async function runCodexBlock(options: {
     args,
     cwd: workspace.rootPath,
     stdin: options.prompt,
-    env: planweaveExecutorEnv(workspace),
+    env: workspaceExecutorEnv(workspace),
     timeoutMs: options.profile.timeoutMs,
     stdoutPath,
     stderrPath,
@@ -97,7 +97,7 @@ export async function runCodexBlock(options: {
       args: codexResumeArgs(options.profile, codexSessionId, "continue this block and produce the required report"),
       cwd: workspace.rootPath,
       stdin: "",
-      env: planweaveExecutorEnv(workspace),
+      env: workspaceExecutorEnv(workspace),
       timeoutMs: options.profile.timeoutMs,
       stdoutPath: resumeStdoutPath,
       stderrPath: resumeStderrPath,
@@ -201,7 +201,7 @@ export async function runCodexFeedback(options: {
     args,
     cwd: options.projectRoot,
     stdin: options.claim.content,
-    env: planweaveExecutorEnv({ planweaveHome: options.planweaveHome }),
+    env: workspaceExecutorEnv({ planweaveHome: options.planweaveHome }),
     timeoutMs: options.profile.timeoutMs,
     stdoutPath: join(runDir, "stdout.md"),
     stderrPath: join(runDir, "stderr.log"),

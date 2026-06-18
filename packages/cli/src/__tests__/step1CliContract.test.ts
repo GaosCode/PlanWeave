@@ -9,7 +9,7 @@ const execFileAsync = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "../../../..");
 const cliWorkflowTimeoutMs = 60_000;
 
-async function planweave(args: string[], env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
+async function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync("pnpm", ["--silent", "--filter", "@planweave-ai/cli", "planweave", ...args], {
     cwd: repoRoot,
     env
@@ -84,7 +84,7 @@ describe("STEP-1 CLI contract", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-project-"));
     const env = { ...process.env, PLANWEAVE_HOME: home, INIT_CWD: root };
 
-    const init = JSON.parse((await planweave(["init", "--project-graph", "--json"], env)).stdout);
+    const init = JSON.parse((await runCli(["init", "--project-graph", "--json"], env)).stdout);
     expect(init.projectGraph).toMatchObject({
       path: join(init.workspace.workspaceRoot, "project-graph.json"),
       created: true,
@@ -96,7 +96,7 @@ describe("STEP-1 CLI contract", () => {
       canvases: [expect.objectContaining({ id: "default", packageDir: "package" })]
     });
 
-    const migrate = JSON.parse((await planweave(["project-graph", "migrate", "--json"], env)).stdout);
+    const migrate = JSON.parse((await runCli(["project-graph", "migrate", "--json"], env)).stdout);
     expect(migrate).toMatchObject({
       path: init.projectGraph.path,
       created: false,
@@ -110,7 +110,7 @@ describe("STEP-1 CLI contract", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-project-"));
     const env = { ...process.env, PLANWEAVE_HOME: home, INIT_CWD: root };
 
-    await expect(planweave(["project-graph", "migrate", "--json"], env)).rejects.toMatchObject({
+    await expect(runCli(["project-graph", "migrate", "--json"], env)).rejects.toMatchObject({
       stderr: expect.stringContaining("planweave init --project-graph --json")
     });
   }, 20_000);
@@ -118,24 +118,24 @@ describe("STEP-1 CLI contract", () => {
   it("runs the block-level review feedback loop", async () => {
     const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
     const env = { ...process.env, PLANWEAVE_HOME: home };
-    const init = JSON.parse((await planweave(["init", "--json"], env)).stdout);
+    const init = JSON.parse((await runCli(["init", "--json"], env)).stdout);
     await cp(join(repoRoot, "examples/basic-plan-package/package"), init.workspace.packageDir, {
       recursive: true,
       force: true
     });
 
-    const validation = JSON.parse((await planweave(["validate", "--json"], env)).stdout);
+    const validation = JSON.parse((await runCli(["validate", "--json"], env)).stdout);
     expect(validation.ok).toBe(true);
 
-    expect(JSON.parse((await planweave(["claim-next"], env)).stdout)).toMatchObject({
+    expect(JSON.parse((await runCli(["claim-next"], env)).stdout)).toMatchObject({
       kind: "block",
       ref: "T-001#B-001"
     });
-    expect((await planweave(["prompt", "T-001#B-001"], env)).stdout).toContain("Create a small implementation report");
+    expect((await runCli(["prompt", "T-001#B-001"], env)).stdout).toContain("Create a small implementation report");
     const implementation = join(home, "implementation.md");
     await writeFile(implementation, "Implemented.\n", "utf8");
     const submitResult = JSON.parse(
-      (await planweave(["submit-result", "T-001#B-001", "--report", implementation, "--json"], env)).stdout
+      (await runCli(["submit-result", "T-001#B-001", "--report", implementation, "--json"], env)).stdout
     ) as {
       ref: string;
       status: string;
@@ -145,7 +145,7 @@ describe("STEP-1 CLI contract", () => {
       status: "completed"
     });
 
-    expect(JSON.parse((await planweave(["claim", "--type", "review"], env)).stdout)).toMatchObject({
+    expect(JSON.parse((await runCli(["claim", "--type", "review"], env)).stdout)).toMatchObject({
       kind: "block",
       ref: "T-001#R-001"
     });
@@ -161,7 +161,7 @@ describe("STEP-1 CLI contract", () => {
       "utf8"
     );
     const needsChangesReview = JSON.parse(
-      (await planweave(["submit-review", "T-001#R-001", "--result", review, "--json"], env)).stdout
+      (await runCli(["submit-review", "T-001#R-001", "--result", review, "--json"], env)).stdout
     ) as {
       ref: string;
       verdict: string;
@@ -174,7 +174,7 @@ describe("STEP-1 CLI contract", () => {
       status: "in_progress",
       feedbackCreated: true
     });
-    expect(JSON.parse((await planweave(["claim-next"], env)).stdout)).toEqual({
+    expect(JSON.parse((await runCli(["claim-next"], env)).stdout)).toEqual({
       kind: "feedback",
       feedbackId: "FE-001",
       sourceReviewBlockRef: "T-001#R-001",
@@ -183,7 +183,7 @@ describe("STEP-1 CLI contract", () => {
     });
     const feedback = join(home, "feedback.md");
     await writeFile(feedback, "Adjusted.\n", "utf8");
-    const submitFeedback = JSON.parse((await planweave(["submit-feedback", "--report", feedback, "--json"], env)).stdout) as {
+    const submitFeedback = JSON.parse((await runCli(["submit-feedback", "--report", feedback, "--json"], env)).stdout) as {
       status: string;
       nextCommand: string;
     };
@@ -192,7 +192,7 @@ describe("STEP-1 CLI contract", () => {
       nextCommand: "planweave claim-next"
     });
 
-    expect(JSON.parse((await planweave(["claim-next"], env)).stdout)).toMatchObject({
+    expect(JSON.parse((await runCli(["claim-next"], env)).stdout)).toMatchObject({
       kind: "block",
       ref: "T-001#R-001",
       reason: "feedback_resolved"
@@ -207,7 +207,7 @@ describe("STEP-1 CLI contract", () => {
       }),
       "utf8"
     );
-    const passedReview = JSON.parse((await planweave(["submit-review", "T-001#R-001", "--result", review, "--json"], env)).stdout) as {
+    const passedReview = JSON.parse((await runCli(["submit-review", "T-001#R-001", "--result", review, "--json"], env)).stdout) as {
       ref: string;
       verdict: string;
       status: string;
@@ -219,21 +219,21 @@ describe("STEP-1 CLI contract", () => {
       status: "completed",
       feedbackCreated: false
     });
-    const status = JSON.parse((await planweave(["status", "--json"], env)).stdout) as ExampleStatus;
+    const status = JSON.parse((await runCli(["status", "--json"], env)).stdout) as ExampleStatus;
     expectCompletedExampleStatus(status);
-    expectNoOrphanValidation(JSON.parse((await planweave(["validate", "--json"], env)).stdout) as ValidationReport);
+    expectNoOrphanValidation(JSON.parse((await runCli(["validate", "--json"], env)).stdout) as ValidationReport);
   }, cliWorkflowTimeoutMs);
 
   it("reports explainable Auto Run status in JSON and text output", async () => {
     const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
     const env = { ...process.env, PLANWEAVE_HOME: home };
-    const init = JSON.parse((await planweave(["init", "--json"], env)).stdout);
+    const init = JSON.parse((await runCli(["init", "--json"], env)).stdout);
     await cp(join(repoRoot, "examples/basic-plan-package/package"), init.workspace.packageDir, {
       recursive: true,
       force: true
     });
 
-    const initial = JSON.parse((await planweave(["run-status", "--json"], env)).stdout) as {
+    const initial = JSON.parse((await runCli(["run-status", "--json"], env)).stdout) as {
       explanation: { phase: string; nextAction: { kind: string; command: string | null; message: string } };
     };
     expect(initial.explanation).toMatchObject({
@@ -245,8 +245,8 @@ describe("STEP-1 CLI contract", () => {
       }
     });
 
-    await planweave(["run", "--once", "--executor", "manual"], env);
-    const status = JSON.parse((await planweave(["run-status", "--json"], env)).stdout) as {
+    await runCli(["run", "--once", "--executor", "manual"], env);
+    const status = JSON.parse((await runCli(["run-status", "--json"], env)).stdout) as {
       explanation: {
         phase: string;
         currentRef: string | null;
@@ -268,7 +268,7 @@ describe("STEP-1 CLI contract", () => {
       }
     });
 
-    const text = (await planweave(["run-status"], env)).stdout;
+    const text = (await runCli(["run-status"], env)).stdout;
     expect(text).toContain("latest record: T-001#B-001::RUN-001");
     expect(text).toContain("next action: Complete the manual step, then submit the result.");
   }, 20_000);
@@ -278,7 +278,7 @@ describe("STEP-1 CLI contract", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave project-"));
     const env = withoutInitCwd({ ...process.env, PLANWEAVE_HOME: home });
     const rootArgs = ["--project-root", root];
-    const init = JSON.parse((await planweave([...rootArgs, "init", "--json"], env)).stdout);
+    const init = JSON.parse((await runCli([...rootArgs, "init", "--json"], env)).stdout);
     await cp(join(repoRoot, "examples/basic-plan-package/package"), init.workspace.packageDir, {
       recursive: true,
       force: true
@@ -325,36 +325,36 @@ describe("STEP-1 CLI contract", () => {
       "utf8"
     );
 
-    const paths = JSON.parse((await planweave([...rootArgs, "paths", "--json"], env)).stdout);
+    const paths = JSON.parse((await runCli([...rootArgs, "paths", "--json"], env)).stdout);
     expect(paths.projectGraphPath).toBe(join(init.workspace.workspaceRoot, "project-graph.json"));
     expect(paths.activeCanvasId).toBe("runtime");
     expect(paths.canvases.map((canvas: { canvasId: string }) => canvas.canvasId)).toEqual(["runtime", "desktop"]);
 
-    const initialDesktopStatus = JSON.parse((await planweave([...rootArgs, "status", "--json", "--canvas", "desktop"], env)).stdout);
+    const initialDesktopStatus = JSON.parse((await runCli([...rootArgs, "status", "--json", "--canvas", "desktop"], env)).stdout);
     expect(initialDesktopStatus.claimHints.find((hint: { ref: string }) => hint.ref === "T-001#B-001")?.recommendedCommand).toContain(
       "planweave claim --canvas desktop"
     );
-    const desktopRunStatusJson = JSON.parse((await planweave([...rootArgs, "run-status", "--json", "--canvas", "desktop"], env)).stdout) as {
+    const desktopRunStatusJson = JSON.parse((await runCli([...rootArgs, "run-status", "--json", "--canvas", "desktop"], env)).stdout) as {
       explanation: { nextAction: { command: string | null } };
     };
     expect(desktopRunStatusJson.explanation.nextAction.command).toBeNull();
-    const desktopRunStatusText = (await planweave([...rootArgs, "run-status", "--canvas", "desktop"], env)).stdout;
+    const desktopRunStatusText = (await runCli([...rootArgs, "run-status", "--canvas", "desktop"], env)).stdout;
     expect(desktopRunStatusText).toContain(`next command: planweave --project-root '${root}' run --canvas desktop`);
     expect(desktopRunStatusText).not.toContain("next command: planweave run --canvas desktop");
     expect(desktopRunStatusText).not.toContain("next command: planweave run\n");
-    expect(JSON.parse((await planweave([...rootArgs, "claim-next", "--canvas", "desktop"], env)).stdout)).toMatchObject({
+    expect(JSON.parse((await runCli([...rootArgs, "claim-next", "--canvas", "desktop"], env)).stdout)).toMatchObject({
       kind: "block",
       ref: "T-001#B-001"
     });
-    const desktopPrompt = (await planweave([...rootArgs, "prompt", "--canvas", "desktop", "T-001#B-001"], env)).stdout;
+    const desktopPrompt = (await runCli([...rootArgs, "prompt", "--canvas", "desktop", "T-001#B-001"], env)).stdout;
     expect(desktopPrompt).toContain("Desktop canvas block prompt");
     expect(desktopPrompt).toContain("planweave submit-result --canvas desktop T-001#B-001 --report");
-    const desktopStatus = JSON.parse((await planweave([...rootArgs, "status", "--json", "--canvas", "desktop"], env)).stdout);
+    const desktopStatus = JSON.parse((await runCli([...rootArgs, "status", "--json", "--canvas", "desktop"], env)).stdout);
     expect(desktopStatus.currentRefs).toEqual(["T-001#B-001"]);
 
-    const runtimeStatus = JSON.parse((await planweave([...rootArgs, "status", "--json"], env)).stdout);
+    const runtimeStatus = JSON.parse((await runCli([...rootArgs, "status", "--json"], env)).stdout);
     expect(runtimeStatus.currentRefs).toEqual([]);
-    expect(JSON.parse((await planweave([...rootArgs, "current", "--canvas", "desktop"], env)).stdout).items[0].submitCommand).toContain(
+    expect(JSON.parse((await runCli([...rootArgs, "current", "--canvas", "desktop"], env)).stdout).items[0].submitCommand).toContain(
       "--canvas desktop"
     );
   }, 20_000);

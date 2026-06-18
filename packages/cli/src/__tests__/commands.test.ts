@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createProgram } from "../index.js";
 import { formatExecutorTestHuman, formatExecutorTestJson } from "../commands/executors.js";
 import { formatClaimHint } from "../commands/status.js";
-import { formatPlanweaveHelp, planweaveHelpTopics } from "../commands/help.js";
+import { formatCliHelp, planweaveHelpTopics } from "../commands/help.js";
 import { formatSchemaHelp, schemaDocuments } from "../commands/schema.js";
 
 function commandOptionLongs(name: string): string[] {
@@ -190,22 +190,22 @@ describe("planweave CLI contract", () => {
 
   it("prints PlanWeave-specific help topics for agent CLI workflows", () => {
     expect(planweaveHelpTopics.map((topic) => topic.name)).toEqual(["setup", "schema", "plan", "work", "submit", "explain", "recovery", "autorun"]);
-    expect(formatPlanweaveHelp()).toContain("Common agent loop:");
-    expect(formatPlanweaveHelp("schema")).toContain("planweave schema project");
-    expect(formatPlanweaveHelp("schema")).toContain("planweave schema manifest");
-    expect(formatPlanweaveHelp("schema")).toContain("Use schema project before writing formal multi-canvas project-graph.json.");
-    expect(formatPlanweaveHelp("schema")).toContain("Do not hand-author project graph, manifest, state, or layout from memory.");
-    expect(formatPlanweaveHelp("work")).toContain("planweave claim-next --parallel --dry-run");
-    expect(formatPlanweaveHelp("work")).toContain("planweave status --json --canvas <canvasId>");
-    expect(formatPlanweaveHelp("work")).toContain("CLI commands target the current or first canvas");
-    expect(formatPlanweaveHelp("submit")).toContain("planweave submit-review <review-block-ref> --result <review-result.json>");
-    expect(formatPlanweaveHelp("submit")).toContain("planweave submit-result --canvas <canvasId> <block-ref> --report <report.md>");
-    expect(formatPlanweaveHelp("autorun")).toContain("planweave run --once --executor <name> --canvas <canvasId> --json");
-    expect(formatPlanweaveHelp("recovery")).toContain("planweave doctor --repair");
-    expect(formatPlanweaveHelp("recovery")).toContain("planweave retry-review <review-block-ref> --max-feedback-cycles 3");
-    expect(formatPlanweaveHelp("plan")).toContain("planweave edit-block <block-ref> --review-required false");
-    expect(formatPlanweaveHelp("recovery")).toContain("Doctor checks state/results consistency; it is not a general Plan Package repair tool.");
-    expect(formatPlanweaveHelp("recovery")).toContain("Fix bad dependencies, unsafe parallelization, missing prompts, or review-gate design");
+    expect(formatCliHelp()).toContain("Common agent loop:");
+    expect(formatCliHelp("schema")).toContain("planweave schema project");
+    expect(formatCliHelp("schema")).toContain("planweave schema manifest");
+    expect(formatCliHelp("schema")).toContain("Use schema project before writing formal multi-canvas project-graph.json.");
+    expect(formatCliHelp("schema")).toContain("Do not hand-author project graph, manifest, state, or layout from memory.");
+    expect(formatCliHelp("work")).toContain("planweave claim-next --parallel --dry-run");
+    expect(formatCliHelp("work")).toContain("planweave status --json --canvas <canvasId>");
+    expect(formatCliHelp("work")).toContain("CLI commands target the current or first canvas");
+    expect(formatCliHelp("submit")).toContain("planweave submit-review <review-block-ref> --result <review-result.json>");
+    expect(formatCliHelp("submit")).toContain("planweave submit-result --canvas <canvasId> <block-ref> --report <report.md>");
+    expect(formatCliHelp("autorun")).toContain("planweave run --once --executor <name> --canvas <canvasId> --json");
+    expect(formatCliHelp("recovery")).toContain("planweave doctor --repair");
+    expect(formatCliHelp("recovery")).toContain("planweave retry-review <review-block-ref> --max-feedback-cycles 3");
+    expect(formatCliHelp("plan")).toContain("planweave edit-block <block-ref> --review-required false");
+    expect(formatCliHelp("recovery")).toContain("Doctor checks state/results consistency; it is not a general Plan Package repair tool.");
+    expect(formatCliHelp("recovery")).toContain("Fix bad dependencies, unsafe parallelization, missing prompts, or review-gate design");
   });
 
   it("prints focused schema navigation and full schema topics", () => {
