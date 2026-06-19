@@ -123,4 +123,38 @@ describe("compileProjectGraph", () => {
       ])
     );
   });
+
+  it("keeps loaded canvas task refs when another canvas manifest cannot be read", async () => {
+    const { root, init } = await createTestWorkspace();
+    await writeProjectGraph(init.workspace, {
+      version: "plan-project/v1",
+      canvases: [
+        {
+          id: "broken",
+          type: "canvas",
+          title: "Broken",
+          packageDir: "canvases/broken/package",
+          stateFile: "canvases/broken/state.json",
+          resultsDir: "canvases/broken/results"
+        },
+        { id: "default", type: "canvas", title: "Default", packageDir: "package", stateFile: "state.json", resultsDir: "results" }
+      ],
+      edges: [],
+      crossTaskEdges: [
+        {
+          from: { canvasId: "broken", taskId: "T-001" },
+          to: { canvasId: "default", taskId: "T-MISSING" },
+          type: "depends_on"
+        }
+      ]
+    });
+
+    const graph = await compileProjectGraph(await loadProjectGraph(root));
+
+    expect(graph.taskRefsInProjectOrder).toEqual([{ canvasId: "default", taskId: "T-001" }]);
+    expect(graph.diagnostics.errors.map((error) => error.code)).toEqual([
+      "project_canvas_manifest_read_failed",
+      "project_cross_task_to_missing"
+    ]);
+  });
 });

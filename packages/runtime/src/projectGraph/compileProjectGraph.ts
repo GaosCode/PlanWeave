@@ -1,13 +1,13 @@
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
-import type { PlanPackageManifest, ProjectWorkspace, ValidationIssue } from "../types.js";
+import type { CompiledTaskGraph, PlanPackageManifest, ProjectWorkspace, ValidationIssue } from "../types.js";
 import { findCycle, reachable } from "./graphAlgorithms.js";
 import { parseProjectTaskRefKey, projectCanvasEdgeKey, projectCrossTaskEdgeKey, projectTaskRefKey } from "./projectGraphKeys.js";
 import { projectCanvasWorkspace } from "./projectGraphWorkspace.js";
 import type {
   CompiledProjectGraph,
   LoadedProjectGraph,
-  ProjectGraphManifest,
+  ProjectCanvasNode,
   ProjectTaskRef,
   ProjectTaskRefString
 } from "./types.js";
@@ -27,12 +27,37 @@ function addUnique(map: Map<string, string[]>, from: string, to: string): void {
   }
 }
 
-async function canvasManifest(projectWorkspace: ProjectWorkspace, canvasId: string, manifest: ProjectGraphManifest): Promise<PlanPackageManifest | null> {
-  const canvas = manifest.canvases.find((candidate) => candidate.id === canvasId);
-  if (!canvas) {
-    return null;
+type CanvasReadResult = {
+  canvas: ProjectCanvasNode;
+  manifest: PlanPackageManifest | null;
+  graph: CompiledTaskGraph | null;
+  taskIds: Set<string>;
+  taskIdsInManifestOrder: string[];
+  error?: ValidationIssue;
+};
+
+async function readCanvasPackage(projectWorkspace: ProjectWorkspace, canvas: ProjectCanvasNode): Promise<CanvasReadResult> {
+  try {
+    const packageManifest = (await loadPackage(projectCanvasWorkspace(projectWorkspace, canvas))).manifest;
+    const graph = compileTaskGraph(packageManifest);
+    const taskIdsInManifestOrder = [...graph.taskNodesInManifestOrder];
+    return {
+      canvas,
+      manifest: packageManifest,
+      graph,
+      taskIds: new Set(taskIdsInManifestOrder),
+      taskIdsInManifestOrder
+    };
+  } catch (caught) {
+    return {
+      canvas,
+      manifest: null,
+      graph: null,
+      taskIds: new Set(),
+      taskIdsInManifestOrder: [],
+      error: issue("project_canvas_manifest_read_failed", caught instanceof Error ? caught.message : String(caught), canvas.id)
+    };
   }
-  return (await loadPackage(projectCanvasWorkspace(projectWorkspace, canvas))).manifest;
 }
 
 export async function compileProjectGraph(loaded: LoadedProjectGraph): Promise<CompiledProjectGraph> {
@@ -90,31 +115,33 @@ export async function compileProjectGraph(loaded: LoadedProjectGraph): Promise<C
     addUnique(canvasAdjacency, edge.from, edge.to);
   }
 
-  const manifestsByCanvas = new Map<string, PlanPackageManifest>();
-  for (const canvas of manifest.canvases) {
-    try {
-      const packageManifest = await canvasManifest(workspace, canvas.id, manifest);
-      if (packageManifest) {
-        manifestsByCanvas.set(canvas.id, packageManifest);
-        const graph = compileTaskGraph(packageManifest);
-        for (const taskId of graph.taskNodesInManifestOrder) {
-          const taskRef = { canvasId: canvas.id, taskId };
-          const ref = projectTaskRefKey(taskRef);
-          taskRefsInProjectOrder.push(taskRef);
-          taskDependenciesByTaskRef.set(ref, taskDependenciesByTaskRef.get(ref) ?? []);
-          taskDependentsByTaskRef.set(ref, taskDependentsByTaskRef.get(ref) ?? []);
-          taskAdjacency.set(ref, taskAdjacency.get(ref) ?? []);
-        }
-        for (const edge of packageManifest.edges) {
-          const from = projectTaskRefKey({ canvasId: canvas.id, taskId: edge.from });
-          const to = projectTaskRefKey({ canvasId: canvas.id, taskId: edge.to });
-          addUnique(taskDependenciesByTaskRef, from, to);
-          addUnique(taskDependentsByTaskRef, to, from);
-          addUnique(taskAdjacency, from, to);
-        }
-      }
-    } catch (caught) {
-      errors.push(issue("project_canvas_manifest_read_failed", caught instanceof Error ? caught.message : String(caught), canvas.id));
+  const taskIdsByCanvas = new Map<string, Set<string>>();
+  const taskOrderByCanvas = new Map<string, string[]>();
+  const canvasPackageResults = await Promise.all(manifest.canvases.map((canvas) => readCanvasPackage(workspace, canvas)));
+  for (const result of canvasPackageResults) {
+    if (result.error) {
+      errors.push(result.error);
+      continue;
+    }
+    if (!result.manifest) {
+      continue;
+    }
+    taskIdsByCanvas.set(result.canvas.id, result.taskIds);
+    taskOrderByCanvas.set(result.canvas.id, result.taskIdsInManifestOrder);
+    for (const taskId of result.taskIdsInManifestOrder) {
+      const taskRef = { canvasId: result.canvas.id, taskId };
+      const ref = projectTaskRefKey(taskRef);
+      taskRefsInProjectOrder.push(taskRef);
+      taskDependenciesByTaskRef.set(ref, taskDependenciesByTaskRef.get(ref) ?? []);
+      taskDependentsByTaskRef.set(ref, taskDependentsByTaskRef.get(ref) ?? []);
+      taskAdjacency.set(ref, taskAdjacency.get(ref) ?? []);
+    }
+    for (const edge of result.manifest.edges) {
+      const from = projectTaskRefKey({ canvasId: result.canvas.id, taskId: edge.from });
+      const to = projectTaskRefKey({ canvasId: result.canvas.id, taskId: edge.to });
+      addUnique(taskDependenciesByTaskRef, from, to);
+      addUnique(taskDependentsByTaskRef, to, from);
+      addUnique(taskAdjacency, from, to);
     }
   }
 
@@ -125,18 +152,18 @@ export async function compileProjectGraph(loaded: LoadedProjectGraph): Promise<C
       errors.push(issue("project_cross_task_edge_duplicate", `Cross task edge '${key}' is duplicated.`, "crossTaskEdges"));
     }
     seenCrossTaskEdges.add(key);
-    const fromManifest = manifestsByCanvas.get(edge.from.canvasId);
-    const toManifest = manifestsByCanvas.get(edge.to.canvasId);
+    const fromTaskIds = taskIdsByCanvas.get(edge.from.canvasId);
+    const toTaskIds = taskIdsByCanvas.get(edge.to.canvasId);
     if (!canvasesById.has(edge.from.canvasId)) {
       errors.push(issue("project_cross_task_from_canvas_missing", `Cross task edge references missing from canvas '${edge.from.canvasId}'.`, "crossTaskEdges"));
     }
     if (!canvasesById.has(edge.to.canvasId)) {
       errors.push(issue("project_cross_task_to_canvas_missing", `Cross task edge references missing to canvas '${edge.to.canvasId}'.`, "crossTaskEdges"));
     }
-    if (fromManifest && !fromManifest.nodes.some((node) => node.type === "task" && node.id === edge.from.taskId)) {
+    if (fromTaskIds && !fromTaskIds.has(edge.from.taskId)) {
       errors.push(issue("project_cross_task_from_missing", `Cross task edge references missing from task '${edge.from.canvasId}::${edge.from.taskId}'.`, "crossTaskEdges"));
     }
-    if (toManifest && !toManifest.nodes.some((node) => node.type === "task" && node.id === edge.to.taskId)) {
+    if (toTaskIds && !toTaskIds.has(edge.to.taskId)) {
       errors.push(issue("project_cross_task_to_missing", `Cross task edge references missing to task '${edge.to.canvasId}::${edge.to.taskId}'.`, "crossTaskEdges"));
     }
     const from = projectTaskRefKey(edge.from);
@@ -152,15 +179,14 @@ export async function compileProjectGraph(loaded: LoadedProjectGraph): Promise<C
   }
 
   for (const edge of manifest.edges) {
-    const fromManifest = manifestsByCanvas.get(edge.from);
-    const toManifest = manifestsByCanvas.get(edge.to);
-    if (!fromManifest || !toManifest) {
+    const fromTaskIds = taskOrderByCanvas.get(edge.from);
+    const toTaskIds = taskOrderByCanvas.get(edge.to);
+    if (!fromTaskIds || !toTaskIds) {
       continue;
     }
-    const toTasks = toManifest.nodes.filter((node) => node.type === "task").map((node) => node.id);
-    for (const fromTask of fromManifest.nodes.filter((node) => node.type === "task")) {
-      const from = projectTaskRefKey({ canvasId: edge.from, taskId: fromTask.id });
-      for (const toTaskId of toTasks) {
+    for (const fromTaskId of fromTaskIds) {
+      const from = projectTaskRefKey({ canvasId: edge.from, taskId: fromTaskId });
+      for (const toTaskId of toTaskIds) {
         const to = projectTaskRefKey({ canvasId: edge.to, taskId: toTaskId });
         addUnique(taskDependenciesByTaskRef, from, to);
         addUnique(taskDependentsByTaskRef, to, from);
