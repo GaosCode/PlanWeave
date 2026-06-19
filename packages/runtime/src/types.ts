@@ -771,6 +771,37 @@ export type DoctorReport = {
   issues: DoctorIssue[];
 };
 
+export type ProjectDoctorIssueSource = "project_graph" | "canvas_package" | "canvas_doctor";
+
+export type ProjectDoctorIssue = {
+  code: string;
+  message: string;
+  source: ProjectDoctorIssueSource;
+  canvasId?: string;
+  path?: string;
+  repaired?: boolean;
+  ref?: string;
+  taskId?: string;
+  stateRunId?: string | null;
+  indexRunId?: string | null;
+};
+
+export type ProjectDoctorCanvasReport = {
+  canvasId: string;
+  ok: boolean;
+  repaired: boolean;
+  errors: ProjectDoctorIssue[];
+  warnings: ProjectDoctorIssue[];
+};
+
+export type ProjectDoctorReport = {
+  ok: boolean;
+  repaired: boolean;
+  errors: ProjectDoctorIssue[];
+  warnings: ProjectDoctorIssue[];
+  canvasReports: ProjectDoctorCanvasReport[];
+};
+
 export type PlanStatus = {
   projectId: string;
   projectRoot: string;

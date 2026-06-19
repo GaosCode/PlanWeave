@@ -84,6 +84,7 @@ describe("planweave CLI contract", () => {
     expect(commandOptionLongs("submit-feedback")).toContain("--json");
     expect(commandOptionLongs("doctor")).toContain("--repair");
     expect(commandOptionLongs("doctor")).toContain("--canvas");
+    expect(commandOptionLongs("doctor")).toContain("--project");
     expect(commandOptionLongs("retry-review")).toContain("--max-feedback-cycles");
     expect(commandOptionLongs("retry-review")).toContain("--canvas");
     expect(commandOptionLongs("edit-task")).toEqual(expect.arrayContaining(["--title", "--prompt-file", "--executor", "--clear-executor"]));
@@ -129,6 +130,16 @@ describe("planweave CLI contract", () => {
     ]) {
       expect(commandOptionLongs(commandName), commandName).toContain("--canvas");
     }
+  });
+
+  it("rejects project doctor with canvas selection", async () => {
+    const program = createProgram();
+    program.exitOverride();
+    program.configureOutput({ writeOut: () => undefined, writeErr: () => undefined });
+
+    await expect(program.parseAsync(["doctor", "--project", "--canvas", "runtime"], { from: "user" })).rejects.toThrow(
+      "doctor --project cannot be combined with --canvas."
+    );
   });
 
   it("prints executor preflight facts as JSON", () => {

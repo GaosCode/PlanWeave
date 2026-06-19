@@ -3,8 +3,11 @@ import { constants } from "node:fs";
 import { dirname, join } from "node:path";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
-import type { PackageWorkspaceRef, PlanPackageManifest, ProjectWorkspace, ValidationIssue } from "../types.js";
+import type { PackageWorkspaceRef, PlanPackageManifest, ProjectWorkspace } from "../types.js";
+import { validateDesktopLayout } from "../validation/desktopLayoutValidation.js";
 import type { DesktopLayout, DesktopLayoutNode } from "./types.js";
+
+export { validateDesktopLayout };
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -103,60 +106,12 @@ function normalizeLayout(input: unknown, projectId: string): DesktopLayout {
   return defaultLayout(projectId);
 }
 
-function validateLayoutShape(input: unknown): { errors: ValidationIssue[]; warnings: ValidationIssue[] } {
-  const errors: ValidationIssue[] = [];
-  const warnings: ValidationIssue[] = [];
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    errors.push(issue("invalid_layout_schema", "Desktop layout must be a JSON object.", "desktop/layout.json"));
-    return { errors, warnings };
-  }
-  const raw = input as Record<string, unknown>;
-  if (Array.isArray(raw.nodes)) {
-    if (raw.version !== "desktop-layout/v1") {
-      errors.push(issue("invalid_layout_schema", "Desktop layout version must be 'desktop-layout/v1'.", "desktop/layout.json:version"));
-    }
-    if (typeof raw.projectId !== "string" || !raw.projectId.trim()) {
-      errors.push(issue("invalid_layout_schema", "Desktop layout projectId must be a non-empty string.", "desktop/layout.json:projectId"));
-    }
-    if (typeof raw.updatedAt !== "string" || !raw.updatedAt.trim()) {
-      errors.push(issue("invalid_layout_schema", "Desktop layout updatedAt must be an ISO timestamp string.", "desktop/layout.json:updatedAt"));
-    }
-    raw.nodes.forEach((node, index) => {
-      if (!normalizeLayoutNode(node)) {
-        errors.push(issue("invalid_layout_schema", "Desktop layout node must include nodeId, x, and y.", `desktop/layout.json:nodes.${index}`));
-      }
-    });
-    return { errors, warnings };
-  }
-  if (raw.nodes && typeof raw.nodes === "object") {
-    warnings.push(
-      issue(
-        "legacy_layout_schema",
-        "Desktop layout uses legacy object-map nodes; save the layout through desktop/runtime to migrate it to desktop-layout/v1.",
-        "desktop/layout.json:nodes"
-      )
-    );
-    for (const [nodeId, node] of Object.entries(raw.nodes)) {
-      if (!normalizeLegacyLayoutNode(nodeId, node)) {
-        errors.push(issue("invalid_layout_schema", "Legacy desktop layout node must include position.x and position.y.", `desktop/layout.json:nodes.${nodeId}`));
-      }
-    }
-    return { errors, warnings };
-  }
-  errors.push(issue("invalid_layout_schema", "Desktop layout nodes must be an array of { nodeId, x, y } entries.", "desktop/layout.json:nodes"));
-  return { errors, warnings };
-}
-
 function filterLayoutNodes(layout: DesktopLayout, manifest: PlanPackageManifest): DesktopLayout {
   const nodeIds = manifestNodeIds(manifest);
   return {
     ...layout,
     nodes: layout.nodes.filter((node) => nodeIds.has(node.nodeId))
   };
-}
-
-function issue(code: string, message: string, path?: string): ValidationIssue {
-  return { code, message, path };
 }
 
 export async function getDesktopLayout(projectRoot: PackageWorkspaceRef): Promise<DesktopLayout> {
@@ -190,36 +145,4 @@ export async function resetDesktopLayout(projectRoot: PackageWorkspaceRef): Prom
   const workspace = await resolvePackageWorkspace(projectRoot);
   await rm(await layoutPath(projectRoot), { force: true });
   return defaultLayout(workspace.id);
-}
-
-export async function validateDesktopLayout(workspace: ProjectWorkspace, manifest: PlanPackageManifest): Promise<{
-  errors: ValidationIssue[];
-  warnings: ValidationIssue[];
-}> {
-  const path = layoutPathForWorkspace(workspace);
-  if (!(await exists(path))) {
-    return { errors: [], warnings: [] };
-  }
-  let rawLayout: unknown;
-  try {
-    rawLayout = await readJsonFile<unknown>(path);
-  } catch (error) {
-    return {
-      errors: [issue("layout_read_failed", error instanceof Error ? error.message : String(error), "desktop/layout.json")],
-      warnings: []
-    };
-  }
-  const report = validateLayoutShape(rawLayout);
-  const layout = normalizeLayout(rawLayout, workspace.id);
-  const nodeIds = manifestNodeIds(manifest);
-  report.warnings.push(...layout.nodes
-    .filter((node) => !nodeIds.has(node.nodeId))
-    .map((node) =>
-      issue(
-        "stale_layout_reference",
-        `Desktop layout references missing manifest node '${node.nodeId}'.`,
-        `desktop/layout.json:${node.nodeId}`
-      )
-    ));
-  return report;
 }

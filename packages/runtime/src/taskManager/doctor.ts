@@ -6,7 +6,13 @@ import { readJsonFile } from "../json.js";
 import { findOrphanResults } from "../package/orphans.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { ensureStateForManifest, readState, writeState } from "../state.js";
-import type { DoctorIssue, DoctorReport, PackageWorkspaceRef, ProjectWorkspace, RuntimeState } from "../types.js";
+import type {
+  DoctorIssue,
+  DoctorReport,
+  PackageWorkspaceRef,
+  ProjectWorkspace,
+  RuntimeState
+} from "../types.js";
 import { readTaskIndex, updateTaskIndex } from "./resultIndex.js";
 
 async function exists(path: string): Promise<boolean> {

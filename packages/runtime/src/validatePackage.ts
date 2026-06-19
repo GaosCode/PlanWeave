@@ -2,7 +2,6 @@ import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { ZodError } from "zod";
-import { validateDesktopLayout } from "./desktop/layoutApi.js";
 import { compilePackageGraph } from "./graph/compileTaskGraph.js";
 import { readJsonFile } from "./json.js";
 import { findOrphanResults, findOrphanState } from "./package/orphans.js";
@@ -11,6 +10,7 @@ import { compileProjectGraph, loadProjectGraph, projectCanvasWorkspace } from ".
 import { manifestSchema } from "./schema/manifest.js";
 import { readState } from "./state.js";
 import type { PlanPackageManifest, ProjectWorkspace, ValidationIssue, ValidationReport } from "./types.js";
+import { validateDesktopLayout } from "./validation/desktopLayoutValidation.js";
 
 async function exists(path: string): Promise<boolean> {
   try {

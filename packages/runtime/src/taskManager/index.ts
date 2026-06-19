@@ -1,6 +1,7 @@
 export { claimBlock, claimBlockType, claimNext, claimTask } from "./claimScheduler.js";
 export { explainBlock, getCurrentWork } from "./executorApi.js";
 export { runDoctor } from "./doctor.js";
+export { runProjectDoctor } from "./projectDoctor.js";
 export { renderPrompt, renderPromptSurface } from "./promptRenderer.js";
 export type { PromptSourceKind, PromptSourceSummary, PromptSurface } from "./promptRenderer.js";
 export { submitBlockResult } from "./blockSubmission.js";

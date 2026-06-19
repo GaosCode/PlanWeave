@@ -80,6 +80,7 @@ export {
   explainBlock,
   getCurrentWork,
   runDoctor,
+  runProjectDoctor,
   renderPrompt,
   submitBlockResult,
   submitReviewResult,
