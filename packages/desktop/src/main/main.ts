@@ -1,4 +1,6 @@
 import { app, BrowserWindow } from "electron";
+import { registerApplicationMenu } from "./appMenu.js";
+import { checkForAppUpdate, registerAppUpdateHandlers } from "./appUpdate.js";
 import { registerPackageWatchHandlers } from "./packageWatch.js";
 import { registerRuntimeBridgeHandlers } from "./runtimeBridgeHandlers.js";
 import { registerWindowAppearanceHandlers } from "./windowAppearance.js";
@@ -19,9 +21,16 @@ if (isSmoke && process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR) {
 registerRuntimeBridgeHandlers();
 registerPackageWatchHandlers();
 registerWindowAppearanceHandlers();
+registerAppUpdateHandlers();
+registerApplicationMenu({ checkForUpdates: checkForAppUpdate });
 
 app.whenReady().then(() => {
-  void createWindow({ isDev, isSmoke }).catch((error: unknown) => {
+  void (async () => {
+    await createWindow({ isDev, isSmoke });
+    if (app.isPackaged) {
+      void checkForAppUpdate();
+    }
+  })().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     app.exit(1);
   });

@@ -1,6 +1,7 @@
 import type { DesktopAutoRunEvent, DesktopPackageFileChangeEvent, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeInvokeApi } from "../preload/bridgeInvocation";
+import { appUpdateChangedChannel, appUpdateInvokeChannels, type AppUpdateState } from "../shared/appUpdate";
 import { autoRunChangedChannel, desktopBridgeInvokeChannels, packageFileChangedChannel } from "../shared/ipcChannels";
 import { windowAppearanceInvokeChannels } from "../shared/windowAppearance";
 
@@ -194,6 +195,47 @@ describe("preload bridge invocation", () => {
       appearance: "dark",
       enabled: true
     });
+  });
+
+  it("exposes the app update API through a separate preload surface", async () => {
+    const state: AppUpdateState = {
+      status: "available",
+      checkedAt: "2026-06-19T00:00:00.000Z",
+      currentVersion: "0.1.1",
+      error: null,
+      progress: null,
+      update: { version: "0.1.2", releaseDate: null, releaseName: null },
+      updatedAt: "2026-06-19T00:00:01.000Z"
+    };
+    electronMock.ipcRenderer.invoke.mockResolvedValue(state);
+
+    await import("../preload/preload");
+    const api = electronMock.exposed.get("planweaveAppUpdate") as {
+      checkForAppUpdate(): Promise<AppUpdateState>;
+      downloadAppUpdate(): Promise<AppUpdateState>;
+      getAppUpdateState(): Promise<AppUpdateState>;
+      installAppUpdate(): Promise<AppUpdateState>;
+      onAppUpdateChanged(callback: (state: AppUpdateState) => void): () => void;
+    };
+    const callback = vi.fn();
+
+    await expect(api.getAppUpdateState()).resolves.toBe(state);
+    await api.checkForAppUpdate();
+    await api.downloadAppUpdate();
+    await api.installAppUpdate();
+    const unsubscribe = api.onAppUpdateChanged(callback);
+
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(appUpdateInvokeChannels.getAppUpdateState);
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(appUpdateInvokeChannels.checkForAppUpdate);
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(appUpdateInvokeChannels.downloadAppUpdate);
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(appUpdateInvokeChannels.installAppUpdate);
+
+    const [channel, listener] = electronMock.ipcRenderer.on.mock.calls[0] as [string, IpcRendererListener];
+    expect(channel).toBe(appUpdateChangedChannel);
+    listener({}, state);
+    expect(callback).toHaveBeenCalledWith(state);
+    unsubscribe();
+    expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(appUpdateChangedChannel, listener);
   });
 
   it("exposes a smoke-only reveal path signal after the reveal IPC resolves", async () => {

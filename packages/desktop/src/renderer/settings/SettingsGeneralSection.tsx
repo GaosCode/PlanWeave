@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { AppUpdateSettingsRow } from "./AppUpdateSettingsRow";
 import { SettingsSwitchRow } from "../components/SettingsSwitchRow";
 import type { createTranslator, Language } from "../i18n";
 import type { AppearanceMode, DesktopUiSettings } from "../types";
@@ -107,6 +108,7 @@ export function SettingsGeneralSection({
         <p className="mt-1 text-sm text-text-muted">{t("settingsGeneralHint")}</p>
       </div>
       <SettingGroup title={t("interfaceSettings")}>
+        <AppUpdateSettingsRow t={t} />
         <Field orientation="horizontal" className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0">
           <FieldContent>
             <FieldLabel className="text-sm font-semibold">{t("language")}</FieldLabel>

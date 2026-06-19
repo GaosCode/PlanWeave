@@ -48,6 +48,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "electron-liquid-glass": "^1.1.1",
+    "electron-updater": "^6.8.9",
     "lucide-react": "^0.554.0",
     "radix-ui": "^1.4.3",
     "react": "^19.2.0",

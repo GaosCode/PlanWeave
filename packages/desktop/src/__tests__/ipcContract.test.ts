@@ -1,5 +1,6 @@
 import { cloneDesktopGraphEditResult, type GraphEditResult } from "@planweave-ai/runtime";
 import { describe, expect, it } from "vitest";
+import { appUpdateChangedChannel, appUpdateInvokeChannels } from "../shared/appUpdate";
 import { autoRunChangedChannel, desktopBridgeInvokeChannels, packageFileChangedChannel } from "../shared/ipcChannels";
 import { windowAppearanceInvokeChannels } from "../shared/windowAppearance";
 
@@ -26,6 +27,18 @@ describe("desktop IPC contract", () => {
     expect(windowAppearanceInvokeChannels.setWindowMaterial).toBe("planweave-window:setWindowMaterial");
     expect(Object.values(desktopBridgeInvokeChannels)).not.toContain(windowAppearanceInvokeChannels.getWindowMaterialCapabilities);
     expect(Object.values(desktopBridgeInvokeChannels)).not.toContain(windowAppearanceInvokeChannels.setWindowMaterial);
+  });
+
+  it("keeps app update channels outside the runtime bridge registry", () => {
+    expect(appUpdateInvokeChannels.getAppUpdateState).toBe("planweave-app-update:getAppUpdateState");
+    expect(appUpdateInvokeChannels.checkForAppUpdate).toBe("planweave-app-update:checkForAppUpdate");
+    expect(appUpdateInvokeChannels.downloadAppUpdate).toBe("planweave-app-update:downloadAppUpdate");
+    expect(appUpdateInvokeChannels.installAppUpdate).toBe("planweave-app-update:installAppUpdate");
+    expect(appUpdateChangedChannel).toBe("planweave-app-update:changed");
+    expect(Object.values(desktopBridgeInvokeChannels)).not.toContain(appUpdateChangedChannel);
+    for (const channel of Object.values(appUpdateInvokeChannels)) {
+      expect(Object.values(desktopBridgeInvokeChannels)).not.toContain(channel);
+    }
   });
 
   it("uses the desktop canvas reference channel for canvas-scoped bridge calls", () => {

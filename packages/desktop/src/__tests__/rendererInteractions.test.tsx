@@ -6,6 +6,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsSwitchRow } from "../renderer/components/SettingsSwitchRow";
+import { AppUpdateToast } from "../renderer/components/AppUpdateToast";
 import { HistoryNavigationButtons } from "../renderer/components/HistoryNavigationButtons";
 import { appViewHistoryChangedEvent } from "../renderer/hooks/useAppViewHistory";
 import { BlockInspector } from "../renderer/inspector/BlockInspector";
@@ -504,6 +505,35 @@ describe("desktop renderer component interactions", () => {
     await userEvent.click(screen.getByRole("button", { name: "标记为已读: 最新记录" }));
 
     expect(onMarkNotificationRead).toHaveBeenCalledWith("latest-record:/tmp/record.json");
+  });
+
+  it("starts downloading from the update toast without installing immediately", async () => {
+    const onDownload = vi.fn().mockResolvedValue(undefined);
+    const onInstall = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <AppUpdateToast
+        onCheck={vi.fn().mockResolvedValue(undefined)}
+        onDownload={onDownload}
+        onInstall={onInstall}
+        state={{
+          status: "available",
+          checkedAt: "2026-06-19T00:00:00.000Z",
+          currentVersion: "0.1.1",
+          error: null,
+          progress: null,
+          update: { version: "0.1.2", releaseDate: null, releaseName: null },
+          updatedAt: "2026-06-19T00:00:01.000Z"
+        }}
+        t={createTranslator("zh-CN")}
+      />
+    );
+
+    expect(screen.getByTestId("app-update-toast")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "开始下载更新" }));
+
+    expect(onDownload).toHaveBeenCalledTimes(1);
+    expect(onInstall).not.toHaveBeenCalled();
   });
 
   it("shows a project-opening empty state for statistics when no project is selected", async () => {

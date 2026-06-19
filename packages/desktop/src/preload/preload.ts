@@ -5,6 +5,8 @@ import type {
   DesktopBridgeApi,
   DesktopPackageFileChangeEvent
 } from "@planweave-ai/runtime";
+import type { AppUpdateState, PlanWeaveAppUpdateApi } from "../shared/appUpdate.js";
+import { appUpdateChangedChannel, appUpdateInvokeChannels } from "../shared/appUpdate.js";
 import { autoRunChangedChannel, packageFileChangedChannel } from "../shared/ipcChannels.js";
 import { windowAppearanceInvokeChannels, type PlanWeaveWindowApi } from "../shared/windowAppearance.js";
 import { createDesktopBridgeInvokeApi } from "./bridgeInvocation.js";
@@ -43,6 +45,20 @@ const windowApi: PlanWeaveWindowApi = {
 };
 
 contextBridge.exposeInMainWorld("planweaveWindow", windowApi);
+
+const appUpdateApi: PlanWeaveAppUpdateApi = {
+  checkForAppUpdate: async () => ipcRenderer.invoke(appUpdateInvokeChannels.checkForAppUpdate),
+  downloadAppUpdate: async () => ipcRenderer.invoke(appUpdateInvokeChannels.downloadAppUpdate),
+  getAppUpdateState: async () => ipcRenderer.invoke(appUpdateInvokeChannels.getAppUpdateState),
+  installAppUpdate: async () => ipcRenderer.invoke(appUpdateInvokeChannels.installAppUpdate),
+  onAppUpdateChanged: (callback) => {
+    const listener = (_event: IpcRendererEvent, payload: AppUpdateState) => callback(payload);
+    ipcRenderer.on(appUpdateChangedChannel, listener);
+    return () => ipcRenderer.off(appUpdateChangedChannel, listener);
+  }
+};
+
+contextBridge.exposeInMainWorld("planweaveAppUpdate", appUpdateApi);
 
 if (process.env.PLANWEAVE_DESKTOP_SMOKE === "1") {
   contextBridge.exposeInMainWorld("planweaveSmoke", {

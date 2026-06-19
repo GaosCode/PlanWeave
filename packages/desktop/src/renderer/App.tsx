@@ -31,7 +31,7 @@ import { useDesktopProjectActions } from "./hooks/useDesktopProjectActions";
 import { useGraphFlowModel } from "./hooks/useGraphFlowModel";
 import { CollapsedSidebarControls, RightPaletteSidebar } from "./AppSidebars";
 import { AppSettingsRoute } from "./AppSettingsRoute";
-import { AppErrorBanner } from "./components/AppErrorBanner";
+import { AppOverlays } from "./components/AppOverlays";
 
 const leftSidebarWidthBounds = { min: 220, max: 520, defaultValue: 280 };
 const rightSidebarWidthBounds = { min: 240, max: 520, defaultValue: 300 };
@@ -434,7 +434,7 @@ export function App() {
     return (
       <div className="relative h-screen min-h-0 overflow-hidden bg-app-shell text-foreground">
         <AppSettingsRoute {...settingsRouteProps} />
-        <AppErrorBanner message={error} onDismiss={() => setError(null)} t={t} />
+        <AppOverlays error={error} setError={setError} t={t} />
       </div>
     );
   }
@@ -570,7 +570,7 @@ export function App() {
         setRightSidebarCollapsed={setRightSidebarCollapsed}
         t={t}
       />
-      <AppErrorBanner message={error} onDismiss={() => setError(null)} t={t} />
+      <AppOverlays error={error} setError={setError} t={t} />
     </div>
   );
 }
