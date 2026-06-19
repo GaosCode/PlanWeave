@@ -1,6 +1,6 @@
 {
   "name": "@planweave-ai/desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Desktop application for PlanWeave plan packages, task graphs, and agent workflows.",
   "license": "MIT",
   "author": "GaosCode <GaosCode@users.noreply.github.com>",
