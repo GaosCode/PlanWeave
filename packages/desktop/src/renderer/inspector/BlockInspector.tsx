@@ -218,7 +218,7 @@ export function BlockInspector({
                 {selectedBlock.exceptionReason ? <div className="rounded-md border border-destructive p-2 text-destructive">{selectedBlock.exceptionReason}</div> : null}
               </div>
             </div>
-            <BlockConnectionsCard blocks={taskBlocks} dependencies={selectedBlock.dependencies} selectedBlockRef={selectedBlock.ref} onBlockSelect={onBlockSelect} />
+            <BlockConnectionsCard blocks={taskBlocks} dependencies={selectedBlock.dependencies} selectedBlockRef={selectedBlock.ref} onBlockSelect={onBlockSelect} t={t} />
             <div className="flex shrink-0 flex-col gap-2 rounded-lg border bg-card p-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-sm font-semibold">{t("effectivePrompt")}</div>

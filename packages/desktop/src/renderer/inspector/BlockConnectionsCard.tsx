@@ -3,21 +3,23 @@ import type { DesktopBlockPreview } from "@planweave-ai/runtime";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import type { createTranslator } from "../i18n";
 
 type BlockConnectionsCardProps = {
   blocks: DesktopBlockPreview[];
   dependencies: string[];
   onBlockSelect: (ref: string) => Promise<void>;
   selectedBlockRef: string;
+  t: ReturnType<typeof createTranslator>;
 };
 
-export function BlockConnectionsCard({ blocks, dependencies, onBlockSelect, selectedBlockRef }: BlockConnectionsCardProps) {
+export function BlockConnectionsCard({ blocks, dependencies, onBlockSelect, selectedBlockRef, t }: BlockConnectionsCardProps) {
   const dependencyRefs = useMemo(() => new Set(dependencies), [dependencies]);
 
   return (
     <Card className="shrink-0 overflow-visible" size="sm">
       <CardHeader>
-        <CardTitle className="text-sm">Block 连接</CardTitle>
+        <CardTitle className="text-sm">{t("blockConnections")}</CardTitle>
         <CardDescription>{selectedBlockRef}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2 pb-3 text-xs">
@@ -38,7 +40,9 @@ export function BlockConnectionsCard({ blocks, dependencies, onBlockSelect, sele
             );
           })}
         </div>
-        <div className="text-muted-foreground">依赖: {dependencies.length > 0 ? dependencies.join(" -> ") : "无"}</div>
+        <div className="text-muted-foreground">
+          {t("dependencies")}: {dependencies.length > 0 ? dependencies.join(" -> ") : t("none")}
+        </div>
       </CardContent>
     </Card>
   );

@@ -1,7 +1,8 @@
-import { BrowserWindow } from "electron";
+import { BrowserWindow, app } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DesktopCanvasReference } from "@planweave-ai/runtime";
+import { createNativeTranslator } from "../shared/nativeI18n.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const taskInspectorWindows = new Map<string, BrowserWindow>();
@@ -57,7 +58,7 @@ export async function openTaskInspectorWindow(input: OpenTaskInspectorWindowInpu
     minWidth: 480,
     minHeight: 520,
     show: false,
-    title: "Task 详情",
+    title: createNativeTranslator(input.language, app.getLocale()).taskInspectorTitle,
     backgroundColor: "#ffffff",
     webPreferences: {
       preload: join(__dirname, "..", "preload", "preload.js"),
