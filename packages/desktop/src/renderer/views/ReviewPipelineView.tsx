@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { DesktopGraphViewModel, DesktopReviewPipeline, DesktopReviewPipelineStepInput } from "@planweave-ai/runtime";
-import { ArrowDownIcon, ArrowUpIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { createTranslator } from "../i18n";
+import { parseNonNegativeIntegerInput } from "../hooks/reviewPipelineDraft";
 
 export type ReviewPipelineViewProps = {
   addReviewStep: () => void;
@@ -76,14 +77,15 @@ export function ReviewPipelineView({
         </div>
         <Field className="min-w-[10rem] flex-1 sm:w-40 sm:flex-none">
           <FieldLabel>{t("packageDefaultCycles")}</FieldLabel>
-          <Input min={0} type="number" value={reviewDefaultCyclesDraft} onChange={(event) => setReviewDefaultCyclesDraft(Number(event.target.value))} />
+          <Input min={0} type="number" value={reviewDefaultCyclesDraft} onChange={(event) => setReviewDefaultCyclesDraft(parseNonNegativeIntegerInput(event.target.value))} />
         </Field>
         {reviewPipeline ? <Badge className="max-w-full shrink-0" variant="outline">{reviewPipeline.packageDefaults.completionPolicy}</Badge> : null}
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-3 pr-3">
           {reviewDraft.map((step, index) => {
-            const hookArgs = step.hook?.args.join(" ") ?? "";
+            const hook = step.hook;
+            const hookArgs = hook?.args ?? [];
             return (
               <Card className="rounded-md border-border/80 bg-surface-raised shadow-sm" key={`${step.blockId || "new"}-${index}`}>
                 <CardHeader>
@@ -110,7 +112,7 @@ export function ReviewPipelineView({
                       <FieldLabel>{t("title")}</FieldLabel>
                       <Input value={step.title} onChange={(event) => updateReviewStep(index, { title: event.target.value })} />
                     </Field>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid gap-3 lg:grid-cols-3">
                       <Field>
                         <FieldLabel>{t("enabled")}</FieldLabel>
                         <Select value={step.enabled ? "enabled" : "disabled"} onValueChange={(value) => updateReviewStep(index, { enabled: value === "enabled" })}>
@@ -131,7 +133,7 @@ export function ReviewPipelineView({
                       </Field>
                       <Field>
                         <FieldLabel>{t("maxFeedbackCycles")}</FieldLabel>
-                        <Input min={0} type="number" value={step.maxFeedbackCycles} onChange={(event) => updateReviewStep(index, { maxFeedbackCycles: Number(event.target.value) })} />
+                        <Input min={0} type="number" value={step.maxFeedbackCycles} onChange={(event) => updateReviewStep(index, { maxFeedbackCycles: parseNonNegativeIntegerInput(event.target.value) })} />
                       </Field>
                     </div>
                     <Field>
@@ -155,7 +157,7 @@ export function ReviewPipelineView({
                         </SelectContent>
                       </Select>
                     </Field>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid gap-3 lg:grid-cols-3">
                       <Field>
                         <FieldLabel>{t("inputContext")}</FieldLabel>
                         <Textarea className="min-h-24 resize-none" value={step.inputContext} onChange={(event) => updateReviewStep(index, { inputContext: event.target.value })} />
@@ -169,7 +171,7 @@ export function ReviewPipelineView({
                         <Textarea className="min-h-24 resize-none" value={step.feedbackFormat} onChange={(event) => updateReviewStep(index, { feedbackFormat: event.target.value })} />
                       </Field>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-3 lg:grid-cols-2">
                       <Field>
                         <FieldLabel>{t("hookCommand")}</FieldLabel>
                         <Input
@@ -190,23 +192,98 @@ export function ReviewPipelineView({
                           }}
                         />
                       </Field>
-                      <Field>
-                        <FieldLabel>{t("hookArgs")}</FieldLabel>
-                        <Input
-                          value={hookArgs}
-                          onChange={(event) => {
-                            const args = event.target.value.split(/\s+/).filter(Boolean);
-                            updateReviewStep(index, {
-                              hook: step.hook
-                                ? {
-                                    ...step.hook,
-                                    args
+                      {hook ? (
+                        <Field className="min-w-0">
+                          <div className="flex min-w-0 items-center justify-between gap-2">
+                            <FieldLabel>{t("hookArgs")}</FieldLabel>
+                            <Button
+                              size="icon-sm"
+                              variant="ghost"
+                              aria-label={t("addHookArg")}
+                              onClick={() =>
+                                updateReviewStep(index, {
+                                  hook: {
+                                    ...hook,
+                                    args: [...hook.args, ""]
                                   }
-                                : null
-                            });
-                          }}
-                        />
-                      </Field>
+                                })
+                              }
+                            >
+                              <PlusIcon data-icon="inline-start" />
+                            </Button>
+                          </div>
+                          <div className="flex min-w-0 flex-col gap-2">
+                            {hookArgs.map((arg, argIndex) => (
+                              <div className="flex min-w-0 items-center gap-2" key={argIndex}>
+                                <Input
+                                  className="min-w-0 flex-1"
+                                  aria-label={`${t("hookArg")} ${argIndex + 1}`}
+                                  value={arg}
+                                  onChange={(event) =>
+                                    updateReviewStep(index, {
+                                      hook: {
+                                        ...hook,
+                                        args: hook.args.map((currentArg, currentIndex) =>
+                                          currentIndex === argIndex ? event.target.value : currentArg
+                                        )
+                                      }
+                                    })
+                                  }
+                                />
+                                <Button
+                                  size="icon-sm"
+                                  variant="ghost"
+                                  aria-label={t("clearHookArg")}
+                                  onClick={() =>
+                                    updateReviewStep(index, {
+                                      hook: {
+                                        ...hook,
+                                        args: hook.args.map((currentArg, currentIndex) =>
+                                          currentIndex === argIndex ? "" : currentArg
+                                        )
+                                      }
+                                    })
+                                  }
+                                >
+                                  <XIcon data-icon="inline-start" />
+                                </Button>
+                                <Button
+                                  size="icon-sm"
+                                  variant="ghost"
+                                  aria-label={t("removeHookArg")}
+                                  onClick={() =>
+                                    updateReviewStep(index, {
+                                      hook: {
+                                        ...hook,
+                                        args: hook.args.filter((_, currentIndex) => currentIndex !== argIndex)
+                                      }
+                                    })
+                                  }
+                                >
+                                  <Trash2Icon data-icon="inline-start" />
+                                </Button>
+                              </div>
+                            ))}
+                            {hookArgs.length === 0 ? (
+                              <Button
+                                className="w-fit max-w-full"
+                                variant="outline"
+                                onClick={() =>
+                                  updateReviewStep(index, {
+                                    hook: {
+                                      ...hook,
+                                      args: [""]
+                                    }
+                                  })
+                                }
+                              >
+                                <PlusIcon data-icon="inline-start" />
+                                {t("addHookArg")}
+                              </Button>
+                            ) : null}
+                          </div>
+                        </Field>
+                      ) : null}
                     </div>
                     <Field>
                       <FieldLabel>{t("taskPrompt")}</FieldLabel>

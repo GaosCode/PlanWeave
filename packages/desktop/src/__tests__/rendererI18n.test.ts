@@ -67,6 +67,7 @@ describe("desktop renderer i18n", () => {
     expect(rendererSource).not.toContain(">Implementation + Check<");
     expect(rendererSource).toContain('t("defaultReviewBlockHint")');
     expect(rendererSource).toContain('t("packageDefaultCycles")');
+    expect(rendererSource).toContain('t("addHookArg")');
     expect(rendererSource).toContain('t("averageImplementationTime")');
   });
 

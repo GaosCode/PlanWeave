@@ -556,6 +556,97 @@ describe("desktop renderer hook interfaces", () => {
     expect(reloadCurrentCanvas).toHaveBeenCalled();
   });
 
+  it("normalizes review pipeline draft values before saving", async () => {
+    const reviewHook = {
+      id: "review-hook",
+      type: "executable" as const,
+      command: "node",
+      args: ["--message", "hello world", ""],
+      executionPolicy: "trusted-local" as const
+    };
+    const pipelineWithHook: DesktopReviewPipeline = {
+      ...reviewPipeline,
+      packageDefaults: {
+        maxFeedbackCycles: 2,
+        completionPolicy: "strict"
+      },
+      steps: [
+        {
+          ...reviewPipeline.steps[0],
+          maxFeedbackCycles: 2,
+          hook: reviewHook
+        }
+      ]
+    };
+    const updateReviewPipeline = vi.fn().mockResolvedValue({ ok: true, diagnostics: [] });
+    const bridge = createDesktopBridgeMock({
+      getLatestAutoRunSummary: vi.fn().mockResolvedValue(null),
+      getReviewPipeline: vi.fn().mockResolvedValue(pipelineWithHook),
+      updateReviewPipeline
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const [{ useReviewPipeline }, { createTranslator }] = await Promise.all([
+      import("../renderer/hooks/useReviewPipeline"),
+      import("../renderer/i18n")
+    ]);
+
+    const { result } = renderHook(() =>
+      useReviewPipeline({
+        graph,
+        reloadCurrentCanvas: vi.fn().mockResolvedValue(undefined),
+        selectedCanvasId: "canvas-main",
+        selectedProject: project,
+        setError: vi.fn(),
+        t: createTranslator("en")
+      })
+    );
+
+    await waitFor(() => expect(result.current.reviewPipeline).toEqual(pipelineWithHook));
+
+    act(() => {
+      result.current.setReviewDefaultCyclesDraft(Number.NaN);
+      result.current.updateReviewStep(0, {
+        maxFeedbackCycles: -3,
+        hook: reviewHook
+      });
+    });
+
+    await act(async () => {
+      await result.current.saveReviewPipeline();
+    });
+
+    expect(updateReviewPipeline).toHaveBeenCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-main" },
+      "T-ALPHA",
+      {
+        packageDefaults: {
+          maxFeedbackCycles: 0,
+          completionPolicy: "strict"
+        },
+        steps: [
+          {
+            ...pipelineWithHook.steps[0],
+            maxFeedbackCycles: 0,
+            hook: {
+              ...reviewHook,
+              args: ["--message", "hello world"]
+            }
+          }
+        ]
+      }
+    );
+  });
+
+  it("normalizes non-finite review pipeline numbers to non-negative integers", async () => {
+    const { normalizeNonNegativeInteger } = await import("../renderer/hooks/reviewPipelineDraft");
+
+    expect(normalizeNonNegativeInteger(Number.NaN)).toBe(0);
+    expect(normalizeNonNegativeInteger(Number.POSITIVE_INFINITY)).toBe(0);
+    expect(normalizeNonNegativeInteger(-1)).toBe(0);
+    expect(normalizeNonNegativeInteger(3.9)).toBe(3);
+  });
+
   it("resets the review pipeline task when the graph changes to a canvas without the previous task", async () => {
     const getReviewPipeline = vi.fn((_canvas, taskId: string) =>
       Promise.resolve({

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { DesktopGraphViewModel, DesktopProjectSummary, DesktopReviewPipeline, DesktopReviewPipelineStepInput } from "@planweave-ai/runtime";
 import { bridge, desktopCanvasReference } from "../bridge";
 import type { createTranslator } from "../i18n";
+import { normalizeReviewPipelineDraft } from "./reviewPipelineDraft";
 
 type UseReviewPipelineArgs = {
   graph: DesktopGraphViewModel | null;
@@ -102,13 +103,17 @@ export function useReviewPipeline({ graph, reloadCurrentCanvas, selectedCanvasId
     }
     try {
       const canvas = desktopCanvasReference(selectedProject, selectedCanvasId);
-      const result = await bridge.updateReviewPipeline(canvas, reviewTaskId, {
-        packageDefaults: {
-          maxFeedbackCycles: reviewDefaultCyclesDraft,
-          completionPolicy: "strict"
-        },
-        steps: reviewDraft
-      });
+      const result = await bridge.updateReviewPipeline(
+        canvas,
+        reviewTaskId,
+        normalizeReviewPipelineDraft({
+          packageDefaults: {
+            maxFeedbackCycles: reviewDefaultCyclesDraft,
+            completionPolicy: "strict"
+          },
+          steps: reviewDraft
+        })
+      );
       if (!result.ok) {
         setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
         return;
