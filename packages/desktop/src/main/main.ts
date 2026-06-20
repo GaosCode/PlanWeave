@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from "electron";
 import { registerApplicationMenu } from "./appMenu.js";
 import { checkForAppUpdate, registerAppUpdateHandlers } from "./appUpdate.js";
+import { registerMcpTunnelHandlers, stopMcpTunnelProcesses } from "./mcpTunnel/mcpTunnelHandlers.js";
 import { registerPackageWatchHandlers } from "./packageWatch.js";
 import { registerRuntimeBridgeHandlers } from "./runtimeBridgeHandlers.js";
 import { registerWindowAppearanceHandlers } from "./windowAppearance.js";
@@ -22,6 +23,7 @@ registerRuntimeBridgeHandlers();
 registerPackageWatchHandlers();
 registerWindowAppearanceHandlers();
 registerAppUpdateHandlers();
+registerMcpTunnelHandlers();
 registerApplicationMenu({ checkForUpdates: checkForAppUpdate });
 
 app.whenReady().then(() => {
@@ -40,6 +42,18 @@ app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     void createWindow({ isDev, isSmoke });
   }
+});
+
+let mcpTunnelCleanupComplete = false;
+app.on("before-quit", (event) => {
+  if (mcpTunnelCleanupComplete) {
+    return;
+  }
+  event.preventDefault();
+  void stopMcpTunnelProcesses().finally(() => {
+    mcpTunnelCleanupComplete = true;
+    app.quit();
+  });
 });
 
 app.on("window-all-closed", () => {

@@ -126,6 +126,7 @@ afterEach(() => {
   cleanup();
   Reflect.deleteProperty(window, "localStorage");
   Reflect.deleteProperty(window, "planweaveWindow");
+  Reflect.deleteProperty(window, "planweaveMcpTunnel");
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -133,6 +134,30 @@ afterEach(() => {
 describe("desktop renderer settings interactions", () => {
   it("defaults new task cards to implementation blocks only", () => {
     expect(defaultDesktopSettings.palette.defaultBlockSet).toEqual(["implementation"]);
+  });
+
+  it("keeps the settings content inside a bounded scroll area", () => {
+    stubLayoutApis();
+
+    const { container } = render(
+      <SettingsView
+        agentDetectionRefreshing={false}
+        agents={[]}
+        graph={null}
+        language="en"
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
+        runtimeTools={{ tmux: { available: true, command: "tmux" } }}
+        projects={[]}
+        setActiveView={vi.fn()}
+        settings={settings}
+        t={createTranslator("en")}
+        updateSettings={vi.fn()}
+      />
+    );
+
+    expect(container.querySelector('[data-slot="scroll-area"]')).toHaveClass("min-h-0", "flex-1");
+    expect(container.querySelector('[data-slot="scroll-area-viewport"]')).toHaveClass("h-full");
   });
 
   it("falls back to defaults for invalid stored appearance and window material settings", () => {
@@ -205,6 +230,96 @@ describe("desktop renderer settings interactions", () => {
     await userEvent.click(screen.getByRole("option", { name: "English" }));
 
     expect(updateSettings).toHaveBeenCalledWith({ language: "en" });
+  });
+
+  it("opens the MCP Tunnel settings section without persisting API keys", async () => {
+    stubLayoutApis();
+    Object.defineProperty(window, "planweaveMcpTunnel", {
+      configurable: true,
+      value: {
+        getMcpTunnelStatus: vi.fn().mockResolvedValue({
+          binary: {
+            path: null,
+            available: false,
+            source: null,
+            assetName: null,
+            assetSha256: null,
+            sha256: null,
+            version: null,
+            verified: false,
+            error: "Tunnel client binary path is not configured."
+          },
+          download: {
+            phase: "idle",
+            assetName: null,
+            error: null
+          },
+          localMcp: {
+            phase: "stopped",
+            endpoint: null,
+            host: "127.0.0.1",
+            port: 8787,
+            pid: null,
+            planweaveHome: "/Users/example/.planweave",
+            planweaveHomeFromEnv: false,
+            healthy: false,
+            error: null
+          },
+          tunnel: {
+            phase: "running",
+            profile: "planweave-local-http",
+            tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+            pid: 123,
+            healthUrl: "http://127.0.0.1:58902",
+            ready: true,
+            error: null
+          },
+          config: {
+            tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+            hasRuntimeApiKey: true,
+            runtimeApiKeyStorage: "available"
+          },
+          downloadUrl: "https://github.com/openai/tunnel-client/releases/latest",
+          updatedAt: "2026-06-19T00:00:00.000Z"
+        }),
+        onMcpTunnelChanged: vi.fn(() => () => undefined),
+        downloadTunnelClient: vi.fn(),
+        setTunnelClientPath: vi.fn(),
+        startLocalMcp: vi.fn(),
+        stopLocalMcp: vi.fn(),
+        startTunnel: vi.fn(),
+        stopTunnel: vi.fn()
+      }
+    });
+
+    render(
+      <SettingsView
+        agentDetectionRefreshing={false}
+        agents={[]}
+        graph={null}
+        language="en"
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
+        runtimeTools={{ tmux: { available: true, command: "tmux" } }}
+        projects={[]}
+        setActiveView={vi.fn()}
+        settings={settings}
+        t={createTranslator("en")}
+        updateSettings={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByTestId("settings-nav-mcp"));
+
+    expect(screen.getByTestId("settings-section-mcp")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "MCP Tunnel" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Tunnel ID" })).toHaveValue("tunnel_0123456789abcdef0123456789abcdef"));
+    await waitFor(() => expect(screen.getByLabelText("Runtime API key")).toHaveAttribute("placeholder", "Saved key"));
+    expect(screen.getByText("A saved runtime API key will be used if this field is left blank.")).toBeInTheDocument();
+    expect(screen.getByText("ready")).toBeInTheDocument();
+    expect(screen.getByText("Ready: http://127.0.0.1:58902")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open release page" })).toHaveAttribute("href", "https://github.com/openai/tunnel-client/releases/latest");
+    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(expect.any(String), expect.stringContaining("Runtime API key"));
   });
 
   it("lets users choose system, light, and dark appearance modes", async () => {

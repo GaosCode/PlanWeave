@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeInvokeApi } from "../preload/bridgeInvocation";
 import { appUpdateChangedChannel, appUpdateInvokeChannels, type AppUpdateState } from "../shared/appUpdate";
 import { autoRunChangedChannel, desktopBridgeInvokeChannels, packageFileChangedChannel } from "../shared/ipcChannels";
+import { mcpTunnelChangedChannel, mcpTunnelInvokeChannels, type McpTunnelStatus } from "../shared/mcpTunnel";
 import { windowAppearanceInvokeChannels } from "../shared/windowAppearance";
 
 type IpcRendererListener = (event: unknown, payload: unknown) => void;
@@ -236,6 +237,95 @@ describe("preload bridge invocation", () => {
     expect(callback).toHaveBeenCalledWith(state);
     unsubscribe();
     expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(appUpdateChangedChannel, listener);
+  });
+
+  it("exposes the MCP tunnel API through a separate preload surface", async () => {
+    const status: McpTunnelStatus = {
+      binary: {
+        path: "/usr/local/bin/tunnel-client",
+        available: true,
+        source: "managed",
+        assetName: "tunnel-client-test-darwin-arm64.zip",
+        assetSha256: "1".repeat(64),
+        sha256: "0".repeat(64),
+        version: "tunnel-client test",
+        verified: true,
+        error: null
+      },
+      download: {
+        phase: "ready",
+        assetName: "tunnel-client-test-darwin-arm64.zip",
+        error: null
+      },
+      localMcp: {
+        phase: "running",
+        endpoint: "http://127.0.0.1:8787/mcp",
+        host: "127.0.0.1",
+        port: 8787,
+        pid: 123,
+        planweaveHome: "/Users/example/.planweave",
+        planweaveHomeFromEnv: false,
+        healthy: true,
+        error: null
+      },
+      tunnel: {
+        phase: "stopped",
+        profile: "planweave-local-http",
+        tunnelId: null,
+        pid: null,
+        healthUrl: null,
+        ready: false,
+        error: null
+      },
+      config: {
+        tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+        hasRuntimeApiKey: true,
+        runtimeApiKeyStorage: "available"
+      },
+      downloadUrl: "https://github.com/openai/tunnel-client/releases/latest",
+      updatedAt: "2026-06-19T00:00:00.000Z"
+    };
+    electronMock.ipcRenderer.invoke.mockResolvedValue(status);
+
+    await import("../preload/preload");
+    const api = electronMock.exposed.get("planweaveMcpTunnel") as {
+      getMcpTunnelStatus(): Promise<McpTunnelStatus>;
+      downloadTunnelClient(): Promise<McpTunnelStatus>;
+      setTunnelClientPath(path: string | null): Promise<McpTunnelStatus>;
+      startLocalMcp(input?: { port?: number | null }): Promise<McpTunnelStatus>;
+      stopLocalMcp(): Promise<McpTunnelStatus>;
+      startTunnel(input: { tunnelId: string; runtimeApiKey: string }): Promise<McpTunnelStatus>;
+      stopTunnel(): Promise<McpTunnelStatus>;
+      onMcpTunnelChanged(callback: (status: McpTunnelStatus) => void): () => void;
+    };
+    const callback = vi.fn();
+
+    await api.getMcpTunnelStatus();
+    await api.downloadTunnelClient();
+    await api.setTunnelClientPath("/usr/local/bin/tunnel-client");
+    await api.startLocalMcp({ port: 8788 });
+    await api.stopLocalMcp();
+    await api.startTunnel({ tunnelId: "tunnel_0123456789abcdef0123456789abcdef", runtimeApiKey: "secret-key" });
+    await api.stopTunnel();
+    const unsubscribe = api.onMcpTunnelChanged(callback);
+
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.getMcpTunnelStatus);
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.downloadTunnelClient);
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.setTunnelClientPath, "/usr/local/bin/tunnel-client");
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.startLocalMcp, { port: 8788 });
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.stopLocalMcp);
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.startTunnel, {
+      tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+      runtimeApiKey: "secret-key"
+    });
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.stopTunnel);
+
+    const [channel, listener] = electronMock.ipcRenderer.on.mock.calls[0] as [string, IpcRendererListener];
+    expect(channel).toBe(mcpTunnelChangedChannel);
+    listener({}, status);
+    expect(callback).toHaveBeenCalledWith(status);
+    unsubscribe();
+    expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(mcpTunnelChangedChannel, listener);
   });
 
   it("records smoke reveal requests without invoking the system file manager", async () => {

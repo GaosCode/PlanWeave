@@ -1,4 +1,4 @@
-import { BrowserWindow } from "electron";
+import { BrowserWindow, shell } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Event as ElectronEvent, WebContentsConsoleMessageEventParams } from "electron";
@@ -6,9 +6,19 @@ import { runSmokeCheck } from "./smoke.js";
 import { applyLiquidGlassToWindow, windowBackgroundColor } from "./windowAppearance.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const allowedExternalUrls = new Set(["https://github.com/openai/tunnel-client/releases/latest"]);
 
 function rendererEntry(): string {
   return join(__dirname, "..", "renderer", "index.html");
+}
+
+export function configureExternalLinkHandling(window: Pick<BrowserWindow, "webContents">): void {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (allowedExternalUrls.has(url)) {
+      void shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
 }
 
 export async function createWindow(options: { isDev: boolean; isSmoke: boolean }): Promise<BrowserWindow> {
@@ -38,6 +48,8 @@ export async function createWindow(options: { isDev: boolean; isSmoke: boolean }
     // Transparent windows can hide the traffic-light controls; force them back.
     window.setWindowButtonVisibility?.(true);
   }
+
+  configureExternalLinkHandling(window);
 
   await applyLiquidGlassToWindow(window);
 

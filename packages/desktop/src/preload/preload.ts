@@ -8,6 +8,8 @@ import type {
 import type { AppUpdateState, PlanWeaveAppUpdateApi } from "../shared/appUpdate.js";
 import { appUpdateChangedChannel, appUpdateInvokeChannels } from "../shared/appUpdate.js";
 import { autoRunChangedChannel, packageFileChangedChannel } from "../shared/ipcChannels.js";
+import type { McpTunnelStatus, PlanWeaveMcpTunnelApi } from "../shared/mcpTunnel.js";
+import { mcpTunnelChangedChannel, mcpTunnelInvokeChannels } from "../shared/mcpTunnel.js";
 import { windowAppearanceInvokeChannels, type PlanWeaveWindowApi } from "../shared/windowAppearance.js";
 import { createDesktopBridgeInvokeApi } from "./bridgeInvocation.js";
 
@@ -60,6 +62,23 @@ const appUpdateApi: PlanWeaveAppUpdateApi = {
 };
 
 contextBridge.exposeInMainWorld("planweaveAppUpdate", appUpdateApi);
+
+const mcpTunnelApi: PlanWeaveMcpTunnelApi = {
+  getMcpTunnelStatus: async () => ipcRenderer.invoke(mcpTunnelInvokeChannels.getMcpTunnelStatus),
+  downloadTunnelClient: async () => ipcRenderer.invoke(mcpTunnelInvokeChannels.downloadTunnelClient),
+  setTunnelClientPath: async (path) => ipcRenderer.invoke(mcpTunnelInvokeChannels.setTunnelClientPath, path),
+  startLocalMcp: async (input) => ipcRenderer.invoke(mcpTunnelInvokeChannels.startLocalMcp, input),
+  stopLocalMcp: async () => ipcRenderer.invoke(mcpTunnelInvokeChannels.stopLocalMcp),
+  startTunnel: async (input) => ipcRenderer.invoke(mcpTunnelInvokeChannels.startTunnel, input),
+  stopTunnel: async () => ipcRenderer.invoke(mcpTunnelInvokeChannels.stopTunnel),
+  onMcpTunnelChanged: (callback) => {
+    const listener = (_event: IpcRendererEvent, payload: McpTunnelStatus) => callback(payload);
+    ipcRenderer.on(mcpTunnelChangedChannel, listener);
+    return () => ipcRenderer.off(mcpTunnelChangedChannel, listener);
+  }
+};
+
+contextBridge.exposeInMainWorld("planweaveMcpTunnel", mcpTunnelApi);
 
 if (process.env.PLANWEAVE_DESKTOP_SMOKE === "1") {
   contextBridge.exposeInMainWorld("planweaveSmoke", {

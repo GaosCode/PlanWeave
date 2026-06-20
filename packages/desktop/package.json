@@ -23,7 +23,7 @@
     "workflow"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig.main.json && vite build",
+    "build": "pnpm --filter @planweave-ai/mcp build && tsc -p tsconfig.json && tsc -p tsconfig.main.json && vite build",
     "dev": "vite --host 127.0.0.1",
     "dist:all": "pnpm build && electron-builder --mac dmg zip --linux AppImage deb tar.gz --win nsis zip --publish never",
     "dist:linux": "pnpm build && electron-builder --linux AppImage deb tar.gz --publish never",
@@ -42,6 +42,7 @@
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",
+    "@planweave-ai/mcp": "workspace:*",
     "@planweave-ai/runtime": "workspace:*",
     "@vitejs/plugin-react": "^5.1.1",
     "@xyflow/react": "^12.9.3",
@@ -49,6 +50,7 @@
     "clsx": "^2.1.1",
     "electron-liquid-glass": "^1.1.1",
     "electron-updater": "^6.8.9",
+    "fflate": "^0.8.3",
     "lucide-react": "^0.554.0",
     "node-gyp-build": "^4.8.4",
     "radix-ui": "^1.4.3",

@@ -421,6 +421,7 @@ export function App() {
     selectedProject,
     loadProject: openProjectInSession,
     setActiveView,
+    setError,
     settings,
     projectPromptMarkdown,
     projectPromptPolicy,

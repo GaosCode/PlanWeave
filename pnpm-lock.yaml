@@ -35,6 +35,9 @@ importers:
       '@fontsource-variable/geist':
         specifier: ^5.2.9
         version: 5.2.9
+      '@planweave-ai/mcp':
+        specifier: workspace:*
+        version: link:../mcp
       '@planweave-ai/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -56,6 +59,9 @@ importers:
       electron-updater:
         specifier: ^6.8.9
         version: 6.8.9
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       lucide-react:
         specifier: ^0.554.0
         version: 0.554.0(react@19.2.6)
@@ -114,6 +120,18 @@ importers:
       tailwindcss:
         specifier: ^4.3.0
         version: 4.3.0
+
+  packages/mcp:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.4.3)
+      '@planweave-ai/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      zod:
+        specifier: ^4.1.12
+        version: 4.4.3
 
   packages/runtime:
     dependencies:
@@ -2820,6 +2838,9 @@ packages:
     resolution: {integrity: sha512-7yAQpD2UMJzLi1Dqv7qFYnPbaPx7ZfFK6PiIxQ4PfkGPyNyl2Ugx+a/umUonmKqjhM4DnfbMvdX6otXq83soQQ==}
     engines: {node: ^12.20 || >= 14.13}
 
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
+
   figures@6.1.0:
     resolution: {integrity: sha512-d+l3qxjSesT4V7v2fh+QnmFnUWv9lSpjarhShNTgBOfA0ttejbQUAlHLitbjkoRiDulW0OPoQPYIGhIC8ohejg==}
     engines: {node: '>=18'}
@@ -5170,6 +5191,28 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@modelcontextprotocol/sdk@1.29.0(zod@4.4.3)':
+    dependencies:
+      '@hono/node-server': 1.19.14(hono@4.12.21)
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      content-type: 1.0.5
+      cors: 2.8.6
+      cross-spawn: 7.0.6
+      eventsource: 3.0.7
+      eventsource-parser: 3.0.8
+      express: 5.2.1
+      express-rate-limit: 8.5.2(express@5.2.1)
+      hono: 4.12.21
+      jose: 6.2.3
+      json-schema-typed: 8.0.2
+      pkce-challenge: 5.0.1
+      raw-body: 3.0.2
+      zod: 4.4.3
+      zod-to-json-schema: 3.25.2(zod@4.4.3)
+    transitivePeerDependencies:
+      - supports-color
+
   '@mswjs/interceptors@0.41.9':
     dependencies:
       '@open-draft/deferred-promise': 2.2.0
@@ -7291,6 +7334,8 @@ snapshots:
       node-domexception: 1.0.0
       web-streams-polyfill: 3.3.3
 
+  fflate@0.8.3: {}
+
   figures@6.1.0:
     dependencies:
       is-unicode-supported: 2.1.0
@@ -8917,6 +8962,10 @@ snapshots:
   zod-to-json-schema@3.25.2(zod@3.25.76):
     dependencies:
       zod: 3.25.76
+
+  zod-to-json-schema@3.25.2(zod@4.4.3):
+    dependencies:
+      zod: 4.4.3
 
   zod@3.25.76: {}
 

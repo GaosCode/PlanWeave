@@ -16,6 +16,7 @@ type AppSettingsRouteProps = {
   selectedProject: DesktopProjectSummary | null;
   loadProject: (project: DesktopProjectSummary) => Promise<void>;
   setActiveView: Dispatch<SetStateAction<AppView>>;
+  setError?: (message: string | null) => void;
   settings: DesktopUiSettings;
   projectPromptMarkdown: string | null;
   projectPromptPolicy: ProjectPromptPolicy | null;
@@ -37,6 +38,7 @@ export function AppSettingsRoute({
   selectedProject,
   loadProject,
   setActiveView,
+  setError,
   settings,
   projectPromptMarkdown,
   projectPromptPolicy,
@@ -59,6 +61,7 @@ export function AppSettingsRoute({
         selectedProject={selectedProject}
         loadProject={loadProject}
         setActiveView={setActiveView}
+        setError={setError}
         settings={settings}
         projectPromptMarkdown={projectPromptMarkdown}
         projectPromptPolicy={projectPromptPolicy}

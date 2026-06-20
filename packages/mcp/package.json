@@ -1,0 +1,54 @@
+{
+  "name": "@planweave-ai/mcp",
+  "version": "0.1.0",
+  "description": "Local HTTP MCP server for PlanWeave.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "planweave-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "homepage": "https://github.com/GaosCode/PlanWeave#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GaosCode/PlanWeave.git",
+    "directory": "packages/mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/GaosCode/PlanWeave/issues"
+  },
+  "keywords": [
+    "planweave",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "mcp": "tsx src/index.ts",
+    "test": "cd ../.. && vitest run packages/mcp/src/__tests__/*.test.ts",
+    "prepack": "pnpm build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@planweave-ai/runtime": "workspace:*",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {}
+}

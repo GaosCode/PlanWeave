@@ -84,6 +84,13 @@ export function useAppViewHistory(initialView: AppView): [AppView, Dispatch<SetS
     const historyState = readAppViewHistoryState(window.history.state);
     const currentIndex = historyState.planweaveHistoryIndex ?? 0;
     const nextIndex = currentIndex + 1;
+    window.history.replaceState(
+      {
+        ...window.history.state,
+        planweaveHistoryMaxIndex: nextIndex
+      },
+      ""
+    );
     window.history.pushState(
       {
         ...window.history.state,

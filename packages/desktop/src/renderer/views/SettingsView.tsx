@@ -7,6 +7,7 @@ import { SettingsComponentsSection } from "../settings/SettingsComponentsSection
 import { SettingsGeneralSection } from "../settings/SettingsGeneralSection";
 import { SettingsNav } from "../settings/SettingsNav";
 import type { SettingsSection } from "../settings/SettingsNav";
+import { SettingsMcpSection } from "../settings/SettingsMcpSection";
 import { SettingsReviewSection } from "../settings/SettingsReviewSection";
 import type { createTranslator, Language } from "../i18n";
 import type { AppView, DesktopUiSettings } from "../types";
@@ -23,6 +24,7 @@ type SettingsViewProps = {
   selectedProject?: DesktopProjectSummary | null;
   loadProject?: (project: DesktopProjectSummary) => Promise<void>;
   setActiveView: Dispatch<SetStateAction<AppView>>;
+  setError?: (message: string | null) => void;
   settings: DesktopUiSettings;
   projectPromptMarkdown?: string | null;
   projectPromptPolicy?: ProjectPromptPolicy | null;
@@ -44,6 +46,7 @@ export function SettingsView({
   selectedProject,
   loadProject,
   setActiveView,
+  setError = () => undefined,
   settings,
   projectPromptMarkdown,
   projectPromptPolicy,
@@ -83,8 +86,11 @@ export function SettingsView({
       <SettingsNav section={section} setSection={setSection} onBackToApp={() => setActiveView("graph")} t={t} />
       <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-l-xl bg-app-shell text-text">
         <div className="app-drag-region h-11 shrink-0 border-b border-border/80 bg-app-topbar" />
-        <ScrollArea className="min-w-0 flex-1 bg-app-canvas">
-          <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-12 py-10">
+        <ScrollArea
+          className="min-h-0 min-w-0 flex-1 bg-app-canvas"
+          viewportClassName="h-full [&>div]:!block [&>div]:!min-h-full [&>div]:!w-full"
+        >
+          <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-12 py-10 pb-16">
           {section === "general" ? (
             <SettingsGeneralSection
               language={language}
@@ -119,6 +125,7 @@ export function SettingsView({
               updateSettings={updateSettings}
             />
           ) : null}
+          {section === "mcp" ? <SettingsMcpSection setError={setError} t={t} /> : null}
           </div>
         </ScrollArea>
       </section>

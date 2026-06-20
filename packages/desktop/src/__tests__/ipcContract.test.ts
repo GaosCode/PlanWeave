@@ -2,6 +2,7 @@ import { cloneDesktopGraphEditResult, type GraphEditResult } from "@planweave-ai
 import { describe, expect, it } from "vitest";
 import { appUpdateChangedChannel, appUpdateInvokeChannels } from "../shared/appUpdate";
 import { autoRunChangedChannel, desktopBridgeInvokeChannels, packageFileChangedChannel } from "../shared/ipcChannels";
+import { mcpTunnelChangedChannel, mcpTunnelInvokeChannels } from "../shared/mcpTunnel";
 import { windowAppearanceInvokeChannels } from "../shared/windowAppearance";
 
 describe("desktop IPC contract", () => {
@@ -37,6 +38,21 @@ describe("desktop IPC contract", () => {
     expect(appUpdateChangedChannel).toBe("planweave-app-update:changed");
     expect(Object.values(desktopBridgeInvokeChannels)).not.toContain(appUpdateChangedChannel);
     for (const channel of Object.values(appUpdateInvokeChannels)) {
+      expect(Object.values(desktopBridgeInvokeChannels)).not.toContain(channel);
+    }
+  });
+
+  it("keeps MCP tunnel channels outside the runtime bridge registry", () => {
+    expect(mcpTunnelInvokeChannels.getMcpTunnelStatus).toBe("planweave-mcp-tunnel:getStatus");
+    expect(mcpTunnelInvokeChannels.downloadTunnelClient).toBe("planweave-mcp-tunnel:downloadTunnelClient");
+    expect(mcpTunnelInvokeChannels.setTunnelClientPath).toBe("planweave-mcp-tunnel:setTunnelClientPath");
+    expect(mcpTunnelInvokeChannels.startLocalMcp).toBe("planweave-mcp-tunnel:startLocalMcp");
+    expect(mcpTunnelInvokeChannels.stopLocalMcp).toBe("planweave-mcp-tunnel:stopLocalMcp");
+    expect(mcpTunnelInvokeChannels.startTunnel).toBe("planweave-mcp-tunnel:startTunnel");
+    expect(mcpTunnelInvokeChannels.stopTunnel).toBe("planweave-mcp-tunnel:stopTunnel");
+    expect(mcpTunnelChangedChannel).toBe("planweave-mcp-tunnel:changed");
+    expect(Object.values(desktopBridgeInvokeChannels)).not.toContain(mcpTunnelChangedChannel);
+    for (const channel of Object.values(mcpTunnelInvokeChannels)) {
       expect(Object.values(desktopBridgeInvokeChannels)).not.toContain(channel);
     }
   });
