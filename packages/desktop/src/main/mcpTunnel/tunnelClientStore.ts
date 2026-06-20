@@ -7,6 +7,7 @@ export type TunnelClientConfig = {
   verification: TunnelClientBinaryVerification | null;
   tunnelId: string | null;
   encryptedRuntimeApiKey: string | null;
+  autoStart: boolean;
 };
 
 const configFileName = "config.json";
@@ -44,14 +45,16 @@ export async function readTunnelClientConfig(userDataDir: string): Promise<Tunne
       tunnelClientPath: readString(parsed.tunnelClientPath),
       verification: readVerification(parsed.verification),
       tunnelId: readString(parsed.tunnelId),
-      encryptedRuntimeApiKey: readString(parsed.encryptedRuntimeApiKey)
+      encryptedRuntimeApiKey: readString(parsed.encryptedRuntimeApiKey),
+      autoStart: parsed.autoStart === true
     };
   } catch {
     return {
       tunnelClientPath: null,
       verification: null,
       tunnelId: null,
-      encryptedRuntimeApiKey: null
+      encryptedRuntimeApiKey: null,
+      autoStart: false
     };
   }
 }

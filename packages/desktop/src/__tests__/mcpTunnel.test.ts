@@ -418,7 +418,8 @@ exit 1
         binarySha256: "2".repeat(64)
       },
       tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
-      encryptedRuntimeApiKey: "encrypted-runtime-key"
+      encryptedRuntimeApiKey: "encrypted-runtime-key",
+      autoStart: true
     };
 
     await writeTunnelClientConfig(userDataDir, config);

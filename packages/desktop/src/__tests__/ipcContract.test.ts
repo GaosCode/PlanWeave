@@ -46,6 +46,7 @@ describe("desktop IPC contract", () => {
     expect(mcpTunnelInvokeChannels.getMcpTunnelStatus).toBe("planweave-mcp-tunnel:getStatus");
     expect(mcpTunnelInvokeChannels.downloadTunnelClient).toBe("planweave-mcp-tunnel:downloadTunnelClient");
     expect(mcpTunnelInvokeChannels.setTunnelClientPath).toBe("planweave-mcp-tunnel:setTunnelClientPath");
+    expect(mcpTunnelInvokeChannels.setTunnelAutoStart).toBe("planweave-mcp-tunnel:setTunnelAutoStart");
     expect(mcpTunnelInvokeChannels.startLocalMcp).toBe("planweave-mcp-tunnel:startLocalMcp");
     expect(mcpTunnelInvokeChannels.stopLocalMcp).toBe("planweave-mcp-tunnel:stopLocalMcp");
     expect(mcpTunnelInvokeChannels.startTunnel).toBe("planweave-mcp-tunnel:startTunnel");

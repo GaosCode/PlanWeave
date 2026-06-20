@@ -67,6 +67,7 @@ const mcpTunnelApi: PlanWeaveMcpTunnelApi = {
   getMcpTunnelStatus: async () => ipcRenderer.invoke(mcpTunnelInvokeChannels.getMcpTunnelStatus),
   downloadTunnelClient: async () => ipcRenderer.invoke(mcpTunnelInvokeChannels.downloadTunnelClient),
   setTunnelClientPath: async (path) => ipcRenderer.invoke(mcpTunnelInvokeChannels.setTunnelClientPath, path),
+  setTunnelAutoStart: async (enabled) => ipcRenderer.invoke(mcpTunnelInvokeChannels.setTunnelAutoStart, enabled),
   startLocalMcp: async (input) => ipcRenderer.invoke(mcpTunnelInvokeChannels.startLocalMcp, input),
   stopLocalMcp: async () => ipcRenderer.invoke(mcpTunnelInvokeChannels.stopLocalMcp),
   startTunnel: async (input) => ipcRenderer.invoke(mcpTunnelInvokeChannels.startTunnel, input),

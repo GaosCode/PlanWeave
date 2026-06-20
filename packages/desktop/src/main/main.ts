@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from "electron";
 import { registerApplicationMenu } from "./appMenu.js";
 import { checkForAppUpdate, registerAppUpdateHandlers } from "./appUpdate.js";
-import { registerMcpTunnelHandlers, stopMcpTunnelProcesses } from "./mcpTunnel/mcpTunnelHandlers.js";
+import { autoStartMcpTunnel, registerMcpTunnelHandlers, stopMcpTunnelProcesses } from "./mcpTunnel/mcpTunnelHandlers.js";
 import { registerPackageWatchHandlers } from "./packageWatch.js";
 import { registerRuntimeBridgeHandlers } from "./runtimeBridgeHandlers.js";
 import { registerWindowAppearanceHandlers } from "./windowAppearance.js";
@@ -29,6 +29,7 @@ registerApplicationMenu({ checkForUpdates: checkForAppUpdate });
 app.whenReady().then(() => {
   void (async () => {
     await createWindow({ isDev, isSmoke });
+    void autoStartMcpTunnel();
     if (app.isPackaged) {
       void checkForAppUpdate();
     }

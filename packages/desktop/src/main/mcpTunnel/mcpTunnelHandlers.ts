@@ -24,6 +24,7 @@ let tunnelClientVerification: TunnelClientBinaryVerification | null = null;
 let tunnelId: string | null = null;
 let runtimeApiKey: string | null = null;
 let encryptedRuntimeApiKey: string | null = null;
+let tunnelAutoStart = false;
 let tunnelClientConfigLoaded = false;
 let downloadStatus: TunnelClientDownloadStatus = {
   phase: "idle",
@@ -74,6 +75,7 @@ async function loadTunnelClientConfig(): Promise<void> {
   tunnelId = config.tunnelId;
   encryptedRuntimeApiKey = config.encryptedRuntimeApiKey;
   runtimeApiKey = decryptRuntimeApiKey(encryptedRuntimeApiKey);
+  tunnelAutoStart = config.autoStart;
   if (envTunnelClientPath) {
     tunnelClientVerification = null;
     return;
@@ -94,7 +96,8 @@ async function persistTunnelClientConfig(): Promise<void> {
     tunnelClientPath,
     verification: tunnelClientVerification,
     tunnelId,
-    encryptedRuntimeApiKey
+    encryptedRuntimeApiKey,
+    autoStart: tunnelAutoStart
   });
 }
 
@@ -108,7 +111,8 @@ async function getStatus(): Promise<McpTunnelStatus> {
     config: {
       tunnelId,
       hasRuntimeApiKey: Boolean(runtimeApiKey),
-      runtimeApiKeyStorage: runtimeApiKeyStorageAvailable() ? "available" : "unavailable"
+      runtimeApiKeyStorage: runtimeApiKeyStorageAvailable() ? "available" : "unavailable",
+      autoStart: tunnelAutoStart
     },
     downloadUrl: tunnelClientDownloadUrl,
     updatedAt: nowIso()
@@ -133,6 +137,13 @@ export async function setTunnelClientPath(path: string | null): Promise<McpTunne
   await loadTunnelClientConfig();
   tunnelClientPath = path?.trim() || null;
   tunnelClientVerification = null;
+  await persistTunnelClientConfig();
+  return publishStatus();
+}
+
+export async function setTunnelAutoStart(enabled: boolean): Promise<McpTunnelStatus> {
+  await loadTunnelClientConfig();
+  tunnelAutoStart = enabled;
   await persistTunnelClientConfig();
   return publishStatus();
 }
@@ -227,6 +238,19 @@ export async function stopTunnel(): Promise<McpTunnelStatus> {
   return publishStatus();
 }
 
+export async function autoStartMcpTunnel(): Promise<void> {
+  await loadTunnelClientConfig();
+  if (!tunnelAutoStart) {
+    return;
+  }
+  try {
+    await startTunnel();
+  } catch (error) {
+    console.error(`Failed to auto-start MCP tunnel: ${error instanceof Error ? error.message : String(error)}`);
+    await publishStatus();
+  }
+}
+
 export async function stopMcpTunnelProcesses(): Promise<void> {
   await tunnelClient.stop();
   await localMcp.stop();
@@ -237,6 +261,7 @@ export function registerMcpTunnelHandlers(): void {
   ipcMain.handle(mcpTunnelInvokeChannels.getMcpTunnelStatus, () => getMcpTunnelStatus());
   ipcMain.handle(mcpTunnelInvokeChannels.downloadTunnelClient, () => downloadTunnelClient());
   ipcMain.handle(mcpTunnelInvokeChannels.setTunnelClientPath, (_event, path: string | null) => setTunnelClientPath(path));
+  ipcMain.handle(mcpTunnelInvokeChannels.setTunnelAutoStart, (_event, enabled: boolean) => setTunnelAutoStart(enabled));
   ipcMain.handle(mcpTunnelInvokeChannels.startLocalMcp, (_event, input?: StartLocalMcpInput) => startLocalMcp(input));
   ipcMain.handle(mcpTunnelInvokeChannels.stopLocalMcp, () => stopLocalMcp());
   ipcMain.handle(mcpTunnelInvokeChannels.startTunnel, (_event, input: StartTunnelInput) => startTunnel(input));

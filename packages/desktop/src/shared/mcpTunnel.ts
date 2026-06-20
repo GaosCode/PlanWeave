@@ -50,6 +50,7 @@ export type McpTunnelStatus = {
     tunnelId: string | null;
     hasRuntimeApiKey: boolean;
     runtimeApiKeyStorage: "available" | "unavailable";
+    autoStart: boolean;
   };
   downloadUrl: string;
   updatedAt: string;
@@ -68,6 +69,7 @@ export const mcpTunnelInvokeChannels = {
   getMcpTunnelStatus: "planweave-mcp-tunnel:getStatus",
   downloadTunnelClient: "planweave-mcp-tunnel:downloadTunnelClient",
   setTunnelClientPath: "planweave-mcp-tunnel:setTunnelClientPath",
+  setTunnelAutoStart: "planweave-mcp-tunnel:setTunnelAutoStart",
   startLocalMcp: "planweave-mcp-tunnel:startLocalMcp",
   stopLocalMcp: "planweave-mcp-tunnel:stopLocalMcp",
   startTunnel: "planweave-mcp-tunnel:startTunnel",
@@ -80,6 +82,7 @@ export type PlanWeaveMcpTunnelApi = {
   getMcpTunnelStatus: () => Promise<McpTunnelStatus>;
   downloadTunnelClient: () => Promise<McpTunnelStatus>;
   setTunnelClientPath: (path: string | null) => Promise<McpTunnelStatus>;
+  setTunnelAutoStart: (enabled: boolean) => Promise<McpTunnelStatus>;
   startLocalMcp: (input?: StartLocalMcpInput) => Promise<McpTunnelStatus>;
   stopLocalMcp: () => Promise<McpTunnelStatus>;
   startTunnel: (input: StartTunnelInput) => Promise<McpTunnelStatus>;

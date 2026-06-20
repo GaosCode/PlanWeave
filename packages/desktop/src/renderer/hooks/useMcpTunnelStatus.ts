@@ -42,7 +42,8 @@ function idleStatus(): McpTunnelStatus {
     config: {
       tunnelId: null,
       hasRuntimeApiKey: false,
-      runtimeApiKeyStorage: "unavailable"
+      runtimeApiKeyStorage: "unavailable",
+      autoStart: false
     },
     downloadUrl: "https://github.com/openai/tunnel-client/releases/latest",
     updatedAt: new Date(0).toISOString()
@@ -94,6 +95,7 @@ export function useMcpTunnelStatus({ setError }: { setError: (message: string | 
     status,
     downloadTunnelClient: () => invoke(() => api!.downloadTunnelClient()),
     setTunnelClientPath: (path: string | null) => invoke(() => api!.setTunnelClientPath(path)),
+    setTunnelAutoStart: (enabled: boolean) => invoke(() => api!.setTunnelAutoStart(enabled)),
     startLocalMcp: (input?: StartLocalMcpInput) => invoke(() => api!.startLocalMcp(input)),
     stopLocalMcp: () => invoke(() => api!.stopLocalMcp()),
     startTunnel: (input: StartTunnelInput) => invoke(() => api!.startTunnel(input)),

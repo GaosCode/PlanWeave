@@ -280,7 +280,8 @@ describe("preload bridge invocation", () => {
       config: {
         tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
         hasRuntimeApiKey: true,
-        runtimeApiKeyStorage: "available"
+        runtimeApiKeyStorage: "available",
+        autoStart: true
       },
       downloadUrl: "https://github.com/openai/tunnel-client/releases/latest",
       updatedAt: "2026-06-19T00:00:00.000Z"
@@ -292,6 +293,7 @@ describe("preload bridge invocation", () => {
       getMcpTunnelStatus(): Promise<McpTunnelStatus>;
       downloadTunnelClient(): Promise<McpTunnelStatus>;
       setTunnelClientPath(path: string | null): Promise<McpTunnelStatus>;
+      setTunnelAutoStart(enabled: boolean): Promise<McpTunnelStatus>;
       startLocalMcp(input?: { port?: number | null }): Promise<McpTunnelStatus>;
       stopLocalMcp(): Promise<McpTunnelStatus>;
       startTunnel(input: { tunnelId: string; runtimeApiKey: string }): Promise<McpTunnelStatus>;
@@ -303,6 +305,7 @@ describe("preload bridge invocation", () => {
     await api.getMcpTunnelStatus();
     await api.downloadTunnelClient();
     await api.setTunnelClientPath("/usr/local/bin/tunnel-client");
+    await api.setTunnelAutoStart(true);
     await api.startLocalMcp({ port: 8788 });
     await api.stopLocalMcp();
     await api.startTunnel({ tunnelId: "tunnel_0123456789abcdef0123456789abcdef", runtimeApiKey: "secret-key" });
@@ -312,6 +315,7 @@ describe("preload bridge invocation", () => {
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.getMcpTunnelStatus);
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.downloadTunnelClient);
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.setTunnelClientPath, "/usr/local/bin/tunnel-client");
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.setTunnelAutoStart, true);
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.startLocalMcp, { port: 8788 });
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.stopLocalMcp);
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.startTunnel, {
