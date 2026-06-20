@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -9,6 +10,9 @@ import { createFileOAuthClientStore } from "./oauthClientStore.js";
 import { createOAuthProvider, type OAuthProvider } from "./oauth.js";
 import { createFileOAuthTokenStore } from "./oauthTokenStore.js";
 import { registerPlanweaveTools } from "./toolRegistry.js";
+
+const require = createRequire(import.meta.url);
+const mcpPackage = require("../package.json") as { version: string };
 
 function writeJson(res: ServerResponse, statusCode: number, body: unknown): void {
   res.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
@@ -45,7 +49,7 @@ function createPlanweaveMcpServer(): McpServer {
   const server = new McpServer(
     {
       name: "planweave-mcp",
-      version: "0.1.0"
+      version: mcpPackage.version
     },
     {
       capabilities: {

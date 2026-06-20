@@ -1,6 +1,6 @@
 {
   "name": "@planweave-ai/desktop",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Desktop application for PlanWeave plan packages, task graphs, and agent workflows.",
   "license": "MIT",
   "author": "GaosCode <GaosCode@users.noreply.github.com>",
@@ -62,7 +62,7 @@
     "vite": "^7.2.4"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.3.0",
+    "@tailwindcss/vite": "^4.3.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
@@ -71,7 +71,7 @@
     "electron": "^39.2.6",
     "electron-builder": "^26.8.1",
     "jsdom": "^29.1.1",
-    "tailwindcss": "^4.3.0"
+    "tailwindcss": "^4.3.1"
   },
   "build": {
     "appId": "dev.planweave.desktop",

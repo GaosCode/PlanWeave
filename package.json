@@ -1,6 +1,6 @@
 {
   "name": "planweave",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -8,6 +8,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "check:dom-boundaries": "node scripts/check-renderer-dom-boundaries.mjs",
+    "check:versions": "node scripts/sync-version-metadata.mjs --check",
     "desktop:build": "pnpm --dir packages/desktop build",
     "desktop:dist:all": "pnpm --dir packages/desktop dist:all",
     "desktop:dist:linux": "pnpm --dir packages/desktop dist:linux",
@@ -24,7 +25,8 @@
     "pack:npm": "pnpm -r --filter @planweave-ai/runtime --filter @planweave-ai/cli pack",
     "planweave": "pnpm --filter @planweave-ai/cli planweave",
     "publish:npm": "pnpm -r --filter @planweave-ai/runtime --filter @planweave-ai/cli publish --access public",
-    "test": "pnpm check:dom-boundaries && vitest run"
+    "sync:versions": "node scripts/sync-version-metadata.mjs",
+    "test": "pnpm check:versions && pnpm check:dom-boundaries && vitest run"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

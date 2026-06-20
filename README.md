@@ -12,14 +12,16 @@
   <a href="readme/README.zh-CN.md">中文 README</a>
 </p>
 
+<!-- planweave-badges:start -->
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.1.0-orange?style=for-the-badge" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.1.3-orange?style=for-the-badge" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-yellow.svg?style=for-the-badge" />
   <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178c6?style=for-the-badge" />
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Node.js-43853d?style=for-the-badge" />
   <img alt="desktop" src="https://img.shields.io/badge/desktop-Electron-47848f?style=for-the-badge" />
   <img alt="agents" src="https://img.shields.io/badge/agents-Codex%20%7C%20Claude%20Code%20%7C%20OpenCode%20%7C%20Pi-6f42c1?style=for-the-badge" />
 </p>
+<!-- planweave-badges:end -->
 
 
 

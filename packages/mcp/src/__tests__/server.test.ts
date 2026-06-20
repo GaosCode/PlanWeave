@@ -1,8 +1,12 @@
+import { createRequire } from "node:module";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Server } from "node:http";
 import { createPlanweaveMcpHttpServer } from "../server.js";
 import { planweaveToolNames } from "../tools.js";
+
+const require = createRequire(import.meta.url);
+const mcpPackage = require("../../package.json") as { version: string };
 
 let server: Server | undefined;
 
@@ -163,7 +167,8 @@ describe("PlanWeave MCP HTTP server", () => {
     await expect(readMcpResponse(initializeResponse)).resolves.toMatchObject({
       result: {
         serverInfo: {
-          name: "planweave-mcp"
+          name: "planweave-mcp",
+          version: mcpPackage.version
         }
       }
     });
