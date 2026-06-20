@@ -34,8 +34,34 @@ pnpm --filter @planweave-ai/cli planweave help
 Run the desktop app from source:
 
 ```bash
+git clone https://github.com/GaosCode/PlanWeave.git
+cd PlanWeave
+pnpm install
+pnpm -r build
 pnpm --dir packages/desktop start
 ```
+
+## MCP Server From Source
+
+Start the local HTTP MCP server from the workspace:
+
+```bash
+pnpm --filter @planweave-ai/mcp mcp
+```
+
+By default it listens on `http://127.0.0.1:8787/mcp`. For non-loopback hosts, configure `PLANWEAVE_MCP_TOKEN` or enable MCP OAuth with `PLANWEAVE_MCP_OAUTH_ENABLED=true`.
+
+Useful environment variables:
+
+```bash
+PLANWEAVE_MCP_HOST=127.0.0.1
+PLANWEAVE_MCP_PORT=8787
+PLANWEAVE_MCP_TOKEN=<token>
+PLANWEAVE_MCP_OAUTH_ENABLED=true
+PLANWEAVE_HOME=/path/to/planweave/home
+```
+
+The desktop app's **Settings -> MCP Tunnel** page manages the local MCP server for ChatGPT tunnel traffic, so end users should prefer the desktop flow. This source-level command is mainly for contributor testing and direct MCP client integration.
 
 ## Verification
 
