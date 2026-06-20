@@ -181,8 +181,16 @@ describe("PlanWeave MCP HTTP server", () => {
 
     expect(toolsResponse.status).toBe(200);
     const toolsPayload = await readMcpResponse(toolsResponse);
-    const tools = (toolsPayload as { result: { tools: Array<{ name: string; outputSchema?: unknown }> } }).result.tools;
+    const tools = (toolsPayload as { result: { tools: Array<{ name: string; outputSchema?: unknown; annotations?: { readOnlyHint?: boolean } }> } }).result.tools;
     expect(tools.map((tool) => tool.name).sort()).toEqual([...planweaveToolNames].sort());
     expect(tools.every((tool) => tool.outputSchema && typeof tool.outputSchema === "object")).toBe(true);
+    expect(tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "get_status", annotations: expect.objectContaining({ readOnlyHint: true }) }),
+        expect.objectContaining({ name: "get_prompt", annotations: expect.objectContaining({ readOnlyHint: true }) }),
+        expect.objectContaining({ name: "search_project", annotations: expect.objectContaining({ readOnlyHint: true }) }),
+        expect.objectContaining({ name: "list_ready_blocks", annotations: expect.objectContaining({ readOnlyHint: true }) })
+      ])
+    );
   });
 });

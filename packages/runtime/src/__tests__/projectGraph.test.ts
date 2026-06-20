@@ -116,20 +116,59 @@ describe("project graph schema and compiler", () => {
     expect(graph.canvasReachable("desktop", "runtime")).toBe(true);
   });
 
-  it("detects task cycles combined from canvas, single-canvas, and cross-task edges", async () => {
-    const manifest = projectGraph();
-    manifest.edges.push({ from: "desktop", to: "runtime", type: "depends_on" });
-    manifest.crossTaskEdges.push({
-      from: { canvasId: "runtime", taskId: "T-001" },
-      to: { canvasId: "desktop", taskId: "T-001" },
-      type: "depends_on"
+  it("detects mixed canvas and cross-task cycles", async () => {
+    const { root, init } = await createTestWorkspace();
+    for (const canvasId of ["B", "C", "D"]) {
+      const manifest = canvasId === "B" ? basicManifest({ includeSecondTask: true }) : basicManifest();
+      const packageDir = join(init.workspace.workspaceRoot, "canvases", canvasId, "package");
+      await writeJsonFile(join(packageDir, "manifest.json"), manifest);
+      await writePromptFiles(packageDir, manifest);
+    }
+    await writeJsonFile(projectGraphPath(init.workspace), {
+      version: "plan-project/v1",
+      canvases: [
+        { id: "default", type: "canvas", title: "Default", packageDir: "package", stateFile: "state.json", resultsDir: "results" },
+        { id: "B", type: "canvas", title: "B", packageDir: "canvases/B/package", stateFile: "canvases/B/state.json", resultsDir: "canvases/B/results" },
+        { id: "C", type: "canvas", title: "C", packageDir: "canvases/C/package", stateFile: "canvases/C/state.json", resultsDir: "canvases/C/results" },
+        { id: "D", type: "canvas", title: "D", packageDir: "canvases/D/package", stateFile: "canvases/D/state.json", resultsDir: "canvases/D/results" }
+      ],
+      edges: [{ from: "C", to: "D", type: "depends_on" }],
+      crossTaskEdges: [
+        { from: { canvasId: "default", taskId: "T-001" }, to: { canvasId: "B", taskId: "T-001" }, type: "depends_on" },
+        { from: { canvasId: "B", taskId: "T-002" }, to: { canvasId: "default", taskId: "T-001" }, type: "depends_on" },
+        { from: { canvasId: "D", taskId: "T-001" }, to: { canvasId: "C", taskId: "T-001" }, type: "depends_on" }
+      ]
     });
 
+    const loaded = await loadProjectGraph(root);
+    const graph = await compileProjectGraph(loaded);
+
+    expect(codes(graph)).toContain("project_mixed_depends_on_cycle");
+    expect(codes(graph)).not.toContain("project_task_depends_on_cycle");
+    expect(codes(graph)).not.toContain("project_canvas_depends_on_cycle");
+  });
+
+  it("detects task cycles from same-canvas and cross-task edges", async () => {
+    const manifest = projectGraph();
+    const runtimeManifest = basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] });
+    manifest.crossTaskEdges.push(
+      {
+        from: { canvasId: "runtime", taskId: "T-002" },
+        to: { canvasId: "desktop", taskId: "T-001" },
+        type: "depends_on"
+      },
+      {
+        from: { canvasId: "desktop", taskId: "T-001" },
+        to: { canvasId: "runtime", taskId: "T-001" },
+        type: "depends_on"
+      }
+    );
+
     const loaded = await createTwoCanvasProject(manifest);
+    await writeJsonFile(loaded.workspace.manifestFile, runtimeManifest);
     const graph = await compileProjectGraph(loaded);
 
     expect(codes(graph)).toContain("project_task_depends_on_cycle");
-    expect(graph.taskReachable({ canvasId: "desktop", taskId: "T-001" }, { canvasId: "runtime", taskId: "T-001" })).toBe(true);
   });
 
   it("indexes cross-task dependencies with structured task refs", async () => {

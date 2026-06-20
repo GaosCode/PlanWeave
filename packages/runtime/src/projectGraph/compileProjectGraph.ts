@@ -1,6 +1,6 @@
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
-import type { CompiledTaskGraph, PlanPackageManifest, ProjectWorkspace, ValidationIssue } from "../types.js";
+import type { PlanPackageManifest, ProjectWorkspace, ValidationIssue } from "../types.js";
 import { findCycle, reachable } from "./graphAlgorithms.js";
 import { parseProjectTaskRefKey, projectCanvasEdgeKey, projectCrossTaskEdgeKey, projectTaskRefKey } from "./projectGraphKeys.js";
 import { projectCanvasWorkspace } from "./projectGraphWorkspace.js";
@@ -27,10 +27,63 @@ function addUnique(map: Map<string, string[]>, from: string, to: string): void {
   }
 }
 
+function canvasPairKey(from: string, to: string): string {
+  return `${from}\u0000${to}`;
+}
+
+function cycleUsesEdge(cycle: string[], edgeKeys: Set<string>): boolean {
+  for (let index = 0; index < cycle.length - 1; index += 1) {
+    if (edgeKeys.has(canvasPairKey(cycle[index], cycle[index + 1]))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function findMixedCycle(adjacency: Map<string, string[]>, canvasEdgeKeys: Set<string>, crossTaskEdgeKeys: Set<string>): string[] | null {
+  const path: string[] = [];
+  const indexesById = new Map<string, number>();
+  const visited = new Set<string>();
+
+  const visit = (id: string): string[] | null => {
+    path.push(id);
+    indexesById.set(id, path.length - 1);
+    for (const next of adjacency.get(id) ?? []) {
+      const index = indexesById.get(next);
+      if (index !== undefined) {
+        const cycle = path.slice(index).concat(next);
+        if (cycleUsesEdge(cycle, canvasEdgeKeys) && cycleUsesEdge(cycle, crossTaskEdgeKeys)) {
+          return cycle;
+        }
+        continue;
+      }
+      if (!visited.has(next) && adjacency.has(next)) {
+        const cycle = visit(next);
+        if (cycle) {
+          return cycle;
+        }
+      }
+    }
+    indexesById.delete(id);
+    path.pop();
+    visited.add(id);
+    return null;
+  };
+
+  for (const id of adjacency.keys()) {
+    if (!visited.has(id)) {
+      const cycle = visit(id);
+      if (cycle) {
+        return cycle;
+      }
+    }
+  }
+  return null;
+}
+
 type CanvasReadResult = {
   canvas: ProjectCanvasNode;
   manifest: PlanPackageManifest | null;
-  graph: CompiledTaskGraph | null;
   taskIds: Set<string>;
   taskIdsInManifestOrder: string[];
   error?: ValidationIssue;
@@ -44,7 +97,6 @@ async function readCanvasPackage(projectWorkspace: ProjectWorkspace, canvas: Pro
     return {
       canvas,
       manifest: packageManifest,
-      graph,
       taskIds: new Set(taskIdsInManifestOrder),
       taskIdsInManifestOrder
     };
@@ -52,7 +104,6 @@ async function readCanvasPackage(projectWorkspace: ProjectWorkspace, canvas: Pro
     return {
       canvas,
       manifest: null,
-      graph: null,
       taskIds: new Set(),
       taskIdsInManifestOrder: [],
       error: issue("project_canvas_manifest_read_failed", caught instanceof Error ? caught.message : String(caught), canvas.id)
@@ -81,6 +132,9 @@ export async function compileProjectGraph(loaded: LoadedProjectGraph): Promise<C
   const canvasDependenciesByCanvas = new Map<string, string[]>();
   const canvasDependentsByCanvas = new Map<string, string[]>();
   const canvasAdjacency = new Map<string, string[]>();
+  const projectCanvasAdjacency = new Map<string, string[]>();
+  const canvasEdgeKeys = new Set<string>();
+  const crossTaskEdgeKeys = new Set<string>();
   const crossTaskDependenciesByTaskRef = new Map<ProjectTaskRefString, ProjectTaskRefString[]>();
   const crossTaskDependentsByTaskRef = new Map<ProjectTaskRefString, ProjectTaskRefString[]>();
   const taskDependenciesByTaskRef = new Map<ProjectTaskRefString, ProjectTaskRefString[]>();
@@ -92,6 +146,7 @@ export async function compileProjectGraph(loaded: LoadedProjectGraph): Promise<C
     canvasDependenciesByCanvas.set(canvasId, []);
     canvasDependentsByCanvas.set(canvasId, []);
     canvasAdjacency.set(canvasId, []);
+    projectCanvasAdjacency.set(canvasId, []);
   }
 
   const seenEdges = new Set<string>();
@@ -113,10 +168,11 @@ export async function compileProjectGraph(loaded: LoadedProjectGraph): Promise<C
     addUnique(canvasDependenciesByCanvas, edge.from, edge.to);
     addUnique(canvasDependentsByCanvas, edge.to, edge.from);
     addUnique(canvasAdjacency, edge.from, edge.to);
+    addUnique(projectCanvasAdjacency, edge.from, edge.to);
+    canvasEdgeKeys.add(canvasPairKey(edge.from, edge.to));
   }
 
   const taskIdsByCanvas = new Map<string, Set<string>>();
-  const taskOrderByCanvas = new Map<string, string[]>();
   const canvasPackageResults = await Promise.all(manifest.canvases.map((canvas) => readCanvasPackage(workspace, canvas)));
   for (const result of canvasPackageResults) {
     if (result.error) {
@@ -127,7 +183,6 @@ export async function compileProjectGraph(loaded: LoadedProjectGraph): Promise<C
       continue;
     }
     taskIdsByCanvas.set(result.canvas.id, result.taskIds);
-    taskOrderByCanvas.set(result.canvas.id, result.taskIdsInManifestOrder);
     for (const taskId of result.taskIdsInManifestOrder) {
       const taskRef = { canvasId: result.canvas.id, taskId };
       const ref = projectTaskRefKey(taskRef);
@@ -176,22 +231,9 @@ export async function compileProjectGraph(loaded: LoadedProjectGraph): Promise<C
     addUnique(taskDependenciesByTaskRef, from, to);
     addUnique(taskDependentsByTaskRef, to, from);
     addUnique(taskAdjacency, from, to);
-  }
-
-  for (const edge of manifest.edges) {
-    const fromTaskIds = taskOrderByCanvas.get(edge.from);
-    const toTaskIds = taskOrderByCanvas.get(edge.to);
-    if (!fromTaskIds || !toTaskIds) {
-      continue;
-    }
-    for (const fromTaskId of fromTaskIds) {
-      const from = projectTaskRefKey({ canvasId: edge.from, taskId: fromTaskId });
-      for (const toTaskId of toTaskIds) {
-        const to = projectTaskRefKey({ canvasId: edge.to, taskId: toTaskId });
-        addUnique(taskDependenciesByTaskRef, from, to);
-        addUnique(taskDependentsByTaskRef, to, from);
-        addUnique(taskAdjacency, from, to);
-      }
+    if (edge.from.canvasId !== edge.to.canvasId) {
+      addUnique(projectCanvasAdjacency, edge.from.canvasId, edge.to.canvasId);
+      crossTaskEdgeKeys.add(canvasPairKey(edge.from.canvasId, edge.to.canvasId));
     }
   }
 
@@ -201,7 +243,17 @@ export async function compileProjectGraph(loaded: LoadedProjectGraph): Promise<C
   }
   const taskCycle = findCycle(taskAdjacency);
   if (taskCycle) {
-    errors.push(issue("project_task_depends_on_cycle", `Cross-canvas task dependency cycle detected: ${taskCycle.join(" -> ")}.`, "crossTaskEdges"));
+    errors.push(issue("project_task_depends_on_cycle", `Task dependency cycle detected: ${taskCycle.join(" -> ")}.`, "crossTaskEdges"));
+  }
+  const mixedProjectCycle = findMixedCycle(projectCanvasAdjacency, canvasEdgeKeys, crossTaskEdgeKeys);
+  if (mixedProjectCycle) {
+    errors.push(
+      issue(
+        "project_mixed_depends_on_cycle",
+        `Mixed project dependency cycle detected: ${mixedProjectCycle.join(" -> ")}.`,
+        "crossTaskEdges"
+      )
+    );
   }
 
   return {

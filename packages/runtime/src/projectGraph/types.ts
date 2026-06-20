@@ -63,16 +63,21 @@ export type CompiledProjectGraph = {
   crossTaskEdges: ProjectCrossTaskEdge[];
   crossTaskDependenciesByTaskRef: Map<ProjectTaskRefString, ProjectTaskRefString[]>;
   crossTaskDependentsByTaskRef: Map<ProjectTaskRefString, ProjectTaskRefString[]>;
+  /** Explicit task graph only: same-canvas manifest task edges plus project crossTaskEdges. */
   taskDependenciesByTaskRef: Map<ProjectTaskRefString, ProjectTaskRefString[]>;
+  /** Explicit task graph only: same-canvas manifest task edges plus project crossTaskEdges. */
   taskDependentsByTaskRef: Map<ProjectTaskRefString, ProjectTaskRefString[]>;
   diagnostics: {
     errors: ValidationIssue[];
     warnings: ValidationIssue[];
   };
   canvasReachable(from: string, to: string): boolean;
+  /** Returns explicit task dependencies only; canvas-level blockers stay in canvasDependenciesByCanvas. */
   taskDependencies(ref: ProjectTaskRef): ProjectTaskRef[];
+  /** Returns explicit task dependents only; canvas-level dependents stay in canvasDependentsByCanvas. */
   taskDependents(ref: ProjectTaskRef): ProjectTaskRef[];
   crossTaskDependencies(ref: ProjectTaskRef): ProjectTaskRef[];
   crossTaskDependents(ref: ProjectTaskRef): ProjectTaskRef[];
+  /** Tests reachability in the explicit task graph only, excluding canvas-level reachability. */
   taskReachable(from: ProjectTaskRef, to: ProjectTaskRef): boolean;
 };

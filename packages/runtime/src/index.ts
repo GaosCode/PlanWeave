@@ -146,6 +146,7 @@ export {
   saveCanvasMapLayout,
   saveDesktopLayout,
   searchProject,
+  searchProjectWithDiagnostics,
   startAutoRun,
   stopAutoRun,
   subscribeAutoRunEvents,

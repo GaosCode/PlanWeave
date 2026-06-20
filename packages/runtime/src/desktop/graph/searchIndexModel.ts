@@ -23,6 +23,10 @@ export type DesktopSearchIndex = {
   diagnostics: ValidationIssue[];
 };
 
+const defaultSearchLimit = 100;
+const minSearchLimit = 1;
+const maxSearchLimit = 100;
+
 function runRecordIdFromResultPath(path: string): string | null {
   const match = /^([^/]+)\/blocks\/([^/]+)\/runs\/([^/]+)\//.exec(path);
   if (!match) {
@@ -45,6 +49,57 @@ function documentMatches(document: DesktopSearchDocument, normalizedQuery: strin
     return document.body.toLowerCase().includes(normalizedQuery);
   }
   return document.title.toLowerCase().includes(normalizedQuery) || document.body.toLowerCase().includes(normalizedQuery);
+}
+
+type RankedSearchResult = {
+  result: DesktopSearchResult;
+  rank: SearchRank;
+  documentIndex: number;
+};
+
+type SearchRank = {
+  titleExact: number;
+  titleIncludes: number;
+  primaryKind: number;
+  matchIndex: number;
+  excerptLength: number;
+};
+
+function searchLimit(filters: DesktopSearchFilters): number {
+  if (typeof filters.limit !== "number" || !Number.isFinite(filters.limit)) {
+    return defaultSearchLimit;
+  }
+  return Math.min(maxSearchLimit, Math.max(minSearchLimit, Math.floor(filters.limit)));
+}
+
+function documentKindPriority(document: DesktopSearchDocument): number {
+  if (document.kind === "run_record" || document.kind === "review_attempt") {
+    return 1;
+  }
+  return 0;
+}
+
+function searchRank(document: DesktopSearchDocument, normalizedQuery: string): SearchRank {
+  const normalizedTitle = document.title.trim().toLowerCase();
+  const titleIndex = normalizedTitle.indexOf(normalizedQuery);
+  const bodyIndex = document.body.toLowerCase().indexOf(normalizedQuery);
+  const matchedText = titleIndex >= 0 ? document.title : document.body;
+  return {
+    titleExact: normalizedTitle === normalizedQuery ? 0 : 1,
+    titleIncludes: titleIndex >= 0 ? 0 : 1,
+    primaryKind: documentKindPriority(document),
+    matchIndex: titleIndex >= 0 ? titleIndex : bodyIndex,
+    excerptLength: promptPreview(matchedText).length
+  };
+}
+
+function compareSearchRank(left: RankedSearchResult, right: RankedSearchResult): number {
+  return left.rank.titleExact - right.rank.titleExact
+    || left.rank.titleIncludes - right.rank.titleIncludes
+    || left.rank.primaryKind - right.rank.primaryKind
+    || left.rank.matchIndex - right.rank.matchIndex
+    || left.rank.excerptLength - right.rank.excerptLength
+    || left.documentIndex - right.documentIndex;
 }
 
 function searchResultFromDocument(document: DesktopSearchDocument, normalizedQuery: string): DesktopSearchResult {
@@ -171,8 +226,16 @@ export function searchDesktopSearchIndex(
   }
   const allowedKinds = filters.kinds?.length ? new Set<DesktopSearchResultKind>(filters.kinds) : null;
   return index.documents
-    .filter((document) => !allowedKinds || allowedKinds.has(document.kind))
-    .filter((document) => typeof filters.canvasId !== "string" || document.canvasId === filters.canvasId)
-    .filter((document) => documentMatches(document, normalized))
-    .map((document) => searchResultFromDocument(document, normalized));
+    .map((document, documentIndex) => ({ document, documentIndex }))
+    .filter(({ document }) => !allowedKinds || allowedKinds.has(document.kind))
+    .filter(({ document }) => typeof filters.canvasId !== "string" || document.canvasId === filters.canvasId)
+    .filter(({ document }) => documentMatches(document, normalized))
+    .map(({ document, documentIndex }) => ({
+      result: searchResultFromDocument(document, normalized),
+      rank: searchRank(document, normalized),
+      documentIndex
+    }))
+    .sort(compareSearchRank)
+    .slice(0, searchLimit(filters))
+    .map((ranked) => ranked.result);
 }

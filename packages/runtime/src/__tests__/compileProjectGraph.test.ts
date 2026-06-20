@@ -3,19 +3,47 @@ import { createTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/index.j
 import { writeJsonFile } from "../json.js";
 import { compileProjectGraph, projectTaskRefKey } from "../projectGraph/index.js";
 import { loadProjectGraph, writeProjectGraph } from "../projectGraph/loadProjectGraph.js";
+import type { PlanPackageManifest } from "../types.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
 });
 
-async function createSecondCanvas(root: string, name = "Second plan") {
+async function createSecondCanvas(root: string, name = "Second plan", manifest: PlanPackageManifest = basicManifest()) {
   const canvas = await createTaskCanvas(root, { name });
   const workspace = await resolveTaskCanvasWorkspace(root, canvas.canvasId);
-  const manifest = basicManifest();
   await writeJsonFile(workspace.manifestFile, manifest);
   await writePromptFiles(workspace.packageDir, manifest);
   return { canvas, workspace, manifest };
+}
+
+function manyTaskManifest(count: number): PlanPackageManifest {
+  const manifest = basicManifest();
+  return {
+    ...manifest,
+    nodes: Array.from({ length: count }, (_, index) => {
+      const taskId = `T-${String(index + 1).padStart(3, "0")}`;
+      return {
+        id: taskId,
+        type: "task" as const,
+        title: `Task ${index + 1}`,
+        prompt: `nodes/${taskId}/prompt.md`,
+        acceptance: [`${taskId} is complete.`],
+        blocks: [
+          {
+            id: "B-001",
+            type: "implementation" as const,
+            title: `Implement ${taskId}`,
+            prompt: `nodes/${taskId}/blocks/B-001.prompt.md`,
+            depends_on: [],
+            parallel: { safe: true, locks: [taskId] }
+          }
+        ]
+      };
+    }),
+    edges: []
+  };
 }
 
 describe("compileProjectGraph", () => {
@@ -54,6 +82,65 @@ describe("compileProjectGraph", () => {
       projectTaskRefKey({ canvasId: "default", taskId: "T-001" })
     ]);
     expect(graph.taskReachable({ canvasId: second.canvas.canvasId, taskId: "T-001" }, { canvasId: "default", taskId: "T-001" })).toBe(true);
+  });
+
+  it("does not expand canvas dependencies into task dependency edges", async () => {
+    const { root, init } = await createTestWorkspace();
+    const second = await createSecondCanvas(root);
+    await writeProjectGraph(init.workspace, {
+      version: "plan-project/v1",
+      canvases: [
+        { id: "default", type: "canvas", title: "Default", packageDir: "package", stateFile: "state.json", resultsDir: "results" },
+        {
+          id: second.canvas.canvasId,
+          type: "canvas",
+          title: "Second plan",
+          packageDir: `canvases/${second.canvas.canvasId}/package`,
+          stateFile: `canvases/${second.canvas.canvasId}/state.json`,
+          resultsDir: `canvases/${second.canvas.canvasId}/results`
+        }
+      ],
+      edges: [{ from: second.canvas.canvasId, to: "default", type: "depends_on" }],
+      crossTaskEdges: []
+    });
+
+    const graph = await compileProjectGraph(await loadProjectGraph(root));
+
+    expect(graph.diagnostics.errors).toEqual([]);
+    expect(graph.canvasDependenciesByCanvas.get(second.canvas.canvasId)).toEqual(["default"]);
+    expect(graph.canvasReachable(second.canvas.canvasId, "default")).toBe(true);
+    expect(graph.taskDependencies({ canvasId: second.canvas.canvasId, taskId: "T-001" })).toEqual([]);
+    expect(graph.taskDependents({ canvasId: "default", taskId: "T-001" })).toEqual([]);
+    expect(graph.taskReachable({ canvasId: second.canvas.canvasId, taskId: "T-001" }, { canvasId: "default", taskId: "T-001" })).toBe(false);
+  });
+
+  it("keeps large canvas dependency graphs from materializing cartesian task edges", async () => {
+    const manifest = manyTaskManifest(100);
+    const { root, init } = await createTestWorkspace(manifest);
+    const second = await createSecondCanvas(root, "Second plan", manifest);
+    await writeProjectGraph(init.workspace, {
+      version: "plan-project/v1",
+      canvases: [
+        { id: "default", type: "canvas", title: "Default", packageDir: "package", stateFile: "state.json", resultsDir: "results" },
+        {
+          id: second.canvas.canvasId,
+          type: "canvas",
+          title: "Second plan",
+          packageDir: `canvases/${second.canvas.canvasId}/package`,
+          stateFile: `canvases/${second.canvas.canvasId}/state.json`,
+          resultsDir: `canvases/${second.canvas.canvasId}/results`
+        }
+      ],
+      edges: [{ from: second.canvas.canvasId, to: "default", type: "depends_on" }],
+      crossTaskEdges: []
+    });
+
+    const graph = await compileProjectGraph(await loadProjectGraph(root));
+    const dependencyCount = Array.from(graph.taskDependenciesByTaskRef.values()).reduce((total, dependencies) => total + dependencies.length, 0);
+
+    expect(graph.diagnostics.errors).toEqual([]);
+    expect(graph.taskRefsInProjectOrder).toHaveLength(200);
+    expect(dependencyCount).toBe(0);
   });
 
   it("reports duplicate canvas ids and missing edge endpoints", async () => {

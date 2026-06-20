@@ -6,6 +6,7 @@ import type {
   DesktopReviewPipeline,
   DesktopTaskDetail,
   GraphEditResult,
+  PlanStatus,
   ProjectGraphEditResult,
   RefreshPromptsResult,
   RuntimeSchemaTopicName,
@@ -47,6 +48,10 @@ export const schemaDocument: SchemaDocument = {
 export type TestGateway = RuntimeGateway & {
   openProject: ReturnType<typeof vi.fn<(projectId: string) => Promise<DesktopProjectSummary>>>;
   validateProject: ReturnType<typeof vi.fn<(projectId: string) => Promise<ValidationReport>>>;
+  getStatus: ReturnType<RuntimeGateway["getStatus"] & typeof vi.fn>;
+  getPrompt: ReturnType<RuntimeGateway["getPrompt"] & typeof vi.fn>;
+  searchProject: ReturnType<RuntimeGateway["searchProject"] & typeof vi.fn>;
+  listReadyBlocks: ReturnType<RuntimeGateway["listReadyBlocks"] & typeof vi.fn>;
   getProjectOverview: ReturnType<typeof vi.fn<(projectId: string) => Promise<DesktopProjectSummary>>>;
   createCanvas: ReturnType<RuntimeGateway["createCanvas"] & typeof vi.fn>;
   getProjectGraph: ReturnType<typeof vi.fn<(projectId: string, canvasId?: string) => Promise<DesktopGraphViewModel>>>;
@@ -110,6 +115,89 @@ export function createGateway(): TestGateway {
     latestReviewAttemptId: null,
     activeFeedbackId: null,
     exceptionReason: null,
+    reviewGate: null
+  };
+  const status: Omit<PlanStatus, "projectRoot"> & { canvasId: string | null } = {
+    projectId: "project-1",
+    canvasId: "default",
+    taskTotal: 1,
+    blockTotal: 1,
+    tasks: [{ taskId: "T-001", status: "ready", openFeedbackCount: 0 }],
+    blocks: [
+      {
+        ref: "T-001#I-001",
+        taskId: "T-001",
+        blockId: "I-001",
+        type: "implementation",
+        status: "ready",
+        reason: null,
+        completionReason: null,
+        lastRunId: null,
+        latestReviewAttemptId: null,
+        activeFeedbackId: null
+      }
+    ],
+    currentRefs: [],
+    currentFeedbackId: null,
+    currentReviewBlockRef: null,
+    openFeedback: [],
+    nextClaimable: ["T-001#I-001"],
+    nextParallelClaimable: ["T-001#I-001"],
+    nextSequentialClaimable: [],
+    nextParallelDispatchable: ["T-001#I-001"],
+    claimHints: [
+      {
+        ref: "T-001#I-001",
+        taskId: "T-001",
+        blockId: "I-001",
+        blockType: "implementation",
+        status: "ready",
+        statusReason: null,
+        ready: true,
+        readyReason: "ready",
+        blockedByBlocks: [],
+        blockedByTasks: [],
+        blockedByProject: [],
+        parallelSafe: true,
+        sequentialOnly: false,
+        recommendedCommand: "planweave claim T-001#I-001",
+        dispatchable: true,
+        dispatchCommand: "planweave dispatch T-001#I-001",
+        reviewGate: null
+      }
+    ],
+    warnings: [
+      {
+        code: "status_manifest_warning",
+        message: "Manifest warning at /sensitive/home/projects/project-1/package/manifest.json",
+        path: "/sensitive/home/projects/project-1/package/manifest.json"
+      }
+    ],
+    counts: {
+      tasks: { planned: 0, ready: 1, in_progress: 0, implemented: 0 },
+      blocks: { planned: 0, ready: 1, in_progress: 0, completed: 0, needs_changes: 0, blocked: 0, diverged: 0 },
+      feedback: { open: 0, in_progress: 0, resolved: 0, dismissed: 0 }
+    },
+    orphanState: [],
+    orphanResults: []
+  };
+  const searchResult = {
+    kind: "prompt" as const,
+    canvasId: "default",
+    canvasName: "Default",
+    ref: "T-001#I-001",
+    title: "Implement",
+    excerpt: "needle appears here"
+  };
+  const readyBlock = {
+    canvasId: "default",
+    canvasName: "Default",
+    ref: "T-001#I-001",
+    taskId: "T-001",
+    blockId: "I-001",
+    title: "Implement",
+    parallelSafe: true,
+    locks: ["repo"],
     reviewGate: null
   };
   const graph: DesktopGraphViewModel = {
@@ -199,6 +287,10 @@ export function createGateway(): TestGateway {
     },
     openProject: vi.fn(async () => project),
     validateProject: vi.fn(async () => ({ ok: true, errors: [], warnings: [] })),
+    getStatus: vi.fn(async () => status),
+    getPrompt: vi.fn(async (_projectId, canvasId) => ({ canvasId: canvasId ?? "default", markdown: "# Rendered prompt" })),
+    searchProject: vi.fn(async () => ({ results: [searchResult], diagnostics: [] })),
+    listReadyBlocks: vi.fn(async () => ({ readyBlocks: [readyBlock] })),
     getProjectOverview: vi.fn(async () => project),
     getProjectGraph: vi.fn(async () => graph),
     getTaskDetail: vi.fn(async () => taskDetail),

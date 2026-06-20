@@ -2,6 +2,7 @@ import * as z from "zod/v4";
 import type { PlanweaveToolName } from "./tools.js";
 
 const blockTypeSchema = z.enum(["implementation", "review"]);
+const searchResultKindSchema = z.enum(["task", "block", "prompt", "run_record", "review_attempt", "feedback"]);
 const reviewTriggerConditionSchema = z.enum(["after_required_work_completed", "manual"]);
 const reviewHookSchema = z.object({
   id: z.string().min(1),
@@ -40,6 +41,11 @@ const projectInput = {
 const projectCanvasInput = {
   ...projectInput,
   canvasId: z.string().min(1).optional()
+};
+
+const optionalProjectCanvasInput = {
+  ...projectInput,
+  canvasId: z.string().min(1).nullable().optional()
 };
 
 const blockRefInput = {
@@ -131,6 +137,35 @@ export const planweaveToolDefinitions: Record<PlanweaveToolName, ToolDefinition>
     title: "Explain PlanWeave Validation Errors",
     description: "Validate a project and return issue explanations with suggested repair actions.",
     inputSchema: projectInput,
+    annotations: readOnlyAnnotations
+  },
+  get_status: {
+    title: "Get PlanWeave Execution Status",
+    description: "Return sanitized execution status for a registered project or selected canvas.",
+    inputSchema: optionalProjectCanvasInput,
+    annotations: readOnlyAnnotations
+  },
+  get_prompt: {
+    title: "Get PlanWeave Rendered Prompt",
+    description: "Return the rendered prompt markdown for a block without modifying source prompts.",
+    inputSchema: { ...optionalProjectCanvasInput, ref: z.string().min(1) },
+    annotations: readOnlyAnnotations
+  },
+  search_project: {
+    title: "Search PlanWeave Project",
+    description: "Search tasks, blocks, prompts, and result records in a registered project.",
+    inputSchema: {
+      ...optionalProjectCanvasInput,
+      query: z.string().min(1),
+      kinds: z.array(searchResultKindSchema).optional(),
+      limit: z.number().int().min(1).max(100).optional()
+    },
+    annotations: readOnlyAnnotations
+  },
+  list_ready_blocks: {
+    title: "List PlanWeave Ready Blocks",
+    description: "Return the project-level ready queue or the ready queue for a selected canvas.",
+    inputSchema: optionalProjectCanvasInput,
     annotations: readOnlyAnnotations
   },
   preview_execution_graph: {

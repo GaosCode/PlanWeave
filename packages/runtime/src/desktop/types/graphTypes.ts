@@ -287,6 +287,7 @@ export type DesktopSearchResultKind = "task" | "block" | "prompt" | "run_record"
 export type DesktopSearchFilters = {
   kinds?: DesktopSearchResultKind[];
   canvasId?: string | null;
+  limit?: number;
 };
 
 export type DesktopSearchResult = {

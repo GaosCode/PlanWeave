@@ -6,9 +6,12 @@ import {
   addTaskNode,
   createTaskCanvas,
   getBlockDetail,
+  getExecutionStatus,
   getGraphViewModel,
+  getProjectExecutionPlan,
   getReviewPipeline,
   getTaskDetail,
+  renderPrompt,
   initOrOpenProject,
   listProjects,
   listTaskCanvases,
@@ -22,6 +25,7 @@ import {
   removeTaskNode,
   resolveTaskCanvasWorkspace,
   runtimeSchemaDocuments,
+  searchProjectWithDiagnostics,
   updateBlockDependencies,
   updateBlockExecutor,
   updateBlockPlanning,
@@ -35,9 +39,10 @@ import {
   updateTaskTitle,
   validatePackage
 } from "@planweave-ai/runtime";
-import type { GraphEditResult } from "@planweave-ai/runtime";
+import type { DesktopSearchResult, DesktopTodoItem, GraphEditResult } from "@planweave-ai/runtime";
+import { sanitizeLocalPaths, sanitizeValidationIssues } from "./toolHelpers.js";
 import { exportCanvasPackage, importPackageFiles, managedProjectRoot } from "./toolPackageFiles.js";
-import type { RuntimeGateway } from "./toolTypes.js";
+import type { ReadyBlock, RuntimeGateway, SanitizedExecutionStatus } from "./toolTypes.js";
 
 const managedProjectsDir = "mcp-projects";
 
@@ -60,6 +65,39 @@ export const runtimeGateway: RuntimeGateway = {
   },
   async validateProject(projectId) {
     return validatePackage({ projectRoot: await resolveProjectRoot(projectId) });
+  },
+  async getStatus(projectId, canvasId) {
+    const selectedCanvasId = await resolveSelectedCanvasId(projectId, canvasId);
+    return sanitizeExecutionStatus(await getExecutionStatus({ projectRoot: await resolveCanvasWorkspace(projectId, canvasId) }), selectedCanvasId);
+  },
+  async getPrompt(projectId, canvasId, ref) {
+    const selectedCanvasId = await resolveSelectedCanvasId(projectId, canvasId);
+    return {
+      canvasId: selectedCanvasId,
+      markdown: await renderPrompt({ projectRoot: await resolveCanvasWorkspace(projectId, selectedCanvasId), ref })
+    };
+  },
+  async searchProject(projectId, args) {
+    const projection = await searchProjectWithDiagnostics(await resolveProjectRoot(projectId), args.query, {
+      canvasId: args.canvasId,
+      kinds: args.kinds,
+      limit: args.limit
+    });
+    return {
+      results: projection.results.map(sanitizeSearchResult),
+      diagnostics: sanitizeValidationIssues(projection.diagnostics)
+    };
+  },
+  async listReadyBlocks(projectId, canvasId) {
+    const plan = await getProjectExecutionPlan(await resolveProjectRoot(projectId));
+    if (canvasId) {
+      const phase = plan.phases.find((candidate) => candidate.canvasId === canvasId);
+      if (!phase) {
+        throw new Error(`Task canvas '${canvasId}' does not exist.`);
+      }
+      return { readyBlocks: phase.readyQueue.map(sanitizeReadyBlock) };
+    }
+    return { readyBlocks: plan.readyQueue.map(sanitizeReadyBlock) };
   },
   async getProjectOverview(projectId) {
     return openProject({ projectId });
@@ -186,7 +224,62 @@ async function resolveProjectRoot(projectId: string): Promise<string> {
   return project.rootPath;
 }
 
-async function resolveCanvasWorkspace(projectId: string, canvasId?: string) {
+async function resolveSelectedCanvasId(projectId: string, canvasId?: string | null): Promise<string | null> {
+  if (canvasId) {
+    return canvasId;
+  }
+  const project = await openProject({ projectId });
+  return project.activeCanvasId ?? project.taskCanvases[0]?.canvasId ?? null;
+}
+
+async function resolveCanvasWorkspace(projectId: string, canvasId?: string | null) {
   const project = await openProject({ projectId });
   return resolveTaskCanvasWorkspace(project.rootPath, canvasId);
+}
+
+function sanitizeExecutionStatus(
+  status: Awaited<ReturnType<typeof getExecutionStatus>>,
+  canvasId: string | null
+): SanitizedExecutionStatus {
+  return {
+    projectId: status.projectId,
+    canvasId,
+    taskTotal: status.taskTotal,
+    blockTotal: status.blockTotal,
+    tasks: status.tasks,
+    blocks: status.blocks,
+    currentRefs: status.currentRefs,
+    openFeedback: status.openFeedback,
+    nextClaimable: status.nextClaimable,
+    claimHints: status.claimHints,
+    counts: status.counts,
+    warnings: sanitizeValidationIssues(status.warnings)
+  };
+}
+
+function sanitizeSearchResult(result: DesktopSearchResult): Omit<DesktopSearchResult, "path"> {
+  return {
+    kind: result.kind,
+    canvasId: result.canvasId,
+    canvasName: result.canvasName,
+    ref: result.ref,
+    targetRef: result.targetRef,
+    title: sanitizeLocalPaths(result.title),
+    excerpt: sanitizeLocalPaths(result.excerpt),
+    recordId: result.recordId
+  };
+}
+
+function sanitizeReadyBlock(item: DesktopTodoItem): ReadyBlock {
+  return {
+    canvasId: item.canvasId ?? null,
+    canvasName: item.canvasName ?? null,
+    ref: item.ref,
+    taskId: item.taskId,
+    blockId: item.blockId,
+    title: item.title,
+    parallelSafe: item.parallelSafe,
+    locks: item.locks,
+    reviewGate: item.reviewGate
+  };
 }

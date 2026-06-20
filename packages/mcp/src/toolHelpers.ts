@@ -1,6 +1,13 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { DesktopProjectSummary, GraphEditResult, RuntimeSchemaTopicName, ValidationReport } from "@planweave-ai/runtime";
-import type { ExportedPlanPackageFile } from "./toolTypes.js";
+import type {
+  DesktopProjectSummary,
+  DesktopSearchResultKind,
+  GraphEditResult,
+  RuntimeSchemaTopicName,
+  ValidationIssue,
+  ValidationReport
+} from "@planweave-ai/runtime";
+import type { ExportedPlanPackageFile, SearchProjectArgs } from "./toolTypes.js";
 
 export type ProjectArgs = {
   projectId: string;
@@ -9,6 +16,13 @@ export type ProjectArgs = {
 export type ProjectCanvasArgs = ProjectArgs & {
   canvasId?: string;
 };
+
+export type ProjectCanvasNullableArgs = ProjectArgs & {
+  canvasId?: string | null;
+};
+
+const localPathArgNames = new Set(["rootPath", "projectRoot", "workspaceRoot", "packageDir", "resultsDir", "stateFile"]);
+const searchResultKinds = new Set<DesktopSearchResultKind>(["task", "block", "prompt", "run_record", "review_attempt", "feedback"]);
 
 export function jsonToolResult(value: Record<string, unknown>): CallToolResult {
   return {
@@ -37,6 +51,18 @@ export function summarizeGraphEdit(result: GraphEditResult) {
     affectedTasks: result.affectedTasks,
     diagnostics: result.diagnostics
   };
+}
+
+export function sanitizeValidationIssue(issue: ValidationIssue): ValidationIssue {
+  return {
+    ...issue,
+    message: sanitizeLocalPaths(issue.message),
+    path: issue.path === undefined ? undefined : sanitizeLocalPaths(issue.path)
+  };
+}
+
+export function sanitizeValidationIssues(issues: ValidationIssue[]): ValidationIssue[] {
+  return issues.map(sanitizeValidationIssue);
 }
 
 export function explainValidationReport(report: ValidationReport) {
@@ -88,6 +114,16 @@ export function optionalNullableString(value: unknown, field: string): string | 
   return nonEmptyString(value, field);
 }
 
+export function optionalNullableNonEmptyString(value: unknown, field: string): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  return nonEmptyString(value, field);
+}
+
 export function optionalStringArray(value: unknown, field: string): string[] | undefined {
   if (value === undefined || value === null) {
     return undefined;
@@ -108,6 +144,39 @@ export function parseProjectCanvasArgs(args: unknown): ProjectCanvasArgs {
   return {
     projectId: nonEmptyString(record.projectId, "projectId"),
     canvasId: optionalNonEmptyString(record.canvasId, "canvasId")
+  };
+}
+
+export function parseReadonlyProjectCanvasArgs(args: unknown): ProjectCanvasNullableArgs {
+  const record = readObjectArgs(args);
+  rejectLocalPathArgs(record);
+  return {
+    projectId: nonEmptyString(record.projectId, "projectId"),
+    canvasId: optionalNullableNonEmptyString(record.canvasId, "canvasId")
+  };
+}
+
+export function parseGetPromptArgs(args: unknown): ProjectCanvasNullableArgs & { ref: string } {
+  const record = readObjectArgs(args);
+  const { projectId, canvasId } = parseReadonlyProjectCanvasArgs(record);
+  return {
+    projectId,
+    canvasId,
+    ref: nonEmptyString(record.ref, "ref")
+  };
+}
+
+export function parseSearchProjectArgs(args: unknown): { projectId: string; search: SearchProjectArgs } {
+  const record = readObjectArgs(args);
+  const { projectId, canvasId } = parseReadonlyProjectCanvasArgs(record);
+  return {
+    projectId,
+    search: {
+      query: nonEmptyString(record.query, "query"),
+      canvasId,
+      kinds: parseSearchKinds(record.kinds),
+      limit: parseSearchLimit(record.limit)
+    }
   };
 }
 
@@ -157,6 +226,73 @@ export function parsePackageFiles(value: unknown): ExportedPlanPackageFile[] {
       encoding
     };
   });
+}
+
+function rejectLocalPathArgs(record: Record<string, unknown>): void {
+  const rejected = Object.keys(record).find((key) => localPathArgNames.has(key));
+  if (rejected) {
+    throw new Error(`${rejected} is not accepted; use projectId for registered projects.`);
+  }
+}
+
+export function sanitizeLocalPaths(value: string): string {
+  return sanitizeUnixLocalPaths(sanitizeWindowsLocalPaths(value));
+}
+
+function sanitizeWindowsLocalPaths(value: string): string {
+  return value.replace(/\b[A-Za-z]:\\[^"'`,;)]+/g, (path) => summarizeLocalPath(path.trimEnd()));
+}
+
+function sanitizeUnixLocalPaths(value: string): string {
+  const unixLocalPathPattern = /(^|[\s"'`(])((?:\/Users|\/home|\/tmp|\/var\/folders|\/private\/tmp|\/sensitive)\/[^"'`,;)]+)/g;
+  return value.replace(unixLocalPathPattern, (match, prefix: string, path: string) => {
+    const trailingWhitespace = path.match(/\s+$/)?.[0] ?? "";
+    return `${prefix}${summarizeLocalPath(path.trimEnd())}${trailingWhitespace}`;
+  });
+}
+
+function summarizeLocalPath(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  const meaningfulMarkers = ["/canvases/", "/package/", "/results/", "/desktop/"];
+  for (const marker of meaningfulMarkers) {
+    const index = normalized.indexOf(marker);
+    if (index >= 0) {
+      return normalized.slice(index + 1);
+    }
+  }
+  const fileMarkers = ["manifest.json", "state.json", "project-graph.json", "canvases.json"];
+  for (const marker of fileMarkers) {
+    if (normalized.endsWith(`/${marker}`) || normalized.endsWith(marker)) {
+      return marker;
+    }
+  }
+  const basename = normalized.split("/").filter(Boolean).at(-1);
+  return basename ? `<local-path>/${basename}` : "<local-path>";
+}
+
+function parseSearchKinds(value: unknown): DesktopSearchResultKind[] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("kinds must be an array.");
+  }
+  return value.map((item, index) => {
+    if (typeof item !== "string" || !searchResultKinds.has(item as DesktopSearchResultKind)) {
+      throw new Error(`kinds[${index}] must be one of: task, block, prompt, run_record, review_attempt, feedback.`);
+    }
+    return item as DesktopSearchResultKind;
+  });
+}
+
+function parseSearchLimit(value: unknown): number | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 100) {
+    throw new Error("limit must be an integer from 1 to 100.");
+  }
+  return value;
 }
 
 function suggestionForValidationIssue(code: string, message: string): string {

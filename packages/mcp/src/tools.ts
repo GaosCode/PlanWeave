@@ -5,12 +5,17 @@ import {
   explainValidationReport,
   jsonToolResult,
   nonEmptyString,
+  parseGetPromptArgs,
   parseGetSchemaArgs,
   parsePackageFiles,
   parseProjectArgs,
   parseProjectCanvasArgs,
+  parseReadonlyProjectCanvasArgs,
+  parseSearchProjectArgs,
   readObjectArgs,
   sanitizeProject,
+  sanitizeLocalPaths,
+  sanitizeValidationIssues,
   summarizeGraphEdit
 } from "./toolHelpers.js";
 import {
@@ -74,6 +79,38 @@ export async function handlePlanweaveTool(
     case "explain_validation_errors": {
       const { projectId } = parseProjectArgs(args);
       return jsonToolResult(explainValidationReport(await gateway.validateProject(projectId)));
+    }
+    case "get_status": {
+      const { projectId, canvasId } = parseReadonlyProjectCanvasArgs(args);
+      const status = await gateway.getStatus(projectId, canvasId);
+      return jsonToolResult({ ...status, warnings: sanitizeValidationIssues(status.warnings) });
+    }
+    case "get_prompt": {
+      const { projectId, canvasId, ref } = parseGetPromptArgs(args);
+      const prompt = await gateway.getPrompt(projectId, canvasId, ref);
+      return jsonToolResult({
+        projectId,
+        canvasId: prompt.canvasId,
+        ref,
+        markdown: prompt.markdown
+      });
+    }
+    case "search_project": {
+      const { projectId, search } = parseSearchProjectArgs(args);
+      const searchResult = await gateway.searchProject(projectId, search);
+      return jsonToolResult({
+        ...searchResult,
+        results: searchResult.results.map((result) => ({
+          ...result,
+          title: sanitizeLocalPaths(result.title),
+          excerpt: sanitizeLocalPaths(result.excerpt)
+        })),
+        diagnostics: sanitizeValidationIssues(searchResult.diagnostics)
+      });
+    }
+    case "list_ready_blocks": {
+      const { projectId, canvasId } = parseReadonlyProjectCanvasArgs(args);
+      return jsonToolResult(await gateway.listReadyBlocks(projectId, canvasId));
     }
     case "preview_execution_graph":
     case "get_project_graph": {

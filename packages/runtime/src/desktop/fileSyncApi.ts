@@ -13,8 +13,11 @@ import type {
 import type { DesktopPackageFileSnapshotRef, DesktopPackageFileSyncResult } from "./types.js";
 import { invalidateDesktopProjectProjection } from "./graph/projectProjectionModel.js";
 
+const MAX_SNAPSHOT_IDS_PER_PROJECT = 5;
+
 const snapshots = new Map<string, PackageFileSnapshot>();
-const snapshotsById = new Map<string, PackageFileSnapshot>();
+const snapshotsById = new Map<string, { projectKey: string; snapshot: PackageFileSnapshot }>();
+const snapshotIdsByProject = new Map<string, string[]>();
 const dirtyRefsByProject = new Map<string, string[]>();
 let nextSnapshotNumber = 1;
 
@@ -59,9 +62,31 @@ async function snapshotKey(projectRoot: PackageWorkspaceRef): Promise<string> {
   return (await resolvePackageWorkspace(projectRoot)).workspaceRoot;
 }
 
-function snapshotRef(projectRoot: string, snapshot: PackageFileSnapshot): DesktopPackageFileSnapshotRef {
+function displayProjectRoot(projectRoot: PackageWorkspaceRef): string {
+  return typeof projectRoot === "string" ? projectRoot : projectRoot.rootPath;
+}
+
+function trimSnapshotIds(projectKey: string): void {
+  const snapshotIds = snapshotIdsByProject.get(projectKey);
+  if (!snapshotIds) {
+    return;
+  }
+  while (snapshotIds.length > MAX_SNAPSHOT_IDS_PER_PROJECT) {
+    const expiredId = snapshotIds.shift();
+    if (!expiredId) {
+      break;
+    }
+    snapshotsById.delete(expiredId);
+  }
+}
+
+function snapshotRef(projectKey: string, projectRoot: string, snapshot: PackageFileSnapshot): DesktopPackageFileSnapshotRef {
   const snapshotId = nextSnapshotId();
-  snapshotsById.set(snapshotId, snapshot);
+  snapshotsById.set(snapshotId, { projectKey, snapshot });
+  const snapshotIds = snapshotIdsByProject.get(projectKey) ?? [];
+  snapshotIds.push(snapshotId);
+  snapshotIdsByProject.set(projectKey, snapshotIds);
+  trimSnapshotIds(projectKey);
   return {
     snapshotId,
     projectRoot,
@@ -74,11 +99,14 @@ function previousSnapshot(projectKey: string, snapshotId?: string | null): Packa
   if (!snapshotId) {
     return snapshots.get(projectKey) ?? null;
   }
-  const snapshot = snapshotsById.get(snapshotId);
-  if (!snapshot) {
-    throw new Error(`Package file snapshot '${snapshotId}' does not exist.`);
+  const stored = snapshotsById.get(snapshotId);
+  if (!stored) {
+    throw new Error(`Package file snapshot '${snapshotId}' has expired or does not exist.`);
   }
-  return snapshot;
+  if (stored.projectKey !== projectKey) {
+    throw new Error(`Package file snapshot '${snapshotId}' belongs to a different project.`);
+  }
+  return stored.snapshot;
 }
 
 function syncResult(options: {
@@ -103,11 +131,10 @@ function syncResult(options: {
 export async function createDesktopPackageFileSnapshot(projectRoot: PackageWorkspaceRef): Promise<DesktopPackageFileSnapshotRef> {
   invalidateDesktopProjectProjection(projectRoot);
   const projectKey = await snapshotKey(projectRoot);
-  const displayProjectRoot = typeof projectRoot === "string" ? projectRoot : projectRoot.rootPath;
   const snapshot = await createRuntimePackageFileSnapshot(projectRoot);
   snapshots.set(projectKey, snapshot);
   dirtyRefsByProject.set(projectKey, []);
-  return snapshotRef(displayProjectRoot, snapshot);
+  return snapshotRef(projectKey, displayProjectRoot(projectRoot), snapshot);
 }
 
 export async function detectDesktopPackageFileChanges(
@@ -173,7 +200,6 @@ export async function refreshChangedDesktopPackagePrompts(
     return failed;
   }
   snapshots.set(projectKey, result.snapshot);
-  snapshotRef(projectKey, result.snapshot);
   const refreshed = syncResult({
     previous,
     next: result.snapshot,
@@ -215,7 +241,6 @@ export async function refreshPackageFileChanges(projectRoot: PackageWorkspaceRef
     };
   }
   snapshots.set(projectKey, result.snapshot);
-  snapshotRef(projectKey, result.snapshot);
   const dirtyPromptRefsForResult = dirtyPromptRefs(previous, result.snapshot);
   dirtyRefsByProject.set(projectKey, dirtyPromptRefsForResult);
   return {

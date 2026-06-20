@@ -6,6 +6,8 @@ const blockStatuses = ["planned", "ready", "in_progress", "completed", "needs_ch
 const edgeTypes = ["depends_on"] as const;
 const reviewTriggerConditions = ["after_required_work_completed", "manual"] as const;
 const taskStatuses = ["planned", "ready", "in_progress", "implemented"] as const;
+const searchResultKinds = ["task", "block", "prompt", "run_record", "review_attempt", "feedback"] as const;
+const feedbackStatuses = ["open", "in_progress", "resolved", "dismissed"] as const;
 
 const validationIssueSchema = z.object({
   code: z.string(),
@@ -170,6 +172,85 @@ const graphEditOutputSchema = {
   edit: graphEditSchema
 };
 
+const executionStatusSchema = {
+  projectId: z.string(),
+  canvasId: z.string().nullable(),
+  taskTotal: z.number(),
+  blockTotal: z.number(),
+  tasks: z.array(z.object({
+    taskId: z.string(),
+    status: z.enum(taskStatuses),
+    openFeedbackCount: z.number()
+  }).passthrough()),
+  blocks: z.array(z.object({
+    ref: z.string(),
+    taskId: z.string(),
+    blockId: z.string(),
+    type: z.enum(blockTypes),
+    status: z.enum(blockStatuses),
+    reason: z.string().nullable().optional(),
+    completionReason: z.enum(["passed", "max_cycles_reached"]).nullable().optional(),
+    lastRunId: z.string().nullable().optional(),
+    latestReviewAttemptId: z.string().nullable().optional(),
+    activeFeedbackId: z.string().nullable().optional()
+  }).passthrough()),
+  currentRefs: z.array(z.string()),
+  openFeedback: z.array(z.object({
+    feedbackId: z.string(),
+    sourceReviewBlockRef: z.string(),
+    status: z.enum(["open", "in_progress"])
+  }).passthrough()),
+  nextClaimable: z.array(z.string()),
+  claimHints: z.array(z.object({
+    ref: z.string(),
+    taskId: z.string(),
+    blockId: z.string(),
+    blockType: z.enum(blockTypes),
+    status: z.enum(blockStatuses),
+    statusReason: z.string().nullable(),
+    ready: z.boolean(),
+    readyReason: z.string().nullable(),
+    blockedByBlocks: z.array(z.string()),
+    blockedByTasks: z.array(z.string()),
+    blockedByProject: z.array(z.string()),
+    parallelSafe: z.boolean(),
+    sequentialOnly: z.boolean(),
+    recommendedCommand: z.string().nullable(),
+    dispatchable: z.boolean(),
+    dispatchCommand: z.string().nullable(),
+    reviewGate: z.unknown().nullable()
+  }).passthrough()),
+  counts: z.object({
+    tasks: z.record(z.enum(taskStatuses), z.number()),
+    blocks: z.record(z.enum(blockStatuses), z.number()),
+    feedback: z.record(z.enum(feedbackStatuses), z.number())
+  }).passthrough(),
+  warnings: z.array(validationIssueSchema)
+};
+
+const searchResultSchema = z.object({
+  kind: z.enum(searchResultKinds),
+  canvasId: z.string().optional(),
+  canvasName: z.string().optional(),
+  ref: z.string(),
+  targetRef: z.string().optional(),
+  title: z.string(),
+  excerpt: z.string(),
+  recordId: z.string().optional()
+}).passthrough();
+
+const readyBlockSchema = z.object({
+  canvasId: z.string().nullable(),
+  canvasName: z.string().nullable(),
+  ref: z.string(),
+  taskId: z.string(),
+  blockId: z.string(),
+  title: z.string(),
+  parallelSafe: z.boolean(),
+  locks: z.array(z.string()),
+  reviewGate: z.unknown().nullable()
+}).passthrough();
+
 const projectTaskRefSchema = z.object({
   canvasId: z.string(),
   taskId: z.string()
@@ -244,6 +325,20 @@ export const planweaveToolOutputSchemas = {
       explanation: z.string(),
       suggestedAction: z.string()
     }).passthrough())
+  },
+  get_status: executionStatusSchema,
+  get_prompt: {
+    projectId: z.string(),
+    canvasId: z.string().nullable(),
+    ref: z.string(),
+    markdown: z.string()
+  },
+  search_project: {
+    results: z.array(searchResultSchema),
+    diagnostics: z.array(validationIssueSchema)
+  },
+  list_ready_blocks: {
+    readyBlocks: z.array(readyBlockSchema)
   },
   preview_execution_graph: {
     graph: graphSchema

@@ -4,10 +4,15 @@ import type {
   DesktopGraphViewModel,
   DesktopProjectSummary,
   DesktopReviewPipeline,
+  DesktopSearchFilters,
+  DesktopSearchResult,
+  DesktopSearchResultKind,
+  DesktopTodoItem,
   DesktopUpdateReviewPipelineInput,
   DesktopTaskDetail,
   DesktopTaskCanvasSummary,
   GraphEditResult,
+  PlanStatus,
   ProjectGraphEditResult,
   ProjectTaskRef,
   ReviewHookDefinition,
@@ -28,6 +33,10 @@ export const planweaveToolNames = [
   "get_project_overview",
   "validate_project",
   "explain_validation_errors",
+  "get_status",
+  "get_prompt",
+  "search_project",
+  "list_ready_blocks",
   "preview_execution_graph",
   "get_project_graph",
   "get_task_detail",
@@ -72,6 +81,36 @@ export type ExportedPlanPackage = {
   files: ExportedPlanPackageFile[];
 };
 
+export type SanitizedExecutionStatus = Pick<
+  PlanStatus,
+  "projectId" | "taskTotal" | "blockTotal" | "tasks" | "blocks" | "currentRefs" | "openFeedback" | "nextClaimable" | "claimHints" | "counts" | "warnings"
+> & {
+  canvasId: string | null;
+};
+
+export type SearchProjectArgs = DesktopSearchFilters & {
+  query: string;
+};
+
+export type SearchProjectPayload = {
+  results: Array<Omit<DesktopSearchResult, "path">>;
+  diagnostics: ValidationReport["warnings"];
+};
+
+export type RenderedPromptPayload = {
+  canvasId: string | null;
+  markdown: string;
+};
+
+export type ReadyBlock = Pick<DesktopTodoItem, "ref" | "taskId" | "blockId" | "title" | "parallelSafe" | "locks" | "reviewGate"> & {
+  canvasId: string | null;
+  canvasName: string | null;
+};
+
+export type ReadyBlocksPayload = {
+  readyBlocks: ReadyBlock[];
+};
+
 export type RuntimeGateway = {
   getSchemaDocuments(): Record<RuntimeSchemaTopicName, SchemaDocument>;
   initProject(name: string): Promise<DesktopProjectSummary>;
@@ -79,6 +118,10 @@ export type RuntimeGateway = {
   listProjects(): Promise<DesktopProjectSummary[]>;
   openProject(projectId: string): Promise<DesktopProjectSummary>;
   validateProject(projectId: string): Promise<ValidationReport>;
+  getStatus(projectId: string, canvasId?: string | null): Promise<SanitizedExecutionStatus>;
+  getPrompt(projectId: string, canvasId: string | null | undefined, ref: string): Promise<RenderedPromptPayload>;
+  searchProject(projectId: string, args: SearchProjectArgs): Promise<SearchProjectPayload>;
+  listReadyBlocks(projectId: string, canvasId?: string | null): Promise<ReadyBlocksPayload>;
   getProjectOverview(projectId: string): Promise<DesktopProjectSummary>;
   getProjectGraph(projectId: string, canvasId?: string): Promise<DesktopGraphViewModel>;
   getTaskDetail(projectId: string, taskId: string, canvasId?: string): Promise<DesktopTaskDetail>;
