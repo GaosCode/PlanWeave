@@ -80,6 +80,7 @@ export type DesktopPromptSaveOptions = {
 export type DesktopBridgeApi = {
   listProjects(): Promise<DesktopProjectSummary[]>;
   chooseProjectFolder(): Promise<string | null>;
+  chooseSourceRootFolder(): Promise<string | null>;
   revealProjectInFinder(rootPath: string): Promise<void>;
   revealPathInFinder(path: string): Promise<void>;
   detectAgentTools(): Promise<DesktopAgentDetection[]>;
@@ -89,6 +90,8 @@ export type DesktopBridgeApi = {
   openProject(input: { projectId?: string; rootPath?: string }): Promise<DesktopProjectSummary>;
   initOrOpenProject(rootPath: string): Promise<DesktopProjectSummary>;
   removeProject(projectId: string): Promise<void>;
+  linkProjectSourceRoot(projectId: string, sourceRoot: string): Promise<DesktopProjectSummary>;
+  unlinkProjectSourceRoot(projectId: string): Promise<DesktopProjectSummary>;
   createTaskCanvas(projectRoot: string, input?: { name?: string | null }): Promise<DesktopTaskCanvasSummary>;
   removeTaskCanvas(projectRoot: string, canvasId: string): Promise<DesktopTaskCanvasSummary[]>;
   selectTaskCanvas(projectRoot: string, canvasId: string): Promise<string>;

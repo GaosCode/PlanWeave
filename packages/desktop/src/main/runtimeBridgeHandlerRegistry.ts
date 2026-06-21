@@ -28,6 +28,7 @@ import {
   getTaskExecutionOrder,
   getTodoGroups,
   initOrOpenProject,
+  linkProjectSourceRoot,
   listBlockRunRecords,
   listProjects,
   openProject,
@@ -54,6 +55,7 @@ import {
   startAutoRun,
   stopAutoRun,
   unblockBlock,
+  unlinkProjectSourceRoot,
   updateBlockExecutor,
   updateBlockPrompt,
   updateBlockTitle,
@@ -112,6 +114,15 @@ export const runtimeBridgeHandlers = {
     }
     return result.filePaths[0] ?? null;
   },
+  chooseSourceRootFolder: async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const options: OpenDialogOptions = { properties: ["openDirectory"] };
+    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+    return result.filePaths[0] ?? null;
+  },
   revealProjectInFinder: async (_event, rootPath) => {
     if (process.env.PLANWEAVE_DESKTOP_SMOKE === "1") {
       return;
@@ -131,6 +142,8 @@ export const runtimeBridgeHandlers = {
   openProject: (_event, input) => openProject(input),
   initOrOpenProject: (_event, rootPath) => initOrOpenProject(rootPath),
   removeProject: (_event, projectId) => removeProject(projectId),
+  linkProjectSourceRoot: (_event, projectId, sourceRoot) => linkProjectSourceRoot(projectId, sourceRoot),
+  unlinkProjectSourceRoot: (_event, projectId) => unlinkProjectSourceRoot(projectId),
   createTaskCanvas: (_event, projectRoot, input) => createTaskCanvas(projectRoot, input),
   removeTaskCanvas: (_event, projectRoot, canvasId) => removeTaskCanvas(projectRoot, canvasId),
   selectTaskCanvas: (_event, projectRoot, canvasId) => selectTaskCanvas(projectRoot, canvasId),

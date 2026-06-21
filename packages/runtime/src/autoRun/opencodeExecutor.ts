@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { ExecutorAdapterResult, OpencodeExecExecutorProfile, PackageWorkspaceRef } from "../types.js";
-import { finishRunMetadata, nextRunId, prepareBlockRun, workspaceExecutorEnv, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
+import { finishRunMetadata, nextRunId, prepareBlockRun, workspaceExecutionCwd, workspaceExecutorEnv, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
 import { opencodeInvocation } from "./opencodeInvocation.js";
 import { extractOpencodeSessionId, opencodeReport, parseOpencodeJsonOutput } from "./opencodeOutput.js";
 import { appendReviewResultFileInstruction, reviewResultEnvironment } from "./reviewResultContract.js";
@@ -55,6 +55,7 @@ export async function runOpencodeBlock(options: {
     prompt: options.prompt
   });
   const workspace = await resolvePackageWorkspace(options.projectRoot);
+  const executionCwd = workspaceExecutionCwd(workspace);
   const reviewResultPath = options.claim.blockType === "review" ? join(run.runDir, "review-result.json") : null;
   const prompt = reviewResultPath
     ? appendReviewResultFileInstruction(options.prompt, {
@@ -63,7 +64,7 @@ export async function runOpencodeBlock(options: {
         taskId: options.claim.taskId
       })
     : options.prompt;
-  const invocation = opencodeInvocation(options.profile, prompt, workspace.rootPath);
+  const invocation = opencodeInvocation(options.profile, prompt, executionCwd);
   const tmux = await createTmuxSessionInfo({
     runDir: run.runDir,
     runId: run.runId,
@@ -90,7 +91,7 @@ export async function runOpencodeBlock(options: {
   const result = await runOpencodeStreamingCommand({
     command: options.profile.command,
     args: invocation.args,
-    cwd: workspace.rootPath,
+    cwd: executionCwd,
     stdin: invocation.stdin,
     env: workspaceExecutorEnv(
       workspace,
@@ -119,7 +120,7 @@ export async function runOpencodeBlock(options: {
     command: options.profile.command,
     args: invocation.args,
     projectRoot: workspace.rootPath,
-    executionCwd: workspace.rootPath,
+    executionCwd,
     sandbox: options.profile.sandbox ?? null,
     timeoutMs: options.profile.timeoutMs ?? null,
     timedOut: result.timedOut,
@@ -164,6 +165,7 @@ export async function runOpencodeBlock(options: {
 
 export async function runOpencodeFeedback(options: {
   projectRoot: string;
+  executionCwd: string;
   planweaveHome: string;
   workspaceResultsDir: string;
   claim: FeedbackClaim;
@@ -179,7 +181,7 @@ export async function runOpencodeFeedback(options: {
   const startedAt = new Date().toISOString();
   await mkdir(runDir, { recursive: true });
   await writeFile(join(runDir, "prompt.md"), options.claim.content, "utf8");
-  const invocation = opencodeInvocation(options.profile, options.claim.content, options.projectRoot);
+  const invocation = opencodeInvocation(options.profile, options.claim.content, options.executionCwd);
   const tmux = await createTmuxSessionInfo({ runDir, runId, tmuxOwnerRunId: options.tmuxOwnerRunId, kind: "feedback", enabled: options.tmuxEnabled });
   await writeJsonFile(metadataPath, {
     runId,
@@ -189,7 +191,7 @@ export async function runOpencodeFeedback(options: {
     executor: options.executorName,
     adapter: "opencode-exec",
     projectRoot: options.projectRoot,
-    executionCwd: options.projectRoot,
+    executionCwd: options.executionCwd,
     startedAt,
     finishedAt: null,
     exitCode: null,
@@ -218,7 +220,7 @@ export async function runOpencodeFeedback(options: {
   const result = await runOpencodeStreamingCommand({
     command: options.profile.command,
     args: invocation.args,
-    cwd: options.projectRoot,
+    cwd: options.executionCwd,
     stdin: invocation.stdin,
     env: workspaceExecutorEnv({ planweaveHome: options.planweaveHome }),
     timeoutMs: options.profile.timeoutMs,

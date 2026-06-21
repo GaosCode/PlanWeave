@@ -17,12 +17,17 @@ type ProjectSidebarProps = {
   collapsed: boolean;
   expandedProjectId: string | null;
   graph: DesktopGraphViewModel | null;
+  handleBindSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleDeleteProject: (project: DesktopProjectSummary) => Promise<void>;
   handleDeleteTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleDeleteTaskNode: (taskId: string) => Promise<void>;
+  handleDropSourceRoot: (project: DesktopProjectSummary, sourceRoot: string | null) => Promise<void>;
   handleOpenProject: () => Promise<void>;
   handleProjectNewGraph: (project: DesktopProjectSummary) => Promise<void>;
+  handleRevealPlanWorkspace: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealProject: (project: DesktopProjectSummary) => Promise<void>;
+  handleRevealSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
+  handleUnlinkSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
   notificationItems: NotificationItem[];
@@ -45,12 +50,17 @@ export function ProjectSidebar({
   collapsed,
   expandedProjectId,
   graph,
+  handleBindSourceRoot,
   handleDeleteProject,
   handleDeleteTaskCanvas,
   handleDeleteTaskNode,
+  handleDropSourceRoot,
   handleOpenProject,
   handleProjectNewGraph,
+  handleRevealPlanWorkspace,
   handleRevealProject,
+  handleRevealSourceRoot,
+  handleUnlinkSourceRoot,
   handleTaskPanelSelect,
   loadProject,
   notificationItems,
@@ -162,12 +172,17 @@ export function ProjectSidebar({
         collapsedProjectIds={collapsedProjectIds}
         expandedProjectId={expandedProjectId}
         graph={graph}
+        handleBindSourceRoot={handleBindSourceRoot}
         handleDeleteProject={handleDeleteProject}
         handleDeleteTaskCanvas={handleDeleteTaskCanvas}
         handleDeleteTaskNode={handleDeleteTaskNode}
+        handleDropSourceRoot={handleDropSourceRoot}
         handleOpenProject={handleOpenProject}
         handleProjectNewGraph={handleProjectNewGraph}
+        handleRevealPlanWorkspace={handleRevealPlanWorkspace}
         handleRevealProject={handleRevealProject}
+        handleRevealSourceRoot={handleRevealSourceRoot}
+        handleUnlinkSourceRoot={handleUnlinkSourceRoot}
         handleTaskPanelSelect={handleTaskPanelSelect}
         onCanvasSelect={handleCanvasSelect}
         onCanvasToggle={handleCanvasToggle}

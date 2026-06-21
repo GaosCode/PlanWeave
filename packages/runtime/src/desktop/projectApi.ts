@@ -1,8 +1,8 @@
-import { access, readdir, rm } from "node:fs/promises";
+import { access, readdir, realpath, rm, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { initManagedWorkspace, initWorkspace } from "../initWorkspace.js";
-import { readJsonFile } from "../json.js";
+import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
 import { normalizeProjectMetadata, readProject, resolveProjectWorkspace } from "../project.js";
 import type { ProjectMetadata } from "../types.js";
@@ -33,21 +33,35 @@ async function projectSummary(project: ProjectMetadata, workspaceRoot: string): 
   };
 }
 
-async function readProjectById(projectId: string): Promise<DesktopProjectSummary | null> {
-  const workspaceRoot = join(resolvePlanweaveHome(), "projects", projectId);
+function isDescendant(root: string, target: string): boolean {
+  const relativePath = relative(root, target);
+  return Boolean(relativePath) && !relativePath.startsWith("..") && !isAbsolute(relativePath);
+}
+
+async function readRegisteredProject(projectId: string): Promise<{ project: ProjectMetadata; workspaceRoot: string; projectFile: string } | null> {
+  const planweaveHome = resolvePlanweaveHome();
+  const workspaceRoot = join(planweaveHome, "projects", projectId);
   const projectFile = join(workspaceRoot, "project.json");
   if (!(await exists(projectFile))) {
     return null;
   }
+  const project = normalizeProjectMetadata(await readJsonFile<ProjectMetadata>(projectFile), {
+    planweaveHome,
+    workspaceRoot
+  });
+  return { project, workspaceRoot, projectFile };
+}
+
+async function readProjectById(projectId: string): Promise<DesktopProjectSummary | null> {
+  const entry = await readRegisteredProject(projectId);
+  if (!entry) {
+    return null;
+  }
   try {
-    const project = normalizeProjectMetadata(await readJsonFile<ProjectMetadata>(projectFile), {
-      planweaveHome: resolvePlanweaveHome(),
-      workspaceRoot
-    });
-    if (!(await exists(project.rootPath))) {
+    if (!(await exists(entry.project.rootPath))) {
       return null;
     }
-    return await projectSummary(project, workspaceRoot);
+    return await projectSummary(entry.project, entry.workspaceRoot);
   } catch {
     return null;
   }
@@ -98,6 +112,55 @@ export async function initOrOpenProject(rootPath: string): Promise<DesktopProjec
 export async function initManagedProject(name: string): Promise<DesktopProjectSummary> {
   const init = await initManagedWorkspace({ name });
   return projectSummary(init.project, init.workspace.workspaceRoot);
+}
+
+export async function linkProjectSourceRoot(projectId: string, sourceRoot: string): Promise<DesktopProjectSummary> {
+  const entry = await readRegisteredProject(projectId);
+  if (!entry) {
+    throw new Error(`Project '${projectId}' does not exist.`);
+  }
+  if (entry.project.kind !== "managed") {
+    throw new Error("Only managed PlanWeave projects can bind a source root.");
+  }
+  const resolvedSourceRoot = await realpath(sourceRoot);
+  const sourceRootStat = await stat(resolvedSourceRoot);
+  if (!sourceRootStat.isDirectory()) {
+    throw new Error("Source root must be a directory.");
+  }
+  const planweaveHome = await realpath(resolvePlanweaveHome());
+  const workspaceRoot = await realpath(entry.workspaceRoot);
+  if (resolvedSourceRoot === workspaceRoot || isDescendant(workspaceRoot, resolvedSourceRoot)) {
+    throw new Error("Source root must be outside the PlanWeave project workspace.");
+  }
+  if (resolvedSourceRoot === planweaveHome || isDescendant(planweaveHome, resolvedSourceRoot)) {
+    throw new Error("Source root must be outside the PlanWeave home directory.");
+  }
+  const nextProject: ProjectMetadata = {
+    ...entry.project,
+    kind: "managed",
+    rootPath: entry.workspaceRoot,
+    sourceRoot: resolvedSourceRoot
+  };
+  await writeJsonFile(entry.projectFile, nextProject);
+  return projectSummary(nextProject, entry.workspaceRoot);
+}
+
+export async function unlinkProjectSourceRoot(projectId: string): Promise<DesktopProjectSummary> {
+  const entry = await readRegisteredProject(projectId);
+  if (!entry) {
+    throw new Error(`Project '${projectId}' does not exist.`);
+  }
+  if (entry.project.kind !== "managed") {
+    throw new Error("Only managed PlanWeave projects can unlink a source root.");
+  }
+  const nextProject: ProjectMetadata = {
+    ...entry.project,
+    kind: "managed",
+    rootPath: entry.workspaceRoot,
+    sourceRoot: null
+  };
+  await writeJsonFile(entry.projectFile, nextProject);
+  return projectSummary(nextProject, entry.workspaceRoot);
 }
 
 export async function openProject(input: { projectId?: string; rootPath?: string }): Promise<DesktopProjectSummary> {

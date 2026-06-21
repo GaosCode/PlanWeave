@@ -1,8 +1,8 @@
-import { access, mkdir, mkdtemp } from "node:fs/promises";
+import { access, mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { initManagedProject, listProjects, openProject, removeProject } from "../desktop/index.js";
+import { initManagedProject, linkProjectSourceRoot, listProjects, openProject, removeProject, unlinkProjectSourceRoot } from "../desktop/index.js";
 import { initWorkspace } from "../initWorkspace.js";
 import { writeJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
@@ -78,6 +78,39 @@ describe("desktop project API", () => {
       sourceRoot: null,
       workspaceRoot: init.workspace.workspaceRoot
     });
+  });
+
+  it("links and unlinks a source root for managed projects", async () => {
+    const { home: testHome } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-source-"));
+    const resolvedSourceRoot = await realpath(sourceRoot);
+    const project = await initManagedProject("Managed With Source");
+
+    await expect(linkProjectSourceRoot(project.projectId, sourceRoot)).resolves.toMatchObject({
+      projectId: project.projectId,
+      kind: "managed",
+      rootPath: project.workspaceRoot,
+      sourceRoot: resolvedSourceRoot,
+      workspaceRoot: project.workspaceRoot
+    });
+    await expect(openProject({ projectId: project.projectId })).resolves.toMatchObject({
+      projectId: project.projectId,
+      rootPath: project.workspaceRoot,
+      sourceRoot: resolvedSourceRoot
+    });
+    await expect(unlinkProjectSourceRoot(project.projectId)).resolves.toMatchObject({
+      projectId: project.projectId,
+      rootPath: project.workspaceRoot,
+      sourceRoot: null
+    });
+  });
+
+  it("rejects source root binding for external projects", async () => {
+    const { init } = await createTestWorkspace();
+    const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-source-"));
+
+    await expect(linkProjectSourceRoot(init.workspace.id, sourceRoot)).rejects.toThrow("Only managed PlanWeave projects can bind a source root.");
   });
 
   it("keeps valid projects visible when another PlanWeave registry entry is stale", async () => {

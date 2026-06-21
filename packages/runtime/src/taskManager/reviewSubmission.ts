@@ -462,7 +462,7 @@ export async function submitReviewResult(options: {
   let feedbackContent: string;
   try {
     const hookOutput = await executeReviewHook({
-      projectRoot: workspace.rootPath,
+      projectRoot: workspace.sourceRoot ?? workspace.rootPath,
       reviewBlock: block,
       reviewResult: parsed,
       task,

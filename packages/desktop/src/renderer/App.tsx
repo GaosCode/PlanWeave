@@ -113,6 +113,7 @@ export function App() {
     projectLoading,
     projectPromptMarkdown,
     projectPromptPolicy,
+    refreshProjectSummary,
     refreshGraph,
     refreshGraphAndLayout,
     removeProject,
@@ -302,14 +303,20 @@ export function App() {
   });
 
   const {
+    handleBindSourceRoot,
     handleDeleteProject,
     handleDeleteTaskCanvas,
+    handleDropSourceRoot,
     handleProjectNewGraph,
     handleRevealPathInFinder,
-    handleRevealProject
+    handleRevealPlanWorkspace,
+    handleRevealProject,
+    handleRevealSourceRoot,
+    handleUnlinkSourceRoot
   } = useDesktopProjectActions({
     createTaskCanvas: createTaskCanvasInSession,
     deleteTaskCanvas: deleteTaskCanvasInSession,
+    refreshProjectSummary,
     removeProject,
     setActiveView,
     setError,
@@ -500,12 +507,17 @@ export function App() {
           collapsed={leftSidebarCollapsed}
           expandedProjectId={expandedProjectId}
           graph={graph}
+          handleBindSourceRoot={handleBindSourceRoot}
           handleOpenProject={handleOpenProject}
           handleProjectNewGraph={handleProjectNewGraph}
           handleDeleteProject={handleDeleteProject}
           handleDeleteTaskCanvas={handleDeleteTaskCanvas}
           handleDeleteTaskNode={handleDeleteTaskNode}
+          handleDropSourceRoot={handleDropSourceRoot}
+          handleRevealPlanWorkspace={handleRevealPlanWorkspace}
           handleRevealProject={handleRevealProject}
+          handleRevealSourceRoot={handleRevealSourceRoot}
+          handleUnlinkSourceRoot={handleUnlinkSourceRoot}
           handleTaskPanelSelect={handleTaskPanelSelect}
           loadProject={openProjectInSession}
           notificationItems={notificationItems}

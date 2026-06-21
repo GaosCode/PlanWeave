@@ -4,7 +4,7 @@ import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import { canvasCommandFlagForWorkspace } from "../taskManager/canvasCommandScope.js";
 import { writeJsonFile } from "../json.js";
 import type { ExecutorAdapterResult } from "../types.js";
-import { nextRunId, prepareBlockRun } from "./executorShared.js";
+import { nextRunId, prepareBlockRun, workspaceExecutionCwd } from "./executorShared.js";
 import { adapterProfileMismatch, type ExecutorBlockInput, type ExecutorFeedbackInput, type ExecutorIntegration } from "./executorIntegration.js";
 
 async function runManualBlock(input: ExecutorBlockInput): Promise<ExecutorAdapterResult> {
@@ -47,6 +47,7 @@ async function runManualFeedback(input: ExecutorFeedbackInput): Promise<Executor
   const metadataPath = join(runDir, "metadata.json");
   const startedAt = new Date().toISOString();
   const nextCommand = `planweave submit-feedback${canvasFlag} --report <report.md>`;
+  const executionCwd = workspaceExecutionCwd(input.workspace);
   await writeFile(promptPath, input.claim.content, "utf8");
   await writeJsonFile(metadataPath, {
     runId,
@@ -56,7 +57,7 @@ async function runManualFeedback(input: ExecutorFeedbackInput): Promise<Executor
     executor: input.executorName,
     adapter: "manual",
     projectRoot: input.workspace.rootPath,
-    executionCwd: input.workspace.rootPath,
+    executionCwd,
     startedAt,
     finishedAt: null,
     exitCode: null,

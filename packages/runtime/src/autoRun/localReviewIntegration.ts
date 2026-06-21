@@ -1,4 +1,5 @@
 import { adapterProfileMismatch, type ExecutorBlockInput, type ExecutorFeedbackInput, type ExecutorIntegration } from "./executorIntegration.js";
+import { workspaceExecutionCwd } from "./executorShared.js";
 import { runLocalReviewBlock, runLocalReviewFeedback } from "./localReviewExecutor.js";
 
 export const localReviewIntegration: ExecutorIntegration = {
@@ -24,6 +25,7 @@ export const localReviewIntegration: ExecutorIntegration = {
     }
     return runLocalReviewFeedback({
       projectRoot: input.workspace.rootPath,
+      executionCwd: workspaceExecutionCwd(input.workspace),
       planweaveHome: input.workspace.planweaveHome,
       workspaceResultsDir: input.workspace.resultsDir,
       claim: input.claim,

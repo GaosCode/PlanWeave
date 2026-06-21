@@ -1,4 +1,5 @@
 import { adapterProfileMismatch, type ExecutorBlockInput, type ExecutorFeedbackInput, type ExecutorIntegration } from "./executorIntegration.js";
+import { workspaceExecutionCwd } from "./executorShared.js";
 import { runTerminalAgentBlock, runTerminalAgentFeedback } from "./terminalAgentExecutor.js";
 
 export const piIntegration: ExecutorIntegration = {
@@ -26,6 +27,7 @@ export const piIntegration: ExecutorIntegration = {
     }
     return runTerminalAgentFeedback({
       projectRoot: input.workspace.rootPath,
+      executionCwd: workspaceExecutionCwd(input.workspace),
       planweaveHome: input.workspace.planweaveHome,
       workspaceResultsDir: input.workspace.resultsDir,
       claim: input.claim,

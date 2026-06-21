@@ -4,7 +4,7 @@ import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { ExecutorAdapterResult, LocalReviewExecutorProfile, PackageWorkspaceRef } from "../types.js";
-import { execWithStreaming, finishRunMetadata, nextRunId, prepareBlockRun, workspaceExecutorEnv, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
+import { execWithStreaming, finishRunMetadata, nextRunId, prepareBlockRun, workspaceExecutionCwd, workspaceExecutorEnv, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
 import { createTmuxSessionInfo, tmuxMetadataPatch } from "./tmuxExecutor.js";
 
 export async function runLocalReviewBlock(options: {
@@ -27,6 +27,7 @@ export async function runLocalReviewBlock(options: {
     prompt: options.prompt
   });
   const workspace = await resolvePackageWorkspace(options.projectRoot);
+  const executionCwd = workspaceExecutionCwd(workspace);
   const { blockId } = parseBlockRef(options.claim.ref);
   const stdoutPath = join(run.runDir, "stdout.md");
   const stderrPath = join(run.runDir, "stderr.log");
@@ -42,7 +43,7 @@ export async function runLocalReviewBlock(options: {
   const streamed = await execWithStreaming({
     command: options.profile.command,
     args: options.profile.args,
-    cwd: workspace.rootPath,
+    cwd: executionCwd,
     stdin: options.prompt,
     env: workspaceExecutorEnv(workspace, {
       PLANWEAVE_REVIEW_BLOCK_REF: options.claim.ref,
@@ -66,7 +67,7 @@ export async function runLocalReviewBlock(options: {
     command: options.profile.command,
     args: options.profile.args,
     projectRoot: workspace.rootPath,
-    executionCwd: workspace.rootPath,
+    executionCwd,
     sandbox: options.profile.sandbox ?? null,
     timeoutMs: options.profile.timeoutMs ?? null,
     timedOut: result.timedOut,
@@ -88,6 +89,7 @@ export async function runLocalReviewBlock(options: {
 
 export async function runLocalReviewFeedback(options: {
   projectRoot: string;
+  executionCwd: string;
   planweaveHome: string;
   workspaceResultsDir: string;
   claim: FeedbackClaim;
@@ -114,7 +116,7 @@ export async function runLocalReviewFeedback(options: {
     executor: options.executorName,
     adapter: "local-review",
     projectRoot: options.projectRoot,
-    executionCwd: options.projectRoot,
+    executionCwd: options.executionCwd,
     startedAt,
     finishedAt: null,
     exitCode: null,
@@ -129,7 +131,7 @@ export async function runLocalReviewFeedback(options: {
   const streamed = await execWithStreaming({
     command: options.profile.command,
     args: options.profile.args,
-    cwd: options.projectRoot,
+    cwd: options.executionCwd,
     stdin: options.claim.content,
     env: workspaceExecutorEnv({ planweaveHome: options.planweaveHome }),
     timeoutMs: options.profile.timeoutMs,

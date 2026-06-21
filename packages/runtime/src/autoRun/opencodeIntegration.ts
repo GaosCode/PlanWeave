@@ -1,4 +1,5 @@
 import { adapterProfileMismatch, type ExecutorBlockInput, type ExecutorFeedbackInput, type ExecutorIntegration } from "./executorIntegration.js";
+import { workspaceExecutionCwd } from "./executorShared.js";
 import { runOpencodeBlock, runOpencodeFeedback } from "./opencodeExecutor.js";
 
 export const opencodeIntegration: ExecutorIntegration = {
@@ -24,6 +25,7 @@ export const opencodeIntegration: ExecutorIntegration = {
     }
     return runOpencodeFeedback({
       projectRoot: input.workspace.rootPath,
+      executionCwd: workspaceExecutionCwd(input.workspace),
       planweaveHome: input.workspace.planweaveHome,
       workspaceResultsDir: input.workspace.resultsDir,
       claim: input.claim,

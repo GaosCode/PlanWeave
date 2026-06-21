@@ -2,9 +2,11 @@ export {
   getProjectOverview,
   initManagedProject,
   initOrOpenProject,
+  linkProjectSourceRoot,
   listProjects,
   openProject,
-  removeProject
+  removeProject,
+  unlinkProjectSourceRoot
 } from "./projectApi.js";
 export {
   createTaskCanvas,

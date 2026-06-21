@@ -4,7 +4,7 @@ import { writeJsonFile } from "../json.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { CodexExecExecutorProfile, ExecutorAdapterResult, PackageWorkspaceRef } from "../types.js";
 import { codexExecArgs, codexResumeArgs, extractCodexSessionId } from "./codexProtocol.js";
-import { finishRunMetadata, nextRunId, prepareBlockRun, workspaceExecutorEnv, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
+import { finishRunMetadata, nextRunId, prepareBlockRun, workspaceExecutionCwd, workspaceExecutorEnv, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
 import { runStreamingCommandWithSessionCapture, type StreamedCommandResult } from "./streamingExecutor.js";
 import { createTmuxSessionInfo, tmuxMetadataPatch, type TmuxSessionInfo } from "./tmuxExecutor.js";
 
@@ -52,6 +52,7 @@ export async function runCodexBlock(options: {
     prompt: options.prompt
   });
   const workspace = await resolvePackageWorkspace(options.projectRoot);
+  const executionCwd = workspaceExecutionCwd(workspace);
   const args = codexExecArgs(options.profile);
   const stdoutPath = join(run.runDir, "stdout.md");
   const stderrPath = join(run.runDir, "stderr.log");
@@ -78,7 +79,7 @@ export async function runCodexBlock(options: {
   const result = await runCodexStreamingCommand({
     command: options.profile.command,
     args,
-    cwd: workspace.rootPath,
+    cwd: executionCwd,
     stdin: options.prompt,
     env: workspaceExecutorEnv(workspace),
     timeoutMs: options.profile.timeoutMs,
@@ -104,7 +105,7 @@ export async function runCodexBlock(options: {
     const resumeResult = await runCodexStreamingCommand({
       command: options.profile.command,
       args: codexResumeArgs(options.profile, codexSessionId, "continue this block and produce the required report"),
-      cwd: workspace.rootPath,
+      cwd: executionCwd,
       stdin: "",
       env: workspaceExecutorEnv(workspace),
       timeoutMs: options.profile.timeoutMs,
@@ -131,7 +132,7 @@ export async function runCodexBlock(options: {
     command: options.profile.command,
     args,
     projectRoot: workspace.rootPath,
-    executionCwd: workspace.rootPath,
+    executionCwd,
     sandbox: options.profile.sandbox ?? null,
     role: options.profile.role ?? null,
     timeoutMs: options.profile.timeoutMs ?? null,
@@ -160,6 +161,7 @@ export async function runCodexBlock(options: {
 
 export async function runCodexFeedback(options: {
   projectRoot: string;
+  executionCwd: string;
   planweaveHome: string;
   workspaceResultsDir: string;
   claim: FeedbackClaim;
@@ -185,7 +187,7 @@ export async function runCodexFeedback(options: {
     executor: options.executorName,
     adapter: "codex-exec",
     projectRoot: options.projectRoot,
-    executionCwd: options.projectRoot,
+    executionCwd: options.executionCwd,
     startedAt,
     finishedAt: null,
     exitCode: null,
@@ -209,7 +211,7 @@ export async function runCodexFeedback(options: {
   const result = await runCodexStreamingCommand({
     command: options.profile.command,
     args,
-    cwd: options.projectRoot,
+    cwd: options.executionCwd,
     stdin: options.claim.content,
     env: workspaceExecutorEnv({ planweaveHome: options.planweaveHome }),
     timeoutMs: options.profile.timeoutMs,

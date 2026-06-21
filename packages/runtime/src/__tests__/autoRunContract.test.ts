@@ -1,4 +1,5 @@
-import { access, chmod, readFile, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -8,6 +9,8 @@ import {
   createOpencodeExecAdapter,
   getAutoRunStatus,
   getExecutionStatus,
+  initManagedWorkspace,
+  linkProjectSourceRoot,
   listExecutorProfiles,
   resolveTaskCanvasWorkspace,
   runAutoRunStep,
@@ -340,6 +343,57 @@ describe("Auto Run contract", () => {
       codexSessionId: "019e52a6-030c-71c1-9146-712651be1d65",
       agentSessionId: "019e52a6-030c-71c1-9146-712651be1d65",
       exitCode: 0
+    });
+  });
+
+  it("codex-exec adapter runs managed projects in the bound source root", async () => {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-codex", {
+        adapter: "codex-exec",
+        command: process.execPath,
+        args: [
+          "-e",
+          [
+            "const fs = require('node:fs');",
+            "const path = require('node:path');",
+            "let input='';",
+            "process.stdin.on('data', c => input += c);",
+            "process.stdin.on('end', () => {",
+            "  fs.writeFileSync(path.join(process.cwd(), 'executor-cwd.txt'), process.cwd());",
+            "  console.log('report:' + input.includes('Implement task'));",
+            "});"
+          ].join("")
+        ]
+      })
+      .withDefaultExecutor("fake-codex")
+      .build();
+    const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
+    const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-source-"));
+    const resolvedSourceRoot = await realpath(sourceRoot);
+    process.env.PLANWEAVE_HOME = home;
+    const init = await initManagedWorkspace({ name: "Managed Auto Run" });
+    const resolvedWorkspaceRoot = await realpath(init.workspace.rootPath);
+    await linkProjectSourceRoot(init.workspace.id, sourceRoot);
+    await writeJsonFile(init.workspace.manifestFile, manifest);
+    await writePromptFiles(init.workspace.packageDir, manifest);
+
+    const step = await runAutoRunStep({
+      projectRoot: init.workspace.rootPath,
+      executor: createCodexExecAdapter({
+        projectRoot: init.workspace.rootPath,
+        executorName: "fake-codex"
+      })
+    });
+
+    expect(step).toMatchObject({
+      kind: "submitted",
+      claim: { kind: "block", ref: "T-001#B-001" },
+      submitResult: { ref: "T-001#B-001", runId: "RUN-001", status: "completed" }
+    });
+    await expect(readFile(join(sourceRoot, "executor-cwd.txt"), "utf8")).resolves.toBe(resolvedSourceRoot);
+    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+      projectRoot: resolvedWorkspaceRoot,
+      executionCwd: resolvedSourceRoot
     });
   });
 

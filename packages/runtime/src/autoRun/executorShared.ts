@@ -19,6 +19,10 @@ export function workspaceExecutorEnv(workspace: Pick<ProjectWorkspace, "planweav
   };
 }
 
+export function workspaceExecutionCwd(workspace: Pick<ProjectWorkspace, "rootPath" | "sourceRoot">): string {
+  return workspace.sourceRoot ?? workspace.rootPath;
+}
+
 export async function pathExists(path: string): Promise<boolean> {
   try {
     await access(path, constants.F_OK);
@@ -61,7 +65,7 @@ export async function prepareBlockRun(options: {
     executor: options.executorName,
     adapter: options.profile.adapter,
     projectRoot: workspace.rootPath,
-    executionCwd: workspace.rootPath,
+    executionCwd: workspaceExecutionCwd(workspace),
     startedAt,
     finishedAt: null,
     exitCode: null,

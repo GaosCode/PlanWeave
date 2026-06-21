@@ -41,7 +41,15 @@ function isLegacyManagedRoot(planweaveHome: string, rootPath: string): boolean {
 }
 
 export function normalizeProjectMetadata(project: ProjectMetadata, input: { planweaveHome: string; workspaceRoot: string }): ProjectMetadata {
-  if (project.kind === "managed" || (project.kind === undefined && isLegacyManagedRoot(input.planweaveHome, project.rootPath))) {
+  if (project.kind === "managed") {
+    return {
+      ...project,
+      kind: "managed",
+      rootPath: input.workspaceRoot,
+      sourceRoot: project.sourceRoot ?? null
+    };
+  }
+  if (project.kind === undefined && isLegacyManagedRoot(input.planweaveHome, project.rootPath)) {
     return {
       ...project,
       kind: "managed",
@@ -64,14 +72,19 @@ function sourceRootForMetadata(project: ProjectMetadata): string | null {
   return project.sourceRoot ?? project.rootPath;
 }
 
-function isDirectRegisteredWorkspace(planweaveHome: string, rootPath: string): boolean {
-  const projectsRoot = join(planweaveHome, "projects");
+async function isDirectRegisteredWorkspace(planweaveHome: string, rootPath: string): Promise<boolean> {
+  let projectsRoot: string;
+  try {
+    projectsRoot = await realpath(join(planweaveHome, "projects"));
+  } catch {
+    projectsRoot = join(planweaveHome, "projects");
+  }
   const relativePath = relative(projectsRoot, rootPath);
   return Boolean(relativePath) && !relativePath.startsWith("..") && !isAbsolute(relativePath) && relativePath === basename(rootPath);
 }
 
 async function workspaceFromRegisteredRoot(rootPath: string, planweaveHome: string): Promise<ProjectWorkspace | null> {
-  if (!isDirectRegisteredWorkspace(planweaveHome, rootPath)) {
+  if (!(await isDirectRegisteredWorkspace(planweaveHome, rootPath))) {
     return null;
   }
   const projectFile = join(rootPath, "project.json");

@@ -1,4 +1,5 @@
 import { runCodexBlock, runCodexFeedback } from "./codexExecutor.js";
+import { workspaceExecutionCwd } from "./executorShared.js";
 import { adapterProfileMismatch, type ExecutorBlockInput, type ExecutorFeedbackInput, type ExecutorIntegration } from "./executorIntegration.js";
 
 export const codexIntegration: ExecutorIntegration = {
@@ -27,6 +28,7 @@ export const codexIntegration: ExecutorIntegration = {
     }
     return runCodexFeedback({
       projectRoot: input.workspace.rootPath,
+      executionCwd: workspaceExecutionCwd(input.workspace),
       planweaveHome: input.workspace.planweaveHome,
       workspaceResultsDir: input.workspace.resultsDir,
       claim: input.claim,

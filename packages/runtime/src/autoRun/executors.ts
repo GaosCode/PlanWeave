@@ -11,7 +11,7 @@ import type {
 } from "../types.js";
 import { claudeCodeIntegration } from "./claudeCodeIntegration.js";
 import { codexIntegration } from "./codexIntegration.js";
-import { execWithStdin, type BlockClaim } from "./executorShared.js";
+import { execWithStdin, workspaceExecutionCwd, type BlockClaim } from "./executorShared.js";
 import type { ExecutorIntegration, ExecutorRuntimeOptions } from "./executorIntegration.js";
 import { localReviewIntegration } from "./localReviewIntegration.js";
 import { manualIntegration } from "./manualExecutor.js";
@@ -212,11 +212,12 @@ export async function testExecutorProfile(options: {
   let cwdCheck: ExecutorPreflightCheck;
   try {
     workspace = await resolvePackageWorkspace(options.projectRoot);
+    const executionCwd = workspaceExecutionCwd(workspace);
     cwdCheck = {
       check: "cwd_resolved",
       status: "passed",
-      message: `Project cwd resolved to '${workspace.rootPath}'.`,
-      cwd: workspace.rootPath
+      message: `Project cwd resolved to '${executionCwd}'.`,
+      cwd: executionCwd
     };
   } catch (error) {
     return finalizePreflightResult({
@@ -306,11 +307,12 @@ export async function testExecutorProfile(options: {
 
   let result;
   const versionTimeoutMs = options.versionTimeoutMs ?? executorPreflightVersionTimeoutMs;
+  const executionCwd = workspaceExecutionCwd(workspace);
   try {
     result = await execWithStdin({
       command: profile.command,
       args: ["--version"],
-      cwd: workspace.rootPath,
+      cwd: executionCwd,
       stdin: "",
       timeoutMs: versionTimeoutMs
     });
@@ -328,7 +330,7 @@ export async function testExecutorProfile(options: {
           status: "failed",
           message: `Command '${profile.command}' could not be started: ${errorMessage(error)}`,
           command: profile.command,
-          cwd: workspace.rootPath
+          cwd: executionCwd
         },
         skippedCheck("command_version", "Command could not be started.")
       ]
@@ -343,7 +345,7 @@ export async function testExecutorProfile(options: {
           status: "failed",
           message: `Command version check timed out after ${versionTimeoutMs}ms.`,
           command: profile.command,
-          cwd: workspace.rootPath,
+          cwd: executionCwd,
           output,
           exitCode: result.exitCode,
           timedOut: true
@@ -354,7 +356,7 @@ export async function testExecutorProfile(options: {
           status: "passed",
           message: output || "Command version check completed successfully.",
           command: profile.command,
-          cwd: workspace.rootPath,
+          cwd: executionCwd,
           output,
           exitCode: result.exitCode,
           timedOut: result.timedOut
@@ -364,7 +366,7 @@ export async function testExecutorProfile(options: {
           status: "failed",
           message: output || `Command version check exited with code ${result.exitCode}.`,
           command: profile.command,
-          cwd: workspace.rootPath,
+          cwd: executionCwd,
           output,
           exitCode: result.exitCode,
           timedOut: result.timedOut
@@ -383,7 +385,7 @@ export async function testExecutorProfile(options: {
         status: "passed",
         message: `Command '${profile.command}' started.`,
         command: profile.command,
-        cwd: workspace.rootPath
+        cwd: executionCwd
       },
       versionCheck
     ]

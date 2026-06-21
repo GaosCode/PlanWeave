@@ -10,12 +10,17 @@ type ProjectTreeProps = {
   collapsedProjectIds: Set<string>;
   expandedProjectId: string | null;
   graph: DesktopGraphViewModel | null;
+  handleBindSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleDeleteProject: (project: DesktopProjectSummary) => Promise<void>;
   handleDeleteTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleDeleteTaskNode: (taskId: string) => Promise<void>;
+  handleDropSourceRoot: (project: DesktopProjectSummary, sourceRoot: string | null) => Promise<void>;
   handleOpenProject: () => Promise<void>;
   handleProjectNewGraph: (project: DesktopProjectSummary) => Promise<void>;
+  handleRevealPlanWorkspace: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealProject: (project: DesktopProjectSummary) => Promise<void>;
+  handleRevealSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
+  handleUnlinkSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
   onCanvasSelect: (project: DesktopProjectSummary, canvasId: string) => void;
   onCanvasToggle: (project: DesktopProjectSummary, canvasId: string, isGraphCanvas: boolean) => void;
@@ -35,12 +40,17 @@ export function ProjectTree({
   collapsedProjectIds,
   expandedProjectId,
   graph,
+  handleBindSourceRoot,
   handleDeleteProject,
   handleDeleteTaskCanvas,
   handleDeleteTaskNode,
+  handleDropSourceRoot,
   handleOpenProject,
   handleProjectNewGraph,
+  handleRevealPlanWorkspace,
   handleRevealProject,
+  handleRevealSourceRoot,
+  handleUnlinkSourceRoot,
   handleTaskPanelSelect,
   onCanvasSelect,
   onCanvasToggle,
@@ -72,11 +82,16 @@ export function ProjectTree({
               <ProjectTreeItem
                 collapsedCanvasIds={collapsedCanvasIds}
                 graph={graph}
+                handleBindSourceRoot={handleBindSourceRoot}
                 handleDeleteProject={handleDeleteProject}
                 handleDeleteTaskCanvas={handleDeleteTaskCanvas}
                 handleDeleteTaskNode={handleDeleteTaskNode}
+                handleDropSourceRoot={handleDropSourceRoot}
                 handleProjectNewGraph={handleProjectNewGraph}
+                handleRevealPlanWorkspace={handleRevealPlanWorkspace}
                 handleRevealProject={handleRevealProject}
+                handleRevealSourceRoot={handleRevealSourceRoot}
+                handleUnlinkSourceRoot={handleUnlinkSourceRoot}
                 handleTaskPanelSelect={handleTaskPanelSelect}
                 isExpandedProject={isExpandedProject}
                 isPinnedProject={pinnedProjectIds.has(project.projectId)}

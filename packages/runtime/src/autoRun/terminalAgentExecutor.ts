@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { ClaudeCodeExecExecutorProfile, ExecutorAdapterResult, PackageWorkspaceRef, PiExecExecutorProfile } from "../types.js";
-import { execWithStreaming, finishRunMetadata, nextRunId, prepareBlockRun, workspaceExecutorEnv, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
+import { execWithStreaming, finishRunMetadata, nextRunId, prepareBlockRun, workspaceExecutionCwd, workspaceExecutorEnv, type BlockClaim, type FeedbackClaim } from "./executorShared.js";
 import { appendReviewResultFileInstruction, reviewResultEnvironment } from "./reviewResultContract.js";
 import { createTmuxSessionInfo, tmuxMetadataPatch } from "./tmuxExecutor.js";
 
@@ -54,6 +54,7 @@ export async function runTerminalAgentBlock(options: {
     prompt: options.prompt
   });
   const workspace = await resolvePackageWorkspace(options.projectRoot);
+  const executionCwd = workspaceExecutionCwd(workspace);
   const reviewResultPath = options.claim.blockType === "review" ? join(run.runDir, "review-result.json") : null;
   const reviewContract = reviewResultPath
     ? {
@@ -77,7 +78,7 @@ export async function runTerminalAgentBlock(options: {
   const result = await streamedResult({
     command: options.profile.command,
     args: options.profile.args,
-    cwd: workspace.rootPath,
+    cwd: executionCwd,
     stdin: prompt,
     env: workspaceExecutorEnv(workspace, reviewContract ? reviewResultEnvironment(reviewContract) : undefined),
     timeoutMs: options.profile.timeoutMs,
@@ -91,7 +92,7 @@ export async function runTerminalAgentBlock(options: {
     command: options.profile.command,
     args: options.profile.args,
     projectRoot: workspace.rootPath,
-    executionCwd: workspace.rootPath,
+    executionCwd,
     timeoutMs: options.profile.timeoutMs ?? null,
     timedOut: result.timedOut,
     agentSessionId: null
@@ -115,6 +116,7 @@ export async function runTerminalAgentBlock(options: {
 
 export async function runTerminalAgentFeedback(options: {
   projectRoot: string;
+  executionCwd: string;
   planweaveHome: string;
   workspaceResultsDir: string;
   claim: FeedbackClaim;
@@ -138,7 +140,7 @@ export async function runTerminalAgentFeedback(options: {
     executor: options.executorName,
     adapter: options.profile.adapter,
     projectRoot: options.projectRoot,
-    executionCwd: options.projectRoot,
+    executionCwd: options.executionCwd,
     startedAt: new Date().toISOString(),
     finishedAt: null,
     exitCode: null,
@@ -152,7 +154,7 @@ export async function runTerminalAgentFeedback(options: {
   const result = await streamedResult({
     command: options.profile.command,
     args: options.profile.args,
-    cwd: options.projectRoot,
+    cwd: options.executionCwd,
     stdin: options.claim.content,
     env: workspaceExecutorEnv({ planweaveHome: options.planweaveHome }),
     timeoutMs: options.profile.timeoutMs,

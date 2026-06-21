@@ -8,6 +8,7 @@ import {
   SquarePenIcon,
   Trash2Icon
 } from "lucide-react";
+import type { DragEvent } from "react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,11 +25,16 @@ import { CanvasTreeItem } from "./CanvasTreeItem";
 type ProjectTreeItemProps = {
   collapsedCanvasIds: Set<string>;
   graph: DesktopGraphViewModel | null;
+  handleBindSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleDeleteProject: (project: DesktopProjectSummary) => Promise<void>;
   handleDeleteTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleDeleteTaskNode: (taskId: string) => Promise<void>;
+  handleDropSourceRoot: (project: DesktopProjectSummary, sourceRoot: string | null) => Promise<void>;
   handleProjectNewGraph: (project: DesktopProjectSummary) => Promise<void>;
+  handleRevealPlanWorkspace: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealProject: (project: DesktopProjectSummary) => Promise<void>;
+  handleRevealSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
+  handleUnlinkSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
   isExpandedProject: boolean;
   isPinnedProject: boolean;
@@ -47,11 +53,16 @@ type ProjectTreeItemProps = {
 export function ProjectTreeItem({
   collapsedCanvasIds,
   graph,
+  handleBindSourceRoot,
   handleDeleteProject,
   handleDeleteTaskCanvas,
   handleDeleteTaskNode,
+  handleDropSourceRoot,
   handleProjectNewGraph,
+  handleRevealPlanWorkspace,
   handleRevealProject,
+  handleRevealSourceRoot,
+  handleUnlinkSourceRoot,
   handleTaskPanelSelect,
   isExpandedProject,
   isPinnedProject,
@@ -66,6 +77,13 @@ export function ProjectTreeItem({
   selectedTaskPanelId,
   t
 }: ProjectTreeItemProps) {
+  const canBindSourceRoot = project.kind === "managed";
+  const hasSourceRoot = Boolean(project.sourceRoot);
+  const droppedPath = (event: DragEvent<HTMLElement>): string | null => {
+    const file = event.dataTransfer.files[0] as (File & { path?: string }) | undefined;
+    return file?.path ?? null;
+  };
+
   return (
     <div className="flex w-full min-w-0 max-w-full flex-col gap-1">
       <div className="group/project grid w-full min-w-0 max-w-full grid-cols-[1.75rem_minmax(0,1fr)] items-center gap-1">
@@ -86,6 +104,20 @@ export function ProjectTreeItem({
             <Button
               className="h-8 w-full min-w-0 max-w-full flex-1 justify-start overflow-hidden rounded-md px-2 text-left text-sm text-text-muted hover:bg-surface-muted hover:text-text-strong data-[variant=secondary]:border-state-selected/25 data-[variant=secondary]:bg-state-selected-surface data-[variant=secondary]:text-text-strong data-[variant=secondary]:shadow-sm [&_svg]:size-4"
               variant={isSelectedProject ? "secondary" : "ghost"}
+              onDragOver={(event) => {
+                if (!canBindSourceRoot) {
+                  return;
+                }
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "link";
+              }}
+              onDrop={(event) => {
+                if (!canBindSourceRoot) {
+                  return;
+                }
+                event.preventDefault();
+                void handleDropSourceRoot(project, droppedPath(event));
+              }}
               onClick={() => onProjectSelect(project)}
             >
               <GitBranchIcon className="shrink-0" data-icon="inline-start" />
@@ -98,10 +130,46 @@ export function ProjectTreeItem({
               <PinIcon data-icon="inline-start" />
               {isPinnedProject ? t("unpinProject") : t("pinProject")}
             </ContextMenuItem>
-            <ContextMenuItem onSelect={() => void handleRevealProject(project)}>
-              <FolderOpenIcon data-icon="inline-start" />
-              {t("openInFinder")}
-            </ContextMenuItem>
+            {project.kind === "managed" ? (
+              <>
+                <ContextMenuItem onSelect={() => void handleRevealPlanWorkspace(project)}>
+                  <FolderOpenIcon data-icon="inline-start" />
+                  {t("openPlanWorkspaceInFinder")}
+                </ContextMenuItem>
+                {hasSourceRoot ? (
+                  <>
+                    <ContextMenuItem onSelect={() => void handleRevealSourceRoot(project)}>
+                      <GitBranchIcon data-icon="inline-start" />
+                      {t("openSourceRootInFinder")}
+                    </ContextMenuItem>
+                    <ContextMenuItem onSelect={() => void handleBindSourceRoot(project)}>
+                      <GitBranchIcon data-icon="inline-start" />
+                      {t("changeSourceRoot")}
+                    </ContextMenuItem>
+                    <ContextMenuItem onSelect={() => void handleUnlinkSourceRoot(project)}>
+                      <GitBranchIcon data-icon="inline-start" />
+                      {t("unlinkSourceRoot")}
+                    </ContextMenuItem>
+                  </>
+                ) : (
+                  <ContextMenuItem onSelect={() => void handleBindSourceRoot(project)}>
+                    <GitBranchIcon data-icon="inline-start" />
+                    {t("bindSourceRoot")}
+                  </ContextMenuItem>
+                )}
+              </>
+            ) : (
+              <>
+                <ContextMenuItem onSelect={() => void handleRevealPlanWorkspace(project)}>
+                  <FolderOpenIcon data-icon="inline-start" />
+                  {t("openPlanWorkspaceInFinder")}
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => void handleRevealProject(project)}>
+                  <GitBranchIcon data-icon="inline-start" />
+                  {t("openSourceRootInFinder")}
+                </ContextMenuItem>
+              </>
+            )}
             <ContextMenuItem onSelect={() => void handleProjectNewGraph(project)}>
               <SquarePenIcon data-icon="inline-start" />
               {t("newGraph")}
