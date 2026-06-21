@@ -28,6 +28,11 @@ export type ResultsFileIndex = {
   diagnostics: ValidationIssue[];
 };
 
+export type ResultsFileIndexWithFingerprint = {
+  index: ResultsFileIndex;
+  fingerprint: ResultsFileFingerprintSnapshot;
+};
+
 export type ResultsFileFingerprintSnapshot = {
   diagnostics: ValidationIssue[];
   files: ResultFileFingerprint[];
@@ -226,10 +231,12 @@ async function reuseOrReadResultIndexEntry(
   return readResultIndexEntry(workspace, fingerprint);
 }
 
-export async function buildResultsFileIndex(workspace: ProjectWorkspace): Promise<ResultsFileIndex> {
+export async function buildResultsFileIndexFromFingerprintSnapshot(
+  workspace: ProjectWorkspace,
+  snapshot: ResultsFileFingerprintSnapshot
+): Promise<ResultsFileIndex> {
   const cacheKey = resolve(workspace.resultsDir);
   const cachedIndex = resultsFileIndexCacheByResultsDir.get(cacheKey);
-  const snapshot = await fingerprintResultFiles(workspace.resultsDir);
   const diagnostics: ValidationIssue[] = [...snapshot.diagnostics];
   const entries: ResultsFileIndexEntry[] = [];
   const nextEntriesByRelativePath = new Map<string, CachedResultsFileIndexEntry>();
@@ -248,4 +255,16 @@ export async function buildResultsFileIndex(workspace: ProjectWorkspace): Promis
   });
 
   return { workspace, entries, diagnostics };
+}
+
+export async function buildResultsFileIndexWithFingerprint(workspace: ProjectWorkspace): Promise<ResultsFileIndexWithFingerprint> {
+  const fingerprint = await fingerprintResultFiles(workspace.resultsDir);
+  return {
+    index: await buildResultsFileIndexFromFingerprintSnapshot(workspace, fingerprint),
+    fingerprint
+  };
+}
+
+export async function buildResultsFileIndex(workspace: ProjectWorkspace): Promise<ResultsFileIndex> {
+  return (await buildResultsFileIndexWithFingerprint(workspace)).index;
 }

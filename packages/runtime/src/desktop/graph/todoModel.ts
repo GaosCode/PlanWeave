@@ -22,7 +22,7 @@ import type { DesktopProjectExecutionPlan, DesktopTodoGroups } from "../types.js
 export { emptyTodoGroups };
 export type { CanvasExecutionSnapshot, ProjectTodoContext };
 
-function failedCanvasExecutionSnapshot(taskCount: number, error: unknown): CanvasExecutionSnapshot {
+export function failedCanvasExecutionSnapshot(taskCount: number, error: unknown): CanvasExecutionSnapshot {
   return {
     groups: emptyTodoGroups(),
     projectBlockedReadyCount: 0,
@@ -34,7 +34,7 @@ function failedCanvasExecutionSnapshot(taskCount: number, error: unknown): Canva
   };
 }
 
-async function canvasExecutionSnapshot(
+export async function buildCanvasExecutionSnapshot(
   aggregation: ProjectCanvasAggregationContext,
   canvasId: string,
   runtime: RuntimeContext | undefined
@@ -90,7 +90,7 @@ export async function loadProjectTodoContext(projectRoot: string): Promise<Proje
   for (const canvasId of aggregation.orderedCanvasIds) {
     const canvas = aggregation.canvasesById.get(canvasId);
     try {
-      snapshotsByCanvas.set(canvasId, await canvasExecutionSnapshot(aggregation, canvasId, runtimesByCanvas.get(canvasId)));
+      snapshotsByCanvas.set(canvasId, await buildCanvasExecutionSnapshot(aggregation, canvasId, runtimesByCanvas.get(canvasId)));
     } catch (caught) {
       appendDesktopDiagnostic(
         diagnostics,

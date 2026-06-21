@@ -3,8 +3,9 @@ import type { ValidationIssue } from "../../types.js";
 import type { DesktopSearchFilters, DesktopSearchResult, DesktopSearchResultKind } from "../types.js";
 import { appendDesktopDiagnostics } from "./desktopDiagnostics.js";
 import { blockRef, getTask, promptPreview, readOptionalFile } from "./graphHelpers.js";
-import type { ProjectTodoContext } from "./todoModel.js";
+import type { CanvasExecutionSnapshot, ProjectTodoContext } from "./todoModel.js";
 import type { ResultsFileIndex } from "./resultsFileIndex.js";
+import type { ProjectCanvasAggregationContext } from "./projectCanvasAggregation.js";
 
 export type DesktopSearchDocument = {
   kind: DesktopSearchResultKind;
@@ -21,6 +22,13 @@ export type DesktopSearchDocument = {
 export type DesktopSearchIndex = {
   documents: DesktopSearchDocument[];
   diagnostics: ValidationIssue[];
+};
+
+export type CanvasSearchDocumentsInput = {
+  aggregation: ProjectCanvasAggregationContext;
+  canvasId: string;
+  snapshot: CanvasExecutionSnapshot | undefined;
+  resultIndex: ResultsFileIndex | undefined;
 };
 
 const defaultSearchLimit = 100;
@@ -117,102 +125,123 @@ function searchResultFromDocument(document: DesktopSearchDocument, normalizedQue
   };
 }
 
-export async function buildSearchIndexFromProjectTodoContext(
-  context: ProjectTodoContext,
-  resultsByCanvas: Map<string, ResultsFileIndex>
-): Promise<DesktopSearchIndex> {
+export async function buildSearchIndexForCanvas(input: CanvasSearchDocumentsInput): Promise<DesktopSearchIndex> {
   const diagnostics: ValidationIssue[] = [];
   const documents: DesktopSearchDocument[] = [];
-
-  for (const canvasId of context.aggregation.orderedCanvasIds) {
-    const canvas = context.aggregation.canvasesById.get(canvasId);
-    const snapshot = context.snapshotsByCanvas.get(canvasId);
-    if (!canvas) {
-      continue;
-    }
-    if (hasSearchBlockingPackageDiagnostics(canvas.canvas.diagnostics)) {
-      appendDesktopDiagnostics(diagnostics, canvas.canvas.diagnostics);
-      continue;
-    }
-    if (!snapshot || snapshot.error || !snapshot.runtime) {
-      continue;
-    }
-    const canvasMeta = { canvasId, canvasName: canvas.canvasName };
-    for (const taskId of snapshot.runtime.graph.taskNodesInManifestOrder) {
-      const task = getTask(snapshot.runtime.graph, taskId);
-      const taskPrompt = (await readOptionalFile(await resolvePackagePath(snapshot.runtime.workspace.packageDir, task.prompt), task.prompt)).markdown;
+  const canvas = input.aggregation.canvasesById.get(input.canvasId);
+  const snapshot = input.snapshot;
+  if (!canvas) {
+    return { documents, diagnostics };
+  }
+  if (hasSearchBlockingPackageDiagnostics(canvas.canvas.diagnostics)) {
+    appendDesktopDiagnostics(diagnostics, canvas.canvas.diagnostics);
+    return { documents, diagnostics };
+  }
+  if (!snapshot || snapshot.error || !snapshot.runtime) {
+    return { documents, diagnostics };
+  }
+  const canvasMeta = { canvasId: input.canvasId, canvasName: canvas.canvasName };
+  for (const taskId of snapshot.runtime.graph.taskNodesInManifestOrder) {
+    const task = getTask(snapshot.runtime.graph, taskId);
+    const taskPrompt = (await readOptionalFile(await resolvePackagePath(snapshot.runtime.workspace.packageDir, task.prompt), task.prompt)).markdown;
+    documents.push({
+      kind: "task",
+      ...canvasMeta,
+      ref: taskId,
+      title: task.title,
+      body: task.title
+    });
+    documents.push({
+      kind: "prompt",
+      ...canvasMeta,
+      ref: taskId,
+      targetRef: taskId,
+      title: task.title,
+      body: taskPrompt
+    });
+    for (const block of task.blocks) {
+      const ref = blockRef(taskId, block.id);
+      const blockPrompt = (await readOptionalFile(await resolvePackagePath(snapshot.runtime.workspace.packageDir, block.prompt), block.prompt)).markdown;
       documents.push({
-        kind: "task",
+        kind: "block",
         ...canvasMeta,
-        ref: taskId,
-        title: task.title,
-        body: task.title
+        ref,
+        title: block.title,
+        body: block.title
       });
       documents.push({
         kind: "prompt",
         ...canvasMeta,
-        ref: taskId,
-        targetRef: taskId,
-        title: task.title,
-        body: taskPrompt
-      });
-      for (const block of task.blocks) {
-        const ref = blockRef(taskId, block.id);
-        const blockPrompt = (await readOptionalFile(await resolvePackagePath(snapshot.runtime.workspace.packageDir, block.prompt), block.prompt)).markdown;
-        documents.push({
-          kind: "block",
-          ...canvasMeta,
-          ref,
-          title: block.title,
-          body: block.title
-        });
-        documents.push({
-          kind: "prompt",
-          ...canvasMeta,
-          ref,
-          targetRef: ref,
-          title: block.title,
-          body: blockPrompt
-        });
-      }
-    }
-    for (const [feedbackId, feedback] of Object.entries(snapshot.runtime.state.feedback)) {
-      documents.push({
-        kind: "feedback",
-        ...canvasMeta,
-        ref: feedbackId,
-        targetRef: feedback.sourceReviewBlockRef,
-        title: `${feedbackId} · ${feedback.sourceReviewBlockRef}`,
-        body: feedback.content
-      });
-    }
-    const resultIndex = resultsByCanvas.get(canvasId);
-    if (!resultIndex) {
-      continue;
-    }
-    appendDesktopDiagnostics(diagnostics, resultIndex.diagnostics);
-    for (const entry of resultIndex.entries) {
-      if (!entry.body) {
-        continue;
-      }
-      const kind = entry.relativePath.includes("/reviews/") ? "review_attempt" : "run_record";
-      const recordId = kind === "run_record" ? runRecordIdFromResultPath(entry.relativePath) ?? undefined : undefined;
-      documents.push({
-        kind,
-        ...canvasMeta,
-        ref: entry.relativePath,
-        targetRef: kind === "review_attempt"
-          ? reviewBlockRefFromResultPath(entry.relativePath) ?? undefined
-          : recordId?.split("::")[0],
-        title: entry.relativePath,
-        body: entry.body,
-        path: entry.relativePath,
-        recordId
+        ref,
+        targetRef: ref,
+        title: block.title,
+        body: blockPrompt
       });
     }
   }
+  for (const [feedbackId, feedback] of Object.entries(snapshot.runtime.state.feedback)) {
+    documents.push({
+      kind: "feedback",
+      ...canvasMeta,
+      ref: feedbackId,
+      targetRef: feedback.sourceReviewBlockRef,
+      title: `${feedbackId} · ${feedback.sourceReviewBlockRef}`,
+      body: feedback.content
+    });
+  }
+  if (!input.resultIndex) {
+    return { documents, diagnostics };
+  }
+  appendDesktopDiagnostics(diagnostics, input.resultIndex.diagnostics);
+  for (const entry of input.resultIndex.entries) {
+    if (!entry.body) {
+      continue;
+    }
+    const kind = entry.relativePath.includes("/reviews/") ? "review_attempt" : "run_record";
+    const recordId = kind === "run_record" ? runRecordIdFromResultPath(entry.relativePath) ?? undefined : undefined;
+    documents.push({
+      kind,
+      ...canvasMeta,
+      ref: entry.relativePath,
+      targetRef: kind === "review_attempt"
+        ? reviewBlockRefFromResultPath(entry.relativePath) ?? undefined
+        : recordId?.split("::")[0],
+      title: entry.relativePath,
+      body: entry.body,
+      path: entry.relativePath,
+      recordId
+    });
+  }
 
   return { documents, diagnostics };
+}
+
+export function buildSearchIndexFromCanvasIndexes(indexes: DesktopSearchIndex[]): DesktopSearchIndex {
+  const diagnostics: ValidationIssue[] = [];
+  const documents: DesktopSearchDocument[] = [];
+  for (const index of indexes) {
+    documents.push(...index.documents);
+    appendDesktopDiagnostics(diagnostics, index.diagnostics);
+  }
+  return { documents, diagnostics };
+}
+
+export async function buildSearchIndexFromProjectTodoContext(
+  context: ProjectTodoContext,
+  resultsByCanvas: Map<string, ResultsFileIndex>
+): Promise<DesktopSearchIndex> {
+  const indexes: DesktopSearchIndex[] = [];
+
+  for (const canvasId of context.aggregation.orderedCanvasIds) {
+    indexes.push(await buildSearchIndexForCanvas({
+      aggregation: context.aggregation,
+      canvasId,
+      snapshot: context.snapshotsByCanvas.get(canvasId),
+      resultIndex: resultsByCanvas.get(canvasId)
+    }));
+  }
+
+  return buildSearchIndexFromCanvasIndexes(indexes);
 }
 
 export function searchDesktopSearchIndex(
