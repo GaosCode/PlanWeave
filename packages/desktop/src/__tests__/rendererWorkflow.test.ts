@@ -38,6 +38,7 @@ describe("desktop renderer workflow guardrails", () => {
     expect(smokeSource).not.toContain('await waitForText("运行面板")');
     expect(smokeSource).not.toContain('await waitForText("当前 Block")');
     expect(smokeSource).not.toContain("planweave:rendererSmoke");
+    expect(mainSource).toContain("app.isPackaged && !isDev && !isSmokeRun");
     expect(mainSource).toContain("delete process.env.PLANWEAVE_HOME");
     expect(mainSource).toContain('app.setPath("userData", process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR)');
   });

@@ -12,8 +12,8 @@ const isSmoke = process.env.PLANWEAVE_DESKTOP_SMOKE === "1";
 const isStartupSmoke = process.env.PLANWEAVE_DESKTOP_STARTUP_SMOKE === "1";
 const isSmokeRun = isSmoke || isStartupSmoke;
 
-// Production app launches can inherit shell env from development tools; keep PLANWEAVE_HOME scoped to dev and smoke runs.
-if (!isDev && !isSmokeRun) {
+// Packaged app launches can inherit shell env from development tools; source runs still need PLANWEAVE_HOME for isolated demos and tests.
+if (app.isPackaged && !isDev && !isSmokeRun) {
   delete process.env.PLANWEAVE_HOME;
 }
 
