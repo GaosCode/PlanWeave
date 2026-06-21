@@ -1,6 +1,6 @@
 {
   "name": "@planweave-ai/cli",
-  "version": "0.1.4",
+  "version": "0.1.7",
   "description": "Command-line interface for PlanWeave plan packages and agent workflows.",
   "license": "MIT",
   "type": "module",

@@ -1,6 +1,6 @@
 {
   "name": "@planweave-ai/runtime",
-  "version": "0.1.4",
+  "version": "0.1.7",
   "description": "Runtime library for PlanWeave plan packages, task graphs, prompts, and execution state.",
   "license": "MIT",
   "type": "module",
