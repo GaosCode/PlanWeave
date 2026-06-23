@@ -37,7 +37,7 @@ export function useDetectedAgents() {
     };
   }, []);
 
-  const executorOptions = useMemo(() => agentDetections.filter((agent) => agent.installed).map((agent) => agent.kind), [agentDetections]);
+  const executorOptions = useMemo(() => ["manual", ...agentDetections.filter((agent) => agent.installed).map((agent) => agent.kind)], [agentDetections]);
 
   return { agentDetectionRefreshing, agentDetections, executorOptions, refreshAgentDetections };
 }

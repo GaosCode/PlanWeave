@@ -181,7 +181,7 @@ describe("desktop renderer hook interfaces", () => {
 
     const { result } = renderHook(() => useDetectedAgents());
 
-    await waitFor(() => expect(result.current.executorOptions).toEqual(["claude-code", "opencode"]));
+    await waitFor(() => expect(result.current.executorOptions).toEqual(["manual", "claude-code", "opencode"]));
   });
 
   it("filters visible graph tasks only by search query", () => {

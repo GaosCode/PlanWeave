@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -27,9 +28,8 @@ describe("desktop renderer DOM boundaries", () => {
   });
 
   it("rejects production renderer DOM text and class state reads", async () => {
-    const fixtureDir = resolve(repoRoot, "packages/desktop/src/renderer/__dom-boundary-fixtures__");
+    const fixtureDir = await mkdtemp(resolve(tmpdir(), "planweave-dom-boundary-"));
     const fixturePath = resolve(fixtureDir, "DomStateReadViolation.tsx");
-    await mkdir(fixtureDir, { recursive: true });
     await writeFile(
       fixturePath,
       [
@@ -43,16 +43,19 @@ describe("desktop renderer DOM boundaries", () => {
     );
 
     try {
+      const env = { ...process.env, PLANWEAVE_DOM_BOUNDARY_DESKTOP_SRC: fixtureDir };
       await expect(
         execFileAsync(process.execPath, [resolve(repoRoot, "scripts/check-renderer-dom-boundaries.mjs")], {
-          cwd: repoRoot
+          cwd: repoRoot,
+          env
         })
       ).rejects.toMatchObject({
         stderr: expect.stringContaining("textContent")
       });
       await expect(
         execFileAsync(process.execPath, [resolve(repoRoot, "scripts/check-renderer-dom-boundaries.mjs")], {
-          cwd: repoRoot
+          cwd: repoRoot,
+          env
         })
       ).rejects.toMatchObject({
         stderr: expect.stringContaining("classList")

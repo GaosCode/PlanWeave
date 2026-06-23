@@ -3,7 +3,9 @@ import { extname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(fileURLToPath(import.meta.url), "..", "..");
-const desktopSrc = resolve(repoRoot, "packages", "desktop", "src");
+const desktopSrc = process.env.PLANWEAVE_DOM_BOUNDARY_DESKTOP_SRC
+  ? resolve(process.env.PLANWEAVE_DOM_BOUNDARY_DESKTOP_SRC)
+  : resolve(repoRoot, "packages", "desktop", "src");
 
 const allowedFiles = new Set([
   "packages/desktop/src/main/smoke.ts",
