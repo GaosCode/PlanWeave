@@ -74,6 +74,7 @@ export {
 export {
   getAutoRunState,
   getLatestAutoRunSummary,
+  listAutoRunEvents,
   pauseAutoRun,
   resumeAutoRun,
   startAutoRun,

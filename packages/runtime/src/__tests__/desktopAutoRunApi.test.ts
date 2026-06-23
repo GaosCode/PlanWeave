@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   getAutoRunState,
   getLatestAutoRunSummary,
+  listAutoRunEvents,
   pauseAutoRun,
   resumeAutoRun,
   startAutoRun,
@@ -85,6 +86,10 @@ describe("desktop auto run API", () => {
     await expect(resumeAutoRun(started.runId)).resolves.toMatchObject({ phase: "running" });
     expect(["pausing", "paused"]).toContain((await pauseAutoRun(started.runId)).phase);
     await expect(stopAutoRun(started.runId)).resolves.toMatchObject({ phase: "stopped" });
+    const eventLog = await listAutoRunEvents(root, null, started.runId);
+    expect(eventLog.diagnostics).toEqual([]);
+    expect(eventLog.events.map((event) => event.type)).toEqual(expect.arrayContaining(["run_started", "step_limit_reached", "run_resumed", "run_stopped"]));
+    expect(eventLog.events.every((event) => event.runId === started.runId)).toBe(true);
   });
 
   it("can disable tmux monitoring while preserving streaming run records", async () => {

@@ -4,14 +4,28 @@ import { join, relative } from "node:path";
 import { compilePackageGraph } from "../graph/compileTaskGraph.js";
 import { affectedTasksForPackageFileChange, type PackageChangeImpact } from "../graph/editGraph.js";
 import { loadPackage } from "./loadPackage.js";
+import { refreshPrompt } from "../prompt/refreshPrompt.js";
 import { refreshPrompts } from "../prompt/refreshPrompts.js";
-import type { CompiledTaskGraph, FileFingerprint, PackageFileSnapshot, PackageWorkspaceRef, PlanPackageManifest, PromptSurface } from "../types.js";
+import type { CompiledTaskGraph, FileFingerprint, PackageFileSnapshot, PackageWorkspaceRef, PlanPackageManifest, PromptSurface, ValidationIssue } from "../types.js";
 
 export type PackageFileSyncResult = {
   snapshot: PackageFileSnapshot | null;
   impact: PackageChangeImpact;
   refreshed: PromptSurface[];
+  changedPackagePaths: string[];
+  indexPackagePaths: string[];
+  incremental: boolean;
 };
+
+type NormalizedPackageChangePaths = {
+  changedPackagePaths: string[];
+  diagnostics: ValidationIssue[];
+  incremental: boolean;
+};
+
+function issue(code: string, message: string, path?: string): ValidationIssue {
+  return { code, message, path };
+}
 
 async function fingerprint(path: string): Promise<FileFingerprint> {
   const [metadata, content] = await Promise.all([stat(path), readFile(path)]);
@@ -56,6 +70,66 @@ function changed(left: FileFingerprint | undefined, right: FileFingerprint | und
   return left?.hash !== right?.hash || left?.mtimeMs !== right?.mtimeMs;
 }
 
+function dedupe(paths: string[]): string[] {
+  return [...new Set(paths)];
+}
+
+function normalizeWatcherPath(path: string): string {
+  let normalized = path.split("\\").join("/").replace(/^\.\/+/, "");
+  while (normalized.startsWith("//")) {
+    normalized = normalized.slice(1);
+  }
+  return normalized.replace(/\/+$/, "");
+}
+
+export function normalizePackageChangedPaths(changedPaths: string[] | undefined): NormalizedPackageChangePaths {
+  if (!changedPaths || changedPaths.length === 0) {
+    return {
+      changedPackagePaths: ["manifest.json"],
+      diagnostics: [issue("package_change_paths_empty", "Package file refresh did not receive changed paths; falling back to a full refresh.")],
+      incremental: false
+    };
+  }
+
+  const changedPackagePaths: string[] = [];
+  const diagnostics: ValidationIssue[] = [];
+
+  for (const rawPath of changedPaths) {
+    const normalized = normalizeWatcherPath(rawPath);
+    if (normalized === "manifest.json" || normalized === "package/manifest.json") {
+      changedPackagePaths.push("manifest.json");
+      diagnostics.push(issue("package_change_manifest_requires_full_refresh", "Manifest changes require a full package refresh.", normalized));
+      continue;
+    }
+
+    if (normalized === "policy/project-prompt.md") {
+      changedPackagePaths.push("policy/project-prompt.md");
+      diagnostics.push(issue("package_change_non_package_prompt", "Project prompt changes are not package prompt changes; falling back to a full refresh.", normalized));
+      continue;
+    }
+
+    const packagePath = normalized.startsWith("package/") ? normalized.slice("package/".length) : normalized;
+    if (packagePath === "nodes" || packagePath.startsWith("nodes/")) {
+      if (!packagePath.endsWith(".md")) {
+        changedPackagePaths.push(packagePath);
+        diagnostics.push(issue("package_change_coarse_path_requires_full_refresh", "Directory-level package changes require a full package refresh.", normalized));
+        continue;
+      }
+      changedPackagePaths.push(packagePath);
+      continue;
+    }
+
+    changedPackagePaths.push(packagePath || "manifest.json");
+    diagnostics.push(issue("package_change_unknown_path_requires_full_refresh", "Unknown package watcher path requires a full package refresh.", normalized));
+  }
+
+  return {
+    changedPackagePaths: dedupe(changedPackagePaths),
+    diagnostics,
+    incremental: diagnostics.length === 0
+  };
+}
+
 function affectedTasksForPromptPaths(graph: CompiledTaskGraph, paths: string[]): string[] {
   const affected = new Set<string>();
   for (const path of paths) {
@@ -70,6 +144,60 @@ function affectedTasksForPromptPaths(graph: CompiledTaskGraph, paths: string[]):
     }
   }
   return [...affected];
+}
+
+function promptSurfaceRefsForPromptPaths(graph: CompiledTaskGraph, paths: string[]): string[] {
+  const refs = new Set<string>();
+  for (const path of paths) {
+    for (const taskId of graph.taskNodesInManifestOrder) {
+      const task = graph.tasksById.get(taskId);
+      if (!task) {
+        continue;
+      }
+      if (task.prompt === path) {
+        for (const blockRef of graph.blocksByTask.get(taskId) ?? []) {
+          refs.add(blockRef);
+        }
+      }
+      for (const block of task.blocks) {
+        if (block.prompt === path) {
+          refs.add(`${taskId}#${block.id}`);
+        }
+      }
+    }
+  }
+  return [...refs];
+}
+
+function graphPromptPaths(graph: CompiledTaskGraph): Set<string> {
+  const paths = new Set<string>();
+  for (const taskId of graph.taskNodesInManifestOrder) {
+    const task = graph.tasksById.get(taskId);
+    if (!task) {
+      continue;
+    }
+    paths.add(task.prompt);
+    for (const block of task.blocks) {
+      paths.add(block.prompt);
+    }
+  }
+  return paths;
+}
+
+function incrementalPromptImpact(graph: CompiledTaskGraph, changedPromptPaths: string[]): PackageChangeImpact {
+  return {
+    ok: graph.diagnostics.errors.length === 0,
+    affectedTasks: affectedTasksForPromptPaths(graph, changedPromptPaths),
+    diagnostics: graph.diagnostics.errors,
+    fullRefresh: false,
+    graph
+  };
+}
+
+function changedPackagePaths(previous: PackageFileSnapshot, next: PackageFileSnapshot): string[] {
+  const paths = new Set([...Object.keys(previous.promptFiles), ...Object.keys(next.promptFiles)]);
+  const changedPaths = [...paths].filter((path) => changed(previous.promptFiles[path], next.promptFiles[path]));
+  return changed(previous.manifestFile, next.manifestFile) ? ["manifest.json", ...changedPaths] : changedPaths;
 }
 
 export async function createPackageFileSnapshot(projectRoot: PackageWorkspaceRef): Promise<PackageFileSnapshot> {
@@ -140,12 +268,115 @@ export async function refreshChangedPackagePrompts(
 ): Promise<PackageFileSyncResult> {
   const detected = await detectPackageFileChanges(projectRoot, previous);
   if (!detected.snapshot || !detected.impact.ok) {
-    return { ...detected, refreshed: [] };
+    return { ...detected, refreshed: [], changedPackagePaths: ["manifest.json"], indexPackagePaths: ["manifest.json"], incremental: false };
   }
   const result = detected.impact.fullRefresh ? await refreshPrompts({ projectRoot }) : { prompts: [] };
+  const snapshot = await createPackageFileSnapshot(projectRoot);
+  const indexPackagePaths = changedPackagePaths(previous, snapshot);
   return {
-    snapshot: await createPackageFileSnapshot(projectRoot),
+    snapshot,
     impact: detected.impact,
-    refreshed: result.prompts
+    refreshed: result.prompts,
+    changedPackagePaths: indexPackagePaths,
+    indexPackagePaths,
+    incremental: false
   };
+}
+
+async function refreshFullWithDiagnostics(
+  projectRoot: PackageWorkspaceRef,
+  previous: PackageFileSnapshot,
+  diagnostics: ValidationIssue[],
+  changedPackagePaths: string[]
+): Promise<PackageFileSyncResult> {
+  const full = await refreshChangedPackagePrompts(projectRoot, previous);
+  return {
+    ...full,
+    impact: {
+      ...full.impact,
+      diagnostics: [...diagnostics, ...full.impact.diagnostics]
+    },
+    changedPackagePaths,
+    indexPackagePaths: full.indexPackagePaths,
+    incremental: false
+  };
+}
+
+export async function refreshChangedPackagePromptsForPaths(
+  projectRoot: PackageWorkspaceRef,
+  previous: PackageFileSnapshot,
+  changedPaths: string[]
+): Promise<PackageFileSyncResult> {
+  const normalized = normalizePackageChangedPaths(changedPaths);
+  if (!normalized.incremental) {
+    return refreshFullWithDiagnostics(projectRoot, previous, normalized.diagnostics, normalized.changedPackagePaths);
+  }
+
+  const knownPromptPaths = graphPromptPaths(previous.graph);
+  const unknownPromptPaths = normalized.changedPackagePaths.filter((path) => !knownPromptPaths.has(path));
+  if (unknownPromptPaths.length > 0) {
+    return refreshFullWithDiagnostics(
+      projectRoot,
+      previous,
+      unknownPromptPaths.map((path) =>
+        issue("package_change_prompt_not_in_graph", `Prompt '${path}' is not referenced by the current package graph; falling back to a full refresh.`, path)
+      ),
+      normalized.changedPackagePaths
+    );
+  }
+
+  try {
+    const { workspace } = await loadPackage(projectRoot);
+    const nextPromptFiles = { ...previous.promptFiles };
+    const changedPromptPaths: string[] = [];
+
+    for (const packagePath of normalized.changedPackagePaths) {
+      if (!previous.promptFiles[packagePath]) {
+        return refreshFullWithDiagnostics(
+          projectRoot,
+          previous,
+          [issue("package_change_prompt_added_requires_full_refresh", `Prompt '${packagePath}' was added; falling back to a full refresh.`, packagePath)],
+          normalized.changedPackagePaths
+        );
+      }
+
+      const nextFingerprint = await fingerprint(join(workspace.packageDir, packagePath));
+      nextPromptFiles[packagePath] = nextFingerprint;
+      if (changed(previous.promptFiles[packagePath], nextFingerprint)) {
+        changedPromptPaths.push(packagePath);
+      }
+    }
+
+    const impact = incrementalPromptImpact(previous.graph, changedPromptPaths);
+    return {
+      snapshot: impact.ok
+        ? {
+            manifest: previous.manifest,
+            graph: previous.graph,
+            manifestFile: previous.manifestFile,
+            promptFiles: nextPromptFiles
+          }
+        : null,
+      impact,
+      refreshed: await Promise.all(
+        promptSurfaceRefsForPromptPaths(previous.graph, changedPromptPaths).map((ref) => refreshPrompt({ projectRoot, ref }))
+      ),
+      changedPackagePaths: normalized.changedPackagePaths,
+      indexPackagePaths: normalized.changedPackagePaths,
+      incremental: true
+    };
+  } catch (error) {
+    return refreshFullWithDiagnostics(
+      projectRoot,
+      previous,
+      [
+        issue(
+          "package_change_incremental_refresh_failed",
+          error instanceof Error ? error.message : String(error),
+          normalized.changedPackagePaths[0]
+        )
+      ],
+      normalized.changedPackagePaths
+    );
+  }
 }

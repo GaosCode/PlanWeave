@@ -190,7 +190,7 @@ describe("selected block hook auto-run events", () => {
     await waitFor(() => expect(result.current.selectedRunRecord).toEqual(refreshedRecord));
     expect(bridge.getRunRecord).toHaveBeenCalledTimes(2);
     expect(bridge.listBlockRunRecords).toHaveBeenCalledTimes(2);
-    expect(refreshGraph).toHaveBeenCalledTimes(1);
+    expect(refreshGraph).not.toHaveBeenCalled();
   });
 
   it("refreshes selected block records when a new latest record id only matches by block ref prefix", async () => {
@@ -259,6 +259,6 @@ describe("selected block hook auto-run events", () => {
 
     await waitFor(() => expect(result.current.blockRunRecords).toEqual([newRecordSummary]));
     expect(bridge.listBlockRunRecords).toHaveBeenCalledTimes(2);
-    expect(refreshGraph).toHaveBeenCalledTimes(1);
+    expect(refreshGraph).not.toHaveBeenCalled();
   });
 });

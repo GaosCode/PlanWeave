@@ -9,7 +9,7 @@ import { clamp } from "../viewHelpers";
 
 type UseAutoRunControlArgs = {
   autoRunState: DesktopAutoRunState | null;
-  onAutoRunStateRefresh?: (state: DesktopAutoRunState) => Promise<void>;
+  onAutoRunDerivedStateRefresh?: () => Promise<void>;
   selectedCanvasId: string | null;
   selectedBlock: DesktopBlockDetail | null;
   selectedProject: DesktopProjectSummary | null;
@@ -26,7 +26,7 @@ function isActiveAutoRunState(state: DesktopAutoRunState | null): state is Deskt
 
 export function useAutoRunControl({
   autoRunState,
-  onAutoRunStateRefresh,
+  onAutoRunDerivedStateRefresh,
   selectedCanvasId,
   selectedBlock,
   selectedProject,
@@ -41,12 +41,12 @@ export function useAutoRunControl({
   const [autoRunControlPosition, setAutoRunControlPosition] = useState<FloatingControlPosition | null>(null);
   const [autoRunControlDrag, setAutoRunControlDrag] = useState<FloatingControlDrag | null>(null);
 
-  const applyAutoRunState = useCallback(async (nextState: DesktopAutoRunState, options: { refreshGraph?: boolean } = {}) => {
+  const applyAutoRunState = useCallback(async (nextState: DesktopAutoRunState, options: { refreshDerivedState?: boolean } = {}) => {
     setAutoRunState(nextState);
-    if (options.refreshGraph) {
-      await onAutoRunStateRefresh?.(nextState);
+    if (options.refreshDerivedState) {
+      await onAutoRunDerivedStateRefresh?.();
     }
-  }, [onAutoRunStateRefresh, setAutoRunState]);
+  }, [onAutoRunDerivedStateRefresh, setAutoRunState]);
   const activeRunId = isActiveAutoRunState(autoRunState) ? autoRunState.runId : null;
 
   useEffect(() => {
@@ -60,7 +60,7 @@ export function useAutoRunControl({
       if (activeRunId && event.runId !== activeRunId) {
         return;
       }
-      void applyAutoRunState(event.state, { refreshGraph: shouldRefreshGraphForAutoRunEvent(event) });
+      void applyAutoRunState(event.state, { refreshDerivedState: shouldRefreshGraphForAutoRunEvent(event) });
     });
   }, [activeRunId, applyAutoRunState, selectedCanvasId, selectedProject]);
 

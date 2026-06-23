@@ -1,7 +1,8 @@
 import {
   createPackageFileSnapshot as createRuntimePackageFileSnapshot,
   detectPackageFileChanges as detectRuntimePackageFileChanges,
-  refreshChangedPackagePrompts as refreshRuntimeChangedPackagePrompts
+  refreshChangedPackagePrompts as refreshRuntimeChangedPackagePrompts,
+  refreshChangedPackagePromptsForPaths as refreshRuntimeChangedPackagePromptsForPaths
 } from "../package/fileChanges.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type {
@@ -10,7 +11,7 @@ import type {
   PackageWorkspaceRef,
   PackageFileSnapshot
 } from "../types.js";
-import type { DesktopPackageFileSnapshotRef, DesktopPackageFileSyncResult } from "./types.js";
+import type { DesktopPackageFileRefreshOptions, DesktopPackageFileSnapshotRef, DesktopPackageFileSyncResult } from "./types.js";
 import { invalidateDesktopProjectProjection } from "./graph/projectProjectionModel.js";
 import { createSqlitePlanGraphStore } from "../plangraph/index.js";
 
@@ -147,6 +148,9 @@ async function indexPlanGraphExternalChange(
   if (!hasExternalPackageChange(result)) {
     return result;
   }
+  if (paths.length === 0) {
+    return result;
+  }
   try {
     const store = await createSqlitePlanGraphStore({ projectRoot });
     const latestOperation = await store.log.latestUndoable();
@@ -255,7 +259,10 @@ export async function refreshChangedDesktopPackagePrompts(
   return indexPlanGraphExternalChange(projectRoot, changedPackagePaths(previous, result.snapshot), refreshed);
 }
 
-export async function refreshPackageFileChanges(projectRoot: PackageWorkspaceRef): Promise<DesktopPackageFileSyncResult> {
+export async function refreshPackageFileChanges(
+  projectRoot: PackageWorkspaceRef,
+  options: DesktopPackageFileRefreshOptions = {}
+): Promise<DesktopPackageFileSyncResult> {
   invalidateDesktopProjectProjection(projectRoot);
   const projectKey = await snapshotKey(projectRoot);
   const previous = snapshots.get(projectKey);
@@ -271,7 +278,9 @@ export async function refreshPackageFileChanges(projectRoot: PackageWorkspaceRef
     };
   }
 
-  const result = await refreshRuntimeChangedPackagePrompts(projectRoot, previous);
+  const result = options.changedPaths
+    ? await refreshRuntimeChangedPackagePromptsForPaths(projectRoot, previous, options.changedPaths)
+    : await refreshRuntimeChangedPackagePrompts(projectRoot, previous);
   if (!result.snapshot) {
     const failed: DesktopPackageFileSyncResult = {
       ok: result.impact.ok,
@@ -282,7 +291,7 @@ export async function refreshPackageFileChanges(projectRoot: PackageWorkspaceRef
       diagnostics: result.impact.diagnostics
     };
     dirtyRefsByProject.set(projectKey, failed.dirtyPromptRefs);
-    return indexPlanGraphExternalChange(projectRoot, ["manifest.json"], failed);
+    return indexPlanGraphExternalChange(projectRoot, result.indexPackagePaths, failed);
   }
   snapshots.set(projectKey, result.snapshot);
   const dirtyPromptRefsForResult = dirtyPromptRefs(previous, result.snapshot);
@@ -295,7 +304,7 @@ export async function refreshPackageFileChanges(projectRoot: PackageWorkspaceRef
     dirtyPromptRefs: dirtyPromptRefsForResult,
     diagnostics: result.impact.diagnostics
   };
-  return indexPlanGraphExternalChange(projectRoot, changedPackagePaths(previous, result.snapshot), refreshed);
+  return indexPlanGraphExternalChange(projectRoot, result.indexPackagePaths, refreshed);
 }
 
 export async function getDirtyPromptRefs(projectRoot: PackageWorkspaceRef): Promise<string[]> {

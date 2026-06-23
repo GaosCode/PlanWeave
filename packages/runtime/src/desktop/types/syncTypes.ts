@@ -9,6 +9,10 @@ export type DesktopPackageFileSyncResult = {
   diagnostics: ValidationIssue[];
 };
 
+export type DesktopPackageFileRefreshOptions = {
+  changedPaths?: string[];
+};
+
 export type DesktopPackageFileSnapshotRef = {
   snapshotId: string;
   projectRoot: string;

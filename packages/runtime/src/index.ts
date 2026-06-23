@@ -150,6 +150,7 @@ export {
   getTodoGroups,
   getAutoRunState,
   getLatestAutoRunSummary,
+  listAutoRunEvents,
   initManagedProject,
   initOrOpenProject,
   listTaskCanvases,

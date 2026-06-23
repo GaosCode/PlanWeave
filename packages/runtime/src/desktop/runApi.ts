@@ -5,9 +5,9 @@ import { resetMaxCycleReviewsForRetry } from "../taskManager/reviewRetry.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import type { ProjectWorkspace } from "../types.js";
-import type { DesktopAutoRunEventListener, DesktopAutoRunOptions, DesktopAutoRunScope, DesktopAutoRunState } from "./types.js";
+import type { DesktopAutoRunEventLog, DesktopAutoRunEventListener, DesktopAutoRunOptions, DesktopAutoRunScope, DesktopAutoRunState } from "./types.js";
 import { appendAutoRunEvent, autoRunRoot, cloneAutoRunState, createAutoRunEvent, now } from "./runStateStore.js";
-import { listPersistedAutoRunStates, nextPersistedAutoRunId, writePersistedAutoRunState } from "./runStateRepository.js";
+import { listPersistedAutoRunStates, nextPersistedAutoRunId, readPersistedAutoRunEventLog, writePersistedAutoRunState } from "./runStateRepository.js";
 import { claimRef, claimScope, executorName, latestStatus, outputSummary, phaseAfterStep, terminalPatch } from "./runStepState.js";
 import { invalidateDesktopProjectProjection } from "./graph/projectProjectionModel.js";
 
@@ -299,4 +299,9 @@ export async function getLatestAutoRunSummary(projectRoot: string, canvasId?: st
     ? rehydratePersistedRun(persistedLatest, workspace)
     : persistedLatest;
   return cloneAutoRunState(state);
+}
+
+export async function listAutoRunEvents(projectRoot: string, canvasId: string | null | undefined, runId: string): Promise<DesktopAutoRunEventLog> {
+  const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
+  return readPersistedAutoRunEventLog(workspace, runId);
 }

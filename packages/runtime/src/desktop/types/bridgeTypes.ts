@@ -33,6 +33,7 @@ import type {
 } from "./reviewPipelineTypes.js";
 import type {
   DesktopPackageFileChangeEvent,
+  DesktopPackageFileRefreshOptions,
   DesktopPackageFileSyncResult,
   DesktopPackageFileSnapshotRef
 } from "./syncTypes.js";
@@ -160,7 +161,7 @@ export type DesktopBridgeApi = {
   createPackageFileSnapshot(ref: DesktopCanvasReference): Promise<DesktopPackageFileSnapshotRef>;
   detectPackageFileChanges(ref: DesktopCanvasReference, snapshotId?: string | null): Promise<DesktopPackageFileSyncResult>;
   refreshChangedPackagePrompts(ref: DesktopCanvasReference, snapshotId?: string | null): Promise<DesktopPackageFileSyncResult>;
-  refreshPackageFileChanges(ref: DesktopCanvasReference): Promise<DesktopPackageFileSyncResult>;
+  refreshPackageFileChanges(ref: DesktopCanvasReference, options?: DesktopPackageFileRefreshOptions): Promise<DesktopPackageFileSyncResult>;
   getDirtyPromptRefs(ref: DesktopCanvasReference): Promise<string[]>;
   watchPackageFiles(ref: DesktopCanvasReference): Promise<void>;
   unwatchPackageFiles(ref: DesktopCanvasReference): Promise<void>;

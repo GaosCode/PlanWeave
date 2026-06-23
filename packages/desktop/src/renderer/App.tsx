@@ -116,7 +116,7 @@ export function App() {
     projectPromptPolicy,
     refreshProjectSummary,
     refreshGraph,
-    refreshGraphAndLayout,
+    refreshProjectDerivedState,
     removeProject,
     selectedCanvasId,
     selectedProject,
@@ -200,7 +200,7 @@ export function App() {
     stopAutoRunControlDrag
   } = useAutoRunControl({
     autoRunState,
-    onAutoRunStateRefresh: refreshGraph,
+    onAutoRunDerivedStateRefresh: refreshProjectDerivedState,
     selectedCanvasId,
     selectedBlock,
     selectedProject,
@@ -224,7 +224,7 @@ export function App() {
     deleteBlockConfirm: t("deleteBlockConfirm"),
     deleteTaskConfirm: t("deleteTaskConfirm"),
     loadProject: openProjectInSession,
-    refreshGraph,
+    refreshProjectDerivedState,
     selectedCanvasId,
     selectedBlock,
     selectedProject,
@@ -339,11 +339,11 @@ export function App() {
         await openProjectInSession(overview, overview.activeCanvasId, { recordCanvasSelection: false });
         return;
       }
-      await refreshGraphAndLayout();
+      await refreshProjectDerivedState({ includeLayout: true });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [openProjectInSession, refreshGraphAndLayout, selectedCanvasId, selectedProject, setError]);
+  }, [openProjectInSession, refreshProjectDerivedState, selectedCanvasId, selectedProject, setError]);
   const handleRedoGraph = useCallback(async () => {
     if (!bridge || !selectedProject) {
       return;
@@ -359,11 +359,11 @@ export function App() {
         await openProjectInSession(overview, overview.activeCanvasId, { recordCanvasSelection: false });
         return;
       }
-      await refreshGraphAndLayout();
+      await refreshProjectDerivedState({ includeLayout: true });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [openProjectInSession, refreshGraphAndLayout, selectedCanvasId, selectedProject, setError]);
+  }, [openProjectInSession, refreshProjectDerivedState, selectedCanvasId, selectedProject, setError]);
 
   useGraphFlowModel({
     blockActions: {
@@ -426,7 +426,7 @@ export function App() {
     layout,
     loadProject: openProjectInSession,
     nodes,
-    refreshGraph,
+    refreshProjectDerivedState,
     selectedCanvasId,
     selectedBlock,
     selectedProject,
@@ -439,7 +439,7 @@ export function App() {
     t
   });
   const { refreshPackageFiles } = usePackageFileSync({
-    refreshGraph,
+    refreshProjectDerivedState,
     reloadCurrentCanvas,
     selectedCanvasId,
     selectedProject,

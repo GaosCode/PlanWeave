@@ -9,7 +9,7 @@ type UseGraphDeleteActionsArgs = {
   deleteBlockConfirm: string;
   deleteTaskConfirm: string;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
-  refreshGraph: () => Promise<void>;
+  refreshProjectDerivedState: () => Promise<void>;
   selectedCanvasId: string | null;
   selectedBlock: DesktopBlockDetail | null;
   selectedProject: DesktopProjectSummary | null;
@@ -26,7 +26,7 @@ export function useGraphDeleteActions({
   deleteBlockConfirm,
   deleteTaskConfirm,
   loadProject,
-  refreshGraph,
+  refreshProjectDerivedState,
   selectedCanvasId,
   selectedBlock,
   selectedProject,
@@ -80,12 +80,12 @@ export function useGraphDeleteActions({
         if (selectedBlock?.ref === ref) {
           clearBlockSelection();
         }
-        await refreshGraph();
+        await refreshProjectDerivedState();
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [clearBlockSelection, deleteBlockConfirm, refreshGraph, selectedBlock, selectedCanvasId, selectedProject, setError]
+    [clearBlockSelection, deleteBlockConfirm, refreshProjectDerivedState, selectedBlock, selectedCanvasId, selectedProject, setError]
   );
 
   return { handleDeleteBlock, handleDeleteTaskNode };

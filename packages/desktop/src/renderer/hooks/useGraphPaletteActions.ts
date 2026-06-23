@@ -15,7 +15,7 @@ type UseGraphPaletteActionsArgs = {
   layout: DesktopLayout | null;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
   nodes: AppFlowNode[];
-  refreshGraph: () => Promise<void>;
+  refreshProjectDerivedState: () => Promise<void>;
   selectedCanvasId: string | null;
   selectedBlock: DesktopBlockDetail | null;
   selectedProject: DesktopProjectSummary | null;
@@ -50,7 +50,7 @@ export function useGraphPaletteActions({
   layout,
   loadProject,
   nodes,
-  refreshGraph,
+  refreshProjectDerivedState,
   selectedCanvasId,
   selectedBlock,
   selectedProject,
@@ -108,12 +108,12 @@ export function useGraphPaletteActions({
           setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
           return;
         }
-        await refreshGraph();
+        await refreshProjectDerivedState();
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [graph, layout, nodes, refreshGraph, selectedCanvasId, selectedProject, setError]
+    [graph, layout, nodes, refreshProjectDerivedState, selectedCanvasId, selectedProject, setError]
   );
 
   const handleEdgesDelete = useCallback(
@@ -137,9 +137,9 @@ export function useGraphPaletteActions({
           }
         }
       }
-      await refreshGraph();
+      await refreshProjectDerivedState();
     },
-    [graph, layout, nodes, refreshGraph, selectedCanvasId, selectedProject, setError]
+    [graph, layout, nodes, refreshProjectDerivedState, selectedCanvasId, selectedProject, setError]
   );
 
   const handleReconnectEdge = useCallback(
@@ -163,12 +163,12 @@ export function useGraphPaletteActions({
           setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
           return;
         }
-        await refreshGraph();
+        await refreshProjectDerivedState();
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [graph, layout, nodes, refreshGraph, selectedCanvasId, selectedProject, setError]
+    [graph, layout, nodes, refreshProjectDerivedState, selectedCanvasId, selectedProject, setError]
   );
 
   const addPaletteComponent = useCallback(

@@ -277,13 +277,13 @@ describe("auto run control hook", () => {
     vi.stubGlobal("planweave", bridge);
     vi.resetModules();
     const { useAutoRunControl } = await import("../renderer/hooks/useAutoRunControl");
-    const onAutoRunStateRefresh = vi.fn().mockResolvedValue(undefined);
+    const onAutoRunDerivedStateRefresh = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() => {
       const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(null);
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
-        onAutoRunStateRefresh,
+        onAutoRunDerivedStateRefresh,
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
         selectedProject: project,
@@ -304,7 +304,7 @@ describe("auto run control hook", () => {
 
     expect(bridge.getAutoRunState).not.toHaveBeenCalled();
     expect(result.current.autoRunState).toEqual(eventState);
-    expect(onAutoRunStateRefresh).not.toHaveBeenCalled();
+    expect(onAutoRunDerivedStateRefresh).not.toHaveBeenCalled();
   });
 
   it("adopts an external auto-run event when no local auto-run state exists", async () => {
@@ -471,13 +471,13 @@ describe("auto run control hook", () => {
     }));
     vi.resetModules();
     const { useAutoRunControl } = await import("../renderer/hooks/useAutoRunControl");
-    const onAutoRunStateRefresh = vi.fn().mockResolvedValue(undefined);
+    const onAutoRunDerivedStateRefresh = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() => {
       const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(null);
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
-        onAutoRunStateRefresh,
+        onAutoRunDerivedStateRefresh,
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
         selectedProject: project,
@@ -496,6 +496,6 @@ describe("auto run control hook", () => {
       onAutoRunChangedCallback?.(autoRunEvent(pausedState, { eventType: "phase_change" }));
     });
 
-    expect(onAutoRunStateRefresh).toHaveBeenCalledWith(pausedState);
+    expect(onAutoRunDerivedStateRefresh).toHaveBeenCalledTimes(1);
   });
 });

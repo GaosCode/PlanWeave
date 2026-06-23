@@ -237,6 +237,9 @@ describe("desktop renderer hook interfaces", () => {
       refreshPackageFileChanges: vi.fn().mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
       watchPackageFiles: vi.fn().mockResolvedValue(undefined),
       getGraphViewModel: vi.fn().mockResolvedValue(graph),
+      getTodoGroups: vi.fn().mockResolvedValue(null),
+      getProjectExecutionPlan: vi.fn().mockResolvedValue(null),
+      getStatistics: vi.fn().mockResolvedValue(null),
       getDesktopLayout: vi.fn().mockResolvedValue(nextLayout)
     });
     vi.stubGlobal("planweave", bridge);
@@ -260,6 +263,9 @@ describe("desktop renderer hook interfaces", () => {
     });
 
     expect(bridge.getGraphViewModel).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" });
+    expect(bridge.getTodoGroups).toHaveBeenCalledWith(project.rootPath);
+    expect(bridge.getProjectExecutionPlan).toHaveBeenCalledWith(project.rootPath);
+    expect(bridge.getStatistics).toHaveBeenCalledWith(project.rootPath);
     expect(bridge.getDesktopLayout).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" });
   });
 
@@ -540,6 +546,8 @@ describe("desktop renderer hook interfaces", () => {
       projectLoading: false,
       projects: [project],
       refreshGraph: vi.fn(),
+      refreshGraphAndLayout: vi.fn(),
+      refreshProjectDerivedState: vi.fn(),
       refreshProjectSummary: vi.fn().mockResolvedValue(project),
       removeProject: vi.fn(),
       selectedCanvasId: "canvas-main",
@@ -602,6 +610,8 @@ describe("desktop renderer hook interfaces", () => {
       projectLoading: false,
       projects: [project],
       refreshGraph: vi.fn(),
+      refreshGraphAndLayout: vi.fn(),
+      refreshProjectDerivedState: vi.fn(),
       refreshProjectSummary: vi.fn(),
       removeProject: vi.fn(),
       selectedCanvasId: "canvas-main",
@@ -674,12 +684,12 @@ describe("desktop renderer hook interfaces", () => {
     const { usePackageFileSync } = await import("../renderer/hooks/usePackageFileSync");
 
     const reloadCurrentCanvas = vi.fn().mockResolvedValue(undefined);
-    const refreshGraph = vi.fn().mockResolvedValue(undefined);
+    const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
     const setDirtyPromptRefs = vi.fn();
     const setFileSyncDiagnostics = vi.fn();
     const { result } = renderHook(() =>
       usePackageFileSync({
-        refreshGraph,
+        refreshProjectDerivedState,
         reloadCurrentCanvas,
         selectedCanvasId: "canvas-main",
         selectedProject: project,
@@ -695,10 +705,120 @@ describe("desktop renderer hook interfaces", () => {
     });
 
     expect(bridge.refreshPackageFileChanges).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" });
-    expect(refreshGraph).toHaveBeenCalledTimes(1);
+    expect(refreshProjectDerivedState).toHaveBeenCalledTimes(1);
     expect(reloadCurrentCanvas).not.toHaveBeenCalled();
     expect(setFileSyncDiagnostics).toHaveBeenCalledWith([]);
     expect(setDirtyPromptRefs).toHaveBeenLastCalledWith(["tasks/T-ALPHA/prompt.md"]);
+  });
+
+  it("passes watcher changed paths to package file refresh", async () => {
+    let packageFileChanged: ((event: { projectRoot: string; canvasId?: string | null; paths: string[]; triggeredAt: string }) => void) | null = null;
+    const bridge = createDesktopBridgeMock({
+      onPackageFileChanged: vi.fn((callback) => {
+        packageFileChanged = callback;
+        return vi.fn();
+      }),
+      refreshPackageFileChanges: vi.fn().mockResolvedValue({
+        ok: true,
+        fullRefresh: false,
+        primed: false,
+        affectedTasks: ["T-ALPHA"],
+        diagnostics: [],
+        dirtyPromptRefs: ["T-ALPHA#B-001"]
+      })
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { usePackageFileSync } = await import("../renderer/hooks/usePackageFileSync");
+
+    const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
+    const setLastFileChange = vi.fn();
+    renderHook(() =>
+      usePackageFileSync({
+        refreshProjectDerivedState,
+        reloadCurrentCanvas: vi.fn().mockResolvedValue(undefined),
+        selectedCanvasId: "canvas-main",
+        selectedProject: project,
+        setDirtyPromptRefs: vi.fn(),
+        setError: vi.fn(),
+        setFileSyncDiagnostics: vi.fn(),
+        setLastFileChange
+      })
+    );
+
+    await waitFor(() => expect(packageFileChanged).not.toBeNull());
+    const event = {
+      projectRoot: project.rootPath,
+      canvasId: "canvas-main",
+      paths: ["package/nodes/T-ALPHA/blocks/B-001.prompt.md"],
+      triggeredAt: "2026-06-23T00:00:00.000Z"
+    };
+    act(() => {
+      packageFileChanged?.(event);
+    });
+
+    await waitFor(() =>
+      expect(bridge.refreshPackageFileChanges).toHaveBeenCalledWith(
+        { projectRoot: project.rootPath, canvasId: "canvas-main" },
+        { changedPaths: event.paths }
+      )
+    );
+    expect(setLastFileChange).toHaveBeenCalledWith(event);
+    await waitFor(() => expect(refreshProjectDerivedState).toHaveBeenCalledTimes(1));
+  });
+
+  it("reloads the current canvas for project prompt watcher changes", async () => {
+    let packageFileChanged: ((event: { projectRoot: string; canvasId?: string | null; paths: string[]; triggeredAt: string }) => void) | null = null;
+    const bridge = createDesktopBridgeMock({
+      onPackageFileChanged: vi.fn((callback) => {
+        packageFileChanged = callback;
+        return vi.fn();
+      }),
+      refreshPackageFileChanges: vi.fn().mockResolvedValue({
+        ok: true,
+        fullRefresh: false,
+        primed: false,
+        affectedTasks: [],
+        diagnostics: [{ code: "package_change_non_package_prompt", message: "Project prompt changed.", path: "policy/project-prompt.md" }],
+        dirtyPromptRefs: []
+      })
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { usePackageFileSync } = await import("../renderer/hooks/usePackageFileSync");
+
+    const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
+    const reloadCurrentCanvas = vi.fn().mockResolvedValue(undefined);
+    renderHook(() =>
+      usePackageFileSync({
+        refreshProjectDerivedState,
+        reloadCurrentCanvas,
+        selectedCanvasId: "canvas-main",
+        selectedProject: project,
+        setDirtyPromptRefs: vi.fn(),
+        setError: vi.fn(),
+        setFileSyncDiagnostics: vi.fn(),
+        setLastFileChange: vi.fn()
+      })
+    );
+
+    await waitFor(() => expect(packageFileChanged).not.toBeNull());
+    const event = {
+      projectRoot: project.rootPath,
+      canvasId: "canvas-main",
+      paths: ["policy/project-prompt.md"],
+      triggeredAt: "2026-06-23T00:00:00.000Z"
+    };
+    act(() => {
+      packageFileChanged?.(event);
+    });
+
+    await waitFor(() => expect(reloadCurrentCanvas).toHaveBeenCalledTimes(1));
+    expect(refreshProjectDerivedState).not.toHaveBeenCalled();
+    expect(bridge.refreshPackageFileChanges).toHaveBeenCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-main" },
+      { changedPaths: event.paths }
+    );
   });
 
   it("uses the latest graphVersion when deleting dependency edges after a graph refresh", async () => {
@@ -712,12 +832,13 @@ describe("desktop renderer hook interfaces", () => {
       { id: "T-ALPHA", position: { x: 120, y: 80 } },
       { id: "T-BETA", position: { x: 580, y: 80 } }
     ] as AppFlowNode[];
+    const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
     const baseArgs = {
       flowInstance: null,
       layout: null,
       loadProject: vi.fn().mockResolvedValue(undefined),
       nodes: visibleNodes,
-      refreshGraph: vi.fn().mockResolvedValue(undefined),
+      refreshProjectDerivedState,
       selectedCanvasId: "canvas-main",
       selectedBlock: null,
       selectedProject: project,
@@ -763,6 +884,103 @@ describe("desktop renderer hook interfaces", () => {
         updatedAt: new Date(0).toISOString()
       }
     );
+    expect(refreshProjectDerivedState).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes derived project state after adding dependency edges", async () => {
+    const bridge = createDesktopBridgeMock({
+      addDependencyEdge: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] })
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useGraphPaletteActions } = await import("../renderer/hooks/useGraphPaletteActions");
+    const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() =>
+      useGraphPaletteActions({
+        flowInstance: null,
+        graph: { ...graph, graphVersion: "pgv-before" },
+        layout: null,
+        loadProject: vi.fn().mockResolvedValue(undefined),
+        nodes: [],
+        refreshProjectDerivedState,
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setError: vi.fn(),
+        setLayout: vi.fn(),
+        setNewTaskTargetId: vi.fn(),
+        selectTaskPanel: vi.fn(),
+        settings: {
+          defaultExecutor: "",
+          palette: { defaultBlockSet: ["implementation"], dragHint: true, visible: { task: true, implementation: true, review: true } }
+        } as unknown as DesktopUiSettings,
+        t: createTranslator("en")
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleConnect({ source: "T-BETA", target: "T-ALPHA", sourceHandle: null, targetHandle: null });
+    });
+
+    expect(bridge.addDependencyEdge).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, "T-ALPHA", "T-BETA", "pgv-before", undefined);
+    expect(refreshProjectDerivedState).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes derived project state after reconnecting dependency edges", async () => {
+    const bridge = createDesktopBridgeMock({
+      reconnectDependencyEdge: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] })
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useGraphPaletteActions } = await import("../renderer/hooks/useGraphPaletteActions");
+    const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() =>
+      useGraphPaletteActions({
+        flowInstance: null,
+        graph: { ...graph, graphVersion: "pgv-before" },
+        layout: null,
+        loadProject: vi.fn().mockResolvedValue(undefined),
+        nodes: [],
+        refreshProjectDerivedState,
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setError: vi.fn(),
+        setLayout: vi.fn(),
+        setNewTaskTargetId: vi.fn(),
+        selectTaskPanel: vi.fn(),
+        settings: {
+          defaultExecutor: "",
+          palette: { defaultBlockSet: ["implementation"], dragHint: true, visible: { task: true, implementation: true, review: true } }
+        } as unknown as DesktopUiSettings,
+        t: createTranslator("en")
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleReconnectEdge(
+        {
+          id: "T-ALPHA->T-BETA",
+          source: "T-BETA",
+          target: "T-ALPHA",
+          data: { manifestEdgeType: "depends_on", manifestFrom: "T-ALPHA", manifestTo: "T-BETA" }
+        } as never,
+        { source: "T-ALPHA", target: "T-BETA", sourceHandle: null, targetHandle: null }
+      );
+    });
+
+    expect(bridge.reconnectDependencyEdge).toHaveBeenCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-main" },
+      "T-ALPHA",
+      "T-BETA",
+      "T-BETA",
+      "T-ALPHA",
+      "pgv-before",
+      undefined
+    );
+    expect(refreshProjectDerivedState).toHaveBeenCalledTimes(1);
   });
 
   it("adds dropped tasks with their initial layout in a single graph edit", async () => {
@@ -786,7 +1004,7 @@ describe("desktop renderer hook interfaces", () => {
         layout,
         loadProject,
         nodes: [],
-        refreshGraph: vi.fn().mockResolvedValue(undefined),
+        refreshProjectDerivedState: vi.fn().mockResolvedValue(undefined),
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
         selectedProject: project,
@@ -1043,6 +1261,72 @@ describe("desktop renderer hook interfaces", () => {
     expect(refreshGraph).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes derived project state after deleting a block", async () => {
+    const selectedBlock: DesktopBlockDetail = {
+      ref: "T-ALPHA#B-001",
+      graphVersion: "pgv-before",
+      taskId: "T-ALPHA",
+      blockId: "B-001",
+      type: "implementation",
+      title: "Block",
+      status: "ready",
+      executor: null,
+      effectiveExecutor: null,
+      promptMarkdown: "# Block",
+      promptHash: "hash-before",
+      promptMissing: false,
+      promptSurfaceMarkdown: "# Block",
+      promptSources: [],
+      dependencies: [],
+      latestRunId: null,
+      latestReviewAttemptId: null,
+      activeFeedbackId: null,
+      exceptionReason: null,
+      reviewGate: null
+    };
+    const bridge = createDesktopBridgeMock({
+      removeBlock: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] })
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { useGraphDeleteActions } = await import("../renderer/hooks/useGraphDeleteActions");
+    const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
+    const clearSelectedBlockRecords = vi.fn();
+    const setBlockInspectorOpen = vi.fn();
+    const setSelectedBlock = vi.fn();
+    const setSelectedRunRecord = vi.fn();
+    const { result } = renderHook(() =>
+      useGraphDeleteActions({
+        clearTaskPanelSelection: vi.fn(),
+        clearSelectedBlockRecords,
+        deleteBlockConfirm: "Delete block?",
+        deleteTaskConfirm: "Delete task?",
+        loadProject: vi.fn().mockResolvedValue(undefined),
+        refreshProjectDerivedState,
+        selectedCanvasId: "canvas-main",
+        selectedBlock,
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setBlockInspectorOpen,
+        setError: vi.fn(),
+        setSelectedBlock,
+        setSelectedRunRecord
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleDeleteBlock(selectedBlock.ref);
+    });
+
+    expect(bridge.removeBlock).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, selectedBlock.ref);
+    expect(refreshProjectDerivedState).toHaveBeenCalledTimes(1);
+    expect(setSelectedBlock).toHaveBeenCalledWith(null);
+    expect(setSelectedRunRecord).toHaveBeenCalledWith(null);
+    expect(setBlockInspectorOpen).toHaveBeenCalledWith(false);
+    expect(clearSelectedBlockRecords).toHaveBeenCalledTimes(1);
+  });
+
   it("reloads the current canvas for package changes that require a full refresh", async () => {
     const bridge = createDesktopBridgeMock({
       refreshPackageFileChanges: vi.fn().mockResolvedValue({
@@ -1059,10 +1343,10 @@ describe("desktop renderer hook interfaces", () => {
     const { usePackageFileSync } = await import("../renderer/hooks/usePackageFileSync");
 
     const reloadCurrentCanvas = vi.fn().mockResolvedValue(undefined);
-    const refreshGraph = vi.fn().mockResolvedValue(undefined);
+    const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
     const { result } = renderHook(() =>
       usePackageFileSync({
-        refreshGraph,
+        refreshProjectDerivedState,
         reloadCurrentCanvas,
         selectedCanvasId: "canvas-main",
         selectedProject: project,
@@ -1078,7 +1362,7 @@ describe("desktop renderer hook interfaces", () => {
     });
 
     expect(reloadCurrentCanvas).toHaveBeenCalledTimes(1);
-    expect(refreshGraph).not.toHaveBeenCalled();
+    expect(refreshProjectDerivedState).not.toHaveBeenCalled();
   });
 
   it("reloads the current Desktop Project Session after saving a review pipeline", async () => {

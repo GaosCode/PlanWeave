@@ -172,16 +172,42 @@ export function useDesktopProject({
     setGraph(nextGraph);
   }, [selectedCanvasId, selectedProject]);
 
-  const refreshGraphAndLayout = useCallback(async () => {
+  const refreshProjectDerivedState = useCallback(async (options: { includeLayout?: boolean } = {}) => {
     if (!bridge || !selectedProject) {
       return;
     }
     const canvasRef = desktopCanvasReference(selectedProject, selectedCanvasId);
-    const nextGraph = await bridge.getGraphViewModel(canvasRef);
-    const nextLayout = await bridge.getDesktopLayout(canvasRef);
+    const projectRoot = selectedProject.rootPath;
+    if (options.includeLayout) {
+      const [nextGraph, nextTodoGroups, nextExecutionPlan, nextStatistics, nextLayout] = await Promise.all([
+        bridge.getGraphViewModel(canvasRef),
+        bridge.getTodoGroups(projectRoot),
+        bridge.getProjectExecutionPlan(projectRoot),
+        bridge.getStatistics(projectRoot),
+        bridge.getDesktopLayout(canvasRef)
+      ]);
+      setGraph(nextGraph);
+      setTodoGroups(nextTodoGroups);
+      setExecutionPlan(nextExecutionPlan);
+      setStatistics(nextStatistics);
+      setLayout(nextLayout);
+      return;
+    }
+    const [nextGraph, nextTodoGroups, nextExecutionPlan, nextStatistics] = await Promise.all([
+      bridge.getGraphViewModel(canvasRef),
+      bridge.getTodoGroups(projectRoot),
+      bridge.getProjectExecutionPlan(projectRoot),
+      bridge.getStatistics(projectRoot)
+    ]);
     setGraph(nextGraph);
-    setLayout(nextLayout);
+    setTodoGroups(nextTodoGroups);
+    setExecutionPlan(nextExecutionPlan);
+    setStatistics(nextStatistics);
   }, [selectedCanvasId, selectedProject]);
+
+  const refreshGraphAndLayout = useCallback(async () => {
+    await refreshProjectDerivedState({ includeLayout: true });
+  }, [refreshProjectDerivedState]);
 
   const updateProjectPromptPolicy = useCallback(
     async (patch: Partial<ProjectPromptPolicy>) => {
@@ -284,6 +310,7 @@ export function useDesktopProject({
     refreshProjectSummary,
     refreshGraph,
     refreshGraphAndLayout,
+    refreshProjectDerivedState,
     removeProject,
     selectedCanvasId,
     selectedProject,

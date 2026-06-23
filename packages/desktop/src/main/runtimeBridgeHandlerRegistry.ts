@@ -201,7 +201,7 @@ export const runtimeBridgeHandlers = {
   detectPackageFileChanges: async (_event, ref, snapshotId) => detectDesktopPackageFileChanges(await resolveDesktopCanvasReference(ref), snapshotId),
   refreshChangedPackagePrompts: async (_event, ref, snapshotId) =>
     refreshChangedDesktopPackagePrompts(await resolveDesktopCanvasReference(ref), snapshotId),
-  refreshPackageFileChanges: async (_event, ref) => refreshPackageFileChanges(await resolveDesktopCanvasReference(ref)),
+  refreshPackageFileChanges: async (_event, ref, options) => refreshPackageFileChanges(await resolveDesktopCanvasReference(ref), options),
   getDirtyPromptRefs: async (_event, ref) => getDirtyPromptRefs(await resolveDesktopCanvasReference(ref)),
   startAutoRun: (_event, ref, scope: DesktopAutoRunScope, stepLimit, options?: DesktopAutoRunOptions) =>
     startAutoRun(ref.projectRoot, ref.canvasId, scope, stepLimit, options),

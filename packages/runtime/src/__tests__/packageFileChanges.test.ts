@@ -1,7 +1,13 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createPackageFileSnapshot, detectPackageFileChanges, refreshChangedPackagePrompts } from "../package/fileChanges.js";
+import {
+  createPackageFileSnapshot,
+  detectPackageFileChanges,
+  normalizePackageChangedPaths,
+  refreshChangedPackagePrompts,
+  refreshChangedPackagePromptsForPaths
+} from "../package/fileChanges.js";
 import { affectedTasksForPackageFileChange } from "../graph/editGraph.js";
 import { createExecutionGraphSession, drainGraphReadQueue, enqueueGraphEditOperations } from "../graph/session.js";
 import { writeJsonFile } from "../json.js";
@@ -20,6 +26,128 @@ describe("package file changes", () => {
     expect(detected.impact.fullRefresh).toBe(true);
     expect(detected.impact.affectedTasks).toEqual(["T-001"]);
     expect(refreshed.refreshed.map((prompt) => prompt.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
+  });
+
+  it("refreshes a changed block prompt path incrementally", async () => {
+    const { root, init } = await createTestWorkspace();
+    const before = await createPackageFileSnapshot(root);
+    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"), "updated block prompt\n", "utf8");
+
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["package/nodes/T-001/blocks/B-001.prompt.md"]);
+
+    expect(refreshed.incremental).toBe(true);
+    expect(refreshed.changedPackagePaths).toEqual(["nodes/T-001/blocks/B-001.prompt.md"]);
+    expect(refreshed.impact).toMatchObject({
+      ok: true,
+      fullRefresh: false,
+      affectedTasks: ["T-001"],
+      diagnostics: []
+    });
+    expect(refreshed.refreshed.map((prompt) => prompt.ref)).toEqual(["T-001#B-001"]);
+  });
+
+  it("refreshes a changed task prompt path incrementally", async () => {
+    const { root, init } = await createTestWorkspace();
+    const before = await createPackageFileSnapshot(root);
+    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), "updated task prompt\n", "utf8");
+
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["nodes/T-001/prompt.md"]);
+
+    expect(refreshed.incremental).toBe(true);
+    expect(refreshed.changedPackagePaths).toEqual(["nodes/T-001/prompt.md"]);
+    expect(refreshed.impact).toMatchObject({
+      ok: true,
+      fullRefresh: false,
+      affectedTasks: ["T-001"],
+      diagnostics: []
+    });
+    expect(refreshed.refreshed.map((prompt) => prompt.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
+  });
+
+  it("falls back to a full refresh for manifest, unknown, empty, and coarse watcher paths", async () => {
+    const { root } = await createTestWorkspace();
+    const before = await createPackageFileSnapshot(root);
+
+    await expect(refreshChangedPackagePromptsForPaths(root, before, ["package/manifest.json"])).resolves.toMatchObject({
+      incremental: false,
+      changedPackagePaths: ["manifest.json"],
+      impact: {
+        ok: true,
+        diagnostics: [expect.objectContaining({ code: "package_change_manifest_requires_full_refresh" })]
+      }
+    });
+    await expect(refreshChangedPackagePromptsForPaths(root, before, ["package/nodes/T-001"])).resolves.toMatchObject({
+      incremental: false,
+      changedPackagePaths: ["nodes/T-001"],
+      impact: {
+        ok: true,
+        diagnostics: [expect.objectContaining({ code: "package_change_coarse_path_requires_full_refresh" })]
+      }
+    });
+    await expect(refreshChangedPackagePromptsForPaths(root, before, ["package/results/report.md"])).resolves.toMatchObject({
+      incremental: false,
+      changedPackagePaths: ["results/report.md"],
+      impact: {
+        ok: true,
+        diagnostics: [expect.objectContaining({ code: "package_change_unknown_path_requires_full_refresh" })]
+      }
+    });
+    await expect(refreshChangedPackagePromptsForPaths(root, before, [])).resolves.toMatchObject({
+      incremental: false,
+      changedPackagePaths: ["manifest.json"],
+      impact: {
+        ok: true,
+        diagnostics: [expect.objectContaining({ code: "package_change_paths_empty" })]
+      }
+    });
+  });
+
+  it("does not treat the project prompt policy path as a package prompt", async () => {
+    const { root } = await createTestWorkspace();
+    const before = await createPackageFileSnapshot(root);
+
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["policy/project-prompt.md"]);
+
+    expect(refreshed.incremental).toBe(false);
+    expect(refreshed.changedPackagePaths).toEqual(["policy/project-prompt.md"]);
+    expect(refreshed.impact.diagnostics.map((diagnostic) => diagnostic.code)).toContain("package_change_non_package_prompt");
+    expect(refreshed.snapshot?.promptFiles).toEqual(before.promptFiles);
+  });
+
+  it("falls back to a full refresh for added prompt files that are not in the current graph", async () => {
+    const { root, init } = await createTestWorkspace();
+    const before = await createPackageFileSnapshot(root);
+    await mkdir(join(init.workspace.packageDir, "nodes", "T-001", "blocks"), { recursive: true });
+    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-002.prompt.md"), "new prompt\n", "utf8");
+
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["package/nodes/T-001/blocks/B-002.prompt.md"]);
+
+    expect(refreshed.incremental).toBe(false);
+    expect(refreshed.impact.diagnostics.map((diagnostic) => diagnostic.code)).toContain("package_change_prompt_not_in_graph");
+  });
+
+  it("reports incremental refresh failure and falls back when a referenced prompt file is deleted", async () => {
+    const { root, init } = await createTestWorkspace();
+    const before = await createPackageFileSnapshot(root);
+    await rm(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"));
+
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["package/nodes/T-001/blocks/B-001.prompt.md"]);
+
+    expect(refreshed.incremental).toBe(false);
+    expect(refreshed.snapshot).toBeNull();
+    expect(refreshed.changedPackagePaths).toEqual(["nodes/T-001/blocks/B-001.prompt.md"]);
+    expect(refreshed.indexPackagePaths).toEqual(["manifest.json"]);
+    expect(refreshed.impact.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining(["package_change_incremental_refresh_failed", "prompt_missing"])
+    );
+  });
+
+  it("normalizes watcher path prefixes for package prompt files", () => {
+    expect(normalizePackageChangedPaths(["package/nodes/T-001/prompt.md", "nodes/T-001/blocks/B-001.prompt.md"])).toEqual({
+      changedPackagePaths: ["nodes/T-001/prompt.md", "nodes/T-001/blocks/B-001.prompt.md"],
+      diagnostics: [],
+      incremental: true
+    });
   });
 
   it("drains Graph Read Queue prompt changes into dirty prompt refs without replacing plan truth", async () => {

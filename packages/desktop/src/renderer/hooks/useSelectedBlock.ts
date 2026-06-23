@@ -122,9 +122,8 @@ export function useSelectedBlock({
           .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
       }
       void refreshSelectedBlockRecords(selectedBlock).catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
-      void refreshGraph().catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
     });
-  }, [blockRunRecords, refreshGraph, refreshSelectedBlockRecords, selectedBlock, selectedCanvasId, selectedProject, selectedRunRecord?.recordId, setError]);
+  }, [blockRunRecords, refreshSelectedBlockRecords, selectedBlock, selectedCanvasId, selectedProject, selectedRunRecord?.recordId, setError]);
 
 
   const saveSelectedBlockTitle = useCallback(async () => {

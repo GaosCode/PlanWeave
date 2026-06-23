@@ -14,10 +14,14 @@ export type DesktopSearchDocument = {
   ref: string;
   targetRef?: string;
   title: string;
+  normalizedTitle: string;
   body: string;
+  normalizedBody: string;
   path?: string;
   recordId?: string;
 };
+
+export type DesktopSearchDocumentInput = Omit<DesktopSearchDocument, "normalizedTitle" | "normalizedBody">;
 
 export type DesktopSearchIndex = {
   documents: DesktopSearchDocument[];
@@ -34,6 +38,8 @@ export type CanvasSearchDocumentsInput = {
 const defaultSearchLimit = 100;
 const minSearchLimit = 1;
 const maxSearchLimit = 100;
+const maxPromptPreviewLength = 220;
+const promptPreviewWhitespacePattern = /\s/;
 
 function runRecordIdFromResultPath(path: string): string | null {
   const match = /^([^/]+)\/blocks\/([^/]+)\/runs\/([^/]+)\//.exec(path);
@@ -52,15 +58,57 @@ function hasSearchBlockingPackageDiagnostics(diagnostics: ValidationIssue[]): bo
   return diagnostics.some((diagnostic) => diagnostic.code === "manifest_schema" || diagnostic.code === "manifest_read_failed");
 }
 
+function normalizeSearchText(text: string): string {
+  return text.toLowerCase();
+}
+
+function promptPreviewLength(markdown: string): number {
+  let length = 0;
+  let hasContent = false;
+  let hasPendingWhitespace = false;
+
+  for (let index = 0; index < markdown.length; index += 1) {
+    const character = markdown[index];
+    if (promptPreviewWhitespacePattern.test(character)) {
+      if (hasContent) {
+        hasPendingWhitespace = true;
+      }
+      continue;
+    }
+    if (hasPendingWhitespace) {
+      length += 1;
+      if (length >= maxPromptPreviewLength) {
+        return maxPromptPreviewLength;
+      }
+      hasPendingWhitespace = false;
+    }
+    length += 1;
+    hasContent = true;
+    if (length >= maxPromptPreviewLength) {
+      return maxPromptPreviewLength;
+    }
+  }
+
+  return length;
+}
+
+export function createDesktopSearchDocument(document: DesktopSearchDocumentInput): DesktopSearchDocument {
+  return {
+    ...document,
+    normalizedTitle: normalizeSearchText(document.title),
+    normalizedBody: normalizeSearchText(document.body)
+  };
+}
+
 function documentMatches(document: DesktopSearchDocument, normalizedQuery: string): boolean {
   if (document.kind === "prompt") {
-    return document.body.toLowerCase().includes(normalizedQuery);
+    return document.normalizedBody.includes(normalizedQuery);
   }
-  return document.title.toLowerCase().includes(normalizedQuery) || document.body.toLowerCase().includes(normalizedQuery);
+  return document.normalizedTitle.includes(normalizedQuery) || document.normalizedBody.includes(normalizedQuery);
 }
 
 type RankedSearchResult = {
-  result: DesktopSearchResult;
+  document: DesktopSearchDocument;
   rank: SearchRank;
   documentIndex: number;
 };
@@ -70,7 +118,7 @@ type SearchRank = {
   titleIncludes: number;
   primaryKind: number;
   matchIndex: number;
-  excerptLength: number;
+  previewLength: number;
 };
 
 function searchLimit(filters: DesktopSearchFilters): number {
@@ -88,16 +136,16 @@ function documentKindPriority(document: DesktopSearchDocument): number {
 }
 
 function searchRank(document: DesktopSearchDocument, normalizedQuery: string): SearchRank {
-  const normalizedTitle = document.title.trim().toLowerCase();
+  const normalizedTitle = document.normalizedTitle.trim();
   const titleIndex = normalizedTitle.indexOf(normalizedQuery);
-  const bodyIndex = document.body.toLowerCase().indexOf(normalizedQuery);
+  const bodyIndex = document.normalizedBody.indexOf(normalizedQuery);
   const matchedText = titleIndex >= 0 ? document.title : document.body;
   return {
     titleExact: normalizedTitle === normalizedQuery ? 0 : 1,
     titleIncludes: titleIndex >= 0 ? 0 : 1,
     primaryKind: documentKindPriority(document),
     matchIndex: titleIndex >= 0 ? titleIndex : bodyIndex,
-    excerptLength: promptPreview(matchedText).length
+    previewLength: promptPreviewLength(matchedText)
   };
 }
 
@@ -106,12 +154,12 @@ function compareSearchRank(left: RankedSearchResult, right: RankedSearchResult):
     || left.rank.titleIncludes - right.rank.titleIncludes
     || left.rank.primaryKind - right.rank.primaryKind
     || left.rank.matchIndex - right.rank.matchIndex
-    || left.rank.excerptLength - right.rank.excerptLength
+    || left.rank.previewLength - right.rank.previewLength
     || left.documentIndex - right.documentIndex;
 }
 
 function searchResultFromDocument(document: DesktopSearchDocument, normalizedQuery: string): DesktopSearchResult {
-  const excerptSource = document.body.toLowerCase().includes(normalizedQuery) ? document.body : document.title;
+  const excerptSource = document.normalizedBody.includes(normalizedQuery) ? document.body : document.title;
   return {
     kind: document.kind,
     canvasId: document.canvasId,
@@ -144,50 +192,50 @@ export async function buildSearchIndexForCanvas(input: CanvasSearchDocumentsInpu
   for (const taskId of snapshot.runtime.graph.taskNodesInManifestOrder) {
     const task = getTask(snapshot.runtime.graph, taskId);
     const taskPrompt = (await readOptionalFile(await resolvePackagePath(snapshot.runtime.workspace.packageDir, task.prompt), task.prompt)).markdown;
-    documents.push({
+    documents.push(createDesktopSearchDocument({
       kind: "task",
       ...canvasMeta,
       ref: taskId,
       title: task.title,
       body: task.title
-    });
-    documents.push({
+    }));
+    documents.push(createDesktopSearchDocument({
       kind: "prompt",
       ...canvasMeta,
       ref: taskId,
       targetRef: taskId,
       title: task.title,
       body: taskPrompt
-    });
+    }));
     for (const block of task.blocks) {
       const ref = blockRef(taskId, block.id);
       const blockPrompt = (await readOptionalFile(await resolvePackagePath(snapshot.runtime.workspace.packageDir, block.prompt), block.prompt)).markdown;
-      documents.push({
+      documents.push(createDesktopSearchDocument({
         kind: "block",
         ...canvasMeta,
         ref,
         title: block.title,
         body: block.title
-      });
-      documents.push({
+      }));
+      documents.push(createDesktopSearchDocument({
         kind: "prompt",
         ...canvasMeta,
         ref,
         targetRef: ref,
         title: block.title,
         body: blockPrompt
-      });
+      }));
     }
   }
   for (const [feedbackId, feedback] of Object.entries(snapshot.runtime.state.feedback)) {
-    documents.push({
+    documents.push(createDesktopSearchDocument({
       kind: "feedback",
       ...canvasMeta,
       ref: feedbackId,
       targetRef: feedback.sourceReviewBlockRef,
       title: `${feedbackId} · ${feedback.sourceReviewBlockRef}`,
       body: feedback.content
-    });
+    }));
   }
   if (!input.resultIndex) {
     return { documents, diagnostics };
@@ -199,7 +247,7 @@ export async function buildSearchIndexForCanvas(input: CanvasSearchDocumentsInpu
     }
     const kind = entry.relativePath.includes("/reviews/") ? "review_attempt" : "run_record";
     const recordId = kind === "run_record" ? runRecordIdFromResultPath(entry.relativePath) ?? undefined : undefined;
-    documents.push({
+    documents.push(createDesktopSearchDocument({
       kind,
       ...canvasMeta,
       ref: entry.relativePath,
@@ -210,7 +258,7 @@ export async function buildSearchIndexForCanvas(input: CanvasSearchDocumentsInpu
       body: entry.body,
       path: entry.relativePath,
       recordId
-    });
+    }));
   }
 
   return { documents, diagnostics };
@@ -260,11 +308,11 @@ export function searchDesktopSearchIndex(
     .filter(({ document }) => typeof filters.canvasId !== "string" || document.canvasId === filters.canvasId)
     .filter(({ document }) => documentMatches(document, normalized))
     .map(({ document, documentIndex }) => ({
-      result: searchResultFromDocument(document, normalized),
+      document,
       rank: searchRank(document, normalized),
       documentIndex
     }))
     .sort(compareSearchRank)
     .slice(0, searchLimit(filters))
-    .map((ranked) => ranked.result);
+    .map((ranked) => searchResultFromDocument(ranked.document, normalized));
 }

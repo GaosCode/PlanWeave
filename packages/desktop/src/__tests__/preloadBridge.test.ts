@@ -78,6 +78,17 @@ describe("preload bridge invocation", () => {
     expect(invoke).toHaveBeenCalledWith(desktopBridgeInvokeChannels.listProjects);
   });
 
+  it("forwards refreshPackageFileChanges options through the invoke bridge", async () => {
+    const invoke = vi.fn<Parameters<typeof createDesktopBridgeInvokeApi>[0]>(async () => ({ ok: true }));
+    const api = createDesktopBridgeInvokeApi(invoke);
+    const ref = { projectRoot: "/tmp/project", canvasId: "canvas-a" };
+    const options = { changedPaths: ["package/nodes/T-001/prompt.md"] };
+
+    await api.refreshPackageFileChanges(ref, options);
+
+    expect(invoke).toHaveBeenCalledWith(desktopBridgeInvokeChannels.refreshPackageFileChanges, ref, options);
+  });
+
   it("exposes package file change subscription with unsubscribe", async () => {
     await import("../preload/preload");
     const api = electronMock.exposed.get("planweave") as { onPackageFileChanged(callback: (event: DesktopPackageFileChangeEvent) => void): () => void };

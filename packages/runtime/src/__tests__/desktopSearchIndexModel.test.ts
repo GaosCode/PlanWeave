@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  createDesktopSearchDocument,
   searchDesktopSearchIndex,
   type DesktopSearchDocument,
+  type DesktopSearchDocumentInput,
   type DesktopSearchIndex
 } from "../desktop/graph/searchIndexModel.js";
 import type { DesktopSearchResultKind } from "../desktop/types.js";
@@ -13,15 +15,15 @@ function searchIndex(documents: DesktopSearchDocument[]): DesktopSearchIndex {
   };
 }
 
-function searchDocument(overrides: Partial<DesktopSearchDocument> & { ref: string }): DesktopSearchDocument {
-  return {
+function searchDocument(overrides: Partial<DesktopSearchDocumentInput> & { ref: string }): DesktopSearchDocument {
+  return createDesktopSearchDocument({
     kind: "task",
     canvasId: "default",
     canvasName: "Default",
     title: "Search document",
     body: "",
     ...overrides
-  };
+  });
 }
 
 function matchingDocuments(count: number): DesktopSearchDocument[] {
@@ -77,6 +79,15 @@ describe("desktop search index model", () => {
     expect(results.map((result) => result.ref)).toEqual(["first", "second", "third"]);
   });
 
+  it("ranks by preview length semantics without raw whitespace or over-limit text drift", () => {
+    const results = searchDesktopSearchIndex(searchIndex([
+      searchDocument({ ref: "long-preview", title: "Long preview", body: `needle ${"x".repeat(300)}` }),
+      searchDocument({ ref: "trimmed-preview", title: "Trimmed preview", body: `needle${" ".repeat(500)}` })
+    ]), "needle");
+
+    expect(results.map((result) => result.ref)).toEqual(["trimmed-preview", "long-preview"]);
+  });
+
   it("clamps search limits to the supported range", () => {
     const index = searchIndex(matchingDocuments(105));
 
@@ -87,6 +98,16 @@ describe("desktop search index model", () => {
     expect(searchDesktopSearchIndex(index, "limit needle", { limit: 2.9 })).toHaveLength(2);
     expect(searchDesktopSearchIndex(index, "limit needle", { limit: Number.POSITIVE_INFINITY })).toHaveLength(100);
     expect(searchDesktopSearchIndex(index, "limit needle", { limit: Number.NaN })).toHaveLength(100);
+  });
+
+  it("returns only the requested limit after ranking matches", () => {
+    const results = searchDesktopSearchIndex(searchIndex([
+      searchDocument({ ref: "body", title: "Body only", body: "rank limit needle" }),
+      searchDocument({ ref: "title-includes", title: "Implement rank limit needle", body: "" }),
+      searchDocument({ ref: "title-exact", title: "rank limit needle", body: "" })
+    ]), "rank limit needle", { limit: 2 });
+
+    expect(results.map((result) => result.ref)).toEqual(["title-exact", "title-includes"]);
   });
 
   it("keeps kind and canvas filters active when limit is applied", () => {
@@ -104,5 +125,45 @@ describe("desktop search index model", () => {
     });
 
     expect(results.map((result) => result.ref)).toEqual(["default-task"]);
+  });
+
+  it("matches prompt documents by body and ignores prompt titles", () => {
+    expect(searchDesktopSearchIndex(searchIndex([
+      searchDocument({
+        kind: "prompt",
+        ref: "prompt-title-only",
+        title: "Prompt title needle",
+        body: "Prompt body without the query"
+      })
+    ]), "title needle", { kinds: ["prompt"] })).toEqual([]);
+
+    const results = searchDesktopSearchIndex(searchIndex([
+      searchDocument({
+        kind: "prompt",
+        ref: "prompt-body",
+        title: "Prompt title without the query",
+        body: "Prompt body needle"
+      })
+    ]), "body needle", { kinds: ["prompt"] });
+
+    expect(results.map((result) => result.ref)).toEqual(["prompt-body"]);
+  });
+
+  it("uses body excerpts when the body matches and title excerpts only for title-only matches", () => {
+    const results = searchDesktopSearchIndex(searchIndex([
+      searchDocument({
+        ref: "body-and-title",
+        title: "Title needle",
+        body: "Body needle source"
+      }),
+      searchDocument({
+        ref: "title-only",
+        title: "Title-only needle source",
+        body: "Body without the query"
+      })
+    ]), "needle");
+
+    expect(results.find((result) => result.ref === "body-and-title")?.excerpt).toBe("Body needle source");
+    expect(results.find((result) => result.ref === "title-only")?.excerpt).toBe("Title-only needle source");
   });
 });
