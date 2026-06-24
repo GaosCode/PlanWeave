@@ -9,6 +9,14 @@ export {
   unlinkProjectSourceRoot
 } from "./projectApi.js";
 export {
+  clearSourceDefaultProject,
+  getSourceDefaultProject,
+  listSourceDefaultProjectCandidates,
+  resolveSourceDefaultProjectRoot,
+  setSourceDefaultProject
+} from "./sourceDefaultProject.js";
+export type { SourceDefaultProjectCandidate, SourceDefaultProjectEntry } from "./sourceDefaultProject.js";
+export {
   createTaskCanvas,
   listTaskCanvases,
   renameTaskCanvas,

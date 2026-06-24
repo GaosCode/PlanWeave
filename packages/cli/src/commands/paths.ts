@@ -11,7 +11,7 @@ export function registerPathsCommand(program: Command): void {
     .action(async (options: { json?: boolean }) => {
       let paths: Awaited<ReturnType<typeof readProjectPaths>>;
       try {
-        paths = await readProjectPaths(resolveCliProjectRoot());
+        paths = await readProjectPaths(await resolveCliProjectRoot());
       } catch (error) {
         if (!(error instanceof PlanWeaveWorkspaceNotInitializedError)) {
           throw error;

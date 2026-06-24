@@ -2,7 +2,21 @@ import { access, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createTaskCanvas, initManagedProject, initOrOpenProject, linkProjectSourceRoot, listProjects, openProject, removeProject, unlinkProjectSourceRoot } from "../desktop/index.js";
+import {
+  clearSourceDefaultProject,
+  createTaskCanvas,
+  getSourceDefaultProject,
+  initManagedProject,
+  initOrOpenProject,
+  linkProjectSourceRoot,
+  listSourceDefaultProjectCandidates,
+  listProjects,
+  openProject,
+  removeProject,
+  resolveSourceDefaultProjectRoot,
+  setSourceDefaultProject,
+  unlinkProjectSourceRoot
+} from "../desktop/index.js";
 import { initWorkspace } from "../initWorkspace.js";
 import { writeJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
@@ -175,6 +189,66 @@ describe("desktop project API", () => {
       rootPath: project.workspaceRoot,
       sourceRoot: null
     });
+  });
+
+  it("sets and clears the default PlanWeave project for a source root", async () => {
+    const { home: testHome } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-source-"));
+    const resolvedSourceRoot = await realpath(sourceRoot);
+    const project = await initManagedProject("Managed Source Default");
+    await linkProjectSourceRoot(project.projectId, sourceRoot);
+
+    await expect(setSourceDefaultProject(sourceRoot, project.projectId)).resolves.toMatchObject({
+      projectId: project.projectId,
+      projectRoot: project.workspaceRoot,
+      sourceRoot: resolvedSourceRoot
+    });
+    await expect(getSourceDefaultProject(sourceRoot)).resolves.toMatchObject({
+      projectId: project.projectId,
+      projectRoot: project.workspaceRoot,
+      sourceRoot: resolvedSourceRoot
+    });
+    await expect(resolveSourceDefaultProjectRoot(sourceRoot)).resolves.toBe(project.workspaceRoot);
+    await expect(clearSourceDefaultProject(sourceRoot)).resolves.toMatchObject({
+      projectId: project.projectId
+    });
+    await expect(getSourceDefaultProject(sourceRoot)).resolves.toBeNull();
+  });
+
+  it("lists all PlanWeave projects linked to a source root", async () => {
+    const { home: testHome, init, root } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const managed = await initManagedProject("Managed Candidate");
+    await linkProjectSourceRoot(managed.projectId, root);
+
+    await expect(listSourceDefaultProjectCandidates(root)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          projectId: init.workspace.id,
+          projectRoot: init.workspace.workspaceRoot,
+          sourceRoot: await realpath(root),
+          kind: "external"
+        }),
+        expect.objectContaining({
+          projectId: managed.projectId,
+          projectRoot: managed.workspaceRoot,
+          sourceRoot: await realpath(root),
+          kind: "managed"
+        })
+      ])
+    );
+  });
+
+  it("rejects source default projects bound to another source root", async () => {
+    const { home: testHome } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-source-"));
+    const otherSourceRoot = await mkdtemp(join(tmpdir(), "planweave-other-source-"));
+    const project = await initManagedProject("Managed Source Mismatch");
+    await linkProjectSourceRoot(project.projectId, sourceRoot);
+
+    await expect(setSourceDefaultProject(otherSourceRoot, project.projectId)).rejects.toThrow("is linked to source root");
   });
 
   it("rejects source root binding for external projects", async () => {

@@ -157,6 +157,9 @@ export {
   initOrOpenProject,
   listTaskCanvases,
   listProjects,
+  clearSourceDefaultProject,
+  getSourceDefaultProject,
+  listSourceDefaultProjectCandidates,
   listBlockRunRecords,
   openProject,
   refreshChangedDesktopPackagePrompts,
@@ -178,11 +181,13 @@ export {
   resumeAutoRun,
   resetCanvasMapLayout,
   resetDesktopLayout,
+  resolveSourceDefaultProjectRoot,
   saveCanvasMapLayout,
   saveDesktopLayout,
   searchProject,
   searchProjectWithDiagnostics,
   selectTaskCanvas,
+  setSourceDefaultProject,
   startAutoRun,
   stopAutoRun,
   subscribeAutoRunEvents,
@@ -202,6 +207,7 @@ export {
   validateGraphEdit
 } from "./desktop/index.js";
 export { edgeTypes, executorAdapters, reviewTriggerConditions, runSubmitStatuses, reviewStatuses } from "./types.js";
+export type { SourceDefaultProjectCandidate, SourceDefaultProjectEntry } from "./desktop/sourceDefaultProject.js";
 export {
   projectGraphCanvasNodeTypes,
   projectGraphEdgeTypes,

@@ -13,7 +13,7 @@ export function registerInitCommand(program: Command): void {
     .option("--json", "print machine-readable output")
     .action(async (options: { force?: boolean; resetPackage?: boolean; resetResults?: boolean; projectGraph?: boolean; json?: boolean }) => {
       const result = await initWorkspace({
-        projectRoot: resolveCliProjectRoot(),
+        projectRoot: await resolveCliProjectRoot(),
         force: options.force,
         resetPackage: options.resetPackage,
         resetResults: options.resetResults,

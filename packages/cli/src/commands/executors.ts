@@ -20,7 +20,7 @@ export function registerExecutorsCommand(program: Command): void {
     .description("List available executor profiles")
     .option("--json", "print JSON output")
     .action(async (options: { json?: boolean }) => {
-      const result = await listExecutorProfiles({ projectRoot: resolveCliProjectRoot() });
+      const result = await listExecutorProfiles({ projectRoot: await resolveCliProjectRoot() });
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
         return;
@@ -36,7 +36,7 @@ export function registerExecutorsCommand(program: Command): void {
     .description("Test whether an executor profile is available")
     .option("--json", "print JSON output")
     .action(async (executor: string, options: { json?: boolean }) => {
-      const result = await testExecutorProfile({ projectRoot: resolveCliProjectRoot(), executorName: executor });
+      const result = await testExecutorProfile({ projectRoot: await resolveCliProjectRoot(), executorName: executor });
       if (options.json) {
         console.log(formatExecutorTestJson(result));
         return;

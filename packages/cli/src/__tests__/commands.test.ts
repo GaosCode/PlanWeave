@@ -50,6 +50,7 @@ describe("planweave CLI contract", () => {
         "why-not",
         "current",
         "doctor",
+        "use",
         "submit-feedback",
         "run",
         "executors",
@@ -73,6 +74,7 @@ describe("planweave CLI contract", () => {
     expect(commandOptionLongs("validate")).toContain("--json");
     expect(commandOptionLongs("status")).toContain("--json");
     expect(commandOptionLongs("status")).toContain("--canvas");
+    expect(commandOptionLongs("use")).toEqual(expect.arrayContaining(["--source-root", "--clear", "--json"]));
     expect(commandOptionLongs("claim")).toContain("--type");
     expect(commandOptionLongs("claim")).toContain("--dispatch");
     expect(commandOptionLongs("claim")).toContain("--canvas");

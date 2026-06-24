@@ -15,7 +15,7 @@ export function registerProjectGraphCommand(program: Command): void {
     .description("Write project-graph.json from the current legacy/default canvas graph when it is missing")
     .option("--json", "print machine-readable output")
     .action(async (options: { json?: boolean }) => {
-      const projectRoot = resolveCliProjectRoot();
+      const projectRoot = await resolveCliProjectRoot();
       const workspace = await resolveProjectWorkspace(projectRoot);
       const migrationPlan = await detectDefaultCanvasWorkspaceMigration(workspace);
       if (migrationPlan.action === "conflict") {

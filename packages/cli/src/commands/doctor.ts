@@ -14,7 +14,7 @@ export function registerDoctorCommand(program: Command): void {
         throw new Error("doctor --project cannot be combined with --canvas.");
       }
       const result = options.project === true
-        ? await runProjectDoctor({ projectRoot: resolveCliProjectRoot(), repair: options.repair === true })
+        ? await runProjectDoctor({ projectRoot: await resolveCliProjectRoot(), repair: options.repair === true })
         : await runDoctor({ projectRoot: await resolveCliPackageWorkspace(options), repair: options.repair === true });
       console.log(JSON.stringify(result, null, 2));
     });

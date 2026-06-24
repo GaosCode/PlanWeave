@@ -15,7 +15,7 @@ export function resolveCliCanvasId(options: CanvasCommandOptions = {}): string |
 }
 
 export async function resolveCliPackageWorkspace(options: CanvasCommandOptions = {}): Promise<PackageWorkspaceRef> {
-  const projectRoot = resolveCliProjectRoot();
+  const projectRoot = await resolveCliProjectRoot();
   const canvasId = resolveCliCanvasId(options);
   return canvasId ? resolveTaskCanvasWorkspace(projectRoot, canvasId) : projectRoot;
 }
