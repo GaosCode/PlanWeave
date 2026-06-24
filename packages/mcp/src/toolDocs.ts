@@ -5,6 +5,7 @@ export const authoringRules = [
   "Create a new isolated task canvas with create_canvas before writing a plan that should not modify an existing demo canvas.",
   "Create and update graph structure through create_task, create_block, add_dependency, and related write tools.",
   "Use update_task_acceptance, update_block_dependencies, update_block_planning, update_review_pipeline, and project graph dependency tools for plan metadata that is not prompt text.",
+  "Use update_canvas_execution_policy for canvas-level execution.defaultExecutor and execution.parallel settings; use update_block_planning for per-block parallel safety and locks.",
   "Keep the graph acyclic. Use get_project_graph before large dependency changes.",
   "Write task and block prompt markdown through update_task and update_block, then run refresh_prompts and validate_project.",
   "Use implementation blocks for work and review blocks for review gates; review blocks should depend on the implementation blocks they inspect.",
@@ -36,6 +37,11 @@ export const planweaveGuide = {
         "A block is the atomic implementation or review unit. Implementation blocks describe work; review blocks inspect work and can depend on implementation blocks."
     },
     {
+      name: "Parallel execution policy",
+      description:
+        "A DAG branch only describes dependency shape. Actual parallel eligibility also requires the canvas manifest execution.parallel.enabled/maxConcurrent policy plus per-implementation-block parallel.safe and non-conflicting locks."
+    },
+    {
       name: "Prompt surfaces",
       description:
         "Task and block prompts are source markdown in the Plan Package. Rendered prompts are derived surfaces and should be read with get_prompt/read_prompt instead of edited directly."
@@ -54,7 +60,8 @@ export const planweaveGuide = {
     "Use get_project_tree to inspect the local project/canvas/task/block tree before authoring a plan into an existing project.",
     "Use list_projects for a lightweight project list when task/block details are unnecessary.",
     "Use create_canvas when the plan should live in a new isolated canvas.",
-    "Use create_task, create_block, update_task_acceptance, update_block_dependencies, update_block_planning, update_review_pipeline, add_dependency, and project graph dependency tools to author structure.",
+    "Use create_task, create_block, update_task_acceptance, update_block_dependencies, update_canvas_execution_policy, update_block_planning, update_review_pipeline, add_dependency, and project graph dependency tools to author structure.",
+    "For parallel plans, first set the selected canvas execution.parallel policy with update_canvas_execution_policy, then mark only truly independent implementation blocks with update_block_planning parallelSafe/parallelLocks.",
     "Use update_task and update_block to update promptMarkdown, titles, or executors.",
     "Run refresh_prompts and validate_project after meaningful authoring changes."
   ],
@@ -66,6 +73,8 @@ export const planweaveGuide = {
     { need: "Read task/block/project prompt markdown", tool: "read_prompt" },
     { need: "Read a rendered execution prompt", tool: "get_prompt" },
     { need: "Create or update plan structure", tool: "create_task/create_block/update_* tools" },
+    { need: "Enable or tune canvas-level parallel execution", tool: "update_canvas_execution_policy" },
+    { need: "Mark individual implementation blocks as parallel-safe or set locks", tool: "update_block_planning" },
     { need: "Validate authored plans", tool: "validate_project or explain_validation_errors" }
   ],
   nonGoals: [
@@ -81,8 +90,9 @@ export const exampleFiles = [
     encoding: "utf8" as const,
     content: JSON.stringify(
       {
-        schemaVersion: 1,
-        project: { name: "Example PlanWeave Project" },
+        version: "plan-package/v1",
+        project: { title: "Example PlanWeave Project", description: "A minimal PlanWeave package example." },
+        execution: { parallel: { enabled: false, maxConcurrent: 1 } },
         review: { maxFeedbackCycles: 2, completionPolicy: "strict" },
         nodes: [
           {

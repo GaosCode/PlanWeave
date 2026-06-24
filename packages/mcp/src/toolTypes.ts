@@ -51,6 +51,7 @@ export const planweaveToolNames = [
   "remove_task",
   "create_block",
   "update_block",
+  "update_canvas_execution_policy",
   "update_block_planning",
   "update_block_dependencies",
   "remove_block",
@@ -170,6 +171,15 @@ export type RuntimeGateway = {
     canvasId: string | undefined,
     blockRef: string,
     input: { title?: string; promptMarkdown?: string; executor?: string | null }
+  ): Promise<GraphEditResult>;
+  updateCanvasExecutionPolicy(
+    projectId: string,
+    canvasId: string | undefined,
+    input: {
+      defaultExecutor?: string | null;
+      parallelEnabled?: boolean;
+      maxConcurrent?: number;
+    }
   ): Promise<GraphEditResult>;
   updateBlockPlanning(
     projectId: string,

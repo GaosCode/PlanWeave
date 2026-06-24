@@ -31,6 +31,7 @@ import {
   updateBlockPlanning,
   updateBlockPrompt,
   updateBlockTitle,
+  updateCanvasExecutionPolicy,
   updateProjectPrompt,
   updateReviewPipeline,
   updateTaskAcceptance,
@@ -157,6 +158,9 @@ export const runtimeGateway: RuntimeGateway = {
       throw new Error("At least one of title, promptMarkdown, or executor must be provided.");
     }
     return result;
+  },
+  async updateCanvasExecutionPolicy(projectId, canvasId, input) {
+    return updateCanvasExecutionPolicy(await resolveCanvasWorkspace(projectId, canvasId), input);
   },
   async updateBlockPlanning(projectId, canvasId, blockRef, input) {
     return updateBlockPlanning(await resolveCanvasWorkspace(projectId, canvasId), blockRef, input);

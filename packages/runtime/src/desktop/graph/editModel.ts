@@ -1,8 +1,10 @@
 import { resolve } from "node:path";
 import { compileTaskGraph } from "../../graph/compileTaskGraph.js";
 import { buildPlanPackageGraphMutation } from "../../graph/mutation.js";
+import { writeJsonFile } from "../../json.js";
 import { loadPackage } from "../../package/loadPackage.js";
 import { loadProjectGraphForWorkspace, projectCanvasWorkspace } from "../../projectGraph/index.js";
+import { manifestSchema } from "../../schema/manifest.js";
 import {
   executePlanGraphCommand,
   redoPlanGraphCommand,
@@ -108,6 +110,23 @@ function graphEditResult(manifest: PlanPackageManifest, affectedTasks: string[] 
     diagnostics: graph.diagnostics.errors,
     graph
   };
+}
+
+function manifestValidationResult(manifest: PlanPackageManifest, affectedTasks: string[]): GraphEditResult {
+  const parsed = manifestSchema.safeParse(manifest);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      affectedTasks: [],
+      diagnostics: parsed.error.issues.map((issue) => ({
+        code: "manifest_schema",
+        message: issue.message,
+        path: issue.path.join(".")
+      })),
+      graph: compileTaskGraph(manifest)
+    };
+  }
+  return graphEditResult(parsed.data as PlanPackageManifest, affectedTasks);
 }
 
 async function commandResult(projectRoot: PackageWorkspaceRef, result: PlanGraphCommandResult): Promise<GraphEditResult> {
@@ -336,6 +355,57 @@ export async function updateBlockPlanning(
   }
 ): Promise<GraphEditResult> {
   return executeDesktopPlanGraphCommand(projectRoot, { type: "updateBlockFields", blockRef: ref, fields: input });
+}
+
+export async function updateCanvasExecutionPolicy(
+  projectRoot: PackageWorkspaceRef,
+  input: {
+    defaultExecutor?: string | null;
+    parallelEnabled?: boolean;
+    maxConcurrent?: number;
+  }
+): Promise<GraphEditResult> {
+  if (
+    input.defaultExecutor === undefined &&
+    input.parallelEnabled === undefined &&
+    input.maxConcurrent === undefined
+  ) {
+    throw new Error("At least one execution policy field must be provided.");
+  }
+  if (input.maxConcurrent !== undefined && (!Number.isInteger(input.maxConcurrent) || input.maxConcurrent < 1)) {
+    throw new Error("maxConcurrent must be a positive integer.");
+  }
+
+  const { workspace, manifest } = await loadPackage(projectRoot);
+  const nextManifest: PlanPackageManifest = {
+    ...manifest,
+    execution: {
+      ...manifest.execution,
+      ...(input.defaultExecutor === undefined
+        ? {}
+        : input.defaultExecutor === null
+          ? { defaultExecutor: undefined }
+          : { defaultExecutor: input.defaultExecutor }),
+      parallel: {
+        ...manifest.execution.parallel,
+        enabled: input.parallelEnabled ?? manifest.execution.parallel.enabled,
+        maxConcurrent: input.maxConcurrent ?? manifest.execution.parallel.maxConcurrent
+      }
+    }
+  };
+  if (input.defaultExecutor === null) {
+    delete nextManifest.execution.defaultExecutor;
+  }
+
+  const affectedTasks = nextManifest.nodes.map((node) => node.id);
+  const result = manifestValidationResult(nextManifest, affectedTasks);
+  if (!result.ok) {
+    return result;
+  }
+
+  await writeJsonFile(workspace.manifestFile, nextManifest);
+  invalidateDesktopProjectProjection(workspace);
+  return result;
 }
 
 export async function addDependencyEdge(

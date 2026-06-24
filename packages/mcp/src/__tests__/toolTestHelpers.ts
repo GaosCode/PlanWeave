@@ -65,6 +65,7 @@ export type TestGateway = RuntimeGateway & {
   updateTaskAcceptance: ReturnType<RuntimeGateway["updateTaskAcceptance"] & typeof vi.fn>;
   createBlock: ReturnType<RuntimeGateway["createBlock"] & typeof vi.fn>;
   updateBlock: ReturnType<RuntimeGateway["updateBlock"] & typeof vi.fn>;
+  updateCanvasExecutionPolicy: ReturnType<RuntimeGateway["updateCanvasExecutionPolicy"] & typeof vi.fn>;
   updateBlockPlanning: ReturnType<RuntimeGateway["updateBlockPlanning"] & typeof vi.fn>;
   updateBlockDependencies: ReturnType<RuntimeGateway["updateBlockDependencies"] & typeof vi.fn>;
   addDependency: ReturnType<RuntimeGateway["addDependency"] & typeof vi.fn>;
@@ -313,6 +314,7 @@ export function createGateway(): TestGateway {
     removeTask: vi.fn(async () => graphEditResult),
     createBlock: vi.fn(async () => graphEditResult),
     updateBlock: vi.fn(async () => graphEditResult),
+    updateCanvasExecutionPolicy: vi.fn(async () => graphEditResult),
     updateBlockPlanning: vi.fn(async () => graphEditResult),
     updateBlockDependencies: vi.fn(async () => graphEditResult),
     removeBlock: vi.fn(async () => graphEditResult),

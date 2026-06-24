@@ -420,6 +420,7 @@ export const planweaveToolOutputSchemas = {
   remove_task: graphEditOutputSchema,
   create_block: graphEditOutputSchema,
   update_block: graphEditOutputSchema,
+  update_canvas_execution_policy: graphEditOutputSchema,
   update_block_planning: graphEditOutputSchema,
   update_block_dependencies: graphEditOutputSchema,
   remove_block: graphEditOutputSchema,

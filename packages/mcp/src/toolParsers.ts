@@ -61,6 +61,18 @@ export function parseBlockPlanningInput(record: Record<string, unknown>) {
   return input;
 }
 
+export function parseCanvasExecutionPolicyInput(record: Record<string, unknown>) {
+  const input = {
+    defaultExecutor: optionalNullableString(record.defaultExecutor, "defaultExecutor"),
+    parallelEnabled: optionalBoolean(record.parallelEnabled, "parallelEnabled"),
+    maxConcurrent: optionalPositiveInteger(record.maxConcurrent, "maxConcurrent")
+  };
+  if (input.defaultExecutor === undefined && input.parallelEnabled === undefined && input.maxConcurrent === undefined) {
+    throw new Error("At least one execution policy field must be provided.");
+  }
+  return input;
+}
+
 export function parseProjectTaskRefs(record: Record<string, unknown>): { from: ProjectTaskRef; to: ProjectTaskRef } {
   return {
     from: {
@@ -135,6 +147,16 @@ function optionalNonNegativeInteger(value: unknown, field: string): number | und
   }
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
     throw new Error(`${field} must be a non-negative integer.`);
+  }
+  return value;
+}
+
+function optionalPositiveInteger(value: unknown, field: string): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    throw new Error(`${field} must be a positive integer.`);
   }
   return value;
 }

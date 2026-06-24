@@ -13,6 +13,7 @@ export {
   updateBlockPlanning,
   updateBlockPrompt,
   updateBlockTitle,
+  updateCanvasExecutionPolicy,
   updateTaskAcceptance,
   updateTaskExecutor,
   updateTaskPrompt,

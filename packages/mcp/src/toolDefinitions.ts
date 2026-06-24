@@ -255,9 +255,22 @@ export const planweaveToolDefinitions: Record<PlanweaveToolName, ToolDefinition>
     inputSchema: updateBlockInputShape,
     annotations: writeAnnotations
   },
+  update_canvas_execution_policy: {
+    title: "Update PlanWeave Canvas Execution Policy",
+    description:
+      "Update selected top-level manifest execution policy fields for one canvas. Use this for execution.defaultExecutor and execution.parallel; use update_block_planning for per-block parallel safety and locks.",
+    inputSchema: {
+      ...projectCanvasInput,
+      defaultExecutor: z.string().min(1).nullable().optional(),
+      parallelEnabled: z.boolean().optional(),
+      maxConcurrent: z.number().int().positive().optional()
+    },
+    annotations: writeAnnotations
+  },
   update_block_planning: {
     title: "Update PlanWeave Block Planning",
-    description: "Update implementation parallel policy or review block planning fields.",
+    description:
+      "Update per-block planning fields: implementation parallel safety/locks or review block planning fields. Use update_canvas_execution_policy for the canvas-level parallel enable/maxConcurrent switch.",
     inputSchema: {
       ...projectCanvasInput,
       ...blockRefInput,

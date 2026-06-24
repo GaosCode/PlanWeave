@@ -19,6 +19,7 @@ import {
   updateBlockExecutor,
   updateBlockPlanning,
   updateBlockTitle,
+  updateCanvasExecutionPolicy,
   updateTaskAcceptance,
   updateTaskExecutor,
   updateTaskTitle,
@@ -37,6 +38,53 @@ afterEach(() => {
 });
 
 describe("desktop graph edit API", () => {
+  it("updates canvas execution policy through the manifest without writing invalid policies", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
+
+    await expect(updateCanvasExecutionPolicy(root, {
+      defaultExecutor: "codex-auto",
+      parallelEnabled: true,
+      maxConcurrent: 3
+    })).resolves.toMatchObject({
+      ok: true,
+      affectedTasks: ["T-001", "T-002"]
+    });
+
+    let manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    expect(manifest.execution).toEqual({
+      defaultExecutor: "codex-auto",
+      parallel: {
+        enabled: true,
+        maxConcurrent: 3
+      }
+    });
+
+    await expect(updateCanvasExecutionPolicy(root, { defaultExecutor: null })).resolves.toMatchObject({ ok: true });
+    manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    expect(manifest.execution).toEqual({
+      parallel: {
+        enabled: true,
+        maxConcurrent: 3
+      }
+    });
+
+    const invalid = await updateCanvasExecutionPolicy(root, { defaultExecutor: "missing-executor" });
+    expect(invalid.ok).toBe(false);
+    expect(invalid.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "manifest_schema",
+        path: "execution.defaultExecutor"
+      })
+    ]);
+    manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    expect(manifest.execution).toEqual({
+      parallel: {
+        enabled: true,
+        maxConcurrent: 3
+      }
+    });
+  });
+
   it("writes task/block titles, executor overrides, and task dependency edges through the manifest", async () => {
     const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
 

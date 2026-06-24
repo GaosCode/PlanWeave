@@ -21,6 +21,7 @@ import {
 import {
   parseBlockDependenciesInput,
   parseBlockPlanningInput,
+  parseCanvasExecutionPolicyInput,
   parseCreateBlockInput,
   parseCreateTaskToolArgs,
   parseProjectTaskRefs,
@@ -173,6 +174,11 @@ export async function handlePlanweaveTool(
       const record = readObjectArgs(args);
       const { projectId, canvasId, blockRef, input } = parseUpdateBlockToolArgs(record);
       return graphEditResult(await gateway.updateBlock(projectId, canvasId, blockRef, input));
+    }
+    case "update_canvas_execution_policy": {
+      const record = readObjectArgs(args);
+      const { projectId, canvasId } = parseProjectCanvasArgs(record);
+      return graphEditResult(await gateway.updateCanvasExecutionPolicy(projectId, canvasId, parseCanvasExecutionPolicyInput(record)));
     }
     case "update_block_planning": {
       const record = readObjectArgs(args);

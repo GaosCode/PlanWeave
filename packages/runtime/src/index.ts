@@ -191,6 +191,7 @@ export {
   updateBlockPlanning,
   updateBlockPrompt,
   updateBlockTitle,
+  updateCanvasExecutionPolicy,
   cloneDesktopGraphEditResult,
   updateTaskAcceptance,
   updateTaskExecutor,

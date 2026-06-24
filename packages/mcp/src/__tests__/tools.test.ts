@@ -37,7 +37,15 @@ describe("handlePlanweaveTool", () => {
           expect.stringContaining("legacy default canvas data")
         ]),
         toolSelection: expect.arrayContaining([
-          expect.objectContaining({ need: expect.stringContaining("Find local projects"), tool: "get_project_tree" })
+          expect.objectContaining({ need: expect.stringContaining("Find local projects"), tool: "get_project_tree" }),
+          expect.objectContaining({ need: expect.stringContaining("parallel execution"), tool: "update_canvas_execution_policy" }),
+          expect.objectContaining({ need: expect.stringContaining("parallel-safe"), tool: "update_block_planning" })
+        ]),
+        concepts: expect.arrayContaining([
+          expect.objectContaining({
+            name: "Parallel execution policy",
+            description: expect.stringContaining("execution.parallel.enabled")
+          })
         ]),
         nonGoals: expect.arrayContaining([
           expect.stringContaining("currently selected PlanWeave Desktop project")
@@ -508,6 +516,13 @@ describe("handlePlanweaveTool", () => {
       blockRef: "T-001#B-002",
       dependsOn: ["B-001"]
     }, gateway);
+    await handlePlanweaveTool("update_canvas_execution_policy", {
+      projectId: "project-1",
+      canvasId: "default",
+      defaultExecutor: null,
+      parallelEnabled: true,
+      maxConcurrent: 3
+    }, gateway);
     await handlePlanweaveTool("update_block_planning", {
       projectId: "project-1",
       canvasId: "default",
@@ -542,6 +557,11 @@ describe("handlePlanweaveTool", () => {
       "Acceptance two"
     ]);
     expect(gateway.updateBlockDependencies).toHaveBeenCalledWith("project-1", "default", "T-001#B-002", ["B-001"]);
+    expect(gateway.updateCanvasExecutionPolicy).toHaveBeenCalledWith("project-1", "default", {
+      defaultExecutor: null,
+      parallelEnabled: true,
+      maxConcurrent: 3
+    });
     expect(gateway.updateBlockPlanning).toHaveBeenCalledWith("project-1", "default", "T-001#B-001", {
       parallelSafe: true,
       parallelLocks: ["repo"],
