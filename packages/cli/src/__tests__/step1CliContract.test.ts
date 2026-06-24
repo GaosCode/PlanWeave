@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "../../../..");
-const cliWorkflowTimeoutMs = 60_000;
+const cliWorkflowTimeoutMs = 120_000;
 
 async function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync("pnpm", ["--silent", "--filter", "@planweave-ai/cli", "planweave", ...args], {

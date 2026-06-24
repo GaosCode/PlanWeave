@@ -232,6 +232,7 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       await waitForText("UI Smoke Task");
       covered.push("generate-draft");
       await clickByTestId("new-task-confirm-write");
+      await waitForSelector("[data-graph-surface]", "graph surface after task confirmation");
       await waitForText("UI Smoke Task");
       covered.push("confirm-write-plan-package");
       await clickByTestId("sidebar-statistics");
