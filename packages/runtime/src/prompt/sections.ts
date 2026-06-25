@@ -8,10 +8,79 @@ export type PromptSection = {
   content: string;
 };
 
-const sectionPattern =
-  /<!-- planweave:(managed|user):start ([a-z0-9-]+) -->([\s\S]*?)<!-- planweave:\1:end \2 -->/g;
-
 const markerPattern = /<!-- planweave:(managed|user):(start|end) ([a-z0-9-]+) -->/g;
+
+type PromptSectionMarker = {
+  kind: PromptSectionKind;
+  boundary: "start" | "end";
+  name: string;
+  startIndex: number;
+  endIndex: number;
+};
+
+type PromptSectionRange = PromptSection & {
+  markerStartIndex: number;
+  markerEndIndex: number;
+};
+
+function scanPromptSectionMarkers(markdown: string): PromptSectionMarker[] {
+  return [...markdown.matchAll(markerPattern)].map((match) => ({
+    kind: match[1] as PromptSectionKind,
+    boundary: match[2] as "start" | "end",
+    name: match[3],
+    startIndex: match.index,
+    endIndex: match.index + match[0].length
+  }));
+}
+
+function markerKey(marker: Pick<PromptSectionMarker, "kind" | "name">): string {
+  return `${marker.kind}:${marker.name}`;
+}
+
+function findPromptSectionRanges(markdown: string): PromptSectionRange[] {
+  const markers = scanPromptSectionMarkers(markdown);
+  const nextEndByKey = new Map<string, number>();
+  const matchingEndByStart = new Map<number, number>();
+
+  for (let index = markers.length - 1; index >= 0; index -= 1) {
+    const marker = markers[index];
+    const key = markerKey(marker);
+
+    if (marker.boundary === "end") {
+      nextEndByKey.set(key, index);
+      continue;
+    }
+
+    const endIndex = nextEndByKey.get(key);
+    if (endIndex !== undefined) {
+      matchingEndByStart.set(index, endIndex);
+    }
+  }
+
+  const sections: PromptSectionRange[] = [];
+  let index = 0;
+  while (index < markers.length) {
+    const marker = markers[index];
+    const endIndex = marker.boundary === "start" ? matchingEndByStart.get(index) : undefined;
+
+    if (endIndex === undefined) {
+      index += 1;
+      continue;
+    }
+
+    const endMarker = markers[endIndex];
+    sections.push({
+      kind: marker.kind,
+      name: marker.name,
+      content: markdown.slice(marker.endIndex, endMarker.startIndex).replace(/^\n/, "").replace(/\n$/, ""),
+      markerStartIndex: marker.startIndex,
+      markerEndIndex: endMarker.endIndex
+    });
+    index = endIndex + 1;
+  }
+
+  return sections;
+}
 
 function sectionIssue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
@@ -21,12 +90,10 @@ export function findPromptSectionBoundaryIssues(markdown: string, path?: string)
   const issues: ValidationIssue[] = [];
   const stack: Array<{ kind: PromptSectionKind; name: string }> = [];
 
-  for (const match of markdown.matchAll(markerPattern)) {
-    const kind = match[1] as PromptSectionKind;
-    const boundary = match[2];
-    const name = match[3];
+  for (const marker of scanPromptSectionMarkers(markdown)) {
+    const { kind, name } = marker;
 
-    if (boundary === "start") {
+    if (marker.boundary === "start") {
       stack.push({ kind, name });
       continue;
     }
@@ -64,11 +131,7 @@ export function assertPromptSectionsWellFormed(markdown: string, path?: string):
 }
 
 export function parsePromptSections(markdown: string): PromptSection[] {
-  return [...markdown.matchAll(sectionPattern)].map((match) => ({
-    kind: match[1] as PromptSectionKind,
-    name: match[2],
-    content: match[3].replace(/^\n/, "").replace(/\n$/, "")
-  }));
+  return findPromptSectionRanges(markdown).map(({ kind, name, content }) => ({ kind, name, content }));
 }
 
 export function getPromptSection(markdown: string, kind: PromptSectionKind, name: string): string | null {
@@ -86,11 +149,9 @@ export function formatSection(kind: PromptSectionKind, name: string, content: st
 }
 
 export function replacePromptSection(markdown: string, kind: PromptSectionKind, name: string, content: string): string {
-  const pattern = new RegExp(
-    `<!-- planweave:${kind}:start ${name} -->[\\s\\S]*?<!-- planweave:${kind}:end ${name} -->`
-  );
-  if (!pattern.test(markdown)) {
+  const section = findPromptSectionRanges(markdown).find((item) => item.kind === kind && item.name === name);
+  if (!section) {
     throw new Error(`Prompt section '${kind}:${name}' does not exist.`);
   }
-  return markdown.replace(pattern, formatSection(kind, name, content));
+  return `${markdown.slice(0, section.markerStartIndex)}${formatSection(kind, name, content)}${markdown.slice(section.markerEndIndex)}`;
 }
