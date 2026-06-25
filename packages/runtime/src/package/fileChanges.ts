@@ -8,13 +8,26 @@ import { refreshPrompt } from "../prompt/refreshPrompt.js";
 import { refreshPrompts } from "../prompt/refreshPrompts.js";
 import type { CompiledTaskGraph, FileFingerprint, PackageFileSnapshot, PackageWorkspaceRef, PlanPackageManifest, PromptSurface, ValidationIssue } from "../types.js";
 
+const DEFAULT_PROMPT_REFRESH_CONCURRENCY = 4;
+
+export type PromptRefreshStats = {
+  requested: number;
+  refreshed: number;
+  concurrency: number | null;
+};
+
 export type PackageFileSyncResult = {
   snapshot: PackageFileSnapshot | null;
   impact: PackageChangeImpact;
   refreshed: PromptSurface[];
+  refreshStats: PromptRefreshStats;
   changedPackagePaths: string[];
   indexPackagePaths: string[];
   incremental: boolean;
+};
+
+export type PackageFileRefreshOptions = {
+  refreshConcurrency?: number;
 };
 
 type NormalizedPackageChangePaths = {
@@ -72,6 +85,36 @@ function changed(left: FileFingerprint | undefined, right: FileFingerprint | und
 
 function dedupe(paths: string[]): string[] {
   return [...new Set(paths)];
+}
+
+function normalizeConcurrency(limit: number): number {
+  return Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 1;
+}
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
+  const concurrency = normalizeConcurrency(limit);
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  let firstError: unknown = null;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length && !firstError) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = await mapper(items[index]);
+      } catch (error) {
+        firstError = error;
+      }
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  if (firstError) {
+    throw firstError;
+  }
+  return results;
 }
 
 function normalizeWatcherPath(path: string): string {
@@ -268,7 +311,14 @@ export async function refreshChangedPackagePrompts(
 ): Promise<PackageFileSyncResult> {
   const detected = await detectPackageFileChanges(projectRoot, previous);
   if (!detected.snapshot || !detected.impact.ok) {
-    return { ...detected, refreshed: [], changedPackagePaths: ["manifest.json"], indexPackagePaths: ["manifest.json"], incremental: false };
+    return {
+      ...detected,
+      refreshed: [],
+      refreshStats: { requested: 0, refreshed: 0, concurrency: null },
+      changedPackagePaths: ["manifest.json"],
+      indexPackagePaths: ["manifest.json"],
+      incremental: false
+    };
   }
   const result = detected.impact.fullRefresh ? await refreshPrompts({ projectRoot }) : { prompts: [] };
   const snapshot = await createPackageFileSnapshot(projectRoot);
@@ -277,6 +327,7 @@ export async function refreshChangedPackagePrompts(
     snapshot,
     impact: detected.impact,
     refreshed: result.prompts,
+    refreshStats: { requested: result.prompts.length, refreshed: result.prompts.length, concurrency: detected.impact.fullRefresh ? null : 1 },
     changedPackagePaths: indexPackagePaths,
     indexPackagePaths,
     incremental: false
@@ -305,7 +356,8 @@ async function refreshFullWithDiagnostics(
 export async function refreshChangedPackagePromptsForPaths(
   projectRoot: PackageWorkspaceRef,
   previous: PackageFileSnapshot,
-  changedPaths: string[]
+  changedPaths: string[],
+  options: PackageFileRefreshOptions = {}
 ): Promise<PackageFileSyncResult> {
   const normalized = normalizePackageChangedPaths(changedPaths);
   if (!normalized.incremental) {
@@ -348,6 +400,9 @@ export async function refreshChangedPackagePromptsForPaths(
     }
 
     const impact = incrementalPromptImpact(previous.graph, changedPromptPaths);
+    const refsToRefresh = promptSurfaceRefsForPromptPaths(previous.graph, changedPromptPaths);
+    const refreshConcurrency = normalizeConcurrency(options.refreshConcurrency ?? DEFAULT_PROMPT_REFRESH_CONCURRENCY);
+    const refreshed = await mapWithConcurrency(refsToRefresh, refreshConcurrency, (ref) => refreshPrompt({ projectRoot, ref }));
     return {
       snapshot: impact.ok
         ? {
@@ -358,9 +413,8 @@ export async function refreshChangedPackagePromptsForPaths(
           }
         : null,
       impact,
-      refreshed: await Promise.all(
-        promptSurfaceRefsForPromptPaths(previous.graph, changedPromptPaths).map((ref) => refreshPrompt({ projectRoot, ref }))
-      ),
+      refreshed,
+      refreshStats: { requested: refsToRefresh.length, refreshed: refreshed.length, concurrency: refreshConcurrency },
       changedPackagePaths: normalized.changedPackagePaths,
       indexPackagePaths: normalized.changedPackagePaths,
       incremental: true

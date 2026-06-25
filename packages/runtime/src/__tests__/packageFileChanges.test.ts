@@ -1,6 +1,27 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const refreshPromptMockState = vi.hoisted(() => ({
+  active: 0,
+  maxActive: 0,
+  calls: [] as string[],
+  failRefs: new Set<string>()
+}));
+
+vi.mock("../prompt/refreshPrompt.js", () => ({
+  refreshPrompt: async (options: { ref: string }) => {
+    refreshPromptMockState.active += 1;
+    refreshPromptMockState.maxActive = Math.max(refreshPromptMockState.maxActive, refreshPromptMockState.active);
+    refreshPromptMockState.calls.push(options.ref);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    refreshPromptMockState.active -= 1;
+    if (refreshPromptMockState.failRefs.has(options.ref)) {
+      throw new Error(`refresh failed for ${options.ref}`);
+    }
+    return { ref: options.ref, path: "", markdown: `rendered ${options.ref}` };
+  }
+}));
 import {
   createPackageFileSnapshot,
   detectPackageFileChanges,
@@ -14,6 +35,13 @@ import { writeJsonFile } from "../json.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 
 describe("package file changes", () => {
+  beforeEach(() => {
+    refreshPromptMockState.active = 0;
+    refreshPromptMockState.maxActive = 0;
+    refreshPromptMockState.calls = [];
+    refreshPromptMockState.failRefs.clear();
+  });
+
   it("detects block prompt changes and refreshes rendered prompt surfaces", async () => {
     const { root, init } = await createTestWorkspace();
     const before = await createPackageFileSnapshot(root);
@@ -44,6 +72,7 @@ describe("package file changes", () => {
       diagnostics: []
     });
     expect(refreshed.refreshed.map((prompt) => prompt.ref)).toEqual(["T-001#B-001"]);
+    expect(refreshed.refreshStats).toEqual({ requested: 1, refreshed: 1, concurrency: 4 });
   });
 
   it("refreshes a changed task prompt path incrementally", async () => {
@@ -62,6 +91,62 @@ describe("package file changes", () => {
       diagnostics: []
     });
     expect(refreshed.refreshed.map((prompt) => prompt.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
+    expect(refreshed.refreshStats).toEqual({ requested: 2, refreshed: 2, concurrency: 4 });
+  });
+
+  it("limits incremental prompt refresh concurrency and preserves ref order", async () => {
+    const manifest = basicManifest();
+    const task = manifest.nodes.find((node) => node.id === "T-001");
+    if (!task || task.type !== "task") {
+      throw new Error("missing T-001 task");
+    }
+    task.blocks = Array.from({ length: 6 }, (_, index) => {
+      const id = `B-${String(index + 1).padStart(3, "0")}`;
+      return {
+        id,
+        type: "implementation" as const,
+        title: `Implement ${id}`,
+        prompt: `nodes/T-001/blocks/${id}.prompt.md`,
+        depends_on: [],
+        parallel: { safe: true, locks: [id] }
+      };
+    });
+    const { root, init } = await createTestWorkspace(manifest);
+    const before = await createPackageFileSnapshot(root);
+    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), "updated task prompt\n", "utf8");
+
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["nodes/T-001/prompt.md"]);
+
+    const expectedRefs = ["T-001#B-001", "T-001#B-002", "T-001#B-003", "T-001#B-004", "T-001#B-005", "T-001#B-006"];
+    expect(refreshPromptMockState.maxActive).toBeLessThanOrEqual(4);
+    expect(refreshPromptMockState.calls).toEqual(expectedRefs);
+    expect(refreshed.refreshed.map((prompt) => prompt.ref)).toEqual(expectedRefs);
+    expect(refreshed.refreshStats).toEqual({ requested: 6, refreshed: 6, concurrency: 4 });
+  });
+
+  it("normalizes custom prompt refresh concurrency to at least one", async () => {
+    const { root, init } = await createTestWorkspace();
+    const before = await createPackageFileSnapshot(root);
+    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), "updated task prompt\n", "utf8");
+
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["nodes/T-001/prompt.md"], { refreshConcurrency: 0 });
+
+    expect(refreshPromptMockState.maxActive).toBe(1);
+    expect(refreshed.refreshStats).toEqual({ requested: 2, refreshed: 2, concurrency: 1 });
+  });
+
+  it("falls back to a full refresh when an incremental prompt refresh fails", async () => {
+    const { root, init } = await createTestWorkspace();
+    const before = await createPackageFileSnapshot(root);
+    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"), "updated block prompt\n", "utf8");
+    refreshPromptMockState.failRefs.add("T-001#B-001");
+
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["package/nodes/T-001/blocks/B-001.prompt.md"]);
+
+    expect(refreshed.incremental).toBe(false);
+    expect(refreshed.refreshed.map((prompt) => prompt.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
+    expect(refreshed.refreshStats).toEqual({ requested: 2, refreshed: 2, concurrency: null });
+    expect(refreshed.impact.diagnostics.map((diagnostic) => diagnostic.code)).toContain("package_change_incremental_refresh_failed");
   });
 
   it("falls back to a full refresh for manifest, unknown, empty, and coarse watcher paths", async () => {

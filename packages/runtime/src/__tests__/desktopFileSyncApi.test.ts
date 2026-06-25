@@ -123,6 +123,8 @@ describe("desktop file sync API", () => {
       fullRefresh: false,
       affectedTasks: ["T-001"],
       dirtyPromptRefs: ["T-001#B-001"],
+      refreshedPromptCount: 1,
+      refreshConcurrency: 4,
       diagnostics: []
     });
 
@@ -133,6 +135,8 @@ describe("desktop file sync API", () => {
       fullRefresh: false,
       affectedTasks: ["T-001"],
       dirtyPromptRefs: ["T-001"],
+      refreshedPromptCount: 2,
+      refreshConcurrency: 4,
       diagnostics: []
     });
   });
@@ -221,6 +225,8 @@ describe("desktop file sync API", () => {
       primed: false,
       fullRefresh: true,
       dirtyPromptRefs: [],
+      refreshedPromptCount: 0,
+      refreshConcurrency: null,
       diagnostics: expect.arrayContaining([
         expect.objectContaining({ code: "package_change_incremental_refresh_failed" }),
         expect.objectContaining({ code: "prompt_missing" })

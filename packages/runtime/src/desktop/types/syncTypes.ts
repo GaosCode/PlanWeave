@@ -6,6 +6,8 @@ export type DesktopPackageFileSyncResult = {
   fullRefresh: boolean;
   affectedTasks: string[];
   dirtyPromptRefs: string[];
+  refreshedPromptCount: number;
+  refreshConcurrency: number | null;
   diagnostics: ValidationIssue[];
 };
 

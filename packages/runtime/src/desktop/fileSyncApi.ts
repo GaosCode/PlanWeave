@@ -11,6 +11,7 @@ import type {
   PackageWorkspaceRef,
   PackageFileSnapshot
 } from "../types.js";
+import type { PromptRefreshStats } from "../package/fileChanges.js";
 import type { DesktopPackageFileRefreshOptions, DesktopPackageFileSnapshotRef, DesktopPackageFileSyncResult } from "./types.js";
 import { invalidateDesktopProjectProjection } from "./graph/projectProjectionModel.js";
 import { createSqlitePlanGraphStore } from "../plangraph/index.js";
@@ -124,6 +125,7 @@ function syncResult(options: {
   fullRefresh: boolean;
   affectedTasks: string[];
   diagnostics: DesktopPackageFileSyncResult["diagnostics"];
+  refreshStats?: PromptRefreshStats;
   primed?: boolean;
 }): DesktopPackageFileSyncResult {
   return {
@@ -132,6 +134,8 @@ function syncResult(options: {
     fullRefresh: options.fullRefresh,
     affectedTasks: options.affectedTasks,
     dirtyPromptRefs: options.next ? dirtyPromptRefs(options.previous, options.next) : [],
+    refreshedPromptCount: options.refreshStats?.refreshed ?? 0,
+    refreshConcurrency: options.refreshStats?.concurrency ?? null,
     diagnostics: options.diagnostics
   };
 }
@@ -199,6 +203,8 @@ export async function detectDesktopPackageFileChanges(
       fullRefresh: false,
       affectedTasks: [],
       dirtyPromptRefs: [],
+      refreshedPromptCount: 0,
+      refreshConcurrency: null,
       diagnostics: []
     };
   }
@@ -230,6 +236,8 @@ export async function refreshChangedDesktopPackagePrompts(
       fullRefresh: false,
       affectedTasks: [],
       dirtyPromptRefs: [],
+      refreshedPromptCount: 0,
+      refreshConcurrency: null,
       diagnostics: []
     };
   }
@@ -241,7 +249,8 @@ export async function refreshChangedDesktopPackagePrompts(
       ok: result.impact.ok,
       fullRefresh: result.impact.fullRefresh,
       affectedTasks: result.impact.affectedTasks,
-      diagnostics: result.impact.diagnostics
+      diagnostics: result.impact.diagnostics,
+      refreshStats: result.refreshStats
     });
     dirtyRefsByProject.set(projectKey, failed.dirtyPromptRefs);
     return indexPlanGraphExternalChange(projectRoot, ["manifest.json"], failed);
@@ -253,7 +262,8 @@ export async function refreshChangedDesktopPackagePrompts(
     ok: result.impact.ok,
     fullRefresh: result.impact.fullRefresh,
     affectedTasks: result.impact.affectedTasks,
-    diagnostics: result.impact.diagnostics
+    diagnostics: result.impact.diagnostics,
+    refreshStats: result.refreshStats
   });
   dirtyRefsByProject.set(projectKey, refreshed.dirtyPromptRefs);
   return indexPlanGraphExternalChange(projectRoot, changedPackagePaths(previous, result.snapshot), refreshed);
@@ -274,6 +284,8 @@ export async function refreshPackageFileChanges(
       fullRefresh: false,
       affectedTasks: [],
       dirtyPromptRefs: [],
+      refreshedPromptCount: 0,
+      refreshConcurrency: null,
       diagnostics: []
     };
   }
@@ -288,6 +300,8 @@ export async function refreshPackageFileChanges(
       fullRefresh: result.impact.fullRefresh,
       affectedTasks: result.impact.affectedTasks,
       dirtyPromptRefs: [],
+      refreshedPromptCount: result.refreshStats.refreshed,
+      refreshConcurrency: result.refreshStats.concurrency,
       diagnostics: result.impact.diagnostics
     };
     dirtyRefsByProject.set(projectKey, failed.dirtyPromptRefs);
@@ -302,6 +316,8 @@ export async function refreshPackageFileChanges(
     fullRefresh: result.impact.fullRefresh,
     affectedTasks: result.impact.affectedTasks,
     dirtyPromptRefs: dirtyPromptRefsForResult,
+    refreshedPromptCount: result.refreshStats.refreshed,
+    refreshConcurrency: result.refreshStats.concurrency,
     diagnostics: result.impact.diagnostics
   };
   return indexPlanGraphExternalChange(projectRoot, result.indexPackagePaths, refreshed);
