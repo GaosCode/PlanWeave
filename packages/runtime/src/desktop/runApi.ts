@@ -8,7 +8,7 @@ import type { ProjectWorkspace } from "../types.js";
 import type { DesktopAutoRunEventLog, DesktopAutoRunEventListener, DesktopAutoRunOptions, DesktopAutoRunScope, DesktopAutoRunState } from "./types.js";
 import { appendAutoRunEvent, autoRunRoot, cloneAutoRunState, createAutoRunEvent, now } from "./runStateStore.js";
 import { listPersistedAutoRunStates, nextPersistedAutoRunId, readPersistedAutoRunEventLog, writePersistedAutoRunState } from "./runStateRepository.js";
-import { claimRef, claimScope, executorName, latestStatus, outputSummary, phaseAfterStep, terminalPatch } from "./runStepState.js";
+import { claimRef, claimRefs, claimScope, completedRefs, executorName, latestStatus, outputSummary, phaseAfterStep, reviewAttemptId, reviewVerdict, terminalPatch } from "./runStepState.js";
 import { invalidateDesktopProjectProjection } from "./graph/projectProjectionModel.js";
 
 const runs = new Map<string, DesktopAutoRunState>();
@@ -136,7 +136,16 @@ async function runLoop(runId: string): Promise<void> {
             phase: nextPhase
           },
           "step_finish",
-          { stepKind: step.kind, pausedAfterStep: afterStep.phase === "pausing" }
+          {
+            stepKind: step.kind,
+            claimRefs: claimRefs(step),
+            completedRefs: completedRefs(step),
+            recordId: record?.recordId ?? null,
+            recordPath: record?.path ?? null,
+            reviewAttemptId: reviewAttemptId(step),
+            reviewVerdict: reviewVerdict(step),
+            pausedAfterStep: afterStep.phase === "pausing"
+          }
         );
       } catch (error) {
         const afterError = runs.get(runId);

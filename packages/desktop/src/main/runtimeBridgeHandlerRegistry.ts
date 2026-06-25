@@ -8,6 +8,7 @@ import {
   createTaskDraft,
   cloneDesktopGraphEditResult,
   detectDesktopPackageFileChanges,
+  getAutoRunRetrospective,
   getAutoRunState,
   getBlockDetail,
   getCanvasGraphViewModel,
@@ -17,6 +18,7 @@ import {
   getDirtyPromptRefs,
   getFeedbackRecords,
   getGraphViewModel,
+  getLatestAutoRunRetrospective,
   getLatestAutoRunSummary,
   getProjectExecutionPlan,
   getProjectOverview,
@@ -214,5 +216,7 @@ export const runtimeBridgeHandlers = {
   resumeAutoRun: (_event, runId) => resumeAutoRun(runId),
   stopAutoRun: (_event, runId) => stopAutoRun(runId),
   getAutoRunState: (_event, runId) => getAutoRunState(runId),
-  getLatestAutoRunSummary: (_event, ref) => getLatestAutoRunSummary(ref.projectRoot, ref.canvasId)
+  getLatestAutoRunSummary: (_event, ref) => getLatestAutoRunSummary(ref.projectRoot, ref.canvasId),
+  getAutoRunRetrospective: (_event, ref, runId) => getAutoRunRetrospective(ref.projectRoot, ref.canvasId, runId),
+  getLatestAutoRunRetrospective: (_event, ref) => getLatestAutoRunRetrospective(ref.projectRoot, ref.canvasId)
 } satisfies RuntimeBridgeHandlerMap;

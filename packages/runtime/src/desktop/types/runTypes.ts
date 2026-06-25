@@ -1,4 +1,5 @@
 import type { AutoRunExplanation } from "../../types.js";
+import type { ReviewVerdict, ValidationIssue } from "../../types.js";
 
 export type DesktopAutoRunScope =
   | { kind: "project" }
@@ -71,4 +72,30 @@ export type DesktopAutoRunEventLog = {
   runId: string;
   events: DesktopAutoRunLogEvent[];
   diagnostics: DesktopAutoRunEventLogDiagnostic[];
+};
+
+export type DesktopAutoRunRetrospectiveSummary = {
+  runId: string;
+  projectRoot: string;
+  canvasId: string | null;
+  phase: DesktopAutoRunPhase;
+  scope: DesktopAutoRunScope;
+  startedAt: string;
+  updatedAt: string;
+  elapsedMs: number;
+  stepCount: number;
+  completedBlockRefs: string[];
+  blockedRef: string | null;
+  failedReason: string | null;
+  reviewVerdicts: Array<{
+    ref: string;
+    attemptId: string;
+    verdict: ReviewVerdict | null;
+    contentPreview: string;
+  }>;
+  latestRecordId: string | null;
+  latestRecordPath: string | null;
+  latestReportPath: string | null;
+  nextAction: AutoRunExplanation["nextAction"];
+  diagnostics: ValidationIssue[];
 };

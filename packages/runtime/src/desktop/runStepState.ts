@@ -1,5 +1,5 @@
 import { getAutoRunStatus } from "../taskManager/autoRun.js";
-import type { AutoRunStepResult, ClaimScope, ProjectWorkspace, ValidationIssue } from "../types.js";
+import type { AutoRunStepResult, ClaimScope, ProjectWorkspace, ReviewVerdict, ValidationIssue } from "../types.js";
 import type { DesktopAutoRunPhase, DesktopAutoRunScope, DesktopAutoRunState } from "./types.js";
 
 export function claimRef(step: AutoRunStepResult): string | null {
@@ -13,6 +13,52 @@ export function claimRef(step: AutoRunStepResult): string | null {
     return step.claim.refs[0] ?? null;
   }
   return null;
+}
+
+export function claimRefs(step: AutoRunStepResult): string[] {
+  if (step.kind === "submitted" || step.kind === "manual") {
+    if (step.claim.kind === "block") {
+      return [step.claim.ref];
+    }
+    if (step.claim.kind === "feedback") {
+      return [step.claim.sourceReviewBlockRef];
+    }
+    return [];
+  }
+  if (step.kind === "blocked") {
+    return step.claim.kind === "blocked" && step.claim.ref ? [step.claim.ref] : [];
+  }
+  if (step.kind === "batch_submitted") {
+    return [...step.claim.refs];
+  }
+  if (step.kind === "batch") {
+    return step.claim.kind === "batch" ? [...step.claim.refs] : [];
+  }
+  return [];
+}
+
+export function completedRefs(step: AutoRunStepResult): string[] {
+  if (step.kind === "submitted") {
+    return "ref" in step.submitResult && step.submitResult.status === "completed" ? [step.submitResult.ref] : [];
+  }
+  if (step.kind === "batch_submitted") {
+    return step.steps.flatMap((item) => completedRefs(item));
+  }
+  return [];
+}
+
+export function reviewAttemptId(step: AutoRunStepResult): string | null {
+  if (step.kind !== "submitted") {
+    return null;
+  }
+  return "reviewAttemptId" in step.submitResult ? step.submitResult.reviewAttemptId : null;
+}
+
+export function reviewVerdict(step: AutoRunStepResult): ReviewVerdict | null {
+  if (step.kind !== "submitted") {
+    return null;
+  }
+  return "verdict" in step.submitResult ? step.submitResult.verdict : null;
 }
 
 export function executorName(step: AutoRunStepResult): string | null {

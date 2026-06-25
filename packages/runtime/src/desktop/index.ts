@@ -82,6 +82,10 @@ export {
   refreshPackageFileChanges
 } from "./fileSyncApi.js";
 export {
+  getAutoRunRetrospective,
+  getLatestAutoRunRetrospective
+} from "./autoRunRetrospectiveApi.js";
+export {
   getAutoRunState,
   getLatestAutoRunSummary,
   listAutoRunEvents,

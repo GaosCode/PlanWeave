@@ -40,6 +40,7 @@ import type {
 import type {
   DesktopAutoRunEvent,
   DesktopAutoRunOptions,
+  DesktopAutoRunRetrospectiveSummary,
   DesktopAutoRunScope,
   DesktopAutoRunState
 } from "./runTypes.js";
@@ -175,6 +176,8 @@ export type DesktopBridgeApi = {
   stopAutoRun(runId: string): Promise<DesktopAutoRunState>;
   getAutoRunState(runId: string): Promise<DesktopAutoRunState>;
   getLatestAutoRunSummary(ref: DesktopCanvasReference): Promise<DesktopAutoRunState | null>;
+  getAutoRunRetrospective(ref: DesktopCanvasReference, runId: string): Promise<DesktopAutoRunRetrospectiveSummary>;
+  getLatestAutoRunRetrospective(ref: DesktopCanvasReference): Promise<DesktopAutoRunRetrospectiveSummary | null>;
   getStatistics(projectRoot: string): Promise<DesktopStatistics>;
   searchProject(projectRoot: string, query: string, filters?: DesktopSearchFilters): Promise<DesktopSearchResult[]>;
 };
