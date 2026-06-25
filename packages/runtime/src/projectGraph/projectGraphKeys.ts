@@ -6,7 +6,13 @@ export function projectTaskRefKey(ref: ProjectTaskRef): ProjectTaskRefString {
 
 export function parseProjectTaskRefKey(ref: ProjectTaskRefString): ProjectTaskRef {
   const separator = ref.indexOf("::");
-  if (separator <= 0 || separator === ref.length - 2) {
+  if (separator === -1) {
+    throw new Error(`Invalid project task ref '${ref}'. Expected '<canvas-id>::<task-id>'.`);
+  }
+  if (separator === 0) {
+    throw new Error(`Invalid project task ref '${ref}'. Expected '<canvas-id>::<task-id>'.`);
+  }
+  if (separator + 2 >= ref.length) {
     throw new Error(`Invalid project task ref '${ref}'. Expected '<canvas-id>::<task-id>'.`);
   }
   return {

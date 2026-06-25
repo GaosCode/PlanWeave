@@ -227,8 +227,8 @@ describe("package file changes", () => {
     );
   });
 
-  it("normalizes watcher path prefixes for package prompt files", () => {
-    expect(normalizePackageChangedPaths(["package/nodes/T-001/prompt.md", "nodes/T-001/blocks/B-001.prompt.md"])).toEqual({
+  it("normalizes watcher path prefixes and trailing separators for package prompt files", () => {
+    expect(normalizePackageChangedPaths(["./package/nodes/T-001/prompt.md///", "nodes\\T-001\\blocks\\B-001.prompt.md\\"])).toEqual({
       changedPackagePaths: ["nodes/T-001/prompt.md", "nodes/T-001/blocks/B-001.prompt.md"],
       diagnostics: [],
       incremental: true

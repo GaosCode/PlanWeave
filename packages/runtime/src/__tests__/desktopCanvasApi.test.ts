@@ -1,5 +1,5 @@
 import { access, chmod, mkdir, readdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   addTaskNode,
@@ -34,6 +34,7 @@ describe("desktop task canvas API", () => {
     const finalRoot = join(init.workspace.workspaceRoot, "canvases", "staged-create");
 
     const staged = await stageCanvasWorkspaceWrite(init.workspace, { canvasId: "staged-create", finalRoot });
+    expect(basename(staged.stagingRoot)).toMatch(/^staged-create-\d+-[a-f0-9-]+$/);
     await mkdir(join(staged.workspace.packageDir, "nodes"), { recursive: true });
     await writeJsonFile(staged.workspace.manifestFile, basicManifest());
     await writeJsonFile(staged.workspace.stateFile, {
@@ -48,6 +49,15 @@ describe("desktop task canvas API", () => {
 
     await expect(access(join(finalRoot, "package", "manifest.json"))).resolves.toBeUndefined();
     await expect(access(staged.stagingRoot)).rejects.toThrow();
+  });
+
+  it("uses a fallback canvas recovery directory prefix when the canvas id has no safe segment", async () => {
+    const { init } = await createTestWorkspace();
+    const finalRoot = join(init.workspace.workspaceRoot, "canvases", "punctuation");
+
+    const staged = await stageCanvasWorkspaceWrite(init.workspace, { canvasId: "---", finalRoot });
+
+    expect(basename(staged.stagingRoot)).toMatch(/^canvas-\d+-[a-f0-9-]+$/);
   });
 
   it("keeps canvas workspaces independent while project views aggregate across canvases", async () => {

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/index.js";
 import { writeJsonFile } from "../json.js";
-import { canonicalProjectCanvasNode, compileProjectGraph, projectTaskRefKey } from "../projectGraph/index.js";
+import { canonicalProjectCanvasNode, compileProjectGraph, parseProjectTaskRefKey, projectTaskRefKey } from "../projectGraph/index.js";
 import { loadProjectGraph, writeProjectGraph } from "../projectGraph/loadProjectGraph.js";
 import type { PlanPackageManifest } from "../types.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
@@ -47,6 +47,13 @@ function manyTaskManifest(count: number): PlanPackageManifest {
 }
 
 describe("compileProjectGraph", () => {
+  it("parses project task ref keys and rejects incomplete refs", () => {
+    expect(parseProjectTaskRefKey("default::T-001")).toEqual({ canvasId: "default", taskId: "T-001" });
+    expect(() => parseProjectTaskRefKey("default")).toThrow("Expected '<canvas-id>::<task-id>'.");
+    expect(() => parseProjectTaskRefKey("::T-001")).toThrow("Expected '<canvas-id>::<task-id>'.");
+    expect(() => parseProjectTaskRefKey("default::")).toThrow("Expected '<canvas-id>::<task-id>'.");
+  });
+
   it("indexes canvas and cross-task dependencies", async () => {
     const { root, init } = await createTestWorkspace();
     const second = await createSecondCanvas(root);

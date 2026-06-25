@@ -122,7 +122,11 @@ function normalizeWatcherPath(path: string): string {
   while (normalized.startsWith("//")) {
     normalized = normalized.slice(1);
   }
-  return normalized.replace(/\/+$/, "");
+  let end = normalized.length;
+  while (end > 0 && normalized[end - 1] === "/") {
+    end -= 1;
+  }
+  return normalized.slice(0, end);
 }
 
 export function normalizePackageChangedPaths(changedPaths: string[] | undefined): NormalizedPackageChangePaths {

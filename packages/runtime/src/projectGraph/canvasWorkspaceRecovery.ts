@@ -54,8 +54,16 @@ function toPosixPath(path: string): string {
 }
 
 function safePathSegment(value: string): string {
-  const safe = value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  return safe || "canvas";
+  const safe = value.replace(/[^A-Za-z0-9._-]+/g, "-");
+  let start = 0;
+  let end = safe.length;
+  while (start < end && safe[start] === "-") {
+    start += 1;
+  }
+  while (end > start && safe[end - 1] === "-") {
+    end -= 1;
+  }
+  return safe.slice(start, end) || "canvas";
 }
 
 function assertWorkspaceDescendant(projectWorkspace: ProjectWorkspace, path: string): void {

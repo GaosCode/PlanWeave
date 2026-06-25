@@ -44,12 +44,16 @@ function promptFileMarkdown(markdown: string): string {
 }
 
 function slugPart(value: string): string {
-  return value
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 18);
+  const slug = value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-");
+  let start = 0;
+  let end = slug.length;
+  while (start < end && slug[start] === "-") {
+    start += 1;
+  }
+  while (end > start && slug[end - 1] === "-") {
+    end -= 1;
+  }
+  return slug.slice(start, end).slice(0, 18);
 }
 
 function nextTaskId(manifest: PlanPackageManifest, title: string): string {

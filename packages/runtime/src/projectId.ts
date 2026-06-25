@@ -3,10 +3,16 @@ import { realpath } from "node:fs/promises";
 import { basename } from "node:path";
 
 export function projectSlug(value: string): string {
-  const normalized = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  const slug = value.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  let start = 0;
+  let end = slug.length;
+  while (start < end && slug[start] === "-") {
+    start += 1;
+  }
+  while (end > start && slug[end - 1] === "-") {
+    end -= 1;
+  }
+  const normalized = slug.slice(start, end);
   return normalized || "project";
 }
 

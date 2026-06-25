@@ -249,6 +249,15 @@ describe("desktop graph edit API", () => {
 
     await expect(
       addTaskNode(root, {
+        title: " --Edge slug-- ",
+        promptMarkdown: "# Edge slug\n"
+      })
+    ).resolves.toMatchObject({ ok: true });
+    manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    expect(manifest.nodes.some((node) => node.type === "task" && node.id === "T-EDGE-SLUG")).toBe(true);
+
+    await expect(
+      addTaskNode(root, {
         title: "Dropped task",
         promptMarkdown: "# Dropped task\n",
         layoutPosition: { x: 480, y: 240 }
