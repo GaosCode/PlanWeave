@@ -242,4 +242,16 @@ describe("validatePackage", () => {
     expect(report.ok).toBe(true);
     expect(report.errors).toEqual([]);
   });
+
+  it("does not report runtime result directories as orphan task results", async () => {
+    const { root, init } = await createTestWorkspace();
+    await mkdir(join(init.workspace.resultsDir, "auto-runs", "RUN-001"), { recursive: true });
+    await mkdir(join(init.workspace.resultsDir, "feedback-runs", "RUN-001"), { recursive: true });
+    await mkdir(join(init.workspace.resultsDir, "run-sessions", "SESSION-0001"), { recursive: true });
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(true);
+    expect(report.warnings.filter((warning) => warning.code === "orphan_result")).toEqual([]);
+  });
 });

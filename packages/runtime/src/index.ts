@@ -124,6 +124,7 @@ export {
   getExecutionStatus
 } from "./taskManager/index.js";
 export { getAutoRunStatus, runAutoRunStep } from "./taskManager/autoRun.js";
+export { appendRunSessionEvent, createRunSession, getRunSession, listRunSessions, resetRuntimeState, runWithSession, updateRunSession } from "./runSessions/index.js";
 export { isTmuxAvailable } from "./autoRun/tmuxExecutor.js";
 export {
   addBlock,
@@ -218,6 +219,7 @@ export {
   supportedProjectGraphVersion
 } from "./projectGraph/index.js";
 export type * from "./desktop/index.js";
+export type * from "./runSessions/index.js";
 export type * from "./autoRun/executorPreflightTypes.js";
 export type * from "./plangraph/index.js";
 export type * from "./projectGraph/index.js";

@@ -10,6 +10,8 @@ import type {
   RuntimeState
 } from "../types.js";
 
+const canvasResultDirectoryNames = new Set(["auto-runs", "feedback-runs", "run-sessions"]);
+
 export function manifestTaskIds(manifest: PlanPackageManifest): Set<string> {
   const graph = compileTaskGraph(manifest);
   return new Set(graph.taskNodesInManifestOrder);
@@ -45,6 +47,6 @@ export async function findOrphanResults(
   }
   const entries = await readdir(workspace.resultsDir, { withFileTypes: true });
   return entries
-    .filter((entry) => entry.isDirectory() && !taskIds.has(entry.name))
+    .filter((entry) => entry.isDirectory() && !canvasResultDirectoryNames.has(entry.name) && !taskIds.has(entry.name))
     .map((entry) => ({ taskId: entry.name, path: join(workspace.resultsDir, entry.name) }));
 }
