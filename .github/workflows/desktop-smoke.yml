@@ -20,6 +20,9 @@ on:
       - "packages/runtime/**"
       - "scripts/sync-version-metadata.mjs"
 
+permissions:
+  contents: read
+
 jobs:
   desktop-smoke:
     runs-on: macos-latest
