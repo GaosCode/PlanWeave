@@ -302,22 +302,26 @@ describe("planweave CLI contract", () => {
       steps: [
         {
           kind: "manual",
-          claim: { kind: "block", ref: "T-001#B-001", taskId: "T-001" },
+          claim: { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation" },
           adapterResult: {
             kind: "manual",
             executor: "manual",
+            adapter: "manual",
             promptPath: "/tmp/project/package/nodes/T-001/blocks/B-001.prompt.md",
+            runDir: "/tmp/project/results/T-001/blocks/B-001/runs/RUN-001",
             runId: "RUN-001",
             nextCommand: "planweave submit-result T-001#B-001 --report <report.md>"
           }
         },
         {
           kind: "manual",
-          claim: { kind: "block", ref: "T-002#B-001", taskId: "T-002" },
+          claim: { kind: "block", ref: "T-002#B-001", taskId: "T-002", blockId: "B-001", blockType: "implementation" },
           adapterResult: {
             kind: "manual",
             executor: "manual",
+            adapter: "manual",
             promptPath: "/tmp/project/package/nodes/T-002/blocks/B-001.prompt.md",
+            runDir: "/tmp/project/results/T-002/blocks/B-001/runs/RUN-001",
             runId: "RUN-001",
             nextCommand: "planweave submit-result T-002#B-001 --report <report.md>"
           }
@@ -417,6 +421,7 @@ describe("planweave CLI contract", () => {
         readyReason: null,
         blockedByBlocks: [],
         blockedByTasks: [],
+        blockedByProject: [],
         parallelSafe: true,
         sequentialOnly: false,
         recommendedCommand: null,
@@ -440,6 +445,7 @@ describe("planweave CLI contract", () => {
         readyReason: null,
         blockedByBlocks: [],
         blockedByTasks: [],
+        blockedByProject: [],
         parallelSafe: false,
         sequentialOnly: true,
         recommendedCommand: null,
