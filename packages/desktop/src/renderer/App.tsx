@@ -1,11 +1,10 @@
 import { useCallback, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { type Edge, type ReactFlowInstance, useEdgesState, useNodesState } from "@xyflow/react";
 import type { DesktopPackageFileChangeEvent, DesktopPackageFileSyncResult, DesktopProjectSummary } from "@planweave-ai/runtime";
-import { bridge, desktopCanvasReference } from "./bridge";
+import { bridge } from "./bridge";
 import { nodeTypes } from "./graph/flowModel";
 import { createTranslator } from "./i18n";
 import { ProjectSidebar } from "./sidebar/ProjectSidebar";
-import { buildNotificationItems } from "./notifications";
 import { loadDesktopSettings, mergeDesktopSettings, orderProjectsByPinnedIds } from "./settings";
 import type { AppFlowNode, AppView, DesktopUiSettings } from "./types";
 import { WorkspaceTabs } from "./views/WorkspaceTabs";
@@ -29,8 +28,11 @@ import { useTaskNodeFocus } from "./hooks/useTaskNodeFocus";
 import { useTaskExecutorActions } from "./hooks/useTaskExecutorActions";
 import { useDesktopProjectActions } from "./hooks/useDesktopProjectActions";
 import { useGraphFlowModel } from "./hooks/useGraphFlowModel";
+import { useGraphHistoryActions } from "./hooks/useGraphHistoryActions";
+import { useAppNotifications } from "./hooks/useAppNotifications";
 import { CollapsedSidebarControls, RightPaletteSidebar } from "./AppSidebars";
 import { AppSettingsRoute } from "./AppSettingsRoute";
+import { buildAppSettingsRouteProps } from "./AppSettingsRouteProps";
 import { AppOverlays } from "./components/AppOverlays";
 import { writeAgentScopePromptToClipboard } from "./agentPrompt";
 
@@ -190,8 +192,11 @@ export function App() {
 
   const {
     autoRunControlStyle,
+    autoRunNextAction,
+    autoRunRetrospective,
     autoRunScopeMode,
     handleAutoRunClick,
+    handleAutoRunNextAction,
     miniRunPanelOpen,
     moveAutoRunControl,
     setAutoRunScopeMode,
@@ -207,6 +212,7 @@ export function App() {
     selectedBlock,
     selectedProject,
     selectedTaskPanelId,
+    handleOpenRunRecord,
     setAutoRunState,
     setError,
     t,
@@ -264,10 +270,10 @@ export function App() {
     handleBlockSelect: handleOpenBlockInspector,
     handleOpenRunRecord,
     loadProject: openProjectInSession,
+    openTaskInspector: handleOpenTaskInspector,
     selectedCanvasId,
     selectedProject,
-    setError,
-    selectTaskPanel: handleTaskPanelSelect
+    setError
   });
 
   const {
@@ -328,46 +334,13 @@ export function App() {
     t
   });
 
-  const handleUndoGraph = useCallback(async () => {
-    if (!bridge || !selectedProject) {
-      return;
-    }
-    try {
-      const result = await bridge.undoPlanGraphCommand(desktopCanvasReference(selectedProject, selectedCanvasId));
-      if (!result.ok) {
-        setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
-        return;
-      }
-      const overview = await bridge.getProjectOverview(selectedProject.rootPath);
-      if ((overview.activeCanvasId ?? null) !== selectedCanvasId) {
-        await openProjectInSession(overview, overview.activeCanvasId, { recordCanvasSelection: false });
-        return;
-      }
-      await refreshProjectDerivedState({ includeLayout: true });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }, [openProjectInSession, refreshProjectDerivedState, selectedCanvasId, selectedProject, setError]);
-  const handleRedoGraph = useCallback(async () => {
-    if (!bridge || !selectedProject) {
-      return;
-    }
-    try {
-      const result = await bridge.redoPlanGraphCommand(desktopCanvasReference(selectedProject, selectedCanvasId));
-      if (!result.ok) {
-        setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
-        return;
-      }
-      const overview = await bridge.getProjectOverview(selectedProject.rootPath);
-      if ((overview.activeCanvasId ?? null) !== selectedCanvasId) {
-        await openProjectInSession(overview, overview.activeCanvasId, { recordCanvasSelection: false });
-        return;
-      }
-      await refreshProjectDerivedState({ includeLayout: true });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }, [openProjectInSession, refreshProjectDerivedState, selectedCanvasId, selectedProject, setError]);
+  const { handleRedoGraph, handleUndoGraph } = useGraphHistoryActions({
+    openProjectInSession,
+    refreshProjectDerivedState,
+    selectedCanvasId,
+    selectedProject,
+    setError
+  });
 
   const handleCopyAgentPrompt = useCallback(
     (taskId?: string | null) => {
@@ -482,25 +455,17 @@ export function App() {
   });
 
   const { visibleTaskIds, visibleTasks } = useVisibleGraphTasks(graph, searchQuery);
-  const notificationItems = buildNotificationItems({
+  const { handleMarkNotificationRead, notificationItems } = useAppNotifications({
     autoRunState,
     fileSyncDiagnostics,
     graph,
     lastFileChange,
     promptConflicts,
     settings,
-    t
+    t,
+    updateSettings
   });
-  const handleMarkNotificationRead = useCallback(
-    (notificationId: string) => {
-      if (settings.readNotificationIds.includes(notificationId)) {
-        return;
-      }
-      updateSettings({ readNotificationIds: [...settings.readNotificationIds, notificationId] });
-    },
-    [settings.readNotificationIds, updateSettings]
-  );
-  const settingsRouteProps = {
+  const settingsRouteProps = buildAppSettingsRouteProps({
     graph,
     agents: agentDetections,
     agentDetectionRefreshing,
@@ -520,7 +485,7 @@ export function App() {
     updateProjectPrompt,
     updateProjectPromptPolicy,
     updateSettings
-  };
+  });
 
   if (activeView === "settings") {
     return (
@@ -572,6 +537,8 @@ export function App() {
           activeView={activeView}
           addReviewStep={addReviewStep}
           autoRunControlStyle={autoRunControlStyle}
+          autoRunNextAction={autoRunNextAction}
+          autoRunRetrospective={autoRunRetrospective}
           autoRunScopeMode={autoRunScopeMode}
           autoRunState={autoRunState}
           confirmTaskDraft={confirmTaskDraft}
@@ -581,6 +548,7 @@ export function App() {
           generateTaskDraft={generateTaskDraft}
           graph={graph}
           handleAutoRunClick={handleAutoRunClick}
+          handleAutoRunNextAction={handleAutoRunNextAction}
           handleOpenBlockInspector={handleOpenBlockInspector}
           handleConnect={handleConnect}
           handleEdgesDelete={handleEdgesDelete}
