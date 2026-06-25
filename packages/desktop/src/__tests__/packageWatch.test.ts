@@ -12,6 +12,7 @@ type TestWebContents = {
   send: ReturnType<typeof vi.fn>;
   isDestroyed: () => boolean;
   once: ReturnType<typeof vi.fn>;
+  removeListener: ReturnType<typeof vi.fn>;
 };
 
 type TestWorkspace = {
@@ -117,7 +118,22 @@ function createWebContents(id = 1): TestWebContents {
     id,
     send: vi.fn(),
     isDestroyed: () => false,
-    once: vi.fn()
+    once: vi.fn(),
+    removeListener: vi.fn()
+  };
+}
+
+function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (reason?: unknown) => void } {
+  let resolveDeferred!: (value: T) => void;
+  let rejectDeferred!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolve, reject) => {
+    resolveDeferred = resolve;
+    rejectDeferred = reject;
+  });
+  return {
+    promise,
+    resolve: resolveDeferred,
+    reject: rejectDeferred
   };
 }
 
@@ -321,5 +337,119 @@ describe("package file watcher", () => {
     await waitForPollAndDebounce();
 
     expect(pollingWebContents.send).not.toHaveBeenCalled();
+  });
+
+  it("does not duplicate native watchers or destroyed listeners for the same webContents", async () => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+
+    await registerAndWatch(webContents, workspace);
+    const nativeWatcherCount = fsMock.watchers.length;
+    const destroyedListener = webContents.once.mock.calls[0]?.[1];
+
+    await registerAndWatch(webContents, workspace);
+
+    expect(fsMock.watchers).toHaveLength(nativeWatcherCount);
+    expect(webContents.once).toHaveBeenCalledTimes(1);
+    expect(webContents.once).toHaveBeenCalledWith("destroyed", destroyedListener);
+
+    await unwatch(webContents, workspace);
+
+    expect(webContents.removeListener).toHaveBeenCalledTimes(1);
+    expect(webContents.removeListener).toHaveBeenCalledWith("destroyed", destroyedListener);
+    for (const watcher of fsMock.watchers) {
+      expect(watcher.close).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("single-flights concurrent watches for the same webContents and key", async () => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    const deferredWorkspace = createDeferred<TestWorkspace>();
+    runtimeMock.state.workspace = workspace;
+    runtimeMock.resolveTaskCanvasWorkspace.mockImplementationOnce(() => deferredWorkspace.promise);
+    const { registerPackageWatchHandlers } = await import("../main/packageWatch");
+    registerPackageWatchHandlers();
+    const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.watchPackageFiles);
+    expect(handler).toBeDefined();
+
+    const firstWatch = handler?.({ sender: webContents }, { projectRoot: workspace.rootPath, canvasId: "canvas-a" });
+    const secondWatch = handler?.({ sender: webContents }, { projectRoot: workspace.rootPath, canvasId: "canvas-a" });
+
+    expect(runtimeMock.resolveTaskCanvasWorkspace).toHaveBeenCalledTimes(1);
+    deferredWorkspace.resolve(workspace);
+    await Promise.all([firstWatch, secondWatch]);
+
+    const destroyedListener = webContents.once.mock.calls[0]?.[1] as (() => void) | undefined;
+    expect(fsMock.watchers.length).toBeGreaterThan(0);
+    expect(new Set(fsMock.watchers.map((watcher) => watcher.rootPath)).size).toBe(fsMock.watchers.length);
+    expect(fsMock.watch).toHaveBeenCalledTimes(fsMock.watchers.length);
+    expect(webContents.once).toHaveBeenCalledTimes(1);
+    expect(webContents.once).toHaveBeenCalledWith("destroyed", destroyedListener);
+
+    destroyedListener?.();
+
+    expect(webContents.removeListener).toHaveBeenCalledTimes(1);
+    expect(webContents.removeListener).toHaveBeenCalledWith("destroyed", destroyedListener);
+    for (const watcher of fsMock.watchers) {
+      expect(watcher.close).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("closes the backend without a destroyed listener when unwatch cancels a pending watch", async () => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    const deferredWorkspace = createDeferred<TestWorkspace>();
+    runtimeMock.state.workspace = workspace;
+    runtimeMock.resolveTaskCanvasWorkspace.mockImplementationOnce(() => deferredWorkspace.promise);
+    const { registerPackageWatchHandlers } = await import("../main/packageWatch");
+    registerPackageWatchHandlers();
+    const watchHandler = electronMock.handlers.get(desktopBridgeInvokeChannels.watchPackageFiles);
+    expect(watchHandler).toBeDefined();
+
+    const watchResult = watchHandler?.({ sender: webContents }, { projectRoot: workspace.rootPath, canvasId: "canvas-a" });
+
+    expect(runtimeMock.resolveTaskCanvasWorkspace).toHaveBeenCalledTimes(1);
+    await unwatch(webContents, workspace);
+    expect(webContents.once).not.toHaveBeenCalled();
+
+    deferredWorkspace.resolve(workspace);
+    await watchResult;
+
+    expect(fsMock.watchers.length).toBeGreaterThan(0);
+    for (const watcher of fsMock.watchers) {
+      expect(watcher.close).toHaveBeenCalledTimes(1);
+    }
+    expect(webContents.once).not.toHaveBeenCalled();
+    expect(webContents.removeListener).not.toHaveBeenCalled();
+
+    const packageWatcher = fsMock.watchers.find((watcher) => watcher.rootPath === workspace.packageDir);
+    expect(packageWatcher).toBeDefined();
+    packageWatcher?.callback("change", "manifest.json");
+    await flushDebounce();
+
+    expect(webContents.send).not.toHaveBeenCalled();
+  });
+
+  it("cleans pending subscribers when pending watch creation fails", async () => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    const deferredWorkspace = createDeferred<TestWorkspace>();
+    runtimeMock.state.workspace = workspace;
+    runtimeMock.resolveTaskCanvasWorkspace.mockImplementationOnce(() => deferredWorkspace.promise);
+    const { registerPackageWatchHandlers } = await import("../main/packageWatch");
+    registerPackageWatchHandlers();
+    const watchHandler = electronMock.handlers.get(desktopBridgeInvokeChannels.watchPackageFiles);
+    expect(watchHandler).toBeDefined();
+
+    const failedWatch = watchHandler?.({ sender: webContents }, { projectRoot: workspace.rootPath, canvasId: "canvas-a" });
+    deferredWorkspace.reject(new Error("workspace unavailable"));
+    await expect(failedWatch).rejects.toThrow("workspace unavailable");
+
+    await registerAndWatch(webContents, workspace);
+
+    expect(runtimeMock.resolveTaskCanvasWorkspace).toHaveBeenCalledTimes(2);
+    expect(webContents.once).toHaveBeenCalledTimes(1);
+    expect(fsMock.watchers.length).toBeGreaterThan(0);
   });
 });

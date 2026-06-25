@@ -24,14 +24,22 @@ type PackageWatchBackend = {
   lastSnapshot: PackageFingerprintSnapshot | null;
 };
 
+type PackageWatchSubscriber = {
+  webContents: WebContents;
+  onDestroyed: () => void;
+};
+
 type PackageWatch = {
   backend: PackageWatchBackend;
-  subscribers: Map<number, WebContents>;
+  subscribers: Map<number, PackageWatchSubscriber>;
   changedPaths: Set<string>;
   timer: NodeJS.Timeout | null;
+  closed: boolean;
 };
 
 const packageWatches = new Map<string, PackageWatch>();
+const pendingPackageWatchStarts = new Map<string, Promise<PackageWatch>>();
+const pendingPackageWatchSubscribers = new Map<string, Map<number, WebContents>>();
 const packageWatchDebounceMs = 150;
 const packageWatchPollIntervalMs = 1000;
 
@@ -220,6 +228,100 @@ async function startPackageWatchBackend(
   return startNativePackageWatchBackend(workspace, recordChange) ?? (await startPollingPackageWatchBackend(workspace, recordChange));
 }
 
+function addPendingPackageWatchSubscriber(key: string, webContents: WebContents): void {
+  const subscribers = pendingPackageWatchSubscribers.get(key) ?? new Map<number, WebContents>();
+  subscribers.set(webContents.id, webContents);
+  pendingPackageWatchSubscribers.set(key, subscribers);
+}
+
+function removePendingPackageWatchSubscriber(key: string, webContentsId: number): void {
+  const subscribers = pendingPackageWatchSubscribers.get(key);
+  if (!subscribers) {
+    return;
+  }
+  subscribers.delete(webContentsId);
+  if (subscribers.size === 0) {
+    pendingPackageWatchSubscribers.delete(key);
+  }
+}
+
+function hasPendingPackageWatchSubscribers(key: string): boolean {
+  return (pendingPackageWatchSubscribers.get(key)?.size ?? 0) > 0;
+}
+
+function hasPendingPackageWatchSubscriber(key: string, webContentsId: number): boolean {
+  return pendingPackageWatchSubscribers.get(key)?.has(webContentsId) ?? false;
+}
+
+function closePackageWatch(activeWatch: PackageWatch): void {
+  if (activeWatch.closed) {
+    return;
+  }
+  activeWatch.closed = true;
+  for (const subscriber of activeWatch.subscribers.values()) {
+    subscriber.webContents.removeListener("destroyed", subscriber.onDestroyed);
+  }
+  activeWatch.subscribers.clear();
+  for (const watcher of activeWatch.backend.watchers) {
+    watcher.close();
+  }
+  if (activeWatch.backend.pollTimer) {
+    clearInterval(activeWatch.backend.pollTimer);
+  }
+  if (activeWatch.timer) {
+    clearTimeout(activeWatch.timer);
+  }
+}
+
+async function getOrCreatePackageWatch(
+  key: string,
+  projectRoot: string,
+  canvasId: string | null | undefined
+): Promise<PackageWatch> {
+  const activeWatch = packageWatches.get(key);
+  if (activeWatch) {
+    return activeWatch;
+  }
+  const pendingStart = pendingPackageWatchStarts.get(key);
+  if (pendingStart) {
+    return pendingStart;
+  }
+  const start = (async () => {
+    const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
+    const recordChange = (path: string) => {
+      const currentWatch = packageWatches.get(key);
+      if (!currentWatch) {
+        return;
+      }
+      currentWatch.changedPaths.add(path);
+      if (currentWatch.timer) {
+        clearTimeout(currentWatch.timer);
+      }
+      currentWatch.timer = setTimeout(() => flushPackageFileChange(projectRoot, canvasId), packageWatchDebounceMs);
+    };
+    const backend = await startPackageWatchBackend(workspace, recordChange);
+    const createdWatch: PackageWatch = {
+      backend,
+      subscribers: new Map(),
+      changedPaths: new Set(),
+      timer: null,
+      closed: false
+    };
+    if (!hasPendingPackageWatchSubscribers(key)) {
+      closePackageWatch(createdWatch);
+      return createdWatch;
+    }
+    packageWatches.set(key, createdWatch);
+    return createdWatch;
+  })();
+  pendingPackageWatchStarts.set(key, start);
+  try {
+    return await start;
+  } finally {
+    pendingPackageWatchStarts.delete(key);
+  }
+}
+
 function flushPackageFileChange(projectRoot: string, canvasId?: string | null): void {
   const activeWatch = packageWatches.get(watchKey(projectRoot, canvasId));
   if (!activeWatch) {
@@ -237,61 +339,65 @@ function flushPackageFileChange(projectRoot: string, canvasId?: string | null): 
     paths,
     triggeredAt: new Date().toISOString()
   };
-  for (const webContents of activeWatch.subscribers.values()) {
-    if (!webContents.isDestroyed()) {
-      webContents.send(packageFileChangedChannel, payload);
+  for (const subscriber of activeWatch.subscribers.values()) {
+    if (!subscriber.webContents.isDestroyed()) {
+      subscriber.webContents.send(packageFileChangedChannel, payload);
     }
   }
 }
 
 async function startPackageWatch(projectRoot: string, canvasId: string | null | undefined, webContents: WebContents): Promise<void> {
   const key = watchKey(projectRoot, canvasId);
-  let activeWatch = packageWatches.get(key);
-  if (!activeWatch) {
-    const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
-    const recordChange = (path: string) => {
-      const currentWatch = packageWatches.get(key);
-      if (!currentWatch) {
-        return;
-      }
-      currentWatch.changedPaths.add(path);
-      if (currentWatch.timer) {
-        clearTimeout(currentWatch.timer);
-      }
-      currentWatch.timer = setTimeout(() => flushPackageFileChange(projectRoot, canvasId), packageWatchDebounceMs);
-    };
-    const backend = await startPackageWatchBackend(workspace, recordChange);
-    activeWatch = {
-      backend,
-      subscribers: new Map(),
-      changedPaths: new Set(),
-      timer: null
-    };
-    packageWatches.set(key, activeWatch);
+  addPendingPackageWatchSubscriber(key, webContents);
+  let activeWatch: PackageWatch;
+  try {
+    activeWatch = await getOrCreatePackageWatch(key, projectRoot, canvasId);
+  } catch (caught) {
+    removePendingPackageWatchSubscriber(key, webContents.id);
+    throw caught;
   }
-  activeWatch.subscribers.set(webContents.id, webContents);
-  webContents.once("destroyed", () => stopPackageWatch(projectRoot, canvasId, webContents));
+  if (!hasPendingPackageWatchSubscriber(key, webContents.id) || webContents.isDestroyed()) {
+    removePendingPackageWatchSubscriber(key, webContents.id);
+    if (activeWatch.subscribers.size === 0 && !hasPendingPackageWatchSubscribers(key)) {
+      closePackageWatch(activeWatch);
+      if (packageWatches.get(key) === activeWatch) {
+        packageWatches.delete(key);
+      }
+    }
+    return;
+  }
+  if (!activeWatch.subscribers.has(webContents.id)) {
+    const onDestroyed = () => stopPackageWatch(projectRoot, canvasId, webContents);
+    activeWatch.subscribers.set(webContents.id, { webContents, onDestroyed });
+    webContents.once("destroyed", onDestroyed);
+  }
+  removePendingPackageWatchSubscriber(key, webContents.id);
 }
 
 function stopPackageWatch(projectRoot: string, canvasId: string | null | undefined, webContents: WebContents): void {
   const key = watchKey(projectRoot, canvasId);
+  removePendingPackageWatchSubscriber(key, webContents.id);
   const activeWatch = packageWatches.get(key);
   if (!activeWatch) {
     return;
   }
+  const subscriber = activeWatch.subscribers.get(webContents.id);
+  if (!subscriber) {
+    if (activeWatch.subscribers.size === 0 && !hasPendingPackageWatchSubscribers(key)) {
+      closePackageWatch(activeWatch);
+      packageWatches.delete(key);
+    }
+    return;
+  }
   activeWatch.subscribers.delete(webContents.id);
+  subscriber.webContents.removeListener("destroyed", subscriber.onDestroyed);
   if (activeWatch.subscribers.size > 0) {
     return;
   }
-  for (const watcher of activeWatch.backend.watchers) {
-    watcher.close();
+  if (hasPendingPackageWatchSubscribers(key)) {
+    return;
   }
-  if (activeWatch.backend.pollTimer) {
-    clearInterval(activeWatch.backend.pollTimer);
-  }
-  if (activeWatch.timer) {
-    clearTimeout(activeWatch.timer);
-  }
+  closePackageWatch(activeWatch);
   packageWatches.delete(key);
 }
 
