@@ -29,6 +29,8 @@ import { registerPathsCommand } from "./commands/paths.js";
 import { registerUseCommand } from "./commands/use.js";
 import { registerProjectGraphCommand } from "./commands/projectGraph.js";
 import { registerRunCommand } from "./commands/run.js";
+import { registerResetCommand } from "./commands/reset.js";
+import { registerRunSessionsCommands } from "./commands/runSessions.js";
 import { registerExecutorsCommand } from "./commands/executors.js";
 import { registerRunStatusCommand } from "./commands/runStatus.js";
 import { registerHelpCommand } from "./commands/help.js";
@@ -73,7 +75,9 @@ export function createProgram(): Command {
   registerPathsCommand(program);
   registerUseCommand(program);
   registerProjectGraphCommand(program);
+  registerResetCommand(program);
   registerRunCommand(program);
+  registerRunSessionsCommands(program);
   registerExecutorsCommand(program);
   registerRunStatusCommand(program);
   registerSchemaCommand(program);

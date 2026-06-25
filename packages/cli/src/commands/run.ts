@@ -1,6 +1,12 @@
 import type { Command } from "commander";
-import { runAutoRunStep } from "@planweave-ai/runtime";
+import { runWithSession, type AutoRunStepResult, type RunSessionState } from "@planweave-ai/runtime";
 import { addCanvasOption, resolveCliPackageWorkspace, type CanvasCommandOptions } from "../cliWorkspace.js";
+
+type FormattableRunResult = {
+  session: RunSessionState;
+  steps: AutoRunStepResult[];
+  terminalReason: Awaited<ReturnType<typeof runWithSession>>["terminalReason"];
+};
 
 export function registerRunCommand(program: Command): void {
   addCanvasOption(program
@@ -9,44 +15,81 @@ export function registerRunCommand(program: Command): void {
     .option("--once", "execute only one auto-run step")
     .option("--parallel", "claim a deterministic parallel batch")
     .option("--executor <name>", "override executor profile for this run")
+    .option("--reset", "reset runtime state before running")
+    .option("--force", "allow reset while active work exists")
+    .option("--reason <text>", "record a reason for reset")
+    .option("--step-limit <n>", "maximum auto-run steps to execute")
     .option("--json", "print JSON output"))
-    .action(async (options: { once?: boolean; parallel?: boolean; executor?: string; json?: boolean } & CanvasCommandOptions) => {
+    .action(async (options: { once?: boolean; parallel?: boolean; executor?: string; reset?: boolean; force?: boolean; reason?: string; stepLimit?: string; json?: boolean } & CanvasCommandOptions) => {
       const projectRoot = await resolveCliPackageWorkspace(options);
-      const steps = [];
-      let last = await runAutoRunStep({
+      const result = await runWithSession({
         projectRoot,
+        reset: options.reset,
+        force: options.force,
+        reason: options.reason,
+        once: options.once,
         executorName: options.executor,
-        parallel: options.parallel
+        parallel: options.parallel,
+        stepLimit: parseStepLimit(options.stepLimit)
       });
-      steps.push(last);
-
-      while (!options.once && (last.kind === "submitted" || last.kind === "batch_submitted")) {
-        last = await runAutoRunStep({
-          projectRoot,
-          executorName: options.executor,
-          parallel: options.parallel
-        });
-        steps.push(last);
-      }
 
       if (options.json) {
-        console.log(JSON.stringify(options.once ? steps[0] : { steps, final: last }, null, 2));
-        return;
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(formatRunResult(result));
       }
 
-      if (options.once) {
-        console.log(formatRunStep(steps[0]));
-        return;
+      if (!result.ok || result.session.phase === "failed") {
+        process.exitCode = 1;
       }
-      console.log(steps.map(formatRunStep).join("\n"));
     });
 }
 
-function formatRunStep(step: Awaited<ReturnType<typeof runAutoRunStep>>): string {
+function parseStepLimit(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 0 || String(parsed) !== value.trim()) {
+    throw new Error(`Invalid --step-limit '${value}'. Expected a non-negative integer.`);
+  }
+  return parsed;
+}
+
+export function formatRunResult(result: FormattableRunResult): string {
+  const lines = [
+    `session: ${result.session.sessionId}`,
+    `phase: ${result.session.phase}`,
+    `steps: ${result.steps.length}`,
+    `latest record: ${result.session.latestRecordId ?? "none"}${result.session.latestRecordPath ? ` (${result.session.latestRecordPath})` : ""}`,
+    `terminal: ${formatTerminalReason(result.terminalReason)}`
+  ];
+  if (result.steps.length > 0) {
+    lines.push("step summaries:");
+    lines.push(...result.steps.map((step) => `- ${formatRunStep(step).replace(/\n/g, "\n  ")}`));
+  }
+  return lines.join("\n");
+}
+
+function formatTerminalReason(reason: Awaited<ReturnType<typeof runWithSession>>["terminalReason"]): string {
+  if (reason === "step_limit_reached") {
+    return "completed by step limit";
+  }
+  return reason;
+}
+
+function formatRunStep(step: AutoRunStepResult): string {
   if (step.kind === "submitted") {
     return `submitted ${step.claim.kind}${step.claim.kind === "block" ? ` ${step.claim.ref}` : ""}`;
   }
   if (step.kind === "batch_submitted") {
+    const manualCount = step.steps.filter((item) => item.kind === "manual").length;
+    if (manualCount === step.steps.length) {
+      return `manual prompts generated for ${step.steps.length} blocks`;
+    }
+    if (manualCount > 0) {
+      return `batch completed with manual prompts for ${manualCount} of ${step.steps.length} blocks`;
+    }
     return `batch submitted ${step.steps.length} blocks`;
   }
   if (step.kind === "manual") {

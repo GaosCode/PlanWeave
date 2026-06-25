@@ -334,6 +334,66 @@ describe("STEP-1 CLI contract", () => {
     expect(text).toContain("next action: Complete the manual step, then submit the result.");
   }, 20_000);
 
+  it("creates CLI run and reset sessions that can be queried", async () => {
+    const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
+    const env = { ...process.env, PLANWEAVE_HOME: home };
+    const init = JSON.parse((await runCli(["init", "--json"], env)).stdout);
+    await cp(join(repoRoot, "examples/basic-plan-package/package"), init.workspace.packageDir, {
+      recursive: true,
+      force: true
+    });
+
+    const run = JSON.parse((await runCli(["run", "--once", "--executor", "manual", "--json"], env)).stdout) as {
+      session: { sessionId: string; kind: string; phase: string; latestRecordId: string | null };
+      steps: Array<{ kind: string }>;
+      ok: boolean;
+      terminalReason: string;
+    };
+    expect(run).toMatchObject({
+      session: {
+        sessionId: "SESSION-0001",
+        kind: "run",
+        phase: "manual",
+        latestRecordId: "T-001#B-001::RUN-001"
+      },
+      steps: [{ kind: "manual" }],
+      ok: true,
+      terminalReason: "manual"
+    });
+
+    const reset = JSON.parse((await runCli(["reset", "--force", "--reason", "rerun acceptance", "--json"], env)).stdout) as {
+      sessionId: string;
+      statePath: string;
+      forced: boolean;
+      session: { sessionId: string; kind: string; phase: string };
+    };
+    expect(reset).toMatchObject({
+      sessionId: "SESSION-0002",
+      forced: true,
+      session: { sessionId: "SESSION-0002", kind: "reset", phase: "completed" }
+    });
+    expect(reset.statePath).toContain("canvases/default/state.json");
+
+    const sessions = JSON.parse((await runCli(["run-sessions", "--json"], env)).stdout) as {
+      sessions: Array<{ sessionId: string; kind: string }>;
+      diagnostics: unknown[];
+    };
+    expect(sessions.diagnostics).toEqual([]);
+    expect(sessions.sessions.map((session) => session.sessionId)).toEqual(["SESSION-0002", "SESSION-0001"]);
+    expect(sessions.sessions.map((session) => session.kind)).toEqual(["reset", "run"]);
+
+    const detail = JSON.parse((await runCli(["run-session", "SESSION-0001", "--json"], env)).stdout) as {
+      session: { sessionId: string; kind: string };
+      events: Array<{ type: string }>;
+      diagnostics: unknown[];
+    };
+    expect(detail).toMatchObject({
+      session: { sessionId: "SESSION-0001", kind: "run" },
+      diagnostics: []
+    });
+    expect(detail.events.map((event) => event.type)).toEqual(expect.arrayContaining(["session_started", "step_finish", "session_manual"]));
+  }, 20_000);
+
   it("operates a non-default canvas in a formal multi-canvas project", async () => {
     const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
     const root = await mkdtemp(join(tmpdir(), "planweave project-"));

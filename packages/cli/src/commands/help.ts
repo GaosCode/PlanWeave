@@ -113,9 +113,20 @@ export const planweaveHelpTopics: HelpTopic[] = [
   {
     name: "autorun",
     summary: "Inspect executors and run automated execution steps.",
-    commands: ["executors list", "executors test <name>", "run --once --executor <name> --json", "run --once --executor <name> --canvas <canvasId> --json", "run-status --json"],
+    commands: [
+      "executors list",
+      "executors test <name>",
+      "run --once --executor <name> --json",
+      "run --reset --force --reason <reason> --json",
+      "reset --force --reason <reason> --json",
+      "run-sessions --json",
+      "run-session <session-id> --json",
+      "run-status --json"
+    ],
     notes: [
       "Use --canvas for canvas-scoped Auto Run; without it, Auto Run targets the current or first canvas.",
+      "Use run --reset to clear runtime state before a run session; use reset when you only want to clear runtime state.",
+      "init --reset-package resets package source files during workspace initialization; it is separate from runtime reset.",
       "Use --once for controlled agent loops.",
       "The manual executor claims work and writes prompt paths without auto-submitting results."
     ]

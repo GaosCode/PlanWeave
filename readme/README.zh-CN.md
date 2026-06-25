@@ -157,10 +157,23 @@ PlanWeave 包含一个实验性的一键执行路径：
 
 ```bash
 planweave run --once
+planweave run --reset --force --reason "重新执行验收" --step-limit 20
+planweave reset --force --reason "清理旧的手动执行状态"
+planweave run-sessions
+planweave run-session SESSION-0001
 planweave run-status
 ```
 
-Auto Run 可以领取任务、调用执行器、收集运行产物，并继续 review-feedback 循环。它仍是实验性功能：调度、执行器集成和异常恢复行为可能不稳定。不要直接把它当成无人值守的稳定执行入口，运行后应检查 `planweave run-status` 和生成的 run 产物。
+Auto Run 可以领取任务、调用执行器、收集运行产物、继续 review-feedback 循环，并把每次 run/reset 记录成 session。`planweave reset` 只清理 runtime state；它和初始化时重写 package source 的 `planweave init --reset-package` 不是一回事。
+
+cron 风格的定时运行建议设置步数上限，并在运行后查看 session：
+
+```bash
+planweave run --step-limit 10 --json
+planweave run-sessions --json
+```
+
+它仍是实验性功能：调度、执行器集成和异常恢复行为可能不稳定。不要直接把它当成无人值守的稳定执行入口，运行后应检查 `planweave run-status`、`planweave run-session <session-id>` 和生成的 run 产物。
 
 ## 手动 CLI 工作流
 

@@ -122,13 +122,18 @@ describe("basic Plan Package README workflow", () => {
     });
 
     expect(parseJson<{ ok: boolean }>((await runCli(["validate", "--json"], env)).stdout).ok).toBe(true);
-    const manualRun = parseJson<{ kind: string; claim: { ref: string }; adapterResult: { promptPath: string } }>(
+    const manualRun = parseJson<{ session: { phase: string }; steps: Array<{ kind: string; claim: { ref: string }; adapterResult: { promptPath: string } }> }>(
       (await runCli(["run", "--once", "--executor", "manual", "--json"], env)).stdout
     );
     expect(manualRun).toMatchObject({
-      kind: "manual",
-      claim: { ref: "T-001#B-001" },
-      adapterResult: { promptPath: expect.stringContaining("prompt.md") }
+      session: { phase: "manual" },
+      steps: [
+        {
+          kind: "manual",
+          claim: { ref: "T-001#B-001" },
+          adapterResult: { promptPath: expect.stringContaining("prompt.md") }
+        }
+      ]
     });
     expect(parseJson<{ kind: string; ref: string }>((await runCli(["claim-next"], env)).stdout)).toMatchObject({
       kind: "block",
@@ -199,13 +204,13 @@ describe("basic Plan Package README workflow", () => {
       force: true
     });
 
-    const run = parseJson<{ kind: string; adapterResult: { promptPath: string } }>(
+    const run = parseJson<{ steps: Array<{ kind: string; adapterResult: { promptPath: string } }> }>(
       (await runCli(["run", "--once", "--executor", "manual", "--json"], env)).stdout
     );
 
-    expect(run.kind).toBe("manual");
-    expect(run.adapterResult.promptPath).toContain("prompt.md");
-    expect(await readFile(run.adapterResult.promptPath, "utf8")).toContain("# T-001#B-001");
+    expect(run.steps[0]?.kind).toBe("manual");
+    expect(run.steps[0]?.adapterResult.promptPath).toContain("prompt.md");
+    expect(await readFile(run.steps[0]?.adapterResult.promptPath ?? "", "utf8")).toContain("# T-001#B-001");
     const status = parseJson<{ latestRuns: Array<{ ref: string; status: string }> }>((await runCli(["run-status", "--json"], env)).stdout);
     expect(status.latestRuns.find((run) => run.ref === "T-001#B-001")?.status).toBe("in_progress");
   }, cliWorkflowTimeoutMs);

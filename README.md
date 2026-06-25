@@ -156,10 +156,23 @@ PlanWeave includes an experimental one-command execution path:
 
 ```bash
 planweave run --once
+planweave run --reset --force --reason "rerun acceptance" --step-limit 20
+planweave reset --force --reason "clear stale manual work"
+planweave run-sessions
+planweave run-session SESSION-0001
 planweave run-status
 ```
 
-Auto Run can claim work, call an executor, collect run artifacts, and continue review-feedback loops. It is still experimental: scheduling, executor integration, and recovery behavior may be unstable. Inspect `planweave run-status` and generated run artifacts before relying on it for unattended work.
+Auto Run can claim work, call an executor, collect run artifacts, continue review-feedback loops, and record each run/reset as a session. `planweave reset` clears runtime state only; it is separate from `planweave init --reset-package`, which rewrites package source files during initialization.
+
+For cron-style runs, keep execution bounded and inspect the session log afterward:
+
+```bash
+planweave run --step-limit 10 --json
+planweave run-sessions --json
+```
+
+Auto Run is still experimental: scheduling, executor integration, and recovery behavior may be unstable. Inspect `planweave run-status`, `planweave run-session <session-id>`, and generated run artifacts before relying on it for unattended work.
 
 ## Manual CLI Workflow
 

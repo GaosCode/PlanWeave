@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { manifestSchemaDocument as runtimeManifestSchemaDocument, projectSchemaDocument as runtimeProjectSchemaDocument } from "@planweave-ai/runtime";
+import {
+  manifestSchemaDocument as runtimeManifestSchemaDocument,
+  projectSchemaDocument as runtimeProjectSchemaDocument,
+  type AutoRunStepResult
+} from "@planweave-ai/runtime";
 import { createProgram } from "../index.js";
 import { formatExecutorTestHuman, formatExecutorTestJson } from "../commands/executors.js";
 import { formatClaimHint } from "../commands/status.js";
 import { formatCliHelp, planweaveHelpTopics } from "../commands/help.js";
 import { formatSchemaHelp, schemaDocuments } from "../commands/schema.js";
+import { formatRunSessions } from "../commands/runSessions.js";
+import { formatRunResult } from "../commands/run.js";
 
 function commandOptionLongs(name: string): string[] {
   const command = createProgram().commands.find((item) => item.name() === name);
@@ -52,7 +58,10 @@ describe("planweave CLI contract", () => {
         "doctor",
         "use",
         "submit-feedback",
+        "reset",
         "run",
+        "run-sessions",
+        "run-session",
         "executors",
         "run-status",
         "project-graph",
@@ -108,8 +117,11 @@ describe("planweave CLI contract", () => {
     expect(commandOptionLongs("resolve-divergence")).toContain("--canvas");
     expect(commandOptionLongs("unblock")).toContain("--reason");
     expect(commandOptionLongs("unblock")).toContain("--canvas");
-    expect(commandOptionLongs("run")).toEqual(expect.arrayContaining(["--once", "--parallel", "--executor", "--json"]));
+    expect(commandOptionLongs("reset")).toEqual(expect.arrayContaining(["--canvas", "--force", "--reason", "--json"]));
+    expect(commandOptionLongs("run")).toEqual(expect.arrayContaining(["--once", "--parallel", "--executor", "--reset", "--force", "--reason", "--step-limit", "--json"]));
     expect(commandOptionLongs("run")).toContain("--canvas");
+    expect(commandOptionLongs("run-sessions")).toEqual(expect.arrayContaining(["--canvas", "--json"]));
+    expect(commandOptionLongs("run-session")).toEqual(expect.arrayContaining(["--canvas", "--json"]));
     expect(commandOptionLongs("run-status")).toContain("--json");
     expect(commandOptionLongs("run-status")).toContain("--canvas");
     expect(subcommandOptionLongs("executors", "list")).toContain("--json");
@@ -202,6 +214,148 @@ describe("planweave CLI contract", () => {
     ).toBe("failed missing-profile: Executor profile 'missing-profile' does not exist.");
   });
 
+  it("prints run session diagnostics even when no valid sessions exist", () => {
+    expect(
+      formatRunSessions({
+        sessions: [],
+        diagnostics: [
+          {
+            code: "run_session_read_failed",
+            sessionId: "SESSION-0001",
+            path: "/tmp/project/results/run-sessions/SESSION-0001/session.json",
+            message: "Unexpected token"
+          }
+        ]
+      })
+    ).toContain("diagnostics:\n- SESSION-0001 run_session_read_failed: Unexpected token");
+  });
+
+  it("prints run session stop reasons in text summaries", () => {
+    expect(
+      formatRunSessions({
+        sessions: [
+          {
+            sessionId: "SESSION-0001",
+            kind: "run",
+            trigger: "manual",
+            projectRoot: "/tmp/project",
+            canvasId: "default",
+            scope: { kind: "project" },
+            phase: "completed",
+            startedAt: "2026-06-25T00:00:00.000Z",
+            updatedAt: "2026-06-25T00:00:01.000Z",
+            finishedAt: "2026-06-25T00:00:01.000Z",
+            reset: null,
+            autoRun: {
+              desktopRunId: null,
+              stepCount: 1,
+              parallel: false,
+              executorOverride: null,
+              stopReason: "step_limit"
+            },
+            latestRecordId: "T-001#B-001::RUN-001",
+            latestRecordPath: "/tmp/project/results/T-001/blocks/B-001/runs/RUN-001/metadata.json",
+            error: null
+          }
+        ],
+        diagnostics: []
+      })
+    ).toContain("SESSION-0001 run completed steps=1 stop=step_limit");
+  });
+
+  it("prints step-limit terminal reason in run text output", () => {
+    expect(
+      formatRunResult({
+        session: {
+          sessionId: "SESSION-0001",
+          kind: "run",
+          trigger: "manual",
+          projectRoot: "/tmp/project",
+          canvasId: "default",
+          scope: { kind: "project" },
+          phase: "completed",
+          startedAt: "2026-06-25T00:00:00.000Z",
+          updatedAt: "2026-06-25T00:00:01.000Z",
+          finishedAt: "2026-06-25T00:00:01.000Z",
+          reset: null,
+          autoRun: {
+            desktopRunId: null,
+            stepCount: 1,
+            parallel: false,
+            executorOverride: null,
+            stopReason: "step_limit"
+          },
+          latestRecordId: "T-001#B-001::RUN-001",
+          latestRecordPath: "/tmp/project/results/T-001/blocks/B-001/runs/RUN-001/metadata.json",
+          error: null
+        },
+        steps: [],
+        terminalReason: "step_limit_reached"
+      })
+    ).toContain("terminal: completed by step limit");
+  });
+
+  it("prints manual prompt summaries for manual parallel batches", () => {
+    const batchStep = {
+      kind: "batch_submitted",
+      claim: { kind: "batch", refs: ["T-001#B-001", "T-002#B-001"] },
+      steps: [
+        {
+          kind: "manual",
+          claim: { kind: "block", ref: "T-001#B-001", taskId: "T-001" },
+          adapterResult: {
+            kind: "manual",
+            executor: "manual",
+            promptPath: "/tmp/project/package/nodes/T-001/blocks/B-001.prompt.md",
+            runId: "RUN-001",
+            nextCommand: "planweave submit-result T-001#B-001 --report <report.md>"
+          }
+        },
+        {
+          kind: "manual",
+          claim: { kind: "block", ref: "T-002#B-001", taskId: "T-002" },
+          adapterResult: {
+            kind: "manual",
+            executor: "manual",
+            promptPath: "/tmp/project/package/nodes/T-002/blocks/B-001.prompt.md",
+            runId: "RUN-001",
+            nextCommand: "planweave submit-result T-002#B-001 --report <report.md>"
+          }
+        }
+      ]
+    } satisfies AutoRunStepResult;
+
+    expect(
+      formatRunResult({
+        session: {
+          sessionId: "SESSION-0001",
+          kind: "run",
+          trigger: "manual",
+          projectRoot: "/tmp/project",
+          canvasId: "default",
+          scope: { kind: "project" },
+          phase: "manual",
+          startedAt: "2026-06-25T00:00:00.000Z",
+          updatedAt: "2026-06-25T00:00:01.000Z",
+          finishedAt: "2026-06-25T00:00:01.000Z",
+          reset: null,
+          autoRun: {
+            desktopRunId: null,
+            stepCount: 1,
+            parallel: true,
+            executorOverride: "manual",
+            stopReason: null
+          },
+          latestRecordId: "T-002#B-001::RUN-001",
+          latestRecordPath: "/tmp/project/results/T-002/blocks/B-001/runs/RUN-001/metadata.json",
+          error: null
+        },
+        steps: [batchStep],
+        terminalReason: "manual"
+      })
+    ).toContain("manual prompts generated for 2 blocks");
+  });
+
   it("prints PlanWeave-specific help topics for agent CLI workflows", () => {
     expect(planweaveHelpTopics.map((topic) => topic.name)).toEqual(["setup", "schema", "plan", "work", "submit", "explain", "recovery", "autorun"]);
     expect(formatCliHelp()).toContain("Common agent loop:");
@@ -214,7 +368,11 @@ describe("planweave CLI contract", () => {
     expect(formatCliHelp("work")).toContain("CLI commands target the current or first canvas");
     expect(formatCliHelp("submit")).toContain("planweave submit-review <review-block-ref> --result <review-result.json>");
     expect(formatCliHelp("submit")).toContain("planweave submit-result --canvas <canvasId> <block-ref> --report <report.md>");
-    expect(formatCliHelp("autorun")).toContain("planweave run --once --executor <name> --canvas <canvasId> --json");
+    expect(formatCliHelp("autorun")).toContain("planweave run --reset --force --reason <reason> --json");
+    expect(formatCliHelp("autorun")).toContain("planweave reset --force --reason <reason> --json");
+    expect(formatCliHelp("autorun")).toContain("planweave run-sessions --json");
+    expect(formatCliHelp("autorun")).toContain("planweave run-session <session-id> --json");
+    expect(formatCliHelp("autorun")).toContain("init --reset-package resets package source files");
     expect(formatCliHelp("recovery")).toContain("planweave doctor --repair");
     expect(formatCliHelp("recovery")).toContain("planweave retry-review <review-block-ref> --max-feedback-cycles 3");
     expect(formatCliHelp("plan")).toContain("planweave edit-block <block-ref> --review-required false");
