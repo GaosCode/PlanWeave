@@ -1,5 +1,6 @@
 import type { AutoRunExplanation } from "../../types.js";
 import type { ReviewVerdict, ValidationIssue } from "../../types.js";
+import type { ResetRuntimeStateResult, RunSessionState } from "../../runSessions/types.js";
 
 export type DesktopAutoRunScope =
   | { kind: "project" }
@@ -10,6 +11,16 @@ export type DesktopAutoRunPhase = "idle" | "running" | "pausing" | "paused" | "m
 
 export type DesktopAutoRunOptions = {
   tmuxEnabled?: boolean;
+};
+
+export type DesktopRuntimeResetOptions = {
+  force?: boolean;
+  reason?: string;
+};
+
+export type DesktopRuntimeResetResult = ResetRuntimeStateResult & {
+  session: RunSessionState;
+  stoppedAutoRunIds: string[];
 };
 
 export type DesktopAutoRunState = {

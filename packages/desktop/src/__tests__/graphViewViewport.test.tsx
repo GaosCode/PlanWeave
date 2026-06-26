@@ -143,6 +143,7 @@ function defaultProps(patch: Partial<ComponentProps<typeof GraphView>> = {}): Co
     handleOpenProject: vi.fn().mockResolvedValue(undefined),
     handleRedoGraph: vi.fn().mockResolvedValue(undefined),
     handleRevealPathInFinder: vi.fn().mockResolvedValue(undefined),
+    resetRuntimeStateClick: vi.fn().mockResolvedValue(undefined),
     handleUndoGraph: vi.fn().mockResolvedValue(undefined),
     miniRunPanelOpen: false,
     moveAutoRunControl: vi.fn(),

@@ -58,6 +58,7 @@ export const desktopBridgeInvokeChannels = {
   redoPlanGraphCommand: "planweave:redoPlanGraphCommand",
   resetDesktopLayout: "planweave:resetDesktopLayout",
   resetCanvasMapLayout: "planweave:resetCanvasMapLayout",
+  resetRuntimeState: "planweave:resetRuntimeState",
   resumeAutoRun: "planweave:resumeAutoRun",
   revealPathInFinder: "planweave:revealPathInFinder",
   revealProjectInFinder: "planweave:revealProjectInFinder",

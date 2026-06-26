@@ -49,6 +49,7 @@ import {
   redoDesktopPlanGraphCommand,
   resetCanvasMapLayout,
   resetDesktopLayout,
+  resetDesktopRuntimeState,
   resolveTaskCanvasWorkspace,
   resumeAutoRun,
   saveCanvasMapLayout,
@@ -79,6 +80,7 @@ import type {
   DesktopCanvasReference,
   DesktopGraphEditResult,
   DesktopLayout,
+  DesktopRuntimeResetOptions,
   GraphEditResult
 } from "@planweave-ai/runtime";
 import type { DesktopBridgeInvokeMethod } from "../shared/ipcChannels.js";
@@ -209,6 +211,7 @@ export const runtimeBridgeHandlers = {
   getDirtyPromptRefs: async (_event, ref) => getDirtyPromptRefs(await resolveDesktopCanvasReference(ref)),
   startAutoRun: (_event, ref, scope: DesktopAutoRunScope, stepLimit, options?: DesktopAutoRunOptions) =>
     startAutoRun(ref.projectRoot, ref.canvasId, scope, stepLimit, options),
+  resetRuntimeState: (_event, ref, options?: DesktopRuntimeResetOptions) => resetDesktopRuntimeState(ref.projectRoot, ref.canvasId, options),
   unblockBlock: async (_event, ref, blockRef, reason) => {
     await unblockBlock({ projectRoot: await resolveDesktopCanvasReference(ref), ref: blockRef, reason });
   },

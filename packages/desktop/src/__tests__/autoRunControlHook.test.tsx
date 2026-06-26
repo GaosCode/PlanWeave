@@ -372,6 +372,83 @@ describe("auto run control hook", () => {
     expect(result.current.autoRunState).toEqual(runningState);
   });
 
+  it("resets runtime state through the desktop bridge after confirmation", async () => {
+    const pausedState = autoRunState({ phase: "manual", currentRef: selectedBlock.ref, currentExecutor: "manual" });
+    const resetRuntimeState = vi.fn().mockResolvedValue({
+      session: { sessionId: "SESSION-0001" },
+      stoppedAutoRunIds: [pausedState.runId]
+    });
+    const bridge = createDesktopBridgeMock({ resetRuntimeState });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useAutoRunControl } = await import("../renderer/hooks/useAutoRunControl");
+    const onAutoRunDerivedStateRefresh = vi.fn().mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => {
+      const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(pausedState);
+      return useAutoRunControl({
+        autoRunState: autoRunStateValue,
+        handleOpenRunRecord: vi.fn(),
+        onAutoRunDerivedStateRefresh,
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setAutoRunState,
+        setError: vi.fn(),
+        t: createTranslator("en"),
+        tmuxMonitoringEnabled: false
+      });
+    });
+
+    await act(async () => {
+      await result.current.resetRuntimeStateClick();
+    });
+
+    expect(confirm).toHaveBeenCalledWith("Reset runtime state for this canvas? This clears current claims, feedback, and review progress. Existing records stay on disk.");
+    expect(resetRuntimeState).toHaveBeenCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-main" },
+      { force: true, reason: "Desktop reset requested." }
+    );
+    expect(result.current.autoRunState).toBeNull();
+    expect(onAutoRunDerivedStateRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks runtime reset while an Auto Run step is active", async () => {
+    const runningState = autoRunState({ phase: "running" });
+    const resetRuntimeState = vi.fn();
+    const bridge = createDesktopBridgeMock({ resetRuntimeState });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const setError = vi.fn();
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useAutoRunControl } = await import("../renderer/hooks/useAutoRunControl");
+
+    const { result } = renderHook(() =>
+      useAutoRunControl({
+        autoRunState: runningState,
+        handleOpenRunRecord: vi.fn(),
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setAutoRunState: vi.fn(),
+        setError,
+        t: createTranslator("en"),
+        tmuxMonitoringEnabled: false
+      })
+    );
+
+    await act(async () => {
+      await result.current.resetRuntimeStateClick();
+    });
+
+    expect(setError).toHaveBeenCalledWith("Stop Auto Run and wait for the current step to settle before resetting runtime state.");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(resetRuntimeState).not.toHaveBeenCalled();
+  });
+
   it("loads retrospective only for non-active auto-run states", async () => {
     const runningState = autoRunState({ phase: "running", runId: "DESKTOP-RUN-ACTIVE" });
     const blockedState = autoRunState({

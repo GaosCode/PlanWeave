@@ -181,6 +181,7 @@ export {
   removeProject,
   removeTaskNode,
   pauseAutoRun,
+  resetDesktopRuntimeState,
   resumeAutoRun,
   resetCanvasMapLayout,
   resetDesktopLayout,

@@ -42,7 +42,9 @@ import type {
   DesktopAutoRunOptions,
   DesktopAutoRunRetrospectiveSummary,
   DesktopAutoRunScope,
-  DesktopAutoRunState
+  DesktopAutoRunState,
+  DesktopRuntimeResetOptions,
+  DesktopRuntimeResetResult
 } from "./runTypes.js";
 
 export type DesktopAgentKind = "codex" | "claude-code" | "opencode" | "pi";
@@ -170,6 +172,7 @@ export type DesktopBridgeApi = {
   onPackageFileChanged(callback: (event: DesktopPackageFileChangeEvent) => void): () => void;
   onAutoRunChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;
   startAutoRun(ref: DesktopCanvasReference, scope: DesktopAutoRunScope, stepLimit?: number, options?: DesktopAutoRunOptions): Promise<DesktopAutoRunState>;
+  resetRuntimeState(ref: DesktopCanvasReference, options?: DesktopRuntimeResetOptions): Promise<DesktopRuntimeResetResult>;
   unblockBlock(ref: DesktopCanvasReference, blockRef: string, reason: string): Promise<void>;
   pauseAutoRun(runId: string): Promise<DesktopAutoRunState>;
   resumeAutoRun(runId: string): Promise<DesktopAutoRunState>;

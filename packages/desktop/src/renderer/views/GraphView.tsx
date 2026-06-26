@@ -49,6 +49,7 @@ type GraphViewProps = {
   handleOpenProject: () => Promise<void>;
   handleRedoGraph: () => Promise<void>;
   handleRevealPathInFinder: (path: string | null | undefined) => Promise<void>;
+  resetRuntimeStateClick: () => Promise<void>;
   handleUndoGraph: () => Promise<void>;
   miniRunPanelOpen: boolean;
   moveAutoRunControl: (event: PointerEvent<HTMLButtonElement>) => void;
@@ -96,6 +97,7 @@ export function GraphView({
   handleOpenProject,
   handleRedoGraph,
   handleRevealPathInFinder,
+  resetRuntimeStateClick,
   handleUndoGraph,
   miniRunPanelOpen,
   moveAutoRunControl,
@@ -302,6 +304,7 @@ export function GraphView({
         refreshPackageFiles={refreshPackageFiles}
         refreshedPromptCount={fileSyncResult?.refreshedPromptCount ?? 0}
         refreshConcurrency={fileSyncResult?.refreshConcurrency ?? null}
+        resetRuntimeStateClick={resetRuntimeStateClick}
         selectedBlockPresent={selectedBlockPresent}
         selectedProject={selectedProject}
         selectedTaskPanelId={selectedTaskPanelId}

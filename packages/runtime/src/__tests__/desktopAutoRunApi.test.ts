@@ -5,11 +5,13 @@ import {
   getLatestAutoRunSummary,
   listAutoRunEvents,
   pauseAutoRun,
+  resetDesktopRuntimeState,
   resumeAutoRun,
   startAutoRun,
   stopAutoRun
 } from "../desktop/index.js";
 import { isTmuxAvailable } from "../autoRun/tmuxExecutor.js";
+import { getRunSession } from "../runSessions/index.js";
 import { readState } from "../state.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
@@ -107,6 +109,73 @@ describe("desktop auto run API", () => {
     expect(eventLog.diagnostics).toEqual([]);
     expect(eventLog.events.map((event) => event.type)).toEqual(expect.arrayContaining(["run_started", "step_limit_reached", "run_resumed", "run_stopped"]));
     expect(eventLog.events.every((event) => event.runId === started.runId)).toBe(true);
+  });
+
+  it("resets runtime state from Desktop and records the reset session", async () => {
+    const manifest = manifestTestBuilder()
+      .withDefaultExecutor("manual")
+      .build();
+    const { root, init } = await createTestWorkspace(manifest);
+
+    const started = await startAutoRun(root, null, { kind: "project" }, 5, noTmux);
+    startedRunIds.add(started.runId);
+    await waitForRun(started.runId, (state) => state.phase === "manual");
+
+    const result = await resetDesktopRuntimeState(root, null, {
+      force: true,
+      reason: "test reset"
+    });
+
+    expect(result).toMatchObject({
+      forced: true,
+      previousCurrentRefs: ["T-001#B-001"],
+      previousInProgressRefs: ["T-001#B-001"],
+      stoppedAutoRunIds: [started.runId],
+      session: {
+        kind: "reset",
+        trigger: "desktop",
+        phase: "completed",
+        reset: expect.objectContaining({ performed: true, forced: true })
+      }
+    });
+    expect((await readState(init.workspace.stateFile)).blocks["T-001#B-001"]).toMatchObject({ status: "ready", lastRunId: null });
+    await expect(getLatestAutoRunSummary(root, null)).resolves.toMatchObject({ runId: started.runId, phase: "stopped" });
+
+    const detail = await getRunSession(root, result.session.sessionId);
+    expect(detail.events.map((event) => event.type)).toEqual(["session_started", "reset_started", "reset_completed", "session_completed"]);
+    expect(detail.events.at(-1)).toMatchObject({
+      type: "session_completed",
+      stoppedAutoRunIds: [started.runId]
+    });
+  });
+
+  it("refuses Desktop reset while a stopped run loop is still settling", async () => {
+    const manifest = manifestTestBuilder()
+      .withExecutor("slow-codex", {
+        adapter: "codex-exec",
+        command: process.execPath,
+        args: [
+          "-e",
+          "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { setTimeout(() => { console.log('slow reset guard ' + input.split('\\n')[0]); }, 500); });"
+        ]
+      })
+      .withDefaultExecutor("slow-codex")
+      .build();
+    const { root } = await createTestWorkspace(manifest);
+
+    const started = await startAutoRun(root, null, { kind: "project" }, 2, noTmux);
+    startedRunIds.add(started.runId);
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const log = await readFile(started.eventLogPath, "utf8").catch(() => "");
+      if (log.includes('"type":"step_start"')) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    await expect(stopAutoRun(started.runId)).resolves.toMatchObject({ phase: "stopped" });
+    await expect(resetDesktopRuntimeState(root, null, { force: true, reason: "test reset" })).rejects.toThrow("Cannot reset runtime state while Auto Run is active");
+    await new Promise((resolve) => setTimeout(resolve, 600));
   });
 
   it("can disable tmux monitoring while preserving streaming run records", async () => {

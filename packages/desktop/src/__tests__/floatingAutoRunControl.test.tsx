@@ -106,6 +106,7 @@ describe("FloatingAutoRunControl", () => {
     const onOpenFileSyncRef = vi.fn();
     const refreshPackageFiles = vi.fn().mockResolvedValue(undefined);
     const setAutoRunScopeMode = vi.fn();
+    const resetRuntimeStateClick = vi.fn().mockResolvedValue(undefined);
     const stopAutoRunClick = vi.fn().mockResolvedValue(undefined);
     const waitAction: AutoRunNextActionDescriptor = {
       command: "wait",
@@ -159,6 +160,7 @@ describe("FloatingAutoRunControl", () => {
         refreshPackageFiles={refreshPackageFiles}
         refreshedPromptCount={3}
         refreshConcurrency={4}
+        resetRuntimeStateClick={resetRuntimeStateClick}
         selectedBlockPresent={true}
         selectedProject={project}
         selectedTaskPanelId="T-001"
@@ -198,6 +200,7 @@ describe("FloatingAutoRunControl", () => {
     expect(refreshPackageFiles).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Recheck files" }));
     await userEvent.click(screen.getByRole("button", { name: "Auto Run" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Reset runtime state" })[0]);
     await userEvent.click(screen.getAllByRole("button", { name: "Stop" })[0]);
     expect(screen.getByTestId("auto-run-open-record")).toHaveAttribute("data-record-path", "/tmp/result.json");
     expect(screen.getByTestId("auto-run-open-record")).toHaveAttribute("data-run-id", "RUN-001");
@@ -205,6 +208,7 @@ describe("FloatingAutoRunControl", () => {
 
     expect(refreshPackageFiles).toHaveBeenCalledTimes(1);
     expect(handleAutoRunClick).toHaveBeenCalledTimes(1);
+    expect(resetRuntimeStateClick).toHaveBeenCalledTimes(1);
     expect(stopAutoRunClick).toHaveBeenCalledTimes(1);
     expect(handleRevealPathInFinder).toHaveBeenCalledWith("/tmp/result.json");
 
@@ -256,6 +260,7 @@ describe("FloatingAutoRunControl", () => {
         refreshPackageFiles={refreshPackageFiles}
         refreshedPromptCount={0}
         refreshConcurrency={null}
+        resetRuntimeStateClick={resetRuntimeStateClick}
         selectedBlockPresent={true}
         selectedProject={project}
         selectedTaskPanelId="T-001"
@@ -303,6 +308,7 @@ describe("FloatingAutoRunControl", () => {
         refreshPackageFiles={vi.fn().mockResolvedValue(undefined)}
         refreshedPromptCount={0}
         refreshConcurrency={null}
+        resetRuntimeStateClick={vi.fn().mockResolvedValue(undefined)}
         selectedBlockPresent={false}
         selectedProject={null}
         selectedTaskPanelId={null}
@@ -318,6 +324,7 @@ describe("FloatingAutoRunControl", () => {
 
     expect(screen.getByText("Open a project before running Auto Run.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Auto Run" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reset runtime state" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "View file sync changes" })).toBeDisabled();
   });
 });

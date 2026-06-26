@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties, type Dispatch, type PointerEvent, type SetStateAction } from "react";
 import type { DesktopAutoRunRetrospectiveSummary, DesktopAutoRunState, DesktopProjectSummary, ValidationIssue } from "@planweave-ai/runtime";
-import { ClipboardIcon, FolderOpenIcon, MoveIcon, PauseIcon, PlayIcon, RefreshCwIcon, SquareIcon } from "lucide-react";
+import { ClipboardIcon, FolderOpenIcon, MoveIcon, PauseIcon, PlayIcon, RefreshCwIcon, RotateCcwIcon, SquareIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,6 +38,7 @@ type FloatingAutoRunControlProps = {
   refreshPackageFiles: () => Promise<void>;
   refreshedPromptCount: number;
   refreshConcurrency: number | null;
+  resetRuntimeStateClick: () => Promise<void>;
   selectedBlockPresent: boolean;
   selectedProject: DesktopProjectSummary | null;
   selectedTaskPanelId: string | null;
@@ -260,6 +261,7 @@ export function FloatingAutoRunControl({
   refreshPackageFiles,
   refreshedPromptCount,
   refreshConcurrency,
+  resetRuntimeStateClick,
   selectedBlockPresent,
   selectedProject,
   selectedTaskPanelId,
@@ -437,6 +439,10 @@ export function FloatingAutoRunControl({
                     </div>
                   ) : null}
                   <div className="flex justify-end gap-2">
+                    <Button size="sm" variant="outline" disabled={!hasProject} onClick={() => void resetRuntimeStateClick()}>
+                      <RotateCcwIcon data-icon="inline-start" />
+                      {t("resetRuntimeState")}
+                    </Button>
                     {explanation?.latestRecordPath ? (
                       <Button
                         data-record-path={explanation.latestRecordPath}
@@ -482,6 +488,16 @@ export function FloatingAutoRunControl({
           <SquareIcon data-icon="inline-start" />
         </Button>
       ) : null}
+      <Button
+        size="icon-sm"
+        variant="outline"
+        aria-label={t("resetRuntimeState")}
+        title={t("resetRuntimeState")}
+        disabled={!hasProject}
+        onClick={() => void resetRuntimeStateClick()}
+      >
+        <RotateCcwIcon data-icon="inline-start" />
+      </Button>
       {!hasProject ? <span className="max-w-[180px] text-xs text-muted-foreground">{t("autoRunNoProjectHint")}</span> : null}
       <Select value={autoRunScopeMode} onValueChange={(value) => setAutoRunScopeMode(value as AutoRunScopeMode)}>
         <SelectTrigger className="h-9 w-36" disabled={!hasProject} title={t("autoRunScope")}>

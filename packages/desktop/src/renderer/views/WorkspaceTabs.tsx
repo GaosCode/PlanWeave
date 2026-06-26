@@ -62,6 +62,7 @@ type WorkspaceTabsProps = {
   handleOpenRunRecord: (recordId: string | null | undefined, canvasId?: string | null) => Promise<void>;
   handleRedoGraph: () => Promise<void>;
   handleRevealPathInFinder: (path: string | null | undefined) => Promise<void>;
+  resetRuntimeStateClick: () => Promise<void>;
   handleSearchResultOpen: (result: DesktopSearchResult) => Promise<void>;
   handleUndoGraph: () => Promise<void>;
   language: Language;

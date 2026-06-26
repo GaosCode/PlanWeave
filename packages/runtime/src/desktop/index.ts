@@ -90,6 +90,7 @@ export {
   getLatestAutoRunSummary,
   listAutoRunEvents,
   pauseAutoRun,
+  resetDesktopRuntimeState,
   resumeAutoRun,
   startAutoRun,
   stopAutoRun,

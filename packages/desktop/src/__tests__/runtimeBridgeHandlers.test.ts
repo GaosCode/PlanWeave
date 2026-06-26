@@ -32,6 +32,11 @@ const runtimeMock = vi.hoisted(() => {
     autoRunEventListeners,
     getDesktopProjectSnapshot: vi.fn(async (ref: unknown) => ({ ref })),
     getGraphViewModel: vi.fn(async (workspace: unknown) => ({ workspace })),
+    resetDesktopRuntimeState: vi.fn(async (projectRoot: string, canvasId: string | null | undefined, options: unknown) => ({
+      projectRoot,
+      canvasId,
+      options
+    })),
     resolveProjectCanvasWorkspace: vi.fn(async (projectRoot: string, canvasId: string) => ({
       projectRoot,
       canvasId,
@@ -62,6 +67,7 @@ vi.mock("@planweave-ai/runtime", async () => {
     ...actual,
     getDesktopProjectSnapshot: runtimeMock.getDesktopProjectSnapshot,
     getGraphViewModel: runtimeMock.getGraphViewModel,
+    resetDesktopRuntimeState: runtimeMock.resetDesktopRuntimeState,
     resolveProjectCanvasWorkspace: runtimeMock.resolveProjectCanvasWorkspace,
     resolveTaskCanvasWorkspace: runtimeMock.resolveTaskCanvasWorkspace,
     subscribeAutoRunEvents: runtimeMock.subscribeAutoRunEvents
@@ -82,6 +88,7 @@ describe("runtime bridge handlers", () => {
     runtimeMock.autoRunEventListeners.clear();
     runtimeMock.getDesktopProjectSnapshot.mockClear();
     runtimeMock.getGraphViewModel.mockClear();
+    runtimeMock.resetDesktopRuntimeState.mockClear();
     runtimeMock.resolveProjectCanvasWorkspace.mockClear();
     runtimeMock.resolveTaskCanvasWorkspace.mockClear();
     runtimeMock.subscribeAutoRunEvents.mockClear();
@@ -117,6 +124,21 @@ describe("runtime bridge handlers", () => {
 
     expect(runtimeMock.resolveTaskCanvasWorkspace).not.toHaveBeenCalled();
     expect(runtimeMock.getDesktopProjectSnapshot).toHaveBeenCalledWith(ref);
+  });
+
+  it("passes runtime reset requests to the runtime desktop API without pre-resolving the canvas", async () => {
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.resetRuntimeState);
+    expect(handler).toBeDefined();
+
+    const ref = { projectRoot: "/tmp/project", canvasId: "canvas-a" };
+    const options = { force: true, reason: "test reset" };
+    await handler?.(null, ref, options);
+
+    expect(runtimeMock.resolveTaskCanvasWorkspace).not.toHaveBeenCalled();
+    expect(runtimeMock.resetDesktopRuntimeState).toHaveBeenCalledWith("/tmp/project", "canvas-a", options);
   });
 
   it("registers handlers for every desktop bridge invoke channel", async () => {

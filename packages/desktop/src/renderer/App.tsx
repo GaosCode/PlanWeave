@@ -199,6 +199,7 @@ export function App() {
     handleAutoRunNextAction,
     miniRunPanelOpen,
     moveAutoRunControl,
+    resetRuntimeStateClick,
     setAutoRunScopeMode,
     setMiniRunPanelOpen,
     startAutoRunWithScope,
@@ -582,6 +583,7 @@ export function App() {
           onNodesChange={onNodesChange}
           onTaskPanelSelect={handleTaskPanelSelect}
           refreshPackageFiles={refreshPackageFiles}
+          resetRuntimeStateClick={resetRuntimeStateClick}
           removeReviewStep={removeReviewStep}
           reviewDefaultCyclesDraft={reviewDefaultCyclesDraft}
           reviewDraft={reviewDraft}

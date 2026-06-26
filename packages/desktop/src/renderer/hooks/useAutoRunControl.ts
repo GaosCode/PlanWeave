@@ -268,6 +268,31 @@ export function useAutoRunControl({
     }
   }, [applyAutoRunState, autoRunState, setError]);
 
+  const resetRuntimeStateClick = useCallback(async () => {
+    if (!bridge || !selectedProject) {
+      return;
+    }
+    if (isActiveAutoRunState(autoRunState)) {
+      setError(t("stopAutoRunBeforeReset"));
+      return;
+    }
+    if (!window.confirm(t("resetRuntimeStateConfirm"))) {
+      return;
+    }
+    try {
+      setMiniRunPanelOpen(true);
+      await bridge.resetRuntimeState(desktopCanvasReference(selectedProject, selectedCanvasId), {
+        force: true,
+        reason: "Desktop reset requested."
+      });
+      setAutoRunState(null);
+      setAutoRunRetrospective(null);
+      await onAutoRunDerivedStateRefresh?.();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }, [autoRunState, onAutoRunDerivedStateRefresh, selectedCanvasId, selectedProject, setAutoRunState, setError, t]);
+
   const startAutoRunControlDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     const control = event.currentTarget.closest("[data-auto-run-control]");
     const surface = event.currentTarget.closest("[data-graph-surface]");
@@ -326,6 +351,7 @@ export function useAutoRunControl({
     setAutoRunScopeMode,
     setAutoRunState,
     setMiniRunPanelOpen,
+    resetRuntimeStateClick,
     startAutoRunWithScope,
     startAutoRunControlDrag,
     stopAutoRunClick,
