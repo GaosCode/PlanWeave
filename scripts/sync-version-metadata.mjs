@@ -21,6 +21,8 @@ const versionSourceFiles = {
   }
 };
 
+const readmeBadgeTargets = ["README.md", "readme/README.zh-CN.md"];
+
 const versionFlagTargets = {
   "--root": ["root"],
   "--runtime": ["runtime"],
@@ -31,7 +33,14 @@ const versionFlagTargets = {
   "--all": ["root", "runtime", "cli", "desktop", "mcp"]
 };
 
-const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+const semverTextPattern = String.raw`(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?`;
+const semverPattern = new RegExp(`^${semverTextPattern}$`);
+const readmeBadgeStartMarker = "<!-- planweave-badges:start -->";
+const readmeBadgeEndMarker = "<!-- planweave-badges:end -->";
+const readmeVersionBadgePattern = new RegExp(
+  `(img\\.shields\\.io/badge/version-)(${semverTextPattern})(-orange)`,
+  "g"
+);
 
 function usage() {
   return [
@@ -146,8 +155,38 @@ async function syncVersionSourceFile(target, version, changedFiles) {
   await writeIfChanged(sourceFile.path, nextText, changedFiles);
 }
 
+async function syncReadmeBadgeFile(relativePath, version, changedFiles) {
+  const currentText = await readText(relativePath);
+  const startIndex = currentText.indexOf(readmeBadgeStartMarker);
+  const endIndex = currentText.indexOf(readmeBadgeEndMarker, startIndex + readmeBadgeStartMarker.length);
+
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    invalidFiles.push(`${relativePath} does not contain a supported planweave-badges block`);
+    return;
+  }
+
+  const blockStart = startIndex + readmeBadgeStartMarker.length;
+  const beforeBlock = currentText.slice(0, blockStart);
+  const badgeBlock = currentText.slice(blockStart, endIndex);
+  const afterBlock = currentText.slice(endIndex);
+
+  readmeVersionBadgePattern.lastIndex = 0;
+  const matches = [...badgeBlock.matchAll(readmeVersionBadgePattern)];
+  if (matches.length === 0) {
+    invalidFiles.push(`${relativePath} does not contain a supported version badge`);
+    return;
+  }
+
+  const nextBadgeBlock = badgeBlock.replace(
+    readmeVersionBadgePattern,
+    (_match, badgePrefix, _badgeVersion, badgeSuffix) => `${badgePrefix}${version}${badgeSuffix}`
+  );
+  await writeIfChanged(relativePath, `${beforeBlock}${nextBadgeBlock}${afterBlock}`, changedFiles);
+}
+
 const changedFiles = [];
 const invalidFiles = [];
+let rootPackageVersion;
 
 for (const [target, packageJsonPath] of Object.entries(packages)) {
   const packageJson = await readJson(packageJsonPath);
@@ -161,7 +200,16 @@ for (const [target, packageJsonPath] of Object.entries(packages)) {
     packageJson.version = nextVersion;
     await writeIfChanged(packageJsonPath, stringifyJson(packageJson), changedFiles);
   }
+  if (target === "root") {
+    rootPackageVersion = packageJson.version;
+  }
   await syncVersionSourceFile(target, nextVersion ?? packageJson.version, changedFiles);
+}
+
+if (rootPackageVersion) {
+  for (const readmePath of readmeBadgeTargets) {
+    await syncReadmeBadgeFile(readmePath, rootPackageVersion, changedFiles);
+  }
 }
 
 if (invalidFiles.length > 0) {

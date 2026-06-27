@@ -136,6 +136,19 @@ export type DesktopUiSettings = {
   windowMaterial: {
     enabled: boolean;
   };
+  layout: {
+    leftSidebar: {
+      collapsed: boolean;
+      width: number;
+    };
+    rightSidebar: {
+      collapsed: boolean;
+      width: number;
+    };
+    autoRunControl: {
+      position: FloatingControlPosition | null;
+    };
+  };
   review: {
     pipelineEnabled: boolean;
     strictReview: boolean;

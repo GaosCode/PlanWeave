@@ -7,6 +7,7 @@ import {
 import { buildPlanPackageBlockFieldEditMutation, buildPlanPackageTaskFieldEditMutation } from "../graph/fieldEditMutation.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { defaultPlanGraphCommandDependencies } from "./adapters.js";
+import { PlanGraphOperationLogParseError } from "./commandSchema.js";
 import { stableJson } from "./hash.js";
 import { applyProjectGraphHistoryCommand, executeProjectGraphCommand, isProjectGraphCommand } from "./projectGraphCommand.js";
 import type { ManifestBlock, ManifestEdge, ManifestTaskNode, PackageWorkspaceRef, PlanPackageManifest } from "../types.js";
@@ -21,7 +22,7 @@ import type {
 } from "./commands.js";
 import { emptyAffectedRefs } from "./commands.js";
 import type { LoadedPlanGraphPackage } from "./packageRepository.js";
-import type { PlanGraphCommandDependencies } from "./ports.js";
+import type { PlanGraphCommandDependencies, PlanGraphOperationLogEntry } from "./ports.js";
 
 export type ExecutePlanGraphCommandOptions = {
   projectRoot: PackageWorkspaceRef;
@@ -41,6 +42,19 @@ type ResolvedPlanGraphCommandDependencies = PlanGraphCommandDependencies;
 
 function diagnostic(code: string, message: string, path?: string): PlanGraphCommandDiagnostic {
   return { code, message, path };
+}
+
+function historyCommandInvalid(error: PlanGraphOperationLogParseError): PlanGraphCommandResult {
+  return fail({
+    command: { type: "updateLayout", layoutScope: "desktop", layout: null },
+    diagnostics: [
+      diagnostic(
+        "history_command_invalid",
+        `Invalid operation_log ${error.fieldName} for operation ${error.operationId}: ${error.issueSummary}.`,
+        `operation_log.${error.operationId}.${error.fieldName}`
+      )
+    ]
+  });
 }
 
 function fail(options: {
@@ -905,7 +919,15 @@ export async function undoPlanGraphCommand(options: PlanGraphHistoryOptions): Pr
     ...options.dependencies
   };
   const store = await dependencies.createIndexStore(options);
-  const entry = await store.log.latestUndoable();
+  let entry: PlanGraphOperationLogEntry | null;
+  try {
+    entry = await store.log.latestUndoable();
+  } catch (error) {
+    if (error instanceof PlanGraphOperationLogParseError) {
+      return historyCommandInvalid(error);
+    }
+    throw error;
+  }
   if (!entry) {
     return fail({ command: { type: "updateLayout", layoutScope: "desktop", layout: null }, diagnostics: [diagnostic("history_empty", "No command to undo.")] });
   }
@@ -922,7 +944,15 @@ export async function redoPlanGraphCommand(options: PlanGraphHistoryOptions): Pr
     ...options.dependencies
   };
   const store = await dependencies.createIndexStore(options);
-  const entry = await store.log.latestRedoable();
+  let entry: PlanGraphOperationLogEntry | null;
+  try {
+    entry = await store.log.latestRedoable();
+  } catch (error) {
+    if (error instanceof PlanGraphOperationLogParseError) {
+      return historyCommandInvalid(error);
+    }
+    throw error;
+  }
   if (!entry) {
     return fail({ command: { type: "updateLayout", layoutScope: "desktop", layout: null }, diagnostics: [diagnostic("history_empty", "No command to redo.")] });
   }

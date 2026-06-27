@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type Dispatch, type PointerEvent, type SetStateAction } from "react";
+import { useEffect, useState, type CSSProperties, type Dispatch, type PointerEvent, type Ref, type SetStateAction } from "react";
 import type { DesktopAutoRunRetrospectiveSummary, DesktopAutoRunState, DesktopProjectSummary, ValidationIssue } from "@planweave-ai/runtime";
 import { ClipboardIcon, FolderOpenIcon, MoveIcon, PauseIcon, PlayIcon, RefreshCwIcon, RotateCcwIcon, SquareIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,7 @@ type FloatingAutoRunControlProps = {
   autoRunRetrospective: DesktopAutoRunRetrospectiveSummary | null;
   autoRunScopeMode: AutoRunScopeMode;
   autoRunState: DesktopAutoRunState | null;
+  controlRef: Ref<HTMLDivElement>;
   diagnostics: ValidationIssue[];
   dirtyPromptCount: number;
   dirtyPromptRefs: string[];
@@ -249,6 +250,7 @@ export function FloatingAutoRunControl({
   autoRunRetrospective,
   autoRunScopeMode,
   autoRunState,
+  controlRef,
   diagnostics,
   dirtyPromptCount,
   dirtyPromptRefs,
@@ -293,7 +295,7 @@ export function FloatingAutoRunControl({
   }, [currentFileSyncChangeKey, fileSyncPopoverOpen]);
 
   return (
-    <div className="absolute flex items-center gap-2 rounded-xl border bg-background p-2 shadow-lg" data-auto-run-control style={style}>
+    <div className="absolute flex items-center gap-2 rounded-xl border bg-background p-2 shadow-lg" data-auto-run-control ref={controlRef} style={style}>
       <Button
         size="icon-sm"
         variant="ghost"

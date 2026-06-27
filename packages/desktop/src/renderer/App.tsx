@@ -1,11 +1,11 @@
-import { useCallback, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useMemo, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
 import { type Edge, type ReactFlowInstance, useEdgesState, useNodesState } from "@xyflow/react";
 import type { DesktopPackageFileChangeEvent, DesktopPackageFileSyncResult, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { bridge } from "./bridge";
 import { nodeTypes } from "./graph/flowModel";
 import { createTranslator } from "./i18n";
 import { ProjectSidebar } from "./sidebar/ProjectSidebar";
-import { loadDesktopSettings, mergeDesktopSettings, orderProjectsByPinnedIds } from "./settings";
+import { desktopSidebarWidthBounds, loadDesktopSettings, mergeDesktopSettings, orderProjectsByPinnedIds } from "./settings";
 import type { AppFlowNode, AppView, DesktopUiSettings } from "./types";
 import { WorkspaceTabs } from "./views/WorkspaceTabs";
 import { useReviewPipeline } from "./hooks/useReviewPipeline";
@@ -36,22 +36,25 @@ import { buildAppSettingsRouteProps } from "./AppSettingsRouteProps";
 import { AppOverlays } from "./components/AppOverlays";
 import { writeAgentScopePromptToClipboard } from "./agentPrompt";
 
-const leftSidebarWidthBounds = { min: 220, max: 520, defaultValue: 280 };
-const rightSidebarWidthBounds = { min: 240, max: 520, defaultValue: 300 };
-
 function clampSidebarWidth(width: number, bounds: { min: number; max: number }): number {
   return Math.min(bounds.max, Math.max(bounds.min, Math.round(width)));
 }
+
+type LayoutSettingsPatch = {
+  leftSidebar?: Partial<DesktopUiSettings["layout"]["leftSidebar"]>;
+  rightSidebar?: Partial<DesktopUiSettings["layout"]["rightSidebar"]>;
+  autoRunControl?: Partial<DesktopUiSettings["layout"]["autoRunControl"]>;
+};
 
 export function App() {
   const [settings, setSettings] = useState<DesktopUiSettings>(() => loadDesktopSettings());
   const language = settings.language;
   const t = useMemo(() => createTranslator(language), [language]);
   const [activeView, setActiveView] = useAppViewHistory("graph");
-  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
-  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
-  const [leftSidebarWidth, setLeftSidebarWidth] = useState(leftSidebarWidthBounds.defaultValue);
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(rightSidebarWidthBounds.defaultValue);
+  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(() => settings.layout.leftSidebar.collapsed);
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(() => settings.layout.rightSidebar.collapsed);
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(() => clampSidebarWidth(settings.layout.leftSidebar.width, desktopSidebarWidthBounds.left));
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(() => clampSidebarWidth(settings.layout.rightSidebar.width, desktopSidebarWidthBounds.right));
   const [, setBlockInspectorOpen] = useState(false);
   const { agentDetectionRefreshing, agentDetections, executorOptions, refreshAgentDetections } = useDetectedAgents();
   const { refreshRuntimeTools, runtimeTools } = useRuntimeTools();
@@ -68,6 +71,44 @@ export function App() {
     setSettings((current) => mergeDesktopSettings(current, patch));
   }, []);
 
+  const updateLayoutSettings = useCallback((patch: LayoutSettingsPatch) => {
+    setSettings((current) =>
+      mergeDesktopSettings(current, {
+        layout: {
+          ...current.layout,
+          leftSidebar: {
+            ...current.layout.leftSidebar,
+            ...patch.leftSidebar
+          },
+          rightSidebar: {
+            ...current.layout.rightSidebar,
+            ...patch.rightSidebar
+          },
+          autoRunControl: {
+            ...current.layout.autoRunControl,
+            ...patch.autoRunControl
+          }
+        }
+      })
+    );
+  }, []);
+
+  const setLeftSidebarCollapsedPreference: Dispatch<SetStateAction<boolean>> = useCallback((action) => {
+    setLeftSidebarCollapsed((current) => {
+      const collapsed = typeof action === "function" ? action(current) : action;
+      updateLayoutSettings({ leftSidebar: { collapsed } });
+      return collapsed;
+    });
+  }, [updateLayoutSettings]);
+
+  const setRightSidebarCollapsedPreference: Dispatch<SetStateAction<boolean>> = useCallback((action) => {
+    setRightSidebarCollapsed((current) => {
+      const collapsed = typeof action === "function" ? action(current) : action;
+      updateLayoutSettings({ rightSidebar: { collapsed } });
+      return collapsed;
+    });
+  }, [updateLayoutSettings]);
+
   useDesktopSettingsEffects(settings);
 
   const startSidebarResize = useCallback(
@@ -75,17 +116,19 @@ export function App() {
       event.preventDefault();
       const startX = event.clientX;
       const startWidth = side === "left" ? leftSidebarWidth : rightSidebarWidth;
-      const bounds = side === "left" ? leftSidebarWidthBounds : rightSidebarWidthBounds;
+      const bounds = side === "left" ? desktopSidebarWidthBounds.left : desktopSidebarWidthBounds.right;
       const updateWidth = side === "left" ? setLeftSidebarWidth : setRightSidebarWidth;
       const previousCursor = window.document.body.style.cursor;
       const previousUserSelect = window.document.body.style.userSelect;
+      let finalWidth = clampSidebarWidth(startWidth, bounds);
 
       window.document.body.style.cursor = "col-resize";
       window.document.body.style.userSelect = "none";
 
       const handlePointerMove = (moveEvent: PointerEvent) => {
         const delta = moveEvent.clientX - startX;
-        updateWidth(clampSidebarWidth(side === "left" ? startWidth + delta : startWidth - delta, bounds));
+        finalWidth = clampSidebarWidth(side === "left" ? startWidth + delta : startWidth - delta, bounds);
+        updateWidth(finalWidth);
       };
       const stopResize = () => {
         window.removeEventListener("pointermove", handlePointerMove);
@@ -93,13 +136,14 @@ export function App() {
         window.removeEventListener("pointercancel", stopResize);
         window.document.body.style.cursor = previousCursor;
         window.document.body.style.userSelect = previousUserSelect;
+        updateLayoutSettings(side === "left" ? { leftSidebar: { width: finalWidth } } : { rightSidebar: { width: finalWidth } });
       };
 
       window.addEventListener("pointermove", handlePointerMove);
       window.addEventListener("pointerup", stopResize);
       window.addEventListener("pointercancel", stopResize);
     },
-    [leftSidebarWidth, rightSidebarWidth]
+    [leftSidebarWidth, rightSidebarWidth, updateLayoutSettings]
   );
 
   const desktopProject = useDesktopProject({
@@ -191,6 +235,7 @@ export function App() {
   });
 
   const {
+    autoRunControlRef,
     autoRunControlStyle,
     autoRunNextAction,
     autoRunRetrospective,
@@ -217,7 +262,9 @@ export function App() {
     setAutoRunState,
     setError,
     t,
-    tmuxMonitoringEnabled: settings.execution.tmuxMonitoring && runtimeTools.tmux.available
+    tmuxMonitoringEnabled: settings.execution.tmuxMonitoring && runtimeTools.tmux.available,
+    initialPosition: settings.layout.autoRunControl.position,
+    onPositionCommit: (position) => updateLayoutSettings({ autoRunControl: { position } })
   });
   useTaskNodeFocus({
     activeView,
@@ -522,7 +569,7 @@ export function App() {
           loadProject={openProjectInSession}
           notificationItems={notificationItems}
           onResizeStart={(event) => startSidebarResize(event, "left")}
-          onToggleSidebar={() => setLeftSidebarCollapsed((current) => !current)}
+          onToggleSidebar={() => setLeftSidebarCollapsedPreference((current) => !current)}
           onTogglePinnedProject={handleTogglePinnedProject}
           pinnedProjectIds={pinnedProjectIds}
           projects={orderedProjects}
@@ -537,6 +584,7 @@ export function App() {
         <WorkspaceTabs
           activeView={activeView}
           addReviewStep={addReviewStep}
+          autoRunControlRef={autoRunControlRef}
           autoRunControlStyle={autoRunControlStyle}
           autoRunNextAction={autoRunNextAction}
           autoRunRetrospective={autoRunRetrospective}
@@ -633,7 +681,7 @@ export function App() {
             handlePaletteDragStart={handlePaletteDragStart}
             onResizeStart={(event) => startSidebarResize(event, "right")}
             rightSidebarCollapsed={rightSidebarCollapsed}
-            setRightSidebarCollapsed={setRightSidebarCollapsed}
+            setRightSidebarCollapsed={setRightSidebarCollapsedPreference}
             settings={settings}
             width={rightSidebarWidth}
             t={t}
@@ -643,8 +691,8 @@ export function App() {
       <CollapsedSidebarControls
         leftSidebarCollapsed={leftSidebarCollapsed}
         rightSidebarCollapsed={activeView === "canvas-map" ? false : rightSidebarCollapsed}
-        setLeftSidebarCollapsed={setLeftSidebarCollapsed}
-        setRightSidebarCollapsed={setRightSidebarCollapsed}
+        setLeftSidebarCollapsed={setLeftSidebarCollapsedPreference}
+        setRightSidebarCollapsed={setRightSidebarCollapsedPreference}
         t={t}
       />
       <AppOverlays error={error} successMessage={successMessage} setError={setError} setSuccessMessage={setSuccessMessage} t={t} />

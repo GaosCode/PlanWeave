@@ -1,5 +1,6 @@
 export type McpTunnelPhase = "stopped" | "starting" | "running" | "stopping" | "error";
 export type McpTunnelDownloadPhase = "idle" | "downloading" | "ready" | "error";
+export type McpTunnelRuntimeApiKeyPersistence = "persisted" | "session-only" | "missing";
 
 export type TunnelClientBinaryStatus = {
   path: string | null;
@@ -49,6 +50,7 @@ export type McpTunnelStatus = {
   config: {
     tunnelId: string | null;
     hasRuntimeApiKey: boolean;
+    runtimeApiKeyPersistence: McpTunnelRuntimeApiKeyPersistence;
     runtimeApiKeyStorage: "available" | "unavailable";
     autoStart: boolean;
   };

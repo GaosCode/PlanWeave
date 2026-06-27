@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type DragEvent, type MouseEvent, type PointerEvent, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type DragEvent, type MouseEvent, type PointerEvent, type Ref, type SetStateAction } from "react";
 import {
   Background,
   type Connection,
@@ -31,6 +31,7 @@ import type { AppFlowNode, AutoRunScopeMode } from "../types";
 
 type GraphViewProps = {
   autoRunControlStyle: CSSProperties;
+  autoRunControlRef: Ref<HTMLDivElement>;
   autoRunNextAction: AutoRunNextActionDescriptor | null;
   autoRunRetrospective: DesktopAutoRunRetrospectiveSummary | null;
   autoRunScopeMode: AutoRunScopeMode;
@@ -79,6 +80,7 @@ type GraphViewProps = {
 
 export function GraphView({
   autoRunControlStyle,
+  autoRunControlRef,
   autoRunNextAction,
   autoRunRetrospective,
   autoRunScopeMode,
@@ -291,6 +293,7 @@ export function GraphView({
         autoRunNextAction={autoRunNextAction}
         autoRunRetrospective={autoRunRetrospective}
         autoRunState={autoRunState}
+        controlRef={autoRunControlRef}
         affectedTasks={fileSyncResult?.affectedTasks ?? []}
         diagnostics={fileSyncResult?.diagnostics ?? []}
         dirtyPromptRefs={dirtyPromptRefs}

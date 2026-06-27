@@ -291,6 +291,7 @@ describe("preload bridge invocation", () => {
       config: {
         tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
         hasRuntimeApiKey: true,
+        runtimeApiKeyPersistence: "persisted",
         runtimeApiKeyStorage: "available",
         autoStart: true
       },

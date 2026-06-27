@@ -20,10 +20,75 @@ type UseAutoRunControlArgs = {
   setAutoRunState: (state: DesktopAutoRunState | null) => void;
   t: ReturnType<typeof createTranslator>;
   tmuxMonitoringEnabled: boolean;
+  initialPosition?: FloatingControlPosition | null;
+  position?: FloatingControlPosition | null;
+  onPositionCommit?: (position: FloatingControlPosition) => void;
 };
+
+type FloatingControlViewport = {
+  maxLeft: number;
+  maxTop: number;
+};
+
+const floatingControlInset = 12;
 
 function isActiveAutoRunState(state: DesktopAutoRunState | null): boolean {
   return state?.phase === "running" || state?.phase === "pausing";
+}
+
+function isValidControlPosition(position: FloatingControlPosition | null | undefined): position is FloatingControlPosition {
+  return Boolean(
+    position &&
+      Number.isFinite(position.left) &&
+      Number.isFinite(position.top) &&
+      position.left >= 0 &&
+      position.top >= 0
+  );
+}
+
+function sameControlPosition(left: FloatingControlPosition | null, right: FloatingControlPosition | null): boolean {
+  return left?.left === right?.left && left?.top === right?.top;
+}
+
+function sameControlViewport(left: FloatingControlViewport | null, right: FloatingControlViewport | null): boolean {
+  return left?.maxLeft === right?.maxLeft && left?.maxTop === right?.maxTop;
+}
+
+function clampControlPosition(position: FloatingControlPosition, drag: FloatingControlDrag): FloatingControlPosition {
+  return {
+    left: clamp(position.left, drag.minLeft, drag.maxLeft),
+    top: clamp(position.top, drag.minTop, drag.maxTop)
+  };
+}
+
+function clampMeasuredControlPosition(position: FloatingControlPosition, viewport: FloatingControlViewport): FloatingControlPosition {
+  return {
+    left: clamp(position.left, floatingControlInset, viewport.maxLeft),
+    top: clamp(position.top, floatingControlInset, viewport.maxTop)
+  };
+}
+
+function measuredControlViewport(element: HTMLElement): FloatingControlViewport | null {
+  const surface = element.closest("[data-graph-surface]");
+  if (!(surface instanceof HTMLElement)) {
+    return null;
+  }
+  const controlBounds = element.getBoundingClientRect();
+  const surfaceBounds = surface.getBoundingClientRect();
+  return {
+    maxLeft: Math.max(floatingControlInset, surfaceBounds.width - controlBounds.width - floatingControlInset),
+    maxTop: Math.max(floatingControlInset, surfaceBounds.height - controlBounds.height - floatingControlInset)
+  };
+}
+
+function positionFromPointer(event: React.PointerEvent<HTMLButtonElement>, drag: FloatingControlDrag): FloatingControlPosition {
+  return clampControlPosition(
+    {
+      left: event.clientX - drag.containerLeft - drag.offsetX,
+      top: event.clientY - drag.containerTop - drag.offsetY
+    },
+    drag
+  );
 }
 
 export function useAutoRunControl({
@@ -37,13 +102,25 @@ export function useAutoRunControl({
   setError,
   setAutoRunState,
   t,
-  tmuxMonitoringEnabled
+  tmuxMonitoringEnabled,
+  initialPosition,
+  position,
+  onPositionCommit
 }: UseAutoRunControlArgs) {
   const [autoRunScopeMode, setAutoRunScopeMode] = useState<AutoRunScopeMode>("project");
   const [miniRunPanelOpen, setMiniRunPanelOpen] = useState(false);
-  const [autoRunControlPosition, setAutoRunControlPosition] = useState<FloatingControlPosition | null>(null);
+  const [autoRunControlPosition, setAutoRunControlPosition] = useState<FloatingControlPosition | null>(() => {
+    const configuredPosition = position !== undefined ? position : initialPosition;
+    return isValidControlPosition(configuredPosition) ? configuredPosition : null;
+  });
   const [autoRunControlDrag, setAutoRunControlDrag] = useState<FloatingControlDrag | null>(null);
+  const [autoRunControlElement, setAutoRunControlElement] = useState<HTMLDivElement | null>(null);
+  const [autoRunControlViewport, setAutoRunControlViewport] = useState<FloatingControlViewport | null>(null);
   const [autoRunRetrospective, setAutoRunRetrospective] = useState<DesktopAutoRunRetrospectiveSummary | null>(null);
+
+  const autoRunControlRef = useCallback((element: HTMLDivElement | null) => {
+    setAutoRunControlElement((currentElement) => (currentElement === element ? currentElement : element));
+  }, []);
 
   const applyAutoRunState = useCallback(async (nextState: DesktopAutoRunState, options: { refreshDerivedState?: boolean } = {}) => {
     setAutoRunState(nextState);
@@ -53,6 +130,39 @@ export function useAutoRunControl({
   }, [onAutoRunDerivedStateRefresh, setAutoRunState]);
   const autoRunRunId = autoRunState?.runId ?? null;
   const activeRunId = isActiveAutoRunState(autoRunState) ? autoRunRunId : null;
+
+  useEffect(() => {
+    if (position === undefined) {
+      return;
+    }
+    const nextPosition = isValidControlPosition(position) ? position : null;
+    setAutoRunControlPosition((currentPosition) => (sameControlPosition(currentPosition, nextPosition) ? currentPosition : nextPosition));
+  }, [position]);
+
+  useEffect(() => {
+    if (!autoRunControlElement) {
+      setAutoRunControlViewport((currentViewport) => (currentViewport === null ? currentViewport : null));
+      return;
+    }
+
+    const updateViewport = () => {
+      const nextViewport = measuredControlViewport(autoRunControlElement);
+      setAutoRunControlViewport((currentViewport) => (sameControlViewport(currentViewport, nextViewport) ? currentViewport : nextViewport));
+    };
+    updateViewport();
+
+    const surface = autoRunControlElement.closest("[data-graph-surface]");
+    const resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(updateViewport) : null;
+    resizeObserver?.observe(autoRunControlElement);
+    if (surface instanceof HTMLElement) {
+      resizeObserver?.observe(surface);
+    }
+    window.addEventListener("resize", updateViewport);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updateViewport);
+    };
+  }, [autoRunControlElement]);
 
   useEffect(() => {
     if (!bridge || !selectedProject || isActiveAutoRunState(autoRunState)) {
@@ -301,9 +411,8 @@ export function useAutoRunControl({
     }
     const controlBounds = control.getBoundingClientRect();
     const surfaceBounds = surface.getBoundingClientRect();
-    const inset = 12;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setAutoRunControlDrag({
+    const inset = floatingControlInset;
+    const drag = {
       pointerId: event.pointerId,
       offsetX: event.clientX - controlBounds.left,
       offsetY: event.clientY - controlBounds.top,
@@ -313,18 +422,32 @@ export function useAutoRunControl({
       minTop: inset,
       maxLeft: Math.max(inset, surfaceBounds.width - controlBounds.width - inset),
       maxTop: Math.max(inset, surfaceBounds.height - controlBounds.height - inset)
-    });
-  }, []);
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setAutoRunControlDrag(drag);
+    if (autoRunControlPosition) {
+      setAutoRunControlPosition(clampControlPosition(autoRunControlPosition, drag));
+    }
+  }, [autoRunControlPosition]);
+
+  const commitAutoRunControlPosition = useCallback((nextPosition: FloatingControlPosition) => {
+    setAutoRunControlPosition(nextPosition);
+    onPositionCommit?.(nextPosition);
+  }, [onPositionCommit]);
+
+  const commitCurrentAutoRunControlPosition = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!autoRunControlDrag || event.pointerId !== autoRunControlDrag.pointerId) {
+      return;
+    }
+    commitAutoRunControlPosition(positionFromPointer(event, autoRunControlDrag));
+  }, [autoRunControlDrag, commitAutoRunControlPosition]);
 
   const moveAutoRunControl = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
       if (!autoRunControlDrag || event.pointerId !== autoRunControlDrag.pointerId) {
         return;
       }
-      setAutoRunControlPosition({
-        left: clamp(event.clientX - autoRunControlDrag.containerLeft - autoRunControlDrag.offsetX, autoRunControlDrag.minLeft, autoRunControlDrag.maxLeft),
-        top: clamp(event.clientY - autoRunControlDrag.containerTop - autoRunControlDrag.offsetY, autoRunControlDrag.minTop, autoRunControlDrag.maxTop)
-      });
+      setAutoRunControlPosition(positionFromPointer(event, autoRunControlDrag));
     },
     [autoRunControlDrag]
   );
@@ -333,12 +456,27 @@ export function useAutoRunControl({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+    commitCurrentAutoRunControlPosition(event);
     setAutoRunControlDrag(null);
-  }, []);
+  }, [commitCurrentAutoRunControlPosition]);
 
-  const autoRunControlStyle = autoRunControlPosition ? { left: autoRunControlPosition.left, top: autoRunControlPosition.top } : { right: 20, bottom: 20 };
+  const measuredAutoRunControlPosition = autoRunControlPosition && autoRunControlViewport
+    ? clampMeasuredControlPosition(autoRunControlPosition, autoRunControlViewport)
+    : null;
+  const autoRunControlStyle: React.CSSProperties = measuredAutoRunControlPosition
+    ? {
+        left: `${measuredAutoRunControlPosition.left}px`,
+        top: `${measuredAutoRunControlPosition.top}px`
+      }
+    : autoRunControlPosition
+      ? {
+          left: `clamp(${floatingControlInset}px, ${autoRunControlPosition.left}px, calc(100% - ${floatingControlInset}px))`,
+          top: `clamp(${floatingControlInset}px, ${autoRunControlPosition.top}px, calc(100% - ${floatingControlInset}px))`
+        }
+      : { right: 20, bottom: 20 };
 
   return {
+    autoRunControlRef,
     autoRunControlStyle,
     autoRunNextAction,
     autoRunRetrospective,

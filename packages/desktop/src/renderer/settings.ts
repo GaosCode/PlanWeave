@@ -1,7 +1,12 @@
 import type { BlockType } from "@planweave-ai/runtime";
-import type { AppearanceMode, DesktopUiSettings } from "./types";
+import type { AppearanceMode, DesktopUiSettings, FloatingControlPosition } from "./types";
 
 export const desktopSettingsKey = "planweave.desktop.settings.v1";
+
+export const desktopSidebarWidthBounds = {
+  left: { min: 220, max: 520, defaultValue: 280 },
+  right: { min: 240, max: 520, defaultValue: 300 }
+} as const;
 
 export const defaultDesktopSettings: DesktopUiSettings = {
   runtimePath: "",
@@ -22,6 +27,19 @@ export const defaultDesktopSettings: DesktopUiSettings = {
   },
   windowMaterial: {
     enabled: false
+  },
+  layout: {
+    leftSidebar: {
+      collapsed: false,
+      width: desktopSidebarWidthBounds.left.defaultValue
+    },
+    rightSidebar: {
+      collapsed: false,
+      width: desktopSidebarWidthBounds.right.defaultValue
+    },
+    autoRunControl: {
+      position: null
+    }
   },
   review: {
     pipelineEnabled: true,
@@ -75,6 +93,22 @@ export function mergeDesktopSettings(current: DesktopUiSettings, patch: Partial<
     windowMaterial: {
       ...current.windowMaterial,
       ...patch.windowMaterial
+    },
+    layout: {
+      ...current.layout,
+      ...patch.layout,
+      leftSidebar: {
+        ...current.layout.leftSidebar,
+        ...patch.layout?.leftSidebar
+      },
+      rightSidebar: {
+        ...current.layout.rightSidebar,
+        ...patch.layout?.rightSidebar
+      },
+      autoRunControl: {
+        ...current.layout.autoRunControl,
+        ...patch.layout?.autoRunControl
+      }
     },
     review: {
       ...current.review,
@@ -162,6 +196,47 @@ function booleanField<T extends Record<string, boolean>>(defaults: T, source: un
   return hasValidField ? next : undefined;
 }
 
+function validPositiveNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function validNonNegativeNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function normalizeSidebarLayout(
+  defaults: DesktopUiSettings["layout"]["leftSidebar"],
+  bounds: { min: number; max: number },
+  source: unknown
+): DesktopUiSettings["layout"]["leftSidebar"] | undefined {
+  if (!isRecord(source)) {
+    return undefined;
+  }
+  const next = { ...defaults };
+  let hasValidField = false;
+  if (typeof source.collapsed === "boolean") {
+    next.collapsed = source.collapsed;
+    hasValidField = true;
+  }
+  if (validPositiveNumber(source.width)) {
+    next.width = Math.min(bounds.max, Math.max(bounds.min, Math.round(source.width)));
+    hasValidField = true;
+  }
+  return hasValidField ? next : undefined;
+}
+
+function normalizeFloatingControlPosition(source: unknown): FloatingControlPosition | null | undefined {
+  if (source === null) {
+    return null;
+  }
+  if (!isRecord(source)) {
+    return undefined;
+  }
+  return validNonNegativeNumber(source.left) && validNonNegativeNumber(source.top)
+    ? { left: source.left, top: source.top }
+    : undefined;
+}
+
 function normalizeDesktopSettingsPatch(value: unknown): Partial<DesktopUiSettings> {
   if (!isRecord(value)) {
     return {};
@@ -198,6 +273,25 @@ function normalizeDesktopSettingsPatch(value: unknown): Partial<DesktopUiSetting
   if (windowMaterial) {
     patch.windowMaterial = windowMaterial;
   }
+
+  if (isRecord(value.layout)) {
+    const leftSidebar = normalizeSidebarLayout(defaultDesktopSettings.layout.leftSidebar, desktopSidebarWidthBounds.left, value.layout.leftSidebar);
+    const rightSidebar = normalizeSidebarLayout(defaultDesktopSettings.layout.rightSidebar, desktopSidebarWidthBounds.right, value.layout.rightSidebar);
+    const autoRunPosition = isRecord(value.layout.autoRunControl)
+      ? normalizeFloatingControlPosition(value.layout.autoRunControl.position)
+      : undefined;
+    if (leftSidebar || rightSidebar || autoRunPosition !== undefined) {
+      patch.layout = {
+        ...defaultDesktopSettings.layout,
+        leftSidebar: leftSidebar ?? defaultDesktopSettings.layout.leftSidebar,
+        rightSidebar: rightSidebar ?? defaultDesktopSettings.layout.rightSidebar,
+        autoRunControl: {
+          position: autoRunPosition !== undefined ? autoRunPosition : defaultDesktopSettings.layout.autoRunControl.position
+        }
+      };
+    }
+  }
+
   const review = booleanField(defaultDesktopSettings.review, value.review);
   if (review) {
     patch.review = review;

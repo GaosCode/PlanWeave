@@ -12,7 +12,31 @@ import {
   type TunnelClientBinaryStartTarget
 } from "../main/mcpTunnel/tunnelClientBinary";
 import { downloadOfficialTunnelClient, parseSha256Sums, selectTunnelClientReleaseAssets, tunnelClientPlatformAsset } from "../main/mcpTunnel/tunnelClientDownloader";
-import { readTunnelClientConfig, writeTunnelClientConfig } from "../main/mcpTunnel/tunnelClientStore";
+import { mcpTunnelConfigPath, readTunnelClientConfig, writeTunnelClientConfig } from "../main/mcpTunnel/tunnelClientStore";
+
+const electronMock = vi.hoisted(() => ({
+  app: {
+    getPath: vi.fn()
+  },
+  BrowserWindow: {
+    getAllWindows: vi.fn(() => [])
+  },
+  ipcMain: {
+    handle: vi.fn()
+  },
+  safeStorage: {
+    decryptString: vi.fn((value: Buffer) => Buffer.from(value.toString(), "base64").toString("utf8")),
+    encryptString: vi.fn((value: string) => Buffer.from(value, "utf8")),
+    isEncryptionAvailable: vi.fn(() => true)
+  }
+}));
+
+vi.mock("electron", () => ({
+  app: electronMock.app,
+  BrowserWindow: electronMock.BrowserWindow,
+  ipcMain: electronMock.ipcMain,
+  safeStorage: electronMock.safeStorage
+}));
 
 async function writeTunnelClientScript(name = "tunnel-client"): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "planweave-tunnel-client-"));
@@ -104,7 +128,12 @@ async function exists(path: string): Promise<boolean> {
 }
 
 afterEach(() => {
+  vi.doUnmock("../main/mcpTunnel/localMcpProcess");
+  vi.doUnmock("../main/mcpTunnel/tunnelClientProcess");
+  vi.doUnmock("../main/mcpTunnel/tunnelClientBinary");
+  vi.doUnmock("../main/mcpTunnel/tunnelClientDownloader");
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("MCP tunnel process helpers", () => {
@@ -592,6 +621,326 @@ exit 1
     expect(status.error).toContain("[redacted-tunnel-id]");
     expect(JSON.stringify(status)).not.toContain("secret-runtime-key");
     expect(status.error).not.toContain("tunnel_0123456789abcdef0123456789abcdef");
+  });
+
+  it("uses a session-only runtime API key when safeStorage is unavailable", async () => {
+    vi.resetModules();
+    const userDataDir = await mkdtemp(join(tmpdir(), "planweave-user-data-"));
+    const tunnelStart = vi.fn(async (options: { input: { tunnelId: string; runtimeApiKey: string } }) => ({
+      phase: "running",
+      profile: "planweave-local-http",
+      tunnelId: options.input.tunnelId,
+      pid: 123,
+      healthUrl: "http://127.0.0.1:12345",
+      ready: true,
+      error: null
+    }));
+
+    electronMock.app.getPath.mockReturnValue(userDataDir);
+    electronMock.safeStorage.isEncryptionAvailable.mockReturnValue(false);
+    await writeTunnelClientConfig(userDataDir, {
+      tunnelClientPath: null,
+      verification: null,
+      tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+      encryptedRuntimeApiKey: "old-encrypted-runtime-key",
+      autoStart: true
+    });
+    vi.doMock("../main/mcpTunnel/localMcpProcess", () => ({
+      LocalMcpServerManager: class {
+        getStatus = vi.fn(() => ({
+          phase: "running",
+          endpoint: "http://127.0.0.1:8787/mcp",
+          host: "127.0.0.1",
+          port: 8787,
+          pid: process.pid,
+          planweaveHome: userDataDir,
+          planweaveHomeFromEnv: false,
+          healthy: true,
+          error: null
+        }));
+        start = vi.fn();
+        stop = vi.fn();
+      }
+    }));
+    vi.doMock("../main/mcpTunnel/tunnelClientProcess", () => ({
+      TunnelClientProcessManager: class {
+        getStatus = vi.fn(() => ({
+          phase: "stopped",
+          profile: "planweave-local-http",
+          tunnelId: null,
+          pid: null,
+          healthUrl: null,
+          ready: false,
+          error: null
+        }));
+        start = tunnelStart;
+        stop = vi.fn();
+      }
+    }));
+    vi.doMock("../main/mcpTunnel/tunnelClientBinary", () => ({
+      resolveTunnelClientBinary: vi.fn(async () => ({
+        path: "/usr/local/bin/tunnel-client",
+        available: true,
+        source: "manual",
+        assetName: null,
+        assetSha256: null,
+        sha256: "0".repeat(64),
+        version: null,
+        verified: false,
+        error: null
+      })),
+      resolveTunnelClientBinaryStartTarget: vi.fn(async () => ({
+        path: "/usr/local/bin/tunnel-client",
+        available: true,
+        source: "manual",
+        executableDir: "/usr/local/bin",
+        executableName: "tunnel-client"
+      })),
+      tunnelClientDownloadUrl: "https://github.com/openai/tunnel-client/releases/latest"
+    }));
+    vi.doMock("../main/mcpTunnel/tunnelClientDownloader", () => ({
+      downloadOfficialTunnelClient: vi.fn()
+    }));
+
+    const { getMcpTunnelStatus, setTunnelAutoStart, startTunnel } = await import("../main/mcpTunnel/mcpTunnelHandlers");
+
+    const firstStatus = await startTunnel({
+      tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+      runtimeApiKey: "secret-runtime-key"
+    });
+
+    expect(tunnelStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: {
+          tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+          runtimeApiKey: "secret-runtime-key"
+        }
+      })
+    );
+    await expect(readTunnelClientConfig(userDataDir)).resolves.toMatchObject({
+      tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+      encryptedRuntimeApiKey: null,
+      autoStart: false
+    });
+    await expect(readFile(mcpTunnelConfigPath(userDataDir), "utf8")).resolves.not.toContain("secret-runtime-key");
+    await expect(readFile(mcpTunnelConfigPath(userDataDir), "utf8")).resolves.not.toContain("old-encrypted-runtime-key");
+    expect(firstStatus.config).toMatchObject({
+      hasRuntimeApiKey: true,
+      runtimeApiKeyPersistence: "session-only",
+      runtimeApiKeyStorage: "unavailable"
+    });
+
+    await startTunnel({});
+
+    expect(tunnelStart).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        input: {
+          tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+          runtimeApiKey: "secret-runtime-key"
+        }
+      })
+    );
+    await expect(getMcpTunnelStatus()).resolves.toMatchObject({
+      config: {
+        hasRuntimeApiKey: true,
+        runtimeApiKeyPersistence: "session-only",
+        runtimeApiKeyStorage: "unavailable"
+      }
+    });
+    await expect(setTunnelAutoStart(true)).rejects.toThrow("Auto-start requires a runtime API key that can be restored from secure storage.");
+  });
+
+  it("treats an in-memory persisted runtime API key as session-only when safeStorage becomes unavailable", async () => {
+    vi.resetModules();
+    const userDataDir = await mkdtemp(join(tmpdir(), "planweave-user-data-"));
+    const tunnelStart = vi.fn();
+
+    electronMock.app.getPath.mockReturnValue(userDataDir);
+    electronMock.safeStorage.isEncryptionAvailable.mockReturnValue(true);
+    electronMock.safeStorage.decryptString.mockImplementation((value: Buffer) => value.toString("utf8"));
+    await writeTunnelClientConfig(userDataDir, {
+      tunnelClientPath: null,
+      verification: null,
+      tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+      encryptedRuntimeApiKey: Buffer.from("persisted-runtime-key", "utf8").toString("base64"),
+      autoStart: true
+    });
+    vi.doMock("../main/mcpTunnel/localMcpProcess", () => ({
+      LocalMcpServerManager: class {
+        getStatus = vi.fn(() => ({
+          phase: "running",
+          endpoint: "http://127.0.0.1:8787/mcp",
+          host: "127.0.0.1",
+          port: 8787,
+          pid: process.pid,
+          planweaveHome: userDataDir,
+          planweaveHomeFromEnv: false,
+          healthy: true,
+          error: null
+        }));
+        start = tunnelStart;
+        stop = vi.fn();
+      }
+    }));
+    vi.doMock("../main/mcpTunnel/tunnelClientProcess", () => ({
+      TunnelClientProcessManager: class {
+        getStatus = vi.fn(() => ({
+          phase: "stopped",
+          profile: "planweave-local-http",
+          tunnelId: null,
+          pid: null,
+          healthUrl: null,
+          ready: false,
+          error: null
+        }));
+        start = vi.fn();
+        stop = vi.fn();
+      }
+    }));
+    vi.doMock("../main/mcpTunnel/tunnelClientBinary", () => ({
+      resolveTunnelClientBinary: vi.fn(async () => ({
+        path: "/usr/local/bin/tunnel-client",
+        available: true,
+        source: "manual",
+        assetName: null,
+        assetSha256: null,
+        sha256: "0".repeat(64),
+        version: null,
+        verified: false,
+        error: null
+      })),
+      resolveTunnelClientBinaryStartTarget: vi.fn(),
+      tunnelClientDownloadUrl: "https://github.com/openai/tunnel-client/releases/latest"
+    }));
+    vi.doMock("../main/mcpTunnel/tunnelClientDownloader", () => ({
+      downloadOfficialTunnelClient: vi.fn()
+    }));
+
+    const { getMcpTunnelStatus, setTunnelAutoStart } = await import("../main/mcpTunnel/mcpTunnelHandlers");
+    await expect(getMcpTunnelStatus()).resolves.toMatchObject({
+      config: {
+        hasRuntimeApiKey: true,
+        runtimeApiKeyPersistence: "persisted",
+        runtimeApiKeyStorage: "available",
+        autoStart: true
+      }
+    });
+
+    electronMock.safeStorage.isEncryptionAvailable.mockReturnValue(false);
+
+    await expect(getMcpTunnelStatus()).resolves.toMatchObject({
+      config: {
+        hasRuntimeApiKey: true,
+        runtimeApiKeyPersistence: "session-only",
+        runtimeApiKeyStorage: "unavailable",
+        autoStart: false
+      }
+    });
+    await expect(setTunnelAutoStart(true)).rejects.toThrow("Auto-start requires a runtime API key that can be restored from secure storage.");
+    const { autoStartMcpTunnel } = await import("../main/mcpTunnel/mcpTunnelHandlers");
+    await autoStartMcpTunnel();
+
+    expect(tunnelStart).not.toHaveBeenCalled();
+    await expect(readTunnelClientConfig(userDataDir)).resolves.toMatchObject({
+      autoStart: false
+    });
+  });
+
+  it("keeps persisting runtime API keys when safeStorage is available", async () => {
+    vi.resetModules();
+    const userDataDir = await mkdtemp(join(tmpdir(), "planweave-user-data-"));
+    const tunnelStart = vi.fn(async (options: { input: { tunnelId: string; runtimeApiKey: string } }) => ({
+      phase: "running",
+      profile: "planweave-local-http",
+      tunnelId: options.input.tunnelId,
+      pid: 123,
+      healthUrl: "http://127.0.0.1:12345",
+      ready: true,
+      error: null
+    }));
+
+    electronMock.app.getPath.mockReturnValue(userDataDir);
+    electronMock.safeStorage.isEncryptionAvailable.mockReturnValue(true);
+    electronMock.safeStorage.encryptString.mockImplementation((value: string) => Buffer.from(`encrypted:${value}`, "utf8"));
+    vi.doMock("../main/mcpTunnel/localMcpProcess", () => ({
+      LocalMcpServerManager: class {
+        getStatus = vi.fn(() => ({
+          phase: "running",
+          endpoint: "http://127.0.0.1:8787/mcp",
+          host: "127.0.0.1",
+          port: 8787,
+          pid: process.pid,
+          planweaveHome: userDataDir,
+          planweaveHomeFromEnv: false,
+          healthy: true,
+          error: null
+        }));
+        start = vi.fn();
+        stop = vi.fn();
+      }
+    }));
+    vi.doMock("../main/mcpTunnel/tunnelClientProcess", () => ({
+      TunnelClientProcessManager: class {
+        getStatus = vi.fn(() => ({
+          phase: "stopped",
+          profile: "planweave-local-http",
+          tunnelId: null,
+          pid: null,
+          healthUrl: null,
+          ready: false,
+          error: null
+        }));
+        start = tunnelStart;
+        stop = vi.fn();
+      }
+    }));
+    vi.doMock("../main/mcpTunnel/tunnelClientBinary", () => ({
+      resolveTunnelClientBinary: vi.fn(async () => ({
+        path: "/usr/local/bin/tunnel-client",
+        available: true,
+        source: "manual",
+        assetName: null,
+        assetSha256: null,
+        sha256: "0".repeat(64),
+        version: null,
+        verified: false,
+        error: null
+      })),
+      resolveTunnelClientBinaryStartTarget: vi.fn(async () => ({
+        path: "/usr/local/bin/tunnel-client",
+        available: true,
+        source: "manual",
+        executableDir: "/usr/local/bin",
+        executableName: "tunnel-client"
+      })),
+      tunnelClientDownloadUrl: "https://github.com/openai/tunnel-client/releases/latest"
+    }));
+    vi.doMock("../main/mcpTunnel/tunnelClientDownloader", () => ({
+      downloadOfficialTunnelClient: vi.fn()
+    }));
+
+    const { getMcpTunnelStatus, setTunnelAutoStart, startTunnel } = await import("../main/mcpTunnel/mcpTunnelHandlers");
+
+    await startTunnel({
+      tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+      runtimeApiKey: "secret-runtime-key"
+    });
+    const config = await readTunnelClientConfig(userDataDir);
+
+    expect(config.encryptedRuntimeApiKey).toBe(Buffer.from("encrypted:secret-runtime-key", "utf8").toString("base64"));
+    await expect(setTunnelAutoStart(true)).resolves.toMatchObject({
+      config: {
+        autoStart: true,
+        runtimeApiKeyPersistence: "persisted",
+        runtimeApiKeyStorage: "available"
+      }
+    });
+    await expect(getMcpTunnelStatus()).resolves.toMatchObject({
+      config: {
+        hasRuntimeApiKey: true,
+        runtimeApiKeyPersistence: "persisted"
+      }
+    });
   });
 
   it("registers cleanup for MCP tunnel processes before app quit", async () => {

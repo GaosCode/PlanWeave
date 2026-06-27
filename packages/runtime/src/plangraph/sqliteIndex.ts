@@ -4,6 +4,12 @@ import { dirname, join } from "node:path";
 import { loadPackage } from "../package/loadPackage.js";
 import { resolveProjectWorkspace } from "../project.js";
 import { loadPlanGraphPackage } from "./packageRepository.js";
+import {
+  parsePlanGraphCommand,
+  parsePlanGraphCommandArrayOrSingle,
+  PlanGraphOperationLogParseError,
+  planGraphCommandIssueSummary
+} from "./commandSchema.js";
 import type { PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
 import type { PlanGraphAffectedRefs, PlanGraphCommand } from "./commands.js";
 import type { PlanGraph, PlanGraphBlockNode, PlanGraphTaskNode, PromptRef } from "./domain/types.js";
@@ -27,6 +33,13 @@ type SqliteDatabase = {
 
 type SqliteModule = {
   DatabaseSync: new (location: string) => SqliteDatabase;
+};
+
+type OperationLogCoalescingEntry = {
+  id: number;
+  workspaceRef: PackageWorkspaceRef;
+  command: PlanGraphCommand;
+  affected: PlanGraphAffectedRefs;
 };
 
 const nodeRequire = createRequire(import.meta.url);
@@ -521,10 +534,6 @@ function readGraphIndex(db: SqliteDatabase, projectRoot: string): PlanGraph | nu
   };
 }
 
-function parseCommand(value: string): PlanGraphCommand {
-  return parseJsonRecord(value, "command_json") as PlanGraphCommand;
-}
-
 function parseWorkspaceRef(value: unknown, fallbackProjectRoot: string): PackageWorkspaceRef {
   if (typeof value !== "string" || !value.trim()) {
     return fallbackProjectRoot;
@@ -543,18 +552,80 @@ function parseAffected(value: string): PlanGraphAffectedRefs {
   return parseJsonRecord(value, "affected_json") as PlanGraphAffectedRefs;
 }
 
+function operationLogJson(row: Record<string, unknown>, fieldName: "command_json" | "inverse_json"): unknown {
+  const operationId = numberColumn(row, "id");
+  try {
+    return JSON.parse(stringColumn(row, fieldName));
+  } catch (error) {
+    throw new PlanGraphOperationLogParseError({
+      operationId,
+      fieldName,
+      issueSummary: planGraphCommandIssueSummary(error)
+    });
+  }
+}
+
+function operationLogCommand(row: Record<string, unknown>): PlanGraphCommand {
+  const operationId = numberColumn(row, "id");
+  try {
+    return parsePlanGraphCommand(operationLogJson(row, "command_json"));
+  } catch (error) {
+    if (error instanceof PlanGraphOperationLogParseError) {
+      throw error;
+    }
+    throw new PlanGraphOperationLogParseError({
+      operationId,
+      fieldName: "command_json",
+      issueSummary: planGraphCommandIssueSummary(error)
+    });
+  }
+}
+
+function operationLogInverse(row: Record<string, unknown>): PlanGraphCommand | PlanGraphCommand[] {
+  const operationId = numberColumn(row, "id");
+  try {
+    return parsePlanGraphCommandArrayOrSingle(operationLogJson(row, "inverse_json"));
+  } catch (error) {
+    if (error instanceof PlanGraphOperationLogParseError) {
+      throw error;
+    }
+    throw new PlanGraphOperationLogParseError({
+      operationId,
+      fieldName: "inverse_json",
+      issueSummary: planGraphCommandIssueSummary(error)
+    });
+  }
+}
+
 function operationLogEntry(row: Record<string, unknown>, projectRoot: string): PlanGraphOperationLogEntry {
   return {
     id: numberColumn(row, "id"),
     workspaceRef: parseWorkspaceRef(row.workspace_ref_json, projectRoot),
     graphVersionBefore: stringColumn(row, "graph_version_before"),
     graphVersionAfter: stringColumn(row, "graph_version_after"),
-    command: parseCommand(stringColumn(row, "command_json")),
-    inverse: JSON.parse(stringColumn(row, "inverse_json")) as PlanGraphCommand | PlanGraphCommand[],
+    command: operationLogCommand(row),
+    inverse: operationLogInverse(row),
     affected: parseAffected(stringColumn(row, "affected_json")),
     createdAt: stringColumn(row, "created_at"),
     undoneAt: nullableStringColumn(row, "undone_at")
   };
+}
+
+function operationLogCoalescingEntry(row: Record<string, unknown>, projectRoot: string): OperationLogCoalescingEntry {
+  return {
+    id: numberColumn(row, "id"),
+    workspaceRef: parseWorkspaceRef(row.workspace_ref_json, projectRoot),
+    command: operationLogCommand(row),
+    affected: parseAffected(stringColumn(row, "affected_json"))
+  };
+}
+
+function tryOperationLogCoalescingEntry(row: Record<string, unknown>, projectRoot: string): OperationLogCoalescingEntry | null {
+  try {
+    return operationLogCoalescingEntry(row, projectRoot);
+  } catch {
+    return null;
+  }
 }
 
 function promptHistoryTarget(command: PlanGraphCommand): string | null {
@@ -706,8 +777,8 @@ export async function createSqlitePlanGraphStore(options: {
               .prepare("SELECT * FROM operation_log WHERE project_root = ? AND undone_at IS NULL ORDER BY id DESC LIMIT 1")
               .get(historyKey);
             if (latest) {
-              const latestEntry = operationLogEntry(latest, historyKey);
-              if (promptHistoryTarget(latestEntry.command) === promptTarget && sameWorkspaceRef(latestEntry.workspaceRef, entry.workspaceRef)) {
+              const latestEntry = tryOperationLogCoalescingEntry(latest, historyKey);
+              if (latestEntry && promptHistoryTarget(latestEntry.command) === promptTarget && sameWorkspaceRef(latestEntry.workspaceRef, entry.workspaceRef)) {
                 db.prepare(
                   `UPDATE operation_log
                    SET graph_version_after = ?, command_json = ?, affected_json = ?

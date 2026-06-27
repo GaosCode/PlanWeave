@@ -1,4 +1,4 @@
-import type { CSSProperties, Dispatch, DragEvent, MouseEvent, PointerEvent, SetStateAction } from "react";
+import type { CSSProperties, Dispatch, DragEvent, MouseEvent, PointerEvent, Ref, SetStateAction } from "react";
 import type {
   Connection,
   Edge,
@@ -39,6 +39,7 @@ import { TodoView } from "./TodoView";
 
 type WorkspaceTabsProps = {
   activeView: AppView;
+  autoRunControlRef: Ref<HTMLDivElement>;
   autoRunControlStyle: CSSProperties;
   autoRunNextAction: AutoRunNextActionDescriptor | null;
   autoRunRetrospective: DesktopAutoRunRetrospectiveSummary | null;

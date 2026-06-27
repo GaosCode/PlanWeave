@@ -29,6 +29,12 @@ export type {
   UpdateTaskPromptCommand
 } from "./commands.js";
 export { emptyAffectedRefs } from "./commands.js";
+export {
+  parsePlanGraphCommand,
+  parsePlanGraphCommandArrayOrSingle,
+  planGraphCommandParseDiagnostic,
+  planGraphCommandSchema
+} from "./commandSchema.js";
 export type {
   BlockRef,
   CanvasId,

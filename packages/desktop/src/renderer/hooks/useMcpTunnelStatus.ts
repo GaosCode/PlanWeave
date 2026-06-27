@@ -42,6 +42,7 @@ function idleStatus(): McpTunnelStatus {
     config: {
       tunnelId: null,
       hasRuntimeApiKey: false,
+      runtimeApiKeyPersistence: "missing",
       runtimeApiKeyStorage: "unavailable",
       autoStart: false
     },

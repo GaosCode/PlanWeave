@@ -50,7 +50,17 @@ export function SettingsMcpSection({ setError, t }: SettingsMcpSectionProps) {
     (status.tunnel.ready && status.tunnel.healthUrl
       ? `${t("mcpTunnelReadyHint")}: ${status.tunnel.healthUrl}`
       : status.tunnel.healthUrl ?? status.tunnel.tunnelId ?? t("mcpTunnelStatusHint"));
-  const runtimeApiKeyDescription = status.config.hasRuntimeApiKey ? t("mcpRuntimeApiKeySavedHint") : t("mcpRuntimeApiKeyHint");
+  const runtimeApiKeyDescription =
+    status.config.runtimeApiKeyPersistence === "persisted"
+      ? t("mcpRuntimeApiKeySavedHint")
+      : status.config.runtimeApiKeyPersistence === "session-only"
+        ? t("mcpRuntimeApiKeySessionOnlyHint")
+        : status.config.runtimeApiKeyStorage === "available"
+          ? t("mcpRuntimeApiKeyHint")
+          : t("mcpRuntimeApiKeyStorageUnavailableHint");
+  const autoStartDisabled = !available || status.config.runtimeApiKeyPersistence !== "persisted";
+  const autoStartDescription =
+    status.config.runtimeApiKeyPersistence === "persisted" ? t("mcpTunnelAutoStartHint") : t("mcpTunnelAutoStartRequiresPersistedKeyHint");
 
   return (
     <section data-testid="settings-section-mcp" className="flex flex-col gap-6">
@@ -149,14 +159,14 @@ export function SettingsMcpSection({ setError, t }: SettingsMcpSectionProps) {
               type="password"
               value={runtimeApiKey}
               aria-label={t("mcpRuntimeApiKey")}
-              placeholder={status.config.hasRuntimeApiKey ? t("mcpRuntimeApiKeySavedPlaceholder") : undefined}
+              placeholder={status.config.runtimeApiKeyPersistence === "persisted" ? t("mcpRuntimeApiKeySavedPlaceholder") : undefined}
               onChange={(event) => setRuntimeApiKey(event.target.value)}
             />
           </Field>
           <SettingsSwitchRow
             checked={status.config.autoStart}
-            description={t("mcpTunnelAutoStartHint")}
-            disabled={!available}
+            description={autoStartDescription}
+            disabled={autoStartDisabled}
             title={t("mcpTunnelAutoStart")}
             onCheckedChange={(checked) => void setTunnelAutoStart(checked)}
           />

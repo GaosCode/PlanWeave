@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, safeStorage } from "electron";
 import type {
+  McpTunnelRuntimeApiKeyPersistence,
   McpTunnelStatus,
   TunnelClientDownloadStatus,
   StartLocalMcpInput,
@@ -23,6 +24,7 @@ let tunnelClientPath: string | null = envTunnelClientPath;
 let tunnelClientVerification: TunnelClientBinaryVerification | null = null;
 let tunnelId: string | null = null;
 let runtimeApiKey: string | null = null;
+let sessionRuntimeApiKey: string | null = null;
 let encryptedRuntimeApiKey: string | null = null;
 let tunnelAutoStart = false;
 let tunnelClientConfigLoaded = false;
@@ -64,6 +66,28 @@ function encryptRuntimeApiKey(value: string | null): string | null {
     throw new Error("Electron safeStorage is unavailable, so the runtime API key cannot be persisted securely.");
   }
   return safeStorage.encryptString(value).toString("base64");
+}
+
+function hasRestorableRuntimeApiKey(): boolean {
+  return Boolean(runtimeApiKey && runtimeApiKeyStorageAvailable());
+}
+
+function sessionOnlyRuntimeApiKey(): string | null {
+  return sessionRuntimeApiKey ?? (runtimeApiKeyStorageAvailable() ? null : runtimeApiKey);
+}
+
+function runtimeApiKeyPersistence(): McpTunnelRuntimeApiKeyPersistence {
+  if (hasRestorableRuntimeApiKey()) {
+    return "persisted";
+  }
+  if (sessionOnlyRuntimeApiKey()) {
+    return "session-only";
+  }
+  return "missing";
+}
+
+function effectiveTunnelAutoStart(): boolean {
+  return tunnelAutoStart && hasRestorableRuntimeApiKey();
 }
 
 async function loadTunnelClientConfig(): Promise<void> {
@@ -110,9 +134,10 @@ async function getStatus(): Promise<McpTunnelStatus> {
     tunnel: tunnelClient.getStatus(),
     config: {
       tunnelId,
-      hasRuntimeApiKey: Boolean(runtimeApiKey),
+      hasRuntimeApiKey: Boolean(hasRestorableRuntimeApiKey() || sessionOnlyRuntimeApiKey()),
+      runtimeApiKeyPersistence: runtimeApiKeyPersistence(),
       runtimeApiKeyStorage: runtimeApiKeyStorageAvailable() ? "available" : "unavailable",
-      autoStart: tunnelAutoStart
+      autoStart: effectiveTunnelAutoStart()
     },
     downloadUrl: tunnelClientDownloadUrl,
     updatedAt: nowIso()
@@ -143,6 +168,9 @@ export async function setTunnelClientPath(path: string | null): Promise<McpTunne
 
 export async function setTunnelAutoStart(enabled: boolean): Promise<McpTunnelStatus> {
   await loadTunnelClientConfig();
+  if (enabled && !hasRestorableRuntimeApiKey()) {
+    throw new Error("Auto-start requires a runtime API key that can be restored from secure storage.");
+  }
   tunnelAutoStart = enabled;
   await persistTunnelClientConfig();
   return publishStatus();
@@ -192,7 +220,7 @@ export async function startTunnel(input: StartTunnelInput = {}): Promise<McpTunn
   const requestedTunnelId = input.tunnelId?.trim() || null;
   const requestedRuntimeApiKey = input.runtimeApiKey?.trim() || null;
   const effectiveTunnelId = requestedTunnelId ?? tunnelId;
-  const effectiveRuntimeApiKey = requestedRuntimeApiKey ?? runtimeApiKey;
+  const effectiveRuntimeApiKey = requestedRuntimeApiKey ?? (hasRestorableRuntimeApiKey() ? runtimeApiKey : sessionOnlyRuntimeApiKey());
   if (!effectiveTunnelId) {
     throw new Error("tunnel_id is required.");
   }
@@ -201,8 +229,17 @@ export async function startTunnel(input: StartTunnelInput = {}): Promise<McpTunn
   }
   if (requestedTunnelId || requestedRuntimeApiKey) {
     tunnelId = effectiveTunnelId;
-    runtimeApiKey = effectiveRuntimeApiKey;
-    encryptedRuntimeApiKey = encryptRuntimeApiKey(runtimeApiKey);
+    if (requestedRuntimeApiKey) {
+      if (runtimeApiKeyStorageAvailable()) {
+        runtimeApiKey = effectiveRuntimeApiKey;
+        sessionRuntimeApiKey = null;
+        encryptedRuntimeApiKey = encryptRuntimeApiKey(runtimeApiKey);
+      } else {
+        sessionRuntimeApiKey = effectiveRuntimeApiKey;
+        encryptedRuntimeApiKey = null;
+        tunnelAutoStart = false;
+      }
+    }
     await persistTunnelClientConfig();
   }
   const binaryStartTarget = await resolveTunnelClientBinaryStartTarget(tunnelClientPath, tunnelClientVerification);
@@ -236,6 +273,12 @@ export async function stopTunnel(): Promise<McpTunnelStatus> {
 export async function autoStartMcpTunnel(): Promise<void> {
   await loadTunnelClientConfig();
   if (!tunnelAutoStart) {
+    return;
+  }
+  if (!hasRestorableRuntimeApiKey()) {
+    tunnelAutoStart = false;
+    await persistTunnelClientConfig();
+    await publishStatus();
     return;
   }
   try {

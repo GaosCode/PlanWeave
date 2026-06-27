@@ -17,6 +17,7 @@ const settings: DesktopUiSettings = {
   appearance: "system",
   reducedMotion: false,
   language: "en",
+  pinnedProjectIds: [],
   readNotificationIds: [],
   notifications: {
     autoRunFailure: true,
@@ -44,6 +45,19 @@ const settings: DesktopUiSettings = {
   },
   windowMaterial: {
     enabled: false
+  },
+  layout: {
+    leftSidebar: {
+      collapsed: false,
+      width: 280
+    },
+    rightSidebar: {
+      collapsed: false,
+      width: 300
+    },
+    autoRunControl: {
+      position: null
+    }
   },
   agents: {
     codex: {
@@ -134,6 +148,19 @@ afterEach(() => {
 describe("desktop renderer settings interactions", () => {
   it("defaults new task cards to implementation blocks only", () => {
     expect(defaultDesktopSettings.palette.defaultBlockSet).toEqual(["implementation"]);
+    expect(defaultDesktopSettings.layout).toEqual({
+      leftSidebar: {
+        collapsed: false,
+        width: 280
+      },
+      rightSidebar: {
+        collapsed: false,
+        width: 300
+      },
+      autoRunControl: {
+        position: null
+      }
+    });
   });
 
   it("keeps the settings content inside a bounded scroll area", () => {
@@ -200,6 +227,167 @@ describe("desktop renderer settings interactions", () => {
       reducedMotion: true,
       windowMaterial: {
         enabled: true
+      }
+    });
+  });
+
+  it("uses default layout settings when stored settings predate layout preferences", () => {
+    window.localStorage.setItem(
+      desktopSettingsKey,
+      JSON.stringify({
+        appearance: "dark",
+        notifications: {
+          autoRunFailure: false
+        }
+      })
+    );
+
+    expect(loadDesktopSettings()).toMatchObject({
+      appearance: "dark",
+      notifications: {
+        autoRunFailure: false
+      },
+      layout: defaultDesktopSettings.layout
+    });
+  });
+
+  it("normalizes stored layout widths and ignores invalid floating control coordinates", () => {
+    window.localStorage.setItem(
+      desktopSettingsKey,
+      JSON.stringify({
+        layout: {
+          leftSidebar: {
+            collapsed: "yes",
+            width: -1
+          },
+          rightSidebar: {
+            collapsed: true,
+            width: 99999
+          },
+          autoRunControl: {
+            position: {
+              left: -20,
+              top: "30"
+            }
+          }
+        }
+      })
+    );
+
+    expect(loadDesktopSettings().layout).toEqual({
+      ...defaultDesktopSettings.layout,
+      rightSidebar: {
+        collapsed: true,
+        width: 520
+      }
+    });
+  });
+
+  it("clamps positive stored layout widths below sidebar minimums", () => {
+    window.localStorage.setItem(
+      desktopSettingsKey,
+      JSON.stringify({
+        notifications: {
+          dirtyPrompts: false
+        },
+        layout: {
+          leftSidebar: {
+            collapsed: true,
+            width: 1
+          },
+          rightSidebar: {
+            collapsed: false,
+            width: 2
+          }
+        }
+      })
+    );
+
+    expect(loadDesktopSettings()).toMatchObject({
+      notifications: {
+        dirtyPrompts: false,
+        autoRunFailure: true
+      },
+      layout: {
+        leftSidebar: {
+          collapsed: true,
+          width: 220
+        },
+        rightSidebar: {
+          collapsed: false,
+          width: 240
+        },
+        autoRunControl: defaultDesktopSettings.layout.autoRunControl
+      }
+    });
+  });
+
+  it("deep merges valid stored layout preferences with other settings", () => {
+    window.localStorage.setItem(
+      desktopSettingsKey,
+      JSON.stringify({
+        notifications: {
+          autoRunFailure: false
+        },
+        palette: {
+          visible: {
+            review: false
+          },
+          defaultBlockSet: ["review"],
+          dragHint: false
+        },
+        agents: {
+          codex: {
+            enabled: true
+          }
+        },
+        layout: {
+          leftSidebar: {
+            collapsed: true,
+            width: 360
+          },
+          autoRunControl: {
+            position: {
+              left: 48,
+              top: 96
+            }
+          }
+        }
+      })
+    );
+
+    expect(loadDesktopSettings()).toMatchObject({
+      notifications: {
+        autoRunFailure: false,
+        graphExceptions: true
+      },
+      palette: {
+        visible: {
+          task: true,
+          implementation: true,
+          review: false
+        },
+        defaultBlockSet: ["review"],
+        dragHint: false
+      },
+      agents: {
+        codex: {
+          enabled: true,
+          fullAccess: false
+        }
+      },
+      layout: {
+        leftSidebar: {
+          collapsed: true,
+          width: 360
+        },
+        rightSidebar: defaultDesktopSettings.layout.rightSidebar,
+        autoRunControl: {
+          position: {
+            left: 48,
+            top: 96
+          }
+        }
       }
     });
   });
@@ -277,6 +465,7 @@ describe("desktop renderer settings interactions", () => {
           config: {
             tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
             hasRuntimeApiKey: true,
+            runtimeApiKeyPersistence: "persisted",
             runtimeApiKeyStorage: "available",
             autoStart: true
           },
@@ -323,6 +512,94 @@ describe("desktop renderer settings interactions", () => {
     expect(screen.getByRole("switch", { name: "Start tunnel when PlanWeave opens" })).toBeChecked();
     expect(screen.getByRole("link", { name: "Open release page" })).toHaveAttribute("href", "https://github.com/openai/tunnel-client/releases/latest");
     expect(window.localStorage.setItem).not.toHaveBeenCalledWith(expect.any(String), expect.stringContaining("Runtime API key"));
+  });
+
+  it("disables MCP tunnel auto-start when the runtime API key is session-only", async () => {
+    stubLayoutApis();
+    Object.defineProperty(window, "planweaveMcpTunnel", {
+      configurable: true,
+      value: {
+        getMcpTunnelStatus: vi.fn().mockResolvedValue({
+          binary: {
+            path: null,
+            available: false,
+            source: null,
+            assetName: null,
+            assetSha256: null,
+            sha256: null,
+            version: null,
+            verified: false,
+            error: "Tunnel client binary path is not configured."
+          },
+          download: {
+            phase: "idle",
+            assetName: null,
+            error: null
+          },
+          localMcp: {
+            phase: "stopped",
+            endpoint: null,
+            host: "127.0.0.1",
+            port: 8787,
+            pid: null,
+            planweaveHome: "/Users/example/.planweave",
+            planweaveHomeFromEnv: false,
+            healthy: false,
+            error: null
+          },
+          tunnel: {
+            phase: "stopped",
+            profile: "planweave-local-http",
+            tunnelId: null,
+            pid: null,
+            healthUrl: null,
+            ready: false,
+            error: null
+          },
+          config: {
+            tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+            hasRuntimeApiKey: true,
+            runtimeApiKeyPersistence: "session-only",
+            runtimeApiKeyStorage: "unavailable",
+            autoStart: false
+          },
+          downloadUrl: "https://github.com/openai/tunnel-client/releases/latest",
+          updatedAt: "2026-06-19T00:00:00.000Z"
+        }),
+        onMcpTunnelChanged: vi.fn(() => () => undefined),
+        downloadTunnelClient: vi.fn(),
+        setTunnelClientPath: vi.fn(),
+        setTunnelAutoStart: vi.fn(),
+        startLocalMcp: vi.fn(),
+        stopLocalMcp: vi.fn(),
+        startTunnel: vi.fn(),
+        stopTunnel: vi.fn()
+      }
+    });
+
+    render(
+      <SettingsView
+        agentDetectionRefreshing={false}
+        agents={[]}
+        graph={null}
+        language="en"
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
+        runtimeTools={{ tmux: { available: true, command: "tmux" } }}
+        projects={[]}
+        setActiveView={vi.fn()}
+        settings={settings}
+        t={createTranslator("en")}
+        updateSettings={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByTestId("settings-nav-mcp"));
+
+    expect(await screen.findByText("Stored only for this PlanWeave process. It will not be saved.")).toBeInTheDocument();
+    expect(screen.getByText("Auto-start requires a runtime API key that can be restored from secure storage.")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Start tunnel when PlanWeave opens" })).toBeDisabled();
+    expect(screen.getByLabelText("Runtime API key")).not.toHaveAttribute("placeholder", "Saved key");
   });
 
   it("lets users choose system, light, and dark appearance modes", async () => {
