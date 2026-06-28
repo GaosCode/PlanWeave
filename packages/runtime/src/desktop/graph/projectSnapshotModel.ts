@@ -11,7 +11,11 @@ import {
   type DesktopGraphViewModelContext
 } from "./readModel.js";
 import { appendDesktopDiagnostic, appendDesktopDiagnostics, desktopDiagnostic, errorMessage, formatDesktopDiagnostic } from "./desktopDiagnostics.js";
-import { readDesktopProjectProjection, readDesktopProjectStatisticsProjection, type DesktopProjectProjection } from "./projectProjectionModel.js";
+import {
+  buildDesktopProjectStatisticsProjectionFromProjection,
+  readDesktopProjectProjection,
+  type DesktopProjectProjection
+} from "./projectProjectionModel.js";
 import { buildProjectExecutionPlanFromContext, buildTodoGroupsFromContext, type ProjectTodoContext } from "./todoModel.js";
 
 async function captureSnapshotPart<T>(
@@ -122,8 +126,10 @@ export async function getDesktopProjectSnapshot(ref: DesktopCanvasReference): Pr
     captureSnapshotPart(diagnostics, "todoGroups", async () => buildTodoGroupsFromContext(unwrapSnapshotResult(projectTodoContext))),
     captureSnapshotPart(diagnostics, "executionPlan", async () => buildProjectExecutionPlanFromContext(unwrapSnapshotResult(projectTodoContext))),
     captureSnapshotPart(diagnostics, "statistics", async () => {
-      unwrapSnapshotResult(projectTodoContext);
-      const projection = await readDesktopProjectStatisticsProjection(ref.projectRoot);
+      const projection = await buildDesktopProjectStatisticsProjectionFromProjection(
+        unwrapSnapshotResult(projectProjection),
+        ref.projectRoot
+      );
       appendDesktopDiagnostics(diagnostics, projection.diagnostics);
       return projection.statistics;
     })

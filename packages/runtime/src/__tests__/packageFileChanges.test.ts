@@ -30,8 +30,9 @@ import {
   refreshChangedPackagePromptsForPaths
 } from "../package/fileChanges.js";
 import { affectedTasksForPackageFileChange } from "../graph/editGraph.js";
-import { createExecutionGraphSession, drainGraphReadQueue, enqueueGraphEditOperations } from "../graph/session.js";
+import { createExecutionGraphSession, createExecutionGraphSessionFromSnapshot, drainGraphReadQueue, enqueueGraphEditOperations } from "../graph/session.js";
 import { writeJsonFile } from "../json.js";
+import { createTaskCanvas, selectTaskCanvas } from "../desktop/index.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 
 describe("package file changes", () => {
@@ -248,6 +249,43 @@ describe("package file changes", () => {
     expect(session.readQueue.fileChanges).toEqual([]);
     expect([...session.dirtyPromptRefs]).toEqual(["T-001#B-001"]);
     expect(session.graph.blocksByRef.has("T-001#B-001")).toBe(true);
+  });
+
+  it("creates execution graph sessions from the package snapshot graph", async () => {
+    const { root, init } = await createTestWorkspace();
+    const snapshot = await createPackageFileSnapshot(root);
+    const session = createExecutionGraphSessionFromSnapshot({
+      projectRoot: init.workspace,
+      workspace: init.workspace,
+      snapshot
+    });
+    const loadedSession = await createExecutionGraphSession(root);
+
+    expect(session.graph).toBe(snapshot.graph);
+    expect(session.fileSnapshot).toBe(snapshot);
+    expect(session.fileSnapshot.graph).toBe(session.graph);
+    expect(session.fileSnapshot.manifest).toBe(snapshot.manifest);
+    expect(session.diagnostics).toEqual([...snapshot.graph.diagnostics.errors, ...snapshot.graph.diagnostics.warnings]);
+    expect(loadedSession.fileSnapshot.graph).toBe(loadedSession.graph);
+    expect(loadedSession.diagnostics).toEqual([]);
+  });
+
+  it("rebuilds graph sessions from their original package root after the active canvas changes", async () => {
+    const { root } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
+    const session = await createExecutionGraphSession(root);
+    const originalPackageRoot = session.packageRoot;
+    const secondCanvas = await createTaskCanvas(root, { name: "Second plan" });
+    await selectTaskCanvas(root, secondCanvas.canvasId);
+
+    enqueueGraphEditOperations(session, [{ type: "add_edge", edge: { from: "T-002", to: "T-001", type: "depends_on" } }]);
+    await drainGraphReadQueue(session);
+    enqueueGraphEditOperations(session, [{ type: "add_edge", edge: { from: "T-001", to: "T-002", type: "depends_on" } }]);
+    const result = await drainGraphReadQueue(session);
+
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("depends_on_cycle");
+    expect(session.packageRoot).toBe(originalPackageRoot);
+    expect(session.fileSnapshot.manifest.nodes.map((node) => node.id)).toEqual(["T-001", "T-002"]);
+    expect(session.graph.taskNodesInManifestOrder).toEqual(["T-001", "T-002"]);
   });
 
   it("applies structured graph ops incrementally and blocks local dependency cycles", async () => {

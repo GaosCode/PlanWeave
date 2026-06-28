@@ -6,7 +6,17 @@ import { affectedTasksForPackageFileChange, type PackageChangeImpact } from "../
 import { loadPackage } from "./loadPackage.js";
 import { refreshPrompt } from "../prompt/refreshPrompt.js";
 import { refreshPrompts } from "../prompt/refreshPrompts.js";
-import type { CompiledTaskGraph, FileFingerprint, PackageFileSnapshot, PackageWorkspaceRef, PlanPackageManifest, PromptSurface, ValidationIssue } from "../types.js";
+import type {
+  CompiledExecutionGraph,
+  CompiledTaskGraph,
+  FileFingerprint,
+  PackageFileSnapshot,
+  PackageWorkspaceRef,
+  PlanPackageManifest,
+  ProjectWorkspace,
+  PromptSurface,
+  ValidationIssue
+} from "../types.js";
 
 const DEFAULT_PROMPT_REFRESH_CONCURRENCY = 4;
 
@@ -247,14 +257,37 @@ function changedPackagePaths(previous: PackageFileSnapshot, next: PackageFileSna
   return changed(previous.manifestFile, next.manifestFile) ? ["manifest.json", ...changedPaths] : changedPaths;
 }
 
+export async function createPackageFileSnapshotFromLoadedPackage(input: {
+  workspace: ProjectWorkspace;
+  manifest: PlanPackageManifest;
+  graph?: CompiledExecutionGraph;
+}): Promise<PackageFileSnapshot> {
+  return createPackageFileSnapshotFromPackageRoot({
+    packageDir: input.workspace.packageDir,
+    manifestFile: input.workspace.manifestFile,
+    manifest: input.manifest,
+    graph: input.graph
+  });
+}
+
+export async function createPackageFileSnapshotFromPackageRoot(input: {
+  packageDir: string;
+  manifestFile: string;
+  manifest: PlanPackageManifest;
+  graph?: CompiledExecutionGraph;
+}): Promise<PackageFileSnapshot> {
+  const graph = input.graph ?? await compilePackageGraph(input.manifest, input.packageDir);
+  return {
+    manifest: input.manifest,
+    graph,
+    manifestFile: await fingerprint(input.manifestFile),
+    promptFiles: await snapshotPromptFiles(input.packageDir)
+  };
+}
+
 export async function createPackageFileSnapshot(projectRoot: PackageWorkspaceRef): Promise<PackageFileSnapshot> {
   const { workspace, manifest } = await loadPackage(projectRoot);
-  return {
-    manifest,
-    graph: await compilePackageGraph(manifest, workspace.packageDir),
-    manifestFile: await fingerprint(workspace.manifestFile),
-    promptFiles: await snapshotPromptFiles(workspace.packageDir)
-  };
+  return createPackageFileSnapshotFromLoadedPackage({ workspace, manifest });
 }
 
 export async function detectPackageFileChanges(

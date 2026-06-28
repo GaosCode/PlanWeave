@@ -1,7 +1,15 @@
-import { compilePackageGraph } from "./compileTaskGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
-import { createPackageFileSnapshot } from "../package/fileChanges.js";
-import type { DrainGraphReadQueueResult, ExecutionGraphSession, GraphEditOperation, PackageFileChange, PackageWorkspaceRef, ValidationIssue } from "../types.js";
+import { createPackageFileSnapshot, createPackageFileSnapshotFromLoadedPackage } from "../package/fileChanges.js";
+import type {
+  DrainGraphReadQueueResult,
+  ExecutionGraphSession,
+  GraphEditOperation,
+  PackageFileChange,
+  PackageFileSnapshot,
+  PackageWorkspaceRef,
+  ProjectWorkspace,
+  ValidationIssue
+} from "../types.js";
 import { applyGraphEditOperation } from "./session/applyOperation.js";
 import { dedupeFileChanges, normalizePackagePath, promptPathToRefs } from "./session/fileQueue.js";
 import { alignGraphOrder, rebuildEdgeIndexes, refreshReachability } from "./session/graphIndexes.js";
@@ -10,20 +18,28 @@ import { readManifest, rebuildSessionFromPackage } from "./session/rebuild.js";
 
 export async function createExecutionGraphSession(projectRoot: PackageWorkspaceRef): Promise<ExecutionGraphSession> {
   const { workspace, manifest } = await loadPackage(projectRoot);
-  const graph = await compilePackageGraph(manifest, workspace.packageDir);
+  const snapshot = await createPackageFileSnapshotFromLoadedPackage({ workspace, manifest });
+  return createExecutionGraphSessionFromSnapshot({ projectRoot, workspace, snapshot });
+}
+
+export function createExecutionGraphSessionFromSnapshot(input: {
+  projectRoot: PackageWorkspaceRef;
+  workspace: ProjectWorkspace;
+  snapshot: PackageFileSnapshot;
+}): ExecutionGraphSession {
   return {
-    projectRoot,
-    projectId: workspace.id,
-    packageRoot: workspace.packageDir,
-    graph,
-    fileSnapshot: await createPackageFileSnapshot(projectRoot),
+    projectRoot: input.projectRoot,
+    projectId: input.workspace.id,
+    packageRoot: input.workspace.packageDir,
+    graph: input.snapshot.graph,
+    fileSnapshot: input.snapshot,
     readQueue: {
       fileChanges: [],
       graphOps: [],
       enqueuedAt: new Date().toISOString()
     },
     dirtyPromptRefs: new Set(),
-    diagnostics: [...graph.diagnostics.errors, ...graph.diagnostics.warnings]
+    diagnostics: [...input.snapshot.graph.diagnostics.errors, ...input.snapshot.graph.diagnostics.warnings]
   };
 }
 

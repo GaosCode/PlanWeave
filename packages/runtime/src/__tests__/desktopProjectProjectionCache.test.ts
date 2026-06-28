@@ -9,6 +9,7 @@ import {
 } from "../desktop/graph/projectProjectionModel.js";
 import { searchDesktopSearchIndex } from "../desktop/graph/searchIndexModel.js";
 import { writeJsonFile } from "../json.js";
+import { claimBlock } from "../taskManager/claimScheduler.js";
 import type { ValidationIssue } from "../types.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 
@@ -67,6 +68,26 @@ describe("desktop project projection cache", () => {
     );
     expect(incrementalSearchIndex.documents).toEqual(rebuiltSearchIndex.documents);
     expect(incrementalStatistics.statistics).toEqual(rebuiltStatistics.statistics);
+  });
+
+  it("refreshes cached project snapshots after manifest and state file changes", async () => {
+    const { root, init } = await createTestWorkspace();
+    await getDesktopProjectSnapshot({ projectRoot: root, canvasId: null });
+
+    const nextManifest = basicManifest({ includeSecondTask: true });
+    await writeJsonFile(init.workspace.manifestFile, nextManifest);
+    await writePromptFiles(init.workspace.packageDir, nextManifest);
+
+    const manifestSnapshot = await getDesktopProjectSnapshot({ projectRoot: root, canvasId: null });
+    expect(manifestSnapshot.graph?.tasks.map((task) => task.taskId)).toEqual(["T-001", "T-002"]);
+
+    await claimBlock({ projectRoot: root, ref: "T-001#B-001" });
+    const stateSnapshot = await getDesktopProjectSnapshot({ projectRoot: root, canvasId: null });
+
+    expect(stateSnapshot.graph?.tasks.find((task) => task.taskId === "T-001")).toMatchObject({
+      status: "in_progress"
+    });
+    expect(stateSnapshot.todoGroups?.ready.map((item) => item.ref)).not.toContain("T-001#B-001");
   });
 
   it("replays cached canvas snapshot failure diagnostics through search, snapshot, and statistics reads", async () => {
