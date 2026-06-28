@@ -63,7 +63,20 @@ PLANWEAVE_MCP_OAUTH_ENABLED=true
 PLANWEAVE_HOME=/path/to/planweave/home
 ```
 
-The desktop app's **Settings -> MCP Tunnel** page manages the local MCP server for ChatGPT tunnel traffic, so end users should prefer the desktop flow. This source-level command is mainly for contributor testing and direct MCP client integration.
+The installed CLI also exposes the same MCP server and tunnel workflow:
+
+```bash
+planweave mcp serve
+planweave mcp tunnel download
+planweave mcp tunnel configure --tunnel-id tunnel_xxx
+planweave mcp tunnel status --json
+planweave mcp tunnel doctor --json
+planweave mcp tunnel print-systemd --planweave-home /srv/planweave --env-file /etc/planweave/mcp-tunnel.env
+```
+
+`planweave mcp tunnel run --serve` is the foreground command intended for the printed systemd unit. Runtime API keys should come from `OPENAI_RUNTIME_API_KEY` or `CONTROL_PLANE_API_KEY`, typically through an `EnvironmentFile`; they are not written to the MCP tunnel JSON config.
+
+The desktop app's **Settings -> MCP Tunnel** page remains available for local ChatGPT tunnel traffic. Headless or VPS deployments should use the CLI systemd path instead of the desktop app.
 
 ## Verification
 
@@ -92,6 +105,8 @@ pnpm --filter @planweave-ai/desktop smoke
 ```
 
 ## Local Packaging
+
+The npm pack/publish scripts include runtime, MCP, and CLI packages so the CLI's `@planweave-ai/mcp` dependency is available when published.
 
 Build an unsigned macOS DMG and ZIP:
 

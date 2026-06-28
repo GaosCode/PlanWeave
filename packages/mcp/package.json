@@ -48,6 +48,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@planweave-ai/runtime": "workspace:*",
+    "fflate": "^0.8.3",
     "zod": "^4.1.12"
   },
   "devDependencies": {}

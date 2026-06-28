@@ -46,6 +46,7 @@
     "prepack": "pnpm build"
   },
   "dependencies": {
+    "@planweave-ai/mcp": "workspace:*",
     "@planweave-ai/runtime": "workspace:*",
     "commander": "^14.0.2"
   },

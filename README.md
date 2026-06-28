@@ -37,7 +37,7 @@ Your project is represented as a graph of task nodes and block documents. Each f
 - **Graph-friendly by default**: task flow, dependencies, review loops, and execution status are visible and editable.
 - **Global context for agents**: agents can see the wider task graph, not only the current prompt fragment.
 - **Per-node and per-block agent routing**: use Codex for one block, Claude Code, OpenCode, or Pi for another, and local review scripts where deterministic checks are enough.
-- **MCP authoring for ChatGPT**: connect ChatGPT to PlanWeave through the local MCP server or desktop secure tunnel, then ask it to create canvases, tasks, blocks, review pipelines, and dependencies.
+- **MCP authoring for ChatGPT**: connect ChatGPT to PlanWeave through the local MCP server, a headless systemd tunnel, or the desktop secure tunnel, then ask it to create canvases, tasks, blocks, review pipelines, and dependencies.
 - **Full auto-run workflow**: PlanWeave can claim blocks, run agents, collect reports, handle review feedback, and continue the task flow.
 - **Review and feedback as first-class work**: review blocks can produce structured feedback that returns to implementation blocks.
 - **Desktop and CLI support**: use the visual Electron canvas or drive the same runtime from the terminal.
@@ -73,7 +73,43 @@ planweave --help
 
 PlanWeave includes a local HTTP MCP server for using PlanWeave from MCP clients such as ChatGPT. The MCP tools are not just read-only status helpers: they can also author plans by initializing projects, creating canvases, adding tasks and blocks, wiring dependencies, editing prompts, configuring review pipelines, and validating the local project.
 
-For ChatGPT in the browser, use PlanWeave Desktop's MCP settings. You can use ChatGPT Pro as the planning partner: describe the project goal, ask it to draft the task graph, then let PlanWeave save the result as a canvas.
+For ChatGPT in the browser, use the CLI MCP tunnel on a VPS or PlanWeave Desktop's MCP settings on a local machine. You can use ChatGPT Pro as the planning partner: describe the project goal, ask it to draft the task graph, then let PlanWeave save the result as a canvas.
+
+Recommended headless setup for a VPS uses systemd. The MCP server stays on loopback, and the OpenAI `tunnel-client` keeps an outbound connection open; PlanWeave does not run its own daemon or pidfile manager.
+
+```bash
+sudo mkdir -p /etc/planweave /srv/planweave
+sudo chmod 700 /etc/planweave
+
+planweave mcp tunnel download
+planweave mcp tunnel configure --tunnel-id tunnel_xxx
+planweave mcp tunnel print-systemd \
+  --planweave-home /srv/planweave \
+  --env-file /etc/planweave/mcp-tunnel.env
+```
+
+Put the Runtime API key in the systemd environment file, not in PlanWeave's JSON config:
+
+```bash
+PLANWEAVE_HOME=/srv/planweave
+OPENAI_RUNTIME_API_KEY=...
+```
+
+Keep that file readable only by the service owner:
+
+```bash
+sudo chmod 600 /etc/planweave/mcp-tunnel.env
+```
+
+Install the printed service as `planweave-mcp-tunnel.service`, then run:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now planweave-mcp-tunnel
+journalctl -u planweave-mcp-tunnel -f
+```
+
+For local desktop setup:
 
 1. Open **Settings -> MCP Tunnel** in the desktop app.
 2. Download or select the OpenAI [`tunnel-client`](https://github.com/openai/tunnel-client).

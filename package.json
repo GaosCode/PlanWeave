@@ -23,9 +23,9 @@
     "desktop:release:mac": "pnpm --dir packages/desktop release:mac",
     "desktop:release:win": "pnpm --dir packages/desktop release:win",
     "desktop:verify:packaged:mac": "pnpm --dir packages/desktop verify:packaged:mac",
-    "pack:npm": "pnpm -r --filter @planweave-ai/runtime --filter @planweave-ai/cli pack",
+    "pack:npm": "pnpm -r --filter @planweave-ai/runtime --filter @planweave-ai/mcp --filter @planweave-ai/cli pack",
     "planweave": "pnpm --filter @planweave-ai/cli planweave",
-    "publish:npm": "pnpm -r --filter @planweave-ai/runtime --filter @planweave-ai/cli publish --access public",
+    "publish:npm": "pnpm -r --filter @planweave-ai/runtime --filter @planweave-ai/mcp --filter @planweave-ai/cli publish --access public",
     "sync:versions": "node scripts/sync-version-metadata.mjs",
     "test": "pnpm check:versions && pnpm check:dom-boundaries && vitest run"
   },

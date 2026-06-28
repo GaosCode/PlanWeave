@@ -35,6 +35,7 @@ import { registerExecutorsCommand } from "./commands/executors.js";
 import { registerRunStatusCommand } from "./commands/runStatus.js";
 import { registerHelpCommand } from "./commands/help.js";
 import { registerSchemaCommand } from "./commands/schema.js";
+import { registerMcpCommand } from "./commands/mcp.js";
 import { formatCliError } from "./errors.js";
 import { addProjectRootOption } from "./projectRoot.js";
 
@@ -81,6 +82,7 @@ export function createProgram(): Command {
   registerExecutorsCommand(program);
   registerRunStatusCommand(program);
   registerSchemaCommand(program);
+  registerMcpCommand(program);
   registerHelpCommand(program);
 
   return program;

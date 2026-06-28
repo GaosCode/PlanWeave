@@ -36,6 +36,22 @@ function subcommandOptionLongs(parentName: string, name: string): string[] {
   return command.options.flatMap((option) => (option.long ? [option.long] : []));
 }
 
+function nestedSubcommandOptionLongs(parentName: string, childName: string, name: string): string[] {
+  const parent = createProgram().commands.find((item) => item.name() === parentName);
+  if (!parent) {
+    throw new Error(`Missing command '${parentName}'.`);
+  }
+  const child = parent.commands.find((item) => item.name() === childName);
+  if (!child) {
+    throw new Error(`Missing command '${parentName} ${childName}'.`);
+  }
+  const command = child.commands.find((item) => item.name() === name);
+  if (!command) {
+    throw new Error(`Missing command '${parentName} ${childName} ${name}'.`);
+  }
+  return command.options.flatMap((option) => (option.long ? [option.long] : []));
+}
+
 describe("planweave CLI contract", () => {
   it("registers agent workflow commands", () => {
     const commandNames = createProgram().commands.map((command) => command.name());
@@ -66,9 +82,22 @@ describe("planweave CLI contract", () => {
         "run-status",
         "project-graph",
         "schema",
+        "mcp",
         "help"
       ])
     );
+  });
+
+  it("registers MCP tunnel commands", () => {
+    const mcp = createProgram().commands.find((command) => command.name() === "mcp");
+    expect(mcp?.commands.map((command) => command.name())).toEqual(expect.arrayContaining(["serve", "tunnel"]));
+    const tunnel = mcp?.commands.find((command) => command.name() === "tunnel");
+    expect(tunnel?.commands.map((command) => command.name())).toEqual(
+      expect.arrayContaining(["download", "set-binary", "configure", "status", "doctor", "run", "print-systemd"])
+    );
+    expect(subcommandOptionLongs("mcp", "serve")).toEqual(expect.arrayContaining(["--host", "--port", "--token", "--oauth", "--json"]));
+    expect(nestedSubcommandOptionLongs("mcp", "tunnel", "status")).toContain("--json");
+    expect(nestedSubcommandOptionLongs("mcp", "tunnel", "doctor")).toContain("--json");
   });
 
   it("registers global project root selection once", () => {
