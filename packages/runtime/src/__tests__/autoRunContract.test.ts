@@ -417,13 +417,11 @@ describe("Auto Run contract", () => {
         args: [
           "-e",
           [
-            "let input='';",
-            "process.stdin.on('data', c => input += c);",
-            "process.stdin.on('end', () => {",
+            "const fs = require('node:fs');",
+            "const input = fs.readFileSync(0, 'utf8');",
             "  console.error('  Session   New session - 2026-05-23T01:49:25.978Z');",
             "  console.error('  Continue  opencode -s ses_1ad7a1fa5ffeDAcFVbSB6Z2z9j');",
             "  console.log('opencode report:' + input.includes('Implement task'));",
-            "});"
           ].join("")
         ]
       })

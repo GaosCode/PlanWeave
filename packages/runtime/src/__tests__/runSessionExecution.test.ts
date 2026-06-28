@@ -16,6 +16,7 @@ function automaticManifest(reviewVerdict: "passed" | "needs_changes" = "passed")
       args: [
         "-e",
         [
+          "process.stdin.resume();",
           "process.stdin.on('end', () => {",
           "  console.log('implementation complete');",
           "});"
