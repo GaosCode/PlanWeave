@@ -6,7 +6,7 @@ import {
   displayEdgeManifestData,
   executionFlowEndpoints
 } from "../renderer/graph/dependencyEdges";
-import { graphEdges, styleGraphEdgesForInteraction } from "../renderer/graph/flowModel";
+import { graphEdges, styleGraphEdgesForInteraction, taskDependencyEdgeType } from "../renderer/graph/flowModel";
 
 describe("desktop graph dependency edge direction", () => {
   it("renders depends_on arrows as execution flow from prerequisite to dependent", () => {
@@ -67,19 +67,80 @@ describe("desktop graph dependency edge direction", () => {
         id: "T-001-depends_on-T-002",
         source: "T-002",
         target: "T-001",
+        type: taskDependencyEdgeType,
         data: expect.objectContaining({
           manifestEdgeType: "depends_on",
           manifestFrom: "T-001",
           manifestTo: "T-002",
           sourceTaskId: "T-002",
           targetTaskId: "T-001",
-          sourceColor: expect.any(String)
+          sourceColor: expect.any(String),
+          sourceLaneOffset: 0,
+          targetLaneOffset: 0
         }),
         style: expect.objectContaining({
           opacity: expect.any(Number),
           stroke: expect.any(String)
         })
       })
+    ]);
+  });
+
+  it("assigns separate source path offsets to multiple outgoing dependency arrows from the same task", () => {
+    const graph: DesktopGraphViewModel = {
+      projectId: "P-001",
+      projectTitle: "Execution flow",
+      graphVersion: "pgv-test",
+      packageFingerprint: "pkg-test",
+      executorOptions: [],
+      tasks: [
+        task("T-001", "Prerequisite task", "ready"),
+        task("T-002", "Dependent task A", "planned"),
+        task("T-003", "Dependent task B", "planned"),
+        task("T-004", "Dependent task C", "planned")
+      ],
+      edges: [
+        { from: "T-002", to: "T-001", type: "depends_on" },
+        { from: "T-003", to: "T-001", type: "depends_on" },
+        { from: "T-004", to: "T-001", type: "depends_on" }
+      ],
+      diagnostics: [],
+      dirtyPromptRefs: []
+    };
+
+    expect(graphEdges(graph).map((edge) => [edge.id, edge.data?.sourceLaneOffset, edge.data?.targetLaneOffset])).toEqual([
+      ["T-002-depends_on-T-001", -18, 0],
+      ["T-003-depends_on-T-001", 0, 0],
+      ["T-004-depends_on-T-001", 18, 0]
+    ]);
+  });
+
+  it("assigns separate target path offsets to multiple incoming dependency arrows on the same task", () => {
+    const graph: DesktopGraphViewModel = {
+      projectId: "P-001",
+      projectTitle: "Execution flow",
+      graphVersion: "pgv-test",
+      packageFingerprint: "pkg-test",
+      executorOptions: [],
+      tasks: [
+        task("T-001", "Dependent task", "planned"),
+        task("T-002", "Prerequisite task A", "ready"),
+        task("T-003", "Prerequisite task B", "ready"),
+        task("T-004", "Prerequisite task C", "ready")
+      ],
+      edges: [
+        { from: "T-001", to: "T-002", type: "depends_on" },
+        { from: "T-001", to: "T-003", type: "depends_on" },
+        { from: "T-001", to: "T-004", type: "depends_on" }
+      ],
+      diagnostics: [],
+      dirtyPromptRefs: []
+    };
+
+    expect(graphEdges(graph).map((edge) => [edge.id, edge.data?.sourceLaneOffset, edge.data?.targetLaneOffset])).toEqual([
+      ["T-001-depends_on-T-002", 0, -18],
+      ["T-001-depends_on-T-003", 0, 0],
+      ["T-001-depends_on-T-004", 0, 18]
     ]);
   });
 

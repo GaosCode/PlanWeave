@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import type { KeyboardEvent, MouseEvent } from "react";
+import { type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import { MessageSquareWarningIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,14 @@ import { BlockPreviewButton } from "./BlockPreviewButton";
 import { taskNodeStatusVisual, TaskNodeStatusMarker } from "./taskNodeStatus";
 
 export const taskNodeSelectedClassName = "outline-2 outline-offset-2 outline-state-selected";
+
+const taskDependencyHandleClassName = "size-3 border-2 border-surface-base bg-text-strong";
+const taskDependencySourceHandleTopPercent = 44;
+const taskDependencyTargetHandleTopPercent = 56;
+
+function taskDependencyHandleStyle(topPercent: number): CSSProperties {
+  return { top: `${topPercent}%` };
+}
 
 export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
   const {
@@ -76,7 +84,12 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
           size="sm"
           onDoubleClick={handleTaskDoubleClick}
         >
-          <Handle type="target" position={Position.Left} />
+          <Handle
+            className={taskDependencyHandleClassName}
+            type="target"
+            position={Position.Left}
+            style={taskDependencyHandleStyle(taskDependencyTargetHandleTopPercent)}
+          />
           <CardHeader className="min-h-12">
             <CardTitle className="flex min-w-0 items-center justify-between gap-2">
               <Input
@@ -167,7 +180,12 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
               </div>
             </div>
           </CardContent>
-          <Handle type="source" position={Position.Right} />
+          <Handle
+            className={taskDependencyHandleClassName}
+            type="source"
+            position={Position.Right}
+            style={taskDependencyHandleStyle(taskDependencySourceHandleTopPercent)}
+          />
         </Card>
       </ContextMenuTrigger>
       <ContextMenuContent>

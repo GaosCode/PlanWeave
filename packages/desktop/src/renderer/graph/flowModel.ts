@@ -1,7 +1,8 @@
-import { MarkerType, type Edge } from "@xyflow/react";
+import { MarkerType, type Edge, type EdgeTypes } from "@xyflow/react";
 import type { DesktopBlockDetail, DesktopBlockRunRecordSummary, DesktopFeedbackRecord, DesktopGraphViewModel, DesktopLayout, DesktopReviewAttemptSummary } from "@planweave-ai/runtime";
 import type { AppFlowNode, TaskFlowNode, TaskNodeData } from "../types";
 import { TaskNodeCard } from "./TaskNodeCard";
+import { TaskDependencyEdge, type TaskDependencyEdgeData } from "./TaskDependencyEdge";
 import { displayEdgeManifestData, executionFlowEndpoints } from "./dependencyEdges";
 
 export const nodeTypes = {
@@ -10,12 +11,22 @@ export const nodeTypes = {
 
 export type AppNodeTypes = typeof nodeTypes;
 
+export const taskDependencyEdgeType = "taskDependency";
+
+export const edgeTypes = {
+  [taskDependencyEdgeType]: TaskDependencyEdge
+} satisfies EdgeTypes;
+
+export type AppEdgeTypes = typeof edgeTypes;
+
 const defaultLayoutOrigin = { x: 80, y: 80 };
 const defaultLayoutColumnGap = 460;
 const defaultLayoutRowGap = 360;
 const defaultEdgeOpacity = 0.56;
 const highlightedEdgeOpacity = 0.96;
 const dimmedEdgeOpacity = 0.12;
+const dependencyLaneSpacing = 18;
+const maxDependencyLaneOffset = 54;
 const edgeSourcePalette = [
   "#2563eb",
   "#16a34a",
@@ -34,6 +45,11 @@ type FlowPosition = {
   y: number;
 };
 
+type TaskDependencyLaneOffsets = {
+  sourceLaneOffset: number;
+  targetLaneOffset: number;
+};
+
 export type GraphEdgeInteraction = {
   hoveredEdgeId?: string | null;
   hoveredNodeId?: string | null;
@@ -43,7 +59,7 @@ type GraphEdgeData = ReturnType<typeof displayEdgeManifestData> & {
   sourceTaskId: string;
   targetTaskId: string;
   sourceColor: string;
-};
+} & TaskDependencyEdgeData;
 
 export function defaultTaskNodePositions(graph: DesktopGraphViewModel): Map<string, FlowPosition> {
   const taskIds = graph.tasks.map((task) => task.taskId);
@@ -223,24 +239,29 @@ export function graphNodes(
 export function graphEdges(graph: DesktopGraphViewModel): Edge[] {
   const nodeIds = new Set(graph.tasks.map((task) => task.taskId));
   const sourceColors = edgeSourceColors(graph);
+  const dependencyLaneOffsets = taskDependencyEdgeLaneOffsets(graph);
   return graph.edges
     .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to))
     .map((edge) => {
       const isTaskDependency = edge.type === "depends_on";
       const endpoints = executionFlowEndpoints(edge);
+      const edgeId = `${edge.from}-${edge.type}-${edge.to}`;
+      const laneOffsets = dependencyLaneOffsets.get(edgeId) ?? defaultTaskDependencyLaneOffsets();
       const color = sourceColors.get(endpoints.source) ?? edgeSourcePalette[0];
       return {
-        id: `${edge.from}-${edge.type}-${edge.to}`,
+        id: edgeId,
         source: endpoints.source,
         target: endpoints.target,
         data: {
           ...displayEdgeManifestData(edge),
           sourceTaskId: endpoints.source,
           targetTaskId: endpoints.target,
-          sourceColor: color
+          sourceColor: color,
+          sourceLaneOffset: laneOffsets.sourceLaneOffset,
+          targetLaneOffset: laneOffsets.targetLaneOffset
         } satisfies GraphEdgeData,
         animated: false,
-        type: isTaskDependency ? "smoothstep" : "default",
+        type: isTaskDependency ? taskDependencyEdgeType : "default",
         markerEnd: {
           type: MarkerType.ArrowClosed,
           color,
@@ -255,6 +276,84 @@ export function graphEdges(graph: DesktopGraphViewModel): Edge[] {
         }
       } satisfies Edge;
     });
+}
+
+function taskDependencyEdgeLaneOffsets(graph: DesktopGraphViewModel): Map<string, TaskDependencyLaneOffsets> {
+  const taskOrder = new Map(graph.tasks.map((task, index) => [task.taskId, index]));
+  const taskIds = new Set(taskOrder.keys());
+  const outgoingEdgeIdsByTask = new Map(graph.tasks.map((task) => [task.taskId, [] as string[]]));
+  const incomingEdgeIdsByTask = new Map(graph.tasks.map((task) => [task.taskId, [] as string[]]));
+  const edgeMetaById = new Map<string, { source: string; target: string; edgeOrder: number }>();
+
+  graph.edges.forEach((edge, edgeOrder) => {
+    if (edge.type !== "depends_on" || !taskIds.has(edge.from) || !taskIds.has(edge.to)) {
+      return;
+    }
+    const endpoints = executionFlowEndpoints(edge);
+    const edgeId = `${edge.from}-${edge.type}-${edge.to}`;
+    edgeMetaById.set(edgeId, { ...endpoints, edgeOrder });
+    outgoingEdgeIdsByTask.get(endpoints.source)?.push(edgeId);
+    incomingEdgeIdsByTask.get(endpoints.target)?.push(edgeId);
+  });
+
+  for (const edgeIds of outgoingEdgeIdsByTask.values()) {
+    edgeIds.sort((left, right) => compareEdgeLaneOrder(left, right, edgeMetaById, taskOrder, "target"));
+  }
+  for (const edgeIds of incomingEdgeIdsByTask.values()) {
+    edgeIds.sort((left, right) => compareEdgeLaneOrder(left, right, edgeMetaById, taskOrder, "source"));
+  }
+
+  const edgeLaneOffsetsById = new Map<string, TaskDependencyLaneOffsets>();
+
+  for (const task of graph.tasks) {
+    const outgoingEdgeIds = outgoingEdgeIdsByTask.get(task.taskId) ?? [];
+    const incomingEdgeIds = incomingEdgeIdsByTask.get(task.taskId) ?? [];
+
+    outgoingEdgeIds.forEach((edgeId, index) => {
+      edgeLaneOffsetsById.set(edgeId, {
+        ...defaultTaskDependencyLaneOffsets(),
+        ...edgeLaneOffsetsById.get(edgeId),
+        sourceLaneOffset: dependencyLaneOffset(index, outgoingEdgeIds.length)
+      });
+    });
+    incomingEdgeIds.forEach((edgeId, index) => {
+      edgeLaneOffsetsById.set(edgeId, {
+        ...defaultTaskDependencyLaneOffsets(),
+        ...edgeLaneOffsetsById.get(edgeId),
+        targetLaneOffset: dependencyLaneOffset(index, incomingEdgeIds.length)
+      });
+    });
+  }
+
+  return edgeLaneOffsetsById;
+}
+
+function compareEdgeLaneOrder(
+  left: string,
+  right: string,
+  edgeMetaById: Map<string, { source: string; target: string; edgeOrder: number }>,
+  taskOrder: Map<string, number>,
+  otherEndpoint: "source" | "target"
+): number {
+  const leftMeta = edgeMetaById.get(left);
+  const rightMeta = edgeMetaById.get(right);
+  if (!leftMeta || !rightMeta) {
+    return left.localeCompare(right);
+  }
+  return (taskOrder.get(leftMeta[otherEndpoint]) ?? 0) - (taskOrder.get(rightMeta[otherEndpoint]) ?? 0) || leftMeta.edgeOrder - rightMeta.edgeOrder;
+}
+
+function dependencyLaneOffset(index: number, count: number): number {
+  const centeredOffset = index - (count - 1) / 2;
+  const laneOffset = centeredOffset * dependencyLaneSpacing;
+  return Math.min(maxDependencyLaneOffset, Math.max(-maxDependencyLaneOffset, laneOffset));
+}
+
+function defaultTaskDependencyLaneOffsets(): TaskDependencyLaneOffsets {
+  return {
+    sourceLaneOffset: 0,
+    targetLaneOffset: 0
+  };
 }
 
 export function styleGraphEdgesForInteraction(edges: Edge[], interaction: GraphEdgeInteraction): Edge[] {

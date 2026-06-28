@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState, type Dispatch, type PointerEvent as Rea
 import { type Edge, type ReactFlowInstance, useEdgesState, useNodesState } from "@xyflow/react";
 import type { DesktopPackageFileChangeEvent, DesktopPackageFileSyncResult, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { bridge } from "./bridge";
-import { nodeTypes } from "./graph/flowModel";
+import { edgeTypes, nodeTypes } from "./graph/flowModel";
 import { createTranslator } from "./i18n";
 import { ProjectSidebar } from "./sidebar/ProjectSidebar";
 import { desktopSidebarWidthBounds, loadDesktopSettings, mergeDesktopSettings, orderProjectsByPinnedIds } from "./settings";
@@ -592,6 +592,7 @@ export function App() {
           autoRunState={autoRunState}
           confirmTaskDraft={confirmTaskDraft}
           edges={edges}
+          edgeTypes={edgeTypes}
           executionPlan={executionPlan}
           fileSyncResult={fileSyncResult}
           generateTaskDraft={generateTaskDraft}

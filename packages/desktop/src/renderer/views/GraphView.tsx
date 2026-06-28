@@ -20,7 +20,7 @@ import type {
 } from "@planweave-ai/runtime";
 import { ChevronRightIcon, NetworkIcon, Redo2Icon, Undo2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { styleGraphEdgesForInteraction, type AppNodeTypes } from "../graph/flowModel";
+import { styleGraphEdgesForInteraction, type AppEdgeTypes, type AppNodeTypes } from "../graph/flowModel";
 import { useEdgeReconnect } from "../hooks/useEdgeReconnect";
 import type { AppView } from "../types";
 import type { createTranslator } from "../i18n";
@@ -54,6 +54,7 @@ type GraphViewProps = {
   handleUndoGraph: () => Promise<void>;
   miniRunPanelOpen: boolean;
   moveAutoRunControl: (event: PointerEvent<HTMLButtonElement>) => void;
+  edgeTypes: AppEdgeTypes;
   nodeTypes: AppNodeTypes;
   nodes: AppFlowNode[];
   projectLoading: boolean;
@@ -103,6 +104,7 @@ export function GraphView({
   handleUndoGraph,
   miniRunPanelOpen,
   moveAutoRunControl,
+  edgeTypes,
   nodeTypes,
   nodes,
   projectLoading,
@@ -222,6 +224,7 @@ export function GraphView({
         <ReactFlow
           nodes={visibleNodes}
           edges={styledVisibleEdges}
+          edgeTypes={edgeTypes}
           nodeTypes={nodeTypes}
           onConnect={(connection) => void handleConnect(connection)}
           onEdgesDelete={(deletedEdges) => void handleEdgesDelete(deletedEdges)}

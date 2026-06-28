@@ -133,6 +133,7 @@ function defaultProps(patch: Partial<ComponentProps<typeof GraphView>> = {}): Co
     autoRunScopeMode: "project",
     autoRunState: null,
     edges: [],
+    edgeTypes: {} as ComponentProps<typeof GraphView>["edgeTypes"],
     graph: graph(),
     handleAutoRunClick: vi.fn().mockResolvedValue(undefined),
     handleConnect: vi.fn().mockResolvedValue(undefined),

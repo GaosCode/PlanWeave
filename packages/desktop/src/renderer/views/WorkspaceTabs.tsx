@@ -25,7 +25,7 @@ import type {
 } from "@planweave-ai/runtime";
 import type { createTranslator, Language } from "../i18n";
 import type { DesktopSearchCanvasScope } from "../hooks/useDesktopSearch";
-import type { AppNodeTypes } from "../graph/flowModel";
+import type { AppEdgeTypes, AppNodeTypes } from "../graph/flowModel";
 import type { AutoRunNextActionDescriptor } from "../run/autoRunNextActions";
 import type { AppFlowNode, AppView, AutoRunScopeMode, DesktopUiSettings, NotificationItem } from "../types";
 import { CanvasMapView } from "./CanvasMapView";
@@ -74,6 +74,7 @@ type WorkspaceTabsProps = {
   newTaskMode: DesktopTaskDraftMode;
   newTaskTargetId: string | null;
   newTaskText: string;
+  edgeTypes: AppEdgeTypes;
   nodeTypes: AppNodeTypes;
   nodes: AppFlowNode[];
   notificationItems: NotificationItem[];
