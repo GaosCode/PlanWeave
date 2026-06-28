@@ -129,7 +129,43 @@ const projectTaskRefSchema = z
   })
   .strict();
 
-export const planGraphCommandSchema = z.discriminatedUnion("type", [
+const desktopLayoutSchema = z
+  .object({
+    version: z.literal("desktop-layout/v1"),
+    projectId: z.string().min(1),
+    nodes: z.array(layoutNodeSchema),
+    updatedAt: z.string().min(1)
+  })
+  .strict();
+
+const activeCanvasSelectionSchema = z
+  .object({
+    activeCanvasId: z.string().refine((value) => value.trim().length > 0, "Active canvas id is required.")
+  })
+  .strict();
+
+const updateLayoutCommandSchema = z
+  .object({
+    ...baseCommandShape,
+    type: z.literal("updateLayout"),
+    layoutScope: z.enum(["desktop", "canvas"]),
+    layout: z.unknown()
+  })
+  .strict()
+  .superRefine((command, context) => {
+    const result = (command.layoutScope === "desktop" ? desktopLayoutSchema : activeCanvasSelectionSchema).safeParse(command.layout);
+    if (result.success) {
+      return;
+    }
+    for (const issue of result.error.issues) {
+      context.addIssue({
+        ...issue,
+        path: ["layout", ...issue.path]
+      });
+    }
+  });
+
+const planGraphCommandSchemaOptions = [
   z.object({ ...baseCommandShape, type: z.literal("addTaskDependency"), fromTaskId: z.string(), toTaskId: z.string() }).strict(),
   z.object({ ...baseCommandShape, type: z.literal("removeTaskDependency"), fromTaskId: z.string(), toTaskId: z.string() }).strict(),
   z
@@ -213,19 +249,19 @@ export const planGraphCommandSchema = z.discriminatedUnion("type", [
       promptMarkdownByBlockId: z.array(z.object({ blockId: z.string(), markdown: z.string() }).strict())
     })
     .strict(),
-  z
-    .object({
-      ...baseCommandShape,
-      type: z.literal("updateLayout"),
-      layoutScope: z.enum(["desktop", "canvas"]),
-      layout: z.unknown()
-    })
-    .strict(),
+  updateLayoutCommandSchema,
   z.object({ ...baseCommandShape, type: z.literal("addCanvasDependency"), fromCanvasId: z.string(), toCanvasId: z.string() }).strict(),
   z.object({ ...baseCommandShape, type: z.literal("removeCanvasDependency"), fromCanvasId: z.string(), toCanvasId: z.string() }).strict(),
   z.object({ ...baseCommandShape, type: z.literal("addCrossTaskDependency"), from: projectTaskRefSchema, to: projectTaskRefSchema }).strict(),
   z.object({ ...baseCommandShape, type: z.literal("removeCrossTaskDependency"), from: projectTaskRefSchema, to: projectTaskRefSchema }).strict()
-]);
+] as const;
+
+type PlanGraphCommandSchemaType = z.output<(typeof planGraphCommandSchemaOptions)[number]>["type"];
+type MissingPlanGraphCommandSchemaType = Exclude<PlanGraphCommand["type"], PlanGraphCommandSchemaType>;
+type ExtraPlanGraphCommandSchemaType = Exclude<PlanGraphCommandSchemaType, PlanGraphCommand["type"]>;
+const planGraphCommandSchemaTypeCoverage: Record<MissingPlanGraphCommandSchemaType | ExtraPlanGraphCommandSchemaType, never> = {};
+
+export const planGraphCommandSchema = z.discriminatedUnion("type", planGraphCommandSchemaOptions);
 
 const planGraphCommandArrayOrSingleSchema = z.union([planGraphCommandSchema, z.array(planGraphCommandSchema).min(1)]);
 
