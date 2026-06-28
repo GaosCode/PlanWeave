@@ -31,6 +31,7 @@ import { useGraphFlowModel } from "./hooks/useGraphFlowModel";
 import { useGraphHistoryActions } from "./hooks/useGraphHistoryActions";
 import { useAppNotifications } from "./hooks/useAppNotifications";
 import { useResizableSidebarLayout } from "./hooks/useResizableSidebarLayout";
+import { useLerpedNodeDrag } from "./hooks/useLerpedNodeDrag";
 import { CollapsedSidebarControls, RightPaletteSidebar } from "./AppSidebars";
 import { AppSettingsRoute } from "./AppSettingsRoute";
 import { buildAppSettingsRouteProps } from "./AppSettingsRouteProps";
@@ -59,6 +60,12 @@ export function App() {
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<AppFlowNode, Edge> | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<AppFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const lerpedNodeDrag = useLerpedNodeDrag({
+    nodes,
+    setNodes,
+    onNodesChange,
+    enabled: !settings.reducedMotion
+  });
 
   const updateSettings = useCallback((patch: Partial<DesktopUiSettings>) => {
     setSettings((current) => mergeDesktopSettings(current, patch));
@@ -430,6 +437,7 @@ export function App() {
     resetLayout
   } = useGraphPaletteActions({
     flowInstance,
+    getLayoutNodes: lerpedNodeDrag.commitDragTargets,
     graph,
     layout,
     loadProject: openProjectInSession,
@@ -584,7 +592,7 @@ export function App() {
           onReloadPromptConflicts={reloadPromptConflicts}
           onEdgesChange={onEdgesChange}
           onNodeDragStop={handleNodeDragStop}
-          onNodesChange={onNodesChange}
+          onNodesChange={lerpedNodeDrag.onNodesChange}
           onTaskPanelSelect={handleTaskPanelSelect}
           refreshPackageFiles={refreshPackageFiles}
           resetRuntimeStateClick={resetRuntimeStateClick}

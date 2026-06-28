@@ -11,6 +11,7 @@ import { defaultBlockTitleForUi } from "../viewHelpers";
 
 type UseGraphPaletteActionsArgs = {
   flowInstance: ReactFlowInstance<AppFlowNode, Edge> | null;
+  getLayoutNodes?: (dragStopNode?: Node) => AppFlowNode[];
   graph: DesktopGraphViewModel | null;
   layout: DesktopLayout | null;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
@@ -46,6 +47,7 @@ function currentLayoutSnapshot(graph: DesktopGraphViewModel | null, layout: Desk
 
 export function useGraphPaletteActions({
   flowInstance,
+  getLayoutNodes,
   graph,
   layout,
   loadProject,
@@ -62,6 +64,8 @@ export function useGraphPaletteActions({
   settings,
   t
 }: UseGraphPaletteActionsArgs) {
+  const getPersistableLayoutNodes = useCallback((dragStopNode?: Node) => getLayoutNodes?.(dragStopNode) ?? nodes, [getLayoutNodes, nodes]);
+
   const handleNodeDragStop = useCallback(
     async (_event: React.MouseEvent, node: Node) => {
       if (!bridge || !selectedProject) {
@@ -69,18 +73,19 @@ export function useGraphPaletteActions({
       }
       const canvas = desktopCanvasReference(selectedProject, selectedCanvasId);
       const baseLayout = layout ?? (await bridge.getDesktopLayout(canvas));
+      const layoutNodes = getPersistableLayoutNodes(node);
       const nextLayout: DesktopLayout = {
         ...baseLayout,
-        nodes: nodes.map((item) => ({
+        nodes: layoutNodes.map((item) => ({
           nodeId: item.id,
-          x: item.id === node.id ? node.position.x : item.position.x,
-          y: item.id === node.id ? node.position.y : item.position.y
+          x: item.id === node.id && !getLayoutNodes ? node.position.x : item.position.x,
+          y: item.id === node.id && !getLayoutNodes ? node.position.y : item.position.y
         }))
       };
       const saved = await bridge.saveDesktopLayout(canvas, nextLayout);
       setLayout(saved);
     },
-    [layout, nodes, selectedCanvasId, selectedProject, setLayout]
+    [getLayoutNodes, getPersistableLayoutNodes, layout, selectedCanvasId, selectedProject, setLayout]
   );
 
   const resetLayout = useCallback(async () => {
@@ -102,7 +107,7 @@ export function useGraphPaletteActions({
           manifestEdge.from,
           manifestEdge.to,
           graph?.graphVersion,
-          currentLayoutSnapshot(graph, layout, nodes)
+          currentLayoutSnapshot(graph, layout, getPersistableLayoutNodes())
         );
         if (!result.ok) {
           setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
@@ -113,7 +118,7 @@ export function useGraphPaletteActions({
         setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [graph, layout, nodes, refreshProjectDerivedState, selectedCanvasId, selectedProject, setError]
+    [getPersistableLayoutNodes, graph, layout, refreshProjectDerivedState, selectedCanvasId, selectedProject, setError]
   );
 
   const handleEdgesDelete = useCallback(
@@ -129,7 +134,7 @@ export function useGraphPaletteActions({
             manifestEdge.from,
             manifestEdge.to,
             graph?.graphVersion,
-            currentLayoutSnapshot(graph, layout, nodes)
+            currentLayoutSnapshot(graph, layout, getPersistableLayoutNodes())
           );
           if (!result.ok) {
             setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
@@ -139,7 +144,7 @@ export function useGraphPaletteActions({
       }
       await refreshProjectDerivedState();
     },
-    [graph, layout, nodes, refreshProjectDerivedState, selectedCanvasId, selectedProject, setError]
+    [getPersistableLayoutNodes, graph, layout, refreshProjectDerivedState, selectedCanvasId, selectedProject, setError]
   );
 
   const handleReconnectEdge = useCallback(
@@ -157,7 +162,7 @@ export function useGraphPaletteActions({
           newManifestEdge.from,
           newManifestEdge.to,
           graph?.graphVersion,
-          currentLayoutSnapshot(graph, layout, nodes)
+          currentLayoutSnapshot(graph, layout, getPersistableLayoutNodes())
         );
         if (!result.ok) {
           setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
@@ -168,7 +173,7 @@ export function useGraphPaletteActions({
         setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [graph, layout, nodes, refreshProjectDerivedState, selectedCanvasId, selectedProject, setError]
+    [getPersistableLayoutNodes, graph, layout, refreshProjectDerivedState, selectedCanvasId, selectedProject, setError]
   );
 
   const addPaletteComponent = useCallback(
