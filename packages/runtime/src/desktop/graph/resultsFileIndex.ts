@@ -6,6 +6,14 @@ import { appendDesktopDiagnostic, desktopDiagnostic, errorMessage } from "./desk
 const resultFilePattern = /\.(md|json|log|txt)$/;
 
 export const maxIndexedResultFileBytes = 256_000;
+export const maxIndexedResultFileCount = 2_000;
+export const maxIndexedResultTotalBodyBytes = 16_000_000;
+
+export type ResultsIndexLimits = {
+  maxFiles: number;
+  maxTotalBodyBytes: number;
+  maxSingleFileBytes: number;
+};
 
 export type ResultFileFingerprint = {
   path: string;
@@ -132,6 +140,56 @@ function sameResultsFingerprint(left: ResultFileFingerprint, right: ResultFileFi
   return left.path === right.path && left.mtimeMs === right.mtimeMs && left.size === right.size;
 }
 
+function newestResultFirst(left: ResultFileFingerprint, right: ResultFileFingerprint): number {
+  const mtimeOrder = right.mtimeMs - left.mtimeMs;
+  return mtimeOrder !== 0 ? mtimeOrder : left.path.localeCompare(right.path);
+}
+
+export function selectIndexedResultFingerprints(
+  fingerprints: ResultFileFingerprint[],
+  limits: ResultsIndexLimits
+): { files: ResultFileFingerprint[]; diagnostics: ValidationIssue[] } {
+  const sorted = [...fingerprints].sort(newestResultFirst);
+  const fileLimited = sorted.slice(0, limits.maxFiles);
+  const files: ResultFileFingerprint[] = [];
+  const totalBodyBytes = sorted
+    .filter((fingerprint) => fingerprint.size <= limits.maxSingleFileBytes)
+    .reduce((total, fingerprint) => total + fingerprint.size, 0);
+  let indexedBodyBytes = 0;
+  let bodyBudgetExhausted = false;
+
+  for (const fingerprint of fileLimited) {
+    if (fingerprint.size <= limits.maxSingleFileBytes && (bodyBudgetExhausted || indexedBodyBytes + fingerprint.size > limits.maxTotalBodyBytes)) {
+      bodyBudgetExhausted = true;
+      continue;
+    }
+    files.push(fingerprint);
+    if (fingerprint.size <= limits.maxSingleFileBytes) {
+      indexedBodyBytes += fingerprint.size;
+    }
+  }
+
+  const diagnostics: ValidationIssue[] = [];
+  if (sorted.length > limits.maxFiles) {
+    diagnostics.push(desktopDiagnostic(
+      "desktop_results_index_file_limit_exceeded",
+      `Results index file limit exceeded: total=${sorted.length}, indexed=${files.length}, skipped=${sorted.length - files.length}, limit=${limits.maxFiles}.`,
+      "results"
+    ));
+  }
+  if (totalBodyBytes > limits.maxTotalBodyBytes) {
+    const skippedBodyBytes = totalBodyBytes - indexedBodyBytes;
+    const skippedBodyFiles = sorted.filter((fingerprint) => fingerprint.size <= limits.maxSingleFileBytes && !files.includes(fingerprint)).length;
+    diagnostics.push(desktopDiagnostic(
+      "desktop_results_index_byte_limit_exceeded",
+      `Results index body byte limit exceeded: total=${totalBodyBytes}, indexed=${indexedBodyBytes}, skipped=${skippedBodyBytes}, limit=${limits.maxTotalBodyBytes}; skippedFiles=${skippedBodyFiles}.`,
+      "results"
+    ));
+  }
+
+  return { files, diagnostics };
+}
+
 async function fingerprintResultFiles(resultsDir: string): Promise<ResultsFileFingerprintSnapshot> {
   const diagnostics: ValidationIssue[] = [];
   const files: string[] = [];
@@ -152,9 +210,17 @@ async function fingerprintResultFiles(resultsDir: string): Promise<ResultsFileFi
       );
     }
   }
+  const selected = selectIndexedResultFingerprints(fingerprints, {
+    maxFiles: maxIndexedResultFileCount,
+    maxTotalBodyBytes: maxIndexedResultTotalBodyBytes,
+    maxSingleFileBytes: maxIndexedResultFileBytes
+  });
+  for (const diagnostic of selected.diagnostics) {
+    appendDesktopDiagnostic(diagnostics, diagnostic);
+  }
   return {
     diagnostics,
-    files: fingerprints.sort((left, right) => left.path.localeCompare(right.path))
+    files: selected.files
   };
 }
 

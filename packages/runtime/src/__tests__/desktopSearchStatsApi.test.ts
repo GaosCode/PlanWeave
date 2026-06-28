@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -19,12 +19,19 @@ import { canonicalProjectCanvasNode, writeProjectGraph } from "../projectGraph/i
 import { runAutoRunStep } from "../taskManager/autoRun.js";
 import { claimNext, getExecutionStatus, submitBlockResult, submitReviewResult } from "../taskManager/index.js";
 import type { PlanPackageManifest } from "../types.js";
-import { maxIndexedResultFileBytes } from "../desktop/graph/resultsFileIndex.js";
+import { maxIndexedResultFileBytes, maxIndexedResultTotalBodyBytes } from "../desktop/graph/resultsFileIndex.js";
 import { basicManifest, createTestWorkspace, writePromptFiles, writeReport, writeReviewResult } from "./promptTestHelpers.js";
 
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
 });
+
+function sizedBody(needle: string, size: number): string {
+  if (needle.length > size) {
+    throw new Error("Needle exceeds requested body size.");
+  }
+  return needle + " ".repeat(size - needle.length);
+}
 
 describe("desktop search and statistics API", () => {
   it("maps project task canvases in registry order including empty canvases", async () => {
@@ -187,6 +194,49 @@ describe("desktop search and statistics API", () => {
         code: "desktop_result_metadata_read_failed",
         path: "results/T-001/blocks/B-001/runs/RUN-OVERSIZED/metadata.json"
       })
+    ]));
+  });
+
+  it("reports result index byte limits through snapshot diagnostics without changing statistics shape", async () => {
+    const { root, init } = await createTestWorkspace();
+    const limitedDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-SNAPSHOT-LIMIT");
+    await mkdir(limitedDir, { recursive: true });
+
+    const bodySize = 250_000;
+    const indexedFileCount = Math.floor(maxIndexedResultTotalBodyBytes / bodySize);
+    const skippedReport = join(limitedDir, "0000-skipped.md");
+    await writeFile(skippedReport, sizedBody("snapshot skipped result needle\n", bodySize), "utf8");
+    await utimes(skippedReport, new Date(1_000), new Date(1_000));
+
+    for (let index = 0; index < indexedFileCount; index += 1) {
+      const path = join(limitedDir, `${String(index + 1).padStart(4, "0")}-indexed.md`);
+      await writeFile(path, sizedBody(`snapshot indexed result ${index}\n`, bodySize), "utf8");
+      await utimes(path, new Date(2_000 + index), new Date(2_000 + index));
+    }
+
+    const snapshot = await getDesktopProjectSnapshot({ projectRoot: root, canvasId: null });
+    const statisticsProjection = await getStatisticsProjection(root);
+
+    expect(snapshot.statistics).toMatchObject({
+      taskTotal: 1,
+      averageImplementationTimeMs: null
+    });
+    expect(snapshot.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "desktop_results_index_byte_limit_exceeded",
+        path: "results",
+        message: expect.stringContaining(`limit=${maxIndexedResultTotalBodyBytes}`)
+      })
+    ]));
+    expect(snapshot.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining("results: Results index body byte limit exceeded")
+    ]));
+    expect(statisticsProjection.statistics).toMatchObject({
+      taskTotal: 1,
+      averageImplementationTimeMs: null
+    });
+    expect(statisticsProjection.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "desktop_results_index_byte_limit_exceeded", path: "results" })
     ]));
   });
 
