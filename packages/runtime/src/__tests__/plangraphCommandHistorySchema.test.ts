@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { getDesktopLayout } from "../desktop/layoutApi.js";
 import { readJsonFile } from "../json.js";
 import {
   defaultPlanGraphIndexPath,
@@ -148,7 +149,12 @@ describe("PlanGraph command history schema", () => {
         reviewBlocks: [blockSnapshot.block],
         promptMarkdownByBlockId: [{ blockId: "R-002", markdown: "# Review\n" }]
       },
-      { type: "updateLayout", layoutScope: "canvas", layout: { nodes: [] } },
+      {
+        type: "updateLayout",
+        layoutScope: "desktop",
+        layout: { version: "desktop-layout/v1", projectId: "test-project", nodes: [{ nodeId: "T-001", x: 10, y: 20 }], updatedAt: "2026-05-23T00:00:00.000Z" }
+      },
+      { type: "updateLayout", layoutScope: "canvas", layout: { activeCanvasId: "default" } },
       { type: "addCanvasDependency", fromCanvasId: "default", toCanvasId: "second" },
       { type: "removeCanvasDependency", fromCanvasId: "default", toCanvasId: "second" },
       { type: "addCrossTaskDependency", from: { canvasId: "default", taskId: "T-001" }, to: { canvasId: "second", taskId: "T-002" } },
@@ -162,6 +168,12 @@ describe("PlanGraph command history schema", () => {
     expect(() => parsePlanGraphCommand({ type: "updateLayout", layoutScope: "desktop", layout: null, polluted: true })).toThrow();
     expect(() => parsePlanGraphCommand({ type: "unknownCommand" })).toThrow();
     expect(() => parsePlanGraphCommandArrayOrSingle([])).toThrow();
+  });
+
+  it("rejects updateLayout commands with invalid scoped layout payloads", () => {
+    expect(() => parsePlanGraphCommand({ type: "updateLayout", layoutScope: "desktop", layout: { nodes: [] } })).toThrow();
+    expect(() => parsePlanGraphCommand({ type: "updateLayout", layoutScope: "canvas", layout: { nodes: [] } })).toThrow();
+    expect(() => parsePlanGraphCommand({ type: "updateLayout", layoutScope: "canvas", layout: { activeCanvasId: "   " } })).toThrow();
   });
 
   it("coalesces prompt autosave without parsing the latest history inverse_json", async () => {
@@ -358,6 +370,39 @@ describe("PlanGraph command history schema", () => {
     expect(operationUndoneAt(indexPath, result.operationId)).toBeNull();
     const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     expect(manifest.nodes[0]?.type === "task" ? manifest.nodes[0].title : null).toBe("Invalid command history");
+  });
+
+  it("rejects invalid updateLayout command_json before undo execution and keeps history untouched", async () => {
+    const { root, init } = await createTestWorkspace();
+    const savedLayout = {
+      version: "desktop-layout/v1" as const,
+      projectId: init.workspace.id,
+      nodes: [{ nodeId: "T-001", x: 120, y: 240 }],
+      updatedAt: "2026-05-23T00:00:00.000Z"
+    };
+    const result = await executePlanGraphCommand({
+      projectRoot: root,
+      command: { type: "updateLayout", layoutScope: "desktop", layout: savedLayout }
+    });
+    if (!result.ok || result.operationId === undefined) {
+      throw new Error("Expected layout operation id.");
+    }
+    const indexPath = defaultPlanGraphIndexPath(init.workspace);
+    setOperationLogField(indexPath, result.operationId, "command_json", { type: "updateLayout", layoutScope: "desktop", layout: { nodes: [] } });
+
+    const undoResult = await undoPlanGraphCommand({ projectRoot: root });
+
+    expect(undoResult.ok).toBe(false);
+    expect(undoResult.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "history_command_invalid",
+        path: `operation_log.${result.operationId}.command_json`
+      })
+    ]);
+    expect(operationUndoneAt(indexPath, result.operationId)).toBeNull();
+    await expect(getDesktopLayout(root)).resolves.toMatchObject({
+      nodes: [{ nodeId: "T-001", x: 120, y: 240 }]
+    });
   });
 
   it("rejects invalid operation_log inverse_json before undo execution and keeps history untouched", async () => {
