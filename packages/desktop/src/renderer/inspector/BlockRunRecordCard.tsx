@@ -1,19 +1,46 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { DesktopRunRecord } from "@planweave-ai/runtime";
+import type {
+  DesktopCanvasReference,
+  DesktopRunRecord,
+  DesktopRunTerminalAvailability,
+  DesktopTerminalAppDetection,
+  DesktopTerminalAppId
+} from "@planweave-ai/runtime";
 import { XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { createTranslator } from "../i18n";
+import { TerminalOpenButton } from "./TerminalOpenButton";
 
 type BlockRunRecordCardProps = {
+  canvasRef?: DesktopCanvasReference | null;
+  defaultTerminalAppId?: DesktopTerminalAppId | null;
+  onOpenTerminal?: (recordId: string | null, appId: DesktopTerminalAppId) => Promise<void>;
+  onOpenRunTerminal?: (recordId: string, appId: DesktopTerminalAppId) => Promise<void>;
+  onTerminalDefaultAppChange?: (appId: DesktopTerminalAppId) => Promise<void> | void;
   selectedRunRecord: DesktopRunRecord;
   setSelectedRunRecord: Dispatch<SetStateAction<DesktopRunRecord | null>>;
+  terminalApps?: DesktopTerminalAppDetection[];
+  terminalAvailability?: DesktopRunTerminalAvailability | null;
+  tmuxAvailable?: boolean;
   t: ReturnType<typeof createTranslator>;
 };
 
-export function BlockRunRecordCard({ selectedRunRecord, setSelectedRunRecord, t }: BlockRunRecordCardProps) {
+export function BlockRunRecordCard({
+  canvasRef,
+  defaultTerminalAppId = null,
+  onOpenTerminal,
+  onOpenRunTerminal,
+  onTerminalDefaultAppChange,
+  selectedRunRecord,
+  setSelectedRunRecord,
+  terminalApps = [],
+  terminalAvailability = null,
+  tmuxAvailable = false,
+  t
+}: BlockRunRecordCardProps) {
   const executorLabel = selectedRunRecord.executor ?? selectedRunRecord.adapter ?? t("manualExecutor");
   const stderrIsFailure = typeof selectedRunRecord.exitCode === "number" && selectedRunRecord.exitCode !== 0;
   const displayMarkdown = selectedRunRecord.displayMarkdown || selectedRunRecord.reportMarkdown;
@@ -23,7 +50,20 @@ export function BlockRunRecordCard({ selectedRunRecord, setSelectedRunRecord, t 
       <CardHeader>
         <CardTitle className="text-sm">{selectedRunRecord.ref}</CardTitle>
         <CardDescription>{selectedRunRecord.runId}</CardDescription>
-        <CardAction>
+        <CardAction className="flex items-center gap-1">
+          <TerminalOpenButton
+            canvasRef={canvasRef}
+            defaultTerminalAppId={defaultTerminalAppId}
+            missingSessionReason={t("tmuxTerminalNoSession")}
+            onOpenTerminal={onOpenTerminal}
+            onOpenRunTerminal={onOpenRunTerminal}
+            onTerminalDefaultAppChange={onTerminalDefaultAppChange}
+            recordId={selectedRunRecord.recordId}
+            terminalAvailability={terminalAvailability}
+            terminalApps={terminalApps}
+            tmuxAvailable={tmuxAvailable}
+            t={t}
+          />
           <Button size="icon-sm" variant="ghost" aria-label={t("closeRecord")} onPointerDown={(event) => event.stopPropagation()} onClick={() => setSelectedRunRecord(null)}>
             <XIcon data-icon="inline-start" />
           </Button>

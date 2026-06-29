@@ -72,6 +72,64 @@ export type DesktopRuntimeToolAvailability = {
   };
 };
 
+export type DesktopTerminalAppId = "terminal" | "iterm2" | "ghostty";
+
+export type DesktopTerminalAttachMode = "readOnly" | "interactive";
+
+export type DesktopTerminalAppDetection = {
+  appId: DesktopTerminalAppId;
+  label: string;
+  available: boolean;
+  iconDataUrl: string | null;
+  unavailableReason: string | null;
+};
+
+export type DesktopOpenRunTerminalInput = {
+  ref: DesktopCanvasReference;
+  recordId: string;
+  appId: DesktopTerminalAppId;
+  mode?: DesktopTerminalAttachMode;
+};
+
+export type DesktopOpenRunTerminalResult = {
+  appId: DesktopTerminalAppId;
+  tmuxSessionId: string;
+  mode: DesktopTerminalAttachMode;
+};
+
+export type DesktopOpenTerminalInput = {
+  ref: DesktopCanvasReference;
+  appId: DesktopTerminalAppId;
+  recordId?: string | null;
+};
+
+export type DesktopOpenTerminalResult = {
+  appId: DesktopTerminalAppId;
+  cwd: string;
+};
+
+export type DesktopTerminalPreferences = {
+  defaultTerminalAppId: DesktopTerminalAppId | null;
+};
+
+export type DesktopRunTerminalUnavailableReason =
+  | "no_tmux_session"
+  | "tmux_unavailable"
+  | "tmux_session_not_running"
+  | "record_unavailable";
+
+export type DesktopRunTerminalAvailabilityInput = {
+  ref: DesktopCanvasReference;
+  recordIds: string[];
+};
+
+export type DesktopRunTerminalAvailability = {
+  recordId: string;
+  tmuxSessionId: string | null;
+  available: boolean;
+  unavailableReason: DesktopRunTerminalUnavailableReason | null;
+};
+
 export type DesktopCanvasReference = {
   projectRoot: string;
   canvasId?: string | null;
@@ -90,6 +148,12 @@ export type DesktopBridgeApi = {
   revealPathInFinder(path: string): Promise<void>;
   detectAgentTools(): Promise<DesktopAgentDetection[]>;
   detectRuntimeTools(): Promise<DesktopRuntimeToolAvailability>;
+  detectTerminalApps(): Promise<DesktopTerminalAppDetection[]>;
+  getTerminalPreferences(): Promise<DesktopTerminalPreferences>;
+  updateTerminalPreferences(patch: Partial<DesktopTerminalPreferences>): Promise<DesktopTerminalPreferences>;
+  getRunTerminalAvailability(input: DesktopRunTerminalAvailabilityInput): Promise<DesktopRunTerminalAvailability[]>;
+  openTerminal(input: DesktopOpenTerminalInput): Promise<DesktopOpenTerminalResult>;
+  openRunTerminal(input: DesktopOpenRunTerminalInput): Promise<DesktopOpenRunTerminalResult>;
   testExecutorProfile(ref: DesktopCanvasReference, executorName: string): Promise<ExecutorPreflightResult>;
   openBlockInspectorWindow(input: { blockRef: string; canvas: DesktopCanvasReference; language: string }): Promise<void>;
   openTaskInspectorWindow(input: { taskId: string; canvas: DesktopCanvasReference; language: string }): Promise<void>;

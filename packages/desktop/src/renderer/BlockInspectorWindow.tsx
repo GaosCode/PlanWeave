@@ -6,7 +6,10 @@ import type {
   DesktopFeedbackRecord,
   DesktopGraphViewModel,
   DesktopReviewAttemptSummary,
-  DesktopRunRecord
+  DesktopRunTerminalAvailability,
+  DesktopRunRecord,
+  DesktopTerminalAppDetection,
+  DesktopTerminalAppId
 } from "@planweave-ai/runtime";
 import { autoRunEventMatchesCanvas } from "./autoRunEvents";
 import { bridge } from "./bridge";
@@ -20,6 +23,8 @@ function supportedLanguage(value: string | null): Language {
 function latestRecordMatchesBlock(event: DesktopAutoRunEvent, blockRef: string, records: DesktopBlockRunRecordSummary[]): boolean {
   return Boolean(event.latestRecordId && (records.some((record) => record.recordId === event.latestRecordId) || event.latestRecordId.startsWith(`${blockRef}::`)));
 }
+
+const maxTerminalAvailabilityCandidateRecords = 50;
 
 export function BlockInspectorWindow() {
   const search = window.location.search;
@@ -36,9 +41,61 @@ export function BlockInspectorWindow() {
   const [blockRunRecords, setBlockRunRecords] = useState<DesktopBlockRunRecordSummary[]>([]);
   const [blockReviewAttempts, setBlockReviewAttempts] = useState<DesktopReviewAttemptSummary[]>([]);
   const [blockFeedbackRecords, setBlockFeedbackRecords] = useState<DesktopFeedbackRecord[]>([]);
+  const [terminalDefaultAppId, setTerminalDefaultAppId] = useState<DesktopTerminalAppId | null>(null);
+  const [terminalApps, setTerminalApps] = useState<DesktopTerminalAppDetection[]>([]);
+  const [terminalAvailabilityByRecordId, setTerminalAvailabilityByRecordId] = useState<Record<string, DesktopRunTerminalAvailability>>({});
+  const [terminalAvailabilityRefreshKey, setTerminalAvailabilityRefreshKey] = useState(0);
+  const [tmuxAvailable, setTmuxAvailable] = useState(false);
   const [error, setError] = useState<string | null>(bridge ? null : t("bridgeUnavailable"));
   const [draftDirty, setDraftDirty] = useState(false);
   const draftDirtyRef = useRef(false);
+
+  useEffect(() => {
+    if (!bridge) {
+      return;
+    }
+    const runtimeBridge = bridge;
+    void Promise.all([runtimeBridge.detectTerminalApps(), runtimeBridge.getTerminalPreferences(), runtimeBridge.detectRuntimeTools()])
+      .then(([apps, preferences, runtimeTools]) => {
+        setTerminalApps(Array.isArray(apps) ? apps : []);
+        setTmuxAvailable(Boolean(runtimeTools?.tmux?.available));
+        setTerminalDefaultAppId(preferences?.defaultTerminalAppId ?? null);
+      })
+      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+  }, []);
+
+  useEffect(() => {
+    if (!bridge || !projectRoot) {
+      setTerminalAvailabilityByRecordId({});
+      return undefined;
+    }
+    const candidateRecordIds = blockRunRecords
+      .filter((record) => record.tmuxSessionId)
+      .slice(0, maxTerminalAvailabilityCandidateRecords)
+      .map((record) => record.recordId);
+    const recordIds = [...new Set([selectedRunRecord?.recordId, ...candidateRecordIds].filter((recordId): recordId is string => typeof recordId === "string" && recordId.length > 0))];
+    if (recordIds.length === 0) {
+      setTerminalAvailabilityByRecordId({});
+      return undefined;
+    }
+    let cancelled = false;
+    void bridge
+      .getRunTerminalAvailability({ ref: { projectRoot, canvasId }, recordIds })
+      .then((availability) => {
+        if (cancelled) {
+          return;
+        }
+        setTerminalAvailabilityByRecordId(Object.fromEntries(availability.map((item) => [item.recordId, item])));
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : String(caught));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [blockRunRecords, canvasId, projectRoot, selectedRunRecord?.recordId, terminalAvailabilityRefreshKey]);
 
   const updateDraftDirty = useCallback((nextDraftDirty: boolean) => {
     draftDirtyRef.current = nextDraftDirty;
@@ -108,6 +165,58 @@ export function BlockInspectorWindow() {
     [canvasId, projectRoot]
   );
 
+  const handleTerminalDefaultAppChange = useCallback(
+    async (appId: DesktopTerminalAppId) => {
+      setTerminalDefaultAppId(appId);
+      if (!bridge) {
+        return;
+      }
+      try {
+        await bridge.updateTerminalPreferences({ defaultTerminalAppId: appId });
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    []
+  );
+
+  const handleOpenRunTerminal = useCallback(
+    async (recordId: string, appId: DesktopTerminalAppId) => {
+      if (!bridge || !projectRoot) {
+        return;
+      }
+      try {
+        await bridge.openRunTerminal({
+          ref: { projectRoot, canvasId },
+          recordId,
+          appId,
+          mode: "readOnly"
+        });
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    [canvasId, projectRoot]
+  );
+
+  const handleOpenTerminal = useCallback(
+    async (recordId: string | null, appId: DesktopTerminalAppId) => {
+      if (!bridge || !projectRoot) {
+        return;
+      }
+      try {
+        await bridge.openTerminal({
+          ref: { projectRoot, canvasId },
+          recordId,
+          appId
+        });
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    [canvasId, projectRoot]
+  );
+
   useEffect(() => {
     if (!bridge || !projectRoot || !blockRef) {
       return undefined;
@@ -123,6 +232,7 @@ export function BlockInspectorWindow() {
       if (!blockMatched) {
         return;
       }
+      setTerminalAvailabilityRefreshKey((refreshKey) => refreshKey + 1);
       if (latestRecordMatchesSelectedRecord && event.latestRecordId) {
         void runtimeBridge
           .getRunRecord({ projectRoot, canvasId }, event.latestRecordId)
@@ -188,9 +298,12 @@ export function BlockInspectorWindow() {
       executorOptions={graph?.executorOptions ?? []}
       graph={graph}
       handleOpenRunRecord={handleOpenRunRecord}
+      onOpenTerminal={handleOpenTerminal}
+      onOpenRunTerminal={handleOpenRunTerminal}
       onBlockSelect={handleBlockSelect}
       onClose={() => window.close()}
       onDraftDirtyChange={updateDraftDirty}
+      onTerminalDefaultAppChange={handleTerminalDefaultAppChange}
       saveSelectedBlockExecutor={saveSelectedBlockExecutor}
       saveSelectedBlockPrompt={saveSelectedBlockPrompt}
       saveSelectedBlockTitle={saveSelectedBlockTitle}
@@ -198,6 +311,10 @@ export function BlockInspectorWindow() {
       selectedRunRecord={selectedRunRecord}
       setSelectedBlock={setSelectedBlock}
       setSelectedRunRecord={setSelectedRunRecord}
+      terminalApps={terminalApps}
+      terminalAvailabilityByRecordId={terminalAvailabilityByRecordId}
+      terminalDefaultAppId={terminalDefaultAppId}
+      tmuxAvailable={tmuxAvailable}
       t={t}
     />
   );

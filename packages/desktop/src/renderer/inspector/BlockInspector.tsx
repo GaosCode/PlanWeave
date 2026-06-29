@@ -7,7 +7,10 @@ import type {
   DesktopFeedbackRecord,
   DesktopGraphViewModel,
   DesktopReviewAttemptSummary,
-  DesktopRunRecord
+  DesktopRunTerminalAvailability,
+  DesktopRunRecord,
+  DesktopTerminalAppDetection,
+  DesktopTerminalAppId
 } from "@planweave-ai/runtime";
 import { RefreshCwIcon, XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +27,7 @@ import type { createTranslator } from "../i18n";
 import { statusVariant } from "../viewHelpers";
 import { BlockConnectionsCard } from "./BlockConnectionsCard";
 import { BlockRunRecordCard } from "./BlockRunRecordCard";
+import { TerminalOpenButton } from "./TerminalOpenButton";
 
 type BlockInspectorProps = {
   blockFeedbackRecords: DesktopFeedbackRecord[];
@@ -35,9 +39,12 @@ type BlockInspectorProps = {
   executorOptions: string[];
   graph: DesktopGraphViewModel | null;
   handleOpenRunRecord: (recordId: string | null | undefined) => Promise<void>;
+  onOpenTerminal?: (recordId: string | null, appId: DesktopTerminalAppId) => Promise<void>;
+  onOpenRunTerminal?: (recordId: string, appId: DesktopTerminalAppId) => Promise<void>;
   onBlockSelect: (ref: string) => Promise<void>;
   onClose: () => void;
   onDraftDirtyChange?: (dirty: boolean) => void;
+  onTerminalDefaultAppChange?: (appId: DesktopTerminalAppId) => Promise<void> | void;
   saveSelectedBlockExecutor: (executorName: string | null) => Promise<void>;
   saveSelectedBlockPrompt: () => Promise<void>;
   saveSelectedBlockTitle: () => Promise<void>;
@@ -46,6 +53,10 @@ type BlockInspectorProps = {
   setSelectedBlock: Dispatch<SetStateAction<DesktopBlockDetail | null>>;
   setSelectedRunRecord: Dispatch<SetStateAction<DesktopRunRecord | null>>;
   style?: CSSProperties;
+  terminalApps?: DesktopTerminalAppDetection[];
+  terminalAvailabilityByRecordId?: Record<string, DesktopRunTerminalAvailability | undefined>;
+  terminalDefaultAppId?: DesktopTerminalAppId | null;
+  tmuxAvailable?: boolean;
   t: ReturnType<typeof createTranslator>;
 };
 
@@ -61,9 +72,12 @@ export function BlockInspector({
   executorOptions,
   graph,
   handleOpenRunRecord,
+  onOpenTerminal,
+  onOpenRunTerminal,
   onBlockSelect,
   onClose,
   onDraftDirtyChange,
+  onTerminalDefaultAppChange,
   saveSelectedBlockExecutor,
   saveSelectedBlockPrompt,
   saveSelectedBlockTitle,
@@ -72,9 +86,19 @@ export function BlockInspector({
   setSelectedBlock,
   setSelectedRunRecord,
   style,
+  terminalApps = [],
+  terminalAvailabilityByRecordId = {},
+  terminalDefaultAppId = null,
+  tmuxAvailable = false,
   t
 }: BlockInspectorProps) {
   const latestBlockRun = blockRunRecords[0];
+  const latestTmuxBlockRun = blockRunRecords.find((record) => terminalAvailabilityByRecordId[record.recordId]?.available);
+  const latestTmuxAvailability = latestTmuxBlockRun ? terminalAvailabilityByRecordId[latestTmuxBlockRun.recordId] ?? null : null;
+  const terminalRecordId = latestTmuxBlockRun?.recordId ?? latestBlockRun?.recordId ?? null;
+  const latestTmuxMissingReason = blockRunRecords.some((record) => record.tmuxSessionId)
+    ? t("tmuxTerminalNoLiveBlockSession")
+    : t("tmuxTerminalNoBlockSession");
   const latestReviewAttempt = blockReviewAttempts[0];
   const selectedExecutor = selectedBlock?.executor ?? "__inherit";
   const concreteExecutor = selectedBlock?.executor ?? selectedBlock?.effectiveExecutor ?? null;
@@ -149,7 +173,19 @@ export function BlockInspector({
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
         {selectedRunRecord ? (
-          <BlockRunRecordCard selectedRunRecord={selectedRunRecord} setSelectedRunRecord={setSelectedRunRecord} t={t} />
+          <BlockRunRecordCard
+            canvasRef={canvasRef}
+            defaultTerminalAppId={terminalDefaultAppId}
+            onOpenTerminal={onOpenTerminal}
+            onOpenRunTerminal={onOpenRunTerminal}
+            onTerminalDefaultAppChange={onTerminalDefaultAppChange}
+            selectedRunRecord={selectedRunRecord}
+            setSelectedRunRecord={setSelectedRunRecord}
+            terminalApps={terminalApps}
+            terminalAvailability={terminalAvailabilityByRecordId[selectedRunRecord.recordId] ?? null}
+            tmuxAvailable={tmuxAvailable}
+            t={t}
+          />
         ) : selectedBlock ? (
           <div className="flex min-h-0 flex-1 flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
@@ -212,8 +248,26 @@ export function BlockInspector({
               </div>
             </div>
             <div className="shrink-0 rounded-lg border bg-card p-3 text-xs">
-              <div className="text-sm font-semibold">{t("blockExecutionSummary")}</div>
-              <div className="mt-1 text-muted-foreground">{selectedBlock.ref}</div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold">{t("blockExecutionSummary")}</div>
+                  <div className="mt-1 truncate text-muted-foreground">{selectedBlock.ref}</div>
+                </div>
+                <TerminalOpenButton
+                  canvasRef={canvasRef}
+                  defaultTerminalAppId={terminalDefaultAppId}
+                  label={latestTmuxAvailability?.available ? t("openTmuxTerminal") : t("openTerminal")}
+                  missingSessionReason={latestTmuxMissingReason}
+                  onOpenTerminal={onOpenTerminal}
+                  onOpenRunTerminal={onOpenRunTerminal}
+                  onTerminalDefaultAppChange={onTerminalDefaultAppChange}
+                  recordId={terminalRecordId}
+                  terminalAvailability={latestTmuxAvailability}
+                  terminalApps={terminalApps}
+                  tmuxAvailable={tmuxAvailable}
+                  t={t}
+                />
+              </div>
               <div className="mt-3 flex flex-col gap-2">
                 {latestBlockRun ? (
                   <button className="flex items-center justify-between gap-2 rounded-md border p-2 text-left hover:bg-muted/50" type="button" onClick={() => void handleOpenRunRecord(latestBlockRun.recordId)}>

@@ -6,7 +6,9 @@ import type {
   DesktopAutoRunEvent,
   DesktopAutoRunState,
   DesktopBlockDetail,
+  DesktopBlockRunRecordSummary,
   DesktopGraphViewModel,
+  DesktopRunRecord,
   DesktopTaskDetail
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -249,5 +251,94 @@ describe("inspector auto-run event refresh", () => {
       "# Local block prompt",
       { baseGraphVersion: "pgv-block", basePromptHash: "hash-block" }
     );
+  });
+
+  it("limits block terminal availability checks to selected and latest tmux candidate records", async () => {
+    const blockRunRecords: DesktopBlockRunRecordSummary[] = Array.from({ length: 130 }, (_value, index) => {
+      const hasTmuxSession = index >= 70;
+      return {
+        recordId: `T-ALPHA#B-001::RUN-${index}`,
+        ref: "T-ALPHA#B-001",
+        taskId: "T-ALPHA",
+        blockId: "B-001",
+        runId: `RUN-${index}`,
+        executor: "codex",
+        adapter: "codex-exec",
+        executionCwd: "/tmp/demo",
+        projectRoot: "/tmp/demo",
+        agentSessionId: null,
+        codexSessionId: null,
+        tmuxSessionId: hasTmuxSession ? `planweave-T-ALPHA-B-001-RUN-${index}` : null,
+        tmuxAttachCommand: hasTmuxSession ? `tmux attach-session -t planweave-T-ALPHA-B-001-RUN-${index}` : null,
+        tmuxReadOnlyAttachCommand: hasTmuxSession ? `tmux attach-session -r -t planweave-T-ALPHA-B-001-RUN-${index}` : null,
+        exitCode: 0,
+        startedAt: "2026-05-23T00:00:00.000Z",
+        finishedAt: "2026-05-23T00:01:00.000Z",
+        promptPath: null,
+        reportPath: null,
+        metadataPath: `/tmp/demo/.planweave/results/T-ALPHA/blocks/B-001/runs/RUN-${index}/metadata.json`,
+        stdoutSummary: "",
+        stderrSummary: ""
+      };
+    });
+    const selectedRunRecord: DesktopRunRecord = {
+      recordId: "T-ALPHA#B-001::RUN-0",
+      ref: "T-ALPHA#B-001",
+      taskId: "T-ALPHA",
+      blockId: "B-001",
+      runId: "RUN-0",
+      executor: "codex",
+      adapter: "codex-exec",
+      executionCwd: "/tmp/demo",
+      projectRoot: "/tmp/demo",
+      agentSessionId: null,
+      codexSessionId: null,
+      tmuxSessionId: null,
+      tmuxAttachCommand: null,
+      tmuxReadOnlyAttachCommand: null,
+      exitCode: 0,
+      startedAt: "2026-05-23T00:00:00.000Z",
+      finishedAt: "2026-05-23T00:01:00.000Z",
+      promptPath: null,
+      reportPath: null,
+      metadataPath: "/tmp/demo/.planweave/results/T-ALPHA/blocks/B-001/runs/RUN-0/metadata.json",
+      stdoutSummary: "",
+      stderrSummary: "",
+      promptMarkdown: "",
+      reportMarkdown: "",
+      displayMarkdown: "",
+      displayMarkdownSource: "none",
+      metadata: {}
+    };
+    const getRunTerminalAvailability = vi.fn().mockResolvedValue([]);
+    const bridge = createDesktopBridgeMock({
+      getGraphViewModel: vi.fn().mockResolvedValue(graph),
+      getBlockDetail: vi.fn().mockResolvedValue(initialBlock),
+      getRunRecord: vi.fn().mockResolvedValue(selectedRunRecord),
+      listBlockRunRecords: vi.fn().mockResolvedValue(blockRunRecords),
+      getReviewAttempts: vi.fn().mockResolvedValue([]),
+      getFeedbackRecords: vi.fn().mockResolvedValue([]),
+      getRunTerminalAvailability,
+      onAutoRunChanged: vi.fn(() => () => undefined)
+    });
+    window.history.pushState({}, "", "/?projectRoot=%2Ftmp%2Fdemo&blockRef=T-ALPHA%23B-001&canvasId=canvas-main&language=en");
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { BlockInspectorWindow } = await import("../renderer/BlockInspectorWindow");
+
+    render(<BlockInspectorWindow />);
+
+    await waitFor(() => expect(getRunTerminalAvailability).toHaveBeenCalled());
+    expect(getRunTerminalAvailability).toHaveBeenCalledWith({
+      ref: { projectRoot: "/tmp/demo", canvasId: "canvas-main" },
+      recordIds: Array.from({ length: 50 }, (_value, offset) => `T-ALPHA#B-001::RUN-${offset + 70}`)
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Latest run/ }));
+    await waitFor(() => expect(getRunTerminalAvailability).toHaveBeenCalledTimes(2));
+    expect(getRunTerminalAvailability).toHaveBeenLastCalledWith({
+      ref: { projectRoot: "/tmp/demo", canvasId: "canvas-main" },
+      recordIds: ["T-ALPHA#B-001::RUN-0", ...Array.from({ length: 50 }, (_value, offset) => `T-ALPHA#B-001::RUN-${offset + 70}`)]
+    });
   });
 });

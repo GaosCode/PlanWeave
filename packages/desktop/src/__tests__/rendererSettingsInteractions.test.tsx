@@ -231,6 +231,24 @@ describe("desktop renderer settings interactions", () => {
     });
   });
 
+  it("ignores legacy renderer terminal preferences from localStorage", () => {
+    window.localStorage.setItem(
+      desktopSettingsKey,
+      JSON.stringify({
+        appearance: "dark",
+        terminal: {
+          defaultTerminalAppId: "ghostty"
+        }
+      })
+    );
+
+    const loadedSettings = loadDesktopSettings();
+    expect(loadedSettings).toMatchObject({
+      appearance: "dark"
+    });
+    expect(loadedSettings).not.toHaveProperty("terminal");
+  });
+
   it("uses default layout settings when stored settings predate layout preferences", () => {
     window.localStorage.setItem(
       desktopSettingsKey,
