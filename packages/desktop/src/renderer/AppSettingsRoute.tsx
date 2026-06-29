@@ -13,6 +13,7 @@ type AppSettingsRouteProps = {
   refreshRuntimeTools: () => Promise<void>;
   runtimeTools: DesktopRuntimeToolAvailability;
   projects: DesktopProjectSummary[];
+  selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
   loadProject: (project: DesktopProjectSummary) => Promise<void>;
   setActiveView: Dispatch<SetStateAction<AppView>>;
@@ -35,6 +36,7 @@ export function AppSettingsRoute({
   refreshRuntimeTools,
   runtimeTools,
   projects,
+  selectedCanvasId,
   selectedProject,
   loadProject,
   setActiveView,
@@ -58,6 +60,7 @@ export function AppSettingsRoute({
         refreshRuntimeTools={refreshRuntimeTools}
         runtimeTools={runtimeTools}
         projects={projects}
+        selectedCanvasId={selectedCanvasId}
         selectedProject={selectedProject}
         loadProject={loadProject}
         setActiveView={setActiveView}

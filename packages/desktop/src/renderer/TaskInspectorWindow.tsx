@@ -4,7 +4,6 @@ import type { DesktopGraphViewModel, DesktopTaskDetail } from "@planweave-ai/run
 import { autoRunEventMatchesCanvas } from "./autoRunEvents";
 import { bridge } from "./bridge";
 import { createTranslator, type Language } from "./i18n";
-import { useDetectedAgents } from "./hooks/useDetectedAgents";
 import { TaskInspector } from "./inspector/TaskInspector";
 
 function supportedLanguage(value: string | null): Language {
@@ -42,7 +41,6 @@ export function TaskInspectorWindow() {
   const canvasId = params.get("canvasId");
   const language = supportedLanguage(params.get("language"));
   const t = useMemo(() => createTranslator(language), [language]);
-  const { executorOptions } = useDetectedAgents();
   const [selectedTask, setSelectedTask] = useState<DesktopTaskDetail | null>(null);
   const [graph, setGraph] = useState<DesktopGraphViewModel | null>(null);
   const [error, setError] = useState<string | null>(bridge ? null : t("bridgeUnavailable"));
@@ -135,9 +133,10 @@ export function TaskInspectorWindow() {
 
   return (
     <TaskInspector
+      canvasRef={{ projectRoot, canvasId }}
       className="inset-0 h-screen w-screen min-w-0 rounded-none border-0 shadow-none ring-0"
       error={error}
-      executorOptions={executorOptions}
+      executorOptions={graph?.executorOptions ?? []}
       graph={graph}
       onClose={() => window.close()}
       onDraftDirtyChange={updateDraftDirty}

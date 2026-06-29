@@ -22,6 +22,9 @@ import {
   updateBlockPrompt,
   updateTaskPrompt
 } from "../desktop/index.js";
+import { buildDesktopGraphViewModelContext, buildGraphViewModel } from "../desktop/graph/readModel.js";
+import { buildExecutionStatus } from "../taskManager/executionStatus.js";
+import { loadRuntime } from "../taskManager/runtimeContext.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import type { PlanPackageManifest } from "../types.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
@@ -51,6 +54,112 @@ describe("desktop graph read API", () => {
     expect(graph.tasks[0].promptPreview).toContain("T-001 task prompt");
     expect(graph.tasks[0].blocks.map((block) => block.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
     expect(graph.tasks[0].blockPreview.map((block) => block.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
+  });
+
+  it("includes manifest custom executors in graph executor options", async () => {
+    const { root, init } = await createTestWorkspace();
+    const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    manifest.executors = {
+      ...(manifest.executors ?? {}),
+      "custom-shell": {
+        adapter: "manual"
+      }
+    };
+    manifest.execution.defaultExecutor = "custom-shell";
+    await writeJsonFile(init.workspace.manifestFile, manifest);
+
+    const graph = await getGraphViewModel(root);
+
+    expect(graph.executorOptions).toEqual(expect.arrayContaining(["manual", "custom-shell"]));
+    expect(graph.executorOptions.length).toBeGreaterThan(1);
+    expect(graph.autoRunPreflightExecutorHint).toBe("custom-shell");
+  });
+
+  it("resolves Auto Run preflight hint from the next serial claim instead of all executor options", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
+    const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    const firstTask = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    const secondTask = manifest.nodes.find((node) => node.type === "task" && node.id === "T-002");
+    if (firstTask?.type !== "task" || secondTask?.type !== "task") {
+      throw new Error("Fixture tasks missing.");
+    }
+    firstTask.blocks = firstTask.blocks.map((block) => (block.id === "B-001" ? { ...block, executor: "codex" } : block));
+    secondTask.blocks = secondTask.blocks.map((block) => (block.id === "B-001" ? { ...block, executor: "opencode" } : block));
+    await writeJsonFile(init.workspace.manifestFile, manifest);
+
+    const graph = await getGraphViewModel(root);
+
+    expect(graph.executorOptions).toEqual(expect.arrayContaining(["default", "manual", "codex", "opencode"]));
+    expect(graph.autoRunPreflightExecutorHint).toBe("codex");
+  });
+
+  it("resolves Auto Run preflight hint from the parallel review fallback before serial implementation fallback", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true, parallel: true }));
+    const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    const firstTask = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    const secondTask = manifest.nodes.find((node) => node.type === "task" && node.id === "T-002");
+    if (firstTask?.type !== "task" || secondTask?.type !== "task") {
+      throw new Error("Fixture tasks missing.");
+    }
+    firstTask.blocks = firstTask.blocks.map((block) => (block.id === "R-001" ? { ...block, executor: "codex-reviewer" } : block));
+    secondTask.blocks = secondTask.blocks.map((block) =>
+      block.id === "B-001" ? { ...block, executor: "opencode", parallel: { safe: false, locks: [] } } : block
+    );
+    await writeJsonFile(init.workspace.manifestFile, manifest);
+    await writeJsonFile(init.workspace.stateFile, {
+      currentRefs: [],
+      currentFeedbackId: null,
+      currentReviewBlockRef: null,
+      tasks: {},
+      blocks: {
+        "T-001#B-001": { status: "completed", lastRunId: "RUN-001" }
+      },
+      feedback: {}
+    });
+
+    const graph = await getGraphViewModel(root);
+
+    expect(graph.autoRunPreflightExecutorHint).toBe("codex-reviewer");
+  });
+
+  it("resolves Auto Run preflight hint from the serial implementation fallback when parallel has no batch or review", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ parallel: true }));
+    const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    if (task?.type !== "task") {
+      throw new Error("Fixture task missing.");
+    }
+    task.blocks = task.blocks.map((block) =>
+      block.id === "B-001" ? { ...block, executor: "codex", parallel: { safe: false, locks: [] } } : block
+    );
+    await writeJsonFile(init.workspace.manifestFile, manifest);
+
+    const graph = await getGraphViewModel(root);
+
+    expect(graph.autoRunPreflightExecutorHint).toBe("codex");
+  });
+
+  it("does not resolve a serial implementation fallback hint when parallel no-batch is project-blocked", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ parallel: true }));
+    const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    if (task?.type !== "task") {
+      throw new Error("Fixture task missing.");
+    }
+    task.blocks = task.blocks.map((block) =>
+      block.id === "B-001" ? { ...block, executor: "codex", parallel: { safe: false, locks: [] } } : block
+    );
+    await writeJsonFile(init.workspace.manifestFile, manifest);
+    const runtime = await loadRuntime({ projectRoot: root });
+    const claimGuard = {
+      blockersForTask: (taskId: string) => (taskId === "T-001" ? ["Project dependency is incomplete."] : []),
+      blockerReasonForTask: (taskId: string) => (taskId === "T-001" ? "Project dependency is incomplete." : null)
+    };
+    const status = await buildExecutionStatus(runtime, { claimGuard });
+
+    const graph = await buildGraphViewModel(buildDesktopGraphViewModelContext(runtime, status, { claimGuard }));
+
+    expect(graph.autoRunPreflightExecutorHint).toBeNull();
   });
 
   it("returns graph view models for persisted state with malformed current refs", async () => {

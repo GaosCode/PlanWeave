@@ -12,10 +12,6 @@ import type {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 
-vi.mock("../renderer/hooks/useDetectedAgents", () => ({
-  useDetectedAgents: () => ({ executorOptions: [] })
-}));
-
 const initialTask: DesktopTaskDetail = {
   taskId: "T-ALPHA",
   graphVersion: "pgv-task",

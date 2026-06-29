@@ -44,13 +44,15 @@ type LayoutSettingsPatch = {
   autoRunControl?: Partial<DesktopUiSettings["layout"]["autoRunControl"]>;
 };
 
+const emptyExecutorOptions: string[] = [];
+
 export function App() {
   const [settings, setSettings] = useState<DesktopUiSettings>(() => loadDesktopSettings());
   const language = settings.language;
   const t = useMemo(() => createTranslator(language), [language]);
   const [activeView, setActiveView] = useAppViewHistory("graph");
   const [, setBlockInspectorOpen] = useState(false);
-  const { agentDetectionRefreshing, agentDetections, executorOptions, refreshAgentDetections } = useDetectedAgents();
+  const { agentDetectionRefreshing, agentDetections, refreshAgentDetections } = useDetectedAgents();
   const { refreshRuntimeTools, runtimeTools } = useRuntimeTools();
   const [lastFileChange, setLastFileChange] = useState<DesktopPackageFileChangeEvent | null>(null);
   const [fileSyncDiagnostics, setFileSyncDiagnostics] = useState<string[]>([]);
@@ -401,7 +403,7 @@ export function App() {
       blockRunRecords
     },
     source: {
-      executorOptions,
+      executorOptions: graph?.executorOptions ?? emptyExecutorOptions,
       graph,
       layout,
       selectedBlock,
@@ -485,6 +487,7 @@ export function App() {
     refreshRuntimeTools,
     runtimeTools,
     projects: orderedProjects,
+    selectedCanvasId,
     selectedProject,
     loadProject: openProjectInSession,
     setActiveView,

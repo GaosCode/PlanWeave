@@ -46,6 +46,7 @@ import type {
   DesktopRuntimeResetOptions,
   DesktopRuntimeResetResult
 } from "./runTypes.js";
+import type { ExecutorPreflightResult } from "../../autoRun/executorPreflightTypes.js";
 
 export type DesktopAgentKind = "codex" | "claude-code" | "opencode" | "pi";
 
@@ -89,6 +90,7 @@ export type DesktopBridgeApi = {
   revealPathInFinder(path: string): Promise<void>;
   detectAgentTools(): Promise<DesktopAgentDetection[]>;
   detectRuntimeTools(): Promise<DesktopRuntimeToolAvailability>;
+  testExecutorProfile(ref: DesktopCanvasReference, executorName: string): Promise<ExecutorPreflightResult>;
   openBlockInspectorWindow(input: { blockRef: string; canvas: DesktopCanvasReference; language: string }): Promise<void>;
   openTaskInspectorWindow(input: { taskId: string; canvas: DesktopCanvasReference; language: string }): Promise<void>;
   openProject(input: { projectId?: string; rootPath?: string }): Promise<DesktopProjectSummary>;

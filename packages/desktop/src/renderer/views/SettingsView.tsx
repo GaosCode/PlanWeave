@@ -21,6 +21,7 @@ type SettingsViewProps = {
   refreshRuntimeTools: () => Promise<void>;
   runtimeTools: DesktopRuntimeToolAvailability;
   projects?: DesktopProjectSummary[];
+  selectedCanvasId?: string | null;
   selectedProject?: DesktopProjectSummary | null;
   loadProject?: (project: DesktopProjectSummary) => Promise<void>;
   setActiveView: Dispatch<SetStateAction<AppView>>;
@@ -43,6 +44,7 @@ export function SettingsView({
   refreshRuntimeTools,
   runtimeTools,
   projects = [],
+  selectedCanvasId = null,
   selectedProject,
   loadProject,
   setActiveView,
@@ -61,6 +63,7 @@ export function SettingsView({
   const projectPromptAvailable = Boolean(selectedProject && updateProjectPrompt);
   const projectPromptPolicyAvailable = Boolean(selectedProject && projectPromptPolicy && updateProjectPromptPolicy);
   const projectSelectorAvailable = projects.length > 0 && Boolean(loadProject);
+  const selectedCanvasRef = selectedProject ? { projectRoot: selectedProject.rootPath, canvasId: selectedCanvasId } : null;
 
   useEffect(() => {
     setProjectPromptDraft(projectPromptMarkdown ?? "");
@@ -119,6 +122,8 @@ export function SettingsView({
             <SettingsAgentsSection
               agentDetectionRefreshing={agentDetectionRefreshing}
               agents={agents}
+              canvasRef={selectedCanvasRef}
+              graph={graph}
               refreshAgentDetections={refreshAgentDetections}
               settings={settings}
               t={t}

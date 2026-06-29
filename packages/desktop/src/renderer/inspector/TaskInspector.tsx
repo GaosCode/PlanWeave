@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties, Dispatch, SetStateAction } from "react";
-import type { DesktopBlockPreview, DesktopGraphViewModel, DesktopTaskDetail } from "@planweave-ai/runtime";
-import { XIcon } from "lucide-react";
+import type { DesktopBlockPreview, DesktopCanvasReference, DesktopGraphViewModel, DesktopTaskDetail } from "@planweave-ai/runtime";
+import { RefreshCwIcon, XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,10 +10,13 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { executorOptionNames } from "../executors/executorOptionViewModel";
+import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
 import type { createTranslator } from "../i18n";
 import { statusVariant } from "../viewHelpers";
 
 type TaskInspectorProps = {
+  canvasRef?: DesktopCanvasReference | null;
   className?: string;
   error: string | null;
   executorOptions: string[];
@@ -42,7 +45,22 @@ function selectedTaskExecutorValue(selectedTask: DesktopTaskDetail | null, taskB
   return [...blockExecutors][0] ?? selectedTask.executor ?? "manual";
 }
 
+function taskPreflightExecutorValue(selectedTask: DesktopTaskDetail | null, taskBlocks: DesktopBlockPreview[]): string | null {
+  if (!selectedTask) {
+    return null;
+  }
+  const blockExecutors = new Set(taskBlocks.map((block) => block.executor).filter((executor): executor is string => executor !== null));
+  if (blockExecutors.size === 1) {
+    return [...blockExecutors][0] ?? null;
+  }
+  if (blockExecutors.size > 1) {
+    return null;
+  }
+  return selectedTask.executor ?? null;
+}
+
 export function TaskInspector({
+  canvasRef,
   className,
   error,
   executorOptions,
@@ -65,8 +83,17 @@ export function TaskInspector({
     return graph.tasks.find((task) => task.taskId === selectedTask.taskId)?.blocks ?? [];
   }, [graph, selectedTask]);
   const selectedExecutor = selectedTaskExecutorValue(selectedTask, taskBlocks);
-  const taskExecutorOptions =
-    selectedExecutor !== "__custom" && selectedExecutor && !executorOptions.includes(selectedExecutor) ? [selectedExecutor, ...executorOptions] : executorOptions;
+  const concreteExecutor = taskPreflightExecutorValue(selectedTask, taskBlocks);
+  const taskExecutorOptions = executorOptionNames({
+    currentExecutorNames: selectedExecutor !== "__custom" && selectedExecutor ? [selectedExecutor] : [],
+    executorOptions
+  });
+  const preflight = useExecutorPreflight({
+    bridgeUnavailableMessage: t("bridgeUnavailable"),
+    cacheKey: graph ? `${graph.graphVersion}:${graph.packageFingerprint}` : null,
+    canvasRef: canvasRef ?? null,
+    executorName: concreteExecutor
+  });
 
   useEffect(() => {
     if (!selectedTask) {
@@ -158,6 +185,30 @@ export function TaskInspector({
                   </SelectGroup>
                 </SelectContent>
               </Select>
+              <div className="flex min-h-7 items-center gap-2 text-xs text-muted-foreground">
+                {!concreteExecutor ? (
+                  <span>{t("executorPreflightSelectConcrete")}</span>
+                ) : preflight.result ? (
+                  <Badge data-testid="task-executor-preflight-status" variant={preflight.result.ok ? "secondary" : "destructive"}>
+                    {preflight.result.ok ? t("preflightPassed") : t("preflightFailed")}
+                  </Badge>
+                ) : preflight.error ? (
+                  <span className="min-w-0 truncate text-destructive">{preflight.error}</span>
+                ) : (
+                  <span>{t("executorPreflightNotRun")}</span>
+                )}
+                <Button
+                  data-testid="task-executor-preflight"
+                  disabled={!canvasRef || !concreteExecutor || preflight.loading}
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={t("runPreflight")}
+                  title={t("runPreflight")}
+                  onClick={() => void preflight.runPreflight()}
+                >
+                  <RefreshCwIcon className={preflight.loading ? "animate-spin" : undefined} data-icon="inline-start" />
+                </Button>
+              </div>
             </div>
             <div className="rounded-lg border bg-card p-3 text-xs">
               <div className="text-sm font-semibold">{t("taskExecutionSummary")}</div>

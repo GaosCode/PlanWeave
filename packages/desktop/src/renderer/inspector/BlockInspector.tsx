@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties, Dispatch, SetStateAction } from "react";
-import type { DesktopBlockDetail, DesktopBlockRunRecordSummary, DesktopFeedbackRecord, DesktopGraphViewModel, DesktopReviewAttemptSummary, DesktopRunRecord } from "@planweave-ai/runtime";
-import { XIcon } from "lucide-react";
+import type {
+  DesktopBlockDetail,
+  DesktopBlockRunRecordSummary,
+  DesktopCanvasReference,
+  DesktopFeedbackRecord,
+  DesktopGraphViewModel,
+  DesktopReviewAttemptSummary,
+  DesktopRunRecord
+} from "@planweave-ai/runtime";
+import { RefreshCwIcon, XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +18,8 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { executorOptionNames } from "../executors/executorOptionViewModel";
+import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
 import type { createTranslator } from "../i18n";
 import { statusVariant } from "../viewHelpers";
 import { BlockConnectionsCard } from "./BlockConnectionsCard";
@@ -19,6 +29,7 @@ type BlockInspectorProps = {
   blockFeedbackRecords: DesktopFeedbackRecord[];
   blockReviewAttempts: DesktopReviewAttemptSummary[];
   blockRunRecords: DesktopBlockRunRecordSummary[];
+  canvasRef?: DesktopCanvasReference | null;
   className?: string;
   error: string | null;
   executorOptions: string[];
@@ -44,6 +55,7 @@ export function BlockInspector({
   blockFeedbackRecords,
   blockReviewAttempts,
   blockRunRecords,
+  canvasRef,
   className,
   error,
   executorOptions,
@@ -64,7 +76,19 @@ export function BlockInspector({
 }: BlockInspectorProps) {
   const latestBlockRun = blockRunRecords[0];
   const latestReviewAttempt = blockReviewAttempts[0];
-  const selectedExecutor = selectedBlock?.executor && executorOptions.includes(selectedBlock.executor) ? selectedBlock.executor : "__inherit";
+  const selectedExecutor = selectedBlock?.executor ?? "__inherit";
+  const concreteExecutor = selectedBlock?.executor ?? selectedBlock?.effectiveExecutor ?? null;
+  const preflightUsesInheritedExecutor = Boolean(!selectedBlock?.executor && concreteExecutor);
+  const blockExecutorOptions = executorOptionNames({
+    currentExecutorNames: selectedBlock?.executor ? [selectedBlock.executor] : [],
+    executorOptions
+  });
+  const preflight = useExecutorPreflight({
+    bridgeUnavailableMessage: t("bridgeUnavailable"),
+    cacheKey: graph ? `${graph.graphVersion}:${graph.packageFingerprint}` : null,
+    canvasRef: canvasRef ?? null,
+    executorName: concreteExecutor
+  });
   const blockPromptBaselineRef = useRef<{ promptMarkdown: string; ref: string } | null>(null);
   const taskBlocks = useMemo(() => {
     if (!graph || !selectedBlock) {
@@ -150,7 +174,7 @@ export function BlockInspector({
                 <SelectContent>
                   <SelectGroup>
                     <SelectItem value="__inherit">{t("inheritExecutor")}</SelectItem>
-                    {executorOptions.map((executor) => (
+                    {blockExecutorOptions.map((executor) => (
                       <SelectItem value={executor} key={executor}>
                         {executor}
                       </SelectItem>
@@ -158,6 +182,34 @@ export function BlockInspector({
                   </SelectGroup>
                 </SelectContent>
               </Select>
+              <div className="flex min-h-7 items-center gap-2 text-xs text-muted-foreground">
+                {!concreteExecutor ? (
+                  <span>{t("executorPreflightSelectConcrete")}</span>
+                ) : preflight.result ? (
+                  <Badge data-testid="block-executor-preflight-status" variant={preflight.result.ok ? "secondary" : "destructive"}>
+                    {preflight.result.ok ? t("preflightPassed") : t("preflightFailed")}
+                  </Badge>
+                ) : preflight.error ? (
+                  <span className="min-w-0 truncate text-destructive">{preflight.error}</span>
+                ) : preflightUsesInheritedExecutor ? (
+                  <span>
+                    {t("inheritExecutor")}: {concreteExecutor}
+                  </span>
+                ) : (
+                  <span>{t("executorPreflightNotRun")}</span>
+                )}
+                <Button
+                  data-testid="block-executor-preflight"
+                  disabled={!canvasRef || !concreteExecutor || preflight.loading}
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={t("runPreflight")}
+                  title={t("runPreflight")}
+                  onClick={() => void preflight.runPreflight()}
+                >
+                  <RefreshCwIcon className={preflight.loading ? "animate-spin" : undefined} data-icon="inline-start" />
+                </Button>
+              </div>
             </div>
             <div className="shrink-0 rounded-lg border bg-card p-3 text-xs">
               <div className="text-sm font-semibold">{t("blockExecutionSummary")}</div>

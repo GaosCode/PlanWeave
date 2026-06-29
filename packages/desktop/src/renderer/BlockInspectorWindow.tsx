@@ -11,7 +11,6 @@ import type {
 import { autoRunEventMatchesCanvas } from "./autoRunEvents";
 import { bridge } from "./bridge";
 import { createTranslator, type Language } from "./i18n";
-import { useDetectedAgents } from "./hooks/useDetectedAgents";
 import { BlockInspector } from "./inspector/BlockInspector";
 
 function supportedLanguage(value: string | null): Language {
@@ -30,7 +29,6 @@ export function BlockInspectorWindow() {
   const canvasId = params.get("canvasId");
   const language = supportedLanguage(params.get("language"));
   const t = useMemo(() => createTranslator(language), [language]);
-  const { executorOptions } = useDetectedAgents();
   const [blockRef, setBlockRef] = useState(initialBlockRef);
   const [selectedBlock, setSelectedBlock] = useState<DesktopBlockDetail | null>(null);
   const [selectedRunRecord, setSelectedRunRecord] = useState<DesktopRunRecord | null>(null);
@@ -184,9 +182,10 @@ export function BlockInspectorWindow() {
       blockFeedbackRecords={blockFeedbackRecords}
       blockReviewAttempts={blockReviewAttempts}
       blockRunRecords={blockRunRecords}
+      canvasRef={{ projectRoot, canvasId }}
       className="inset-0 h-screen w-screen min-w-0 rounded-none border-0 shadow-none ring-0"
       error={error}
-      executorOptions={executorOptions}
+      executorOptions={graph?.executorOptions ?? []}
       graph={graph}
       handleOpenRunRecord={handleOpenRunRecord}
       onBlockSelect={handleBlockSelect}

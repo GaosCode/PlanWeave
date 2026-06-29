@@ -9,6 +9,7 @@ import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitl
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { executorOptionNames } from "../executors/executorOptionViewModel";
 import type { TaskFlowNode } from "../types";
 import { BlockPreviewButton } from "./BlockPreviewButton";
 import { taskNodeStatusVisual, TaskNodeStatusMarker } from "./taskNodeStatus";
@@ -48,8 +49,10 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
   } = data;
   const hasException = task.exceptions.length > 0;
   const selectedExecutor = task.executorLabel === "Mixed" ? "__custom" : task.executorLabel;
-  const taskExecutorOptions =
-    selectedExecutor !== "__custom" && selectedExecutor && !executorOptions.includes(selectedExecutor) ? [selectedExecutor, ...executorOptions] : executorOptions;
+  const taskExecutorOptions = executorOptionNames({
+    currentExecutorNames: selectedExecutor !== "__custom" && selectedExecutor ? [selectedExecutor] : [],
+    executorOptions
+  });
   const statusVisual = taskNodeStatusVisual(task.status, hasException);
   const handleTaskDoubleClick = (event: MouseEvent) => {
     const target = event.target;

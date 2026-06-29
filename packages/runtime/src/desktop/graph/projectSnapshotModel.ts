@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { readProjectPrompt, readProjectPromptPolicy } from "../../projectPromptPolicy.js";
+import { createProjectGraphClaimGuardFromAggregation } from "../../taskManager/projectGraphClaimGuard.js";
 import { getDesktopLayout, getDesktopLayoutForPackage } from "../layoutApi.js";
 import { resolveTaskCanvasWorkspace } from "../canvasApi.js";
 import type { ProjectWorkspace, ValidationIssue } from "../../types.js";
@@ -78,7 +79,9 @@ function selectedGraphContextFromProjectTodoContext(
   if (!snapshot.runtime || !snapshot.status) {
     throw new Error(`Selected task canvas '${canvas.canvasId}' execution status is unavailable.`);
   }
-  return buildDesktopGraphViewModelContext(snapshot.runtime, snapshot.status);
+  return buildDesktopGraphViewModelContext(snapshot.runtime, snapshot.status, {
+    claimGuard: createProjectGraphClaimGuardFromAggregation(snapshot.runtime, context.aggregation)
+  });
 }
 
 export async function getDesktopProjectSnapshot(ref: DesktopCanvasReference): Promise<DesktopProjectSnapshot> {

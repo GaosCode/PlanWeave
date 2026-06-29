@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
 import type { createTranslator } from "../i18n";
 import type { AutoRunNextActionDescriptor } from "./autoRunNextActions";
 import type { AutoRunScopeMode } from "../types";
@@ -30,6 +31,7 @@ type FloatingAutoRunControlProps = {
   diagnostics: ValidationIssue[];
   dirtyPromptCount: number;
   dirtyPromptRefs: string[];
+  autoRunPreflightExecutorHint: string | null;
   handleAutoRunClick: () => Promise<void>;
   handleAutoRunNextAction: (action: AutoRunNextActionDescriptor) => Promise<void>;
   handleRevealPathInFinder: (path: string | null | undefined) => Promise<void>;
@@ -41,6 +43,7 @@ type FloatingAutoRunControlProps = {
   refreshConcurrency: number | null;
   resetRuntimeStateClick: () => Promise<void>;
   selectedBlockPresent: boolean;
+  selectedCanvasId?: string | null;
   selectedProject: DesktopProjectSummary | null;
   selectedTaskPanelId: string | null;
   setAutoRunScopeMode: Dispatch<SetStateAction<AutoRunScopeMode>>;
@@ -254,6 +257,7 @@ export function FloatingAutoRunControl({
   diagnostics,
   dirtyPromptCount,
   dirtyPromptRefs,
+  autoRunPreflightExecutorHint,
   handleAutoRunClick,
   handleAutoRunNextAction,
   handleRevealPathInFinder,
@@ -265,6 +269,7 @@ export function FloatingAutoRunControl({
   refreshConcurrency,
   resetRuntimeStateClick,
   selectedBlockPresent,
+  selectedCanvasId = null,
   selectedProject,
   selectedTaskPanelId,
   setAutoRunScopeMode,
@@ -278,6 +283,17 @@ export function FloatingAutoRunControl({
   const canStop = autoRunState ? ["running", "pausing", "paused", "manual"].includes(autoRunState.phase) : false;
   const hasProject = Boolean(selectedProject);
   const explanation = autoRunState?.explanation ?? null;
+  const currentExecutor = explanation?.currentExecutor ?? null;
+  const startupPreflightExecutor = autoRunScopeMode === "project" ? autoRunPreflightExecutorHint : null;
+  const preflightExecutor = currentExecutor ?? startupPreflightExecutor;
+  const preflightCanvasId = autoRunState?.canvasId ?? selectedCanvasId;
+  const canvasRef = selectedProject ? { projectRoot: selectedProject.rootPath, canvasId: preflightCanvasId } : null;
+  const executorPreflight = useExecutorPreflight({
+    bridgeUnavailableMessage: t("bridgeUnavailable"),
+    cacheKey: autoRunState?.runSessionId ?? autoRunState?.runId ?? autoRunPreflightExecutorHint ?? "",
+    canvasRef,
+    executorName: preflightExecutor
+  });
   const showFailureDetails = isFailureState(autoRunState);
   const fileSyncDirtyRefs = uniqueStrings(dirtyPromptRefs);
   const fileSyncAffectedTasks = uniqueStrings(affectedTasks);
@@ -426,6 +442,31 @@ export function FloatingAutoRunControl({
                       </span>
                     ) : null}
                   </div>
+                  {preflightExecutor ? (
+                    <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground">
+                      <span className="font-medium text-text-strong">{t("executorPreflight")}</span>
+                      <span>{preflightExecutor}</span>
+                      {executorPreflight.result ? (
+                        <Badge data-testid="auto-run-executor-preflight-status" variant={executorPreflight.result.ok ? "secondary" : "destructive"}>
+                          {executorPreflight.result.ok ? t("preflightPassed") : t("preflightFailed")}
+                        </Badge>
+                      ) : executorPreflight.error ? (
+                        <span className="text-destructive">{executorPreflight.error}</span>
+                      ) : (
+                        <span>{t("executorPreflightNotRun")}</span>
+                      )}
+                      <Button
+                        data-testid="auto-run-executor-preflight"
+                        disabled={!selectedProject || executorPreflight.loading}
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void executorPreflight.runPreflight()}
+                      >
+                        <RefreshCwIcon className={executorPreflight.loading ? "animate-spin" : undefined} data-icon="inline-start" />
+                        {executorPreflight.loading ? t("preflightRunning") : t("runPreflight")}
+                      </Button>
+                    </div>
+                  ) : null}
                   {showFailureDetails ? <AutoRunFailureDetails state={autoRunState} t={t} /> : null}
                   <AutoRunActionRow action={autoRunNextAction} handleAutoRunNextAction={handleAutoRunNextAction} t={t} />
                   <AutoRunRetrospectivePanel

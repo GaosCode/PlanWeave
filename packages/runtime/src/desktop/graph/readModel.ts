@@ -4,10 +4,12 @@ import { loadPackage } from "../../package/loadPackage.js";
 import { resolvePackagePath } from "../../package/resolvePackagePath.js";
 import { getExecutionStatus, renderPromptSurface } from "../../taskManager/index.js";
 import { buildExecutionStatus, type ExecutionStatus } from "../../taskManager/executionStatus.js";
+import { buildClaimReadiness, type ClaimReadiness } from "../../taskManager/claimReadiness.js";
+import { createProjectGraphClaimGuard, type ProjectGraphClaimGuard } from "../../taskManager/projectGraphClaimGuard.js";
 import { loadRuntime, type RuntimeContext } from "../../taskManager/runtimeContext.js";
 import { listExecutorProfilesForManifest } from "../../autoRun/executors.js";
 import { buildPlanGraphViewProjection, loadPlanGraphPackage } from "../../plangraph/index.js";
-import type { PackageWorkspaceRef, ValidationIssue } from "../../types.js";
+import type { ClaimResult, PackageWorkspaceRef, ValidationIssue } from "../../types.js";
 import type { DesktopBlockDetail, DesktopGraphViewModel, DesktopTaskDetail, DesktopTaskExecutionOrder } from "../types.js";
 import { getDirtyPromptRefs } from "../fileSyncApi.js";
 import { getBlock, getTask, readOptionalFile, sortBlockRefsForTask } from "./graphHelpers.js";
@@ -15,6 +17,7 @@ import { getBlock, getTask, readOptionalFile, sortBlockRefsForTask } from "./gra
 export type DesktopGraphViewModelContext = RuntimeContext & {
   status: ExecutionStatus;
   executorOptions: string[];
+  claimReadiness: ClaimReadiness;
 };
 
 function appendDiagnostic(diagnostics: ValidationIssue[], diagnostic: ValidationIssue | null): void {
@@ -29,15 +32,72 @@ function appendDiagnostic(diagnostics: ValidationIssue[], diagnostic: Validation
 
 export async function loadDesktopGraphViewModelContext(projectRoot: PackageWorkspaceRef): Promise<DesktopGraphViewModelContext> {
   const runtime = await loadRuntime({ projectRoot });
-  return buildDesktopGraphViewModelContext(runtime, await buildExecutionStatus(runtime));
+  const claimGuard = await createProjectGraphClaimGuard(runtime);
+  return buildDesktopGraphViewModelContext(runtime, await buildExecutionStatus(runtime, { claimGuard }), { claimGuard });
 }
 
-export function buildDesktopGraphViewModelContext(runtime: RuntimeContext, status: ExecutionStatus): DesktopGraphViewModelContext {
+export function buildDesktopGraphViewModelContext(
+  runtime: RuntimeContext,
+  status: ExecutionStatus,
+  options: { claimGuard?: ProjectGraphClaimGuard } = {}
+): DesktopGraphViewModelContext {
   return {
     ...runtime,
     status,
-    executorOptions: listExecutorProfilesForManifest(runtime.manifest).map((profile) => profile.name)
+    executorOptions: listExecutorProfilesForManifest(runtime.manifest).map((profile) => profile.name),
+    claimReadiness: buildClaimReadiness({
+      graph: runtime.graph,
+      manifest: runtime.manifest,
+      state: runtime.state,
+      projectGuard: options.claimGuard
+    })
   };
+}
+
+function resolveAutoRunExecutorForBlock(context: DesktopGraphViewModelContext, ref: string): string {
+  const { taskId } = parseBlockRef(ref);
+  const task = getTask(context.graph, taskId);
+  const block = getBlock(context.graph, ref);
+  return block.executor ?? task.executor ?? context.manifest.execution.defaultExecutor ?? "default";
+}
+
+function resolveAutoRunPreflightExecutorHint(context: DesktopGraphViewModelContext): string | null {
+  const claim = resolveAutoRunPreflightClaim(context);
+  if (!claim) {
+    return null;
+  }
+  if (claim.kind === "feedback") {
+    return context.manifest.execution.defaultExecutor ?? "default";
+  }
+  const refs = claim.kind === "batch" ? claim.refs : [claim.ref];
+  const executorNames = new Set(refs.map((ref) => resolveAutoRunExecutorForBlock(context, ref)));
+  if (executorNames.size !== 1) {
+    return null;
+  }
+  return [...executorNames][0] ?? null;
+}
+
+function resolveAutoRunPreflightClaim(context: DesktopGraphViewModelContext): Extract<ClaimResult, { kind: "batch" | "block" | "feedback" }> | null {
+  const { claimReadiness, manifest } = context;
+  if (claimReadiness.claimOrder.kind === "feedback" || claimReadiness.claimOrder.kind === "currentBlock" || claimReadiness.claimOrder.kind === "currentReview") {
+    return claimReadiness.claimOrder.result;
+  }
+  if (claimReadiness.claimOrder.kind === "blocked") {
+    return null;
+  }
+  if (manifest.execution.parallel.enabled) {
+    if (claimReadiness.parallelBatchRefs.length > 0) {
+      return { kind: "batch", refs: claimReadiness.parallelBatchRefs };
+    }
+    if (claimReadiness.sequentialReviewCandidates[0]) {
+      return claimReadiness.sequentialReviewCandidates[0].result;
+    }
+    if (claimReadiness.firstProjectBlockedResult) {
+      return null;
+    }
+    return claimReadiness.sequentialImplementationCandidates[0]?.result ?? null;
+  }
+  return claimReadiness.sequentialImplementationCandidates[0]?.result ?? claimReadiness.sequentialReviewCandidates[0]?.result ?? null;
 }
 
 export async function buildGraphViewModel(context: DesktopGraphViewModelContext): Promise<DesktopGraphViewModel> {
@@ -72,6 +132,7 @@ export async function buildGraphViewModel(context: DesktopGraphViewModelContext)
     graphVersion: planGraphPackage.graph.graphVersion,
     packageFingerprint: planGraphPackage.graph.packageFingerprint,
     executorOptions,
+    autoRunPreflightExecutorHint: resolveAutoRunPreflightExecutorHint(context),
     tasks: projection.tasks,
     edges: projection.edges,
     diagnostics,

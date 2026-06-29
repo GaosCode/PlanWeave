@@ -10,6 +10,7 @@ import { AppUpdateToast } from "../renderer/components/AppUpdateToast";
 import { HistoryNavigationButtons } from "../renderer/components/HistoryNavigationButtons";
 import { appViewHistoryChangedEvent } from "../renderer/hooks/useAppViewHistory";
 import { BlockInspector } from "../renderer/inspector/BlockInspector";
+import { TaskInspector } from "../renderer/inspector/TaskInspector";
 import { BlockRunRecordCard } from "../renderer/inspector/BlockRunRecordCard";
 import { highlightedSearchExcerpt, SearchResultList, searchNavigationTarget } from "../renderer/components/SearchResultList";
 import { TodoGroupCard } from "../renderer/components/TodoGroupCard";
@@ -24,6 +25,7 @@ import type {
   DesktopProjectSummary,
   DesktopRunRecord,
   DesktopSearchResult,
+  DesktopTaskDetail,
   DesktopTodoItem
 } from "@planweave-ai/runtime";
 
@@ -33,6 +35,13 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+
+function stubSelectLayoutApis() {
+  Object.defineProperty(window.HTMLElement.prototype, "hasPointerCapture", { configurable: true, value: vi.fn(() => false) });
+  Object.defineProperty(window.HTMLElement.prototype, "setPointerCapture", { configurable: true, value: vi.fn() });
+  Object.defineProperty(window.HTMLElement.prototype, "releasePointerCapture", { configurable: true, value: vi.fn() });
+  Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+}
 
 describe("desktop renderer component interactions", () => {
   const searchResultListLabels = {
@@ -322,6 +331,162 @@ describe("desktop renderer component interactions", () => {
     expect(screen.getByText("T-002")).toBeInTheDocument();
     expect(screen.getByText("Needs changes returns to")).toBeInTheDocument();
     expect(screen.getByText("T-001#B-001")).toBeInTheDocument();
+  });
+
+  it("shows manifest custom executors in the block inspector dropdown", async () => {
+    stubSelectLayoutApis();
+    const selectedBlock: DesktopBlockDetail = {
+      ref: "T-001#B-001",
+      taskId: "T-001",
+      blockId: "B-001",
+      type: "implementation",
+      title: "Implement task",
+      status: "ready",
+      executor: null,
+      effectiveExecutor: "manual",
+      promptMarkdown: "# Implement",
+      promptMissing: false,
+      promptSurfaceMarkdown: "# Effective",
+      promptSources: [],
+      dependencies: [],
+      latestRunId: null,
+      latestReviewAttemptId: null,
+      activeFeedbackId: null,
+      exceptionReason: null,
+      reviewGate: null
+    };
+
+    render(
+      <BlockInspector
+        blockFeedbackRecords={[]}
+        blockReviewAttempts={[]}
+        blockRunRecords={[]}
+        error={null}
+        executorOptions={["manual", "custom-shell"]}
+        graph={null}
+        handleOpenRunRecord={vi.fn()}
+        onBlockSelect={vi.fn()}
+        onClose={vi.fn()}
+        saveSelectedBlockExecutor={vi.fn()}
+        saveSelectedBlockPrompt={vi.fn()}
+        saveSelectedBlockTitle={vi.fn()}
+        selectedBlock={selectedBlock}
+        selectedRunRecord={null}
+        setSelectedBlock={vi.fn()}
+        setSelectedRunRecord={vi.fn()}
+        t={createTranslator("en")}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("combobox"));
+
+    expect(await screen.findByRole("option", { name: "custom-shell" })).toBeInTheDocument();
+  });
+
+  it("keeps a block custom executor selected when it is absent from graph options", () => {
+    const selectedBlock: DesktopBlockDetail = {
+      ref: "T-001#B-001",
+      taskId: "T-001",
+      blockId: "B-001",
+      type: "implementation",
+      title: "Implement task",
+      status: "ready",
+      executor: "legacy-executor",
+      effectiveExecutor: "legacy-executor",
+      promptMarkdown: "# Implement",
+      promptMissing: false,
+      promptSurfaceMarkdown: "# Effective",
+      promptSources: [],
+      dependencies: [],
+      latestRunId: null,
+      latestReviewAttemptId: null,
+      activeFeedbackId: null,
+      exceptionReason: null,
+      reviewGate: null
+    };
+
+    render(
+      <BlockInspector
+        blockFeedbackRecords={[]}
+        blockReviewAttempts={[]}
+        blockRunRecords={[]}
+        error={null}
+        executorOptions={["manual"]}
+        graph={null}
+        handleOpenRunRecord={vi.fn()}
+        onBlockSelect={vi.fn()}
+        onClose={vi.fn()}
+        saveSelectedBlockExecutor={vi.fn()}
+        saveSelectedBlockPrompt={vi.fn()}
+        saveSelectedBlockTitle={vi.fn()}
+        selectedBlock={selectedBlock}
+        selectedRunRecord={null}
+        setSelectedBlock={vi.fn()}
+        setSelectedRunRecord={vi.fn()}
+        t={createTranslator("en")}
+      />
+    );
+
+    expect(screen.getByRole("combobox")).toHaveTextContent("legacy-executor");
+    expect(screen.getByRole("combobox")).not.toHaveTextContent("Inherit");
+  });
+
+  it("keeps a task current executor selected when it is absent from graph options", () => {
+    const selectedTask: DesktopTaskDetail = {
+      taskId: "T-001",
+      graphVersion: "pgv-task",
+      title: "Task",
+      status: "ready",
+      executor: "legacy-executor",
+      promptMarkdown: "# Task",
+      promptHash: "hash-task",
+      promptMissing: false,
+      acceptance: [],
+      blockOrder: []
+    };
+    const graph: DesktopGraphViewModel = {
+      projectId: "P-001",
+      projectTitle: "Project",
+      graphVersion: "pgv-test",
+      packageFingerprint: "pkg-test",
+      executorOptions: ["manual"],
+      tasks: [
+        {
+          taskId: "T-001",
+          title: "Task",
+          status: "ready",
+          executor: "legacy-executor",
+          executorLabel: "legacy-executor",
+          promptMarkdown: "# Task",
+          promptPreview: "Task",
+          blocks: [],
+          blockPreview: [],
+          hiddenBlockRefs: [],
+          overflowBlockCount: 0,
+          exceptions: []
+        }
+      ],
+      edges: [],
+      diagnostics: [],
+      dirtyPromptRefs: []
+    };
+
+    render(
+      <TaskInspector
+        error={null}
+        executorOptions={graph.executorOptions}
+        graph={graph}
+        onClose={vi.fn()}
+        saveSelectedTaskExecutor={vi.fn()}
+        saveSelectedTaskPrompt={vi.fn()}
+        saveSelectedTaskTitle={vi.fn()}
+        selectedTask={selectedTask}
+        setSelectedTask={vi.fn()}
+        t={createTranslator("en")}
+      />
+    );
+
+    expect(screen.getByRole("combobox")).toHaveTextContent("legacy-executor");
   });
 
   it("routes every searchable result kind to a canvas node or record target", async () => {

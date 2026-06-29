@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { DesktopAgentDetection } from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
 
@@ -37,7 +37,5 @@ export function useDetectedAgents() {
     };
   }, []);
 
-  const executorOptions = useMemo(() => ["manual", ...agentDetections.filter((agent) => agent.installed).map((agent) => agent.kind)], [agentDetections]);
-
-  return { agentDetectionRefreshing, agentDetections, executorOptions, refreshAgentDetections };
+  return { agentDetectionRefreshing, agentDetections, refreshAgentDetections };
 }

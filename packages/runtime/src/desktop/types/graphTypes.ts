@@ -56,6 +56,7 @@ export type DesktopGraphViewModel = {
   graphVersion: string;
   packageFingerprint: string;
   executorOptions: string[];
+  autoRunPreflightExecutorHint: string | null;
   tasks: DesktopTaskNodeViewModel[];
   edges: DesktopGraphEdgeViewModel[];
   diagnostics: ValidationIssue[];

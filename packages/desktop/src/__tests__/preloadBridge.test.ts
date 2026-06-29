@@ -89,6 +89,22 @@ describe("preload bridge invocation", () => {
     expect(invoke).toHaveBeenCalledWith(desktopBridgeInvokeChannels.refreshPackageFileChanges, ref, options);
   });
 
+  it("forwards executor preflight requests through the invoke bridge", async () => {
+    const invoke = vi.fn<Parameters<typeof createDesktopBridgeInvokeApi>[0]>(async () => ({
+      name: "codex",
+      adapter: "codex-exec",
+      ok: true,
+      message: "executor preflight passed",
+      checks: []
+    }));
+    const api = createDesktopBridgeInvokeApi(invoke);
+    const ref = { projectRoot: "/tmp/project", canvasId: "canvas-a" };
+
+    await api.testExecutorProfile(ref, "codex");
+
+    expect(invoke).toHaveBeenCalledWith(desktopBridgeInvokeChannels.testExecutorProfile, ref, "codex");
+  });
+
   it("exposes package file change subscription with unsubscribe", async () => {
     await import("../preload/preload");
     const api = electronMock.exposed.get("planweave") as { onPackageFileChanged(callback: (event: DesktopPackageFileChangeEvent) => void): () => void };

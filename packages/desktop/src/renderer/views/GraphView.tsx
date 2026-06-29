@@ -301,6 +301,7 @@ export function GraphView({
         diagnostics={fileSyncResult?.diagnostics ?? []}
         dirtyPromptRefs={dirtyPromptRefs}
         dirtyPromptCount={dirtyPromptCount}
+        autoRunPreflightExecutorHint={graph?.autoRunPreflightExecutorHint ?? null}
         handleAutoRunClick={handleAutoRunClick}
         handleAutoRunNextAction={handleAutoRunNextAction}
         handleRevealPathInFinder={handleRevealPathInFinder}
@@ -312,6 +313,7 @@ export function GraphView({
         refreshConcurrency={fileSyncResult?.refreshConcurrency ?? null}
         resetRuntimeStateClick={resetRuntimeStateClick}
         selectedBlockPresent={selectedBlockPresent}
+        selectedCanvasId={selectedCanvasId}
         selectedProject={selectedProject}
         selectedTaskPanelId={selectedTaskPanelId}
         setAutoRunScopeMode={setAutoRunScopeMode}

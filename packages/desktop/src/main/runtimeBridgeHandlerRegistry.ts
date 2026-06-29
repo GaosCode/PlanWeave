@@ -58,6 +58,7 @@ import {
   selectTaskCanvas,
   startAutoRun,
   stopAutoRun,
+  testExecutorProfile,
   unblockBlock,
   unlinkProjectSourceRoot,
   updateBlockExecutor,
@@ -142,6 +143,8 @@ export const runtimeBridgeHandlers = {
   },
   detectAgentTools: () => detectAgentTools(),
   detectRuntimeTools: () => detectRuntimeTools(),
+  testExecutorProfile: async (_event, ref, executorName) =>
+    testExecutorProfile({ projectRoot: await resolveDesktopCanvasReference(ref), executorName }),
   openBlockInspectorWindow: (_event, input) => openBlockInspectorWindow(input),
   openTaskInspectorWindow: (_event, input) => openTaskInspectorWindow(input),
   openProject: (_event, input) => openProject(input),

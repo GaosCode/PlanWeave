@@ -68,6 +68,7 @@ export const desktopBridgeInvokeChannels = {
   selectTaskCanvas: "planweave:selectTaskCanvas",
   startAutoRun: "planweave:startAutoRun",
   stopAutoRun: "planweave:stopAutoRun",
+  testExecutorProfile: "planweave:testExecutorProfile",
   unblockBlock: "planweave:unblockBlock",
   unlinkProjectSourceRoot: "planweave:unlinkProjectSourceRoot",
   unwatchPackageFiles: "planweave:unwatchPackageFiles",

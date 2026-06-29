@@ -47,6 +47,14 @@ const runtimeMock = vi.hoisted(() => {
       canvasId,
       source: "task"
     })),
+    testExecutorProfile: vi.fn(async (options: unknown) => ({
+      name: "codex",
+      adapter: "codex-exec",
+      ok: true,
+      message: "executor preflight passed",
+      checks: [],
+      options
+    })),
     subscribeAutoRunEvents: vi.fn((listener: AutoRunEventListener) => {
       autoRunEventListeners.add(listener);
       return () => autoRunEventListeners.delete(listener);
@@ -70,6 +78,7 @@ vi.mock("@planweave-ai/runtime", async () => {
     resetDesktopRuntimeState: runtimeMock.resetDesktopRuntimeState,
     resolveProjectCanvasWorkspace: runtimeMock.resolveProjectCanvasWorkspace,
     resolveTaskCanvasWorkspace: runtimeMock.resolveTaskCanvasWorkspace,
+    testExecutorProfile: runtimeMock.testExecutorProfile,
     subscribeAutoRunEvents: runtimeMock.subscribeAutoRunEvents
   };
 });
@@ -91,6 +100,7 @@ describe("runtime bridge handlers", () => {
     runtimeMock.resetDesktopRuntimeState.mockClear();
     runtimeMock.resolveProjectCanvasWorkspace.mockClear();
     runtimeMock.resolveTaskCanvasWorkspace.mockClear();
+    runtimeMock.testExecutorProfile.mockClear();
     runtimeMock.subscribeAutoRunEvents.mockClear();
   });
 
@@ -139,6 +149,26 @@ describe("runtime bridge handlers", () => {
 
     expect(runtimeMock.resolveTaskCanvasWorkspace).not.toHaveBeenCalled();
     expect(runtimeMock.resetDesktopRuntimeState).toHaveBeenCalledWith("/tmp/project", "canvas-a", options);
+  });
+
+  it("resolves canvas references before testing executor profiles", async () => {
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.testExecutorProfile);
+    expect(handler).toBeDefined();
+
+    await handler?.(null, { projectRoot: "/tmp/project", canvasId: "canvas-a" }, "codex");
+
+    expect(runtimeMock.resolveTaskCanvasWorkspace).toHaveBeenCalledWith("/tmp/project", "canvas-a");
+    expect(runtimeMock.testExecutorProfile).toHaveBeenCalledWith({
+      projectRoot: {
+        projectRoot: "/tmp/project",
+        canvasId: "canvas-a",
+        source: "task"
+      },
+      executorName: "codex"
+    });
   });
 
   it("registers handlers for every desktop bridge invoke channel", async () => {

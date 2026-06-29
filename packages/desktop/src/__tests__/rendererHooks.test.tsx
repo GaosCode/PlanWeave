@@ -140,7 +140,7 @@ afterEach(() => {
 });
 
 describe("desktop renderer hook interfaces", () => {
-  it("maps detected agent tools to executor profile names", async () => {
+  it("returns detected agent tools without deriving project executor options", async () => {
     const bridge = createDesktopBridgeMock({
       detectAgentTools: vi.fn().mockResolvedValue([
         {
@@ -184,7 +184,8 @@ describe("desktop renderer hook interfaces", () => {
 
     const { result } = renderHook(() => useDetectedAgents());
 
-    await waitFor(() => expect(result.current.executorOptions).toEqual(["manual", "claude-code", "opencode"]));
+    await waitFor(() => expect(result.current.agentDetections.map((agent) => agent.kind)).toEqual(["claude-code", "opencode", "pi"]));
+    expect(result.current).not.toHaveProperty("executorOptions");
   });
 
   it("filters visible graph tasks only by search query", () => {

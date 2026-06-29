@@ -2,6 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
 import type { CSSProperties } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -33,6 +34,13 @@ vi.mock("@xyflow/react", () => ({
 afterEach(() => {
   cleanup();
 });
+
+function stubSelectLayoutApis() {
+  Object.defineProperty(window.HTMLElement.prototype, "hasPointerCapture", { configurable: true, value: vi.fn(() => false) });
+  Object.defineProperty(window.HTMLElement.prototype, "setPointerCapture", { configurable: true, value: vi.fn() });
+  Object.defineProperty(window.HTMLElement.prototype, "releasePointerCapture", { configurable: true, value: vi.fn() });
+  Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+}
 
 function task(promptMarkdown: string): DesktopGraphViewModel["tasks"][number] {
   return {
@@ -107,6 +115,17 @@ describe("TaskNodeCard prompt history shortcuts", () => {
     fireEvent.keyDown(screen.getByRole("textbox", { name: "T-001 prompt" }), { key: "z", metaKey: true });
 
     expect(onPromptHistoryUndo).not.toHaveBeenCalled();
+  });
+});
+
+describe("TaskNodeCard executor options", () => {
+  it("shows manifest custom executors in the task node dropdown", async () => {
+    stubSelectLayoutApis();
+    renderTaskNode(nodeData({ executorOptions: ["manual", "custom-shell"] }));
+
+    await userEvent.click(screen.getByRole("combobox"));
+
+    expect(await screen.findByRole("option", { name: "custom-shell" })).toBeInTheDocument();
   });
 });
 
