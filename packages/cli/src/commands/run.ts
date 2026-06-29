@@ -1,12 +1,7 @@
 import type { Command } from "commander";
-import { runWithSession, type AutoRunStepResult, type ClaimScope, type RunSessionState } from "@planweave-ai/runtime";
+import { runWithSession, type ClaimScope } from "@planweave-ai/runtime";
 import { addCanvasOption, resolveCliPackageWorkspace, type CanvasCommandOptions } from "../cliWorkspace.js";
-
-type FormattableRunResult = {
-  session: RunSessionState;
-  steps: AutoRunStepResult[];
-  terminalReason: Awaited<ReturnType<typeof runWithSession>>["terminalReason"];
-};
+import { formatRunResult } from "./formatters/runFormatters.js";
 
 export function registerRunCommand(program: Command): void {
   addCanvasOption(program
@@ -99,46 +94,4 @@ function parseStepLimit(value: string | undefined): number | undefined {
     throw new Error(`Invalid --step-limit '${value}'. Expected a non-negative integer.`);
   }
   return parsed;
-}
-
-export function formatRunResult(result: FormattableRunResult): string {
-  const lines = [
-    `session: ${result.session.sessionId}`,
-    `phase: ${result.session.phase}`,
-    `steps: ${result.steps.length}`,
-    `latest record: ${result.session.latestRecordId ?? "none"}${result.session.latestRecordPath ? ` (${result.session.latestRecordPath})` : ""}`,
-    `terminal: ${formatTerminalReason(result.terminalReason)}`
-  ];
-  if (result.steps.length > 0) {
-    lines.push("step summaries:");
-    lines.push(...result.steps.map((step) => `- ${formatRunStep(step).replace(/\n/g, "\n  ")}`));
-  }
-  return lines.join("\n");
-}
-
-function formatTerminalReason(reason: Awaited<ReturnType<typeof runWithSession>>["terminalReason"]): string {
-  if (reason === "step_limit_reached") {
-    return "completed by step limit";
-  }
-  return reason;
-}
-
-function formatRunStep(step: AutoRunStepResult): string {
-  if (step.kind === "submitted") {
-    return `submitted ${step.claim.kind}${step.claim.kind === "block" ? ` ${step.claim.ref}` : ""}`;
-  }
-  if (step.kind === "batch_submitted") {
-    const manualCount = step.steps.filter((item) => item.kind === "manual").length;
-    if (manualCount === step.steps.length) {
-      return `manual prompts generated for ${step.steps.length} blocks`;
-    }
-    if (manualCount > 0) {
-      return `batch completed with manual prompts for ${manualCount} of ${step.steps.length} blocks`;
-    }
-    return `batch submitted ${step.steps.length} blocks`;
-  }
-  if (step.kind === "manual") {
-    return `manual ${step.claim.kind}${step.claim.kind === "block" ? ` ${step.claim.ref}` : ""}\nprompt: ${step.adapterResult.promptPath}\nnext: ${step.adapterResult.nextCommand}`;
-  }
-  return `${step.kind}: ${step.claim.kind}`;
 }

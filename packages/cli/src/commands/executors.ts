@@ -1,16 +1,7 @@
 import type { Command } from "commander";
 import { listExecutorProfiles, testExecutorProfile } from "@planweave-ai/runtime";
-import type { ExecutorPreflightResult } from "@planweave-ai/runtime";
 import { resolveCliProjectRoot } from "../projectRoot.js";
-
-export function formatExecutorTestJson(result: ExecutorPreflightResult): string {
-  return JSON.stringify(result, null, 2);
-}
-
-export function formatExecutorTestHuman(result: ExecutorPreflightResult): string {
-  const failedCheck = result.checks.find((check) => check.status === "failed");
-  return `${result.ok ? "ok" : "failed"} ${result.name}: ${failedCheck?.message ?? result.message}`;
-}
+import { formatExecutorProfilesHuman, formatExecutorTestHuman, formatExecutorTestJson } from "./formatters/executorFormatters.js";
 
 export function registerExecutorsCommand(program: Command): void {
   const executors = program.command("executors").description("Inspect PlanWeave executor profiles");
@@ -25,8 +16,9 @@ export function registerExecutorsCommand(program: Command): void {
         console.log(JSON.stringify(result, null, 2));
         return;
       }
-      for (const profile of result) {
-        console.log(`${profile.name}\t${profile.adapter}\t${profile.source}`);
+      const output = formatExecutorProfilesHuman(result);
+      if (output) {
+        console.log(output);
       }
     });
 

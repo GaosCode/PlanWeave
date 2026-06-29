@@ -2,15 +2,27 @@ import { describe, expect, it } from "vitest";
 import {
   manifestSchemaDocument as runtimeManifestSchemaDocument,
   projectSchemaDocument as runtimeProjectSchemaDocument,
-  type AutoRunStepResult
+  type AutoRunStatus,
+  type AutoRunStepResult,
+  type RunSessionState
 } from "@planweave-ai/runtime";
 import { createProgram } from "../index.js";
-import { formatExecutorTestHuman, formatExecutorTestJson } from "../commands/executors.js";
-import { formatClaimHint } from "../commands/status.js";
+import { formatExecutorProfilesHuman, formatExecutorTestHuman, formatExecutorTestJson } from "../commands/formatters/executorFormatters.js";
+import { formatClaimHint, formatExecutionStatusHuman } from "../commands/formatters/statusFormatters.js";
 import { formatCliHelp, planweaveHelpTopics } from "../commands/help.js";
 import { formatSchemaHelp, schemaDocuments } from "../commands/schema.js";
-import { formatRunSessions } from "../commands/runSessions.js";
-import { formatRunResult } from "../commands/run.js";
+import {
+  formatResetResult,
+  formatRunResult,
+  formatRunSessionDetail,
+  formatRunSessions,
+  formatRunStatusHuman
+} from "../commands/formatters/runFormatters.js";
+import {
+  formatProjectGraphConflictDiagnostics,
+  formatProjectGraphMaterializeHuman,
+  formatProjectGraphMigrationHuman
+} from "../commands/formatters/projectGraphFormatters.js";
 
 function commandOptionLongs(name: string): string[] {
   const command = createProgram().commands.find((item) => item.name() === name);
@@ -245,6 +257,18 @@ describe("planweave CLI contract", () => {
     ).toBe("failed missing-profile: Executor profile 'missing-profile' does not exist.");
   });
 
+  it("prints executor profile lists in human output", () => {
+    expect(
+      formatExecutorProfilesHuman([
+        {
+          name: "manual",
+          adapter: "manual",
+          source: "builtin"
+        }
+      ])
+    ).toBe("manual\tmanual\tbuiltin");
+  });
+
   it("prints run session diagnostics even when no valid sessions exist", () => {
     expect(
       formatRunSessions({
@@ -292,6 +316,74 @@ describe("planweave CLI contract", () => {
         diagnostics: []
       })
     ).toContain("SESSION-0001 run completed steps=1 stop=step_limit");
+  });
+
+  it("prints run session details in human output", () => {
+    const session: RunSessionState = {
+      sessionId: "SESSION-0001",
+      kind: "run",
+      trigger: "manual",
+      projectRoot: "/tmp/project",
+      canvasId: "default",
+      scope: { kind: "project" },
+      phase: "completed",
+      startedAt: "2026-06-25T00:00:00.000Z",
+      updatedAt: "2026-06-25T00:00:01.000Z",
+      finishedAt: "2026-06-25T00:00:01.000Z",
+      reset: null,
+      autoRun: {
+        desktopRunId: null,
+        stepCount: 1,
+        parallel: false,
+        executorOverride: null,
+        stopReason: "once"
+      },
+      latestRecordId: "T-001#B-001::RUN-001",
+      latestRecordPath: "/tmp/project/results/T-001/blocks/B-001/runs/RUN-001/metadata.json",
+      error: null
+    };
+
+    expect(
+      formatRunSessionDetail({
+        session,
+        events: [{ timestamp: "2026-06-25T00:00:00.000Z", sessionId: "SESSION-0001", type: "session_created", phase: "running" }],
+        diagnostics: []
+      })
+    ).toContain("events:\n- 2026-06-25T00:00:00.000Z session_created running");
+  });
+
+  it("prints reset summaries in human output", () => {
+    const session: RunSessionState = {
+      sessionId: "SESSION-0001",
+      kind: "reset",
+      trigger: "manual",
+      projectRoot: "/tmp/project",
+      canvasId: "default",
+      scope: { kind: "project" },
+      phase: "completed",
+      startedAt: "2026-06-25T00:00:00.000Z",
+      updatedAt: "2026-06-25T00:00:01.000Z",
+      finishedAt: "2026-06-25T00:00:01.000Z",
+      reset: null,
+      autoRun: null,
+      latestRecordId: null,
+      latestRecordPath: null,
+      error: null
+    };
+
+    expect(
+      formatResetResult({
+        session,
+        sessionId: "SESSION-0001",
+        statePath: "/tmp/project/canvases/default/state.json",
+        reason: "restart",
+        forced: true,
+        previousCurrentRefs: ["T-001#B-001"],
+        previousCurrentFeedbackId: null,
+        previousCurrentReviewBlockRef: null,
+        previousInProgressRefs: []
+      })
+    ).toContain("forced: yes\nprevious current refs: T-001#B-001");
   });
 
   it("prints step-limit terminal reason in run text output", () => {
@@ -389,6 +481,57 @@ describe("planweave CLI contract", () => {
         terminalReason: "manual"
       })
     ).toContain("manual prompts generated for 2 blocks");
+  });
+
+  it("prints run status using the command-layer default start command", () => {
+    const status: AutoRunStatus = {
+      current: {
+        refs: [],
+        feedbackId: null,
+        reviewBlockRef: null
+      },
+      latestRuns: [
+        {
+          kind: "block",
+          ref: "T-001#B-001",
+          taskId: "T-001",
+          blockId: "B-001",
+          status: "completed",
+          runId: "RUN-001",
+          executor: "manual",
+          adapter: "manual",
+          startedAt: "2026-06-25T00:00:00.000Z",
+          finishedAt: "2026-06-25T00:00:01.000Z",
+          stdoutSummary: "ok",
+          stderrSummary: "",
+          failureReason: null,
+          promptPath: "/tmp/project/package/nodes/T-001/blocks/B-001.prompt.md",
+          reportPath: "/tmp/project/results/T-001/blocks/B-001/report.md",
+          metadataPath: "/tmp/project/results/T-001/blocks/B-001/runs/RUN-001/metadata.json"
+        }
+      ],
+      explanation: {
+        phase: "idle",
+        currentRef: null,
+        currentExecutor: null,
+        latestRecordId: "T-001#B-001::RUN-001",
+        latestRecordPath: "/tmp/project/results/T-001/blocks/B-001/runs/RUN-001/metadata.json",
+        latestOutputSummary: "ok",
+        error: null,
+        nextAction: {
+          kind: "start",
+          message: "Start auto-run.",
+          command: null,
+          targetPath: null,
+          ref: null
+        }
+      },
+      warnings: []
+    };
+
+    expect(formatRunStatusHuman(status, { defaultStartCommand: "planweave run --canvas default" })).toContain(
+      "next command: planweave run --canvas default"
+    );
   });
 
   it("prints PlanWeave-specific help topics for agent CLI workflows", () => {
@@ -495,5 +638,88 @@ describe("planweave CLI contract", () => {
         }
       })
     ).toContain("ready: Optional review gate is not required and is not claimable; task can complete without it.");
+  });
+
+  it("prints execution status in human output", () => {
+    const status: Parameters<typeof formatExecutionStatusHuman>[0] = {
+      projectId: "project",
+      projectRoot: "/tmp/project",
+      taskTotal: 1,
+      blockTotal: 1,
+      tasks: [{ taskId: "T-001", status: "ready", openFeedbackCount: 0 }],
+      blocks: [
+        {
+          ref: "T-001#B-001",
+          taskId: "T-001",
+          blockId: "B-001",
+          type: "implementation",
+          status: "ready",
+          reason: null,
+          completionReason: null,
+          lastRunId: null,
+          latestReviewAttemptId: null,
+          activeFeedbackId: null
+        }
+      ],
+      currentRefs: [],
+      currentFeedbackId: null,
+      currentReviewBlockRef: null,
+      openFeedback: [],
+      nextClaimable: ["T-001#B-001"],
+      nextParallelClaimable: ["T-001#B-001"],
+      nextSequentialClaimable: [],
+      nextParallelDispatchable: [],
+      claimHints: [],
+      warnings: [{ code: "example_warning", message: "Check this." }],
+      counts: {
+        tasks: { planned: 0, ready: 1, in_progress: 0, implemented: 0 },
+        blocks: { planned: 0, ready: 1, in_progress: 0, completed: 0, needs_changes: 0, blocked: 0, diverged: 0 },
+        feedback: { open: 0, in_progress: 0, resolved: 0, dismissed: 0 }
+      },
+      orphanState: [],
+      orphanResults: []
+    };
+
+    expect(formatExecutionStatusHuman(status)).toContain("Next claimable: T-001#B-001\nNext parallel claimable: T-001#B-001");
+    expect(formatExecutionStatusHuman(status)).toContain("Warnings:\n- example_warning: Check this.");
+  });
+
+  it("prints project graph migration summaries in human output", () => {
+    expect(formatProjectGraphConflictDiagnostics([{ code: "conflict", message: "Legacy and canonical paths both exist." }])).toBe(
+      "conflict: Legacy and canonical paths both exist."
+    );
+    expect(
+      formatProjectGraphMigrationHuman({
+        action: "migrate",
+        reason: "Legacy default canvas workspace can be migrated.",
+        diagnostics: [],
+        canonicalPaths: {
+          workspaceRoot: "/tmp/project/canvases/default",
+          packageDir: "/tmp/project/canvases/default/package",
+          stateFile: "/tmp/project/canvases/default/state.json",
+          resultsDir: "/tmp/project/canvases/default/results"
+        },
+        legacyPaths: {
+          workspaceRoot: "/tmp/project",
+          packageDir: "/tmp/project/package",
+          stateFile: "/tmp/project/state.json",
+          resultsDir: "/tmp/project/results"
+        },
+        legacyFiles: ["package/manifest.json"],
+        canonicalFiles: [],
+        legacyBackupPaths: {
+          workspaceRoot: "/tmp/project/.legacy-default-canvas"
+        },
+        projectGraphPath: "/tmp/project/project-graph.json"
+      })
+    ).toContain("Legacy backup: /tmp/project/.legacy-default-canvas");
+    expect(
+      formatProjectGraphMaterializeHuman({
+        created: true,
+        path: "/tmp/project/project-graph.json",
+        source: "legacy_default_canvas",
+        canvasCount: 1
+      })
+    ).toBe("Project graph: /tmp/project/project-graph.json\nSource: legacy_default_canvas\nCanvases: 1");
   });
 });

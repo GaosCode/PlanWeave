@@ -6,6 +6,11 @@ import {
   resolveProjectWorkspace
 } from "@planweave-ai/runtime";
 import { resolveCliProjectRoot } from "../projectRoot.js";
+import {
+  formatProjectGraphConflictDiagnostics,
+  formatProjectGraphMaterializeHuman,
+  formatProjectGraphMigrationHuman
+} from "./formatters/projectGraphFormatters.js";
 
 export function registerProjectGraphCommand(program: Command): void {
   const command = program.command("project-graph").description("Manage the formal project-graph.json canvas graph");
@@ -30,7 +35,7 @@ export function registerProjectGraphCommand(program: Command): void {
           process.exitCode = 1;
           return;
         }
-        throw new Error(migrationPlan.diagnostics.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`).join("\n"));
+        throw new Error(formatProjectGraphConflictDiagnostics(migrationPlan.diagnostics));
       }
       if (migrationPlan.action === "migrate" || migrationPlan.action === "mixed_identical") {
         const result = await applyDefaultCanvasWorkspaceMigration(workspace);
@@ -38,11 +43,7 @@ export function registerProjectGraphCommand(program: Command): void {
           console.log(JSON.stringify(result, null, 2));
           return;
         }
-        console.log(`Default canvas migration: ${result.action}`);
-        console.log(`Project graph: ${result.projectGraphPath}`);
-        if (result.legacyBackupPaths.workspaceRoot) {
-          console.log(`Legacy backup: ${result.legacyBackupPaths.workspaceRoot}`);
-        }
+        console.log(formatProjectGraphMigrationHuman(result));
         return;
       }
       const materialized = await materializeProjectGraph(projectRoot);
@@ -58,8 +59,6 @@ export function registerProjectGraphCommand(program: Command): void {
         console.log(JSON.stringify(result, null, 2));
         return;
       }
-      console.log(materialized.created ? `Project graph: ${materialized.path}` : `Project graph already exists: ${materialized.path}`);
-      console.log(`Source: ${materialized.source}`);
-      console.log(`Canvases: ${materialized.canvasCount}`);
+      console.log(formatProjectGraphMaterializeHuman(materialized));
     });
 }
