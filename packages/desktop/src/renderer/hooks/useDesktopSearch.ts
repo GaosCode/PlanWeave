@@ -7,6 +7,8 @@ export type DesktopSearchCanvasScope = "all" | "current";
 
 export const desktopSearchResultKinds: DesktopSearchResultKind[] = ["task", "block", "prompt", "run_record", "review_attempt", "feedback"];
 
+const bodySearchResultKinds = new Set<DesktopSearchResultKind>(["prompt", "run_record", "review_attempt"]);
+
 type UseDesktopSearchArgs = {
   handleBlockSelect: (ref: string, canvasId?: string | null) => Promise<void>;
   handleOpenRunRecord: (recordId: string | null | undefined, canvasId?: string | null) => Promise<void>;
@@ -20,6 +22,10 @@ type UseDesktopSearchArgs = {
 function normalizeSearchResultKinds(kinds: DesktopSearchResultKind[]): DesktopSearchResultKind[] {
   const selected = new Set(kinds);
   return desktopSearchResultKinds.filter((kind) => selected.has(kind));
+}
+
+function selectedKindsNeedBodySearch(kinds: DesktopSearchResultKind[]): boolean {
+  return kinds.some((kind) => bodySearchResultKinds.has(kind));
 }
 
 export function useDesktopSearch({
@@ -37,6 +43,10 @@ export function useDesktopSearch({
   const [selectedSearchResultKinds, setSelectedSearchResultKinds] = useState<DesktopSearchResultKind[]>(() => [...desktopSearchResultKinds]);
   const [searchCanvasScope, setSearchCanvasScope] = useState<DesktopSearchCanvasScope>("all");
   const lastSearchKeyRef = useRef<string | null>(null);
+  const setErrorRef = useRef(setError);
+  useEffect(() => {
+    setErrorRef.current = setError;
+  }, [setError]);
   const clearSearchResults = useCallback(() => {
     setSearchResults((current) => (current.length ? [] : current));
   }, []);
@@ -80,6 +90,7 @@ export function useDesktopSearch({
     if (lastSearchKeyRef.current === searchKey) {
       return;
     }
+    const desktopBridge = bridge;
     lastSearchKeyRef.current = searchKey;
     let cancelled = false;
     const filters: DesktopSearchFilters = {
@@ -88,22 +99,32 @@ export function useDesktopSearch({
     if (canvasFilterId) {
       filters.canvasId = canvasFilterId;
     }
-    bridge
-      .searchProject(projectRoot, normalizedDebouncedQuery, filters)
-      .then((results) => {
-        if (!cancelled) {
-          setSearchResults(results);
+    const summaryFilters = { ...filters, includeBodies: false };
+    const bodyFilters = selectedKindsNeedBodySearch(selectedSearchResultKinds) ? { ...filters, includeBodies: true } : null;
+    const applyResults = (results: DesktopSearchResult[]) => {
+      if (!cancelled && lastSearchKeyRef.current === searchKey) {
+        setSearchResults(results);
+      }
+    };
+    const applyError = (caught: unknown) => {
+      if (!cancelled && lastSearchKeyRef.current === searchKey) {
+        setErrorRef.current(caught instanceof Error ? caught.message : String(caught));
+      }
+    };
+    void (async () => {
+      try {
+        applyResults(await desktopBridge.searchProject(projectRoot, normalizedDebouncedQuery, summaryFilters));
+        if (bodyFilters && !cancelled && lastSearchKeyRef.current === searchKey) {
+          applyResults(await desktopBridge.searchProject(projectRoot, normalizedDebouncedQuery, bodyFilters));
         }
-      })
-      .catch((caught: unknown) => {
-        if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : String(caught));
-        }
-      });
+      } catch (caught) {
+        applyError(caught);
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [canvasFilterId, clearSearchResults, normalizedDebouncedQuery, projectRoot, rawQueryIsEmpty, searchKey, selectedSearchResultKinds, setError]);
+  }, [canvasFilterId, clearSearchResults, normalizedDebouncedQuery, projectRoot, rawQueryIsEmpty, searchKey, selectedSearchResultKinds]);
 
   const handleSearchResultOpen = useCallback(
     async (result: DesktopSearchResult) => {

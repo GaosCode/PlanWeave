@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { DesktopProjectSummary, DesktopSearchResult } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
@@ -74,9 +74,14 @@ describe("desktop search hook", () => {
 
     await waitForSearchDebounce();
 
-    expect(bridge.searchProject).toHaveBeenCalledTimes(1);
-    expect(bridge.searchProject).toHaveBeenLastCalledWith(project.rootPath, "Alpha", {
-      kinds: ["task", "block", "prompt", "run_record", "review_attempt", "feedback"]
+    expect(bridge.searchProject).toHaveBeenCalledTimes(2);
+    expect(bridge.searchProject).toHaveBeenNthCalledWith(1, project.rootPath, "Alpha", {
+      kinds: ["task", "block", "prompt", "run_record", "review_attempt", "feedback"],
+      includeBodies: false
+    });
+    expect(bridge.searchProject).toHaveBeenNthCalledWith(2, project.rootPath, "Alpha", {
+      kinds: ["task", "block", "prompt", "run_record", "review_attempt", "feedback"],
+      includeBodies: true
     });
     expect(result.current.searchResults).toEqual(searchResults);
 
@@ -87,7 +92,7 @@ describe("desktop search hook", () => {
       await Promise.resolve();
     });
 
-    expect(bridge.searchProject).toHaveBeenCalledTimes(1);
+    expect(bridge.searchProject).toHaveBeenCalledTimes(2);
   });
 
   it("passes result kind and current canvas filters through bridge search", async () => {
@@ -113,7 +118,8 @@ describe("desktop search hook", () => {
     });
 
     expect(bridge.searchProject).toHaveBeenLastCalledWith(project.rootPath, "Alpha", {
-      kinds: ["task", "block", "prompt", "run_record", "review_attempt"]
+      kinds: ["task", "block", "prompt", "run_record", "review_attempt"],
+      includeBodies: true
     });
 
     act(() => {
@@ -125,8 +131,49 @@ describe("desktop search hook", () => {
 
     expect(bridge.searchProject).toHaveBeenLastCalledWith(project.rootPath, "Alpha", {
       kinds: ["task", "block", "prompt", "run_record", "review_attempt"],
-      canvasId: "canvas-main"
+      canvasId: "canvas-main",
+      includeBodies: true
     });
+  });
+
+  it("returns summary search before hydrating body results in the background", async () => {
+    let resolveBodySearch: (results: DesktopSearchResult[]) => void = () => undefined;
+    const summaryResults: DesktopSearchResult[] = [{ kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }];
+    const bodyResults: DesktopSearchResult[] = [{ kind: "prompt", ref: "T-ALPHA", targetRef: "T-ALPHA", title: "Alpha task", excerpt: "Alpha prompt body" }];
+    const bridge = createDesktopBridgeMock({
+      searchProject: vi.fn()
+        .mockResolvedValueOnce(summaryResults)
+        .mockReturnValueOnce(new Promise<DesktopSearchResult[]>((resolve) => {
+          resolveBodySearch = resolve;
+        }))
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useDesktopSearch } = await import("../renderer/hooks/useDesktopSearch");
+
+    const { result } = renderHook(() => useDesktopSearch(searchArgs()));
+
+    act(() => {
+      result.current.setSearchQuery("Alpha");
+    });
+    await waitForSearchDebounce();
+
+    expect(bridge.searchProject).toHaveBeenNthCalledWith(1, project.rootPath, "Alpha", {
+      kinds: ["task", "block", "prompt", "run_record", "review_attempt", "feedback"],
+      includeBodies: false
+    });
+    expect(result.current.searchResults).toEqual(summaryResults);
+    expect(bridge.searchProject).toHaveBeenNthCalledWith(2, project.rootPath, "Alpha", {
+      kinds: ["task", "block", "prompt", "run_record", "review_attempt", "feedback"],
+      includeBodies: true
+    });
+
+    await act(async () => {
+      resolveBodySearch(bodyResults);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.searchResults).toEqual(bodyResults));
   });
 
   it("clears empty queries and prevents stale results from replacing them", async () => {
