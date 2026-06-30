@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -145,10 +145,13 @@ vi.mock("@planweave-ai/runtime", async () => {
 });
 
 describe("runtime bridge handlers", () => {
+  const originalPlanweaveHome = process.env.PLANWEAVE_HOME;
+
   beforeEach(async () => {
     vi.resetModules();
     await rm(electronMock.userDataDir, { recursive: true, force: true });
     electronMock.userDataDir = await mkdtemp(join(tmpdir(), "planweave-terminal-prefs-"));
+    process.env.PLANWEAVE_HOME = join(electronMock.userDataDir, "planweave-home");
     electronMock.handlers.clear();
     electronMock.windows.length = 0;
     electronMock.app.getPath.mockClear();
@@ -172,6 +175,15 @@ describe("runtime bridge handlers", () => {
     runtimeMock.resolveTaskCanvasWorkspace.mockClear();
     runtimeMock.testExecutorProfile.mockClear();
     runtimeMock.subscribeAutoRunEvents.mockClear();
+  });
+
+  afterEach(async () => {
+    if (originalPlanweaveHome === undefined) {
+      delete process.env.PLANWEAVE_HOME;
+    } else {
+      process.env.PLANWEAVE_HOME = originalPlanweaveHome;
+    }
+    await rm(electronMock.userDataDir, { recursive: true, force: true });
   });
 
   it("resolves desktop canvas references through runtime task canvas workspace API", async () => {
@@ -378,7 +390,7 @@ describe("runtime bridge handlers", () => {
     );
   });
 
-  it("reads and updates terminal preferences in Electron user data", async () => {
+  it("reads and updates terminal preferences in PlanWeave Home", async () => {
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 
@@ -397,7 +409,22 @@ describe("runtime bridge handlers", () => {
     await expect(electronMock.handlers.get(desktopBridgeInvokeChannels.getTerminalPreferences)?.(null)).resolves.toEqual({
       defaultTerminalAppId: "ghostty"
     });
-    await expect(readFile(join(electronMock.userDataDir, "terminal-preferences.json"), "utf8")).resolves.toContain('"defaultTerminalAppId": "ghostty"');
+    await expect(readFile(join(process.env.PLANWEAVE_HOME ?? "", "config", "terminal-preferences.json"), "utf8")).resolves.toContain(
+      '"defaultTerminalAppId": "ghostty"'
+    );
+  });
+
+  it("migrates legacy terminal preferences from Electron user data into PlanWeave Home", async () => {
+    await writeFile(join(electronMock.userDataDir, "terminal-preferences.json"), '{ "defaultTerminalAppId": "iterm2" }', "utf8");
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    await expect(electronMock.handlers.get(desktopBridgeInvokeChannels.getTerminalPreferences)?.(null)).resolves.toEqual({
+      defaultTerminalAppId: "iterm2"
+    });
+    await expect(readFile(join(process.env.PLANWEAVE_HOME ?? "", "config", "terminal-preferences.json"), "utf8")).resolves.toContain(
+      '"defaultTerminalAppId": "iterm2"'
+    );
   });
 
   it("rejects unsupported terminal preferences values", async () => {

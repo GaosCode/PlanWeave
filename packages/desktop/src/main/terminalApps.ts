@@ -8,6 +8,7 @@ import type {
   DesktopTerminalAppId,
   DesktopTerminalPreferences
 } from "@planweave-ai/runtime";
+import { desktopHomePaths } from "./planweaveHomePaths.js";
 
 export type TerminalApp = {
   appId: DesktopTerminalAppId;
@@ -153,6 +154,10 @@ export async function assertTerminalAppAvailable(appId: DesktopTerminalAppId): P
 }
 
 function preferencesPath(): string {
+  return desktopHomePaths().terminalPreferencesFile;
+}
+
+function legacyPreferencesPath(): string {
   return join(app.getPath("userData"), "terminal-preferences.json");
 }
 
@@ -179,6 +184,16 @@ export async function getTerminalPreferences(): Promise<DesktopTerminalPreferenc
   try {
     const raw = JSON.parse(await readFile(preferencesPath(), "utf8")) as unknown;
     return parseTerminalPreferences(raw);
+  } catch (caught) {
+    if (errorCode(caught) !== "ENOENT") {
+      throw caught;
+    }
+  }
+
+  try {
+    const legacyPreferences = parseTerminalPreferences(JSON.parse(await readFile(legacyPreferencesPath(), "utf8")) as unknown);
+    await writeTerminalPreferences(legacyPreferences);
+    return legacyPreferences;
   } catch (caught) {
     if (errorCode(caught) === "ENOENT") {
       return defaultTerminalPreferences();
