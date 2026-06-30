@@ -136,6 +136,7 @@ function syncResult(options: {
     dirtyPromptRefs: options.next ? dirtyPromptRefs(options.previous, options.next) : [],
     refreshedPromptCount: options.refreshStats?.refreshed ?? 0,
     refreshConcurrency: options.refreshStats?.concurrency ?? null,
+    refreshStats: options.refreshStats,
     diagnostics: options.diagnostics
   };
 }
@@ -302,6 +303,7 @@ export async function refreshPackageFileChanges(
       dirtyPromptRefs: [],
       refreshedPromptCount: result.refreshStats.refreshed,
       refreshConcurrency: result.refreshStats.concurrency,
+      refreshStats: result.refreshStats,
       diagnostics: result.impact.diagnostics
     };
     dirtyRefsByProject.set(projectKey, failed.dirtyPromptRefs);
@@ -318,6 +320,7 @@ export async function refreshPackageFileChanges(
     dirtyPromptRefs: dirtyPromptRefsForResult,
     refreshedPromptCount: result.refreshStats.refreshed,
     refreshConcurrency: result.refreshStats.concurrency,
+    refreshStats: result.refreshStats,
     diagnostics: result.impact.diagnostics
   };
   return indexPlanGraphExternalChange(projectRoot, result.indexPackagePaths, refreshed);

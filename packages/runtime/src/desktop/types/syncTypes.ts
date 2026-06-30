@@ -1,4 +1,5 @@
 import type { ValidationIssue } from "../../types.js";
+import type { PromptRefreshStats } from "../../package/fileChanges.js";
 
 export type DesktopPackageFileSyncResult = {
   ok: boolean;
@@ -8,6 +9,10 @@ export type DesktopPackageFileSyncResult = {
   dirtyPromptRefs: string[];
   refreshedPromptCount: number;
   refreshConcurrency: number | null;
+  refreshStats?: PromptRefreshStats;
+  watcherBackendKind?: "native" | "polling";
+  watcherChangedPathCount?: number;
+  watcherRefreshElapsedMs?: number;
   diagnostics: ValidationIssue[];
 };
 
@@ -26,5 +31,7 @@ export type DesktopPackageFileChangeEvent = {
   projectRoot: string;
   canvasId?: string | null;
   paths: string[];
+  changedPathCount?: number;
+  backendKind?: "native" | "polling";
   triggeredAt: string;
 };

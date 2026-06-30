@@ -311,6 +311,9 @@ export function GraphView({
         refreshPackageFiles={refreshPackageFiles}
         refreshedPromptCount={fileSyncResult?.refreshedPromptCount ?? 0}
         refreshConcurrency={fileSyncResult?.refreshConcurrency ?? null}
+        watcherBackendKind={fileSyncResult?.watcherBackendKind}
+        watcherChangedPathCount={fileSyncResult?.watcherChangedPathCount}
+        watcherRefreshElapsedMs={fileSyncResult?.watcherRefreshElapsedMs}
         resetRuntimeStateClick={resetRuntimeStateClick}
         selectedBlockPresent={selectedBlockPresent}
         selectedCanvasId={selectedCanvasId}

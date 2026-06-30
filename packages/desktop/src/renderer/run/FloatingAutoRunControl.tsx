@@ -1,6 +1,6 @@
-import { useEffect, useState, type CSSProperties, type Dispatch, type PointerEvent, type Ref, type SetStateAction } from "react";
+import { useEffect, useState, type CSSProperties, type Dispatch, type PointerEvent, type ReactNode, type Ref, type SetStateAction } from "react";
 import type { DesktopAutoRunRetrospectiveSummary, DesktopAutoRunState, DesktopProjectSummary, ValidationIssue } from "@planweave-ai/runtime";
-import { ClipboardIcon, FolderOpenIcon, MoveIcon, PauseIcon, PlayIcon, RefreshCwIcon, RotateCcwIcon, SquareIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, ClipboardIcon, FolderOpenIcon, MoveIcon, PauseIcon, PlayIcon, RefreshCwIcon, RotateCcwIcon, SquareIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,6 +41,9 @@ type FloatingAutoRunControlProps = {
   refreshPackageFiles: () => Promise<void>;
   refreshedPromptCount: number;
   refreshConcurrency: number | null;
+  watcherBackendKind?: "native" | "polling";
+  watcherChangedPathCount?: number;
+  watcherRefreshElapsedMs?: number;
   resetRuntimeStateClick: () => Promise<void>;
   selectedBlockPresent: boolean;
   selectedCanvasId?: string | null;
@@ -91,6 +94,36 @@ function AutoRunFailureDetails({ state, t }: { state: DesktopAutoRunState; t: Re
   );
 }
 
+function DisclosureSection({
+  children,
+  defaultOpen = false,
+  testId,
+  title
+}: {
+  children: ReactNode;
+  defaultOpen?: boolean;
+  testId?: string;
+  title: string;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-md border bg-muted/20 text-xs" data-testid={testId}>
+      <Button
+        className="h-auto w-full justify-start gap-1.5 rounded-none px-2 py-1.5 text-left text-xs font-medium"
+        size="sm"
+        type="button"
+        variant="ghost"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {open ? <ChevronDownIcon data-icon="inline-start" /> : <ChevronRightIcon data-icon="inline-start" />}
+        {title}
+      </Button>
+      {open ? <div className="border-t border-border/70 p-2">{children}</div> : null}
+    </div>
+  );
+}
+
 function AutoRunActionRow({
   action,
   handleAutoRunNextAction,
@@ -132,7 +165,7 @@ function AutoRunActionRow({
   );
 }
 
-function AutoRunRetrospectivePanel({
+function AutoRunRetrospectiveDetails({
   retrospective,
   handleRevealPathInFinder,
   t
@@ -146,8 +179,7 @@ function AutoRunRetrospectivePanel({
   }
   const verdicts = retrospective.reviewVerdicts.map((review) => review.verdict ?? t("none")).join(", ");
   return (
-    <div className="rounded-md border bg-muted/20 p-2 text-xs" data-testid="auto-run-retrospective">
-      <div className="mb-2 font-medium text-text-strong">{t("retrospective")}</div>
+    <div className="text-xs" data-testid="auto-run-retrospective-details">
       <div className="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-muted-foreground">
         <span>{t("completedRefs")}</span>
         <span data-testid="auto-run-completed-refs">{retrospective.completedBlockRefs.length}</span>
@@ -267,6 +299,9 @@ export function FloatingAutoRunControl({
   refreshPackageFiles,
   refreshedPromptCount,
   refreshConcurrency,
+  watcherBackendKind,
+  watcherChangedPathCount,
+  watcherRefreshElapsedMs,
   resetRuntimeStateClick,
   selectedBlockPresent,
   selectedCanvasId = null,
@@ -363,20 +398,32 @@ export function FloatingAutoRunControl({
               <span data-testid="file-sync-refreshed-prompt-count">{refreshedPromptCount}</span>
               <span>{t("refreshConcurrency")}</span>
               <span data-testid="file-sync-refresh-concurrency">{refreshConcurrency ?? "-"}</span>
+              <span>{t("changedPaths")}</span>
+              <span data-testid="file-sync-changed-path-count">{watcherChangedPathCount ?? "-"}</span>
+              <span>{t("watchBackend")}</span>
+              <span data-testid="file-sync-watch-backend">{watcherBackendKind ?? "-"}</span>
+              <span>{t("watchElapsed")}</span>
+              <span data-testid="file-sync-watch-elapsed">{watcherRefreshElapsedMs === undefined ? "-" : formatElapsed(watcherRefreshElapsedMs)}</span>
             </div>
-            <FileSyncRefList
-              emptyLabel={t("fileSyncNoChanges")}
-              items={fileSyncDirtyRefs}
-              label={t("dirtyPrompts")}
-              onOpenFileSyncRef={onOpenFileSyncRef}
-            />
-            <FileSyncRefList
-              emptyLabel={t("fileSyncNoChanges")}
-              items={fileSyncAffectedTasks}
-              label={t("affectedTasks")}
-              onOpenFileSyncRef={onOpenFileSyncRef}
-            />
-            <FileSyncDiagnosticsList diagnostics={diagnostics} emptyLabel={t("fileSyncNoChanges")} label={t("diagnostics")} />
+            <DisclosureSection title={t("dirtyPrompts")} testId="file-sync-dirty-prompts-section">
+              <FileSyncRefList
+                emptyLabel={t("fileSyncNoChanges")}
+                items={fileSyncDirtyRefs}
+                label={t("dirtyPrompts")}
+                onOpenFileSyncRef={onOpenFileSyncRef}
+              />
+            </DisclosureSection>
+            <DisclosureSection title={t("affectedTasks")} testId="file-sync-affected-tasks-section">
+              <FileSyncRefList
+                emptyLabel={t("fileSyncNoChanges")}
+                items={fileSyncAffectedTasks}
+                label={t("affectedTasks")}
+                onOpenFileSyncRef={onOpenFileSyncRef}
+              />
+            </DisclosureSection>
+            <DisclosureSection title={t("diagnostics")} testId="file-sync-diagnostics-section">
+              <FileSyncDiagnosticsList diagnostics={diagnostics} emptyLabel={t("fileSyncNoChanges")} label={t("diagnostics")} />
+            </DisclosureSection>
           </div>
         </PopoverContent>
       </Popover>
@@ -443,51 +490,57 @@ export function FloatingAutoRunControl({
                     ) : null}
                   </div>
                   {preflightExecutor ? (
-                    <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground">
-                      <span className="font-medium text-text-strong">{t("executorPreflight")}</span>
-                      <span>{preflightExecutor}</span>
-                      {executorPreflight.result ? (
-                        <Badge data-testid="auto-run-executor-preflight-status" variant={executorPreflight.result.ok ? "secondary" : "destructive"}>
-                          {executorPreflight.result.ok ? t("preflightPassed") : t("preflightFailed")}
-                        </Badge>
-                      ) : executorPreflight.error ? (
-                        <span className="text-destructive">{executorPreflight.error}</span>
-                      ) : (
-                        <span>{t("executorPreflightNotRun")}</span>
-                      )}
-                      <Button
-                        data-testid="auto-run-executor-preflight"
-                        disabled={!selectedProject || executorPreflight.loading}
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void executorPreflight.runPreflight()}
-                      >
-                        <RefreshCwIcon className={executorPreflight.loading ? "animate-spin" : undefined} data-icon="inline-start" />
-                        {executorPreflight.loading ? t("preflightRunning") : t("runPreflight")}
-                      </Button>
-                    </div>
+                    <DisclosureSection title={t("executorPreflight")} testId="auto-run-executor-preflight-section">
+                      <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
+                        <span>{preflightExecutor}</span>
+                        {executorPreflight.result ? (
+                          <Badge data-testid="auto-run-executor-preflight-status" variant={executorPreflight.result.ok ? "secondary" : "destructive"}>
+                            {executorPreflight.result.ok ? t("preflightPassed") : t("preflightFailed")}
+                          </Badge>
+                        ) : executorPreflight.error ? (
+                          <span className="text-destructive">{executorPreflight.error}</span>
+                        ) : (
+                          <span>{t("executorPreflightNotRun")}</span>
+                        )}
+                        <Button
+                          data-testid="auto-run-executor-preflight"
+                          disabled={!selectedProject || executorPreflight.loading}
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void executorPreflight.runPreflight()}
+                        >
+                          <RefreshCwIcon className={executorPreflight.loading ? "animate-spin" : undefined} data-icon="inline-start" />
+                          {executorPreflight.loading ? t("preflightRunning") : t("runPreflight")}
+                        </Button>
+                      </div>
+                    </DisclosureSection>
                   ) : null}
-                  {showFailureDetails ? <AutoRunFailureDetails state={autoRunState} t={t} /> : null}
                   <AutoRunActionRow action={autoRunNextAction} handleAutoRunNextAction={handleAutoRunNextAction} t={t} />
-                  <AutoRunRetrospectivePanel
-                    retrospective={autoRunRetrospective}
-                    handleRevealPathInFinder={handleRevealPathInFinder}
-                    t={t}
-                  />
-                  {!showFailureDetails && explanation?.latestOutputSummary ? (
+                  {explanation?.latestOutputSummary ? (
                     <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
                       {t("latestOutput")}: {explanation.latestOutputSummary}
                     </div>
                   ) : null}
-                  {!showFailureDetails && explanation && !autoRunNextAction ? (
+                  {explanation && !autoRunNextAction ? (
                     <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
                       {t("nextAction")}: {explanation.nextAction.message}
                     </div>
                   ) : null}
-                  {!showFailureDetails && explanation?.error ? (
-                    <div className="rounded-md border border-destructive p-2 text-xs text-destructive" data-testid="auto-run-error">
-                      {explanation.error}
-                    </div>
+                  {showFailureDetails ? (
+                    <DisclosureSection title={t("failureDetails")} testId="auto-run-failure-section">
+                      <AutoRunFailureDetails state={autoRunState} t={t} />
+                    </DisclosureSection>
+                  ) : explanation?.error ? (
+                    <div className="rounded-md border border-destructive p-2 text-xs text-destructive" data-testid="auto-run-error">{explanation.error}</div>
+                  ) : null}
+                  {autoRunRetrospective ? (
+                    <DisclosureSection title={t("retrospective")} testId="auto-run-retrospective">
+                      <AutoRunRetrospectiveDetails
+                        retrospective={autoRunRetrospective}
+                        handleRevealPathInFinder={handleRevealPathInFinder}
+                        t={t}
+                      />
+                    </DisclosureSection>
                   ) : null}
                   <div className="flex justify-end gap-2">
                     <Button size="sm" variant="outline" disabled={!hasProject} onClick={() => void resetRuntimeStateClick()}>

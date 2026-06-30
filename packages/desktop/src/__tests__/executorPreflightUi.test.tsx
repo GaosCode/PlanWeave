@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type {
   DesktopAutoRunState,
@@ -364,6 +364,7 @@ describe("executor preflight desktop UI", () => {
       />
     );
 
+    await userEvent.click(within(screen.getByTestId("auto-run-executor-preflight-section")).getByRole("button", { name: "Executor preflight" }));
     await userEvent.click(screen.getByTestId("auto-run-executor-preflight"));
     expect(bridgeMock.api.testExecutorProfile).toHaveBeenCalledWith(canvasRef, "codex");
     await waitFor(() => expect(screen.getByTestId("auto-run-executor-preflight-status")).toHaveTextContent("Preflight failed"));
@@ -413,6 +414,9 @@ describe("executor preflight desktop UI", () => {
       />
     );
 
+    expect(screen.getByTestId("auto-run-executor-preflight-section")).toHaveTextContent("Executor preflight");
+    expect(screen.queryByText("codex")).not.toBeInTheDocument();
+    await userEvent.click(within(screen.getByTestId("auto-run-executor-preflight-section")).getByRole("button", { name: "Executor preflight" }));
     expect(screen.getByText("codex")).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("auto-run-executor-preflight"));
 

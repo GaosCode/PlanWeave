@@ -203,7 +203,9 @@ describe("package file watcher", () => {
       expect.objectContaining({
         projectRoot: workspace.rootPath,
         canvasId: "canvas-a",
-        paths: ["package/nodes/T-001/prompt.md"]
+        paths: ["package/nodes/T-001/prompt.md"],
+        changedPathCount: 1,
+        backendKind: "native"
       })
     );
   });
@@ -225,7 +227,9 @@ describe("package file watcher", () => {
     expect(webContents.send).toHaveBeenCalledWith(
       packageFileChangedChannel,
       expect.objectContaining({
-        paths: ["package/nodes/T-001/blocks/B-001.prompt.md"]
+        paths: ["package/nodes/T-001/blocks/B-001.prompt.md"],
+        changedPathCount: 1,
+        backendKind: "polling"
       })
     );
   });
@@ -303,7 +307,9 @@ describe("package file watcher", () => {
     expect(webContents.send).toHaveBeenCalledWith(
       packageFileChangedChannel,
       expect.objectContaining({
-        paths: ["package/manifest.json", "package/nodes/T-001/prompt.md"]
+        paths: ["package/manifest.json", "package/nodes/T-001/prompt.md"],
+        changedPathCount: 2,
+        backendKind: "native"
       })
     );
   });

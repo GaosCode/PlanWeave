@@ -900,6 +900,7 @@ describe("desktop renderer hook interfaces", () => {
 
   it("passes watcher changed paths to package file refresh", async () => {
     let packageFileChanged: ((event: { projectRoot: string; canvasId?: string | null; paths: string[]; triggeredAt: string }) => void) | null = null;
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-06-23T00:00:02.500Z"));
     const bridge = createDesktopBridgeMock({
       onPackageFileChanged: vi.fn((callback) => {
         packageFileChanged = callback;
@@ -911,7 +912,18 @@ describe("desktop renderer hook interfaces", () => {
         primed: false,
         affectedTasks: ["T-ALPHA"],
         diagnostics: [],
-        dirtyPromptRefs: ["T-ALPHA#B-001"]
+        dirtyPromptRefs: ["T-ALPHA#B-001"],
+        refreshedPromptCount: 1,
+        refreshConcurrency: 4,
+        refreshStats: {
+          requested: 1,
+          refreshed: 1,
+          concurrency: 4,
+          elapsedMs: 8,
+          changedPathCount: 1,
+          refreshedRefs: 1,
+          mode: "incremental"
+        }
       })
     });
     vi.stubGlobal("planweave", bridge);
@@ -919,6 +931,7 @@ describe("desktop renderer hook interfaces", () => {
     const { usePackageFileSync } = await import("../renderer/hooks/usePackageFileSync");
 
     const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
+    const setFileSyncResult = vi.fn();
     const setLastFileChange = vi.fn();
     renderHook(() =>
       usePackageFileSync({
@@ -928,6 +941,7 @@ describe("desktop renderer hook interfaces", () => {
         selectedProject: project,
         setError: vi.fn(),
         setFileSyncDiagnostics: vi.fn(),
+        setFileSyncResult,
         setLastFileChange
       })
     );
@@ -937,6 +951,8 @@ describe("desktop renderer hook interfaces", () => {
       projectRoot: project.rootPath,
       canvasId: "canvas-main",
       paths: ["package/nodes/T-ALPHA/blocks/B-001.prompt.md"],
+      changedPathCount: 1,
+      backendKind: "native",
       triggeredAt: "2026-06-23T00:00:00.000Z"
     };
     act(() => {
@@ -950,6 +966,20 @@ describe("desktop renderer hook interfaces", () => {
       )
     );
     expect(setLastFileChange).toHaveBeenCalledWith(event);
+    await waitFor(() =>
+      expect(setFileSyncResult).toHaveBeenCalledWith(
+        expect.objectContaining({
+          watcherBackendKind: "native",
+          watcherChangedPathCount: 1,
+          watcherRefreshElapsedMs: 2500,
+          refreshStats: expect.objectContaining({
+            changedPathCount: 1,
+            refreshedRefs: 1,
+            mode: "incremental"
+          })
+        })
+      )
+    );
     await waitFor(() => expect(refreshProjectDerivedState).toHaveBeenCalledTimes(1));
   });
 

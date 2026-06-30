@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { DesktopAutoRunRetrospectiveSummary, DesktopAutoRunState, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -162,6 +162,9 @@ describe("FloatingAutoRunControl", () => {
         refreshPackageFiles={refreshPackageFiles}
         refreshedPromptCount={3}
         refreshConcurrency={4}
+        watcherBackendKind="native"
+        watcherChangedPathCount={2}
+        watcherRefreshElapsedMs={2500}
         resetRuntimeStateClick={resetRuntimeStateClick}
         selectedBlockPresent={true}
         selectedProject={project}
@@ -184,7 +187,16 @@ describe("FloatingAutoRunControl", () => {
     expect(screen.getByTestId("auto-run-session-id")).toHaveTextContent("SESSION-0001");
     expect(screen.getByTestId("auto-run-action-row")).toHaveTextContent("Wait.");
     expect(screen.getByTestId("auto-run-next-action")).toBeDisabled();
-    expect(screen.getByTestId("auto-run-retrospective")).toHaveTextContent("Completed refs");
+    expect(screen.getByTestId("auto-run-executor-preflight-section")).toHaveTextContent("Executor preflight");
+    expect(screen.queryByText("Not tested")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("auto-run-executor-preflight")).not.toBeInTheDocument();
+    await userEvent.click(within(screen.getByTestId("auto-run-executor-preflight-section")).getByRole("button", { name: "Executor preflight" }));
+    expect(screen.getByText("Not tested")).toBeInTheDocument();
+    expect(screen.getByTestId("auto-run-executor-preflight")).toBeEnabled();
+    expect(screen.getByTestId("auto-run-retrospective")).toHaveTextContent("Retrospective");
+    expect(screen.queryByTestId("auto-run-completed-refs")).not.toBeInTheDocument();
+    await userEvent.click(within(screen.getByTestId("auto-run-retrospective")).getByRole("button", { name: "Retrospective" }));
+    expect(screen.getByTestId("auto-run-retrospective-details")).toHaveTextContent("Completed refs");
     expect(screen.getByTestId("auto-run-completed-refs")).toHaveTextContent("1");
     expect(screen.getByTestId("auto-run-latest-report-path")).toHaveTextContent("/tmp/report.md");
     expect(screen.getByTestId("file-sync-unread-count")).toHaveTextContent("4");
@@ -192,12 +204,21 @@ describe("FloatingAutoRunControl", () => {
     expect(screen.getByTestId("file-sync-popover")).toBeVisible();
     expect(screen.queryByTestId("file-sync-unread-count")).not.toBeInTheDocument();
     expect(screen.getByText("Dirty Prompts")).toBeInTheDocument();
+    expect(screen.queryByText("T-001#B-001")).not.toBeInTheDocument();
+    await userEvent.click(within(screen.getByTestId("file-sync-dirty-prompts-section")).getByRole("button", { name: "Dirty Prompts" }));
     expect(screen.getByText("T-001#B-001")).toBeInTheDocument();
     expect(screen.getByText("Affected tasks")).toBeInTheDocument();
+    expect(screen.queryByText("T-002")).not.toBeInTheDocument();
+    await userEvent.click(within(screen.getByTestId("file-sync-affected-tasks-section")).getByRole("button", { name: "Affected tasks" }));
     expect(screen.getByText("T-002")).toBeInTheDocument();
+    expect(screen.queryByTestId("file-sync-diagnostic")).not.toBeInTheDocument();
+    await userEvent.click(within(screen.getByTestId("file-sync-diagnostics-section")).getByRole("button", { name: "Diagnostics" }));
     expect(screen.getByTestId("file-sync-diagnostic")).toHaveTextContent("Prompt changed on disk.");
     expect(screen.getByTestId("file-sync-refreshed-prompt-count")).toHaveTextContent("3");
     expect(screen.getByTestId("file-sync-refresh-concurrency")).toHaveTextContent("4");
+    expect(screen.getByTestId("file-sync-changed-path-count")).toHaveTextContent("2");
+    expect(screen.getByTestId("file-sync-watch-backend")).toHaveTextContent("native");
+    expect(screen.getByTestId("file-sync-watch-elapsed")).toHaveTextContent("2s");
     await userEvent.click(screen.getByRole("button", { name: "T-001#B-001" }));
     expect(onOpenFileSyncRef).toHaveBeenCalledWith("T-001#B-001");
     expect(refreshPackageFiles).not.toHaveBeenCalled();
@@ -280,6 +301,11 @@ describe("FloatingAutoRunControl", () => {
 
     expect(screen.getByTestId("auto-run-mini-status")).toHaveAttribute("data-phase", "failed");
     expect(screen.getByTestId("auto-run-mini-status")).toHaveAttribute("data-run-id", "RUN-FAILED");
+    expect(screen.queryByTestId("auto-run-error")).not.toBeInTheDocument();
+    expect(screen.getByText("Latest output: Executor failed")).toBeVisible();
+    expect(screen.getByText("Next action: Open the latest record and fix the failure.")).toBeVisible();
+    expect(screen.getByTestId("auto-run-failure-section")).toHaveTextContent("Failure details");
+    await userEvent.click(within(screen.getByTestId("auto-run-failure-section")).getByRole("button", { name: "Failure details" }));
     expect(screen.getByTestId("auto-run-error")).toHaveTextContent("Executor exited with code 1.");
     expect(screen.getByTestId("auto-run-failure-details")).toHaveTextContent("Next action");
     expect(screen.getByTestId("auto-run-failure-details")).toHaveTextContent("Open the latest record and fix the failure.");

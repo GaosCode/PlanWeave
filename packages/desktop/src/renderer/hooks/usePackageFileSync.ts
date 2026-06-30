@@ -7,12 +7,12 @@ import type {
 } from "@planweave-ai/runtime";
 import { bridge, desktopCanvasReference } from "../bridge";
 
-function isProjectPromptChangePath(path: string): boolean {
-  return path.split("\\").join("/").replace(/^\.\/+/, "").replace(/\/+$/, "") === "policy/project-prompt.md";
+function hasProjectPromptChangeDiagnostic(result: DesktopPackageFileSyncResult): boolean {
+  return result.diagnostics.some((diagnostic) => diagnostic.code === "package_change_non_package_prompt");
 }
 
-function shouldReloadCanvasAfterRefresh(options: DesktopPackageFileRefreshOptions | undefined, result: DesktopPackageFileSyncResult): boolean {
-  return result.fullRefresh || (options?.changedPaths ?? []).some(isProjectPromptChangePath);
+function shouldReloadCanvasAfterRefresh(result: DesktopPackageFileSyncResult): boolean {
+  return result.fullRefresh || hasProjectPromptChangeDiagnostic(result);
 }
 
 function errorMessage(caught: unknown): string {
@@ -21,6 +21,33 @@ function errorMessage(caught: unknown): string {
 
 function syncErrorMessage(result: DesktopPackageFileSyncResult): string {
   return result.diagnostics.map((diagnostic) => diagnostic.message).join("\n");
+}
+
+function watcherRefreshElapsedMs(triggeredAt: string | undefined): number | undefined {
+  if (!triggeredAt) {
+    return undefined;
+  }
+  const startedAt = Date.parse(triggeredAt);
+  if (!Number.isFinite(startedAt)) {
+    return undefined;
+  }
+  return Math.max(0, Date.now() - startedAt);
+}
+
+function syncResultWithWatcherMetadata(
+  result: DesktopPackageFileSyncResult,
+  event: DesktopPackageFileChangeEvent | undefined
+): DesktopPackageFileSyncResult {
+  if (!event) {
+    return result;
+  }
+  const elapsedMs = watcherRefreshElapsedMs(event.triggeredAt);
+  return {
+    ...result,
+    watcherBackendKind: event.backendKind,
+    watcherChangedPathCount: event.changedPathCount ?? event.paths.length,
+    ...(elapsedMs === undefined ? {} : { watcherRefreshElapsedMs: elapsedMs })
+  };
 }
 
 type UsePackageFileSyncArgs = {
@@ -44,17 +71,18 @@ export function usePackageFileSync({
   setFileSyncResult,
   setLastFileChange
 }: UsePackageFileSyncArgs) {
-  const refreshPackageFiles = useCallback(async (options?: DesktopPackageFileRefreshOptions) => {
+  const refreshPackageFiles = useCallback(async (options?: DesktopPackageFileRefreshOptions, event?: DesktopPackageFileChangeEvent) => {
     if (!bridge || !selectedProject) {
       return;
     }
     try {
       const ref = desktopCanvasReference(selectedProject, selectedCanvasId);
       const result = options ? await bridge.refreshPackageFileChanges(ref, options) : await bridge.refreshPackageFileChanges(ref);
-      setFileSyncDiagnostics(result.diagnostics.map((diagnostic) => diagnostic.message));
-      setFileSyncResult?.(result);
-      if (!result.ok) {
-        const message = syncErrorMessage(result);
+      const uiResult = syncResultWithWatcherMetadata(result, event);
+      setFileSyncDiagnostics(uiResult.diagnostics.map((diagnostic) => diagnostic.message));
+      setFileSyncResult?.(uiResult);
+      if (!uiResult.ok) {
+        const message = syncErrorMessage(uiResult);
         setError(message);
         try {
           await refreshProjectDerivedState();
@@ -63,7 +91,7 @@ export function usePackageFileSync({
         }
         return;
       }
-      if (shouldReloadCanvasAfterRefresh(options, result)) {
+      if (shouldReloadCanvasAfterRefresh(uiResult)) {
         await reloadCurrentCanvas();
       } else {
         await refreshProjectDerivedState();
@@ -82,7 +110,7 @@ export function usePackageFileSync({
         return;
       }
       setLastFileChange(event);
-      void refreshPackageFiles({ changedPaths: event.paths });
+      void refreshPackageFiles({ changedPaths: event.paths }, event);
     });
   }, [refreshPackageFiles, selectedCanvasId, selectedProject, setLastFileChange]);
 

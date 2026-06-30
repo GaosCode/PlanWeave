@@ -125,6 +125,11 @@ describe("desktop file sync API", () => {
       dirtyPromptRefs: ["T-001#B-001"],
       refreshedPromptCount: 1,
       refreshConcurrency: 4,
+      refreshStats: expect.objectContaining({
+        changedPathCount: 1,
+        refreshedRefs: 1,
+        mode: "incremental"
+      }),
       diagnostics: []
     });
 
@@ -137,6 +142,11 @@ describe("desktop file sync API", () => {
       dirtyPromptRefs: ["T-001"],
       refreshedPromptCount: 2,
       refreshConcurrency: 4,
+      refreshStats: expect.objectContaining({
+        changedPathCount: 1,
+        refreshedRefs: 2,
+        mode: "incremental"
+      }),
       diagnostics: []
     });
   });
@@ -155,17 +165,29 @@ describe("desktop file sync API", () => {
       ok: true,
       primed: false,
       affectedTasks: ["T-002"],
+      refreshStats: expect.objectContaining({
+        changedPathCount: 1,
+        mode: "full"
+      }),
       diagnostics: [expect.objectContaining({ code: "package_change_manifest_requires_full_refresh" })]
     });
 
     await expect(refreshPackageFileChanges(root, { changedPaths: ["package/nodes/T-001"] })).resolves.toMatchObject({
       ok: true,
       primed: false,
+      refreshStats: expect.objectContaining({
+        changedPathCount: 1,
+        mode: "full"
+      }),
       diagnostics: [expect.objectContaining({ code: "package_change_coarse_path_requires_full_refresh" })]
     });
     await expect(refreshPackageFileChanges(root, { changedPaths: [] })).resolves.toMatchObject({
       ok: true,
       primed: false,
+      refreshStats: expect.objectContaining({
+        changedPathCount: 1,
+        mode: "full"
+      }),
       diagnostics: [expect.objectContaining({ code: "package_change_paths_empty" })]
     });
   });
@@ -227,6 +249,10 @@ describe("desktop file sync API", () => {
       dirtyPromptRefs: [],
       refreshedPromptCount: 0,
       refreshConcurrency: null,
+      refreshStats: expect.objectContaining({
+        changedPathCount: 1,
+        mode: "full"
+      }),
       diagnostics: expect.arrayContaining([
         expect.objectContaining({ code: "package_change_incremental_refresh_failed" }),
         expect.objectContaining({ code: "prompt_missing" })

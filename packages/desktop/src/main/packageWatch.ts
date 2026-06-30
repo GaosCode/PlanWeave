@@ -337,6 +337,8 @@ function flushPackageFileChange(projectRoot: string, canvasId?: string | null): 
     projectRoot,
     canvasId: canvasId ?? null,
     paths,
+    changedPathCount: paths.length,
+    backendKind: activeWatch.backend.kind,
     triggeredAt: new Date().toISOString()
   };
   for (const subscriber of activeWatch.subscribers.values()) {
