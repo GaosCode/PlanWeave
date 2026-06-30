@@ -1,12 +1,12 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Edge, type ReactFlowInstance, useEdgesState, useNodesState } from "@xyflow/react";
 import type { DesktopPackageFileChangeEvent, DesktopPackageFileSyncResult, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { bridge } from "./bridge";
 import { edgeTypes, nodeTypes } from "./graph/flowModel";
 import { createTranslator } from "./i18n";
 import { ProjectSidebar } from "./sidebar/ProjectSidebar";
-import { loadDesktopSettings, mergeDesktopSettings, orderProjectsByPinnedIds } from "./settings";
-import type { AppFlowNode, AppView, DesktopUiSettings } from "./types";
+import { orderProjectsByPinnedIds } from "./settings";
+import type { AppFlowNode, AppView } from "./types";
 import { WorkspaceTabs } from "./views/WorkspaceTabs";
 import { useReviewPipeline } from "./hooks/useReviewPipeline";
 import { useGraphPaletteActions } from "./hooks/useGraphPaletteActions";
@@ -21,6 +21,7 @@ import { usePromptDrafts } from "./hooks/usePromptDrafts";
 import { useAppViewHistory } from "./hooks/useAppViewHistory";
 import { useGraphDeleteActions } from "./hooks/useGraphDeleteActions";
 import { useDesktopSettingsEffects } from "./hooks/useDesktopSettingsEffects";
+import { useDesktopSettingsBridge } from "./hooks/useDesktopSettingsBridge";
 import { useVisibleGraphTasks } from "./hooks/useVisibleGraphTasks";
 import { useDetectedAgents } from "./hooks/useDetectedAgents";
 import { useRuntimeTools } from "./hooks/useRuntimeTools";
@@ -38,16 +39,11 @@ import { buildAppSettingsRouteProps } from "./AppSettingsRouteProps";
 import { AppOverlays } from "./components/AppOverlays";
 import { writeAgentScopePromptToClipboard } from "./agentPrompt";
 
-type LayoutSettingsPatch = {
-  leftSidebar?: Partial<DesktopUiSettings["layout"]["leftSidebar"]>;
-  rightSidebar?: Partial<DesktopUiSettings["layout"]["rightSidebar"]>;
-  autoRunControl?: Partial<DesktopUiSettings["layout"]["autoRunControl"]>;
-};
-
 const emptyExecutorOptions: string[] = [];
 
 export function App() {
-  const [settings, setSettings] = useState<DesktopUiSettings>(() => loadDesktopSettings());
+  const [error, setError] = useState<string | null>(null);
+  const { settings, updateLayoutSettings, updateSettings } = useDesktopSettingsBridge({ setError });
   const language = settings.language;
   const t = useMemo(() => createTranslator(language), [language]);
   const [activeView, setActiveView] = useAppViewHistory("graph");
@@ -57,7 +53,6 @@ export function App() {
   const [lastFileChange, setLastFileChange] = useState<DesktopPackageFileChangeEvent | null>(null);
   const [fileSyncDiagnostics, setFileSyncDiagnostics] = useState<string[]>([]);
   const [fileSyncResult, setFileSyncResult] = useState<DesktopPackageFileSyncResult | null>(null);
-  const [error, setError] = useState<string | null>(bridge ? null : t("bridgeUnavailable"));
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<AppFlowNode, Edge> | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<AppFlowNode>([]);
@@ -69,31 +64,11 @@ export function App() {
     enabled: !settings.reducedMotion
   });
 
-  const updateSettings = useCallback((patch: Partial<DesktopUiSettings>) => {
-    setSettings((current) => mergeDesktopSettings(current, patch));
-  }, []);
-
-  const updateLayoutSettings = useCallback((patch: LayoutSettingsPatch) => {
-    setSettings((current) =>
-      mergeDesktopSettings(current, {
-        layout: {
-          ...current.layout,
-          leftSidebar: {
-            ...current.layout.leftSidebar,
-            ...patch.leftSidebar
-          },
-          rightSidebar: {
-            ...current.layout.rightSidebar,
-            ...patch.rightSidebar
-          },
-          autoRunControl: {
-            ...current.layout.autoRunControl,
-            ...patch.autoRunControl
-          }
-        }
-      })
-    );
-  }, []);
+  useEffect(() => {
+    if (!bridge) {
+      setError(t("bridgeUnavailable"));
+    }
+  }, [t]);
 
   useDesktopSettingsEffects(settings);
 
@@ -142,13 +117,16 @@ export function App() {
   const orderedProjects = useMemo(() => orderProjectsByPinnedIds(projects, settings.pinnedProjectIds), [projects, settings.pinnedProjectIds]);
   const handleTogglePinnedProject = useCallback(
     (projectId: string) => {
-      updateSettings({
-        pinnedProjectIds: pinnedProjectIds.has(projectId)
-          ? settings.pinnedProjectIds.filter((pinnedProjectId) => pinnedProjectId !== projectId)
-          : [...settings.pinnedProjectIds, projectId]
+      updateSettings((current) => {
+        const currentPinnedProjectIds = new Set(current.pinnedProjectIds);
+        return {
+          pinnedProjectIds: currentPinnedProjectIds.has(projectId)
+            ? current.pinnedProjectIds.filter((pinnedProjectId) => pinnedProjectId !== projectId)
+            : [...current.pinnedProjectIds, projectId]
+        };
       });
     },
-    [pinnedProjectIds, settings.pinnedProjectIds, updateSettings]
+    [updateSettings]
   );
 
   const {
@@ -227,7 +205,7 @@ export function App() {
     setError,
     t,
     tmuxMonitoringEnabled: settings.execution.tmuxMonitoring && runtimeTools.tmux.available,
-    initialPosition: settings.layout.autoRunControl.position,
+    position: settings.layout.autoRunControl.position,
     onPositionCommit: (position) => updateLayoutSettings({ autoRunControl: { position } })
   });
   useTaskNodeFocus({

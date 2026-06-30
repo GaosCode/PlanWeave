@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { AppUpdateSettingsRow } from "./AppUpdateSettingsRow";
 import { SettingsSwitchRow } from "../components/SettingsSwitchRow";
 import type { createTranslator, Language } from "../i18n";
-import type { AppearanceMode, DesktopUiSettings } from "../types";
+import type { AppearanceMode, DesktopSettingsUpdate, DesktopUiSettings } from "../types";
 import type { WindowMaterialCapabilities } from "../../shared/windowAppearance";
 
 type SettingsProjectOption = {
@@ -33,7 +33,7 @@ type SettingsGeneralSectionProps = {
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
   updateProjectPromptPolicy?: (patch: Partial<ProjectPromptPolicy>) => Promise<void>;
-  updateSettings: (patch: Partial<DesktopUiSettings>) => void;
+  updateSettings: (update: DesktopSettingsUpdate) => void;
 };
 
 const languageOptions = [
@@ -162,7 +162,7 @@ export function SettingsGeneralSection({
           disabled={!windowMaterialSupported}
           title={t("enhancedWindowMaterial")}
           description={windowMaterialSupported ? t("enhancedWindowMaterialHint") : t("enhancedWindowMaterialUnavailableHint")}
-          onCheckedChange={(checked) => updateSettings({ windowMaterial: { ...settings.windowMaterial, enabled: checked } })}
+          onCheckedChange={(checked) => updateSettings({ windowMaterial: { enabled: checked } })}
         />
         <SettingsSwitchRow
           checked={settings.reducedMotion}
@@ -186,7 +186,6 @@ export function SettingsGeneralSection({
             onCheckedChange={(checked) =>
               updateSettings({
                 notifications: {
-                  ...settings.notifications,
                   [key]: checked
                 }
               })
@@ -200,7 +199,7 @@ export function SettingsGeneralSection({
           disabled={!runtimeTools.tmux.available}
           title={t("tmuxMonitoring")}
           description={runtimeTools.tmux.available ? t("tmuxMonitoringHint") : t("tmuxMonitoringUnavailableHint")}
-          onCheckedChange={(checked) => updateSettings({ execution: { ...settings.execution, tmuxMonitoring: checked } })}
+          onCheckedChange={(checked) => updateSettings({ execution: { tmuxMonitoring: checked } })}
         />
         <div className="flex justify-end border-b border-border/80 px-5 py-3 last:border-b-0">
           <Button size="sm" variant="outline" onClick={() => void refreshRuntimeTools()}>

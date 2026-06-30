@@ -4,13 +4,13 @@ import { FieldGroup } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
 import { SettingsSwitchRow } from "../components/SettingsSwitchRow";
 import type { createTranslator } from "../i18n";
-import type { DesktopUiSettings } from "../types";
+import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
 
 type SettingsReviewSectionProps = {
   graph: DesktopGraphViewModel | null;
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
-  updateSettings: (patch: Partial<DesktopUiSettings>) => void;
+  updateSettings: (update: DesktopSettingsUpdate) => void;
 };
 
 function SettingGroup({ children, title }: { children: ReactNode; title: string }) {
@@ -51,28 +51,28 @@ export function SettingsReviewSection({ graph, settings, t, updateSettings }: Se
           checked={settings.review.pipelineEnabled}
           title={t("reviewPipelineEnabled")}
           description={t("reviewPipelineEnabledHint")}
-          onCheckedChange={(checked) => updateSettings({ review: updateReviewSettings(settings, checked) })}
+          onCheckedChange={(checked) => updateSettings((current) => ({ review: updateReviewSettings(current, checked) }))}
         />
         <SettingsSwitchRow
           checked={!reviewDisabled && settings.review.strictReview}
           disabled={reviewDisabled}
           title={t("strictReview")}
           description={t("strictReviewHint")}
-          onCheckedChange={(checked) => updateSettings({ review: { ...settings.review, strictReview: checked } })}
+          onCheckedChange={(checked) => updateSettings({ review: { strictReview: checked } })}
         />
         <SettingsSwitchRow
           checked={!reviewDisabled && settings.review.feedbackLoop}
           disabled={reviewDisabled}
           title={t("feedbackLoop")}
           description={t("feedbackLoopHint")}
-          onCheckedChange={(checked) => updateSettings({ review: { ...settings.review, feedbackLoop: checked } })}
+          onCheckedChange={(checked) => updateSettings({ review: { feedbackLoop: checked } })}
         />
         <SettingsSwitchRow
           checked={!reviewDisabled && settings.review.autoAppendReviewBlock}
           disabled={reviewDisabled}
           title={t("autoAppendReviewBlock")}
           description={t("autoAppendReviewBlockHint")}
-          onCheckedChange={(checked) => updateSettings({ review: { ...settings.review, autoAppendReviewBlock: checked } })}
+          onCheckedChange={(checked) => updateSettings({ review: { autoAppendReviewBlock: checked } })}
         />
       </SettingGroup>
       <Separator />

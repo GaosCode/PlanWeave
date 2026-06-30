@@ -11,12 +11,12 @@ import type {
 } from "@planweave-ai/runtime";
 import { bridge, desktopCanvasReference } from "../bridge";
 import type { createTranslator } from "../i18n";
-import type { DesktopUiSettings } from "../types";
+import type { DesktopSettingsUpdate } from "../types";
 
 export type UseDesktopProjectArgs = {
   setError: (message: string | null) => void;
   t: ReturnType<typeof createTranslator>;
-  updateSettings: (patch: Partial<DesktopUiSettings>) => void;
+  updateSettings: (update: DesktopSettingsUpdate) => void;
 };
 
 export function resolveProjectCanvasId(project: DesktopProjectSummary, requestedCanvasId?: string | null): string | null {

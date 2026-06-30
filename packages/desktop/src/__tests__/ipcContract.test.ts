@@ -1,6 +1,7 @@
 import { cloneDesktopGraphEditResult, type GraphEditResult } from "@planweave-ai/runtime";
 import { describe, expect, it } from "vitest";
 import { appUpdateChangedChannel, appUpdateInvokeChannels } from "../shared/appUpdate";
+import { desktopSettingsInvokeChannels } from "../shared/desktopSettings";
 import { autoRunChangedChannel, desktopBridgeInvokeChannels, packageFileChangedChannel } from "../shared/ipcChannels";
 import { mcpTunnelChangedChannel, mcpTunnelInvokeChannels } from "../shared/mcpTunnel";
 import { windowAppearanceInvokeChannels } from "../shared/windowAppearance";
@@ -38,6 +39,15 @@ describe("desktop IPC contract", () => {
     expect(appUpdateChangedChannel).toBe("planweave-app-update:changed");
     expect(Object.values(desktopBridgeInvokeChannels)).not.toContain(appUpdateChangedChannel);
     for (const channel of Object.values(appUpdateInvokeChannels)) {
+      expect(Object.values(desktopBridgeInvokeChannels)).not.toContain(channel);
+    }
+  });
+
+  it("keeps desktop settings channels outside the runtime bridge registry", () => {
+    expect(desktopSettingsInvokeChannels.getDesktopSettings).toBe("planweave-desktop-settings:getDesktopSettings");
+    expect(desktopSettingsInvokeChannels.saveDesktopSettings).toBe("planweave-desktop-settings:saveDesktopSettings");
+    expect(desktopSettingsInvokeChannels.migrateLegacyDesktopSettings).toBe("planweave-desktop-settings:migrateLegacyDesktopSettings");
+    for (const channel of Object.values(desktopSettingsInvokeChannels)) {
       expect(Object.values(desktopBridgeInvokeChannels)).not.toContain(channel);
     }
   });

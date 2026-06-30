@@ -1,17 +1,25 @@
 import type { Node } from "@xyflow/react";
 import type {
-  BlockType,
   DesktopAutoRunScope,
   DesktopBlockDetail,
   DesktopBlockRunRecordSummary,
-  DesktopAgentKind,
   DesktopCanvasHealthCanvasSummary,
   DesktopCanvasNodeViewModel,
   DesktopFeedbackRecord,
   DesktopReviewAttemptSummary,
   DesktopTaskNodeViewModel
 } from "@planweave-ai/runtime";
-import type { Language } from "./i18n";
+import type { DesktopSettingsPatch, DesktopUiSettings, FloatingControlPosition } from "../shared/desktopSettings";
+export type {
+  AppearanceMode,
+  DesktopSettingsPatch,
+  DesktopSettingsLanguage,
+  DesktopUiSettings,
+  FloatingControlPosition,
+  PaletteComponentKey
+} from "../shared/desktopSettings";
+
+export type DesktopSettingsUpdate = DesktopSettingsPatch | ((current: DesktopUiSettings) => DesktopSettingsPatch);
 
 export type TaskNodeLabels = {
   blockStack: string;
@@ -99,11 +107,8 @@ export type CanvasFlowNode = Node<CanvasNodeData, "canvas">;
 export type AppFlowNode = TaskFlowNode;
 export type AppView = "new-task" | "graph" | "canvas-map" | "review-pipeline" | "todo" | "statistics" | "search" | "notifications" | "settings";
 export type AutoRunScopeMode = "project" | "selectedTask" | "selectedBlock";
-export type AppearanceMode = "system" | "light" | "dark";
-export type PaletteComponentKey = "task" | "implementation" | "review";
-export type PaletteDropComponent = "task" | BlockType;
+export type PaletteDropComponent = "task" | import("@planweave-ai/runtime").BlockType;
 export type PaletteDropPosition = { x: number; y: number };
-export type FloatingControlPosition = { left: number; top: number };
 export type FloatingControlDrag = {
   pointerId: number;
   offsetX: number;
@@ -114,56 +119,6 @@ export type FloatingControlDrag = {
   minTop: number;
   maxLeft: number;
   maxTop: number;
-};
-
-export type DesktopUiSettings = {
-  runtimePath: string;
-  defaultExecutor: string;
-  appearance: AppearanceMode;
-  reducedMotion: boolean;
-  language: Language;
-  pinnedProjectIds: string[];
-  readNotificationIds: string[];
-  notifications: {
-    autoRunFailure: boolean;
-    graphExceptions: boolean;
-    dirtyPrompts: boolean;
-    fileSyncConflict: boolean;
-  };
-  execution: {
-    tmuxMonitoring: boolean;
-  };
-  windowMaterial: {
-    enabled: boolean;
-  };
-  layout: {
-    leftSidebar: {
-      collapsed: boolean;
-      width: number;
-    };
-    rightSidebar: {
-      collapsed: boolean;
-      width: number;
-    };
-    autoRunControl: {
-      position: FloatingControlPosition | null;
-    };
-  };
-  review: {
-    pipelineEnabled: boolean;
-    strictReview: boolean;
-    feedbackLoop: boolean;
-    autoAppendReviewBlock: boolean;
-  };
-  palette: {
-    visible: Record<PaletteComponentKey, boolean>;
-    defaultBlockSet: BlockType[];
-    dragHint: boolean;
-  };
-  agents: Record<DesktopAgentKind, {
-    enabled: boolean;
-    fullAccess: boolean;
-  }>;
 };
 
 export type NotificationItem = {

@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { DesktopAgentDetection, DesktopGraphViewModel, DesktopProjectSummary, DesktopRuntimeToolAvailability, ProjectPromptPolicy } from "@planweave-ai/runtime";
 import type { createTranslator, Language } from "./i18n";
-import type { AppView, DesktopUiSettings } from "./types";
+import type { AppView, DesktopSettingsUpdate, DesktopUiSettings } from "./types";
 import { SettingsView } from "./views/SettingsView";
 
 type AppSettingsRouteProps = {
@@ -24,7 +24,7 @@ type AppSettingsRouteProps = {
   t: ReturnType<typeof createTranslator>;
   updateProjectPrompt: (markdown: string) => Promise<void>;
   updateProjectPromptPolicy: (patch: Partial<ProjectPromptPolicy>) => Promise<void>;
-  updateSettings: (patch: Partial<DesktopUiSettings>) => void;
+  updateSettings: (update: DesktopSettingsUpdate) => void;
 };
 
 export function AppSettingsRoute({

@@ -139,6 +139,110 @@ describe("useResizableSidebarLayout", () => {
     expect(onLayoutPatch).toHaveBeenCalledWith({ rightSidebar: { collapsed: true } });
   });
 
+  it("updates sidebar state when async settings layout changes before local interaction", () => {
+    const onLayoutPatch = vi.fn();
+    const { rerender } = render(
+      <SidebarLayoutHarness
+        initialLayout={sidebarLayout({
+          leftSidebar: { collapsed: false, width: 280 },
+          rightSidebar: { collapsed: false, width: 300 }
+        })}
+        onLayoutPatch={onLayoutPatch}
+      />
+    );
+
+    rerender(
+      <SidebarLayoutHarness
+        initialLayout={sidebarLayout({
+          leftSidebar: { collapsed: true, width: 360 },
+          rightSidebar: { collapsed: true, width: 420 }
+        })}
+        onLayoutPatch={onLayoutPatch}
+      />
+    );
+
+    expect(screen.getByTestId("left-width")).toHaveTextContent("360");
+    expect(screen.getByTestId("right-width")).toHaveTextContent("420");
+    expect(screen.getByTestId("left-collapsed")).toHaveTextContent("true");
+    expect(screen.getByTestId("right-collapsed")).toHaveTextContent("true");
+    expect(onLayoutPatch).not.toHaveBeenCalled();
+  });
+
+  it("keeps local sidebar fields dirty without blocking unrelated async layout fields", () => {
+    const onLayoutPatch = vi.fn();
+    const { rerender } = render(<SidebarLayoutHarness onLayoutPatch={onLayoutPatch} />);
+
+    fireEvent.click(screen.getByTestId("left-toggle"));
+    rerender(
+      <SidebarLayoutHarness
+        initialLayout={sidebarLayout({
+          leftSidebar: { collapsed: false, width: 360 },
+          rightSidebar: { collapsed: true, width: 420 }
+        })}
+        onLayoutPatch={onLayoutPatch}
+      />
+    );
+
+    expect(screen.getByTestId("left-collapsed")).toHaveTextContent("true");
+    expect(screen.getByTestId("left-width")).toHaveTextContent("360");
+    expect(screen.getByTestId("right-collapsed")).toHaveTextContent("true");
+    expect(screen.getByTestId("right-width")).toHaveTextContent("420");
+  });
+
+  it("does not overwrite a locally resized sidebar width while syncing the other side", () => {
+    const onLayoutPatch = vi.fn();
+    const { rerender } = render(<SidebarLayoutHarness onLayoutPatch={onLayoutPatch} />);
+
+    fireEvent.pointerDown(screen.getByTestId("left-resize"), { clientX: 100 });
+    fireEvent.pointerMove(window, { clientX: 150 });
+    fireEvent.pointerUp(window);
+    rerender(
+      <SidebarLayoutHarness
+        initialLayout={sidebarLayout({
+          leftSidebar: { collapsed: false, width: 280 },
+          rightSidebar: { collapsed: true, width: 420 }
+        })}
+        onLayoutPatch={onLayoutPatch}
+      />
+    );
+
+    expect(screen.getByTestId("left-width")).toHaveTextContent("330");
+    expect(screen.getByTestId("right-collapsed")).toHaveTextContent("true");
+    expect(screen.getByTestId("right-width")).toHaveTextContent("420");
+  });
+
+  it("syncs the opposite sidebar width while a resize is active", () => {
+    const onLayoutPatch = vi.fn();
+    const { rerender } = render(
+      <SidebarLayoutHarness
+        initialLayout={sidebarLayout({
+          leftSidebar: { collapsed: false, width: 280 },
+          rightSidebar: { collapsed: false, width: 300 }
+        })}
+        onLayoutPatch={onLayoutPatch}
+      />
+    );
+
+    fireEvent.pointerDown(screen.getByTestId("left-resize"), { clientX: 100 });
+    fireEvent.pointerMove(window, { clientX: 150 });
+    rerender(
+      <SidebarLayoutHarness
+        initialLayout={sidebarLayout({
+          leftSidebar: { collapsed: false, width: 280 },
+          rightSidebar: { collapsed: false, width: 420 }
+        })}
+        onLayoutPatch={onLayoutPatch}
+      />
+    );
+
+    expect(screen.getByTestId("left-width")).toHaveTextContent("330");
+    expect(screen.getByTestId("right-width")).toHaveTextContent("420");
+    expect(onLayoutPatch).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(window);
+    expect(onLayoutPatch).toHaveBeenCalledWith({ leftSidebar: { width: 330 } });
+  });
+
   it("removes pointer listeners and restores body styles when unmounted during resize", () => {
     const onLayoutPatch = vi.fn();
     const { unmount } = render(<SidebarLayoutHarness onLayoutPatch={onLayoutPatch} />);

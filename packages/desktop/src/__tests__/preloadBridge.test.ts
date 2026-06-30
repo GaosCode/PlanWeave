@@ -2,6 +2,7 @@ import type { DesktopAutoRunEvent, DesktopPackageFileChangeEvent, DesktopProject
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeInvokeApi } from "../preload/bridgeInvocation";
 import { appUpdateChangedChannel, appUpdateInvokeChannels, type AppUpdateState } from "../shared/appUpdate";
+import { defaultDesktopSettings, desktopSettingsInvokeChannels, type DesktopUiSettings } from "../shared/desktopSettings";
 import { autoRunChangedChannel, desktopBridgeInvokeChannels, packageFileChangedChannel } from "../shared/ipcChannels";
 import { mcpTunnelChangedChannel, mcpTunnelInvokeChannels, type McpTunnelStatus } from "../shared/mcpTunnel";
 import { windowAppearanceInvokeChannels } from "../shared/windowAppearance";
@@ -264,6 +265,32 @@ describe("preload bridge invocation", () => {
     expect(callback).toHaveBeenCalledWith(state);
     unsubscribe();
     expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(appUpdateChangedChannel, listener);
+  });
+
+  it("exposes the desktop settings API through a separate preload surface", async () => {
+    const settings: DesktopUiSettings = {
+      ...defaultDesktopSettings,
+      appearance: "dark"
+    };
+    electronMock.ipcRenderer.invoke.mockResolvedValue(settings);
+
+    await import("../preload/preload");
+    const api = electronMock.exposed.get("planweaveDesktopSettings") as {
+      getDesktopSettings(): Promise<DesktopUiSettings>;
+      saveDesktopSettings(patch: { appearance: "dark" }): Promise<DesktopUiSettings>;
+      migrateLegacyDesktopSettings(payload: unknown): Promise<DesktopUiSettings>;
+    };
+
+    await expect(api.getDesktopSettings()).resolves.toBe(settings);
+    await api.saveDesktopSettings({ appearance: "dark" });
+    await api.migrateLegacyDesktopSettings("{\"appearance\":\"dark\"}");
+
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(desktopSettingsInvokeChannels.getDesktopSettings);
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(desktopSettingsInvokeChannels.saveDesktopSettings, { appearance: "dark" });
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      desktopSettingsInvokeChannels.migrateLegacyDesktopSettings,
+      "{\"appearance\":\"dark\"}"
+    );
   });
 
   it("exposes the MCP tunnel API through a separate preload surface", async () => {

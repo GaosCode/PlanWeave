@@ -27,7 +27,7 @@ import type { createTranslator, Language } from "../i18n";
 import type { DesktopSearchCanvasScope } from "../hooks/useDesktopSearch";
 import type { AppEdgeTypes, AppNodeTypes } from "../graph/flowModel";
 import type { AutoRunNextActionDescriptor } from "../run/autoRunNextActions";
-import type { AppFlowNode, AppView, AutoRunScopeMode, DesktopUiSettings, NotificationItem } from "../types";
+import type { AppFlowNode, AppView, AutoRunScopeMode, DesktopSettingsUpdate, DesktopUiSettings, NotificationItem } from "../types";
 import { CanvasMapView } from "./CanvasMapView";
 import { GraphView } from "./GraphView";
 import { NewTaskView } from "./NewTaskView";
@@ -127,7 +127,7 @@ type WorkspaceTabsProps = {
   taskDraft: DesktopTaskDraft | null;
   todoGroups: DesktopTodoGroups | null;
   updateReviewStep: (index: number, patch: Partial<DesktopReviewPipelineStepInput>) => void;
-  updateSettings: (patch: Partial<DesktopUiSettings>) => void;
+  updateSettings: (update: DesktopSettingsUpdate) => void;
   visibleTaskIds: Set<string>;
   visibleTasks: DesktopGraphViewModel["tasks"] | undefined;
   addReviewStep: () => void;

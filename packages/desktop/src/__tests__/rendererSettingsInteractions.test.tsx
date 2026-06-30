@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "../renderer/components/AgentSettingsPanel";
 import { SettingsView } from "../renderer/views/SettingsView";
 import { createTranslator } from "../renderer/i18n";
-import { defaultDesktopSettings, desktopSettingsKey, loadDesktopSettings } from "../renderer/settings";
+import { defaultDesktopSettings, normalizeLegacyDesktopSettingsPayload } from "../renderer/settings";
 import type { DesktopUiSettings } from "../renderer/types";
 import type { DesktopProjectSummary } from "@planweave-ai/runtime";
 
@@ -187,20 +187,19 @@ describe("desktop renderer settings interactions", () => {
     expect(container.querySelector('[data-slot="scroll-area-viewport"]')).toHaveClass("h-full");
   });
 
-  it("falls back to defaults for invalid stored appearance and window material settings", () => {
-    window.localStorage.setItem(
-      desktopSettingsKey,
-      JSON.stringify({
-        appearance: "foo",
-        reducedMotion: "yes",
-        language: "en",
-        windowMaterial: {
-          enabled: "yes"
-        }
-      })
-    );
-
-    expect(loadDesktopSettings()).toMatchObject({
+  it("normalizes invalid legacy migration appearance and window material settings", () => {
+    expect(
+      normalizeLegacyDesktopSettingsPayload(
+        JSON.stringify({
+          appearance: "foo",
+          reducedMotion: "yes",
+          language: "en",
+          windowMaterial: {
+            enabled: "yes"
+          }
+        })
+      )
+    ).toMatchObject({
       appearance: "system",
       reducedMotion: false,
       language: "en",
@@ -210,19 +209,16 @@ describe("desktop renderer settings interactions", () => {
     });
   });
 
-  it("keeps valid stored appearance and window material settings", () => {
-    window.localStorage.setItem(
-      desktopSettingsKey,
-      JSON.stringify({
+  it("keeps valid legacy migration appearance and window material settings", () => {
+    expect(
+      normalizeLegacyDesktopSettingsPayload({
         appearance: "dark",
         reducedMotion: true,
         windowMaterial: {
           enabled: true
         }
       })
-    );
-
-    expect(loadDesktopSettings()).toMatchObject({
+    ).toMatchObject({
       appearance: "dark",
       reducedMotion: true,
       windowMaterial: {
@@ -231,36 +227,28 @@ describe("desktop renderer settings interactions", () => {
     });
   });
 
-  it("ignores legacy renderer terminal preferences from localStorage", () => {
-    window.localStorage.setItem(
-      desktopSettingsKey,
-      JSON.stringify({
-        appearance: "dark",
-        terminal: {
-          defaultTerminalAppId: "ghostty"
-        }
-      })
-    );
-
-    const loadedSettings = loadDesktopSettings();
+  it("ignores legacy renderer terminal preferences from migration payloads", () => {
+    const loadedSettings = normalizeLegacyDesktopSettingsPayload({
+      appearance: "dark",
+      terminal: {
+        defaultTerminalAppId: "ghostty"
+      }
+    });
     expect(loadedSettings).toMatchObject({
       appearance: "dark"
     });
     expect(loadedSettings).not.toHaveProperty("terminal");
   });
 
-  it("uses default layout settings when stored settings predate layout preferences", () => {
-    window.localStorage.setItem(
-      desktopSettingsKey,
-      JSON.stringify({
+  it("uses default layout settings when legacy migration settings predate layout preferences", () => {
+    expect(
+      normalizeLegacyDesktopSettingsPayload({
         appearance: "dark",
         notifications: {
           autoRunFailure: false
         }
       })
-    );
-
-    expect(loadDesktopSettings()).toMatchObject({
+    ).toMatchObject({
       appearance: "dark",
       notifications: {
         autoRunFailure: false
@@ -269,10 +257,8 @@ describe("desktop renderer settings interactions", () => {
     });
   });
 
-  it("normalizes stored layout widths and ignores invalid floating control coordinates", () => {
-    window.localStorage.setItem(
-      desktopSettingsKey,
-      JSON.stringify({
+  it("normalizes legacy migration layout widths and ignores invalid floating control coordinates", () => {
+    const migrated = normalizeLegacyDesktopSettingsPayload({
         layout: {
           leftSidebar: {
             collapsed: "yes",
@@ -289,10 +275,9 @@ describe("desktop renderer settings interactions", () => {
             }
           }
         }
-      })
-    );
+      });
 
-    expect(loadDesktopSettings().layout).toEqual({
+    expect(migrated.layout).toEqual({
       ...defaultDesktopSettings.layout,
       rightSidebar: {
         collapsed: true,
@@ -301,10 +286,9 @@ describe("desktop renderer settings interactions", () => {
     });
   });
 
-  it("clamps positive stored layout widths below sidebar minimums", () => {
-    window.localStorage.setItem(
-      desktopSettingsKey,
-      JSON.stringify({
+  it("clamps positive legacy migration layout widths below sidebar minimums", () => {
+    expect(
+      normalizeLegacyDesktopSettingsPayload({
         notifications: {
           dirtyPrompts: false
         },
@@ -319,9 +303,7 @@ describe("desktop renderer settings interactions", () => {
           }
         }
       })
-    );
-
-    expect(loadDesktopSettings()).toMatchObject({
+    ).toMatchObject({
       notifications: {
         dirtyPrompts: false,
         autoRunFailure: true
@@ -340,10 +322,9 @@ describe("desktop renderer settings interactions", () => {
     });
   });
 
-  it("deep merges valid stored layout preferences with other settings", () => {
-    window.localStorage.setItem(
-      desktopSettingsKey,
-      JSON.stringify({
+  it("deep merges valid legacy migration layout preferences with other settings", () => {
+    expect(
+      normalizeLegacyDesktopSettingsPayload({
         notifications: {
           autoRunFailure: false
         },
@@ -372,9 +353,7 @@ describe("desktop renderer settings interactions", () => {
           }
         }
       })
-    );
-
-    expect(loadDesktopSettings()).toMatchObject({
+    ).toMatchObject({
       notifications: {
         autoRunFailure: false,
         graphExceptions: true

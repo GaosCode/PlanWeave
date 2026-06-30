@@ -1,12 +1,7 @@
 import { useEffect } from "react";
-import { desktopSettingsKey } from "../settings";
 import type { DesktopUiSettings } from "../types";
 
 export function useDesktopSettingsEffects(settings: DesktopUiSettings) {
-  useEffect(() => {
-    window.localStorage.setItem(desktopSettingsKey, JSON.stringify(settings));
-  }, [settings]);
-
   useEffect(() => {
     let cancelled = false;
     const root = document.documentElement;

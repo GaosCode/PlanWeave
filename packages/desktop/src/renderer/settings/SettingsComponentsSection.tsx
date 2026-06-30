@@ -3,12 +3,12 @@ import type { BlockType } from "@planweave-ai/runtime";
 import { FieldGroup } from "@/components/ui/field";
 import { SettingsSwitchRow } from "../components/SettingsSwitchRow";
 import type { createTranslator } from "../i18n";
-import type { DesktopUiSettings, PaletteComponentKey } from "../types";
+import type { DesktopSettingsUpdate, DesktopUiSettings, PaletteComponentKey } from "../types";
 
 type SettingsComponentsSectionProps = {
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
-  updateSettings: (patch: Partial<DesktopUiSettings>) => void;
+  updateSettings: (update: DesktopSettingsUpdate) => void;
 };
 
 function SettingGroup({ children, title }: { children: ReactNode; title: string }) {
@@ -52,9 +52,7 @@ export function SettingsComponentsSection({ settings, t, updateSettings }: Setti
             onCheckedChange={(checked) =>
               updateSettings({
                 palette: {
-                  ...settings.palette,
                   visible: {
-                    ...settings.palette.visible,
                     [key]: checked
                   }
                 }
@@ -74,12 +72,11 @@ export function SettingsComponentsSection({ settings, t, updateSettings }: Setti
             title={title}
             description={description}
             onCheckedChange={(checked) =>
-              updateSettings({
+              updateSettings((current) => ({
                 palette: {
-                  ...settings.palette,
-                  defaultBlockSet: toggleBlockSet(settings, key as BlockType, checked)
+                  defaultBlockSet: toggleBlockSet(current, key as BlockType, checked)
                 }
-              })
+              }))
             }
           />
         ))}
@@ -87,7 +84,7 @@ export function SettingsComponentsSection({ settings, t, updateSettings }: Setti
           checked={settings.palette.dragHint}
           title={t("dragHint")}
           description={t("dragHintHint")}
-          onCheckedChange={(checked) => updateSettings({ palette: { ...settings.palette, dragHint: checked } })}
+          onCheckedChange={(checked) => updateSettings({ palette: { dragHint: checked } })}
         />
       </SettingGroup>
     </section>

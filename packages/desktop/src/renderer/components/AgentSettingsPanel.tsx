@@ -4,7 +4,7 @@ import { ChevronDownIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import type { DesktopUiSettings } from "../types";
+import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
 
 type AgentSettingsPanelProps = {
   agentDetectionRefreshing: boolean;
@@ -21,7 +21,7 @@ type AgentSettingsPanelProps = {
   };
   refreshAgentDetections: () => Promise<void>;
   settings: DesktopUiSettings;
-  updateSettings: (patch: Partial<DesktopUiSettings>) => void;
+  updateSettings: (update: DesktopSettingsUpdate) => void;
 };
 
 function updateAgentSettings(
@@ -90,12 +90,12 @@ export function AgentSettingsPanel({
                   checked={agent.installed && agentSettings.enabled}
                   disabled={!agent.installed}
                   onCheckedChange={(checked) =>
-                    updateSettings({
-                      agents: updateAgentSettings(settings, agent.kind, {
+                    updateSettings((current) => ({
+                      agents: updateAgentSettings(current, agent.kind, {
                         enabled: checked,
-                        fullAccess: checked ? agentSettings.fullAccess : false
+                        fullAccess: checked ? current.agents[agent.kind].fullAccess : false
                       })
-                    })
+                    }))
                   }
                 />
               </div>
@@ -113,11 +113,11 @@ export function AgentSettingsPanel({
                     disabled={!agent.installed || !agentSettings.enabled}
                     size="sm"
                     onCheckedChange={(checked) =>
-                      updateSettings({
-                        agents: updateAgentSettings(settings, agent.kind, {
+                      updateSettings((current) => ({
+                        agents: updateAgentSettings(current, agent.kind, {
                           fullAccess: checked
                         })
-                      })
+                      }))
                     }
                   />
                 </div>

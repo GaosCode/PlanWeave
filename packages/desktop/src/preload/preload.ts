@@ -7,6 +7,8 @@ import type {
 } from "@planweave-ai/runtime";
 import type { AppUpdateState, PlanWeaveAppUpdateApi } from "../shared/appUpdate.js";
 import { appUpdateChangedChannel, appUpdateInvokeChannels } from "../shared/appUpdate.js";
+import type { PlanWeaveDesktopSettingsApi } from "../shared/desktopSettings.js";
+import { desktopSettingsInvokeChannels } from "../shared/desktopSettings.js";
 import { autoRunChangedChannel, packageFileChangedChannel } from "../shared/ipcChannels.js";
 import type { McpTunnelStatus, PlanWeaveMcpTunnelApi } from "../shared/mcpTunnel.js";
 import { mcpTunnelChangedChannel, mcpTunnelInvokeChannels } from "../shared/mcpTunnel.js";
@@ -38,6 +40,14 @@ const api: DesktopBridgeApi = {
 };
 
 contextBridge.exposeInMainWorld("planweave", api);
+
+const desktopSettingsApi: PlanWeaveDesktopSettingsApi = {
+  getDesktopSettings: async () => ipcRenderer.invoke(desktopSettingsInvokeChannels.getDesktopSettings),
+  saveDesktopSettings: async (patch) => ipcRenderer.invoke(desktopSettingsInvokeChannels.saveDesktopSettings, patch),
+  migrateLegacyDesktopSettings: async (payload) => ipcRenderer.invoke(desktopSettingsInvokeChannels.migrateLegacyDesktopSettings, payload)
+};
+
+contextBridge.exposeInMainWorld("planweaveDesktopSettings", desktopSettingsApi);
 
 const windowApi: PlanWeaveWindowApi = {
   getWindowMaterialCapabilities: async () =>

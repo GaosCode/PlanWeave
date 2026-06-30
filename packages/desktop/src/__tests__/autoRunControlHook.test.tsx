@@ -133,6 +133,42 @@ describe("auto run control hook", () => {
     });
   });
 
+  it("updates floating control position from controlled settings changes", async () => {
+    vi.resetModules();
+    const { useAutoRunControl } = await import("../renderer/hooks/useAutoRunControl");
+
+    const { result, rerender } = renderHook(
+      ({ position }) =>
+        useAutoRunControl({
+          autoRunState: null,
+          handleOpenRunRecord: vi.fn(),
+          position,
+          selectedCanvasId: "canvas-main",
+          selectedBlock: null,
+          selectedProject: null,
+          selectedTaskPanelId: null,
+          setAutoRunState: vi.fn(),
+          setError: vi.fn(),
+          t: createTranslator("zh-CN"),
+          tmuxMonitoringEnabled: false
+        }),
+      {
+        initialProps: {
+          position: null as { left: number; top: number } | null
+        }
+      }
+    );
+
+    expect(result.current.autoRunControlStyle).toMatchObject({ right: 20, bottom: 20 });
+
+    rerender({ position: { left: 72, top: 88 } });
+
+    expect(result.current.autoRunControlStyle).toMatchObject({
+      left: "clamp(12px, 72px, calc(100% - 12px))",
+      top: "clamp(12px, 88px, calc(100% - 12px))"
+    });
+  });
+
   it("keeps a persisted floating control position reachable when the graph surface shrinks", async () => {
     vi.resetModules();
     const { useAutoRunControl } = await import("../renderer/hooks/useAutoRunControl");

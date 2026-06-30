@@ -10,7 +10,7 @@ import type { SettingsSection } from "../settings/SettingsNav";
 import { SettingsMcpSection } from "../settings/SettingsMcpSection";
 import { SettingsReviewSection } from "../settings/SettingsReviewSection";
 import type { createTranslator, Language } from "../i18n";
-import type { AppView, DesktopUiSettings } from "../types";
+import type { AppView, DesktopSettingsUpdate, DesktopUiSettings } from "../types";
 
 type SettingsViewProps = {
   agentDetectionRefreshing: boolean;
@@ -32,7 +32,7 @@ type SettingsViewProps = {
   t: ReturnType<typeof createTranslator>;
   updateProjectPrompt?: (markdown: string) => Promise<void>;
   updateProjectPromptPolicy?: (patch: Partial<ProjectPromptPolicy>) => Promise<void>;
-  updateSettings: (patch: Partial<DesktopUiSettings>) => void;
+  updateSettings: (update: DesktopSettingsUpdate) => void;
 };
 
 export function SettingsView({

@@ -2,7 +2,7 @@
 
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defaultDesktopSettings } from "../renderer/settings";
+import { defaultDesktopSettings, desktopSettingsKey } from "../renderer/settings";
 import { useDesktopSettingsEffects } from "../renderer/hooks/useDesktopSettingsEffects";
 import type { AppearanceMode, DesktopUiSettings } from "../renderer/types";
 
@@ -96,6 +96,14 @@ afterEach(() => {
 });
 
 describe("useDesktopSettingsEffects", () => {
+  it("does not persist runtime settings to legacy localStorage", () => {
+    stubPrefersDark(false);
+
+    renderHook(() => useDesktopSettingsEffects(settingsWithAppearance("dark")));
+
+    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(desktopSettingsKey, expect.any(String));
+  });
+
   it("adds the root dark class when system appearance prefers dark", () => {
     stubPrefersDark(true);
 

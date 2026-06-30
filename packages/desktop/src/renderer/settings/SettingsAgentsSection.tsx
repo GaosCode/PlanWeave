@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { AgentSettingsPanel } from "../components/AgentSettingsPanel";
 import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
 import type { createTranslator } from "../i18n";
-import type { DesktopUiSettings } from "../types";
+import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
 
 type SettingsAgentsSectionProps = {
   agentDetectionRefreshing: boolean;
@@ -17,7 +17,7 @@ type SettingsAgentsSectionProps = {
   refreshAgentDetections: () => Promise<void>;
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
-  updateSettings: (patch: Partial<DesktopUiSettings>) => void;
+  updateSettings: (update: DesktopSettingsUpdate) => void;
 };
 
 function checkStatusVariant(status: ExecutorPreflightCheck["status"]) {

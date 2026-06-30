@@ -30,13 +30,41 @@ function clampSidebarWidth(width: number, bounds: { min: number; max: number }):
 
 export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseResizableSidebarLayoutArgs): UseResizableSidebarLayoutResult {
   const cleanupResizeRef = useRef<(() => void) | null>(null);
+  const activeResizeSideRef = useRef<ResizableSidebarSide | null>(null);
+  const localInteractionRef = useRef({
+    leftCollapsed: false,
+    leftWidth: false,
+    rightCollapsed: false,
+    rightWidth: false
+  });
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(() => initialLayout.leftSidebar.collapsed);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(() => initialLayout.rightSidebar.collapsed);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(() => clampSidebarWidth(initialLayout.leftSidebar.width, desktopSidebarWidthBounds.left));
   const [rightSidebarWidth, setRightSidebarWidth] = useState(() => clampSidebarWidth(initialLayout.rightSidebar.width, desktopSidebarWidthBounds.right));
 
+  useEffect(() => {
+    if (!localInteractionRef.current.leftCollapsed) {
+      setLeftSidebarCollapsed(initialLayout.leftSidebar.collapsed);
+    }
+    if (!localInteractionRef.current.rightCollapsed) {
+      setRightSidebarCollapsed(initialLayout.rightSidebar.collapsed);
+    }
+    if (activeResizeSideRef.current !== "left" && !localInteractionRef.current.leftWidth) {
+      setLeftSidebarWidth(clampSidebarWidth(initialLayout.leftSidebar.width, desktopSidebarWidthBounds.left));
+    }
+    if (activeResizeSideRef.current !== "right" && !localInteractionRef.current.rightWidth) {
+      setRightSidebarWidth(clampSidebarWidth(initialLayout.rightSidebar.width, desktopSidebarWidthBounds.right));
+    }
+  }, [
+    initialLayout.leftSidebar.collapsed,
+    initialLayout.leftSidebar.width,
+    initialLayout.rightSidebar.collapsed,
+    initialLayout.rightSidebar.width
+  ]);
+
   const setLeftSidebarCollapsedPreference: Dispatch<SetStateAction<boolean>> = useCallback((action) => {
     setLeftSidebarCollapsed((current) => {
+      localInteractionRef.current.leftCollapsed = true;
       const collapsed = typeof action === "function" ? action(current) : action;
       onLayoutPatch({ leftSidebar: { collapsed } });
       return collapsed;
@@ -45,6 +73,7 @@ export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseR
 
   const setRightSidebarCollapsedPreference: Dispatch<SetStateAction<boolean>> = useCallback((action) => {
     setRightSidebarCollapsed((current) => {
+      localInteractionRef.current.rightCollapsed = true;
       const collapsed = typeof action === "function" ? action(current) : action;
       onLayoutPatch({ rightSidebar: { collapsed } });
       return collapsed;
@@ -55,6 +84,12 @@ export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseR
     (event: ReactPointerEvent, side: ResizableSidebarSide) => {
       event.preventDefault();
       cleanupResizeRef.current?.();
+      activeResizeSideRef.current = side;
+      if (side === "left") {
+        localInteractionRef.current.leftWidth = true;
+      } else {
+        localInteractionRef.current.rightWidth = true;
+      }
 
       const startX = event.clientX;
       const startWidth = side === "left" ? leftSidebarWidth : rightSidebarWidth;
@@ -81,6 +116,7 @@ export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseR
         window.document.body.style.userSelect = previousUserSelect;
         if (cleanupResizeRef.current === cleanupResize) {
           cleanupResizeRef.current = null;
+          activeResizeSideRef.current = null;
         }
       };
 
