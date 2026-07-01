@@ -544,6 +544,10 @@ exit 1
     expect(parseSha256Sums(`${"a".repeat(64)}  tunnel-client-v0.0.9-windows-amd64.zip\n`)).toEqual(
       new Map([["tunnel-client-v0.0.9-windows-amd64.zip", "a".repeat(64)]])
     );
+    expect(parseSha256Sums(`${"B".repeat(64)}  *tunnel-client-v0.0.9-darwin-arm64.zip\n`)).toEqual(
+      new Map([["tunnel-client-v0.0.9-darwin-arm64.zip", "b".repeat(64)]])
+    );
+    expect(parseSha256Sums(`${" ".repeat(10000)}not-a-checksum\n`)).toEqual(new Map());
   });
 
   it("downloads the official platform zip, verifies its checksum, and stores the extracted binary", async () => {

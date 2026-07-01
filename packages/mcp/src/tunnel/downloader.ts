@@ -49,16 +49,67 @@ function parseRelease(value: unknown): GitHubRelease {
 export function parseSha256Sums(content: string): Map<string, string> {
   const sums = new Map<string, string>();
   for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    const match = /^([a-fA-F0-9]{64})\s+\*?(.+)$/.exec(trimmed);
-    if (match) {
-      sums.set(match[2].trim(), match[1].toLowerCase());
+    const parsed = parseSha256SumLine(line);
+    if (parsed) {
+      sums.set(parsed.name, parsed.hash);
     }
   }
   return sums;
+}
+
+function parseSha256SumLine(line: string): { hash: string; name: string } | null {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.length <= 64) {
+    return null;
+  }
+  const hash = trimmed.slice(0, 64);
+  if (!isHexSha256(hash)) {
+    return null;
+  }
+  let index = 64;
+  if (!isWhitespace(trimmed[index])) {
+    return null;
+  }
+  while (index < trimmed.length && isWhitespace(trimmed[index])) {
+    index += 1;
+  }
+  if (trimmed[index] === "*") {
+    index += 1;
+  }
+  const name = trimmed.slice(index).trim();
+  return name ? { hash: hash.toLowerCase(), name } : null;
+}
+
+function isHexSha256(value: string): boolean {
+  if (value.length !== 64) {
+    return false;
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    const hex =
+      (code >= 48 && code <= 57) ||
+      (code >= 65 && code <= 70) ||
+      (code >= 97 && code <= 102);
+    if (!hex) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isWhitespace(value: string | undefined): boolean {
+  if (value === undefined) {
+    return false;
+  }
+  switch (value) {
+    case " ":
+    case "\t":
+    case "\v":
+    case "\f":
+      return true;
+    default:
+      return false;
+  }
 }
 
 export function selectTunnelClientReleaseAssets(release: GitHubRelease, platformAsset: TunnelClientPlatformAsset): { checksumAsset: GitHubReleaseAsset; platformZipAsset: GitHubReleaseAsset } {
