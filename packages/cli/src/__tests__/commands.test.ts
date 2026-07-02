@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  layoutSchemaDocument as runtimeLayoutSchemaDocument,
   manifestSchemaDocument as runtimeManifestSchemaDocument,
   projectSchemaDocument as runtimeProjectSchemaDocument,
+  runtimeSchemaDocuments,
+  runtimeSchemaTopicOrder,
+  stateSchemaDocument as runtimeStateSchemaDocument,
   type AutoRunStatus,
   type AutoRunStepResult,
   type RunSessionState
@@ -580,8 +584,14 @@ describe("planweave CLI contract", () => {
     expect(formatSchemaHelp("all")).toContain("project: Project-level canvas graph schema.");
     expect(schemaDocuments.manifest.schema).toHaveProperty("nodes");
     expect(schemaDocuments.project.schema).toHaveProperty("canvases");
+    expect(schemaDocuments.state.schema).toHaveProperty("tasks");
+    expect(schemaDocuments.layout.schema).toHaveProperty("nodes");
+    expect(schemaDocuments).toBe(runtimeSchemaDocuments);
+    expect(Object.keys(schemaDocuments)).toEqual([...runtimeSchemaTopicOrder]);
     expect(schemaDocuments.manifest).toBe(runtimeManifestSchemaDocument);
     expect(schemaDocuments.project).toBe(runtimeProjectSchemaDocument);
+    expect(schemaDocuments.state).toBe(runtimeStateSchemaDocument);
+    expect(schemaDocuments.layout).toBe(runtimeLayoutSchemaDocument);
   });
 
   it("prints claim hint status reasons", () => {

@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { runtimeSchemaTopicOrder } from "@planweave-ai/runtime";
 import type { PlanweaveToolName } from "./tools.js";
 
 const blockTypes = ["implementation", "review"] as const;
@@ -341,7 +342,7 @@ const projectGraphEditOutputSchema = {
 
 export const planweaveToolOutputSchemas = {
   get_schema: {
-    topic: z.enum(["manifest", "project"]).nullable(),
+    topic: z.enum(runtimeSchemaTopicOrder).nullable(),
     documents: z.record(z.string(), schemaDocumentSchema)
   },
   get_planweave_guide: {

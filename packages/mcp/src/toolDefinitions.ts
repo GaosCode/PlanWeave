@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { runtimeSchemaTopicOrder } from "@planweave-ai/runtime";
 import {
   createTaskInputShape,
   updateBlockInputShape,
@@ -75,7 +76,7 @@ export const planweaveToolDefinitions: Record<PlanweaveToolName, ToolDefinition>
   get_schema: {
     title: "Get PlanWeave Schema",
     description: "Return PlanWeave runtime schema documents.",
-    inputSchema: { topic: z.enum(["manifest", "project"]).optional() },
+    inputSchema: { topic: z.enum(runtimeSchemaTopicOrder).optional() },
     annotations: readOnlyAnnotations
   },
   get_planweave_guide: {

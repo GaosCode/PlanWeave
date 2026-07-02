@@ -1,4 +1,5 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { runtimeSchemaTopicOrder } from "@planweave-ai/runtime";
 import type {
   DesktopProjectSummary,
   DesktopSearchResultKind,
@@ -22,6 +23,7 @@ export type ProjectCanvasNullableArgs = ProjectArgs & {
 };
 
 const localPathArgNames = new Set(["rootPath", "projectRoot", "workspaceRoot", "packageDir", "resultsDir", "stateFile"]);
+const runtimeSchemaTopicNames = new Set<string>(runtimeSchemaTopicOrder);
 const searchResultKinds = new Set<DesktopSearchResultKind>(["task", "block", "prompt", "run_record", "review_attempt", "feedback"]);
 
 export function jsonToolResult(value: Record<string, unknown>): CallToolResult {
@@ -194,17 +196,19 @@ export function parseGetSchemaArgs(args: unknown): { topic?: RuntimeSchemaTopicN
   if (args === undefined || args === null) {
     return {};
   }
-  if (typeof args !== "object" || Array.isArray(args)) {
-    throw new Error("Tool arguments must be an object.");
-  }
-  const topic = (args as { topic?: unknown }).topic;
+  const record = readObjectArgs(args);
+  const topic = record.topic;
   if (topic === undefined || topic === null || topic === "") {
     return {};
   }
-  if (topic !== "manifest" && topic !== "project") {
-    throw new Error("topic must be one of: manifest, project.");
+  if (typeof topic !== "string" || !isRuntimeSchemaTopic(topic)) {
+    throw new Error(`topic must be one of: ${runtimeSchemaTopicOrder.join(", ")}.`);
   }
   return { topic };
+}
+
+function isRuntimeSchemaTopic(value: string): value is RuntimeSchemaTopicName {
+  return runtimeSchemaTopicNames.has(value);
 }
 
 export function parsePackageFiles(value: unknown): ExportedPlanPackageFile[] {

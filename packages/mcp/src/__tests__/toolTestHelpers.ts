@@ -47,6 +47,13 @@ export const schemaDocument: SchemaDocument = {
   notes: []
 };
 
+export const schemaDocuments = {
+  manifest: schemaDocument,
+  project: { ...schemaDocument, name: "project" },
+  state: { ...schemaDocument, name: "state" },
+  layout: { ...schemaDocument, name: "layout" }
+} satisfies Record<RuntimeSchemaTopicName, SchemaDocument>;
+
 export type TestGateway = RuntimeGateway & {
   openProject: ReturnType<typeof vi.fn<(projectId: string) => Promise<DesktopProjectSummary>>>;
   validateProject: ReturnType<typeof vi.fn<(projectId: string) => Promise<ValidationReport>>>;
@@ -282,7 +289,7 @@ export function createGateway(): TestGateway {
   };
   return {
     getSchemaDocuments() {
-      return { manifest: schemaDocument, project: { ...schemaDocument, name: "project" } } satisfies Record<RuntimeSchemaTopicName, SchemaDocument>;
+      return schemaDocuments;
     },
     async listProjects() {
       return [project];

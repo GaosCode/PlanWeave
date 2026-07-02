@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import * as z from "zod/v4";
-import { createGateway, project, readJson, schemaDocument } from "./toolTestHelpers.js";
+import { runtimeSchemaTopicOrder } from "@planweave-ai/runtime";
+import { createGateway, project, readJson, schemaDocument, schemaDocuments } from "./toolTestHelpers.js";
 import { planweaveToolDefinitions } from "../toolDefinitions.js";
+import { planweaveToolOutputSchemas } from "../toolSchemas.js";
 import { handlePlanweaveTool, planweaveToolNames } from "../tools.js";
 
 describe("handlePlanweaveTool", () => {
@@ -23,6 +25,46 @@ describe("handlePlanweaveTool", () => {
         manifest: schemaDocument
       }
     });
+  });
+
+  it("returns all runtime schema topics by default", async () => {
+    const result = readJson(await handlePlanweaveTool("get_schema", undefined, createGateway()));
+
+    expect(result).toEqual({
+      topic: null,
+      documents: schemaDocuments
+    });
+  });
+
+  it("returns state and layout schema documents by topic", async () => {
+    await expect(readJson(await handlePlanweaveTool("get_schema", { topic: "state" }, createGateway()))).toEqual({
+      topic: "state",
+      documents: {
+        state: schemaDocuments.state
+      }
+    });
+    await expect(readJson(await handlePlanweaveTool("get_schema", { topic: "layout" }, createGateway()))).toEqual({
+      topic: "layout",
+      documents: {
+        layout: schemaDocuments.layout
+      }
+    });
+  });
+
+  it("reports the complete runtime schema topic list for unknown topics", async () => {
+    await expect(handlePlanweaveTool("get_schema", { topic: "unknown" }, createGateway())).rejects.toThrow(
+      `topic must be one of: ${runtimeSchemaTopicOrder.join(", ")}.`
+    );
+  });
+
+  it("uses runtime schema topics in MCP get_schema input and output schemas", () => {
+    const inputSchema = z.object(planweaveToolDefinitions.get_schema.inputSchema ?? {});
+    const outputSchema = z.object(planweaveToolOutputSchemas.get_schema);
+
+    for (const topic of runtimeSchemaTopicOrder) {
+      expect(inputSchema.safeParse({ topic }).success).toBe(true);
+      expect(outputSchema.safeParse({ topic, documents: { [topic]: schemaDocuments[topic] } }).success).toBe(true);
+    }
   });
 
   it("returns a PlanWeave guide with storage layout and tool navigation", async () => {

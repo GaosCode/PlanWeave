@@ -9,7 +9,9 @@ export { linkProjectSourceRoot, unlinkProjectSourceRoot } from "./desktop/projec
 export { manifestNodeSchema, manifestSchema, manifestSchemaTopLevelFields } from "./schema/manifest.js";
 export {
   manifestSchemaDocument,
+  layoutSchemaDocument,
   projectSchemaDocument,
+  stateSchemaDocument,
   runtimeSchemaDocuments,
   runtimeSchemaTopicOrder
 } from "./schemaDocs/index.js";
