@@ -1,7 +1,7 @@
 <h1 align="center">PlanWeave</h1>
 
 <p align="center">
-  PlanWeave is a file-backed coordination system for turning project plans into claimable, reviewable, and recoverable work across local or remote coding agents.
+  PlanWeave is a file-backed loop engineering system for long-running coding agents. It turns fuzzy plans into claimable tasks, routes them through implementation and review agents, records every run, and keeps the loop recoverable.
 </p>
 
 <p align="center">
@@ -27,9 +27,11 @@
 
 ## Why PlanWeave
 
-Most agent tools start from a chat transcript. PlanWeave starts from the work itself.
+Chat is a useful place to start a plan, but it is a fragile place to run a long engineering loop.
 
-Your project is represented as a graph of task nodes and block documents. Each file has a stable place in the workflow, and each agent run receives the surrounding graph context instead of a narrow one-off prompt. That makes PlanWeave a better fit for long-running engineering work: implementation, review, feedback, follow-up fixes, and progress tracking all live in the same local project structure.
+PlanWeave turns a fuzzy goal or chat-authored plan into a task graph of nodes and block documents. Each block can be claimed by a focused agent, routed through implementation and review, and recorded as durable run artifacts. Agents get the current block plus relevant graph context, while the project keeps a recoverable history of what ran, what passed review, and what needs another loop.
+
+That makes PlanWeave a better fit for complex engineering work: parallel implementation, staged checks, review feedback, follow-up fixes, continued execution, and progress tracking all stay inside the same local loop.
 
 ## Highlights
 
