@@ -1,6 +1,6 @@
-import { access, mkdir } from "node:fs/promises";
-import { constants } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+import { optionalStat } from "./fs/optionalFile.js";
 import { compileTaskGraph } from "./graph/compileTaskGraph.js";
 import { readJsonFile, writeJsonFile } from "./json.js";
 import type {
@@ -25,9 +25,7 @@ export function createEmptyState(): RuntimeState {
 }
 
 export async function readState(stateFile: string): Promise<RuntimeState> {
-  try {
-    await access(stateFile, constants.R_OK);
-  } catch {
+  if (!(await optionalStat(stateFile))) {
     return createEmptyState();
   }
   return readJsonFile<RuntimeState>(stateFile);

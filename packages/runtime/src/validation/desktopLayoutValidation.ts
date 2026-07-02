@@ -1,6 +1,5 @@
-import { access } from "node:fs/promises";
-import { constants } from "node:fs";
 import { join } from "node:path";
+import { optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile } from "../json.js";
 import type { PlanPackageManifest, ProjectWorkspace, ValidationIssue } from "../types.js";
 
@@ -16,15 +15,6 @@ type LayoutFile = {
   nodes: LayoutNode[];
   updatedAt: string;
 };
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.R_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function layoutPathForWorkspace(workspace: ProjectWorkspace): string {
   return join(workspace.workspaceRoot, "desktop", "layout.json");
@@ -163,8 +153,15 @@ export async function validateDesktopLayout(workspace: ProjectWorkspace, manifes
   warnings: ValidationIssue[];
 }> {
   const path = layoutPathForWorkspace(workspace);
-  if (!(await exists(path))) {
-    return { errors: [], warnings: [] };
+  try {
+    if (!(await optionalStat(path))) {
+      return { errors: [], warnings: [] };
+    }
+  } catch (error) {
+    return {
+      errors: [issue("layout_read_failed", error instanceof Error ? error.message : String(error), "desktop/layout.json")],
+      warnings: []
+    };
   }
   let rawLayout: unknown;
   try {

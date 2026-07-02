@@ -1,6 +1,6 @@
-import { constants } from "node:fs";
-import { access, mkdir, rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { optionalStat } from "../fs/optionalFile.js";
 import { readProject, resolveProjectWorkspace } from "../project.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import type { ProjectWorkspace } from "../types.js";
@@ -12,15 +12,6 @@ import type {
   DesktopCanvasMapLayout,
   DesktopCanvasMapLayoutNode
 } from "./types.js";
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.R_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function canvasMapLayoutPath(workspace: ProjectWorkspace): string {
   return join(workspace.workspaceRoot, "desktop", "canvas-map-layout.json");
@@ -126,7 +117,7 @@ export async function getCanvasGraphViewModel(projectRoot: string): Promise<Desk
 export async function getCanvasMapLayout(projectRoot: string): Promise<DesktopCanvasMapLayout> {
   const { workspace, projectId, canvasIds } = await canvasIdsForProject(projectRoot);
   const path = canvasMapLayoutPath(workspace);
-  if (!(await exists(path))) {
+  if (!(await optionalStat(path))) {
     return defaultCanvasMapLayout(projectId, canvasIds);
   }
   return normalizeCanvasMapLayout(await readJsonFile<unknown>(path), projectId, canvasIds);

@@ -1,7 +1,7 @@
-import { access, realpath } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { basename, isAbsolute, join, relative } from "node:path";
-import { constants } from "node:fs";
 import { PlanWeaveWorkspaceNotInitializedError } from "./errors.js";
+import { optionalStat } from "./fs/optionalFile.js";
 import { createProjectId } from "./projectId.js";
 import { resolvePlanweaveHome } from "./paths.js";
 import { readJsonFile } from "./json.js";
@@ -90,13 +90,8 @@ async function workspaceFromRegisteredRoot(rootPath: string, planweaveHome: stri
     return null;
   }
   const projectFile = join(rootPath, "project.json");
-  try {
-    await access(projectFile, constants.R_OK);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return null;
-    }
-    throw error;
+  if (!(await optionalStat(projectFile))) {
+    return null;
   }
   const project = await readJsonFile<ProjectMetadata>(projectFile);
   if (project.id !== basename(rootPath)) {
@@ -133,9 +128,7 @@ export async function resolveProjectWorkspace(projectRoot: string): Promise<Proj
 
 export async function readProject(projectRoot: string): Promise<ProjectMetadata | null> {
   const workspace = await resolveProjectWorkspace(projectRoot);
-  try {
-    await access(workspace.projectFile, constants.R_OK);
-  } catch {
+  if (!(await optionalStat(workspace.projectFile))) {
     return null;
   }
   const project = await readJsonFile<ProjectMetadata>(workspace.projectFile);
@@ -144,9 +137,7 @@ export async function readProject(projectRoot: string): Promise<ProjectMetadata 
 
 export async function requireInitializedProjectWorkspace(projectRoot: string): Promise<ProjectWorkspace> {
   const workspace = await resolveProjectWorkspace(projectRoot);
-  try {
-    await access(workspace.projectFile, constants.R_OK);
-  } catch {
+  if (!(await optionalStat(workspace.projectFile))) {
     throw new PlanWeaveWorkspaceNotInitializedError(workspace);
   }
   return workspace;

@@ -1,6 +1,6 @@
-import { constants } from "node:fs";
-import { access, cp, mkdir, readdir, readFile, rename } from "node:fs/promises";
+import { cp, mkdir, readFile, rename } from "node:fs/promises";
 import { basename, dirname, extname, join, relative } from "node:path";
+import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import type { ProjectWorkspace, ValidationIssue } from "../types.js";
 import { normalizeRegistry } from "../desktop/canvasRegistry.js";
@@ -46,15 +46,6 @@ function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
 }
 
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function legacyDefaultCanvasWorkspacePaths(projectWorkspace: ProjectWorkspace): DefaultCanvasWorkspacePaths {
   return {
     workspaceRoot: projectWorkspace.workspaceRoot,
@@ -88,10 +79,13 @@ function isIgnoredPath(path: string): boolean {
 }
 
 async function collectDirectoryFiles(root: string, prefix: string, files: Map<string, string>): Promise<void> {
-  if (!(await exists(root))) {
+  if (!(await optionalStat(root))) {
     return;
   }
-  const entries = await readdir(root, { withFileTypes: true });
+  const entries = await optionalReaddir(root, { withFileTypes: true });
+  if (!entries) {
+    return;
+  }
   for (const entry of entries) {
     const absolutePath = join(root, entry.name);
     const relativePath = join(prefix, entry.name).split("\\").join("/");
@@ -124,7 +118,7 @@ async function normalizedFileContent(path: string): Promise<string> {
 async function collectSnapshot(paths: DefaultCanvasWorkspacePaths): Promise<WorkspaceSnapshot> {
   const files = new Map<string, string>();
   await collectDirectoryFiles(paths.packageDir, "package", files);
-  if ((await exists(paths.stateFile)) && !isIgnoredPath(basename(paths.stateFile))) {
+  if ((await optionalStat(paths.stateFile)) && !isIgnoredPath(basename(paths.stateFile))) {
     files.set("state.json", await normalizedFileContent(paths.stateFile));
   }
   await collectDirectoryFiles(paths.resultsDir, "results", files);
@@ -240,11 +234,11 @@ async function defaultCanvasTitle(paths: DefaultCanvasWorkspacePaths): Promise<s
 
 async function readProjectGraph(projectWorkspace: ProjectWorkspace, title: string): Promise<ProjectGraphManifest> {
   const path = projectGraphPath(projectWorkspace);
-  if (await exists(path)) {
+  if (await optionalStat(path)) {
     return projectGraphManifestSchema.parse(await readJsonFile<unknown>(path)) as ProjectGraphManifest;
   }
   const registryPath = join(projectWorkspace.workspaceRoot, "desktop", "canvases.json");
-  if (await exists(registryPath)) {
+  if (await optionalStat(registryPath)) {
     return projectGraphFromLegacyRegistry(normalizeRegistry(await readJsonFile<unknown>(registryPath)));
   }
   return {
@@ -274,7 +268,7 @@ async function writeCanonicalProjectGraph(projectWorkspace: ProjectWorkspace, ti
 }
 
 async function copyIfExists(from: string, to: string, options?: { recursive?: boolean }): Promise<void> {
-  if (!(await exists(from))) {
+  if (!(await optionalStat(from))) {
     return;
   }
   await mkdir(dirname(to), { recursive: true });
@@ -284,11 +278,11 @@ async function copyIfExists(from: string, to: string, options?: { recursive?: bo
 async function verifyCanonical(paths: DefaultCanvasWorkspacePaths): Promise<void> {
   const rawManifest = await readJsonFile<unknown>(join(paths.packageDir, "manifest.json"));
   manifestSchema.parse(rawManifest);
-  if (await exists(paths.stateFile)) {
+  if (await optionalStat(paths.stateFile)) {
     await readJsonFile<unknown>(paths.stateFile);
   }
-  if (await exists(paths.resultsDir)) {
-    await access(paths.resultsDir, constants.R_OK);
+  if (await optionalStat(paths.resultsDir)) {
+    await optionalReaddir(paths.resultsDir, { withFileTypes: true });
   }
 }
 
@@ -296,15 +290,15 @@ async function quarantineLegacyPaths(projectWorkspace: ProjectWorkspace, legacyP
   const quarantineRoot = join(projectWorkspace.workspaceRoot, "migration-quarantine", `default-canvas-root-${Date.now()}`);
   const backupPaths: Partial<DefaultCanvasWorkspacePaths> & { workspaceRoot?: string } = {};
   await mkdir(quarantineRoot, { recursive: true });
-  if (await exists(legacyPaths.packageDir)) {
+  if (await optionalStat(legacyPaths.packageDir)) {
     backupPaths.packageDir = join(quarantineRoot, "package");
     await rename(legacyPaths.packageDir, backupPaths.packageDir);
   }
-  if (await exists(legacyPaths.stateFile)) {
+  if (await optionalStat(legacyPaths.stateFile)) {
     backupPaths.stateFile = join(quarantineRoot, "state.json");
     await rename(legacyPaths.stateFile, backupPaths.stateFile);
   }
-  if (await exists(legacyPaths.resultsDir)) {
+  if (await optionalStat(legacyPaths.resultsDir)) {
     backupPaths.resultsDir = join(quarantineRoot, "results");
     await rename(legacyPaths.resultsDir, backupPaths.resultsDir);
   }

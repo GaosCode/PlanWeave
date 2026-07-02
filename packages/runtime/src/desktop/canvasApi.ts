@@ -1,8 +1,8 @@
-import { access, mkdir, rm } from "node:fs/promises";
-import { constants } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
+import { optionalStat } from "../fs/optionalFile.js";
 import { initialManifest } from "../initWorkspace.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolveProjectWorkspace } from "../project.js";
@@ -36,15 +36,6 @@ export type DesktopTaskCanvasWorkspace = {
   canvasName: string;
   workspace: ProjectWorkspace;
 };
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.R_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function registryPath(workspace: ProjectWorkspace): string {
   return join(workspace.workspaceRoot, "desktop", "canvases.json");
@@ -144,7 +135,7 @@ async function readRegistry(
 ): Promise<{ projectWorkspace: ProjectWorkspace; registry: TaskCanvasRegistry; diagnosticsByCanvasId: Map<string, ValidationIssue[]> }> {
   const projectWorkspace = await resolveProjectWorkspace(projectRoot);
   const path = registryPath(projectWorkspace);
-  if (!(await exists(path))) {
+  if (!(await optionalStat(path))) {
     if (options.createDefault === false) {
       return { projectWorkspace, registry: { version: registryVersion, canvases: [] }, diagnosticsByCanvasId: new Map() };
     }
@@ -319,8 +310,11 @@ export async function listTaskCanvases(projectRoot: string): Promise<DesktopTask
 export async function getActiveTaskCanvasId(projectRoot: string): Promise<string | null> {
   try {
     return (await readActiveTaskCanvasSelection(projectRoot)).activeCanvasId;
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof ZodError || (error instanceof Error && error.message === "Project has no task canvas.")) {
+      return null;
+    }
+    throw error;
   }
 }
 

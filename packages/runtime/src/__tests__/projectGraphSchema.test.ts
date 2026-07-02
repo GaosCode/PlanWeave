@@ -1,7 +1,7 @@
 import { join } from "node:path";
-import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTaskCanvas, listTaskCanvases, resolveTaskCanvasWorkspace } from "../desktop/index.js";
 import { writeJsonFile } from "../json.js";
 import { projectGraphManifestSchema } from "../projectGraph/schema.js";
@@ -10,9 +10,29 @@ import { materializeProjectGraph } from "../projectGraph/materializeProjectGraph
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 import { createEmptyState } from "../state.js";
 
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    stat: vi.fn(actual.stat)
+  };
+});
+
+let actualFs: typeof import("node:fs/promises");
+
+beforeEach(async () => {
+  actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  vi.mocked(stat).mockImplementation((path, options) => actualFs.stat(path, options));
+});
+
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
+  vi.restoreAllMocks();
 });
+
+function nodeIoError(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`${code} simulated`), { code });
+}
 
 describe("project graph schema", () => {
   it("parses the project-level canvas graph contract", () => {
@@ -121,6 +141,30 @@ describe("project graph schema", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-project-"));
 
     await expect(materializeProjectGraph(root)).rejects.toThrow("planweave init --project-graph --json");
+  });
+
+  it("does not report project metadata stat failures as uninitialized when materializing a project graph", async () => {
+    const { root, init } = await createTestWorkspace();
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === init.workspace.projectFile) {
+        throw nodeIoError("EACCES");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(materializeProjectGraph(root)).rejects.toMatchObject({ code: "EACCES" });
+  });
+
+  it("does not report project metadata I/O failures as uninitialized when materializing a project graph", async () => {
+    const { root, init } = await createTestWorkspace();
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === init.workspace.projectFile) {
+        throw nodeIoError("EIO");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(materializeProjectGraph(root)).rejects.toMatchObject({ code: "EIO" });
   });
 
   it("can reference a second canvas package from project-graph.json", async () => {

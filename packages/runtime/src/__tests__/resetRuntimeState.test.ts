@@ -1,6 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { claimBlock, claimNext } from "../taskManager/index.js";
 import { createRunSession, getRunSession, resetRuntimeState } from "../runSessions/index.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
@@ -9,7 +9,51 @@ import type { RuntimeState } from "../types.js";
 import { resolveProjectCanvasWorkspace, writeProjectGraph } from "../projectGraph/index.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    stat: vi.fn(actual.stat)
+  };
+});
+
+let actualFs: typeof import("node:fs/promises");
+
+beforeEach(async () => {
+  actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  vi.mocked(stat).mockImplementation((path, options) => actualFs.stat(path, options));
+});
+
+function nodeIoError(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`${code} simulated`), { code });
+}
+
 describe("resetRuntimeState", () => {
+  it("readState returns an empty state only when the state file is missing", async () => {
+    const { init } = await createTestWorkspace();
+
+    await expect(readState(join(init.workspace.workspaceRoot, "missing-state.json"))).resolves.toEqual({
+      currentRefs: [],
+      currentFeedbackId: null,
+      currentReviewBlockRef: null,
+      tasks: {},
+      blocks: {},
+      feedback: {}
+    });
+  });
+
+  it("readState surfaces non-missing state file I/O failures", async () => {
+    const { init } = await createTestWorkspace();
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === init.workspace.stateFile) {
+        throw nodeIoError("EIO");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(readState(init.workspace.stateFile)).rejects.toMatchObject({ code: "EIO" });
+  });
+
   it("refuses active work unless forced", async () => {
     const { root } = await createTestWorkspace();
     await claimBlock({ projectRoot: root, ref: "T-001#B-001" });

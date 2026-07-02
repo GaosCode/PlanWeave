@@ -1,6 +1,6 @@
-import { constants } from "node:fs";
-import { access, mkdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolveProjectWorkspace } from "../project.js";
 import { loadProjectGraph } from "../projectGraph/index.js";
@@ -12,15 +12,6 @@ const activeCanvasVersion = "desktop-active-canvas/v1" as const;
 export type ActiveTaskCanvasSelection = {
   activeCanvasId: string;
 };
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.R_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function registryPath(workspace: ProjectWorkspace): string {
   return join(workspace.workspaceRoot, "desktop", "canvases.json");
@@ -39,7 +30,7 @@ function selectedRegistryCanvasId(registry: TaskCanvasRegistry): string | null {
 
 async function readLegacyRegistry(workspace: ProjectWorkspace): Promise<TaskCanvasRegistry | null> {
   const path = registryPath(workspace);
-  if (!(await exists(path))) {
+  if (!(await optionalStat(path))) {
     return null;
   }
   return normalizeRegistry(await readJsonFile<unknown>(path));
@@ -47,7 +38,7 @@ async function readLegacyRegistry(workspace: ProjectWorkspace): Promise<TaskCanv
 
 async function readProjectGraphActiveCanvas(workspace: ProjectWorkspace, canvasIds: string[]): Promise<string | null> {
   const path = activeCanvasPath(workspace);
-  if (await exists(path)) {
+  if (await optionalStat(path)) {
     const raw = await readJsonFile<unknown>(path);
     if (raw && typeof raw === "object" && !Array.isArray(raw)) {
       const activeCanvasId = (raw as Record<string, unknown>).activeCanvasId;

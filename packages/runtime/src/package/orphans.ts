@@ -1,6 +1,5 @@
-import { access, readdir } from "node:fs/promises";
-import { constants } from "node:fs";
 import { join } from "node:path";
+import { optionalReaddir } from "../fs/optionalFile.js";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import type {
   OrphanResultSummary,
@@ -40,12 +39,10 @@ export async function findOrphanResults(
   manifest: PlanPackageManifest
 ): Promise<OrphanResultSummary[]> {
   const taskIds = manifestTaskIds(manifest);
-  try {
-    await access(workspace.resultsDir, constants.R_OK);
-  } catch {
+  const entries = await optionalReaddir(workspace.resultsDir, { withFileTypes: true });
+  if (!entries) {
     return [];
   }
-  const entries = await readdir(workspace.resultsDir, { withFileTypes: true });
   return entries
     .filter((entry) => entry.isDirectory() && !canvasResultDirectoryNames.has(entry.name) && !taskIds.has(entry.name))
     .map((entry) => ({ taskId: entry.name, path: join(workspace.resultsDir, entry.name) }));

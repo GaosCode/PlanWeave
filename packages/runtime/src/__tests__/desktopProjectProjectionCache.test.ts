@@ -265,7 +265,7 @@ describe("desktop project projection cache", () => {
   it("reports runtime input refresh stat errors after an initial successful fingerprint", async () => {
     const { root, init } = await createTestWorkspace();
     fsMockState.statErrorPath = init.workspace.stateFile;
-    fsMockState.statErrorAfterMatches = 1;
+    fsMockState.statErrorAfterMatches = 2;
 
     const snapshot = await getDesktopProjectSnapshot({ projectRoot: root, canvasId: null });
 

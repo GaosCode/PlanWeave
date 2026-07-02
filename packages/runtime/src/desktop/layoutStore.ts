@@ -1,21 +1,12 @@
-import { access, mkdir, rm } from "node:fs/promises";
-import { constants } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { PackageWorkspaceRef, PlanPackageManifest, ProjectWorkspace } from "../types.js";
 import type { PlanGraphLayoutStore } from "../plangraph/ports.js";
 import type { DesktopLayout, DesktopLayoutNode } from "./types.js";
 import { readActiveTaskCanvasSelection, writeActiveTaskCanvasSelection } from "./canvasSelectionStore.js";
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.R_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export function defaultDesktopLayout(projectId: string): DesktopLayout {
   return {
@@ -120,7 +111,7 @@ export async function getDesktopLayoutDirect(projectRoot: PackageWorkspaceRef): 
 
 export async function getDesktopLayoutForPackage(workspace: ProjectWorkspace, manifest: PlanPackageManifest): Promise<DesktopLayout> {
   const path = layoutPathForWorkspace(workspace);
-  if (!(await exists(path))) {
+  if (!(await optionalStat(path))) {
     return defaultDesktopLayout(workspace.id);
   }
   return filterLayoutNodes(normalizeLayout(await readJsonFile<unknown>(path), workspace.id), manifest);

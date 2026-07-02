@@ -1,6 +1,5 @@
-import { access } from "node:fs/promises";
-import { constants } from "node:fs";
 import { join } from "node:path";
+import { optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { projectWorkspacePaths, resolveProjectWorkspace } from "../project.js";
 import type { ProjectWorkspace, ValidationIssue } from "../types.js";
@@ -13,16 +12,6 @@ const defaultCanvasId = "default";
 
 function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
-}
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.R_OK);
-    return true;
-  } catch (error) {
-    void error;
-    return false;
-  }
 }
 
 export function projectGraphPath(workspace: ProjectWorkspace): string {
@@ -70,7 +59,7 @@ async function legacyProjectGraph(workspace: ProjectWorkspace): Promise<ProjectG
 export async function loadProjectGraphForWorkspace(workspaceRef: ProjectWorkspace): Promise<LoadedProjectGraph> {
   const workspace = projectGraphWorkspace(workspaceRef);
   const path = projectGraphPath(workspace);
-  if (await exists(path)) {
+  if (await optionalStat(path)) {
     return {
       workspace,
       manifest: projectGraphManifestSchema.parse(await readJsonFile<unknown>(path)) as ProjectGraphManifest,
@@ -79,7 +68,7 @@ export async function loadProjectGraphForWorkspace(workspaceRef: ProjectWorkspac
     };
   }
   const registryFile = join(workspace.workspaceRoot, "desktop", "canvases.json");
-  if (await exists(registryFile)) {
+  if (await optionalStat(registryFile)) {
     return {
       workspace,
       manifest: await legacyProjectGraph(workspace),

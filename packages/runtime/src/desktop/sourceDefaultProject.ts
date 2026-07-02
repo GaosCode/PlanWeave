@@ -1,6 +1,6 @@
-import { access, readdir, realpath, stat } from "node:fs/promises";
-import { constants } from "node:fs";
+import { realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { isNodeFileNotFoundError, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
 import { normalizeProjectMetadata } from "../project.js";
@@ -32,18 +32,9 @@ function sourceDefaultProjectFilePath(): string {
   return join(resolvePlanweaveHome(), "source-defaults.json");
 }
 
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.R_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function readSourceDefaultProjectFile(): Promise<SourceDefaultProjectFile> {
   const path = sourceDefaultProjectFilePath();
-  if (!(await exists(path))) {
+  if (!(await optionalStat(path))) {
     return { version: sourceDefaultProjectVersion, defaults: {} };
   }
   const parsed = await readJsonFile<Partial<SourceDefaultProjectFile>>(path);
@@ -64,7 +55,7 @@ async function registeredProject(projectId: string): Promise<{ project: ProjectM
   const planweaveHome = resolvePlanweaveHome();
   const workspaceRoot = join(planweaveHome, "projects", projectId);
   const projectFile = join(workspaceRoot, "project.json");
-  if (!(await exists(projectFile))) {
+  if (!(await optionalStat(projectFile))) {
     return null;
   }
   const project = normalizeProjectMetadata(await readJsonFile<ProjectMetadata>(projectFile), {
@@ -77,10 +68,8 @@ async function registeredProject(projectId: string): Promise<{ project: ProjectM
 async function registeredProjects(): Promise<Array<{ project: ProjectMetadata; workspaceRoot: string }>> {
   const planweaveHome = resolvePlanweaveHome();
   const projectsRoot = join(planweaveHome, "projects");
-  let entries;
-  try {
-    entries = await readdir(projectsRoot, { withFileTypes: true });
-  } catch {
+  const entries = await optionalReaddir(projectsRoot, { withFileTypes: true });
+  if (!entries) {
     return [];
   }
   const projects = await Promise.all(
@@ -156,8 +145,11 @@ export async function listSourceDefaultProjectCandidates(sourceRoot: string): Pr
     let projectSourceRoot: string;
     try {
       projectSourceRoot = await realpath(registered.project.sourceRoot);
-    } catch {
-      continue;
+    } catch (error) {
+      if (isNodeFileNotFoundError(error)) {
+        continue;
+      }
+      throw error;
     }
     if (projectSourceRoot !== resolvedSourceRoot) {
       continue;

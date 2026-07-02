@@ -1,12 +1,38 @@
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/index.js";
 import { writeJsonFile } from "../json.js";
 import { canonicalProjectCanvasNode, projectGraphPath, writeProjectGraph } from "../projectGraph/index.js";
 import { createEmptyState } from "../state.js";
 import { validatePackage } from "../validatePackage.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    readdir: vi.fn(actual.readdir),
+    stat: vi.fn(actual.stat)
+  };
+});
+
+let actualFs: typeof import("node:fs/promises");
+
+beforeEach(async () => {
+  actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  vi.mocked(readdir).mockImplementation((path, options) => actualFs.readdir(path, options));
+  vi.mocked(stat).mockImplementation((path, options) => actualFs.stat(path, options));
+});
+
+afterEach(() => {
+  delete process.env.PLANWEAVE_HOME;
+  vi.restoreAllMocks();
+});
+
+function nodeIoError(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`${code} simulated`), { code });
+}
 
 describe("validatePackage", () => {
   it("accepts a complete v1 block-level package", async () => {
@@ -57,6 +83,101 @@ describe("validatePackage", () => {
         expect.objectContaining({
           code: "prompt_missing",
           path: expect.stringContaining(`canvases/${canvas.canvasId}/package/nodes/T-001/blocks/B-001.prompt.md`)
+        })
+      ])
+    );
+  });
+
+  it("reports workspace stat failures as workspace_read_failed instead of workspace_missing", async () => {
+    const { root, init } = await createTestWorkspace();
+    const workspaceRoot = join(init.workspace.workspaceRoot, "canvases", "default");
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === workspaceRoot) {
+        throw nodeIoError("EACCES");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "workspace_read_failed",
+          path: "canvases/default"
+        })
+      ])
+    );
+    expect(report.errors.map((error) => error.code)).not.toContain("workspace_missing");
+  });
+
+  it("reports manifest stat failures as manifest_read_failed instead of manifest_missing", async () => {
+    const { root, init } = await createTestWorkspace();
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === init.workspace.manifestFile) {
+        throw nodeIoError("EIO");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "manifest_read_failed",
+          path: "canvases/default/package/manifest.json"
+        })
+      ])
+    );
+    expect(report.errors.map((error) => error.code)).not.toContain("manifest_missing");
+  });
+
+  it("reports runtime state stat failures as state_read_failed", async () => {
+    const { root, init } = await createTestWorkspace();
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === init.workspace.stateFile) {
+        throw nodeIoError("EACCES");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "state_read_failed",
+          path: "canvases/default/state.json"
+        })
+      ])
+    );
+  });
+
+  it("reports result directory read failures as results_read_failed", async () => {
+    const { root, init } = await createTestWorkspace();
+    let resultsDirReads = 0;
+    vi.mocked(readdir).mockImplementation((path, options) => {
+      if (path === init.workspace.resultsDir) {
+        resultsDirReads += 1;
+        if (resultsDirReads > 1) {
+          throw nodeIoError("EIO");
+        }
+      }
+      return actualFs.readdir(path, options);
+    });
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "results_read_failed",
+          path: "canvases/default/results"
         })
       ])
     );

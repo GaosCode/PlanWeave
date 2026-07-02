@@ -1,26 +1,23 @@
-import { access } from "node:fs/promises";
-import { constants } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { ZodError } from "zod";
+import { optionalStat } from "./fs/optionalFile.js";
 import { compilePackageGraph } from "./graph/compileTaskGraph.js";
 import { readJsonFile } from "./json.js";
 import { findOrphanResults, findOrphanState } from "./package/orphans.js";
 import { resolveProjectWorkspace } from "./project.js";
-import { compileProjectGraph, detectDefaultCanvasWorkspaceMigration, loadProjectGraph, projectCanvasWorkspace } from "./projectGraph/index.js";
+import {
+  canonicalDefaultCanvasWorkspacePaths,
+  compileProjectGraph,
+  detectDefaultCanvasWorkspaceMigration,
+  legacyDefaultCanvasWorkspacePaths,
+  loadProjectGraph,
+  projectCanvasWorkspace
+} from "./projectGraph/index.js";
 import { manifestSchema } from "./schema/manifest.js";
 import { readState } from "./state.js";
 import type { PlanPackageManifest, ProjectWorkspace, ValidationIssue, ValidationReport } from "./types.js";
 import { validateDesktopLayout } from "./validation/desktopLayoutValidation.js";
 import type { LoadedProjectGraph } from "./projectGraph/index.js";
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.R_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
@@ -152,12 +149,22 @@ async function validateWorkspacePackage(projectWorkspace: ProjectWorkspace, work
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
 
-  if (!(await exists(workspace.workspaceRoot))) {
-    errors.push(issue("workspace_missing", "PlanWeave workspace does not exist.", workspaceRelative(projectWorkspace, workspace.workspaceRoot)));
+  try {
+    if (!(await optionalStat(workspace.workspaceRoot))) {
+      errors.push(issue("workspace_missing", "PlanWeave workspace does not exist.", workspaceRelative(projectWorkspace, workspace.workspaceRoot)));
+      return { errors, warnings };
+    }
+  } catch (error) {
+    errors.push(issue("workspace_read_failed", error instanceof Error ? error.message : String(error), workspaceRelative(projectWorkspace, workspace.workspaceRoot)));
     return { errors, warnings };
   }
-  if (!(await exists(workspace.manifestFile))) {
-    errors.push(issue("manifest_missing", "package/manifest.json does not exist.", workspaceRelative(projectWorkspace, workspace.manifestFile)));
+  try {
+    if (!(await optionalStat(workspace.manifestFile))) {
+      errors.push(issue("manifest_missing", "package/manifest.json does not exist.", workspaceRelative(projectWorkspace, workspace.manifestFile)));
+      return { errors, warnings };
+    }
+  } catch (error) {
+    errors.push(issue("manifest_read_failed", error instanceof Error ? error.message : String(error), workspaceRelative(projectWorkspace, workspace.manifestFile)));
     return { errors, warnings };
   }
 
@@ -183,12 +190,20 @@ async function validateWorkspacePackage(projectWorkspace: ProjectWorkspace, work
   errors.push(...layoutReport.errors.map((item) => prefixIssue(projectWorkspace, workspace, manifest, item)));
   warnings.push(...layoutReport.warnings.map((item) => prefixIssue(projectWorkspace, workspace, manifest, item)));
 
-  const rawState = await readState(workspace.stateFile);
-  for (const orphan of findOrphanState(manifest, rawState)) {
-    warnings.push(issue("orphan_state", `Runtime state exists outside the current manifest.`, orphan.taskId ?? orphan.ref));
+  try {
+    const rawState = await readState(workspace.stateFile);
+    for (const orphan of findOrphanState(manifest, rawState)) {
+      warnings.push(issue("orphan_state", `Runtime state exists outside the current manifest.`, orphan.taskId ?? orphan.ref));
+    }
+  } catch (error) {
+    errors.push(issue("state_read_failed", error instanceof Error ? error.message : String(error), workspaceRelative(projectWorkspace, workspace.stateFile)));
   }
-  for (const orphan of await findOrphanResults(workspace, manifest)) {
-    warnings.push(issue("orphan_result", `Results exist for task '${orphan.taskId}' outside the current manifest.`, orphan.path));
+  try {
+    for (const orphan of await findOrphanResults(workspace, manifest)) {
+      warnings.push(issue("orphan_result", `Results exist for task '${orphan.taskId}' outside the current manifest.`, orphan.path));
+    }
+  } catch (error) {
+    errors.push(issue("results_read_failed", error instanceof Error ? error.message : String(error), workspaceRelative(projectWorkspace, workspace.resultsDir)));
   }
 
   return { errors, warnings };
@@ -198,7 +213,21 @@ export async function validatePackage(options: { projectRoot: string }): Promise
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
   const workspace = await resolveProjectWorkspace(options.projectRoot);
-  const migrationPlan = await detectDefaultCanvasWorkspaceMigration(workspace);
+  let migrationPlan: Awaited<ReturnType<typeof detectDefaultCanvasWorkspaceMigration>>;
+  try {
+    migrationPlan = await detectDefaultCanvasWorkspaceMigration(workspace);
+  } catch (error) {
+    errors.push(issue("default_canvas_migration_read_failed", error instanceof Error ? error.message : String(error), "."));
+    migrationPlan = {
+      action: "none",
+      reason: "Default canvas migration state could not be inspected.",
+      legacyPaths: legacyDefaultCanvasWorkspacePaths(workspace),
+      canonicalPaths: canonicalDefaultCanvasWorkspacePaths(workspace),
+      legacyFiles: [],
+      canonicalFiles: [],
+      diagnostics: []
+    };
+  }
   if (migrationPlan.action === "conflict") {
     errors.push(...migrationPlan.diagnostics);
   }

@@ -1,8 +1,7 @@
-import { constants } from "node:fs";
-import { access } from "node:fs/promises";
 import { loadProjectGraph } from "./loadProjectGraph.js";
 import { projectGraphPath, writeProjectGraph } from "./loadProjectGraph.js";
-import { resolveProjectWorkspace } from "../project.js";
+import { PlanWeaveWorkspaceNotInitializedError } from "../errors.js";
+import { requireInitializedProjectWorkspace } from "../project.js";
 import { detectDefaultCanvasWorkspaceMigration } from "./defaultCanvasWorkspaceMigration.js";
 import type { ProjectGraphSource } from "./types.js";
 
@@ -13,18 +12,19 @@ export type MaterializeProjectGraphResult = {
   canvasCount: number;
 };
 
-async function assertInitializedWorkspace(projectRoot: string) {
-  const workspace = await resolveProjectWorkspace(projectRoot);
+async function requireMaterializeProjectWorkspace(projectRoot: string) {
   try {
-    await access(workspace.projectFile, constants.R_OK);
-  } catch {
-    throw new Error(`PlanWeave workspace has not been initialized. Run 'planweave init --project-graph --json' first.`);
+    return await requireInitializedProjectWorkspace(projectRoot);
+  } catch (error) {
+    if (error instanceof PlanWeaveWorkspaceNotInitializedError) {
+      throw new Error(`PlanWeave workspace has not been initialized. Run 'planweave init --project-graph --json' first.`);
+    }
+    throw error;
   }
-  return workspace;
 }
 
 export async function materializeProjectGraph(projectRoot: string): Promise<MaterializeProjectGraphResult> {
-  const workspace = await assertInitializedWorkspace(projectRoot);
+  const workspace = await requireMaterializeProjectWorkspace(projectRoot);
   const loaded = await loadProjectGraph(projectRoot);
   const path = projectGraphPath(loaded.workspace);
   if (loaded.source === "project_graph") {

@@ -1,6 +1,6 @@
-import { access, mkdir, readFile, rm } from "node:fs/promises";
+import { access, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTaskCanvas } from "../desktop/index.js";
 import { writeJsonFile } from "../json.js";
 import {
@@ -19,8 +19,24 @@ import { createEmptyState } from "../state.js";
 import type { PlanPackageManifest } from "../types.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    stat: vi.fn(actual.stat)
+  };
+});
+
+let actualFs: typeof import("node:fs/promises");
+
+beforeEach(async () => {
+  actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  vi.mocked(stat).mockImplementation((path, options) => actualFs.stat(path, options));
+});
+
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
+  vi.restoreAllMocks();
 });
 
 function projectGraph() {
@@ -37,6 +53,14 @@ function projectGraph() {
 
 function codes(graph: Awaited<ReturnType<typeof compileProjectGraph>>): string[] {
   return graph.diagnostics.errors.map((error) => error.code);
+}
+
+function nodeIoError(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`${code} simulated`), { code });
+}
+
+function pathEndsWith(path: string | Buffer | URL, suffix: string): boolean {
+  return String(path).split("\\").join("/").endsWith(suffix);
 }
 
 async function createTwoCanvasProject(manifest = projectGraph()) {
@@ -282,6 +306,53 @@ describe("project graph loader", () => {
     });
   });
 
+  it("does not treat legacy default package stat failures as no migration data", async () => {
+    const { init } = await createTestWorkspace();
+    await rm(projectGraphPath(init.workspace));
+    await rm(join(init.workspace.workspaceRoot, "canvases"), { recursive: true, force: true });
+    await writeLegacyRootDefaultCanvas(init.workspace.workspaceRoot, basicManifest());
+    const legacyPackageDir = join(init.workspace.workspaceRoot, "package");
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === legacyPackageDir) {
+        throw nodeIoError("EACCES");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(detectDefaultCanvasWorkspaceMigration(init.workspace)).rejects.toMatchObject({ code: "EACCES" });
+  });
+
+  it("does not treat legacy default state stat failures as missing state data", async () => {
+    const { init } = await createTestWorkspace();
+    await rm(projectGraphPath(init.workspace));
+    await rm(join(init.workspace.workspaceRoot, "canvases"), { recursive: true, force: true });
+    await writeLegacyRootDefaultCanvas(init.workspace.workspaceRoot, basicManifest());
+    const legacyStateFile = join(init.workspace.workspaceRoot, "state.json");
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === legacyStateFile) {
+        throw nodeIoError("EIO");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(detectDefaultCanvasWorkspaceMigration(init.workspace)).rejects.toMatchObject({ code: "EIO" });
+  });
+
+  it("does not treat project graph stat failures as missing during default canvas migration", async () => {
+    const { init } = await createTestWorkspace();
+    await rm(join(init.workspace.workspaceRoot, "canvases"), { recursive: true, force: true });
+    await writeLegacyRootDefaultCanvas(init.workspace.workspaceRoot, basicManifest());
+    const path = projectGraphPath(init.workspace);
+    vi.mocked(stat).mockImplementation((candidate, options) => {
+      if (candidate === path) {
+        throw nodeIoError("EPERM");
+      }
+      return actualFs.stat(candidate, options);
+    });
+
+    await expect(applyDefaultCanvasWorkspaceMigration(init.workspace)).rejects.toMatchObject({ code: "EPERM" });
+  });
+
   it("explicitly migrates legacy root default canvas data and quarantines root files", async () => {
     const { init } = await createTestWorkspace();
     const manifest = basicManifest({ includeSecondTask: true });
@@ -424,6 +495,31 @@ describe("project graph loader", () => {
     await writeJsonFile(projectGraphPath(init.workspace), { version: "plan-project/v1", canvases: [] });
 
     await expect(loadProjectGraph(root)).rejects.toThrow();
+  });
+
+  it("does not fall back to legacy graph when project-graph.json stat fails with EACCES", async () => {
+    const { root } = await createTestWorkspace();
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (pathEndsWith(path, "project-graph.json")) {
+        throw nodeIoError("EACCES");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(loadProjectGraph(root)).rejects.toMatchObject({ code: "EACCES" });
+  });
+
+  it("does not fall back to default graph when project-graph.json stat fails with EPERM", async () => {
+    const { root, init } = await createTestWorkspace();
+    await rm(join(init.workspace.workspaceRoot, "desktop", "canvases.json"), { force: true });
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (pathEndsWith(path, "project-graph.json")) {
+        throw nodeIoError("EPERM");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(loadProjectGraph(root)).rejects.toMatchObject({ code: "EPERM" });
   });
 });
 

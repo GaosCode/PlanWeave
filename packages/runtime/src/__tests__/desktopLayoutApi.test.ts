@@ -1,14 +1,35 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDesktopLayout, resetDesktopLayout, resolveTaskCanvasWorkspace, saveDesktopLayout } from "../desktop/index.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import type { PlanPackageManifest } from "../types.js";
 import { validatePackage } from "../validatePackage.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    stat: vi.fn(actual.stat)
+  };
+});
+
+let actualFs: typeof import("node:fs/promises");
+
+beforeEach(async () => {
+  actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  vi.mocked(stat).mockImplementation((path, options) => actualFs.stat(path, options));
+});
+
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
+  vi.restoreAllMocks();
 });
+
+function nodeIoError(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`${code} simulated`), { code });
+}
 
 describe("desktop layout API", () => {
   async function writeDefaultCanvasLayout(root: string, value: unknown): Promise<void> {
@@ -95,6 +116,55 @@ describe("desktop layout API", () => {
         expect.objectContaining({
           code: "stale_layout_reference",
           path: "canvases/default/desktop/layout.json:T-STALE"
+        })
+      ])
+    );
+  });
+
+  it("does not return default layout when the layout file stat fails with EACCES", async () => {
+    const { root } = await createTestWorkspace();
+    const workspace = await resolveTaskCanvasWorkspace(root, "default");
+    await writeDefaultCanvasLayout(root, {
+      version: "desktop-layout/v1",
+      projectId: workspace.id,
+      nodes: [{ nodeId: "T-001", x: 120, y: 240 }],
+      updatedAt: new Date(0).toISOString()
+    });
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === join(workspace.workspaceRoot, "desktop", "layout.json")) {
+        throw nodeIoError("EACCES");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(getDesktopLayout(root)).rejects.toMatchObject({ code: "EACCES" });
+  });
+
+  it("reports layout_read_failed during validation when the layout file stat fails with EPERM", async () => {
+    const { root } = await createTestWorkspace();
+    const workspace = await resolveTaskCanvasWorkspace(root, "default");
+    await writeDefaultCanvasLayout(root, {
+      version: "desktop-layout/v1",
+      projectId: workspace.id,
+      nodes: [{ nodeId: "T-001", x: 120, y: 240 }],
+      updatedAt: new Date(0).toISOString()
+    });
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === join(workspace.workspaceRoot, "desktop", "layout.json")) {
+        throw nodeIoError("EPERM");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "layout_read_failed",
+          message: expect.stringContaining("EPERM"),
+          path: "canvases/default/desktop/layout.json"
         })
       ])
     );

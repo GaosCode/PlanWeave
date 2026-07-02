@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createTaskCanvas,
   getCanvasGraphViewModel,
@@ -11,9 +13,29 @@ import { writeJsonFile } from "../json.js";
 import { canonicalProjectCanvasNode, writeProjectGraph } from "../projectGraph/index.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    stat: vi.fn(actual.stat)
+  };
+});
+
+let actualFs: typeof import("node:fs/promises");
+
+beforeEach(async () => {
+  actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  vi.mocked(stat).mockImplementation((path, options) => actualFs.stat(path, options));
+});
+
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
+  vi.restoreAllMocks();
 });
+
+function nodeIoError(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`${code} simulated`), { code });
+}
 
 describe("desktop canvas graph API", () => {
   it("projects project-graph.json into a desktop canvas map view model", async () => {
@@ -204,5 +226,18 @@ describe("desktop canvas graph API", () => {
 
     const reset = await resetCanvasMapLayout(root);
     expect(reset.nodes.map((node) => node.canvasId)).toEqual(["default", secondCanvas.canvasId]);
+  });
+
+  it("does not fall back to the default canvas map layout when layout stat fails with EACCES", async () => {
+    const { root, init } = await createTestWorkspace();
+    const layoutPath = join(init.workspace.workspaceRoot, "desktop", "canvas-map-layout.json");
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === layoutPath) {
+        throw nodeIoError("EACCES");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(getCanvasMapLayout(root)).rejects.toMatchObject({ code: "EACCES" });
   });
 });

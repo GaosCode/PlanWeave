@@ -1,6 +1,6 @@
-import { access, chmod, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addTaskNode,
   createTaskCanvas,
@@ -24,9 +24,29 @@ import { canonicalProjectCanvasNode, loadProjectGraph, projectGraphPath, writePr
 import { claimNext, getCurrentWork, getExecutionStatus } from "../taskManager/index.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    stat: vi.fn(actual.stat)
+  };
+});
+
+let actualFs: typeof import("node:fs/promises");
+
+beforeEach(async () => {
+  actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  vi.mocked(stat).mockImplementation((path, options) => actualFs.stat(path, options));
+});
+
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
+  vi.restoreAllMocks();
 });
+
+function nodeIoError(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`${code} simulated`), { code });
+}
 
 describe("desktop task canvas API", () => {
   it("stages canvas workspace writes before committing to the final canvas directory", async () => {
@@ -286,6 +306,35 @@ describe("desktop task canvas API", () => {
     expect(status.nextClaimable).toEqual(["T-ACTIVE-CANVAS-WORK#B-001"]);
     expect(claim).toMatchObject({ kind: "block", ref: "T-ACTIVE-CANVAS-WORK#B-001" });
     expect(current.owner).toMatchObject({ canvasId: secondCanvas.canvasId, taskIds: ["T-ACTIVE-CANVAS-WORK"] });
+  });
+
+  it("does not fall back to the first formal canvas when active canvas stat fails with EACCES", async () => {
+    const { root, init } = await createTestWorkspace();
+    const secondCanvas = await createTaskCanvas(root, { name: "Active plan" });
+    await selectTaskCanvas(root, secondCanvas.canvasId);
+    const activeCanvasPath = join(init.workspace.workspaceRoot, "desktop", "active-canvas.json");
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === activeCanvasPath) {
+        throw nodeIoError("EACCES");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(getProjectOverview(root)).rejects.toMatchObject({ code: "EACCES" });
+  });
+
+  it("does not report a legacy canvas registry I/O failure as no active canvas", async () => {
+    const { root, init } = await createTestWorkspace();
+    await rm(projectGraphPath(init.workspace));
+    const registryPath = join(init.workspace.workspaceRoot, "desktop", "canvases.json");
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === registryPath) {
+        throw nodeIoError("EIO");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(getProjectOverview(root)).rejects.toMatchObject({ code: "EIO" });
   });
 
   it("updates formal project graph canvases instead of the legacy registry", async () => {

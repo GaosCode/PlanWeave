@@ -1,6 +1,6 @@
-import { access, readdir, realpath, rm, stat } from "node:fs/promises";
-import { constants } from "node:fs";
+import { realpath, rm, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { initManagedWorkspace, initWorkspace } from "../initWorkspace.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
@@ -12,12 +12,7 @@ import { getActiveTaskCanvasId, listTaskCanvases } from "./canvasApi.js";
 import { readActiveTaskCanvasSelection, writeActiveTaskCanvasSelection } from "./canvasSelectionStore.js";
 
 async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.R_OK);
-    return true;
-  } catch {
-    return false;
-  }
+  return (await optionalStat(path)) !== null;
 }
 
 async function projectSummary(project: ProjectMetadata, workspaceRoot: string): Promise<DesktopProjectSummary> {
@@ -68,7 +63,7 @@ async function readRegisteredProject(projectId: string): Promise<{ project: Proj
   const planweaveHome = resolvePlanweaveHome();
   const workspaceRoot = join(planweaveHome, "projects", projectId);
   const projectFile = join(workspaceRoot, "project.json");
-  if (!(await exists(projectFile))) {
+  if (!(await optionalStat(projectFile))) {
     return null;
   }
   const project = normalizeProjectMetadata(await readJsonFile<ProjectMetadata>(projectFile), {
@@ -83,31 +78,26 @@ async function readProjectById(projectId: string): Promise<DesktopProjectSummary
   if (!entry) {
     return null;
   }
-  try {
-    if (!(await exists(entry.project.rootPath))) {
-      return null;
-    }
-    return await projectSummary(entry.project, entry.workspaceRoot);
-  } catch {
+  if (!(await optionalStat(entry.project.rootPath))) {
     return null;
   }
+  return projectSummary(entry.project, entry.workspaceRoot);
 }
 
 export async function listProjects(): Promise<DesktopProjectSummary[]> {
   const projectsRoot = join(resolvePlanweaveHome(), "projects");
-  try {
-    const entries = await readdir(projectsRoot, { withFileTypes: true });
-    const projects = await Promise.all(
-      entries
-        .filter((entry) => entry.isDirectory())
-        .map(async (entry) => readProjectById(entry.name))
-    );
-    return projects.filter((project): project is DesktopProjectSummary => project !== null).sort((left, right) => {
-      return left.name.localeCompare(right.name) || left.projectId.localeCompare(right.projectId);
-    });
-  } catch {
+  const entries = await optionalReaddir(projectsRoot, { withFileTypes: true });
+  if (!entries) {
     return [];
   }
+  const projects = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => readProjectById(entry.name))
+  );
+  return projects.filter((project): project is DesktopProjectSummary => project !== null).sort((left, right) => {
+    return left.name.localeCompare(right.name) || left.projectId.localeCompare(right.projectId);
+  });
 }
 
 export async function removeProject(projectId: string): Promise<void> {

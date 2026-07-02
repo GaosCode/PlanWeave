@@ -1,7 +1,7 @@
-import { access, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearSourceDefaultProject,
   createTaskCanvas,
@@ -24,9 +24,35 @@ import { loadProjectGraph, projectGraphPath } from "../projectGraph/index.js";
 import { createEmptyState } from "../state.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    readFile: vi.fn(actual.readFile),
+    readdir: vi.fn(actual.readdir),
+    realpath: vi.fn(actual.realpath),
+    stat: vi.fn(actual.stat)
+  };
+});
+
+let actualFs: typeof import("node:fs/promises");
+
+beforeEach(async () => {
+  actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  vi.mocked(readFile).mockImplementation((path, options) => actualFs.readFile(path, options));
+  vi.mocked(readdir).mockImplementation((path, options) => actualFs.readdir(path, options));
+  vi.mocked(realpath).mockImplementation((path, options) => actualFs.realpath(path, options));
+  vi.mocked(stat).mockImplementation((path, options) => actualFs.stat(path, options));
+});
+
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
+  vi.restoreAllMocks();
 });
+
+function nodeIoError(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`${code} simulated`), { code });
+}
 
 describe("desktop project API", () => {
   it("lists projects from the PlanWeave home registry", async () => {
@@ -39,6 +65,30 @@ describe("desktop project API", () => {
         rootPath: init.workspace.rootPath
       })
     ]);
+  });
+
+  it("does not return an empty project list when project metadata stat fails with EACCES", async () => {
+    const { init } = await createTestWorkspace();
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === init.workspace.projectFile) {
+        throw nodeIoError("EACCES");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(listProjects()).rejects.toMatchObject({ code: "EACCES" });
+  });
+
+  it("does not return an empty project list when project metadata read fails with EIO", async () => {
+    const { init } = await createTestWorkspace();
+    vi.mocked(readFile).mockImplementation((path, options) => {
+      if (path === init.workspace.projectFile) {
+        throw nodeIoError("EIO");
+      }
+      return actualFs.readFile(path, options);
+    });
+
+    await expect(listProjects()).rejects.toMatchObject({ code: "EIO" });
   });
 
   it("lists managed projects without requiring an external source root", async () => {
@@ -82,6 +132,30 @@ describe("desktop project API", () => {
       source: "project_graph",
       diagnostics: []
     });
+  });
+
+  it("does not reinitialize a project when project metadata stat fails with EACCES", async () => {
+    const { root, init } = await createTestWorkspace();
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === init.workspace.projectFile) {
+        throw nodeIoError("EACCES");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(initOrOpenProject(root)).rejects.toMatchObject({ code: "EACCES" });
+  });
+
+  it("does not report a registered project as missing when project metadata stat fails with EPERM", async () => {
+    const { init } = await createTestWorkspace();
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === init.workspace.projectFile) {
+        throw nodeIoError("EPERM");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(openProject({ projectId: init.workspace.id })).rejects.toMatchObject({ code: "EPERM" });
   });
 
   it("materializes missing formal project graphs when opening existing legacy projects", async () => {
@@ -216,6 +290,40 @@ describe("desktop project API", () => {
     await expect(getSourceDefaultProject(sourceRoot)).resolves.toBeNull();
   });
 
+  it("does not treat source defaults stat failures as empty defaults", async () => {
+    const { home: testHome } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-source-"));
+    const defaultsPath = join(resolvePlanweaveHome(), "source-defaults.json");
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === defaultsPath) {
+        throw nodeIoError("EACCES");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(getSourceDefaultProject(sourceRoot)).rejects.toMatchObject({ code: "EACCES" });
+  });
+
+  it("does not treat source defaults read failures as empty defaults", async () => {
+    const { home: testHome } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-source-"));
+    const defaultsPath = join(resolvePlanweaveHome(), "source-defaults.json");
+    await writeJsonFile(defaultsPath, {
+      version: "planweave-source-defaults/v1",
+      defaults: {}
+    });
+    vi.mocked(readFile).mockImplementation((path, options) => {
+      if (path === defaultsPath) {
+        throw nodeIoError("EIO");
+      }
+      return actualFs.readFile(path, options);
+    });
+
+    await expect(getSourceDefaultProject(sourceRoot)).rejects.toMatchObject({ code: "EIO" });
+  });
+
   it("lists all PlanWeave projects linked to a source root", async () => {
     const { home: testHome, init, root } = await createTestWorkspace();
     process.env.PLANWEAVE_HOME = testHome;
@@ -238,6 +346,58 @@ describe("desktop project API", () => {
         })
       ])
     );
+  });
+
+  it("does not treat projects root read failures as no source default candidates", async () => {
+    const { home: testHome, root } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const projectsRoot = join(resolvePlanweaveHome(), "projects");
+    vi.mocked(readdir).mockImplementation((path, options) => {
+      if (path === projectsRoot) {
+        throw nodeIoError("EIO");
+      }
+      return actualFs.readdir(path, options);
+    });
+
+    await expect(listSourceDefaultProjectCandidates(root)).rejects.toMatchObject({ code: "EIO" });
+  });
+
+  it("does not report source default project metadata stat failures as a missing project", async () => {
+    const { home: testHome } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-source-"));
+    const project = await initManagedProject("Managed Source Metadata Error");
+    await linkProjectSourceRoot(project.projectId, sourceRoot);
+    const projectFile = join(project.workspaceRoot, "project.json");
+    vi.mocked(stat).mockImplementation((path, options) => {
+      if (path === projectFile) {
+        throw nodeIoError("EPERM");
+      }
+      return actualFs.stat(path, options);
+    });
+
+    await expect(setSourceDefaultProject(sourceRoot, project.projectId)).rejects.toMatchObject({ code: "EPERM" });
+  });
+
+  it("does not hide source root realpath I/O failures while listing source default candidates", async () => {
+    const { home: testHome } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-source-"));
+    const resolvedSourceRoot = await actualFs.realpath(sourceRoot);
+    const project = await initManagedProject("Managed Source Realpath Error");
+    await linkProjectSourceRoot(project.projectId, sourceRoot);
+    let sourceRootRealpathCalls = 0;
+    vi.mocked(realpath).mockImplementation((path, options) => {
+      if (path === sourceRoot || path === resolvedSourceRoot) {
+        sourceRootRealpathCalls += 1;
+        if (sourceRootRealpathCalls > 1) {
+          throw nodeIoError("EACCES");
+        }
+      }
+      return actualFs.realpath(path, options);
+    });
+
+    await expect(listSourceDefaultProjectCandidates(sourceRoot)).rejects.toMatchObject({ code: "EACCES" });
   });
 
   it("rejects source default projects bound to another source root", async () => {
