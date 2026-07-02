@@ -1,6 +1,6 @@
-import { access, readdir, readFile } from "node:fs/promises";
-import { constants } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { PackagePathError, resolvePackagePath } from "../package/resolvePackagePath.js";
 import { edgeTypes } from "../types.js";
 import type {
@@ -18,31 +18,39 @@ function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
 }
 
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.R_OK);
-    return true;
-  } catch {
-    return false;
+function nodeFileErrorSummary(error: unknown): string {
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string") {
+      return code;
+    }
   }
+  return error instanceof Error && error.message ? error.message : "unknown error";
 }
 
-async function listMarkdownFiles(root: string): Promise<string[]> {
+async function listMarkdownFiles(packageDir: string, root: string, errors: ValidationIssue[]): Promise<string[]> {
+  const promptPath = relative(packageDir, root) || ".";
+  let entries;
   try {
-    const entries = await readdir(root, { withFileTypes: true });
-    const files: string[] = [];
-    for (const entry of entries) {
-      const path = join(root, entry.name);
-      if (entry.isDirectory()) {
-        files.push(...(await listMarkdownFiles(path)));
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        files.push(path);
-      }
-    }
-    return files;
-  } catch {
+    entries = await optionalReaddir(root, { withFileTypes: true });
+  } catch (error) {
+    errors.push(issue("prompt_directory_read_failed", `Prompt directory '${promptPath}' could not be read: ${nodeFileErrorSummary(error)}.`, promptPath));
     return [];
   }
+  if (!entries) {
+    return [];
+  }
+
+  const files: string[] = [];
+  for (const entry of entries) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await listMarkdownFiles(packageDir, path, errors)));
+    } else if (entry.isFile() && entry.name.endsWith(".md")) {
+      files.push(path);
+    }
+  }
+  return files;
 }
 
 function blockRef(taskId: string, blockId: string): string {
@@ -298,14 +306,15 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
 async function validatePromptReference(packageDir: string, prompt: string, errors: ValidationIssue[]): Promise<void> {
   try {
     const promptPath = await resolvePackagePath(packageDir, prompt);
-    if (!(await exists(promptPath))) {
+    const promptMetadata = await optionalStat(promptPath);
+    if (!promptMetadata) {
       errors.push(issue("prompt_missing", `Prompt file '${prompt}' does not exist.`, prompt));
     }
   } catch (error) {
     if (error instanceof PackagePathError) {
       errors.push(issue(error.code, error.message, prompt));
     } else {
-      throw error;
+      errors.push(issue("prompt_access_failed", `Prompt file '${prompt}' could not be checked: ${nodeFileErrorSummary(error)}.`, prompt));
     }
   }
 }
@@ -332,7 +341,7 @@ export async function compilePackageGraph(
     }
   }
 
-  for (const file of await listMarkdownFiles(join(packageDir, "nodes"))) {
+  for (const file of await listMarkdownFiles(packageDir, join(packageDir, "nodes"), graph.diagnostics.errors)) {
     const promptPath = relative(packageDir, file);
     if (!referencedPrompts.has(promptPath)) {
       graph.diagnostics.warnings.push(issue("stale_prompt_reference", `Prompt '${promptPath}' is not referenced.`, promptPath));
@@ -343,8 +352,8 @@ export async function compilePackageGraph(
     }
     try {
       await readFile(file, "utf8");
-    } catch {
-      graph.diagnostics.errors.push(issue("prompt_read_failed", `Prompt '${promptPath}' could not be read.`, promptPath));
+    } catch (error) {
+      graph.diagnostics.errors.push(issue("prompt_read_failed", `Prompt '${promptPath}' could not be read: ${nodeFileErrorSummary(error)}.`, promptPath));
     }
   }
 
