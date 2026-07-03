@@ -93,7 +93,8 @@ describe("STEP-1 block runtime", () => {
       feedbackId: "FE-001",
       sourceReviewBlockRef: "T-001#R-001",
       taskId: "T-001",
-      content: "Needs a test adjustment."
+      content: "Needs a test adjustment.",
+      effectiveExecutor: "manual"
     });
     const feedbackReport = join(home, "feedback-1.md");
     await writeFile(feedbackReport, "Handled requested test adjustment.\n", "utf8");
@@ -209,7 +210,8 @@ describe("STEP-1 block runtime", () => {
       feedbackId: "FE-001",
       sourceReviewBlockRef: "T-001#R-001",
       taskId: "T-001",
-      content: "Hooked feedback"
+      content: "Hooked feedback",
+      effectiveExecutor: "manual"
     });
 
     const brokenHome = await mkdtemp(join(tmpdir(), "planweave-home-"));

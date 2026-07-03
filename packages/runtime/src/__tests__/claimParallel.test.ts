@@ -12,7 +12,11 @@ describe("parallel claim", () => {
 
     expect(await claimNext({ projectRoot: enabled.root, parallel: true })).toEqual({
       kind: "batch",
-      refs: ["T-001#B-001", "T-002#B-001"]
+      refs: ["T-001#B-001", "T-002#B-001"],
+      effectiveExecutors: {
+        "T-001#B-001": "default",
+        "T-002#B-001": "default"
+      }
     });
   });
 });

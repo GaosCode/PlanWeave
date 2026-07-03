@@ -38,5 +38,5 @@ export async function claimDispatchedBlock(options: {
   state.blocks[options.ref] = { ...state.blocks[options.ref], status: "in_progress" };
   state.currentRefs = withCurrentRef(state.currentRefs, options.ref);
   await writeState(workspace.stateFile, refreshDerivedState(manifest, state));
-  return claimResultForBlock(options.ref, graph, "dispatched");
+  return claimResultForBlock(options.ref, graph, "dispatched", manifest.execution.defaultExecutor);
 }

@@ -318,6 +318,7 @@ async function claimForBatchRef(options: {
     taskId,
     blockId,
     blockType: block.type,
+    effectiveExecutor: block.executor ?? task.executor ?? manifest.execution.defaultExecutor ?? "default",
     reason: "claimed"
   };
 }

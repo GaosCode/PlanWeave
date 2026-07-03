@@ -14,7 +14,7 @@ export function formatClaimHint(hint: ClaimHint): string {
   const gate = hint.reviewGate ? "review gate, " : "";
   const mode = hint.sequentialOnly ? "sequential-only" : "parallel-safe";
   const command = hint.recommendedCommand ? `, run: ${hint.recommendedCommand}` : hint.dispatchCommand ? `, dispatch: ${hint.dispatchCommand}` : "";
-  return `- ${hint.ref}: ${reason}, ${gate}${mode}${command}`;
+  return `- ${hint.ref}: ${reason}, executor=${hint.effectiveExecutor}, ${gate}${mode}${command}`;
 }
 
 export function formatExecutionStatusHuman(status: ExecutionStatus): string {

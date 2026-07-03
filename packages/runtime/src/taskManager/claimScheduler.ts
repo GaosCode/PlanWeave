@@ -1,5 +1,5 @@
 import { writeState } from "../state.js";
-import type { BlockType, ClaimResult, ClaimScope, ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
+import type { BlockType, ClaimResult, ClaimScope, CompiledExecutionGraph, ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
 import { claimDispatchedBlock } from "./claimBlockDispatch.js";
 import { buildClaimReadiness, type ClaimCandidate } from "./claimReadiness.js";
 import { patchFeedbackArtifact } from "./feedbackArtifacts.js";
@@ -8,6 +8,7 @@ import { updateTaskIndex } from "./resultIndex.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import {
   markClaimed,
+  effectiveBlockExecutor,
   normalizeClaimScope,
   validateClaimScope
 } from "./selectors.js";
@@ -18,6 +19,10 @@ function withCurrentRef(currentRefs: string[], ref: string): string[] {
 
 function withoutCurrentRef(currentRefs: string[], ref: string): string[] {
   return currentRefs.filter((currentRef) => currentRef !== ref);
+}
+
+function effectiveExecutorsForRefs(refs: string[], graph: CompiledExecutionGraph, defaultExecutor?: string): Record<string, string> {
+  return Object.fromEntries(refs.map((ref) => [ref, effectiveBlockExecutor(graph, ref, defaultExecutor)]));
 }
 
 export async function claimNext(options: {
@@ -127,14 +132,14 @@ export async function claimNext(options: {
       return { kind: "none", reason: "no_parallel_blocks", nextSequentialClaimable: readiness.scopedNextSequentialClaimable };
     }
     if (dryRun) {
-      return { kind: "batch", refs: selected };
+      return { kind: "batch", refs: selected, effectiveExecutors: effectiveExecutorsForRefs(selected, graph, manifest.execution.defaultExecutor) };
     }
     for (const ref of selected) {
       state.blocks[ref] = { ...state.blocks[ref], status: "in_progress" };
     }
     state.currentRefs = selected;
     await writeState(workspace.stateFile, refreshDerivedState(manifest, state));
-    return { kind: "batch", refs: selected };
+    return { kind: "batch", refs: selected, effectiveExecutors: effectiveExecutorsForRefs(selected, graph, manifest.execution.defaultExecutor) };
   }
 
   const implementationClaim = readiness.sequentialImplementationCandidates[0];

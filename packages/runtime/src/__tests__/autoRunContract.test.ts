@@ -87,7 +87,7 @@ describe("Auto Run contract", () => {
   it("routes Claim Result branches to an executor adapter without duplicating Task Manager state decisions", async () => {
     await expect(
       consumeAutoRunClaim(
-        { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation" },
+        { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation", effectiveExecutor: "default" },
         adapter()
       )
     ).resolves.toEqual({
@@ -96,7 +96,10 @@ describe("Auto Run contract", () => {
       reportPath: "T-001#B-001.md"
     });
     await expect(
-      consumeAutoRunClaim({ kind: "feedback", feedbackId: "FE-001", sourceReviewBlockRef: "T-001#R-001", taskId: "T-001", content: "fix" }, adapter())
+      consumeAutoRunClaim(
+        { kind: "feedback", feedbackId: "FE-001", sourceReviewBlockRef: "T-001#R-001", taskId: "T-001", content: "fix", effectiveExecutor: "default" },
+        adapter()
+      )
     ).resolves.toEqual({
       kind: "submit_feedback",
       reportPath: "fix.md"

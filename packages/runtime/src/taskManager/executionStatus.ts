@@ -8,7 +8,7 @@ import type {
 import { buildClaimReadiness } from "./claimReadiness.js";
 import { createProjectGraphClaimGuard, type ProjectGraphClaimGuard } from "./projectGraphClaimGuard.js";
 import { loadRuntime, type RuntimeContext } from "./runtimeContext.js";
-import { getBlock, isActiveFeedbackStatus } from "./selectors.js";
+import { effectiveBlockExecutor, getBlock, isActiveFeedbackStatus } from "./selectors.js";
 
 function statusReasonForBlock(blockState: BlockState | undefined): string | null {
   if (blockState?.status === "blocked") {
@@ -67,6 +67,7 @@ export async function buildExecutionStatus(
         taskId,
         blockId,
         type: block.type,
+        effectiveExecutor: effectiveBlockExecutor(graph, ref, manifest.execution.defaultExecutor),
         status: blockState?.status ?? "planned",
         reason: statusReasonForBlock(blockState),
         completionReason: blockState?.completionReason ?? null,

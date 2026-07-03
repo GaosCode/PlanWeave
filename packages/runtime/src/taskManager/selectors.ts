@@ -46,7 +46,8 @@ export function activeOpenFeedback(state: RuntimeState): Array<[string, Feedback
 export function claimResultForBlock(
   ref: string,
   graph: CompiledExecutionGraph,
-  reason: "claimed" | "current" | "feedback_resolved" | "dispatched"
+  reason: "claimed" | "current" | "feedback_resolved" | "dispatched",
+  defaultExecutor?: string
 ): ClaimResult {
   const { taskId, blockId } = parseBlockRef(ref);
   const block = getBlock(graph, ref);
@@ -56,8 +57,20 @@ export function claimResultForBlock(
     taskId,
     blockId,
     blockType: block.type,
+    effectiveExecutor: effectiveBlockExecutor(graph, ref, defaultExecutor),
     reason
   };
+}
+
+export function effectiveBlockExecutor(graph: CompiledExecutionGraph, ref: string, defaultExecutor?: string): string {
+  const block = getBlock(graph, ref);
+  const taskId = graph.blockTaskByRef.get(ref);
+  const task = taskId ? graph.tasksById.get(taskId) : undefined;
+  return block.executor ?? task?.executor ?? defaultExecutor ?? "default";
+}
+
+export function effectiveFeedbackExecutor(defaultExecutor?: string): string {
+  return defaultExecutor ?? "default";
 }
 
 export function normalizeClaimScope(scope?: ClaimScope): ClaimScope {

@@ -227,7 +227,13 @@ describe("executor API helpers", () => {
     const preview = await claimNext({ projectRoot: root, parallel: true, dryRun: true });
     const status = await getExecutionStatus({ projectRoot: root });
 
-    expect(preview).toEqual({ kind: "batch", refs: ["T-001#B-001"] });
+    expect(preview).toEqual({
+      kind: "batch",
+      refs: ["T-001#B-001"],
+      effectiveExecutors: {
+        "T-001#B-001": "default"
+      }
+    });
     expect(status.currentRefs).toEqual([]);
     expect(status.blocks.find((block) => block.ref === "T-001#B-001")?.status).toBe("ready");
   });

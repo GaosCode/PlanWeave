@@ -24,6 +24,7 @@ import {
   blockInScope,
   claimResultForBlock,
   activeOpenFeedback,
+  effectiveFeedbackExecutor,
   feedbackInScope,
   normalizeClaimScope,
   taskDependenciesSatisfied,
@@ -82,8 +83,13 @@ export type BuildClaimReadinessInput = {
   projectGuard?: ProjectGraphClaimGuard;
 };
 
-function claimCandidate(ref: string, graph: CompiledExecutionGraph, reason: "claimed" | "current" | "feedback_resolved"): ClaimCandidate {
-  const result = claimResultForBlock(ref, graph, reason);
+function claimCandidate(
+  ref: string,
+  graph: CompiledExecutionGraph,
+  reason: "claimed" | "current" | "feedback_resolved",
+  defaultExecutor?: string
+): ClaimCandidate {
+  const result = claimResultForBlock(ref, graph, reason, defaultExecutor);
   if (result.kind !== "block") {
     throw new Error(`Claim '${ref}' did not produce a block result.`);
   }
@@ -166,6 +172,7 @@ function blockedByClaimType(ref: string, reason: string): ClaimOrder {
 
 function buildClaimOrder(input: {
   graph: CompiledExecutionGraph;
+  manifest: PlanPackageManifest;
   state: RuntimeState;
   scope: ClaimScope;
   blockType?: BlockType;
@@ -193,7 +200,14 @@ function buildClaimOrder(input: {
       feedbackId,
       feedback,
       taskId,
-      result: { kind: "feedback", feedbackId, sourceReviewBlockRef: feedback.sourceReviewBlockRef, taskId, content: feedback.content }
+      result: {
+        kind: "feedback",
+        feedbackId,
+        sourceReviewBlockRef: feedback.sourceReviewBlockRef,
+        taskId,
+        content: feedback.content,
+        effectiveExecutor: effectiveFeedbackExecutor(input.manifest.execution.defaultExecutor)
+      }
     };
   }
 
@@ -215,7 +229,7 @@ function buildClaimOrder(input: {
         ref: inProgressReview,
         reason: "feedback_resolved",
         clearCurrentFeedback: true,
-        result: claimCandidate(inProgressReview, input.graph, "feedback_resolved").result
+        result: claimCandidate(inProgressReview, input.graph, "feedback_resolved", input.manifest.execution.defaultExecutor).result
       };
     }
   }
@@ -232,7 +246,7 @@ function buildClaimOrder(input: {
       ref: inProgressReview,
       reason,
       clearCurrentFeedback: false,
-      result: claimCandidate(inProgressReview, input.graph, reason).result
+      result: claimCandidate(inProgressReview, input.graph, reason, input.manifest.execution.defaultExecutor).result
     };
   }
 
@@ -248,7 +262,7 @@ function buildClaimOrder(input: {
     if (!blockInScope(current, input.graph, input.scope)) {
       return { kind: "blocked", result: { kind: "blocked", ref: current, reason: "A block is in progress outside the selected Auto Run scope." } };
     }
-    return { kind: "currentBlock", ref: current, result: claimCandidate(current, input.graph, "current").result };
+    return { kind: "currentBlock", ref: current, result: claimCandidate(current, input.graph, "current", input.manifest.execution.defaultExecutor).result };
   }
 
   return { kind: "ready" };
@@ -259,7 +273,7 @@ export function buildClaimReadiness(input: BuildClaimReadinessInput): ClaimReadi
   const projectGuard = input.projectGuard ?? noProjectGraphBlockers;
   const invalidScope = validateClaimScope(scope, input.graph);
   const defaultClaimLockReason = currentClaimLockReason(input.graph, input.state);
-  const claimHints = buildClaimHints(input.graph, input.state, projectGuard, defaultClaimLockReason);
+  const claimHints = buildClaimHints(input.graph, input.state, projectGuard, defaultClaimLockReason, input.manifest.execution.defaultExecutor);
   const scopedReadyRefs = input.graph.blockRefsInManifestOrder.filter(
     (ref) =>
       blockMatchesClaimFilter(ref, input.graph, scope, input.blockType) &&
@@ -268,10 +282,10 @@ export function buildClaimReadiness(input: BuildClaimReadinessInput): ClaimReadi
   );
   const sequentialImplementationCandidates = scopedReadyRefs
     .filter((ref) => input.graph.blocksByRef.get(ref)?.type !== "review")
-    .map((ref) => claimCandidate(ref, input.graph, "claimed"));
+    .map((ref) => claimCandidate(ref, input.graph, "claimed", input.manifest.execution.defaultExecutor));
   const sequentialReviewCandidates = scopedReadyRefs
     .filter((ref) => input.graph.blocksByRef.get(ref)?.type === "review")
-    .map((ref) => claimCandidate(ref, input.graph, "claimed"));
+    .map((ref) => claimCandidate(ref, input.graph, "claimed", input.manifest.execution.defaultExecutor));
   const nextClaimable = claimHints.filter((hint) => hint.ready).map((hint) => hint.ref);
   const nextParallelClaimable = claimHints.filter((hint) => hint.ready && hint.parallelSafe).map((hint) => hint.ref);
   const nextSequentialClaimable = claimHints.filter((hint) => hint.ready && !hint.parallelSafe).map((hint) => hint.ref);
@@ -284,7 +298,7 @@ export function buildClaimReadiness(input: BuildClaimReadinessInput): ClaimReadi
   return {
     scope,
     invalidScope,
-    claimOrder: buildClaimOrder({ graph: input.graph, state: input.state, scope, blockType: input.blockType, projectGuard }),
+    claimOrder: buildClaimOrder({ graph: input.graph, manifest: input.manifest, state: input.state, scope, blockType: input.blockType, projectGuard }),
     defaultClaimLockReason,
     claimHints,
     nextClaimable,

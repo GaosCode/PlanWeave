@@ -61,6 +61,10 @@ function resolveAutoRunExecutorForBlock(context: DesktopGraphViewModelContext, r
   return block.executor ?? task.executor ?? context.manifest.execution.defaultExecutor ?? "default";
 }
 
+function resolveAutoRunExecutorsForRefs(context: DesktopGraphViewModelContext, refs: string[]): Record<string, string> {
+  return Object.fromEntries(refs.map((ref) => [ref, resolveAutoRunExecutorForBlock(context, ref)]));
+}
+
 function resolveAutoRunPreflightExecutorHint(context: DesktopGraphViewModelContext): string | null {
   const claim = resolveAutoRunPreflightClaim(context);
   if (!claim) {
@@ -87,7 +91,11 @@ function resolveAutoRunPreflightClaim(context: DesktopGraphViewModelContext): Ex
   }
   if (manifest.execution.parallel.enabled) {
     if (claimReadiness.parallelBatchRefs.length > 0) {
-      return { kind: "batch", refs: claimReadiness.parallelBatchRefs };
+      return {
+        kind: "batch",
+        refs: claimReadiness.parallelBatchRefs,
+        effectiveExecutors: resolveAutoRunExecutorsForRefs(context, claimReadiness.parallelBatchRefs)
+      };
     }
     if (claimReadiness.sequentialReviewCandidates[0]) {
       return claimReadiness.sequentialReviewCandidates[0].result;

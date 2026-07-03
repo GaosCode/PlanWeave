@@ -2,7 +2,7 @@ import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import type { BlockState, ClaimHint, CompiledExecutionGraph, ManifestBlock, RuntimeState } from "../types.js";
 import type { ProjectGraphClaimGuard } from "./projectGraphClaimGuard.js";
 import { blockReadyWithoutProjectBlockers, projectBlockerReason, projectBlockers } from "./claimReadinessRules.js";
-import { canDispatchImplementationBlock, requiredImplementationRefs } from "./selectors.js";
+import { canDispatchImplementationBlock, effectiveBlockExecutor, requiredImplementationRefs } from "./selectors.js";
 
 function statusReasonForBlock(blockState: BlockState | undefined): string | null {
   if (blockState?.status === "blocked") {
@@ -36,7 +36,8 @@ export function buildClaimHints(
   graph: CompiledExecutionGraph,
   state: RuntimeState,
   projectGuard: ProjectGraphClaimGuard,
-  defaultClaimLockReason: string | null
+  defaultClaimLockReason: string | null,
+  defaultExecutor?: string
 ): ClaimHint[] {
   return graph.blockRefsInManifestOrder.map((ref) => {
     const taskId = graph.blockTaskByRef.get(ref);
@@ -85,6 +86,7 @@ export function buildClaimHints(
       taskId: taskId ?? "",
       blockId,
       blockType: block?.type ?? "implementation",
+      effectiveExecutor: effectiveBlockExecutor(graph, ref, defaultExecutor),
       status: blockState?.status ?? "planned",
       statusReason,
       ready,

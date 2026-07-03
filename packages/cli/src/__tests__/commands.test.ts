@@ -425,11 +425,18 @@ describe("planweave CLI contract", () => {
   it("prints manual prompt summaries for manual parallel batches", () => {
     const batchStep = {
       kind: "batch_submitted",
-      claim: { kind: "batch", refs: ["T-001#B-001", "T-002#B-001"] },
+      claim: {
+        kind: "batch",
+        refs: ["T-001#B-001", "T-002#B-001"],
+        effectiveExecutors: {
+          "T-001#B-001": "manual",
+          "T-002#B-001": "manual"
+        }
+      },
       steps: [
         {
           kind: "manual",
-          claim: { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation" },
+          claim: { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation", effectiveExecutor: "manual" },
           adapterResult: {
             kind: "manual",
             executor: "manual",
@@ -442,7 +449,7 @@ describe("planweave CLI contract", () => {
         },
         {
           kind: "manual",
-          claim: { kind: "block", ref: "T-002#B-001", taskId: "T-002", blockId: "B-001", blockType: "implementation" },
+          claim: { kind: "block", ref: "T-002#B-001", taskId: "T-002", blockId: "B-001", blockType: "implementation", effectiveExecutor: "manual" },
           adapterResult: {
             kind: "manual",
             executor: "manual",

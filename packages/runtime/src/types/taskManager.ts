@@ -9,6 +9,7 @@ export type ClaimResult =
       taskId: string;
       blockId: string;
       blockType: BlockType;
+      effectiveExecutor: string;
       reason?: "claimed" | "current" | "feedback_resolved" | "dispatched";
       requestedMode?: "parallel";
       parallelFallbackReason?: "review_requires_sequential_claim";
@@ -20,10 +21,12 @@ export type ClaimResult =
       sourceReviewBlockRef: string;
       taskId: string;
       content: string;
+      effectiveExecutor: string;
     }
   | {
       kind: "batch";
       refs: string[];
+      effectiveExecutors: Record<string, string>;
     }
   | {
       kind: "none";
@@ -120,6 +123,7 @@ export type ClaimHint = {
   taskId: string;
   blockId: string;
   blockType: BlockType;
+  effectiveExecutor: string;
   status: BlockStatus;
   statusReason: string | null;
   ready: boolean;

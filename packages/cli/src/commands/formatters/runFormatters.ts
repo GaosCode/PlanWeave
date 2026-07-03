@@ -111,7 +111,7 @@ function formatTerminalReason(reason: RunWithSessionResult["terminalReason"]): s
 
 function formatRunStep(step: AutoRunStepResult): string {
   if (step.kind === "submitted") {
-    return `submitted ${step.claim.kind}${step.claim.kind === "block" ? ` ${step.claim.ref}` : ""}`;
+    return `submitted ${formatStepClaim(step.claim)}`;
   }
   if (step.kind === "batch_submitted") {
     const manualCount = step.steps.filter((item) => item.kind === "manual").length;
@@ -124,9 +124,19 @@ function formatRunStep(step: AutoRunStepResult): string {
     return `batch submitted ${step.steps.length} blocks`;
   }
   if (step.kind === "manual") {
-    return `manual ${step.claim.kind}${step.claim.kind === "block" ? ` ${step.claim.ref}` : ""}\nprompt: ${step.adapterResult.promptPath}\nnext: ${step.adapterResult.nextCommand}`;
+    return `manual ${formatStepClaim(step.claim)}\nprompt: ${step.adapterResult.promptPath}\nnext: ${step.adapterResult.nextCommand}`;
   }
   return `${step.kind}: ${step.claim.kind}`;
+}
+
+function formatStepClaim(claim: AutoRunStepResult["claim"]): string {
+  if (claim.kind === "block") {
+    return `block ${claim.ref} executor=${claim.effectiveExecutor}`;
+  }
+  if (claim.kind === "feedback") {
+    return `feedback ${claim.feedbackId} executor=${claim.effectiveExecutor}`;
+  }
+  return claim.kind;
 }
 
 function formatRunSessionSummary(session: RunSessionState): string {

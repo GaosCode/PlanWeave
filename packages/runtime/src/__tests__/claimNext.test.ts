@@ -13,6 +13,46 @@ import {
 import { basicManifest, createTestWorkspace, writeReport, writeReviewResult } from "./promptTestHelpers.js";
 
 describe("claimNext", () => {
+  it("reports effective executor inheritance on claims", async () => {
+    const manifest = basicManifest();
+    manifest.execution.defaultExecutor = "codex";
+    const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    if (task?.type !== "task") {
+      throw new Error("missing task");
+    }
+    task.executor = "opencode";
+    const implementation = task.blocks.find((block) => block.id === "B-001");
+    if (implementation?.type !== "implementation") {
+      throw new Error("missing implementation block");
+    }
+    implementation.executor = "manual";
+    const { root } = await createTestWorkspace(manifest);
+
+    expect(await claimNext({ projectRoot: root })).toMatchObject({
+      kind: "block",
+      ref: "T-001#B-001",
+      effectiveExecutor: "manual"
+    });
+    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+
+    expect(await claimNext({ projectRoot: root })).toMatchObject({
+      kind: "block",
+      ref: "T-001#R-001",
+      effectiveExecutor: "opencode"
+    });
+    await submitReviewResult({
+      projectRoot: root,
+      ref: "T-001#R-001",
+      resultPath: await writeReviewResult(root, "needs_changes", "Please update tests.")
+    });
+
+    expect(await claimNext({ projectRoot: root })).toMatchObject({
+      kind: "feedback",
+      feedbackId: "FE-001",
+      effectiveExecutor: "codex"
+    });
+  });
+
   it("returns JSON block claims in execution order", async () => {
     const { root } = await createTestWorkspace();
 
@@ -24,6 +64,7 @@ describe("claimNext", () => {
       taskId: "T-001",
       blockId: "B-001",
       blockType: "implementation",
+      effectiveExecutor: "default",
       reason: "claimed"
     });
   });
@@ -44,7 +85,8 @@ describe("claimNext", () => {
       feedbackId: "FE-001",
       sourceReviewBlockRef: "T-001#R-001",
       taskId: "T-001",
-      content: "Please update tests."
+      content: "Please update tests.",
+      effectiveExecutor: "default"
     });
     await submitFeedback({ projectRoot: root, reportPath: await writeReport(root, "feedback.md", "Tests updated.\n") });
 
@@ -102,6 +144,7 @@ describe("claimNext", () => {
       taskId: "T-001",
       blockId: "R-001",
       blockType: "review",
+      effectiveExecutor: "default",
       reason: "claimed",
       requestedMode: "parallel",
       parallelFallbackReason: "review_requires_sequential_claim",
@@ -113,6 +156,7 @@ describe("claimNext", () => {
       taskId: "T-001",
       blockId: "R-001",
       blockType: "review",
+      effectiveExecutor: "default",
       reason: "claimed"
     });
   });

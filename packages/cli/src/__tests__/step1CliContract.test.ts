@@ -240,7 +240,8 @@ describe("STEP-1 CLI contract", () => {
       feedbackId: "FE-001",
       sourceReviewBlockRef: "T-001#R-001",
       taskId: "T-001",
-      content: "Adjust the implementation report."
+      content: "Adjust the implementation report.",
+      effectiveExecutor: "manual"
     });
     const feedback = join(home, "feedback.md");
     await writeFile(feedback, "Adjusted.\n", "utf8");
