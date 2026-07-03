@@ -25,12 +25,14 @@
     "desktop:verify:packaged:mac": "pnpm --dir packages/desktop verify:packaged:mac",
     "pack:npm": "pnpm -r --filter @planweave-ai/runtime --filter @planweave-ai/mcp --filter @planweave-ai/cli pack",
     "planweave": "pnpm --filter @planweave-ai/cli planweave",
+    "prepare": "husky",
     "publish:npm": "pnpm -r --filter @planweave-ai/runtime --filter @planweave-ai/mcp --filter @planweave-ai/cli publish --access public",
     "sync:versions": "node scripts/sync-version-metadata.mjs",
     "test": "pnpm check:versions && pnpm check:dom-boundaries && vitest run"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
+    "husky": "^9.1.7",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"
