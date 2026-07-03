@@ -1,8 +1,9 @@
-import { access, chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addTaskNode,
+  createProjectFromTaskCanvas,
   createTaskCanvas,
   duplicateTaskCanvas,
   getDesktopLayout,
@@ -30,6 +31,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
     ...actual,
+    cp: vi.fn(actual.cp),
     stat: vi.fn(actual.stat)
   };
 });
@@ -38,6 +40,7 @@ let actualFs: typeof import("node:fs/promises");
 
 beforeEach(async () => {
   actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  vi.mocked(cp).mockImplementation((source, destination, options) => actualFs.cp(source, destination, options));
   vi.mocked(stat).mockImplementation((path, options) => actualFs.stat(path, options));
 });
 
@@ -210,6 +213,71 @@ describe("desktop task canvas API", () => {
     await expect(getDesktopLayout(duplicatedWorkspace)).resolves.toMatchObject({
       nodes: [{ nodeId: "T-001", x: 120, y: 80 }]
     });
+  });
+
+  it("copies a task canvas into a new managed project with fresh runtime state", async () => {
+    const { root, init, home } = await createTestWorkspace();
+    const sourceWorkspace = await resolveTaskCanvasWorkspace(root, "default");
+    await saveDesktopLayout(sourceWorkspace, {
+      version: "desktop-layout/v1",
+      projectId: "ignored",
+      nodes: [{ nodeId: "T-001", x: 120, y: 80 }],
+      updatedAt: new Date(0).toISOString()
+    });
+    await claimNext({ projectRoot: sourceWorkspace });
+    await mkdir(join(sourceWorkspace.resultsDir, "manual"), { recursive: true });
+    await writeFile(join(sourceWorkspace.resultsDir, "manual", "source-result.md"), "source result\n", "utf8");
+
+    const created = await createProjectFromTaskCanvas(root, "default");
+    const copiedWorkspace = await resolveTaskCanvasWorkspace(created.rootPath, "default");
+    const copiedManifest = await readJsonFile<{ project: { title: string } }>(copiedWorkspace.manifestFile);
+
+    expect(created).toMatchObject({
+      name: "Test Plan copy",
+      kind: "managed",
+      sourceRoot: null,
+      activeCanvasId: "default"
+    });
+    expect(created.rootPath.startsWith(join(home, "projects"))).toBe(true);
+    expect(basename(created.rootPath)).toMatch(/^test-plan-copy-[a-f0-9]{8}$/);
+    expect(created.taskCanvases).toEqual([
+      expect.objectContaining({
+        canvasId: "default",
+        name: "Test Plan copy",
+        taskCount: 1
+      })
+    ]);
+    expect(copiedManifest.project.title).toBe("Test Plan copy");
+    await expect(readFile(join(copiedWorkspace.packageDir, "nodes", "T-001", "prompt.md"), "utf8")).resolves.toBe(
+      await readFile(join(sourceWorkspace.packageDir, "nodes", "T-001", "prompt.md"), "utf8")
+    );
+    await expect(readState(copiedWorkspace.stateFile)).resolves.toEqual({
+      currentRefs: [],
+      currentFeedbackId: null,
+      currentReviewBlockRef: null,
+      tasks: {},
+      blocks: {},
+      feedback: {}
+    });
+    await expect(readdir(copiedWorkspace.resultsDir)).resolves.toEqual([]);
+    await expect(getDesktopLayout(copiedWorkspace)).resolves.toMatchObject({
+      nodes: [{ nodeId: "T-001", x: 120, y: 80 }]
+    });
+  });
+
+  it("removes the new managed project if copying a task canvas to a project fails", async () => {
+    const { root, home } = await createTestWorkspace();
+    const projectsBefore = (await readdir(join(home, "projects"))).sort();
+    vi.mocked(cp).mockImplementation(async (source, destination, options) => {
+      if (String(destination).includes("test-plan-copy-")) {
+        throw new Error("copy failed");
+      }
+      return actualFs.cp(source, destination, options);
+    });
+
+    await expect(createProjectFromTaskCanvas(root, "default")).rejects.toThrow("copy failed");
+
+    await expect(readdir(join(home, "projects"))).resolves.toEqual(projectsBefore);
   });
 
   it("duplicates legacy registry canvases and records the new canvas", async () => {
@@ -469,6 +537,39 @@ describe("desktop task canvas API", () => {
     await expect(access(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine", quarantineEntries[0], "package", "manifest.json"))).resolves.toBeUndefined();
   });
 
+  it("resets formal default canvases by clearing stale package files without removing the canvas", async () => {
+    const { root, init } = await createTestWorkspace();
+    await writeProjectGraph(init.workspace, {
+      version: "plan-project/v1",
+      canvases: [canonicalProjectCanvasNode({ id: "default", title: "Root plan" })],
+      edges: [],
+      crossTaskEdges: []
+    });
+    const secondCanvas = await createTaskCanvas(root, { name: "Second plan" });
+    const defaultWorkspace = await resolveTaskCanvasWorkspace(root, "default");
+    const staleNodePrompt = join(defaultWorkspace.packageDir, "nodes", "T-STALE", "prompt.md");
+    const staleBlockPrompt = join(defaultWorkspace.packageDir, "nodes", "T-STALE", "blocks", "B-STALE.prompt.md");
+    await mkdir(join(defaultWorkspace.packageDir, "nodes", "T-STALE", "blocks"), { recursive: true });
+    await writeFile(staleNodePrompt, "# Stale task prompt\n", "utf8");
+    await writeFile(staleBlockPrompt, "# Stale block prompt\n", "utf8");
+
+    const remaining = await removeTaskCanvas(root, "default");
+    const loaded = await loadProjectGraph(root);
+    const resetManifest = await readJsonFile<{ project: { title: string }; nodes: unknown[] }>(defaultWorkspace.manifestFile);
+
+    expect(remaining.map((canvas) => canvas.canvasId)).toEqual(["default", secondCanvas.canvasId]);
+    expect(remaining.find((canvas) => canvas.canvasId === "default")).toMatchObject({
+      name: "Root plan",
+      taskCount: 0,
+      diagnostics: []
+    });
+    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default", secondCanvas.canvasId]);
+    expect(resetManifest.project.title).toBe("Root plan");
+    expect(resetManifest.nodes).toEqual([]);
+    await expect(access(staleNodePrompt)).rejects.toThrow();
+    await expect(access(staleBlockPrompt)).rejects.toThrow();
+  });
+
   it("renames formal project graph canvases and their package manifest titles", async () => {
     const { root, init } = await createTestWorkspace();
     await writeProjectGraph(init.workspace, {
@@ -550,6 +651,29 @@ describe("desktop task canvas API", () => {
     await expect(access(canvasRoot)).rejects.toThrow();
     expect(quarantineEntries).toHaveLength(1);
     await expect(access(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine", quarantineEntries[0], "package", "manifest.json"))).resolves.toBeUndefined();
+  });
+
+  it("resets legacy default canvases by clearing stale package files without removing the canvas", async () => {
+    const { root, init } = await createTestWorkspace();
+    await rm(projectGraphPath(init.workspace));
+    const defaultWorkspace = await resolveTaskCanvasWorkspace(root, "default");
+    const staleNodePrompt = join(defaultWorkspace.packageDir, "nodes", "T-STALE", "prompt.md");
+    await mkdir(join(defaultWorkspace.packageDir, "nodes", "T-STALE"), { recursive: true });
+    await writeFile(staleNodePrompt, "# Stale task prompt\n", "utf8");
+
+    const remaining = await removeTaskCanvas(root, "default");
+    const registry = await readJsonFile<{ canvases: Array<{ canvasId: string }> }>(join(init.workspace.workspaceRoot, "desktop", "canvases.json"));
+    const resetManifest = await readJsonFile<{ nodes: unknown[] }>(defaultWorkspace.manifestFile);
+
+    expect(remaining.map((canvas) => canvas.canvasId)).toEqual(["default"]);
+    expect(remaining[0]).toMatchObject({
+      name: "Test Plan",
+      taskCount: 0,
+      diagnostics: []
+    });
+    expect(registry.canvases.map((canvas) => canvas.canvasId)).toEqual(["default"]);
+    expect(resetManifest.nodes).toEqual([]);
+    await expect(access(staleNodePrompt)).rejects.toThrow();
   });
 
   it("restores legacy canvas workspace on write failure", async () => {

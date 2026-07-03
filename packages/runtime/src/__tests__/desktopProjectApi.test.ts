@@ -12,16 +12,19 @@ import {
   listSourceDefaultProjectCandidates,
   listProjects,
   openProject,
+  renameProject,
   removeProject,
   resolveSourceDefaultProjectRoot,
   setSourceDefaultProject,
   unlinkProjectSourceRoot
 } from "../desktop/index.js";
 import { initWorkspace } from "../initWorkspace.js";
-import { writeJsonFile } from "../json.js";
+import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
 import { loadProjectGraph, projectGraphPath } from "../projectGraph/index.js";
+import { createManagedProjectId } from "../projectId.js";
 import { createEmptyState } from "../state.js";
+import type { PlanPackageManifest, ProjectMetadata } from "../types.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -112,6 +115,123 @@ describe("desktop project API", () => {
       rootPath: project.workspaceRoot,
       sourceRoot: null
     });
+  });
+
+  it("renames managed projects across their id, workspace, layouts, source defaults, and single canvas title", async () => {
+    const { home: testHome } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-source-"));
+    const resolvedSourceRoot = await realpath(sourceRoot);
+    const project = await initManagedProject("Managed Rename Source");
+    await linkProjectSourceRoot(project.projectId, sourceRoot);
+    await setSourceDefaultProject(sourceRoot, project.projectId);
+    await writeJsonFile(join(project.workspaceRoot, "desktop", "layout.json"), {
+      version: "desktop-layout/v1",
+      projectId: project.projectId,
+      nodes: [],
+      updatedAt: "2026-06-20T00:00:00.000Z"
+    });
+    await writeJsonFile(join(project.workspaceRoot, "desktop", "canvas-map-layout.json"), {
+      version: "desktop-canvas-map-layout/v1",
+      projectId: project.projectId,
+      nodes: [],
+      updatedAt: "2026-06-20T00:00:00.000Z"
+    });
+
+    const nextName = "Managed Rename Target";
+    const nextProjectId = createManagedProjectId(nextName);
+    const nextWorkspaceRoot = join(testHome, "projects", nextProjectId);
+    const renamed = await renameProject(project.projectId, nextName);
+
+    expect(renamed).toMatchObject({
+      projectId: nextProjectId,
+      name: nextName,
+      kind: "managed",
+      rootPath: nextWorkspaceRoot,
+      sourceRoot: resolvedSourceRoot,
+      workspaceRoot: nextWorkspaceRoot,
+      taskCanvases: [expect.objectContaining({ canvasId: "default", name: nextName })]
+    });
+    await expect(access(project.workspaceRoot)).rejects.toThrow();
+    await expect(access(nextWorkspaceRoot)).resolves.toBeUndefined();
+    await expect(openProject({ projectId: nextProjectId })).resolves.toMatchObject({
+      projectId: nextProjectId,
+      name: nextName,
+      rootPath: nextWorkspaceRoot,
+      sourceRoot: resolvedSourceRoot,
+      workspaceRoot: nextWorkspaceRoot,
+      taskCanvases: [expect.objectContaining({ canvasId: "default", name: nextName })]
+    });
+    await expect(listProjects()).resolves.toContainEqual(expect.objectContaining({ projectId: nextProjectId, name: nextName }));
+
+    await expect(readJsonFile<ProjectMetadata>(join(nextWorkspaceRoot, "project.json"))).resolves.toMatchObject({
+      id: nextProjectId,
+      name: nextName,
+      kind: "managed",
+      rootPath: nextWorkspaceRoot,
+      sourceRoot: resolvedSourceRoot
+    });
+    await expect(readJsonFile<{ projectId: string }>(join(nextWorkspaceRoot, "desktop", "layout.json"))).resolves.toMatchObject({
+      projectId: nextProjectId
+    });
+    await expect(
+      readJsonFile<{ projectId: string }>(join(nextWorkspaceRoot, "desktop", "canvas-map-layout.json"))
+    ).resolves.toMatchObject({
+      projectId: nextProjectId
+    });
+    const graph = await loadProjectGraph(nextWorkspaceRoot);
+    expect(graph.manifest.canvases).toEqual([expect.objectContaining({ id: "default", title: nextName })]);
+    await expect(
+      readJsonFile<PlanPackageManifest>(join(nextWorkspaceRoot, "canvases", "default", "package", "manifest.json"))
+    ).resolves.toMatchObject({
+      project: expect.objectContaining({ title: nextName })
+    });
+    await expect(getSourceDefaultProject(sourceRoot)).resolves.toMatchObject({
+      projectId: nextProjectId,
+      projectRoot: nextWorkspaceRoot,
+      sourceRoot: resolvedSourceRoot
+    });
+    await expect(resolveSourceDefaultProjectRoot(sourceRoot)).resolves.toBe(nextWorkspaceRoot);
+  });
+
+  it("does not overwrite another managed project when a rename target already exists", async () => {
+    const { home: testHome } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const source = await initManagedProject("Managed Rename Source");
+    const target = await initManagedProject("Managed Rename Existing");
+
+    await expect(renameProject(source.projectId, target.name)).rejects.toThrow("already exists");
+    await expect(access(source.workspaceRoot)).resolves.toBeUndefined();
+    await expect(access(target.workspaceRoot)).resolves.toBeUndefined();
+    await expect(openProject({ projectId: source.projectId })).resolves.toMatchObject({
+      projectId: source.projectId,
+      name: source.name,
+      rootPath: source.workspaceRoot
+    });
+    await expect(openProject({ projectId: target.projectId })).resolves.toMatchObject({
+      projectId: target.projectId,
+      name: target.name,
+      rootPath: target.workspaceRoot
+    });
+  });
+
+  it("renames external projects without moving their source-root-derived workspace", async () => {
+    const { init } = await createTestWorkspace();
+    const nextName = "External Display Name";
+
+    await expect(renameProject(init.workspace.id, nextName)).resolves.toMatchObject({
+      projectId: init.workspace.id,
+      name: nextName,
+      kind: "external",
+      rootPath: init.workspace.rootPath,
+      workspaceRoot: init.workspace.workspaceRoot
+    });
+    await expect(readJsonFile<ProjectMetadata>(init.workspace.projectFile)).resolves.toMatchObject({
+      id: init.workspace.id,
+      name: nextName,
+      rootPath: init.workspace.rootPath
+    });
+    await expect(access(init.workspace.workspaceRoot)).resolves.toBeUndefined();
   });
 
   it("creates formal project graph files for desktop-created projects", async () => {

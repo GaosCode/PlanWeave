@@ -5,6 +5,7 @@ export {
   linkProjectSourceRoot,
   listProjects,
   openProject,
+  renameProject,
   removeProject,
   unlinkProjectSourceRoot
 } from "./projectApi.js";
@@ -17,6 +18,7 @@ export {
 } from "./sourceDefaultProject.js";
 export type { SourceDefaultProjectCandidate, SourceDefaultProjectEntry } from "./sourceDefaultProject.js";
 export {
+  createProjectFromTaskCanvas,
   createTaskCanvas,
   duplicateTaskCanvas,
   listTaskCanvases,

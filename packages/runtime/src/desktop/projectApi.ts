@@ -1,15 +1,25 @@
-import { realpath, rm, stat } from "node:fs/promises";
+import { realpath, rename, rm, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { initManagedWorkspace, initWorkspace } from "../initWorkspace.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
-import { normalizeProjectMetadata, readProject, resolveProjectWorkspace } from "../project.js";
-import { detectDefaultCanvasWorkspaceMigration, materializeProjectGraph, projectGraphPath } from "../projectGraph/index.js";
-import type { ProjectMetadata, ProjectWorkspace } from "../types.js";
+import { normalizeProjectMetadata, projectWorkspacePaths, readProject, resolveProjectWorkspace } from "../project.js";
+import { createManagedProjectId } from "../projectId.js";
+import {
+  detectDefaultCanvasWorkspaceMigration,
+  loadProjectGraphForWorkspace,
+  materializeProjectGraph,
+  projectCanvasWorkspace,
+  projectGraphPath,
+  writeProjectGraph
+} from "../projectGraph/index.js";
+import { manifestSchema } from "../schema/manifest.js";
+import type { PlanPackageManifest, ProjectMetadata, ProjectWorkspace } from "../types.js";
 import type { DesktopProjectSummary } from "./types.js";
 import { getActiveTaskCanvasId, listTaskCanvases } from "./canvasApi.js";
 import { readActiveTaskCanvasSelection, writeActiveTaskCanvasSelection } from "./canvasSelectionStore.js";
+import { updateSourceDefaultProjectReference } from "./sourceDefaultProject.js";
 
 async function exists(path: string): Promise<boolean> {
   return (await optionalStat(path)) !== null;
@@ -59,6 +69,33 @@ function isDescendant(root: string, target: string): boolean {
   return Boolean(relativePath) && !relativePath.startsWith("..") && !isAbsolute(relativePath);
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function assertDirectProjectWorkspace(projectsRoot: string, workspaceRoot: string, projectId: string, action: "changed" | "removed"): void {
+  const relativeWorkspace = relative(projectsRoot, workspaceRoot);
+  if (
+    !relativeWorkspace ||
+    relativeWorkspace !== projectId ||
+    relativeWorkspace.startsWith("..") ||
+    isAbsolute(relativeWorkspace)
+  ) {
+    throw new Error(`Project '${projectId}' cannot be ${action} in the PlanWeave registry.`);
+  }
+}
+
+function projectWorkspacePathsForRename(project: ProjectMetadata, id: string, workspaceRoot: string): ProjectWorkspace {
+  return projectWorkspacePaths({
+    id,
+    kind: "managed",
+    rootPath: workspaceRoot,
+    sourceRoot: project.sourceRoot ?? null,
+    planweaveHome: resolvePlanweaveHome(),
+    workspaceRoot
+  });
+}
+
 async function readRegisteredProject(projectId: string): Promise<{ project: ProjectMetadata; workspaceRoot: string; projectFile: string } | null> {
   const planweaveHome = resolvePlanweaveHome();
   const workspaceRoot = join(planweaveHome, "projects", projectId);
@@ -103,16 +140,200 @@ export async function listProjects(): Promise<DesktopProjectSummary[]> {
 export async function removeProject(projectId: string): Promise<void> {
   const projectsRoot = resolve(resolvePlanweaveHome(), "projects");
   const workspaceRoot = resolve(projectsRoot, projectId);
-  const relativeWorkspace = relative(projectsRoot, workspaceRoot);
-  if (
-    !relativeWorkspace ||
-    relativeWorkspace !== projectId ||
-    relativeWorkspace.startsWith("..") ||
-    isAbsolute(relativeWorkspace)
-  ) {
-    throw new Error(`Project '${projectId}' cannot be removed from the PlanWeave registry.`);
-  }
+  assertDirectProjectWorkspace(projectsRoot, workspaceRoot, projectId, "removed");
   await rm(workspaceRoot, { recursive: true, force: true });
+}
+
+async function rewriteJsonProjectId(path: string, projectId: string): Promise<void> {
+  if (!(await optionalStat(path))) {
+    return;
+  }
+  const raw = await readJsonFile<unknown>(path);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return;
+  }
+  await writeJsonFile(path, {
+    ...raw,
+    projectId
+  });
+}
+
+async function rewritePackageManifestTitle(path: string, title: string): Promise<void> {
+  if (!(await optionalStat(path))) {
+    return;
+  }
+  const manifest = manifestSchema.parse(await readJsonFile<unknown>(path)) as PlanPackageManifest;
+  await writeJsonFile(path, {
+    ...manifest,
+    project: {
+      ...manifest.project,
+      title
+    }
+  });
+}
+
+async function rewriteSingleCanvasProjectTitle(workspace: ProjectWorkspace, title: string): Promise<void> {
+  const loaded = await loadProjectGraphForWorkspace(workspace);
+  if (loaded.manifest.canvases.length !== 1) {
+    return;
+  }
+  const canvas = loaded.manifest.canvases[0];
+  if (!canvas) {
+    return;
+  }
+  await writeProjectGraph(workspace, {
+    ...loaded.manifest,
+    canvases: [{ ...canvas, title }]
+  });
+  await rewritePackageManifestTitle(projectCanvasWorkspace(workspace, canvas).manifestFile, title);
+}
+
+type SingleCanvasTitleSnapshot = {
+  canvasId: string;
+  projectGraphTitle: string;
+  manifestFile: string;
+  manifestTitle: string | null;
+} | null;
+
+async function readSingleCanvasTitleSnapshot(workspace: ProjectWorkspace): Promise<SingleCanvasTitleSnapshot> {
+  const loaded = await loadProjectGraphForWorkspace(workspace);
+  if (loaded.manifest.canvases.length !== 1) {
+    return null;
+  }
+  const canvas = loaded.manifest.canvases[0];
+  if (!canvas) {
+    return null;
+  }
+  const manifestFile = projectCanvasWorkspace(workspace, canvas).manifestFile;
+  let manifestTitle: string | null = null;
+  if (await optionalStat(manifestFile)) {
+    const manifest = manifestSchema.parse(await readJsonFile<unknown>(manifestFile)) as PlanPackageManifest;
+    manifestTitle = manifest.project.title;
+  }
+  return {
+    canvasId: canvas.id,
+    projectGraphTitle: canvas.title,
+    manifestFile,
+    manifestTitle
+  };
+}
+
+async function restoreSingleCanvasTitleSnapshot(workspace: ProjectWorkspace, snapshot: SingleCanvasTitleSnapshot): Promise<void> {
+  if (!snapshot) {
+    return;
+  }
+  const loaded = await loadProjectGraphForWorkspace(workspace);
+  await writeProjectGraph(workspace, {
+    ...loaded.manifest,
+    canvases: loaded.manifest.canvases.map((canvas) =>
+      canvas.id === snapshot.canvasId ? { ...canvas, title: snapshot.projectGraphTitle } : canvas
+    )
+  });
+  if (snapshot.manifestTitle !== null && (await optionalStat(snapshot.manifestFile))) {
+    await rewritePackageManifestTitle(snapshot.manifestFile, snapshot.manifestTitle);
+  }
+}
+
+async function rewriteManagedProjectIdentityFiles(workspace: ProjectWorkspace, project: ProjectMetadata): Promise<void> {
+  await writeJsonFile(workspace.projectFile, project);
+  await Promise.all([
+    rewriteJsonProjectId(join(workspace.workspaceRoot, "desktop", "layout.json"), project.id),
+    rewriteJsonProjectId(join(workspace.workspaceRoot, "desktop", "canvas-map-layout.json"), project.id)
+  ]);
+}
+
+async function rewriteManagedProjectFiles(workspace: ProjectWorkspace, project: ProjectMetadata): Promise<void> {
+  await rewriteManagedProjectIdentityFiles(workspace, project);
+  await rewriteSingleCanvasProjectTitle(workspace, project.name);
+}
+
+async function renameManagedProject(entry: { project: ProjectMetadata; workspaceRoot: string; projectFile: string }, name: string): Promise<DesktopProjectSummary> {
+  const previousProject = entry.project;
+  const previousProjectId = previousProject.id;
+  const nextProjectId = createManagedProjectId(name);
+  const projectsRoot = resolve(resolvePlanweaveHome(), "projects");
+  const previousWorkspaceRoot = resolve(entry.workspaceRoot);
+  const nextWorkspaceRoot = resolve(projectsRoot, nextProjectId);
+  assertDirectProjectWorkspace(projectsRoot, previousWorkspaceRoot, previousProjectId, "changed");
+  assertDirectProjectWorkspace(projectsRoot, nextWorkspaceRoot, nextProjectId, "changed");
+
+  const nextProject: ProjectMetadata = {
+    ...previousProject,
+    id: nextProjectId,
+    name,
+    kind: "managed",
+    rootPath: nextWorkspaceRoot,
+    sourceRoot: previousProject.sourceRoot ?? null
+  };
+  const nextWorkspace = projectWorkspacePathsForRename(nextProject, nextProjectId, nextWorkspaceRoot);
+
+  if (nextProjectId === previousProjectId) {
+    await rewriteManagedProjectFiles(nextWorkspace, nextProject);
+    return projectSummary(nextProject, nextWorkspaceRoot);
+  }
+
+  if (await optionalStat(nextWorkspaceRoot)) {
+    throw new Error(`PlanWeave project '${name}' already exists.`);
+  }
+
+  const previousWorkspace = projectWorkspacePathsForRename(previousProject, previousProjectId, previousWorkspaceRoot);
+  const previousTitleSnapshot = await readSingleCanvasTitleSnapshot(previousWorkspace);
+  let moved = false;
+  try {
+    await rename(previousWorkspaceRoot, nextWorkspaceRoot);
+    moved = true;
+    await rewriteManagedProjectFiles(nextWorkspace, nextProject);
+    await updateSourceDefaultProjectReference(previousProjectId, {
+      projectId: nextProjectId,
+      projectRoot: nextWorkspaceRoot
+    });
+  } catch (error) {
+    if (moved) {
+      try {
+        await writeJsonFile(join(nextWorkspaceRoot, "project.json"), {
+          ...previousProject,
+          id: previousProjectId,
+          kind: "managed",
+          rootPath: previousWorkspaceRoot,
+          sourceRoot: previousProject.sourceRoot ?? null
+        });
+        await rename(nextWorkspaceRoot, previousWorkspaceRoot);
+        await rewriteManagedProjectIdentityFiles(previousWorkspace, {
+          ...previousProject,
+          id: previousProjectId,
+          kind: "managed",
+          rootPath: previousWorkspaceRoot,
+          sourceRoot: previousProject.sourceRoot ?? null
+        });
+        await restoreSingleCanvasTitleSnapshot(previousWorkspace, previousTitleSnapshot);
+      } catch (rollbackError) {
+        throw new Error(`Project rename failed: ${errorMessage(error)}; rollback failed: ${errorMessage(rollbackError)}`);
+      }
+    }
+    throw error;
+  }
+
+  return projectSummary(nextProject, nextWorkspaceRoot);
+}
+
+export async function renameProject(projectId: string, name: string): Promise<DesktopProjectSummary> {
+  const nextName = name.trim();
+  if (!nextName) {
+    throw new Error("Project name is required.");
+  }
+  const entry = await readRegisteredProject(projectId);
+  if (!entry) {
+    throw new Error(`Project '${projectId}' does not exist.`);
+  }
+  if (entry.project.kind === "managed") {
+    return renameManagedProject(entry, nextName);
+  }
+  const nextProject: ProjectMetadata = {
+    ...entry.project,
+    name: nextName
+  };
+  await writeJsonFile(entry.projectFile, nextProject);
+  return projectSummary(nextProject, entry.workspaceRoot);
 }
 
 export async function initOrOpenProject(rootPath: string): Promise<DesktopProjectSummary> {

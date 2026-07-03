@@ -74,7 +74,7 @@ function sourceRootForMetadata(project: ProjectMetadata): string | null {
   return project.sourceRoot ?? project.rootPath;
 }
 
-async function isDirectRegisteredWorkspace(planweaveHome: string, rootPath: string): Promise<boolean> {
+async function directRegisteredWorkspaceId(planweaveHome: string, rootPath: string): Promise<string | null> {
   let projectsRoot: string;
   try {
     projectsRoot = await realpath(join(planweaveHome, "projects"));
@@ -82,16 +82,27 @@ async function isDirectRegisteredWorkspace(planweaveHome: string, rootPath: stri
     projectsRoot = join(planweaveHome, "projects");
   }
   const relativePath = relative(projectsRoot, rootPath);
-  return Boolean(relativePath) && !relativePath.startsWith("..") && !isAbsolute(relativePath) && relativePath === basename(rootPath);
+  if (!relativePath || relativePath.startsWith("..") || isAbsolute(relativePath) || relativePath !== basename(rootPath)) {
+    return null;
+  }
+  return basename(rootPath);
 }
 
 async function workspaceFromRegisteredRoot(rootPath: string, planweaveHome: string): Promise<ProjectWorkspace | null> {
-  if (!(await isDirectRegisteredWorkspace(planweaveHome, rootPath))) {
+  const projectId = await directRegisteredWorkspaceId(planweaveHome, rootPath);
+  if (!projectId) {
     return null;
   }
   const projectFile = join(rootPath, "project.json");
   if (!(await optionalStat(projectFile))) {
-    return null;
+    return projectWorkspacePaths({
+      id: projectId,
+      kind: "managed",
+      rootPath,
+      sourceRoot: null,
+      planweaveHome,
+      workspaceRoot: rootPath
+    });
   }
   const project = await readJsonFile<ProjectMetadata>(projectFile);
   if (project.id !== basename(rootPath)) {

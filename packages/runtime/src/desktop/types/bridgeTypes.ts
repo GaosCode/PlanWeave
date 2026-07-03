@@ -148,6 +148,7 @@ export type DesktopBridgeApi = {
   chooseSourceRootFolder(): Promise<string | null>;
   revealProjectInFinder(rootPath: string): Promise<void>;
   revealPathInFinder(path: string): Promise<void>;
+  revealTaskCanvasInFinder(projectRoot: string, canvasId: string): Promise<void>;
   detectAgentTools(): Promise<DesktopAgentDetection[]>;
   detectRuntimeTools(): Promise<DesktopRuntimeToolAvailability>;
   detectTerminalApps(): Promise<DesktopTerminalAppDetection[]>;
@@ -162,10 +163,12 @@ export type DesktopBridgeApi = {
   openProject(input: { projectId?: string; rootPath?: string }): Promise<DesktopProjectSummary>;
   initOrOpenProject(rootPath: string): Promise<DesktopProjectSummary>;
   removeProject(projectId: string): Promise<void>;
+  renameProject(projectId: string, name: string): Promise<DesktopProjectSummary>;
   linkProjectSourceRoot(projectId: string, sourceRoot: string): Promise<DesktopProjectSummary>;
   unlinkProjectSourceRoot(projectId: string): Promise<DesktopProjectSummary>;
   createTaskCanvas(projectRoot: string, input?: { name?: string | null }): Promise<DesktopTaskCanvasSummary>;
   duplicateTaskCanvas(projectRoot: string, canvasId: string, input?: { name?: string | null }): Promise<DesktopTaskCanvasSummary>;
+  createProjectFromTaskCanvas(projectRoot: string, canvasId: string, input?: { name?: string | null }): Promise<DesktopProjectSummary>;
   renameTaskCanvas(projectRoot: string, canvasId: string, name: string): Promise<DesktopTaskCanvasSummary>;
   removeTaskCanvas(projectRoot: string, canvasId: string): Promise<DesktopTaskCanvasSummary[]>;
   selectTaskCanvas(projectRoot: string, canvasId: string): Promise<string>;

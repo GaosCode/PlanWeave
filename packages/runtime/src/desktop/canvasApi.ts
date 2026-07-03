@@ -3,9 +3,11 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
 import { optionalStat } from "../fs/optionalFile.js";
-import { initialManifest } from "../initWorkspace.js";
+import { initialManifest, initManagedWorkspace } from "../initWorkspace.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
+import { resolvePlanweaveHome } from "../paths.js";
 import { resolveProjectWorkspace } from "../project.js";
+import { createManagedProjectId } from "../projectId.js";
 import {
   canonicalProjectCanvasNode,
   loadProjectGraph,
@@ -28,7 +30,7 @@ import {
 } from "../projectGraph/canvasWorkspaceRecovery.js";
 import { appendDesktopDiagnostics, desktopDiagnostic, errorMessage } from "./graph/desktopDiagnostics.js";
 import { invalidateDesktopProjectProjection } from "./graph/projectProjectionModel.js";
-import type { DesktopTaskCanvasSummary } from "./types.js";
+import type { DesktopProjectSummary, DesktopTaskCanvasSummary } from "./types.js";
 
 const defaultCanvasId = "default";
 
@@ -271,6 +273,63 @@ function newCanvasId(): string {
   return `canvas-${randomUUID().slice(0, 8)}`;
 }
 
+async function managedProjectExists(name: string): Promise<boolean> {
+  const projectId = createManagedProjectId(name);
+  return (await optionalStat(join(resolvePlanweaveHome(), "projects", projectId))) !== null;
+}
+
+async function nextCopiedProjectName(sourceName: string, requestedName?: string | null): Promise<string> {
+  const trimmedRequestedName = requestedName?.trim();
+  if (trimmedRequestedName) {
+    if (await managedProjectExists(trimmedRequestedName)) {
+      throw new Error(`PlanWeave project '${trimmedRequestedName}' already exists.`);
+    }
+    return trimmedRequestedName;
+  }
+  const baseName = `${sourceName.trim() || "Task canvas"} copy`;
+  if (!(await managedProjectExists(baseName))) {
+    return baseName;
+  }
+  let index = 2;
+  while (await managedProjectExists(`${baseName} ${index}`)) {
+    index += 1;
+  }
+  return `${baseName} ${index}`;
+}
+
+async function sourceCanvasForProjectCopy(projectRoot: string, canvasId: string): Promise<{ name: string; workspace: ProjectWorkspace }> {
+  const loaded = await loadProjectGraph(projectRoot);
+  if (loaded.source === "project_graph") {
+    const canvas = loaded.manifest.canvases.find((candidate) => candidate.id === canvasId);
+    if (!canvas) {
+      throw new Error(`Project canvas '${canvasId}' does not exist.`);
+    }
+    return {
+      name: canvas.title,
+      workspace: workspaceForProjectCanvas(loaded.workspace, canvas)
+    };
+  }
+  const { projectWorkspace, registry } = await readRegistry(projectRoot);
+  const record = requireCanvasRecord(registry, canvasId);
+  return {
+    name: record.name,
+    workspace: canvasWorkspace(projectWorkspace, record)
+  };
+}
+
+function managedProjectSummary(project: Awaited<ReturnType<typeof initManagedWorkspace>>["project"], workspace: ProjectWorkspace, taskCanvases: DesktopTaskCanvasSummary[], activeCanvasId: string | null): DesktopProjectSummary {
+  return {
+    projectId: project.id,
+    name: project.name,
+    kind: "managed",
+    rootPath: workspace.workspaceRoot,
+    sourceRoot: null,
+    workspaceRoot: workspace.workspaceRoot,
+    activeCanvasId,
+    taskCanvases
+  };
+}
+
 function assertWorkspaceChild(projectWorkspace: ProjectWorkspace, path: string): void {
   const workspaceRoot = resolve(projectWorkspace.workspaceRoot);
   const target = resolve(path);
@@ -338,6 +397,14 @@ async function cleanupFailedDuplicateStaging(projectWorkspace: ProjectWorkspace,
     throw new Error(`Task canvas duplication failed: ${errorMessage(error)}; staging cleanup failed: ${errorMessage(cleanupError)}`);
   }
   throw error;
+}
+
+async function resetCanvasWorkspace(workspace: ProjectWorkspace, title: string): Promise<void> {
+  await rm(workspace.packageDir, { recursive: true, force: true });
+  await writeJsonFile(workspace.manifestFile, initialManifest(title));
+  await writeJsonFile(workspace.stateFile, createEmptyState());
+  await rm(workspace.resultsDir, { recursive: true, force: true });
+  await mkdir(workspace.resultsDir, { recursive: true });
 }
 
 export async function listTaskCanvases(projectRoot: string): Promise<DesktopTaskCanvasSummary[]> {
@@ -516,6 +583,31 @@ export async function duplicateTaskCanvas(projectRoot: string, canvasId: string,
   return summarizeCanvas(projectWorkspace, duplicatedRecord);
 }
 
+export async function createProjectFromTaskCanvas(
+  projectRoot: string,
+  canvasId: string,
+  input: { name?: string | null } = {}
+): Promise<DesktopProjectSummary> {
+  const source = await sourceCanvasForProjectCopy(projectRoot, canvasId);
+  const projectName = await nextCopiedProjectName(source.name, input.name);
+  const init = await initManagedWorkspace({ name: projectName, projectGraph: true });
+  const targetWorkspace = await resolveTaskCanvasWorkspace(init.project.rootPath, defaultCanvasId);
+
+  try {
+    await rm(targetWorkspace.packageDir, { recursive: true, force: true });
+    await populateDuplicatedCanvasWorkspace(source.workspace, targetWorkspace, projectName);
+    await rm(targetWorkspace.resultsDir, { recursive: true, force: true });
+    await mkdir(targetWorkspace.resultsDir, { recursive: true });
+  } catch (error) {
+    await rm(init.workspace.workspaceRoot, { recursive: true, force: true });
+    throw error;
+  }
+
+  const activeCanvasId = await getActiveTaskCanvasId(init.project.rootPath);
+  const taskCanvases = await listTaskCanvases(init.project.rootPath);
+  return managedProjectSummary(init.project, init.workspace, taskCanvases, activeCanvasId);
+}
+
 export async function renameTaskCanvas(projectRoot: string, canvasId: string, name: string): Promise<DesktopTaskCanvasSummary> {
   const nextName = name.trim();
   if (!nextName) {
@@ -579,11 +671,8 @@ export async function removeTaskCanvas(projectRoot: string, canvasId: string): P
     assertWorkspaceChild(loaded.workspace, workspace.stateFile);
     assertWorkspaceChild(loaded.workspace, workspace.resultsDir);
     assertProjectCanvasUnreferenced(loaded.manifest, canvasId);
-    if (workspace.workspaceRoot === loaded.workspace.workspaceRoot || workspace.packageDir === loaded.workspace.packageDir || loaded.manifest.canvases.length === 1) {
-      await writeJsonFile(workspace.manifestFile, initialManifest(canvas.title));
-      await writeJsonFile(workspace.stateFile, createEmptyState());
-      await rm(workspace.resultsDir, { recursive: true, force: true });
-      await mkdir(workspace.resultsDir, { recursive: true });
+    if (canvas.id === defaultCanvasId || workspace.workspaceRoot === loaded.workspace.workspaceRoot || workspace.packageDir === loaded.workspace.packageDir || loaded.manifest.canvases.length === 1) {
+      await resetCanvasWorkspace(workspace, canvas.title);
       invalidateDesktopProjectProjection(projectRoot);
       return listTaskCanvases(projectRoot);
     }
@@ -607,10 +696,7 @@ export async function removeTaskCanvas(projectRoot: string, canvasId: string): P
   assertWorkspaceChild(projectWorkspace, workspace.stateFile);
   assertWorkspaceChild(projectWorkspace, workspace.resultsDir);
   if (record.canvasId === defaultCanvasId) {
-    await writeJsonFile(workspace.manifestFile, initialManifest(record.name));
-    await writeJsonFile(workspace.stateFile, createEmptyState());
-    await rm(workspace.resultsDir, { recursive: true, force: true });
-    await mkdir(workspace.resultsDir, { recursive: true });
+    await resetCanvasWorkspace(workspace, record.name);
     invalidateDesktopProjectProjection(projectRoot);
     return listTaskCanvases(projectRoot);
   }

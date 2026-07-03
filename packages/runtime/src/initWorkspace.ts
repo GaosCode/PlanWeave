@@ -1,5 +1,5 @@
 import { cp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { optionalStat } from "./fs/optionalFile.js";
 import { resolvePlanweaveHome } from "./paths.js";
 import { projectWorkspacePaths, resolveProjectWorkspace } from "./project.js";
@@ -126,15 +126,30 @@ export async function initWorkspace(options: {
   projectGraph?: boolean;
 }): Promise<InitWorkspaceResult> {
   const rootPath = await realpath(options.projectRoot);
+  const planweaveHome = resolvePlanweaveHome();
+  let canonicalPlanweaveHome: string;
+  try {
+    canonicalPlanweaveHome = await realpath(planweaveHome);
+  } catch {
+    canonicalPlanweaveHome = planweaveHome;
+  }
   const workspace = await resolveProjectWorkspace(rootPath);
+  const homeRelativePath = relative(canonicalPlanweaveHome, rootPath);
+  const isInsidePlanweaveHome = homeRelativePath === "" || (!homeRelativePath.startsWith("..") && !isAbsolute(homeRelativePath));
+  const topLevelHomeSegment = homeRelativePath.split(/[\\/]/)[0];
+  const isLegacyManagedLocation = topLevelHomeSegment === "mcp-projects" || topLevelHomeSegment === "mcp-imports";
+  if (isInsidePlanweaveHome && !isLegacyManagedLocation && workspace.workspaceRoot !== rootPath) {
+    throw new Error(`PlanWeave projects must be initialized directly under '${join(planweaveHome, "projects")}'.`);
+  }
   const projectName = basename(rootPath);
+  const createdAt = new Date().toISOString();
   const project: ProjectMetadata = {
     id: workspace.id,
     name: projectName,
-    rootPath,
-    kind: "external",
-    sourceRoot: rootPath,
-    createdAt: new Date().toISOString()
+    rootPath: workspace.kind === "managed" ? workspace.workspaceRoot : rootPath,
+    kind: workspace.kind,
+    sourceRoot: workspace.kind === "managed" ? null : rootPath,
+    createdAt
   };
 
   return initializeWorkspace(workspace, project, projectName, options);

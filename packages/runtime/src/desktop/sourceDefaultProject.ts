@@ -120,6 +120,29 @@ export async function setSourceDefaultProject(sourceRoot: string, projectId: str
   return entry;
 }
 
+export async function updateSourceDefaultProjectReference(
+  previousProjectId: string,
+  next: { projectId: string; projectRoot: string }
+): Promise<void> {
+  const file = await readSourceDefaultProjectFile();
+  let changed = false;
+  for (const [sourceRoot, entry] of Object.entries(file.defaults)) {
+    if (entry.projectId !== previousProjectId) {
+      continue;
+    }
+    file.defaults[sourceRoot] = {
+      ...entry,
+      projectId: next.projectId,
+      projectRoot: next.projectRoot,
+      updatedAt: new Date().toISOString()
+    };
+    changed = true;
+  }
+  if (changed) {
+    await writeSourceDefaultProjectFile(file);
+  }
+}
+
 export async function clearSourceDefaultProject(sourceRoot: string): Promise<SourceDefaultProjectEntry | null> {
   const resolvedSourceRoot = await normalizeSourceRoot(sourceRoot);
   const file = await readSourceDefaultProjectFile();

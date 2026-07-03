@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -63,6 +63,42 @@ describe("initWorkspace", () => {
     await expect(access(join(result.workspace.workspaceRoot, "canvases", "default", "package", "manifest.json"))).resolves.toBeUndefined();
     await expect(access(join(result.workspace.workspaceRoot, "package"))).rejects.toThrow();
     await expect(access(join(home, "mcp-projects"))).rejects.toThrow();
+    delete process.env.PLANWEAVE_HOME;
+  });
+
+  it("initializes an empty directory directly under PLANWEAVE_HOME/projects in place", async () => {
+    const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
+    const root = join(home, "projects", "manual-plan");
+    process.env.PLANWEAVE_HOME = home;
+    await mkdir(root, { recursive: true });
+
+    const result = await initWorkspace({ projectRoot: root, projectGraph: true });
+    const resolvedRoot = await realpath(root);
+    const project = await readJsonFile<Record<string, unknown>>(result.workspace.projectFile);
+
+    expect(result.workspace.kind).toBe("managed");
+    expect(result.workspace.workspaceRoot).toBe(resolvedRoot);
+    expect(result.workspace.rootPath).toBe(resolvedRoot);
+    expect(result.workspace.sourceRoot).toBeNull();
+    expect(project).toMatchObject({
+      id: "manual-plan",
+      name: "manual-plan",
+      rootPath: resolvedRoot,
+      kind: "managed",
+      sourceRoot: null
+    });
+    await expect(access(join(root, "canvases", "default", "package", "manifest.json"))).resolves.toBeUndefined();
+    delete process.env.PLANWEAVE_HOME;
+  });
+
+  it("rejects init roots inside PLANWEAVE_HOME outside projects entries", async () => {
+    const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
+    const root = join(home, "scratch", "manual-plan");
+    process.env.PLANWEAVE_HOME = home;
+    await mkdir(root, { recursive: true });
+
+    await expect(initWorkspace({ projectRoot: root })).rejects.toThrow(`PlanWeave projects must be initialized directly under '${join(home, "projects")}'.`);
+    await expect(access(join(home, "projects"))).rejects.toThrow();
     delete process.env.PLANWEAVE_HOME;
   });
 });
