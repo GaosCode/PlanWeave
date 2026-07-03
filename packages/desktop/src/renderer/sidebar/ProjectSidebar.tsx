@@ -18,6 +18,7 @@ type ProjectSidebarProps = {
   expandedProjectId: string | null;
   graph: DesktopGraphViewModel | null;
   handleBindSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
+  handleCopyCanvasToNewProject: (project: DesktopProjectSummary, canvasId: string) => Promise<DesktopProjectSummary | null>;
   handleDeleteProject: (project: DesktopProjectSummary) => Promise<void>;
   handleDeleteTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleDeleteTaskNode: (taskId: string) => Promise<void>;
@@ -30,6 +31,8 @@ type ProjectSidebarProps = {
   handleRevealPlanWorkspace: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealProject: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
+  handleRevealTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
+  handleRenameProject: (project: DesktopProjectSummary, name: string) => Promise<void>;
   handleRenameTaskCanvas: (project: DesktopProjectSummary, canvasId: string, currentName: string) => Promise<void>;
   handleUnlinkSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
@@ -56,6 +59,7 @@ export function ProjectSidebar({
   expandedProjectId,
   graph,
   handleBindSourceRoot,
+  handleCopyCanvasToNewProject,
   handleDeleteProject,
   handleDeleteTaskCanvas,
   handleDeleteTaskNode,
@@ -68,6 +72,8 @@ export function ProjectSidebar({
   handleRevealPlanWorkspace,
   handleRevealProject,
   handleRevealSourceRoot,
+  handleRevealTaskCanvas,
+  handleRenameProject,
   handleRenameTaskCanvas,
   handleUnlinkSourceRoot,
   handleTaskPanelSelect,
@@ -89,6 +95,7 @@ export function ProjectSidebar({
 }: ProjectSidebarProps) {
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
   const [collapsedCanvasIds, setCollapsedCanvasIds] = useState<Set<string>>(() => new Set());
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
 
   if (collapsed) {
     return null;
@@ -139,7 +146,10 @@ export function ProjectSidebar({
   };
 
   const handleCanvasSelect = (project: DesktopProjectSummary, canvasId: string) => {
-    void loadProject(project, canvasId).then(() => handleTaskPanelSelect(null));
+    void loadProject(project, canvasId).then(() => {
+      handleTaskPanelSelect(null);
+      setActiveView("graph");
+    });
   };
 
   const handleProjectToggle = (project: DesktopProjectSummary, isSelectedProject: boolean) => {
@@ -158,6 +168,14 @@ export function ProjectSidebar({
       return;
     }
     toggleCanvas(canvasId);
+  };
+
+  const copyCanvasToNewProject = async (project: DesktopProjectSummary, canvasId: string) => {
+    const createdProject = await handleCopyCanvasToNewProject(project, canvasId);
+    if (createdProject) {
+      expandProject(createdProject.projectId);
+      setRenamingProjectId(createdProject.projectId);
+    }
   };
 
   return (
@@ -183,6 +201,7 @@ export function ProjectSidebar({
         expandedProjectId={expandedProjectId}
         graph={graph}
         handleBindSourceRoot={handleBindSourceRoot}
+        handleCopyCanvasToNewProject={copyCanvasToNewProject}
         handleDeleteProject={handleDeleteProject}
         handleDeleteTaskCanvas={handleDeleteTaskCanvas}
         handleDeleteTaskNode={handleDeleteTaskNode}
@@ -195,6 +214,8 @@ export function ProjectSidebar({
         handleRevealPlanWorkspace={handleRevealPlanWorkspace}
         handleRevealProject={handleRevealProject}
         handleRevealSourceRoot={handleRevealSourceRoot}
+        handleRevealTaskCanvas={handleRevealTaskCanvas}
+        handleRenameProject={handleRenameProject}
         handleRenameTaskCanvas={handleRenameTaskCanvas}
         handleUnlinkSourceRoot={handleUnlinkSourceRoot}
         handleTaskPanelSelect={handleTaskPanelSelect}
@@ -206,9 +227,11 @@ export function ProjectSidebar({
         pinnedProjectIds={pinnedProjectIds}
         projectRefreshing={projectRefreshing}
         projects={projects}
+        renamingProjectId={renamingProjectId}
         selectedCanvasId={selectedCanvasId}
         selectedProject={selectedProject}
         selectedTaskPanelId={selectedTaskPanelId}
+        setRenamingProjectId={setRenamingProjectId}
         t={t}
       />
       <Separator className="bg-border/80" />

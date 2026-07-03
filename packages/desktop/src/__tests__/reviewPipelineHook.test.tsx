@@ -208,4 +208,46 @@ describe("desktop renderer hook interfaces", () => {
     );
     expect(getReviewPipeline).not.toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-alt" }, "T-ALPHA");
   });
+
+  it("clears stale review task selection when the selected task was deleted before the graph refreshes", async () => {
+    let rejectReviewPipeline: (error: Error) => void = () => undefined;
+    const getReviewPipeline = vi.fn(
+      () =>
+        new Promise<DesktopReviewPipeline>((_, reject) => {
+          rejectReviewPipeline = reject;
+        })
+    );
+    const bridge = createDesktopBridgeMock({
+      getReviewPipeline
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const [{ useReviewPipeline }, { createTranslator }] = await Promise.all([
+      import("../renderer/hooks/useReviewPipeline"),
+      import("../renderer/i18n")
+    ]);
+    const setError = vi.fn();
+    const { result } = renderHook(() =>
+      useReviewPipeline({
+        graph,
+        reloadCurrentCanvas: vi.fn().mockResolvedValue(undefined),
+        selectedCanvasId: "canvas-main",
+        selectedProject: project,
+        setError,
+        t: createTranslator("en")
+      })
+    );
+
+    await waitFor(() =>
+      expect(getReviewPipeline).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, "T-ALPHA")
+    );
+
+    await act(async () => {
+      rejectReviewPipeline(new Error("Error invoking remote method 'planweave:getReviewPipeline': Error: Task 'T-ALPHA' does not exist."));
+    });
+
+    await waitFor(() => expect(result.current.reviewTaskId).toBeNull());
+    expect(result.current.reviewPipeline).toBeNull();
+    expect(setError).not.toHaveBeenCalled();
+  });
 });

@@ -1,4 +1,5 @@
 import { FolderOpenIcon, RefreshCwIcon } from "lucide-react";
+import type { Dispatch, SetStateAction } from "react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -11,6 +12,7 @@ type ProjectTreeProps = {
   expandedProjectId: string | null;
   graph: DesktopGraphViewModel | null;
   handleBindSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
+  handleCopyCanvasToNewProject: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleDeleteProject: (project: DesktopProjectSummary) => Promise<void>;
   handleDeleteTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleDeleteTaskNode: (taskId: string) => Promise<void>;
@@ -23,6 +25,8 @@ type ProjectTreeProps = {
   handleRevealPlanWorkspace: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealProject: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
+  handleRevealTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
+  handleRenameProject: (project: DesktopProjectSummary, name: string) => Promise<void>;
   handleRenameTaskCanvas: (project: DesktopProjectSummary, canvasId: string, currentName: string) => Promise<void>;
   handleUnlinkSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
@@ -34,9 +38,11 @@ type ProjectTreeProps = {
   pinnedProjectIds: Set<string>;
   projectRefreshing: boolean;
   projects: DesktopProjectSummary[];
+  renamingProjectId: string | null;
   selectedProject: DesktopProjectSummary | null;
   selectedCanvasId: string | null;
   selectedTaskPanelId: string | null;
+  setRenamingProjectId: Dispatch<SetStateAction<string | null>>;
   t: ReturnType<typeof createTranslator>;
 };
 
@@ -46,6 +52,7 @@ export function ProjectTree({
   expandedProjectId,
   graph,
   handleBindSourceRoot,
+  handleCopyCanvasToNewProject,
   handleDeleteProject,
   handleDeleteTaskCanvas,
   handleDeleteTaskNode,
@@ -58,6 +65,8 @@ export function ProjectTree({
   handleRevealPlanWorkspace,
   handleRevealProject,
   handleRevealSourceRoot,
+  handleRevealTaskCanvas,
+  handleRenameProject,
   handleRenameTaskCanvas,
   handleUnlinkSourceRoot,
   handleTaskPanelSelect,
@@ -69,9 +78,11 @@ export function ProjectTree({
   pinnedProjectIds,
   projectRefreshing,
   projects,
+  renamingProjectId,
   selectedProject,
   selectedCanvasId,
   selectedTaskPanelId,
+  setRenamingProjectId,
   t
 }: ProjectTreeProps) {
   return (
@@ -98,6 +109,7 @@ export function ProjectTree({
                 collapsedCanvasIds={collapsedCanvasIds}
                 graph={graph}
                 handleBindSourceRoot={handleBindSourceRoot}
+                handleCopyCanvasToNewProject={handleCopyCanvasToNewProject}
                 handleDeleteProject={handleDeleteProject}
                 handleDeleteTaskCanvas={handleDeleteTaskCanvas}
                 handleDeleteTaskNode={handleDeleteTaskNode}
@@ -108,6 +120,8 @@ export function ProjectTree({
                 handleRevealPlanWorkspace={handleRevealPlanWorkspace}
                 handleRevealProject={handleRevealProject}
                 handleRevealSourceRoot={handleRevealSourceRoot}
+                handleRevealTaskCanvas={handleRevealTaskCanvas}
+                handleRenameProject={handleRenameProject}
                 handleRenameTaskCanvas={handleRenameTaskCanvas}
                 handleUnlinkSourceRoot={handleUnlinkSourceRoot}
                 handleTaskPanelSelect={handleTaskPanelSelect}
@@ -121,8 +135,10 @@ export function ProjectTree({
                 onProjectToggle={onProjectToggle}
                 onTogglePinnedProject={onTogglePinnedProject}
                 project={project}
+                renamingProjectId={renamingProjectId}
                 selectedCanvasId={selectedCanvasId}
                 selectedTaskPanelId={selectedTaskPanelId}
+                setRenamingProjectId={setRenamingProjectId}
                 t={t}
               />
             );

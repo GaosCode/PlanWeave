@@ -161,6 +161,7 @@ export function App() {
     autoRunDiagnostics,
     autoRunState,
     clearTaskPanelSelection,
+    createProjectFromTaskCanvas: createProjectFromTaskCanvasInSession,
     createTaskCanvas: createTaskCanvasInSession,
     deleteTaskCanvas: deleteTaskCanvasInSession,
     duplicateTaskCanvas: duplicateTaskCanvasInSession,
@@ -225,23 +226,6 @@ export function App() {
     taskFocusRequest
   });
 
-  const { handleDeleteBlock, handleDeleteTaskNode } = useGraphDeleteActions({
-    clearTaskPanelSelection,
-    clearSelectedBlockRecords,
-    deleteBlockConfirm: t("deleteBlockConfirm"),
-    deleteTaskConfirm: t("deleteTaskConfirm"),
-    loadProject: openProjectInSession,
-    refreshProjectDerivedState,
-    selectedCanvasId,
-    selectedBlock,
-    selectedProject,
-    selectedTaskPanelId,
-    setBlockInspectorOpen,
-    setError,
-    setSelectedBlock,
-    setSelectedRunRecord
-  });
-
   const {
     confirmTaskDraft,
     generateTaskDraft,
@@ -283,6 +267,7 @@ export function App() {
 
   const {
     addReviewStep,
+    clearReviewTaskSelection,
     moveReviewStep,
     removeReviewStep,
     reviewDefaultCyclesDraft,
@@ -294,6 +279,24 @@ export function App() {
     setReviewTaskId,
     updateReviewStep
   } = useReviewPipeline({ graph, reloadCurrentCanvas, selectedCanvasId, selectedProject, setError, t });
+
+  const { handleDeleteBlock, handleDeleteTaskNode } = useGraphDeleteActions({
+    clearReviewTaskSelection,
+    clearTaskPanelSelection,
+    clearSelectedBlockRecords,
+    deleteBlockConfirm: t("deleteBlockConfirm"),
+    deleteTaskConfirm: t("deleteTaskConfirm"),
+    loadProject: openProjectInSession,
+    refreshProjectDerivedState,
+    selectedCanvasId,
+    selectedBlock,
+    selectedProject,
+    selectedTaskPanelId,
+    setBlockInspectorOpen,
+    setError,
+    setSelectedBlock,
+    setSelectedRunRecord
+  });
 
   const {
     applyLocalPromptConflicts,
@@ -318,21 +321,41 @@ export function App() {
 
   const {
     handleBindSourceRoot,
+    handleCopyCanvasToNewProject,
     handleDeleteProject,
     handleDeleteTaskCanvas,
     handleDuplicateTaskCanvas,
     handleDropSourceRoot,
     handleProjectNewGraph,
+    handleRenameProject,
     handleRevealPathInFinder,
     handleRevealPlanWorkspace,
     handleRevealProject,
     handleRevealSourceRoot,
+    handleRevealTaskCanvas,
     handleRenameTaskCanvas,
     handleUnlinkSourceRoot
   } = useDesktopProjectActions({
+    clearReviewTaskSelection,
     createTaskCanvas: createTaskCanvasInSession,
+    createProjectFromTaskCanvas: createProjectFromTaskCanvasInSession,
     deleteTaskCanvas: deleteTaskCanvasInSession,
     duplicateTaskCanvas: duplicateTaskCanvasInSession,
+    renameProject: async (project, name) => {
+      if (!bridge) {
+        return null;
+      }
+      const updated = await bridge.renameProject(project.projectId, name);
+      if (updated.projectId !== project.projectId) {
+        updateSettings((current) => ({
+          pinnedProjectIds: Array.from(
+            new Set(current.pinnedProjectIds.map((pinnedProjectId) => (pinnedProjectId === project.projectId ? updated.projectId : pinnedProjectId)))
+          )
+        }));
+      }
+      await refreshProjects({ selectProjectId: updated.projectId });
+      return updated;
+    },
     renameTaskCanvas: renameTaskCanvasInSession,
     refreshProjectSummary,
     removeProject,
@@ -629,6 +652,7 @@ export function App() {
           expandedProjectId={expandedProjectId}
           graph={graph}
           handleBindSourceRoot={handleBindSourceRoot}
+          handleCopyCanvasToNewProject={handleCopyCanvasToNewProject}
           handleOpenProject={handleOpenProject}
           handleProjectNewGraph={handleProjectNewGraph}
           handleRefreshProjects={refreshProjects}
@@ -641,6 +665,8 @@ export function App() {
           handleRevealPlanWorkspace={handleRevealPlanWorkspace}
           handleRevealProject={handleRevealProject}
           handleRevealSourceRoot={handleRevealSourceRoot}
+          handleRevealTaskCanvas={handleRevealTaskCanvas}
+          handleRenameProject={handleRenameProject}
           handleRenameTaskCanvas={handleRenameTaskCanvas}
           handleUnlinkSourceRoot={handleUnlinkSourceRoot}
           handleTaskPanelSelect={handleTaskPanelSelect}

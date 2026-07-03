@@ -253,7 +253,7 @@ export function useDesktopProject({
     [selectedProject?.rootPath]
   );
 
-  const refreshProjects = useCallback(async () => {
+  const refreshProjects = useCallback(async (options: { selectProjectId?: string } = {}) => {
     if (!bridge) {
       return;
     }
@@ -261,6 +261,11 @@ export function useDesktopProject({
     try {
       const nextProjects = await bridge.listProjects();
       setProjects(nextProjects);
+      const requestedProject = options.selectProjectId ? nextProjects.find((item) => item.projectId === options.selectProjectId) ?? null : null;
+      if (requestedProject) {
+        await loadProject(requestedProject);
+        return;
+      }
       const currentProject =
         nextProjects.find((item) => item.projectId === selectedProject?.projectId) ??
         nextProjects.find((item) => item.rootPath === selectedProject?.rootPath) ??

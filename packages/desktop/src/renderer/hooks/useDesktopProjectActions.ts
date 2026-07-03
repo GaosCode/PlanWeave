@@ -5,9 +5,12 @@ import type { createTranslator } from "../i18n";
 import type { AppView } from "../types";
 
 type UseDesktopProjectActionsArgs = {
+  clearReviewTaskSelection: (taskId?: string | null) => void;
   createTaskCanvas: (project: DesktopProjectSummary) => Promise<unknown>;
+  createProjectFromTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<DesktopProjectSummary | null>;
   deleteTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   duplicateTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<unknown>;
+  renameProject: (project: DesktopProjectSummary, name: string) => Promise<unknown>;
   renameTaskCanvas: (project: DesktopProjectSummary, canvasId: string, name: string) => Promise<unknown>;
   refreshProjectSummary: (projectRoot: string, canvasId?: string | null) => Promise<DesktopProjectSummary | null>;
   removeProject: (project: DesktopProjectSummary) => Promise<void>;
@@ -17,9 +20,12 @@ type UseDesktopProjectActionsArgs = {
 };
 
 export function useDesktopProjectActions({
+  clearReviewTaskSelection,
   createTaskCanvas,
+  createProjectFromTaskCanvas,
   deleteTaskCanvas,
   duplicateTaskCanvas,
+  renameProject,
   renameTaskCanvas,
   refreshProjectSummary,
   removeProject,
@@ -170,6 +176,21 @@ export function useDesktopProjectActions({
     [setError]
   );
 
+  const handleRevealTaskCanvas = useCallback(
+    async (project: DesktopProjectSummary, canvasId: string) => {
+      if (!bridge) {
+        setError(t("bridgeUnavailable"));
+        return;
+      }
+      try {
+        await bridge.revealTaskCanvasInFinder(project.rootPath, canvasId);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    [setError, t]
+  );
+
   const handleDeleteProject = useCallback(
     async (project: DesktopProjectSummary) => {
       if (!window.confirm(t("deleteProjectConfirm"))) {
@@ -189,16 +210,18 @@ export function useDesktopProjectActions({
       if (!bridge) {
         return;
       }
-      if (!window.confirm(t("deleteTaskCanvasConfirm"))) {
+      const resetOnlyCanvas = canvasId === "default" || project.taskCanvases.length === 1;
+      if (!window.confirm(t(resetOnlyCanvas ? "resetTaskCanvasConfirm" : "deleteTaskCanvasConfirm"))) {
         return;
       }
       try {
         await deleteTaskCanvas(project, canvasId);
+        clearReviewTaskSelection();
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [deleteTaskCanvas, setError, t]
+    [clearReviewTaskSelection, deleteTaskCanvas, setError, t]
   );
 
   const handleDuplicateTaskCanvas = useCallback(
@@ -215,6 +238,43 @@ export function useDesktopProjectActions({
       }
     },
     [duplicateTaskCanvas, setActiveView, setError, t]
+  );
+
+  const handleCopyCanvasToNewProject = useCallback(
+    async (project: DesktopProjectSummary, canvasId: string) => {
+      if (!bridge) {
+        setError(t("bridgeUnavailable"));
+        return null;
+      }
+      try {
+        const createdProject = await createProjectFromTaskCanvas(project, canvasId);
+        setActiveView("graph");
+        return createdProject;
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+        return null;
+      }
+    },
+    [createProjectFromTaskCanvas, setActiveView, setError, t]
+  );
+
+  const handleRenameProject = useCallback(
+    async (project: DesktopProjectSummary, name: string) => {
+      if (!bridge) {
+        setError(t("bridgeUnavailable"));
+        return;
+      }
+      const nextName = name.trim();
+      if (!nextName) {
+        return;
+      }
+      try {
+        await renameProject(project, nextName);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    [renameProject, setError, t]
   );
 
   const handleRenameTaskCanvas = useCallback(
@@ -238,15 +298,18 @@ export function useDesktopProjectActions({
 
   return {
     handleBindSourceRoot,
+    handleCopyCanvasToNewProject,
     handleDeleteProject,
     handleDeleteTaskCanvas,
     handleDuplicateTaskCanvas,
     handleDropSourceRoot,
     handleProjectNewGraph,
+    handleRenameProject,
     handleRevealPathInFinder,
     handleRevealPlanWorkspace,
     handleRevealProject,
     handleRevealSourceRoot,
+    handleRevealTaskCanvas,
     handleRenameTaskCanvas,
     handleUnlinkSourceRoot
   };

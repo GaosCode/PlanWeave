@@ -227,6 +227,45 @@ describe("desktop renderer hook interfaces", () => {
     expect(setNewTaskTargetId).toHaveBeenCalledWith("T-NEW");
   });
 
+  it("clears stale review task selection after deleting a task", async () => {
+    const bridge = createDesktopBridgeMock({
+      removeTaskNode: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] })
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { useGraphDeleteActions } = await import("../renderer/hooks/useGraphDeleteActions");
+    const clearReviewTaskSelection = vi.fn();
+    const loadProject = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() =>
+      useGraphDeleteActions({
+        clearReviewTaskSelection,
+        clearTaskPanelSelection: vi.fn(),
+        clearSelectedBlockRecords: vi.fn(),
+        deleteBlockConfirm: "Delete block?",
+        deleteTaskConfirm: "Delete task?",
+        loadProject,
+        refreshProjectDerivedState: vi.fn().mockResolvedValue(undefined),
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setBlockInspectorOpen: vi.fn(),
+        setError: vi.fn(),
+        setSelectedBlock: vi.fn(),
+        setSelectedRunRecord: vi.fn()
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleDeleteTaskNode("T-ALPHA");
+    });
+
+    expect(bridge.removeTaskNode).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, "T-ALPHA");
+    expect(clearReviewTaskSelection).toHaveBeenCalledWith("T-ALPHA");
+    expect(loadProject).toHaveBeenCalledWith(project, "canvas-main");
+  });
+
   it("refreshes derived project state after deleting a block", async () => {
     const selectedBlock: DesktopBlockDetail = {
       ref: "T-ALPHA#B-001",
@@ -264,6 +303,7 @@ describe("desktop renderer hook interfaces", () => {
     const setSelectedRunRecord = vi.fn();
     const { result } = renderHook(() =>
       useGraphDeleteActions({
+        clearReviewTaskSelection: vi.fn(),
         clearTaskPanelSelection: vi.fn(),
         clearSelectedBlockRecords,
         deleteBlockConfirm: "Delete block?",

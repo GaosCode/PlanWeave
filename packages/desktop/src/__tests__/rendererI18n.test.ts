@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { detectRendererFileManagerPlatform, fileManagerLabelKey } from "../renderer/fileManagerLabels";
 import { createTranslator, resolveLanguage } from "../renderer/i18n";
 import { resources } from "../renderer/i18nCatalog";
 
@@ -79,5 +80,18 @@ describe("desktop renderer i18n", () => {
     expect(zh("defaultTaskAcceptance")).toBe("Task 完成实现。");
     expect(en("defaultImplementationBlockTitle")).toBe("Implement work");
     expect(en("defaultTaskAcceptance")).toBe("Task is implemented.");
+  });
+
+  it("resolves file manager labels from renderer platform data", () => {
+    expect(detectRendererFileManagerPlatform({ platform: "MacIntel", userAgent: "Mac OS X" })).toBe("darwin");
+    expect(detectRendererFileManagerPlatform({ platform: "Win32", userAgent: "Windows NT" })).toBe("win32");
+    expect(detectRendererFileManagerPlatform({ platform: "Linux x86_64", userAgent: "X11; Linux x86_64" })).toBe("generic");
+
+    const zh = createTranslator("zh-CN");
+    const en = createTranslator("en");
+
+    expect(zh(fileManagerLabelKey("planWorkspace", "darwin"))).toBe("在 Finder 中打开计划工作区");
+    expect(zh(fileManagerLabelKey("sourceRoot", "win32"))).toBe("在文件资源管理器中打开代码仓库");
+    expect(en(fileManagerLabelKey("taskCanvas", "generic"))).toBe("Open task canvas in file manager");
   });
 });

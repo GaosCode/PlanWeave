@@ -713,6 +713,48 @@ describe("auto run control hook", () => {
     });
   });
 
+  it("clears stale auto-run state when retrospective state was deleted", async () => {
+    const blockedState = autoRunState({
+      phase: "blocked",
+      runId: "DESKTOP-RUN-0008",
+      currentRef: selectedBlock.ref
+    });
+    const getAutoRunRetrospective = vi.fn().mockRejectedValue(
+      new Error(
+        "Error invoking remote method 'planweave:getAutoRunRetrospective': Error: Auto Run 'DESKTOP-RUN-0008' could not be read: auto_run_state_missing: /tmp/demo/results/auto-runs/DESKTOP-RUN-0008/state.json: Auto Run state '/tmp/demo/results/auto-runs/DESKTOP-RUN-0008/state.json' does not exist."
+      )
+    );
+    const bridge = createDesktopBridgeMock({
+      getAutoRunRetrospective,
+      getLatestAutoRunRetrospective: vi.fn()
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useAutoRunControl } = await import("../renderer/hooks/useAutoRunControl");
+    const setAutoRunState = vi.fn();
+    const setError = vi.fn();
+
+    const { result } = renderHook(() =>
+      useAutoRunControl({
+        autoRunState: blockedState,
+        handleOpenRunRecord: vi.fn(),
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setAutoRunState,
+        setError,
+        t: createTranslator("en"),
+        tmuxMonitoringEnabled: false
+      })
+    );
+
+    await waitFor(() => expect(getAutoRunRetrospective).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, blockedState.runId));
+    await waitFor(() => expect(setAutoRunState).toHaveBeenCalledWith(null));
+    expect(result.current.autoRunRetrospective).toBeNull();
+    expect(setError).not.toHaveBeenCalled();
+  });
+
   it("opens an internal run record before falling back to revealing the record path", async () => {
     const failedState = autoRunState({
       phase: "failed",

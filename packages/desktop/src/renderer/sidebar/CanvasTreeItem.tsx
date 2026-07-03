@@ -4,6 +4,8 @@ import {
   ChevronRightIcon,
   ClipboardIcon,
   CopyIcon,
+  FolderOpenIcon,
+  FolderPlusIcon,
   PencilIcon,
   SquarePenIcon,
   Trash2Icon,
@@ -21,6 +23,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from "@/components/ui/context-menu";
+import { fileManagerLabel } from "../fileManagerLabels";
 import type { createTranslator } from "../i18n";
 import { statusVariant } from "../viewHelpers";
 
@@ -33,7 +36,9 @@ type CanvasTreeItemProps = {
   handleDeleteTaskNode: (taskId: string) => Promise<void>;
   handleDuplicateTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleCopyCanvasAgentPrompt?: (project: DesktopProjectSummary, canvasId: string) => void;
+  handleCopyCanvasToNewProject: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleProjectNewGraph: (project: DesktopProjectSummary) => Promise<void>;
+  handleRevealTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleRenameTaskCanvas: (project: DesktopProjectSummary, canvasId: string, name: string) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
   isExpandedCanvas: boolean;
@@ -52,7 +57,9 @@ export function CanvasTreeItem({
   handleDeleteTaskNode,
   handleDuplicateTaskCanvas,
   handleCopyCanvasAgentPrompt,
+  handleCopyCanvasToNewProject,
   handleProjectNewGraph,
+  handleRevealTaskCanvas,
   handleRenameTaskCanvas,
   handleTaskPanelSelect,
   isExpandedCanvas,
@@ -65,6 +72,8 @@ export function CanvasTreeItem({
 }: CanvasTreeItemProps) {
   const firstDiagnostic = canvas.diagnostics?.[0] ?? null;
   const canvasLabel = canvas.name || t("taskCanvas");
+  const openTaskCanvasLabel = fileManagerLabel(t, "taskCanvas");
+  const resetOnlyCanvas = canvas.canvasId === "default" || project.taskCanvases.length === 1;
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState(canvasLabel);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
@@ -161,6 +170,10 @@ export function CanvasTreeItem({
             </ContextMenuTrigger>
             <ContextMenuContent className="w-52">
               <ContextMenuLabel>{canvas.name || t("taskCanvas")}</ContextMenuLabel>
+              <ContextMenuItem onSelect={() => void handleRevealTaskCanvas(project, canvas.canvasId)}>
+                <FolderOpenIcon data-icon="inline-start" />
+                {openTaskCanvasLabel}
+              </ContextMenuItem>
               <ContextMenuItem onSelect={() => void handleProjectNewGraph(project)}>
                 <SquarePenIcon data-icon="inline-start" />
                 {t("newGraph")}
@@ -175,6 +188,10 @@ export function CanvasTreeItem({
                 <CopyIcon data-icon="inline-start" />
                 {t("duplicateTaskCanvas")}
               </ContextMenuItem>
+              <ContextMenuItem onSelect={() => void handleCopyCanvasToNewProject(project, canvas.canvasId)}>
+                <FolderPlusIcon data-icon="inline-start" />
+                {t("copyCanvasToNewProject")}
+              </ContextMenuItem>
               <ContextMenuItem onSelect={startRename}>
                 <PencilIcon data-icon="inline-start" />
                 {t("renameTaskCanvas")}
@@ -182,7 +199,7 @@ export function CanvasTreeItem({
               <ContextMenuSeparator />
               <ContextMenuItem variant="destructive" onSelect={() => void handleDeleteTaskCanvas(project, canvas.canvasId)}>
                 <Trash2Icon data-icon="inline-start" />
-                {t("deleteTaskCanvas")}
+                {resetOnlyCanvas ? t("resetTaskCanvas") : t("deleteTaskCanvas")}
               </ContextMenuItem>
             </ContextMenuContent>
           </ContextMenu>

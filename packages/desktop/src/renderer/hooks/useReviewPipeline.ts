@@ -13,6 +13,11 @@ type UseReviewPipelineArgs = {
   t: ReturnType<typeof createTranslator>;
 };
 
+function missingReviewTaskError(caught: unknown, taskId: string): boolean {
+  const message = caught instanceof Error ? caught.message : String(caught);
+  return message.includes(`Task '${taskId}' does not exist.`);
+}
+
 export function useReviewPipeline({ graph, reloadCurrentCanvas, selectedCanvasId, selectedProject, setError, t }: UseReviewPipelineArgs) {
   const [reviewTaskId, setReviewTaskId] = useState<string | null>(null);
   const [reviewPipeline, setReviewPipeline] = useState<DesktopReviewPipeline | null>(null);
@@ -49,14 +54,32 @@ export function useReviewPipeline({ graph, reloadCurrentCanvas, selectedCanvasId
         setReviewDefaultCyclesDraft(pipeline.packageDefaults.maxFeedbackCycles);
       })
       .catch((caught: unknown) => {
-        if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : String(caught));
+        if (cancelled) {
+          return;
         }
+        if (missingReviewTaskError(caught, reviewTaskId)) {
+          setReviewTaskId((current) => (current === reviewTaskId ? null : current));
+          setReviewPipeline(null);
+          setReviewDraft([]);
+          return;
+        }
+        setError(caught instanceof Error ? caught.message : String(caught));
       });
     return () => {
       cancelled = true;
     };
   }, [graph, reviewTaskId, selectedCanvasId, selectedProject, setError]);
+
+  const clearReviewTaskSelection = useCallback(
+    (taskId?: string | null) => {
+      setReviewTaskId((current) => (taskId && current !== taskId ? current : null));
+      if (!taskId || reviewTaskId === taskId) {
+        setReviewPipeline(null);
+        setReviewDraft([]);
+      }
+    },
+    [reviewTaskId]
+  );
 
   const updateReviewStep = useCallback((index: number, patch: Partial<DesktopReviewPipelineStepInput>) => {
     setReviewDraft((current) => current.map((step, stepIndex) => (stepIndex === index ? { ...step, ...patch } : step)));
@@ -129,6 +152,7 @@ export function useReviewPipeline({ graph, reloadCurrentCanvas, selectedCanvasId
 
   return {
     addReviewStep,
+    clearReviewTaskSelection,
     moveReviewStep,
     removeReviewStep,
     reviewDefaultCyclesDraft,

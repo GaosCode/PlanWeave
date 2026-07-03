@@ -3,6 +3,7 @@ import { registerApplicationMenu } from "./appMenu.js";
 import { checkForAppUpdate, registerAppUpdateHandlers } from "./appUpdate.js";
 import { autoStartMcpTunnel, registerMcpTunnelHandlers, stopMcpTunnelProcesses } from "./mcpTunnel/mcpTunnelHandlers.js";
 import { registerDesktopSettingsHandlers } from "./desktopSettingsHandlers.js";
+import { applyPersistedPlanweaveHomeSetting } from "./desktopSettingsStore.js";
 import { registerPackageWatchHandlers } from "./packageWatch.js";
 import { registerRuntimeBridgeHandlers } from "./runtimeBridgeHandlers.js";
 import { registerWindowAppearanceHandlers } from "./windowAppearance.js";
@@ -18,12 +19,21 @@ if (app.isPackaged && !isDev && !isSmokeRun) {
   delete process.env.PLANWEAVE_HOME;
 }
 
+const planweaveHomeBaseline = process.env.PLANWEAVE_HOME;
+const planweaveHomeBaselineForSettingsStore = planweaveHomeBaseline ?? null;
+
+try {
+  applyPersistedPlanweaveHomeSetting(undefined, planweaveHomeBaseline);
+} catch (caught) {
+  console.error(caught instanceof Error ? caught.message : String(caught));
+}
+
 if (isSmokeRun && process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR) {
   app.setPath("userData", process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR);
 }
 
 registerRuntimeBridgeHandlers();
-registerDesktopSettingsHandlers();
+registerDesktopSettingsHandlers(undefined, { planweaveHomeBaseline: planweaveHomeBaselineForSettingsStore });
 registerPackageWatchHandlers();
 registerWindowAppearanceHandlers();
 registerAppUpdateHandlers();

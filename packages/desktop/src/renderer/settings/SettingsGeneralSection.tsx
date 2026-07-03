@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { DesktopRuntimeToolAvailability, ProjectPromptPolicy } from "@planweave-ai/runtime";
 import { Button } from "@/components/ui/button";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { AppUpdateSettingsRow } from "./AppUpdateSettingsRow";
@@ -81,6 +82,7 @@ export function SettingsGeneralSection({
   updateSettings
 }: SettingsGeneralSectionProps) {
   const [windowMaterialCapabilities, setWindowMaterialCapabilities] = useState<WindowMaterialCapabilities | null>(null);
+  const [planweaveHomeDraft, setPlanweaveHomeDraft] = useState(settings.planweaveHome);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +102,16 @@ export function SettingsGeneralSection({
   }, []);
 
   const windowMaterialSupported = windowMaterialCapabilities?.supported !== false;
+  useEffect(() => {
+    setPlanweaveHomeDraft(settings.planweaveHome);
+  }, [settings.planweaveHome]);
+
+  const commitPlanweaveHome = () => {
+    const nextHome = planweaveHomeDraft.trim();
+    if (nextHome !== settings.planweaveHome) {
+      updateSettings({ planweaveHome: nextHome });
+    }
+  };
 
   return (
     <section data-testid="settings-section-general" className="flex flex-col gap-6">
@@ -170,6 +182,31 @@ export function SettingsGeneralSection({
           description={t("reducedMotionHint")}
           onCheckedChange={(checked) => updateSettings({ reducedMotion: checked })}
         />
+      </SettingGroup>
+      <SettingGroup title={t("workspaceSettings")}>
+        <Field orientation="horizontal" className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0">
+          <FieldContent>
+            <FieldLabel htmlFor="planweave-home" className="text-sm font-semibold">{t("planweaveHome")}</FieldLabel>
+            <FieldDescription>{t("planweaveHomeHint")}</FieldDescription>
+          </FieldContent>
+          <Input
+            id="planweave-home"
+            className="w-96 max-w-[45vw]"
+            placeholder={t("planweaveHomePlaceholder")}
+            value={planweaveHomeDraft}
+            onBlur={commitPlanweaveHome}
+            onChange={(event) => setPlanweaveHomeDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
+              }
+              if (event.key === "Escape") {
+                setPlanweaveHomeDraft(settings.planweaveHome);
+                event.currentTarget.blur();
+              }
+            }}
+          />
+        </Field>
       </SettingGroup>
       <SettingGroup title={t("notificationRules")}>
         {[

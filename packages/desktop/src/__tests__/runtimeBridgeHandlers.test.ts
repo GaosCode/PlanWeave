@@ -300,8 +300,27 @@ describe("runtime bridge handlers", () => {
 
     await electronMock.handlers.get(desktopBridgeInvokeChannels.revealProjectInFinder)?.(null, "/tmp/project");
     await electronMock.handlers.get(desktopBridgeInvokeChannels.revealPathInFinder)?.(null, "/tmp/project/.planweave/runs/RUN-001/metadata.json");
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.revealTaskCanvasInFinder)?.(null, "/tmp/project", "canvas-a");
 
     expect(electronMock.shell.openPath).not.toHaveBeenCalled();
+    expect(electronMock.shell.showItemInFolder).not.toHaveBeenCalled();
+    expect(runtimeMock.resolveTaskCanvasWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("opens resolved task canvas workspace directories in Finder", async () => {
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    runtimeMock.resolveTaskCanvasWorkspace.mockResolvedValueOnce({
+      projectRoot: "/tmp/project",
+      canvasId: "canvas-a",
+      source: "task",
+      workspaceRoot: "/tmp/project/canvases/canvas-a"
+    });
+    registerRuntimeBridgeHandlers();
+
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.revealTaskCanvasInFinder)?.(null, "/tmp/project", "canvas-a");
+
+    expect(runtimeMock.resolveTaskCanvasWorkspace).toHaveBeenCalledWith("/tmp/project", "canvas-a");
+    expect(electronMock.shell.openPath).toHaveBeenCalledWith("/tmp/project/canvases/canvas-a");
     expect(electronMock.shell.showItemInFolder).not.toHaveBeenCalled();
   });
 

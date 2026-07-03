@@ -7,6 +7,7 @@ export type FloatingControlPosition = { left: number; top: number };
 
 export type DesktopUiSettings = {
   runtimePath: string;
+  planweaveHome: string;
   defaultExecutor: string;
   appearance: AppearanceMode;
   reducedMotion: boolean;
@@ -60,6 +61,7 @@ export type DesktopUiSettings = {
 
 export type DesktopSettingsPatch = Partial<{
   runtimePath: string;
+  planweaveHome: string;
   defaultExecutor: string;
   appearance: AppearanceMode;
   reducedMotion: boolean;
@@ -106,6 +108,7 @@ export const desktopSidebarWidthBounds = {
 
 export const defaultDesktopSettings: DesktopUiSettings = {
   runtimePath: "",
+  planweaveHome: "",
   defaultExecutor: "",
   appearance: "system",
   reducedMotion: false,
@@ -319,6 +322,9 @@ export function normalizeDesktopSettingsPatch(value: unknown): DesktopSettingsPa
 
   if (typeof value.runtimePath === "string") {
     patch.runtimePath = value.runtimePath;
+  }
+  if (typeof value.planweaveHome === "string") {
+    patch.planweaveHome = value.planweaveHome.trim();
   }
   if (typeof value.defaultExecutor === "string") {
     patch.defaultExecutor = value.defaultExecutor;

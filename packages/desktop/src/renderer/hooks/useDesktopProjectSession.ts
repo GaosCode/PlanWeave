@@ -171,6 +171,18 @@ export function useDesktopProjectSession({
     [openProject, projectState.refreshProjectSummary]
   );
 
+  const createProjectFromTaskCanvas = useCallback(
+    async (project: DesktopProjectSummary, canvasId: string) => {
+      if (!bridge) {
+        return null;
+      }
+      const createdProject = await bridge.createProjectFromTaskCanvas(project.rootPath, canvasId);
+      await projectState.refreshProjects({ selectProjectId: createdProject.projectId });
+      return createdProject;
+    },
+    [projectState.refreshProjects]
+  );
+
   const deleteTaskCanvas = useCallback(
     async (project: DesktopProjectSummary, canvasId: string) => {
       if (!bridge) {
@@ -220,6 +232,7 @@ export function useDesktopProjectSession({
     clearSelectionForCanvasChange,
     clearTaskPanelSelection,
     createTaskCanvas,
+    createProjectFromTaskCanvas,
     deleteTaskCanvas,
     duplicateTaskCanvas,
     openBlockInspector,

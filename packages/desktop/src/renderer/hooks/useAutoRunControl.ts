@@ -46,6 +46,11 @@ function isValidControlPosition(position: FloatingControlPosition | null | undef
   );
 }
 
+function missingAutoRunStateError(caught: unknown, runId: string): boolean {
+  const message = caught instanceof Error ? caught.message : String(caught);
+  return message.includes(`Auto Run '${runId}'`) && message.includes("auto_run_state_missing");
+}
+
 function sameControlPosition(left: FloatingControlPosition | null, right: FloatingControlPosition | null): boolean {
   return left?.left === right?.left && left?.top === right?.top;
 }
@@ -182,6 +187,11 @@ export function useAutoRunControl({
       })
       .catch((caught) => {
         if (!cancelled) {
+          if (autoRunRunId && missingAutoRunStateError(caught, autoRunRunId)) {
+            setAutoRunRetrospective(null);
+            setAutoRunState(null);
+            return;
+          }
           setAutoRunRetrospective(null);
           setError(caught instanceof Error ? caught.message : String(caught));
         }
@@ -189,7 +199,7 @@ export function useAutoRunControl({
     return () => {
       cancelled = true;
     };
-  }, [autoRunRunId, autoRunState?.phase, selectedCanvasId, selectedProject, setError]);
+  }, [autoRunRunId, autoRunState?.phase, selectedCanvasId, selectedProject, setAutoRunState, setError]);
 
   useEffect(() => {
     if (!bridge || !selectedProject) {

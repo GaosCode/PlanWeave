@@ -1,9 +1,9 @@
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultDesktopSettings } from "../shared/desktopSettings";
-import { DesktopSettingsStore, DesktopSettingsStoreError } from "../main/desktopSettingsStore";
+import { DesktopSettingsStore, DesktopSettingsStoreError, applyPersistedPlanweaveHomeSetting } from "../main/desktopSettingsStore";
 import { desktopHomePaths } from "../main/planweaveHomePaths";
 
 const tempRoots: string[] = [];
@@ -38,13 +38,13 @@ afterEach(async () => {
 });
 
 describe("DesktopSettingsStore", () => {
-  it("resolves desktop settings and MCP tunnel paths under PlanWeave Home", async () => {
+  it("keeps desktop settings in the default home while runtime paths follow PlanWeave Home", async () => {
     const home = await tempHome();
     process.env.PLANWEAVE_HOME = home;
 
     expect(desktopHomePaths()).toEqual({
       planweaveHome: home,
-      desktopSettingsFile: join(home, "config", "desktop-settings.json"),
+      desktopSettingsFile: join(homedir(), ".planweave", "config", "desktop-settings.json"),
       terminalPreferencesFile: join(home, "config", "terminal-preferences.json"),
       mcpTunnelDir: join(home, "desktop", "mcp-tunnel"),
       mcpTunnelConfigFile: join(home, "desktop", "mcp-tunnel", "config.json"),
@@ -105,6 +105,127 @@ describe("DesktopSettingsStore", () => {
         rightSidebar: defaultDesktopSettings.layout.rightSidebar
       }
     });
+  });
+
+  it("normalizes and applies PlanWeave Home settings", async () => {
+    const home = await tempHome();
+    const configuredHome = join(home, "custom-home");
+    const store = testStore(join(home, "config", "desktop-settings.json"));
+
+    const written = await store.write({
+      ...defaultDesktopSettings,
+      planweaveHome: ` ${configuredHome} `
+    });
+
+    expect(written.planweaveHome).toBe(configuredHome);
+    expect(process.env.PLANWEAVE_HOME).toBe(configuredHome);
+    delete process.env.PLANWEAVE_HOME;
+
+    applyPersistedPlanweaveHomeSetting(store.settingsFile);
+
+    expect(process.env.PLANWEAVE_HOME).toBe(configuredHome);
+  });
+
+  it("restores the startup PlanWeave Home baseline when the setting is cleared", async () => {
+    const home = await tempHome();
+    const baselineHome = join(home, "baseline-home");
+    const configuredHome = join(home, "custom-home");
+    const store = new DesktopSettingsStore({
+      settingsFile: join(home, "config", "desktop-settings.json"),
+      platform: "linux",
+      planweaveHomeBaseline: baselineHome
+    });
+
+    await store.write({
+      ...defaultDesktopSettings,
+      planweaveHome: configuredHome
+    });
+    expect(process.env.PLANWEAVE_HOME).toBe(configuredHome);
+
+    const cleared = await store.mergePatch({ planweaveHome: "" });
+
+    expect(cleared.planweaveHome).toBe("");
+    expect(process.env.PLANWEAVE_HOME).toBe(baselineHome);
+  });
+
+  it("clears PLANWEAVE_HOME when the setting is blank and there is no startup baseline", async () => {
+    const home = await tempHome();
+    const configuredHome = join(home, "custom-home");
+    const store = new DesktopSettingsStore({
+      settingsFile: join(home, "config", "desktop-settings.json"),
+      platform: "linux",
+      planweaveHomeBaseline: null
+    });
+
+    await store.write({
+      ...defaultDesktopSettings,
+      planweaveHome: configuredHome
+    });
+    expect(process.env.PLANWEAVE_HOME).toBe(configuredHome);
+
+    await store.mergePatch({ planweaveHome: "" });
+
+    expect(process.env.PLANWEAVE_HOME).toBeUndefined();
+  });
+
+  it("does not treat persisted PlanWeave Home as a startup baseline when no startup baseline exists", async () => {
+    const home = await tempHome();
+    const configuredHome = join(home, "custom-home");
+    const settingsFile = join(home, "config", "desktop-settings.json");
+    const persistedStore = new DesktopSettingsStore({
+      settingsFile,
+      platform: "linux",
+      planweaveHomeBaseline: null
+    });
+
+    await persistedStore.write({
+      ...defaultDesktopSettings,
+      planweaveHome: configuredHome
+    });
+    delete process.env.PLANWEAVE_HOME;
+
+    const planweaveHomeBaseline = process.env.PLANWEAVE_HOME;
+    applyPersistedPlanweaveHomeSetting(settingsFile, planweaveHomeBaseline);
+    expect(process.env.PLANWEAVE_HOME).toBe(configuredHome);
+
+    const store = new DesktopSettingsStore({
+      settingsFile,
+      platform: "linux",
+      planweaveHomeBaseline: planweaveHomeBaseline ?? null
+    });
+
+    await store.mergePatch({ planweaveHome: "" });
+
+    expect(process.env.PLANWEAVE_HOME).toBeUndefined();
+  });
+
+  it("does not restore an inherited PlanWeave Home after packaged startup clears the environment", async () => {
+    const home = await tempHome();
+    process.env.PLANWEAVE_HOME = join(home, "inherited-home");
+    vi.resetModules();
+    const module = await import("../main/desktopSettingsStore");
+    delete process.env.PLANWEAVE_HOME;
+
+    const store = new module.DesktopSettingsStore({
+      settingsFile: join(home, "config", "desktop-settings.json"),
+      platform: "linux"
+    });
+
+    await expect(store.read()).resolves.toEqual(defaultDesktopSettings);
+    expect(process.env.PLANWEAVE_HOME).toBeUndefined();
+  });
+
+  it("expands tilde in PlanWeave Home before applying the runtime environment", async () => {
+    const home = await tempHome();
+    const store = testStore(join(home, "config", "desktop-settings.json"));
+
+    const written = await store.write({
+      ...defaultDesktopSettings,
+      planweaveHome: "~/planweave-home"
+    });
+
+    expect(written.planweaveHome).toBe("~/planweave-home");
+    expect(process.env.PLANWEAVE_HOME).toBe(join(homedir(), "planweave-home"));
   });
 
   it("deep merges patches without dropping nested settings", async () => {
