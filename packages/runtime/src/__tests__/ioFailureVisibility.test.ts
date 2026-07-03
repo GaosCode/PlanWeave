@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fsFailures = vi.hoisted(() => ({
   access: new Map<string, NodeJS.ErrnoException[]>(),
+  open: new Map<string, NodeJS.ErrnoException[]>(),
   readdir: new Map<string, NodeJS.ErrnoException[]>(),
   readFile: new Map<string, NodeJS.ErrnoException[]>(),
   stat: new Map<string, NodeJS.ErrnoException[]>()
@@ -38,6 +39,13 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       }
       return actual.access(path, ...(args as Parameters<typeof actual.access> extends [PathLike, ...infer Rest] ? Rest : never));
     },
+    open: async (path: PathLike, ...args: unknown[]) => {
+      const failure = shiftFailure(fsFailures.open, path);
+      if (failure) {
+        throw failure;
+      }
+      return actual.open(path, ...(args as Parameters<typeof actual.open> extends [PathLike, ...infer Rest] ? Rest : never));
+    },
     readdir: async (path: PathLike, ...args: unknown[]) => {
       const failure = shiftFailure(fsFailures.readdir, path);
       if (failure) {
@@ -64,13 +72,14 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 import { getRunRecord, listBlockRunRecords } from "../desktop/index.js";
 import { getReviewPipeline } from "../desktop/reviewPipelineApi.js";
-import { readPersistedAutoRunState } from "../desktop/runStateRepository.js";
+import { nextPersistedAutoRunId, readPersistedAutoRunEventLog, readPersistedAutoRunState } from "../desktop/runStateRepository.js";
 import { initWorkspace } from "../initWorkspace.js";
 import { readProjectPrompt, readProjectPromptPolicy } from "../projectPromptPolicy.js";
-import { canonicalProjectCanvasNode, projectCanvasWorkspace } from "../projectGraph/index.js";
+import { canonicalProjectCanvasNode, projectCanvasWorkspace, projectGraphPath } from "../projectGraph/index.js";
 import { writeJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
 import { nextRunId } from "../autoRun/executorShared.js";
+import { readNewTmuxText, tmuxPathExists } from "../autoRun/tmuxExecutor.js";
 import { createRunSession } from "../runSessions/index.js";
 import { validateCanvasPackageForDoctor } from "../taskManager/projectDoctorCanvas.js";
 import { getAutoRunStatus } from "../taskManager/autoRun.js";
@@ -327,5 +336,66 @@ describe("filesystem I/O failure visibility", () => {
     const expected = failOnce("readFile", statePath, "EIO");
 
     await expect(readPersistedAutoRunState(init.workspace, "DESKTOP-RUN-0001")).rejects.toBe(expected);
+  });
+
+  it("does not allocate an Auto Run id when a registered project graph cannot be inspected", async () => {
+    const { init } = await createTestWorkspace();
+    const expected = failOnce("stat", projectGraphPath(init.workspace), "EACCES");
+
+    await expect(nextPersistedAutoRunId(init.workspace)).rejects.toBe(expected);
+  });
+
+  it("treats ENOTDIR Auto Run roots as missing while allocating a desktop run id", async () => {
+    const { init } = await createTestWorkspace();
+    failOnce("readdir", join(init.workspace.resultsDir, "auto-runs"), "ENOTDIR");
+    failOnce("readdir", join(init.workspace.planweaveHome, "projects"), "ENOTDIR");
+
+    await expect(nextPersistedAutoRunId(init.workspace)).resolves.toBe("DESKTOP-RUN-0001");
+  });
+
+  it("treats ENOTDIR Auto Run event logs as missing diagnostics", async () => {
+    const { init } = await createTestWorkspace();
+    const eventLogPath = join(init.workspace.resultsDir, "auto-runs", "DESKTOP-RUN-0001", "events.ndjson");
+    failOnce("readFile", eventLogPath, "ENOTDIR");
+
+    await expect(readPersistedAutoRunEventLog(init.workspace, "DESKTOP-RUN-0001")).resolves.toMatchObject({
+      runId: "DESKTOP-RUN-0001",
+      events: [],
+      diagnostics: [
+        expect.objectContaining({
+          code: "auto_run_event_log_missing",
+          path: eventLogPath
+        })
+      ]
+    });
+  });
+
+  it("does not treat tmux done file stat failures as a missing done file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "planweave-tmux-io-"));
+    const donePath = join(dir, "done.json");
+    const expected = failOnce("stat", donePath, "EACCES");
+
+    await expect(tmuxPathExists(donePath)).rejects.toBe(expected);
+  });
+
+  it("keeps missing tmux output empty but surfaces output stat failures", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "planweave-tmux-output-"));
+    const outputPath = join(dir, "stdout.md");
+    failOnce("stat", outputPath, "ENOENT");
+    await expect(readNewTmuxText(outputPath, 0)).resolves.toEqual({ text: "", offset: 0, limitExceeded: false });
+
+    const expected = failOnce("stat", outputPath, "EIO");
+    await expect(readNewTmuxText(outputPath, 0)).rejects.toBe(expected);
+  });
+
+  it("keeps tmux output deletion races empty but surfaces output open failures", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "planweave-tmux-output-race-"));
+    const outputPath = join(dir, "stdout.md");
+    await writeFile(outputPath, "partial output\n", "utf8");
+    failOnce("open", outputPath, "ENOTDIR");
+    await expect(readNewTmuxText(outputPath, 0)).resolves.toEqual({ text: "", offset: 0, limitExceeded: false });
+
+    const expected = failOnce("open", outputPath, "EACCES");
+    await expect(readNewTmuxText(outputPath, 0)).rejects.toBe(expected);
   });
 });

@@ -52,7 +52,7 @@ async function listRunDirectoriesAt(root: string): Promise<string[]> {
     const entries = await readdir(root, { withFileTypes: true });
     return entries.filter((entry) => entry.isDirectory() && isDesktopRunId(entry.name)).map((entry) => entry.name);
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isNodeFileNotFoundError(error)) {
       return [];
     }
     throw error;
@@ -64,7 +64,7 @@ async function listProjectWorkspaceRoots(workspace: ProjectWorkspace): Promise<s
     const entries = await readdir(projectsRoot(workspace), { withFileTypes: true });
     return entries.filter((entry) => entry.isDirectory()).map((entry) => join(projectsRoot(workspace), entry.name));
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isNodeFileNotFoundError(error)) {
       return [];
     }
     throw error;
@@ -87,8 +87,10 @@ async function listCanvasAutoRunRoots(workspace: ProjectWorkspace): Promise<stri
     const loaded = await loadProjectGraphForWorkspace(workspace);
     return loaded.manifest.canvases.map((canvas) => autoRunsRoot(projectCanvasWorkspace(loaded.workspace, canvas)));
   } catch (error) {
-    void error;
-    return [];
+    if (isNodeFileNotFoundError(error)) {
+      return [];
+    }
+    throw error;
   }
 }
 
@@ -124,10 +126,6 @@ function compareAutoRunStatesNewestFirst(left: DesktopAutoRunState, right: Deskt
     return byUpdatedAt;
   }
   return right.runId.localeCompare(left.runId, undefined, { numeric: true });
-}
-
-function isNodeFileError(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -338,7 +336,7 @@ export async function readPersistedAutoRunEventLog(workspace: ProjectWorkspace, 
   try {
     content = await readFile(path, "utf8");
   } catch (error) {
-    if (isNodeFileError(error, "ENOENT")) {
+    if (isNodeFileNotFoundError(error)) {
       return {
         runId,
         events: [],

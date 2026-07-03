@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { access, chmod, mkdir, open, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { isNodeFileNotFoundError, optionalStat } from "../fs/optionalFile.js";
 import { tmuxRunnerSource } from "./tmuxRunnerScript.js";
 
 export type TmuxSessionInfo = {
@@ -253,22 +253,16 @@ export function tmuxMetadataPatch(info: TmuxSessionInfo | null): Record<string, 
   };
 }
 
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
+export async function tmuxPathExists(path: string): Promise<boolean> {
+  return (await optionalStat(path)) !== null;
 }
 
-async function readNewText(path: string, offset: number, maxOffset?: number): Promise<{ text: string; offset: number; limitExceeded: boolean }> {
-  let size = 0;
-  try {
-    size = (await stat(path)).size;
-  } catch {
+export async function readNewTmuxText(path: string, offset: number, maxOffset?: number): Promise<{ text: string; offset: number; limitExceeded: boolean }> {
+  const metadata = await optionalStat(path);
+  if (!metadata) {
     return { text: "", offset, limitExceeded: false };
   }
+  const size = metadata.size;
   if (size <= offset) {
     return { text: "", offset, limitExceeded: false };
   }
@@ -277,7 +271,15 @@ async function readNewText(path: string, offset: number, maxOffset?: number): Pr
   }
   const nextOffset = maxOffset === undefined ? size : Math.min(size, maxOffset);
   const length = nextOffset - offset;
-  const file = await open(path, "r");
+  let file: Awaited<ReturnType<typeof open>>;
+  try {
+    file = await open(path, "r");
+  } catch (error) {
+    if (isNodeFileNotFoundError(error)) {
+      return { text: "", offset, limitExceeded: false };
+    }
+    throw error;
+  }
   try {
     const buffer = Buffer.alloc(length);
     await file.read(buffer, 0, length, offset);
@@ -293,7 +295,7 @@ async function flushTail(options: {
   maxBytes?: number;
   onChunk?: (chunk: string) => void | Promise<void>;
 }): Promise<{ offset: number; limitExceeded: boolean }> {
-  const result = await readNewText(options.path, options.offset, options.maxBytes);
+  const result = await readNewTmuxText(options.path, options.offset, options.maxBytes);
   if (result.text && options.onChunk) {
     await options.onChunk(result.text);
   }
@@ -302,12 +304,12 @@ async function flushTail(options: {
 
 async function waitForDoneFile(path: string): Promise<boolean> {
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    if (await exists(path)) {
+    if (await tmuxPathExists(path)) {
       return true;
     }
     await sleep(100);
   }
-  return exists(path);
+  return tmuxPathExists(path);
 }
 
 export async function runCommandInTmux(
@@ -380,7 +382,7 @@ exit "$runner_exit"
   let stderrOffset = 0;
   let observedLimitExceeded: TmuxOutputLimitExceeded | undefined;
   try {
-    while (!(await exists(donePath))) {
+    while (!(await tmuxPathExists(donePath))) {
       await sleep(100);
       const stdoutTail = await flushTail({ path: options.stdoutPath, offset: stdoutOffset, maxBytes: options.maxStdoutBytes, onChunk: options.onStdout });
       stdoutOffset = stdoutTail.offset;
@@ -404,7 +406,7 @@ exit "$runner_exit"
         if (finalStderrTail.limitExceeded && options.maxStderrBytes !== undefined) {
           observedLimitExceeded = observedLimitExceeded ?? { stream: "stderr", limitBytes: options.maxStderrBytes };
         }
-        if (await exists(donePath)) {
+        if (await tmuxPathExists(donePath)) {
           break;
         }
         return {
