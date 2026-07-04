@@ -76,7 +76,7 @@ describe("submitReviewResult max feedback cycles", () => {
     const taskIndex = await readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"));
 
     expect(result).toMatchObject({ verdict: "needs_changes", status: "completed" });
-    expect(status.tasks[0].status).toBe("ready");
+    expect(status.tasks[0].status).toBe("in_progress");
     expect(status.blocks.find((block) => block.ref === "T-001#R-001")).toMatchObject({
       activeFeedbackId: null,
       completionReason: "max_cycles_reached"

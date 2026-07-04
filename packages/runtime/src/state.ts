@@ -59,6 +59,10 @@ function hasOpenFeedbackForTask(taskId: string, graph: CompiledExecutionGraph, s
   });
 }
 
+function hasStartedBlock(block: BlockState | undefined): boolean {
+  return Boolean(block && block.status !== "planned" && block.status !== "ready");
+}
+
 function aggregateTaskStatus(taskId: string, graph: CompiledExecutionGraph, state: RuntimeState): TaskState {
   const refs = graph.blocksByTask.get(taskId) ?? [];
   const blocks = refs.map((ref) => state.blocks[ref]).filter(Boolean);
@@ -88,7 +92,7 @@ function aggregateTaskStatus(taskId: string, graph: CompiledExecutionGraph, stat
   if (requiredNonReviewComplete && requiredReviewsPassed) {
     return { status: "implemented", openFeedbackCount };
   }
-  return { status: refs.some((ref) => state.blocks[ref]?.status === "in_progress") ? "in_progress" : "ready", openFeedbackCount };
+  return { status: refs.some((ref) => hasStartedBlock(state.blocks[ref])) ? "in_progress" : "ready", openFeedbackCount };
 }
 
 export function ensureStateForManifest(manifest: PlanPackageManifest, state: RuntimeState): RuntimeState {
