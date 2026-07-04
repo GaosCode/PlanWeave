@@ -95,13 +95,8 @@ export function SearchResultList({
     <div className="flex flex-col gap-2 pr-2">
       {results.map((result) => {
         const target = searchNavigationTarget(result);
-        return (
-          <button
-            className="flex flex-col gap-1 rounded-md border border-border/80 bg-surface-raised p-3 text-left text-text shadow-sm transition-colors hover:bg-surface-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-            key={`${result.canvasId ?? "project"}-${result.kind}-${result.ref}`}
-            type="button"
-            onClick={() => void onOpenResult(result)}
-          >
+        const resultContent = (
+          <>
             <div className="flex items-center justify-between gap-2">
               <span className="truncate text-sm font-medium">{result.title}</span>
               <Badge variant={target.kind === "none" ? "destructive" : "outline"}>{kindLabels[result.kind]}</Badge>
@@ -136,6 +131,24 @@ export function SearchResultList({
               )}
             </div>
             {target.kind === "none" ? <div className="text-xs text-destructive">{targetMissingLabel}</div> : null}
+          </>
+        );
+        const key = `${result.canvasId ?? "project"}-${result.kind}-${result.ref}`;
+        if (target.kind === "none") {
+          return (
+            <article className="flex flex-col gap-1 rounded-md border border-border/80 bg-surface-raised p-3 text-left text-text shadow-sm" key={key}>
+              {resultContent}
+            </article>
+          );
+        }
+        return (
+          <button
+            className="flex flex-col gap-1 rounded-md border border-border/80 bg-surface-raised p-3 text-left text-text shadow-sm transition-colors hover:bg-surface-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            key={key}
+            type="button"
+            onClick={() => void onOpenResult(result)}
+          >
+            {resultContent}
           </button>
         );
       })}

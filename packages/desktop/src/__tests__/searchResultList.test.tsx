@@ -60,6 +60,27 @@ describe("desktop renderer component interactions", () => {
     expect(onOpenResult).toHaveBeenCalledWith(expect.objectContaining({ kind: "feedback", targetRef: "T-001#R-001" }));
   });
 
+  it("renders search results without navigation targets as non-interactive diagnostics", async () => {
+    const result: DesktopSearchResult = {
+      kind: "run_record",
+      ref: "T-001/blocks/B-001/runs/RUN-001/report.md",
+      title: "Run without record id",
+      excerpt: "missing run record target"
+    };
+    const onOpenResult = vi.fn();
+
+    expect(searchNavigationTarget(result)).toEqual({ kind: "none" });
+
+    render(<SearchResultList {...searchResultListLabels} results={[result]} targetMissingLabel="No jump target" onOpenResult={onOpenResult} />);
+
+    expect(screen.queryByRole("button", { name: /Run without record id/ })).not.toBeInTheDocument();
+    expect(screen.getByText("No jump target")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Run without record id"));
+
+    expect(onOpenResult).not.toHaveBeenCalled();
+  });
+
   it("renders search result context and highlights excerpts without HTML injection", () => {
     const result: DesktopSearchResult = {
       kind: "prompt",
