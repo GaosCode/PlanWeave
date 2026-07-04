@@ -247,6 +247,7 @@ describe("Auto Run contract", () => {
     await writeJsonFile(metadataPath, {
       ...metadata,
       tmuxSessionName: "planweave-T-001-B-001-RUN-001-123abcd",
+      tmuxAttachCommand: "tmux attach-session -t planweave-T-001-B-001-RUN-001-123abcd",
       tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-T-001-B-001-RUN-001-123abcd"
     });
 
@@ -255,6 +256,7 @@ describe("Auto Run contract", () => {
         expect.objectContaining({
           ref: "T-001#B-001",
           tmuxSessionName: "planweave-T-001-B-001-RUN-001-123abcd",
+          tmuxAttachCommand: "tmux attach-session -t planweave-T-001-B-001-RUN-001-123abcd",
           tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-T-001-B-001-RUN-001-123abcd"
         })
       ]

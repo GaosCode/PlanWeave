@@ -89,7 +89,8 @@ Every subagent handoff should include:
 
 - After delegating to a non-current agent with `<pw> run --once --scope block --block <ref>`, inspect `<pw> run-status --json` and the latest record path before deciding whether to continue.
 - Runtime run records use `metadata.json`, `stdout.md`, and `stderr.log`; `run-status` provides summaries, not a streaming terminal.
-- If `metadata.json` contains `tmuxSessionName` or `tmuxReadOnlyAttachCommand`, prefer non-interactive inspection with `tmux capture-pane -p -t <session>` while the session is alive. After the session exits, read `stdout.md` and `stderr.log`.
+- If `run-status --json` or `metadata.json` contains `tmuxSessionName`, prefer non-interactive inspection with `tmux capture-pane -p -e -S -5000 -t <session>` while the session is alive. Repeat capture-pane for low-risk live monitoring.
+- Treat `tmuxAttachCommand` as a human interactive terminal entrypoint, not the coordinator's default observation path. After the session exits, read `stdout.md` and `stderr.log`.
 - Do not assume a missing live tmux session means the run failed; check the run metadata, exit code, report/review result, and submitted state.
 - For executor failures, timeouts, stale current refs, missing reports, or inconsistent submitted state, stop dependent dispatch and route to `plan-recovery`.
 

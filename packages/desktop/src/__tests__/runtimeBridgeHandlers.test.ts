@@ -679,7 +679,7 @@ describe("runtime bridge handlers", () => {
     ).resolves.toEqual({
       appId: "terminal",
       tmuxSessionId: "planweave-T-001-B-001-RUN-001-abcd1234",
-      mode: "readOnly"
+      mode: "interactive"
     });
 
     expect(runtimeMock.resolveTaskCanvasWorkspace).toHaveBeenCalledWith("/tmp/project", "canvas-a");
@@ -696,7 +696,7 @@ describe("runtime bridge handlers", () => {
     ).toBe(false);
   });
 
-  it("allows interactive terminal attach only when the mode is explicit and valid", async () => {
+  it("accepts explicit terminal attach modes and rejects invalid modes", async () => {
     process.env.PLANWEAVE_DESKTOP_SMOKE = "1";
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
@@ -712,6 +712,19 @@ describe("runtime bridge handlers", () => {
       appId: "iterm2",
       tmuxSessionId: "planweave-T-001-B-001-RUN-001-abcd1234",
       mode: "interactive"
+    });
+
+    await expect(
+      electronMock.handlers.get(desktopBridgeInvokeChannels.openRunTerminal)?.(null, {
+        ref: { projectRoot: "/tmp/project", canvasId: "canvas-a" },
+        recordId: "T-001#B-001::RUN-001",
+        appId: "iterm2",
+        mode: "readOnly"
+      })
+    ).resolves.toEqual({
+      appId: "iterm2",
+      tmuxSessionId: "planweave-T-001-B-001-RUN-001-abcd1234",
+      mode: "readOnly"
     });
 
     await expect(
@@ -780,12 +793,12 @@ describe("runtime bridge handlers", () => {
     ).resolves.toEqual({
       appId: "ghostty",
       tmuxSessionId: "planweave-T-001-B-001-RUN-001-abcd1234",
-      mode: "readOnly"
+      mode: "interactive"
     });
 
     expect(childProcessMock.execFile).toHaveBeenCalledWith(
       "/usr/bin/open",
-      ["-n", "-a", "Ghostty", "--args", "-e", "tmux", "attach-session", "-r", "-t", "planweave-T-001-B-001-RUN-001-abcd1234"],
+      ["-n", "-a", "Ghostty", "--args", "-e", "tmux", "attach-session", "-t", "planweave-T-001-B-001-RUN-001-abcd1234"],
       { cwd: "/tmp/project", maxBuffer: 64 * 1024 },
       expect.any(Function)
     );

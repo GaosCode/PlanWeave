@@ -296,6 +296,7 @@ async function latestFeedbackRunSummary(options: {
     reportPath: hasReport ? reportPath : null,
     metadataPath,
     tmuxSessionName: stringField(metadata.tmuxSessionName),
+    tmuxAttachCommand: stringField(metadata.tmuxAttachCommand),
     tmuxReadOnlyAttachCommand: stringField(metadata.tmuxReadOnlyAttachCommand)
   };
 }
@@ -504,6 +505,7 @@ export async function getAutoRunStatus(options: { projectRoot: PackageWorkspaceR
       reportPath: (await exists(join(runDir, "report.md"))) ? join(runDir, "report.md") : null,
       metadataPath,
       tmuxSessionName: stringField(metadata.tmuxSessionName),
+      tmuxAttachCommand: stringField(metadata.tmuxAttachCommand),
       tmuxReadOnlyAttachCommand: stringField(metadata.tmuxReadOnlyAttachCommand)
     });
   }

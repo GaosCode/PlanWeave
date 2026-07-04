@@ -366,6 +366,7 @@ export const enCatalog = {
     runRecordDetail: "Run record",
     agentSession: "Agent session",
     tmuxSession: "tmux session",
+    tmuxAttach: "Attach command",
     tmuxReadOnlyAttach: "Read-only attach command",
     openTmuxTerminal: "Open tmux terminal",
     openTerminal: "Open terminal",

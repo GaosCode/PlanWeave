@@ -368,6 +368,7 @@ export const zhCnCatalog = {
     runRecordDetail: "运行记录",
     agentSession: "Agent 线程",
     tmuxSession: "tmux 线程",
+    tmuxAttach: "连接命令",
     tmuxReadOnlyAttach: "只读监控命令",
     openTmuxTerminal: "打开 tmux 终端",
     openTerminal: "打开终端",

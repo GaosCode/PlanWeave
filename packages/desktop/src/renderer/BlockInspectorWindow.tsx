@@ -192,7 +192,7 @@ export function BlockInspectorWindow() {
           ref: { projectRoot, canvasId },
           recordId,
           appId,
-          mode: "readOnly"
+          mode: "interactive"
         });
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : String(caught));

@@ -76,8 +76,8 @@ describe("desktop renderer component interactions", () => {
     const { rerender } = render(<BlockRunRecordCard selectedRunRecord={runRecord} setSelectedRunRecord={vi.fn()} t={createTranslator("zh-CN")} />);
 
     expect(screen.getByText(/终端输出:/)).toBeInTheDocument();
-    expect(screen.getByText(/只读监控命令:/)).toBeInTheDocument();
-    expect(screen.getByText("tmux attach-session -r -t planweave-T-001-B-001-RUN-001-abcd1234")).toBeInTheDocument();
+    expect(screen.getByText(/连接命令:/)).toBeInTheDocument();
+    expect(screen.getByText("tmux attach-session -t planweave-T-001-B-001-RUN-001-abcd1234")).toBeInTheDocument();
     expect(screen.queryByText(/错误输出:/)).not.toBeInTheDocument();
 
     rerender(

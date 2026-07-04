@@ -83,9 +83,9 @@ export function BlockRunRecordCard({
             <span className="font-medium">{t("tmuxSession")}:</span> <span className="font-mono">{selectedRunRecord.tmuxSessionId}</span>
           </div>
         ) : null}
-        {selectedRunRecord.tmuxReadOnlyAttachCommand ? (
+        {selectedRunRecord.tmuxAttachCommand ? (
           <div className="rounded-md border bg-muted/40 px-2 py-1 text-xs">
-            <span className="font-medium">{t("tmuxReadOnlyAttach")}:</span> <span className="break-all font-mono">{selectedRunRecord.tmuxReadOnlyAttachCommand}</span>
+            <span className="font-medium">{t("tmuxAttach")}:</span> <span className="break-all font-mono">{selectedRunRecord.tmuxAttachCommand}</span>
           </div>
         ) : null}
         {selectedRunRecord.executionCwd ? (

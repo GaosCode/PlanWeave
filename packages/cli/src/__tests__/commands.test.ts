@@ -520,6 +520,7 @@ describe("planweave CLI contract", () => {
           reportPath: "/tmp/project/results/T-001/blocks/B-001/report.md",
           metadataPath: "/tmp/project/results/T-001/blocks/B-001/runs/RUN-001/metadata.json",
           tmuxSessionName: null,
+          tmuxAttachCommand: null,
           tmuxReadOnlyAttachCommand: null
         }
       ],

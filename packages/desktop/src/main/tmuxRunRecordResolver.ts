@@ -21,7 +21,7 @@ export type TerminalOpenIntent = {
 
 export function resolveDesktopTerminalAttachMode(mode: unknown): DesktopTerminalAttachMode {
   if (mode === undefined) {
-    return "readOnly";
+    return "interactive";
   }
   if (mode === "readOnly" || mode === "interactive") {
     return mode;

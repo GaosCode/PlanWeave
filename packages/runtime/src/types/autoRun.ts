@@ -39,6 +39,7 @@ type AutoRunLatestRunSummaryBase = {
   reportPath: string | null;
   metadataPath: string;
   tmuxSessionName: string | null;
+  tmuxAttachCommand: string | null;
   tmuxReadOnlyAttachCommand: string | null;
 };
 

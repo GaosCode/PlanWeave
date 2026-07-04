@@ -317,7 +317,7 @@ describe("STEP-1 CLI contract", () => {
         latestRecordPath: string | null;
         nextAction: { kind: string; message: string };
       };
-      latestRuns: Array<{ tmuxSessionName: string | null; tmuxReadOnlyAttachCommand: string | null }>;
+      latestRuns: Array<{ tmuxSessionName: string | null; tmuxAttachCommand: string | null; tmuxReadOnlyAttachCommand: string | null }>;
     };
     expect(status.explanation).toMatchObject({
       phase: "manual",
@@ -332,6 +332,7 @@ describe("STEP-1 CLI contract", () => {
     });
     expect(status.latestRuns[0]).toMatchObject({
       tmuxSessionName: null,
+      tmuxAttachCommand: null,
       tmuxReadOnlyAttachCommand: null
     });
 
