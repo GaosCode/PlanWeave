@@ -405,7 +405,7 @@ export const enCatalog = {
     noLocks: "No locks",
     reviewGate: "Review gate",
     reviewRequired: "Required review",
-    reviewExecutor: "Review executor",
+    reviewExecutor: "Review role",
     reviewUnlocks: "Unlocks",
     reviewNeedsChangesReturnsTo: "Needs changes returns to",
     searchTargetMissing: "No jump target",

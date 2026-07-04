@@ -407,7 +407,7 @@ export const zhCnCatalog = {
     noLocks: "无锁定",
     reviewGate: "Review gate",
     reviewRequired: "必需 review",
-    reviewExecutor: "Review 执行者",
+    reviewExecutor: "Review 角色",
     reviewUnlocks: "解锁任务",
     reviewNeedsChangesReturnsTo: "Needs changes 回到",
     searchTargetMissing: "没有跳转目标",

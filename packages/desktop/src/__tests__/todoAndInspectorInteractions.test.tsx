@@ -60,7 +60,7 @@ describe("desktop renderer component interactions", () => {
           parallelBlocked: "Not safe",
           parallelSafe: "Safe",
           parallelSafety: "Parallel safety",
-          reviewExecutor: "Review executor",
+          reviewExecutor: "Review role",
           reviewGate: "Review gate",
           reviewNeedsChangesReturnsTo: "Needs changes returns to",
           reviewRequired: "Required review",
@@ -139,7 +139,7 @@ describe("desktop renderer component interactions", () => {
 
     expect(screen.getByText("Review gate")).toBeInTheDocument();
     expect(screen.getByText("Required review")).toBeInTheDocument();
-    expect(screen.getByText("Review executor")).toBeInTheDocument();
+    expect(screen.getByText("Review role")).toBeInTheDocument();
     expect(screen.getByText("reviewer")).toBeInTheDocument();
     expect(screen.getByText("Unlocks")).toBeInTheDocument();
     expect(screen.getByText("T-002")).toBeInTheDocument();

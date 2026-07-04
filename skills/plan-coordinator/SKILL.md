@@ -29,18 +29,18 @@ Use this skill as the main agent/controller for a PlanWeave package. Do not impl
 
 ## Routing
 
-- Treat PlanWeave skills as execution roles. The coordinator owns routing and must tell each subagent which skill to use.
-- Treat PlanWeave executor assignment as the routing authority when it is present. After `claim-next`, `claim`, or a dry-run claim, read the claim's `effectiveExecutor`; for batch claims, read `effectiveExecutors` per ref.
+- Treat PlanWeave skills as execution roles for work owned by the current agent. The coordinator owns routing and must tell each current-agent subagent which skill to use.
+- Treat PlanWeave executor assignment as the routing authority for every implementation block, review block, and feedback claim. After `claim-next`, `claim`, or a dry-run claim, read the claim's `effectiveExecutor`; for batch claims, read `effectiveExecutors` per ref.
 - If `effectiveExecutor` is `manual`, route the item through the current agent's native subagent/skill workflow instead of `planweave run --executor manual`.
 - If `effectiveExecutor` names the current agent, prefer the current agent's native subagent/skill workflow instead of invoking that same agent through PlanWeave's CLI executor.
 - If `effectiveExecutor` names a different agent, run that ref through PlanWeave runtime so the configured CLI executor owns the work: `<pw> run --once --scope block --block <ref>`. Do not add `--executor <name>` unless deliberately overriding the Plan Package assignment.
 - For feedback claims, apply the same rule to the feedback claim's `effectiveExecutor`; if it is `manual` or the current agent, route through the current agent workflow, otherwise use PlanWeave runtime.
 - If PlanWeave runtime delegation to a non-current executor fails, do not complete or submit that same ref with the current agent unless the user explicitly authorizes an executor override or fallback. Preserve the blocker, inspect run-status/latest record/logs, and route to `plan-recovery` or fix executor configuration before retrying.
-- Use `plan-runner` for one implementation block.
-- Use `plan-reviewer` for one review gate.
+- Use `plan-runner` for one implementation block only when that block's `effectiveExecutor` is `manual` or the current agent.
+- Use `plan-reviewer` for one review gate only when that review block's `effectiveExecutor` is `manual` or the current agent. If a review block inherits `opencode`, `claude-code`, `pi`, or another non-current executor from its task or package default, route it through PlanWeave runtime instead of reviewing it locally.
 - Use `plan-recovery` for doctor findings, stale current refs, orphan results, state/index drift, blocked/diverged work, or submit retry confusion.
 - If no subagents are available and the work is small, run a single implementation block with `plan-runner`.
-- Do not send review gates to implementation agents.
+- Do not send review gates to current-agent implementation subagents. This does not override PlanWeave executor assignment: if the Plan Package assigns a review gate to a non-current CLI executor, the runtime should dispatch that executor.
 - Do not send recovery work to normal implementation agents.
 
 ## Coordinator Loop
