@@ -59,11 +59,13 @@ async function resolvePackagedApp() {
     const appPath = resolve(process.env.PLANWEAVE_PACKAGED_APP_PATH);
     if (platform === "darwin") {
       return {
+        platform,
         appAsarPath: resolve(appPath, "Contents", "Resources", "app.asar"),
         executablePath: resolve(appPath, "Contents", "MacOS", "PlanWeave")
       };
     }
     return {
+      platform,
       appAsarPath: resolve(appPath, "resources", "app.asar"),
       executablePath: resolve(appPath, platform === "win32" ? "PlanWeave.exe" : "PlanWeave")
     };
@@ -72,6 +74,7 @@ async function resolvePackagedApp() {
   if (platform === "darwin") {
     const appPath = await resolvePackagedMacAppPath();
     return {
+      platform,
       appAsarPath: resolve(appPath, "Contents", "Resources", "app.asar"),
       executablePath: resolve(appPath, "Contents", "MacOS", "PlanWeave")
     };
@@ -80,6 +83,7 @@ async function resolvePackagedApp() {
   if (platform === "linux") {
     const appPath = await resolvePackagedUnpackedDir("linux");
     return {
+      platform,
       appAsarPath: resolve(appPath, "resources", "app.asar"),
       executablePath: resolve(appPath, "PlanWeave")
     };
@@ -88,6 +92,7 @@ async function resolvePackagedApp() {
   if (platform === "win32") {
     const appPath = await resolvePackagedUnpackedDir("win");
     return {
+      platform,
       appAsarPath: resolve(appPath, "resources", "app.asar"),
       executablePath: resolve(appPath, "PlanWeave.exe")
     };
@@ -96,22 +101,28 @@ async function resolvePackagedApp() {
   throw new Error(`Unsupported packaged app platform: ${platform}`);
 }
 
+function normalizeAsarEntry(entry) {
+  const normalized = entry.replaceAll("\\", "/");
+  return normalized.startsWith("/") ? normalized : `/${normalized}`;
+}
+
 function hasEntry(entries, requiredEntry) {
   return entries.some((entry) => entry === requiredEntry || entry.startsWith(`${requiredEntry}/`));
 }
 
 async function verifyAsarContents(appAsarPath) {
-  const entries = await listPackage(appAsarPath);
+  const entries = (await listPackage(appAsarPath)).map(normalizeAsarEntry);
   const missing = requiredAsarEntries.filter((entry) => !hasEntry(entries, entry));
   if (missing.length > 0) {
     throw new Error(`Packaged app.asar is missing runtime entries:\n${missing.map((entry) => `- ${entry}`).join("\n")}`);
   }
 }
 
-async function smokeLaunch(executablePath) {
+async function smokeLaunch(executablePath, platform) {
   const smokeHome = await mkdtemp(join(tmpdir(), "planweave-packaged-smoke-home-"));
   const smokeUserData = await mkdtemp(join(tmpdir(), "planweave-packaged-smoke-user-data-"));
-  const child = spawn(executablePath, [], {
+  const launchArgs = platform === "linux" ? ["--no-sandbox"] : [];
+  const child = spawn(executablePath, launchArgs, {
     cwd: repoRoot,
     env: {
       ...process.env,
@@ -186,5 +197,5 @@ async function smokeLaunch(executablePath) {
 
 const packagedApp = await resolvePackagedApp();
 await verifyAsarContents(packagedApp.appAsarPath);
-await smokeLaunch(packagedApp.executablePath);
+await smokeLaunch(packagedApp.executablePath, packagedApp.platform);
 console.log("Packaged PlanWeave app smoke passed.");

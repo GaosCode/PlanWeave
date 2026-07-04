@@ -47,7 +47,6 @@
     "@fontsource-variable/geist": "^5.2.9",
     "@planweave-ai/mcp": "workspace:*",
     "@planweave-ai/runtime": "workspace:*",
-    "@vitejs/plugin-react": "^6.0.3",
     "@xyflow/react": "^12.9.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -60,10 +59,8 @@
     "radix-ui": "^1.4.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "shadcn": "^4.11.0",
     "tailwind-merge": "^3.6.0",
-    "tw-animate-css": "^1.4.0",
-    "vite": "^8.1.0"
+    "tw-animate-css": "^1.4.0"
   },
   "devDependencies": {
     "@electron/asar": "^3.4.1",
@@ -73,11 +70,14 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
     "electron": "^39.2.6",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
     "jsdom": "^29.1.1",
-    "tailwindcss": "^4.3.1"
+    "shadcn": "^4.11.0",
+    "tailwindcss": "^4.3.1",
+    "vite": "^8.1.0"
   },
   "build": {
     "appId": "dev.planweave.desktop",

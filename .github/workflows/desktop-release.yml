@@ -133,8 +133,8 @@ jobs:
           find desktop-artifacts -maxdepth 1 -type f -printf '%f\n' | sort
 
           required_patterns=(
-            "PlanWeave-${VERSION}-linux-x64.AppImage"
-            "PlanWeave-${VERSION}-linux-x64.deb"
+            "PlanWeave-${VERSION}-linux-x86_64.AppImage"
+            "PlanWeave-${VERSION}-linux-amd64.deb"
             "PlanWeave-${VERSION}-linux-x64.tar.gz"
             "PlanWeave-${VERSION}-mac-universal.zip"
             "PlanWeave-${VERSION}-universal.dmg"
