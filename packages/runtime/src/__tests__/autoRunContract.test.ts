@@ -27,6 +27,8 @@ import { basicManifest, createTestWorkspace, writePromptFiles, writeReport, writ
 import { manifestSchema } from "../schema/manifest.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
+const noTmux = { tmuxEnabled: false } as const;
+
 function adapter(): AutoRunExecutorAdapter {
   return {
     executeBlock: async (claim) => ({
@@ -1206,11 +1208,11 @@ describe("Auto Run contract", () => {
       .build();
     const { root } = await createTestWorkspace(manifest);
 
-    await runAutoRunStep({ projectRoot: root });
+    await runAutoRunStep({ projectRoot: root, ...noTmux });
     await new Promise((resolve) => setTimeout(resolve, 10));
-    await runAutoRunStep({ projectRoot: root });
+    await runAutoRunStep({ projectRoot: root, ...noTmux });
     await new Promise((resolve) => setTimeout(resolve, 10));
-    await runAutoRunStep({ projectRoot: root });
+    await runAutoRunStep({ projectRoot: root, ...noTmux });
 
     const status = await waitForAutoRunStatus(
       root,

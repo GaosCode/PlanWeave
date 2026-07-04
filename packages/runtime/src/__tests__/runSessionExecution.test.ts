@@ -8,6 +8,8 @@ import type { RuntimeState } from "../types.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
+const noTmux = { tmuxEnabled: false } as const;
+
 function automaticManifest(reviewVerdict: "passed" | "needs_changes" = "passed") {
   return manifestTestBuilder()
     .withExecutor("fake-implementation", {
@@ -100,7 +102,7 @@ describe("runWithSession", () => {
   it("creates a run session, resets state, and records the first block run", async () => {
     const { root, init } = await createTestWorkspace(automaticManifest());
 
-    const result = await runWithSession({ projectRoot: root, reset: true, stepLimit: 10 });
+    const result = await runWithSession({ projectRoot: root, reset: true, stepLimit: 10, ...noTmux });
     const detail = await getRunSession(root, result.session.sessionId);
 
     expect(result.session).toMatchObject({
@@ -145,8 +147,8 @@ describe("runWithSession", () => {
   it("keeps block run history across repeated forced reset runs", async () => {
     const { root, init } = await createTestWorkspace(automaticManifest());
 
-    await runWithSession({ projectRoot: root, reset: true, stepLimit: 10 });
-    const second = await runWithSession({ projectRoot: root, reset: true, force: true, reason: "  rerun acceptance  ", stepLimit: 10 });
+    await runWithSession({ projectRoot: root, reset: true, stepLimit: 10, ...noTmux });
+    const second = await runWithSession({ projectRoot: root, reset: true, force: true, reason: "  rerun acceptance  ", stepLimit: 10, ...noTmux });
 
     expect(second.session).toMatchObject({
       sessionId: "SESSION-0002",
@@ -170,7 +172,7 @@ describe("runWithSession", () => {
   it("maps a manual step to a manual final session phase", async () => {
     const { root } = await createTestWorkspace();
 
-    const result = await runWithSession({ projectRoot: root, once: true, executorName: "manual" });
+    const result = await runWithSession({ projectRoot: root, once: true, executorName: "manual", ...noTmux });
     const detail = await getRunSession(root, result.session.sessionId);
 
     expect(result.session).toMatchObject({
@@ -200,7 +202,7 @@ describe("runWithSession", () => {
   it("maps manual steps inside a parallel batch to a manual final session phase", async () => {
     const { root } = await createTestWorkspace(basicManifest({ includeSecondTask: true, parallel: true, maxConcurrent: 2 }));
 
-    const result = await runWithSession({ projectRoot: root, parallel: true, executorName: "manual" });
+    const result = await runWithSession({ projectRoot: root, parallel: true, executorName: "manual", ...noTmux });
     const detail = await getRunSession(root, result.session.sessionId);
 
     expect(result.session).toMatchObject({
@@ -244,7 +246,7 @@ describe("runWithSession", () => {
       (currentStatus) => currentStatus.warnings.length === 0 && currentStatus.explanation.nextAction.kind === "start" && currentStatus.explanation.nextAction.ref === "T-001#R-001"
     );
 
-    const result = await runWithSession({ projectRoot: root, once: true });
+    const result = await runWithSession({ projectRoot: root, once: true, ...noTmux });
     const state = await readJsonFile<RuntimeState>(init.workspace.stateFile);
     const status = await getAutoRunStatus({ projectRoot: root });
 
@@ -270,7 +272,7 @@ describe("runWithSession", () => {
   it("links the active run record before a slow step finishes", async () => {
     const { root } = await createTestWorkspace(slowImplementationManifest());
 
-    const running = runWithSession({ projectRoot: root, once: true });
+    const running = runWithSession({ projectRoot: root, once: true, ...noTmux });
     await waitForSessionRecord(root, "SESSION-0001", "T-001#B-001::RUN-001");
     const pendingDetail = await getRunSession(root, "SESSION-0001");
 
@@ -297,7 +299,7 @@ describe("runWithSession", () => {
   it("marks step-limit exhaustion as completed with a stop reason instead of stopped", async () => {
     const { root } = await createTestWorkspace(automaticManifest());
 
-    const result = await runWithSession({ projectRoot: root, stepLimit: 1 });
+    const result = await runWithSession({ projectRoot: root, stepLimit: 1, ...noTmux });
     const detail = await getRunSession(root, result.session.sessionId);
 
     expect(result.session).toMatchObject({
@@ -315,7 +317,7 @@ describe("runWithSession", () => {
   it("supports zero-step sessions without using stopped phase", async () => {
     const { root } = await createTestWorkspace(automaticManifest());
 
-    const result = await runWithSession({ projectRoot: root, stepLimit: 0 });
+    const result = await runWithSession({ projectRoot: root, stepLimit: 0, ...noTmux });
 
     expect(result.session).toMatchObject({
       phase: "completed",
@@ -329,7 +331,7 @@ describe("runWithSession", () => {
     const { root } = await createTestWorkspace(automaticManifest());
     await runAutoRunStep({ projectRoot: root, executorName: "manual" });
 
-    const result = await runWithSession({ projectRoot: root, reset: true });
+    const result = await runWithSession({ projectRoot: root, reset: true, ...noTmux });
     const detail = await getRunSession(root, result.session.sessionId);
 
     expect(result).toMatchObject({ ok: false, terminalReason: "failed" });
@@ -348,7 +350,7 @@ describe("runWithSession", () => {
   it("records feedback run links and keeps session latest record scoped to this run", async () => {
     const { root } = await createTestWorkspace(automaticManifest("needs_changes"));
 
-    const result = await runWithSession({ projectRoot: root, stepLimit: 3 });
+    const result = await runWithSession({ projectRoot: root, stepLimit: 3, ...noTmux });
     const detail = await getRunSession(root, result.session.sessionId);
     const feedbackStep = detail.events.find((event) => event.type === "step_finish" && event.recordId === "FE-001::RUN-001");
 

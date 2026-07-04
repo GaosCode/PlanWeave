@@ -108,6 +108,7 @@ export type RunWithSessionOptions = {
   once?: boolean;
   parallel?: boolean;
   executorName?: string;
+  tmuxEnabled?: boolean;
   scope?: ClaimScope;
   stepLimit?: number;
 };

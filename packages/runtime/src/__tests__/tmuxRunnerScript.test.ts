@@ -34,6 +34,22 @@ async function waitForFile(path: string): Promise<void> {
   await stat(path);
 }
 
+async function waitForJsonFile(path: string): Promise<Record<string, unknown>> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      return JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    } catch (error) {
+      lastError = error;
+      await sleep(100);
+    }
+  }
+  if (lastError) {
+    throw lastError;
+  }
+  throw new Error(`Timed out reading JSON file: ${path}`);
+}
+
 async function runCommand(command: string, args: string[], cwd: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, { cwd, stdio: "ignore" });
@@ -185,7 +201,7 @@ setTimeout(() => process.stdout.write("trigger"), 500);
       configPath,
       JSON.stringify({
         command: process.execPath,
-        args: ["-e", "setTimeout(() => process.exit(0), 220);"],
+        args: ["-e", "setTimeout(() => process.exit(0), 500);"],
         cwd: dir,
         env: {},
         stdinPath,
@@ -215,14 +231,14 @@ setTimeout(() => process.stdout.write("trigger"), 500);
 
     await waitForFile(heartbeatPath);
     await sleep(80);
-    await expect(readFile(heartbeatPath, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>)).resolves.toMatchObject({
+    await expect(waitForJsonFile(heartbeatPath)).resolves.toMatchObject({
       status: "running",
       pid: expect.any(Number),
       lastHeartbeatAt: expect.any(String)
     });
 
     await expect(runnerDone).resolves.toMatchObject({ exitCode: 0 });
-    await expect(readFile(heartbeatPath, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>)).resolves.toMatchObject({
+    await expect(waitForJsonFile(heartbeatPath)).resolves.toMatchObject({
       status: "finished",
       exitCode: 0,
       timedOut: false,

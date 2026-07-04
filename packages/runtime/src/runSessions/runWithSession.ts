@@ -316,6 +316,7 @@ export async function runWithSession(options: RunWithSessionOptions): Promise<Ru
       const stepPromise = runAutoRunStep({
         projectRoot: options.projectRoot,
         executorName: options.executorName,
+        tmuxEnabled: options.tmuxEnabled,
         parallel,
         scope: options.scope
       });
