@@ -25,6 +25,28 @@ describe("CLI project root resolution", () => {
     await expect(resolveCliProjectRoot()).resolves.toBe(project.workspaceRoot);
   });
 
+  it("uses the only linked source root project when no explicit default is set", async () => {
+    process.env.PLANWEAVE_HOME = await mkdtemp(join(tmpdir(), "planweave-home-"));
+    const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-cli-source-"));
+    const project = await initManagedProject("CLI Sole Source Candidate");
+    await linkProjectSourceRoot(project.projectId, sourceRoot);
+    process.env.INIT_CWD = sourceRoot;
+
+    await expect(resolveCliProjectRoot()).resolves.toBe(project.workspaceRoot);
+  });
+
+  it("requires an explicit source root default when multiple projects are linked", async () => {
+    process.env.PLANWEAVE_HOME = await mkdtemp(join(tmpdir(), "planweave-home-"));
+    const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-cli-source-"));
+    const firstProject = await initManagedProject("CLI Ambiguous Source A");
+    const secondProject = await initManagedProject("CLI Ambiguous Source B");
+    await linkProjectSourceRoot(firstProject.projectId, sourceRoot);
+    await linkProjectSourceRoot(secondProject.projectId, sourceRoot);
+    process.env.INIT_CWD = sourceRoot;
+
+    await expect(resolveCliProjectRoot()).rejects.toThrow("Multiple PlanWeave projects are linked to source root");
+  });
+
   it("lets PLANWEAVE_PROJECT_ROOT override the source root default", async () => {
     process.env.PLANWEAVE_HOME = await mkdtemp(join(tmpdir(), "planweave-home-"));
     const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-cli-source-"));

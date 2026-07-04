@@ -1,5 +1,5 @@
 import { InvalidArgumentError, type Command } from "commander";
-import { resolveSourceDefaultProjectRoot } from "@planweave-ai/runtime";
+import { listSourceDefaultProjectCandidates, resolveSourceDefaultProjectRoot } from "@planweave-ai/runtime";
 
 export type ProjectRootCommandOptions = {
   projectRoot?: string;
@@ -46,7 +46,21 @@ export async function resolveCliProjectRoot(): Promise<string> {
     return trimProjectRoot(process.env.PLANWEAVE_PROJECT_ROOT, "PLANWEAVE_PROJECT_ROOT");
   }
   const rawRoot = resolveRawCliProjectRoot();
-  return (await resolveSourceDefaultProjectRoot(rawRoot)) ?? rawRoot;
+  const defaultProjectRoot = await resolveSourceDefaultProjectRoot(rawRoot);
+  if (defaultProjectRoot) {
+    return defaultProjectRoot;
+  }
+  const candidates = await listSourceDefaultProjectCandidates(rawRoot);
+  if (candidates.length === 1) {
+    return candidates[0].projectRoot;
+  }
+  if (candidates.length > 1) {
+    const candidateList = candidates.map((candidate) => `${candidate.projectId} (${candidate.projectRoot})`).join(", ");
+    throw new Error(
+      `Multiple PlanWeave projects are linked to source root '${rawRoot}'. Run 'planweave use <projectId> --source-root ${rawRoot}' to choose one. Candidates: ${candidateList}`
+    );
+  }
+  return rawRoot;
 }
 
 export function explicitCliProjectRoot(): string | null {
