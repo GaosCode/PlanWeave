@@ -170,4 +170,63 @@ setTimeout(() => process.stdout.write("trigger"), 500);
       }
     }
   });
+
+  it("writes heartbeat records while the tmux runner child is alive but quiet", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "planweave-tmux-runner-heartbeat-"));
+    const stdoutPath = join(dir, "stdout.md");
+    const stderrPath = join(dir, "stderr.log");
+    const donePath = join(dir, "done.json");
+    const heartbeatPath = join(dir, "heartbeat.json");
+    const stdinPath = join(dir, "stdin.txt");
+    const configPath = join(dir, "command.json");
+    const runnerPath = join(dir, "runner.mjs");
+    await writeFile(stdinPath, "", "utf8");
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        command: process.execPath,
+        args: ["-e", "setTimeout(() => process.exit(0), 220);"],
+        cwd: dir,
+        env: {},
+        stdinPath,
+        stdoutPath,
+        stderrPath,
+        donePath,
+        heartbeatPath,
+        heartbeatIntervalMs: 25,
+        timeoutMs: 1000,
+        maxStdoutBytes: 1024,
+        maxStderrBytes: 1024
+      }),
+      "utf8"
+    );
+    await writeFile(runnerPath, tmuxRunnerSource(configPath), "utf8");
+
+    const runner = spawn(process.execPath, [runnerPath], { cwd: dir, stdio: ["ignore", "ignore", "pipe"] });
+    const runnerDone = new Promise<{ exitCode: number; stderr: string }>((resolve, reject) => {
+      let stderr = "";
+      runner.stderr.setEncoding("utf8");
+      runner.stderr.on("data", (chunk: string) => {
+        stderr += chunk;
+      });
+      runner.on("error", reject);
+      runner.on("close", (code) => resolve({ exitCode: code ?? 1, stderr }));
+    });
+
+    await waitForFile(heartbeatPath);
+    await sleep(80);
+    await expect(readFile(heartbeatPath, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>)).resolves.toMatchObject({
+      status: "running",
+      pid: expect.any(Number),
+      lastHeartbeatAt: expect.any(String)
+    });
+
+    await expect(runnerDone).resolves.toMatchObject({ exitCode: 0 });
+    await expect(readFile(heartbeatPath, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>)).resolves.toMatchObject({
+      status: "finished",
+      exitCode: 0,
+      timedOut: false,
+      finishedAt: expect.any(String)
+    });
+  });
 });

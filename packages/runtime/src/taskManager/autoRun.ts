@@ -60,15 +60,31 @@ async function runFileUpdateTimes(runDir: string, metadataPath: string): Promise
   stdoutUpdatedAt: string | null;
   stderrUpdatedAt: string | null;
   metadataUpdatedAt: string | null;
+  heartbeatPath: string | null;
+  heartbeatUpdatedAt: string | null;
+  heartbeatStatus: string | null;
+  heartbeatPid: number | null;
+  lastHeartbeatAt: string | null;
+  lastActivityAt: string | null;
   lastOutputAt: string | null;
 }> {
   const stdoutUpdatedAt = await fileUpdatedAt(join(runDir, "stdout.md"));
   const stderrUpdatedAt = await fileUpdatedAt(join(runDir, "stderr.log"));
   const metadataUpdatedAt = await fileUpdatedAt(metadataPath);
+  const heartbeatPath = join(runDir, "heartbeat.json");
+  const heartbeatUpdatedAt = await fileUpdatedAt(heartbeatPath);
+  const heartbeat: Record<string, unknown> = heartbeatUpdatedAt ? await readJsonFile<Record<string, unknown>>(heartbeatPath).catch(() => ({})) : {};
+  const lastHeartbeatAt = typeof heartbeat.lastHeartbeatAt === "string" ? heartbeat.lastHeartbeatAt : null;
   return {
     stdoutUpdatedAt,
     stderrUpdatedAt,
     metadataUpdatedAt,
+    heartbeatPath: heartbeatUpdatedAt ? heartbeatPath : null,
+    heartbeatUpdatedAt,
+    heartbeatStatus: typeof heartbeat.status === "string" ? heartbeat.status : null,
+    heartbeatPid: typeof heartbeat.pid === "number" ? heartbeat.pid : null,
+    lastHeartbeatAt,
+    lastActivityAt: latestTimestamp(stdoutUpdatedAt, stderrUpdatedAt, lastHeartbeatAt, heartbeatUpdatedAt),
     lastOutputAt: latestTimestamp(stdoutUpdatedAt, stderrUpdatedAt)
   };
 }

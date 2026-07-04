@@ -116,6 +116,28 @@ async function stepRecordLinks(projectRoot: RunWithSessionOptions["projectRoot"]
   return link ? [link] : [];
 }
 
+function activeStatusRecord(status: AutoRunStatus): StepRecordLink | null {
+  if (status.current.feedbackId) {
+    const feedbackRun = status.latestRuns.find(
+      (run): run is Extract<AutoRunStatus["latestRuns"][number], { kind: "feedback" }> =>
+        run.kind === "feedback" && run.feedbackId === status.current.feedbackId && !run.finishedAt
+    );
+    return feedbackRun?.feedbackId ? { recordId: `${feedbackRun.feedbackId}::${feedbackRun.runId}`, recordPath: feedbackRun.metadataPath } : null;
+  }
+  const activeRefs = new Set(status.current.refs);
+  const blockRun = status.latestRuns.find(
+    (run): run is Extract<AutoRunStatus["latestRuns"][number], { kind: "block" }> => run.kind === "block" && activeRefs.has(run.ref) && !run.finishedAt
+  );
+  return blockRun ? { recordId: `${blockRun.ref}::${blockRun.runId}`, recordPath: blockRun.metadataPath } : null;
+}
+
+function currentClaimRefs(status: AutoRunStatus): string[] {
+  if (status.current.refs.length > 0) {
+    return [...status.current.refs];
+  }
+  return status.current.reviewBlockRef ? [status.current.reviewBlockRef] : [];
+}
+
 function executorName(step: AutoRunStepResult): string | null {
   if (step.kind === "submitted" || step.kind === "manual") {
     return step.adapterResult.executor ?? null;
@@ -275,12 +297,73 @@ export async function runWithSession(options: RunWithSessionOptions): Promise<Ru
       stopReason = "no_steps";
     }
     while (finalPhase === null && steps.length < stepLimit) {
-      const step = await runAutoRunStep({
+      let stepSettled = false;
+      let stepStartError: unknown;
+      let startedRecordId: string | null = null;
+      let wakeStepStartTracker: (() => void) | null = null;
+      const waitForNextStepStartPoll = (): Promise<void> =>
+        new Promise((resolve) => {
+          const timer = setTimeout(() => {
+            wakeStepStartTracker = null;
+            resolve();
+          }, 250);
+          wakeStepStartTracker = () => {
+            clearTimeout(timer);
+            wakeStepStartTracker = null;
+            resolve();
+          };
+        });
+      const stepPromise = runAutoRunStep({
         projectRoot: options.projectRoot,
         executorName: options.executorName,
         parallel,
         scope: options.scope
       });
+      const stepStartTracker = (async () => {
+        while (!stepSettled) {
+          await waitForNextStepStartPoll();
+          if (stepSettled) {
+            return;
+          }
+          const pendingStatus = await getAutoRunStatus({ projectRoot: options.projectRoot });
+          const activeRecord = activeStatusRecord(pendingStatus);
+          if (!activeRecord || activeRecord.recordId === startedRecordId) {
+            continue;
+          }
+          startedRecordId = activeRecord.recordId;
+          latestSessionRecord = activeRecord;
+          await appendRunSessionEvent(options.projectRoot, session.sessionId, "step_start", {
+            phase: "running",
+            claimRefs: currentClaimRefs(pendingStatus),
+            recordId: activeRecord.recordId,
+            recordPath: activeRecord.recordPath,
+            recordLinks: [activeRecord],
+            executorName: pendingStatus.explanation.currentExecutor,
+            latestOutputSummary: pendingStatus.explanation.latestOutputSummary
+          });
+          await updateSessionAutoRunSummary({
+            projectRoot: options.projectRoot,
+            sessionId: session.sessionId,
+            phase: "running",
+            stepCount: steps.length,
+            parallel,
+            executorName: options.executorName,
+            stopReason: null,
+            status: pendingStatus,
+            latestRecord: latestSessionRecord
+          });
+        }
+      })().catch((error: unknown) => {
+        stepStartError = error;
+      });
+      const step = await stepPromise.finally(() => {
+        stepSettled = true;
+        wakeStepStartTracker?.();
+      });
+      await stepStartTracker;
+      if (stepStartError) {
+        throw stepStartError;
+      }
       steps.push(step);
       status = await getAutoRunStatus({ projectRoot: options.projectRoot });
       const recordLinks = await stepRecordLinks(options.projectRoot, step);

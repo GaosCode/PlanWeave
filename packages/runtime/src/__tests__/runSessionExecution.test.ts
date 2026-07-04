@@ -42,6 +42,46 @@ function automaticManifest(reviewVerdict: "passed" | "needs_changes" = "passed")
     .build();
 }
 
+function slowImplementationManifest() {
+  return manifestTestBuilder()
+    .withExecutor("slow-implementation", {
+      adapter: "codex-exec",
+      command: process.execPath,
+      args: [
+        "-e",
+        [
+          "process.stdin.resume();",
+          "process.stdin.on('end', () => {",
+          "  setTimeout(() => { console.log('slow implementation complete'); }, 700);",
+          "});"
+        ].join("")
+      ]
+    })
+    .withDefaultExecutor("slow-implementation")
+    .withBlock("T-001", "B-001", (block) => ({ ...block, executor: "slow-implementation" }))
+    .build();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForSessionRecord(projectRoot: string, sessionId: string, recordId: string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      const detail = await getRunSession(projectRoot, sessionId);
+      if (detail.session.latestRecordId === recordId && detail.events.some((event) => event.type === "step_start" && event.recordId === recordId)) {
+        return;
+      }
+    } catch {
+      // The run session may not be created yet.
+    }
+    await sleep(50);
+  }
+  const detail = await getRunSession(projectRoot, sessionId);
+  expect(detail.session.latestRecordId).toBe(recordId);
+}
+
 describe("runWithSession", () => {
   it("creates a run session, resets state, and records the first block run", async () => {
     const { root, init } = await createTestWorkspace(automaticManifest());
@@ -62,7 +102,9 @@ describe("runWithSession", () => {
       "session_started",
       "reset_started",
       "reset_completed",
+      "step_start",
       "step_finish",
+      "step_start",
       "step_finish",
       "step_finish",
       "session_completed"
@@ -207,6 +249,33 @@ describe("runWithSession", () => {
     await expect(readFile(join(init.workspace.resultsDir, "run-sessions", "SESSION-0001", "events.ndjson"), "utf8")).resolves.not.toContain(
       "reset_completed"
     );
+  });
+
+  it("links the active run record before a slow step finishes", async () => {
+    const { root } = await createTestWorkspace(slowImplementationManifest());
+
+    const running = runWithSession({ projectRoot: root, once: true });
+    await waitForSessionRecord(root, "SESSION-0001", "T-001#B-001::RUN-001");
+    const pendingDetail = await getRunSession(root, "SESSION-0001");
+
+    expect(pendingDetail.session).toMatchObject({
+      phase: "running",
+      latestRecordId: "T-001#B-001::RUN-001",
+      latestRecordPath: expect.stringContaining(join("T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))
+    });
+    expect(pendingDetail.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "step_start",
+          claimRefs: ["T-001#B-001"],
+          recordId: "T-001#B-001::RUN-001",
+          recordLinks: [expect.objectContaining({ recordId: "T-001#B-001::RUN-001" })],
+          executorName: "slow-implementation"
+        })
+      ])
+    );
+
+    await expect(running).resolves.toMatchObject({ ok: true, terminalReason: "completed" });
   });
 
   it("marks step-limit exhaustion as completed with a stop reason instead of stopped", async () => {

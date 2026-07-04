@@ -30,6 +30,12 @@ export type DesktopBlockRunRecordSummary = {
   stdoutUpdatedAt?: string | null;
   stderrUpdatedAt?: string | null;
   metadataUpdatedAt?: string | null;
+  heartbeatPath?: string | null;
+  heartbeatUpdatedAt?: string | null;
+  heartbeatStatus?: string | null;
+  heartbeatPid?: number | null;
+  lastHeartbeatAt?: string | null;
+  lastActivityAt?: string | null;
   lastOutputAt?: string | null;
   stdoutSummary: string;
   stderrSummary: string;

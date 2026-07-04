@@ -16,6 +16,7 @@ export type FeedbackClaim = Extract<ClaimResult, { kind: "feedback" }>;
 export const DEFAULT_EXECUTOR_TIMEOUT_MS = 30 * 60 * 1000;
 export const DEFAULT_EXECUTOR_MAX_STDOUT_BYTES = 10 * 1024 * 1024;
 export const DEFAULT_EXECUTOR_MAX_STDERR_BYTES = 2 * 1024 * 1024;
+export const DEFAULT_EXECUTOR_HEARTBEAT_INTERVAL_MS = 5 * 1000;
 export const EXECUTOR_FORCE_KILL_GRACE_MS = 500;
 
 export type ExecutorRuntimeLimits = {
@@ -37,6 +38,21 @@ export type StreamingCommandResult = {
   exitCode: number;
   timedOut: boolean;
   limitExceeded?: ExecutorOutputLimitExceeded;
+};
+
+type ExecutorHeartbeatStatus = "running" | "finished" | "failed";
+
+type ExecutorHeartbeatState = {
+  status: ExecutorHeartbeatStatus;
+  pid: number | null;
+  startedAt: string;
+  lastHeartbeatAt: string;
+  lastStdoutAt: string | null;
+  lastStderrAt: string | null;
+  finishedAt: string | null;
+  exitCode: number | null;
+  timedOut: boolean | null;
+  error: string | null;
 };
 
 export type StdinCommandResult = {
@@ -77,6 +93,65 @@ function clearTimer(timer: { value: ReturnType<typeof setTimeout> | undefined })
     clearTimeout(timer.value);
     timer.value = undefined;
   }
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function executorHeartbeatPath(stdoutPath: string): string {
+  return join(dirname(stdoutPath), "heartbeat.json");
+}
+
+function startExecutorHeartbeat(options: { path: string; pid: number | null; intervalMs?: number }): {
+  markStdout: () => void;
+  markStderr: () => void;
+  finish: (patch: Partial<Pick<ExecutorHeartbeatState, "status" | "finishedAt" | "exitCode" | "timedOut" | "error">>) => Promise<void>;
+} {
+  const now = new Date().toISOString();
+  let state: ExecutorHeartbeatState = {
+    status: "running",
+    pid: options.pid,
+    startedAt: now,
+    lastHeartbeatAt: now,
+    lastStdoutAt: null,
+    lastStderrAt: null,
+    finishedAt: null,
+    exitCode: null,
+    timedOut: null,
+    error: null
+  };
+  let writeChain = Promise.resolve();
+  const write = (patch: Partial<ExecutorHeartbeatState>): Promise<void> => {
+    state = { ...state, ...patch };
+    writeChain = writeChain
+      .catch(() => undefined)
+      .then(() => writeJsonFile(options.path, state));
+    return writeChain;
+  };
+  const intervalMs = options.intervalMs ?? DEFAULT_EXECUTOR_HEARTBEAT_INTERVAL_MS;
+  const heartbeatTimer =
+    intervalMs > 0
+      ? setInterval(() => {
+          void write({ lastHeartbeatAt: new Date().toISOString() });
+        }, intervalMs)
+      : undefined;
+  heartbeatTimer?.unref();
+  void write({});
+  return {
+    markStdout: () => {
+      void write({ lastHeartbeatAt: new Date().toISOString(), lastStdoutAt: new Date().toISOString() });
+    },
+    markStderr: () => {
+      void write({ lastHeartbeatAt: new Date().toISOString(), lastStderrAt: new Date().toISOString() });
+    },
+    finish: async (patch) => {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+      }
+      await write({ lastHeartbeatAt: new Date().toISOString(), ...patch });
+    }
+  };
 }
 
 function outputLimitMarker(streamName: "stdout" | "stderr", limitBytes: number): string {
@@ -291,6 +366,7 @@ export async function execWithStreaming(options: {
   timeoutMs?: number;
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
+  heartbeatIntervalMs?: number;
   tmux?: TmuxSessionInfo | null;
   onStdout?: (chunk: string) => void | Promise<void>;
   onStderr?: (chunk: string) => void | Promise<void>;
@@ -310,6 +386,7 @@ export async function execWithStreaming(options: {
       timeoutMs,
       maxStdoutBytes,
       maxStderrBytes,
+      heartbeatIntervalMs: options.heartbeatIntervalMs,
       tmux: options.tmux,
       onStdout: options.onStdout,
       onStderr: options.onStderr
@@ -330,6 +407,11 @@ export async function execWithStreaming(options: {
       cwd: options.cwd,
       env: options.env ? { ...process.env, ...options.env } : process.env,
       stdio: ["pipe", "pipe", "pipe"]
+    });
+    const heartbeat = startExecutorHeartbeat({
+      path: executorHeartbeatPath(options.stdoutPath),
+      pid: child.pid ?? null,
+      intervalMs: options.heartbeatIntervalMs
     });
     let timedOut = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -367,6 +449,13 @@ export async function execWithStreaming(options: {
       }
       terminateChild();
       closeStreams();
+      void heartbeat.finish({
+        status: "failed",
+        finishedAt: new Date().toISOString(),
+        exitCode: 1,
+        timedOut,
+        error: errorText(error)
+      });
       reject(error);
     };
 
@@ -390,6 +479,11 @@ export async function execWithStreaming(options: {
       const remainingBytes = limitBytes - currentBytes;
       const allowedChunk = remainingBytes > 0 ? chunk.subarray(0, remainingBytes) : Buffer.alloc(0);
       if (allowedChunk.length > 0) {
+        if (streamName === "stdout") {
+          heartbeat.markStdout();
+        } else {
+          heartbeat.markStderr();
+        }
         const allowedText = allowedChunk.toString("utf8");
         if (streamName === "stdout") {
           stdout += allowedText;
@@ -441,6 +535,15 @@ export async function execWithStreaming(options: {
       }
       settled = true;
       Promise.all([finishWriteStream(stdoutStream), finishWriteStream(stderrStream), callbackChain])
+        .then(async () => {
+          await heartbeat.finish({
+            status: callbackError ? "failed" : "finished",
+            finishedAt: new Date().toISOString(),
+            exitCode: callbackError || limitExceeded ? 1 : timedOut ? 124 : code ?? 1,
+            timedOut,
+            error: callbackError ? errorText(callbackError) : null
+          });
+        })
         .then(() => {
           if (callbackError) {
             reject(callbackError);

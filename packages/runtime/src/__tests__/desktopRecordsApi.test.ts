@@ -101,6 +101,13 @@ describe("desktop records API", () => {
     await writeFile(join(feedbackRunDir, "stdout.md"), "Applied feedback fix.\n", "utf8");
     await writeFile(join(feedbackRunDir, "stderr.log"), "", "utf8");
     await writeFile(join(feedbackRunDir, "report.md"), "Feedback resolved.\n", "utf8");
+    await writeJsonFile(join(feedbackRunDir, "heartbeat.json"), {
+      status: "finished",
+      pid: 12345,
+      lastHeartbeatAt: "2026-05-23T02:09:59.000Z",
+      finishedAt: "2026-05-23T02:10:00.000Z",
+      exitCode: 0
+    });
 
     await expect(listBlockRunRecords(root, "T-001#R-001")).resolves.toEqual([
       expect.objectContaining({
@@ -118,6 +125,10 @@ describe("desktop records API", () => {
         tmuxAttachCommand: "tmux attach-session -t planweave-feedback-RUN-001-abcd1234",
         tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-feedback-RUN-001-abcd1234",
         lastOutputAt: expect.any(String),
+        heartbeatStatus: "finished",
+        heartbeatPid: 12345,
+        lastHeartbeatAt: "2026-05-23T02:09:59.000Z",
+        lastActivityAt: expect.any(String),
         reportPath: expect.stringContaining("feedback-runs/RUN-001/report.md")
       })
     ]);

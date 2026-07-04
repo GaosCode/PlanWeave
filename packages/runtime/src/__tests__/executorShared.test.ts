@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { execWithStdin, execWithStreaming } from "../autoRun/executorShared.js";
+import { execWithStdin, execWithStreaming, executorHeartbeatPath } from "../autoRun/executorShared.js";
 
 async function tempRunDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "planweave-executor-"));
@@ -10,6 +10,18 @@ async function tempRunDir(): Promise<string> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForFile(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      await stat(path);
+      return;
+    } catch {
+      await sleep(20);
+    }
+  }
+  await stat(path);
 }
 
 describe("executor streaming", () => {
@@ -125,6 +137,45 @@ describe("executor streaming", () => {
     });
     expect(result.limitExceeded).toBeUndefined();
     expect(Date.now() - startedAt).toBeLessThan(3000);
+  });
+
+  it("writes heartbeat records while a streaming child is alive but quiet", async () => {
+    const runDir = await tempRunDir();
+    const stdoutPath = join(runDir, "stdout.md");
+    const stderrPath = join(runDir, "stderr.log");
+    const heartbeatPath = executorHeartbeatPath(stdoutPath);
+
+    const running = execWithStreaming({
+      command: process.execPath,
+      args: ["-e", "setTimeout(() => process.exit(0), 220);"],
+      cwd: runDir,
+      stdin: "",
+      stdoutPath,
+      stderrPath,
+      timeoutMs: 1000,
+      maxStdoutBytes: 1024,
+      maxStderrBytes: 1024,
+      heartbeatIntervalMs: 25
+    });
+
+    await waitForFile(heartbeatPath);
+    await sleep(80);
+    const liveHeartbeat = JSON.parse(await readFile(heartbeatPath, "utf8")) as Record<string, unknown>;
+    expect(liveHeartbeat).toMatchObject({
+      status: "running",
+      pid: expect.any(Number),
+      lastHeartbeatAt: expect.any(String),
+      lastStdoutAt: null,
+      lastStderrAt: null
+    });
+
+    await expect(running).resolves.toMatchObject({ exitCode: 0, timedOut: false });
+    await expect(readFile(heartbeatPath, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>)).resolves.toMatchObject({
+      status: "finished",
+      exitCode: 0,
+      timedOut: false,
+      finishedAt: expect.any(String)
+    });
   });
 
   it("force kills an execWithStdin child that ignores SIGTERM after timeout", async () => {

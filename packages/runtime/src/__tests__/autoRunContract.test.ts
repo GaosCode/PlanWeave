@@ -104,12 +104,28 @@ describe("Auto Run contract", () => {
       adapter: "opencode-exec",
       finishedAt: "2026-05-23T02:00:00.000Z"
     });
+    await writeJsonFile(join(latestRunDir, "heartbeat.json"), {
+      status: "finished",
+      pid: 23456,
+      lastHeartbeatAt: "2026-05-23T01:59:59.000Z",
+      finishedAt: "2026-05-23T02:00:00.000Z",
+      exitCode: 0
+    });
 
     await expect(getAutoRunStatus({ projectRoot: root })).resolves.toMatchObject({
       explanation: {
         latestRecordId: "T-002#B-001::RUN-001",
         currentExecutor: "default"
-      }
+      },
+      latestRuns: expect.arrayContaining([
+        expect.objectContaining({
+          ref: "T-002#B-001",
+          heartbeatStatus: "finished",
+          heartbeatPid: 23456,
+          lastHeartbeatAt: "2026-05-23T01:59:59.000Z",
+          lastActivityAt: expect.any(String)
+        })
+      ])
     });
   });
 

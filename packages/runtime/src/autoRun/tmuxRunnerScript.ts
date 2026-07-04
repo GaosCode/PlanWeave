@@ -15,6 +15,39 @@ let forceKillTimeout;
 let child;
 let fatalInProgress = false;
 const failedLogs = new Set();
+const heartbeatIntervalMs = config.heartbeatIntervalMs ?? 5000;
+const heartbeatState = {
+  status: "running",
+  pid: null,
+  startedAt: new Date().toISOString(),
+  lastHeartbeatAt: new Date().toISOString(),
+  lastStdoutAt: null,
+  lastStderrAt: null,
+  finishedAt: null,
+  exitCode: null,
+  timedOut: null,
+  error: null
+};
+let heartbeatTimer;
+let heartbeatWriteChain = Promise.resolve();
+
+function writeHeartbeat(patch = {}) {
+  if (!config.heartbeatPath) return Promise.resolve();
+  Object.assign(heartbeatState, patch);
+  heartbeatWriteChain = heartbeatWriteChain
+    .catch(() => undefined)
+    .then(() => writeFile(config.heartbeatPath, JSON.stringify(heartbeatState, null, 2), "utf8"));
+  return heartbeatWriteChain;
+}
+
+function markOutputHeartbeat(streamName) {
+  const now = new Date().toISOString();
+  if (streamName === "stdout") {
+    void writeHeartbeat({ lastHeartbeatAt: now, lastStdoutAt: now });
+    return;
+  }
+  void writeHeartbeat({ lastHeartbeatAt: now, lastStderrAt: now });
+}
 
 function outputMarker(stream, limitBytes) {
   return Buffer.from("\\n[planweave: " + stream + " output truncated after " + limitBytes + " bytes; executor terminated]\\n");
@@ -65,6 +98,7 @@ stderrLog.on("error", (error) => {
 function writeLog(log, streamName, chunk) {
   if (!failedLogs.has(streamName)) {
     log.write(chunk);
+    markOutputHeartbeat(streamName);
   }
 }
 
@@ -115,6 +149,10 @@ function endStream(stream, streamName) {
 async function finish(exitCode, errorMessage) {
   if (done) return;
   done = true;
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = undefined;
+  }
   if (errorMessage) {
     writeLog(stderrLog, "stderr", String(errorMessage) + "\\n");
     process.stderr.write(String(errorMessage) + "\\n");
@@ -129,6 +167,14 @@ async function finish(exitCode, errorMessage) {
   if (errorMessage) {
     doneState.error = String(errorMessage);
   }
+  await writeHeartbeat({
+    status: errorMessage ? "failed" : "finished",
+    lastHeartbeatAt: new Date().toISOString(),
+    finishedAt: doneState.finishedAt,
+    exitCode: doneState.exitCode,
+    timedOut,
+    error: errorMessage ? String(errorMessage) : null
+  });
   await writeFile(config.donePath, JSON.stringify(doneState), "utf8");
   process.exit(limitExceeded ? 1 : exitCode);
 }
@@ -138,6 +184,13 @@ child = spawn(config.command, config.args, {
   env: { ...process.env, ...(config.env ?? {}) },
   stdio: ["pipe", "pipe", "pipe"]
 });
+void writeHeartbeat({ pid: child.pid ?? null });
+if (heartbeatIntervalMs > 0) {
+  heartbeatTimer = setInterval(() => {
+    void writeHeartbeat({ lastHeartbeatAt: new Date().toISOString() });
+  }, heartbeatIntervalMs);
+  heartbeatTimer.unref?.();
+}
 
 let timeout;
 if (config.timeoutMs) {

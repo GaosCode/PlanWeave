@@ -28,6 +28,7 @@ type RunInTmuxOptions = {
   timeoutMs?: number;
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
+  heartbeatIntervalMs?: number;
   tmux: TmuxSessionInfo;
   onStdout?: (chunk: string) => void | Promise<void>;
   onStderr?: (chunk: string) => void | Promise<void>;
@@ -324,6 +325,7 @@ export async function runCommandInTmux(
   await mkdir(tmuxRoot, { recursive: true });
   const stdinPath = join(tmuxRoot, "stdin.txt");
   const donePath = join(tmuxRoot, "done.json");
+  const heartbeatPath = join(dirname(options.stdoutPath), "heartbeat.json");
   const configPath = join(tmuxRoot, "command.json");
   const releasePath = join(tmuxRoot, "release");
   const runnerPath = join(tmuxRoot, "runner.mjs");
@@ -341,6 +343,8 @@ export async function runCommandInTmux(
         stdoutPath: options.stdoutPath,
         stderrPath: options.stderrPath,
         donePath,
+        heartbeatPath,
+        heartbeatIntervalMs: options.heartbeatIntervalMs ?? null,
         timeoutMs: options.timeoutMs ?? null,
         maxStdoutBytes: options.maxStdoutBytes ?? null,
         maxStderrBytes: options.maxStderrBytes ?? null
