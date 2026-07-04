@@ -52,7 +52,7 @@ function slowImplementationManifest() {
         [
           "process.stdin.resume();",
           "process.stdin.on('end', () => {",
-          "  setTimeout(() => { console.log('slow implementation complete'); }, 700);",
+          "  setTimeout(() => { console.log('slow implementation complete'); }, 2000);",
           "});"
         ].join("")
       ]
@@ -67,7 +67,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function waitForSessionRecord(projectRoot: string, sessionId: string, recordId: string): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
     try {
       const detail = await getRunSession(projectRoot, sessionId);
       if (detail.session.latestRecordId === recordId && detail.events.some((event) => event.type === "step_start" && event.recordId === recordId)) {
