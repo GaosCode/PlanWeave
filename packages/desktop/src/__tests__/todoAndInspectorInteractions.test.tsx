@@ -94,7 +94,7 @@ describe("desktop renderer component interactions", () => {
       title: "Review task",
       status: "ready",
       executor: null,
-      effectiveExecutor: "codex-reviewer",
+      effectiveExecutor: "codex",
       promptMarkdown: "# Review",
       promptMissing: false,
       promptSurfaceMarkdown: "# Effective review",
@@ -121,7 +121,7 @@ describe("desktop renderer component interactions", () => {
         blockReviewAttempts={[]}
         blockRunRecords={[]}
         error={null}
-        executorOptions={["codex-reviewer"]}
+        executorOptions={["codex"]}
         graph={null}
         handleOpenRunRecord={vi.fn()}
         onBlockSelect={vi.fn()}

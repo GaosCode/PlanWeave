@@ -24,7 +24,6 @@ const executorAliases: Record<string, string> = {
 
 const executorAgentKinds: Record<string, DesktopAgentKind> = {
   codex: "codex",
-  "codex-reviewer": "codex",
   opencode: "opencode",
   "claude-code": "claude-code",
   pi: "pi"
