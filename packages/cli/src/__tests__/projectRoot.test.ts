@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getSourceDefaultProject, initManagedProject, linkProjectSourceRoot, setSourceDefaultProject } from "@planweave-ai/runtime";
 import { createProgram } from "../index.js";
-import { resolveCliProjectRoot } from "../projectRoot.js";
+import { resolveCliProjectRoot, resolveCliProjectRootFromRaw } from "../projectRoot.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -33,6 +33,15 @@ describe("CLI project root resolution", () => {
     process.env.INIT_CWD = sourceRoot;
 
     await expect(resolveCliProjectRoot()).resolves.toBe(project.workspaceRoot);
+  });
+
+  it("resolves an explicit source root through its linked PlanWeave project", async () => {
+    process.env.PLANWEAVE_HOME = await mkdtemp(join(tmpdir(), "planweave-home-"));
+    const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-cli-source-"));
+    const project = await initManagedProject("CLI Explicit Source Candidate");
+    await linkProjectSourceRoot(project.projectId, sourceRoot);
+
+    await expect(resolveCliProjectRootFromRaw(sourceRoot)).resolves.toBe(project.workspaceRoot);
   });
 
   it("requires an explicit source root default when multiple projects are linked", async () => {

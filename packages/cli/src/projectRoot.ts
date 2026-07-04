@@ -1,5 +1,5 @@
 import { InvalidArgumentError, type Command } from "commander";
-import { listSourceDefaultProjectCandidates, resolveSourceDefaultProjectRoot } from "@planweave-ai/runtime";
+import { listSourceDefaultProjectCandidates, readProject, resolveSourceDefaultProjectRoot } from "@planweave-ai/runtime";
 
 export type ProjectRootCommandOptions = {
   projectRoot?: string;
@@ -38,14 +38,10 @@ export function resolveRawCliProjectRoot(): string {
   return process.cwd();
 }
 
-export async function resolveCliProjectRoot(): Promise<string> {
-  if (projectRootOverride !== undefined) {
-    return trimProjectRoot(projectRootOverride, "--project-root");
+export async function resolveCliProjectRootFromRaw(rawRoot: string): Promise<string> {
+  if (await readProject(rawRoot)) {
+    return rawRoot;
   }
-  if (process.env.PLANWEAVE_PROJECT_ROOT !== undefined) {
-    return trimProjectRoot(process.env.PLANWEAVE_PROJECT_ROOT, "PLANWEAVE_PROJECT_ROOT");
-  }
-  const rawRoot = resolveRawCliProjectRoot();
   const defaultProjectRoot = await resolveSourceDefaultProjectRoot(rawRoot);
   if (defaultProjectRoot) {
     return defaultProjectRoot;
@@ -61,6 +57,16 @@ export async function resolveCliProjectRoot(): Promise<string> {
     );
   }
   return rawRoot;
+}
+
+export async function resolveCliProjectRoot(): Promise<string> {
+  if (projectRootOverride !== undefined) {
+    return resolveCliProjectRootFromRaw(trimProjectRoot(projectRootOverride, "--project-root"));
+  }
+  if (process.env.PLANWEAVE_PROJECT_ROOT !== undefined) {
+    return resolveCliProjectRootFromRaw(trimProjectRoot(process.env.PLANWEAVE_PROJECT_ROOT, "PLANWEAVE_PROJECT_ROOT"));
+  }
+  return resolveCliProjectRootFromRaw(resolveRawCliProjectRoot());
 }
 
 export function explicitCliProjectRoot(): string | null {
