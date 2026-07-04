@@ -97,6 +97,7 @@
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
       "identity": null,
+      "x64ArchFiles": "**/node_modules/electron-liquid-glass/prebuilds/darwin-*/**/*.node",
       "target": [
         "dmg",
         "zip"
