@@ -232,6 +232,35 @@ describe("Auto Run contract", () => {
     });
   });
 
+  it("exposes tmux metadata in Auto Run status latest run summaries", async () => {
+    const { root, init } = await createTestWorkspace();
+    await runAutoRunStep({
+      projectRoot: root,
+      executor: createManualExecutorAdapter({
+        projectRoot: root,
+        executorName: "manual"
+      })
+    });
+
+    const metadataPath = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json");
+    const metadata = await readJsonFile<Record<string, unknown>>(metadataPath);
+    await writeJsonFile(metadataPath, {
+      ...metadata,
+      tmuxSessionName: "planweave-T-001-B-001-RUN-001-123abcd",
+      tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-T-001-B-001-RUN-001-123abcd"
+    });
+
+    await expect(getAutoRunStatus({ projectRoot: root })).resolves.toMatchObject({
+      latestRuns: [
+        expect.objectContaining({
+          ref: "T-001#B-001",
+          tmuxSessionName: "planweave-T-001-B-001-RUN-001-123abcd",
+          tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-T-001-B-001-RUN-001-123abcd"
+        })
+      ]
+    });
+  });
+
   it("manual adapter scopes next commands for formal project graph canvases with arbitrary package paths", async () => {
     const { root, workspace } = await createFormalManualCanvasWorkspace();
     const executor = createManualExecutorAdapter({

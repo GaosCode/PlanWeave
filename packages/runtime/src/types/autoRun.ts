@@ -38,6 +38,8 @@ type AutoRunLatestRunSummaryBase = {
   promptPath: string;
   reportPath: string | null;
   metadataPath: string;
+  tmuxSessionName: string | null;
+  tmuxReadOnlyAttachCommand: string | null;
 };
 
 export type AutoRunLatestBlockRunSummary = AutoRunLatestRunSummaryBase & {

@@ -294,7 +294,9 @@ async function latestFeedbackRunSummary(options: {
     failureReason: metadataFailureReason ?? (exitCode !== null && exitCode !== 0 ? stderrSummary || null : null),
     promptPath: hasPrompt ? promptPath : feedbackPromptPath,
     reportPath: hasReport ? reportPath : null,
-    metadataPath
+    metadataPath,
+    tmuxSessionName: stringField(metadata.tmuxSessionName),
+    tmuxReadOnlyAttachCommand: stringField(metadata.tmuxReadOnlyAttachCommand)
   };
 }
 
@@ -500,7 +502,9 @@ export async function getAutoRunStatus(options: { projectRoot: PackageWorkspaceR
       failureReason: metadataFailureReason ?? (exitCode !== null && exitCode !== 0 ? ((stderrSummary || block.reason) ?? null) : block.reason ?? null),
       promptPath: join(runDir, "prompt.md"),
       reportPath: (await exists(join(runDir, "report.md"))) ? join(runDir, "report.md") : null,
-      metadataPath
+      metadataPath,
+      tmuxSessionName: stringField(metadata.tmuxSessionName),
+      tmuxReadOnlyAttachCommand: stringField(metadata.tmuxReadOnlyAttachCommand)
     });
   }
   const feedbackRun = await latestFeedbackRunSummary({

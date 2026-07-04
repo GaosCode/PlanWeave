@@ -317,6 +317,7 @@ describe("STEP-1 CLI contract", () => {
         latestRecordPath: string | null;
         nextAction: { kind: string; message: string };
       };
+      latestRuns: Array<{ tmuxSessionName: string | null; tmuxReadOnlyAttachCommand: string | null }>;
     };
     expect(status.explanation).toMatchObject({
       phase: "manual",
@@ -328,6 +329,10 @@ describe("STEP-1 CLI contract", () => {
         kind: "submit_manual_result",
         message: "Complete the manual step, then submit the result."
       }
+    });
+    expect(status.latestRuns[0]).toMatchObject({
+      tmuxSessionName: null,
+      tmuxReadOnlyAttachCommand: null
     });
 
     const text = (await runCli(["run-status"], env)).stdout;
