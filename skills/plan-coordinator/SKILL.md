@@ -30,6 +30,12 @@ Use this skill as the main agent/controller for a PlanWeave package. Do not impl
 ## Routing
 
 - Treat PlanWeave skills as execution roles. The coordinator owns routing and must tell each subagent which skill to use.
+- Treat PlanWeave executor assignment as the routing authority when it is present. After `claim-next`, `claim`, or a dry-run claim, read the claim's `effectiveExecutor`; for batch claims, read `effectiveExecutors` per ref.
+- If `effectiveExecutor` is `manual`, route the item through the current agent's native subagent/skill workflow instead of `planweave run --executor manual`.
+- If `effectiveExecutor` names the current agent, prefer the current agent's native subagent/skill workflow instead of invoking that same agent through PlanWeave's CLI executor.
+- If `effectiveExecutor` names a different agent, run that ref through PlanWeave runtime so the configured CLI executor owns the work: `<pw> run --once --scope block --block <ref>`. Do not add `--executor <name>` unless deliberately overriding the Plan Package assignment.
+- For feedback claims, apply the same rule to the feedback claim's `effectiveExecutor`; if it is `manual` or the current agent, route through the current agent workflow, otherwise use PlanWeave runtime.
+- If PlanWeave runtime delegation to a non-current executor fails, do not complete or submit that same ref with the current agent unless the user explicitly authorizes an executor override or fallback. Preserve the blocker, inspect run-status/latest record/logs, and route to `plan-recovery` or fix executor configuration before retrying.
 - Use `plan-runner` for one implementation block.
 - Use `plan-reviewer` for one review gate.
 - Use `plan-recovery` for doctor findings, stale current refs, orphan results, state/index drift, blocked/diverged work, or submit retry confusion.
@@ -41,8 +47,8 @@ Use this skill as the main agent/controller for a PlanWeave package. Do not impl
 
 1. Check current and status before claiming.
 2. Prefer explicit claims when assigning known refs; use automatic claim only when PlanWeave should choose.
-3. Preview parallel claims before dispatching a batch.
-4. For each assigned item, record ref, task, block type, prompt source, submit command, and agent owner.
+3. Preview parallel claims before dispatching a batch, and split the batch by each ref's `effectiveExecutors` entry.
+4. For each assigned item, record ref, task, block type, effective executor, prompt source, submit command, and agent owner.
 5. Keep only active subagents running; close completed agents after report submission.
 6. If the active tool exposes close, archive, or stop controls for subagents, close completed, failed, or idle subagents after their report is captured.
 7. If no close/archive/stop API exists, stop polling inactive agents and record their terminal lifecycle state instead of implying they were closed.
@@ -72,11 +78,20 @@ Every subagent handoff should include:
 - explicit instruction: `Use skill: plan-runner`, `Use skill: plan-reviewer`, or `Use skill: plan-recovery`.
 - block ref or feedback id, plus claim ownership: `already claimed` or `claim required`.
 - block type and expected skill: `plan-runner`, `plan-reviewer`, or `plan-recovery`.
+- effective executor and why the work is routed to this agent instead of another PlanWeave executor.
 - rendered prompt path/content and source prompt paths when relevant.
 - exact report/result artifact expected.
 - submit command or instruction to return the artifact to the coordinator.
 - validation commands or observable completion criteria.
 - scope boundaries and files not to touch.
+
+## Executor Run Monitoring
+
+- After delegating to a non-current agent with `<pw> run --once --scope block --block <ref>`, inspect `<pw> run-status --json` and the latest record path before deciding whether to continue.
+- Runtime run records use `metadata.json`, `stdout.md`, and `stderr.log`; `run-status` provides summaries, not a streaming terminal.
+- If `metadata.json` contains `tmuxSessionName` or `tmuxReadOnlyAttachCommand`, prefer non-interactive inspection with `tmux capture-pane -p -t <session>` while the session is alive. After the session exits, read `stdout.md` and `stderr.log`.
+- Do not assume a missing live tmux session means the run failed; check the run metadata, exit code, report/review result, and submitted state.
+- For executor failures, timeouts, stale current refs, missing reports, or inconsistent submitted state, stop dependent dispatch and route to `plan-recovery`.
 
 ## Review And Feedback
 
