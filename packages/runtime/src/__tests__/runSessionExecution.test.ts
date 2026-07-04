@@ -16,7 +16,8 @@ function automaticManifest(reviewVerdict: "passed" | "needs_changes" = "passed")
       args: [
         "-e",
         [
-          "process.stdin.resume();",
+          "let input = '';",
+          "process.stdin.on('data', (chunk) => { input += chunk; });",
           "process.stdin.on('end', () => {",
           "  console.log('implementation complete');",
           "});"
@@ -29,7 +30,8 @@ function automaticManifest(reviewVerdict: "passed" | "needs_changes" = "passed")
       args: [
         "-e",
         [
-          "process.stdin.resume();",
+          "let input = '';",
+          "process.stdin.on('data', (chunk) => { input += chunk; });",
           "process.stdin.on('end', () => {",
           `  console.log(JSON.stringify({ reviewBlockRef: 'T-001#R-001', taskId: 'T-001', verdict: '${reviewVerdict}', content: 'ok' }));`,
           "});"
@@ -50,7 +52,8 @@ function slowImplementationManifest() {
       args: [
         "-e",
         [
-          "process.stdin.resume();",
+          "let input = '';",
+          "process.stdin.on('data', (chunk) => { input += chunk; });",
           "process.stdin.on('end', () => {",
           "  setTimeout(() => { console.log('slow implementation complete'); }, 2000);",
           "});"

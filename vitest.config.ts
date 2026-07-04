@@ -9,6 +9,7 @@ export default defineConfig({
   },
   test: {
     include: ["packages/**/*.test.ts", "packages/**/*.test.tsx"],
+    fileParallelism: false,
     testTimeout: 10_000
   }
 });
