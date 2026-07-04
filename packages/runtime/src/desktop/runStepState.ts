@@ -4,7 +4,13 @@ import type { DesktopAutoRunPhase, DesktopAutoRunScope, DesktopAutoRunState } fr
 
 export function claimRef(step: AutoRunStepResult): string | null {
   if (step.kind === "submitted" || step.kind === "manual") {
-    return step.claim.kind === "block" ? step.claim.ref : null;
+    if (step.claim.kind === "block") {
+      return step.claim.ref;
+    }
+    if (step.claim.kind === "feedback") {
+      return step.claim.sourceReviewBlockRef;
+    }
+    return null;
   }
   if (step.kind === "blocked") {
     return step.claim.kind === "blocked" ? step.claim.ref ?? null : null;

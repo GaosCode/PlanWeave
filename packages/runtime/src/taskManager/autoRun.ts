@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { createExecutorAdapter } from "../autoRun/executors.js";
 import { optionalReadFile, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
-import { parseBlockRef } from "../graph/compileTaskGraph.js";
+import { compileTaskGraph, parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { readState } from "../state.js";
@@ -23,6 +23,7 @@ import type {
 } from "../types.js";
 import type { PackageWorkspaceRef } from "../types.js";
 import { claimNext, getExecutionStatus, markBlockBlocked, renderPrompt, submitBlockResult, submitFeedback, submitReviewResult } from "./index.js";
+import { effectiveFeedbackExecutor } from "./selectors.js";
 
 type BlockClaim = Extract<ClaimResult, { kind: "block" }>;
 type SubmittedOrManualStep = Extract<AutoRunStepResult, { kind: "submitted" | "manual" }>;
@@ -35,6 +36,41 @@ async function exists(path: string): Promise<boolean> {
 
 async function readSummary(path: string): Promise<string> {
   return ((await optionalReadFile(path, "utf8")) ?? "").trim().slice(0, 400);
+}
+
+async function fileUpdatedAt(path: string): Promise<string | null> {
+  const stat = await optionalStat(path);
+  return stat ? stat.mtime.toISOString() : null;
+}
+
+function latestTimestamp(...values: Array<string | null>): string | null {
+  let latest: string | null = null;
+  let latestMs = Number.NEGATIVE_INFINITY;
+  for (const value of values) {
+    const parsed = Date.parse(value ?? "");
+    if (Number.isFinite(parsed) && parsed > latestMs) {
+      latest = value;
+      latestMs = parsed;
+    }
+  }
+  return latest;
+}
+
+async function runFileUpdateTimes(runDir: string, metadataPath: string): Promise<{
+  stdoutUpdatedAt: string | null;
+  stderrUpdatedAt: string | null;
+  metadataUpdatedAt: string | null;
+  lastOutputAt: string | null;
+}> {
+  const stdoutUpdatedAt = await fileUpdatedAt(join(runDir, "stdout.md"));
+  const stderrUpdatedAt = await fileUpdatedAt(join(runDir, "stderr.log"));
+  const metadataUpdatedAt = await fileUpdatedAt(metadataPath);
+  return {
+    stdoutUpdatedAt,
+    stderrUpdatedAt,
+    metadataUpdatedAt,
+    lastOutputAt: latestTimestamp(stdoutUpdatedAt, stderrUpdatedAt)
+  };
 }
 
 function errorMessage(error: unknown): string {
@@ -149,12 +185,17 @@ function latestOutputSummary(run: AutoRunLatestRunSummary | null): string | null
   return run.failureReason || run.stderrSummary || run.stdoutSummary || null;
 }
 
-function runOrderValue(run: AutoRunLatestRunSummary): string {
-  return run.finishedAt ?? run.startedAt ?? run.runId;
+function runOrderValue(run: AutoRunLatestRunSummary): number {
+  const timestamp = Date.parse(run.finishedAt ?? run.startedAt ?? "");
+  if (Number.isFinite(timestamp)) {
+    return timestamp;
+  }
+  const runNumber = /^RUN-(\d+)$/.exec(run.runId)?.[1];
+  return runNumber ? Number.parseInt(runNumber, 10) : 0;
 }
 
 function compareLatestRunsNewestFirst(left: AutoRunLatestRunSummary, right: AutoRunLatestRunSummary): number {
-  const byTime = runOrderValue(right).localeCompare(runOrderValue(left));
+  const byTime = runOrderValue(right) - runOrderValue(left);
   if (byTime !== 0) {
     return byTime;
   }
@@ -162,10 +203,11 @@ function compareLatestRunsNewestFirst(left: AutoRunLatestRunSummary, right: Auto
 }
 
 function selectExplanationRun(latestRuns: AutoRunLatestRunSummary[], currentRefs: string[], currentFeedbackId: string | null): AutoRunLatestRunSummary | null {
+  const currentRunningBlockRun = latestRuns.find((run) => currentRefs.includes(run.ref) && !run.finishedAt);
   return (
     (currentFeedbackId ? latestRuns.find((run) => run.kind === "feedback" && run.feedbackId === currentFeedbackId) : null) ??
+    currentRunningBlockRun ??
     [...latestRuns].sort(compareLatestRunsNewestFirst)[0] ??
-    latestRuns.find((run) => currentRefs.includes(run.ref)) ??
     null
   );
 }
@@ -214,6 +256,44 @@ function autoRunStatusPhase(options: {
     return "completed";
   }
   return "idle";
+}
+
+function currentEffectiveExecutor(options: {
+  executionStatus: Awaited<ReturnType<typeof getExecutionStatus>>;
+  graph: ReturnType<typeof compileTaskGraph>;
+  latestRun: AutoRunLatestRunSummary | null;
+  manifest: PlanPackageManifest;
+  state: RuntimeState;
+}): string | null {
+  const activeRunExecutor = (ref: string, kind: AutoRunLatestRunSummary["kind"]): string | null => {
+    if (!options.latestRun || options.latestRun.kind !== kind || options.latestRun.ref !== ref || options.latestRun.finishedAt) {
+      return null;
+    }
+    return options.latestRun.executor;
+  };
+  if (options.executionStatus.currentFeedbackId) {
+    const runningExecutor = activeRunExecutor(options.executionStatus.currentFeedbackId, "feedback");
+    if (runningExecutor) {
+      return runningExecutor;
+    }
+    const feedback = options.state.feedback[options.executionStatus.currentFeedbackId];
+    return feedback
+      ? effectiveFeedbackExecutor(options.graph, feedback.sourceReviewBlockRef, options.manifest.execution.defaultExecutor)
+      : options.latestRun?.executor ?? null;
+  }
+  const currentRef = options.executionStatus.currentRefs[0] ?? options.executionStatus.currentReviewBlockRef;
+  if (currentRef) {
+    const runningExecutor = activeRunExecutor(currentRef, "block");
+    if (runningExecutor) {
+      return runningExecutor;
+    }
+    return options.executionStatus.blocks.find((block) => block.ref === currentRef)?.effectiveExecutor ?? options.latestRun?.executor ?? null;
+  }
+  const nextRef = options.executionStatus.nextClaimable[0];
+  if (nextRef) {
+    return options.executionStatus.blocks.find((block) => block.ref === nextRef)?.effectiveExecutor ?? options.latestRun?.executor ?? null;
+  }
+  return options.latestRun?.executor ?? null;
 }
 
 async function latestRunId(runRoot: string): Promise<string | null> {
@@ -277,6 +357,7 @@ async function latestFeedbackRunSummary(options: {
   const exitCode = typeof metadata.exitCode === "number" ? metadata.exitCode : null;
   const stderrSummary = await readSummary(join(runDir, "stderr.log"));
   const metadataFailureReason = stringField(metadata.failureReason);
+  const updateTimes = await runFileUpdateTimes(runDir, metadataPath);
   return {
     kind: "feedback",
     ref: feedbackId ?? "feedback",
@@ -295,6 +376,7 @@ async function latestFeedbackRunSummary(options: {
     promptPath: hasPrompt ? promptPath : feedbackPromptPath,
     reportPath: hasReport ? reportPath : null,
     metadataPath,
+    ...updateTimes,
     tmuxSessionName: stringField(metadata.tmuxSessionName),
     tmuxAttachCommand: stringField(metadata.tmuxAttachCommand),
     tmuxReadOnlyAttachCommand: stringField(metadata.tmuxReadOnlyAttachCommand)
@@ -470,7 +552,8 @@ export async function runAutoRunStep(options: {
 }
 
 export async function getAutoRunStatus(options: { projectRoot: PackageWorkspaceRef; session?: ExecutionGraphSession }): Promise<AutoRunStatus> {
-  const { workspace } = await loadPackage(options.projectRoot);
+  const { manifest, workspace } = await loadPackage(options.projectRoot);
+  const graph = compileTaskGraph(manifest);
   const executionStatus = await getExecutionStatus({ projectRoot: options.projectRoot, session: options.session });
   const state = await readState(workspace.stateFile);
   const latestRuns: AutoRunLatestRunSummary[] = [];
@@ -487,6 +570,7 @@ export async function getAutoRunStatus(options: { projectRoot: PackageWorkspaceR
     const exitCode = typeof metadata.exitCode === "number" ? metadata.exitCode : null;
     const stderrSummary = await readSummary(join(runDir, "stderr.log"));
     const metadataFailureReason = stringField(metadata.failureReason);
+    const updateTimes = await runFileUpdateTimes(runDir, metadataPath);
     latestRuns.push({
       kind: "block",
       ref: block.ref,
@@ -504,6 +588,7 @@ export async function getAutoRunStatus(options: { projectRoot: PackageWorkspaceR
       promptPath: join(runDir, "prompt.md"),
       reportPath: (await exists(join(runDir, "report.md"))) ? join(runDir, "report.md") : null,
       metadataPath,
+      ...updateTimes,
       tmuxSessionName: stringField(metadata.tmuxSessionName),
       tmuxAttachCommand: stringField(metadata.tmuxAttachCommand),
       tmuxReadOnlyAttachCommand: stringField(metadata.tmuxReadOnlyAttachCommand)
@@ -519,6 +604,7 @@ export async function getAutoRunStatus(options: { projectRoot: PackageWorkspaceR
   }
   const latestRun = selectExplanationRun(latestRuns, executionStatus.currentRefs, executionStatus.currentFeedbackId);
   const currentRef = executionStatus.currentRefs[0] ?? executionStatus.currentFeedbackId ?? executionStatus.currentReviewBlockRef ?? null;
+  const currentExecutor = currentEffectiveExecutor({ executionStatus, graph, latestRun, manifest, state });
   const error = executionStatus.warnings[0]?.message ?? latestRun?.failureReason ?? null;
   const phase = autoRunStatusPhase({
     currentRefs: executionStatus.currentRefs,
@@ -539,7 +625,7 @@ export async function getAutoRunStatus(options: { projectRoot: PackageWorkspaceR
     explanation: createAutoRunExplanation({
       phase,
       currentRef,
-      currentExecutor: latestRun?.executor ?? null,
+      currentExecutor,
       latestRecordId: latestRecordId(latestRun),
       latestRecordPath: latestRun?.metadataPath ?? null,
       latestOutputSummary: latestOutputSummary(latestRun),

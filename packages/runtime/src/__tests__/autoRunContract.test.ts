@@ -1,4 +1,4 @@
-import { access, chmod, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -82,6 +82,66 @@ describe("Auto Run contract", () => {
       kind: "inspect_record",
       ref: "T-001#B-001",
       targetPath: "/tmp/metadata.json"
+    });
+  });
+
+  it("selects timestamped latest run records ahead of timestampless run ids", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
+    const oldRunDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-999");
+    const latestRunDir = join(init.workspace.resultsDir, "T-002", "blocks", "B-001", "runs", "RUN-001");
+    await mkdir(oldRunDir, { recursive: true });
+    await mkdir(latestRunDir, { recursive: true });
+    await writeJsonFile(join(oldRunDir, "metadata.json"), {
+      runId: "RUN-999",
+      ref: "T-001#B-001",
+      executor: "codex",
+      adapter: "codex-exec"
+    });
+    await writeJsonFile(join(latestRunDir, "metadata.json"), {
+      runId: "RUN-001",
+      ref: "T-002#B-001",
+      executor: "opencode",
+      adapter: "opencode-exec",
+      finishedAt: "2026-05-23T02:00:00.000Z"
+    });
+
+    await expect(getAutoRunStatus({ projectRoot: root })).resolves.toMatchObject({
+      explanation: {
+        latestRecordId: "T-002#B-001::RUN-001",
+        currentExecutor: "default"
+      }
+    });
+  });
+
+  it("selects the current block run for run-status explanation before unrelated global latest records", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
+    await claimNext({ projectRoot: root });
+    const currentRunDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
+    const unrelatedRunDir = join(init.workspace.resultsDir, "T-002", "blocks", "B-001", "runs", "RUN-001");
+    await mkdir(currentRunDir, { recursive: true });
+    await mkdir(unrelatedRunDir, { recursive: true });
+    await writeJsonFile(join(currentRunDir, "metadata.json"), {
+      runId: "RUN-001",
+      ref: "T-001#B-001",
+      executor: "codex",
+      adapter: "codex-exec",
+      startedAt: "2026-05-23T01:00:00.000Z"
+    });
+    await writeJsonFile(join(unrelatedRunDir, "metadata.json"), {
+      runId: "RUN-001",
+      ref: "T-002#B-001",
+      executor: "opencode",
+      adapter: "opencode-exec",
+      startedAt: "2026-05-23T02:00:00.000Z"
+    });
+
+    await expect(getAutoRunStatus({ projectRoot: root })).resolves.toMatchObject({
+      explanation: {
+        phase: "running",
+        currentRef: "T-001#B-001",
+        latestRecordId: "T-001#B-001::RUN-001",
+        currentExecutor: "codex"
+      }
     });
   });
 
@@ -1032,7 +1092,7 @@ describe("Auto Run contract", () => {
       explanation: {
         phase: "idle",
         currentRef: null,
-        currentExecutor: "fake-codex",
+        currentExecutor: "fake-local-review",
         latestRecordId: "T-001#B-001::RUN-001",
         latestRecordPath: expect.stringContaining("metadata.json"),
         latestOutputSummary: expect.stringContaining("stderr detail"),
@@ -1141,7 +1201,7 @@ describe("Auto Run contract", () => {
       explanation: {
         phase: "idle",
         currentRef: "T-001#R-001",
-        currentExecutor: "fake-codex",
+        currentExecutor: "needs-review",
         latestRecordId: "FE-001::RUN-001",
         latestRecordPath: expect.stringContaining(join("feedback-runs", "RUN-001", "metadata.json")),
         latestOutputSummary: expect.stringContaining("feedback report"),

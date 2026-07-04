@@ -166,6 +166,7 @@ export type CurrentBlockWorkItem = {
   taskId: string;
   blockId: string;
   blockType: BlockType;
+  effectiveExecutor: string;
   promptPath: string;
   reportPath: string;
   submitCommand: string;
@@ -177,6 +178,7 @@ export type CurrentFeedbackWorkItem = {
   feedbackId: string;
   sourceReviewBlockRef: string;
   taskId: string;
+  effectiveExecutor: string;
   promptPath: string;
   reportPath: string;
   submitCommand: string;

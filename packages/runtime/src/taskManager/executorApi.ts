@@ -4,7 +4,7 @@ import type { BlockExplanation, CurrentWork, CurrentWorkItem, ManifestBlock, Pac
 import { canvasCommandFlag, commandCanvasIdForWorkspace } from "./canvasCommandScope.js";
 import { getExecutionStatus } from "./executionStatus.js";
 import { loadRuntime } from "./runtimeContext.js";
-import { getBlock, isActiveFeedbackStatus } from "./selectors.js";
+import { effectiveBlockExecutor, effectiveFeedbackExecutor, getBlock, isActiveFeedbackStatus } from "./selectors.js";
 
 function submitCommand(ref: string, block: ManifestBlock, canvasId: string | null = null): string {
   if (block.type === "review") {
@@ -20,7 +20,7 @@ function reportPath(block: ManifestBlock): string {
   return "<report.md>";
 }
 
-function currentItem(ref: string, block: ManifestBlock, packageDir: string, canvasId: string | null): CurrentWorkItem {
+function currentItem(ref: string, block: ManifestBlock, packageDir: string, canvasId: string | null, effectiveExecutor: string): CurrentWorkItem {
   const { taskId, blockId } = parseBlockRef(ref);
   return {
     kind: "block",
@@ -28,6 +28,7 @@ function currentItem(ref: string, block: ManifestBlock, packageDir: string, canv
     taskId,
     blockId,
     blockType: block.type,
+    effectiveExecutor,
     promptPath: join(packageDir, block.prompt),
     reportPath: reportPath(block),
     submitCommand: submitCommand(ref, block, canvasId)
@@ -52,7 +53,10 @@ export async function explainBlock(options: { projectRoot: PackageWorkspaceRef; 
 export async function getCurrentWork(options: { projectRoot: PackageWorkspaceRef }): Promise<CurrentWork> {
   const context = await loadRuntime(options);
   const canvasId = await commandCanvasIdForWorkspace(context.workspace);
-  const items = context.state.currentRefs.map((ref) => currentItem(ref, getBlock(context.graph, ref), context.workspace.packageDir, canvasId));
+  const defaultExecutor = context.manifest.execution.defaultExecutor;
+  const items = context.state.currentRefs.map((ref) =>
+    currentItem(ref, getBlock(context.graph, ref), context.workspace.packageDir, canvasId, effectiveBlockExecutor(context.graph, ref, defaultExecutor))
+  );
   const activeFeedbackId =
     context.state.currentFeedbackId && isActiveFeedbackStatus(context.state.feedback[context.state.currentFeedbackId]?.status)
       ? context.state.currentFeedbackId
@@ -67,6 +71,7 @@ export async function getCurrentWork(options: { projectRoot: PackageWorkspaceRef
         feedbackId: activeFeedbackId,
         sourceReviewBlockRef: feedback.sourceReviewBlockRef,
         taskId,
+        effectiveExecutor: effectiveFeedbackExecutor(context.graph, feedback.sourceReviewBlockRef, defaultExecutor),
         promptPath: join(context.workspace.resultsDir, taskId, "feedback", activeFeedbackId, "feedback.json"),
         reportPath: "<feedback-report.md>",
         submitCommand: `planweave submit-feedback${canvasCommandFlag(canvasId)} --report <feedback-report.md>`

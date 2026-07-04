@@ -75,6 +75,67 @@ describe("desktop records API", () => {
     });
   });
 
+  it("lists feedback run records from the source review block", async () => {
+    const { root, init } = await createTestWorkspace();
+    const feedbackRunDir = join(init.workspace.resultsDir, "feedback-runs", "RUN-001");
+    await mkdir(feedbackRunDir, { recursive: true });
+    await writeJsonFile(join(feedbackRunDir, "metadata.json"), {
+      runId: "RUN-001",
+      feedbackId: "FE-001",
+      sourceReviewBlockRef: "T-001#R-001",
+      taskId: "T-001",
+      executor: "opencode",
+      adapter: "opencode-exec",
+      projectRoot: root,
+      executionCwd: root,
+      agentSessionId: "ses_feedback_123",
+      opencodeSessionId: "ses_feedback_123",
+      tmuxSessionName: "planweave-feedback-RUN-001-abcd1234",
+      tmuxAttachCommand: "tmux attach-session -t planweave-feedback-RUN-001-abcd1234",
+      tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-feedback-RUN-001-abcd1234",
+      startedAt: "2026-05-23T02:00:00.000Z",
+      finishedAt: "2026-05-23T02:10:00.000Z",
+      exitCode: 0
+    });
+    await writeFile(join(feedbackRunDir, "prompt.md"), "Fix the review feedback.\n", "utf8");
+    await writeFile(join(feedbackRunDir, "stdout.md"), "Applied feedback fix.\n", "utf8");
+    await writeFile(join(feedbackRunDir, "stderr.log"), "", "utf8");
+    await writeFile(join(feedbackRunDir, "report.md"), "Feedback resolved.\n", "utf8");
+
+    await expect(listBlockRunRecords(root, "T-001#R-001")).resolves.toEqual([
+      expect.objectContaining({
+        kind: "feedback",
+        recordId: "FE-001::RUN-001",
+        ref: "T-001#R-001",
+        feedbackId: "FE-001",
+        sourceReviewBlockRef: "T-001#R-001",
+        taskId: "T-001",
+        blockId: "R-001",
+        executor: "opencode",
+        adapter: "opencode-exec",
+        agentSessionId: "ses_feedback_123",
+        tmuxSessionId: "planweave-feedback-RUN-001-abcd1234",
+        tmuxAttachCommand: "tmux attach-session -t planweave-feedback-RUN-001-abcd1234",
+        tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-feedback-RUN-001-abcd1234",
+        lastOutputAt: expect.any(String),
+        reportPath: expect.stringContaining("feedback-runs/RUN-001/report.md")
+      })
+    ]);
+    await expect(getRunRecord(root, "FE-001::RUN-001")).resolves.toMatchObject({
+      kind: "feedback",
+      recordId: "FE-001::RUN-001",
+      ref: "T-001#R-001",
+      promptMarkdown: "Fix the review feedback.\n",
+      reportMarkdown: "Feedback resolved.\n",
+      displayMarkdown: "Feedback resolved.\n",
+      displayMarkdownSource: "report",
+      metadata: {
+        feedbackId: "FE-001",
+        sourceReviewBlockRef: "T-001#R-001"
+      }
+    });
+  });
+
   it("searches run records, review attempts, and feedback records from runtime results/state", async () => {
     const { root, init } = await createTestWorkspace();
     await claimNext({ projectRoot: root });

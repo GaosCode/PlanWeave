@@ -83,9 +83,6 @@ async function latestReportPath(workspace: ProjectWorkspace, recordId: string | 
   if (!recordId) {
     return null;
   }
-  if (!recordRefFromRecordId(recordId)) {
-    return null;
-  }
   try {
     return (await getRunRecord(workspace, recordId)).reportPath;
   } catch (error) {

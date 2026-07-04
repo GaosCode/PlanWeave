@@ -5,7 +5,10 @@ import type {
 
 export type DesktopBlockRunRecordSummary = {
   recordId: string;
+  kind?: "block" | "feedback";
   ref: string;
+  feedbackId?: string | null;
+  sourceReviewBlockRef?: string | null;
   taskId: string;
   blockId: string;
   runId: string;
@@ -24,6 +27,10 @@ export type DesktopBlockRunRecordSummary = {
   promptPath: string | null;
   reportPath: string | null;
   metadataPath: string;
+  stdoutUpdatedAt?: string | null;
+  stderrUpdatedAt?: string | null;
+  metadataUpdatedAt?: string | null;
+  lastOutputAt?: string | null;
   stdoutSummary: string;
   stderrSummary: string;
 };

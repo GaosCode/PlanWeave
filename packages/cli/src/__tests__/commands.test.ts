@@ -135,6 +135,7 @@ describe("planweave CLI contract", () => {
     expect(commandOptionLongs("claim-next")).toContain("--dry-run");
     expect(commandOptionLongs("claim-next")).toContain("--json");
     expect(commandOptionLongs("claim-next")).toContain("--canvas");
+    expect(commandOptionLongs("current")).toContain("--json");
     expect(commandOptionLongs("submit-result")).toContain("--json");
     expect(commandOptionLongs("submit-review")).toContain("--json");
     expect(commandOptionLongs("submit-feedback")).toContain("--json");

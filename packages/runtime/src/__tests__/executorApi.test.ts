@@ -269,6 +269,7 @@ describe("executor API helpers", () => {
         {
           kind: "block",
           ref: "T-001#B-001",
+          effectiveExecutor: "default",
           promptPath: expect.stringContaining("nodes/T-001/blocks/B-001.prompt.md"),
           reportPath: "<report.md>",
           submitCommand: "planweave submit-result --canvas default T-001#B-001 --report <report.md>"
@@ -297,7 +298,20 @@ describe("executor API helpers", () => {
   });
 
   it("reports active feedback as executable current work", async () => {
-    const { root } = await createTestWorkspace();
+    const manifest = basicManifest();
+    manifest.executors = {
+      codex: { adapter: "manual" },
+      manual: { adapter: "manual" },
+      opencode: { adapter: "manual" }
+    };
+    const task = manifest.nodes[0];
+    if (task.type !== "task") {
+      throw new Error("Expected a task node.");
+    }
+    task.executor = "codex";
+    task.blocks[0].executor = "opencode";
+    task.blocks[1].executor = "codex";
+    const { root } = await createTestWorkspace(manifest);
     await claimNext({ projectRoot: root });
     await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
     await claimNext({ projectRoot: root });
@@ -321,6 +335,7 @@ describe("executor API helpers", () => {
           feedbackId: "FE-001",
           sourceReviewBlockRef: "T-001#R-001",
           taskId: "T-001",
+          effectiveExecutor: "opencode",
           promptPath: expect.stringContaining("results/T-001/feedback/FE-001/feedback.json"),
           reportPath: "<feedback-report.md>",
           submitCommand: "planweave submit-feedback --canvas default --report <feedback-report.md>"

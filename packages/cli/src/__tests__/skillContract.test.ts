@@ -69,11 +69,11 @@ describe("agent skill contract docs", () => {
 
     expect(coordinator).toContain("Use when orchestrating a full PlanWeave plan");
     expect(coordinator).toContain("Run preflight: confirm `PLANWEAVE_HOME`, project id, project graph path when present, package/canvas paths");
-    expect(coordinator).toContain("Treat PlanWeave skills as execution roles.");
+    expect(coordinator).toContain("Treat PlanWeave skills as execution roles for worker subagents.");
     expect(coordinator).toContain("Use skill: plan-runner");
-    expect(coordinator).toContain("Use `plan-runner` for one implementation block.");
-    expect(coordinator).toContain("Use `plan-reviewer` for one review gate.");
-    expect(coordinator).toContain("Use `plan-recovery` for doctor findings");
+    expect(coordinator).toContain("Assign `plan-runner` to a worker subagent for one implementation block");
+    expect(coordinator).toContain("Assign `plan-reviewer` to a worker subagent for one review gate");
+    expect(coordinator).toContain("Assign `plan-recovery` to a worker subagent or run recovery commands yourself only for doctor findings");
     expect(coordinator).toContain("claim ownership: `already claimed` or `claim required`");
     expect(coordinator).toContain("Different canvases are not automatically parallel");
     expect(coordinator).toContain("formal project graph canvas edges and explicit `crossTaskEdges`");
