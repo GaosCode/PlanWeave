@@ -221,14 +221,6 @@ describe("OpenCode executor", () => {
   it("treats OpenCode JSON error events as executor failures", async () => {
     const manifest = manifestTestBuilder()
       .withDefaultExecutor("fake-opencode-error")
-      .withExecutor("fake-block", {
-        adapter: "codex-exec",
-        command: process.execPath,
-        args: [
-          "-e",
-          "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => console.log('ok:' + input.includes('task')));"
-        ]
-      })
       .withExecutor("needs-review", {
         adapter: "local-review",
         command: process.execPath,
@@ -242,7 +234,6 @@ describe("OpenCode executor", () => {
         command: "./opencode",
         args: ["run", "--dangerously-skip-permissions", "-"]
       })
-      .withBlock("T-001", "B-001", (block) => ({ ...block, executor: "fake-block" }))
       .withBlock("T-001", "R-001", (block) => ({ ...block, executor: "needs-review" }))
       .build();
     const { root, init } = await createTestWorkspace(manifest);
@@ -250,6 +241,14 @@ describe("OpenCode executor", () => {
       join(root, "opencode"),
       [
         "#!/usr/bin/env node",
+        "const fs = require('node:fs');",
+        "const countPath = 'opencode-count.txt';",
+        "const count = fs.existsSync(countPath) ? Number(fs.readFileSync(countPath, 'utf8')) : 0;",
+        "fs.writeFileSync(countPath, String(count + 1));",
+        "if (count === 0) {",
+        "  console.log('implemented by opencode');",
+        "  process.exit(0);",
+        "}",
         "console.log(JSON.stringify({ type: 'step_start', sessionID: 'ses_error_123' }));",
         "console.log(JSON.stringify({ type: 'error', sessionID: 'ses_error_123', error: { name: 'UnknownError', data: { message: 'unknown certificate verification error' } } }));"
       ].join("\n"),
@@ -257,7 +256,6 @@ describe("OpenCode executor", () => {
     );
     await chmod(join(root, "opencode"), 0o755);
 
-    await runAutoRunStep({ projectRoot: init.workspace, tmuxEnabled: false });
     await runAutoRunStep({ projectRoot: init.workspace, tmuxEnabled: false });
     await runAutoRunStep({ projectRoot: init.workspace, tmuxEnabled: false });
     const feedbackStep = await runAutoRunStep({ projectRoot: init.workspace, tmuxEnabled: false });

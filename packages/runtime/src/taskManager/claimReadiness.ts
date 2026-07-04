@@ -206,7 +206,7 @@ function buildClaimOrder(input: {
         sourceReviewBlockRef: feedback.sourceReviewBlockRef,
         taskId,
         content: feedback.content,
-        effectiveExecutor: effectiveFeedbackExecutor(input.manifest.execution.defaultExecutor)
+        effectiveExecutor: effectiveFeedbackExecutor(input.graph, feedback.sourceReviewBlockRef, input.manifest.execution.defaultExecutor)
       }
     };
   }

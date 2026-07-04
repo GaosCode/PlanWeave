@@ -69,8 +69,18 @@ export function effectiveBlockExecutor(graph: CompiledExecutionGraph, ref: strin
   return block.executor ?? task?.executor ?? defaultExecutor ?? "default";
 }
 
-export function effectiveFeedbackExecutor(defaultExecutor?: string): string {
-  return defaultExecutor ?? "default";
+export function effectiveFeedbackExecutor(graph: CompiledExecutionGraph, sourceReviewBlockRef: string, defaultExecutor?: string): string {
+  const taskId = graph.blockTaskByRef.get(sourceReviewBlockRef);
+  if (!taskId) {
+    return effectiveBlockExecutor(graph, sourceReviewBlockRef, defaultExecutor);
+  }
+  const implementationExecutors = [
+    ...new Set(requiredImplementationRefs(graph, taskId).map((ref) => effectiveBlockExecutor(graph, ref, defaultExecutor)))
+  ];
+  if (implementationExecutors.length === 1) {
+    return implementationExecutors[0];
+  }
+  return effectiveBlockExecutor(graph, sourceReviewBlockRef, defaultExecutor);
 }
 
 export function normalizeClaimScope(scope?: ClaimScope): ClaimScope {

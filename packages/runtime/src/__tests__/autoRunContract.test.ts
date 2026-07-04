@@ -14,6 +14,7 @@ import {
   listExecutorProfiles,
   resolveTaskCanvasWorkspace,
   runAutoRunStep,
+  claimNext,
   submitBlockResult,
   submitReviewResult
 } from "../index.js";
@@ -260,6 +261,38 @@ describe("Auto Run contract", () => {
           tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-T-001-B-001-RUN-001-123abcd"
         })
       ]
+    });
+  });
+
+  it("routes feedback through the claim effective executor instead of the manifest default", async () => {
+    const manifest = manifestTestBuilder()
+      .withDefaultExecutor("manual")
+      .withExecutor("feedback-runner", {
+        adapter: "manual"
+      })
+      .withBlock("T-001", "B-001", (block) => ({ ...block, executor: "feedback-runner" }))
+      .build();
+    const { root, init } = await createTestWorkspace(manifest);
+    await claimNext({ projectRoot: root });
+    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await claimNext({ projectRoot: root });
+    await submitReviewResult({
+      projectRoot: root,
+      ref: "T-001#R-001",
+      resultPath: await writeReviewResult(root, "needs_changes", "Fix with the implementation executor.")
+    });
+
+    const feedbackStep = await runAutoRunStep({ projectRoot: root });
+
+    expect(feedbackStep).toMatchObject({
+      kind: "manual",
+      claim: { kind: "feedback", feedbackId: "FE-001", effectiveExecutor: "feedback-runner" },
+      adapterResult: { executor: "feedback-runner" }
+    });
+    await expect(readJsonFile(join(init.workspace.resultsDir, "feedback-runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+      feedbackId: "FE-001",
+      executor: "feedback-runner",
+      adapter: "manual"
     });
   });
 

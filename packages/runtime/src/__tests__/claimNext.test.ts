@@ -49,7 +49,7 @@ describe("claimNext", () => {
     expect(await claimNext({ projectRoot: root })).toMatchObject({
       kind: "feedback",
       feedbackId: "FE-001",
-      effectiveExecutor: "codex"
+      effectiveExecutor: "manual"
     });
   });
 

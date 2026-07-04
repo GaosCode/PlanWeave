@@ -107,7 +107,7 @@ function createProfiledAdapter(options: {
     },
     async runFeedback({ claim }) {
       const { manifest, workspace } = await loadPackage(options.projectRoot);
-      const name = options.executorName ?? manifest.execution.defaultExecutor ?? "default";
+      const name = options.executorName ?? claim.effectiveExecutor;
       const profile = profilesByName(manifest)[name];
       if (!profile) {
         throw new Error(`Executor profile '${name}' does not exist.`);
