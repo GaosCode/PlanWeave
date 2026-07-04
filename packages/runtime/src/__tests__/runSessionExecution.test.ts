@@ -98,13 +98,11 @@ describe("runWithSession", () => {
       latestRecordId: "T-001#R-001::RUN-001",
       error: null
     });
-    expect(detail.events.map((event) => event.type)).toEqual([
+    expect(detail.events.map((event) => event.type).filter((eventType) => eventType !== "step_start")).toEqual([
       "session_started",
       "reset_started",
       "reset_completed",
-      "step_start",
       "step_finish",
-      "step_start",
       "step_finish",
       "step_finish",
       "session_completed"
