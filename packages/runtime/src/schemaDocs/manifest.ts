@@ -68,7 +68,7 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
     version: supportedManifestVersion,
     project: { title: "string, non-empty", description: "string" },
     execution: {
-      defaultExecutor: "string, optional; must be default/manual/codex/codex-auto/codex-reviewer/opencode/claude-code/claude-code-auto/pi/pi-auto or a key in executors",
+      defaultExecutor: "string, optional; must be default/manual/codex/codex-auto/opencode/claude-code/claude-code-auto/pi/pi-auto or a key in executors",
       parallel: { enabled: "boolean", maxConcurrent: "positive integer" }
     },
     review: { maxFeedbackCycles: "non-negative integer, default: 1", completionPolicy: "strict" },

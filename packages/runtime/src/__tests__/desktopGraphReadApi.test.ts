@@ -41,7 +41,7 @@ describe("desktop graph read API", () => {
 
     expect(graph.projectId).toBe(init.workspace.id);
     expect(graph.projectTitle).toBe("Test Plan");
-    expect(graph.executorOptions).toEqual(expect.arrayContaining(["default", "manual", "codex", "codex-auto", "codex-reviewer", "opencode", "claude-code", "claude-code-auto", "pi", "pi-auto"]));
+    expect(graph.executorOptions).toEqual(expect.arrayContaining(["default", "manual", "codex", "codex-auto", "opencode", "claude-code", "claude-code-auto", "pi", "pi-auto"]));
     expect(graph.edges).toEqual([]);
     expect(graph.tasks[0]).toMatchObject({
       taskId: "T-001",
@@ -101,7 +101,7 @@ describe("desktop graph read API", () => {
     if (firstTask?.type !== "task" || secondTask?.type !== "task") {
       throw new Error("Fixture tasks missing.");
     }
-    firstTask.blocks = firstTask.blocks.map((block) => (block.id === "R-001" ? { ...block, executor: "codex-reviewer" } : block));
+    firstTask.blocks = firstTask.blocks.map((block) => (block.id === "R-001" ? { ...block, executor: "codex" } : block));
     secondTask.blocks = secondTask.blocks.map((block) =>
       block.id === "B-001" ? { ...block, executor: "opencode", parallel: { safe: false, locks: [] } } : block
     );
@@ -119,7 +119,7 @@ describe("desktop graph read API", () => {
 
     const graph = await getGraphViewModel(root);
 
-    expect(graph.autoRunPreflightExecutorHint).toBe("codex-reviewer");
+    expect(graph.autoRunPreflightExecutorHint).toBe("codex");
   });
 
   it("resolves Auto Run preflight hint from the serial implementation fallback when parallel has no batch or review", async () => {

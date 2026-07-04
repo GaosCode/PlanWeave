@@ -187,7 +187,6 @@ export const manifestSchema = z
       "manual",
       "codex",
       "codex-auto",
-      "codex-reviewer",
       "opencode",
       "claude-code",
       "claude-code-auto",

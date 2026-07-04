@@ -54,7 +54,7 @@ describe("plan-package/v1 manifest schema", () => {
         maxStdoutBytes: 4096,
         maxStderrBytes: 2048
       })
-      .withExecutor("codex-reviewer", {
+      .withExecutor("review-agent", {
         adapter: "codex-exec",
         command: "codex",
         args: ["exec", "-"],
@@ -81,7 +81,7 @@ describe("plan-package/v1 manifest schema", () => {
         args: ["review.js"]
       })
       .withTask("T-001", (task) => ({ ...task, executor: "codex-auto" }))
-      .withBlock("T-001", "R-001", (block) => ({ ...block, executor: "codex-reviewer" }))
+      .withBlock("T-001", "R-001", (block) => ({ ...block, executor: "review-agent" }))
       .build();
 
     const result = manifestSchema.safeParse(manifest);
@@ -91,7 +91,7 @@ describe("plan-package/v1 manifest schema", () => {
     expect(result.data?.executors?.["codex-auto"]?.timeoutMs).toBe(120000);
     expect(result.data?.executors?.["codex-auto"]?.maxStdoutBytes).toBe(4096);
     expect(result.data?.executors?.["codex-auto"]?.maxStderrBytes).toBe(2048);
-    expect(result.data?.executors?.["codex-reviewer"]?.role).toBe("reviewer");
+    expect(result.data?.executors?.["review-agent"]?.role).toBe("reviewer");
     expect(result.data?.executors?.opencode?.adapter).toBe("opencode-exec");
     expect(result.data?.executors?.["claude-code"]?.adapter).toBe("claude-code-exec");
     expect(result.data?.executors?.pi?.adapter).toBe("pi-exec");

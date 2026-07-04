@@ -24,13 +24,6 @@
       "command": "codex",
       "args": ["exec", "-"],
       "timeoutMs": 1800000
-    },
-    "codex-reviewer": {
-      "adapter": "codex-exec",
-      "command": "codex",
-      "args": ["exec", "-"],
-      "role": "reviewer",
-      "timeoutMs": 1800000
     }
   },
   "nodes": [
