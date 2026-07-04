@@ -863,7 +863,8 @@ describe("Auto Run contract", () => {
       projectRoot: root,
       executor: createCodexExecAdapter({
         projectRoot: root,
-        executorName: "fake-codex"
+        executorName: "fake-codex",
+        runtime: { tmuxEnabled: false }
       })
     });
 
