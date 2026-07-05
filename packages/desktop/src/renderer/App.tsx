@@ -110,6 +110,7 @@ export function App() {
     refreshProjectSummary,
     refreshGraph,
     refreshProjectDerivedState,
+    runtimeDiagnostics,
     removeProject,
     selectedCanvasId,
     selectedProject,
@@ -205,7 +206,7 @@ export function App() {
     stopAutoRunControlDrag
   } = useAutoRunControl({
     autoRunState,
-    onAutoRunDerivedStateRefresh: refreshProjectDerivedState,
+    onAutoRunDerivedStateRefresh: refreshGraph,
     selectedCanvasId,
     selectedBlock,
     selectedProject,
@@ -261,8 +262,8 @@ export function App() {
     setError
   });
   const visibleProjectDiagnostics = useMemo(
-    () => uniqueDesktopDiagnostics([...projectDiagnostics, ...searchDiagnostics, ...autoRunDiagnostics]),
-    [autoRunDiagnostics, projectDiagnostics, searchDiagnostics]
+    () => uniqueDesktopDiagnostics([...projectDiagnostics, ...runtimeDiagnostics, ...searchDiagnostics, ...autoRunDiagnostics]),
+    [autoRunDiagnostics, projectDiagnostics, runtimeDiagnostics, searchDiagnostics]
   );
 
   const {

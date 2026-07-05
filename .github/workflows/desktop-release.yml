@@ -110,6 +110,7 @@ jobs:
             packages/desktop/release/*.exe
             packages/desktop/release/*.tar.gz
             packages/desktop/release/*.yml
+            !packages/desktop/release/builder-debug.yml
             packages/desktop/release/*.zip
 
   verify-assets:
@@ -118,6 +119,9 @@ jobs:
     needs: build
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download desktop artifacts
         uses: actions/download-artifact@v4
         with:
@@ -131,26 +135,7 @@ jobs:
         run: |
           set -euo pipefail
           find desktop-artifacts -maxdepth 1 -type f -printf '%f\n' | sort
-
-          required_patterns=(
-            "PlanWeave-${VERSION}-linux-x86_64.AppImage"
-            "PlanWeave-${VERSION}-linux-amd64.deb"
-            "PlanWeave-${VERSION}-linux-x64.tar.gz"
-            "PlanWeave-${VERSION}-mac-universal.zip"
-            "PlanWeave-${VERSION}-universal.dmg"
-            "PlanWeave-${VERSION}-win-x64.exe"
-            "PlanWeave-${VERSION}-win-x64.zip"
-            "latest-linux.yml"
-            "latest-mac.yml"
-            "latest.yml"
-          )
-
-          for pattern in "${required_patterns[@]}"; do
-            if ! find desktop-artifacts -maxdepth 1 -name "${pattern}" -type f | grep -q .; then
-              echo "Missing required asset: ${pattern}" >&2
-              exit 1
-            fi
-          done
+          node packages/desktop/scripts/verify-release-assets.mjs --dir desktop-artifacts --version "${VERSION}"
 
   publish:
     name: Publish GitHub Release assets

@@ -220,7 +220,7 @@ export function CanvasTreeItem({
           <ChevronRightIcon className={cn("size-4 transition-transform duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)]", isExpandedCanvas ? "rotate-90" : "rotate-0")} />
         </Button>
       </div>
-      <AnimatedTreeRegion expanded={isExpandedCanvas && graph !== null} className="ml-3 flex w-[calc(100%-0.75rem)] min-w-0 max-w-full flex-col gap-1 overflow-hidden border-l border-border/60 pt-1 pl-3">
+      <AnimatedTreeRegion expanded={isExpandedCanvas && graph !== null} unmountOnExit className="ml-3 flex w-[calc(100%-0.75rem)] min-w-0 max-w-full flex-col gap-1 overflow-hidden border-l border-border/60 pt-1 pl-3">
         {graph
           ? graph.tasks.map((task) => (
             <ContextMenu key={task.taskId}>

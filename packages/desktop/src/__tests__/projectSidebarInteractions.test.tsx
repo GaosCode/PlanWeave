@@ -1,10 +1,11 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
+import { AnimatedTreeRegion } from "../renderer/sidebar/AnimatedTreeRegion";
 import { ProjectSidebar } from "../renderer/sidebar/ProjectSidebar";
 import { orderProjectsByPinnedIds } from "../renderer/settings";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
@@ -91,7 +92,8 @@ describe("desktop renderer component interactions", () => {
       dirtyPromptRefs: []
     };
 
-    render(
+    vi.useFakeTimers();
+    const { container } = render(
       <ProjectSidebar
         activeView="graph"
         collapsed={false}
@@ -129,12 +131,68 @@ describe("desktop renderer component interactions", () => {
     expect(screen.getByRole("button", { name: /新\s*T-TASK/ })).toBeVisible();
     expect(screen.getByRole("button", { name: /新 Task\s*T-002/ })).toBeVisible();
 
-    await userEvent.click(screen.getByRole("button", { name: "收起项目" }));
+    fireEvent.click(screen.getByRole("button", { name: "收起任务画布" }));
+
+    expect(screen.getByRole("button", { name: "展开任务画布" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: /新\s*T-TASK/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /新 Task\s*T-002/ })).not.toBeInTheDocument();
+    expect(container.querySelector('[aria-hidden="true"][inert]')).toBeInTheDocument();
+    expect(screen.getByText("T-TASK")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(180);
+    });
+
+    expect(screen.queryByText("T-TASK")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "展开任务画布" }));
+
+    expect(screen.getByRole("button", { name: "收起任务画布" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /新\s*T-TASK/ })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "收起项目" }));
 
     expect(screen.getByRole("button", { name: "frontend-example" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "展开项目" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "展开项目" })).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("button", { name: /frontend-example\s*2/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /新\s*T-TASK/ })).not.toBeInTheDocument();
+    expect(screen.getByText("T-TASK")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(180);
+    });
+
+    expect(screen.queryByText("T-TASK")).not.toBeInTheDocument();
+  });
+
+  it("immediately unmounts collapsed tree content when reduced motion is requested", () => {
+    const reducedMotionMediaQuery: MediaQueryList = {
+      addEventListener: vi.fn(),
+      addListener: vi.fn(),
+      dispatchEvent: vi.fn(() => false),
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      onchange: null,
+      removeEventListener: vi.fn(),
+      removeListener: vi.fn()
+    };
+    vi.stubGlobal("matchMedia", vi.fn(() => reducedMotionMediaQuery));
+
+    const { rerender } = render(
+      <AnimatedTreeRegion expanded unmountOnExit className="flex flex-col">
+        <button type="button">Collapsed task</button>
+      </AnimatedTreeRegion>
+    );
+
+    expect(screen.getByRole("button", { name: "Collapsed task" })).toBeInTheDocument();
+
+    rerender(
+      <AnimatedTreeRegion expanded={false} unmountOnExit className="flex flex-col">
+        <button type="button">Collapsed task</button>
+      </AnimatedTreeRegion>
+    );
+
+    expect(screen.queryByRole("button", { name: "Collapsed task" })).not.toBeInTheDocument();
   });
 
   it("routes project refresh from the sidebar header", async () => {

@@ -270,7 +270,7 @@ export function ProjectTreeItem({
           </ContextMenu>
         )}
       </div>
-      <AnimatedTreeRegion expanded={isExpandedProject} className="ml-3 flex w-[calc(100%-0.75rem)] min-w-0 max-w-full flex-col gap-1 overflow-hidden border-l border-border/60 pt-1 pl-4">
+      <AnimatedTreeRegion expanded={isExpandedProject} unmountOnExit className="ml-3 flex w-[calc(100%-0.75rem)] min-w-0 max-w-full flex-col gap-1 overflow-hidden border-l border-border/60 pt-1 pl-4">
         {project.taskCanvases.map((canvas) => {
           const isSelectedCanvas = selectedCanvasId === canvas.canvasId;
           const isGraphCanvas = isSelectedCanvas || (selectedCanvasId === null && isSelectedProject && project.taskCanvases.length === 1);

@@ -1,13 +1,47 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+
+const treeRegionExitMs = 180;
+const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
 
 type AnimatedTreeRegionProps = {
   children: ReactNode;
   className: string;
   expanded: boolean;
+  unmountOnExit?: boolean;
 };
 
-export function AnimatedTreeRegion({ children, className, expanded }: AnimatedTreeRegionProps) {
+function shouldSkipExitAnimation() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+  return window.matchMedia(reducedMotionQuery).matches;
+}
+
+export function AnimatedTreeRegion({ children, className, expanded, unmountOnExit = false }: AnimatedTreeRegionProps) {
+  const [shouldRender, setShouldRender] = useState(() => expanded || !unmountOnExit);
+
+  useEffect(() => {
+    if (!unmountOnExit) {
+      setShouldRender(true);
+      return;
+    }
+    if (expanded) {
+      setShouldRender(true);
+      return;
+    }
+    if (shouldSkipExitAnimation()) {
+      setShouldRender(false);
+      return;
+    }
+    const exitTimer = window.setTimeout(() => setShouldRender(false), treeRegionExitMs);
+    return () => window.clearTimeout(exitTimer);
+  }, [expanded, unmountOnExit]);
+
+  if (!expanded && !shouldRender) {
+    return null;
+  }
+
   return (
     <div
       aria-hidden={!expanded}
