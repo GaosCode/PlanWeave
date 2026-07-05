@@ -43,8 +43,10 @@ import type {
   DesktopLatestAutoRunSummary,
   DesktopAutoRunOptions,
   DesktopAutoRunRetrospectiveSummary,
+  DesktopRuntimeRefreshSnapshot,
   DesktopAutoRunScope,
   DesktopAutoRunState,
+  DesktopRuntimeStateChangeEvent,
   DesktopRuntimeResetOptions,
   DesktopRuntimeResetResult
 } from "./runTypes.js";
@@ -241,7 +243,10 @@ export type DesktopBridgeApi = {
   getDirtyPromptRefs(ref: DesktopCanvasReference): Promise<string[]>;
   watchPackageFiles(ref: DesktopCanvasReference): Promise<void>;
   unwatchPackageFiles(ref: DesktopCanvasReference): Promise<void>;
+  watchRuntimeState(ref: DesktopCanvasReference): Promise<void>;
+  unwatchRuntimeState(ref: DesktopCanvasReference): Promise<void>;
   onPackageFileChanged(callback: (event: DesktopPackageFileChangeEvent) => void): () => void;
+  onRuntimeStateChanged(callback: (event: DesktopRuntimeStateChangeEvent) => void): () => void;
   onAutoRunChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;
   startAutoRun(ref: DesktopCanvasReference, scope: DesktopAutoRunScope, stepLimit?: number, options?: DesktopAutoRunOptions): Promise<DesktopAutoRunState>;
   resetRuntimeState(ref: DesktopCanvasReference, options?: DesktopRuntimeResetOptions): Promise<DesktopRuntimeResetResult>;
@@ -252,6 +257,7 @@ export type DesktopBridgeApi = {
   getAutoRunState(runId: string): Promise<DesktopAutoRunState>;
   getLatestAutoRunSummary(ref: DesktopCanvasReference): Promise<DesktopAutoRunState | null>;
   getLatestAutoRunSummaryWithDiagnostics(ref: DesktopCanvasReference): Promise<DesktopLatestAutoRunSummary>;
+  getDesktopRuntimeRefresh(ref: DesktopCanvasReference): Promise<DesktopRuntimeRefreshSnapshot>;
   getAutoRunRetrospective(ref: DesktopCanvasReference, runId: string): Promise<DesktopAutoRunRetrospectiveSummary>;
   getLatestAutoRunRetrospective(ref: DesktopCanvasReference): Promise<DesktopAutoRunRetrospectiveSummary | null>;
   getStatistics(projectRoot: string): Promise<DesktopStatistics>;

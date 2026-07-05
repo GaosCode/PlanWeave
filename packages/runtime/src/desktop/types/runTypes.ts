@@ -52,6 +52,19 @@ export type DesktopLatestAutoRunSummary = {
   diagnostics: ValidationIssue[];
 };
 
+export type DesktopRuntimeRefreshSnapshot = {
+  latestAutoRun: DesktopAutoRunState | null;
+  diagnostics: ValidationIssue[];
+  errors: string[];
+};
+
+export type DesktopRuntimeStateChangeEvent = {
+  projectRoot: string;
+  canvasId: string | null;
+  stateFile: string;
+  changedAt: string;
+};
+
 export type DesktopAutoRunEvent = {
   projectRoot: string;
   canvasId: string | null;

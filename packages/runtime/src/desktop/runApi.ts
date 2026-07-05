@@ -13,6 +13,8 @@ import type {
   DesktopLatestAutoRunSummary,
   DesktopAutoRunScope,
   DesktopAutoRunState,
+  DesktopCanvasReference,
+  DesktopRuntimeRefreshSnapshot,
   DesktopRuntimeResetOptions,
   DesktopRuntimeResetResult
 } from "./types.js";
@@ -20,6 +22,7 @@ import { appendAutoRunEvent, autoRunRoot, cloneAutoRunState, createAutoRunEvent,
 import { nextPersistedAutoRunId, readLatestPersistedAutoRunState, readPersistedAutoRunEventLog, writePersistedAutoRunState } from "./runStateRepository.js";
 import { claimRef, claimRefs, claimScope, completedRefs, executorName, latestStatus, outputSummary, phaseAfterStep, reviewAttemptId, reviewVerdict, terminalPatch } from "./runStepState.js";
 import { invalidateDesktopProjectProjection } from "./graph/projectProjectionModel.js";
+import { formatDesktopDiagnostic } from "./graph/desktopDiagnostics.js";
 import { appendRunSessionEvent, createRunSession, getRunSession, resetRuntimeState, updateRunSession } from "../runSessions/index.js";
 import type { RunSessionAutoRunSummary, RunSessionPhase } from "../runSessions/index.js";
 
@@ -588,6 +591,15 @@ export async function getLatestAutoRunSummaryWithDiagnostics(projectRoot: string
 
 export async function getLatestAutoRunSummary(projectRoot: string, canvasId?: string | null): Promise<DesktopAutoRunState | null> {
   return (await getLatestAutoRunSummaryWithDiagnostics(projectRoot, canvasId)).state;
+}
+
+export async function getDesktopRuntimeRefresh(ref: DesktopCanvasReference): Promise<DesktopRuntimeRefreshSnapshot> {
+  const summary = await getLatestAutoRunSummaryWithDiagnostics(ref.projectRoot, ref.canvasId);
+  return {
+    latestAutoRun: summary.state,
+    diagnostics: summary.diagnostics,
+    errors: summary.diagnostics.map(formatDesktopDiagnostic)
+  };
 }
 
 export async function listAutoRunEvents(projectRoot: string, canvasId: string | null | undefined, runId: string): Promise<DesktopAutoRunEventLog> {
