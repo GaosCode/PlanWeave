@@ -1,10 +1,18 @@
-import { readFile } from "node:fs/promises";
+import { chmod, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   addBlock,
   addDependencyEdge,
   addTaskNode,
+  applyCanvasLaneLayout,
+  bulkCreateBlocks,
+  bulkCreateTasks,
+  bulkRemoveGraphItems,
+  bulkApplyReviewPipeline,
+  bulkUpdateBlocks,
+  bulkUpdateParallelPolicy,
+  bulkUpdateTasks,
   createTaskDraft,
   getDesktopLayout,
   getProjectOverview,
@@ -126,6 +134,259 @@ describe("desktop graph edit API", () => {
     }
     expect(updatedTask.blocks.find((block) => block.id === "B-001")).not.toHaveProperty("executor");
     expect(manifest.edges).not.toContainEqual({ from: "T-001", to: "T-002", type: "depends_on" });
+  });
+
+  it("applies a desktop lane layout from task dependency depth", async () => {
+    const { root } = await createTestWorkspace(basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] }));
+
+    const layout = await applyCanvasLaneLayout(root, { columnWidth: 400, rowHeight: 200, startX: 40, startY: 60 });
+
+    expect(layout.nodes).toContainEqual({ nodeId: "T-002", x: 40, y: 60 });
+    expect(layout.nodes).toContainEqual({ nodeId: "T-001", x: 440, y: 60 });
+    await expect(getDesktopLayout(root)).resolves.toMatchObject({ nodes: layout.nodes });
+  });
+
+  it("does not partially write bulk review pipeline updates when a later task is invalid", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
+    const manifestBefore = await readFile(init.workspace.manifestFile, "utf8");
+
+    await expect(bulkApplyReviewPipeline(root, [
+      {
+        taskId: "T-001",
+        input: {
+          packageDefaults: { maxFeedbackCycles: 3, completionPolicy: "strict" },
+          steps: [
+            {
+              blockId: "R-001",
+              title: "Updated review",
+              enabled: true,
+              preset: "manual",
+              triggerCondition: "after_required_work_completed",
+              inputContext: "Implementation report",
+              passCriteria: "No blocking issues",
+              feedbackFormat: "Actionable findings",
+              maxFeedbackCycles: 3,
+              hook: null,
+              promptMarkdown: "# Updated review\n"
+            }
+          ]
+        }
+      },
+      {
+        taskId: "T-MISSING",
+        input: { steps: [] }
+      }
+    ])).rejects.toThrow("Task 'T-MISSING' does not exist.");
+
+    await expect(readFile(init.workspace.manifestFile, "utf8")).resolves.toBe(manifestBefore);
+  });
+
+  it("applies Phase 7 bulk create update and remove graph item mutations transactionally", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
+
+    await expect(bulkCreateTasks(root, [
+      {
+        title: "Bulk alpha",
+        promptMarkdown: "# Bulk alpha\n",
+        acceptance: ["Alpha accepted."],
+        blockTypes: ["implementation", "review"]
+      },
+      {
+        title: "Bulk beta",
+        promptMarkdown: "# Bulk beta\n",
+        blockTypes: ["implementation"]
+      }
+    ])).resolves.toMatchObject({ ok: true });
+    await expect(readFile(join(init.workspace.packageDir, "nodes/T-BULK-ALPHA/prompt.md"), "utf8")).resolves.toBe("# Bulk alpha\n");
+
+    await expect(bulkCreateBlocks(root, [
+      { taskId: "T-001", type: "implementation", title: "Bulk implementation", promptMarkdown: "# Bulk block\n" },
+      { taskId: "T-002", type: "review", title: "Bulk review", promptMarkdown: "# Bulk review block\n" }
+    ])).resolves.toMatchObject({ ok: true });
+
+    await expect(bulkUpdateTasks(root, [
+      { taskId: "T-BULK-ALPHA", fields: { title: "Bulk alpha updated", acceptance: ["Updated alpha accepted."] } },
+      { taskId: "T-BULK-BETA", fields: { executor: "manual", promptMarkdown: "# Bulk beta updated\n" } }
+    ])).resolves.toMatchObject({ ok: true });
+    await expect(readFile(join(init.workspace.packageDir, "nodes/T-BULK-BETA/prompt.md"), "utf8")).resolves.toBe("# Bulk beta updated\n");
+
+    await expect(bulkUpdateBlocks(root, [
+      { blockRef: "T-BULK-ALPHA#B-001", fields: { title: "Bulk alpha implementation updated", parallelSafe: true } },
+      { blockRef: "T-BULK-ALPHA#R-001", fields: { maxFeedbackCycles: 4, promptMarkdown: "# Updated alpha review\n" } }
+    ])).resolves.toMatchObject({ ok: true });
+    await expect(readFile(join(init.workspace.packageDir, "nodes/T-BULK-ALPHA/blocks/R-001.prompt.md"), "utf8")).resolves.toBe("# Updated alpha review\n");
+
+    await expect(bulkRemoveGraphItems(root, {
+      blockDependencyEdges: [{ blockRef: "T-BULK-ALPHA#R-001", dependsOnBlockId: "B-001" }],
+      blockRefs: ["T-BULK-BETA#B-001"],
+      taskIds: ["T-BULK-BETA"]
+    })).resolves.toMatchObject({ ok: true });
+    await expect(readFile(join(init.workspace.packageDir, "nodes/T-BULK-BETA/prompt.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+
+    const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    const alpha = manifest.nodes.find((node) => node.type === "task" && node.id === "T-BULK-ALPHA");
+    expect(alpha).toMatchObject({ title: "Bulk alpha updated", acceptance: ["Updated alpha accepted."] });
+    expect(manifest.nodes.some((node) => node.id === "T-BULK-BETA")).toBe(false);
+  });
+
+  it("rolls back bulk review prompt side effects when a later prompt write fails", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
+    const firstPromptPath = join(init.workspace.packageDir, "nodes/T-001/blocks/R-001.prompt.md");
+    const secondBlocksDirectory = join(init.workspace.packageDir, "nodes/T-002/blocks");
+    const secondPromptPath = join(secondBlocksDirectory, "R-002.prompt.md");
+    const manifestBefore = await readFile(init.workspace.manifestFile, "utf8");
+    const firstPromptBefore = await readFile(firstPromptPath, "utf8");
+    const originalMode = (await stat(secondBlocksDirectory)).mode;
+    await chmod(secondBlocksDirectory, 0o555);
+    try {
+      await expect(bulkApplyReviewPipeline(root, [
+        {
+          taskId: "T-001",
+          input: {
+            steps: [
+              {
+                blockId: "R-001",
+                title: "Updated first review",
+                enabled: true,
+                preset: "manual",
+                triggerCondition: "after_required_work_completed",
+                inputContext: "Implementation report",
+                passCriteria: "No blocking issues",
+                feedbackFormat: "Actionable findings",
+                maxFeedbackCycles: 2,
+                hook: null,
+                promptMarkdown: "# Updated first review\n"
+              }
+            ]
+          }
+        },
+        {
+          taskId: "T-002",
+          input: {
+            steps: [
+              {
+                title: "New second review",
+                enabled: true,
+                preset: "manual",
+                triggerCondition: "after_required_work_completed",
+                inputContext: "Implementation report",
+                passCriteria: "No blocking issues",
+                feedbackFormat: "Actionable findings",
+                maxFeedbackCycles: 2,
+                hook: null,
+                promptMarkdown: "# New second review\n"
+              }
+            ]
+          }
+        }
+      ])).rejects.toThrow();
+    } finally {
+      await chmod(secondBlocksDirectory, originalMode & 0o777);
+    }
+
+    await expect(readFile(init.workspace.manifestFile, "utf8")).resolves.toBe(manifestBefore);
+    await expect(readFile(firstPromptPath, "utf8")).resolves.toBe(firstPromptBefore);
+    await expect(readFile(secondPromptPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rolls back bulk task creation prompt side effects when a later task prompt write fails", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest());
+    const manifestBefore = await readFile(init.workspace.manifestFile, "utf8");
+    const firstTaskPromptPath = join(init.workspace.packageDir, "nodes/T-FIRST-BULK/prompt.md");
+    const blockedSecondTaskPath = join(init.workspace.packageDir, "nodes/T-SECOND-BULK");
+    await writeFile(blockedSecondTaskPath, "not a directory", "utf8");
+
+    await expect(bulkCreateTasks(root, [
+      {
+        title: "First bulk",
+        promptMarkdown: "# First bulk\n",
+        blockTypes: ["implementation"]
+      },
+      {
+        title: "Second bulk",
+        promptMarkdown: "# Second bulk\n",
+        blockTypes: ["implementation"]
+      }
+    ])).rejects.toThrow();
+
+    await expect(readFile(init.workspace.manifestFile, "utf8")).resolves.toBe(manifestBefore);
+    await expect(readFile(firstTaskPromptPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(blockedSecondTaskPath, "utf8")).resolves.toBe("not a directory");
+  });
+
+  it("rolls back bulk task prompt updates when a later task prompt write fails", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
+    const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    const blockedPath = join(init.workspace.packageDir, "nodes/T-002-blocked");
+    const manifestWithBlockedPrompt: PlanPackageManifest = {
+      ...manifest,
+      nodes: manifest.nodes.map((node) =>
+        node.type === "task" && node.id === "T-002"
+          ? { ...node, prompt: "nodes/T-002-blocked/prompt.md" }
+          : node
+      )
+    };
+    await writeJsonFile(init.workspace.manifestFile, manifestWithBlockedPrompt);
+    await writeFile(blockedPath, "not a directory", "utf8");
+    const manifestBefore = await readFile(init.workspace.manifestFile, "utf8");
+    const firstPromptPath = join(init.workspace.packageDir, "nodes/T-001/prompt.md");
+    const firstPromptBefore = await readFile(firstPromptPath, "utf8");
+
+    await expect(bulkUpdateTasks(root, [
+      { taskId: "T-001", fields: { promptMarkdown: "# Updated first task prompt\n" } },
+      { taskId: "T-002", fields: { promptMarkdown: "# Updated second task prompt\n" } }
+    ])).rejects.toThrow();
+
+    await expect(readFile(init.workspace.manifestFile, "utf8")).resolves.toBe(manifestBefore);
+    await expect(readFile(firstPromptPath, "utf8")).resolves.toBe(firstPromptBefore);
+    await expect(readFile(blockedPath, "utf8")).resolves.toBe("not a directory");
+  });
+
+  it("rolls back bulk graph item prompt removals when a later prompt delete fails", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
+    const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    const blockedPath = join(init.workspace.packageDir, "nodes/T-002-blocked");
+    const manifestWithBlockedBlockPrompt: PlanPackageManifest = {
+      ...manifest,
+      nodes: manifest.nodes.map((node) =>
+        node.type === "task" && node.id === "T-002"
+          ? {
+              ...node,
+              blocks: node.blocks.map((block) =>
+                block.id === "R-001" ? { ...block, prompt: "nodes/T-002-blocked/R-001.prompt.md" } : block
+              )
+            }
+          : node
+      )
+    };
+    await writeJsonFile(init.workspace.manifestFile, manifestWithBlockedBlockPrompt);
+    await writeFile(blockedPath, "not a directory", "utf8");
+    const manifestBefore = await readFile(init.workspace.manifestFile, "utf8");
+    const firstBlockPromptPath = join(init.workspace.packageDir, "nodes/T-001/blocks/R-001.prompt.md");
+    const firstBlockPromptBefore = await readFile(firstBlockPromptPath, "utf8");
+
+    await expect(bulkRemoveGraphItems(root, {
+      blockRefs: ["T-001#R-001", "T-002#R-001"]
+    })).rejects.toThrow();
+
+    await expect(readFile(init.workspace.manifestFile, "utf8")).resolves.toBe(manifestBefore);
+    await expect(readFile(firstBlockPromptPath, "utf8")).resolves.toBe(firstBlockPromptBefore);
+    await expect(readFile(blockedPath, "utf8")).resolves.toBe("not a directory");
+  });
+
+  it("does not partially write bulk parallel policy updates when a later block is invalid", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
+    const manifestBefore = await readFile(init.workspace.manifestFile, "utf8");
+
+    await expect(bulkUpdateParallelPolicy(root, {
+      canvasPolicy: { parallelEnabled: true, maxConcurrent: 3 },
+      blocks: [
+        { blockRef: "T-001#B-001", input: { parallelSafe: false, parallelLocks: ["api"] } },
+        { blockRef: "T-002#MISSING", input: { parallelSafe: true } }
+      ]
+    })).rejects.toThrow("Block 'T-002#MISSING' does not exist.");
+
+    await expect(readFile(init.workspace.manifestFile, "utf8")).resolves.toBe(manifestBefore);
   });
 
   it("updates task fields atomically through one desktop graph command", async () => {

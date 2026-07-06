@@ -1,5 +1,7 @@
 import { optionalReadFile } from "../fs/optionalFile.js";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
+import { commitPlanPackageGraphMutation } from "../graph/editGraph.js";
+import { buildPlanPackageManifestChangeMutation, removePromptSideEffect, writePromptSideEffects } from "../graph/mutation.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { executePlanGraphCommand, type PlanGraphCommandResult } from "../plangraph/index.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
@@ -10,6 +12,7 @@ import type {
   ManifestReviewBlock,
   ManifestTaskNode,
   PackageWorkspaceRef,
+  PlanPackageManifest,
   ReviewTriggerCondition
 } from "../types.js";
 import type { DesktopReviewPipeline, DesktopReviewPipelineStepInput, DesktopUpdateReviewPipelineInput } from "./types.js";
@@ -136,7 +139,36 @@ export async function updateReviewPipeline(
   taskId: string,
   input: DesktopUpdateReviewPipelineInput
 ): Promise<GraphEditResult> {
-  const { workspace, manifest } = await loadPackage(projectRoot);
+  const { manifest } = await loadPackage(projectRoot);
+  const mutation = buildReviewPipelineMutation(manifest, taskId, input);
+  const result = await executePlanGraphCommand({
+    projectRoot,
+    command: {
+      type: "updateReviewPipeline",
+      taskId: mutation.taskId,
+      packageDefaults: mutation.packageDefaults,
+      reviewBlocks: mutation.reviewBlocks,
+      promptMarkdownByBlockId: mutation.promptMarkdownByBlockId
+    }
+  });
+  invalidateDesktopProjectProjection(projectRoot);
+  return graphEditResult(projectRoot, result);
+}
+
+type BuiltReviewPipelineMutation = {
+  taskId: string;
+  packageDefaults: { maxFeedbackCycles: number; completionPolicy: "strict" };
+  reviewBlocks: ManifestReviewBlock[];
+  promptMarkdownByBlockId: Array<{ blockId: string; markdown: string }>;
+  nextManifest: ReturnType<typeof buildPlanPackageManifestChangeMutation>["nextManifest"];
+  sideEffects: ReturnType<typeof buildPlanPackageManifestChangeMutation>["sideEffects"];
+};
+
+function buildReviewPipelineMutation(
+  manifest: PlanPackageManifest,
+  taskId: string,
+  input: DesktopUpdateReviewPipelineInput
+): BuiltReviewPipelineMutation {
   const graph = compileTaskGraph(manifest);
   const task = graph.tasksById.get(taskId);
   if (!task) {
@@ -172,22 +204,62 @@ export async function updateReviewPipeline(
       markdown: promptMarkdown.endsWith("\n") ? promptMarkdown : `${promptMarkdown}\n`
     });
   }
-  const result = await executePlanGraphCommand({
+  const packageDefaults = {
+    maxFeedbackCycles: Math.max(
+      0,
+      Math.trunc(input.packageDefaults?.maxFeedbackCycles ?? manifest.review.maxFeedbackCycles)
+    ),
+    completionPolicy: input.packageDefaults?.completionPolicy ?? manifest.review.completionPolicy
+  };
+  const reviewPromptPaths = new Set(nextReviewBlocks.map((block) => block.prompt));
+  const removedPrompts = task.blocks
+    .filter((block) => block.type === "review" && !reviewPromptPaths.has(block.prompt))
+    .map((block) => removePromptSideEffect(block.prompt));
+  const promptMarkdownByBlockIdMap = new Map(promptMarkdownByBlockId.map((item) => [item.blockId, item.markdown]));
+  const sideEffects = [
+    ...removedPrompts,
+    ...nextReviewBlocks.flatMap((block) => writePromptSideEffects(block.prompt, promptMarkdownByBlockIdMap.get(block.id) ?? ""))
+  ];
+  const nextTask: ManifestTaskNode = {
+    ...task,
+    blocks: [...task.blocks.filter((block) => block.type !== "review"), ...nextReviewBlocks]
+  };
+  const nextManifest = {
+    ...manifest,
+    review: { ...packageDefaults },
+    nodes: manifest.nodes.map((node) => (node.type === "task" && node.id === task.id ? nextTask : node))
+  };
+  return {
+    taskId: task.id,
+    packageDefaults,
+    reviewBlocks: nextReviewBlocks,
+    promptMarkdownByBlockId,
+    nextManifest,
+    sideEffects
+  };
+}
+
+export async function bulkApplyReviewPipeline(
+  projectRoot: PackageWorkspaceRef,
+  updates: Array<{ taskId: string; input: DesktopUpdateReviewPipelineInput }>
+): Promise<GraphEditResult> {
+  if (updates.length === 0) {
+    throw new Error("updates must contain at least one review pipeline update.");
+  }
+  const { manifest } = await loadPackage(projectRoot);
+  let nextManifest = manifest;
+  const sideEffects: ReturnType<typeof buildPlanPackageManifestChangeMutation>["sideEffects"] = [];
+  const affectedTasks: string[] = [];
+  for (const update of updates) {
+    const mutation = buildReviewPipelineMutation(nextManifest, update.taskId, update.input);
+    nextManifest = mutation.nextManifest;
+    sideEffects.push(...mutation.sideEffects);
+    affectedTasks.push(mutation.taskId);
+  }
+  const result = await commitPlanPackageGraphMutation({
     projectRoot,
-    command: {
-      type: "updateReviewPipeline",
-      taskId: task.id,
-      packageDefaults: {
-        maxFeedbackCycles: Math.max(
-          0,
-          Math.trunc(input.packageDefaults?.maxFeedbackCycles ?? manifest.review.maxFeedbackCycles)
-        ),
-        completionPolicy: input.packageDefaults?.completionPolicy ?? manifest.review.completionPolicy
-      },
-      reviewBlocks: nextReviewBlocks,
-      promptMarkdownByBlockId
-    }
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks, sideEffects })
   });
   invalidateDesktopProjectProjection(projectRoot);
-  return graphEditResult(projectRoot, result);
+  return result;
 }

@@ -25,9 +25,40 @@ export { refreshPrompt } from "./prompt/refreshPrompt.js";
 export { refreshPrompts } from "./prompt/refreshPrompts.js";
 export { getPrompt } from "./prompt/getPrompt.js";
 export { validatePackage } from "./validatePackage.js";
+export { summarizeValidationReport } from "./validation/validationSummary.js";
 export { compileTaskGraph } from "./graph/compileTaskGraph.js";
 export { parseBlockRef } from "./graph/compileTaskGraph.js";
 export { compilePackageGraph } from "./graph/compileTaskGraph.js";
+export { inspectGraph } from "./graph/inspectGraph.js";
+export { validateGraphQuality } from "./graph/validateGraphQuality.js";
+export { validateExecutionReadiness } from "./graph/executionReadiness.js";
+export {
+  bulkAddTaskDependencies,
+  bulkSetBlockDependencies,
+  bulkSetTaskDependencies,
+  setTaskDependencies
+} from "./graph/dependencyEdit.js";
+export type { BlockDependencyUpdate, TaskDependencyInput } from "./graph/dependencyEdit.js";
+export {
+  getPromptSources,
+  listPackageFiles,
+  readPackageFile,
+  readPromptSource,
+  readRenderedPrompt
+} from "./package/boundedContent.js";
+export {
+  applyPackageDraftImport,
+  previewPackageDraftImport,
+  validatePackageDraft
+} from "./package/packageDraftImport.js";
+export type {
+  PackageDraftCanvasReport,
+  PackageDraftFileDiff,
+  PackageDraftImportApplyResult,
+  PackageDraftImportPreview,
+  PackageDraftMode,
+  PackageDraftValidationResult
+} from "./package/packageDraftImport.js";
 export {
   compileProjectGraph,
   applyDefaultCanvasWorkspaceMigration,
@@ -127,12 +158,19 @@ export {
   getExecutionStatus
 } from "./taskManager/index.js";
 export { getAutoRunStatus, runAutoRunStep } from "./taskManager/autoRun.js";
+export type { PromptSourceSummary } from "./taskManager/promptRenderer.js";
 export { appendRunSessionEvent, createRunSession, getRunSession, listRunSessions, resetRuntimeState, runWithSession, updateRunSession } from "./runSessions/index.js";
 export { isTmuxAvailable } from "./autoRun/tmuxExecutor.js";
 export {
   addBlock,
   addDependencyEdge,
   addTaskNode,
+  applyCanvasLaneLayout,
+  bulkCreateBlocks,
+  bulkCreateTasks,
+  bulkRemoveGraphItems,
+  bulkUpdateBlocks,
+  bulkUpdateTasks,
   createDesktopPackageFileSnapshot,
   createProjectFromTaskCanvas,
   createTaskCanvas,
@@ -142,6 +180,7 @@ export {
   getBlockDetail,
   getCanvasGraphViewModel,
   getCanvasMapLayout,
+  getDesktopGraphDiagnostics,
   getDesktopLayout,
   getDesktopProjectSnapshot,
   getDirtyPromptRefs,
@@ -209,6 +248,7 @@ export {
   updateBlockPlanning,
   updateBlockPrompt,
   updateBlockTitle,
+  bulkUpdateParallelPolicy,
   updateCanvasExecutionPolicy,
   cloneDesktopGraphEditResult,
   updateTaskAcceptance,
@@ -218,6 +258,7 @@ export {
   updateTaskTitle,
   undoDesktopPlanGraphCommand,
   updateReviewPipeline,
+  bulkApplyReviewPipeline,
   validateGraphEdit
 } from "./desktop/index.js";
 export { edgeTypes, executorAdapters, reviewTriggerConditions, runSubmitStatuses, reviewStatuses } from "./types.js";

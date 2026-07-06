@@ -1,4 +1,5 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname } from "node:path";
 import { affectedTaskIdsForManifestChange } from "./affectedTasks.js";
 import { compileTaskGraph } from "./compileTaskGraph.js";
@@ -59,17 +60,82 @@ async function writeManifest(projectRoot: PackageWorkspaceRef, manifest: PlanPac
   await writeJsonFile(workspace.manifestFile, manifest);
 }
 
-async function applyMutationSideEffects(packageDir: string, sideEffects: PlanPackageGraphMutationSideEffect[]): Promise<void> {
-  for (const sideEffect of sideEffects) {
-    const targetPath = await resolvePackagePath(packageDir, sideEffect.packagePath, sideEffect.kind === "writePrompt" ? { forWrite: true } : undefined);
-    if (sideEffect.kind === "writePrompt") {
-      await mkdir(dirname(targetPath), { recursive: true });
-      await writeFile(targetPath, sideEffect.markdown, "utf8");
-    } else if (sideEffect.kind === "removeTaskDirectory") {
-      await rm(targetPath, { recursive: true, force: true });
-    } else {
-      await rm(targetPath, { force: true });
+type SideEffectBackup =
+  | { kind: "absent"; targetPath: string }
+  | { kind: "file"; targetPath: string; content: Buffer }
+  | { kind: "directory"; targetPath: string; backupPath: string };
+
+async function sideEffectTargetPath(packageDir: string, sideEffect: PlanPackageGraphMutationSideEffect): Promise<string> {
+  return resolvePackagePath(packageDir, sideEffect.packagePath, sideEffect.kind === "writePrompt" ? { forWrite: true } : undefined);
+}
+
+async function backupSideEffectTarget(targetPath: string, temporaryRoot: string): Promise<SideEffectBackup> {
+  try {
+    const stats = await lstat(targetPath);
+    if (stats.isDirectory()) {
+      const backupPath = await mkdtemp(`${temporaryRoot}/side-effect-dir-`);
+      await rm(backupPath, { recursive: true, force: true });
+      await cp(targetPath, backupPath, { recursive: true });
+      return { kind: "directory", targetPath, backupPath };
     }
+    return { kind: "file", targetPath, content: await readFile(targetPath) };
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return { kind: "absent", targetPath };
+    }
+    throw error;
+  }
+}
+
+async function restoreSideEffectBackup(backup: SideEffectBackup): Promise<void> {
+  if (backup.kind === "absent") {
+    await rm(backup.targetPath, { recursive: true, force: true });
+    return;
+  }
+  await mkdir(dirname(backup.targetPath), { recursive: true });
+  if (backup.kind === "directory") {
+    await rm(backup.targetPath, { recursive: true, force: true });
+    await cp(backup.backupPath, backup.targetPath, { recursive: true });
+    return;
+  }
+  await writeFile(backup.targetPath, backup.content);
+}
+
+async function applyMutationSideEffectsWithRollback(
+  packageDir: string,
+  sideEffects: PlanPackageGraphMutationSideEffect[],
+  writeManifestAfterSideEffects: () => Promise<void>
+): Promise<void> {
+  if (sideEffects.length === 0) {
+    await writeManifestAfterSideEffects();
+    return;
+  }
+  const temporaryRoot = await mkdtemp(`${tmpdir()}/planweave-graph-mutation-`);
+  const targetPaths = new Map<string, string>();
+  for (const sideEffect of sideEffects) {
+    const targetPath = await sideEffectTargetPath(packageDir, sideEffect);
+    targetPaths.set(targetPath, targetPath);
+  }
+  const backups = await Promise.all([...targetPaths.values()].map((targetPath) => backupSideEffectTarget(targetPath, temporaryRoot)));
+
+  try {
+    for (const sideEffect of sideEffects) {
+      const targetPath = await sideEffectTargetPath(packageDir, sideEffect);
+      if (sideEffect.kind === "writePrompt") {
+        await mkdir(dirname(targetPath), { recursive: true });
+        await writeFile(targetPath, sideEffect.markdown, "utf8");
+      } else if (sideEffect.kind === "removeTaskDirectory") {
+        await rm(targetPath, { recursive: true, force: true });
+      } else {
+        await rm(targetPath, { force: true });
+      }
+    }
+    await writeManifestAfterSideEffects();
+  } catch (error) {
+    await Promise.all(backups.map((backup) => restoreSideEffectBackup(backup)));
+    throw error;
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
   }
 }
 
@@ -82,8 +148,9 @@ export async function commitPlanPackageGraphMutation(options: {
     return result(options.mutation.nextManifest, options.mutation.affectedTasks, diagnostics);
   }
   const { workspace } = await loadPackage(options.projectRoot);
-  await applyMutationSideEffects(workspace.packageDir, options.mutation.sideEffects);
-  await writeManifest(options.projectRoot, options.mutation.nextManifest);
+  await applyMutationSideEffectsWithRollback(workspace.packageDir, options.mutation.sideEffects, () =>
+    writeManifest(options.projectRoot, options.mutation.nextManifest)
+  );
   return result(options.mutation.nextManifest, options.mutation.affectedTasks);
 }
 

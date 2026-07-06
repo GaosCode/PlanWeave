@@ -37,7 +37,12 @@ export {
   addBlock,
   addDependencyEdge,
   addTaskNode,
+  bulkCreateBlocks,
+  bulkCreateTasks,
+  bulkRemoveGraphItems,
+  bulkUpdateBlocks,
   createTaskDraft,
+  bulkUpdateTasks,
   getBlockDetail,
   getDesktopProjectSnapshot,
   getGraphViewModel,
@@ -60,6 +65,7 @@ export {
   updateBlockPlanning,
   updateBlockPrompt,
   updateBlockTitle,
+  bulkUpdateParallelPolicy,
   updateCanvasExecutionPolicy,
   updateTaskAcceptance,
   updateTaskExecutor,
@@ -78,7 +84,9 @@ export {
 export type { ProjectGraphEditResult } from "./projectGraphEditApi.js";
 export { readProjectPrompt, readProjectPromptPolicy, updateProjectPrompt, updateProjectPromptPolicy } from "../projectPromptPolicy.js";
 export type { ProjectPromptPolicy } from "../projectPromptPolicy.js";
-export { getDesktopLayout, resetDesktopLayout, saveDesktopLayout } from "./layoutApi.js";
+export { getDesktopGraphDiagnostics } from "./diagnosticsApi.js";
+export { applyCanvasLaneLayout, getDesktopLayout, resetDesktopLayout, saveDesktopLayout } from "./layoutApi.js";
+export type { ApplyCanvasLaneLayoutOptions } from "./layoutApi.js";
 export {
   createDesktopPackageFileSnapshot,
   detectDesktopPackageFileChanges,
@@ -110,6 +118,7 @@ export {
   listBlockRunRecords
 } from "./recordsApi.js";
 export {
+  bulkApplyReviewPipeline,
   getReviewPipeline,
   updateReviewPipeline
 } from "./reviewPipelineApi.js";

@@ -1,6 +1,8 @@
 import { resolve } from "node:path";
-import { compileTaskGraph } from "../../graph/compileTaskGraph.js";
-import { buildPlanPackageGraphMutation } from "../../graph/mutation.js";
+import { compileTaskGraph, parseBlockRef } from "../../graph/compileTaskGraph.js";
+import { commitPlanPackageGraphMutation } from "../../graph/editGraph.js";
+import { buildPlanPackageBlockFieldEditMutation, buildPlanPackageTaskFieldEditMutation } from "../../graph/fieldEditMutation.js";
+import { buildPlanPackageGraphMutation, buildPlanPackageManifestChangeMutation, type PlanPackageGraphMutationSideEffect } from "../../graph/mutation.js";
 import { writeJsonFile } from "../../json.js";
 import { loadPackage } from "../../package/loadPackage.js";
 import { loadProjectGraphForWorkspace, projectCanvasWorkspace } from "../../projectGraph/index.js";
@@ -17,11 +19,13 @@ import {
 import type {
   BlockType,
   GraphEditResult,
+  ManifestEdge,
   ManifestBlock,
   ManifestTaskNode,
   PackageWorkspaceRef,
   PlanPackageManifest,
-  ReviewHookDefinition
+  ReviewHookDefinition,
+  ValidationIssue
 } from "../../types.js";
 import type { DesktopAddBlockInput, DesktopAddTaskInput, DesktopGraphEditValidationInput, DesktopLayout, DesktopPromptSaveOptions } from "../types.js";
 import { getDesktopLayout, saveDesktopLayoutDirect } from "../layoutApi.js";
@@ -33,6 +37,23 @@ type UpdateBlockFieldsCommand = Extract<PlanGraphCommand, { type: "updateBlockFi
 
 export type DesktopTaskFieldEditInput = Omit<UpdateTaskFieldsCommand["fields"], "basePromptHash">;
 export type DesktopBlockFieldEditInput = Omit<UpdateBlockFieldsCommand["fields"], "basePromptHash">;
+
+export type DesktopBulkCreateTaskInput = DesktopAddTaskInput;
+export type DesktopBulkCreateBlockInput = DesktopAddBlockInput;
+export type DesktopBulkUpdateTaskInput = {
+  taskId: string;
+  fields: DesktopTaskFieldEditInput;
+};
+export type DesktopBulkUpdateBlockInput = {
+  blockRef: string;
+  fields: DesktopBlockFieldEditInput;
+};
+export type DesktopBulkRemoveGraphItemsInput = {
+  taskIds?: string[];
+  blockRefs?: string[];
+  taskDependencyEdges?: Array<{ dependentTaskId: string; dependsOnTaskId: string }>;
+  blockDependencyEdges?: Array<{ blockRef: string; dependsOnBlockId: string }>;
+};
 
 function normalizeOptionalText(value: string | null): string | undefined {
   return value?.trim() || undefined;
@@ -117,6 +138,43 @@ function createBlock(options: {
   return { ...common, type: options.type, parallel: { safe: false, locks: [] } };
 }
 
+function buildTaskNodeForCreate(manifest: PlanPackageManifest, input: DesktopAddTaskInput): {
+  node: ManifestTaskNode;
+  taskPromptMarkdown: string;
+  blockPromptMarkdown: Array<{ blockId: string; markdown: string }>;
+} {
+  const title = requireNonEmptyTitle(input.title);
+  const taskId = nextTaskId(manifest, title);
+  const blockTypes = input.blockTypes?.length ? input.blockTypes : (["implementation"] satisfies BlockType[]);
+  const blocks: ManifestBlock[] = [];
+  for (const type of blockTypes) {
+    const blockId = nextBlockId({ id: taskId, type: "task", title, prompt: "", acceptance: [], blocks }, type);
+    blocks.push(
+      createBlock({
+        taskId,
+        blockId,
+        type,
+        title: type === "review" ? "Review work" : "Implement work",
+        dependsOn: blocks.length > 0 ? [blocks[blocks.length - 1].id] : [],
+        maxFeedbackCycles: manifest.review.maxFeedbackCycles
+      })
+    );
+  }
+  return {
+    node: {
+      id: taskId,
+      type: "task",
+      title,
+      prompt: `nodes/${taskId}/prompt.md`,
+      executor: normalizeOptionalText(input.executor ?? null),
+      acceptance: input.acceptance?.length ? input.acceptance : ["Task is implemented."],
+      blocks
+    },
+    taskPromptMarkdown: input.promptMarkdown,
+    blockPromptMarkdown: blocks.map((block) => ({ blockId: block.id, markdown: promptFileMarkdown(`# ${block.title}\n\n${input.promptMarkdown}`) }))
+  };
+}
+
 function graphEditResult(manifest: PlanPackageManifest, affectedTasks: string[] = []): GraphEditResult {
   const graph = compileTaskGraph(manifest);
   return {
@@ -124,6 +182,15 @@ function graphEditResult(manifest: PlanPackageManifest, affectedTasks: string[] 
     affectedTasks: [...new Set(affectedTasks)],
     diagnostics: graph.diagnostics.errors,
     graph
+  };
+}
+
+function graphEditDiagnostics(manifest: PlanPackageManifest, diagnostics: ValidationIssue[]): GraphEditResult {
+  return {
+    ok: false,
+    affectedTasks: [],
+    diagnostics,
+    graph: compileTaskGraph(manifest)
   };
 }
 
@@ -204,39 +271,14 @@ async function crossTaskEdgeDeleteDiagnostic(projectRoot: PackageWorkspaceRef, t
 
 export async function addTaskNode(projectRoot: PackageWorkspaceRef, input: DesktopAddTaskInput): Promise<GraphEditResult> {
   const { manifest } = await loadPackage(projectRoot);
-  const title = requireNonEmptyTitle(input.title);
-  const taskId = nextTaskId(manifest, title);
-  const blockTypes = input.blockTypes?.length ? input.blockTypes : (["implementation"] satisfies BlockType[]);
-  const blocks: ManifestBlock[] = [];
-  for (const type of blockTypes) {
-    const blockId = nextBlockId({ id: taskId, type: "task", title, prompt: "", acceptance: [], blocks }, type);
-    blocks.push(
-      createBlock({
-        taskId,
-        blockId,
-        type,
-        title: type === "review" ? "Review work" : "Implement work",
-        dependsOn: blocks.length > 0 ? [blocks[blocks.length - 1].id] : [],
-        maxFeedbackCycles: manifest.review.maxFeedbackCycles
-      })
-    );
-  }
-  const node: ManifestTaskNode = {
-    id: taskId,
-    type: "task",
-    title,
-    prompt: `nodes/${taskId}/prompt.md`,
-    executor: normalizeOptionalText(input.executor ?? null),
-    acceptance: input.acceptance?.length ? input.acceptance : ["Task is implemented."],
-    blocks
-  };
+  const { node, taskPromptMarkdown, blockPromptMarkdown } = buildTaskNodeForCreate(manifest, input);
   const snapshot: TaskComponentSnapshot = {
     task: node,
-    taskPromptMarkdown: input.promptMarkdown,
-    blockPromptMarkdown: blocks.map((block) => ({ blockId: block.id, markdown: promptFileMarkdown(`# ${block.title}\n\n${input.promptMarkdown}`) })),
+    taskPromptMarkdown,
+    blockPromptMarkdown,
     insertIndex: null,
     affectedTaskEdges: [],
-    layoutNode: input.layoutPosition ? { nodeId: taskId, x: input.layoutPosition.x, y: input.layoutPosition.y } : null
+    layoutNode: input.layoutPosition ? { nodeId: node.id, x: input.layoutPosition.x, y: input.layoutPosition.y } : null
   };
   return executeDesktopPlanGraphCommand(projectRoot, { type: "addTask", snapshot });
 }
@@ -406,14 +448,20 @@ export async function updateBlockPlanning(
   return updateBlockFields(projectRoot, ref, input);
 }
 
-export async function updateCanvasExecutionPolicy(
-  projectRoot: PackageWorkspaceRef,
+type CanvasExecutionPolicyInput = {
+  defaultExecutor?: string | null;
+  parallelEnabled?: boolean;
+  maxConcurrent?: number;
+};
+
+function updateCanvasExecutionPolicyManifest(
+  manifest: PlanPackageManifest,
   input: {
     defaultExecutor?: string | null;
     parallelEnabled?: boolean;
     maxConcurrent?: number;
   }
-): Promise<GraphEditResult> {
+): PlanPackageManifest {
   if (
     input.defaultExecutor === undefined &&
     input.parallelEnabled === undefined &&
@@ -425,7 +473,6 @@ export async function updateCanvasExecutionPolicy(
     throw new Error("maxConcurrent must be a positive integer.");
   }
 
-  const { workspace, manifest } = await loadPackage(projectRoot);
   const nextManifest: PlanPackageManifest = {
     ...manifest,
     execution: {
@@ -445,7 +492,15 @@ export async function updateCanvasExecutionPolicy(
   if (input.defaultExecutor === null) {
     delete nextManifest.execution.defaultExecutor;
   }
+  return nextManifest;
+}
 
+export async function updateCanvasExecutionPolicy(
+  projectRoot: PackageWorkspaceRef,
+  input: CanvasExecutionPolicyInput
+): Promise<GraphEditResult> {
+  const { workspace, manifest } = await loadPackage(projectRoot);
+  const nextManifest = updateCanvasExecutionPolicyManifest(manifest, input);
   const affectedTasks = nextManifest.nodes.map((node) => node.id);
   const result = manifestValidationResult(nextManifest, affectedTasks);
   if (!result.ok) {
@@ -454,6 +509,260 @@ export async function updateCanvasExecutionPolicy(
 
   await writeJsonFile(workspace.manifestFile, nextManifest);
   invalidateDesktopProjectProjection(workspace);
+  return result;
+}
+
+export async function bulkUpdateParallelPolicy(
+  projectRoot: PackageWorkspaceRef,
+  input: {
+    canvasPolicy?: CanvasExecutionPolicyInput;
+    blocks: Array<{
+      blockRef: string;
+      input: {
+        parallelSafe?: boolean;
+        parallelLocks?: string[];
+      };
+    }>;
+  }
+): Promise<GraphEditResult> {
+  if (!input.canvasPolicy && input.blocks.length === 0) {
+    throw new Error("bulk_update_parallel_policy requires canvasPolicy or at least one block update.");
+  }
+  const { manifest } = await loadPackage(projectRoot);
+  let nextManifest = input.canvasPolicy ? updateCanvasExecutionPolicyManifest(manifest, input.canvasPolicy) : manifest;
+  const affectedTasks = input.canvasPolicy ? nextManifest.nodes.map((node) => node.id) : [];
+  const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
+  for (const update of input.blocks) {
+    const mutation = buildPlanPackageBlockFieldEditMutation(nextManifest, {
+      blockRef: update.blockRef,
+      parallelSafe: update.input.parallelSafe,
+      parallelLocks: update.input.parallelLocks
+    });
+    nextManifest = mutation.nextManifest;
+    affectedTasks.push(...mutation.affectedTasks);
+    sideEffects.push(...mutation.sideEffects);
+  }
+  const result = await commitPlanPackageGraphMutation({
+    projectRoot,
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks, sideEffects })
+  });
+  invalidateDesktopProjectProjection(projectRoot);
+  return result;
+}
+
+export async function bulkCreateTasks(
+  projectRoot: PackageWorkspaceRef,
+  tasks: DesktopBulkCreateTaskInput[]
+): Promise<GraphEditResult> {
+  if (tasks.length === 0) {
+    throw new Error("bulk_create_tasks requires at least one task.");
+  }
+  const { manifest } = await loadPackage(projectRoot);
+  let nextManifest = manifest;
+  const affectedTasks: string[] = [];
+  const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
+  for (const input of tasks) {
+    const { node, taskPromptMarkdown, blockPromptMarkdown } = buildTaskNodeForCreate(nextManifest, input);
+    const mutation = buildPlanPackageGraphMutation(nextManifest, {
+      kind: "addTaskNode",
+      node,
+      taskPromptMarkdown,
+      blockPromptMarkdown
+    });
+    nextManifest = mutation.nextManifest;
+    affectedTasks.push(...mutation.affectedTasks, node.id);
+    sideEffects.push(...mutation.sideEffects);
+  }
+  const result = await commitPlanPackageGraphMutation({
+    projectRoot,
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks, sideEffects })
+  });
+  invalidateDesktopProjectProjection(projectRoot);
+  return result;
+}
+
+export async function bulkCreateBlocks(
+  projectRoot: PackageWorkspaceRef,
+  blocks: DesktopBulkCreateBlockInput[]
+): Promise<GraphEditResult> {
+  if (blocks.length === 0) {
+    throw new Error("bulk_create_blocks requires at least one block.");
+  }
+  const { manifest } = await loadPackage(projectRoot);
+  let nextManifest = manifest;
+  const affectedTasks: string[] = [];
+  const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
+  for (const input of blocks) {
+    const graph = compileTaskGraph(nextManifest);
+    const task = getTask(graph, input.taskId);
+    const blockId = nextBlockId(task, input.type);
+    const block = createBlock({
+      taskId: task.id,
+      blockId,
+      type: input.type,
+      title: input.title,
+      dependsOn: input.dependsOn ?? (task.blocks.length > 0 ? [task.blocks[task.blocks.length - 1].id] : []),
+      executor: normalizeOptionalText(input.executor ?? null),
+      maxFeedbackCycles: nextManifest.review.maxFeedbackCycles
+    });
+    const mutation = buildPlanPackageGraphMutation(nextManifest, {
+      kind: "addBlock",
+      taskId: task.id,
+      block,
+      promptMarkdown: promptFileMarkdown(input.promptMarkdown)
+    });
+    nextManifest = mutation.nextManifest;
+    affectedTasks.push(...mutation.affectedTasks, task.id);
+    sideEffects.push(...mutation.sideEffects);
+  }
+  const result = await commitPlanPackageGraphMutation({
+    projectRoot,
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks, sideEffects })
+  });
+  invalidateDesktopProjectProjection(projectRoot);
+  return result;
+}
+
+export async function bulkUpdateTasks(
+  projectRoot: PackageWorkspaceRef,
+  updates: DesktopBulkUpdateTaskInput[]
+): Promise<GraphEditResult> {
+  if (updates.length === 0) {
+    throw new Error("bulk_update_tasks requires at least one task update.");
+  }
+  const { manifest } = await loadPackage(projectRoot);
+  let nextManifest = manifest;
+  const affectedTasks: string[] = [];
+  const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
+  for (const update of updates) {
+    if (!hasFieldEditValue(update.fields)) {
+      throw new Error("At least one task field must be provided.");
+    }
+    const mutation = buildPlanPackageTaskFieldEditMutation(nextManifest, { taskId: update.taskId, ...update.fields });
+    nextManifest = mutation.nextManifest;
+    affectedTasks.push(...mutation.affectedTasks, update.taskId);
+    sideEffects.push(...mutation.sideEffects);
+  }
+  const result = await commitPlanPackageGraphMutation({
+    projectRoot,
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks, sideEffects })
+  });
+  invalidateDesktopProjectProjection(projectRoot);
+  return result;
+}
+
+export async function bulkUpdateBlocks(
+  projectRoot: PackageWorkspaceRef,
+  updates: DesktopBulkUpdateBlockInput[]
+): Promise<GraphEditResult> {
+  if (updates.length === 0) {
+    throw new Error("bulk_update_blocks requires at least one block update.");
+  }
+  const { manifest } = await loadPackage(projectRoot);
+  let nextManifest = manifest;
+  const affectedTasks: string[] = [];
+  const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
+  for (const update of updates) {
+    if (!hasFieldEditValue(update.fields)) {
+      throw new Error("At least one block field must be provided.");
+    }
+    const mutation = buildPlanPackageBlockFieldEditMutation(nextManifest, { blockRef: update.blockRef, ...update.fields });
+    nextManifest = mutation.nextManifest;
+    affectedTasks.push(...mutation.affectedTasks, mutation.taskId);
+    sideEffects.push(...mutation.sideEffects);
+  }
+  const result = await commitPlanPackageGraphMutation({
+    projectRoot,
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks, sideEffects })
+  });
+  invalidateDesktopProjectProjection(projectRoot);
+  return result;
+}
+
+function taskDependencyEdge(input: { dependentTaskId: string; dependsOnTaskId: string }): ManifestEdge {
+  return { from: input.dependentTaskId, to: input.dependsOnTaskId, type: "depends_on" };
+}
+
+function removeBlockDependency(manifest: PlanPackageManifest, input: { blockRef: string; dependsOnBlockId: string }): PlanPackageManifest {
+  const { taskId, blockId } = parseBlockRef(input.blockRef);
+  const task = manifest.nodes.find((node) => node.type === "task" && node.id === taskId);
+  if (!task || task.type !== "task") {
+    throw new Error(`Task '${taskId}' does not exist.`);
+  }
+  const block = task.blocks.find((candidate) => candidate.id === blockId);
+  if (!block) {
+    throw new Error(`Block '${input.blockRef}' does not exist.`);
+  }
+  return {
+    ...manifest,
+    nodes: manifest.nodes.map((node) =>
+      node.type === "task" && node.id === taskId
+        ? {
+            ...task,
+            blocks: task.blocks.map((candidate) =>
+              candidate.id === blockId
+                ? { ...candidate, depends_on: candidate.depends_on.filter((dependency) => dependency !== input.dependsOnBlockId) }
+                : candidate
+            )
+          }
+        : node
+    )
+  };
+}
+
+export async function bulkRemoveGraphItems(
+  projectRoot: PackageWorkspaceRef,
+  input: DesktopBulkRemoveGraphItemsInput
+): Promise<GraphEditResult> {
+  const taskIds = input.taskIds ?? [];
+  const blockRefs = input.blockRefs ?? [];
+  const taskDependencyEdges = input.taskDependencyEdges ?? [];
+  const blockDependencyEdges = input.blockDependencyEdges ?? [];
+  if (taskIds.length === 0 && blockRefs.length === 0 && taskDependencyEdges.length === 0 && blockDependencyEdges.length === 0) {
+    throw new Error("bulk_remove_graph_items requires at least one item to remove.");
+  }
+  const { manifest } = await loadPackage(projectRoot);
+  const blockedDiagnostics: ValidationIssue[] = [];
+  for (const taskId of taskIds) {
+    const blocked = await crossTaskEdgeDeleteDiagnostic(projectRoot, taskId);
+    if (blocked) {
+      blockedDiagnostics.push(...blocked.diagnostics);
+    }
+  }
+  if (blockedDiagnostics.length > 0) {
+    return graphEditDiagnostics(manifest, blockedDiagnostics);
+  }
+
+  let nextManifest = manifest;
+  const affectedTasks: string[] = [];
+  const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
+  for (const edge of taskDependencyEdges) {
+    const mutation = buildPlanPackageGraphMutation(nextManifest, { kind: "removeEdge", edge: taskDependencyEdge(edge) });
+    nextManifest = mutation.nextManifest;
+    affectedTasks.push(...mutation.affectedTasks, edge.dependentTaskId, edge.dependsOnTaskId);
+  }
+  for (const edge of blockDependencyEdges) {
+    const next = removeBlockDependency(nextManifest, edge);
+    nextManifest = next;
+    affectedTasks.push(parseBlockRef(edge.blockRef).taskId);
+  }
+  for (const blockRef of blockRefs) {
+    const mutation = buildPlanPackageGraphMutation(nextManifest, { kind: "removeBlock", blockRef });
+    nextManifest = mutation.nextManifest;
+    affectedTasks.push(...mutation.affectedTasks, parseBlockRef(blockRef).taskId);
+    sideEffects.push(...mutation.sideEffects);
+  }
+  for (const taskId of taskIds) {
+    const mutation = buildPlanPackageGraphMutation(nextManifest, { kind: "removeNode", nodeId: taskId, removeTaskDirectory: true });
+    nextManifest = mutation.nextManifest;
+    affectedTasks.push(...mutation.affectedTasks, taskId);
+    sideEffects.push(...mutation.sideEffects);
+  }
+  const result = await commitPlanPackageGraphMutation({
+    projectRoot,
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks, sideEffects })
+  });
+  invalidateDesktopProjectProjection(projectRoot);
   return result;
 }
 
