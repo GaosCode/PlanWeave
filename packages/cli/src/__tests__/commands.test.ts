@@ -97,6 +97,9 @@ describe("planweave CLI contract", () => {
         "executors",
         "run-status",
         "project-graph",
+        "graph",
+        "package-draft",
+        "package",
         "schema",
         "mcp",
         "help"
@@ -172,6 +175,23 @@ describe("planweave CLI contract", () => {
     expect(commandOptionLongs("run-session")).toEqual(expect.arrayContaining(["--canvas", "--json"]));
     expect(commandOptionLongs("run-status")).toContain("--json");
     expect(commandOptionLongs("run-status")).toContain("--canvas");
+    expect(subcommandOptionLongs("graph", "inspect")).toEqual(
+      expect.arrayContaining(["--view", "--task", "--limit", "--cursor", "--json", "--canvas"])
+    );
+    expect(subcommandOptionLongs("graph", "quality")).toEqual(
+      expect.arrayContaining([
+        "--json",
+        "--canvas",
+        "--review-policy",
+        "--gate-policy",
+        "--heuristics",
+        "--strict",
+        "--min-task-count-for-sparse-check"
+      ])
+    );
+    expect(subcommandOptionLongs("package-draft", "validate")).toEqual(expect.arrayContaining(["--draft-root", "--json"]));
+    expect(subcommandOptionLongs("package-draft", "quality")).toEqual(expect.arrayContaining(["--draft-root", "--json"]));
+    expect(subcommandOptionLongs("package", "import")).toEqual(expect.arrayContaining(["--from", "--dry-run", "--apply", "--json", "--canvas"]));
     expect(subcommandOptionLongs("executors", "list")).toContain("--json");
     expect(subcommandOptionLongs("executors", "test")).toContain("--json");
     expect(commandOptionLongs("schema")).toContain("--json");
@@ -201,6 +221,22 @@ describe("planweave CLI contract", () => {
 
     await expect(program.parseAsync(["doctor", "--project", "--canvas", "runtime"], { from: "user" })).rejects.toThrow(
       "doctor --project cannot be combined with --canvas."
+    );
+  });
+
+  it("rejects invalid graph option values before calling runtime", async () => {
+    const program = createProgram();
+    program.exitOverride();
+    program.configureOutput({ writeOut: () => undefined, writeErr: () => undefined });
+
+    await expect(program.parseAsync(["graph", "inspect", "--view", "wide"], { from: "user" })).rejects.toThrow(
+      "Invalid --view 'wide'. Expected one of: summary, tasks, slice."
+    );
+    await expect(program.parseAsync(["graph", "quality", "--heuristics", "maybe"], { from: "user" })).rejects.toThrow(
+      "Invalid --heuristics 'maybe'. Expected one of: on, off."
+    );
+    await expect(program.parseAsync(["graph", "quality", "--min-task-count-for-sparse-check", "0"], { from: "user" })).rejects.toThrow(
+      "Invalid --min-task-count-for-sparse-check '0'. Expected a positive integer."
     );
   });
 
