@@ -47,6 +47,8 @@ describe("handlePlanweaveTool", () => {
     expect(result.groups.map((group: { name: string }) => group.name)).not.toContain("legacy_aliases");
     expect(recommendedTools).not.toEqual(expect.arrayContaining(["get_project_graph", "get_block_detail", "refresh_prompts", "export_plan_package"]));
     expect(recommendedTools.every((tool: string) => defaultToolNames.has(tool))).toBe(true);
+    expect(defaultToolNames.has("create_project")).toBe(true);
+    expect(defaultToolNames.has("init_project")).toBe(false);
   });
 
   it("returns schema documents as JSON text content", async () => {
@@ -569,9 +571,9 @@ describe("handlePlanweaveTool", () => {
     });
   });
 
-  it("initializes managed projects without accepting root paths", async () => {
+  it("creates managed projects without accepting root paths", async () => {
     const gateway = createGateway();
-    const result = readJson(await handlePlanweaveTool("init_project", { name: "New Project", rootPath: "/ignored" }, gateway));
+    const result = readJson(await handlePlanweaveTool("create_project", { name: "New Project", rootPath: "/ignored" }, gateway));
 
     expect(gateway.initProject).toHaveBeenCalledWith("New Project");
     expect(result).toEqual({
@@ -583,6 +585,19 @@ describe("handlePlanweaveTool", () => {
       }
     });
     expect(JSON.stringify(result)).not.toContain("/ignored");
+  });
+
+  it("keeps init_project as a compatibility alias for create_project", async () => {
+    const gateway = createGateway();
+    const result = readJson(await handlePlanweaveTool("init_project", { name: "New Project" }, gateway));
+
+    expect(gateway.initProject).toHaveBeenCalledWith("New Project");
+    expect(result).toMatchObject({
+      project: {
+        projectId: "project-1",
+        name: "Project One"
+      }
+    });
   });
 
   it("creates a new task canvas in a registered project", async () => {
@@ -616,6 +631,24 @@ describe("handlePlanweaveTool", () => {
       { projectId: "project-1", canvasId: "default", taskId: "T-001", blockId: "I-001", title: "Implement v2", executor: null },
       gateway
     );
+    await handlePlanweaveTool(
+      "create_block",
+      { projectId: "project-1", canvasId: "default", taskId: "T-001", type: "implementation", title: "Follow-up", promptMarkdown: "# Follow-up" },
+      gateway
+    );
+    await handlePlanweaveTool(
+      "create_block",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        taskId: "T-001",
+        type: "implementation",
+        title: "Explicit follow-up",
+        promptMarkdown: "# Explicit follow-up",
+        dependsOn: []
+      },
+      gateway
+    );
     await handlePlanweaveTool("add_dependency", { projectId: "project-1", fromTaskId: "T-001", toTaskId: "T-002" }, gateway);
 
     expect(gateway.createTask).toHaveBeenCalledWith("project-1", "default", {
@@ -629,6 +662,22 @@ describe("handlePlanweaveTool", () => {
       title: "Implement v2",
       promptMarkdown: undefined,
       executor: null
+    });
+    expect(gateway.createBlock).toHaveBeenNthCalledWith(1, "project-1", "default", {
+      taskId: "T-001",
+      type: "implementation",
+      title: "Follow-up",
+      promptMarkdown: "# Follow-up",
+      executor: undefined,
+      dependsOn: undefined
+    });
+    expect(gateway.createBlock).toHaveBeenNthCalledWith(2, "project-1", "default", {
+      taskId: "T-001",
+      type: "implementation",
+      title: "Explicit follow-up",
+      promptMarkdown: "# Explicit follow-up",
+      executor: undefined,
+      dependsOn: []
     });
     expect(gateway.addDependency).toHaveBeenCalledWith("project-1", undefined, "T-001", "T-002");
   });

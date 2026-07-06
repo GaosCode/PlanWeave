@@ -257,9 +257,15 @@ export const planweaveToolDefinitions: Record<PlanweaveToolName, ToolDefinition>
     inputSchema: projectInput,
     annotations: readOnlyAnnotations
   },
+  create_project: {
+    title: "Create PlanWeave Project",
+    description: "Create or open a managed PlanWeave project by name.",
+    inputSchema: { name: z.string().min(1) },
+    annotations: writeAnnotations
+  },
   init_project: {
     title: "Initialize PlanWeave Project",
-    description: "Create or open a managed PlanWeave project by name.",
+    description: "Compatibility alias for create_project.",
     inputSchema: { name: z.string().min(1) },
     annotations: writeAnnotations
   },

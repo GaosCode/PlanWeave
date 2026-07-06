@@ -2,6 +2,7 @@ export const authoringRules = [
   "Use get_planweave_guide when you need PlanWeave concepts, storage layout, or tool-selection guidance.",
   "Use list_tool_groups first so default discovery follows the lightweight graph, diagnostics, content, and package-draft paths.",
   "Use list_projects_summary, open_project_summary, and list_canvases to choose targets without returning full task trees.",
+  "Use create_project to create or open a managed project by name; init_project is a compatibility alias.",
   "Use projectId and optional canvasId from summary/list tools; MCP tools do not accept arbitrary server absolute paths.",
   "Create a new isolated task canvas with create_canvas before writing a plan that should not modify an existing demo canvas.",
   "Prefer package-shaped drafts for large plans: validate_package_draft, validate_graph_quality, preview_package_import, then import_package_draft with apply: true.",
@@ -67,6 +68,7 @@ export const planweaveGuide = {
     "Use get_planweave_guide when you need the product model or directory layout.",
     "Use list_tool_groups to discover the recommended lightweight path for the current job.",
     "Use list_projects_summary, open_project_summary, and list_canvases to select targets without returning full prompt or graph content.",
+    "Use create_project when you need a new managed project or want to open one by name.",
     "Use create_canvas when the plan should live in a new isolated canvas.",
     "For large plans, write a package-shaped draft root outside the active project, then use validate_package_draft, validate_graph_quality, preview_package_import, import_package_draft with apply: true, and apply_canvas_lane_layout.",
     "Use create_task, create_block, update_task_acceptance, set_block_dependencies, update_canvas_execution_policy, update_block_planning, set_review_pipeline, add_task_dependency, set_task_dependencies, and project graph dependency tools for direct edits.",
@@ -76,6 +78,7 @@ export const planweaveGuide = {
   ],
   toolSelection: [
     { need: "Understand PlanWeave concepts and storage layout", tool: "get_planweave_guide" },
+    { need: "Create or open a managed project", tool: "create_project" },
     { need: "Find local projects", tool: "list_projects_summary" },
     { need: "List canvases in a project", tool: "list_canvases" },
     { need: "Inspect one canvas DAG", tool: "get_graph_summary or get_graph_slice" },

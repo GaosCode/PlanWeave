@@ -689,6 +689,9 @@ export const planweaveToolOutputSchemas = {
     projectId: z.string(),
     canvases: z.array(taskCanvasSummarySchema)
   },
+  create_project: {
+    project: sanitizedProjectSchema
+  },
   init_project: {
     project: sanitizedProjectSchema
   },
