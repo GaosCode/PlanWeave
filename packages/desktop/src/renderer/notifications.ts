@@ -67,7 +67,8 @@ export function buildNotificationItems({
       detail: `${t("importRecoveryTransactionId")}: ${recovery.transactionId} · ${t("importRecoveryOperationCount")}: ${recovery.operationCount} · ${t("importRecoveryPhases")}: ${recovery.phases.join(", ")}`,
       tone: "destructive",
       kind: "importRecovery",
-      transactionId: recovery.transactionId
+      transactionId: recovery.transactionId,
+      recoveryRoot: recovery.recoveryRoot
     });
   }
   return notificationItems.map((item): NotificationItem => ({ ...item, read: readNotificationIds.has(item.id) }));

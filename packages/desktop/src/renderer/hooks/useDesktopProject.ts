@@ -1,57 +1,31 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import type {
   DesktopGraphViewModel,
   DesktopLayout,
-  DesktopProjectSnapshot,
   DesktopProjectExecutionPlan,
   DesktopProjectSummary,
   DesktopRuntimeRefreshSnapshot,
-  DesktopRuntimeStateChangeEvent,
   DesktopStatistics,
   DesktopTodoGroups,
   PendingImportTransaction,
-  ValidationIssue,
-  ProjectPromptPolicy
+  ProjectPromptPolicy,
+  ValidationIssue
 } from "@planweave-ai/runtime";
 import { bridge, desktopCanvasReference } from "../bridge";
-import { isDesktopPerformanceDiagnostic } from "../diagnostics";
 import type { createTranslator } from "../i18n";
 import type { DesktopSettingsUpdate } from "../types";
+import { useDesktopImportRecovery } from "./useDesktopImportRecovery";
+import { useDesktopProjectLoader } from "./useDesktopProjectLoader";
+import { useDesktopProjectSnapshot } from "./useDesktopProjectSnapshot";
+import { useDesktopRuntimeSubscriptions } from "./useDesktopRuntimeSubscriptions";
+
+export { resolveProjectCanvasId } from "./useDesktopProjectLoader";
 
 export type UseDesktopProjectArgs = {
   setError: (message: string | null) => void;
   t: ReturnType<typeof createTranslator>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
 };
-
-export function resolveProjectCanvasId(project: DesktopProjectSummary, requestedCanvasId?: string | null): string | null {
-  if (requestedCanvasId !== undefined) {
-    return requestedCanvasId;
-  }
-  if (project.activeCanvasId && project.taskCanvases.some((canvas) => canvas.canvasId === project.activeCanvasId)) {
-    return project.activeCanvasId;
-  }
-  return project.taskCanvases[0]?.canvasId ?? null;
-}
-
-function errorMessage(caught: unknown): string {
-  return caught instanceof Error ? caught.message : String(caught);
-}
-
-type ApplyDesktopProjectSnapshotOptions = {
-  includeLayout?: boolean;
-  includePrompt?: boolean;
-};
-
-const externalRuntimeRefreshIntervalMs = 30_000;
-
-function documentIsVisible(): boolean {
-  return typeof document === "undefined" || document.visibilityState !== "hidden";
-}
-
-function runtimeStateEventMatchesCanvas(event: DesktopRuntimeStateChangeEvent, project: DesktopProjectSummary, canvasId: string | null): boolean {
-  return event.projectRoot === project.rootPath && event.canvasId === canvasId;
-}
 
 export function useDesktopProject({
   setError,
@@ -76,207 +50,63 @@ export function useDesktopProject({
   const [projectPromptMarkdown, setProjectPromptMarkdown] = useState<string | null>(null);
   const [projectPromptPolicy, setProjectPromptPolicy] = useState<ProjectPromptPolicy | null>(null);
   const [pendingImportRecoveries, setPendingImportRecoveries] = useState<PendingImportTransaction[]>([]);
-  const externalRefreshInFlightRef = useRef(false);
-  const currentCanvasRef = useRef<{
-    canvasId: string | null;
-    hasGraph: boolean;
-    projectRoot: string | null;
-  }>({
-    canvasId: null,
-    hasGraph: false,
-    projectRoot: null
+
+  const {
+    applyDesktopProjectSnapshot,
+    applyRuntimeRefreshSnapshot,
+    clearProjectState,
+    currentCanvasRef,
+    refreshDesktopGraphDiagnostics
+  } = useDesktopProjectSnapshot({
+    graph,
+    selectedCanvasId,
+    selectedProjectRoot: selectedProject?.rootPath ?? null,
+    setExecutionPlan,
+    setGraph,
+    setGraphDiagnostics,
+    setLayout,
+    setPendingImportRecoveries,
+    setProjectDiagnostics,
+    setProjectPromptMarkdown,
+    setProjectPromptPolicy,
+    setRuntimeDiagnostics,
+    setRuntimeRefreshSnapshot,
+    setStatistics,
+    setTodoGroups
   });
 
-  useEffect(() => {
-    currentCanvasRef.current = {
-      canvasId: selectedCanvasId,
-      hasGraph: Boolean(graph),
-      projectRoot: selectedProject?.rootPath ?? null
-    };
-  }, [graph, selectedCanvasId, selectedProject?.rootPath]);
-
-  const applyDesktopProjectSnapshot = useCallback(
-    (snapshot: DesktopProjectSnapshot, options: ApplyDesktopProjectSnapshotOptions = {}) => {
-      if (options.includePrompt) {
-        setProjectPromptMarkdown(snapshot.projectPromptMarkdown);
-        setProjectPromptPolicy(snapshot.projectPromptPolicy);
-      }
-      setGraph(snapshot.graph);
-      if (options.includeLayout) {
-        setLayout(snapshot.layout);
-      }
-      setTodoGroups(snapshot.todoGroups);
-      setExecutionPlan(snapshot.executionPlan);
-      setStatistics(snapshot.statistics);
-      setProjectDiagnostics(snapshot.diagnostics);
-      return snapshot.errors.filter((_, index) => {
-        const diagnostic = snapshot.diagnostics[index];
-        return !diagnostic || !isDesktopPerformanceDiagnostic(diagnostic);
-      });
-    },
-    []
-  );
-
-  const applyRuntimeRefreshSnapshot = useCallback((snapshot: DesktopRuntimeRefreshSnapshot) => {
-    setRuntimeDiagnostics(snapshot.diagnostics);
-    setRuntimeRefreshSnapshot(snapshot);
-    return snapshot.errors.filter((_, index) => {
-      const diagnostic = snapshot.diagnostics[index];
-      return !diagnostic || !isDesktopPerformanceDiagnostic(diagnostic);
-    });
-  }, []);
-
-  const refreshDesktopGraphDiagnostics = useCallback(async (canvasRef: { projectRoot: string; canvasId?: string | null }) => {
-    if (!bridge) {
-      return;
-    }
-    const diagnostics = await bridge.getDesktopGraphDiagnostics(canvasRef);
-    setGraphDiagnostics(diagnostics.diagnostics);
-  }, []);
-
-  const refreshPendingImportRecoveries = useCallback(async (projectRoot: string | null | undefined) => {
-    if (!bridge || !projectRoot) {
-      setPendingImportRecoveries([]);
-      return;
-    }
-    setPendingImportRecoveries(await bridge.listPendingImportRecoveries(projectRoot));
-  }, []);
-
-  const loadProject = useCallback(
-    async (project: DesktopProjectSummary, requestedCanvasId?: string | null) => {
-      if (!bridge) {
-        setProjectLoading(false);
-        return;
-      }
-      setProjectLoading(true);
-      const canvasId = resolveProjectCanvasId(project, requestedCanvasId);
-      const currentCanvas = currentCanvasRef.current;
-      const canKeepCurrentCanvas =
-        currentCanvas.hasGraph && currentCanvas.projectRoot === project.rootPath && currentCanvas.canvasId === canvasId;
-      currentCanvasRef.current = {
-        canvasId,
-        hasGraph: canKeepCurrentCanvas ? currentCanvas.hasGraph : false,
-        projectRoot: project.rootPath
-      };
-      setSelectedProject(project);
-      setSelectedCanvasId(canvasId);
-      setExpandedProjectId(project.projectId);
-      setError(null);
-      if (!canKeepCurrentCanvas) {
-        setGraph(null);
-        setLayout(null);
-        setTodoGroups(null);
-        setExecutionPlan(null);
-        setStatistics(null);
-        setProjectDiagnostics([]);
-        setGraphDiagnostics([]);
-        setRuntimeDiagnostics([]);
-        setRuntimeRefreshSnapshot(null);
-        setProjectPromptMarkdown(null);
-        setProjectPromptPolicy(null);
-        setPendingImportRecoveries([]);
-      }
-      const canvasRef = desktopCanvasReference(project, canvasId);
-      const errors: string[] = [];
-      try {
-        const snapshot = await bridge.getDesktopProjectSnapshot(canvasRef);
-        errors.push(...applyDesktopProjectSnapshot(snapshot, { includeLayout: true, includePrompt: true }));
-        if (snapshot.graph) {
-          try {
-            await refreshDesktopGraphDiagnostics(canvasRef);
-            await bridge.refreshPackageFileChanges(canvasRef);
-            await bridge.watchPackageFiles(canvasRef);
-          } catch (caught) {
-            errors.push(errorMessage(caught));
-          }
-        } else {
-          setGraphDiagnostics([]);
-        }
-      } catch (caught) {
-        errors.push(errorMessage(caught));
-      }
-      try {
-        await refreshPendingImportRecoveries(project.rootPath);
-      } catch (caught) {
-        errors.push(errorMessage(caught));
-      }
-      if (errors.length > 0) {
-        setError(errors.join("\n"));
-      }
-      updateSettings({ runtimePath: project.workspaceRoot });
-      setProjectLoading(false);
-    },
-    [applyDesktopProjectSnapshot, refreshDesktopGraphDiagnostics, refreshPendingImportRecoveries, setError, updateSettings]
-  );
-
-  useEffect(() => {
-    if (!bridge) {
-      setProjectLoading(false);
-      return;
-    }
-    let cancelled = false;
-    bridge
-      .listProjects()
-      .then((items) => {
-        if (cancelled) {
-          return;
-        }
-        setProjects(items);
-        if (items[0]) {
-          void loadProject(items[0]);
-          return;
-        }
-        setProjectLoading(false);
-      })
-      .catch((caught: unknown) => {
-        if (cancelled) {
-          return;
-        }
-        setProjectLoading(false);
-        setError(caught instanceof Error ? caught.message : String(caught));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [loadProject, setError]);
-
-  useEffect(() => {
-    const projectRoot = selectedProject?.rootPath;
-    const canvasId = selectedCanvasId;
-    return () => {
-      if (bridge && projectRoot) {
-        void bridge.unwatchPackageFiles({ projectRoot, canvasId });
-        void bridge.unwatchRuntimeState({ projectRoot, canvasId });
-      }
-    };
-  }, [selectedCanvasId, selectedProject?.rootPath]);
-
-  const refreshGraph = useCallback(async () => {
-    if (!bridge || !selectedProject) {
-      return;
-    }
-    const canvasRef = desktopCanvasReference(selectedProject, selectedCanvasId);
-    const nextGraph = await bridge.getGraphViewModel(canvasRef);
-    setGraph(nextGraph);
-    await refreshDesktopGraphDiagnostics(canvasRef);
-  }, [refreshDesktopGraphDiagnostics, selectedCanvasId, selectedProject]);
-
-  const refreshProjectDerivedState = useCallback(async (options: ApplyDesktopProjectSnapshotOptions = {}) => {
-    if (!bridge || !selectedProject) {
-      return;
-    }
-    const canvasRef = desktopCanvasReference(selectedProject, selectedCanvasId);
-    const snapshot = await bridge.getDesktopProjectSnapshot(canvasRef);
-    const errors = applyDesktopProjectSnapshot(snapshot, options);
-    if (snapshot.graph) {
-      await refreshDesktopGraphDiagnostics(canvasRef);
-    } else {
-      setGraphDiagnostics([]);
-    }
-    if (errors.length > 0) {
-      setError(errors.join("\n"));
-    }
-  }, [applyDesktopProjectSnapshot, refreshDesktopGraphDiagnostics, selectedCanvasId, selectedProject, setError]);
+  const {
+    handleOpenProject,
+    loadProject,
+    refreshGraph,
+    refreshGraphAndLayout,
+    refreshProjectDerivedState,
+    refreshProjects,
+    refreshProjectSummary,
+    removeProject,
+    updateProjectPrompt,
+    updateProjectPromptPolicy
+  } = useDesktopProjectLoader({
+    applyDesktopProjectSnapshot,
+    clearProjectState,
+    currentCanvasRef,
+    refreshDesktopGraphDiagnostics,
+    selectedCanvasId,
+    selectedProject,
+    setError,
+    setExpandedProjectId,
+    setGraph,
+    setGraphDiagnostics,
+    setProjectLoading,
+    setProjectPromptMarkdown,
+    setProjectPromptPolicy,
+    setProjectRefreshing,
+    setProjects,
+    setSelectedCanvasId,
+    setSelectedProject,
+    t,
+    updateSettings
+  });
 
   const refreshRuntimeState = useCallback(async () => {
     if (!bridge || !selectedProject) {
@@ -289,235 +119,29 @@ export function useDesktopProject({
       return;
     }
     const errors = applyRuntimeRefreshSnapshot(snapshot);
-    await refreshDesktopGraphDiagnostics(canvasRef);
+    const diagnosticsApplied = await refreshDesktopGraphDiagnostics(canvasRef);
+    if (!diagnosticsApplied) {
+      return;
+    }
     if (errors.length > 0) {
       setError(errors.join("\n"));
     }
-  }, [applyRuntimeRefreshSnapshot, refreshDesktopGraphDiagnostics, selectedCanvasId, selectedProject, setError]);
+  }, [applyRuntimeRefreshSnapshot, currentCanvasRef, refreshDesktopGraphDiagnostics, selectedCanvasId, selectedProject, setError]);
 
-  const refreshGraphAndLayout = useCallback(async () => {
-    await refreshProjectDerivedState({ includeLayout: true });
-  }, [refreshProjectDerivedState]);
+  const { rollbackPendingImportRecovery } = useDesktopImportRecovery({
+    refreshProjectDerivedState,
+    selectedProject,
+    setError
+  });
 
-  const rollbackPendingImportRecovery = useCallback(async (transactionId: string) => {
-    if (!bridge || !selectedProject) {
-      return;
-    }
-    try {
-      await bridge.rollbackPendingImportRecovery(selectedProject.rootPath, transactionId);
-      await refreshProjectDerivedState({ includeLayout: true });
-      await refreshPendingImportRecoveries(selectedProject.rootPath);
-    } catch (caught) {
-      setError(errorMessage(caught));
-    }
-  }, [refreshPendingImportRecoveries, refreshProjectDerivedState, selectedProject, setError]);
-
-  const runExternalRuntimeRefresh = useCallback(() => {
-    if (!documentIsVisible() || externalRefreshInFlightRef.current) {
-      return;
-    }
-    externalRefreshInFlightRef.current = true;
-    void refreshRuntimeState()
-      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)))
-      .finally(() => {
-        externalRefreshInFlightRef.current = false;
-      });
-  }, [refreshRuntimeState, setError]);
-
-  useEffect(() => {
-    if (!bridge || !selectedProject) {
-      return undefined;
-    }
-    const timer = window.setInterval(runExternalRuntimeRefresh, externalRuntimeRefreshIntervalMs);
-    return () => window.clearInterval(timer);
-  }, [runExternalRuntimeRefresh, selectedProject]);
-
-  useEffect(() => {
-    if (!bridge || !selectedProject || !graph) {
-      return undefined;
-    }
-    const runtimeBridge = bridge;
-    const ref = desktopCanvasReference(selectedProject, selectedCanvasId);
-    void runtimeBridge.watchRuntimeState(ref).catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
-    return () => {
-      void runtimeBridge.unwatchRuntimeState(ref);
-    };
-  }, [Boolean(graph), selectedCanvasId, selectedProject?.rootPath, setError]);
-
-  useEffect(() => {
-    if (!bridge || !selectedProject) {
-      return undefined;
-    }
-    return bridge.onRuntimeStateChanged((event) => {
-      if (!runtimeStateEventMatchesCanvas(event, selectedProject, selectedCanvasId)) {
-        return;
-      }
-      void refreshGraph().catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
-    });
-  }, [refreshGraph, selectedCanvasId, selectedProject, setError]);
-
-  useEffect(() => {
-    if (typeof document === "undefined" || !selectedProject) {
-      return undefined;
-    }
-    const handleVisibilityChange = () => {
-      if (documentIsVisible()) {
-        runExternalRuntimeRefresh();
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [runExternalRuntimeRefresh, selectedProject]);
-
-  const updateProjectPromptPolicy = useCallback(
-    async (patch: Partial<ProjectPromptPolicy>) => {
-      if (!bridge || !selectedProject) {
-        return;
-      }
-      setProjectPromptPolicy(await bridge.updateProjectPromptPolicy(selectedProject.rootPath, patch));
-    },
-    [selectedProject]
-  );
-
-  const updateProjectPrompt = useCallback(
-    async (markdown: string) => {
-      if (!bridge || !selectedProject) {
-        return;
-      }
-      setProjectPromptMarkdown(await bridge.updateProjectPrompt(selectedProject.rootPath, markdown));
-    },
-    [selectedProject]
-  );
-
-  const refreshProjectSummary = useCallback(
-    async (projectRoot: string, canvasId?: string | null) => {
-      if (!bridge) {
-        return null;
-      }
-      const nextProjects = await bridge.listProjects();
-      setProjects(nextProjects);
-      const project = nextProjects.find((item) => item.rootPath === projectRoot) ?? null;
-      if (project && selectedProject?.rootPath === projectRoot) {
-        setSelectedProject(project);
-        if (canvasId !== undefined) {
-          setSelectedCanvasId(canvasId);
-        }
-      }
-      return project;
-    },
-    [selectedProject?.rootPath]
-  );
-
-  const refreshProjects = useCallback(async (options: { selectProjectId?: string } = {}) => {
-    if (!bridge) {
-      return;
-    }
-    setProjectRefreshing(true);
-    try {
-      const nextProjects = await bridge.listProjects();
-      setProjects(nextProjects);
-      const requestedProject = options.selectProjectId ? nextProjects.find((item) => item.projectId === options.selectProjectId) ?? null : null;
-      if (requestedProject) {
-        await loadProject(requestedProject);
-        return;
-      }
-      const currentProject =
-        nextProjects.find((item) => item.projectId === selectedProject?.projectId) ??
-        nextProjects.find((item) => item.rootPath === selectedProject?.rootPath) ??
-        null;
-      if (currentProject) {
-        setSelectedProject(currentProject);
-        setSelectedCanvasId((currentCanvasId) =>
-          currentCanvasId && currentProject.taskCanvases.some((canvas) => canvas.canvasId === currentCanvasId)
-            ? currentCanvasId
-            : resolveProjectCanvasId(currentProject)
-        );
-        setExpandedProjectId((currentExpandedProjectId) =>
-          currentExpandedProjectId === selectedProject?.projectId ? currentProject.projectId : currentExpandedProjectId
-        );
-        setError(null);
-        return;
-      }
-      const nextProject = nextProjects[0] ?? null;
-      if (nextProject) {
-        await loadProject(nextProject);
-        return;
-      }
-      setSelectedProject(null);
-      setSelectedCanvasId(null);
-      setExpandedProjectId(null);
-      setGraph(null);
-      setLayout(null);
-      setTodoGroups(null);
-      setExecutionPlan(null);
-      setStatistics(null);
-      setProjectDiagnostics([]);
-      setGraphDiagnostics([]);
-      setRuntimeDiagnostics([]);
-      setRuntimeRefreshSnapshot(null);
-      setProjectPromptMarkdown(null);
-      setProjectPromptPolicy(null);
-      setPendingImportRecoveries([]);
-      setError(null);
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setProjectRefreshing(false);
-    }
-  }, [loadProject, selectedProject?.projectId, selectedProject?.rootPath, setError]);
-
-  const handleOpenProject = useCallback(async () => {
-    if (!bridge) {
-      setError(t("openProjectBridgeUnavailable"));
-      return;
-    }
-    try {
-      const selectedPath = await bridge.chooseProjectFolder();
-      if (!selectedPath) {
-        return;
-      }
-      const project = await bridge.initOrOpenProject(selectedPath);
-      setProjects((items) => (items.some((item) => item.projectId === project.projectId) ? items : [...items, project]));
-      await loadProject(project);
-    } catch (caught) {
-      setError(`${t("openProjectFailedHint")}\n${errorMessage(caught)}`);
-    }
-  }, [loadProject, setError, t]);
-
-  const removeProject = useCallback(
-    async (project: DesktopProjectSummary) => {
-      if (!bridge) {
-        return;
-      }
-      await bridge.removeProject(project.projectId);
-      const nextProjects = await bridge.listProjects();
-      setProjects(nextProjects);
-      if (selectedProject?.projectId !== project.projectId) {
-        return;
-      }
-      const nextProject = nextProjects[0] ?? null;
-      if (nextProject) {
-        await loadProject(nextProject);
-        return;
-      }
-      setSelectedProject(null);
-      setSelectedCanvasId(null);
-      setExpandedProjectId(null);
-      setGraph(null);
-      setLayout(null);
-      setTodoGroups(null);
-      setExecutionPlan(null);
-      setStatistics(null);
-      setProjectDiagnostics([]);
-      setGraphDiagnostics([]);
-      setRuntimeDiagnostics([]);
-      setRuntimeRefreshSnapshot(null);
-      setProjectPromptMarkdown(null);
-      setProjectPromptPolicy(null);
-      setPendingImportRecoveries([]);
-    },
-    [loadProject, selectedProject?.projectId]
-  );
+  useDesktopRuntimeSubscriptions({
+    graph,
+    refreshGraph,
+    refreshRuntimeState,
+    selectedCanvasId,
+    selectedProject,
+    setError
+  });
 
   return {
     expandedProjectId,

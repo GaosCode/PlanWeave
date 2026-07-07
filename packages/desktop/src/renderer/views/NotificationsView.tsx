@@ -1,4 +1,5 @@
-import { XIcon } from "lucide-react";
+import { useRef, useState } from "react";
+import { CopyIcon, FolderOpenIcon, RotateCcwIcon, XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { createTranslator } from "../i18n";
@@ -11,6 +12,8 @@ type NotificationsViewProps = {
   onMarkNotificationRead: (notificationId: string) => void;
   onOpenGraph: () => void;
   onReloadPromptConflicts: () => Promise<void>;
+  onCopyImportRecoveryTransactionId?: (transactionId: string) => Promise<void>;
+  onRevealImportRecoveryDirectory?: (recoveryRoot: string) => Promise<void>;
   onRollbackImportRecovery?: (transactionId: string) => Promise<void>;
   refreshPackageFiles: () => Promise<void>;
   t: ReturnType<typeof createTranslator>;
@@ -23,11 +26,38 @@ export function NotificationsView({
   onMarkNotificationRead,
   onOpenGraph,
   onReloadPromptConflicts,
+  onCopyImportRecoveryTransactionId,
+  onRevealImportRecoveryDirectory,
   onRollbackImportRecovery,
   refreshPackageFiles,
   t
 }: NotificationsViewProps) {
   const unreadCount = notificationItems.filter((item) => !item.read).length;
+  const pendingRollbackTransactionIdsRef = useRef<Set<string>>(new Set());
+  const [pendingRollbackTransactionIds, setPendingRollbackTransactionIds] = useState<Set<string>>(() => new Set());
+
+  const setRollbackPending = (transactionId: string, pending: boolean) => {
+    const nextPendingTransactionIds = new Set(pendingRollbackTransactionIdsRef.current);
+    if (pending) {
+      nextPendingTransactionIds.add(transactionId);
+    } else {
+      nextPendingTransactionIds.delete(transactionId);
+    }
+    pendingRollbackTransactionIdsRef.current = nextPendingTransactionIds;
+    setPendingRollbackTransactionIds(nextPendingTransactionIds);
+  };
+
+  const handleRollbackImportRecovery = async (transactionId: string) => {
+    if (!onRollbackImportRecovery || pendingRollbackTransactionIdsRef.current.has(transactionId)) {
+      return;
+    }
+    setRollbackPending(transactionId, true);
+    try {
+      await onRollbackImportRecovery(transactionId);
+    } finally {
+      setRollbackPending(transactionId, false);
+    }
+  };
 
   return (
     <section className="flex h-full min-h-0 flex-col gap-4" data-testid="notifications-view">
@@ -42,7 +72,7 @@ export function NotificationsView({
         {notificationItems.length === 0 ? <div className="rounded-md border border-border/80 bg-surface-muted/70 p-4 text-sm text-text-muted">{t("noNotifications")}</div> : null}
         {notificationItems.map((item) => (
           <div className={`flex items-start justify-between gap-3 rounded-md border border-border/80 p-3 shadow-sm ${item.read ? "bg-surface-muted/70 text-text-muted" : "bg-surface-raised text-text"}`} key={item.id}>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-text-strong">{item.title}</div>
               <div className="break-words text-xs text-text-muted">{item.detail}</div>
               {item.kind === "fileSync" ? (
@@ -77,8 +107,31 @@ export function NotificationsView({
                 </div>
               ) : null}
               {item.kind === "importRecovery" ? (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => void onRollbackImportRecovery?.(item.transactionId)}>{t("importRecoveryRollback")}</Button>
+                <div className="mt-3 min-w-0">
+                  <div className="mb-2 text-xs text-text-muted">
+                    <span className="font-medium text-text">{t("importRecoveryDirectory")}: </span>
+                    <span className="font-mono break-all [overflow-wrap:anywhere]" data-testid="import-recovery-directory">{item.recoveryRoot}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" onClick={() => void onRevealImportRecoveryDirectory?.(item.recoveryRoot)}>
+                      <FolderOpenIcon data-icon="inline-start" />
+                      {t("importRecoveryRevealDirectory")}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => void onCopyImportRecoveryTransactionId?.(item.transactionId)}>
+                      <CopyIcon data-icon="inline-start" />
+                      {t("importRecoveryCopyTransactionId")}
+                    </Button>
+                    <Button
+                      aria-busy={pendingRollbackTransactionIds.has(item.transactionId) ? true : undefined}
+                      disabled={pendingRollbackTransactionIds.has(item.transactionId)}
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void handleRollbackImportRecovery(item.transactionId)}
+                    >
+                      <RotateCcwIcon data-icon="inline-start" />
+                      {t("importRecoveryRollback")}
+                    </Button>
+                  </div>
                 </div>
               ) : null}
             </div>

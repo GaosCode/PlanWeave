@@ -138,6 +138,7 @@ export type NotificationItemDraft =
   | (BaseNotificationItem & {
       kind: "importRecovery";
       transactionId: string;
+      recoveryRoot: string;
     });
 
 export type NotificationItem = NotificationItemDraft & {

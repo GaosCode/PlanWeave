@@ -154,7 +154,9 @@ export type WorkspaceTabsNotificationsProps = {
   onApplyLocalPromptConflicts: () => Promise<void>;
   onKeepLocalPromptConflicts: () => void;
   onMarkNotificationRead: (notificationId: string) => void;
+  onCopyImportRecoveryTransactionId: (transactionId: string) => Promise<void>;
   onReloadPromptConflicts: () => Promise<void>;
+  onRevealImportRecoveryDirectory: (recoveryRoot: string) => Promise<void>;
   onRollbackImportRecovery: (transactionId: string) => Promise<void>;
 };
 
