@@ -16,6 +16,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./tunnel": {
+      "types": "./dist/tunnel.d.ts",
+      "import": "./dist/tunnel.js"
     }
   },
   "homepage": "https://github.com/GaosCode/PlanWeave#readme",

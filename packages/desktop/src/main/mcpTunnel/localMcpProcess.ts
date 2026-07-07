@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { LocalMcpServerManager as BaseLocalMcpServerManager } from "@planweave-ai/mcp";
+import { LocalMcpServerManager as BaseLocalMcpServerManager } from "@planweave-ai/mcp/tunnel";
 
 const desktopOAuthAccessTokenTtlMs = 30 * 24 * 60 * 60 * 1000;
 

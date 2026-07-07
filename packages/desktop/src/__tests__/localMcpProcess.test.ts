@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  vi.doUnmock("@planweave-ai/mcp");
+  vi.doUnmock("@planweave-ai/mcp/tunnel");
   vi.doUnmock("@planweave-ai/runtime");
   vi.resetModules();
 });
@@ -35,7 +35,7 @@ describe("LocalMcpServerManager", () => {
       healthy: false,
       error: null
     }));
-    vi.doMock("@planweave-ai/mcp", () => ({
+    vi.doMock("@planweave-ai/mcp/tunnel", () => ({
       LocalMcpServerManager: class {
         constructor(options: LocalMcpServerManagerOptions) {
           capturedOptions = options;

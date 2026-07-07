@@ -1,7 +1,6 @@
 import type { Server } from "node:http";
 import { resolvePlanweaveHome } from "@planweave-ai/runtime";
 import type { McpConfig, McpOAuthConfig } from "../config.js";
-import { listenPlanweaveMcpServer } from "../server.js";
 import type { LocalMcpServerStatus } from "./types.js";
 
 const defaultHost = "127.0.0.1";
@@ -76,6 +75,7 @@ export class LocalMcpServerManager {
         token: input.token?.trim() || undefined,
         planweaveHomeFromEnv: Boolean(process.env.PLANWEAVE_HOME)
       };
+      const { listenPlanweaveMcpServer } = await import("../server.js");
       this.server = await listenPlanweaveMcpServer(config);
       this.status = nowStatus({
         phase: "running",

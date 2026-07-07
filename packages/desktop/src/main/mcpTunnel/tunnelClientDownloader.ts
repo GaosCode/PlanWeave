@@ -3,13 +3,13 @@ import {
   parseSha256Sums,
   selectTunnelClientReleaseAssets,
   tunnelClientPlatformAsset
-} from "@planweave-ai/mcp";
+} from "@planweave-ai/mcp/tunnel";
 import type {
   GitHubRelease,
   GitHubReleaseAsset,
   TunnelClientDownloadResult,
   TunnelClientPlatformAsset
-} from "@planweave-ai/mcp";
+} from "@planweave-ai/mcp/tunnel";
 import { mcpTunnelDownloadsDir } from "./tunnelClientStore.js";
 
 export { parseSha256Sums, selectTunnelClientReleaseAssets, tunnelClientPlatformAsset };
