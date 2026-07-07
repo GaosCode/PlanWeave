@@ -88,6 +88,59 @@ describe("validatePackage", () => {
     );
   });
 
+  it("validates only the requested canvas workspace when one is provided", async () => {
+    const { root } = await createTestWorkspace();
+    const targetCanvas = await createTaskCanvas(root, { name: "Target canvas" });
+    const brokenCanvas = await createTaskCanvas(root, { name: "Broken canvas" });
+    const targetWorkspace = await resolveTaskCanvasWorkspace(root, targetCanvas.canvasId);
+    const brokenWorkspace = await resolveTaskCanvasWorkspace(root, brokenCanvas.canvasId);
+    const targetManifest = basicManifest();
+    await writeJsonFile(targetWorkspace.manifestFile, targetManifest);
+    await writePromptFiles(targetWorkspace.packageDir, targetManifest);
+    await writeJsonFile(brokenWorkspace.manifestFile, { version: "plan-package/v1", nodes: "invalid" });
+
+    const report = await validatePackage({ projectRoot: targetWorkspace });
+
+    expect(report.ok).toBe(true);
+    expect(report.errors).toEqual([]);
+  });
+
+  it("reports diagnostics from the requested canvas workspace", async () => {
+    const { root } = await createTestWorkspace();
+    const canvas = await createTaskCanvas(root, { name: "Missing prompt canvas" });
+    const canvasWorkspace = await resolveTaskCanvasWorkspace(root, canvas.canvasId);
+    await writeJsonFile(canvasWorkspace.manifestFile, basicManifest());
+
+    const report = await validatePackage({ projectRoot: canvasWorkspace });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "prompt_missing",
+          path: expect.stringContaining(`canvases/${canvas.canvasId}/package/nodes/T-001/prompt.md`)
+        })
+      ])
+    );
+  });
+
+  it("reports missing manifests from the requested canvas workspace", async () => {
+    const { root } = await createTestWorkspace();
+    const canvas = await createTaskCanvas(root, { name: "Missing manifest canvas" });
+    const canvasWorkspace = await resolveTaskCanvasWorkspace(root, canvas.canvasId);
+    await rm(canvasWorkspace.manifestFile);
+
+    const report = await validatePackage({ projectRoot: canvasWorkspace });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual([
+      expect.objectContaining({
+        code: "manifest_missing",
+        path: `canvases/${canvas.canvasId}/package/manifest.json`
+      })
+    ]);
+  });
+
   it("reports workspace stat failures as workspace_read_failed instead of workspace_missing", async () => {
     const { root, init } = await createTestWorkspace();
     const workspaceRoot = join(init.workspace.workspaceRoot, "canvases", "default");

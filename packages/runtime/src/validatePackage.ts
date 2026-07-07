@@ -15,7 +15,7 @@ import {
 } from "./projectGraph/index.js";
 import { manifestSchema } from "./schema/manifest.js";
 import { readState } from "./state.js";
-import type { PlanPackageManifest, ProjectWorkspace, ValidationIssue, ValidationReport } from "./types.js";
+import type { PackageWorkspaceRef, PlanPackageManifest, ProjectWorkspace, ValidationIssue, ValidationReport } from "./types.js";
 import { validateDesktopLayout } from "./validation/desktopLayoutValidation.js";
 import { summarizeValidationReport } from "./validation/validationSummary.js";
 import type { LoadedProjectGraph } from "./projectGraph/index.js";
@@ -210,7 +210,22 @@ async function validateWorkspacePackage(projectWorkspace: ProjectWorkspace, work
   return { errors, warnings };
 }
 
-export async function validatePackage(options: { projectRoot: string }): Promise<ValidationReport> {
+function validationReport(errors: ValidationIssue[], warnings: ValidationIssue[]): ValidationReport {
+  return {
+    ok: errors.length === 0,
+    errors,
+    warnings,
+    summary: summarizeValidationReport(errors, warnings)
+  };
+}
+
+export async function validatePackage(options: { projectRoot: PackageWorkspaceRef }): Promise<ValidationReport> {
+  if (typeof options.projectRoot !== "string") {
+    const projectWorkspace = await resolveProjectWorkspace(options.projectRoot.rootPath);
+    const report = await validateWorkspacePackage(projectWorkspace, options.projectRoot);
+    return validationReport(report.errors, report.warnings);
+  }
+
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
   const workspace = await resolveProjectWorkspace(options.projectRoot);
@@ -288,10 +303,5 @@ export async function validatePackage(options: { projectRoot: string }): Promise
     warnings.push(...report.warnings);
   }
 
-  return {
-    ok: errors.length === 0,
-    errors,
-    warnings,
-    summary: summarizeValidationReport(errors, warnings)
-  };
+  return validationReport(errors, warnings);
 }
