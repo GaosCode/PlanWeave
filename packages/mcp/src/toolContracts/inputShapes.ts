@@ -1,0 +1,169 @@
+import * as z from "zod/v4";
+import {
+  createTaskInputShape,
+  updateBlockInputShape,
+  updateReviewPipelineInputShape,
+  updateTaskInputShape
+} from "../toolInputSchemas.js";
+
+export const blockTypeSchema = z.enum(["implementation", "review"]);
+export const graphReviewPolicySchema = z.enum(["none", "risk-based", "required"]);
+export const graphGatePolicySchema = z.enum(["none", "required"]);
+export const graphHeuristicsSchema = z.enum(["on", "off"]);
+export const searchResultKindSchema = z.enum(["task", "block", "prompt", "run_record", "review_attempt", "feedback"]);
+
+export const reviewHookSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal("executable"),
+  command: z.string().min(1),
+  args: z.array(z.string()).optional(),
+  executionPolicy: z.literal("trusted-local")
+});
+
+export const packageFileSchema = z.object({
+  path: z.string().min(1),
+  content: z.string(),
+  encoding: z.literal("utf8").optional()
+});
+
+export const projectInput = {
+  projectId: z.string().min(1)
+};
+
+export const projectCanvasInput = {
+  ...projectInput,
+  canvasId: z.string().min(1).optional()
+};
+
+export const optionalProjectCanvasInput = {
+  ...projectInput,
+  canvasId: z.string().min(1).nullable().optional()
+};
+
+export const blockRefInput = {
+  blockRef: z.string().min(1).optional(),
+  taskId: z.string().min(1).optional(),
+  blockId: z.string().min(1).optional()
+};
+
+export const taskPromptInput = {
+  ...projectCanvasInput,
+  taskId: z.string().min(1),
+  markdown: z.string()
+};
+
+export const blockPromptInput = {
+  ...projectCanvasInput,
+  ...blockRefInput,
+  markdown: z.string()
+};
+
+export const semanticTaskDependencyInput = {
+  ...projectCanvasInput,
+  dependentTaskId: z.string().min(1),
+  dependsOnTaskId: z.string().min(1)
+};
+
+export const taskDependencyEdgeSchema = z.object({
+  dependentTaskId: z.string().min(1),
+  dependsOnTaskId: z.string().min(1)
+});
+
+export const taskDependencyUpdateSchema = z.object({
+  taskId: z.string().min(1),
+  dependsOn: z.array(z.string().min(1))
+});
+
+export const bulkCreateTaskSchema = z.object({
+  title: z.string().min(1),
+  promptMarkdown: z.string(),
+  acceptance: z.array(z.string().min(1)).optional(),
+  blockTypes: z.array(blockTypeSchema).optional(),
+  executor: z.string().min(1).nullable().optional()
+});
+
+export const bulkCreateBlockSchema = z.object({
+  taskId: z.string().min(1),
+  type: blockTypeSchema,
+  title: z.string().min(1),
+  promptMarkdown: z.string(),
+  executor: z.string().min(1).nullable().optional(),
+  dependsOn: z.array(z.string().min(1)).optional()
+});
+
+export const bulkUpdateTaskSchema = z.object({
+  taskId: z.string().min(1),
+  title: z.string().min(1).optional(),
+  promptMarkdown: z.string().optional(),
+  executor: z.string().min(1).nullable().optional(),
+  acceptance: z.array(z.string().min(1)).optional()
+});
+
+export const bulkUpdateBlockSchema = z.object({
+  ...blockRefInput,
+  title: z.string().min(1).optional(),
+  promptMarkdown: z.string().optional(),
+  executor: z.string().min(1).nullable().optional(),
+  dependsOn: z.array(z.string().min(1)).optional(),
+  parallelSafe: z.boolean().optional(),
+  parallelLocks: z.array(z.string().min(1)).optional(),
+  reviewRequired: z.boolean().optional(),
+  maxFeedbackCycles: z.number().int().nonnegative().optional(),
+  reviewHook: reviewHookSchema.nullable().optional()
+});
+
+export const blockDependencyRefSchema = z.object({
+  ...blockRefInput,
+  dependsOnBlockId: z.string().min(1)
+});
+
+export const blockDependencyUpdateSchema = z.object({
+  blockRef: z.string().min(1).optional(),
+  taskId: z.string().min(1).optional(),
+  blockId: z.string().min(1).optional(),
+  dependsOn: z.array(z.string().min(1))
+});
+
+export const reviewPipelineBulkUpdateSchema = z.object({
+  taskId: z.string().min(1),
+  packageDefaults: updateReviewPipelineInputShape.packageDefaults.optional(),
+  steps: updateReviewPipelineInputShape.steps
+});
+
+export const parallelBlockPolicySchema = z.object({
+  blockRef: z.string().min(1).optional(),
+  taskId: z.string().min(1).optional(),
+  blockId: z.string().min(1).optional(),
+  parallelSafe: z.boolean().optional(),
+  parallelLocks: z.array(z.string().min(1)).optional()
+});
+
+export const graphReadInput = {
+  ...projectCanvasInput,
+  limit: z.number().int().positive().max(100).optional(),
+  cursor: z.string().min(1).optional()
+};
+
+export const graphSliceInput = {
+  ...projectCanvasInput,
+  taskId: z.string().min(1),
+  limit: z.number().int().positive().max(100).optional()
+};
+
+export const promptSourceInput = {
+  ...projectCanvasInput,
+  target: z.enum(["project", "task", "block"]),
+  taskId: z.string().min(1).optional(),
+  blockRef: z.string().min(1).optional(),
+  maxBytes: z.number().int().positive().optional()
+};
+
+export const promptSourceWriteInput = {
+  ...projectCanvasInput,
+  target: z.enum(["project", "task", "block"]),
+  taskId: z.string().min(1).optional(),
+  blockRef: z.string().min(1).optional(),
+  markdown: z.string()
+};
+
+export { createTaskInputShape, updateBlockInputShape, updateReviewPipelineInputShape, updateTaskInputShape };
