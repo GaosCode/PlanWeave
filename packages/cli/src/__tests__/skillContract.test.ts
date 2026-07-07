@@ -78,6 +78,8 @@ describe("agent skill contract docs", () => {
     expect(coordinator).toContain("Use when orchestrating a full PlanWeave plan");
     expect(coordinator).toContain("Run preflight: confirm `PLANWEAVE_HOME`, project id, project graph path when present, package/canvas paths");
     expect(coordinator).toContain("Treat PlanWeave skills as execution roles for worker subagents.");
+    expect(coordinator).toContain("Use `<pw> claim-next --dry-run --json` only for automatic preview; exact `claim <ref>` has no dry-run option.");
+    expect(coordinator).toContain("claim-next --parallel --dry-run --json");
     expect(coordinator).toContain("Use skill: plan-runner");
     expect(coordinator).toContain("Assign `plan-runner` to a worker subagent for one implementation block");
     expect(coordinator).toContain("Assign `plan-reviewer` to a worker subagent for one review gate");

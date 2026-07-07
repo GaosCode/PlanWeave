@@ -32,7 +32,7 @@ Use this skill as the main agent/controller for a PlanWeave package. The coordin
 ## Routing
 
 - Treat PlanWeave skills as execution roles for worker subagents. The coordinator owns routing and must tell each current-agent subagent which skill to use.
-- Treat PlanWeave executor assignment as the routing authority for every implementation block, review block, and feedback claim. After `claim-next`, `claim`, or a dry-run claim, read the claim's `effectiveExecutor`; for batch claims, read `effectiveExecutors` per ref.
+- Treat PlanWeave executor assignment as the routing authority for every implementation block, review block, and feedback claim. Use `<pw> claim-next --dry-run --json` only for automatic preview; exact `claim <ref>` has no dry-run option. After `claim-next --json`, `claim-next --dry-run --json`, or `claim <ref>`, read the claim's `effectiveExecutor`; for parallel batch claims, read `effectiveExecutors` per ref.
 - Before routing `manual` or current-agent work, discover the current agent's native subagent mechanism. In Codex, search for the multi-agent/subagent tool and spawn a bounded worker with the subagent packet.
 - If `effectiveExecutor` is `manual`, route the item through the current agent's native subagent workflow instead of `planweave run --executor manual`.
 - If `effectiveExecutor` names the current agent, route the item through the current agent's native subagent workflow instead of invoking that same agent through PlanWeave's CLI executor.
@@ -50,7 +50,7 @@ Use this skill as the main agent/controller for a PlanWeave package. The coordin
 
 1. Check current and status before claiming.
 2. Prefer explicit claims when assigning known refs; use automatic claim only when PlanWeave should choose.
-3. Preview parallel claims before dispatching a batch, and split the batch by each ref's `effectiveExecutors` entry.
+3. Preview automatic scheduling with `<pw> claim-next --dry-run --json`; preview parallel batches with `<pw> claim-next --parallel --dry-run --json`, then split the batch by each ref's `effectiveExecutors` entry.
 4. For each assigned item, record ref, task, block type, effective executor, prompt source, submit command, and agent owner. For native current-agent work, the owner must be a subagent id/name, not the coordinator thread.
 5. Keep only active subagents running; close completed agents after report submission.
 6. If the active tool exposes close, archive, or stop controls for subagents, close completed, failed, or idle subagents after their report is captured.
@@ -71,7 +71,7 @@ Use this skill as the main agent/controller for a PlanWeave package. The coordin
 - Different canvases are not automatically parallel; cross-canvas dependencies must come from formal project graph canvas edges and explicit `crossTaskEdges` when `project-graph.json` exists.
 - If no formal project graph exists, require explicit documented canvas order before dispatching across canvases and report that this is legacy compatibility rather than enforced project graph behavior.
 - Do not dispatch downstream canvas work while upstream canvas blockers or explicit cross-task blockers remain incomplete.
-- Use dry-run/status to build the next batch, then assign refs explicitly.
+- Use `status --json`, `claim-next --dry-run --json`, or `claim-next --parallel --dry-run --json` to build the next batch, then assign refs explicitly.
 - Review gates are sequential control points unless the plan explicitly models otherwise.
 
 ## Subagent Packet
