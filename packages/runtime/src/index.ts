@@ -66,6 +66,7 @@ export type {
 export type { PendingImportTransaction } from "./package/importRecovery.js";
 export {
   compileProjectGraph,
+  createCanvasWorkspace,
   applyDefaultCanvasWorkspaceMigration,
   detectDefaultCanvasWorkspaceMigration,
   defaultCanvasProjectGraph,
@@ -81,6 +82,7 @@ export {
   resolveProjectCanvasWorkspace,
   writeProjectGraph
 } from "./projectGraph/index.js";
+export type { CreateCanvasWorkspaceOptions, CreateCanvasWorkspaceResult } from "./projectGraph/index.js";
 export {
   addEdge,
   addNode,

@@ -1,5 +1,6 @@
 export { compileProjectGraph } from "./compileProjectGraph.js";
 export { canonicalCanvasWorkspacePaths, canonicalProjectCanvasNode } from "./canonicalWorkspace.js";
+export { createCanvasWorkspace } from "./createCanvasWorkspace.js";
 export {
   applyDefaultCanvasWorkspaceMigration,
   canonicalDefaultCanvasWorkspacePaths,
@@ -20,6 +21,7 @@ export {
   supportedProjectGraphVersion as projectGraphVersion
 } from "./types.js";
 export type * from "./types.js";
+export type { CreateCanvasWorkspaceOptions, CreateCanvasWorkspaceResult } from "./createCanvasWorkspace.js";
 export type { MaterializeProjectGraphResult } from "./materializeProjectGraph.js";
 export type {
   DefaultCanvasWorkspaceMigrationAction,
