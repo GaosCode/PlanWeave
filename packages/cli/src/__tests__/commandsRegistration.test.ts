@@ -34,6 +34,7 @@ describe("planweave CLI command registration", () => {
         "graph",
         "package-draft",
         "package",
+        "import-recovery",
         "schema",
         "mcp",
         "help"
@@ -126,6 +127,8 @@ describe("planweave CLI command registration", () => {
     expect(subcommandOptionLongs("package-draft", "validate")).toEqual(expect.arrayContaining(["--draft-root", "--json"]));
     expect(subcommandOptionLongs("package-draft", "quality")).toEqual(expect.arrayContaining(["--draft-root", "--json"]));
     expect(subcommandOptionLongs("package", "import")).toEqual(expect.arrayContaining(["--from", "--dry-run", "--apply", "--json", "--canvas"]));
+    expect(subcommandOptionLongs("import-recovery", "list")).toContain("--json");
+    expect(subcommandOptionLongs("import-recovery", "rollback")).toContain("--json");
     expect(subcommandOptionLongs("executors", "list")).toContain("--json");
     expect(subcommandOptionLongs("executors", "test")).toContain("--json");
     expect(commandOptionLongs("schema")).toContain("--json");

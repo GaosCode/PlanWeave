@@ -31,6 +31,7 @@ import { registerProjectGraphCommand } from "./commands/projectGraph.js";
 import { registerGraphCommand } from "./commands/graph.js";
 import { registerPackageDraftCommand } from "./commands/packageDraft.js";
 import { registerPackageImportCommand } from "./commands/packageImport.js";
+import { registerImportRecoveryCommand } from "./commands/importRecovery.js";
 import { registerRunCommand } from "./commands/run.js";
 import { registerResetCommand } from "./commands/reset.js";
 import { registerRunSessionsCommands } from "./commands/runSessions.js";
@@ -82,6 +83,7 @@ export function createProgram(): Command {
   registerGraphCommand(program);
   registerPackageDraftCommand(program);
   registerPackageImportCommand(program);
+  registerImportRecoveryCommand(program);
   registerResetCommand(program);
   registerRunCommand(program);
   registerRunSessionsCommands(program);
