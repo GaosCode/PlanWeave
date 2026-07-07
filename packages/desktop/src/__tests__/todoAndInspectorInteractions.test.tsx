@@ -299,6 +299,89 @@ describe("desktop renderer component interactions", () => {
     expect(screen.getByRole("combobox")).not.toHaveTextContent("Inherit");
   });
 
+  it("lets block prompt textareas grow into the inspector page scroll", () => {
+    const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "scrollHeight");
+    Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return Math.max(120, this.value.split("\n").length * 24);
+      }
+    });
+    const initialBlock: DesktopBlockDetail = {
+      ref: "T-001#B-001",
+      taskId: "T-001",
+      blockId: "B-001",
+      type: "implementation",
+      title: "Implement task",
+      status: "ready",
+      executor: "codex",
+      effectiveExecutor: "codex",
+      promptMarkdown: "# Source\n- one",
+      promptMissing: false,
+      promptSurfaceMarkdown: "# Effective\n- one\n- two\n- three\n- four\n- five",
+      promptSources: [],
+      dependencies: [],
+      latestRunId: null,
+      latestReviewAttemptId: null,
+      activeFeedbackId: null,
+      exceptionReason: null,
+      reviewGate: null
+    };
+
+    function BlockInspectorHarness() {
+      const [selectedBlock, setSelectedBlock] = useState<DesktopBlockDetail | null>(initialBlock);
+
+      return (
+        <BlockInspector
+          blockFeedbackRecords={[]}
+          blockReviewAttempts={[]}
+          blockRunRecords={[]}
+          error={null}
+          executorOptions={["codex"]}
+          graph={null}
+          handleOpenRunRecord={vi.fn()}
+          onBlockSelect={vi.fn()}
+          onClose={vi.fn()}
+          saveSelectedBlockExecutor={vi.fn()}
+          saveSelectedBlockPrompt={vi.fn()}
+          saveSelectedBlockTitle={vi.fn()}
+          selectedBlock={selectedBlock}
+          selectedRunRecord={null}
+          setSelectedBlock={setSelectedBlock}
+          setSelectedRunRecord={vi.fn()}
+          t={createTranslator("en")}
+        />
+      );
+    }
+
+    try {
+      render(<BlockInspectorHarness />);
+
+      const effectivePrompt = screen.getByRole("textbox", { name: "Effective Prompt" }) as HTMLTextAreaElement;
+      const sourcePrompt = screen.getByRole("textbox", { name: "Source Prompt" }) as HTMLTextAreaElement;
+      const inspectorContent = screen.getByTestId("block-inspector-content");
+      expect(inspectorContent).not.toHaveClass("min-h-0");
+      expect(inspectorContent).not.toHaveClass("flex-1");
+      expect(effectivePrompt).toHaveClass("overflow-hidden");
+      expect(sourcePrompt).toHaveClass("overflow-hidden");
+      expect(sourcePrompt.style.fieldSizing).toBe("fixed");
+      expect(sourcePrompt).not.toHaveClass("flex-1");
+      expect(effectivePrompt.style.height).toBe(`${effectivePrompt.scrollHeight}px`);
+      expect(sourcePrompt.style.height).toBe(`${sourcePrompt.scrollHeight}px`);
+
+      fireEvent.change(sourcePrompt, { target: { value: `# Source\n${Array.from({ length: 12 }, (_value, index) => `- line ${index + 1}`).join("\n")}` } });
+
+      expect(sourcePrompt.value).toContain("- line 12");
+      expect(sourcePrompt.style.height).toBe(`${sourcePrompt.scrollHeight}px`);
+    } finally {
+      if (scrollHeightDescriptor) {
+        Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", scrollHeightDescriptor);
+      } else {
+        Reflect.deleteProperty(HTMLTextAreaElement.prototype, "scrollHeight");
+      }
+    }
+  });
+
   it("keeps a task current executor selected when it is absent from graph options", () => {
     const selectedTask: DesktopTaskDetail = {
       taskId: "T-001",

@@ -20,12 +20,12 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { buildExecutorOptionViews, canonicalExecutorName } from "../executors/executorOptionViewModel";
 import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
 import type { createTranslator } from "../i18n";
 import { statusVariant } from "../viewHelpers";
+import { AutoGrowingTextarea } from "./AutoGrowingTextarea";
 import { BlockConnectionsCard } from "./BlockConnectionsCard";
 import { BlockRunRecordCard } from "./BlockRunRecordCard";
 import { TerminalOpenButton } from "./TerminalOpenButton";
@@ -192,7 +192,7 @@ export function BlockInspector({
             t={t}
           />
         ) : selectedBlock ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-3">
+          <div data-testid="block-inspector-content" className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
               <Input
                 aria-label={t("title")}
@@ -357,11 +357,11 @@ export function BlockInspector({
                     </div>
                   ))}
               </div>
-              <Textarea aria-label={t("effectivePrompt")} className="min-h-48 resize-none font-mono text-xs" readOnly value={selectedBlock.promptSurfaceMarkdown} />
+              <AutoGrowingTextarea aria-label={t("effectivePrompt")} className="min-h-48 resize-none font-mono text-xs" readOnly value={selectedBlock.promptSurfaceMarkdown} />
             </div>
-            <Textarea
+            <AutoGrowingTextarea
               aria-label={t("sourcePrompt")}
-              className="min-h-56 flex-1 resize-none"
+              className="min-h-56 resize-none"
               value={selectedBlock.promptMarkdown}
               onBlur={saveBlockPromptIfDirty}
               onChange={(event) => {
