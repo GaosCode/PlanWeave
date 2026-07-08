@@ -2,11 +2,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { autoRunChangedChannel, desktopBridgeInvokeChannels } from "../shared/ipcChannels";
+import {
+  autoRunChangedChannel,
+  desktopBridgeInvokeChannels
+} from "../shared/ipcChannels";
 
 type RegisteredHandler = (event: unknown, ...args: unknown[]) => unknown;
 type AutoRunEventListener = (event: unknown) => void;
 type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
+
+function registeredHandler(channel: string): RegisteredHandler {
+  const handler = electronMock.handlers.get(channel);
+  if (!handler) {
+    throw new Error(`Handler not registered for '${channel}'.`);
+  }
+  return handler;
+}
 
 const childProcessMock = vi.hoisted(() => ({
   execFile: vi.fn()
@@ -564,6 +575,30 @@ describe("runtime bridge handlers", () => {
         defaultTerminalAppId: "wezterm"
       })
     ).rejects.toThrow("Terminal preferences defaultTerminalAppId is invalid.");
+  });
+
+  it("rejects invalid terminal parser inputs", async () => {
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+    const ch = desktopBridgeInvokeChannels;
+    const ref = { projectRoot: "/tmp/project", canvasId: "canvas-a" };
+    const recordId = "T-001#B-001::RUN-001";
+    const cases: Array<[string, unknown, string]> = [
+      [ch.openTerminal, { ref: { canvasId: "canvas-a" }, appId: "terminal" }, "Desktop canvas reference projectRoot is invalid."],
+      [ch.openRunTerminal, { ref: null, recordId, appId: "terminal" }, "Desktop canvas reference is invalid."],
+      [ch.getRunTerminalAvailability, { ref: { projectRoot: "/tmp/project", canvasId: 42 }, recordIds: [recordId] }, "Desktop canvas reference canvasId is invalid."],
+      [ch.openTerminal, { ref }, "Terminal app id is invalid."],
+      [ch.openTerminal, { ref, appId: "wezterm" }, "Terminal app id is invalid."],
+      [ch.openRunTerminal, { ref, appId: "terminal" }, "Open terminal recordId is invalid."],
+      [ch.openRunTerminal, { ref, recordId }, "Terminal app id is invalid."],
+      [ch.openTerminal, { ref, appId: "terminal", cwd: "/tmp/elsewhere" }, "Unsupported open terminal field 'cwd'."],
+      [ch.openRunTerminal, { ref, recordId, appId: "terminal", cwd: "/tmp/elsewhere" }, "Unsupported open terminal field 'cwd'."],
+      [ch.getRunTerminalAvailability, { ref, recordIds: [recordId], cwd: "/tmp/elsewhere" }, "Unsupported terminal availability field 'cwd'."]
+    ];
+
+    for (const [channel, input, message] of cases) {
+      await expect(registeredHandler(channel)(null, input)).rejects.toThrow(message);
+    }
   });
 
   it("returns run terminal availability from live tmux sessions", async () => {

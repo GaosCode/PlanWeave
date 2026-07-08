@@ -1,13 +1,8 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { subscribeAutoRunEvents } from "@planweave-ai/runtime";
-import type { DesktopBridgeInvokeMethod } from "../shared/ipcChannels.js";
+import type { DesktopBridgeMainInvokeMethod } from "../shared/ipcChannels.js";
 import { autoRunChangedChannel, desktopBridgeInvokeChannels } from "../shared/ipcChannels.js";
 import { runtimeBridgeHandlers } from "./runtimeBridgeHandlerRegistry.js";
-
-type RuntimeBridgeInvokeMethod = Exclude<
-  DesktopBridgeInvokeMethod,
-  "watchPackageFiles" | "unwatchPackageFiles" | "watchRuntimeState" | "unwatchRuntimeState"
->;
 
 let unsubscribeAutoRunBroadcast: (() => void) | null = null;
 
@@ -26,7 +21,7 @@ function registerAutoRunEventBroadcast(): void {
 }
 
 export function registerRuntimeBridgeHandlers(): void {
-  for (const method of Object.keys(runtimeBridgeHandlers) as RuntimeBridgeInvokeMethod[]) {
+  for (const method of Object.keys(runtimeBridgeHandlers) as DesktopBridgeMainInvokeMethod[]) {
     ipcMain.handle(desktopBridgeInvokeChannels[method], runtimeBridgeHandlers[method]);
   }
   registerAutoRunEventBroadcast();

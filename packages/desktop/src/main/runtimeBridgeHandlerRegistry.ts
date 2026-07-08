@@ -97,7 +97,7 @@ import type {
   DesktopRuntimeResetOptions,
   GraphEditResult
 } from "@planweave-ai/runtime";
-import type { DesktopBridgeInvokeMethod } from "../shared/ipcChannels.js";
+import type { DesktopBridgeMainInvokeMethod } from "../shared/ipcChannels.js";
 import { detectAgentTools } from "./agentTools.js";
 import { openBlockInspectorWindow } from "./blockInspectorWindow.js";
 import { openTaskInspectorWindow } from "./taskInspectorWindow.js";
@@ -117,12 +117,7 @@ import {
   resolveTmuxAttachIntent
 } from "./tmuxRunRecordResolver.js";
 
-type RuntimeBridgeInvokeMethod = Exclude<
-  DesktopBridgeInvokeMethod,
-  "watchPackageFiles" | "unwatchPackageFiles" | "watchRuntimeState" | "unwatchRuntimeState"
->;
-
-type RuntimeBridgeHandler<M extends RuntimeBridgeInvokeMethod> = (
+type RuntimeBridgeHandler<M extends DesktopBridgeMainInvokeMethod> = (
   event: IpcMainInvokeEvent,
   ...args: Parameters<DesktopBridgeApi[M]>
 ) => Awaited<ReturnType<DesktopBridgeApi[M]>> | ReturnType<DesktopBridgeApi[M]> | Promise<Awaited<ReturnType<DesktopBridgeApi[M]>>>;
@@ -130,7 +125,7 @@ type RuntimeBridgeHandler<M extends RuntimeBridgeInvokeMethod> = (
 const maxRunTerminalAvailabilityRecordIds = 100;
 
 export type RuntimeBridgeHandlerMap = {
-  [Method in RuntimeBridgeInvokeMethod]: RuntimeBridgeHandler<Method>;
+  [Method in DesktopBridgeMainInvokeMethod]: RuntimeBridgeHandler<Method>;
 };
 
 async function invokeGraphEdit(promise: Promise<GraphEditResult>): Promise<DesktopGraphEditResult> {

@@ -3,11 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeInvokeApi } from "../preload/bridgeInvocation";
 import { appUpdateChangedChannel, appUpdateInvokeChannels, type AppUpdateState } from "../shared/appUpdate";
 import { defaultDesktopSettings, desktopSettingsInvokeChannels, type DesktopUiSettings } from "../shared/desktopSettings";
-import { autoRunChangedChannel, desktopBridgeInvokeChannels, packageFileChangedChannel, runtimeStateChangedChannel } from "../shared/ipcChannels";
+import {
+  autoRunChangedChannel,
+  desktopBridgeInvokeChannels,
+  packageFileChangedChannel,
+  runtimeStateChangedChannel,
+  type DesktopBridgeInvokeMethod
+} from "../shared/ipcChannels";
 import { mcpTunnelChangedChannel, mcpTunnelInvokeChannels, type McpTunnelStatus } from "../shared/mcpTunnel";
 import { windowAppearanceInvokeChannels } from "../shared/windowAppearance";
 
 type IpcRendererListener = (event: unknown, payload: unknown) => void;
+type InvokeForwarder = (...args: unknown[]) => Promise<unknown>;
 
 const electronMock = vi.hoisted(() => {
   const exposed = new Map<string, unknown>();
@@ -49,11 +56,16 @@ describe("preload bridge invocation", () => {
     }));
     const api = createDesktopBridgeInvokeApi(invoke);
     const ref = { projectRoot: "/tmp/project", canvasId: "canvas-a" };
+    const apiMethods = Object.keys(api).sort();
+    const channelMethods = Object.keys(desktopBridgeInvokeChannels).sort();
+
+    expect(apiMethods).toEqual(channelMethods);
 
     for (const [method, channel] of Object.entries(desktopBridgeInvokeChannels)) {
       invoke.mockClear();
+      const bridgeMethod = api[method as DesktopBridgeInvokeMethod] as InvokeForwarder;
 
-      await api[method as keyof typeof desktopBridgeInvokeChannels](ref, "arg-1", { nested: true });
+      await bridgeMethod(ref, "arg-1", { nested: true });
 
       expect(invoke).toHaveBeenCalledTimes(1);
       expect(invoke).toHaveBeenCalledWith(channel, ref, "arg-1", { nested: true });
