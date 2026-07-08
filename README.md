@@ -37,6 +37,7 @@ That makes PlanWeave a better fit for complex engineering work: parallel impleme
 
 - **Files are nodes, documents are blocks**: the graph is not a decoration on top of chat. It is the project model.
 - **Graph-friendly by default**: task flow, dependencies, review loops, and execution status are visible and editable.
+- **Zero-config start**: install the CLI and agent skills, then use a few commands and skill prompts to create, run, and inspect a plan in an existing project.
 - **Scoped graph context**: agents receive the current block plus relevant task graph context, and can inspect more when needed.
 - **Focused responsibilities**: each claim hands one focused block to one agent, keeping context clean and avoiding unrelated plans, stale discussion, and wasted tokens.
 - **Per-node and per-block agent routing**: use Codex for one block, Claude Code, OpenCode, or Pi for another, and local review scripts where deterministic checks are enough.
@@ -70,6 +71,12 @@ Then run:
 
 ```bash
 planweave --help
+```
+
+Install the agent skills as well:
+
+```bash
+npx skills@latest add GaosCode/PlanWeave
 ```
 
 ## MCP and ChatGPT Web Planning
