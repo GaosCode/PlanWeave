@@ -1,10 +1,11 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createExecutorAdapter } from "../autoRun/executors.js";
+import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { optionalReadFile, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { compileTaskGraph, parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
-import { readState } from "../state.js";
+import { readState, writeState } from "../state.js";
 import type {
   AutoRunExplanation,
   AutoRunExplanationPhase,
@@ -22,6 +23,7 @@ import type {
   ValidationIssue
 } from "../types.js";
 import type { PackageWorkspaceRef } from "../types.js";
+import { patchFeedbackArtifact } from "./feedbackArtifacts.js";
 import {
   claimNext,
   getExecutionStatus,
@@ -32,6 +34,8 @@ import {
   submitFeedback,
   submitReviewResult
 } from "./index.js";
+import { updateTaskIndex } from "./resultIndex.js";
+import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { effectiveFeedbackExecutor } from "./selectors.js";
 
 type BlockClaim = Extract<ClaimResult, { kind: "block" }>;
@@ -434,6 +438,47 @@ async function claimForBatchRef(options: {
   };
 }
 
+/**
+ * After a feedback executor throws, reopen the envelope and clear the active
+ * feedback pointer so the same feedback can be re-claimed (mirrors markBlockBlocked).
+ */
+async function releaseFeedbackAfterFailure(options: {
+  projectRoot: PackageWorkspaceRef;
+  feedbackId: string;
+  taskId: string;
+  session?: ExecutionGraphSession;
+}): Promise<void> {
+  const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
+  await withCanvasLock(dirname(lockWorkspace.stateFile), async () => {
+    const context = await loadRuntime({ projectRoot: options.projectRoot, session: options.session });
+    const { workspace, manifest } = context;
+    let { state } = context;
+    const feedback = state.feedback[options.feedbackId];
+    if (!feedback) {
+      throw new Error(`Cannot release unknown feedback '${options.feedbackId}'.`);
+    }
+    if (feedback.status === "in_progress") {
+      await patchFeedbackArtifact(workspace, options.taskId, options.feedbackId, { status: "open" });
+      await updateTaskIndex(workspace, options.taskId, (index) => ({
+        ...index,
+        feedbackStatusById: {
+          ...(index.feedbackStatusById ?? {}),
+          [options.feedbackId]: "open"
+        }
+      }));
+      state.feedback[options.feedbackId] = {
+        ...feedback,
+        status: "open"
+      };
+    }
+    if (state.currentFeedbackId === options.feedbackId) {
+      state.currentFeedbackId = null;
+    }
+    state = refreshDerivedState(manifest, state);
+    await writeState(workspace.stateFile, state);
+  });
+}
+
 async function executeBlockClaim(options: {
   projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
@@ -561,11 +606,18 @@ export async function runAutoRunStep(options: {
     try {
       adapterResult = await executor.runFeedback({ claim });
     } catch (error) {
+      const reason = `Executor failed for feedback: ${errorMessage(error)}`;
+      await releaseFeedbackAfterFailure({
+        projectRoot: options.projectRoot,
+        feedbackId: claim.feedbackId,
+        taskId: claim.taskId,
+        session: options.session
+      });
       return {
         kind: "blocked",
         claim: {
           kind: "blocked",
-          reason: `Executor failed for feedback: ${errorMessage(error)}`
+          reason
         }
       };
     }

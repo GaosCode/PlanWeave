@@ -467,7 +467,8 @@ describe("OpenCode executor", () => {
       claim: { kind: "blocked", reason: expect.stringContaining("unknown certificate verification error") }
     });
     await expect(getExecutionStatus({ projectRoot: init.workspace })).resolves.toMatchObject({
-      currentFeedbackId: "FE-001"
+      currentFeedbackId: null,
+      openFeedback: [{ feedbackId: "FE-001", sourceReviewBlockRef: "T-001#R-001", status: "open" }]
     });
   }, 20_000);
 });
