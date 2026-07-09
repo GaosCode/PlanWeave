@@ -214,6 +214,8 @@ export {
   getLatestAutoRunSummary,
   getLatestAutoRunSummaryWithDiagnostics,
   listAutoRunEvents,
+  archiveTaskCanvas,
+  getActiveTaskCanvasId,
   initManagedProject,
   initOrOpenProject,
   listTaskCanvases,

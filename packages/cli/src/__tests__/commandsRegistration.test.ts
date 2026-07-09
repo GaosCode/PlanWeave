@@ -80,6 +80,11 @@ describe("planweave CLI command registration", () => {
     expect(subcommandOptionLongs("canvas", "create")).toEqual(
       expect.arrayContaining(["--id", "--title", "--activate", "--dry-run", "--json"])
     );
+    expect(subcommandOptionLongs("canvas", "list")).toEqual(expect.arrayContaining(["--json"]));
+    expect(subcommandOptionLongs("canvas", "use")).toEqual(expect.arrayContaining(["--json"]));
+    expect(subcommandOptionLongs("canvas", "archive")).toEqual(
+      expect.arrayContaining(["--force", "--reason", "--json"])
+    );
     expect(commandOptionLongs("status")).toContain("--json");
     expect(commandOptionLongs("status")).toContain("--canvas");
     expect(commandOptionLongs("use")).toEqual(expect.arrayContaining(["--source-root", "--clear", "--json"]));

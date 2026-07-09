@@ -18,14 +18,17 @@ export {
 } from "./sourceDefaultProject.js";
 export type { SourceDefaultProjectCandidate, SourceDefaultProjectEntry } from "./sourceDefaultProject.js";
 export {
+  archiveTaskCanvas,
   createProjectFromTaskCanvas,
   createTaskCanvas,
   duplicateTaskCanvas,
+  getActiveTaskCanvasId,
   listTaskCanvases,
   renameTaskCanvas,
   removeTaskCanvas,
   resolveTaskCanvasWorkspace
 } from "./canvasApi.js";
+export type { ArchiveTaskCanvasOptions, ArchiveTaskCanvasResult } from "./canvasApi.js";
 export { selectTaskCanvas } from "./canvasSelectionApi.js";
 export {
   getCanvasGraphViewModel,
