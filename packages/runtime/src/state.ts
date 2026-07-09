@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { optionalStat } from "./fs/optionalFile.js";
 import { compileTaskGraph } from "./graph/compileTaskGraph.js";
 import { readJsonFile, writeJsonFile } from "./json.js";
+import { runtimeStateSchema } from "./schema/runtimeState.js";
 import type {
   BlockState,
   BlockStatus,
@@ -28,7 +29,15 @@ export async function readState(stateFile: string): Promise<RuntimeState> {
   if (!(await optionalStat(stateFile))) {
     return createEmptyState();
   }
-  return readJsonFile<RuntimeState>(stateFile);
+  const raw = await readJsonFile<unknown>(stateFile);
+  const parsed = runtimeStateSchema.safeParse(raw);
+  if (!parsed.success) {
+    const details = parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
+    throw new Error(
+      `Runtime state at ${stateFile} is invalid: ${details}. Run \`planweave doctor\` to inspect, or restore the file.`
+    );
+  }
+  return parsed.data;
 }
 
 export async function writeState(stateFile: string, state: RuntimeState): Promise<void> {

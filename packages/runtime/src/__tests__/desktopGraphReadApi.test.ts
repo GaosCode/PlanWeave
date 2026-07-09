@@ -164,7 +164,7 @@ describe("desktop graph read API", () => {
     expect(graph.autoRunPreflightExecutorHint).toBeNull();
   });
 
-  it("returns graph view models for persisted state with malformed current refs", async () => {
+  it("rejects graph view models when persisted state has malformed current refs", async () => {
     const { root, init } = await createTestWorkspace();
     await writeJsonFile(init.workspace.stateFile, {
       currentRefs: {},
@@ -175,13 +175,9 @@ describe("desktop graph read API", () => {
       feedback: {}
     });
 
-    const graph = await getGraphViewModel(root);
-
-    expect(graph.tasks.map((task) => task.taskId)).toEqual(["T-001"]);
-    expect(graph.tasks[0]).toMatchObject({
-      title: "Implement test task",
-      status: "ready"
-    });
+    await expect(getGraphViewModel(root)).rejects.toThrow(
+      /Runtime state at .* is invalid:.*currentRefs.*doctor/is
+    );
   });
 
   it("exposes dirty prompt refs from desktop file sync in graph view models", async () => {
