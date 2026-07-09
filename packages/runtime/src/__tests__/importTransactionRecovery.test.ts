@@ -1,121 +1,10 @@
-import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { optionalStat } from "../fs/optionalFile.js";
-import { readJsonFile, writeJsonFile } from "../json.js";
 import { ImportTransaction } from "../package/importTransaction.js";
+import { tempWorkspace, writeText, recoveryRoot, realFs, fsFailWrite, fsWithCleanupFailure, fsInstallFail, readRecovery, recoverClean, expectOp, writeJsonFile } from "./support/importTransactionTestHarness.js";
 
-async function tempWorkspace(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "planweave-import-transaction-"));
-}
-
-async function writeText(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, content, "utf8");
-}
-
-function recoveryRoot(workspaceRoot: string, transactionId: string): string {
-  return join(workspaceRoot, "desktop", "recovery", "package-import", transactionId);
-}
-
-const realFs = {
-  mkdir,
-  rename,
-  rm,
-  optionalStat,
-  readJsonFile,
-  writeJsonFile
-};
-
-type RecoveryJson = {
-  operations: Array<{
-    target: string;
-    backupPath: string;
-    type: string;
-    targetExisted: boolean;
-    phase: string;
-  }>;
-};
-
-function fsFailWrite(writeNumber: number, message: string): typeof realFs {
-  let recoveryWrites = 0;
-  return {
-    ...realFs,
-    writeJsonFile: async (path, value) => {
-      recoveryWrites += 1;
-      if (recoveryWrites === writeNumber) {
-        throw new Error(message);
-      }
-      return writeJsonFile(path, value);
-    }
-  };
-}
-
-function fsWithCleanupFailure(recovery: string): typeof realFs {
-  return {
-    ...realFs,
-    rm: async (path, options) => {
-      if (path === recovery) {
-        throw new Error("recovery cleanup interrupted");
-      }
-      return rm(path, options);
-    }
-  };
-}
-
-function fsInstallFail(staged: string, target: string): typeof realFs {
-  return {
-    ...realFs,
-    rename: async (source, destination) => {
-      if (source === staged && destination === target) {
-        throw new Error("staged install interrupted");
-      }
-      return rename(source, destination);
-    }
-  };
-}
-
-async function readRecovery(workspaceRoot: string, transactionId: string): Promise<RecoveryJson> {
-  return JSON.parse(await readFile(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"), "utf8")) as RecoveryJson;
-}
-
-async function recoverClean(workspaceRoot: string, transactionId: string): Promise<void> {
-  const recovered = await ImportTransaction.recover({ workspaceRoot, transactionId });
-  await recovered.rollback();
-  await expect(access(recoveryRoot(workspaceRoot, transactionId))).rejects.toThrow();
-}
-
-async function expectOp(
-  workspaceRoot: string,
-  transactionId: string,
-  operation: Partial<RecoveryJson["operations"][number]>
-): Promise<void> {
-  await expect(readRecovery(workspaceRoot, transactionId)).resolves.toMatchObject({ operations: [operation] });
-}
-
-describe("ImportTransaction", () => {
-  it("restores a replaced path on rollback", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const transactionId = "replace-rollback";
-    const target = join(workspaceRoot, "canvases", "default", "package");
-    const staged = join(workspaceRoot, "staged-package");
-    await mkdir(target, { recursive: true });
-    await writeFile(join(target, "manifest.json"), "old\n", "utf8");
-    await mkdir(staged, { recursive: true });
-    await writeFile(join(staged, "manifest.json"), "new\n", "utf8");
-    const transaction = await ImportTransaction.create({ workspaceRoot, transactionId });
-
-    await transaction.replacePath(target, staged);
-    expect(await readFile(join(target, "manifest.json"), "utf8")).toBe("new\n");
-    await expectOp(workspaceRoot, transactionId, { target, type: "replace", targetExisted: true, phase: "installed" });
-
-    await transaction.rollback();
-
-    expect(await readFile(join(target, "manifest.json"), "utf8")).toBe("old\n");
-    await expect(access(recoveryRoot(workspaceRoot, transactionId))).rejects.toThrow();
-  });
-
+describe("ImportTransaction: recovery", () => {
   it("recovers an installed replace rollback after target removal interrupts backup restore", async () => {
     const workspaceRoot = await tempWorkspace();
     const transactionId = "recover-installed-replace-rollback";
@@ -369,41 +258,6 @@ describe("ImportTransaction", () => {
     expect(await readFile(join(target, "old.txt"), "utf8")).toBe("old result\n");
   });
 
-  it("removes a replacement when the target did not exist before rollback", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const transactionId = "missing-target-rollback";
-    const target = join(workspaceRoot, "canvases", "new", "package");
-    const staged = join(workspaceRoot, "staged-package");
-    await mkdir(staged, { recursive: true });
-    await writeFile(join(staged, "manifest.json"), "new\n", "utf8");
-    const transaction = await ImportTransaction.create({ workspaceRoot, transactionId });
-
-    await transaction.replacePath(target, staged);
-    expect(await readFile(join(target, "manifest.json"), "utf8")).toBe("new\n");
-
-    await transaction.rollback();
-
-    await expect(access(target)).rejects.toThrow();
-    await expect(access(recoveryRoot(workspaceRoot, transactionId))).rejects.toThrow();
-  });
-
-  it("restores a removed path on rollback", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const transactionId = "remove-rollback";
-    const target = join(workspaceRoot, "canvases", "stale", "results");
-    await mkdir(target, { recursive: true });
-    await writeFile(join(target, "old.txt"), "old result\n", "utf8");
-    const transaction = await ImportTransaction.create({ workspaceRoot, transactionId });
-
-    await transaction.removePath(target);
-    await expect(access(target)).rejects.toThrow();
-
-    await transaction.rollback();
-
-    expect(await readFile(join(target, "old.txt"), "utf8")).toBe("old result\n");
-    await expect(access(recoveryRoot(workspaceRoot, transactionId))).rejects.toThrow();
-  });
-
   it("recovers a removed path from disk after backup succeeds", async () => {
     const workspaceRoot = await tempWorkspace();
     const transactionId = "recover-backed-up-remove";
@@ -614,41 +468,6 @@ describe("ImportTransaction", () => {
     await expect(access(recoveryRoot(workspaceRoot, transactionId))).rejects.toThrow();
   });
 
-  it("reports a missing backup without deleting the replacement target", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const transactionId = "missing-backup";
-    const target = join(workspaceRoot, "canvases", "default", "state.json");
-    const staged = join(workspaceRoot, "staged-state.json");
-    await writeText(target, "old state\n");
-    await writeFile(staged, "new state\n", "utf8");
-    const transaction = await ImportTransaction.create({ workspaceRoot, transactionId });
-
-    await transaction.replacePath(target, staged);
-    await rm(join(recoveryRoot(workspaceRoot, transactionId), "backups", "000001"), { recursive: true, force: true });
-
-    await expect(transaction.rollback()).rejects.toThrow("backup missing");
-
-    expect(await readFile(target, "utf8")).toBe("new state\n");
-    await expect(access(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"))).resolves.toBeUndefined();
-  });
-
-  it("reports a backedUp missing backup without treating rollback as complete", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const transactionId = "backed-up-missing-backup";
-    const target = join(workspaceRoot, "canvases", "stale", "results");
-    await mkdir(target, { recursive: true });
-    await writeFile(join(target, "old.txt"), "old result\n", "utf8");
-    const transaction = await ImportTransaction.create({ workspaceRoot, transactionId });
-
-    await transaction.removePath(target);
-    await rm(join(recoveryRoot(workspaceRoot, transactionId), "backups", "000001"), { recursive: true, force: true });
-
-    await expect(transaction.rollback()).rejects.toThrow("backup missing");
-
-    await expect(access(target)).rejects.toThrow();
-    await expectOp(workspaceRoot, transactionId, { target, type: "remove", targetExisted: true, phase: "backedUp" });
-  });
-
   it("keeps recovery when a backedUp rollback sees an external target next to the backup", async () => {
     const workspaceRoot = await tempWorkspace();
     const transactionId = "backed-up-external-target";
@@ -685,27 +504,6 @@ describe("ImportTransaction", () => {
     expect(await readFile(target, "utf8")).toBe("external state\n");
     expect(await readFile(backupPath, "utf8")).toBe("old state\n");
     await expectOp(workspaceRoot, transactionId, { target, type: "replace", targetExisted: true, phase: "rollingBackFromBackedUp" });
-  });
-
-  it("does not mutate disk when rollingBack progress cannot be persisted", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const transactionId = "rolling-back-progress-write-fails";
-    const target = join(workspaceRoot, "canvases", "default", "state.json");
-    const staged = join(workspaceRoot, "staged-state.json");
-    await writeText(target, "old state\n");
-    await writeFile(staged, "new state\n", "utf8");
-    const transaction = await ImportTransaction.create({
-      workspaceRoot,
-      transactionId,
-      fs: fsFailWrite(5, "rollback progress write failed")
-    });
-
-    await transaction.replacePath(target, staged);
-    await expect(transaction.rollback()).rejects.toThrow("rollback progress write failed");
-
-    expect(await readFile(target, "utf8")).toBe("new state\n");
-    await expectOp(workspaceRoot, transactionId, { target, type: "replace", targetExisted: true, phase: "installed" });
-    await expect(access(recoveryRoot(workspaceRoot, transactionId))).resolves.toBeUndefined();
   });
 
   it("recovers an installed replace when rolledBack progress cannot be persisted after target restore", async () => {
@@ -806,101 +604,5 @@ describe("ImportTransaction", () => {
     await recoverClean(workspaceRoot, transactionId);
 
     await expect(access(target)).rejects.toThrow();
-  });
-
-  it("keeps recovery.json when rollback fails", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const transactionId = "rollback-fails";
-    const target = join(workspaceRoot, "canvases", "default", "state.json");
-    const staged = join(workspaceRoot, "staged-state.json");
-    await writeText(target, "old state\n");
-    await writeFile(staged, "new state\n", "utf8");
-    const transaction = await ImportTransaction.create({ workspaceRoot, transactionId });
-
-    await transaction.replacePath(target, staged);
-    await rm(join(workspaceRoot, "canvases", "default"), { recursive: true, force: true });
-    await writeFile(join(workspaceRoot, "canvases", "default"), "not a directory\n", "utf8");
-
-    await expect(transaction.rollback()).rejects.toThrow("Import transaction rollback failed");
-
-    const recovery = JSON.parse(await readFile(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"), "utf8")) as {
-      operations: Array<{ target: string; type: string }>;
-    };
-    expect(recovery.operations).toContainEqual(expect.objectContaining({ target, type: "replace" }));
-  });
-
-  it("cleans the recovery directory on commit", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const transactionId = "commit-cleans";
-    const target = join(workspaceRoot, "project-graph.json");
-    const staged = join(workspaceRoot, "staged-project-graph.json");
-    await writeText(target, "old graph\n");
-    await writeFile(staged, "new graph\n", "utf8");
-    const transaction = await ImportTransaction.create({ workspaceRoot, transactionId });
-
-    await transaction.replacePath(target, staged);
-    await transaction.commit();
-
-    expect(await readFile(target, "utf8")).toBe("new graph\n");
-    await expect(access(recoveryRoot(workspaceRoot, transactionId))).rejects.toThrow();
-  });
-
-  it("does not roll back the new target when commit cleanup fails", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const transactionId = "commit-cleanup-fails";
-    const target = join(workspaceRoot, "project-graph.json");
-    const staged = join(workspaceRoot, "staged-project-graph.json");
-    const recovery = recoveryRoot(workspaceRoot, transactionId);
-    await writeText(target, "old graph\n");
-    await writeFile(staged, "new graph\n", "utf8");
-    const transaction = await ImportTransaction.create({
-      workspaceRoot,
-      transactionId,
-      fs: {
-        ...realFs,
-        rm: async (path, options) => {
-          if (path === recovery) {
-            throw new Error("recovery cleanup failed");
-          }
-          return rm(path, options);
-        }
-      }
-    });
-
-    await transaction.replacePath(target, staged);
-    await expect(transaction.commit()).rejects.toThrow("recovery cleanup failed");
-
-    expect(await readFile(target, "utf8")).toBe("new graph\n");
-    await expect(access(join(recovery, "recovery.json"))).resolves.toBeUndefined();
-  });
-
-  it("surfaces backup directory write failure without mutating the target", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const transactionId = "backup-dir-fails";
-    const target = join(workspaceRoot, "canvases", "default", "package");
-    const staged = join(workspaceRoot, "staged-package");
-    const backupDir = join(recoveryRoot(workspaceRoot, transactionId), "backups");
-    await mkdir(target, { recursive: true });
-    await writeFile(join(target, "manifest.json"), "old\n", "utf8");
-    await mkdir(staged, { recursive: true });
-    await writeFile(join(staged, "manifest.json"), "new\n", "utf8");
-    const transaction = await ImportTransaction.create({
-      workspaceRoot,
-      transactionId,
-      fs: {
-        ...realFs,
-        mkdir: async (path, options) => {
-          if (path === backupDir) {
-            throw new Error("backup directory write failed");
-          }
-          return mkdir(path, options);
-        }
-      }
-    });
-
-    await expect(transaction.replacePath(target, staged)).rejects.toThrow("backup directory write failed");
-
-    expect(await readFile(join(target, "manifest.json"), "utf8")).toBe("old\n");
-    expect(await readFile(join(staged, "manifest.json"), "utf8")).toBe("new\n");
   });
 });
