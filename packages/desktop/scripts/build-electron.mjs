@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { rm } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { builtinModules } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,6 +37,8 @@ await Promise.all([
   rm(distPreloadDir, { recursive: true, force: true })
 ]);
 
+const { banner: _mainBanner, ...preloadCommonOptions } = commonOptions;
+
 await Promise.all([
   build({
     ...commonOptions,
@@ -44,8 +46,16 @@ await Promise.all([
     outfile: resolve(distMainDir, "main.js")
   }),
   build({
-    ...commonOptions,
+    ...preloadCommonOptions,
+    format: "cjs",
     entryPoints: [resolve(packageRoot, "src", "preload", "preload.ts")],
     outfile: resolve(distPreloadDir, "preload.js")
   })
 ]);
+
+// Parent package.json has "type": "module"; mark the preload dir as CJS so
+// Electron loads dist/preload/preload.js as CommonJS (required for sandbox).
+await writeFile(
+  resolve(distPreloadDir, "package.json"),
+  `${JSON.stringify({ type: "commonjs" }, null, 2)}\n`
+);
