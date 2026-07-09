@@ -37,7 +37,8 @@ function printUseHuman(result: {
   sourceRoot: string;
 }): void {
   if (result.defaultProject) {
-    const verb = result.action === "set" ? "Set" : result.action === "cleared" ? "Cleared" : "Current";
+    const verb =
+      result.action === "set" ? "Set" : result.action === "cleared" ? "Cleared" : "Current";
     console.log(`${verb} PlanWeave default for source root: ${result.defaultProject.sourceRoot}`);
     console.log(`Project: ${result.defaultProject.projectId}`);
     console.log(`Project root: ${result.defaultProject.projectRoot}`);
@@ -66,7 +67,10 @@ export function registerUseCommand(program: Command): void {
   program
     .command("use [projectId]")
     .description("Set or show the default PlanWeave project for the current source root")
-    .option("--source-root <path>", "set or inspect the default for this source root instead of INIT_CWD or cwd")
+    .option(
+      "--source-root <path>",
+      "set or inspect the default for this source root instead of INIT_CWD or cwd"
+    )
     .option("--clear", "clear the default PlanWeave project for the source root")
     .option("--json", "print machine-readable output")
     .action(async (projectId: string | undefined, options: UseCommandOptions) => {
@@ -77,20 +81,36 @@ export function registerUseCommand(program: Command): void {
         }
         const cleared = await clearSourceDefaultProject(sourceRoot);
         const availableProjects = await listSourceDefaultProjectCandidates(sourceRoot);
-        const result = { action: "cleared" as const, availableProjects, clearedProject: cleared, defaultProject: null, sourceRoot };
+        const result = {
+          action: "cleared" as const,
+          availableProjects,
+          clearedProject: cleared,
+          defaultProject: null,
+          sourceRoot
+        };
         options.json ? printUseJson(result) : printUseHuman(result);
         return;
       }
       if (projectId) {
         const next = await setSourceDefaultProject(sourceRoot, projectId);
         const availableProjects = await listSourceDefaultProjectCandidates(sourceRoot);
-        const result = { action: "set" as const, availableProjects, defaultProject: next, sourceRoot };
+        const result = {
+          action: "set" as const,
+          availableProjects,
+          defaultProject: next,
+          sourceRoot
+        };
         options.json ? printUseJson(result) : printUseHuman(result);
         return;
       }
       const current = await getSourceDefaultProject(sourceRoot);
       const availableProjects = await listSourceDefaultProjectCandidates(sourceRoot);
-      const result = { action: "show" as const, availableProjects, defaultProject: current, sourceRoot };
+      const result = {
+        action: "show" as const,
+        availableProjects,
+        defaultProject: current,
+        sourceRoot
+      };
       options.json ? printUseJson(result) : printUseHuman(result);
     });
 }

@@ -24,7 +24,13 @@ const terminalAgents = [
 ] as const;
 
 describe("terminal agent executors", () => {
-  it.each(terminalAgents)("runs $adapter in the project directory and submits stdout as the block report", async ({ name, adapter, createAdapter }) => {
+  it.each(
+    terminalAgents
+  )("runs $adapter in the project directory and submits stdout as the block report", async ({
+    name,
+    adapter,
+    createAdapter
+  }) => {
     const manifest = manifestTestBuilder()
       .withExecutor(name, {
         adapter,
@@ -66,8 +72,12 @@ describe("terminal agent executors", () => {
 
     const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
     await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.toContain("report:true");
-    await expect(readFile(join(root, `${name}-cwd.txt`), "utf8")).resolves.toBe(init.workspace.rootPath);
-    await expect(readFile(join(root, `${name}-planweave-home.txt`), "utf8")).resolves.toBe(init.workspace.planweaveHome);
+    await expect(readFile(join(root, `${name}-cwd.txt`), "utf8")).resolves.toBe(
+      init.workspace.rootPath
+    );
+    await expect(readFile(join(root, `${name}-planweave-home.txt`), "utf8")).resolves.toBe(
+      init.workspace.planweaveHome
+    );
     const metadata = await readJsonFile<Record<string, unknown>>(join(runDir, "metadata.json"));
     expect(metadata).toMatchObject({
       executor: name,
@@ -137,11 +147,29 @@ describe("terminal agent executors", () => {
     expect(step).toMatchObject({
       kind: "submitted",
       claim: { kind: "block", ref: "T-001#R-001", blockType: "review" },
-      adapterResult: { kind: "review", adapter: "claude-code-exec", resultPath: expect.stringContaining("review-result.json") },
+      adapterResult: {
+        kind: "review",
+        adapter: "claude-code-exec",
+        resultPath: expect.stringContaining("review-result.json")
+      },
       submitResult: { ref: "T-001#R-001", verdict: "passed", status: "completed" }
     });
-    await expect(readFile(join(root, "claude-review-prompt.md"), "utf8")).resolves.toContain("Auto Run Review Result File");
-    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "R-001", "runs", "RUN-001", "review-result.json"))).resolves.toMatchObject({
+    await expect(readFile(join(root, "claude-review-prompt.md"), "utf8")).resolves.toContain(
+      "Auto Run Review Result File"
+    );
+    await expect(
+      readJsonFile(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "R-001",
+          "runs",
+          "RUN-001",
+          "review-result.json"
+        )
+      )
+    ).resolves.toMatchObject({
       verdict: "passed",
       content: "review file passed"
     });

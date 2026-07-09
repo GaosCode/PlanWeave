@@ -11,8 +11,19 @@ import {
   resolveTunnelClientBinaryStartTarget,
   type TunnelClientBinaryStartTarget
 } from "../main/mcpTunnel/tunnelClientBinary";
-import { downloadOfficialTunnelClient, parseSha256Sums, selectTunnelClientReleaseAssets, tunnelClientPlatformAsset } from "../main/mcpTunnel/tunnelClientDownloader";
-import { mcpTunnelConfigPath, mcpTunnelConfigStorePaths, mcpTunnelLegacyConfigPath, readTunnelClientConfig, writeTunnelClientConfig } from "../main/mcpTunnel/tunnelClientStore";
+import {
+  downloadOfficialTunnelClient,
+  parseSha256Sums,
+  selectTunnelClientReleaseAssets,
+  tunnelClientPlatformAsset
+} from "../main/mcpTunnel/tunnelClientDownloader";
+import {
+  mcpTunnelConfigPath,
+  mcpTunnelConfigStorePaths,
+  mcpTunnelLegacyConfigPath,
+  readTunnelClientConfig,
+  writeTunnelClientConfig
+} from "../main/mcpTunnel/tunnelClientStore";
 
 const tempRoots: string[] = [];
 const originalPlanweaveHome = process.env.PLANWEAVE_HOME;
@@ -35,7 +46,9 @@ const electronMock = vi.hoisted(() => ({
     handle: vi.fn()
   },
   safeStorage: {
-    decryptString: vi.fn((value: Buffer) => Buffer.from(value.toString(), "base64").toString("utf8")),
+    decryptString: vi.fn((value: Buffer) =>
+      Buffer.from(value.toString(), "base64").toString("utf8")
+    ),
     encryptString: vi.fn((value: string) => Buffer.from(value, "utf8")),
     isEncryptionAvailable: vi.fn(() => true)
   }
@@ -125,7 +138,9 @@ exit 1
 }
 
 async function sha256(path: string): Promise<string> {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+  return createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -154,7 +169,9 @@ afterEach(async () => {
 
 describe("MCP tunnel process helpers", () => {
   it("builds tunnel-client commands for an HTTP MCP endpoint", async () => {
-    const { buildTunnelClientInitArgs, buildTunnelClientRunArgs } = await import("../main/mcpTunnel/tunnelClientProcess");
+    const { buildTunnelClientInitArgs, buildTunnelClientRunArgs } = await import(
+      "../main/mcpTunnel/tunnelClientProcess"
+    );
 
     expect(
       buildTunnelClientInitArgs({
@@ -273,9 +290,11 @@ describe("MCP tunnel process helpers", () => {
   });
 
   it("does not start when the resolved tunnel-client binary is unavailable", async () => {
-    await expect(resolveTunnelClientBinaryStartTarget(join(tmpdir(), "planweave-missing-tunnel-client", "tunnel-client"))).rejects.toThrow(
-      "Tunnel client binary is missing or not executable."
-    );
+    await expect(
+      resolveTunnelClientBinaryStartTarget(
+        join(tmpdir(), "planweave-missing-tunnel-client", "tunnel-client")
+      )
+    ).rejects.toThrow("Tunnel client binary is missing or not executable.");
   });
 
   it("does not start an untrusted structural tunnel-client descriptor", async () => {
@@ -283,7 +302,9 @@ describe("MCP tunnel process helpers", () => {
     const dir = await mkdtemp(join(tmpdir(), "planweave-tunnel-client-"));
     const markerPath = join(dir, "started");
     const binaryPath = await writeMarkerTunnelClientScript(markerPath);
-    const untrustedBinary = (await resolveTunnelClientBinary(binaryPath)) as unknown as TunnelClientBinaryStartTarget;
+    const untrustedBinary = (await resolveTunnelClientBinary(
+      binaryPath
+    )) as unknown as TunnelClientBinaryStartTarget;
     const manager = new TunnelClientProcessManager();
 
     const status = await manager.start({
@@ -338,13 +359,17 @@ describe("MCP tunnel process helpers", () => {
     }
     const binaryPath = await writeTunnelClientScript();
     await new Promise<void>((resolve, reject) => {
-      execFile("/usr/bin/xattr", ["-w", "com.apple.quarantine", "0081;00000000;PlanWeaveTest;", binaryPath], (error) => {
-        if (error) {
-          reject(error);
-          return;
+      execFile(
+        "/usr/bin/xattr",
+        ["-w", "com.apple.quarantine", "0081;00000000;PlanWeaveTest;", binaryPath],
+        (error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
         }
-        resolve();
-      });
+      );
     });
 
     const status = await resolveTunnelClientBinary(binaryPath);
@@ -377,7 +402,9 @@ describe("MCP tunnel process helpers", () => {
       verified: false,
       error: "Managed tunnel-client install metadata is missing the binary checksum."
     });
-    expect(getTunnelClientBinaryStartError(status)).toBe("Managed tunnel-client install metadata is missing the binary checksum.");
+    expect(getTunnelClientBinaryStartError(status)).toBe(
+      "Managed tunnel-client install metadata is missing the binary checksum."
+    );
   });
 
   it("verifies managed tunnel-client binaries with matching install metadata", async () => {
@@ -532,7 +559,10 @@ exit 1
       tag_name: "v0.0.9",
       assets: [
         { name: "SHA256SUMS.txt", browser_download_url: "https://example.test/SHA256SUMS.txt" },
-        { name: "tunnel-client-v0.0.9-windows-amd64.zip", browser_download_url: "https://example.test/windows.zip" }
+        {
+          name: "tunnel-client-v0.0.9-windows-amd64.zip",
+          browser_download_url: "https://example.test/windows.zip"
+        }
       ]
     };
     const selected = selectTunnelClientReleaseAssets(release, {
@@ -563,7 +593,10 @@ exit 1
           JSON.stringify({
             tag_name: "v-test",
             assets: [
-              { name: "SHA256SUMS.txt", browser_download_url: "https://example.test/SHA256SUMS.txt" },
+              {
+                name: "SHA256SUMS.txt",
+                browser_download_url: "https://example.test/SHA256SUMS.txt"
+              },
               { name: assetName, browser_download_url: "https://example.test/platform.zip" }
             ]
           }),
@@ -583,7 +616,9 @@ exit 1
     const result = await downloadOfficialTunnelClient();
 
     await expect(readFile(result.binaryPath)).resolves.toEqual(Buffer.from(binaryBytes));
-    expect(result.binaryPath).toContain(join(planweaveHome, "desktop", "mcp-tunnel", "downloads", "tunnel-client"));
+    expect(result.binaryPath).toContain(
+      join(planweaveHome, "desktop", "mcp-tunnel", "downloads", "tunnel-client")
+    );
     expect(result.verification).toEqual({
       assetName,
       assetSha256: zipHash,
@@ -662,11 +697,15 @@ exit 1
     await mkdir(dirname(legacyPath), { recursive: true });
     await writeFile(legacyPath, `${JSON.stringify(legacyConfig, null, 2)}\n`);
 
-    await expect(readTunnelClientConfig(mcpTunnelConfigStorePaths(userDataDir))).resolves.toEqual(legacyConfig);
+    await expect(readTunnelClientConfig(mcpTunnelConfigStorePaths(userDataDir))).resolves.toEqual(
+      legacyConfig
+    );
 
     await expect(readTunnelClientConfig()).resolves.toEqual(legacyConfig);
     await expect(exists(legacyPath)).resolves.toBe(true);
-    await expect(readFile(mcpTunnelConfigPath(), "utf8")).resolves.toContain("/tmp/legacy-tunnel-client");
+    await expect(readFile(mcpTunnelConfigPath(), "utf8")).resolves.toContain(
+      "/tmp/legacy-tunnel-client"
+    );
     expect(mcpTunnelConfigPath()).toBe(join(planweaveHome, "desktop", "mcp-tunnel", "config.json"));
   });
 
@@ -684,7 +723,9 @@ exit 1
     await mkdir(dirname(mcpTunnelLegacyConfigPath(userDataDir)), { recursive: true });
     await writeFile(mcpTunnelLegacyConfigPath(userDataDir), "{");
 
-    await expect(readTunnelClientConfig(mcpTunnelConfigStorePaths(userDataDir))).resolves.toEqual(currentConfig);
+    await expect(readTunnelClientConfig(mcpTunnelConfigStorePaths(userDataDir))).resolves.toEqual(
+      currentConfig
+    );
   });
 
   it("does not silently swallow invalid tunnel config JSON", async () => {
@@ -715,7 +756,9 @@ exit 1
       encryptedRuntimeApiKey: null,
       autoStart: false
     });
-    await expect(readFile(join(firstHome, "desktop", "mcp-tunnel", "config.json"), "utf8")).resolves.toContain("/tmp/first-tunnel-client");
+    await expect(
+      readFile(join(firstHome, "desktop", "mcp-tunnel", "config.json"), "utf8")
+    ).resolves.toContain("/tmp/first-tunnel-client");
   });
 
   it("redacts runtime API keys and tunnel IDs from tunnel-client init failures", async () => {
@@ -744,15 +787,17 @@ exit 1
     vi.resetModules();
     const planweaveHome = await useTempPlanweaveHome();
     const userDataDir = await mkdtemp(join(tmpdir(), "planweave-user-data-"));
-    const tunnelStart = vi.fn(async (options: { input: { tunnelId: string; runtimeApiKey: string } }) => ({
-      phase: "running",
-      profile: "planweave-local-http",
-      tunnelId: options.input.tunnelId,
-      pid: 123,
-      healthUrl: "http://127.0.0.1:12345",
-      ready: true,
-      error: null
-    }));
+    const tunnelStart = vi.fn(
+      async (options: { input: { tunnelId: string; runtimeApiKey: string } }) => ({
+        phase: "running",
+        profile: "planweave-local-http",
+        tunnelId: options.input.tunnelId,
+        pid: 123,
+        healthUrl: "http://127.0.0.1:12345",
+        ready: true,
+        error: null
+      })
+    );
 
     electronMock.app.getPath.mockReturnValue(userDataDir);
     electronMock.safeStorage.isEncryptionAvailable.mockReturnValue(false);
@@ -820,7 +865,9 @@ exit 1
       downloadOfficialTunnelClient: vi.fn()
     }));
 
-    const { getMcpTunnelStatus, setTunnelAutoStart, startTunnel } = await import("../main/mcpTunnel/mcpTunnelHandlers");
+    const { getMcpTunnelStatus, setTunnelAutoStart, startTunnel } = await import(
+      "../main/mcpTunnel/mcpTunnelHandlers"
+    );
 
     const firstStatus = await startTunnel({
       tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
@@ -840,8 +887,12 @@ exit 1
       encryptedRuntimeApiKey: null,
       autoStart: false
     });
-    await expect(readFile(mcpTunnelConfigPath(), "utf8")).resolves.not.toContain("secret-runtime-key");
-    await expect(readFile(mcpTunnelConfigPath(), "utf8")).resolves.not.toContain("old-encrypted-runtime-key");
+    await expect(readFile(mcpTunnelConfigPath(), "utf8")).resolves.not.toContain(
+      "secret-runtime-key"
+    );
+    await expect(readFile(mcpTunnelConfigPath(), "utf8")).resolves.not.toContain(
+      "old-encrypted-runtime-key"
+    );
     expect(firstStatus.config).toMatchObject({
       hasRuntimeApiKey: true,
       runtimeApiKeyPersistence: "session-only",
@@ -865,7 +916,9 @@ exit 1
         runtimeApiKeyStorage: "unavailable"
       }
     });
-    await expect(setTunnelAutoStart(true)).rejects.toThrow("Auto-start requires a runtime API key that can be restored from secure storage.");
+    await expect(setTunnelAutoStart(true)).rejects.toThrow(
+      "Auto-start requires a runtime API key that can be restored from secure storage."
+    );
   });
 
   it("treats an in-memory persisted runtime API key as session-only when safeStorage becomes unavailable", async () => {
@@ -876,7 +929,9 @@ exit 1
 
     electronMock.app.getPath.mockReturnValue(userDataDir);
     electronMock.safeStorage.isEncryptionAvailable.mockReturnValue(true);
-    electronMock.safeStorage.decryptString.mockImplementation((value: Buffer) => value.toString("utf8"));
+    electronMock.safeStorage.decryptString.mockImplementation((value: Buffer) =>
+      value.toString("utf8")
+    );
     await writeTunnelClientConfig({
       tunnelClientPath: null,
       verification: null,
@@ -935,7 +990,9 @@ exit 1
       downloadOfficialTunnelClient: vi.fn()
     }));
 
-    const { getMcpTunnelStatus, setTunnelAutoStart } = await import("../main/mcpTunnel/mcpTunnelHandlers");
+    const { getMcpTunnelStatus, setTunnelAutoStart } = await import(
+      "../main/mcpTunnel/mcpTunnelHandlers"
+    );
     await expect(getMcpTunnelStatus()).resolves.toMatchObject({
       config: {
         hasRuntimeApiKey: true,
@@ -955,7 +1012,9 @@ exit 1
         autoStart: false
       }
     });
-    await expect(setTunnelAutoStart(true)).rejects.toThrow("Auto-start requires a runtime API key that can be restored from secure storage.");
+    await expect(setTunnelAutoStart(true)).rejects.toThrow(
+      "Auto-start requires a runtime API key that can be restored from secure storage."
+    );
     const { autoStartMcpTunnel } = await import("../main/mcpTunnel/mcpTunnelHandlers");
     await autoStartMcpTunnel();
 
@@ -969,19 +1028,23 @@ exit 1
     vi.resetModules();
     const planweaveHome = await useTempPlanweaveHome();
     const userDataDir = await mkdtemp(join(tmpdir(), "planweave-user-data-"));
-    const tunnelStart = vi.fn(async (options: { input: { tunnelId: string; runtimeApiKey: string } }) => ({
-      phase: "running",
-      profile: "planweave-local-http",
-      tunnelId: options.input.tunnelId,
-      pid: 123,
-      healthUrl: "http://127.0.0.1:12345",
-      ready: true,
-      error: null
-    }));
+    const tunnelStart = vi.fn(
+      async (options: { input: { tunnelId: string; runtimeApiKey: string } }) => ({
+        phase: "running",
+        profile: "planweave-local-http",
+        tunnelId: options.input.tunnelId,
+        pid: 123,
+        healthUrl: "http://127.0.0.1:12345",
+        ready: true,
+        error: null
+      })
+    );
 
     electronMock.app.getPath.mockReturnValue(userDataDir);
     electronMock.safeStorage.isEncryptionAvailable.mockReturnValue(true);
-    electronMock.safeStorage.encryptString.mockImplementation((value: string) => Buffer.from(`encrypted:${value}`, "utf8"));
+    electronMock.safeStorage.encryptString.mockImplementation((value: string) =>
+      Buffer.from(`encrypted:${value}`, "utf8")
+    );
     vi.doMock("../main/mcpTunnel/localMcpProcess", () => ({
       LocalMcpServerManager: class {
         getStatus = vi.fn(() => ({
@@ -1039,7 +1102,9 @@ exit 1
       downloadOfficialTunnelClient: vi.fn()
     }));
 
-    const { getMcpTunnelStatus, setTunnelAutoStart, startTunnel } = await import("../main/mcpTunnel/mcpTunnelHandlers");
+    const { getMcpTunnelStatus, setTunnelAutoStart, startTunnel } = await import(
+      "../main/mcpTunnel/mcpTunnelHandlers"
+    );
 
     await startTunnel({
       tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
@@ -1047,7 +1112,9 @@ exit 1
     });
     const config = await readTunnelClientConfig();
 
-    expect(config.encryptedRuntimeApiKey).toBe(Buffer.from("encrypted:secret-runtime-key", "utf8").toString("base64"));
+    expect(config.encryptedRuntimeApiKey).toBe(
+      Buffer.from("encrypted:secret-runtime-key", "utf8").toString("base64")
+    );
     await expect(setTunnelAutoStart(true)).resolves.toMatchObject({
       config: {
         autoStart: true,

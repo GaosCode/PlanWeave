@@ -1,7 +1,12 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getDesktopLayout, resetDesktopLayout, resolveTaskCanvasWorkspace, saveDesktopLayout } from "../desktop/index.js";
+import {
+  getDesktopLayout,
+  resetDesktopLayout,
+  resolveTaskCanvasWorkspace,
+  saveDesktopLayout
+} from "../desktop/index.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import type { PlanPackageManifest } from "../types.js";
 import { validatePackage } from "../validatePackage.js";
@@ -53,8 +58,13 @@ describe("desktop layout API", () => {
       projectId: init.workspace.id,
       nodes: [{ nodeId: "T-001", x: 120, y: 240 }]
     });
-    expect(await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile)).not.toHaveProperty("layout");
-    expect(await resetDesktopLayout(root)).toMatchObject({ projectId: init.workspace.id, nodes: [] });
+    expect(await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile)).not.toHaveProperty(
+      "layout"
+    );
+    expect(await resetDesktopLayout(root)).toMatchObject({
+      projectId: init.workspace.id,
+      nodes: []
+    });
   });
 
   it("ignores stale layout node references and reports them during validation", async () => {

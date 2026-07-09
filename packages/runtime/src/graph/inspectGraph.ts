@@ -41,7 +41,12 @@ function parseCursor(cursor: string | undefined): number {
   return Number.parseInt(match[1], 10);
 }
 
-function pageFor(total: number, limit: number, offset: number, cursor: string | undefined): GraphInspectionPage {
+function pageFor(
+  total: number,
+  limit: number,
+  offset: number,
+  cursor: string | undefined
+): GraphInspectionPage {
   const nextOffset = offset + limit;
   const nextCursor = nextOffset < total ? `next:${nextOffset}` : null;
   return {
@@ -108,9 +113,17 @@ function countsFor(graph: CompiledExecutionGraph, state: RuntimeState): GraphIns
   return {
     taskCount: graph.taskNodesInManifestOrder.length,
     blockCount: graph.blockRefsInManifestOrder.length,
-    taskDependencyCount: [...graph.taskDependenciesByTask.values()].reduce((count, dependencies) => count + dependencies.length, 0),
-    reviewBlockCount: [...graph.reviewBlocksByTask.values()].reduce((count, refs) => count + refs.length, 0),
-    readyBlockCount: graph.blockRefsInManifestOrder.filter((ref) => state.blocks[ref]?.status === "ready").length,
+    taskDependencyCount: [...graph.taskDependenciesByTask.values()].reduce(
+      (count, dependencies) => count + dependencies.length,
+      0
+    ),
+    reviewBlockCount: [...graph.reviewBlocksByTask.values()].reduce(
+      (count, refs) => count + refs.length,
+      0
+    ),
+    readyBlockCount: graph.blockRefsInManifestOrder.filter(
+      (ref) => state.blocks[ref]?.status === "ready"
+    ).length,
     diagnosticCount: graph.diagnostics.errors.length + graph.diagnostics.warnings.length
   };
 }
@@ -118,13 +131,21 @@ function countsFor(graph: CompiledExecutionGraph, state: RuntimeState): GraphIns
 function deriveCanvasId(packageDir: string): string | null {
   const parts = packageDir.split(sep);
   const packageIndex = parts.length - 1;
-  if (parts[packageIndex] !== "package" || packageIndex < 2 || parts[packageIndex - 2] !== "canvases") {
+  if (
+    parts[packageIndex] !== "package" ||
+    packageIndex < 2 ||
+    parts[packageIndex - 2] !== "canvases"
+  ) {
     return null;
   }
   return parts[packageIndex - 1] ?? null;
 }
 
-function inspectBlock(ref: string, graph: CompiledExecutionGraph, state: RuntimeState): GraphInspectionBlock {
+function inspectBlock(
+  ref: string,
+  graph: CompiledExecutionGraph,
+  state: RuntimeState
+): GraphInspectionBlock {
   const block = graph.blocksByRef.get(ref);
   if (!block) {
     throw new Error(`Compiled graph is missing block '${ref}'.`);
@@ -152,7 +173,9 @@ export async function inspectGraph(input: InspectGraphInput): Promise<GraphInspe
   }
   const offset = input.view === "slice" ? 0 : parseCursor(input.cursor);
   const { workspace, manifest } = await loadPackage(input.projectRoot);
-  const graph = await compilePackageGraph(manifest, workspace.packageDir, { validatePromptContents: false });
+  const graph = await compilePackageGraph(manifest, workspace.packageDir, {
+    validatePromptContents: false
+  });
   const state = ensureStateForManifest(manifest, await readState(workspace.stateFile));
   const tasks = inspectTasks(graph, state);
 
@@ -190,8 +213,12 @@ export async function inspectGraph(input: InspectGraphInput): Promise<GraphInspe
   if (!center) {
     throw new Error(`Task '${input.taskId}' does not exist in the graph.`);
   }
-  const dependencies = center.dependsOn.map((taskId) => tasks.find((task) => task.taskId === taskId)).filter((task) => task !== undefined);
-  const dependents = center.dependents.map((taskId) => tasks.find((task) => task.taskId === taskId)).filter((task) => task !== undefined);
+  const dependencies = center.dependsOn
+    .map((taskId) => tasks.find((task) => task.taskId === taskId))
+    .filter((task) => task !== undefined);
+  const dependents = center.dependents
+    .map((taskId) => tasks.find((task) => task.taskId === taskId))
+    .filter((task) => task !== undefined);
   const boundedDependencies = boundedSection(dependencies, limit);
   const boundedDependents = boundedSection(dependents, limit);
   const visibleTaskIds = new Set([
@@ -200,7 +227,9 @@ export async function inspectGraph(input: InspectGraphInput): Promise<GraphInspe
     ...boundedDependents.items.map((task) => task.taskId)
   ]);
   const edges = taskEdgesFor(visibleTaskIds, manifest);
-  const blocks = (graph.blocksByTask.get(center.taskId) ?? []).map((ref) => inspectBlock(ref, graph, state));
+  const blocks = (graph.blocksByTask.get(center.taskId) ?? []).map((ref) =>
+    inspectBlock(ref, graph, state)
+  );
   return {
     view: "slice",
     taskId: center.taskId,

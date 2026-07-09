@@ -29,7 +29,12 @@ export {
   undoDesktopPlanGraphCommand,
   validateGraphEdit
 } from "./graph/editModel.js";
-export { getBlockDetail, getGraphViewModel, getTaskDetail, getTaskExecutionOrder } from "./graph/readModel.js";
+export {
+  getBlockDetail,
+  getGraphViewModel,
+  getTaskDetail,
+  getTaskExecutionOrder
+} from "./graph/readModel.js";
 export { getDesktopProjectSnapshot } from "./graph/projectSnapshotModel.js";
 export { getStatistics, getStatisticsProjection } from "./graph/statisticsModel.js";
 export { searchProject, searchProjectWithDiagnostics } from "./graph/searchModel.js";

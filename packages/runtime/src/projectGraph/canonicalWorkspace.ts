@@ -15,7 +15,11 @@ export function canonicalCanvasWorkspacePaths(canvasId: string): CanonicalCanvas
   };
 }
 
-export function canonicalProjectCanvasNode(input: { id: string; title: string; description?: string }): ProjectCanvasNode {
+export function canonicalProjectCanvasNode(input: {
+  id: string;
+  title: string;
+  description?: string;
+}): ProjectCanvasNode {
   return {
     id: input.id,
     type: "canvas",

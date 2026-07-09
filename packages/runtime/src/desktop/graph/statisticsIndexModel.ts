@@ -10,32 +10,37 @@ export type DesktopStatisticsProjection = {
   diagnostics: ValidationIssue[];
 };
 
-function projectTodoGraphVersion(context: ProjectTodoContext, resultsByCanvas: Map<string, ResultsFileIndex>): string {
-  return sha256Hex(stableJson({
-    projectGraph: context.aggregation.graph.manifest,
-    orderedCanvasIds: context.aggregation.orderedCanvasIds,
-    canvases: context.aggregation.orderedCanvasIds.map((canvasId) => {
-      const snapshot = context.snapshotsByCanvas.get(canvasId);
-      const results = resultsByCanvas.get(canvasId);
-      return {
-        canvasId,
-        graphVersion: snapshot?.graphVersion ?? null,
-        failed: Boolean(snapshot?.error),
-        status: snapshot?.status ?? null,
-        results: results
-          ? {
-              diagnostics: results.diagnostics,
-              entries: results.entries.map((entry) => ({
-                relativePath: entry.relativePath,
-                fingerprint: entry.fingerprint,
-                bodyTruncated: entry.bodyTruncated,
-                metadata: entry.metadata
-              }))
-            }
-          : null
-      };
+function projectTodoGraphVersion(
+  context: ProjectTodoContext,
+  resultsByCanvas: Map<string, ResultsFileIndex>
+): string {
+  return sha256Hex(
+    stableJson({
+      projectGraph: context.aggregation.graph.manifest,
+      orderedCanvasIds: context.aggregation.orderedCanvasIds,
+      canvases: context.aggregation.orderedCanvasIds.map((canvasId) => {
+        const snapshot = context.snapshotsByCanvas.get(canvasId);
+        const results = resultsByCanvas.get(canvasId);
+        return {
+          canvasId,
+          graphVersion: snapshot?.graphVersion ?? null,
+          failed: Boolean(snapshot?.error),
+          status: snapshot?.status ?? null,
+          results: results
+            ? {
+                diagnostics: results.diagnostics,
+                entries: results.entries.map((entry) => ({
+                  relativePath: entry.relativePath,
+                  fingerprint: entry.fingerprint,
+                  bodyTruncated: entry.bodyTruncated,
+                  metadata: entry.metadata
+                }))
+              }
+            : null
+        };
+      })
     })
-  }));
+  );
 }
 
 export function buildStatisticsProjectionFromIndexes(

@@ -27,7 +27,10 @@ export function useSearchController({
   setError
 }: {
   handleBlockSelect: (ref: string, canvasId?: string | null) => Promise<void>;
-  handleOpenRunRecord: (recordId: string | null | undefined, canvasId?: string | null) => Promise<void>;
+  handleOpenRunRecord: (
+    recordId: string | null | undefined,
+    canvasId?: string | null
+  ) => Promise<void>;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
   openTaskInspector: (taskId: string, canvasId?: string | null) => Promise<void>;
   selectedCanvasId: string | null;

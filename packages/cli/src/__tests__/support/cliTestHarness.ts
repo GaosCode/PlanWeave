@@ -8,14 +8,25 @@ export const execFileAsync = promisify(execFile);
 export const repoRoot = resolve(import.meta.dirname, "../../../../..");
 export const cliWorkflowTimeoutMs = 120_000;
 
-export async function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
-  return execFileAsync("pnpm", ["--silent", "--filter", "@planweave-ai/cli", "planweave", ...args], {
-    cwd: repoRoot,
-    env
-  });
+export async function runCli(
+  args: string[],
+  env: NodeJS.ProcessEnv
+): Promise<{ stdout: string; stderr: string }> {
+  return execFileAsync(
+    "pnpm",
+    ["--silent", "--filter", "@planweave-ai/cli", "planweave", ...args],
+    {
+      cwd: repoRoot,
+      env
+    }
+  );
 }
 
-export async function runShellCommand(command: string, env: NodeJS.ProcessEnv, cwd: string): Promise<{ stdout: string; stderr: string }> {
+export async function runShellCommand(
+  command: string,
+  env: NodeJS.ProcessEnv,
+  cwd: string
+): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync("sh", ["-c", command], {
     cwd,
     env
@@ -30,10 +41,18 @@ export type CliFailure = Error & {
 
 export function isCliFailure(error: unknown): error is CliFailure {
   const candidate = error as { code?: unknown; stdout?: unknown; stderr?: unknown };
-  return error instanceof Error && typeof candidate.code === "number" && typeof candidate.stdout === "string" && typeof candidate.stderr === "string";
+  return (
+    error instanceof Error &&
+    typeof candidate.code === "number" &&
+    typeof candidate.stdout === "string" &&
+    typeof candidate.stderr === "string"
+  );
 }
 
-export async function runCliExpectFailure(args: string[], env: NodeJS.ProcessEnv): Promise<CliFailure> {
+export async function runCliExpectFailure(
+  args: string[],
+  env: NodeJS.ProcessEnv
+): Promise<CliFailure> {
   try {
     await runCli(args, env);
   } catch (error) {
@@ -164,7 +183,11 @@ export function expectCompletedExampleStatus(status: ExampleStatus): void {
 
 export function expectNoOrphanValidation(report: ValidationReport): void {
   expect(report.ok).toBe(true);
-  expect(report.warnings.filter((warning) => warning.code === "orphan_state" || warning.code === "orphan_result")).toEqual([]);
+  expect(
+    report.warnings.filter(
+      (warning) => warning.code === "orphan_state" || warning.code === "orphan_result"
+    )
+  ).toEqual([]);
 }
 
 export async function installTwoTaskGraphPackage(packageDir: string): Promise<void> {

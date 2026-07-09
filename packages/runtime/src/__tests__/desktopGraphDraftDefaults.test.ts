@@ -57,16 +57,25 @@ describe("desktop graph draft defaults", () => {
     await expect(addTaskNode(root, draft.tasks[0])).resolves.toMatchObject({ ok: true });
 
     let manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    const createdTask = manifest.nodes.find((node) => node.type === "task" && node.title === "Add export flow");
+    const createdTask = manifest.nodes.find(
+      (node) => node.type === "task" && node.title === "Add export flow"
+    );
     if (createdTask?.type !== "task") {
       throw new Error("Created task missing.");
     }
     expect(createdTask.id).toBe("T-ADD-EXPORT-FLOW");
-    expect(createdTask.acceptance).toEqual(["# Add export flow", "Users can export the current plan."]);
+    expect(createdTask.acceptance).toEqual([
+      "# Add export flow",
+      "Users can export the current plan."
+    ]);
     expect(createdTask.blocks.map((block) => block.type)).toEqual(["implementation", "review"]);
     expect(createdTask.blocks.map((block) => block.depends_on)).toEqual([[], ["B-001"]]);
-    expect(await readFile(join(init.workspace.packageDir, createdTask.prompt), "utf8")).toContain("Users can export");
-    expect(await readFile(join(init.workspace.packageDir, createdTask.blocks[0].prompt), "utf8")).toContain("Add export flow");
+    expect(await readFile(join(init.workspace.packageDir, createdTask.prompt), "utf8")).toContain(
+      "Users can export"
+    );
+    expect(
+      await readFile(join(init.workspace.packageDir, createdTask.blocks[0].prompt), "utf8")
+    ).toContain("Add export flow");
 
     await expect(
       addTaskNode(root, {
@@ -75,7 +84,9 @@ describe("desktop graph draft defaults", () => {
       })
     ).resolves.toMatchObject({ ok: true });
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    const fallbackTask = manifest.nodes.find((node) => node.type === "task" && node.title === "Fallback default blocks");
+    const fallbackTask = manifest.nodes.find(
+      (node) => node.type === "task" && node.title === "Fallback default blocks"
+    );
     if (fallbackTask?.type !== "task") {
       throw new Error("Fallback task missing.");
     }
@@ -95,7 +106,9 @@ describe("desktop graph draft defaults", () => {
       })
     ).resolves.toMatchObject({ ok: true });
     let manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    const implementationOnlyTask = manifest.nodes.find((node) => node.type === "task" && node.title === "Implementation only");
+    const implementationOnlyTask = manifest.nodes.find(
+      (node) => node.type === "task" && node.title === "Implementation only"
+    );
     if (implementationOnlyTask?.type !== "task") {
       throw new Error("Implementation-only task missing.");
     }
@@ -111,7 +124,9 @@ describe("desktop graph draft defaults", () => {
       })
     ).resolves.toMatchObject({ ok: true });
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    const reviewedTask = manifest.nodes.find((node) => node.type === "task" && node.title === "Manual review gate");
+    const reviewedTask = manifest.nodes.find(
+      (node) => node.type === "task" && node.title === "Manual review gate"
+    );
     if (reviewedTask?.type !== "task") {
       throw new Error("Explicit review task missing.");
     }
@@ -130,7 +145,9 @@ describe("desktop graph draft defaults", () => {
     ).resolves.toMatchObject({ ok: true });
 
     let manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    const createdTask = manifest.nodes.find((node) => node.type === "task" && node.title === "Add export flow");
+    const createdTask = manifest.nodes.find(
+      (node) => node.type === "task" && node.title === "Add export flow"
+    );
     if (createdTask?.type !== "task") {
       throw new Error("Created task missing.");
     }
@@ -144,7 +161,9 @@ describe("desktop graph draft defaults", () => {
       })
     ).resolves.toMatchObject({ ok: true });
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    const updatedTask = manifest.nodes.find((node) => node.type === "task" && node.id === createdTask.id);
+    const updatedTask = manifest.nodes.find(
+      (node) => node.type === "task" && node.id === createdTask.id
+    );
     if (updatedTask?.type !== "task") {
       throw new Error("Updated task missing.");
     }
@@ -157,7 +176,9 @@ describe("desktop graph draft defaults", () => {
       title: "Implement export follow-up",
       depends_on: ["B-001"]
     });
-    expect(await readFile(join(init.workspace.packageDir, addedBlock?.prompt ?? ""), "utf8")).toBe("# Implement export follow-up\n");
+    expect(await readFile(join(init.workspace.packageDir, addedBlock?.prompt ?? ""), "utf8")).toBe(
+      "# Implement export follow-up\n"
+    );
   });
 
   it("honors explicit block dependencies when appending implementation blocks", async () => {
@@ -216,7 +237,17 @@ describe("desktop graph draft defaults", () => {
     if (updatedTask?.type !== "task") {
       throw new Error("Updated fixture task missing.");
     }
-    expect(updatedTask.blocks.map((block) => block.id)).toEqual(["B-001", "R-001", "B-002", "R-002"]);
-    expect(updatedTask.blocks.map((block) => block.depends_on)).toEqual([[], ["B-001"], ["R-001"], ["B-002"]]);
+    expect(updatedTask.blocks.map((block) => block.id)).toEqual([
+      "B-001",
+      "R-001",
+      "B-002",
+      "R-002"
+    ]);
+    expect(updatedTask.blocks.map((block) => block.depends_on)).toEqual([
+      [],
+      ["B-001"],
+      ["R-001"],
+      ["B-002"]
+    ]);
   });
 });

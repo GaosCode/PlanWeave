@@ -4,7 +4,11 @@ import { PlanGraphOperationLogParseError } from "./commandSchema.js";
 import { handlerForCommand, type PlanGraphCommandHandler } from "./commandHandlers/index.js";
 import { diagnostic, isPlanGraphCommandDiagnostic } from "./commandHandlers/types.js";
 import { stableJson } from "./hash.js";
-import { applyProjectGraphHistoryCommand, executeProjectGraphCommand, isProjectGraphCommand } from "./projectGraphCommand.js";
+import {
+  applyProjectGraphHistoryCommand,
+  executeProjectGraphCommand,
+  isProjectGraphCommand
+} from "./projectGraphCommand.js";
 import type { PackageWorkspaceRef } from "../types.js";
 import type {
   AppliedPlanGraphCommand,
@@ -63,11 +67,20 @@ function fail(options: {
   };
 }
 
-function commandPromptHash(loaded: LoadedPlanGraphPackage, command: PlanGraphCommand): string | undefined {
-  if (command.type === "updateTaskPrompt" || (command.type === "updateTaskFields" && command.fields.promptMarkdown !== undefined)) {
+function commandPromptHash(
+  loaded: LoadedPlanGraphPackage,
+  command: PlanGraphCommand
+): string | undefined {
+  if (
+    command.type === "updateTaskPrompt" ||
+    (command.type === "updateTaskFields" && command.fields.promptMarkdown !== undefined)
+  ) {
     return loaded.graph.tasks.get(command.taskId)?.promptRef.contentHash;
   }
-  if (command.type === "updateBlockPrompt" || (command.type === "updateBlockFields" && command.fields.promptMarkdown !== undefined)) {
+  if (
+    command.type === "updateBlockPrompt" ||
+    (command.type === "updateBlockFields" && command.fields.promptMarkdown !== undefined)
+  ) {
     return loaded.graph.blocks.get(command.blockRef)?.promptRef.contentHash;
   }
   return undefined;
@@ -84,16 +97,25 @@ function commandBasePromptHash(command: PlanGraphCommand): string | undefined {
 }
 
 function commandPromptTarget(command: PlanGraphCommand): string | null {
-  if (command.type === "updateTaskPrompt" || (command.type === "updateTaskFields" && command.fields.promptMarkdown !== undefined)) {
+  if (
+    command.type === "updateTaskPrompt" ||
+    (command.type === "updateTaskFields" && command.fields.promptMarkdown !== undefined)
+  ) {
     return command.taskId;
   }
-  if (command.type === "updateBlockPrompt" || (command.type === "updateBlockFields" && command.fields.promptMarkdown !== undefined)) {
+  if (
+    command.type === "updateBlockPrompt" ||
+    (command.type === "updateBlockFields" && command.fields.promptMarkdown !== undefined)
+  ) {
     return command.blockRef;
   }
   return null;
 }
 
-function validateBaseVersion(loaded: LoadedPlanGraphPackage, command: PlanGraphCommand): PlanGraphCommandDiagnostic | null {
+function validateBaseVersion(
+  loaded: LoadedPlanGraphPackage,
+  command: PlanGraphCommand
+): PlanGraphCommandDiagnostic | null {
   if (!command.baseGraphVersion || command.baseGraphVersion === loaded.graph.graphVersion) {
     return null;
   }
@@ -144,11 +166,17 @@ function changedPaths(
   return affected.packageFiles.map((path) => repository.packageFilePath(loaded, path));
 }
 
-function mutationChangesManifest(loaded: LoadedPlanGraphPackage, mutation: PlanPackageGraphMutation): boolean {
+function mutationChangesManifest(
+  loaded: LoadedPlanGraphPackage,
+  mutation: PlanPackageGraphMutation
+): boolean {
   return JSON.stringify(mutation.nextManifest) !== JSON.stringify(loaded.manifest);
 }
 
-function isNoopMutation(loaded: LoadedPlanGraphPackage, mutation: PlanPackageGraphMutation): boolean {
+function isNoopMutation(
+  loaded: LoadedPlanGraphPackage,
+  mutation: PlanPackageGraphMutation
+): boolean {
   return mutation.sideEffects.length === 0 && !mutationChangesManifest(loaded, mutation);
 }
 
@@ -162,11 +190,20 @@ async function indexAppliedMutation(
   return store.indexChangedPaths(affected.packageFiles);
 }
 
-function isDiagnostic(value: PlanPackageGraphMutation | PlanGraphCommand | PlanGraphCommand[] | PlanGraphCommandDiagnostic): value is PlanGraphCommandDiagnostic {
+function isDiagnostic(
+  value:
+    | PlanPackageGraphMutation
+    | PlanGraphCommand
+    | PlanGraphCommand[]
+    | PlanGraphCommandDiagnostic
+): value is PlanGraphCommandDiagnostic {
   return isPlanGraphCommandDiagnostic(value);
 }
 
-async function executeLayoutCommand(options: ExecutePlanGraphCommandOptions, dependencies: ResolvedPlanGraphCommandDependencies): Promise<PlanGraphCommandResult> {
+async function executeLayoutCommand(
+  options: ExecutePlanGraphCommandOptions,
+  dependencies: ResolvedPlanGraphCommandDependencies
+): Promise<PlanGraphCommandResult> {
   const command = options.command;
   if (command.type !== "updateLayout") {
     throw new Error("executeLayoutCommand requires an updateLayout command.");
@@ -179,7 +216,13 @@ async function executeLayoutCommand(options: ExecutePlanGraphCommandOptions, dep
   } catch (caught) {
     return fail({
       command,
-      diagnostics: [diagnostic("layout_read_failed", caught instanceof Error ? caught.message : String(caught), command.layoutScope)],
+      diagnostics: [
+        diagnostic(
+          "layout_read_failed",
+          caught instanceof Error ? caught.message : String(caught),
+          command.layoutScope
+        )
+      ],
       graphVersion: loaded.graph.graphVersion,
       packageFingerprint: loaded.graph.packageFingerprint
     });
@@ -207,15 +250,25 @@ async function executeLayoutCommand(options: ExecutePlanGraphCommandOptions, dep
   } catch (caught) {
     return fail({
       command,
-      diagnostics: [diagnostic("layout_write_failed", caught instanceof Error ? caught.message : String(caught), command.layoutScope)],
+      diagnostics: [
+        diagnostic(
+          "layout_write_failed",
+          caught instanceof Error ? caught.message : String(caught),
+          command.layoutScope
+        )
+      ],
       graphVersion: loaded.graph.graphVersion,
       packageFingerprint: loaded.graph.packageFingerprint
     });
   }
-  const store = await dependencies.createIndexStore({ projectRoot: options.projectRoot, indexPath: options.indexPath });
+  const store = await dependencies.createIndexStore({
+    projectRoot: options.projectRoot,
+    indexPath: options.indexPath
+  });
   const affected: PlanGraphAffectedRefs = {
     ...emptyAffectedRefs(),
-    packageFiles: command.layoutScope === "desktop" ? ["desktop/layout.json"] : ["desktop/canvases.json"]
+    packageFiles:
+      command.layoutScope === "desktop" ? ["desktop/layout.json"] : ["desktop/canvases.json"]
   };
   const result: AppliedPlanGraphCommand = {
     ok: true,
@@ -241,18 +294,23 @@ async function executeLayoutCommand(options: ExecutePlanGraphCommandOptions, dep
   return result;
 }
 
-export async function executePlanGraphCommand(options: ExecutePlanGraphCommandOptions): Promise<PlanGraphCommandResult> {
+export async function executePlanGraphCommand(
+  options: ExecutePlanGraphCommandOptions
+): Promise<PlanGraphCommandResult> {
   const dependencies = {
     ...defaultPlanGraphCommandDependencies,
     ...options.dependencies
   };
   if (isProjectGraphCommand(options.command)) {
-    return executeProjectGraphCommand({
-      projectRoot: options.projectRoot,
-      command: options.command,
-      indexPath: options.indexPath,
-      recordOperation: options.recordOperation
-    }, dependencies);
+    return executeProjectGraphCommand(
+      {
+        projectRoot: options.projectRoot,
+        command: options.command,
+        indexPath: options.indexPath,
+        recordOperation: options.recordOperation
+      },
+      dependencies
+    );
   }
   if (options.command.type === "updateLayout") {
     return executeLayoutCommand(options, dependencies);
@@ -263,7 +321,12 @@ export async function executePlanGraphCommand(options: ExecutePlanGraphCommandOp
   if (!handler) {
     return fail({
       command: options.command,
-      diagnostics: [diagnostic("command_not_handled", `PlanGraph command '${options.command.type}' is not handled.`)],
+      diagnostics: [
+        diagnostic(
+          "command_not_handled",
+          `PlanGraph command '${options.command.type}' is not handled.`
+        )
+      ],
       graphVersion: loaded.graph.graphVersion,
       packageFingerprint: loaded.graph.packageFingerprint
     });
@@ -324,7 +387,10 @@ export async function executePlanGraphCommand(options: ExecutePlanGraphCommandOp
     };
   }
 
-  const commitDiagnostics = await dependencies.repository.commit({ projectRoot: options.projectRoot, mutation });
+  const commitDiagnostics = await dependencies.repository.commit({
+    projectRoot: options.projectRoot,
+    mutation
+  });
   if (commitDiagnostics.length > 0) {
     return fail({
       command: options.command,
@@ -335,7 +401,10 @@ export async function executePlanGraphCommand(options: ExecutePlanGraphCommandOp
   }
 
   const affected = affectedRefs(options.command, mutation, loaded, handler);
-  const store = await dependencies.createIndexStore({ projectRoot: options.projectRoot, indexPath: options.indexPath });
+  const store = await dependencies.createIndexStore({
+    projectRoot: options.projectRoot,
+    indexPath: options.indexPath
+  });
   const graph = await indexAppliedMutation(store, affected);
   const result: AppliedPlanGraphCommand = {
     ok: true,
@@ -372,12 +441,20 @@ async function applyHistoryCommand(
     ...options.dependencies
   };
   if (!Array.isArray(command) && isProjectGraphCommand(command)) {
-    return applyProjectGraphHistoryCommand({ indexPath: options.indexPath }, dependencies, command, expectedGraphVersion, workspaceRef);
+    return applyProjectGraphHistoryCommand(
+      { indexPath: options.indexPath },
+      dependencies,
+      command,
+      expectedGraphVersion,
+      workspaceRef
+    );
   }
   const loaded = await dependencies.repository.load(workspaceRef);
   if (loaded.graph.graphVersion !== expectedGraphVersion) {
     return fail({
-      command: Array.isArray(command) ? command[0] ?? { type: "updateLayout", layoutScope: "desktop", layout: null } : command,
+      command: Array.isArray(command)
+        ? (command[0] ?? { type: "updateLayout", layoutScope: "desktop", layout: null })
+        : command,
       diagnostics: [
         diagnostic(
           "graph_version_conflict",
@@ -403,7 +480,10 @@ async function applyHistoryCommand(
     }
   }
   if (!latest) {
-    return fail({ command: { type: "updateLayout", layoutScope: "desktop", layout: null }, diagnostics: [diagnostic("history_empty", "No command to apply.")] });
+    return fail({
+      command: { type: "updateLayout", layoutScope: "desktop", layout: null },
+      diagnostics: [diagnostic("history_empty", "No command to apply.")]
+    });
   }
   return latest;
 }
@@ -420,7 +500,9 @@ function commandForHistoryReplay(command: PlanGraphCommand): PlanGraphCommand {
   return replayCommand;
 }
 
-export async function undoPlanGraphCommand(options: PlanGraphHistoryOptions): Promise<PlanGraphCommandResult> {
+export async function undoPlanGraphCommand(
+  options: PlanGraphHistoryOptions
+): Promise<PlanGraphCommandResult> {
   const dependencies = {
     ...defaultPlanGraphCommandDependencies,
     ...options.dependencies
@@ -436,16 +518,26 @@ export async function undoPlanGraphCommand(options: PlanGraphHistoryOptions): Pr
     throw error;
   }
   if (!entry) {
-    return fail({ command: { type: "updateLayout", layoutScope: "desktop", layout: null }, diagnostics: [diagnostic("history_empty", "No command to undo.")] });
+    return fail({
+      command: { type: "updateLayout", layoutScope: "desktop", layout: null },
+      diagnostics: [diagnostic("history_empty", "No command to undo.")]
+    });
   }
-  const result = await applyHistoryCommand(options, entry.inverse, entry.graphVersionAfter, entry.workspaceRef);
+  const result = await applyHistoryCommand(
+    options,
+    entry.inverse,
+    entry.graphVersionAfter,
+    entry.workspaceRef
+  );
   if (result.ok) {
     await store.log.markUndone(entry.id);
   }
   return result;
 }
 
-export async function redoPlanGraphCommand(options: PlanGraphHistoryOptions): Promise<PlanGraphCommandResult> {
+export async function redoPlanGraphCommand(
+  options: PlanGraphHistoryOptions
+): Promise<PlanGraphCommandResult> {
   const dependencies = {
     ...defaultPlanGraphCommandDependencies,
     ...options.dependencies
@@ -461,9 +553,17 @@ export async function redoPlanGraphCommand(options: PlanGraphHistoryOptions): Pr
     throw error;
   }
   if (!entry) {
-    return fail({ command: { type: "updateLayout", layoutScope: "desktop", layout: null }, diagnostics: [diagnostic("history_empty", "No command to redo.")] });
+    return fail({
+      command: { type: "updateLayout", layoutScope: "desktop", layout: null },
+      diagnostics: [diagnostic("history_empty", "No command to redo.")]
+    });
   }
-  const result = await applyHistoryCommand(options, entry.command, entry.graphVersionBefore, entry.workspaceRef);
+  const result = await applyHistoryCommand(
+    options,
+    entry.command,
+    entry.graphVersionBefore,
+    entry.workspaceRef
+  );
   if (result.ok) {
     await store.log.markRedone(entry.id);
   }

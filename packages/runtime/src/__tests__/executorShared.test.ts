@@ -2,7 +2,11 @@ import { mkdir, mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { execWithStdin, execWithStreaming, executorHeartbeatPath } from "../autoRun/executorShared.js";
+import {
+  execWithStdin,
+  execWithStreaming,
+  executorHeartbeatPath
+} from "../autoRun/executorShared.js";
 
 async function tempRunDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "planweave-executor-"));
@@ -86,7 +90,9 @@ describe("executor streaming", () => {
     });
     expect(result.stdout).toContain("stdout output truncated after 128 bytes");
     expect((await stat(stdoutPath)).size).toBeLessThan(256);
-    await expect(readFile(stdoutPath, "utf8")).resolves.toContain("stdout output truncated after 128 bytes");
+    await expect(readFile(stdoutPath, "utf8")).resolves.toContain(
+      "stdout output truncated after 128 bytes"
+    );
   });
 
   it("force kills a child that ignores SIGTERM after stdout exceeds its limit", async () => {
@@ -96,7 +102,10 @@ describe("executor streaming", () => {
 
     const result = await execWithStreaming({
       command: process.execPath,
-      args: ["-e", "process.on('SIGTERM', () => {}); process.stdout.write('x'.repeat(2048)); setInterval(() => {}, 100);"],
+      args: [
+        "-e",
+        "process.on('SIGTERM', () => {}); process.stdout.write('x'.repeat(2048)); setInterval(() => {}, 100);"
+      ],
       cwd: runDir,
       stdin: "",
       stdoutPath,
@@ -160,7 +169,10 @@ describe("executor streaming", () => {
 
     await waitForFile(heartbeatPath);
     await sleep(80);
-    const liveHeartbeat = JSON.parse(await readFile(heartbeatPath, "utf8")) as Record<string, unknown>;
+    const liveHeartbeat = JSON.parse(await readFile(heartbeatPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
     expect(liveHeartbeat).toMatchObject({
       status: "running",
       pid: expect.any(Number),
@@ -170,7 +182,11 @@ describe("executor streaming", () => {
     });
 
     await expect(running).resolves.toMatchObject({ exitCode: 0, timedOut: false });
-    await expect(readFile(heartbeatPath, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>)).resolves.toMatchObject({
+    await expect(
+      readFile(heartbeatPath, "utf8").then(
+        (content) => JSON.parse(content) as Record<string, unknown>
+      )
+    ).resolves.toMatchObject({
       status: "finished",
       exitCode: 0,
       timedOut: false,
@@ -203,7 +219,10 @@ describe("executor streaming", () => {
 
     const result = await execWithStdin({
       command: process.execPath,
-      args: ["-e", "process.on('SIGTERM', () => {}); process.stdout.write('x'.repeat(2048)); setInterval(() => {}, 100);"],
+      args: [
+        "-e",
+        "process.on('SIGTERM', () => {}); process.stdout.write('x'.repeat(2048)); setInterval(() => {}, 100);"
+      ],
       cwd: runDir,
       stdin: "",
       timeoutMs: 5000,
@@ -266,7 +285,10 @@ process.stdout.write("trigger");
     await expect(
       execWithStreaming({
         command: process.execPath,
-        args: ["-e", "process.on('SIGTERM', () => {}); process.stdout.write('trigger'); setInterval(() => {}, 100);"],
+        args: [
+          "-e",
+          "process.on('SIGTERM', () => {}); process.stdout.write('trigger'); setInterval(() => {}, 100);"
+        ],
         cwd: runDir,
         stdin: "",
         stdoutPath,
@@ -304,7 +326,9 @@ process.stdout.write("trigger");
     });
     expect(result.stderr).toContain("stderr output truncated after 96 bytes");
     expect((await stat(stderrPath)).size).toBeLessThan(224);
-    await expect(readFile(stderrPath, "utf8")).resolves.toContain("stderr output truncated after 96 bytes");
+    await expect(readFile(stderrPath, "utf8")).resolves.toContain(
+      "stderr output truncated after 96 bytes"
+    );
   });
 
   it("preserves under-limit stdout and stderr for successful commands", async () => {

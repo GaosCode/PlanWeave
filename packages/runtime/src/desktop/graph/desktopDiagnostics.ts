@@ -10,21 +10,36 @@ export function desktopDiagnostic(code: string, message: string, path?: string):
   return { code, message, path };
 }
 
-export function appendDesktopDiagnostic(diagnostics: ValidationIssue[], diagnostic: ValidationIssue): void {
-  if (diagnostics.some((item) => item.code === diagnostic.code && item.path === diagnostic.path && item.message === diagnostic.message)) {
+export function appendDesktopDiagnostic(
+  diagnostics: ValidationIssue[],
+  diagnostic: ValidationIssue
+): void {
+  if (
+    diagnostics.some(
+      (item) =>
+        item.code === diagnostic.code &&
+        item.path === diagnostic.path &&
+        item.message === diagnostic.message
+    )
+  ) {
     return;
   }
   diagnostics.push(diagnostic);
 }
 
-export function appendDesktopDiagnostics(diagnostics: ValidationIssue[], nextDiagnostics: ValidationIssue[]): void {
+export function appendDesktopDiagnostics(
+  diagnostics: ValidationIssue[],
+  nextDiagnostics: ValidationIssue[]
+): void {
   for (const diagnostic of nextDiagnostics) {
     appendDesktopDiagnostic(diagnostics, diagnostic);
   }
 }
 
 export function formatDesktopDiagnostic(diagnostic: ValidationIssue): string {
-  return diagnostic.path ? `${diagnostic.path}: ${diagnostic.message}` : `${diagnostic.code}: ${diagnostic.message}`;
+  return diagnostic.path
+    ? `${diagnostic.path}: ${diagnostic.message}`
+    : `${diagnostic.code}: ${diagnostic.message}`;
 }
 
 function toPosixPath(path: string): string {
@@ -36,7 +51,12 @@ function resultPath(resultsDir: string, path: string): string {
   return resultRelativePath ? `results/${resultRelativePath}` : "results";
 }
 
-async function collectResultFiles(resultsDir: string, root: string, diagnostics: ValidationIssue[], files: string[]): Promise<void> {
+async function collectResultFiles(
+  resultsDir: string,
+  root: string,
+  diagnostics: ValidationIssue[],
+  files: string[]
+): Promise<void> {
   try {
     const entries = await readdir(root, { withFileTypes: true });
     for (const entry of entries) {
@@ -60,7 +80,9 @@ async function collectResultFiles(resultsDir: string, root: string, diagnostics:
   }
 }
 
-export async function listResultFilesWithDiagnostics(resultsDir: string): Promise<{ files: string[]; diagnostics: ValidationIssue[] }> {
+export async function listResultFilesWithDiagnostics(
+  resultsDir: string
+): Promise<{ files: string[]; diagnostics: ValidationIssue[] }> {
   const diagnostics: ValidationIssue[] = [];
   const files: string[] = [];
   await collectResultFiles(resultsDir, resultsDir, diagnostics, files);
@@ -78,7 +100,11 @@ export async function readJsonObjectWithDiagnostics(
     return {
       value: null,
       diagnostics: [
-        desktopDiagnostic("desktop_result_metadata_read_failed", `Result metadata could not be read or parsed: ${errorMessage(caught)}`, resultPath(resultsDir, path))
+        desktopDiagnostic(
+          "desktop_result_metadata_read_failed",
+          `Result metadata could not be read or parsed: ${errorMessage(caught)}`,
+          resultPath(resultsDir, path)
+        )
       ]
     };
   }
@@ -90,7 +116,11 @@ export async function readJsonObjectWithDiagnostics(
   return {
     value: null,
     diagnostics: [
-      desktopDiagnostic("desktop_result_metadata_invalid", "Result metadata must be a JSON object.", resultPath(resultsDir, path))
+      desktopDiagnostic(
+        "desktop_result_metadata_invalid",
+        "Result metadata must be a JSON object.",
+        resultPath(resultsDir, path)
+      )
     ]
   };
 }

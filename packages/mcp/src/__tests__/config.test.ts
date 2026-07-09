@@ -42,18 +42,28 @@ describe("readMcpConfig", () => {
   });
 
   it("rejects invalid MCP request body limits", () => {
-    expect(() => readMcpConfig({ PLANWEAVE_MCP_MAX_BODY_BYTES: "0" })).toThrow("PLANWEAVE_MCP_MAX_BODY_BYTES");
-    expect(() => readMcpConfig({ PLANWEAVE_MCP_MAX_BODY_BYTES: "10485761" })).toThrow("PLANWEAVE_MCP_MAX_BODY_BYTES");
-    expect(() => readMcpConfig({ PLANWEAVE_MCP_MAX_BODY_BYTES: "not-bytes" })).toThrow("PLANWEAVE_MCP_MAX_BODY_BYTES");
+    expect(() => readMcpConfig({ PLANWEAVE_MCP_MAX_BODY_BYTES: "0" })).toThrow(
+      "PLANWEAVE_MCP_MAX_BODY_BYTES"
+    );
+    expect(() => readMcpConfig({ PLANWEAVE_MCP_MAX_BODY_BYTES: "10485761" })).toThrow(
+      "PLANWEAVE_MCP_MAX_BODY_BYTES"
+    );
+    expect(() => readMcpConfig({ PLANWEAVE_MCP_MAX_BODY_BYTES: "not-bytes" })).toThrow(
+      "PLANWEAVE_MCP_MAX_BODY_BYTES"
+    );
   });
 
   it("requires token auth when binding outside loopback", () => {
     expect(() => readMcpConfig({ PLANWEAVE_MCP_HOST: "0.0.0.0" })).toThrow("PLANWEAVE_MCP_TOKEN");
-    expect(readMcpConfig({ PLANWEAVE_MCP_HOST: "0.0.0.0", PLANWEAVE_MCP_TOKEN: "secret" })).toMatchObject({
+    expect(
+      readMcpConfig({ PLANWEAVE_MCP_HOST: "0.0.0.0", PLANWEAVE_MCP_TOKEN: "secret" })
+    ).toMatchObject({
       host: "0.0.0.0",
       token: "secret"
     });
-    expect(readMcpConfig({ PLANWEAVE_MCP_HOST: "0.0.0.0", PLANWEAVE_MCP_OAUTH_ENABLED: "1" })).toMatchObject({
+    expect(
+      readMcpConfig({ PLANWEAVE_MCP_HOST: "0.0.0.0", PLANWEAVE_MCP_OAUTH_ENABLED: "1" })
+    ).toMatchObject({
       host: "0.0.0.0",
       oauth: {
         enabled: true
@@ -62,7 +72,9 @@ describe("readMcpConfig", () => {
   });
 
   it("rejects invalid OAuth flag values", () => {
-    expect(() => readMcpConfig({ PLANWEAVE_MCP_OAUTH_ENABLED: "maybe" })).toThrow("PLANWEAVE_MCP_OAUTH_ENABLED");
+    expect(() => readMcpConfig({ PLANWEAVE_MCP_OAUTH_ENABLED: "maybe" })).toThrow(
+      "PLANWEAVE_MCP_OAUTH_ENABLED"
+    );
   });
 
   it("reads the OAuth client store path", () => {
@@ -92,7 +104,11 @@ describe("readMcpConfig", () => {
   });
 
   it("reads explicit MCP tool discovery mode", () => {
-    expect(readMcpConfig({ PLANWEAVE_MCP_TOOL_DISCOVERY: "compat" })).toMatchObject({ toolDiscoveryMode: "compat" });
-    expect(() => readMcpConfig({ PLANWEAVE_MCP_TOOL_DISCOVERY: "all" })).toThrow("PLANWEAVE_MCP_TOOL_DISCOVERY");
+    expect(readMcpConfig({ PLANWEAVE_MCP_TOOL_DISCOVERY: "compat" })).toMatchObject({
+      toolDiscoveryMode: "compat"
+    });
+    expect(() => readMcpConfig({ PLANWEAVE_MCP_TOOL_DISCOVERY: "all" })).toThrow(
+      "PLANWEAVE_MCP_TOOL_DISCOVERY"
+    );
   });
 });

@@ -89,7 +89,9 @@ export function useSelectedBlock({
       }
       try {
         const canvasId = canvasIdOverride === undefined ? selectedCanvasId : canvasIdOverride;
-        setSelectedRunRecord(await bridge.getRunRecord(desktopCanvasReference(selectedProject, canvasId), recordId));
+        setSelectedRunRecord(
+          await bridge.getRunRecord(desktopCanvasReference(selectedProject, canvasId), recordId)
+        );
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : String(caught));
       }
@@ -107,31 +109,57 @@ export function useSelectedBlock({
         return;
       }
       const selectedRecordId = selectedRunRecord?.recordId ?? null;
-      const latestRecordMatchesSelectedRecord = Boolean(event.latestRecordId && event.latestRecordId === selectedRecordId);
+      const latestRecordMatchesSelectedRecord = Boolean(
+        event.latestRecordId && event.latestRecordId === selectedRecordId
+      );
       const latestRecordMatchesSelectedBlock = Boolean(
-        event.latestRecordId && (blockRunRecords.some((record) => record.recordId === event.latestRecordId) || event.latestRecordId.startsWith(`${selectedBlock.ref}::`))
+        event.latestRecordId &&
+          (blockRunRecords.some((record) => record.recordId === event.latestRecordId) ||
+            event.latestRecordId.startsWith(`${selectedBlock.ref}::`))
       );
       const currentRefMatchesSelectedBlock = event.currentRef === selectedBlock.ref;
-      if (!latestRecordMatchesSelectedRecord && !latestRecordMatchesSelectedBlock && !currentRefMatchesSelectedBlock) {
+      if (
+        !latestRecordMatchesSelectedRecord &&
+        !latestRecordMatchesSelectedBlock &&
+        !currentRefMatchesSelectedBlock
+      ) {
         return;
       }
       if (latestRecordMatchesSelectedRecord && event.latestRecordId) {
         void runtimeBridge
-          .getRunRecord(desktopCanvasReference(selectedProject, selectedCanvasId), event.latestRecordId)
+          .getRunRecord(
+            desktopCanvasReference(selectedProject, selectedCanvasId),
+            event.latestRecordId
+          )
           .then(setSelectedRunRecord)
-          .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+          .catch((caught: unknown) =>
+            setError(caught instanceof Error ? caught.message : String(caught))
+          );
       }
-      void refreshSelectedBlockRecords(selectedBlock).catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+      void refreshSelectedBlockRecords(selectedBlock).catch((caught: unknown) =>
+        setError(caught instanceof Error ? caught.message : String(caught))
+      );
     });
-  }, [blockRunRecords, refreshSelectedBlockRecords, selectedBlock, selectedCanvasId, selectedProject, selectedRunRecord?.recordId, setError]);
-
+  }, [
+    blockRunRecords,
+    refreshSelectedBlockRecords,
+    selectedBlock,
+    selectedCanvasId,
+    selectedProject,
+    selectedRunRecord?.recordId,
+    setError
+  ]);
 
   const saveSelectedBlockTitle = useCallback(async () => {
     if (!bridge || !selectedProject || !selectedBlock) {
       return;
     }
     try {
-      await bridge.updateBlockTitle(desktopCanvasReference(selectedProject, selectedCanvasId), selectedBlock.ref, selectedBlock.title);
+      await bridge.updateBlockTitle(
+        desktopCanvasReference(selectedProject, selectedCanvasId),
+        selectedBlock.ref,
+        selectedBlock.title
+      );
       await refreshGraph();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -144,12 +172,21 @@ export function useSelectedBlock({
         return;
       }
       try {
-        const result = await bridge.updateBlockExecutor(desktopCanvasReference(selectedProject, selectedCanvasId), selectedBlock.ref, executorName);
+        const result = await bridge.updateBlockExecutor(
+          desktopCanvasReference(selectedProject, selectedCanvasId),
+          selectedBlock.ref,
+          executorName
+        );
         if (!result.ok) {
           setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
           return;
         }
-        setSelectedBlock(await bridge.getBlockDetail(desktopCanvasReference(selectedProject, selectedCanvasId), selectedBlock.ref));
+        setSelectedBlock(
+          await bridge.getBlockDetail(
+            desktopCanvasReference(selectedProject, selectedCanvasId),
+            selectedBlock.ref
+          )
+        );
         await refreshGraph();
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : String(caught));
@@ -163,15 +200,25 @@ export function useSelectedBlock({
       return;
     }
     try {
-      const result = await bridge.updateBlockPrompt(desktopCanvasReference(selectedProject, selectedCanvasId), selectedBlock.ref, selectedBlock.promptMarkdown, {
-        baseGraphVersion: selectedBlock.graphVersion,
-        basePromptHash: selectedBlock.promptHash
-      });
+      const result = await bridge.updateBlockPrompt(
+        desktopCanvasReference(selectedProject, selectedCanvasId),
+        selectedBlock.ref,
+        selectedBlock.promptMarkdown,
+        {
+          baseGraphVersion: selectedBlock.graphVersion,
+          basePromptHash: selectedBlock.promptHash
+        }
+      );
       if (!result.ok) {
         setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
         return;
       }
-      setSelectedBlock(await bridge.getBlockDetail(desktopCanvasReference(selectedProject, selectedCanvasId), selectedBlock.ref));
+      setSelectedBlock(
+        await bridge.getBlockDetail(
+          desktopCanvasReference(selectedProject, selectedCanvasId),
+          selectedBlock.ref
+        )
+      );
       await refreshGraph();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));

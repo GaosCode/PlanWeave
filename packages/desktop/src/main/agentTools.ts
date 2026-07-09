@@ -43,7 +43,11 @@ export function agentDetectionPath(envPath = process.env.PATH): string {
   return [...new Set([...existingEntries, ...agentPathEntries])].join(":");
 }
 
-function execFileText(command: string, args: string[], options: ExecFileOptions): Promise<{ stdout: string; stderr: string }> {
+function execFileText(
+  command: string,
+  args: string[],
+  options: ExecFileOptions
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     execFile(command, args, options, (error, stdout, stderr) => {
       if (error) {

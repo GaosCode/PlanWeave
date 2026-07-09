@@ -15,13 +15,19 @@ describe("desktop renderer DOM boundaries", () => {
       scripts?: Record<string, string>;
     };
 
-    expect(packageJson.scripts?.["check:dom-boundaries"]).toBe("node scripts/check-renderer-dom-boundaries.mjs");
+    expect(packageJson.scripts?.["check:dom-boundaries"]).toBe(
+      "node scripts/check-renderer-dom-boundaries.mjs"
+    );
   });
 
   it("keeps production renderer DOM queries inside approved boundary files", async () => {
-    const result = await execFileAsync(process.execPath, [resolve(repoRoot, "scripts/check-renderer-dom-boundaries.mjs")], {
-      cwd: repoRoot
-    });
+    const result = await execFileAsync(
+      process.execPath,
+      [resolve(repoRoot, "scripts/check-renderer-dom-boundaries.mjs")],
+      {
+        cwd: repoRoot
+      }
+    );
 
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("DOM boundary check passed");
@@ -45,18 +51,26 @@ describe("desktop renderer DOM boundaries", () => {
     try {
       const env = { ...process.env, PLANWEAVE_DOM_BOUNDARY_DESKTOP_SRC: fixtureDir };
       await expect(
-        execFileAsync(process.execPath, [resolve(repoRoot, "scripts/check-renderer-dom-boundaries.mjs")], {
-          cwd: repoRoot,
-          env
-        })
+        execFileAsync(
+          process.execPath,
+          [resolve(repoRoot, "scripts/check-renderer-dom-boundaries.mjs")],
+          {
+            cwd: repoRoot,
+            env
+          }
+        )
       ).rejects.toMatchObject({
         stderr: expect.stringContaining("textContent")
       });
       await expect(
-        execFileAsync(process.execPath, [resolve(repoRoot, "scripts/check-renderer-dom-boundaries.mjs")], {
-          cwd: repoRoot,
-          env
-        })
+        execFileAsync(
+          process.execPath,
+          [resolve(repoRoot, "scripts/check-renderer-dom-boundaries.mjs")],
+          {
+            cwd: repoRoot,
+            env
+          }
+        )
       ).rejects.toMatchObject({
         stderr: expect.stringContaining("classList")
       });

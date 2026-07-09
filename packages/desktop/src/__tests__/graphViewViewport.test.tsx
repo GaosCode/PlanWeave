@@ -25,7 +25,9 @@ vi.mock("@xyflow/react", async () => {
     MiniMap: () => <div data-testid="react-flow-minimap" />,
     ReactFlow: (props: Record<string, unknown>) => {
       React.useEffect(() => {
-        (props.onInit as ((instance: typeof reactFlowMock.flowInstance) => void) | undefined)?.(reactFlowMock.flowInstance);
+        (props.onInit as ((instance: typeof reactFlowMock.flowInstance) => void) | undefined)?.(
+          reactFlowMock.flowInstance
+        );
       }, [props.onInit]);
       reactFlowMock.props.push(props);
       return <div data-testid="react-flow">{props.children as React.ReactNode}</div>;
@@ -127,7 +129,9 @@ function flowNode(promptDraft = "# Prompt"): AppFlowNode {
   };
 }
 
-function defaultProps(patch: Partial<ComponentProps<typeof GraphView>> = {}): ComponentProps<typeof GraphView> {
+function defaultProps(
+  patch: Partial<ComponentProps<typeof GraphView>> = {}
+): ComponentProps<typeof GraphView> {
   return {
     autoRunControlStyle: {},
     autoRunScopeMode: "project",
@@ -206,7 +210,14 @@ describe("GraphView viewport fitting", () => {
     expect(reactFlowMock.props.at(-1)?.fitView).toBeUndefined();
     expect(reactFlowMock.props.at(-1)?.fitViewOptions).toBeUndefined();
 
-    rerender(<GraphView {...defaultProps({ graph: graph("# Updated prompt"), nodes: [flowNode("# Updated prompt")] })} />);
+    rerender(
+      <GraphView
+        {...defaultProps({
+          graph: graph("# Updated prompt"),
+          nodes: [flowNode("# Updated prompt")]
+        })}
+      />
+    );
 
     await waitFor(() => expect(reactFlowMock.props.length).toBeGreaterThan(1));
     expect(reactFlowMock.flowInstance.fitView).toHaveBeenCalledTimes(1);
@@ -256,7 +267,11 @@ describe("GraphView viewport fitting", () => {
     const handleReconnectEdge = vi.fn().mockResolvedValue(undefined);
     const handleEdgesDelete = vi.fn().mockResolvedValue(undefined);
     const handleConnect = vi.fn().mockResolvedValue(undefined);
-    render(<GraphView {...defaultProps({ edges: [edge], handleConnect, handleEdgesDelete, handleReconnectEdge })} />);
+    render(
+      <GraphView
+        {...defaultProps({ edges: [edge], handleConnect, handleEdgesDelete, handleReconnectEdge })}
+      />
+    );
 
     await waitFor(() => expect(reactFlowMock.props.length).toBeGreaterThan(0));
     const latestProps = reactFlowMock.props.at(-1) as {

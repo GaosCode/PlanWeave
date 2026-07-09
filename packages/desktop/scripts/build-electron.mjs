@@ -8,10 +8,7 @@ import { build } from "esbuild";
 const packageRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const distMainDir = resolve(packageRoot, "dist", "main");
 const distPreloadDir = resolve(packageRoot, "dist", "preload");
-const nodeBuiltins = new Set([
-  ...builtinModules,
-  ...builtinModules.map((name) => `node:${name}`)
-]);
+const nodeBuiltins = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`)]);
 
 const commonOptions = {
   bundle: true,
@@ -24,12 +21,7 @@ const commonOptions = {
   banner: {
     js: 'import { createRequire as __planweaveCreateRequire } from "node:module"; const require = __planweaveCreateRequire(import.meta.url);'
   },
-  external: [
-    ...nodeBuiltins,
-    "electron",
-    "electron-liquid-glass",
-    "node-gyp-build"
-  ]
+  external: [...nodeBuiltins, "electron", "electron-liquid-glass", "node-gyp-build"]
 };
 
 await Promise.all([

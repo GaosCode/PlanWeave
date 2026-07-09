@@ -11,7 +11,13 @@ type AppOverlaysProps = {
   t: ReturnType<typeof createTranslator>;
 };
 
-export function AppOverlays({ error, successMessage, setError, setSuccessMessage, t }: AppOverlaysProps) {
+export function AppOverlays({
+  error,
+  successMessage,
+  setError,
+  setSuccessMessage,
+  t
+}: AppOverlaysProps) {
   return (
     <>
       <AppUpdateSurface setError={setError} t={t} />

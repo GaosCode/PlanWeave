@@ -73,7 +73,9 @@ describe("compileTaskGraph", () => {
 
     const graph = compileTaskGraph(manifest);
 
-    expect(graph.diagnostics.errors.map((error) => error.code)).toContain("block_dependency_missing");
+    expect(graph.diagnostics.errors.map((error) => error.code)).toContain(
+      "block_dependency_missing"
+    );
   });
 
   it("detects task and block dependency cycles", () => {

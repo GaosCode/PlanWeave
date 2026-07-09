@@ -9,11 +9,16 @@ import { projectReadToolHandlers } from "./toolHandlers/projectReadTools.js";
 import { runtimeGateway } from "./toolRuntime.js";
 import { planweaveToolNames, type PlanweaveToolName, type RuntimeGateway } from "./toolTypes.js";
 
-export type PlanweaveToolHandler = (args: unknown, gateway: RuntimeGateway) => Promise<CallToolResult>;
+export type PlanweaveToolHandler = (
+  args: unknown,
+  gateway: RuntimeGateway
+) => Promise<CallToolResult>;
 
 export type PlanweaveToolHandlerRegistry = Record<PlanweaveToolName, PlanweaveToolHandler>;
 
-export type PlanweavePartialToolHandlerRegistry = Partial<Record<PlanweaveToolName, PlanweaveToolHandler>>;
+export type PlanweavePartialToolHandlerRegistry = Partial<
+  Record<PlanweaveToolName, PlanweaveToolHandler>
+>;
 
 export const planweaveToolHandlerRegistries = [
   authoringToolHandlers,
@@ -25,7 +30,9 @@ export const planweaveToolHandlerRegistries = [
   packageImportToolHandlers
 ] as const;
 
-export const planweaveToolHandlers = buildPlanweaveToolHandlerRegistry(planweaveToolHandlerRegistries);
+export const planweaveToolHandlers = buildPlanweaveToolHandlerRegistry(
+  planweaveToolHandlerRegistries
+);
 
 export function buildPlanweaveToolHandlerRegistry(
   registries: readonly Readonly<Record<string, PlanweaveToolHandler | undefined>>[]

@@ -26,7 +26,12 @@ export function canvasDirFromStateFile(stateFile: string): string {
 }
 
 function isErrno(error: unknown, code: string): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === code);
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === code
+  );
 }
 
 function isPidAlive(pid: number): boolean {
@@ -43,7 +48,9 @@ function isPidAlive(pid: number): boolean {
 
 async function readHolder(lockPath: string): Promise<LockHolder | null> {
   try {
-    const raw = JSON.parse(await readFile(join(lockPath, HOLDER_FILE_NAME), "utf8")) as Partial<LockHolder>;
+    const raw = JSON.parse(
+      await readFile(join(lockPath, HOLDER_FILE_NAME), "utf8")
+    ) as Partial<LockHolder>;
     if (typeof raw.pid !== "number" || typeof raw.acquiredAt !== "string") {
       return null;
     }

@@ -2,7 +2,14 @@ import { compileTaskGraph, parseBlockRef } from "./compileTaskGraph.js";
 import { buildPlanPackageManifestChangeMutation } from "./mutation.js";
 import { commitPlanPackageGraphMutation } from "./editGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
-import type { GraphEditResult, ManifestEdge, ManifestTaskNode, PackageWorkspaceRef, PlanPackageManifest, ValidationIssue } from "../types.js";
+import type {
+  GraphEditResult,
+  ManifestEdge,
+  ManifestTaskNode,
+  PackageWorkspaceRef,
+  PlanPackageManifest,
+  ValidationIssue
+} from "../types.js";
 
 export type TaskDependencyInput = {
   dependentTaskId: string;
@@ -31,8 +38,14 @@ function result(manifest: PlanPackageManifest, diagnostics: ValidationIssue[]): 
   };
 }
 
-function ensureTaskExists(manifest: PlanPackageManifest, taskId: string, field: string): ValidationIssue | null {
-  return manifest.nodes.some((node) => node.id === taskId) ? null : issue("task_missing", `Task '${taskId}' does not exist.`, field);
+function ensureTaskExists(
+  manifest: PlanPackageManifest,
+  taskId: string,
+  field: string
+): ValidationIssue | null {
+  return manifest.nodes.some((node) => node.id === taskId)
+    ? null
+    : issue("task_missing", `Task '${taskId}' does not exist.`, field);
 }
 
 function duplicateValues(values: string[]): string[] {
@@ -48,11 +61,16 @@ function duplicateValues(values: string[]): string[] {
 }
 
 function getTask(manifest: PlanPackageManifest, taskId: string): ManifestTaskNode | null {
-  const node = manifest.nodes.find((candidate) => candidate.type === "task" && candidate.id === taskId);
+  const node = manifest.nodes.find(
+    (candidate) => candidate.type === "task" && candidate.id === taskId
+  );
   return node?.type === "task" ? node : null;
 }
 
-function ensureBlockUpdate(manifest: PlanPackageManifest, update: BlockDependencyUpdate): ValidationIssue[] {
+function ensureBlockUpdate(
+  manifest: PlanPackageManifest,
+  update: BlockDependencyUpdate
+): ValidationIssue[] {
   const { taskId, blockId } = parseBlockRef(update.blockRef);
   const task = getTask(manifest, taskId);
   if (!task) {
@@ -61,11 +79,19 @@ function ensureBlockUpdate(manifest: PlanPackageManifest, update: BlockDependenc
   const blockIds = new Set(task.blocks.map((block) => block.id));
   const diagnostics: ValidationIssue[] = [];
   if (!blockIds.has(blockId)) {
-    diagnostics.push(issue("block_missing", `Block '${update.blockRef}' does not exist.`, "blockRef"));
+    diagnostics.push(
+      issue("block_missing", `Block '${update.blockRef}' does not exist.`, "blockRef")
+    );
   }
   for (const dependencyId of update.dependsOn) {
     if (!blockIds.has(dependencyId)) {
-      diagnostics.push(issue("block_dependency_missing", `Block '${update.blockRef}' depends on missing block '${dependencyId}'.`, "dependsOn"));
+      diagnostics.push(
+        issue(
+          "block_dependency_missing",
+          `Block '${update.blockRef}' depends on missing block '${dependencyId}'.`,
+          "dependsOn"
+        )
+      );
     }
   }
   return diagnostics;
@@ -101,13 +127,21 @@ export async function setTaskDependencies(options: {
   const nextManifest: PlanPackageManifest = {
     ...manifest,
     edges: uniqueEdges([
-      ...manifest.edges.filter((edge) => !(edge.type === "depends_on" && edge.from === options.taskId)),
-      ...options.dependsOn.map((taskId) => ({ from: options.taskId, to: taskId, type: "depends_on" as const }))
+      ...manifest.edges.filter(
+        (edge) => !(edge.type === "depends_on" && edge.from === options.taskId)
+      ),
+      ...options.dependsOn.map((taskId) => ({
+        from: options.taskId,
+        to: taskId,
+        type: "depends_on" as const
+      }))
     ])
   };
   return commitPlanPackageGraphMutation({
     projectRoot: options.projectRoot,
-    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks: [options.taskId, ...options.dependsOn] })
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
+      affectedTasks: [options.taskId, ...options.dependsOn]
+    })
   });
 }
 
@@ -151,7 +185,11 @@ export async function bulkSetTaskDependencies(options: {
   const { manifest } = await loadPackage(options.projectRoot);
   const diagnostics = [
     ...duplicateValues(options.updates.map((update) => update.taskId)).map((taskId) =>
-      issue("duplicate_dependency_update", `Task '${taskId}' has more than one dependency update.`, "updates")
+      issue(
+        "duplicate_dependency_update",
+        `Task '${taskId}' has more than one dependency update.`,
+        "updates"
+      )
     ),
     ...options.updates.flatMap((update) =>
       [
@@ -167,7 +205,9 @@ export async function bulkSetTaskDependencies(options: {
   const nextManifest: PlanPackageManifest = {
     ...manifest,
     edges: uniqueEdges([
-      ...manifest.edges.filter((edge) => !(edge.type === "depends_on" && replacedTaskIds.has(edge.from))),
+      ...manifest.edges.filter(
+        (edge) => !(edge.type === "depends_on" && replacedTaskIds.has(edge.from))
+      ),
       ...options.updates.flatMap((update) =>
         update.dependsOn.map((taskId) => ({
           from: update.taskId,
@@ -192,7 +232,11 @@ export async function bulkSetBlockDependencies(options: {
   const { manifest } = await loadPackage(options.projectRoot);
   const diagnostics = [
     ...duplicateValues(options.updates.map((update) => update.blockRef)).map((blockRef) =>
-      issue("duplicate_dependency_update", `Block '${blockRef}' has more than one dependency update.`, "updates")
+      issue(
+        "duplicate_dependency_update",
+        `Block '${blockRef}' has more than one dependency update.`,
+        "updates"
+      )
     ),
     ...options.updates.flatMap((update) => ensureBlockUpdate(manifest, update))
   ];

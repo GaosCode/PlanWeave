@@ -5,7 +5,8 @@ import { readOnlyAnnotations, type PlanweavePartialToolDefinitionRegistry } from
 export const authoringToolDefinitions = {
   list_tool_groups: {
     title: "List PlanWeave Tool Groups",
-    description: "Return recommended lightweight PlanWeave MCP tool groups and identify legacy compatibility aliases.",
+    description:
+      "Return recommended lightweight PlanWeave MCP tool groups and identify legacy compatibility aliases.",
     annotations: readOnlyAnnotations
   },
   get_schema: {
@@ -27,13 +28,15 @@ export const authoringToolDefinitions = {
   },
   get_plan_package_examples: {
     title: "List PlanWeave Package Examples",
-    description: "Return official package example templates by default; pass template to include the selected file set.",
+    description:
+      "Return official package example templates by default; pass template to include the selected file set.",
     inputSchema: { template: z.string().min(1).optional() },
     annotations: readOnlyAnnotations
   },
   get_plan_package_example: {
     title: "Get PlanWeave Package Example",
-    description: "Compatibility alias that returns the basic importable PlanWeave package file set. Prefer get_plan_package_examples for template discovery.",
+    description:
+      "Compatibility alias that returns the basic importable PlanWeave package file set. Prefer get_plan_package_examples for template discovery.",
     annotations: readOnlyAnnotations
   }
 } satisfies PlanweavePartialToolDefinitionRegistry;

@@ -11,7 +11,11 @@ function supportedLanguage(value: string | null): Language {
   return value === "en" || value === "zh-CN" ? value : "zh-CN";
 }
 
-function taskBlockRefs(taskId: string, graph: DesktopGraphViewModel | null, task: DesktopTaskDetail | null): Set<string> {
+function taskBlockRefs(
+  taskId: string,
+  graph: DesktopGraphViewModel | null,
+  task: DesktopTaskDetail | null
+): Set<string> {
   const refs = new Set<string>();
   for (const blockRef of task?.blockOrder ?? []) {
     refs.add(blockRef);
@@ -23,7 +27,12 @@ function taskBlockRefs(taskId: string, graph: DesktopGraphViewModel | null, task
   return refs;
 }
 
-function eventMatchesTask(event: DesktopAutoRunEvent, taskId: string, graph: DesktopGraphViewModel | null, task: DesktopTaskDetail | null): boolean {
+function eventMatchesTask(
+  event: DesktopAutoRunEvent,
+  taskId: string,
+  graph: DesktopGraphViewModel | null,
+  task: DesktopTaskDetail | null
+): boolean {
   const refs = taskBlockRefs(taskId, graph, task);
   if (refs.size === 0) {
     return true;
@@ -31,7 +40,9 @@ function eventMatchesTask(event: DesktopAutoRunEvent, taskId: string, graph: Des
   if (event.currentRef && refs.has(event.currentRef)) {
     return true;
   }
-  return Boolean(event.latestRecordId && [...refs].some((ref) => event.latestRecordId?.startsWith(`${ref}::`)));
+  return Boolean(
+    event.latestRecordId && [...refs].some((ref) => event.latestRecordId?.startsWith(`${ref}::`))
+  );
 }
 
 export function TaskInspectorWindow() {
@@ -54,26 +65,29 @@ export function TaskInspectorWindow() {
     setDraftDirty(nextDraftDirty);
   }, []);
 
-  const loadTask = useCallback(async (options: { skipCommitWhenDirty?: boolean } = {}) => {
-    if (!bridge || !projectRoot || !taskId) {
-      return;
-    }
-    const canvas = { projectRoot, canvasId };
-    try {
-      const [nextGraph, task] = await Promise.all([
-        bridge.getGraphViewModel(canvas),
-        bridge.getTaskDetail(canvas, taskId)
-      ]);
-      if (options.skipCommitWhenDirty && draftDirtyRef.current) {
+  const loadTask = useCallback(
+    async (options: { skipCommitWhenDirty?: boolean } = {}) => {
+      if (!bridge || !projectRoot || !taskId) {
         return;
       }
-      setGraph(nextGraph);
-      setSelectedTask(task);
-      setError(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }, [canvasId, projectRoot, taskId]);
+      const canvas = { projectRoot, canvasId };
+      try {
+        const [nextGraph, task] = await Promise.all([
+          bridge.getGraphViewModel(canvas),
+          bridge.getTaskDetail(canvas, taskId)
+        ]);
+        if (options.skipCommitWhenDirty && draftDirtyRef.current) {
+          return;
+        }
+        setGraph(nextGraph);
+        setSelectedTask(task);
+        setError(null);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    [canvasId, projectRoot, taskId]
+  );
 
   useEffect(() => {
     void loadTask();
@@ -84,7 +98,10 @@ export function TaskInspectorWindow() {
       return undefined;
     }
     return bridge.onAutoRunChanged((event) => {
-      if (!autoRunEventMatchesCanvas(event, projectRoot, canvasId) || !eventMatchesTask(event, taskId, graph, selectedTask)) {
+      if (
+        !autoRunEventMatchesCanvas(event, projectRoot, canvasId) ||
+        !eventMatchesTask(event, taskId, graph, selectedTask)
+      ) {
         return;
       }
       void loadTask({ skipCommitWhenDirty: true });
@@ -95,7 +112,11 @@ export function TaskInspectorWindow() {
     if (!bridge || !projectRoot || !selectedTask) {
       return;
     }
-    const result = await bridge.updateTaskTitle({ projectRoot, canvasId }, selectedTask.taskId, selectedTask.title);
+    const result = await bridge.updateTaskTitle(
+      { projectRoot, canvasId },
+      selectedTask.taskId,
+      selectedTask.title
+    );
     if (!result.ok) {
       setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
       return;
@@ -108,7 +129,11 @@ export function TaskInspectorWindow() {
       if (!bridge || !projectRoot || !selectedTask) {
         return;
       }
-      const result = await bridge.updateTaskExecutor({ projectRoot, canvasId }, selectedTask.taskId, executorName);
+      const result = await bridge.updateTaskExecutor(
+        { projectRoot, canvasId },
+        selectedTask.taskId,
+        executorName
+      );
       if (!result.ok) {
         setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
         return;
@@ -122,10 +147,15 @@ export function TaskInspectorWindow() {
     if (!bridge || !projectRoot || !selectedTask) {
       return;
     }
-    const result = await bridge.updateTaskPrompt({ projectRoot, canvasId }, selectedTask.taskId, selectedTask.promptMarkdown, {
-      baseGraphVersion: selectedTask.graphVersion,
-      basePromptHash: selectedTask.promptHash
-    });
+    const result = await bridge.updateTaskPrompt(
+      { projectRoot, canvasId },
+      selectedTask.taskId,
+      selectedTask.promptMarkdown,
+      {
+        baseGraphVersion: selectedTask.graphVersion,
+        basePromptHash: selectedTask.promptHash
+      }
+    );
     if (!result.ok) {
       setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
       return;

@@ -11,17 +11,29 @@ describe("submitBlockResult", () => {
     const { root, init } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
 
-    const result = await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "report.md") });
+    const result = await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "report.md")
+    });
 
     expect(result).toEqual({ ref: "T-001#B-001", runId: "RUN-001", status: "completed" });
-    await expect(access(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "report.md"))).resolves.toBeUndefined();
+    await expect(
+      access(
+        join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "report.md")
+      )
+    ).resolves.toBeUndefined();
   });
 
   it("does not accept review blocks", async () => {
     const { root } = await createTestWorkspace();
 
     await expect(
-      submitBlockResult({ projectRoot: root, ref: "T-001#R-001", reportPath: await writeReport(root, "review.md") })
+      submitBlockResult({
+        projectRoot: root,
+        ref: "T-001#R-001",
+        reportPath: await writeReport(root, "review.md")
+      })
     ).rejects.toThrow("submit-result only accepts implementation blocks");
   });
 
@@ -45,7 +57,11 @@ describe("submitBlockResult", () => {
       counts: { runs: 1 }
     });
 
-    const result = await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "retry.md") });
+    const result = await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "retry.md")
+    });
 
     expect(result).toEqual({ ref: "T-001#B-001", runId: "RUN-001", status: "completed" });
     await expect(access(join(runRoot, "RUN-002"))).rejects.toThrow();
@@ -55,7 +71,9 @@ describe("submitBlockResult", () => {
       lastRunId: "RUN-001"
     });
     expect(status.currentRefs).toEqual([]);
-    await expect(readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"))
+    ).resolves.toMatchObject({
       latestRunByBlock: { "T-001#B-001": "RUN-001" },
       counts: { runs: 1 }
     });
@@ -77,11 +95,17 @@ describe("submitBlockResult", () => {
       sourceReportPath: "/tmp/original-report.md"
     });
 
-    const result = await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "retry.md") });
+    const result = await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "retry.md")
+    });
 
     expect(result).toEqual({ ref: "T-001#B-001", runId: "RUN-001", status: "completed" });
     await expect(access(join(runRoot, "RUN-002"))).rejects.toThrow();
-    await expect(readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"))
+    ).resolves.toMatchObject({
       latestRunByBlock: { "T-001#B-001": "RUN-001" }
     });
   });

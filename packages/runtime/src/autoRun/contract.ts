@@ -50,7 +50,10 @@ export type AutoRunDecision =
       reason: string;
     };
 
-export async function consumeAutoRunClaim(claim: ClaimResult, adapter: AutoRunExecutorAdapter): Promise<AutoRunDecision> {
+export async function consumeAutoRunClaim(
+  claim: ClaimResult,
+  adapter: AutoRunExecutorAdapter
+): Promise<AutoRunDecision> {
   if (claim.kind === "block") {
     const artifact = await adapter.executeBlock(claim);
     if (artifact.kind === "review_result") {
@@ -65,5 +68,8 @@ export async function consumeAutoRunClaim(claim: ClaimResult, adapter: AutoRunEx
   if (claim.kind === "blocked") {
     return { kind: "blocked", ref: claim.ref, reason: claim.reason };
   }
-  return { kind: "stop", reason: claim.kind === "none" ? claim.reason : "batch_claim_requires_external orchestration" };
+  return {
+    kind: "stop",
+    reason: claim.kind === "none" ? claim.reason : "batch_claim_requires_external orchestration"
+  };
 }

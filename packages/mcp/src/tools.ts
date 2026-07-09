@@ -10,7 +10,14 @@ import {
   type RuntimeGateway
 } from "./toolTypes.js";
 
-export { compatPlanweaveToolNames, debugPlanweaveToolNames, defaultPlanweaveToolNames, planweaveToolNames, type PlanweaveToolName, type RuntimeGateway };
+export {
+  compatPlanweaveToolNames,
+  debugPlanweaveToolNames,
+  defaultPlanweaveToolNames,
+  planweaveToolNames,
+  type PlanweaveToolName,
+  type RuntimeGateway
+};
 
 export async function handlePlanweaveTool(
   name: PlanweaveToolName,

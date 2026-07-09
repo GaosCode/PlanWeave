@@ -63,31 +63,40 @@ export function useNotificationController({
     t,
     updateSettings
   });
-  const handleRevealImportRecoveryDirectory = useCallback(async (recoveryRoot: string) => {
-    await handleRevealPathInFinder(recoveryRoot);
-  }, [handleRevealPathInFinder]);
-  const handleCopyImportRecoveryTransactionId = useCallback(async (transactionId: string) => {
-    try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error(t("manualCommandUnavailable"));
+  const handleRevealImportRecoveryDirectory = useCallback(
+    async (recoveryRoot: string) => {
+      await handleRevealPathInFinder(recoveryRoot);
+    },
+    [handleRevealPathInFinder]
+  );
+  const handleCopyImportRecoveryTransactionId = useCallback(
+    async (transactionId: string) => {
+      try {
+        if (!navigator.clipboard?.writeText) {
+          throw new Error(t("manualCommandUnavailable"));
+        }
+        await navigator.clipboard.writeText(transactionId);
+        setSuccessMessage(t("importRecoveryTransactionCopied"));
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
       }
-      await navigator.clipboard.writeText(transactionId);
-      setSuccessMessage(t("importRecoveryTransactionCopied"));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }, [setError, setSuccessMessage, t]);
-  const handleRollbackImportRecovery = useCallback(async (transactionId: string) => {
-    const result = await rollbackPendingImportRecovery(transactionId);
-    if (result.status === "rolledBack") {
-      handleMarkNotificationRead(`import-recovery:${transactionId}`);
-      setSuccessMessage(t("importRecoveryRollbackSucceeded"));
-      return;
-    }
-    if (result.status === "refreshFailed") {
-      handleMarkNotificationRead(`import-recovery:${transactionId}`);
-    }
-  }, [handleMarkNotificationRead, rollbackPendingImportRecovery, setSuccessMessage, t]);
+    },
+    [setError, setSuccessMessage, t]
+  );
+  const handleRollbackImportRecovery = useCallback(
+    async (transactionId: string) => {
+      const result = await rollbackPendingImportRecovery(transactionId);
+      if (result.status === "rolledBack") {
+        handleMarkNotificationRead(`import-recovery:${transactionId}`);
+        setSuccessMessage(t("importRecoveryRollbackSucceeded"));
+        return;
+      }
+      if (result.status === "refreshFailed") {
+        handleMarkNotificationRead(`import-recovery:${transactionId}`);
+      }
+    },
+    [handleMarkNotificationRead, rollbackPendingImportRecovery, setSuccessMessage, t]
+  );
 
   return {
     notificationItems,

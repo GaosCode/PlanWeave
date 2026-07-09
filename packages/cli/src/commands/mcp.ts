@@ -64,7 +64,8 @@ function configureMcpUrl(options: ConfigureOptions): string {
     throw new Error("--mcp-url cannot be combined with --port.");
   }
   const port = parsePort(options.port, "--port");
-  const mcpUrl = options.mcpUrl?.trim() || (port ? `http://127.0.0.1:${port}/mcp` : defaultTunnelMcpUrl);
+  const mcpUrl =
+    options.mcpUrl?.trim() || (port ? `http://127.0.0.1:${port}/mcp` : defaultTunnelMcpUrl);
   parseLoopbackMcpUrl(mcpUrl);
   return mcpUrl;
 }
@@ -73,7 +74,9 @@ function formatTunnelStatusHuman(report: TunnelStatusReport): string {
   const binaryState = report.binary.available
     ? `${report.binary.source ?? "unknown"}${report.binary.verified ? " verified" : " unverified"}`
     : `missing${report.binary.error ? ` (${report.binary.error})` : ""}`;
-  const runtimeApiKey = report.runtimeApiKey.available ? `from ${report.runtimeApiKey.source}` : "missing";
+  const runtimeApiKey = report.runtimeApiKey.available
+    ? `from ${report.runtimeApiKey.source}`
+    : "missing";
   return [
     `MCP tunnel: ${report.configured ? "configured" : "not configured"}`,
     `config: ${report.configPath}`,
@@ -85,10 +88,15 @@ function formatTunnelStatusHuman(report: TunnelStatusReport): string {
 }
 
 function formatTunnelDoctorHuman(report: TunnelStatusReport): string {
-  return report.checks.map((item) => `${item.status === "passed" ? "ok" : "fail"} ${item.check}: ${item.message}`).join("\n");
+  return report.checks
+    .map((item) => `${item.status === "passed" ? "ok" : "fail"} ${item.check}: ${item.message}`)
+    .join("\n");
 }
 
-function redactTunnelStatusReport(report: TunnelStatusReport): Omit<TunnelStatusReport, "config"> & {
+function redactTunnelStatusReport(report: TunnelStatusReport): Omit<
+  TunnelStatusReport,
+  "config"
+> & {
   config: Omit<TunnelStatusReport["config"], "tunnelId"> & { tunnelIdConfigured: boolean };
 } {
   const { tunnelId, ...config } = report.config;
@@ -124,7 +132,13 @@ async function serveMcp(options: ServeOptions): Promise<void> {
   const server = await listenPlanweaveMcpServer(config);
   const endpoint = `http://${config.host}:${config.port}/mcp`;
   if (options.json) {
-    writeJson({ endpoint, host: config.host, port: config.port, oauth: config.oauth?.enabled === true, tokenConfigured: Boolean(config.token) });
+    writeJson({
+      endpoint,
+      host: config.host,
+      port: config.port,
+      oauth: config.oauth?.enabled === true,
+      tokenConfigured: Boolean(config.token)
+    });
   } else {
     console.log(`PlanWeave MCP server listening on ${endpoint}`);
   }
@@ -146,7 +160,9 @@ function waitForMcpServerStop(server: Server): Promise<void> {
 }
 
 export function registerMcpCommand(program: Command): void {
-  const mcp = program.command("mcp").description("Run and configure PlanWeave MCP server and tunnel");
+  const mcp = program
+    .command("mcp")
+    .description("Run and configure PlanWeave MCP server and tunnel");
 
   mcp
     .command("serve")
@@ -158,7 +174,9 @@ export function registerMcpCommand(program: Command): void {
     .option("--json", "print machine-readable startup output")
     .action(serveMcp);
 
-  const tunnel = mcp.command("tunnel").description("Configure and run the OpenAI tunnel-client for PlanWeave MCP");
+  const tunnel = mcp
+    .command("tunnel")
+    .description("Configure and run the OpenAI tunnel-client for PlanWeave MCP");
 
   tunnel
     .command("download")
@@ -237,7 +255,11 @@ export function registerMcpCommand(program: Command): void {
     .action(async (options: JsonOption) => {
       const report = await getTunnelStatusReport(createFileTunnelConfigStore());
       if (options.json) {
-        writeJson({ ok: report.checks.every((item) => item.status === "passed"), checks: report.checks, status: redactTunnelStatusReport(report) });
+        writeJson({
+          ok: report.checks.every((item) => item.status === "passed"),
+          checks: report.checks,
+          status: redactTunnelStatusReport(report)
+        });
       } else {
         console.log(formatTunnelDoctorHuman(report));
       }

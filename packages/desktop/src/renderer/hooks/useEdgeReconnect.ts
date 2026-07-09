@@ -22,7 +22,12 @@ export function useEdgeReconnect({ handleEdgesDelete, handleReconnectEdge }: Use
   }, []);
 
   const handleReconnectEnd = useCallback(
-    (_event: MouseEvent | TouchEvent, edge: Edge, _handleType: "source" | "target", connectionState: FinalConnectionState) => {
+    (
+      _event: MouseEvent | TouchEvent,
+      edge: Edge,
+      _handleType: "source" | "target",
+      connectionState: FinalConnectionState
+    ) => {
       if (reconnectSucceededRef.current || connectionState.isValid) {
         return;
       }

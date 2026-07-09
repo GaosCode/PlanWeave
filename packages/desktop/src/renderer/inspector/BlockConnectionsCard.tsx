@@ -13,7 +13,13 @@ type BlockConnectionsCardProps = {
   t: ReturnType<typeof createTranslator>;
 };
 
-export function BlockConnectionsCard({ blocks, dependencies, onBlockSelect, selectedBlockRef, t }: BlockConnectionsCardProps) {
+export function BlockConnectionsCard({
+  blocks,
+  dependencies,
+  onBlockSelect,
+  selectedBlockRef,
+  t
+}: BlockConnectionsCardProps) {
   const dependencyRefs = useMemo(() => new Set(dependencies), [dependencies]);
 
   return (
@@ -30,7 +36,9 @@ export function BlockConnectionsCard({ blocks, dependencies, onBlockSelect, sele
               <Badge
                 asChild
                 className={cn("cursor-pointer", selected ? "" : "hover:bg-muted")}
-                variant={selected ? "default" : dependencyRefs.has(block.ref) ? "secondary" : "outline"}
+                variant={
+                  selected ? "default" : dependencyRefs.has(block.ref) ? "secondary" : "outline"
+                }
                 key={block.ref}
               >
                 <button type="button" onClick={() => void onBlockSelect(block.ref)}>

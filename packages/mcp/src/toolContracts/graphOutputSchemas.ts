@@ -72,16 +72,20 @@ export const graphToolOutputSchemas = {
   bulk_update_parallel_policy: bulkEditOutputSchema,
   apply_canvas_lane_layout: {
     nodeCount: z.number(),
-    bounds: z.object({
-      minX: z.number(),
-      minY: z.number(),
-      maxX: z.number(),
-      maxY: z.number(),
-      width: z.number(),
-      height: z.number()
-    }).nullable(),
-    summary: z.object({
-      nodeCount: z.number()
-    }).passthrough()
+    bounds: z
+      .object({
+        minX: z.number(),
+        minY: z.number(),
+        maxX: z.number(),
+        maxY: z.number(),
+        width: z.number(),
+        height: z.number()
+      })
+      .nullable(),
+    summary: z
+      .object({
+        nodeCount: z.number()
+      })
+      .passthrough()
   }
 } satisfies PlanweavePartialToolOutputSchemaRegistry;

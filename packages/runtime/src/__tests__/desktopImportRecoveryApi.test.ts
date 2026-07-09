@@ -2,7 +2,10 @@ import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { listPendingImportRecoveries, rollbackPendingImportRecovery } from "../desktop/importRecoveryApi.js";
+import {
+  listPendingImportRecoveries,
+  rollbackPendingImportRecovery
+} from "../desktop/importRecoveryApi.js";
 import { initWorkspace } from "../initWorkspace.js";
 import { ImportTransaction } from "../package/importTransaction.js";
 

@@ -1,6 +1,11 @@
 import { spawn } from "node:child_process";
 import { z } from "zod";
-import type { ManifestReviewBlock, ManifestTaskNode, ReviewHookOutput, ReviewResult } from "../types.js";
+import type {
+  ManifestReviewBlock,
+  ManifestTaskNode,
+  ReviewHookOutput,
+  ReviewResult
+} from "../types.js";
 import { isCommandTrusted, untrustedHookCommandError } from "./hookTrustStore.js";
 
 export const REVIEW_HOOK_TIMEOUT_MS = 60_000;
@@ -49,7 +54,10 @@ function appendLimitedChunk(options: {
 
 export async function runReviewHookProcess(options: ReviewHookProcessOptions): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    const child = spawn(options.command, options.args, { cwd: options.cwd, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(options.command, options.args, {
+      cwd: options.cwd,
+      stdio: ["pipe", "pipe", "pipe"]
+    });
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     let stdoutBytes = 0;
@@ -85,7 +93,10 @@ export async function runReviewHookProcess(options: ReviewHookProcessOptions): P
       });
       stdoutBytes = result.nextBytes;
       if (result.exceeded) {
-        settle("reject", new Error(`Review hook stdout exceeded ${options.limits.stdoutLimitBytes} bytes.`));
+        settle(
+          "reject",
+          new Error(`Review hook stdout exceeded ${options.limits.stdoutLimitBytes} bytes.`)
+        );
         child.kill();
       }
     });
@@ -99,7 +110,10 @@ export async function runReviewHookProcess(options: ReviewHookProcessOptions): P
       });
       stderrBytes = result.nextBytes;
       if (result.exceeded) {
-        settle("reject", new Error(`Review hook stderr exceeded ${options.limits.stderrLimitBytes} bytes.`));
+        settle(
+          "reject",
+          new Error(`Review hook stderr exceeded ${options.limits.stderrLimitBytes} bytes.`)
+        );
         child.kill();
       }
     });
@@ -119,7 +133,10 @@ export async function runReviewHookProcess(options: ReviewHookProcessOptions): P
         return;
       }
       if (stderrBytes > options.limits.stderrLimitBytes) {
-        settle("reject", new Error(`Review hook stderr exceeded ${options.limits.stderrLimitBytes} bytes.`));
+        settle(
+          "reject",
+          new Error(`Review hook stderr exceeded ${options.limits.stderrLimitBytes} bytes.`)
+        );
         return;
       }
       const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
@@ -141,7 +158,9 @@ function parseReviewHookOutput(output: string): ReviewHookOutput {
 
   const parsed = reviewHookOutputSchema.safeParse(parsedJson);
   if (!parsed.success) {
-    throw new Error(`Review hook output schema invalid: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`);
+    throw new Error(
+      `Review hook output schema invalid: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`
+    );
   }
   return parsed.data;
 }

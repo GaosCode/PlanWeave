@@ -72,7 +72,10 @@ function findPromptSectionRanges(markdown: string): PromptSectionRange[] {
     sections.push({
       kind: marker.kind,
       name: marker.name,
-      content: markdown.slice(marker.endIndex, endMarker.startIndex).replace(/^\n/, "").replace(/\n$/, ""),
+      content: markdown
+        .slice(marker.endIndex, endMarker.startIndex)
+        .replace(/^\n/, "")
+        .replace(/\n$/, ""),
       markerStartIndex: marker.startIndex,
       markerEndIndex: endMarker.endIndex
     });
@@ -86,7 +89,10 @@ function sectionIssue(code: string, message: string, path?: string): ValidationI
   return { code, message, path };
 }
 
-export function findPromptSectionBoundaryIssues(markdown: string, path?: string): ValidationIssue[] {
+export function findPromptSectionBoundaryIssues(
+  markdown: string,
+  path?: string
+): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const stack: Array<{ kind: PromptSectionKind; name: string }> = [];
 
@@ -100,7 +106,13 @@ export function findPromptSectionBoundaryIssues(markdown: string, path?: string)
 
     const open = stack.pop();
     if (!open) {
-      issues.push(sectionIssue("prompt_section_boundary_invalid", `Prompt section '${kind}:${name}' has an end marker without a start marker.`, path));
+      issues.push(
+        sectionIssue(
+          "prompt_section_boundary_invalid",
+          `Prompt section '${kind}:${name}' has an end marker without a start marker.`,
+          path
+        )
+      );
       continue;
     }
     if (open.kind !== kind || open.name !== name) {
@@ -116,7 +128,11 @@ export function findPromptSectionBoundaryIssues(markdown: string, path?: string)
 
   for (const open of stack) {
     issues.push(
-      sectionIssue("prompt_section_boundary_invalid", `Prompt section '${open.kind}:${open.name}' has a start marker without an end marker.`, path)
+      sectionIssue(
+        "prompt_section_boundary_invalid",
+        `Prompt section '${open.kind}:${open.name}' has a start marker without an end marker.`,
+        path
+      )
     );
   }
 
@@ -131,11 +147,21 @@ export function assertPromptSectionsWellFormed(markdown: string, path?: string):
 }
 
 export function parsePromptSections(markdown: string): PromptSection[] {
-  return findPromptSectionRanges(markdown).map(({ kind, name, content }) => ({ kind, name, content }));
+  return findPromptSectionRanges(markdown).map(({ kind, name, content }) => ({
+    kind,
+    name,
+    content
+  }));
 }
 
-export function getPromptSection(markdown: string, kind: PromptSectionKind, name: string): string | null {
-  const section = parsePromptSections(markdown).find((item) => item.kind === kind && item.name === name);
+export function getPromptSection(
+  markdown: string,
+  kind: PromptSectionKind,
+  name: string
+): string | null {
+  const section = parsePromptSections(markdown).find(
+    (item) => item.kind === kind && item.name === name
+  );
   return section?.content ?? null;
 }
 
@@ -148,8 +174,15 @@ export function formatSection(kind: PromptSectionKind, name: string, content: st
   return `<!-- planweave:${kind}:start ${name} -->\n${body}\n<!-- planweave:${kind}:end ${name} -->`;
 }
 
-export function replacePromptSection(markdown: string, kind: PromptSectionKind, name: string, content: string): string {
-  const section = findPromptSectionRanges(markdown).find((item) => item.kind === kind && item.name === name);
+export function replacePromptSection(
+  markdown: string,
+  kind: PromptSectionKind,
+  name: string,
+  content: string
+): string {
+  const section = findPromptSectionRanges(markdown).find(
+    (item) => item.kind === kind && item.name === name
+  );
   if (!section) {
     throw new Error(`Prompt section '${kind}:${name}' does not exist.`);
   }

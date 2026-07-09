@@ -56,15 +56,24 @@ async function createPendingReplaceTransaction(options: {
 
 function isCliFailure(error: unknown): error is CliFailure {
   const candidate = error as { code?: unknown; stdout?: unknown; stderr?: unknown };
-  return error instanceof Error && typeof candidate.code === "number" && typeof candidate.stdout === "string" && typeof candidate.stderr === "string";
+  return (
+    error instanceof Error &&
+    typeof candidate.code === "number" &&
+    typeof candidate.stdout === "string" &&
+    typeof candidate.stderr === "string"
+  );
 }
 
 async function runCliExpectFailure(args: string[], env: NodeJS.ProcessEnv): Promise<CliFailure> {
   try {
-    await execFileAsync("pnpm", ["--silent", "--filter", "@planweave-ai/cli", "planweave", ...args], {
-      cwd: repoRoot,
-      env
-    });
+    await execFileAsync(
+      "pnpm",
+      ["--silent", "--filter", "@planweave-ai/cli", "planweave", ...args],
+      {
+        cwd: repoRoot,
+        env
+      }
+    );
   } catch (error) {
     if (isCliFailure(error)) {
       return error;
@@ -93,7 +102,9 @@ describe("planweave import-recovery", () => {
     const { workspaceRoot } = await createManagedProject();
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-    await createProgram().parseAsync(["--project-root", workspaceRoot, "import-recovery", "list"], { from: "user" });
+    await createProgram().parseAsync(["--project-root", workspaceRoot, "import-recovery", "list"], {
+      from: "user"
+    });
 
     expect(log.mock.calls.at(-1)?.[0]).toBe("No pending package import recovery transactions.");
   });
@@ -103,7 +114,10 @@ describe("planweave import-recovery", () => {
     await createPendingReplaceTransaction({ workspaceRoot, transactionId: "tx-json" });
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-    await createProgram().parseAsync(["--project-root", sourceRoot, "import-recovery", "list", "--json"], { from: "user" });
+    await createProgram().parseAsync(
+      ["--project-root", sourceRoot, "import-recovery", "list", "--json"],
+      { from: "user" }
+    );
 
     expect(JSON.parse(log.mock.calls.at(-1)?.[0] ?? "{}")).toMatchObject({
       pending: [
@@ -119,14 +133,23 @@ describe("planweave import-recovery", () => {
 
   it("rolls back the requested transaction", async () => {
     const { sourceRoot, workspaceRoot } = await createExternalProject();
-    const { target } = await createPendingReplaceTransaction({ workspaceRoot, transactionId: "tx-rollback" });
+    const { target } = await createPendingReplaceTransaction({
+      workspaceRoot,
+      transactionId: "tx-rollback"
+    });
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-    await createProgram().parseAsync(["--project-root", sourceRoot, "import-recovery", "rollback", "tx-rollback", "--json"], {
-      from: "user"
-    });
+    await createProgram().parseAsync(
+      ["--project-root", sourceRoot, "import-recovery", "rollback", "tx-rollback", "--json"],
+      {
+        from: "user"
+      }
+    );
 
-    expect(JSON.parse(log.mock.calls.at(-1)?.[0] ?? "{}")).toEqual({ ok: true, transactionId: "tx-rollback" });
+    expect(JSON.parse(log.mock.calls.at(-1)?.[0] ?? "{}")).toEqual({
+      ok: true,
+      transactionId: "tx-rollback"
+    });
     await expect(readFile(target, "utf8")).resolves.toBe("old state\n");
     await expect(access(recoveryRoot(workspaceRoot, "tx-rollback"))).rejects.toThrow();
   });
@@ -136,7 +159,10 @@ describe("planweave import-recovery", () => {
     const env = { ...process.env };
     delete env.INIT_CWD;
 
-    const failure = await runCliExpectFailure(["--project-root", workspaceRoot, "import-recovery", "rollback"], env);
+    const failure = await runCliExpectFailure(
+      ["--project-root", workspaceRoot, "import-recovery", "rollback"],
+      env
+    );
 
     expect(failure.code).toBe(1);
     expect(failure.stdout).toBe("");
@@ -146,18 +172,32 @@ describe("planweave import-recovery", () => {
   it("propagates rollback failures and keeps recovery", async () => {
     const { workspaceRoot } = await createManagedProject();
     await createPendingReplaceTransaction({ workspaceRoot, transactionId: "tx-failure" });
-    await rm(join(recoveryRoot(workspaceRoot, "tx-failure"), "backups", "000001"), { recursive: true, force: true });
+    await rm(join(recoveryRoot(workspaceRoot, "tx-failure"), "backups", "000001"), {
+      recursive: true,
+      force: true
+    });
 
     await expect(
-      createProgram().parseAsync(["--project-root", workspaceRoot, "import-recovery", "rollback", "tx-failure"], { from: "user" })
+      createProgram().parseAsync(
+        ["--project-root", workspaceRoot, "import-recovery", "rollback", "tx-failure"],
+        { from: "user" }
+      )
     ).rejects.toThrow("backup missing");
-    await expect(access(join(recoveryRoot(workspaceRoot, "tx-failure"), "recovery.json"))).resolves.toBeUndefined();
+    await expect(
+      access(join(recoveryRoot(workspaceRoot, "tx-failure"), "recovery.json"))
+    ).resolves.toBeUndefined();
   });
 
   it("returns non-zero for rollback failures from the CLI entrypoint", async () => {
     const { workspaceRoot } = await createManagedProject();
-    await createPendingReplaceTransaction({ workspaceRoot, transactionId: "tx-entrypoint-failure" });
-    await rm(join(recoveryRoot(workspaceRoot, "tx-entrypoint-failure"), "backups", "000001"), { recursive: true, force: true });
+    await createPendingReplaceTransaction({
+      workspaceRoot,
+      transactionId: "tx-entrypoint-failure"
+    });
+    await rm(join(recoveryRoot(workspaceRoot, "tx-entrypoint-failure"), "backups", "000001"), {
+      recursive: true,
+      force: true
+    });
     const env = { ...process.env };
     delete env.INIT_CWD;
 
@@ -169,6 +209,8 @@ describe("planweave import-recovery", () => {
     expect(failure.code).toBe(1);
     expect(failure.stdout).toBe("");
     expect(failure.stderr).toContain("backup missing");
-    await expect(access(join(recoveryRoot(workspaceRoot, "tx-entrypoint-failure"), "recovery.json"))).resolves.toBeUndefined();
+    await expect(
+      access(join(recoveryRoot(workspaceRoot, "tx-entrypoint-failure"), "recovery.json"))
+    ).resolves.toBeUndefined();
   });
 });

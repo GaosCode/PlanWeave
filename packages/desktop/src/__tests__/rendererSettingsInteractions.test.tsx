@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "../renderer/components/AgentSettingsPanel";
 import { SettingsView } from "../renderer/views/SettingsView";
 import { createTranslator } from "../renderer/i18n";
-import { defaultDesktopSettings, normalizeLegacyDesktopSettingsPayload } from "../renderer/settings";
+import {
+  defaultDesktopSettings,
+  normalizeLegacyDesktopSettingsPayload
+} from "../renderer/settings";
 import type { DesktopUiSettings } from "../renderer/types";
 import type { DesktopProjectSummary } from "@planweave-ai/runtime";
 
@@ -104,10 +107,22 @@ function stubLayoutApis() {
     unobserve = vi.fn();
   }
   vi.stubGlobal("ResizeObserver", ResizeObserverMock);
-  Object.defineProperty(window.HTMLElement.prototype, "hasPointerCapture", { configurable: true, value: vi.fn(() => false) });
-  Object.defineProperty(window.HTMLElement.prototype, "setPointerCapture", { configurable: true, value: vi.fn() });
-  Object.defineProperty(window.HTMLElement.prototype, "releasePointerCapture", { configurable: true, value: vi.fn() });
-  Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+  Object.defineProperty(window.HTMLElement.prototype, "hasPointerCapture", {
+    configurable: true,
+    value: vi.fn(() => false)
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "setPointerCapture", {
+    configurable: true,
+    value: vi.fn()
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "releasePointerCapture", {
+    configurable: true,
+    value: vi.fn()
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: vi.fn()
+  });
 }
 
 function stubLocalStorage() {
@@ -259,23 +274,23 @@ describe("desktop renderer settings interactions", () => {
 
   it("normalizes legacy migration layout widths and ignores invalid floating control coordinates", () => {
     const migrated = normalizeLegacyDesktopSettingsPayload({
-        layout: {
-          leftSidebar: {
-            collapsed: "yes",
-            width: -1
-          },
-          rightSidebar: {
-            collapsed: true,
-            width: 99999
-          },
-          autoRunControl: {
-            position: {
-              left: -20,
-              top: "30"
-            }
+      layout: {
+        leftSidebar: {
+          collapsed: "yes",
+          width: -1
+        },
+        rightSidebar: {
+          collapsed: true,
+          width: 99999
+        },
+        autoRunControl: {
+          position: {
+            left: -20,
+            top: "30"
           }
         }
-      });
+      }
+    });
 
     expect(migrated.layout).toEqual({
       ...defaultDesktopSettings.layout,
@@ -501,14 +516,28 @@ describe("desktop renderer settings interactions", () => {
 
     expect(screen.getByTestId("settings-section-mcp")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "MCP Tunnel" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("textbox", { name: "Tunnel ID" })).toHaveValue("tunnel_0123456789abcdef0123456789abcdef"));
-    await waitFor(() => expect(screen.getByLabelText("Runtime API key")).toHaveAttribute("placeholder", "Saved key"));
-    expect(screen.getByText("A saved runtime API key will be used if this field is left blank.")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Tunnel ID" })).toHaveValue(
+        "tunnel_0123456789abcdef0123456789abcdef"
+      )
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Runtime API key")).toHaveAttribute("placeholder", "Saved key")
+    );
+    expect(
+      screen.getByText("A saved runtime API key will be used if this field is left blank.")
+    ).toBeInTheDocument();
     expect(screen.getByText("ready")).toBeInTheDocument();
     expect(screen.getByText("Ready: http://127.0.0.1:58902")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Start tunnel when PlanWeave opens" })).toBeChecked();
-    expect(screen.getByRole("link", { name: "Open release page" })).toHaveAttribute("href", "https://github.com/openai/tunnel-client/releases/latest");
-    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(expect.any(String), expect.stringContaining("Runtime API key"));
+    expect(screen.getByRole("link", { name: "Open release page" })).toHaveAttribute(
+      "href",
+      "https://github.com/openai/tunnel-client/releases/latest"
+    );
+    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.stringContaining("Runtime API key")
+    );
   });
 
   it("reports MCP tunnel status load failures instead of leaving the settings UI idle", async () => {
@@ -517,7 +546,9 @@ describe("desktop renderer settings interactions", () => {
     Object.defineProperty(window, "planweaveMcpTunnel", {
       configurable: true,
       value: {
-        getMcpTunnelStatus: vi.fn().mockRejectedValue(new Error("Invalid MCP tunnel config JSON at /tmp/config.json")),
+        getMcpTunnelStatus: vi
+          .fn()
+          .mockRejectedValue(new Error("Invalid MCP tunnel config JSON at /tmp/config.json")),
         onMcpTunnelChanged: vi.fn(() => () => undefined),
         downloadTunnelClient: vi.fn(),
         setTunnelClientPath: vi.fn(),
@@ -549,7 +580,9 @@ describe("desktop renderer settings interactions", () => {
 
     await userEvent.click(screen.getByTestId("settings-nav-mcp"));
 
-    await waitFor(() => expect(setError).toHaveBeenCalledWith("Invalid MCP tunnel config JSON at /tmp/config.json"));
+    await waitFor(() =>
+      expect(setError).toHaveBeenCalledWith("Invalid MCP tunnel config JSON at /tmp/config.json")
+    );
   });
 
   it("disables MCP tunnel auto-start when the runtime API key is session-only", async () => {
@@ -634,10 +667,21 @@ describe("desktop renderer settings interactions", () => {
 
     await userEvent.click(screen.getByTestId("settings-nav-mcp"));
 
-    expect(await screen.findByText("Stored only for this PlanWeave process. It will not be saved.")).toBeInTheDocument();
-    expect(screen.getByText("Auto-start requires a runtime API key that can be restored from secure storage.")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Start tunnel when PlanWeave opens" })).toBeDisabled();
-    expect(screen.getByLabelText("Runtime API key")).not.toHaveAttribute("placeholder", "Saved key");
+    expect(
+      await screen.findByText("Stored only for this PlanWeave process. It will not be saved.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Auto-start requires a runtime API key that can be restored from secure storage."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", { name: "Start tunnel when PlanWeave opens" })
+    ).toBeDisabled();
+    expect(screen.getByLabelText("Runtime API key")).not.toHaveAttribute(
+      "placeholder",
+      "Saved key"
+    );
   });
 
   it("lets users choose system, light, and dark appearance modes", async () => {
@@ -772,7 +816,11 @@ describe("desktop renderer settings interactions", () => {
 
     await waitFor(() => expect(switchControl).toBeDisabled());
     expect(switchControl).not.toBeChecked();
-    expect(screen.getByText("Native window material is not supported on this platform, so PlanWeave will keep solid surfaces.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Native window material is not supported on this platform, so PlanWeave will keep solid surfaces."
+      )
+    ).toBeInTheDocument();
   });
 
   it("lets users toggle reduced motion", async () => {

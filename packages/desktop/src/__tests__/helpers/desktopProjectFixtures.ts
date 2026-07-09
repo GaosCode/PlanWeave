@@ -29,7 +29,9 @@ export const layout: DesktopLayout = {
   updatedAt: "2026-05-23T00:00:00.000Z"
 };
 
-export function projectSnapshot(overrides: Partial<DesktopProjectSnapshot> = {}): DesktopProjectSnapshot {
+export function projectSnapshot(
+  overrides: Partial<DesktopProjectSnapshot> = {}
+): DesktopProjectSnapshot {
   return {
     projectPromptMarkdown: null,
     projectPromptPolicy: null,

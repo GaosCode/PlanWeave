@@ -51,7 +51,9 @@ type PersistedReviewAttempt = {
 };
 
 function isNonMissingNodeFileError(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && !isNodeFileNotFoundError(error));
+  return Boolean(
+    error && typeof error === "object" && "code" in error && !isNodeFileNotFoundError(error)
+  );
 }
 
 async function recordReviewAttemptIndexes(options: {
@@ -63,11 +65,14 @@ async function recordReviewAttemptIndexes(options: {
   incrementCount: boolean;
 }): Promise<void> {
   const { taskId, blockId } = parseBlockRef(options.reviewBlockRef);
-  await writeJsonFile(join(options.workspace.resultsDir, taskId, "reviews", blockId, "index.json"), {
-    latestReviewAttemptId: options.attemptId,
-    latestVerdict: options.reviewResult.verdict,
-    reviewedWorkRevision: options.workRevision
-  });
+  await writeJsonFile(
+    join(options.workspace.resultsDir, taskId, "reviews", blockId, "index.json"),
+    {
+      latestReviewAttemptId: options.attemptId,
+      latestVerdict: options.reviewResult.verdict,
+      reviewedWorkRevision: options.workRevision
+    }
+  );
   await updateTaskIndex(options.workspace, taskId, (index) => ({
     ...index,
     latestReviewAttemptByBlock: {
@@ -118,17 +123,30 @@ async function readMatchingReviewAttempt(options: {
   resultHash: string;
 }): Promise<PersistedReviewAttempt | null> {
   try {
-    const metadata = await readJsonFile<Record<string, unknown>>(join(options.attemptDir, "metadata.json"));
-    if (metadata.reviewBlockRef !== options.reviewBlockRef || metadata.attemptId !== options.attemptId) {
+    const metadata = await readJsonFile<Record<string, unknown>>(
+      join(options.attemptDir, "metadata.json")
+    );
+    if (
+      metadata.reviewBlockRef !== options.reviewBlockRef ||
+      metadata.attemptId !== options.attemptId
+    ) {
       return null;
     }
-    if (reviewResultHash(reviewResultSchema.parse(await readJsonFile<unknown>(join(options.attemptDir, "review-result.json")))) !== options.resultHash) {
+    if (
+      reviewResultHash(
+        reviewResultSchema.parse(
+          await readJsonFile<unknown>(join(options.attemptDir, "review-result.json"))
+        )
+      ) !== options.resultHash
+    ) {
       return null;
     }
     return {
       attemptId: options.attemptId,
-      reviewedWorkRevision: typeof metadata.reviewedWorkRevision === "string" ? metadata.reviewedWorkRevision : null,
-      sourceResultPath: typeof metadata.sourceResultPath === "string" ? metadata.sourceResultPath : null
+      reviewedWorkRevision:
+        typeof metadata.reviewedWorkRevision === "string" ? metadata.reviewedWorkRevision : null,
+      sourceResultPath:
+        typeof metadata.sourceResultPath === "string" ? metadata.sourceResultPath : null
     };
   } catch (error) {
     if (isNonMissingNodeFileError(error)) {
@@ -186,7 +204,9 @@ async function recordFeedbackEnvelopeIndexes(options: {
       ...(index.feedbackStatusById ?? {}),
       [options.feedbackId]: options.feedbackStatus
     },
-    counts: options.incrementCount ? incrementTaskIndexCount(index, "feedbackEnvelopes") : index.counts
+    counts: options.incrementCount
+      ? incrementTaskIndexCount(index, "feedbackEnvelopes")
+      : index.counts
   }));
 }
 
@@ -207,7 +227,9 @@ async function findFeedbackForReviewAttempt(options: {
     .sort();
   for (const feedbackId of feedbackIds) {
     try {
-      const artifact = await readJsonFile<FeedbackArtifact>(join(feedbackRoot, feedbackId, "feedback.json"));
+      const artifact = await readJsonFile<FeedbackArtifact>(
+        join(feedbackRoot, feedbackId, "feedback.json")
+      );
       if (
         artifact.feedbackId === feedbackId &&
         artifact.sourceReviewBlockRef === options.reviewBlockRef &&
@@ -232,7 +254,9 @@ async function reviewCompletionReasonForAttempt(options: {
   attemptId: string;
 }): Promise<"passed" | "max_cycles_reached" | null> {
   try {
-    const index = await readJsonFile<TaskResultIndex>(join(options.workspace.resultsDir, options.taskId, "index.json"));
+    const index = await readJsonFile<TaskResultIndex>(
+      join(options.workspace.resultsDir, options.taskId, "index.json")
+    );
     if (index.latestReviewAttemptByBlock?.[options.reviewBlockRef] !== options.attemptId) {
       return null;
     }
@@ -245,10 +269,17 @@ async function reviewCompletionReasonForAttempt(options: {
   }
 }
 
-async function nextFeedbackId(options: { workspace: ProjectWorkspace; taskId: string; state: { feedback: Record<string, unknown> } }): Promise<string> {
+async function nextFeedbackId(options: {
+  workspace: ProjectWorkspace;
+  taskId: string;
+  state: { feedback: Record<string, unknown> };
+}): Promise<string> {
   const feedbackRoot = join(options.workspace.resultsDir, options.taskId, "feedback");
   await mkdir(feedbackRoot, { recursive: true });
-  let count = Math.max(Object.keys(options.state.feedback).length, await listDirCount(feedbackRoot));
+  let count = Math.max(
+    Object.keys(options.state.feedback).length,
+    await listDirCount(feedbackRoot)
+  );
   for (let attempt = 0; attempt < 1000; attempt++) {
     const feedbackId = nextId("FE", count + attempt);
     if (options.state.feedback[feedbackId]) {
@@ -258,7 +289,11 @@ async function nextFeedbackId(options: { workspace: ProjectWorkspace; taskId: st
       await mkdir(join(feedbackRoot, feedbackId), { recursive: false });
       return feedbackId;
     } catch (error) {
-      if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST") {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error as NodeJS.ErrnoException).code === "EEXIST"
+      ) {
         continue;
       }
       throw error;
@@ -267,7 +302,10 @@ async function nextFeedbackId(options: { workspace: ProjectWorkspace; taskId: st
   throw new Error(`Unable to allocate a feedback id under ${feedbackRoot}`);
 }
 
-function maxFeedbackCyclesReached(previousFeedbackCount: number, maxFeedbackCycles: number): boolean {
+function maxFeedbackCyclesReached(
+  previousFeedbackCount: number,
+  maxFeedbackCycles: number
+): boolean {
   // maxFeedbackCycles counts re-review feedback cycles after the initial needs_changes envelope.
   return maxFeedbackCycles === 0 || previousFeedbackCount > maxFeedbackCycles;
 }
@@ -285,7 +323,9 @@ export async function submitReviewResult(options: {
   const parsed = reviewResultSchema.parse(await readJsonFile<unknown>(options.resultPath));
   const resultHash = reviewResultHash(parsed);
   const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
-  return withCanvasLock(dirname(lockWorkspace.stateFile), async () => submitReviewResultLocked(options, parsed, resultHash));
+  return withCanvasLock(dirname(lockWorkspace.stateFile), async () =>
+    submitReviewResultLocked(options, parsed, resultHash)
+  );
 }
 
 async function submitReviewResultLocked(
@@ -313,17 +353,33 @@ async function submitReviewResultLocked(
     throw new Error(`Review block '${options.ref}' must be in_progress before submit-review.`);
   }
   const workRevision = computeWorkRevision(graph, state, options.ref);
-  const persistedAttempt = await findPersistedReviewAttempt({ workspace, reviewBlockRef: options.ref, resultHash });
+  const persistedAttempt = await findPersistedReviewAttempt({
+    workspace,
+    reviewBlockRef: options.ref,
+    resultHash
+  });
   const persistedAttemptId = persistedAttempt?.attemptId ?? null;
   const persistedFeedback =
     persistedAttemptId && parsed.verdict === "needs_changes"
-      ? await findFeedbackForReviewAttempt({ workspace, taskId, reviewBlockRef: options.ref, attemptId: persistedAttemptId })
+      ? await findFeedbackForReviewAttempt({
+          workspace,
+          taskId,
+          reviewBlockRef: options.ref,
+          attemptId: persistedAttemptId
+        })
       : null;
   const persistedCompletionReason =
     persistedAttemptId && parsed.verdict === "needs_changes" && persistedFeedback === null
-      ? await reviewCompletionReasonForAttempt({ workspace, taskId, reviewBlockRef: options.ref, attemptId: persistedAttemptId })
+      ? await reviewCompletionReasonForAttempt({
+          workspace,
+          taskId,
+          reviewBlockRef: options.ref,
+          attemptId: persistedAttemptId
+        })
       : null;
-  const persistedFeedbackIsActive = persistedFeedback ? isActiveFeedbackStatus(persistedFeedback.status) : false;
+  const persistedFeedbackIsActive = persistedFeedback
+    ? isActiveFeedbackStatus(persistedFeedback.status)
+    : false;
   const isSameWorkRevision = persistedAttempt?.reviewedWorkRevision === workRevision;
   const isCurrentFeedbackRetry =
     parsed.verdict === "needs_changes" &&
@@ -335,7 +391,9 @@ async function submitReviewResultLocked(
     persistedFeedback !== null &&
     persistedFeedback.status === "resolved" &&
     state.blocks[options.ref]?.pendingFeedbackId === persistedFeedback.feedbackId;
-  const shouldReusePersistedAttempt = persistedAttemptId !== null && (isSameWorkRevision || isCurrentFeedbackRetry || isPendingResolvedFeedbackRetry);
+  const shouldReusePersistedAttempt =
+    persistedAttemptId !== null &&
+    (isSameWorkRevision || isCurrentFeedbackRetry || isPendingResolvedFeedbackRetry);
   const attemptId =
     shouldReusePersistedAttempt && persistedAttemptId
       ? persistedAttemptId
@@ -376,7 +434,8 @@ async function submitReviewResultLocked(
         status: "in_progress",
         latestReviewAttemptId: attemptId,
         activeFeedbackId: persistedFeedbackIsActive ? persistedFeedback.feedbackId : null,
-        pendingFeedbackId: persistedFeedback.status === "resolved" ? persistedFeedback.feedbackId : null,
+        pendingFeedbackId:
+          persistedFeedback.status === "resolved" ? persistedFeedback.feedbackId : null,
         completionReason: null
       };
       state.currentReviewBlockRef = options.ref;
@@ -384,7 +443,9 @@ async function submitReviewResultLocked(
         state.currentFeedbackId = persistedFeedback.feedbackId;
         state.currentRefs = withoutCurrentRef(state.currentRefs, options.ref);
       } else {
-        state.currentRefs = state.currentRefs.includes(options.ref) ? state.currentRefs : [...state.currentRefs, options.ref];
+        state.currentRefs = state.currentRefs.includes(options.ref)
+          ? state.currentRefs
+          : [...state.currentRefs, options.ref];
       }
       state = refreshDerivedState(manifest, state);
       await writeState(workspace.stateFile, state);
@@ -407,7 +468,8 @@ async function submitReviewResultLocked(
         blockedReason: null,
         completionReason: "max_cycles_reached"
       };
-      state.currentReviewBlockRef = state.currentReviewBlockRef === options.ref ? null : state.currentReviewBlockRef;
+      state.currentReviewBlockRef =
+        state.currentReviewBlockRef === options.ref ? null : state.currentReviewBlockRef;
       state.currentRefs = state.currentRefs.filter((ref) => ref !== options.ref);
       state = refreshDerivedState(manifest, state);
       await writeState(workspace.stateFile, state);
@@ -423,7 +485,9 @@ async function submitReviewResultLocked(
     }
   }
   const task = getTask(graph, taskId);
-  const previousFeedbackCount = Object.values(state.feedback).filter((feedback) => feedback.sourceReviewBlockRef === options.ref).length;
+  const previousFeedbackCount = Object.values(state.feedback).filter(
+    (feedback) => feedback.sourceReviewBlockRef === options.ref
+  ).length;
 
   if (parsed.verdict === "passed") {
     state.blocks[options.ref] = {
@@ -441,7 +505,8 @@ async function submitReviewResultLocked(
       reviewBlockRef: options.ref,
       completionReason: "passed"
     });
-    state.currentReviewBlockRef = state.currentReviewBlockRef === options.ref ? null : state.currentReviewBlockRef;
+    state.currentReviewBlockRef =
+      state.currentReviewBlockRef === options.ref ? null : state.currentReviewBlockRef;
     state.currentRefs = state.currentRefs.filter((ref) => ref !== options.ref);
     state = refreshDerivedState(manifest, state);
     await writeState(workspace.stateFile, state);
@@ -476,7 +541,8 @@ async function submitReviewResultLocked(
       completionReason: "max_cycles_reached",
       warning
     });
-    state.currentReviewBlockRef = state.currentReviewBlockRef === options.ref ? null : state.currentReviewBlockRef;
+    state.currentReviewBlockRef =
+      state.currentReviewBlockRef === options.ref ? null : state.currentReviewBlockRef;
     state.currentRefs = state.currentRefs.filter((ref) => ref !== options.ref);
     state = refreshDerivedState(manifest, state);
     await writeState(workspace.stateFile, state);
@@ -514,7 +580,12 @@ async function submitReviewResultLocked(
     state.currentRefs = state.currentRefs.filter((ref) => ref !== options.ref);
     state = refreshDerivedState(manifest, state);
     await writeState(workspace.stateFile, state);
-    return { ref: options.ref, reviewAttemptId: attemptId, verdict: "needs_changes", status: "blocked" };
+    return {
+      ref: options.ref,
+      reviewAttemptId: attemptId,
+      verdict: "needs_changes",
+      status: "blocked"
+    };
   }
 
   const feedbackId = await nextFeedbackId({ workspace, taskId, state });
@@ -552,5 +623,12 @@ async function submitReviewResultLocked(
   state.currentRefs = withoutCurrentRef(state.currentRefs, options.ref);
   state = refreshDerivedState(manifest, state);
   await writeState(workspace.stateFile, state);
-  return { ref: options.ref, reviewAttemptId: attemptId, verdict: "needs_changes", feedbackId, status: "in_progress", feedbackCreated: true };
+  return {
+    ref: options.ref,
+    reviewAttemptId: attemptId,
+    verdict: "needs_changes",
+    feedbackId,
+    status: "in_progress",
+    feedbackCreated: true
+  };
 }

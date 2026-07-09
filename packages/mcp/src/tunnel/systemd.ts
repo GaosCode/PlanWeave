@@ -19,7 +19,7 @@ function requireNonEmpty(value: string, field: string): string {
 }
 
 function quoteSystemd(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 export function renderSystemdService(input: SystemdTemplateInput): string {

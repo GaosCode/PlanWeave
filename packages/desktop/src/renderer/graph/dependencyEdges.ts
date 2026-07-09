@@ -12,7 +12,10 @@ export type DisplayEdgeManifestData = {
   manifestTo: string;
 };
 
-export function executionFlowEndpoints(edge: DesktopGraphEdgeViewModel): { source: string; target: string } {
+export function executionFlowEndpoints(edge: DesktopGraphEdgeViewModel): {
+  source: string;
+  target: string;
+} {
   if (edge.type === "depends_on") {
     return { source: edge.to, target: edge.from };
   }
@@ -27,7 +30,9 @@ export function displayEdgeManifestData(edge: DesktopGraphEdgeViewModel): Displa
   };
 }
 
-export function dependencyConnectionToManifestEndpoints(connection: Connection): ManifestDependencyEndpoints | null {
+export function dependencyConnectionToManifestEndpoints(
+  connection: Connection
+): ManifestDependencyEndpoints | null {
   if (!connection.source || !connection.target || connection.source === connection.target) {
     return null;
   }
@@ -37,7 +42,9 @@ export function dependencyConnectionToManifestEndpoints(connection: Connection):
   };
 }
 
-export function dependencyDisplayEdgeToManifestEndpoints(edge: Edge): ManifestDependencyEndpoints | null {
+export function dependencyDisplayEdgeToManifestEndpoints(
+  edge: Edge
+): ManifestDependencyEndpoints | null {
   const data = edge.data as Partial<DisplayEdgeManifestData> | undefined;
   if (data?.manifestEdgeType && data.manifestEdgeType !== "depends_on") {
     return null;

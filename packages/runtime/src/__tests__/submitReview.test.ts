@@ -1,7 +1,13 @@
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { claimNext, getExecutionStatus, submitBlockResult, submitFeedback, submitReviewResult } from "../taskManager/index.js";
+import {
+  claimNext,
+  getExecutionStatus,
+  submitBlockResult,
+  submitFeedback,
+  submitReviewResult
+} from "../taskManager/index.js";
 import { loadRuntime } from "../taskManager/runtimeContext.js";
 import { computeWorkRevision } from "../taskManager/selectors.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
@@ -10,7 +16,11 @@ import { createTestWorkspace, writeReport, writeReviewResult } from "./promptTes
 
 async function completeImplementation(root: string): Promise<void> {
   await claimNext({ projectRoot: root });
-  await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+  await submitBlockResult({
+    projectRoot: root,
+    ref: "T-001#B-001",
+    reportPath: await writeReport(root, "b.md")
+  });
   await claimNext({ projectRoot: root });
 }
 
@@ -30,7 +40,9 @@ describe("submitReviewResult", () => {
       resultPath: await writeReviewResult(root, "passed", "Looks good.")
     });
     const status = await getExecutionStatus({ projectRoot: root });
-    const taskIndex = await readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"));
+    const taskIndex = await readJsonFile<TaskResultIndex>(
+      join(init.workspace.resultsDir, "T-001", "index.json")
+    );
 
     expect(result).toMatchObject({ ref: "T-001#R-001", verdict: "passed", status: "completed" });
     expect(status.tasks[0]).toMatchObject({ taskId: "T-001", status: "implemented" });
@@ -39,7 +51,19 @@ describe("submitReviewResult", () => {
     expect(taskIndex.latestReviewVerdictByBlock).toMatchObject({ "T-001#R-001": "passed" });
     expect(taskIndex.reviewCompletionReasonByBlock).toMatchObject({ "T-001#R-001": "passed" });
     expect(taskIndex.counts).toMatchObject({ runs: 1, reviewAttempts: 1 });
-    await expect(access(join(init.workspace.resultsDir, "T-001", "reviews", "R-001", "attempts", "REV-001", "review-result.json"))).resolves.toBeUndefined();
+    await expect(
+      access(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "reviews",
+          "R-001",
+          "attempts",
+          "REV-001",
+          "review-result.json"
+        )
+      )
+    ).resolves.toBeUndefined();
   });
 
   it("recovers an already persisted review attempt without creating a duplicate", async () => {
@@ -61,9 +85,16 @@ describe("submitReviewResult", () => {
 
     const result = await submitReviewResult({ projectRoot: root, ref: "T-001#R-001", resultPath });
 
-    expect(result).toMatchObject({ ref: "T-001#R-001", reviewAttemptId: "REV-001", verdict: "passed", status: "completed" });
+    expect(result).toMatchObject({
+      ref: "T-001#R-001",
+      reviewAttemptId: "REV-001",
+      verdict: "passed",
+      status: "completed"
+    });
     await expect(access(join(attemptRoot, "REV-002"))).rejects.toThrow();
-    await expect(readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"))
+    ).resolves.toMatchObject({
       latestReviewAttemptByBlock: { "T-001#R-001": "REV-001" },
       latestReviewVerdictByBlock: { "T-001#R-001": "passed" }
     });
@@ -78,7 +109,13 @@ describe("submitReviewResult", () => {
       ref: "T-001#R-001",
       resultPath: await writeReviewResult(root, "needs_changes", "Fix the edge case.")
     });
-    const feedbackArtifactPath = join(init.workspace.resultsDir, "T-001", "feedback", "FE-001", "feedback.json");
+    const feedbackArtifactPath = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "feedback",
+      "FE-001",
+      "feedback.json"
+    );
     await expect(readJsonFile(feedbackArtifactPath)).resolves.toMatchObject({
       feedbackId: "FE-001",
       sourceReviewBlockRef: "T-001#R-001",
@@ -90,7 +127,10 @@ describe("submitReviewResult", () => {
       feedbackId: "FE-001",
       status: "in_progress"
     });
-    await submitFeedback({ projectRoot: root, reportPath: await writeReport(root, "feedback.md", "Fixed edge case.\n") });
+    await submitFeedback({
+      projectRoot: root,
+      reportPath: await writeReport(root, "feedback.md", "Fixed edge case.\n")
+    });
     await expect(readJsonFile<RuntimeState>(init.workspace.stateFile)).resolves.toMatchObject({
       currentFeedbackId: null,
       currentReviewBlockRef: "T-001#R-001"
@@ -106,15 +146,30 @@ describe("submitReviewResult", () => {
       ref: "T-001#R-001",
       resultPath: await writeReviewResult(root, "passed", "Passed after fix.")
     });
-    const taskIndex = await readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"));
+    const taskIndex = await readJsonFile<TaskResultIndex>(
+      join(init.workspace.resultsDir, "T-001", "index.json")
+    );
 
-    expect(first).toMatchObject({ verdict: "needs_changes", feedbackId: "FE-001", status: "in_progress" });
-    expect(second).toMatchObject({ reviewAttemptId: "REV-002", verdict: "passed", status: "completed" });
+    expect(first).toMatchObject({
+      verdict: "needs_changes",
+      feedbackId: "FE-001",
+      status: "in_progress"
+    });
+    expect(second).toMatchObject({
+      reviewAttemptId: "REV-002",
+      verdict: "passed",
+      status: "completed"
+    });
     expect(taskIndex.latestReviewAttemptByBlock).toMatchObject({ "T-001#R-001": "REV-002" });
     expect(taskIndex.latestFeedbackByReviewBlock).toMatchObject({ "T-001#R-001": "FE-001" });
     expect(taskIndex.latestFeedbackSubmissionByFeedback).toMatchObject({ "FE-001": "FS-001" });
     expect(taskIndex.feedbackStatusById).toMatchObject({ "FE-001": "resolved" });
-    expect(taskIndex.counts).toMatchObject({ runs: 1, reviewAttempts: 2, feedbackEnvelopes: 1, feedbackSubmissions: 1 });
+    expect(taskIndex.counts).toMatchObject({
+      runs: 1,
+      reviewAttempts: 2,
+      feedbackEnvelopes: 1,
+      feedbackSubmissions: 1
+    });
   });
 
   it("recovers an already persisted feedback submission without creating a duplicate", async () => {
@@ -127,7 +182,13 @@ describe("submitReviewResult", () => {
     });
     await claimNext({ projectRoot: root });
     const reportPath = await writeReport(root, "feedback-retry.md", "Fixed edge case.\n");
-    const submissionRoot = join(init.workspace.resultsDir, "T-001", "feedback", "FE-001", "submissions");
+    const submissionRoot = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "feedback",
+      "FE-001",
+      "submissions"
+    );
     const submissionDir = join(submissionRoot, "FS-001");
     await mkdir(submissionDir, { recursive: true });
     await writeFile(join(submissionDir, "report.md"), "Fixed edge case.\n", "utf8");
@@ -142,14 +203,17 @@ describe("submitReviewResult", () => {
 
     expect(result).toMatchObject({ feedbackId: "FE-001", submissionId: "FS-001" });
     await expect(access(join(submissionRoot, "FS-002"))).rejects.toThrow();
-    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "feedback", "FE-001", "feedback.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile(join(init.workspace.resultsDir, "T-001", "feedback", "FE-001", "feedback.json"))
+    ).resolves.toMatchObject({
       status: "resolved",
       latestSubmissionId: "FS-001"
     });
-    await expect(readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"))
+    ).resolves.toMatchObject({
       latestFeedbackSubmissionByFeedback: { "FE-001": "FS-001" },
       feedbackStatusById: { "FE-001": "resolved" }
     });
   });
-
 });

@@ -1,6 +1,10 @@
 import { useCallback } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import type { DesktopBlockDetail, DesktopProjectSummary, DesktopRunRecord } from "@planweave-ai/runtime";
+import type {
+  DesktopBlockDetail,
+  DesktopProjectSummary,
+  DesktopRunRecord
+} from "@planweave-ai/runtime";
 import { bridge, desktopCanvasReference } from "../bridge";
 
 type UseGraphDeleteActionsArgs = {
@@ -51,7 +55,10 @@ export function useGraphDeleteActions({
         return;
       }
       try {
-        const result = await bridge.removeTaskNode(desktopCanvasReference(selectedProject, selectedCanvasId), taskId);
+        const result = await bridge.removeTaskNode(
+          desktopCanvasReference(selectedProject, selectedCanvasId),
+          taskId
+        );
         if (!result.ok) {
           setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
           return;
@@ -66,7 +73,18 @@ export function useGraphDeleteActions({
         setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [clearBlockSelection, clearReviewTaskSelection, clearTaskPanelSelection, deleteTaskConfirm, loadProject, selectedBlock, selectedCanvasId, selectedProject, selectedTaskPanelId, setError]
+    [
+      clearBlockSelection,
+      clearReviewTaskSelection,
+      clearTaskPanelSelection,
+      deleteTaskConfirm,
+      loadProject,
+      selectedBlock,
+      selectedCanvasId,
+      selectedProject,
+      selectedTaskPanelId,
+      setError
+    ]
   );
 
   const handleDeleteBlock = useCallback(
@@ -75,7 +93,10 @@ export function useGraphDeleteActions({
         return;
       }
       try {
-        const result = await bridge.removeBlock(desktopCanvasReference(selectedProject, selectedCanvasId), ref);
+        const result = await bridge.removeBlock(
+          desktopCanvasReference(selectedProject, selectedCanvasId),
+          ref
+        );
         if (!result.ok) {
           setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
           return;
@@ -88,7 +109,15 @@ export function useGraphDeleteActions({
         setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [clearBlockSelection, deleteBlockConfirm, refreshProjectDerivedState, selectedBlock, selectedCanvasId, selectedProject, setError]
+    [
+      clearBlockSelection,
+      deleteBlockConfirm,
+      refreshProjectDerivedState,
+      selectedBlock,
+      selectedCanvasId,
+      selectedProject,
+      setError
+    ]
   );
 
   return { handleDeleteBlock, handleDeleteTaskNode };

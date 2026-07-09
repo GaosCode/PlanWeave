@@ -1,4 +1,9 @@
-import type { GraphEditOperation, ManifestEdge, ManifestNode, PlanPackageManifest } from "../../types.js";
+import type {
+  GraphEditOperation,
+  ManifestEdge,
+  ManifestNode,
+  PlanPackageManifest
+} from "../../types.js";
 
 function edgeKey(edge: ManifestEdge): string {
   return `${edge.from}\u0000${edge.type}\u0000${edge.to}`;
@@ -8,7 +13,10 @@ function nodeKey(node: ManifestNode): string {
   return JSON.stringify(node);
 }
 
-export function diffManifestToGraphOps(before: PlanPackageManifest, after: PlanPackageManifest): GraphEditOperation[] {
+export function diffManifestToGraphOps(
+  before: PlanPackageManifest,
+  after: PlanPackageManifest
+): GraphEditOperation[] {
   const operations: GraphEditOperation[] = [];
   const beforeNodes = new Map(before.nodes.map((node) => [node.id, node]));
   const afterNodes = new Map(after.nodes.map((node) => [node.id, node]));

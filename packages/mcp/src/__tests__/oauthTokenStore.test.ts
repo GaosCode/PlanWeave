@@ -28,7 +28,9 @@ function accessToken(overrides: Partial<StoredAccessToken> = {}): StoredAccessTo
   };
 }
 
-async function readStoredTokens(path: string): Promise<{ version: 1; tokens: StoredAccessToken[] }> {
+async function readStoredTokens(
+  path: string
+): Promise<{ version: 1; tokens: StoredAccessToken[] }> {
   return JSON.parse(await readFile(path, "utf8")) as { version: 1; tokens: StoredAccessToken[] };
 }
 

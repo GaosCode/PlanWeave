@@ -27,7 +27,9 @@ async function readPromptEntry(options: {
   ownerKind: "task" | "block";
   ownerRef: string;
   packagePath: string;
-}): Promise<{ entry: PromptIndexEntry; markdown: string } | { diagnostic: PlanGraphCommandDiagnostic }> {
+}): Promise<
+  { entry: PromptIndexEntry; markdown: string } | { diagnostic: PlanGraphCommandDiagnostic }
+> {
   try {
     const absolutePath = await resolvePackagePath(options.packageDir, options.packagePath);
     const markdown = await readFile(absolutePath, "utf8");
@@ -45,14 +47,20 @@ async function readPromptEntry(options: {
     return {
       diagnostic: {
         code: "prompt_read_failed",
-        message: error instanceof Error ? error.message : `Prompt '${options.packagePath}' could not be read.`,
+        message:
+          error instanceof Error
+            ? error.message
+            : `Prompt '${options.packagePath}' could not be read.`,
         path: options.packagePath
       }
     };
   }
 }
 
-async function readPromptIndex(manifest: PlanPackageManifest, packageDir: string): Promise<{
+async function readPromptIndex(
+  manifest: PlanPackageManifest,
+  packageDir: string
+): Promise<{
   promptIndex: Map<string, PromptIndexEntry>;
   promptMarkdownByPath: Map<string, string>;
   diagnostics: PlanGraphCommandDiagnostic[];
@@ -112,7 +120,14 @@ async function readPromptMetadataEntry(options: {
         ownerKind: options.ownerKind,
         ownerRef: options.ownerRef,
         path: options.packagePath,
-        contentHash: sha256Hex(stableJson({ path: options.packagePath, ctimeMs: metadata.ctimeMs, mtimeMs: metadata.mtimeMs, size: metadata.size })),
+        contentHash: sha256Hex(
+          stableJson({
+            path: options.packagePath,
+            ctimeMs: metadata.ctimeMs,
+            mtimeMs: metadata.mtimeMs,
+            size: metadata.size
+          })
+        ),
         preview: ""
       }
     };
@@ -120,14 +135,20 @@ async function readPromptMetadataEntry(options: {
     return {
       diagnostic: {
         code: "prompt_read_failed",
-        message: error instanceof Error ? error.message : `Prompt '${options.packagePath}' could not be read.`,
+        message:
+          error instanceof Error
+            ? error.message
+            : `Prompt '${options.packagePath}' could not be read.`,
         path: options.packagePath
       }
     };
   }
 }
 
-async function readPromptMetadataIndex(manifest: PlanPackageManifest, packageDir: string): Promise<{
+async function readPromptMetadataIndex(
+  manifest: PlanPackageManifest,
+  packageDir: string
+): Promise<{
   promptIndex: Map<string, PromptIndexEntry>;
   diagnostics: PlanGraphCommandDiagnostic[];
 }> {
@@ -169,12 +190,20 @@ async function readPromptMetadataIndex(manifest: PlanPackageManifest, packageDir
   return { promptIndex, diagnostics };
 }
 
-function packageFingerprint(manifest: PlanPackageManifest, promptMarkdownByPath: Map<string, string>): string {
-  const prompts = [...promptMarkdownByPath.entries()].sort(([left], [right]) => left.localeCompare(right));
+function packageFingerprint(
+  manifest: PlanPackageManifest,
+  promptMarkdownByPath: Map<string, string>
+): string {
+  const prompts = [...promptMarkdownByPath.entries()].sort(([left], [right]) =>
+    left.localeCompare(right)
+  );
   return sha256Hex(stableJson({ manifest, prompts }));
 }
 
-function packageMetadataFingerprint(manifest: PlanPackageManifest, promptIndex: Map<string, PromptIndexEntry>): string {
+function packageMetadataFingerprint(
+  manifest: PlanPackageManifest,
+  promptIndex: Map<string, PromptIndexEntry>
+): string {
   const prompts = [...promptIndex.entries()]
     .map(([path, entry]) => ({ path, contentHash: entry.contentHash }))
     .sort((left, right) => left.path.localeCompare(right.path));
@@ -185,10 +214,15 @@ export function graphVersionFromPackageFingerprint(fingerprint: string): string 
   return `pgv-${fingerprint}`;
 }
 
-export async function loadPlanGraphPackage(projectRoot: PackageWorkspaceRef): Promise<LoadedPlanGraphPackage> {
+export async function loadPlanGraphPackage(
+  projectRoot: PackageWorkspaceRef
+): Promise<LoadedPlanGraphPackage> {
   const { workspace, manifest } = await loadPackage(projectRoot);
   const compiledGraph = await compilePackageGraph(manifest, workspace.packageDir);
-  const { promptIndex, promptMarkdownByPath, diagnostics } = await readPromptIndex(manifest, workspace.packageDir);
+  const { promptIndex, promptMarkdownByPath, diagnostics } = await readPromptIndex(
+    manifest,
+    workspace.packageDir
+  );
   const fingerprint = `pkg-${packageFingerprint(manifest, promptMarkdownByPath)}`;
   const graph = buildPlanGraph({
     manifest,
@@ -201,10 +235,17 @@ export async function loadPlanGraphPackage(projectRoot: PackageWorkspaceRef): Pr
   return { workspace, manifest, graph, promptMarkdownByPath };
 }
 
-export async function loadPlanGraphPackageMetadata(projectRoot: PackageWorkspaceRef): Promise<LoadedPlanGraphPackage> {
+export async function loadPlanGraphPackageMetadata(
+  projectRoot: PackageWorkspaceRef
+): Promise<LoadedPlanGraphPackage> {
   const { workspace, manifest } = await loadPackage(projectRoot);
-  const compiledGraph = await compilePackageGraph(manifest, workspace.packageDir, { validatePromptContents: false });
-  const { promptIndex, diagnostics } = await readPromptMetadataIndex(manifest, workspace.packageDir);
+  const compiledGraph = await compilePackageGraph(manifest, workspace.packageDir, {
+    validatePromptContents: false
+  });
+  const { promptIndex, diagnostics } = await readPromptMetadataIndex(
+    manifest,
+    workspace.packageDir
+  );
   const fingerprint = `pkg-${packageMetadataFingerprint(manifest, promptIndex)}`;
   const graph = buildPlanGraph({
     manifest,
@@ -229,7 +270,10 @@ export async function commitPlanGraphPackageMutation(options: {
   }));
 }
 
-export async function readPackagePromptMarkdown(workspace: ProjectWorkspace, packagePath: string): Promise<string> {
+export async function readPackagePromptMarkdown(
+  workspace: ProjectWorkspace,
+  packagePath: string
+): Promise<string> {
   const promptPath = await resolvePackagePath(workspace.packageDir, packagePath);
   return readFile(promptPath, "utf8");
 }

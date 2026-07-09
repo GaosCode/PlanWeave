@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runMcpTunnel } from "../tunnel/run.js";
-import type { LocalMcpServerStatus, TunnelClientStatus, TunnelConfig, TunnelConfigStore } from "../tunnel/types.js";
+import type {
+  LocalMcpServerStatus,
+  TunnelClientStatus,
+  TunnelConfig,
+  TunnelConfigStore
+} from "../tunnel/types.js";
 
 class ExitSignal extends Error {
   constructor(readonly code: number) {

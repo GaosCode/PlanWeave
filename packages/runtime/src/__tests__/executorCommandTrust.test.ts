@@ -64,7 +64,11 @@ describe("executor command trust gate", () => {
     });
 
     await trustCommand(root, process.execPath, args);
-    await unblockBlock({ projectRoot: root, ref: "T-001#B-001", reason: "trusted custom executor" });
+    await unblockBlock({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reason: "trusted custom executor"
+    });
     const allowed = await runAutoRunStep({
       projectRoot: root,
       executor: createExecutorAdapter({ projectRoot: root, executorName: "custom-node" }),

@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import type { DesktopAgentDetection, DesktopGraphViewModel, DesktopProjectSummary, DesktopRuntimeToolAvailability, ProjectPromptPolicy } from "@planweave-ai/runtime";
+import type {
+  DesktopAgentDetection,
+  DesktopGraphViewModel,
+  DesktopProjectSummary,
+  DesktopRuntimeToolAvailability,
+  ProjectPromptPolicy
+} from "@planweave-ai/runtime";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingsAgentsSection } from "../settings/SettingsAgentsSection";
 import { SettingsComponentsSection } from "../settings/SettingsComponentsSection";
@@ -61,9 +67,13 @@ export function SettingsView({
   const [projectPromptDraft, setProjectPromptDraft] = useState(projectPromptMarkdown ?? "");
   const [projectPromptSaving, setProjectPromptSaving] = useState(false);
   const projectPromptAvailable = Boolean(selectedProject && updateProjectPrompt);
-  const projectPromptPolicyAvailable = Boolean(selectedProject && projectPromptPolicy && updateProjectPromptPolicy);
+  const projectPromptPolicyAvailable = Boolean(
+    selectedProject && projectPromptPolicy && updateProjectPromptPolicy
+  );
   const projectSelectorAvailable = projects.length > 0 && Boolean(loadProject);
-  const selectedCanvasRef = selectedProject ? { projectRoot: selectedProject.rootPath, canvasId: selectedCanvasId } : null;
+  const selectedCanvasRef = selectedProject
+    ? { projectRoot: selectedProject.rootPath, canvasId: selectedCanvasId }
+    : null;
 
   useEffect(() => {
     setProjectPromptDraft(projectPromptMarkdown ?? "");
@@ -86,7 +96,12 @@ export function SettingsView({
 
   return (
     <main className="flex h-full min-h-0 text-text">
-      <SettingsNav section={section} setSection={setSection} onBackToApp={() => setActiveView("graph")} t={t} />
+      <SettingsNav
+        section={section}
+        setSection={setSection}
+        onBackToApp={() => setActiveView("graph")}
+        t={t}
+      />
       <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-l-xl bg-app-shell text-text">
         <div className="app-drag-region h-11 shrink-0 border-b border-border/80 bg-app-topbar" />
         <ScrollArea
@@ -94,43 +109,56 @@ export function SettingsView({
           viewportClassName="h-full [&>div]:!block [&>div]:!min-h-full [&>div]:!w-full"
         >
           <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-12 py-10 pb-16">
-          {section === "general" ? (
-            <SettingsGeneralSection
-              language={language}
-              onProjectPromptDraftChange={setProjectPromptDraft}
-              onProjectPromptSave={saveProjectPrompt}
-              onProjectSelect={selectProject}
-              projectPromptAvailable={projectPromptAvailable}
-              projectPromptDraft={projectPromptDraft}
-              projectPromptPolicy={projectPromptPolicy}
-              projectPromptPolicyAvailable={projectPromptPolicyAvailable}
-              projectPromptSaving={projectPromptSaving}
-              projectSelectorAvailable={projectSelectorAvailable}
-              projects={projects}
-              refreshRuntimeTools={refreshRuntimeTools}
-              runtimeTools={runtimeTools}
-              selectedProjectId={selectedProject?.projectId}
-              settings={settings}
-              t={t}
-              updateProjectPromptPolicy={updateProjectPromptPolicy}
-              updateSettings={updateSettings}
-            />
-          ) : null}
-          {section === "components" ? <SettingsComponentsSection settings={settings} t={t} updateSettings={updateSettings} /> : null}
-          {section === "review" ? <SettingsReviewSection graph={graph} settings={settings} t={t} updateSettings={updateSettings} /> : null}
-          {section === "agents" ? (
-            <SettingsAgentsSection
-              agentDetectionRefreshing={agentDetectionRefreshing}
-              agents={agents}
-              canvasRef={selectedCanvasRef}
-              graph={graph}
-              refreshAgentDetections={refreshAgentDetections}
-              settings={settings}
-              t={t}
-              updateSettings={updateSettings}
-            />
-          ) : null}
-          {section === "mcp" ? <SettingsMcpSection setError={setError} t={t} /> : null}
+            {section === "general" ? (
+              <SettingsGeneralSection
+                language={language}
+                onProjectPromptDraftChange={setProjectPromptDraft}
+                onProjectPromptSave={saveProjectPrompt}
+                onProjectSelect={selectProject}
+                projectPromptAvailable={projectPromptAvailable}
+                projectPromptDraft={projectPromptDraft}
+                projectPromptPolicy={projectPromptPolicy}
+                projectPromptPolicyAvailable={projectPromptPolicyAvailable}
+                projectPromptSaving={projectPromptSaving}
+                projectSelectorAvailable={projectSelectorAvailable}
+                projects={projects}
+                refreshRuntimeTools={refreshRuntimeTools}
+                runtimeTools={runtimeTools}
+                selectedProjectId={selectedProject?.projectId}
+                settings={settings}
+                t={t}
+                updateProjectPromptPolicy={updateProjectPromptPolicy}
+                updateSettings={updateSettings}
+              />
+            ) : null}
+            {section === "components" ? (
+              <SettingsComponentsSection
+                settings={settings}
+                t={t}
+                updateSettings={updateSettings}
+              />
+            ) : null}
+            {section === "review" ? (
+              <SettingsReviewSection
+                graph={graph}
+                settings={settings}
+                t={t}
+                updateSettings={updateSettings}
+              />
+            ) : null}
+            {section === "agents" ? (
+              <SettingsAgentsSection
+                agentDetectionRefreshing={agentDetectionRefreshing}
+                agents={agents}
+                canvasRef={selectedCanvasRef}
+                graph={graph}
+                refreshAgentDetections={refreshAgentDetections}
+                settings={settings}
+                t={t}
+                updateSettings={updateSettings}
+              />
+            ) : null}
+            {section === "mcp" ? <SettingsMcpSection setError={setError} t={t} /> : null}
           </div>
         </ScrollArea>
       </section>

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlanWeaveDesktopSettingsApi } from "../../shared/desktopSettings";
-import { defaultDesktopSettings, legacyDesktopSettingsKey, legacyDesktopSettingsMigrationMarkerKey } from "../../shared/desktopSettings";
+import {
+  defaultDesktopSettings,
+  legacyDesktopSettingsKey,
+  legacyDesktopSettingsMigrationMarkerKey
+} from "../../shared/desktopSettings";
 import { settingsBridge } from "../bridge";
 import { mergeDesktopSettings } from "../settings";
 import type { DesktopSettingsPatch, DesktopSettingsUpdate, DesktopUiSettings } from "../types";

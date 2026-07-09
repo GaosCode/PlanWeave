@@ -71,12 +71,17 @@ describe("desktop canvas graph API", () => {
     const graph = await getCanvasGraphViewModel(root);
 
     expect(graph.projectId).toBe(init.workspace.id);
-    expect(graph.canvases.map((canvas) => canvas.canvasId)).toEqual(["default", secondCanvas.canvasId]);
-    expect(graph.canvases.map((canvas) => ({
-      canvasId: canvas.canvasId,
-      packageDir: canvas.packageDir,
-      executionPolicy: canvas.executionPolicy
-    }))).toEqual([
+    expect(graph.canvases.map((canvas) => canvas.canvasId)).toEqual([
+      "default",
+      secondCanvas.canvasId
+    ]);
+    expect(
+      graph.canvases.map((canvas) => ({
+        canvasId: canvas.canvasId,
+        packageDir: canvas.packageDir,
+        executionPolicy: canvas.executionPolicy
+      }))
+    ).toEqual([
       {
         canvasId: "default",
         packageDir: "canvases/default/package",
@@ -88,7 +93,9 @@ describe("desktop canvas graph API", () => {
         executionPolicy: { parallelEnabled: true, maxConcurrent: 3 }
       }
     ]);
-    expect(graph.edges).toEqual([{ from: secondCanvas.canvasId, to: "default", type: "depends_on" }]);
+    expect(graph.edges).toEqual([
+      { from: secondCanvas.canvasId, to: "default", type: "depends_on" }
+    ]);
     expect(graph.crossTaskEdges).toEqual([
       {
         from: { canvasId: secondCanvas.canvasId, taskId: "T-001" },
@@ -112,11 +119,17 @@ describe("desktop canvas graph API", () => {
         ]
       })
     ]);
-    expect(graph.health.canvases.find((canvas) => canvas.canvasId === secondCanvas.canvasId)).toMatchObject({
+    expect(
+      graph.health.canvases.find((canvas) => canvas.canvasId === secondCanvas.canvasId)
+    ).toMatchObject({
       severity: "warning",
       blockerCount: 1
     });
-    expect(graph.health.edges.find((edge) => edge.from === secondCanvas.canvasId && edge.to === "default")).toMatchObject({
+    expect(
+      graph.health.edges.find(
+        (edge) => edge.from === secondCanvas.canvasId && edge.to === "default"
+      )
+    ).toMatchObject({
       severity: "warning",
       blockerCount: 1
     });
@@ -126,9 +139,7 @@ describe("desktop canvas graph API", () => {
     const { root, init } = await createTestWorkspace();
     await writeProjectGraph(init.workspace, {
       version: "plan-project/v1",
-      canvases: [
-        canonicalProjectCanvasNode({ id: "default", title: "Runtime plan" })
-      ],
+      canvases: [canonicalProjectCanvasNode({ id: "default", title: "Runtime plan" })],
       edges: [],
       crossTaskEdges: []
     });
@@ -153,9 +164,7 @@ describe("desktop canvas graph API", () => {
     await writePromptFiles(secondWorkspace.packageDir, secondManifest);
     await writeProjectGraph(init.workspace, {
       version: "plan-project/v1",
-      canvases: [
-        canonicalProjectCanvasNode({ id: "default", title: "Runtime plan" })
-      ],
+      canvases: [canonicalProjectCanvasNode({ id: "default", title: "Runtime plan" })],
       edges: [],
       crossTaskEdges: []
     });
@@ -183,17 +192,20 @@ describe("desktop canvas graph API", () => {
 
     const graph = await getCanvasGraphViewModel(root);
 
-    expect(graph.canvases.map((canvas) => canvas.canvasId)).toEqual(["default", secondCanvas.canvasId]);
-    expect(graph.edges).toEqual([{ from: secondCanvas.canvasId, to: "default", type: "depends_on" }]);
+    expect(graph.canvases.map((canvas) => canvas.canvasId)).toEqual([
+      "default",
+      secondCanvas.canvasId
+    ]);
+    expect(graph.edges).toEqual([
+      { from: secondCanvas.canvasId, to: "default", type: "depends_on" }
+    ]);
   });
 
   it("surfaces broken project graph diagnostics in canvas health", async () => {
     const { root, init } = await createTestWorkspace();
     await writeProjectGraph(init.workspace, {
       version: "plan-project/v1",
-      canvases: [
-        canonicalProjectCanvasNode({ id: "default", title: "Runtime plan" })
-      ],
+      canvases: [canonicalProjectCanvasNode({ id: "default", title: "Runtime plan" })],
       edges: [{ from: "default", to: "missing-canvas", type: "depends_on" }],
       crossTaskEdges: [
         {

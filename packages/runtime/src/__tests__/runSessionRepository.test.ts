@@ -14,7 +14,11 @@ describe("run session repository", () => {
   it("creates the first session in an empty canvas", async () => {
     const { root, init } = await createTestWorkspace();
 
-    const session = await createRunSession({ projectRoot: root, kind: "run", now: new Date("2026-06-25T00:00:00.000Z") });
+    const session = await createRunSession({
+      projectRoot: root,
+      kind: "run",
+      now: new Date("2026-06-25T00:00:00.000Z")
+    });
 
     expect(session).toMatchObject({
       sessionId: "SESSION-0001",
@@ -25,9 +29,12 @@ describe("run session repository", () => {
       phase: "created",
       startedAt: "2026-06-25T00:00:00.000Z"
     });
-    await expect(readFile(join(init.workspace.resultsDir, "run-sessions", "SESSION-0001", "session.json"), "utf8")).resolves.toContain(
-      '"sessionId": "SESSION-0001"'
-    );
+    await expect(
+      readFile(
+        join(init.workspace.resultsDir, "run-sessions", "SESSION-0001", "session.json"),
+        "utf8"
+      )
+    ).resolves.toContain('"sessionId": "SESSION-0001"');
   });
 
   it("allocates monotonic canvas-local ids after existing sessions", async () => {
@@ -42,7 +49,9 @@ describe("run session repository", () => {
   it("allocates unique ids for concurrent session creation", async () => {
     const { root } = await createTestWorkspace();
 
-    const sessions = await Promise.all(Array.from({ length: 8 }, () => createRunSession({ projectRoot: root, kind: "run" })));
+    const sessions = await Promise.all(
+      Array.from({ length: 8 }, () => createRunSession({ projectRoot: root, kind: "run" }))
+    );
 
     expect(sessions.map((session) => session.sessionId).sort()).toEqual([
       "SESSION-0001",
@@ -69,7 +78,10 @@ describe("run session repository", () => {
       claimRefs: ["T-001#B-001"],
       recordId: "T-001#B-001::RUN-001"
     });
-    await updateRunSession(root, session.sessionId, { phase: "completed", finishedAt: "2026-06-25T00:01:00.000Z" });
+    await updateRunSession(root, session.sessionId, {
+      phase: "completed",
+      finishedAt: "2026-06-25T00:01:00.000Z"
+    });
 
     const detail = await getRunSession(root, session.sessionId);
 
@@ -87,13 +99,29 @@ describe("run session repository", () => {
   it("lists newest sessions first", async () => {
     const { root } = await createTestWorkspace();
 
-    await createRunSession({ projectRoot: root, kind: "run", now: new Date("2026-06-25T00:00:00.000Z") });
-    await createRunSession({ projectRoot: root, kind: "run", now: new Date("2026-06-25T00:02:00.000Z") });
-    await createRunSession({ projectRoot: root, kind: "reset", now: new Date("2026-06-25T00:01:00.000Z") });
+    await createRunSession({
+      projectRoot: root,
+      kind: "run",
+      now: new Date("2026-06-25T00:00:00.000Z")
+    });
+    await createRunSession({
+      projectRoot: root,
+      kind: "run",
+      now: new Date("2026-06-25T00:02:00.000Z")
+    });
+    await createRunSession({
+      projectRoot: root,
+      kind: "reset",
+      now: new Date("2026-06-25T00:01:00.000Z")
+    });
 
     const result = await listRunSessions(root);
 
-    expect(result.sessions.map((session) => session.sessionId)).toEqual(["SESSION-0002", "SESSION-0003", "SESSION-0001"]);
+    expect(result.sessions.map((session) => session.sessionId)).toEqual([
+      "SESSION-0002",
+      "SESSION-0003",
+      "SESSION-0001"
+    ]);
     expect(result.diagnostics).toEqual([]);
   });
 
@@ -235,7 +263,11 @@ describe("run session repository", () => {
     const { root } = await createTestWorkspace();
 
     await expect(getRunSession(root, "../SESSION-0001")).rejects.toThrow("Invalid run session id");
-    await expect(appendRunSessionEvent(root, "../SESSION-0001", "step_finish")).rejects.toThrow("Invalid run session id");
-    await expect(updateRunSession(root, "../SESSION-0001", { phase: "completed" })).rejects.toThrow("Invalid run session id");
+    await expect(appendRunSessionEvent(root, "../SESSION-0001", "step_finish")).rejects.toThrow(
+      "Invalid run session id"
+    );
+    await expect(updateRunSession(root, "../SESSION-0001", { phase: "completed" })).rejects.toThrow(
+      "Invalid run session id"
+    );
   });
 });

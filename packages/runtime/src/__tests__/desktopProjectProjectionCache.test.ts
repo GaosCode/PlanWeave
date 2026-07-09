@@ -2,7 +2,13 @@ import * as fsPromises from "node:fs/promises";
 import { utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createTaskCanvas, getDesktopProjectSnapshot, removeTaskCanvas, resolveTaskCanvasWorkspace, searchProjectWithDiagnostics } from "../desktop/index.js";
+import {
+  createTaskCanvas,
+  getDesktopProjectSnapshot,
+  removeTaskCanvas,
+  resolveTaskCanvasWorkspace,
+  searchProjectWithDiagnostics
+} from "../desktop/index.js";
 import {
   invalidateDesktopProjectProjection,
   readDesktopProjectSearchIndex,
@@ -32,7 +38,9 @@ vi.mock("node:fs/promises", async (importOriginal) => {
         if (fsMockState.statMatchCount <= fsMockState.statErrorAfterMatches) {
           return actual.stat(path);
         }
-        const error = new Error(`${fsMockState.statErrorCode} stat failed for ${path}`) as NodeJS.ErrnoException;
+        const error = new Error(
+          `${fsMockState.statErrorCode} stat failed for ${path}`
+        ) as NodeJS.ErrnoException;
         error.code = fsMockState.statErrorCode;
         throw error;
       }
@@ -52,14 +60,20 @@ afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
 });
 
-function canvasSnapshotFailureDiagnostics(diagnostics: ValidationIssue[], canvasId: string): ValidationIssue[] {
-  return diagnostics.filter((diagnostic) => diagnostic.code === "desktop_canvas_execution_snapshot_failed" && diagnostic.path === canvasId);
+function canvasSnapshotFailureDiagnostics(
+  diagnostics: ValidationIssue[],
+  canvasId: string
+): ValidationIssue[] {
+  return diagnostics.filter(
+    (diagnostic) =>
+      diagnostic.code === "desktop_canvas_execution_snapshot_failed" && diagnostic.path === canvasId
+  );
 }
 
 function resultReadPaths(resultsDir: string): string[] {
   const readFileMock = vi.mocked(fsPromises.readFile);
   return readFileMock.mock.calls
-    .map(([path]) => typeof path === "string" ? path : null)
+    .map(([path]) => (typeof path === "string" ? path : null))
     .filter((path): path is string => path !== null && path.startsWith(resultsDir));
 }
 
@@ -67,7 +81,7 @@ function promptReadPaths(packageDir: string): string[] {
   const promptDir = join(packageDir, "nodes");
   const readFileMock = vi.mocked(fsPromises.readFile);
   return readFileMock.mock.calls
-    .map(([path]) => typeof path === "string" ? path : null)
+    .map(([path]) => (typeof path === "string" ? path : null))
     .filter((path): path is string => path !== null && path.startsWith(promptDir));
 }
 
@@ -77,7 +91,9 @@ describe("desktop project projection cache", () => {
     const secondCanvas = await createTaskCanvas(root, { name: "Stable canvas" });
     const secondWorkspace = await resolveTaskCanvasWorkspace(root, secondCanvas.canvasId);
     const secondManifest = basicManifest();
-    const secondTask = secondManifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    const secondTask = secondManifest.nodes.find(
+      (node) => node.type === "task" && node.id === "T-001"
+    );
     if (secondTask?.type !== "task") {
       throw new Error("Fixture task missing.");
     }
@@ -104,14 +120,20 @@ describe("desktop project projection cache", () => {
       .filter((diagnostic) => diagnostic.message.includes("summary search index construction"))
       .map((diagnostic) => diagnostic.path);
 
-    expect([...slowDiagnosticCodes]).toEqual(expect.arrayContaining([
-      "desktop_projection_slow_part",
-      "desktop_search_index_slow_part",
-      "desktop_statistics_slow_part"
-    ]));
+    expect([...slowDiagnosticCodes]).toEqual(
+      expect.arrayContaining([
+        "desktop_projection_slow_part",
+        "desktop_search_index_slow_part",
+        "desktop_statistics_slow_part"
+      ])
+    );
     expect(slowSearchPaths).toContain("default");
     expect(slowSearchPaths).not.toContain(secondCanvas.canvasId);
-    expect(searchDesktopSearchIndex(incrementalSearchIndex, "changed canvas cache needle", { kinds: ["prompt"] })).toEqual([]);
+    expect(
+      searchDesktopSearchIndex(incrementalSearchIndex, "changed canvas cache needle", {
+        kinds: ["prompt"]
+      })
+    ).toEqual([]);
 
     delete process.env.PLANWEAVE_DESKTOP_PROJECTION_SLOW_DIAGNOSTICS_MS;
     invalidateDesktopProjectProjection(root);
@@ -135,7 +157,14 @@ describe("desktop project projection cache", () => {
   it("keeps summary search reusable while body search hydrates on demand and invalidates with prompt or result fingerprints", async () => {
     const { root, init } = await createTestWorkspace();
     const taskPromptPath = join(init.workspace.packageDir, "nodes", "T-001", "prompt.md");
-    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-BODY-CACHE");
+    const runDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-BODY-CACHE"
+    );
     const reportPath = join(runDir, "report.md");
     await fsPromises.mkdir(runDir, { recursive: true });
     await writeFile(taskPromptPath, "# Task prompt\n\nprojection prompt body needle\n", "utf8");
@@ -146,25 +175,48 @@ describe("desktop project projection cache", () => {
 
     expect(promptReadPaths(init.workspace.packageDir)).toEqual([]);
     expect(resultReadPaths(init.workspace.resultsDir)).not.toContain(reportPath);
-    expect(summaryIndex.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain("desktop_search_summary_index_built");
-    expect(searchDesktopSearchIndex(summaryIndex, "projection prompt body needle", { kinds: ["prompt"] })).toEqual([]);
-    expect(searchDesktopSearchIndex(summaryIndex, "projection result body needle", { kinds: ["run_record"] })).toEqual([]);
+    expect(summaryIndex.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "desktop_search_summary_index_built"
+    );
+    expect(
+      searchDesktopSearchIndex(summaryIndex, "projection prompt body needle", { kinds: ["prompt"] })
+    ).toEqual([]);
+    expect(
+      searchDesktopSearchIndex(summaryIndex, "projection result body needle", {
+        kinds: ["run_record"]
+      })
+    ).toEqual([]);
 
     vi.mocked(fsPromises.readFile).mockClear();
-    const summarySearch = await searchProjectWithDiagnostics(root, "projection prompt body needle", { kinds: ["prompt"], includeBodies: false });
+    const summarySearch = await searchProjectWithDiagnostics(
+      root,
+      "projection prompt body needle",
+      { kinds: ["prompt"], includeBodies: false }
+    );
     expect(summarySearch.results).toEqual([]);
     expect(promptReadPaths(init.workspace.packageDir)).toEqual([]);
 
     vi.mocked(fsPromises.readFile).mockClear();
     const hydratedIndex = await readDesktopProjectSearchIndex(root, { includeBodies: true });
 
-    expect(searchDesktopSearchIndex(hydratedIndex, "projection prompt body needle", { kinds: ["prompt"] })).toEqual([
-      expect.objectContaining({ canvasId: "default", ref: "T-001", targetRef: "T-001" })
+    expect(
+      searchDesktopSearchIndex(hydratedIndex, "projection prompt body needle", {
+        kinds: ["prompt"]
+      })
+    ).toEqual([expect.objectContaining({ canvasId: "default", ref: "T-001", targetRef: "T-001" })]);
+    expect(
+      searchDesktopSearchIndex(hydratedIndex, "projection result body needle", {
+        kinds: ["run_record"]
+      })
+    ).toEqual([
+      expect.objectContaining({
+        canvasId: "default",
+        ref: "T-001/blocks/B-001/runs/RUN-BODY-CACHE/report.md"
+      })
     ]);
-    expect(searchDesktopSearchIndex(hydratedIndex, "projection result body needle", { kinds: ["run_record"] })).toEqual([
-      expect.objectContaining({ canvasId: "default", ref: "T-001/blocks/B-001/runs/RUN-BODY-CACHE/report.md" })
-    ]);
-    expect(hydratedIndex.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain("desktop_search_body_index_built");
+    expect(hydratedIndex.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "desktop_search_body_index_built"
+    );
     expect(resultReadPaths(init.workspace.resultsDir)).toContain(reportPath);
 
     vi.mocked(fsPromises.readFile).mockClear();
@@ -176,23 +228,43 @@ describe("desktop project projection cache", () => {
 
     vi.mocked(fsPromises.readFile).mockClear();
     const changedResultsIndex = await readDesktopProjectSearchIndex(root, { includeBodies: true });
-    expect(searchDesktopSearchIndex(changedResultsIndex, "projection result body needle updated", { kinds: ["run_record"] })).toEqual([
-      expect.objectContaining({ canvasId: "default", ref: "T-001/blocks/B-001/runs/RUN-BODY-CACHE/report.md" })
+    expect(
+      searchDesktopSearchIndex(changedResultsIndex, "projection result body needle updated", {
+        kinds: ["run_record"]
+      })
+    ).toEqual([
+      expect.objectContaining({
+        canvasId: "default",
+        ref: "T-001/blocks/B-001/runs/RUN-BODY-CACHE/report.md"
+      })
     ]);
     expect(resultReadPaths(init.workspace.resultsDir)).toContain(reportPath);
 
-    await writeFile(taskPromptPath, "# Task prompt\n\nprojection prompt body needle updated\n", "utf8");
+    await writeFile(
+      taskPromptPath,
+      "# Task prompt\n\nprojection prompt body needle updated\n",
+      "utf8"
+    );
     await utimes(taskPromptPath, new Date(6_000), new Date(6_000));
 
     const changedPromptIndex = await readDesktopProjectSearchIndex(root, { includeBodies: true });
-    expect(searchDesktopSearchIndex(changedPromptIndex, "projection prompt body needle updated", { kinds: ["prompt"] })).toEqual([
-      expect.objectContaining({ canvasId: "default", ref: "T-001", targetRef: "T-001" })
-    ]);
+    expect(
+      searchDesktopSearchIndex(changedPromptIndex, "projection prompt body needle updated", {
+        kinds: ["prompt"]
+      })
+    ).toEqual([expect.objectContaining({ canvasId: "default", ref: "T-001", targetRef: "T-001" })]);
   });
 
   it("clears cached result bodies when a project projection is invalidated", async () => {
     const { root, init } = await createTestWorkspace();
-    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-PROJECT-INVALIDATE");
+    const runDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-PROJECT-INVALIDATE"
+    );
     const reportPath = join(runDir, "report.md");
     await fsPromises.mkdir(runDir, { recursive: true });
     await writeFile(reportPath, "project invalidation result body needle\n", "utf8");
@@ -209,13 +281,31 @@ describe("desktop project projection cache", () => {
     const { root, init } = await createTestWorkspace();
     const secondCanvas = await createTaskCanvas(root, { name: "Removed canvas" });
     const secondWorkspace = await resolveTaskCanvasWorkspace(root, secondCanvas.canvasId);
-    const defaultRunDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-CANVAS-INVALIDATE");
-    const secondRunDir = join(secondWorkspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-CANVAS-REMOVED");
+    const defaultRunDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-CANVAS-INVALIDATE"
+    );
+    const secondRunDir = join(
+      secondWorkspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-CANVAS-REMOVED"
+    );
     const defaultReportPath = join(defaultRunDir, "report.md");
     await fsPromises.mkdir(defaultRunDir, { recursive: true });
     await fsPromises.mkdir(secondRunDir, { recursive: true });
     await writeFile(defaultReportPath, "canvas removal default result needle\n", "utf8");
-    await writeFile(join(secondRunDir, "report.md"), "canvas removal removed result needle\n", "utf8");
+    await writeFile(
+      join(secondRunDir, "report.md"),
+      "canvas removal removed result needle\n",
+      "utf8"
+    );
 
     await readDesktopProjectSearchIndex(root, { includeBodies: true });
     vi.mocked(fsPromises.readFile).mockClear();
@@ -234,21 +324,33 @@ describe("desktop project projection cache", () => {
     fsMockState.statErrorAfterMatches = 100;
 
     vi.mocked(fsPromises.readFile).mockClear();
-    const search = await searchProjectWithDiagnostics(root, "single projection body needle", { kinds: ["prompt"], includeBodies: false });
+    const search = await searchProjectWithDiagnostics(root, "single projection body needle", {
+      kinds: ["prompt"],
+      includeBodies: false
+    });
 
     expect(fsMockState.statMatchCount).toBe(3);
-    expect(search.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain("desktop_canvas_runtime_input_failed");
+    expect(search.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "desktop_canvas_runtime_input_failed"
+    );
     expect(search.results).toEqual([]);
     expect(promptReadPaths(init.workspace.packageDir)).toEqual([]);
-    await expect(searchProjectWithDiagnostics(root, "needle", { canvasId: "missing-canvas" })).rejects.toThrow(
-      "Task canvas 'missing-canvas' does not exist."
-    );
+    await expect(
+      searchProjectWithDiagnostics(root, "needle", { canvasId: "missing-canvas" })
+    ).rejects.toThrow("Task canvas 'missing-canvas' does not exist.");
   });
 
   it("invalidates body search when prompt or result content changes with the same size and mtime", async () => {
     const { root, init } = await createTestWorkspace();
     const taskPromptPath = join(init.workspace.packageDir, "nodes", "T-001", "prompt.md");
-    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-SAME-STAT");
+    const runDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-SAME-STAT"
+    );
     const reportPath = join(runDir, "report.md");
     const fixedTime = new Date(8_000);
     await fsPromises.mkdir(runDir, { recursive: true });
@@ -258,11 +360,20 @@ describe("desktop project projection cache", () => {
     await utimes(reportPath, fixedTime, fixedTime);
 
     const firstIndex = await readDesktopProjectSearchIndex(root, { includeBodies: true });
-    expect(searchDesktopSearchIndex(firstIndex, "same-size prompt body needle aaa", { kinds: ["prompt"] })).toEqual([
-      expect.objectContaining({ canvasId: "default", ref: "T-001", targetRef: "T-001" })
-    ]);
-    expect(searchDesktopSearchIndex(firstIndex, "same-size result body needle aaa", { kinds: ["run_record"] })).toEqual([
-      expect.objectContaining({ canvasId: "default", ref: "T-001/blocks/B-001/runs/RUN-SAME-STAT/report.md" })
+    expect(
+      searchDesktopSearchIndex(firstIndex, "same-size prompt body needle aaa", {
+        kinds: ["prompt"]
+      })
+    ).toEqual([expect.objectContaining({ canvasId: "default", ref: "T-001", targetRef: "T-001" })]);
+    expect(
+      searchDesktopSearchIndex(firstIndex, "same-size result body needle aaa", {
+        kinds: ["run_record"]
+      })
+    ).toEqual([
+      expect.objectContaining({
+        canvasId: "default",
+        ref: "T-001/blocks/B-001/runs/RUN-SAME-STAT/report.md"
+      })
     ]);
 
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -272,14 +383,31 @@ describe("desktop project projection cache", () => {
     await utimes(reportPath, fixedTime, fixedTime);
 
     const changedIndex = await readDesktopProjectSearchIndex(root, { includeBodies: true });
-    expect(searchDesktopSearchIndex(changedIndex, "same-size prompt body needle bbb", { kinds: ["prompt"] })).toEqual([
-      expect.objectContaining({ canvasId: "default", ref: "T-001", targetRef: "T-001" })
+    expect(
+      searchDesktopSearchIndex(changedIndex, "same-size prompt body needle bbb", {
+        kinds: ["prompt"]
+      })
+    ).toEqual([expect.objectContaining({ canvasId: "default", ref: "T-001", targetRef: "T-001" })]);
+    expect(
+      searchDesktopSearchIndex(changedIndex, "same-size result body needle bbb", {
+        kinds: ["run_record"]
+      })
+    ).toEqual([
+      expect.objectContaining({
+        canvasId: "default",
+        ref: "T-001/blocks/B-001/runs/RUN-SAME-STAT/report.md"
+      })
     ]);
-    expect(searchDesktopSearchIndex(changedIndex, "same-size result body needle bbb", { kinds: ["run_record"] })).toEqual([
-      expect.objectContaining({ canvasId: "default", ref: "T-001/blocks/B-001/runs/RUN-SAME-STAT/report.md" })
-    ]);
-    expect(searchDesktopSearchIndex(changedIndex, "same-size prompt body needle aaa", { kinds: ["prompt"] })).toEqual([]);
-    expect(searchDesktopSearchIndex(changedIndex, "same-size result body needle aaa", { kinds: ["run_record"] })).toEqual([]);
+    expect(
+      searchDesktopSearchIndex(changedIndex, "same-size prompt body needle aaa", {
+        kinds: ["prompt"]
+      })
+    ).toEqual([]);
+    expect(
+      searchDesktopSearchIndex(changedIndex, "same-size result body needle aaa", {
+        kinds: ["run_record"]
+      })
+    ).toEqual([]);
   });
 
   it("refreshes cached project snapshots after manifest and state file changes", async () => {
@@ -308,13 +436,15 @@ describe("desktop project projection cache", () => {
 
     const snapshot = await getDesktopProjectSnapshot({ projectRoot: root, canvasId: null });
 
-    expect(snapshot.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        code: "desktop_canvas_runtime_input_failed",
-        path: "default",
-        message: expect.stringContaining("EACCES")
-      })
-    ]));
+    expect(snapshot.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "desktop_canvas_runtime_input_failed",
+          path: "default",
+          message: expect.stringContaining("EACCES")
+        })
+      ])
+    );
   });
 
   it("reports runtime input refresh stat errors after an initial successful fingerprint", async () => {
@@ -325,20 +455,24 @@ describe("desktop project projection cache", () => {
     const snapshot = await getDesktopProjectSnapshot({ projectRoot: root, canvasId: null });
 
     expect(fsMockState.statMatchCount).toBeGreaterThan(1);
-    expect(snapshot.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        code: "desktop_canvas_runtime_input_failed",
-        path: "default",
-        message: expect.stringContaining("EACCES")
-      })
-    ]));
+    expect(snapshot.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "desktop_canvas_runtime_input_failed",
+          path: "default",
+          message: expect.stringContaining("EACCES")
+        })
+      ])
+    );
   });
 
   it("replays cached canvas snapshot failure diagnostics through search, snapshot, and statistics reads", async () => {
     const { root } = await createTestWorkspace();
     const brokenCanvas = await createTaskCanvas(root, { name: "Broken cached canvas" });
     const brokenWorkspace = await resolveTaskCanvasWorkspace(root, brokenCanvas.canvasId);
-    const invalidManifest = basicManifest() as unknown as { nodes: Array<{ blocks: Array<Record<string, unknown>> }> };
+    const invalidManifest = basicManifest() as unknown as {
+      nodes: Array<{ blocks: Array<Record<string, unknown>> }>;
+    };
     invalidManifest.nodes[0].blocks[0].type = "check";
     await writeJsonFile(brokenWorkspace.manifestFile, invalidManifest);
 
@@ -347,15 +481,21 @@ describe("desktop project projection cache", () => {
       path: brokenCanvas.canvasId
     });
 
-    const firstSearch = await searchProjectWithDiagnostics(root, "T-001 task prompt", { kinds: ["prompt"] });
+    const firstSearch = await searchProjectWithDiagnostics(root, "T-001 task prompt", {
+      kinds: ["prompt"]
+    });
     expect(firstSearch).toMatchObject({
       diagnostics: expect.arrayContaining([failureDiagnostic])
     });
-    const secondSearch = await searchProjectWithDiagnostics(root, "T-001 task prompt", { kinds: ["prompt"] });
+    const secondSearch = await searchProjectWithDiagnostics(root, "T-001 task prompt", {
+      kinds: ["prompt"]
+    });
     expect(secondSearch).toMatchObject({
       diagnostics: expect.arrayContaining([failureDiagnostic])
     });
-    expect(canvasSnapshotFailureDiagnostics(secondSearch.diagnostics, brokenCanvas.canvasId)).toHaveLength(1);
+    expect(
+      canvasSnapshotFailureDiagnostics(secondSearch.diagnostics, brokenCanvas.canvasId)
+    ).toHaveLength(1);
 
     const firstSnapshot = await getDesktopProjectSnapshot({ projectRoot: root, canvasId: null });
     expect(firstSnapshot).toMatchObject({
@@ -365,7 +505,9 @@ describe("desktop project projection cache", () => {
     expect(secondSnapshot).toMatchObject({
       diagnostics: expect.arrayContaining([failureDiagnostic])
     });
-    expect(canvasSnapshotFailureDiagnostics(secondSnapshot.diagnostics, brokenCanvas.canvasId)).toHaveLength(1);
+    expect(
+      canvasSnapshotFailureDiagnostics(secondSnapshot.diagnostics, brokenCanvas.canvasId)
+    ).toHaveLength(1);
 
     const firstStatistics = await readDesktopProjectStatisticsProjection(root);
     expect(firstStatistics).toMatchObject({
@@ -375,6 +517,8 @@ describe("desktop project projection cache", () => {
     expect(secondStatistics).toMatchObject({
       diagnostics: expect.arrayContaining([failureDiagnostic])
     });
-    expect(canvasSnapshotFailureDiagnostics(secondStatistics.diagnostics, brokenCanvas.canvasId)).toHaveLength(1);
+    expect(
+      canvasSnapshotFailureDiagnostics(secondStatistics.diagnostics, brokenCanvas.canvasId)
+    ).toHaveLength(1);
   });
 });

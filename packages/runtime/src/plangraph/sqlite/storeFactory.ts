@@ -7,16 +7,34 @@ import { loadPlanGraphPackage } from "../packageRepository.js";
 import type { PlanGraphIndexStore, PlanGraphOperationLog } from "../ports.js";
 import { jsonString } from "./columns.js";
 import { openDatabase, type SqliteDatabase } from "./connection.js";
-import { readGraphIndex, shouldFullRebuildChangedPaths, writeChangedPromptIndex, writeGraphIndex } from "./graphRows.js";
-import { mergeAffectedRefs, operationLogEntry, promptHistoryTarget, sameWorkspaceRef, tryOperationLogCoalescingEntry } from "./operationLogRows.js";
-import { clearProjectionVersions, readProjectionVersion, writeProjectionVersion } from "./projectionRows.js";
+import {
+  readGraphIndex,
+  shouldFullRebuildChangedPaths,
+  writeChangedPromptIndex,
+  writeGraphIndex
+} from "./graphRows.js";
+import {
+  mergeAffectedRefs,
+  operationLogEntry,
+  promptHistoryTarget,
+  sameWorkspaceRef,
+  tryOperationLogCoalescingEntry
+} from "./operationLogRows.js";
+import {
+  clearProjectionVersions,
+  readProjectionVersion,
+  writeProjectionVersion
+} from "./projectionRows.js";
 import { ensureSchema } from "./schema.js";
 
 export function defaultPlanGraphIndexPath(workspace: ProjectWorkspace): string {
   return join(workspace.workspaceRoot, "cache", "plangraph.sqlite");
 }
 
-async function resolveIndexPath(projectRoot: PackageWorkspaceRef, indexPath?: string): Promise<{ workspace: ProjectWorkspace; indexPath: string }> {
+async function resolveIndexPath(
+  projectRoot: PackageWorkspaceRef,
+  indexPath?: string
+): Promise<{ workspace: ProjectWorkspace; indexPath: string }> {
   const { workspace } = await loadPackage(projectRoot);
   const projectWorkspace = await resolveProjectWorkspace(workspace.rootPath);
   return { workspace, indexPath: indexPath ?? defaultPlanGraphIndexPath(projectWorkspace) };
@@ -111,15 +129,23 @@ export async function createSqlitePlanGraphStore(options: {
       async append(entry) {
         const db = await openPlanGraphDatabase(indexPath);
         try {
-          db.prepare("DELETE FROM operation_log WHERE project_root = ? AND undone_at IS NOT NULL").run(historyKey);
+          db.prepare(
+            "DELETE FROM operation_log WHERE project_root = ? AND undone_at IS NOT NULL"
+          ).run(historyKey);
           const promptTarget = promptHistoryTarget(entry.command);
           if (promptTarget) {
             const latest = db
-              .prepare("SELECT * FROM operation_log WHERE project_root = ? AND undone_at IS NULL ORDER BY id DESC LIMIT 1")
+              .prepare(
+                "SELECT * FROM operation_log WHERE project_root = ? AND undone_at IS NULL ORDER BY id DESC LIMIT 1"
+              )
               .get(historyKey);
             if (latest) {
               const latestEntry = tryOperationLogCoalescingEntry(latest, historyKey);
-              if (latestEntry && promptHistoryTarget(latestEntry.command) === promptTarget && sameWorkspaceRef(latestEntry.workspaceRef, entry.workspaceRef)) {
+              if (
+                latestEntry &&
+                promptHistoryTarget(latestEntry.command) === promptTarget &&
+                sameWorkspaceRef(latestEntry.workspaceRef, entry.workspaceRef)
+              ) {
                 db.prepare(
                   `UPDATE operation_log
                    SET graph_version_after = ?, command_json = ?, affected_json = ?
@@ -160,7 +186,9 @@ export async function createSqlitePlanGraphStore(options: {
         const db = await openPlanGraphDatabase(indexPath);
         try {
           const row = db
-            .prepare("SELECT * FROM operation_log WHERE project_root = ? AND undone_at IS NULL ORDER BY id DESC LIMIT 1")
+            .prepare(
+              "SELECT * FROM operation_log WHERE project_root = ? AND undone_at IS NULL ORDER BY id DESC LIMIT 1"
+            )
             .get(historyKey);
           return row ? operationLogEntry(row, historyKey) : null;
         } finally {
@@ -171,7 +199,9 @@ export async function createSqlitePlanGraphStore(options: {
         const db = await openPlanGraphDatabase(indexPath);
         try {
           const row = db
-            .prepare("SELECT * FROM operation_log WHERE project_root = ? AND undone_at IS NOT NULL ORDER BY undone_at DESC, id ASC LIMIT 1")
+            .prepare(
+              "SELECT * FROM operation_log WHERE project_root = ? AND undone_at IS NOT NULL ORDER BY undone_at DESC, id ASC LIMIT 1"
+            )
             .get(historyKey);
           return row ? operationLogEntry(row, historyKey) : null;
         } finally {
@@ -181,7 +211,9 @@ export async function createSqlitePlanGraphStore(options: {
       async markUndone(id) {
         const db = await openPlanGraphDatabase(indexPath);
         try {
-          db.prepare("UPDATE operation_log SET undone_at = ? WHERE id = ? AND project_root = ?").run(new Date().toISOString(), id, historyKey);
+          db.prepare(
+            "UPDATE operation_log SET undone_at = ? WHERE id = ? AND project_root = ?"
+          ).run(new Date().toISOString(), id, historyKey);
         } finally {
           db.close();
         }
@@ -189,7 +221,9 @@ export async function createSqlitePlanGraphStore(options: {
       async markRedone(id) {
         const db = await openPlanGraphDatabase(indexPath);
         try {
-          db.prepare("UPDATE operation_log SET undone_at = NULL WHERE id = ? AND project_root = ?").run(id, historyKey);
+          db.prepare(
+            "UPDATE operation_log SET undone_at = NULL WHERE id = ? AND project_root = ?"
+          ).run(id, historyKey);
         } finally {
           db.close();
         }

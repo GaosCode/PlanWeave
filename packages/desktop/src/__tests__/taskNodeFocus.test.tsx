@@ -33,15 +33,18 @@ describe("task node focus", () => {
     const setCenter = vi.fn().mockResolvedValue(true);
     const flow = flowInstance({ setCenter });
 
-    const { rerender } = renderHook(({ selectedTaskPanelId }) =>
-      useTaskNodeFocus({
-        activeView: "graph",
-        flowInstance: flow,
-        nodes: [taskNode("T-001", 80, 120)],
-        selectedTaskPanelId
-      }), {
-      initialProps: { selectedTaskPanelId: null as string | null }
-    });
+    const { rerender } = renderHook(
+      ({ selectedTaskPanelId }) =>
+        useTaskNodeFocus({
+          activeView: "graph",
+          flowInstance: flow,
+          nodes: [taskNode("T-001", 80, 120)],
+          selectedTaskPanelId
+        }),
+      {
+        initialProps: { selectedTaskPanelId: null as string | null }
+      }
+    );
 
     rerender({ selectedTaskPanelId: "T-001" });
     await waitFor(() => expect(setCenter).toHaveBeenCalledTimes(1));
@@ -54,15 +57,18 @@ describe("task node focus", () => {
     const setCenter = vi.fn().mockResolvedValue(true);
     const flow = flowInstance({ setCenter });
 
-    const { result, rerender } = renderHook(({ activeView }) =>
-      useTaskNodeFocus({
-        activeView,
-        flowInstance: flow,
-        nodes: [taskNode("T-001", 80, 120)],
-        selectedTaskPanelId: "T-001"
-      }), {
-      initialProps: { activeView: "search" as const }
-    });
+    const { result, rerender } = renderHook(
+      ({ activeView }) =>
+        useTaskNodeFocus({
+          activeView,
+          flowInstance: flow,
+          nodes: [taskNode("T-001", 80, 120)],
+          selectedTaskPanelId: "T-001"
+        }),
+      {
+        initialProps: { activeView: "search" as const }
+      }
+    );
 
     act(() => result.current.requestTaskFocus("T-001"));
     expect(setCenter).not.toHaveBeenCalled();
@@ -93,19 +99,22 @@ describe("task node focus", () => {
     const setCenter = vi.fn().mockResolvedValue(true);
     const flow = flowInstance({ setCenter });
 
-    const { rerender } = renderHook(({ nodes, taskFocusRequest }) =>
-      useTaskNodeFocus({
-        activeView: "graph",
-        flowInstance: flow,
-        nodes,
-        selectedTaskPanelId: "T-001",
-        taskFocusRequest
-      }), {
-      initialProps: {
-        nodes: [taskNode("T-001", 80, 120)],
-        taskFocusRequest: { taskId: "T-001", version: 1 }
+    const { rerender } = renderHook(
+      ({ nodes, taskFocusRequest }) =>
+        useTaskNodeFocus({
+          activeView: "graph",
+          flowInstance: flow,
+          nodes,
+          selectedTaskPanelId: "T-001",
+          taskFocusRequest
+        }),
+      {
+        initialProps: {
+          nodes: [taskNode("T-001", 80, 120)],
+          taskFocusRequest: { taskId: "T-001", version: 1 }
+        }
       }
-    });
+    );
 
     await waitFor(() => expect(setCenter).toHaveBeenCalledTimes(1));
 
@@ -128,20 +137,26 @@ describe("task node focus", () => {
     const setCenter = vi.fn().mockResolvedValue(true);
     const flow = flowInstance({ setCenter });
 
-    const { rerender } = renderHook(({ activeView, selectedTaskPanelId, taskFocusRequest }) =>
-      useTaskNodeFocus({
-        activeView,
-        flowInstance: flow,
-        nodes: [taskNode("T-001", 80, 120)],
-        selectedTaskPanelId,
-        taskFocusRequest
-      }), {
-      initialProps: {
-        activeView: "graph" as const,
-        selectedTaskPanelId: "T-001" as string | null,
-        taskFocusRequest: { taskId: "T-001", version: 1 } as { taskId: string; version: number } | null
+    const { rerender } = renderHook(
+      ({ activeView, selectedTaskPanelId, taskFocusRequest }) =>
+        useTaskNodeFocus({
+          activeView,
+          flowInstance: flow,
+          nodes: [taskNode("T-001", 80, 120)],
+          selectedTaskPanelId,
+          taskFocusRequest
+        }),
+      {
+        initialProps: {
+          activeView: "graph" as const,
+          selectedTaskPanelId: "T-001" as string | null,
+          taskFocusRequest: { taskId: "T-001", version: 1 } as {
+            taskId: string;
+            version: number;
+          } | null
+        }
       }
-    });
+    );
 
     await waitFor(() => expect(setCenter).toHaveBeenCalledTimes(1));
 
@@ -161,7 +176,12 @@ describe("task node focus", () => {
   });
 });
 
-function taskNode(taskId: string, x: number, y: number, measured?: { width: number; height: number }) {
+function taskNode(
+  taskId: string,
+  x: number,
+  y: number,
+  measured?: { width: number; height: number }
+) {
   return {
     id: taskId,
     type: "task",

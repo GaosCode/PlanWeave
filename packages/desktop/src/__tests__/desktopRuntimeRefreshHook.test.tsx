@@ -1,7 +1,11 @@
 /* @vitest-environment jsdom */
 
 import { act, renderHook } from "@testing-library/react";
-import type { DesktopAutoRunState, DesktopProjectSummary, ValidationIssue } from "@planweave-ai/runtime";
+import type {
+  DesktopAutoRunState,
+  DesktopProjectSummary,
+  ValidationIssue
+} from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { deferred, project, projectSnapshot } from "./helpers/desktopProjectFixtures";
@@ -88,8 +92,12 @@ describe("desktop runtime refresh hook integration", () => {
         listProjects: vi.fn().mockResolvedValue([project]),
         getDesktopProjectSnapshot,
         getDesktopRuntimeRefresh,
-        getLatestAutoRunSummaryWithDiagnostics: vi.fn().mockResolvedValue({ state: null, diagnostics: [] }),
-        refreshPackageFileChanges: vi.fn().mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
+        getLatestAutoRunSummaryWithDiagnostics: vi
+          .fn()
+          .mockResolvedValue({ state: null, diagnostics: [] }),
+        refreshPackageFileChanges: vi
+          .fn()
+          .mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
         watchPackageFiles: vi.fn().mockResolvedValue(undefined),
         watchRuntimeState: vi.fn().mockResolvedValue(undefined)
       });
@@ -139,7 +147,10 @@ describe("desktop runtime refresh hook integration", () => {
       await settleRendererUpdates();
 
       expect(result.current.autoRunState?.runId).toBe("RUN-LIGHTWEIGHT");
-      expect(getDesktopRuntimeRefresh).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" });
+      expect(getDesktopRuntimeRefresh).toHaveBeenCalledWith({
+        projectRoot: project.rootPath,
+        canvasId: "canvas-main"
+      });
       expect(result.current.autoRunState).toBe(latestAutoRun);
       expect(getDesktopProjectSnapshot).not.toHaveBeenCalled();
     } finally {
@@ -166,8 +177,12 @@ describe("desktop runtime refresh hook integration", () => {
         listProjects: vi.fn().mockResolvedValue([project, otherProject]),
         getDesktopProjectSnapshot,
         getDesktopRuntimeRefresh,
-        getLatestAutoRunSummaryWithDiagnostics: vi.fn().mockResolvedValue({ state: null, diagnostics: [] }),
-        refreshPackageFileChanges: vi.fn().mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
+        getLatestAutoRunSummaryWithDiagnostics: vi
+          .fn()
+          .mockResolvedValue({ state: null, diagnostics: [] }),
+        refreshPackageFileChanges: vi
+          .fn()
+          .mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
         selectTaskCanvas: vi.fn().mockResolvedValue("canvas-main"),
         watchPackageFiles: vi.fn().mockResolvedValue(undefined),
         watchRuntimeState: vi.fn().mockResolvedValue(undefined)
@@ -213,7 +228,10 @@ describe("desktop runtime refresh hook integration", () => {
         vi.advanceTimersByTime(30_000);
         await flushAsyncEffects();
       });
-      expect(getDesktopRuntimeRefresh).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" });
+      expect(getDesktopRuntimeRefresh).toHaveBeenCalledWith({
+        projectRoot: project.rootPath,
+        canvasId: "canvas-main"
+      });
 
       await act(async () => {
         await result.current.openProject(otherProject, "canvas-main");
@@ -256,7 +274,8 @@ describe("desktop runtime refresh hook integration", () => {
         errors: string[];
       }>();
       const pendingProjectSnapshot = deferred<ReturnType<typeof projectSnapshot>>();
-      const getDesktopProjectSnapshot = vi.fn()
+      const getDesktopProjectSnapshot = vi
+        .fn()
         .mockResolvedValueOnce(projectSnapshot())
         .mockReturnValueOnce(pendingProjectSnapshot.promise);
       const getDesktopRuntimeRefresh = vi.fn().mockReturnValueOnce(staleRefresh.promise);
@@ -264,8 +283,12 @@ describe("desktop runtime refresh hook integration", () => {
         listProjects: vi.fn().mockResolvedValue([project, otherProject]),
         getDesktopProjectSnapshot,
         getDesktopRuntimeRefresh,
-        getLatestAutoRunSummaryWithDiagnostics: vi.fn().mockResolvedValue({ state: null, diagnostics: [] }),
-        refreshPackageFileChanges: vi.fn().mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
+        getLatestAutoRunSummaryWithDiagnostics: vi
+          .fn()
+          .mockResolvedValue({ state: null, diagnostics: [] }),
+        refreshPackageFileChanges: vi
+          .fn()
+          .mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
         selectTaskCanvas: vi.fn().mockResolvedValue("canvas-main"),
         watchPackageFiles: vi.fn().mockResolvedValue(undefined),
         watchRuntimeState: vi.fn().mockResolvedValue(undefined)
@@ -311,7 +334,10 @@ describe("desktop runtime refresh hook integration", () => {
         vi.advanceTimersByTime(30_000);
         await flushAsyncEffects();
       });
-      expect(getDesktopRuntimeRefresh).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" });
+      expect(getDesktopRuntimeRefresh).toHaveBeenCalledWith({
+        projectRoot: project.rootPath,
+        canvasId: "canvas-main"
+      });
 
       let openProjectPromise: Promise<void> | null = null;
       await act(async () => {

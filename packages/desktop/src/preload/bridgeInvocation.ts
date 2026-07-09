@@ -1,5 +1,8 @@
 import type { DesktopBridgeApi } from "@planweave-ai/runtime";
-import { desktopBridgeInvokeChannels, type DesktopBridgeSubscriptionMethod } from "../shared/ipcChannels.js";
+import {
+  desktopBridgeInvokeChannels,
+  type DesktopBridgeSubscriptionMethod
+} from "../shared/ipcChannels.js";
 
 export type DesktopBridgeInvokeApi = Omit<DesktopBridgeApi, DesktopBridgeSubscriptionMethod>;
 

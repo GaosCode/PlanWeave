@@ -22,7 +22,10 @@ export function hasFieldEditValue(fields: Record<string, unknown>): boolean {
   return Object.values(fields).some((value) => value !== undefined);
 }
 
-export function graphEditResult(manifest: PlanPackageManifest, affectedTasks: string[] = []): GraphEditResult {
+export function graphEditResult(
+  manifest: PlanPackageManifest,
+  affectedTasks: string[] = []
+): GraphEditResult {
   const graph = compileTaskGraph(manifest);
   return {
     ok: graph.diagnostics.errors.length === 0,
@@ -32,7 +35,10 @@ export function graphEditResult(manifest: PlanPackageManifest, affectedTasks: st
   };
 }
 
-export function graphEditDiagnostics(manifest: PlanPackageManifest, diagnostics: ValidationIssue[]): GraphEditResult {
+export function graphEditDiagnostics(
+  manifest: PlanPackageManifest,
+  diagnostics: ValidationIssue[]
+): GraphEditResult {
   return {
     ok: false,
     affectedTasks: [],
@@ -41,7 +47,10 @@ export function graphEditDiagnostics(manifest: PlanPackageManifest, diagnostics:
   };
 }
 
-export function manifestValidationResult(manifest: PlanPackageManifest, affectedTasks: string[]): GraphEditResult {
+export function manifestValidationResult(
+  manifest: PlanPackageManifest,
+  affectedTasks: string[]
+): GraphEditResult {
   const parsed = manifestSchema.safeParse(manifest);
   if (!parsed.success) {
     return {
@@ -58,13 +67,20 @@ export function manifestValidationResult(manifest: PlanPackageManifest, affected
   return graphEditResult(parsed.data as PlanPackageManifest, affectedTasks);
 }
 
-export async function crossTaskEdgeDeleteDiagnostic(projectRoot: PackageWorkspaceRef, taskId: string): Promise<GraphEditResult | null> {
+export async function crossTaskEdgeDeleteDiagnostic(
+  projectRoot: PackageWorkspaceRef,
+  taskId: string
+): Promise<GraphEditResult | null> {
   const { workspace, manifest } = await loadPackage(projectRoot);
   const projectGraph = await loadProjectGraphForWorkspace(workspace);
   if (projectGraph.source !== "project_graph") {
     return null;
   }
-  const canvas = projectGraph.manifest.canvases.find((candidate) => resolve(projectCanvasWorkspace(projectGraph.workspace, candidate).packageDir) === resolve(workspace.packageDir));
+  const canvas = projectGraph.manifest.canvases.find(
+    (candidate) =>
+      resolve(projectCanvasWorkspace(projectGraph.workspace, candidate).packageDir) ===
+      resolve(workspace.packageDir)
+  );
   if (!canvas) {
     return null;
   }

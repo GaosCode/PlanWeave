@@ -9,7 +9,10 @@ export function now(): string {
 }
 
 export function cloneAutoRunState(state: DesktopAutoRunState): DesktopAutoRunState {
-  const endTime = state.phase === "running" || state.phase === "pausing" ? Date.now() : Date.parse(state.updatedAt);
+  const endTime =
+    state.phase === "running" || state.phase === "pausing"
+      ? Date.now()
+      : Date.parse(state.updatedAt);
   return {
     ...state,
     elapsedMs: Math.max(0, endTime - Date.parse(state.startedAt)),
@@ -22,7 +25,10 @@ export function cloneAutoRunState(state: DesktopAutoRunState): DesktopAutoRunSta
   };
 }
 
-export function createAutoRunEvent(state: DesktopAutoRunState, eventType: string): DesktopAutoRunEvent {
+export function createAutoRunEvent(
+  state: DesktopAutoRunState,
+  eventType: string
+): DesktopAutoRunEvent {
   const clonedState = cloneAutoRunState(state);
   return {
     projectRoot: clonedState.projectRoot,
@@ -47,7 +53,11 @@ export async function writeAutoRunState(state: DesktopAutoRunState): Promise<voi
   await writeJsonFile(state.statePath, cloneAutoRunState(state));
 }
 
-export async function appendAutoRunEvent(state: DesktopAutoRunState, type: string, data: Record<string, unknown> = {}): Promise<void> {
+export async function appendAutoRunEvent(
+  state: DesktopAutoRunState,
+  type: string,
+  data: Record<string, unknown> = {}
+): Promise<void> {
   await mkdir(dirname(state.eventLogPath), { recursive: true });
   await appendFile(
     state.eventLogPath,

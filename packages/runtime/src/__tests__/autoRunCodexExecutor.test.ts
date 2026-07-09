@@ -2,7 +2,13 @@ import { chmod, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { getAutoRunStatus, getExecutionStatus, initManagedWorkspace, linkProjectSourceRoot, trustCommand } from "../index.js";
+import {
+  getAutoRunStatus,
+  getExecutionStatus,
+  initManagedWorkspace,
+  linkProjectSourceRoot,
+  trustCommand
+} from "../index.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
@@ -48,9 +54,28 @@ describe("Auto Run codex executor", () => {
       adapterResult: { kind: "block", reportPath: expect.stringContaining("report.md") },
       submitResult: { ref: "T-001#B-001", runId: "RUN-001", status: "completed" }
     });
-    await expect(readFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "stdout.md"), "utf8")).resolves.toContain("report:true");
-    await expect(readFile(join(root, "executor-cwd.txt"), "utf8")).resolves.toBe(init.workspace.rootPath);
-    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+    await expect(
+      readFile(
+        join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "stdout.md"),
+        "utf8"
+      )
+    ).resolves.toContain("report:true");
+    await expect(readFile(join(root, "executor-cwd.txt"), "utf8")).resolves.toBe(
+      init.workspace.rootPath
+    );
+    await expect(
+      readJsonFile(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-001",
+          "metadata.json"
+        )
+      )
+    ).resolves.toMatchObject({
       executor: "fake-codex",
       adapter: "codex-exec",
       projectRoot: init.workspace.rootPath,
@@ -107,8 +132,22 @@ describe("Auto Run codex executor", () => {
       claim: { kind: "block", ref: "T-001#B-001" },
       submitResult: { ref: "T-001#B-001", runId: "RUN-001", status: "completed" }
     });
-    await expect(readFile(join(sourceRoot, "executor-cwd.txt"), "utf8")).resolves.toBe(resolvedSourceRoot);
-    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+    await expect(readFile(join(sourceRoot, "executor-cwd.txt"), "utf8")).resolves.toBe(
+      resolvedSourceRoot
+    );
+    await expect(
+      readJsonFile(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-001",
+          "metadata.json"
+        )
+      )
+    ).resolves.toMatchObject({
       projectRoot: resolvedWorkspaceRoot,
       executionCwd: resolvedSourceRoot
     });
@@ -141,14 +180,37 @@ describe("Auto Run codex executor", () => {
         reason: expect.stringContaining("codex failed")
       }
     });
-    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-001",
+          "metadata.json"
+        )
+      )
+    ).resolves.toMatchObject({
       executor: "failing-codex",
       adapter: "codex-exec",
       exitCode: 7
     });
-    await expect(readFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "stderr.log"), "utf8")).resolves.toContain(
-      "codex failed"
-    );
+    await expect(
+      readFile(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-001",
+          "stderr.log"
+        ),
+        "utf8"
+      )
+    ).resolves.toContain("codex failed");
     await expect(getExecutionStatus({ projectRoot: root })).resolves.toMatchObject({
       blocks: expect.arrayContaining([
         expect.objectContaining({
@@ -213,7 +275,19 @@ describe("Auto Run codex executor", () => {
         reason: expect.stringContaining("timed out")
       }
     });
-    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-001",
+          "metadata.json"
+        )
+      )
+    ).resolves.toMatchObject({
       executor: "slow-codex",
       adapter: "codex-exec",
       exitCode: 124,
@@ -283,14 +357,33 @@ describe("Auto Run codex executor", () => {
       }
     });
     const metadata = await readJsonFile<Record<string, unknown>>(
-      join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json")
+      join(
+        init.workspace.resultsDir,
+        "T-001",
+        "blocks",
+        "B-001",
+        "runs",
+        "RUN-001",
+        "metadata.json"
+      )
     );
     expect(metadata.codexSessionId).toBe("SESSION-123");
     expect(metadata.agentSessionId).toBe("SESSION-123");
     expect(metadata.resumed).toBe(true);
-    await expect(readFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "stderr.log"), "utf8")).resolves.toContain(
-      "first attempt failed"
-    );
+    await expect(
+      readFile(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-001",
+          "stderr.log"
+        ),
+        "utf8"
+      )
+    ).resolves.toContain("first attempt failed");
   });
 
   it("codex-exec adapter stores review stdout as review-result.json for submit-review", async () => {
@@ -336,7 +429,19 @@ describe("Auto Run codex executor", () => {
       adapterResult: { kind: "review", resultPath: expect.stringContaining("review-result.json") },
       submitResult: { ref: "T-001#R-001", verdict: "passed", status: "completed" }
     });
-    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "R-001", "runs", "RUN-001", "review-result.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "R-001",
+          "runs",
+          "RUN-001",
+          "review-result.json"
+        )
+      )
+    ).resolves.toMatchObject({
       verdict: "passed"
     });
   });

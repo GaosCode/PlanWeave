@@ -21,7 +21,10 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-async function waitForMetadataSession(metadataPath: string, expectedSessionId: string): Promise<void> {
+async function waitForMetadataSession(
+  metadataPath: string,
+  expectedSessionId: string
+): Promise<void> {
   for (let attempt = 0; attempt < 500; attempt += 1) {
     if (await pathExists(metadataPath)) {
       const metadata = await readJsonFile(metadataPath);
@@ -134,7 +137,9 @@ describe("OpenCode executor", () => {
       "--dangerously-skip-permissions",
       expect.stringContaining("Implement task")
     ]);
-    await expect(readFile(join(runDir, "events.ndjson"), "utf8")).resolves.toContain('"sessionID":"ses_json_123"');
+    await expect(readFile(join(runDir, "events.ndjson"), "utf8")).resolves.toContain(
+      '"sessionID":"ses_json_123"'
+    );
     await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.toBe("json report:true");
     const metadata = await readJsonFile<Record<string, unknown>>(join(runDir, "metadata.json"));
     expect(metadata).toMatchObject({
@@ -209,10 +214,25 @@ describe("OpenCode executor", () => {
       "--dangerously-skip-permissions",
       expect.stringContaining("Auto Run Review Result File")
     ]);
-    await expect(readFile(join(init.workspace.resultsDir, "T-001", "blocks", "R-001", "runs", "RUN-001", "stdout.md"), "utf8")).resolves.toContain(
-      "所有验收标准均已满足"
-    );
-    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "R-001", "runs", "RUN-001", "review-result.json"))).resolves.toMatchObject({
+    await expect(
+      readFile(
+        join(init.workspace.resultsDir, "T-001", "blocks", "R-001", "runs", "RUN-001", "stdout.md"),
+        "utf8"
+      )
+    ).resolves.toContain("所有验收标准均已满足");
+    await expect(
+      readJsonFile(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "R-001",
+          "runs",
+          "RUN-001",
+          "review-result.json"
+        )
+      )
+    ).resolves.toMatchObject({
       verdict: "passed",
       content: "review file passed"
     });
@@ -265,7 +285,19 @@ describe("OpenCode executor", () => {
       expectedRoot,
       expect.stringContaining("Implement task")
     ]);
-    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-001",
+          "metadata.json"
+        )
+      )
+    ).resolves.toMatchObject({
       executor: "fake-opencode-sandbox",
       adapter: "opencode-exec",
       sandbox: "danger-full-access",
@@ -325,7 +357,19 @@ describe("OpenCode executor", () => {
         expectedRoot,
         expect.stringContaining("Implement task")
       ]);
-      await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+      await expect(
+        readJsonFile(
+          join(
+            init.workspace.resultsDir,
+            "T-001",
+            "blocks",
+            "B-001",
+            "runs",
+            "RUN-001",
+            "metadata.json"
+          )
+        )
+      ).resolves.toMatchObject({
         executor: "opencode",
         adapter: "opencode-exec",
         sandbox: "danger-full-access",
@@ -405,7 +449,19 @@ describe("OpenCode executor", () => {
         expectedRoot,
         expect.stringContaining("Implement task")
       ]);
-      await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+      await expect(
+        readJsonFile(
+          join(
+            init.workspace.resultsDir,
+            "T-001",
+            "blocks",
+            "B-001",
+            "runs",
+            "RUN-001",
+            "metadata.json"
+          )
+        )
+      ).resolves.toMatchObject({
         executor: "opencode",
         adapter: "opencode-exec",
         sandbox: null,
@@ -464,7 +520,10 @@ describe("OpenCode executor", () => {
 
     expect(feedbackStep).toMatchObject({
       kind: "blocked",
-      claim: { kind: "blocked", reason: expect.stringContaining("unknown certificate verification error") }
+      claim: {
+        kind: "blocked",
+        reason: expect.stringContaining("unknown certificate verification error")
+      }
     });
     await expect(getExecutionStatus({ projectRoot: init.workspace })).resolves.toMatchObject({
       currentFeedbackId: null,

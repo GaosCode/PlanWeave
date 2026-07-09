@@ -27,11 +27,15 @@ export function CanvasMapHealthDiagnostics({
         <div
           className={cn(
             "min-w-0 max-w-full overflow-hidden rounded-md border p-2 text-xs",
-            severity === "error" ? "border-destructive/30 bg-destructive/10" : "border-state-warning/60 bg-state-warning-surface"
+            severity === "error"
+              ? "border-destructive/30 bg-destructive/10"
+              : "border-state-warning/60 bg-state-warning-surface"
           )}
           key={`${diagnostic.code}-${diagnostic.path ?? ""}-${diagnostic.message}`}
         >
-          <div className="font-medium" style={{ overflowWrap: "anywhere" }}>{diagnostic.code}</div>
+          <div className="font-medium" style={{ overflowWrap: "anywhere" }}>
+            {diagnostic.code}
+          </div>
           <div style={{ overflowWrap: "anywhere" }}>{diagnostic.message}</div>
         </div>
       ))}
@@ -69,23 +73,35 @@ export function CanvasMapBlockedBlocksList({
         {t("dependencyBlockers")}
       </div>
       {blockers.map((item) => (
-        <div className="flex min-w-0 max-w-full flex-col gap-2 overflow-hidden rounded-md border bg-muted/40 p-2 text-xs" key={`${item.blocked.canvasId}:${item.blocked.blockRef}:${item.reason}`}>
+        <div
+          className="flex min-w-0 max-w-full flex-col gap-2 overflow-hidden rounded-md border bg-muted/40 p-2 text-xs"
+          key={`${item.blocked.canvasId}:${item.blocked.blockRef}:${item.reason}`}
+        >
           <div className="min-w-0">
             <div className="text-muted-foreground">{t("blockedBlock")}</div>
-            <div className="font-mono" style={{ overflowWrap: "anywhere" }}>{item.blocked.canvasId}:{item.blocked.blockRef}</div>
+            <div className="font-mono" style={{ overflowWrap: "anywhere" }}>
+              {item.blocked.canvasId}:{item.blocked.blockRef}
+            </div>
             <div className="truncate font-medium">{item.blocked.blockTitle}</div>
           </div>
           <div className="min-w-0">
             <div className="text-muted-foreground">{t("blockedBy")}</div>
             <div className="flex flex-col gap-1">
               {item.blockers.map((blocker) => (
-                <div className="flex min-w-0 items-center justify-between gap-2" key={`${item.blocked.canvasId}:${item.blocked.blockRef}:${blocker.kind}:${blocker.canvasId}${blocker.kind === "task" ? `:${blocker.taskId}` : ""}`}>
+                <div
+                  className="flex min-w-0 items-center justify-between gap-2"
+                  key={`${item.blocked.canvasId}:${item.blocked.blockRef}:${blocker.kind}:${blocker.canvasId}${blocker.kind === "task" ? `:${blocker.taskId}` : ""}`}
+                >
                   <span className="min-w-0 truncate">{blockerLabel(blocker)}</span>
                   <Button
                     className="min-w-0 shrink-0"
                     size="sm"
                     variant="outline"
-                    onClick={() => blocker.kind === "task" ? onTaskOpen(blocker.canvasId, blocker.taskId) : onCanvasOpen(blocker.canvasId)}
+                    onClick={() =>
+                      blocker.kind === "task"
+                        ? onTaskOpen(blocker.canvasId, blocker.taskId)
+                        : onCanvasOpen(blocker.canvasId)
+                    }
                   >
                     {blocker.kind === "task" ? t("openTask") : t("enterCanvas")}
                   </Button>
@@ -93,12 +109,22 @@ export function CanvasMapBlockedBlocksList({
               ))}
             </div>
           </div>
-          <div className="text-muted-foreground" style={{ overflowWrap: "anywhere" }}>{item.reason}</div>
+          <div className="text-muted-foreground" style={{ overflowWrap: "anywhere" }}>
+            {item.reason}
+          </div>
           <div className="flex min-w-0 gap-2">
-            <Button size="sm" variant="outline" onClick={() => onTaskOpen(item.blocked.canvasId, item.blocked.taskId)}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onTaskOpen(item.blocked.canvasId, item.blocked.taskId)}
+            >
               {t("openTask")}
             </Button>
-            <Button size="sm" variant="outline" onClick={() => onBlockOpen(item.blocked.canvasId, item.blocked.blockRef)}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onBlockOpen(item.blocked.canvasId, item.blocked.blockRef)}
+            >
               {t("openBlock")}
             </Button>
           </div>

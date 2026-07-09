@@ -20,7 +20,10 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-async function waitForMetadataSession(metadataPath: string, expectedSessionId: string): Promise<void> {
+async function waitForMetadataSession(
+  metadataPath: string,
+  expectedSessionId: string
+): Promise<void> {
   for (let attempt = 0; attempt < 500; attempt += 1) {
     if (await pathExists(metadataPath)) {
       const metadata = await readJsonFile(metadataPath);
@@ -99,7 +102,9 @@ describe("OpenCode session capture", () => {
       opencodeSessionId: "ses_explicit_123"
     });
     expect(metadata.tmuxSessionId).toBeUndefined();
-    await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.not.toContain("opencode session list");
+    await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.not.toContain(
+      "opencode session list"
+    );
   });
 
   it("captures an OpenCode session id from streamed readable terminal output", async () => {
@@ -149,9 +154,15 @@ describe("OpenCode session capture", () => {
       kind: "submitted",
       adapterResult: { kind: "block", adapter: "opencode-exec", agentSessionId: "ses_default_456" }
     });
-    await expect(readFile(join(runDir, "stderr.log"), "utf8")).resolves.toContain("opencode -s ses_default_456");
-    await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.toContain("readable report with terminal framing");
-    await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.not.toContain("opencode session list");
+    await expect(readFile(join(runDir, "stderr.log"), "utf8")).resolves.toContain(
+      "opencode -s ses_default_456"
+    );
+    await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.toContain(
+      "readable report with terminal framing"
+    );
+    await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.not.toContain(
+      "opencode session list"
+    );
   });
 
   it("suggests OpenCode session list when readable output has no session id", async () => {
@@ -166,7 +177,9 @@ describe("OpenCode session capture", () => {
     const { root, init } = await createTestWorkspace(manifest);
     await writeFile(
       join(root, "opencode"),
-      ["#!/usr/bin/env node", "console.log('readable report without a visible session');"].join("\n"),
+      ["#!/usr/bin/env node", "console.log('readable report without a visible session');"].join(
+        "\n"
+      ),
       "utf8"
     );
     await chmod(join(root, "opencode"), 0o755);
@@ -185,7 +198,11 @@ describe("OpenCode session capture", () => {
       adapterResult: { kind: "block", adapter: "opencode-exec", agentSessionId: null }
     });
     const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
-    await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.toContain("readable report without a visible session");
-    await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.toContain("opencode session list");
+    await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.toContain(
+      "readable report without a visible session"
+    );
+    await expect(readFile(join(runDir, "report.md"), "utf8")).resolves.toContain(
+      "opencode session list"
+    );
   });
 });

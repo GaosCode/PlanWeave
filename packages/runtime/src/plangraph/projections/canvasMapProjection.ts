@@ -39,7 +39,10 @@ export function buildCanvasMapProjection(options: {
       title: canvas.canvasName,
       packageDir: canvas.projectCanvas.packageDir,
       executionPolicy: canvas.canvas.executionPolicy,
-      diagnostics: [...canvas.canvas.diagnostics, ...diagnosticsForCanvas(canvas.canvasId, diagnostics)]
+      diagnostics: [
+        ...canvas.canvas.diagnostics,
+        ...diagnosticsForCanvas(canvas.canvasId, diagnostics)
+      ]
     };
   });
   return {
@@ -48,8 +51,16 @@ export function buildCanvasMapProjection(options: {
       projectId: options.projectId,
       projectTitle: options.projectTitle,
       canvases,
-      edges: graph.manifest.edges.map((edge) => ({ from: edge.from, to: edge.to, type: edge.type })),
-      crossTaskEdges: graph.crossTaskEdges.map((edge) => ({ from: edge.from, to: edge.to, type: edge.type })),
+      edges: graph.manifest.edges.map((edge) => ({
+        from: edge.from,
+        to: edge.to,
+        type: edge.type
+      })),
+      crossTaskEdges: graph.crossTaskEdges.map((edge) => ({
+        from: edge.from,
+        to: edge.to,
+        type: edge.type
+      })),
       diagnostics,
       health: buildCanvasHealth(options.context)
     }

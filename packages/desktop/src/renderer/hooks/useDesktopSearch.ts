@@ -1,11 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DesktopProjectSummary, DesktopSearchFilters, DesktopSearchProjection, DesktopSearchResult, DesktopSearchResultKind, ValidationIssue } from "@planweave-ai/runtime";
+import type {
+  DesktopProjectSummary,
+  DesktopSearchFilters,
+  DesktopSearchProjection,
+  DesktopSearchResult,
+  DesktopSearchResultKind,
+  ValidationIssue
+} from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
 import { searchNavigationTarget } from "../components/SearchResultList";
 
 export type DesktopSearchCanvasScope = "all" | "current";
 
-export const desktopSearchResultKinds: DesktopSearchResultKind[] = ["task", "block", "prompt", "run_record", "review_attempt", "feedback"];
+export const desktopSearchResultKinds: DesktopSearchResultKind[] = [
+  "task",
+  "block",
+  "prompt",
+  "run_record",
+  "review_attempt",
+  "feedback"
+];
 
 export type DesktopSearchStatus =
   | { phase: "idle" }
@@ -15,11 +29,18 @@ export type DesktopSearchStatus =
   | { phase: "complete"; resultCount: number; expandedBodySearch: boolean }
   | { phase: "error"; message: string };
 
-const bodySearchResultKinds = new Set<DesktopSearchResultKind>(["prompt", "run_record", "review_attempt"]);
+const bodySearchResultKinds = new Set<DesktopSearchResultKind>([
+  "prompt",
+  "run_record",
+  "review_attempt"
+]);
 
 type UseDesktopSearchArgs = {
   handleBlockSelect: (ref: string, canvasId?: string | null) => Promise<void>;
-  handleOpenRunRecord: (recordId: string | null | undefined, canvasId?: string | null) => Promise<void>;
+  handleOpenRunRecord: (
+    recordId: string | null | undefined,
+    canvasId?: string | null
+  ) => Promise<void>;
   openTaskInspector: (taskId: string, canvasId?: string | null) => Promise<void>;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
   selectedCanvasId: string | null;
@@ -50,7 +71,9 @@ export function useDesktopSearch({
   const [searchResults, setSearchResults] = useState<DesktopSearchResult[]>([]);
   const [searchDiagnostics, setSearchDiagnostics] = useState<ValidationIssue[]>([]);
   const [searchStatus, setSearchStatus] = useState<DesktopSearchStatus>({ phase: "idle" });
-  const [selectedSearchResultKinds, setSelectedSearchResultKinds] = useState<DesktopSearchResultKind[]>(() => [...desktopSearchResultKinds]);
+  const [selectedSearchResultKinds, setSelectedSearchResultKinds] = useState<
+    DesktopSearchResultKind[]
+  >(() => [...desktopSearchResultKinds]);
   const [searchCanvasScope, setSearchCanvasScope] = useState<DesktopSearchCanvasScope>("all");
   const lastSearchKeyRef = useRef<string | null>(null);
   const setErrorRef = useRef(setError);
@@ -69,30 +92,42 @@ export function useDesktopSearch({
     return () => window.clearTimeout(timer);
   }, [searchQuery]);
 
-  const setSearchResultKindEnabled = useCallback((kind: DesktopSearchResultKind, enabled: boolean) => {
-    setSelectedSearchResultKinds((current) => {
-      const next = new Set(current);
-      if (enabled) {
-        next.add(kind);
-      } else if (next.size > 1) {
-        next.delete(kind);
-      }
-      const normalized = normalizeSearchResultKinds([...next]);
-      return normalized.length === current.length && normalized.every((value, index) => value === current[index]) ? current : normalized;
-    });
-  }, []);
+  const setSearchResultKindEnabled = useCallback(
+    (kind: DesktopSearchResultKind, enabled: boolean) => {
+      setSelectedSearchResultKinds((current) => {
+        const next = new Set(current);
+        if (enabled) {
+          next.add(kind);
+        } else if (next.size > 1) {
+          next.delete(kind);
+        }
+        const normalized = normalizeSearchResultKinds([...next]);
+        return normalized.length === current.length &&
+          normalized.every((value, index) => value === current[index])
+          ? current
+          : normalized;
+      });
+    },
+    []
+  );
 
   const selectedSearchKindKey = selectedSearchResultKinds.join(",");
   const projectRoot = selectedProject?.rootPath ?? null;
   const normalizedDebouncedQuery = debouncedSearchQuery.trim();
   const normalizedSearchQuery = searchQuery.trim();
   const rawQueryIsEmpty = !normalizedSearchQuery;
-  const canvasFilterId = searchCanvasScope === "current" && selectedCanvasId ? selectedCanvasId : undefined;
+  const canvasFilterId =
+    searchCanvasScope === "current" && selectedCanvasId ? selectedCanvasId : undefined;
   const searchKey = useMemo(() => {
     if (!projectRoot || !normalizedDebouncedQuery) {
       return null;
     }
-    return [projectRoot, normalizedDebouncedQuery.toLowerCase(), selectedSearchKindKey, canvasFilterId ?? "all"].join("\u001f");
+    return [
+      projectRoot,
+      normalizedDebouncedQuery.toLowerCase(),
+      selectedSearchKindKey,
+      canvasFilterId ?? "all"
+    ].join("\u001f");
   }, [canvasFilterId, normalizedDebouncedQuery, projectRoot, selectedSearchKindKey]);
 
   useEffect(() => {
@@ -109,7 +144,14 @@ export function useDesktopSearch({
       setSearchStatus({ phase: "debouncing" });
       lastSearchKeyRef.current = null;
     }
-  }, [clearSearchDiagnostics, clearSearchResults, normalizedDebouncedQuery, normalizedSearchQuery, projectRoot, rawQueryIsEmpty]);
+  }, [
+    clearSearchDiagnostics,
+    clearSearchResults,
+    normalizedDebouncedQuery,
+    normalizedSearchQuery,
+    projectRoot,
+    rawQueryIsEmpty
+  ]);
 
   useEffect(() => {
     if (!bridge || !projectRoot || rawQueryIsEmpty) {
@@ -119,7 +161,11 @@ export function useDesktopSearch({
       lastSearchKeyRef.current = null;
       return;
     }
-    if (!normalizedDebouncedQuery || normalizedSearchQuery !== normalizedDebouncedQuery || !searchKey) {
+    if (
+      !normalizedDebouncedQuery ||
+      normalizedSearchQuery !== normalizedDebouncedQuery ||
+      !searchKey
+    ) {
       return;
     }
     if (lastSearchKeyRef.current === searchKey) {
@@ -135,7 +181,9 @@ export function useDesktopSearch({
       filters.canvasId = canvasFilterId;
     }
     const summaryFilters = { ...filters, includeBodies: false };
-    const bodyFilters = selectedKindsNeedBodySearch(selectedSearchResultKinds) ? { ...filters, includeBodies: true } : null;
+    const bodyFilters = selectedKindsNeedBodySearch(selectedSearchResultKinds)
+      ? { ...filters, includeBodies: true }
+      : null;
     const isLatestSearch = () => !cancelled && lastSearchKeyRef.current === searchKey;
     const applySummaryResults = (projection: DesktopSearchProjection) => {
       if (!isLatestSearch()) {
@@ -148,7 +196,11 @@ export function useDesktopSearch({
         setSearchStatus({ phase: "body_loading", summaryResultCount: results.length });
         return;
       }
-      setSearchStatus({ phase: "complete", resultCount: results.length, expandedBodySearch: false });
+      setSearchStatus({
+        phase: "complete",
+        resultCount: results.length,
+        expandedBodySearch: false
+      });
     };
     const applyBodyResults = (projection: DesktopSearchProjection) => {
       if (!isLatestSearch()) {
@@ -174,9 +226,21 @@ export function useDesktopSearch({
     }
     void (async () => {
       try {
-        applySummaryResults(await desktopBridge.searchProjectWithDiagnostics(projectRoot, normalizedDebouncedQuery, summaryFilters));
+        applySummaryResults(
+          await desktopBridge.searchProjectWithDiagnostics(
+            projectRoot,
+            normalizedDebouncedQuery,
+            summaryFilters
+          )
+        );
         if (bodyFilters && isLatestSearch()) {
-          applyBodyResults(await desktopBridge.searchProjectWithDiagnostics(projectRoot, normalizedDebouncedQuery, bodyFilters));
+          applyBodyResults(
+            await desktopBridge.searchProjectWithDiagnostics(
+              projectRoot,
+              normalizedDebouncedQuery,
+              bodyFilters
+            )
+          );
         }
       } catch (caught) {
         applyError(caught);
@@ -216,7 +280,14 @@ export function useDesktopSearch({
         await handleOpenRunRecord(target.recordId, canvasId);
       }
     },
-    [handleBlockSelect, handleOpenRunRecord, loadProject, openTaskInspector, selectedCanvasId, selectedProject]
+    [
+      handleBlockSelect,
+      handleOpenRunRecord,
+      loadProject,
+      openTaskInspector,
+      selectedCanvasId,
+      selectedProject
+    ]
   );
 
   return {

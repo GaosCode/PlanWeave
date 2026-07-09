@@ -27,7 +27,9 @@ function registeredClient(overrides: Partial<RegisteredClient> = {}): Registered
   };
 }
 
-async function readStoredClients(path: string): Promise<{ version: 1; clients: RegisteredClient[] }> {
+async function readStoredClients(
+  path: string
+): Promise<{ version: 1; clients: RegisteredClient[] }> {
   return JSON.parse(await readFile(path, "utf8")) as { version: 1; clients: RegisteredClient[] };
 }
 

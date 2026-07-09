@@ -1,5 +1,10 @@
 import * as z from "zod/v4";
-import { optionalProjectCanvasInput, projectCanvasInput, projectInput, searchResultKindSchema } from "./inputShapes.js";
+import {
+  optionalProjectCanvasInput,
+  projectCanvasInput,
+  projectInput,
+  searchResultKindSchema
+} from "./inputShapes.js";
 import { readOnlyAnnotations, type PlanweavePartialToolDefinitionRegistry } from "./types.js";
 
 export const readToolDefinitions = {
@@ -40,7 +45,8 @@ export const readToolDefinitions = {
   },
   validate_execution_readiness: {
     title: "Validate PlanWeave Execution Readiness",
-    description: "Check whether a canvas is currently runnable using runtime status and claim readiness.",
+    description:
+      "Check whether a canvas is currently runnable using runtime status and claim readiness.",
     inputSchema: projectCanvasInput,
     annotations: readOnlyAnnotations
   }

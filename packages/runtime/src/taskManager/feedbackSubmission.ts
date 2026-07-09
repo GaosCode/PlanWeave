@@ -6,7 +6,12 @@ import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
-import type { ExecutionGraphSession, PackageWorkspaceRef, ProjectWorkspace, SubmitFeedbackResult } from "../types.js";
+import type {
+  ExecutionGraphSession,
+  PackageWorkspaceRef,
+  ProjectWorkspace,
+  SubmitFeedbackResult
+} from "../types.js";
 import { patchFeedbackArtifact } from "./feedbackArtifacts.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { allocatePrefixedId, incrementTaskIndexCount, updateTaskIndex } from "./resultIndex.js";
@@ -16,11 +21,15 @@ function withCurrentRef(currentRefs: string[], ref: string): string[] {
 }
 
 function isNonMissingNodeFileError(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && !isNodeFileNotFoundError(error));
+  return Boolean(
+    error && typeof error === "object" && "code" in error && !isNodeFileNotFoundError(error)
+  );
 }
 
 async function fileHash(path: string): Promise<string> {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+  return createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
 }
 
 async function feedbackSubmissionMatches(options: {
@@ -31,7 +40,9 @@ async function feedbackSubmissionMatches(options: {
   reportHash: string;
 }): Promise<boolean> {
   try {
-    const metadata = await readJsonFile<Record<string, unknown>>(join(options.submissionDir, "metadata.json"));
+    const metadata = await readJsonFile<Record<string, unknown>>(
+      join(options.submissionDir, "metadata.json")
+    );
     if (
       metadata.feedbackId !== options.feedbackId ||
       metadata.submissionId !== options.submissionId ||
@@ -96,7 +107,9 @@ async function recordFeedbackSubmissionIndexes(options: {
       ...(index.feedbackStatusById ?? {}),
       [options.feedbackId]: "resolved"
     },
-    counts: options.incrementCount ? incrementTaskIndexCount(index, "feedbackSubmissions") : index.counts
+    counts: options.incrementCount
+      ? incrementTaskIndexCount(index, "feedbackSubmissions")
+      : index.counts
   }));
 }
 
@@ -120,7 +133,13 @@ export async function submitFeedback(options: {
     if (!taskId) {
       throw new Error(`Feedback '${feedbackId}' points to an unknown review block.`);
     }
-    const submissionRoot = join(workspace.resultsDir, taskId, "feedback", feedbackId, "submissions");
+    const submissionRoot = join(
+      workspace.resultsDir,
+      taskId,
+      "feedback",
+      feedbackId,
+      "submissions"
+    );
     const persistedSubmissionId = await findPersistedFeedbackSubmission({
       submissionRoot,
       feedbackId,
@@ -139,7 +158,13 @@ export async function submitFeedback(options: {
         submittedAt: new Date().toISOString()
       });
     }
-    await recordFeedbackSubmissionIndexes({ workspace, taskId, feedbackId, submissionId, incrementCount: !persistedSubmissionId });
+    await recordFeedbackSubmissionIndexes({
+      workspace,
+      taskId,
+      feedbackId,
+      submissionId,
+      incrementCount: !persistedSubmissionId
+    });
     await patchFeedbackArtifact(workspace, taskId, feedbackId, {
       status: "resolved",
       latestSubmissionId: submissionId,

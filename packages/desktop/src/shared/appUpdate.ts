@@ -18,7 +18,8 @@ export type AppUpdateProgress = {
  */
 export type AppUpdateDelivery = "in-app" | "github-releases";
 
-export const PLANWEAVE_DESKTOP_RELEASES_URL = "https://github.com/GaosCode/PlanWeave/releases/latest";
+export const PLANWEAVE_DESKTOP_RELEASES_URL =
+  "https://github.com/GaosCode/PlanWeave/releases/latest";
 
 /**
  * Resolve whether this process may promise in-app install.

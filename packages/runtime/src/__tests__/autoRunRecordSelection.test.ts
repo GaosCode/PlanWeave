@@ -45,8 +45,22 @@ describe("Auto Run record selection", () => {
 
   it("selects timestamped latest run records ahead of timestampless run ids", async () => {
     const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
-    const oldRunDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-999");
-    const latestRunDir = join(init.workspace.resultsDir, "T-002", "blocks", "B-001", "runs", "RUN-001");
+    const oldRunDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-999"
+    );
+    const latestRunDir = join(
+      init.workspace.resultsDir,
+      "T-002",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-001"
+    );
     await mkdir(oldRunDir, { recursive: true });
     await mkdir(latestRunDir, { recursive: true });
     await writeJsonFile(join(oldRunDir, "metadata.json"), {
@@ -90,8 +104,22 @@ describe("Auto Run record selection", () => {
   it("selects the current block run for run-status explanation before unrelated global latest records", async () => {
     const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
     await claimNext({ projectRoot: root });
-    const currentRunDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
-    const unrelatedRunDir = join(init.workspace.resultsDir, "T-002", "blocks", "B-001", "runs", "RUN-001");
+    const currentRunDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-001"
+    );
+    const unrelatedRunDir = join(
+      init.workspace.resultsDir,
+      "T-002",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-001"
+    );
     await mkdir(currentRunDir, { recursive: true });
     await mkdir(unrelatedRunDir, { recursive: true });
     await writeJsonFile(join(currentRunDir, "metadata.json"), {
@@ -122,7 +150,14 @@ describe("Auto Run record selection", () => {
   it("routes Claim Result branches to an executor adapter without duplicating Task Manager state decisions", async () => {
     await expect(
       consumeAutoRunClaim(
-        { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation", effectiveExecutor: "default" },
+        {
+          kind: "block",
+          ref: "T-001#B-001",
+          taskId: "T-001",
+          blockId: "B-001",
+          blockType: "implementation",
+          effectiveExecutor: "default"
+        },
         adapter()
       )
     ).resolves.toEqual({
@@ -132,18 +167,29 @@ describe("Auto Run record selection", () => {
     });
     await expect(
       consumeAutoRunClaim(
-        { kind: "feedback", feedbackId: "FE-001", sourceReviewBlockRef: "T-001#R-001", taskId: "T-001", content: "fix", effectiveExecutor: "default" },
+        {
+          kind: "feedback",
+          feedbackId: "FE-001",
+          sourceReviewBlockRef: "T-001#R-001",
+          taskId: "T-001",
+          content: "fix",
+          effectiveExecutor: "default"
+        },
         adapter()
       )
     ).resolves.toEqual({
       kind: "submit_feedback",
       reportPath: "fix.md"
     });
-    await expect(consumeAutoRunClaim({ kind: "none", reason: "done" }, adapter())).resolves.toEqual({
-      kind: "stop",
-      reason: "done"
-    });
-    await expect(consumeAutoRunClaim({ kind: "blocked", ref: "T-001#R-001", reason: "hook failed" }, adapter())).resolves.toEqual({
+    await expect(consumeAutoRunClaim({ kind: "none", reason: "done" }, adapter())).resolves.toEqual(
+      {
+        kind: "stop",
+        reason: "done"
+      }
+    );
+    await expect(
+      consumeAutoRunClaim({ kind: "blocked", ref: "T-001#R-001", reason: "hook failed" }, adapter())
+    ).resolves.toEqual({
       kind: "blocked",
       ref: "T-001#R-001",
       reason: "hook failed"
@@ -232,7 +278,9 @@ describe("Auto Run record selection", () => {
         currentRef: null,
         currentExecutor: "fake-local-review",
         latestRecordId: "T-001#R-001::RUN-001",
-        latestRecordPath: expect.stringContaining(join("T-001", "blocks", "R-001", "runs", "RUN-001", "metadata.json")),
+        latestRecordPath: expect.stringContaining(
+          join("T-001", "blocks", "R-001", "runs", "RUN-001", "metadata.json")
+        ),
         latestOutputSummary: expect.stringContaining("reviewBlockRef"),
         error: null,
         nextAction: {
@@ -281,12 +329,14 @@ describe("Auto Run record selection", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     await runContractAutoRunStep({ projectRoot: root });
 
-    const status = await waitForAutoRunStatus(
-      root,
-      (currentStatus) =>
-        currentStatus.latestRuns.some(
-          (run) => run.kind === "feedback" && run.feedbackId === "FE-001" && run.sourceReviewBlockRef === "T-001#R-001" && run.status === "resolved"
-        )
+    const status = await waitForAutoRunStatus(root, (currentStatus) =>
+      currentStatus.latestRuns.some(
+        (run) =>
+          run.kind === "feedback" &&
+          run.feedbackId === "FE-001" &&
+          run.sourceReviewBlockRef === "T-001#R-001" &&
+          run.status === "resolved"
+      )
     );
     expect(status.latestRuns).toEqual(
       expect.arrayContaining([
@@ -311,7 +361,9 @@ describe("Auto Run record selection", () => {
         currentRef: "T-001#R-001",
         currentExecutor: "needs-review",
         latestRecordId: "FE-001::RUN-001",
-        latestRecordPath: expect.stringContaining(join("feedback-runs", "RUN-001", "metadata.json")),
+        latestRecordPath: expect.stringContaining(
+          join("feedback-runs", "RUN-001", "metadata.json")
+        ),
         latestOutputSummary: expect.stringContaining("feedback report"),
         nextAction: {
           kind: "start",

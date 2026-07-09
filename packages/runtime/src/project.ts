@@ -42,7 +42,10 @@ function isLegacyManagedRoot(planweaveHome: string, rootPath: string): boolean {
   return legacyRoots.some((legacyRoot) => isPathDescendant(legacyRoot, rootPath));
 }
 
-export function normalizeProjectMetadata(project: ProjectMetadata, input: { planweaveHome: string; workspaceRoot: string }): ProjectMetadata {
+export function normalizeProjectMetadata(
+  project: ProjectMetadata,
+  input: { planweaveHome: string; workspaceRoot: string }
+): ProjectMetadata {
   if (project.kind === "managed") {
     return {
       ...project,
@@ -74,7 +77,10 @@ function sourceRootForMetadata(project: ProjectMetadata): string | null {
   return project.sourceRoot ?? project.rootPath;
 }
 
-async function directRegisteredWorkspaceId(planweaveHome: string, rootPath: string): Promise<string | null> {
+async function directRegisteredWorkspaceId(
+  planweaveHome: string,
+  rootPath: string
+): Promise<string | null> {
   let projectsRoot: string;
   try {
     projectsRoot = await realpath(join(planweaveHome, "projects"));
@@ -82,13 +88,21 @@ async function directRegisteredWorkspaceId(planweaveHome: string, rootPath: stri
     projectsRoot = join(planweaveHome, "projects");
   }
   const relativePath = relative(projectsRoot, rootPath);
-  if (!relativePath || relativePath.startsWith("..") || isAbsolute(relativePath) || relativePath !== basename(rootPath)) {
+  if (
+    !relativePath ||
+    relativePath.startsWith("..") ||
+    isAbsolute(relativePath) ||
+    relativePath !== basename(rootPath)
+  ) {
     return null;
   }
   return basename(rootPath);
 }
 
-async function workspaceFromRegisteredRoot(rootPath: string, planweaveHome: string): Promise<ProjectWorkspace | null> {
+async function workspaceFromRegisteredRoot(
+  rootPath: string,
+  planweaveHome: string
+): Promise<ProjectWorkspace | null> {
   const projectId = await directRegisteredWorkspaceId(planweaveHome, rootPath);
   if (!projectId) {
     return null;
@@ -106,9 +120,14 @@ async function workspaceFromRegisteredRoot(rootPath: string, planweaveHome: stri
   }
   const project = await readJsonFile<ProjectMetadata>(projectFile);
   if (project.id !== basename(rootPath)) {
-    throw new Error(`PlanWeave workspace metadata id '${project.id}' does not match workspace directory '${basename(rootPath)}'.`);
+    throw new Error(
+      `PlanWeave workspace metadata id '${project.id}' does not match workspace directory '${basename(rootPath)}'.`
+    );
   }
-  const normalizedProject = normalizeProjectMetadata(project, { planweaveHome, workspaceRoot: rootPath });
+  const normalizedProject = normalizeProjectMetadata(project, {
+    planweaveHome,
+    workspaceRoot: rootPath
+  });
   return projectWorkspacePaths({
     id: normalizedProject.id,
     kind: metadataKind(normalizedProject),
@@ -143,10 +162,15 @@ export async function readProject(projectRoot: string): Promise<ProjectMetadata 
     return null;
   }
   const project = await readJsonFile<ProjectMetadata>(workspace.projectFile);
-  return normalizeProjectMetadata(project, { planweaveHome: workspace.planweaveHome, workspaceRoot: workspace.workspaceRoot });
+  return normalizeProjectMetadata(project, {
+    planweaveHome: workspace.planweaveHome,
+    workspaceRoot: workspace.workspaceRoot
+  });
 }
 
-export async function requireInitializedProjectWorkspace(projectRoot: string): Promise<ProjectWorkspace> {
+export async function requireInitializedProjectWorkspace(
+  projectRoot: string
+): Promise<ProjectWorkspace> {
   const workspace = await resolveProjectWorkspace(projectRoot);
   if (!(await optionalStat(workspace.projectFile))) {
     throw new PlanWeaveWorkspaceNotInitializedError(workspace);

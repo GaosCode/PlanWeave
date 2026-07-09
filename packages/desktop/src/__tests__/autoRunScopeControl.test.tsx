@@ -6,7 +6,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import { AutoRunScopeControl } from "../renderer/run/AutoRunScopeControl";
-import { cleanupRendererTestEnvironment, stubSelectLayoutApis } from "./helpers/rendererTestEnvironment";
+import {
+  cleanupRendererTestEnvironment,
+  stubSelectLayoutApis
+} from "./helpers/rendererTestEnvironment";
 
 const t = createTranslator("en");
 
@@ -46,7 +49,13 @@ describe("AutoRunScopeControl", () => {
     await userEvent.click(screen.getByRole("combobox"));
 
     expect(screen.getByRole("option", { name: "Project" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Selected Task" })).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByRole("option", { name: "Selected Block" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("option", { name: "Selected Task" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
+    expect(screen.getByRole("option", { name: "Selected Block" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
   });
 });

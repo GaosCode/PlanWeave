@@ -1,5 +1,12 @@
 import type { DesktopTodoItem } from "@planweave-ai/runtime";
-import { AlertTriangleIcon, CheckCircle2Icon, CircleDotIcon, GitPullRequestArrowIcon, Loader2Icon, ShieldAlertIcon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  CheckCircle2Icon,
+  CircleDotIcon,
+  GitPullRequestArrowIcon,
+  Loader2Icon,
+  ShieldAlertIcon
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -18,7 +25,14 @@ type TodoGroupCardLabels = {
   reviewUnlocks: string;
 };
 
-const statusVisuals: Record<string, { accent: string; badge: "default" | "secondary" | "destructive" | "outline"; icon: typeof CircleDotIcon }> = {
+const statusVisuals: Record<
+  string,
+  {
+    accent: string;
+    badge: "default" | "secondary" | "destructive" | "outline";
+    icon: typeof CircleDotIcon;
+  }
+> = {
   ready: {
     accent: "from-emerald-500/80 to-cyan-500/70",
     badge: "secondary",
@@ -71,11 +85,19 @@ export function TodoGroupCard({
       <div className="flex items-center justify-between gap-2 pl-2">
         <div className="flex min-w-0 items-center gap-2">
           <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/80 bg-surface-base">
-            <StatusIcon className={cn("size-4 text-muted-foreground", status === "in_progress" ? "animate-spin" : null)} aria-hidden="true" />
+            <StatusIcon
+              className={cn(
+                "size-4 text-muted-foreground",
+                status === "in_progress" ? "animate-spin" : null
+              )}
+              aria-hidden="true"
+            />
           </div>
           <span className="truncate font-mono text-sm font-semibold">{status}</span>
         </div>
-        <Badge className="font-mono tabular-nums" variant={visual.badge}>{items.length}</Badge>
+        <Badge className="font-mono tabular-nums" variant={visual.badge}>
+          {items.length}
+        </Badge>
       </div>
       {items.slice(0, 6).map((item) => (
         <button
@@ -86,34 +108,60 @@ export function TodoGroupCard({
         >
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium group-hover:text-foreground">{item.title}</div>
-              <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">{item.taskId} / {item.blockId}</div>
+              <div className="truncate text-sm font-medium group-hover:text-foreground">
+                {item.title}
+              </div>
+              <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                {item.taskId} / {item.blockId}
+              </div>
             </div>
-            <Badge className="shrink-0" variant={item.parallelSafe ? "secondary" : "destructive"}>{item.parallelSafe ? labels.parallelSafe : labels.parallelBlocked}</Badge>
+            <Badge className="shrink-0" variant={item.parallelSafe ? "secondary" : "destructive"}>
+              {item.parallelSafe ? labels.parallelSafe : labels.parallelBlocked}
+            </Badge>
           </div>
           <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-md bg-surface-muted/70 p-2 text-muted-foreground">
             <span className="font-medium text-foreground/70">{labels.dependencyBlockers}</span>
-            <span className="truncate font-mono">{item.dependencyBlockers.length ? item.dependencyBlockers.join(", ") : labels.noBlockers}</span>
+            <span className="truncate font-mono">
+              {item.dependencyBlockers.length
+                ? item.dependencyBlockers.join(", ")
+                : labels.noBlockers}
+            </span>
             <span className="font-medium text-foreground/70">{labels.parallelSafety}</span>
             <span>{item.parallelSafe ? labels.parallelSafe : labels.parallelBlocked}</span>
             <span className="font-medium text-foreground/70">{labels.locks}</span>
-            <span className="truncate font-mono">{item.locks.length ? item.locks.join(", ") : labels.noLocks}</span>
+            <span className="truncate font-mono">
+              {item.locks.length ? item.locks.join(", ") : labels.noLocks}
+            </span>
             {item.reviewGate ? (
               <>
                 <span className="font-medium text-foreground/70">{labels.reviewGate}</span>
-                <span>{item.reviewGate.required ? labels.reviewRequired : item.reviewGate.requiredReason}</span>
+                <span>
+                  {item.reviewGate.required
+                    ? labels.reviewRequired
+                    : item.reviewGate.requiredReason}
+                </span>
                 <span className="font-medium text-foreground/70">{labels.reviewExecutor}</span>
                 <span className="font-mono">{item.reviewGate.executorRole}</span>
                 <span className="font-medium text-foreground/70">{labels.reviewUnlocks}</span>
-                <span className="truncate font-mono">{item.reviewGate.unlocksTasks.length ? item.reviewGate.unlocksTasks.join(", ") : labels.noBlockers}</span>
-                <span className="font-medium text-foreground/70">{labels.reviewNeedsChangesReturnsTo}</span>
-                <span className="truncate font-mono">{item.reviewGate.needsChangesReturnsTo.join(", ")}</span>
+                <span className="truncate font-mono">
+                  {item.reviewGate.unlocksTasks.length
+                    ? item.reviewGate.unlocksTasks.join(", ")
+                    : labels.noBlockers}
+                </span>
+                <span className="font-medium text-foreground/70">
+                  {labels.reviewNeedsChangesReturnsTo}
+                </span>
+                <span className="truncate font-mono">
+                  {item.reviewGate.needsChangesReturnsTo.join(", ")}
+                </span>
               </>
             ) : null}
           </div>
         </button>
       ))}
-      {items.length > 6 ? <div className="pl-2 text-xs text-muted-foreground">+{items.length - 6}</div> : null}
+      {items.length > 6 ? (
+        <div className="pl-2 text-xs text-muted-foreground">+{items.length - 6}</div>
+      ) : null}
     </div>
   );
 }

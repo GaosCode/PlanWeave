@@ -1,15 +1,35 @@
 import { chmod, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { ExecutorPreflightCheck, ExecutorPreflightResult } from "../autoRun/executorPreflightTypes.js";
+import type {
+  ExecutorPreflightCheck,
+  ExecutorPreflightResult
+} from "../autoRun/executorPreflightTypes.js";
 import { testExecutorProfile } from "../autoRun/executors.js";
 import { resolveTaskCanvasWorkspace } from "../desktop/index.js";
 import { writeJsonFile } from "../json.js";
 import { canonicalProjectCanvasNode, writeProjectGraph } from "../projectGraph/index.js";
-import { claimNext, explainBlock, getCurrentWork, getExecutionStatus, submitBlockResult, submitFeedback, submitReviewResult } from "../taskManager/index.js";
-import { basicManifest, createTestWorkspace, writePromptFiles, writeReport, writeReviewResult } from "./promptTestHelpers.js";
+import {
+  claimNext,
+  explainBlock,
+  getCurrentWork,
+  getExecutionStatus,
+  submitBlockResult,
+  submitFeedback,
+  submitReviewResult
+} from "../taskManager/index.js";
+import {
+  basicManifest,
+  createTestWorkspace,
+  writePromptFiles,
+  writeReport,
+  writeReviewResult
+} from "./promptTestHelpers.js";
 
-function preflightCheck(result: ExecutorPreflightResult, check: ExecutorPreflightCheck["check"]): ExecutorPreflightCheck {
+function preflightCheck(
+  result: ExecutorPreflightResult,
+  check: ExecutorPreflightCheck["check"]
+): ExecutorPreflightCheck {
   const item = result.checks.find((candidate) => candidate.check === check);
   if (!item) {
     throw new Error(`Missing executor preflight check '${check}'.`);
@@ -91,7 +111,10 @@ describe("executor API helpers", () => {
   it("reports missing executor profiles as a machine-readable failed check", async () => {
     const { root } = await createTestWorkspace();
 
-    const result = await testExecutorProfile({ projectRoot: root, executorName: "missing-profile" });
+    const result = await testExecutorProfile({
+      projectRoot: root,
+      executorName: "missing-profile"
+    });
 
     expect(result).toMatchObject({
       name: "missing-profile",
@@ -133,7 +156,11 @@ describe("executor API helpers", () => {
   it("reports executor version failures as a distinct failed check", async () => {
     const { root } = await createTestWorkspace();
     const command = join(root, "failing-version.js");
-    await writeFile(command, "#!/usr/bin/env node\nconsole.error('version probe failed');\nprocess.exit(7);\n", "utf8");
+    await writeFile(
+      command,
+      "#!/usr/bin/env node\nconsole.error('version probe failed');\nprocess.exit(7);\n",
+      "utf8"
+    );
     await chmod(command, 0o755);
     const manifest = basicManifest();
     manifest.executors = {
@@ -162,7 +189,11 @@ describe("executor API helpers", () => {
   it("fails executor version checks when preflight output exceeds the executor stdout limit", async () => {
     const { root } = await createTestWorkspace();
     const command = join(root, "noisy-version.js");
-    await writeFile(command, "#!/usr/bin/env node\nprocess.stdout.write('x'.repeat(2048));\n", "utf8");
+    await writeFile(
+      command,
+      "#!/usr/bin/env node\nprocess.stdout.write('x'.repeat(2048));\n",
+      "utf8"
+    );
     await chmod(command, 0o755);
     const manifest = basicManifest();
     manifest.executors = {
@@ -205,7 +236,11 @@ describe("executor API helpers", () => {
     };
     const { root: projectRoot } = await createTestWorkspace(manifest);
 
-    const result = await testExecutorProfile({ projectRoot, executorName: "hanging-version", versionTimeoutMs: 50 });
+    const result = await testExecutorProfile({
+      projectRoot,
+      executorName: "hanging-version",
+      versionTimeoutMs: 50
+    });
 
     expect(result.ok).toBe(false);
     expect(result.message).toBe("Command version check timed out after 50ms.");
@@ -239,7 +274,9 @@ describe("executor API helpers", () => {
   });
 
   it("explains why a block is or is not claimable", async () => {
-    const { root } = await createTestWorkspace(basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] }));
+    const { root } = await createTestWorkspace(
+      basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] })
+    );
 
     const explanation = await explainBlock({ projectRoot: root, ref: "T-001#B-001" });
 
@@ -281,7 +318,11 @@ describe("executor API helpers", () => {
   it("reports review submit commands for current review blocks", async () => {
     const { root } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
     await claimNext({ projectRoot: root });
 
     expect(await getCurrentWork({ projectRoot: root })).toMatchObject({
@@ -291,7 +332,8 @@ describe("executor API helpers", () => {
           kind: "block",
           ref: "T-001#R-001",
           reportPath: "<review-result.json>",
-          submitCommand: "planweave submit-review --canvas default T-001#R-001 --result <review-result.json>"
+          submitCommand:
+            "planweave submit-review --canvas default T-001#R-001 --result <review-result.json>"
         }
       ]
     });
@@ -313,7 +355,11 @@ describe("executor API helpers", () => {
     task.blocks[1].executor = "codex";
     const { root } = await createTestWorkspace(manifest);
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
     await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,
@@ -349,8 +395,11 @@ describe("executor API helpers", () => {
 
     await claimNext({ projectRoot: workspace });
 
-    await expect(explainBlock({ projectRoot: workspace, ref: "T-001#B-001" })).resolves.toMatchObject({
-      submitCommand: "planweave submit-result --canvas manual-canvas T-001#B-001 --report <report.md>"
+    await expect(
+      explainBlock({ projectRoot: workspace, ref: "T-001#B-001" })
+    ).resolves.toMatchObject({
+      submitCommand:
+        "planweave submit-result --canvas manual-canvas T-001#B-001 --report <report.md>"
     });
     await expect(getCurrentWork({ projectRoot: workspace })).resolves.toMatchObject({
       owner: {
@@ -360,12 +409,17 @@ describe("executor API helpers", () => {
         {
           kind: "block",
           ref: "T-001#B-001",
-          submitCommand: "planweave submit-result --canvas manual-canvas T-001#B-001 --report <report.md>"
+          submitCommand:
+            "planweave submit-result --canvas manual-canvas T-001#B-001 --report <report.md>"
         }
       ]
     });
 
-    await submitBlockResult({ projectRoot: workspace, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: workspace,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
     await claimNext({ projectRoot: workspace });
     await submitReviewResult({
       projectRoot: workspace,
@@ -381,7 +435,8 @@ describe("executor API helpers", () => {
       items: [
         {
           kind: "feedback",
-          submitCommand: "planweave submit-feedback --canvas manual-canvas --report <feedback-report.md>"
+          submitCommand:
+            "planweave submit-feedback --canvas manual-canvas --report <feedback-report.md>"
         }
       ]
     });
@@ -390,7 +445,11 @@ describe("executor API helpers", () => {
   it("does not report resolved feedback as executable current work", async () => {
     const { root } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
     await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,
@@ -398,7 +457,10 @@ describe("executor API helpers", () => {
       resultPath: await writeReviewResult(root, "needs_changes", "Fix the implementation.")
     });
     await claimNext({ projectRoot: root });
-    await submitFeedback({ projectRoot: root, reportPath: await writeReport(root, "feedback.md", "Fixed implementation.\n") });
+    await submitFeedback({
+      projectRoot: root,
+      reportPath: await writeReport(root, "feedback.md", "Fixed implementation.\n")
+    });
 
     const current = await getCurrentWork({ projectRoot: root });
 
@@ -414,7 +476,8 @@ describe("executor API helpers", () => {
           kind: "block",
           ref: "T-001#R-001",
           reportPath: "<review-result.json>",
-          submitCommand: "planweave submit-review --canvas default T-001#R-001 --result <review-result.json>"
+          submitCommand:
+            "planweave submit-review --canvas default T-001#R-001 --result <review-result.json>"
         }
       ]
     });
@@ -424,7 +487,11 @@ describe("executor API helpers", () => {
   it("explains review blocks as gates", async () => {
     const { root } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
 
     expect(await explainBlock({ projectRoot: root, ref: "T-001#R-001" })).toMatchObject({
       reviewGate: {
@@ -440,7 +507,8 @@ describe("executor API helpers", () => {
   it("explains optional review blocks as not claimable", async () => {
     const manifest = basicManifest();
     const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
-    const reviewBlock = task?.type === "task" ? task.blocks.find((block) => block.id === "R-001") : null;
+    const reviewBlock =
+      task?.type === "task" ? task.blocks.find((block) => block.id === "R-001") : null;
     if (reviewBlock?.type !== "review") {
       throw new Error("missing review block");
     }
@@ -451,7 +519,8 @@ describe("executor API helpers", () => {
 
     expect(explanation).toMatchObject({
       ready: false,
-      statusReason: "Optional review gate is not required and is not claimable; task can complete without it.",
+      statusReason:
+        "Optional review gate is not required and is not claimable; task can complete without it.",
       recommendedCommand: null,
       reviewGate: {
         required: false,

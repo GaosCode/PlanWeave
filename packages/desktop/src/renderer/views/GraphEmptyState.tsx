@@ -12,7 +12,11 @@ type GraphEmptyStateProps = {
 export function GraphEmptyState({ handleOpenProject, projectLoading, t }: GraphEmptyStateProps) {
   if (projectLoading) {
     return (
-      <div className="flex w-full max-w-[360px] flex-col gap-3 rounded-md border border-border/70 bg-surface-raised/70 p-4 shadow-sm" role="status" aria-live="polite">
+      <div
+        className="flex w-full max-w-[360px] flex-col gap-3 rounded-md border border-border/70 bg-surface-raised/70 p-4 shadow-sm"
+        role="status"
+        aria-live="polite"
+      >
         <Skeleton className="h-4 w-40" />
         <Skeleton className="h-3 w-full" />
         <Skeleton className="h-3 w-3/4" />
@@ -33,8 +37,14 @@ export function GraphEmptyState({ handleOpenProject, projectLoading, t }: GraphE
         </div>
       </div>
       <div className="text-sm leading-5 text-text-muted">{t("openProjectHint")}</div>
-      <div className="rounded-md border border-border/70 bg-surface-muted/70 px-3 py-2 text-xs text-text-muted">{t("exampleProjectHint")}</div>
-      <Button className="h-8 w-fit gap-2 border-border/80 bg-surface-base text-text hover:bg-surface-muted hover:text-text-strong" variant="outline" onClick={handleOpenProject}>
+      <div className="rounded-md border border-border/70 bg-surface-muted/70 px-3 py-2 text-xs text-text-muted">
+        {t("exampleProjectHint")}
+      </div>
+      <Button
+        className="h-8 w-fit gap-2 border-border/80 bg-surface-base text-text hover:bg-surface-muted hover:text-text-strong"
+        variant="outline"
+        onClick={handleOpenProject}
+      >
         <FolderOpenIcon data-icon="inline-start" />
         {t("openProject")}
       </Button>

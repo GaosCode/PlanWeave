@@ -14,7 +14,8 @@ const defaultProjectPromptPolicy: ProjectPromptPolicy = {
 };
 
 async function resolvePolicyWorkspace(projectRoot: PackageWorkspaceRef): Promise<ProjectWorkspace> {
-  const workspace = typeof projectRoot === "string" ? await resolveProjectWorkspace(projectRoot) : projectRoot;
+  const workspace =
+    typeof projectRoot === "string" ? await resolveProjectWorkspace(projectRoot) : projectRoot;
   return resolveProjectWorkspace(workspace.rootPath);
 }
 
@@ -38,7 +39,9 @@ function normalizeProjectPromptPolicy(raw: unknown): ProjectPromptPolicy {
   };
 }
 
-export async function readProjectPromptPolicy(projectRoot: PackageWorkspaceRef): Promise<ProjectPromptPolicy> {
+export async function readProjectPromptPolicy(
+  projectRoot: PackageWorkspaceRef
+): Promise<ProjectPromptPolicy> {
   const workspace = await resolvePolicyWorkspace(projectRoot);
   const path = projectPromptPolicyPath(workspace);
   try {
@@ -76,7 +79,10 @@ export async function readProjectPrompt(projectRoot: PackageWorkspaceRef): Promi
   }
 }
 
-export async function updateProjectPrompt(projectRoot: PackageWorkspaceRef, markdown: string): Promise<string> {
+export async function updateProjectPrompt(
+  projectRoot: PackageWorkspaceRef,
+  markdown: string
+): Promise<string> {
   const workspace = await resolvePolicyWorkspace(projectRoot);
   await mkdir(dirname(workspace.projectPromptFile), { recursive: true });
   await writeFile(workspace.projectPromptFile, markdown, "utf8");

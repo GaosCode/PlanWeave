@@ -34,13 +34,19 @@ function isAuthorized(req: IncomingMessage, token: string | undefined): boolean 
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function logAndSanitizeInternalError(error: unknown): { message: "internal_server_error"; requestId: string } {
+function logAndSanitizeInternalError(error: unknown): {
+  message: "internal_server_error";
+  requestId: string;
+} {
   const requestId = randomUUID();
   console.error(`[planweave-mcp] internal_server_error requestId=${requestId}`, error);
   return { message: "internal_server_error", requestId };
 }
 
-function requestBodySizeStatus(req: IncomingMessage, maxRequestBodyBytes: number): { ok: true } | { ok: false; statusCode: number; error: string } {
+function requestBodySizeStatus(
+  req: IncomingMessage,
+  maxRequestBodyBytes: number
+): { ok: true } | { ok: false; statusCode: number; error: string } {
   const contentLength = req.headers["content-length"];
   if (Array.isArray(contentLength) || !contentLength) {
     return { ok: false, statusCode: 411, error: "content_length_required" };
@@ -75,7 +81,12 @@ function createPlanweaveMcpServer(config: McpConfig): McpServer {
   return server;
 }
 
-async function handleMcpRequest(req: IncomingMessage, res: ServerResponse, config: McpConfig, oauth: OAuthProvider | null): Promise<void> {
+async function handleMcpRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  config: McpConfig,
+  oauth: OAuthProvider | null
+): Promise<void> {
   const originCheck = isRequestOriginAllowed(req, config);
   if (!originCheck.ok) {
     writeJson(res, originCheck.error === "invalid_host" ? 421 : 403, { error: originCheck.error });
@@ -134,8 +145,14 @@ export function createPlanweaveMcpHttpServer(config: McpConfig): Server {
       ? createOAuthProvider({
           accessTokenTtlMs: config.oauth.accessTokenTtlMs,
           authorizationCodeTtlMs: config.oauth.authorizationCodeTtlMs,
-          clientStore: createFileOAuthClientStore(config.oauth.clientStorePath ?? join(resolvePlanweaveHome(), "config", "mcp-oauth-clients.json")),
-          tokenStore: createFileOAuthTokenStore(config.oauth.tokenStorePath ?? join(resolvePlanweaveHome(), "config", "mcp-oauth-tokens.json")),
+          clientStore: createFileOAuthClientStore(
+            config.oauth.clientStorePath ??
+              join(resolvePlanweaveHome(), "config", "mcp-oauth-clients.json")
+          ),
+          tokenStore: createFileOAuthTokenStore(
+            config.oauth.tokenStorePath ??
+              join(resolvePlanweaveHome(), "config", "mcp-oauth-tokens.json")
+          ),
           maxRequestBodyBytes: config.maxRequestBodyBytes,
           host: config.host,
           port: config.port,
@@ -143,7 +160,10 @@ export function createPlanweaveMcpHttpServer(config: McpConfig): Server {
         })
       : null;
   return createServer((req, res) => {
-    const path = new URL(req.url ?? "/", `http://${req.headers.host ?? `${config.host}:${config.port}`}`).pathname;
+    const path = new URL(
+      req.url ?? "/",
+      `http://${req.headers.host ?? `${config.host}:${config.port}`}`
+    ).pathname;
     if (oauth) {
       void (async () => {
         try {

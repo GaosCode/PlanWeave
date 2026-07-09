@@ -86,7 +86,9 @@ describe("window appearance handlers", () => {
     const { registerWindowAppearanceHandlers } = await import("../main/windowAppearance");
     registerWindowAppearanceHandlers();
 
-    const handler = electronMock.handlers.get(windowAppearanceInvokeChannels.getWindowMaterialCapabilities);
+    const handler = electronMock.handlers.get(
+      windowAppearanceInvokeChannels.getWindowMaterialCapabilities
+    );
 
     expect(await handler?.({ sender: "web-contents" })).toEqual({
       platform: "linux",
@@ -100,7 +102,9 @@ describe("window appearance handlers", () => {
     const { registerWindowAppearanceHandlers } = await import("../main/windowAppearance");
     registerWindowAppearanceHandlers();
 
-    const handler = electronMock.handlers.get(windowAppearanceInvokeChannels.getWindowMaterialCapabilities);
+    const handler = electronMock.handlers.get(
+      windowAppearanceInvokeChannels.getWindowMaterialCapabilities
+    );
 
     expect(await handler?.({ sender: "web-contents" })).toEqual({
       platform: "darwin",

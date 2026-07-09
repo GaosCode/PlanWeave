@@ -48,7 +48,9 @@ describe("executor output limits", () => {
       timedOut: false
     });
     expect((await stat(join(runDir, "stdout.md"))).size).toBeLessThan(256);
-    await expect(readFile(join(runDir, "stdout.md"), "utf8")).resolves.toContain("stdout output truncated after 128 bytes");
+    await expect(readFile(join(runDir, "stdout.md"), "utf8")).resolves.toContain(
+      "stdout output truncated after 128 bytes"
+    );
   });
 
   it("blocks a codex-exec run when stderr exceeds the configured output limit", async () => {
@@ -92,6 +94,8 @@ describe("executor output limits", () => {
       timedOut: false
     });
     expect((await stat(join(runDir, "stderr.log"))).size).toBeLessThan(224);
-    await expect(readFile(join(runDir, "stderr.log"), "utf8")).resolves.toContain("stderr output truncated after 96 bytes");
+    await expect(readFile(join(runDir, "stderr.log"), "utf8")).resolves.toContain(
+      "stderr output truncated after 96 bytes"
+    );
   });
 });

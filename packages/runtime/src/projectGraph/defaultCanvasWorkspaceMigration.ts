@@ -25,7 +25,11 @@ export type DefaultCanvasWorkspacePaths = {
   resultsDir: string;
 };
 
-export type DefaultCanvasWorkspaceMigrationAction = "none" | "migrate" | "mixed_identical" | "conflict";
+export type DefaultCanvasWorkspaceMigrationAction =
+  | "none"
+  | "migrate"
+  | "mixed_identical"
+  | "conflict";
 
 export type DefaultCanvasWorkspaceMigrationPlan = {
   action: DefaultCanvasWorkspaceMigrationAction;
@@ -46,7 +50,9 @@ function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
 }
 
-export function legacyDefaultCanvasWorkspacePaths(projectWorkspace: ProjectWorkspace): DefaultCanvasWorkspacePaths {
+export function legacyDefaultCanvasWorkspacePaths(
+  projectWorkspace: ProjectWorkspace
+): DefaultCanvasWorkspacePaths {
   return {
     workspaceRoot: projectWorkspace.workspaceRoot,
     packageDir: join(projectWorkspace.workspaceRoot, "package"),
@@ -55,7 +61,9 @@ export function legacyDefaultCanvasWorkspacePaths(projectWorkspace: ProjectWorks
   };
 }
 
-export function canonicalDefaultCanvasWorkspacePaths(projectWorkspace: ProjectWorkspace): DefaultCanvasWorkspacePaths {
+export function canonicalDefaultCanvasWorkspacePaths(
+  projectWorkspace: ProjectWorkspace
+): DefaultCanvasWorkspacePaths {
   const paths = canonicalCanvasWorkspacePaths(defaultCanvasId);
   const workspaceRoot = join(projectWorkspace.workspaceRoot, "canvases", defaultCanvasId);
   return {
@@ -78,7 +86,11 @@ function isIgnoredPath(path: string): boolean {
   return path.split(/[\\/]/).some((part) => ignoredFileNames.has(part));
 }
 
-async function collectDirectoryFiles(root: string, prefix: string, files: Map<string, string>): Promise<void> {
+async function collectDirectoryFiles(
+  root: string,
+  prefix: string,
+  files: Map<string, string>
+): Promise<void> {
   if (!(await optionalStat(root))) {
     return;
   }
@@ -150,8 +162,14 @@ function detectDiagnostics(input: {
   canonical: WorkspaceSnapshot;
   action: DefaultCanvasWorkspaceMigrationAction;
 }): ValidationIssue[] {
-  const legacyPath = workspaceRelative(input.projectWorkspace, legacyDefaultCanvasWorkspacePaths(input.projectWorkspace).packageDir);
-  const canonicalPath = workspaceRelative(input.projectWorkspace, canonicalDefaultCanvasWorkspacePaths(input.projectWorkspace).workspaceRoot);
+  const legacyPath = workspaceRelative(
+    input.projectWorkspace,
+    legacyDefaultCanvasWorkspacePaths(input.projectWorkspace).packageDir
+  );
+  const canonicalPath = workspaceRelative(
+    input.projectWorkspace,
+    canonicalDefaultCanvasWorkspacePaths(input.projectWorkspace).workspaceRoot
+  );
   if (input.action === "migrate") {
     return [
       issue(
@@ -182,7 +200,9 @@ function detectDiagnostics(input: {
   return [];
 }
 
-export async function detectDefaultCanvasWorkspaceMigration(projectWorkspace: ProjectWorkspace): Promise<DefaultCanvasWorkspaceMigrationPlan> {
+export async function detectDefaultCanvasWorkspaceMigration(
+  projectWorkspace: ProjectWorkspace
+): Promise<DefaultCanvasWorkspaceMigrationPlan> {
   const legacyPaths = legacyDefaultCanvasWorkspacePaths(projectWorkspace);
   const canonicalPaths = canonicalDefaultCanvasWorkspacePaths(projectWorkspace);
   const legacy = await collectSnapshot(legacyPaths);
@@ -193,7 +213,11 @@ export async function detectDefaultCanvasWorkspaceMigration(projectWorkspace: Pr
   if (legacy.hasMeaningfulFiles && !canonical.hasMeaningfulFiles) {
     action = "migrate";
     reason = "Legacy root default canvas data exists and canonical default canvas data is empty.";
-  } else if (legacy.hasMeaningfulFiles && canonical.hasMeaningfulFiles && snapshotsEqual(legacy, canonical)) {
+  } else if (
+    legacy.hasMeaningfulFiles &&
+    canonical.hasMeaningfulFiles &&
+    snapshotsEqual(legacy, canonical)
+  ) {
     action = "mixed_identical";
     reason = "Legacy root default canvas data matches canonical default canvas data.";
   } else if (legacy.hasMeaningfulFiles && canonical.hasMeaningfulFiles) {
@@ -236,14 +260,21 @@ async function defaultCanvasTitle(paths: DefaultCanvasWorkspacePaths): Promise<s
   return "任务画布";
 }
 
-async function readProjectGraph(projectWorkspace: ProjectWorkspace, title: string): Promise<ProjectGraphManifest> {
+async function readProjectGraph(
+  projectWorkspace: ProjectWorkspace,
+  title: string
+): Promise<ProjectGraphManifest> {
   const path = projectGraphPath(projectWorkspace);
   if (await optionalStat(path)) {
-    return projectGraphManifestSchema.parse(await readJsonFile<unknown>(path)) as ProjectGraphManifest;
+    return projectGraphManifestSchema.parse(
+      await readJsonFile<unknown>(path)
+    ) as ProjectGraphManifest;
   }
   const registryPath = join(projectWorkspace.workspaceRoot, "desktop", "canvases.json");
   if (await optionalStat(registryPath)) {
-    return projectGraphFromLegacyRegistry(normalizeRegistry(await readJsonFile<unknown>(registryPath)));
+    return projectGraphFromLegacyRegistry(
+      normalizeRegistry(await readJsonFile<unknown>(registryPath))
+    );
   }
   return {
     version: supportedProjectGraphVersion,
@@ -253,7 +284,10 @@ async function readProjectGraph(projectWorkspace: ProjectWorkspace, title: strin
   };
 }
 
-async function writeCanonicalProjectGraph(projectWorkspace: ProjectWorkspace, title: string): Promise<void> {
+async function writeCanonicalProjectGraph(
+  projectWorkspace: ProjectWorkspace,
+  title: string
+): Promise<void> {
   const graph = await readProjectGraph(projectWorkspace, title);
   const defaultCanvas = graph.canvases.find((canvas) => canvas.id === defaultCanvasId);
   const nextDefaultCanvas = canonicalProjectCanvasNode({
@@ -271,7 +305,11 @@ async function writeCanonicalProjectGraph(projectWorkspace: ProjectWorkspace, ti
   await writeJsonFile(projectGraphPath(projectWorkspace), nextGraph);
 }
 
-async function copyIfExists(from: string, to: string, options?: { recursive?: boolean }): Promise<void> {
+async function copyIfExists(
+  from: string,
+  to: string,
+  options?: { recursive?: boolean }
+): Promise<void> {
   if (!(await optionalStat(from))) {
     return;
   }
@@ -290,8 +328,15 @@ async function verifyCanonical(paths: DefaultCanvasWorkspacePaths): Promise<void
   }
 }
 
-async function quarantineLegacyPaths(projectWorkspace: ProjectWorkspace, legacyPaths: DefaultCanvasWorkspacePaths): Promise<Partial<DefaultCanvasWorkspacePaths> & { workspaceRoot?: string }> {
-  const quarantineRoot = join(projectWorkspace.workspaceRoot, "migration-quarantine", `default-canvas-root-${Date.now()}`);
+async function quarantineLegacyPaths(
+  projectWorkspace: ProjectWorkspace,
+  legacyPaths: DefaultCanvasWorkspacePaths
+): Promise<Partial<DefaultCanvasWorkspacePaths> & { workspaceRoot?: string }> {
+  const quarantineRoot = join(
+    projectWorkspace.workspaceRoot,
+    "migration-quarantine",
+    `default-canvas-root-${Date.now()}`
+  );
   const backupPaths: Partial<DefaultCanvasWorkspacePaths> & { workspaceRoot?: string } = {};
   await mkdir(quarantineRoot, { recursive: true });
   if (await optionalStat(legacyPaths.packageDir)) {
@@ -312,7 +357,9 @@ async function quarantineLegacyPaths(projectWorkspace: ProjectWorkspace, legacyP
   return backupPaths;
 }
 
-export async function applyDefaultCanvasWorkspaceMigration(projectWorkspace: ProjectWorkspace): Promise<DefaultCanvasWorkspaceMigrationApplyResult> {
+export async function applyDefaultCanvasWorkspaceMigration(
+  projectWorkspace: ProjectWorkspace
+): Promise<DefaultCanvasWorkspaceMigrationApplyResult> {
   const plan = await detectDefaultCanvasWorkspaceMigration(projectWorkspace);
   if (plan.action === "none") {
     return {
@@ -322,13 +369,19 @@ export async function applyDefaultCanvasWorkspaceMigration(projectWorkspace: Pro
     };
   }
   if (plan.action === "conflict") {
-    throw new Error(plan.diagnostics.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`).join("\n"));
+    throw new Error(
+      plan.diagnostics.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`).join("\n")
+    );
   }
 
   if (plan.action === "migrate") {
-    await copyIfExists(plan.legacyPaths.packageDir, plan.canonicalPaths.packageDir, { recursive: true });
+    await copyIfExists(plan.legacyPaths.packageDir, plan.canonicalPaths.packageDir, {
+      recursive: true
+    });
     await copyIfExists(plan.legacyPaths.stateFile, plan.canonicalPaths.stateFile);
-    await copyIfExists(plan.legacyPaths.resultsDir, plan.canonicalPaths.resultsDir, { recursive: true });
+    await copyIfExists(plan.legacyPaths.resultsDir, plan.canonicalPaths.resultsDir, {
+      recursive: true
+    });
   }
 
   await verifyCanonical(plan.canonicalPaths);

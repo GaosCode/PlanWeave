@@ -11,7 +11,11 @@ describe("summarizeValidationReport", () => {
         { code: "manifest_schema", message: "Required", path: "manifest.json:nodes.0.acceptance" },
         { code: "manifest_schema", message: "Required", path: "manifest.json:nodes.1.acceptance" },
         { code: "manifest_schema", message: "Required", path: "manifest.json:nodes.0.title" },
-        { code: "manifest_schema", message: "Invalid type", path: "manifest.json:nodes.0.acceptance" },
+        {
+          code: "manifest_schema",
+          message: "Invalid type",
+          path: "manifest.json:nodes.0.acceptance"
+        },
         { code: "prompt_missing", message: "Prompt missing", path: "nodes/T-001/prompt.md" }
       ],
       [{ code: "stale_prompt_reference", message: "Stale prompt", path: "nodes/T-999/prompt.md" }]
@@ -78,7 +82,11 @@ describe("summarizeValidationReport", () => {
     const summary = summarizeValidationReport({
       errors: [
         { code: "manifest_schema", message: "Required", path: "manifest.json:nodes.0.acceptance" },
-        { code: "manifest_schema", message: "Invalid type", path: "manifest.json:nodes.1.acceptance" }
+        {
+          code: "manifest_schema",
+          message: "Invalid type",
+          path: "manifest.json:nodes.1.acceptance"
+        }
       ],
       warnings: []
     });
@@ -101,7 +109,10 @@ describe("summarizeValidationReport", () => {
 
   it("keeps original validatePackage errors and warnings while adding summary", async () => {
     const { root, init } = await createTestWorkspace();
-    await writeJsonFile(init.workspace.manifestFile, { ...basicManifest(), global_prompt: "global-prompt.md" });
+    await writeJsonFile(init.workspace.manifestFile, {
+      ...basicManifest(),
+      global_prompt: "global-prompt.md"
+    });
 
     const report = await validatePackage({ projectRoot: root });
 

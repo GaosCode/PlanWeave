@@ -13,14 +13,25 @@ import {
 import type { DesktopAutoRunPhase } from "../desktop/index.js";
 import { isTmuxAvailable } from "../autoRun/tmuxExecutor.js";
 import { getRunSession, listRunSessions } from "../runSessions/index.js";
-import type { RunSessionAutoRunSummary, RunSessionEvent, RunSessionPhase, RunSessionState } from "../runSessions/index.js";
+import type {
+  RunSessionAutoRunSummary,
+  RunSessionEvent,
+  RunSessionPhase,
+  RunSessionState
+} from "../runSessions/index.js";
 import { readState } from "../state.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
 const startedRunIds = new Set<string>();
 const noTmux = { tmuxEnabled: false } as const;
-const finalRunSessionEventTypes = ["session_completed", "session_manual", "session_blocked", "session_failed", "session_stopped"] as const;
+const finalRunSessionEventTypes = [
+  "session_completed",
+  "session_manual",
+  "session_blocked",
+  "session_failed",
+  "session_stopped"
+] as const;
 
 type FinalRunSessionEventType = (typeof finalRunSessionEventTypes)[number];
 type AutoRunEventLogEntry = {
@@ -47,7 +58,10 @@ afterEach(async () => {
   delete process.env.PLANWEAVE_HOME;
 });
 
-async function waitForRun(runId: string, predicate: (state: Awaited<ReturnType<typeof getAutoRunState>>) => boolean) {
+async function waitForRun(
+  runId: string,
+  predicate: (state: Awaited<ReturnType<typeof getAutoRunState>>) => boolean
+) {
   let state = await getAutoRunState(runId);
   for (let attempt = 0; attempt < 500 && !predicate(state); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -63,7 +77,11 @@ async function waitForLatestRunSummary(
   predicate: (state: NonNullable<Awaited<ReturnType<typeof getLatestAutoRunSummary>>>) => boolean
 ) {
   let state = await getLatestAutoRunSummary(projectRoot, canvasId);
-  for (let attempt = 0; attempt < 500 && (!state || state.runId !== runId || !predicate(state)); attempt += 1) {
+  for (
+    let attempt = 0;
+    attempt < 500 && (!state || state.runId !== runId || !predicate(state));
+    attempt += 1
+  ) {
     await new Promise((resolve) => setTimeout(resolve, 20));
     state = await getLatestAutoRunSummary(projectRoot, canvasId);
   }
@@ -82,7 +100,10 @@ async function readAutoRunEvents(eventLogPath: string): Promise<AutoRunEventLogE
     .map((line) => JSON.parse(line) as AutoRunEventLogEntry);
 }
 
-async function waitForAutoRunEvent(eventLogPath: string, predicate: (event: AutoRunEventLogEntry) => boolean): Promise<void> {
+async function waitForAutoRunEvent(
+  eventLogPath: string,
+  predicate: (event: AutoRunEventLogEntry) => boolean
+): Promise<void> {
   let events: AutoRunEventLogEntry[] = [];
   for (let attempt = 0; attempt < 500; attempt += 1) {
     events = await readAutoRunEvents(eventLogPath).catch(() => []);
@@ -91,7 +112,9 @@ async function waitForAutoRunEvent(eventLogPath: string, predicate: (event: Auto
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  throw new Error(`Timed out waiting for Auto Run event. Observed events: ${events.map((event) => event.type).join(", ")}`);
+  throw new Error(
+    `Timed out waiting for Auto Run event. Observed events: ${events.map((event) => event.type).join(", ")}`
+  );
 }
 
 function runSessionIdFor(state: Awaited<ReturnType<typeof getAutoRunState>>): string {
@@ -103,10 +126,15 @@ function runSessionIdFor(state: Awaited<ReturnType<typeof getAutoRunState>>): st
 }
 
 function finalSessionEvents(events: RunSessionEvent[]): RunSessionEvent[] {
-  return events.filter((event) => finalRunSessionEventTypes.includes(event.type as FinalRunSessionEventType));
+  return events.filter((event) =>
+    finalRunSessionEventTypes.includes(event.type as FinalRunSessionEventType)
+  );
 }
 
-function expectFinalSessionEvent(events: RunSessionEvent[], expected: FinalRunSessionEventType | null): void {
+function expectFinalSessionEvent(
+  events: RunSessionEvent[],
+  expected: FinalRunSessionEventType | null
+): void {
   const terminalEvents = finalSessionEvents(events);
   if (expected === null) {
     expect(terminalEvents).toHaveLength(0);
@@ -198,8 +226,12 @@ describe("desktop auto run API", () => {
     expect(current.statePath).toContain("auto-runs");
     expect(current.eventLogPath).toContain("events.ndjson");
     await expect(readFile(current.statePath, "utf8")).resolves.toContain('"phase": "paused"');
-    await expect(readFile(current.eventLogPath, "utf8")).resolves.toContain('"type":"step_limit_reached"');
-    await expect(getLatestAutoRunSummary(root, null)).resolves.toMatchObject({ runId: started.runId });
+    await expect(readFile(current.eventLogPath, "utf8")).resolves.toContain(
+      '"type":"step_limit_reached"'
+    );
+    await expect(getLatestAutoRunSummary(root, null)).resolves.toMatchObject({
+      runId: started.runId
+    });
     await expectAutoRunSessionConsistency(root, current, {
       phase: "paused",
       latestAutoRunEvent: "step_limit_reached",
@@ -222,7 +254,13 @@ describe("desktop auto run API", () => {
       latestRecordId: "T-001#B-001::RUN-001"
     });
     expect(pausedSession.events.map((event) => event.type)).toEqual(
-      expect.arrayContaining(["session_started", "run_started", "step_start", "step_finish", "step_limit_reached"])
+      expect.arrayContaining([
+        "session_started",
+        "run_started",
+        "step_start",
+        "step_finish",
+        "step_limit_reached"
+      ])
     );
 
     await expect(resumeAutoRun(started.runId)).resolves.toMatchObject({ phase: "running" });
@@ -237,29 +275,33 @@ describe("desktop auto run API", () => {
       },
       events: expect.arrayContaining([expect.objectContaining({ type: "session_stopped" })])
     });
-    await expectAutoRunSessionConsistency(root, await getLatestAutoRunSummary(root, null).then((state) => {
-      if (!state) {
-        throw new Error("Expected stopped Auto Run summary.");
+    await expectAutoRunSessionConsistency(
+      root,
+      await getLatestAutoRunSummary(root, null).then((state) => {
+        if (!state) {
+          throw new Error("Expected stopped Auto Run summary.");
+        }
+        return state;
+      }),
+      {
+        phase: "stopped",
+        latestAutoRunEvent: "run_stopped",
+        sessionPhase: "stopped",
+        stepCount: 1,
+        stopReason: null,
+        finalSessionEvent: "session_stopped"
       }
-      return state;
-    }), {
-      phase: "stopped",
-      latestAutoRunEvent: "run_stopped",
-      sessionPhase: "stopped",
-      stepCount: 1,
-      stopReason: null,
-      finalSessionEvent: "session_stopped"
-    });
+    );
     const eventLog = await listAutoRunEvents(root, null, started.runId);
     expect(eventLog.diagnostics).toEqual([]);
-    expect(eventLog.events.map((event) => event.type)).toEqual(expect.arrayContaining(["run_started", "step_limit_reached", "run_resumed", "run_stopped"]));
+    expect(eventLog.events.map((event) => event.type)).toEqual(
+      expect.arrayContaining(["run_started", "step_limit_reached", "run_resumed", "run_stopped"])
+    );
     expect(eventLog.events.every((event) => event.runId === started.runId)).toBe(true);
   });
 
   it("resets runtime state from Desktop and records the reset session", async () => {
-    const manifest = manifestTestBuilder()
-      .withDefaultExecutor("manual")
-      .build();
+    const manifest = manifestTestBuilder().withDefaultExecutor("manual").build();
     const { root, init } = await createTestWorkspace(manifest);
 
     const started = await startAutoRun(root, null, { kind: "project" }, 5, noTmux);
@@ -290,8 +332,14 @@ describe("desktop auto run API", () => {
         reset: expect.objectContaining({ performed: true, forced: true, reason: "test reset" })
       }
     });
-    expect((await readState(init.workspace.stateFile)).blocks["T-001#B-001"]).toMatchObject({ status: "ready", lastRunId: null });
-    await expect(getLatestAutoRunSummary(root, null)).resolves.toMatchObject({ runId: started.runId, phase: "stopped" });
+    expect((await readState(init.workspace.stateFile)).blocks["T-001#B-001"]).toMatchObject({
+      status: "ready",
+      lastRunId: null
+    });
+    await expect(getLatestAutoRunSummary(root, null)).resolves.toMatchObject({
+      runId: started.runId,
+      phase: "stopped"
+    });
     const stoppedRun = await getLatestAutoRunSummary(root, null);
     if (!stoppedRun) {
       throw new Error("Expected stopped Auto Run summary after force reset.");
@@ -306,11 +354,19 @@ describe("desktop auto run API", () => {
     });
 
     const detail = await getRunSession(root, result.session.sessionId);
-    expect(detail.events.map((event) => event.type)).toEqual(["session_started", "reset_started", "reset_completed", "session_completed"]);
+    expect(detail.events.map((event) => event.type)).toEqual([
+      "session_started",
+      "reset_started",
+      "reset_completed",
+      "session_completed"
+    ]);
     expect(detail.events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "reset_started", reason: "test reset" }),
-        expect.objectContaining({ type: "reset_completed", reset: expect.objectContaining({ reason: "test reset" }) })
+        expect.objectContaining({
+          type: "reset_completed",
+          reset: expect.objectContaining({ reason: "test reset" })
+        })
       ])
     );
     expect(detail.events.at(-1)).toMatchObject({
@@ -344,7 +400,9 @@ describe("desktop auto run API", () => {
     }
 
     await expect(stopAutoRun(started.runId)).resolves.toMatchObject({ phase: "stopped" });
-    await expect(resetDesktopRuntimeState(root, null, { force: true, reason: "test reset" })).rejects.toThrow("Cannot reset runtime state while Auto Run is active");
+    await expect(
+      resetDesktopRuntimeState(root, null, { force: true, reason: "test reset" })
+    ).rejects.toThrow("Cannot reset runtime state while Auto Run is active");
     const resetSession = await latestResetSession(root);
     expect(resetSession).toMatchObject({
       kind: "reset",
@@ -362,7 +420,9 @@ describe("desktop auto run API", () => {
     expectFinalSessionEvent(resetDetail.events, "session_failed");
     const autoRunDetail = await getRunSession(root, started.runSessionId!);
     expect(autoRunDetail.session.phase).toBe("stopped");
-    expect(autoRunDetail.events.filter((event) => event.type === "session_completed")).toHaveLength(0);
+    expect(autoRunDetail.events.filter((event) => event.type === "session_completed")).toHaveLength(
+      0
+    );
     expectFinalSessionEvent(autoRunDetail.events, "session_stopped");
     await new Promise((resolve) => setTimeout(resolve, 600));
   });
@@ -393,9 +453,14 @@ describe("desktop auto run API", () => {
       options: { tmuxEnabled: false }
     });
     expect(current.latestRecordPath).toEqual(expect.any(String));
-    const metadata = JSON.parse(await readFile(current.latestRecordPath!, "utf8")) as Record<string, unknown>;
+    const metadata = JSON.parse(await readFile(current.latestRecordPath!, "utf8")) as Record<
+      string,
+      unknown
+    >;
     expect(metadata.tmuxSessionId).toBeUndefined();
-    await expect(readFile(current.latestRecordPath!.replace("metadata.json", "stdout.md"), "utf8")).resolves.toContain("streamed without tmux");
+    await expect(
+      readFile(current.latestRecordPath!.replace("metadata.json", "stdout.md"), "utf8")
+    ).resolves.toContain("streamed without tmux");
   });
 
   it("keeps stopped session final when an in-flight non-tmux step settles after stop", async () => {
@@ -418,7 +483,10 @@ describe("desktop auto run API", () => {
 
     await expect(stopAutoRun(started.runId)).resolves.toMatchObject({ phase: "stopped" });
     await expect(stopAutoRun(started.runId)).resolves.toMatchObject({ phase: "stopped" });
-    await waitForAutoRunEvent(started.eventLogPath, (event) => event.type === "stopped_step_ignored");
+    await waitForAutoRunEvent(
+      started.eventLogPath,
+      (event) => event.type === "stopped_step_ignored"
+    );
 
     const stopped = await getLatestAutoRunSummary(root, null);
     if (!stopped) {
@@ -474,10 +542,15 @@ describe("desktop auto run API", () => {
       currentRef: "T-001#B-001",
       currentExecutor: "slow-codex"
     });
-    await expect(readFile(paused.eventLogPath, "utf8")).resolves.toContain('"pausedAfterStep":true');
+    await expect(readFile(paused.eventLogPath, "utf8")).resolves.toContain(
+      '"pausedAfterStep":true'
+    );
 
     await expect(resumeAutoRun(started.runId)).resolves.toMatchObject({ phase: "running" });
-    const resumed = await waitForRun(started.runId, (state) => state.phase === "paused" && state.stepCount === 2);
+    const resumed = await waitForRun(
+      started.runId,
+      (state) => state.phase === "paused" && state.stepCount === 2
+    );
     expect(resumed).toMatchObject({
       phase: "paused",
       stepCount: 2,
@@ -496,19 +569,23 @@ describe("desktop auto run API", () => {
       "step_limit_reached",
       "run_stopped"
     ]);
-    await expectAutoRunSessionConsistency(root, await getLatestAutoRunSummary(root, null).then((state) => {
-      if (!state) {
-        throw new Error("Expected stopped Auto Run summary.");
+    await expectAutoRunSessionConsistency(
+      root,
+      await getLatestAutoRunSummary(root, null).then((state) => {
+        if (!state) {
+          throw new Error("Expected stopped Auto Run summary.");
+        }
+        return state;
+      }),
+      {
+        phase: "stopped",
+        latestAutoRunEvent: "run_stopped",
+        sessionPhase: "stopped",
+        stepCount: 2,
+        stopReason: null,
+        finalSessionEvent: "session_stopped"
       }
-      return state;
-    }), {
-      phase: "stopped",
-      latestAutoRunEvent: "run_stopped",
-      sessionPhase: "stopped",
-      stepCount: 2,
-      stopReason: null,
-      finalSessionEvent: "session_stopped"
-    });
+    );
   });
 
   it("stops an in-flight tmux-backed Auto Run without replacing the stopped phase with failed", async () => {
@@ -541,7 +618,10 @@ describe("desktop auto run API", () => {
 
     await expect(stopAutoRun(started.runId)).resolves.toMatchObject({ phase: "stopped" });
     await new Promise((resolve) => setTimeout(resolve, 300));
-    await expect(getLatestAutoRunSummary(root, null)).resolves.toMatchObject({ runId: started.runId, phase: "stopped" });
+    await expect(getLatestAutoRunSummary(root, null)).resolves.toMatchObject({
+      runId: started.runId,
+      phase: "stopped"
+    });
     await expect(readFile(started.eventLogPath, "utf8")).resolves.toContain('"type":"run_stopped"');
   });
 
@@ -571,7 +651,12 @@ describe("desktop auto run API", () => {
     const started = await startAutoRun(root, null, { kind: "project" }, 5, noTmux);
     startedRunIds.add(started.runId);
 
-    const completed = await waitForLatestRunSummary(root, null, started.runId, (state) => state.phase === "completed");
+    const completed = await waitForLatestRunSummary(
+      root,
+      null,
+      started.runId,
+      (state) => state.phase === "completed"
+    );
 
     expect(completed).toMatchObject({
       runId: started.runId,
@@ -594,7 +679,9 @@ describe("desktop auto run API", () => {
       },
       events: expect.arrayContaining([expect.objectContaining({ type: "session_completed" })])
     });
-    await expect(getAutoRunState(started.runId)).rejects.toThrow(`Auto Run '${started.runId}' does not exist.`);
+    await expect(getAutoRunState(started.runId)).rejects.toThrow(
+      `Auto Run '${started.runId}' does not exist.`
+    );
     await expect(getLatestAutoRunSummary(root, null)).resolves.toMatchObject({
       runId: started.runId,
       phase: "completed"
@@ -626,7 +713,13 @@ describe("desktop auto run API", () => {
       stepCount: 1
     });
 
-    const blockRun = await startAutoRun(root, null, { kind: "block", blockRef: "T-001#B-001" }, 1, noTmux);
+    const blockRun = await startAutoRun(
+      root,
+      null,
+      { kind: "block", blockRef: "T-001#B-001" },
+      1,
+      noTmux
+    );
     startedRunIds.add(blockRun.runId);
     const blockState = await waitForRun(blockRun.runId, (state) => state.phase !== "running");
     expect(blockState).toMatchObject({
@@ -693,7 +786,12 @@ describe("desktop auto run API", () => {
 
     const run = await startAutoRun(root, null, { kind: "project" }, 5, noTmux);
     startedRunIds.add(run.runId);
-    const state = await waitForLatestRunSummary(root, null, run.runId, (nextState) => nextState.phase !== "running");
+    const state = await waitForLatestRunSummary(
+      root,
+      null,
+      run.runId,
+      (nextState) => nextState.phase !== "running"
+    );
 
     expect(state).toMatchObject({
       phase: "blocked",
@@ -702,7 +800,10 @@ describe("desktop auto run API", () => {
 
     const retried = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
     startedRunIds.add(retried.runId);
-    const retryState = await waitForRun(retried.runId, (nextState) => nextState.phase !== "running");
+    const retryState = await waitForRun(
+      retried.runId,
+      (nextState) => nextState.phase !== "running"
+    );
 
     expect(retryState).toMatchObject({
       phase: "paused",
@@ -711,7 +812,9 @@ describe("desktop auto run API", () => {
       stepCount: 1,
       error: "Step limit reached."
     });
-    await expect(readFile(retryState.eventLogPath, "utf8")).resolves.toContain('"resetMaxCycleReviewRefs":["T-001#R-001"]');
+    await expect(readFile(retryState.eventLogPath, "utf8")).resolves.toContain(
+      '"resetMaxCycleReviewRefs":["T-001#R-001"]'
+    );
   });
 
   it("starts a fresh feedback cycle when retrying a max-cycle review", async () => {
@@ -741,7 +844,12 @@ describe("desktop auto run API", () => {
 
     const firstRun = await startAutoRun(root, null, { kind: "project" }, 10, noTmux);
     startedRunIds.add(firstRun.runId);
-    const firstState = await waitForLatestRunSummary(root, null, firstRun.runId, (nextState) => nextState.phase !== "running");
+    const firstState = await waitForLatestRunSummary(
+      root,
+      null,
+      firstRun.runId,
+      (nextState) => nextState.phase !== "running"
+    );
 
     expect(firstState).toMatchObject({
       phase: "blocked",
@@ -758,7 +866,10 @@ describe("desktop auto run API", () => {
 
     const retryRun = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
     startedRunIds.add(retryRun.runId);
-    const retryState = await waitForRun(retryRun.runId, (nextState) => nextState.phase !== "running");
+    const retryState = await waitForRun(
+      retryRun.runId,
+      (nextState) => nextState.phase !== "running"
+    );
 
     expect(retryState).toMatchObject({
       phase: "paused",
@@ -767,7 +878,9 @@ describe("desktop auto run API", () => {
       stepCount: 1,
       error: "Step limit reached."
     });
-    await expect(readFile(retryState.eventLogPath, "utf8")).resolves.toContain('"resetMaxCycleReviewRefs":["T-001#R-001"]');
+    await expect(readFile(retryState.eventLogPath, "utf8")).resolves.toContain(
+      '"resetMaxCycleReviewRefs":["T-001#R-001"]'
+    );
     await expect(readState(init.workspace.stateFile)).resolves.toMatchObject({
       feedback: {
         "FE-003": {

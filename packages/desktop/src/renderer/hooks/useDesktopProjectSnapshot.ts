@@ -148,18 +148,24 @@ export function useDesktopProjectSnapshot({
     [setRuntimeDiagnostics, setRuntimeRefreshSnapshot]
   );
 
-  const refreshDesktopGraphDiagnostics = useCallback(async (canvasRef: { projectRoot: string; canvasId?: string | null }) => {
-    if (!bridge) {
-      return false;
-    }
-    const diagnostics = await bridge.getDesktopGraphDiagnostics(canvasRef);
-    const currentCanvas = currentCanvasRef.current;
-    if (currentCanvas.projectRoot !== canvasRef.projectRoot || currentCanvas.canvasId !== canvasRef.canvasId) {
-      return false;
-    }
-    setGraphDiagnostics(diagnostics.diagnostics);
-    return true;
-  }, [setGraphDiagnostics]);
+  const refreshDesktopGraphDiagnostics = useCallback(
+    async (canvasRef: { projectRoot: string; canvasId?: string | null }) => {
+      if (!bridge) {
+        return false;
+      }
+      const diagnostics = await bridge.getDesktopGraphDiagnostics(canvasRef);
+      const currentCanvas = currentCanvasRef.current;
+      if (
+        currentCanvas.projectRoot !== canvasRef.projectRoot ||
+        currentCanvas.canvasId !== canvasRef.canvasId
+      ) {
+        return false;
+      }
+      setGraphDiagnostics(diagnostics.diagnostics);
+      return true;
+    },
+    [setGraphDiagnostics]
+  );
 
   return {
     applyDesktopProjectSnapshot,

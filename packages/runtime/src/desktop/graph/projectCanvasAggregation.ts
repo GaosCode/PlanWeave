@@ -21,7 +21,10 @@ export type ProjectTaskCanvasContext = {
 
 export type ProjectCanvasAggregationCanvas = ProjectTaskCanvasContext & ProjectCanvasRuntimeContext;
 
-export type ProjectCanvasAggregationContext = Omit<ProjectCanvasRuntimeAggregationContext, "canvases" | "canvasesById"> & {
+export type ProjectCanvasAggregationContext = Omit<
+  ProjectCanvasRuntimeAggregationContext,
+  "canvases" | "canvasesById"
+> & {
   canvases: ProjectCanvasAggregationCanvas[];
   canvasesById: Map<string, ProjectCanvasAggregationCanvas>;
 };
@@ -30,10 +33,16 @@ export type { ProjectCanvasRuntimeSnapshot };
 export { projectBlockersForTask, runtimeSnapshotFromGraphState };
 
 type ProjectCanvasAggregationOptions = {
-  loadRuntimeSnapshot?: (workspace: ProjectWorkspace, canvasId: string) => Promise<ProjectCanvasRuntimeSnapshot>;
+  loadRuntimeSnapshot?: (
+    workspace: ProjectWorkspace,
+    canvasId: string
+  ) => Promise<ProjectCanvasRuntimeSnapshot>;
 };
 
-async function canvasSummary(workspace: ProjectWorkspace, canvas: ProjectCanvasNode): Promise<DesktopTaskCanvasSummary> {
+async function canvasSummary(
+  workspace: ProjectWorkspace,
+  canvas: ProjectCanvasNode
+): Promise<DesktopTaskCanvasSummary> {
   return summarizeTaskCanvasFromPackage({
     canvasId: canvas.id,
     name: canvas.title,
@@ -69,7 +78,10 @@ export async function loadProjectCanvasAggregation(
 }
 
 function hasPackageDiagnostics(canvas: DesktopTaskCanvasSummary): boolean {
-  return canvas.diagnostics.some((diagnostic) => diagnostic.code === "manifest_schema" || diagnostic.code === "manifest_read_failed");
+  return canvas.diagnostics.some(
+    (diagnostic) =>
+      diagnostic.code === "manifest_schema" || diagnostic.code === "manifest_read_failed"
+  );
 }
 
 export async function mapProjectTaskCanvases<T>(

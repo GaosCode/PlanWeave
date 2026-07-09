@@ -11,7 +11,8 @@ export type OAuthRequestContext = {
 export function requestContext(req: IncomingMessage): OAuthRequestContext {
   const encrypted = "encrypted" in req.socket && req.socket.encrypted === true;
   const proto = firstHeader(req.headers["x-forwarded-proto"]) ?? (encrypted ? "https" : "http");
-  const host = firstHeader(req.headers["x-forwarded-host"]) ?? firstHeader(req.headers.host) ?? "127.0.0.1";
+  const host =
+    firstHeader(req.headers["x-forwarded-host"]) ?? firstHeader(req.headers.host) ?? "127.0.0.1";
   const authorizationServer = `${proto}://${host}`;
   return {
     authorizationServer,
@@ -27,7 +28,9 @@ export function requestUrl(req: IncomingMessage): URL {
 export async function readJsonBody(
   req: IncomingMessage,
   maxBytes: number
-): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; statusCode: number; error: string }> {
+): Promise<
+  { ok: true; value: Record<string, unknown> } | { ok: false; statusCode: number; error: string }
+> {
   if (!contentType(req).startsWith(jsonContentType)) {
     return { ok: false, statusCode: 415, error: "unsupported_media_type" };
   }
@@ -66,7 +69,10 @@ export function writeHtml(res: ServerResponse, statusCode: number, body: string)
   res.end(body);
 }
 
-async function readBody(req: IncomingMessage, maxBytes: number): Promise<{ ok: true; value: string } | { ok: false; statusCode: number; error: string }> {
+async function readBody(
+  req: IncomingMessage,
+  maxBytes: number
+): Promise<{ ok: true; value: string } | { ok: false; statusCode: number; error: string }> {
   const chunks: Buffer[] = [];
   let totalBytes = 0;
   for await (const chunk of req) {

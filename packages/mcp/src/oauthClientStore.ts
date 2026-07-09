@@ -63,7 +63,9 @@ export function createFileOAuthClientStore(path: string): OAuthClientStore {
   async function persist(): Promise<void> {
     const file: StoredClientFile = {
       version: 1,
-      clients: [...clients.values()].sort((left, right) => left.clientId.localeCompare(right.clientId))
+      clients: [...clients.values()].sort((left, right) =>
+        left.clientId.localeCompare(right.clientId)
+      )
     };
     await writePrivateJsonFile(path, file);
   }
@@ -101,7 +103,11 @@ function parseRegisteredClient(value: unknown): RegisteredClient {
     throw new Error("OAuth client store contains an invalid client.");
   }
   const record = value as Record<string, unknown>;
-  if (typeof record.clientId !== "string" || typeof record.clientIdIssuedAt !== "number" || !Array.isArray(record.redirectUris)) {
+  if (
+    typeof record.clientId !== "string" ||
+    typeof record.clientIdIssuedAt !== "number" ||
+    !Array.isArray(record.redirectUris)
+  ) {
     throw new Error("OAuth client store contains an invalid client.");
   }
   const redirectUris = record.redirectUris.filter((uri): uri is string => typeof uri === "string");

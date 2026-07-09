@@ -1,5 +1,9 @@
 import { isAbsolute, relative } from "node:path";
-import type { CompiledExecutionGraph, ExecutionGraphSession, PackageFileChange } from "../../types.js";
+import type {
+  CompiledExecutionGraph,
+  ExecutionGraphSession,
+  PackageFileChange
+} from "../../types.js";
 
 export function promptPathToRefs(graph: CompiledExecutionGraph, path: string): string[] {
   const refs: string[] = [];

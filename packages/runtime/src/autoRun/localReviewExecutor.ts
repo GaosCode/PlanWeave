@@ -3,7 +3,11 @@ import { join } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
-import type { ExecutorAdapterResult, LocalReviewExecutorProfile, PackageWorkspaceRef } from "../types.js";
+import type {
+  ExecutorAdapterResult,
+  LocalReviewExecutorProfile,
+  PackageWorkspaceRef
+} from "../types.js";
 import {
   execWithStreaming,
   executorLimitFailureMessage,
@@ -20,13 +24,21 @@ import {
 } from "./executorShared.js";
 import { createTmuxSessionInfo, tmuxMetadataPatch } from "./tmuxExecutor.js";
 
-function executorFailureMessage(input: { executorName: string; result: StreamingCommandResult; limits: ExecutorRuntimeLimits }): string {
+function executorFailureMessage(input: {
+  executorName: string;
+  result: StreamingCommandResult;
+  limits: ExecutorRuntimeLimits;
+}): string {
   if (input.result.limitExceeded) {
-    return executorLimitFailureMessage({ executorName: input.executorName, limitExceeded: input.result.limitExceeded });
+    return executorLimitFailureMessage({
+      executorName: input.executorName,
+      limitExceeded: input.result.limitExceeded
+    });
   }
   return input.result.timedOut
     ? `Executor '${input.executorName}' timed out after ${input.limits.timeoutMs}ms.`
-    : input.result.stderr.trim() || `Executor '${input.executorName}' exited with code ${input.result.exitCode}.`;
+    : input.result.stderr.trim() ||
+        `Executor '${input.executorName}' exited with code ${input.result.exitCode}.`;
 }
 
 export async function runLocalReviewBlock(options: {
@@ -39,7 +51,9 @@ export async function runLocalReviewBlock(options: {
   tmuxOwnerRunId?: string;
 }): Promise<ExecutorAdapterResult> {
   if (options.claim.blockType !== "review") {
-    throw new Error(`Executor '${options.executorName}' uses local-review and can only run review blocks.`);
+    throw new Error(
+      `Executor '${options.executorName}' uses local-review and can only run review blocks.`
+    );
   }
   const run = await prepareBlockRun({
     projectRoot: options.projectRoot,
@@ -97,11 +111,22 @@ export async function runLocalReviewBlock(options: {
     resumed: false
   });
   if (streamed.exitCode !== 0) {
-    throw new Error(executorFailureMessage({ executorName: options.executorName, result: streamed, limits }));
+    throw new Error(
+      executorFailureMessage({ executorName: options.executorName, result: streamed, limits })
+    );
   }
   const resultPath = join(run.runDir, "review-result.json");
   await writeJsonFile(resultPath, JSON.parse(streamed.stdout.trim()));
-  return { kind: "review", resultPath, runId: run.runId, executor: options.executorName, adapter: "local-review", agentSessionId: null, codexSessionId: null, ...streamed };
+  return {
+    kind: "review",
+    resultPath,
+    runId: run.runId,
+    executor: options.executorName,
+    adapter: "local-review",
+    agentSessionId: null,
+    codexSessionId: null,
+    ...streamed
+  };
 }
 
 export async function runLocalReviewFeedback(options: {
@@ -124,7 +149,13 @@ export async function runLocalReviewFeedback(options: {
   const limits = executorRuntimeLimits(options.profile);
   const startedAt = new Date().toISOString();
   await writeFile(join(runDir, "prompt.md"), options.claim.content, "utf8");
-  const tmux = await createTmuxSessionInfo({ runDir, runId, tmuxOwnerRunId: options.tmuxOwnerRunId, kind: "feedback", enabled: options.tmuxEnabled });
+  const tmux = await createTmuxSessionInfo({
+    runDir,
+    runId,
+    tmuxOwnerRunId: options.tmuxOwnerRunId,
+    kind: "feedback",
+    enabled: options.tmuxEnabled
+  });
   await writeJsonFile(metadataPath, {
     runId,
     feedbackId: options.claim.feedbackId,
@@ -173,9 +204,20 @@ export async function runLocalReviewFeedback(options: {
     codexSessionId: null
   });
   if (streamed.exitCode !== 0) {
-    throw new Error(executorFailureMessage({ executorName: options.executorName, result: streamed, limits }));
+    throw new Error(
+      executorFailureMessage({ executorName: options.executorName, result: streamed, limits })
+    );
   }
   const reportPath = join(runDir, "report.md");
   await writeFile(reportPath, streamed.stdout, "utf8");
-  return { kind: "feedback", reportPath, runId, executor: options.executorName, adapter: "local-review", agentSessionId: null, codexSessionId: null, ...streamed };
+  return {
+    kind: "feedback",
+    reportPath,
+    runId,
+    executor: options.executorName,
+    adapter: "local-review",
+    agentSessionId: null,
+    codexSessionId: null,
+    ...streamed
+  };
 }

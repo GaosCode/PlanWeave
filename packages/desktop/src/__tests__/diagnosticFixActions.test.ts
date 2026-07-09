@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { diagnosticFixActionFor, type DiagnosticFixContext } from "../renderer/diagnosticFixActions";
+import {
+  diagnosticFixActionFor,
+  type DiagnosticFixContext
+} from "../renderer/diagnosticFixActions";
 import type { DesktopDiagnostic } from "../renderer/diagnostics";
 
 function context(patch: Partial<DiagnosticFixContext> = {}): DiagnosticFixContext {
@@ -21,7 +24,8 @@ describe("diagnosticFixActionFor", () => {
     const action = diagnosticFixActionFor(
       {
         code: "layout_single_column_risk",
-        message: "Large canvases with very few task dependencies are likely to render as a hard-to-scan flat layout.",
+        message:
+          "Large canvases with very few task dependencies are likely to render as a hard-to-scan flat layout.",
         fixId: "apply_canvas_lane_layout"
       },
       actionContext
@@ -31,7 +35,10 @@ describe("diagnosticFixActionFor", () => {
     await action?.run();
 
     expect(actionContext.setError).toHaveBeenCalledWith(null);
-    expect(actionContext.applyCanvasLaneLayout).toHaveBeenCalledWith({ projectRoot: "/tmp/project", canvasId: "default" });
+    expect(actionContext.applyCanvasLaneLayout).toHaveBeenCalledWith({
+      projectRoot: "/tmp/project",
+      canvasId: "default"
+    });
     expect(actionContext.refreshProjectDerivedState).toHaveBeenCalledTimes(1);
   });
 
@@ -39,7 +46,8 @@ describe("diagnosticFixActionFor", () => {
     const action = diagnosticFixActionFor(
       {
         code: "layout_single_column_risk",
-        message: "Large canvases with very few task dependencies are likely to render as a hard-to-scan flat layout.",
+        message:
+          "Large canvases with very few task dependencies are likely to render as a hard-to-scan flat layout.",
         fixId: "apply_canvas_lane_layout"
       },
       context({ canvasId: null })
@@ -103,10 +111,19 @@ describe("diagnosticFixActionFor", () => {
   it("does not return actions for judgment-heavy or unknown fixes", () => {
     expect(
       diagnosticFixActionFor(
-        { code: "acceptance_too_weak", message: "Acceptance is too weak.", fixId: "strengthen_acceptance_criteria" },
+        {
+          code: "acceptance_too_weak",
+          message: "Acceptance is too weak.",
+          fixId: "strengthen_acceptance_criteria"
+        },
         context()
       )
     ).toBeNull();
-    expect(diagnosticFixActionFor({ code: "unknown", message: "Unknown.", fixId: "unknown_fix" }, context())).toBeNull();
+    expect(
+      diagnosticFixActionFor(
+        { code: "unknown", message: "Unknown.", fixId: "unknown_fix" },
+        context()
+      )
+    ).toBeNull();
   });
 });

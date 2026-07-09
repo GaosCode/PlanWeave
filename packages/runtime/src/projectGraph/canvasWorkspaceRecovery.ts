@@ -59,11 +59,16 @@ function assertWorkspaceDescendant(projectWorkspace: ProjectWorkspace, path: str
   const target = resolve(path);
   const relativeTarget = relative(workspaceRoot, target);
   if (!relativeTarget || relativeTarget.startsWith("..") || isAbsolute(relativeTarget)) {
-    throw new Error(`Task canvas recovery path '${path}' is outside the PlanWeave workspace or points at the workspace root.`);
+    throw new Error(
+      `Task canvas recovery path '${path}' is outside the PlanWeave workspace or points at the workspace root.`
+    );
   }
 }
 
-function canvasRootWorkspace(projectWorkspace: ProjectWorkspace, workspaceRoot: string): ProjectWorkspace {
+function canvasRootWorkspace(
+  projectWorkspace: ProjectWorkspace,
+  workspaceRoot: string
+): ProjectWorkspace {
   return {
     ...projectWorkspace,
     workspaceRoot,
@@ -99,7 +104,9 @@ export async function stageCanvasWorkspaceWrite(
 ): Promise<StagedCanvasWorkspaceWrite> {
   assertWorkspaceDescendant(projectWorkspace, options.finalRoot);
   if (await canvasRecoveryPathExists(options.finalRoot)) {
-    throw new Error(`Task canvas workspace '${toPosixPath(relative(projectWorkspace.workspaceRoot, options.finalRoot))}' already exists.`);
+    throw new Error(
+      `Task canvas workspace '${toPosixPath(relative(projectWorkspace.workspaceRoot, options.finalRoot))}' already exists.`
+    );
   }
   const parent = canvasStagingRoot(projectWorkspace);
   await mkdir(parent, { recursive: true });
@@ -113,11 +120,16 @@ export async function stageCanvasWorkspaceWrite(
   };
 }
 
-export async function commitCanvasWorkspaceWrite(projectWorkspace: ProjectWorkspace, staged: StagedCanvasWorkspaceWrite): Promise<void> {
+export async function commitCanvasWorkspaceWrite(
+  projectWorkspace: ProjectWorkspace,
+  staged: StagedCanvasWorkspaceWrite
+): Promise<void> {
   assertWorkspaceDescendant(projectWorkspace, staged.stagingRoot);
   assertWorkspaceDescendant(projectWorkspace, staged.finalRoot);
   if (await canvasRecoveryPathExists(staged.finalRoot)) {
-    throw new Error(`Task canvas workspace '${toPosixPath(relative(projectWorkspace.workspaceRoot, staged.finalRoot))}' already exists.`);
+    throw new Error(
+      `Task canvas workspace '${toPosixPath(relative(projectWorkspace.workspaceRoot, staged.finalRoot))}' already exists.`
+    );
   }
   await mkdir(dirname(staged.finalRoot), { recursive: true });
   await rename(staged.stagingRoot, staged.finalRoot);
@@ -148,13 +160,18 @@ export async function restoreQuarantinedCanvasWorkspace(
     return;
   }
   if (await canvasRecoveryPathExists(options.workspaceRoot)) {
-    throw new Error(`Task canvas workspace '${toPosixPath(relative(projectWorkspace.workspaceRoot, options.workspaceRoot))}' already exists.`);
+    throw new Error(
+      `Task canvas workspace '${toPosixPath(relative(projectWorkspace.workspaceRoot, options.workspaceRoot))}' already exists.`
+    );
   }
   await mkdir(dirname(options.workspaceRoot), { recursive: true });
   await rename(options.quarantineRoot, options.workspaceRoot);
 }
 
-export async function removeCanvasStagingWorkspace(projectWorkspace: ProjectWorkspace, path: string): Promise<void> {
+export async function removeCanvasStagingWorkspace(
+  projectWorkspace: ProjectWorkspace,
+  path: string
+): Promise<void> {
   assertWorkspaceDescendant(projectWorkspace, path);
   const stagingRoot = resolve(canvasStagingRoot(projectWorkspace));
   const target = resolve(path);
@@ -216,7 +233,9 @@ async function isDirectory(path: string): Promise<boolean> {
 
 async function isRecognizedCanvasWorkspaceRoot(path: string): Promise<boolean> {
   try {
-    const parsed = manifestSchema.safeParse(await readJsonFile<unknown>(join(path, "package", "manifest.json")));
+    const parsed = manifestSchema.safeParse(
+      await readJsonFile<unknown>(join(path, "package", "manifest.json"))
+    );
     if (!parsed.success) {
       return false;
     }
@@ -226,7 +245,9 @@ async function isRecognizedCanvasWorkspaceRoot(path: string): Promise<boolean> {
     }
     throw error;
   }
-  return (await isRegularFile(join(path, "state.json"))) || (await isDirectory(join(path, "results")));
+  return (
+    (await isRegularFile(join(path, "state.json"))) || (await isDirectory(join(path, "results")))
+  );
 }
 
 export async function listCanvasWorkspaceAnomalies(
@@ -234,8 +255,12 @@ export async function listCanvasWorkspaceAnomalies(
   registeredCanvasWorkspaces: ProjectWorkspace[],
   options: CanvasWorkspaceAnomalyOptions = {}
 ): Promise<CanvasWorkspaceAnomalies> {
-  const registeredRoots = new Set(registeredCanvasWorkspaces.map((workspace) => resolve(workspace.workspaceRoot)));
-  const canvasDirectories = await listChildDirectories(join(projectWorkspace.workspaceRoot, "canvases"));
+  const registeredRoots = new Set(
+    registeredCanvasWorkspaces.map((workspace) => resolve(workspace.workspaceRoot))
+  );
+  const canvasDirectories = await listChildDirectories(
+    join(projectWorkspace.workspaceRoot, "canvases")
+  );
   const orphanDirectories: CanvasWorkspaceDirectory[] = [];
   const unrecognizedOrphanDirectories: CanvasWorkspaceDirectory[] = [];
   for (const directory of canvasDirectories) {
@@ -250,11 +275,16 @@ export async function listCanvasWorkspaceAnomalies(
   }
   const staleThresholdMs = options.staleThresholdMs ?? DEFAULT_CANVAS_WORKSPACE_STALE_THRESHOLD_MS;
   const nowMs = options.nowMs ?? Date.now();
-  const isStaleDirectory = (directory: CanvasWorkspaceDirectory) => nowMs - directory.mtimeMs >= staleThresholdMs;
+  const isStaleDirectory = (directory: CanvasWorkspaceDirectory) =>
+    nowMs - directory.mtimeMs >= staleThresholdMs;
   return {
     orphanDirectories,
     unrecognizedOrphanDirectories,
-    stagingDirectories: (await listChildDirectories(canvasStagingRoot(projectWorkspace))).filter(isStaleDirectory),
-    quarantineDirectories: (await listChildDirectories(canvasQuarantineRoot(projectWorkspace))).filter(isStaleDirectory)
+    stagingDirectories: (await listChildDirectories(canvasStagingRoot(projectWorkspace))).filter(
+      isStaleDirectory
+    ),
+    quarantineDirectories: (
+      await listChildDirectories(canvasQuarantineRoot(projectWorkspace))
+    ).filter(isStaleDirectory)
   };
 }

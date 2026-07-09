@@ -29,17 +29,18 @@ function groupKeyForIssue(issue: ValidationIssue): string {
   return [issue.code, issue.message, normalizePathPattern(issue.path)].join("\u0000");
 }
 
-function appendIssue(groupsByKey: Map<string, MutableValidationSummaryGroup>, issue: ValidationIssue): void {
+function appendIssue(
+  groupsByKey: Map<string, MutableValidationSummaryGroup>,
+  issue: ValidationIssue
+): void {
   const groupKey = groupKeyForIssue(issue);
   const existingGroup = groupsByKey.get(groupKey);
-  const group =
-    existingGroup ??
-    {
-      code: issue.code,
-      message: issue.message,
-      count: 0,
-      examples: []
-    };
+  const group = existingGroup ?? {
+    code: issue.code,
+    message: issue.message,
+    count: 0,
+    examples: []
+  };
 
   group.count += 1;
   const example = issue.path ?? issue.message;
@@ -49,11 +50,16 @@ function appendIssue(groupsByKey: Map<string, MutableValidationSummaryGroup>, is
   groupsByKey.set(groupKey, group);
 }
 
-function isValidationIssueArray(input: readonly ValidationIssue[] | ValidationIssueCollections): input is readonly ValidationIssue[] {
+function isValidationIssueArray(
+  input: readonly ValidationIssue[] | ValidationIssueCollections
+): input is readonly ValidationIssue[] {
   return Array.isArray(input);
 }
 
-function issueCollectionsFromInput(errorsOrReport: readonly ValidationIssue[] | ValidationIssueCollections, warnings?: readonly ValidationIssue[]): ValidationIssueCollections {
+function issueCollectionsFromInput(
+  errorsOrReport: readonly ValidationIssue[] | ValidationIssueCollections,
+  warnings?: readonly ValidationIssue[]
+): ValidationIssueCollections {
   if (isValidationIssueArray(errorsOrReport)) {
     return {
       errors: errorsOrReport,
@@ -64,8 +70,14 @@ function issueCollectionsFromInput(errorsOrReport: readonly ValidationIssue[] | 
 }
 
 export function summarizeValidationReport(report: ValidationIssueCollections): ValidationSummary;
-export function summarizeValidationReport(errors: readonly ValidationIssue[], warnings?: readonly ValidationIssue[]): ValidationSummary;
-export function summarizeValidationReport(errorsOrReport: readonly ValidationIssue[] | ValidationIssueCollections, warnings?: readonly ValidationIssue[]): ValidationSummary {
+export function summarizeValidationReport(
+  errors: readonly ValidationIssue[],
+  warnings?: readonly ValidationIssue[]
+): ValidationSummary;
+export function summarizeValidationReport(
+  errorsOrReport: readonly ValidationIssue[] | ValidationIssueCollections,
+  warnings?: readonly ValidationIssue[]
+): ValidationSummary {
   const issueCollections = issueCollectionsFromInput(errorsOrReport, warnings);
   const groupsByKey = new Map<string, MutableValidationSummaryGroup>();
 

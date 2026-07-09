@@ -42,7 +42,9 @@ const terminalApps: TerminalApp[] = [
   }
 ];
 
-const terminalAppIds = new Set<DesktopTerminalAppId>(terminalApps.map((terminalApp) => terminalApp.appId));
+const terminalAppIds = new Set<DesktopTerminalAppId>(
+  terminalApps.map((terminalApp) => terminalApp.appId)
+);
 
 function execFileVoid(command: string, args: string[], timeout = 2_000): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -106,7 +108,11 @@ async function appBundleIconDataUrl(terminalApp: TerminalApp): Promise<string | 
     tempDir = await mkdtemp(join(tmpdir(), "planweave-terminal-icon-"));
     const outputPath = join(tempDir, `${terminalApp.appId}.png`);
     const iconPath = join(terminalApp.defaultPath, "Contents", "Resources", terminalApp.iconFile);
-    await execFileVoid("/usr/bin/sips", ["-z", "64", "64", "-s", "format", "png", iconPath, "--out", outputPath], 5_000);
+    await execFileVoid(
+      "/usr/bin/sips",
+      ["-z", "64", "64", "-s", "format", "png", iconPath, "--out", outputPath],
+      5_000
+    );
     const png = await readFile(outputPath);
     return png.length > 0 ? `data:image/png;base64,${png.toString("base64")}` : null;
   } catch {
@@ -143,7 +149,9 @@ export async function detectTerminalApps(): Promise<DesktopTerminalAppDetection[
   return Promise.all(terminalApps.map(detectTerminalApp));
 }
 
-export async function assertTerminalAppAvailable(appId: DesktopTerminalAppId): Promise<TerminalApp> {
+export async function assertTerminalAppAvailable(
+  appId: DesktopTerminalAppId
+): Promise<TerminalApp> {
   const terminalApp = terminalAppById(appId);
   try {
     await execFileVoid("/usr/bin/open", ["-Ra", terminalApp.macOpenName]);
@@ -171,7 +179,8 @@ function parseTerminalPreferences(raw: unknown): DesktopTerminalPreferences {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error("Terminal preferences must be a JSON object.");
   }
-  const defaultTerminalAppId = (raw as Record<"defaultTerminalAppId", unknown>).defaultTerminalAppId;
+  const defaultTerminalAppId = (raw as Record<"defaultTerminalAppId", unknown>)
+    .defaultTerminalAppId;
   if (defaultTerminalAppId !== null && !isDesktopTerminalAppId(defaultTerminalAppId)) {
     throw new Error("Terminal preferences defaultTerminalAppId is invalid.");
   }
@@ -191,7 +200,9 @@ export async function getTerminalPreferences(): Promise<DesktopTerminalPreferenc
   }
 
   try {
-    const legacyPreferences = parseTerminalPreferences(JSON.parse(await readFile(legacyPreferencesPath(), "utf8")) as unknown);
+    const legacyPreferences = parseTerminalPreferences(
+      JSON.parse(await readFile(legacyPreferencesPath(), "utf8")) as unknown
+    );
     await writeTerminalPreferences(legacyPreferences);
     return legacyPreferences;
   } catch (caught) {
@@ -202,7 +213,9 @@ export async function getTerminalPreferences(): Promise<DesktopTerminalPreferenc
   }
 }
 
-function validateTerminalPreferencesPatch(patch: Partial<DesktopTerminalPreferences>): Partial<DesktopTerminalPreferences> {
+function validateTerminalPreferencesPatch(
+  patch: Partial<DesktopTerminalPreferences>
+): Partial<DesktopTerminalPreferences> {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
     throw new Error("Terminal preferences patch must be a JSON object.");
   }
@@ -229,7 +242,9 @@ async function writeTerminalPreferences(preferences: DesktopTerminalPreferences)
   await rename(tempPath, path);
 }
 
-export async function updateTerminalPreferences(patch: Partial<DesktopTerminalPreferences>): Promise<DesktopTerminalPreferences> {
+export async function updateTerminalPreferences(
+  patch: Partial<DesktopTerminalPreferences>
+): Promise<DesktopTerminalPreferences> {
   const current = await getTerminalPreferences();
   const validPatch = validateTerminalPreferencesPatch(patch);
   const next = {

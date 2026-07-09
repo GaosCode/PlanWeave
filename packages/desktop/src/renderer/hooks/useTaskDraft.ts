@@ -1,5 +1,9 @@
 import { useCallback, useState } from "react";
-import type { DesktopProjectSummary, DesktopTaskDraft, DesktopTaskDraftMode } from "@planweave-ai/runtime";
+import type {
+  DesktopProjectSummary,
+  DesktopTaskDraft,
+  DesktopTaskDraftMode
+} from "@planweave-ai/runtime";
 import { bridge, desktopCanvasReference } from "../bridge";
 import type { AppView } from "../types";
 
@@ -11,7 +15,13 @@ type UseTaskDraftArgs = {
   setError: (message: string | null) => void;
 };
 
-export function useTaskDraft({ loadProject, selectedCanvasId, selectedProject, setActiveView, setError }: UseTaskDraftArgs) {
+export function useTaskDraft({
+  loadProject,
+  selectedCanvasId,
+  selectedProject,
+  setActiveView,
+  setError
+}: UseTaskDraftArgs) {
   const [newTaskText, setNewTaskText] = useState("");
   const [newTaskMode, setNewTaskMode] = useState<DesktopTaskDraftMode>("task");
   const [newTaskTargetId, setNewTaskTargetId] = useState<string | null>(null);
@@ -98,7 +108,15 @@ export function useTaskDraft({ loadProject, selectedCanvasId, selectedProject, s
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [loadProject, selectedCanvasId, selectedProject, setActiveView, setError, taskDraft, validateTaskDraft]);
+  }, [
+    loadProject,
+    selectedCanvasId,
+    selectedProject,
+    setActiveView,
+    setError,
+    taskDraft,
+    validateTaskDraft
+  ]);
 
   return {
     confirmTaskDraft,

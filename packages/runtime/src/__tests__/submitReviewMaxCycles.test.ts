@@ -12,11 +12,20 @@ import {
 import { loadPackage } from "../package/loadPackage.js";
 import { readJsonFile } from "../json.js";
 import type { TaskResultIndex } from "../types.js";
-import { basicManifest, createTestWorkspace, writeReport, writeReviewResult } from "./promptTestHelpers.js";
+import {
+  basicManifest,
+  createTestWorkspace,
+  writeReport,
+  writeReviewResult
+} from "./promptTestHelpers.js";
 
 async function completeImplementation(root: string): Promise<void> {
   await claimNext({ projectRoot: root });
-  await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+  await submitBlockResult({
+    projectRoot: root,
+    ref: "T-001#B-001",
+    reportPath: await writeReport(root, "b.md")
+  });
   await claimNext({ projectRoot: root });
 }
 
@@ -44,7 +53,9 @@ describe("submitReviewResult max feedback cycles", () => {
 
     const retry = await submitReviewResult({ projectRoot: root, ref: "T-001#R-001", resultPath });
     const status = await getExecutionStatus({ projectRoot: root });
-    const taskIndex = await readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"));
+    const taskIndex = await readJsonFile<TaskResultIndex>(
+      join(init.workspace.resultsDir, "T-001", "index.json")
+    );
 
     expect(retry).toEqual(first);
     expect(status.currentRefs).toEqual([]);
@@ -55,10 +66,16 @@ describe("submitReviewResult max feedback cycles", () => {
       activeFeedbackId: null,
       completionReason: "max_cycles_reached"
     });
-    await expect(access(join(init.workspace.resultsDir, "T-001", "reviews", "R-001", "attempts", "REV-002"))).rejects.toThrow();
-    await expect(access(join(init.workspace.resultsDir, "T-001", "feedback", "FE-001"))).rejects.toThrow();
+    await expect(
+      access(join(init.workspace.resultsDir, "T-001", "reviews", "R-001", "attempts", "REV-002"))
+    ).rejects.toThrow();
+    await expect(
+      access(join(init.workspace.resultsDir, "T-001", "feedback", "FE-001"))
+    ).rejects.toThrow();
     expect(taskIndex.latestReviewAttemptByBlock).toMatchObject({ "T-001#R-001": "REV-001" });
-    expect(taskIndex.reviewCompletionReasonByBlock).toMatchObject({ "T-001#R-001": "max_cycles_reached" });
+    expect(taskIndex.reviewCompletionReasonByBlock).toMatchObject({
+      "T-001#R-001": "max_cycles_reached"
+    });
     expect(taskIndex.counts).toMatchObject({ runs: 1, reviewAttempts: 1 });
     expect(taskIndex.counts?.feedbackEnvelopes).toBeUndefined();
   });
@@ -73,7 +90,9 @@ describe("submitReviewResult max feedback cycles", () => {
       resultPath: await writeReviewResult(root, "needs_changes", "No cycles allowed.")
     });
     const status = await getExecutionStatus({ projectRoot: root });
-    const taskIndex = await readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"));
+    const taskIndex = await readJsonFile<TaskResultIndex>(
+      join(init.workspace.resultsDir, "T-001", "index.json")
+    );
 
     expect(result).toMatchObject({ verdict: "needs_changes", status: "completed" });
     expect(status.tasks[0].status).toBe("in_progress");
@@ -82,8 +101,12 @@ describe("submitReviewResult max feedback cycles", () => {
       completionReason: "max_cycles_reached"
     });
     expect(status.warnings.map((warning) => warning.code)).toContain("review_max_cycles_reached");
-    expect(taskIndex.reviewCompletionReasonByBlock).toMatchObject({ "T-001#R-001": "max_cycles_reached" });
-    expect(taskIndex.warnings?.map((warning) => warning.code)).toContain("review_max_cycles_reached");
+    expect(taskIndex.reviewCompletionReasonByBlock).toMatchObject({
+      "T-001#R-001": "max_cycles_reached"
+    });
+    expect(taskIndex.warnings?.map((warning) => warning.code)).toContain(
+      "review_max_cycles_reached"
+    );
     expect(result).toMatchObject({
       completionReason: "max_cycles_reached",
       feedbackCreated: false,
@@ -100,11 +123,16 @@ describe("submitReviewResult max feedback cycles", () => {
       resultPath: await writeReviewResult(root, "needs_changes", "No cycles allowed.")
     });
 
-    const retry = await retryReview({ projectRoot: root, ref: "T-001#R-001", maxFeedbackCycles: 3 });
+    const retry = await retryReview({
+      projectRoot: root,
+      ref: "T-001#R-001",
+      maxFeedbackCycles: 3
+    });
     const status = await getExecutionStatus({ projectRoot: root });
     const { manifest } = await loadPackage(root);
     const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
-    const reviewBlock = task?.type === "task" ? task.blocks.find((block) => block.id === "R-001") : null;
+    const reviewBlock =
+      task?.type === "task" ? task.blocks.find((block) => block.id === "R-001") : null;
 
     expect(retry).toMatchObject({
       ref: "T-001#R-001",
@@ -118,7 +146,9 @@ describe("submitReviewResult max feedback cycles", () => {
       status: "ready",
       completionReason: null
     });
-    expect(status.warnings.map((warning) => warning.code)).not.toContain("review_max_cycles_reached");
+    expect(status.warnings.map((warning) => warning.code)).not.toContain(
+      "review_max_cycles_reached"
+    );
     await expect(claimNext({ projectRoot: root })).resolves.toMatchObject({
       kind: "block",
       ref: "T-001#R-001"

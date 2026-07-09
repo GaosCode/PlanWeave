@@ -16,7 +16,9 @@ describe("project id", () => {
   });
 
   it("normalizes managed project names without edge separators", () => {
-    expect(createManagedProjectId(" --Plan Weave Test-- ")).toMatch(/^plan-weave-test-[a-f0-9]{8}$/);
+    expect(createManagedProjectId(" --Plan Weave Test-- ")).toMatch(
+      /^plan-weave-test-[a-f0-9]{8}$/
+    );
     expect(createManagedProjectId("!!!")).toMatch(/^project-[a-f0-9]{8}$/);
   });
 

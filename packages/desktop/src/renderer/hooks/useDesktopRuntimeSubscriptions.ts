@@ -25,7 +25,11 @@ function errorMessage(caught: unknown): string {
   return caught instanceof Error ? caught.message : String(caught);
 }
 
-function runtimeStateEventMatchesCanvas(event: DesktopRuntimeStateChangeEvent, project: DesktopProjectSummary, canvasId: string | null): boolean {
+function runtimeStateEventMatchesCanvas(
+  event: DesktopRuntimeStateChangeEvent,
+  project: DesktopProjectSummary,
+  canvasId: string | null
+): boolean {
   return event.projectRoot === project.rootPath && event.canvasId === canvasId;
 }
 
@@ -76,7 +80,9 @@ export function useDesktopRuntimeSubscriptions({
     }
     const runtimeBridge = bridge;
     const ref = desktopCanvasReference(selectedProject, selectedCanvasId);
-    void runtimeBridge.watchRuntimeState(ref).catch((caught: unknown) => setError(errorMessage(caught)));
+    void runtimeBridge
+      .watchRuntimeState(ref)
+      .catch((caught: unknown) => setError(errorMessage(caught)));
     return () => {
       void runtimeBridge.unwatchRuntimeState(ref);
     };

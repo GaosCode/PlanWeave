@@ -31,7 +31,10 @@ function taskWindowQuery(input: OpenTaskInspectorWindowInput): Record<string, st
   };
 }
 
-async function loadTaskWindow(window: BrowserWindow, input: OpenTaskInspectorWindowInput): Promise<void> {
+async function loadTaskWindow(
+  window: BrowserWindow,
+  input: OpenTaskInspectorWindowInput
+): Promise<void> {
   const devServerUrl = process.env.PLANWEAVE_DESKTOP_DEV_SERVER_URL;
   if (devServerUrl) {
     const url = new URL(devServerUrl);

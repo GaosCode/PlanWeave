@@ -1,11 +1,20 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { claimNext, createManualExecutorAdapter, getAutoRunStatus, submitBlockResult, submitReviewResult } from "../index.js";
+import {
+  claimNext,
+  createManualExecutorAdapter,
+  getAutoRunStatus,
+  submitBlockResult,
+  submitReviewResult
+} from "../index.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { createTestWorkspace, writeReport, writeReviewResult } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
-import { createFormalManualCanvasWorkspace, runContractAutoRunStep } from "./autoRunTestBuilders.js";
+import {
+  createFormalManualCanvasWorkspace,
+  runContractAutoRunStep
+} from "./autoRunTestBuilders.js";
 
 describe("Auto Run manual executor", () => {
   it("manual adapter claims a block, writes the rendered prompt artifact, and waits for manual submission", async () => {
@@ -27,8 +36,22 @@ describe("Auto Run manual executor", () => {
       throw new Error("expected manual step");
     }
     await expect(access(step.adapterResult.promptPath)).resolves.toBeUndefined();
-    await expect(readFile(step.adapterResult.promptPath, "utf8")).resolves.toContain("# T-001#B-001: Implement task");
-    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+    await expect(readFile(step.adapterResult.promptPath, "utf8")).resolves.toContain(
+      "# T-001#B-001: Implement task"
+    );
+    await expect(
+      readJsonFile(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-001",
+          "metadata.json"
+        )
+      )
+    ).resolves.toMatchObject({
       runId: "RUN-001",
       ref: "T-001#B-001",
       executor: "manual",
@@ -47,7 +70,15 @@ describe("Auto Run manual executor", () => {
       })
     });
 
-    const metadataPath = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json");
+    const metadataPath = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-001",
+      "metadata.json"
+    );
     const metadata = await readJsonFile<Record<string, unknown>>(metadataPath);
     await writeJsonFile(metadataPath, {
       ...metadata,
@@ -62,7 +93,8 @@ describe("Auto Run manual executor", () => {
           ref: "T-001#B-001",
           tmuxSessionName: "planweave-T-001-B-001-RUN-001-123abcd",
           tmuxAttachCommand: "tmux attach-session -t planweave-T-001-B-001-RUN-001-123abcd",
-          tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-T-001-B-001-RUN-001-123abcd"
+          tmuxReadOnlyAttachCommand:
+            "tmux attach-session -r -t planweave-T-001-B-001-RUN-001-123abcd"
         })
       ]
     });
@@ -78,12 +110,20 @@ describe("Auto Run manual executor", () => {
       .build();
     const { root, init } = await createTestWorkspace(manifest);
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
     await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,
       ref: "T-001#R-001",
-      resultPath: await writeReviewResult(root, "needs_changes", "Fix with the implementation executor.")
+      resultPath: await writeReviewResult(
+        root,
+        "needs_changes",
+        "Fix with the implementation executor."
+      )
     });
 
     const feedbackStep = await runContractAutoRunStep({ projectRoot: root });
@@ -93,7 +133,9 @@ describe("Auto Run manual executor", () => {
       claim: { kind: "feedback", feedbackId: "FE-001", effectiveExecutor: "feedback-runner" },
       adapterResult: { executor: "feedback-runner" }
     });
-    await expect(readJsonFile(join(init.workspace.resultsDir, "feedback-runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile(join(init.workspace.resultsDir, "feedback-runs", "RUN-001", "metadata.json"))
+    ).resolves.toMatchObject({
       feedbackId: "FE-001",
       executor: "feedback-runner",
       adapter: "manual"
@@ -115,10 +157,15 @@ describe("Auto Run manual executor", () => {
     expect(implementationStep).toMatchObject({
       kind: "manual",
       adapterResult: {
-        nextCommand: "planweave submit-result --canvas manual-canvas T-001#B-001 --report <report.md>"
+        nextCommand:
+          "planweave submit-result --canvas manual-canvas T-001#B-001 --report <report.md>"
       }
     });
-    await submitBlockResult({ projectRoot: workspace, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: workspace,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
     await runContractAutoRunStep({
       projectRoot: workspace,
       executor
@@ -151,8 +198,11 @@ describe("Auto Run manual executor", () => {
         currentRef: "FE-001",
         currentExecutor: "manual",
         latestRecordId: "FE-001::RUN-001",
-        latestRecordPath: expect.stringContaining(join("feedback-runs", "RUN-001", "metadata.json")),
-        latestOutputSummary: "planweave submit-feedback --canvas manual-canvas --report <report.md>",
+        latestRecordPath: expect.stringContaining(
+          join("feedback-runs", "RUN-001", "metadata.json")
+        ),
+        latestOutputSummary:
+          "planweave submit-feedback --canvas manual-canvas --report <report.md>",
         nextAction: {
           kind: "submit_manual_result",
           command: "planweave submit-feedback --canvas manual-canvas --report <report.md>",

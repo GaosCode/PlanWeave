@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import type { DesktopAgentDetection } from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
 
-function normalizeAgentDetections(value: DesktopAgentDetection[] | null | undefined): DesktopAgentDetection[] {
+function normalizeAgentDetections(
+  value: DesktopAgentDetection[] | null | undefined
+): DesktopAgentDetection[] {
   return Array.isArray(value) ? value : [];
 }
 

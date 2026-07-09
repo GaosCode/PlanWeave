@@ -15,7 +15,13 @@ import {
 } from "./projectGraph/index.js";
 import { manifestSchema } from "./schema/manifest.js";
 import { readState } from "./state.js";
-import type { PackageWorkspaceRef, PlanPackageManifest, ProjectWorkspace, ValidationIssue, ValidationReport } from "./types.js";
+import type {
+  PackageWorkspaceRef,
+  PlanPackageManifest,
+  ProjectWorkspace,
+  ValidationIssue,
+  ValidationReport
+} from "./types.js";
 import { validateDesktopLayout } from "./validation/desktopLayoutValidation.js";
 import { summarizeValidationReport } from "./validation/validationSummary.js";
 import type { LoadedProjectGraph } from "./projectGraph/index.js";
@@ -33,7 +39,12 @@ function workspaceRelative(projectWorkspace: ProjectWorkspace, path: string): st
   return toPosixPath(relative(projectWorkspace.workspaceRoot, absolutePath));
 }
 
-function prefixIssuePath(projectWorkspace: ProjectWorkspace, workspace: ProjectWorkspace, manifest: PlanPackageManifest, path?: string): string | undefined {
+function prefixIssuePath(
+  projectWorkspace: ProjectWorkspace,
+  workspace: ProjectWorkspace,
+  manifest: PlanPackageManifest,
+  path?: string
+): string | undefined {
   if (!path) {
     return undefined;
   }
@@ -55,7 +66,12 @@ function prefixIssuePath(projectWorkspace: ProjectWorkspace, workspace: ProjectW
   return path;
 }
 
-function prefixIssue(projectWorkspace: ProjectWorkspace, workspace: ProjectWorkspace, manifest: PlanPackageManifest, validationIssue: ValidationIssue): ValidationIssue {
+function prefixIssue(
+  projectWorkspace: ProjectWorkspace,
+  workspace: ProjectWorkspace,
+  manifest: PlanPackageManifest,
+  validationIssue: ValidationIssue
+): ValidationIssue {
   return {
     ...validationIssue,
     path: prefixIssuePath(projectWorkspace, workspace, manifest, validationIssue.path)
@@ -76,7 +92,11 @@ function prefixProjectGraphIssue(validationIssue: ValidationIssue): ValidationIs
   };
 }
 
-function isCanonicalDefaultCanvasPath(canvas: { packageDir: string; stateFile: string; resultsDir: string }): boolean {
+function isCanonicalDefaultCanvasPath(canvas: {
+  packageDir: string;
+  stateFile: string;
+  resultsDir: string;
+}): boolean {
   return (
     canvas.packageDir === "canvases/default/package" &&
     canvas.stateFile === "canvases/default/state.json" &&
@@ -110,17 +130,26 @@ function graphWithLegacyRootDefaultCanvas(loaded: LoadedProjectGraph): LoadedPro
     manifest: {
       ...loaded.manifest,
       canvases: hasDefault
-        ? loaded.manifest.canvases.map((canvas) => (canvas.id === "default" ? { ...legacyDefault, title: canvas.title, description: canvas.description } : canvas))
+        ? loaded.manifest.canvases.map((canvas) =>
+            canvas.id === "default"
+              ? { ...legacyDefault, title: canvas.title, description: canvas.description }
+              : canvas
+          )
         : [legacyDefault, ...loaded.manifest.canvases]
     }
   };
 }
 
-function hasCanonicalDefaultCanvasMissingWithLegacyRoot(loaded: LoadedProjectGraph, migrationAction: string): boolean {
+function hasCanonicalDefaultCanvasMissingWithLegacyRoot(
+  loaded: LoadedProjectGraph,
+  migrationAction: string
+): boolean {
   return (
     loaded.source === "project_graph" &&
     migrationAction === "migrate" &&
-    loaded.manifest.canvases.some((canvas) => canvas.id === "default" && isCanonicalDefaultCanvasPath(canvas))
+    loaded.manifest.canvases.some(
+      (canvas) => canvas.id === "default" && isCanonicalDefaultCanvasPath(canvas)
+    )
   );
 }
 
@@ -135,7 +164,9 @@ function graphWithoutCanonicalDefaultCanvas(loaded: LoadedProjectGraph): LoadedP
     manifest: {
       ...loaded.manifest,
       canvases: loaded.manifest.canvases.filter((canvas) => !prunedCanvasIds.has(canvas.id)),
-      edges: loaded.manifest.edges.filter((edge) => !prunedCanvasIds.has(edge.from) && !prunedCanvasIds.has(edge.to)),
+      edges: loaded.manifest.edges.filter(
+        (edge) => !prunedCanvasIds.has(edge.from) && !prunedCanvasIds.has(edge.to)
+      ),
       crossTaskEdges: loaded.manifest.crossTaskEdges.filter(
         (edge) => !prunedCanvasIds.has(edge.from.canvasId) && !prunedCanvasIds.has(edge.to.canvasId)
       )
@@ -143,7 +174,10 @@ function graphWithoutCanonicalDefaultCanvas(loaded: LoadedProjectGraph): LoadedP
   };
 }
 
-async function validateWorkspacePackage(projectWorkspace: ProjectWorkspace, workspace: ProjectWorkspace): Promise<{
+async function validateWorkspacePackage(
+  projectWorkspace: ProjectWorkspace,
+  workspace: ProjectWorkspace
+): Promise<{
   errors: ValidationIssue[];
   warnings: ValidationIssue[];
 }> {
@@ -152,65 +186,139 @@ async function validateWorkspacePackage(projectWorkspace: ProjectWorkspace, work
 
   try {
     if (!(await optionalStat(workspace.workspaceRoot))) {
-      errors.push(issue("workspace_missing", "PlanWeave workspace does not exist.", workspaceRelative(projectWorkspace, workspace.workspaceRoot)));
+      errors.push(
+        issue(
+          "workspace_missing",
+          "PlanWeave workspace does not exist.",
+          workspaceRelative(projectWorkspace, workspace.workspaceRoot)
+        )
+      );
       return { errors, warnings };
     }
   } catch (error) {
-    errors.push(issue("workspace_read_failed", error instanceof Error ? error.message : String(error), workspaceRelative(projectWorkspace, workspace.workspaceRoot)));
+    errors.push(
+      issue(
+        "workspace_read_failed",
+        error instanceof Error ? error.message : String(error),
+        workspaceRelative(projectWorkspace, workspace.workspaceRoot)
+      )
+    );
     return { errors, warnings };
   }
   try {
     if (!(await optionalStat(workspace.manifestFile))) {
-      errors.push(issue("manifest_missing", "package/manifest.json does not exist.", workspaceRelative(projectWorkspace, workspace.manifestFile)));
+      errors.push(
+        issue(
+          "manifest_missing",
+          "package/manifest.json does not exist.",
+          workspaceRelative(projectWorkspace, workspace.manifestFile)
+        )
+      );
       return { errors, warnings };
     }
   } catch (error) {
-    errors.push(issue("manifest_read_failed", error instanceof Error ? error.message : String(error), workspaceRelative(projectWorkspace, workspace.manifestFile)));
+    errors.push(
+      issue(
+        "manifest_read_failed",
+        error instanceof Error ? error.message : String(error),
+        workspaceRelative(projectWorkspace, workspace.manifestFile)
+      )
+    );
     return { errors, warnings };
   }
 
   let manifest: PlanPackageManifest;
   try {
-    manifest = manifestSchema.parse(await readJsonFile<unknown>(workspace.manifestFile)) as PlanPackageManifest;
+    manifest = manifestSchema.parse(
+      await readJsonFile<unknown>(workspace.manifestFile)
+    ) as PlanPackageManifest;
   } catch (error) {
     if (error instanceof ZodError) {
       for (const zodIssue of error.issues) {
-        const path = zodIssue.path.length > 0 ? `${workspaceRelative(projectWorkspace, workspace.manifestFile)}:${zodIssue.path.join(".")}` : workspaceRelative(projectWorkspace, workspace.manifestFile);
+        const path =
+          zodIssue.path.length > 0
+            ? `${workspaceRelative(projectWorkspace, workspace.manifestFile)}:${zodIssue.path.join(".")}`
+            : workspaceRelative(projectWorkspace, workspace.manifestFile);
         errors.push(issue("manifest_schema", zodIssue.message, path));
       }
     } else {
-      errors.push(issue("manifest_read_failed", error instanceof Error ? error.message : String(error), workspaceRelative(projectWorkspace, workspace.manifestFile)));
+      errors.push(
+        issue(
+          "manifest_read_failed",
+          error instanceof Error ? error.message : String(error),
+          workspaceRelative(projectWorkspace, workspace.manifestFile)
+        )
+      );
     }
     return { errors, warnings };
   }
 
   const graph = await compilePackageGraph(manifest, workspace.packageDir);
-  errors.push(...graph.diagnostics.errors.map((item) => prefixIssue(projectWorkspace, workspace, manifest, item)));
-  warnings.push(...graph.diagnostics.warnings.map((item) => prefixIssue(projectWorkspace, workspace, manifest, item)));
+  errors.push(
+    ...graph.diagnostics.errors.map((item) =>
+      prefixIssue(projectWorkspace, workspace, manifest, item)
+    )
+  );
+  warnings.push(
+    ...graph.diagnostics.warnings.map((item) =>
+      prefixIssue(projectWorkspace, workspace, manifest, item)
+    )
+  );
   const layoutReport = await validateDesktopLayout(workspace, manifest);
-  errors.push(...layoutReport.errors.map((item) => prefixIssue(projectWorkspace, workspace, manifest, item)));
-  warnings.push(...layoutReport.warnings.map((item) => prefixIssue(projectWorkspace, workspace, manifest, item)));
+  errors.push(
+    ...layoutReport.errors.map((item) => prefixIssue(projectWorkspace, workspace, manifest, item))
+  );
+  warnings.push(
+    ...layoutReport.warnings.map((item) => prefixIssue(projectWorkspace, workspace, manifest, item))
+  );
 
   try {
     const rawState = await readState(workspace.stateFile);
     for (const orphan of findOrphanState(manifest, rawState)) {
-      warnings.push(issue("orphan_state", `Runtime state exists outside the current manifest.`, orphan.taskId ?? orphan.ref));
+      warnings.push(
+        issue(
+          "orphan_state",
+          `Runtime state exists outside the current manifest.`,
+          orphan.taskId ?? orphan.ref
+        )
+      );
     }
   } catch (error) {
-    errors.push(issue("state_read_failed", error instanceof Error ? error.message : String(error), workspaceRelative(projectWorkspace, workspace.stateFile)));
+    errors.push(
+      issue(
+        "state_read_failed",
+        error instanceof Error ? error.message : String(error),
+        workspaceRelative(projectWorkspace, workspace.stateFile)
+      )
+    );
   }
   try {
     for (const orphan of await findOrphanResults(workspace, manifest)) {
-      warnings.push(issue("orphan_result", `Results exist for task '${orphan.taskId}' outside the current manifest.`, orphan.path));
+      warnings.push(
+        issue(
+          "orphan_result",
+          `Results exist for task '${orphan.taskId}' outside the current manifest.`,
+          orphan.path
+        )
+      );
     }
   } catch (error) {
-    errors.push(issue("results_read_failed", error instanceof Error ? error.message : String(error), workspaceRelative(projectWorkspace, workspace.resultsDir)));
+    errors.push(
+      issue(
+        "results_read_failed",
+        error instanceof Error ? error.message : String(error),
+        workspaceRelative(projectWorkspace, workspace.resultsDir)
+      )
+    );
   }
 
   return { errors, warnings };
 }
 
-function validationReport(errors: ValidationIssue[], warnings: ValidationIssue[]): ValidationReport {
+function validationReport(
+  errors: ValidationIssue[],
+  warnings: ValidationIssue[]
+): ValidationReport {
   return {
     ok: errors.length === 0,
     errors,
@@ -219,7 +327,9 @@ function validationReport(errors: ValidationIssue[], warnings: ValidationIssue[]
   };
 }
 
-export async function validatePackage(options: { projectRoot: PackageWorkspaceRef }): Promise<ValidationReport> {
+export async function validatePackage(options: {
+  projectRoot: PackageWorkspaceRef;
+}): Promise<ValidationReport> {
   if (typeof options.projectRoot !== "string") {
     const projectWorkspace = await resolveProjectWorkspace(options.projectRoot.rootPath);
     const report = await validateWorkspacePackage(projectWorkspace, options.projectRoot);
@@ -233,7 +343,13 @@ export async function validatePackage(options: { projectRoot: PackageWorkspaceRe
   try {
     migrationPlan = await detectDefaultCanvasWorkspaceMigration(workspace);
   } catch (error) {
-    errors.push(issue("default_canvas_migration_read_failed", error instanceof Error ? error.message : String(error), "."));
+    errors.push(
+      issue(
+        "default_canvas_migration_read_failed",
+        error instanceof Error ? error.message : String(error),
+        "."
+      )
+    );
     migrationPlan = {
       action: "none",
       reason: "Default canvas migration state could not be inspected.",
@@ -252,7 +368,10 @@ export async function validatePackage(options: { projectRoot: PackageWorkspaceRe
 
   try {
     const loaded = await loadProjectGraph(options.projectRoot);
-    const canonicalDefaultMissingWithLegacyRoot = hasCanonicalDefaultCanvasMissingWithLegacyRoot(loaded, migrationPlan.action);
+    const canonicalDefaultMissingWithLegacyRoot = hasCanonicalDefaultCanvasMissingWithLegacyRoot(
+      loaded,
+      migrationPlan.action
+    );
     if (canonicalDefaultMissingWithLegacyRoot) {
       errors.push(
         issue(
@@ -269,7 +388,7 @@ export async function validatePackage(options: { projectRoot: PackageWorkspaceRe
         ? graphWithLegacyRootDefaultCanvas(loaded)
         : canonicalDefaultMissingWithLegacyRoot
           ? graphWithoutCanonicalDefaultCanvas(loaded)
-        : loaded;
+          : loaded;
     const graph = await compileProjectGraph(graphInput);
     errors.push(...graph.diagnostics.errors.map(prefixProjectGraphIssue));
     warnings.push(...graph.diagnostics.warnings.map(prefixProjectGraphIssue));
@@ -291,10 +410,22 @@ export async function validatePackage(options: { projectRoot: PackageWorkspaceRe
   } catch (error) {
     if (error instanceof ZodError) {
       for (const zodIssue of error.issues) {
-        errors.push(issue("project_graph_schema", zodIssue.message, projectGraphIssuePath(zodIssue.path.join("."))));
+        errors.push(
+          issue(
+            "project_graph_schema",
+            zodIssue.message,
+            projectGraphIssuePath(zodIssue.path.join("."))
+          )
+        );
       }
     } else {
-      errors.push(issue("project_graph_read_failed", error instanceof Error ? error.message : String(error), "project-graph.json"));
+      errors.push(
+        issue(
+          "project_graph_read_failed",
+          error instanceof Error ? error.message : String(error),
+          "project-graph.json"
+        )
+      );
     }
   }
 

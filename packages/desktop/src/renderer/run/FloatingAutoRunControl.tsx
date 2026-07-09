@@ -1,5 +1,19 @@
-import { useEffect, useState, type CSSProperties, type Dispatch, type PointerEvent, type Ref, type SetStateAction } from "react";
-import type { DesktopAutoRunRetrospectiveSummary, DesktopAutoRunState, DesktopCanvasReference, DesktopProjectSummary, ValidationIssue } from "@planweave-ai/runtime";
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type PointerEvent,
+  type Ref,
+  type SetStateAction
+} from "react";
+import type {
+  DesktopAutoRunRetrospectiveSummary,
+  DesktopAutoRunState,
+  DesktopCanvasReference,
+  DesktopProjectSummary,
+  ValidationIssue
+} from "@planweave-ai/runtime";
 import { MoveIcon, RotateCcwIcon, SquareIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,7 +73,11 @@ function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))];
 }
 
-function fileSyncChangeKey(options: { affectedTasks: string[]; diagnostics: ValidationIssue[]; dirtyPromptRefs: string[] }): string {
+function fileSyncChangeKey(options: {
+  affectedTasks: string[];
+  diagnostics: ValidationIssue[];
+  dirtyPromptRefs: string[];
+}): string {
   return JSON.stringify({
     affectedTasks: uniqueStrings(options.affectedTasks).sort(),
     dirtyPromptRefs: uniqueStrings(options.dirtyPromptRefs).sort(),
@@ -112,17 +130,23 @@ export function FloatingAutoRunControl({
   style,
   t
 }: FloatingAutoRunControlProps) {
-  const canStop = autoRunState ? ["running", "pausing", "paused", "manual"].includes(autoRunState.phase) : false;
+  const canStop = autoRunState
+    ? ["running", "pausing", "paused", "manual"].includes(autoRunState.phase)
+    : false;
   const hasProject = Boolean(selectedProject);
   const explanation = autoRunState?.explanation ?? null;
   const currentExecutor = explanation?.currentExecutor ?? null;
-  const startupPreflightExecutor = autoRunScopeMode === "project" ? autoRunPreflightExecutorHint : null;
+  const startupPreflightExecutor =
+    autoRunScopeMode === "project" ? autoRunPreflightExecutorHint : null;
   const preflightExecutor = currentExecutor ?? startupPreflightExecutor;
   const preflightCanvasId = autoRunState?.canvasId ?? selectedCanvasId;
-  const canvasRef = selectedProject ? { projectRoot: selectedProject.rootPath, canvasId: preflightCanvasId } : null;
+  const canvasRef = selectedProject
+    ? { projectRoot: selectedProject.rootPath, canvasId: preflightCanvasId }
+    : null;
   const executorPreflight = useExecutorPreflight({
     bridgeUnavailableMessage: t("bridgeUnavailable"),
-    cacheKey: autoRunState?.runSessionId ?? autoRunState?.runId ?? autoRunPreflightExecutorHint ?? "",
+    cacheKey:
+      autoRunState?.runSessionId ?? autoRunState?.runId ?? autoRunPreflightExecutorHint ?? "",
     canvasRef,
     executorName: preflightExecutor
   });
@@ -130,14 +154,25 @@ export function FloatingAutoRunControl({
   const fileSyncAffectedTasks = uniqueStrings(affectedTasks);
   const fileSyncDirtyCount = Math.max(dirtyPromptCount, fileSyncDirtyRefs.length);
   const fileSyncIssueCount = fileSyncDirtyCount + fileSyncAffectedTasks.length + diagnostics.length;
-  const currentFileSyncChangeKey = fileSyncIssueCount > 0
-    ? fileSyncChangeKey({ affectedTasks: fileSyncAffectedTasks, diagnostics, dirtyPromptRefs: fileSyncDirtyRefs })
-    : null;
+  const currentFileSyncChangeKey =
+    fileSyncIssueCount > 0
+      ? fileSyncChangeKey({
+          affectedTasks: fileSyncAffectedTasks,
+          diagnostics,
+          dirtyPromptRefs: fileSyncDirtyRefs
+        })
+      : null;
   const [fileSyncPopoverOpen, setFileSyncPopoverOpen] = useState(false);
   const [viewedFileSyncChangeKey, setViewedFileSyncChangeKey] = useState<string | null>(null);
-  const showFileSyncUnreadCount = fileSyncIssueCount > 0 && currentFileSyncChangeKey !== viewedFileSyncChangeKey;
+  const showFileSyncUnreadCount =
+    fileSyncIssueCount > 0 && currentFileSyncChangeKey !== viewedFileSyncChangeKey;
   const diagnosticActionContext =
-    selectedProject && selectedCanvasId && applyCanvasLaneLayout && copyText && refreshProjectDerivedState && setError
+    selectedProject &&
+    selectedCanvasId &&
+    applyCanvasLaneLayout &&
+    copyText &&
+    refreshProjectDerivedState &&
+    setError
       ? {
           projectId: selectedProject.projectId,
           projectRoot: selectedProject.rootPath,
@@ -156,7 +191,12 @@ export function FloatingAutoRunControl({
   }, [currentFileSyncChangeKey, fileSyncPopoverOpen]);
 
   return (
-    <div className="absolute flex items-center gap-2 rounded-xl border bg-background p-2 shadow-lg" data-auto-run-control ref={controlRef} style={style}>
+    <div
+      className="absolute flex items-center gap-2 rounded-xl border bg-background p-2 shadow-lg"
+      data-auto-run-control
+      ref={controlRef}
+      style={style}
+    >
       <Button
         size="icon-sm"
         variant="ghost"
@@ -187,7 +227,12 @@ export function FloatingAutoRunControl({
         watcherChangedPathCount={watcherChangedPathCount}
         watcherRefreshElapsedMs={watcherRefreshElapsedMs}
       />
-      <DesktopDiagnosticsPopover actionContext={diagnosticActionContext} diagnostics={projectDiagnostics} disabled={!hasProject} t={t} />
+      <DesktopDiagnosticsPopover
+        actionContext={diagnosticActionContext}
+        diagnostics={projectDiagnostics}
+        disabled={!hasProject}
+        t={t}
+      />
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <span>
@@ -222,7 +267,13 @@ export function FloatingAutoRunControl({
         />
       </ContextMenu>
       {canStop ? (
-        <Button size="icon-sm" variant="outline" aria-label={t("stop")} title={t("stop")} onClick={() => void stopAutoRunClick()}>
+        <Button
+          size="icon-sm"
+          variant="outline"
+          aria-label={t("stop")}
+          title={t("stop")}
+          onClick={() => void stopAutoRunClick()}
+        >
           <SquareIcon data-icon="inline-start" />
         </Button>
       ) : null}
@@ -236,7 +287,11 @@ export function FloatingAutoRunControl({
       >
         <RotateCcwIcon data-icon="inline-start" />
       </Button>
-      {!hasProject ? <span className="max-w-[180px] text-xs text-muted-foreground">{t("autoRunNoProjectHint")}</span> : null}
+      {!hasProject ? (
+        <span className="max-w-[180px] text-xs text-muted-foreground">
+          {t("autoRunNoProjectHint")}
+        </span>
+      ) : null}
       <AutoRunScopeControl
         autoRunScopeMode={autoRunScopeMode}
         hasProject={hasProject}
@@ -245,7 +300,14 @@ export function FloatingAutoRunControl({
         setAutoRunScopeMode={setAutoRunScopeMode}
         t={t}
       />
-      <Badge title={t("runStatus")} variant={autoRunState?.phase === "blocked" || autoRunState?.phase === "failed" ? "destructive" : "outline"}>
+      <Badge
+        title={t("runStatus")}
+        variant={
+          autoRunState?.phase === "blocked" || autoRunState?.phase === "failed"
+            ? "destructive"
+            : "outline"
+        }
+      >
         {autoRunState?.phase ?? t("autoRunStopped")}
       </Badge>
     </div>

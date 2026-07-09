@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { createTranslator } from "../i18n";
-import { appViewHistoryChangedEvent, readAppViewHistoryAvailability } from "../hooks/useAppViewHistory";
+import {
+  appViewHistoryChangedEvent,
+  readAppViewHistoryAvailability
+} from "../hooks/useAppViewHistory";
 
 type HistoryNavigationButtonsProps = {
   t: ReturnType<typeof createTranslator>;
@@ -44,10 +47,22 @@ export function HistoryNavigationButtons({ t }: HistoryNavigationButtonsProps) {
 
   return (
     <>
-      <Button size="icon-sm" variant="ghost" aria-label={t("navigateBack")} disabled={!canGoBack} onClick={goBack}>
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        aria-label={t("navigateBack")}
+        disabled={!canGoBack}
+        onClick={goBack}
+      >
         <ArrowLeftIcon data-icon="inline-start" />
       </Button>
-      <Button size="icon-sm" variant="ghost" aria-label={t("navigateForward")} disabled={!canGoForward} onClick={goForward}>
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        aria-label={t("navigateForward")}
+        disabled={!canGoForward}
+        onClick={goForward}
+      >
         <ArrowRightIcon data-icon="inline-start" />
       </Button>
     </>

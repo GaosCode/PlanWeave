@@ -3,7 +3,11 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { DesktopAutoRunRetrospectiveSummary, DesktopAutoRunState, DesktopProjectSummary } from "@planweave-ai/runtime";
+import type {
+  DesktopAutoRunRetrospectiveSummary,
+  DesktopAutoRunState,
+  DesktopProjectSummary
+} from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import { FloatingAutoRunControl } from "../renderer/run/FloatingAutoRunControl";
@@ -28,7 +32,11 @@ const project: DesktopProjectSummary = {
   ]
 };
 
-function createAutoRunState(patch: Partial<Omit<DesktopAutoRunState, "explanation">> & { explanation?: DesktopAutoRunState["explanation"] } = {}): DesktopAutoRunState {
+function createAutoRunState(
+  patch: Partial<Omit<DesktopAutoRunState, "explanation">> & {
+    explanation?: DesktopAutoRunState["explanation"];
+  } = {}
+): DesktopAutoRunState {
   const state = {
     runId: "RUN-001",
     runSessionId: "SESSION-0001",
@@ -80,10 +88,22 @@ function installPointerMocks(): void {
     unobserve = vi.fn();
   }
   vi.stubGlobal("ResizeObserver", ResizeObserverMock);
-  Object.defineProperty(window.HTMLElement.prototype, "hasPointerCapture", { configurable: true, value: vi.fn(() => false) });
-  Object.defineProperty(window.HTMLElement.prototype, "setPointerCapture", { configurable: true, value: vi.fn() });
-  Object.defineProperty(window.HTMLElement.prototype, "releasePointerCapture", { configurable: true, value: vi.fn() });
-  Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+  Object.defineProperty(window.HTMLElement.prototype, "hasPointerCapture", {
+    configurable: true,
+    value: vi.fn(() => false)
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "setPointerCapture", {
+    configurable: true,
+    value: vi.fn()
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "releasePointerCapture", {
+    configurable: true,
+    value: vi.fn()
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: vi.fn()
+  });
 }
 
 afterEach(() => {
@@ -134,7 +154,9 @@ describe("FloatingAutoRunControl", () => {
       completedBlockRefs: ["T-001#B-001"],
       blockedRef: null,
       failedReason: null,
-      reviewVerdicts: [{ ref: "T-001#R-001", attemptId: "r1", verdict: "passed", contentPreview: "ok" }],
+      reviewVerdicts: [
+        { ref: "T-001#R-001", attemptId: "r1", verdict: "passed", contentPreview: "ok" }
+      ],
       latestRecordId: "r",
       latestRecordPath: "/tmp/result.json",
       latestReportPath: "/tmp/report.md",
@@ -149,8 +171,20 @@ describe("FloatingAutoRunControl", () => {
         autoRunRetrospective={retrospective}
         autoRunScopeMode="project"
         autoRunState={autoRunState}
-        diagnostics={[{ code: "prompt_changed", message: "Prompt changed on disk.", path: "nodes/T-001/prompt.md" }]}
-        projectDiagnostics={[{ code: "desktop_projection_slow_part", message: "Desktop projection project aggregation took 12 ms.", path: "/tmp/demo" }]}
+        diagnostics={[
+          {
+            code: "prompt_changed",
+            message: "Prompt changed on disk.",
+            path: "nodes/T-001/prompt.md"
+          }
+        ]}
+        projectDiagnostics={[
+          {
+            code: "desktop_projection_slow_part",
+            message: "Desktop projection project aggregation took 12 ms.",
+            path: "/tmp/demo"
+          }
+        ]}
         dirtyPromptRefs={["T-001#B-001"]}
         dirtyPromptCount={2}
         autoRunPreflightExecutorHint="codex"
@@ -188,16 +222,28 @@ describe("FloatingAutoRunControl", () => {
     expect(screen.getByTestId("auto-run-session-id")).toHaveTextContent("SESSION-0001");
     expect(screen.getByTestId("auto-run-action-row")).toHaveTextContent("Wait.");
     expect(screen.getByTestId("auto-run-next-action")).toBeDisabled();
-    expect(screen.getByTestId("auto-run-executor-preflight-section")).toHaveTextContent("Executor preflight");
+    expect(screen.getByTestId("auto-run-executor-preflight-section")).toHaveTextContent(
+      "Executor preflight"
+    );
     expect(screen.queryByText("Not tested")).not.toBeInTheDocument();
     expect(screen.queryByTestId("auto-run-executor-preflight")).not.toBeInTheDocument();
-    await userEvent.click(within(screen.getByTestId("auto-run-executor-preflight-section")).getByRole("button", { name: "Executor preflight" }));
+    await userEvent.click(
+      within(screen.getByTestId("auto-run-executor-preflight-section")).getByRole("button", {
+        name: "Executor preflight"
+      })
+    );
     expect(screen.getByText("Not tested")).toBeInTheDocument();
     expect(screen.getByTestId("auto-run-executor-preflight")).toBeEnabled();
     expect(screen.getByTestId("auto-run-retrospective")).toHaveTextContent("Retrospective");
     expect(screen.queryByTestId("auto-run-completed-refs")).not.toBeInTheDocument();
-    await userEvent.click(within(screen.getByTestId("auto-run-retrospective")).getByRole("button", { name: "Retrospective" }));
-    expect(screen.getByTestId("auto-run-retrospective-details")).toHaveTextContent("Completed refs");
+    await userEvent.click(
+      within(screen.getByTestId("auto-run-retrospective")).getByRole("button", {
+        name: "Retrospective"
+      })
+    );
+    expect(screen.getByTestId("auto-run-retrospective-details")).toHaveTextContent(
+      "Completed refs"
+    );
     expect(screen.getByTestId("auto-run-completed-refs")).toHaveTextContent("1");
     expect(screen.getByTestId("auto-run-latest-report-path")).toHaveTextContent("/tmp/report.md");
     expect(screen.getByTestId("file-sync-unread-count")).toHaveTextContent("4");
@@ -206,14 +252,26 @@ describe("FloatingAutoRunControl", () => {
     expect(screen.queryByTestId("file-sync-unread-count")).not.toBeInTheDocument();
     expect(screen.getByText("Dirty Prompts")).toBeInTheDocument();
     expect(screen.queryByText("T-001#B-001")).not.toBeInTheDocument();
-    await userEvent.click(within(screen.getByTestId("file-sync-dirty-prompts-section")).getByRole("button", { name: "Dirty Prompts" }));
+    await userEvent.click(
+      within(screen.getByTestId("file-sync-dirty-prompts-section")).getByRole("button", {
+        name: "Dirty Prompts"
+      })
+    );
     expect(screen.getByText("T-001#B-001")).toBeInTheDocument();
     expect(screen.getByText("Affected tasks")).toBeInTheDocument();
     expect(screen.queryByText("T-002")).not.toBeInTheDocument();
-    await userEvent.click(within(screen.getByTestId("file-sync-affected-tasks-section")).getByRole("button", { name: "Affected tasks" }));
+    await userEvent.click(
+      within(screen.getByTestId("file-sync-affected-tasks-section")).getByRole("button", {
+        name: "Affected tasks"
+      })
+    );
     expect(screen.getByText("T-002")).toBeInTheDocument();
     expect(screen.queryByTestId("file-sync-diagnostic")).not.toBeInTheDocument();
-    await userEvent.click(within(screen.getByTestId("file-sync-diagnostics-section")).getByRole("button", { name: "Diagnostics" }));
+    await userEvent.click(
+      within(screen.getByTestId("file-sync-diagnostics-section")).getByRole("button", {
+        name: "Diagnostics"
+      })
+    );
     expect(screen.getByTestId("file-sync-diagnostic")).toHaveTextContent("Prompt changed on disk.");
     expect(screen.queryByTestId("desktop-performance-diagnostic")).not.toBeInTheDocument();
     expect(screen.getByTestId("file-sync-refreshed-prompt-count")).toHaveTextContent("3");
@@ -227,13 +285,20 @@ describe("FloatingAutoRunControl", () => {
     await userEvent.click(screen.getByRole("button", { name: "Recheck files" }));
     await userEvent.click(screen.getByRole("button", { name: "View desktop diagnostics" }));
     expect(screen.getByTestId("desktop-diagnostics-popover")).toBeVisible();
-    expect(screen.getByTestId("desktop-performance-diagnostic")).toHaveTextContent("desktop_projection_slow_part");
-    expect(screen.getByTestId("desktop-performance-diagnostic")).toHaveTextContent("Desktop projection project aggregation took 12 ms.");
+    expect(screen.getByTestId("desktop-performance-diagnostic")).toHaveTextContent(
+      "desktop_projection_slow_part"
+    );
+    expect(screen.getByTestId("desktop-performance-diagnostic")).toHaveTextContent(
+      "Desktop projection project aggregation took 12 ms."
+    );
     expect(screen.getByTestId("desktop-performance-diagnostic")).toHaveTextContent("/tmp/demo");
     await userEvent.click(screen.getByRole("button", { name: "Auto Run" }));
     await userEvent.click(screen.getAllByRole("button", { name: "Reset runtime state" })[0]);
     await userEvent.click(screen.getAllByRole("button", { name: "Stop" })[0]);
-    expect(screen.getByTestId("auto-run-open-record")).toHaveAttribute("data-record-path", "/tmp/result.json");
+    expect(screen.getByTestId("auto-run-open-record")).toHaveAttribute(
+      "data-record-path",
+      "/tmp/result.json"
+    );
     expect(screen.getByTestId("auto-run-open-record")).toHaveAttribute("data-run-id", "RUN-001");
     await userEvent.click(screen.getByTestId("auto-run-open-record"));
 
@@ -311,13 +376,24 @@ describe("FloatingAutoRunControl", () => {
     expect(screen.getByTestId("auto-run-mini-status")).toHaveAttribute("data-run-id", "RUN-FAILED");
     expect(screen.queryByTestId("auto-run-error")).not.toBeInTheDocument();
     expect(screen.getByText("Latest output: Executor failed")).toBeVisible();
-    expect(screen.getByText("Next action: Open the latest record and fix the failure.")).toBeVisible();
+    expect(
+      screen.getByText("Next action: Open the latest record and fix the failure.")
+    ).toBeVisible();
     expect(screen.getByTestId("auto-run-failure-section")).toHaveTextContent("Failure details");
-    await userEvent.click(within(screen.getByTestId("auto-run-failure-section")).getByRole("button", { name: "Failure details" }));
+    await userEvent.click(
+      within(screen.getByTestId("auto-run-failure-section")).getByRole("button", {
+        name: "Failure details"
+      })
+    );
     expect(screen.getByTestId("auto-run-error")).toHaveTextContent("Executor exited with code 1.");
     expect(screen.getByTestId("auto-run-failure-details")).toHaveTextContent("Next action");
-    expect(screen.getByTestId("auto-run-failure-details")).toHaveTextContent("Open the latest record and fix the failure.");
-    expect(screen.getByTestId("auto-run-open-record")).toHaveAttribute("data-record-path", "/tmp/failed-result.json");
+    expect(screen.getByTestId("auto-run-failure-details")).toHaveTextContent(
+      "Open the latest record and fix the failure."
+    );
+    expect(screen.getByTestId("auto-run-open-record")).toHaveAttribute(
+      "data-record-path",
+      "/tmp/failed-result.json"
+    );
     expect(screen.getByTestId("auto-run-open-record")).toHaveAttribute("data-run-id", "RUN-FAILED");
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
 
@@ -379,7 +455,13 @@ describe("FloatingAutoRunControl", () => {
         autoRunScopeMode="project"
         autoRunState={null}
         diagnostics={[]}
-        projectDiagnostics={[{ code: "desktop_search_index_slow_part", message: "Desktop projection body search index construction took 12 ms.", path: "/tmp/demo" }]}
+        projectDiagnostics={[
+          {
+            code: "desktop_search_index_slow_part",
+            message: "Desktop projection body search index construction took 12 ms.",
+            path: "/tmp/demo"
+          }
+        ]}
         dirtyPromptRefs={[]}
         dirtyPromptCount={0}
         autoRunPreflightExecutorHint={null}
@@ -413,7 +495,11 @@ describe("FloatingAutoRunControl", () => {
     expect(screen.queryByTestId("desktop-performance-diagnostic")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "View desktop diagnostics" }));
-    expect(screen.getByTestId("desktop-diagnostics-popover")).toHaveTextContent("Performance diagnostics");
-    expect(screen.getByTestId("desktop-performance-diagnostic")).toHaveTextContent("desktop_search_index_slow_part");
+    expect(screen.getByTestId("desktop-diagnostics-popover")).toHaveTextContent(
+      "Performance diagnostics"
+    );
+    expect(screen.getByTestId("desktop-performance-diagnostic")).toHaveTextContent(
+      "desktop_search_index_slow_part"
+    );
   });
 });

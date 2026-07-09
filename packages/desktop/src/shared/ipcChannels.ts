@@ -1,7 +1,13 @@
 import type { DesktopBridgeApi } from "@planweave-ai/runtime";
 
-export type DesktopBridgeSubscriptionMethod = "onPackageFileChanged" | "onRuntimeStateChanged" | "onAutoRunChanged";
-export type DesktopBridgeInvokeMethod = Exclude<keyof DesktopBridgeApi, DesktopBridgeSubscriptionMethod>;
+export type DesktopBridgeSubscriptionMethod =
+  | "onPackageFileChanged"
+  | "onRuntimeStateChanged"
+  | "onAutoRunChanged";
+export type DesktopBridgeInvokeMethod = Exclude<
+  keyof DesktopBridgeApi,
+  DesktopBridgeSubscriptionMethod
+>;
 
 export const desktopBridgeWatchInvokeMethods = [
   "watchPackageFiles",
@@ -11,7 +17,10 @@ export const desktopBridgeWatchInvokeMethods = [
 ] as const satisfies readonly DesktopBridgeInvokeMethod[];
 
 export type DesktopBridgeWatchInvokeMethod = (typeof desktopBridgeWatchInvokeMethods)[number];
-export type DesktopBridgeMainInvokeMethod = Exclude<DesktopBridgeInvokeMethod, DesktopBridgeWatchInvokeMethod>;
+export type DesktopBridgeMainInvokeMethod = Exclude<
+  DesktopBridgeInvokeMethod,
+  DesktopBridgeWatchInvokeMethod
+>;
 
 export const desktopBridgeInvokeChannels = {
   addBlock: "planweave:addBlock",

@@ -2,7 +2,14 @@ import { useState, type ReactNode } from "react";
 import type { ValidationIssue } from "@planweave-ai/runtime";
 import { ChevronDownIcon, ChevronRightIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger
+} from "@/components/ui/popover";
 import { formatElapsed } from "../viewHelpers";
 import type { FloatingAutoRunTranslator } from "./floatingAutoRunTypes";
 
@@ -47,7 +54,11 @@ function DisclosureSection({
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
-        {open ? <ChevronDownIcon data-icon="inline-start" /> : <ChevronRightIcon data-icon="inline-start" />}
+        {open ? (
+          <ChevronDownIcon data-icon="inline-start" />
+        ) : (
+          <ChevronRightIcon data-icon="inline-start" />
+        )}
         {title}
       </Button>
       {open ? <div className="border-t border-border/70 p-2">{children}</div> : null}
@@ -85,7 +96,9 @@ function FileSyncRefList({
           ))}
         </div>
       ) : (
-        <div className="rounded-md border border-border/70 bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground">{emptyLabel}</div>
+        <div className="rounded-md border border-border/70 bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground">
+          {emptyLabel}
+        </div>
       )}
     </div>
   );
@@ -113,12 +126,16 @@ function FileSyncDiagnosticsList({
             >
               <div className="font-medium text-destructive">{diagnostic.code}</div>
               <div className="break-words text-muted-foreground">{diagnostic.message}</div>
-              {diagnostic.path ? <div className="mt-1 break-all text-text-faint">{diagnostic.path}</div> : null}
+              {diagnostic.path ? (
+                <div className="mt-1 break-all text-text-faint">{diagnostic.path}</div>
+              ) : null}
             </div>
           ))}
         </div>
       ) : (
-        <div className="rounded-md border border-border/70 bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground">{emptyLabel}</div>
+        <div className="rounded-md border border-border/70 bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground">
+          {emptyLabel}
+        </div>
       )}
     </div>
   );
@@ -168,7 +185,9 @@ export function FileSyncPopover({
       <PopoverContent align="end" className="w-80" data-testid="file-sync-popover">
         <PopoverHeader>
           <PopoverTitle>{t("fileSyncChanges")}</PopoverTitle>
-          <PopoverDescription>{issueCount > 0 ? t("fileSyncChangesHint") : t("fileSyncNoChanges")}</PopoverDescription>
+          <PopoverDescription>
+            {issueCount > 0 ? t("fileSyncChangesHint") : t("fileSyncNoChanges")}
+          </PopoverDescription>
         </PopoverHeader>
         <div className="flex flex-col gap-3">
           <div className="flex justify-end">
@@ -187,7 +206,9 @@ export function FileSyncPopover({
             <span>{t("watchBackend")}</span>
             <span data-testid="file-sync-watch-backend">{watcherBackendKind ?? "-"}</span>
             <span>{t("watchElapsed")}</span>
-            <span data-testid="file-sync-watch-elapsed">{watcherRefreshElapsedMs === undefined ? "-" : formatElapsed(watcherRefreshElapsedMs)}</span>
+            <span data-testid="file-sync-watch-elapsed">
+              {watcherRefreshElapsedMs === undefined ? "-" : formatElapsed(watcherRefreshElapsedMs)}
+            </span>
           </div>
           <DisclosureSection title={t("dirtyPrompts")} testId="file-sync-dirty-prompts-section">
             <FileSyncRefList
@@ -206,7 +227,11 @@ export function FileSyncPopover({
             />
           </DisclosureSection>
           <DisclosureSection title={t("diagnostics")} testId="file-sync-diagnostics-section">
-            <FileSyncDiagnosticsList diagnostics={diagnostics} emptyLabel={t("fileSyncNoChanges")} label={t("diagnostics")} />
+            <FileSyncDiagnosticsList
+              diagnostics={diagnostics}
+              emptyLabel={t("fileSyncNoChanges")}
+              label={t("diagnostics")}
+            />
           </DisclosureSection>
         </div>
       </PopoverContent>

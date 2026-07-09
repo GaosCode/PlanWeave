@@ -3,7 +3,10 @@ import type { ClaimHint, getExecutionStatus } from "@planweave-ai/runtime";
 type ExecutionStatus = Awaited<ReturnType<typeof getExecutionStatus>>;
 
 export function formatClaimHint(hint: ClaimHint): string {
-  const blockers = [...hint.blockedByTasks.map((taskId) => `task:${taskId}`), ...hint.blockedByBlocks.map((ref) => `block:${ref}`)];
+  const blockers = [
+    ...hint.blockedByTasks.map((taskId) => `task:${taskId}`),
+    ...hint.blockedByBlocks.map((ref) => `block:${ref}`)
+  ];
   const reason = hint.ready
     ? hint.readyReason
     : blockers.length > 0
@@ -13,7 +16,11 @@ export function formatClaimHint(hint: ClaimHint): string {
         : `status ${hint.status}`;
   const gate = hint.reviewGate ? "review gate, " : "";
   const mode = hint.sequentialOnly ? "sequential-only" : "parallel-safe";
-  const command = hint.recommendedCommand ? `, run: ${hint.recommendedCommand}` : hint.dispatchCommand ? `, dispatch: ${hint.dispatchCommand}` : "";
+  const command = hint.recommendedCommand
+    ? `, run: ${hint.recommendedCommand}`
+    : hint.dispatchCommand
+      ? `, dispatch: ${hint.dispatchCommand}`
+      : "";
   return `- ${hint.ref}: ${reason}, executor=${hint.effectiveExecutor}, ${gate}${mode}${command}`;
 }
 

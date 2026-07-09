@@ -21,7 +21,9 @@ export type TunnelClientBinaryStatus = {
 };
 
 export type TunnelClientExecutableName = "tunnel-client" | "tunnel-client.exe";
-export const tunnelClientBinaryStartTargetBrand: unique symbol = Symbol("TunnelClientBinaryStartTarget");
+export const tunnelClientBinaryStartTargetBrand: unique symbol = Symbol(
+  "TunnelClientBinaryStartTarget"
+);
 
 export type TunnelClientBinaryStartTarget = TunnelClientBinaryStatus & {
   readonly [tunnelClientBinaryStartTargetBrand]: true;

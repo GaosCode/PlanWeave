@@ -8,7 +8,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultDesktopSettings } from "../shared/desktopSettings";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { project, projectSnapshot } from "./helpers/desktopProjectFixtures";
-import { cleanupRendererTestEnvironment, stubSelectLayoutApis } from "./helpers/rendererTestEnvironment";
+import {
+  cleanupRendererTestEnvironment,
+  stubSelectLayoutApis
+} from "./helpers/rendererTestEnvironment";
 
 vi.mock("@xyflow/react", async () => {
   const React = await import("react");
@@ -61,7 +64,9 @@ describe("Auto Run diagnostics integration", () => {
     const bridge = createDesktopBridgeMock({
       listProjects: vi.fn().mockResolvedValue([project]),
       getDesktopProjectSnapshot: vi.fn().mockResolvedValue(projectSnapshot()),
-      refreshPackageFileChanges: vi.fn().mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
+      refreshPackageFileChanges: vi
+        .fn()
+        .mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
       watchPackageFiles: vi.fn().mockResolvedValue(undefined),
       getLatestAutoRunSummaryWithDiagnostics: vi.fn().mockResolvedValue({
         state: null,
@@ -71,7 +76,9 @@ describe("Auto Run diagnostics integration", () => {
     vi.stubGlobal("planweave", bridge);
     vi.stubGlobal("planweaveDesktopSettings", {
       getDesktopSettings: vi.fn().mockResolvedValue({ ...defaultDesktopSettings, language: "en" }),
-      migrateLegacyDesktopSettings: vi.fn().mockResolvedValue({ ...defaultDesktopSettings, language: "en" }),
+      migrateLegacyDesktopSettings: vi
+        .fn()
+        .mockResolvedValue({ ...defaultDesktopSettings, language: "en" }),
       saveDesktopSettings: vi.fn().mockResolvedValue({ ...defaultDesktopSettings, language: "en" })
     });
     vi.resetModules();
@@ -87,8 +94,14 @@ describe("Auto Run diagnostics integration", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "View desktop diagnostics" }));
 
-    expect(screen.getByTestId("runtime-diagnostics-section")).toHaveTextContent("Runtime diagnostics (1)");
-    expect(screen.getByTestId("desktop-runtime-diagnostic")).toHaveTextContent("auto_run_state_invalid_json");
-    expect(screen.getByTestId("desktop-runtime-diagnostic")).toHaveTextContent("Auto Run state could not be parsed.");
+    expect(screen.getByTestId("runtime-diagnostics-section")).toHaveTextContent(
+      "Runtime diagnostics (1)"
+    );
+    expect(screen.getByTestId("desktop-runtime-diagnostic")).toHaveTextContent(
+      "auto_run_state_invalid_json"
+    );
+    expect(screen.getByTestId("desktop-runtime-diagnostic")).toHaveTextContent(
+      "Auto Run state could not be parsed."
+    );
   });
 });

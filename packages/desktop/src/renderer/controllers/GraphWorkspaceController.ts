@@ -1,15 +1,27 @@
 import type { Dispatch, DragEvent, MouseEvent, SetStateAction } from "react";
-import type { Connection, Edge, Node, OnEdgesChange, OnNodesChange, ReactFlowInstance } from "@xyflow/react";
-import type { DesktopBlockDetail, DesktopGraphViewModel, DesktopProjectExecutionPlan } from "@planweave-ai/runtime";
+import type {
+  Connection,
+  Edge,
+  Node,
+  OnEdgesChange,
+  OnNodesChange,
+  ReactFlowInstance
+} from "@xyflow/react";
+import type {
+  DesktopBlockDetail,
+  DesktopGraphViewModel,
+  DesktopProjectExecutionPlan
+} from "@planweave-ai/runtime";
 import type { AppFlowNode } from "../types";
 import type { AppEdgeTypes, AppNodeTypes } from "../graph/flowModel";
 import type { createTranslator } from "../i18n";
 import { useVisibleGraphTasks } from "../hooks/useVisibleGraphTasks";
-import type {
-  WorkspaceTabsGraphWorkspaceProps
-} from "../views/WorkspaceTabs";
+import type { WorkspaceTabsGraphWorkspaceProps } from "../views/WorkspaceTabs";
 
-export type GraphWorkspaceControllerInput = Omit<WorkspaceTabsGraphWorkspaceProps, "onAgentPromptCopied" | "selectedBlockPresent"> & {
+export type GraphWorkspaceControllerInput = Omit<
+  WorkspaceTabsGraphWorkspaceProps,
+  "onAgentPromptCopied" | "selectedBlockPresent"
+> & {
   selectedBlock: unknown | null;
   setSuccessMessage: (value: SetStateAction<string | null>) => void;
   t: ReturnType<typeof createTranslator>;
@@ -65,7 +77,10 @@ export function useGraphWorkspaceController({
   handleGraphDragOver: (event: DragEvent) => void;
   handleGraphDrop: (event: DragEvent) => void;
   handleOpenBlockInspector: (ref: string, canvasId?: string | null) => Promise<void>;
-  handleOpenRunRecord: (recordId: string | null | undefined, canvasId?: string | null) => Promise<void>;
+  handleOpenRunRecord: (
+    recordId: string | null | undefined,
+    canvasId?: string | null
+  ) => Promise<void>;
   handleReconnectEdge: (oldEdge: Edge, connection: Connection) => Promise<void>;
   handleRedoGraph: () => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;

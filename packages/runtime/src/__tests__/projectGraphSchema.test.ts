@@ -2,10 +2,19 @@ import { join } from "node:path";
 import { access, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTaskCanvas, listTaskCanvases, resolveTaskCanvasWorkspace } from "../desktop/index.js";
+import {
+  createTaskCanvas,
+  listTaskCanvases,
+  resolveTaskCanvasWorkspace
+} from "../desktop/index.js";
 import { writeJsonFile } from "../json.js";
 import { projectGraphManifestSchema } from "../projectGraph/schema.js";
-import { canonicalProjectCanvasNode, loadProjectGraph, projectGraphPath, writeProjectGraph } from "../projectGraph/index.js";
+import {
+  canonicalProjectCanvasNode,
+  loadProjectGraph,
+  projectGraphPath,
+  writeProjectGraph
+} from "../projectGraph/index.js";
 import { materializeProjectGraph } from "../projectGraph/materializeProjectGraph.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 import { createEmptyState } from "../state.js";
@@ -39,9 +48,7 @@ describe("project graph schema", () => {
     expect(
       projectGraphManifestSchema.parse({
         version: "plan-project/v1",
-        canvases: [
-          canonicalProjectCanvasNode({ id: "default", title: "Default plan" })
-        ],
+        canvases: [canonicalProjectCanvasNode({ id: "default", title: "Default plan" })],
         edges: [],
         crossTaskEdges: []
       })
@@ -76,8 +83,13 @@ describe("project graph schema", () => {
     const loaded = await loadProjectGraph(root);
 
     expect(loaded.source).toBe("legacy_registry");
-    expect(loaded.diagnostics).toEqual([expect.objectContaining({ code: "project_graph_missing_legacy_registry_used" })]);
-    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default", second.canvasId]);
+    expect(loaded.diagnostics).toEqual([
+      expect.objectContaining({ code: "project_graph_missing_legacy_registry_used" })
+    ]);
+    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual([
+      "default",
+      second.canvasId
+    ]);
   });
 
   it("loads a formal project graph when present", async () => {
@@ -91,7 +103,9 @@ describe("project graph schema", () => {
 
     const loaded = await loadProjectGraph(root);
 
-    expect(projectGraphPath(init.workspace)).toBe(join(init.workspace.workspaceRoot, "project-graph.json"));
+    expect(projectGraphPath(init.workspace)).toBe(
+      join(init.workspace.workspaceRoot, "project-graph.json")
+    );
     expect(loaded.source).toBe("project_graph");
     expect(loaded.diagnostics).toEqual([]);
     expect(loaded.manifest.canvases[0]?.title).toBe("Formal default");
@@ -140,7 +154,9 @@ describe("project graph schema", () => {
     process.env.PLANWEAVE_HOME = await mkdtemp(join(tmpdir(), "planweave-home-"));
     const root = await mkdtemp(join(tmpdir(), "planweave-project-"));
 
-    await expect(materializeProjectGraph(root)).rejects.toThrow("planweave init --project-graph --json");
+    await expect(materializeProjectGraph(root)).rejects.toThrow(
+      "planweave init --project-graph --json"
+    );
   });
 
   it("does not report project metadata stat failures as uninitialized when materializing a project graph", async () => {
@@ -194,7 +210,9 @@ describe("project graph schema", () => {
 
     await expect(loadProjectGraph(root)).resolves.toMatchObject({
       source: "project_graph",
-      manifest: { canvases: expect.arrayContaining([expect.objectContaining({ id: canvas.canvasId })]) }
+      manifest: {
+        canvases: expect.arrayContaining([expect.objectContaining({ id: canvas.canvasId })])
+      }
     });
   });
 

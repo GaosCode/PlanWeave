@@ -3,7 +3,11 @@ import { join, relative } from "node:path";
 import { optionalStat } from "../../fs/optionalFile.js";
 import type { ProjectWorkspace, ValidationIssue } from "../../types.js";
 import { appendDesktopDiagnostic, desktopDiagnostic, errorMessage } from "./desktopDiagnostics.js";
-import { maxCachedResultsDirectories, ResultsFileIndexCache, type ResultsFileIndexCacheScope } from "./resultsFileIndexCache.js";
+import {
+  maxCachedResultsDirectories,
+  ResultsFileIndexCache,
+  type ResultsFileIndexCacheScope
+} from "./resultsFileIndexCache.js";
 
 const resultFilePattern = /\.(md|json|log|txt)$/;
 
@@ -92,8 +96,12 @@ type CachedResultsFingerprintSnapshot = {
   snapshot: ResultsFileFingerprintSnapshot;
 };
 
-const resultsFileIndexCacheByResultsDir = new ResultsFileIndexCache<CachedResultsFileIndex>(maxCachedResultsDirectories);
-const resultsFingerprintSnapshotCache = new ResultsFileIndexCache<CachedResultsFingerprintSnapshot>(maxCachedResultsDirectories);
+const resultsFileIndexCacheByResultsDir = new ResultsFileIndexCache<CachedResultsFileIndex>(
+  maxCachedResultsDirectories
+);
+const resultsFingerprintSnapshotCache = new ResultsFileIndexCache<CachedResultsFingerprintSnapshot>(
+  maxCachedResultsDirectories
+);
 
 /** Counts full fingerprint rebuilds that walk the results tree via collectResultFiles. */
 let resultsFingerprintFullScanCount = 0;
@@ -146,7 +154,10 @@ async function runBounded<T, R>(
   return results;
 }
 
-async function readResultDirectory(resultsDir: string, root: string): Promise<CollectedResultDirectory> {
+async function readResultDirectory(
+  resultsDir: string,
+  root: string
+): Promise<CollectedResultDirectory> {
   try {
     const entries = await readdir(root, { withFileTypes: true });
     const directories: string[] = [];
@@ -175,7 +186,12 @@ async function readResultDirectory(resultsDir: string, root: string): Promise<Co
   }
 }
 
-async function walkResultFiles(resultsDir: string, root: string, diagnostics: ValidationIssue[], files: string[]): Promise<void> {
+async function walkResultFiles(
+  resultsDir: string,
+  root: string,
+  diagnostics: ValidationIssue[],
+  files: string[]
+): Promise<void> {
   let directories = [root];
   while (directories.length > 0) {
     const collectedDirectories = await runBounded(
@@ -195,7 +211,12 @@ async function walkResultFiles(resultsDir: string, root: string, diagnostics: Va
   }
 }
 
-async function collectResultFiles(resultsDir: string, root: string, diagnostics: ValidationIssue[], files: string[]): Promise<void> {
+async function collectResultFiles(
+  resultsDir: string,
+  root: string,
+  diagnostics: ValidationIssue[],
+  files: string[]
+): Promise<void> {
   resultsFingerprintFullScanCount += 1;
   await walkResultFiles(resultsDir, root, diagnostics, files);
 }
@@ -234,10 +255,16 @@ export async function resultsDirSignature(resultsDir: string): Promise<string | 
     .map((diagnostic) => `${diagnostic.code}\t${diagnostic.path ?? ""}\t${diagnostic.message}`)
     .sort((left, right) => left.localeCompare(right))
     .join("\n");
-  return diagnosticMarker ? `${parts.join("\n")}\n#diagnostics\n${diagnosticMarker}` : parts.join("\n");
+  return diagnosticMarker
+    ? `${parts.join("\n")}\n#diagnostics\n${diagnosticMarker}`
+    : parts.join("\n");
 }
 
-async function readResultBody(path: string, size: number, resultsDir: string): Promise<{ body: string; diagnostics: ValidationIssue[] }> {
+async function readResultBody(
+  path: string,
+  size: number,
+  resultsDir: string
+): Promise<{ body: string; diagnostics: ValidationIssue[] }> {
   if (size > maxIndexedResultFileBytes) {
     return { body: "", diagnostics: [] };
   }
@@ -247,7 +274,11 @@ async function readResultBody(path: string, size: number, resultsDir: string): P
     return {
       body: "",
       diagnostics: [
-        desktopDiagnostic("desktop_result_file_read_failed", `Result file could not be read: ${errorMessage(caught)}`, resultPath(resultsDir, path))
+        desktopDiagnostic(
+          "desktop_result_file_read_failed",
+          `Result file could not be read: ${errorMessage(caught)}`,
+          resultPath(resultsDir, path)
+        )
       ]
     };
   }
@@ -257,7 +288,10 @@ function isMetadataPath(relativePath: string): boolean {
   return relativePath.endsWith("/metadata.json");
 }
 
-function parseMetadata(body: string, path: string): { value: Record<string, unknown> | null; diagnostics: ValidationIssue[] } {
+function parseMetadata(
+  body: string,
+  path: string
+): { value: Record<string, unknown> | null; diagnostics: ValidationIssue[] } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(body) as unknown;
@@ -265,7 +299,11 @@ function parseMetadata(body: string, path: string): { value: Record<string, unkn
     return {
       value: null,
       diagnostics: [
-        desktopDiagnostic("desktop_result_metadata_read_failed", `Result metadata could not be read or parsed: ${errorMessage(caught)}`, path)
+        desktopDiagnostic(
+          "desktop_result_metadata_read_failed",
+          `Result metadata could not be read or parsed: ${errorMessage(caught)}`,
+          path
+        )
       ]
     };
   }
@@ -277,13 +315,25 @@ function parseMetadata(body: string, path: string): { value: Record<string, unkn
   return {
     value: null,
     diagnostics: [
-      desktopDiagnostic("desktop_result_metadata_invalid", "Result metadata must be a JSON object.", path)
+      desktopDiagnostic(
+        "desktop_result_metadata_invalid",
+        "Result metadata must be a JSON object.",
+        path
+      )
     ]
   };
 }
 
-function sameResultsFingerprint(left: ResultFileFingerprint, right: ResultFileFingerprint): boolean {
-  return left.path === right.path && left.ctimeMs === right.ctimeMs && left.mtimeMs === right.mtimeMs && left.size === right.size;
+function sameResultsFingerprint(
+  left: ResultFileFingerprint,
+  right: ResultFileFingerprint
+): boolean {
+  return (
+    left.path === right.path &&
+    left.ctimeMs === right.ctimeMs &&
+    left.mtimeMs === right.mtimeMs &&
+    left.size === right.size
+  );
 }
 
 function newestResultFirst(left: ResultFileFingerprint, right: ResultFileFingerprint): number {
@@ -350,7 +400,10 @@ function finalizeResultFingerprintSelection(
   let bodyBudgetExhausted = false;
 
   for (const fingerprint of selection.selected) {
-    if (fingerprint.size <= limits.maxSingleFileBytes && (bodyBudgetExhausted || indexedBodyBytes + fingerprint.size > limits.maxTotalBodyBytes)) {
+    if (
+      fingerprint.size <= limits.maxSingleFileBytes &&
+      (bodyBudgetExhausted || indexedBodyBytes + fingerprint.size > limits.maxTotalBodyBytes)
+    ) {
       bodyBudgetExhausted = true;
       continue;
     }
@@ -363,20 +416,24 @@ function finalizeResultFingerprintSelection(
 
   const diagnostics: ValidationIssue[] = [];
   if (selection.observedFileCount > limits.maxFiles) {
-    diagnostics.push(desktopDiagnostic(
-      "desktop_results_index_file_limit_exceeded",
-      `Results index file limit exceeded: total=${selection.observedFileCount}, indexed=${files.length}, skipped=${selection.observedFileCount - files.length}, limit=${limits.maxFiles}.`,
-      "results"
-    ));
+    diagnostics.push(
+      desktopDiagnostic(
+        "desktop_results_index_file_limit_exceeded",
+        `Results index file limit exceeded: total=${selection.observedFileCount}, indexed=${files.length}, skipped=${selection.observedFileCount - files.length}, limit=${limits.maxFiles}.`,
+        "results"
+      )
+    );
   }
   if (selection.observedReadableBodyBytes > limits.maxTotalBodyBytes) {
     const skippedBodyBytes = selection.observedReadableBodyBytes - indexedBodyBytes;
     const skippedBodyFiles = selection.observedReadableBodyFileCount - indexedReadableBodyFileCount;
-    diagnostics.push(desktopDiagnostic(
-      "desktop_results_index_byte_limit_exceeded",
-      `Results index body byte limit exceeded: total=${selection.observedReadableBodyBytes}, indexed=${indexedBodyBytes}, skipped=${skippedBodyBytes}, limit=${limits.maxTotalBodyBytes}; skippedFiles=${skippedBodyFiles}.`,
-      "results"
-    ));
+    diagnostics.push(
+      desktopDiagnostic(
+        "desktop_results_index_byte_limit_exceeded",
+        `Results index body byte limit exceeded: total=${selection.observedReadableBodyBytes}, indexed=${indexedBodyBytes}, skipped=${skippedBodyBytes}, limit=${limits.maxTotalBodyBytes}; skippedFiles=${skippedBodyFiles}.`,
+        "results"
+      )
+    );
   }
 
   return { files, diagnostics };
@@ -407,16 +464,24 @@ async function fingerprintResultFiles(resultsDir: string): Promise<ResultsFileFi
   await runBounded(files, resultsIndexConcurrency.fileStats, async (absolutePath) => {
     try {
       const metadata = await stat(absolutePath);
-      observeResultFingerprint(selection, {
-        path: toPosixPath(relative(resultsDir, absolutePath)),
-        ctimeMs: metadata.ctimeMs,
-        mtimeMs: metadata.mtimeMs,
-        size: metadata.size
-      }, limits);
+      observeResultFingerprint(
+        selection,
+        {
+          path: toPosixPath(relative(resultsDir, absolutePath)),
+          ctimeMs: metadata.ctimeMs,
+          mtimeMs: metadata.mtimeMs,
+          size: metadata.size
+        },
+        limits
+      );
     } catch (caught) {
       statDiagnosticsByPath.set(
         absolutePath,
-        desktopDiagnostic("desktop_result_file_read_failed", `Result file metadata could not be read: ${errorMessage(caught)}`, resultPath(resultsDir, absolutePath))
+        desktopDiagnostic(
+          "desktop_result_file_read_failed",
+          `Result file metadata could not be read: ${errorMessage(caught)}`,
+          resultPath(resultsDir, absolutePath)
+        )
       );
     }
   });
@@ -436,7 +501,9 @@ async function fingerprintResultFiles(resultsDir: string): Promise<ResultsFileFi
   };
 }
 
-export async function snapshotResultsFileFingerprints(workspace: ProjectWorkspace): Promise<ResultsFileFingerprintSnapshot> {
+export async function snapshotResultsFileFingerprints(
+  workspace: ProjectWorkspace
+): Promise<ResultsFileFingerprintSnapshot> {
   const resultsDir = workspace.resultsDir;
   const signature = await resultsDirSignature(resultsDir);
   if (signature !== null) {
@@ -465,10 +532,16 @@ export function sameResultsFileFingerprintSnapshot(
   left: ResultsFileFingerprintSnapshot,
   right: ResultsFileFingerprintSnapshot
 ): boolean {
-  return left.diagnostics.length === right.diagnostics.length
-    && left.diagnostics.every((diagnostic, index) => sameDiagnostic(diagnostic, right.diagnostics[index]))
-    && left.files.length === right.files.length
-    && left.files.every((fingerprint, index) => sameResultsFingerprint(fingerprint, right.files[index]));
+  return (
+    left.diagnostics.length === right.diagnostics.length &&
+    left.diagnostics.every((diagnostic, index) =>
+      sameDiagnostic(diagnostic, right.diagnostics[index])
+    ) &&
+    left.files.length === right.files.length &&
+    left.files.every((fingerprint, index) =>
+      sameResultsFingerprint(fingerprint, right.files[index])
+    )
+  );
 }
 
 async function readResultIndexEntry(
@@ -478,9 +551,10 @@ async function readResultIndexEntry(
   const absolutePath = join(workspace.resultsDir, fingerprint.path);
   const diagnostics: ValidationIssue[] = [];
   const resultDisplayPath = resultPath(workspace.resultsDir, absolutePath);
-  const metadataBody = isMetadataPath(fingerprint.path) && fingerprint.size <= maxIndexedResultFileBytes
-    ? await readResultBody(absolutePath, fingerprint.size, workspace.resultsDir)
-    : null;
+  const metadataBody =
+    isMetadataPath(fingerprint.path) && fingerprint.size <= maxIndexedResultFileBytes
+      ? await readResultBody(absolutePath, fingerprint.size, workspace.resultsDir)
+      : null;
   if (metadataBody) {
     for (const diagnostic of metadataBody.diagnostics) {
       appendDesktopDiagnostic(diagnostics, diagnostic);
@@ -579,7 +653,11 @@ async function readCachedResultBody(
   if (cached) {
     return cached;
   }
-  const bodyResult = await readResultBody(entry.absolutePath, entry.fingerprint.size, workspace.resultsDir);
+  const bodyResult = await readResultBody(
+    entry.absolutePath,
+    entry.fingerprint.size,
+    workspace.resultsDir
+  );
   return {
     fingerprint: entry.fingerprint,
     body: bodyResult.body,
@@ -587,19 +665,31 @@ async function readCachedResultBody(
   };
 }
 
-function appendResultBodyLimitDiagnostic(diagnostics: ValidationIssue[], sourceDiagnostics: ValidationIssue[]): void {
-  const limited = sourceDiagnostics.some((diagnostic) => diagnostic.code === "desktop_results_index_file_limit_exceeded"
-    || diagnostic.code === "desktop_results_index_byte_limit_exceeded");
+function appendResultBodyLimitDiagnostic(
+  diagnostics: ValidationIssue[],
+  sourceDiagnostics: ValidationIssue[]
+): void {
+  const limited = sourceDiagnostics.some(
+    (diagnostic) =>
+      diagnostic.code === "desktop_results_index_file_limit_exceeded" ||
+      diagnostic.code === "desktop_results_index_byte_limit_exceeded"
+  );
   if (!limited) {
     return;
   }
   appendDesktopDiagnostic(
     diagnostics,
-    desktopDiagnostic("desktop_search_body_index_skipped_by_limit", "Search result body indexing skipped some result files because index limits were reached.", "results")
+    desktopDiagnostic(
+      "desktop_search_body_index_skipped_by_limit",
+      "Search result body indexing skipped some result files because index limits were reached.",
+      "results"
+    )
   );
 }
 
-export async function hydrateResultsFileIndexBodies(index: ResultsFileIndex): Promise<ResultsFileIndex> {
+export async function hydrateResultsFileIndexBodies(
+  index: ResultsFileIndex
+): Promise<ResultsFileIndex> {
   const cachedIndex = resultsFileIndexCacheByResultsDir.get(index.workspace.resultsDir);
   const diagnostics: ValidationIssue[] = [...index.diagnostics];
   const entries: ResultsFileIndexEntry[] = [];
@@ -607,21 +697,25 @@ export async function hydrateResultsFileIndexBodies(index: ResultsFileIndex): Pr
 
   appendResultBodyLimitDiagnostic(diagnostics, index.diagnostics);
 
-  const hydratedEntries = await runBounded(index.entries, resultsIndexConcurrency.bodyReads, async (entry) => {
-    if (entry.bodyLoaded || entry.bodyTruncated) {
-      return { entry, body: null };
+  const hydratedEntries = await runBounded(
+    index.entries,
+    resultsIndexConcurrency.bodyReads,
+    async (entry) => {
+      if (entry.bodyLoaded || entry.bodyTruncated) {
+        return { entry, body: null };
+      }
+      const body = await readCachedResultBody(index.workspace, entry, cachedIndex);
+      return {
+        entry: {
+          ...entry,
+          body: body.body,
+          bodyLoaded: body.diagnostics.length === 0,
+          bodyTruncated: entry.bodyTruncated
+        },
+        body
+      };
     }
-    const body = await readCachedResultBody(index.workspace, entry, cachedIndex);
-    return {
-      entry: {
-        ...entry,
-        body: body.body,
-        bodyLoaded: body.diagnostics.length === 0,
-        bodyTruncated: entry.bodyTruncated
-      },
-      body
-    };
-  });
+  );
 
   for (const hydrated of hydratedEntries) {
     const body = hydrated.body;
@@ -648,7 +742,9 @@ export async function hydrateResultsFileIndexBodies(index: ResultsFileIndex): Pr
   };
 }
 
-export async function buildResultsFileIndexWithFingerprint(workspace: ProjectWorkspace): Promise<ResultsFileIndexWithFingerprint> {
+export async function buildResultsFileIndexWithFingerprint(
+  workspace: ProjectWorkspace
+): Promise<ResultsFileIndexWithFingerprint> {
   const fingerprint = await snapshotResultsFileFingerprints(workspace);
   return {
     index: await buildResultsFileIndexFromFingerprintSnapshot(workspace, fingerprint),
@@ -656,6 +752,8 @@ export async function buildResultsFileIndexWithFingerprint(workspace: ProjectWor
   };
 }
 
-export async function buildResultsFileIndex(workspace: ProjectWorkspace): Promise<ResultsFileIndex> {
+export async function buildResultsFileIndex(
+  workspace: ProjectWorkspace
+): Promise<ResultsFileIndex> {
   return (await buildResultsFileIndexWithFingerprint(workspace)).index;
 }

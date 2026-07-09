@@ -1,4 +1,7 @@
-import type { DesktopReviewPipelineStepInput, DesktopUpdateReviewPipelineInput } from "@planweave-ai/runtime";
+import type {
+  DesktopReviewPipelineStepInput,
+  DesktopUpdateReviewPipelineInput
+} from "@planweave-ai/runtime";
 
 export function normalizeNonNegativeInteger(value: number): number {
   if (!Number.isFinite(value) || value < 0) {
@@ -11,7 +14,9 @@ export function parseNonNegativeIntegerInput(value: string): number {
   return normalizeNonNegativeInteger(Number(value));
 }
 
-function normalizeHookArgs(hook: DesktopReviewPipelineStepInput["hook"]): DesktopReviewPipelineStepInput["hook"] {
+function normalizeHookArgs(
+  hook: DesktopReviewPipelineStepInput["hook"]
+): DesktopReviewPipelineStepInput["hook"] {
   if (!hook) {
     return null;
   }
@@ -21,7 +26,9 @@ function normalizeHookArgs(hook: DesktopReviewPipelineStepInput["hook"]): Deskto
   };
 }
 
-export function normalizeReviewPipelineDraft(input: DesktopUpdateReviewPipelineInput): DesktopUpdateReviewPipelineInput {
+export function normalizeReviewPipelineDraft(
+  input: DesktopUpdateReviewPipelineInput
+): DesktopUpdateReviewPipelineInput {
   const normalized: DesktopUpdateReviewPipelineInput = {
     steps: input.steps.map((step) => ({
       ...step,

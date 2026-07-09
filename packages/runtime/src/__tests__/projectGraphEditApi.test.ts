@@ -33,7 +33,9 @@ describe("project graph edit API", () => {
     await materializeProjectGraph(root);
     const second = await createFixtureCanvas(root);
 
-    await expect(addCanvasDependency(root, second.canvasId, "default")).resolves.toMatchObject({ ok: true });
+    await expect(addCanvasDependency(root, second.canvasId, "default")).resolves.toMatchObject({
+      ok: true
+    });
     await expect(
       addCrossTaskDependency(
         root,
@@ -52,7 +54,9 @@ describe("project graph edit API", () => {
       }
     ]);
 
-    await expect(removeCanvasDependency(root, second.canvasId, "default")).resolves.toMatchObject({ ok: true });
+    await expect(removeCanvasDependency(root, second.canvasId, "default")).resolves.toMatchObject({
+      ok: true
+    });
     await expect(
       removeCrossTaskDependency(
         root,
@@ -70,11 +74,15 @@ describe("project graph edit API", () => {
     const { root } = await createTestWorkspace();
     await materializeProjectGraph(root);
     const second = await createFixtureCanvas(root);
-    await expect(addCanvasDependency(root, second.canvasId, "default")).resolves.toMatchObject({ ok: true });
+    await expect(addCanvasDependency(root, second.canvasId, "default")).resolves.toMatchObject({
+      ok: true
+    });
 
     const cyclic = await addCanvasDependency(root, "default", second.canvasId);
     expect(cyclic).toMatchObject({ ok: false });
-    expect(cyclic.diagnostics.map((diagnostic) => diagnostic.code)).toContain("project_canvas_depends_on_cycle");
+    expect(cyclic.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "project_canvas_depends_on_cycle"
+    );
     const graph = (await loadProjectGraph(root)).manifest;
     expect(graph.edges).toEqual([{ from: second.canvasId, to: "default", type: "depends_on" }]);
   });
@@ -84,7 +92,9 @@ describe("project graph edit API", () => {
     await materializeProjectGraph(root);
     const second = await createFixtureCanvas(root);
 
-    await expect(addCanvasDependency(root, second.canvasId, "default")).resolves.toMatchObject({ ok: true });
+    await expect(addCanvasDependency(root, second.canvasId, "default")).resolves.toMatchObject({
+      ok: true
+    });
     await expect(
       addCrossTaskDependency(
         root,

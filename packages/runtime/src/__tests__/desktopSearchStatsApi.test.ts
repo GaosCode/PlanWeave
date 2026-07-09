@@ -17,10 +17,24 @@ import { mapProjectTaskCanvases } from "../desktop/graph/projectCanvasAggregatio
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { canonicalProjectCanvasNode, writeProjectGraph } from "../projectGraph/index.js";
 import { runAutoRunStep } from "../taskManager/autoRun.js";
-import { claimNext, getExecutionStatus, submitBlockResult, submitReviewResult } from "../taskManager/index.js";
+import {
+  claimNext,
+  getExecutionStatus,
+  submitBlockResult,
+  submitReviewResult
+} from "../taskManager/index.js";
 import type { PlanPackageManifest } from "../types.js";
-import { maxIndexedResultFileBytes, maxIndexedResultTotalBodyBytes } from "../desktop/graph/resultsFileIndex.js";
-import { basicManifest, createTestWorkspace, writePromptFiles, writeReport, writeReviewResult } from "./promptTestHelpers.js";
+import {
+  maxIndexedResultFileBytes,
+  maxIndexedResultTotalBodyBytes
+} from "../desktop/graph/resultsFileIndex.js";
+import {
+  basicManifest,
+  createTestWorkspace,
+  writePromptFiles,
+  writeReport,
+  writeReviewResult
+} from "./promptTestHelpers.js";
 
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
@@ -38,11 +52,14 @@ describe("desktop search and statistics API", () => {
     const { root, init } = await createTestWorkspace();
     const secondCanvas = await createTaskCanvas(root, { name: "Empty follow-up canvas" });
 
-    const seen = await mapProjectTaskCanvases(root, async ({ canvasId, canvasName, workspace }) => ({
-      canvasId,
-      canvasName,
-      manifestFile: workspace.manifestFile
-    }));
+    const seen = await mapProjectTaskCanvases(
+      root,
+      async ({ canvasId, canvasName, workspace }) => ({
+        canvasId,
+        canvasName,
+        manifestFile: workspace.manifestFile
+      })
+    );
 
     expect(seen).toEqual([
       {
@@ -58,7 +75,9 @@ describe("desktop search and statistics API", () => {
   });
 
   it("derives todo, statistics, and search from runtime/package sources", async () => {
-    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] }));
+    const { root, init } = await createTestWorkspace(
+      basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] })
+    );
     const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     const firstTask = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
     if (firstTask?.type !== "task") {
@@ -69,7 +88,9 @@ describe("desktop search and statistics API", () => {
 
     const todo = await getTodoGroups(root);
     expect(todo.ready.map((item) => item.ref)).toEqual(["T-002#B-001"]);
-    expect(todo.planned.find((item) => item.ref === "T-001#B-001")?.dependencyBlockers).toEqual(["T-002"]);
+    expect(todo.planned.find((item) => item.ref === "T-001#B-001")?.dependencyBlockers).toEqual([
+      "T-002"
+    ]);
 
     const stats = await getStatistics(root);
     expect(stats.taskTotal).toBe(2);
@@ -87,7 +108,9 @@ describe("desktop search and statistics API", () => {
     await expect(searchProject(root, "T-001 task prompt", { kinds: ["prompt"] })).resolves.toEqual([
       expect.objectContaining({ kind: "prompt", ref: "T-001", targetRef: "T-001" })
     ]);
-    await expect(searchProject(root, "T-001 task prompt", { kinds: ["task"] })).resolves.toEqual([]);
+    await expect(searchProject(root, "T-001 task prompt", { kinds: ["task"] })).resolves.toEqual(
+      []
+    );
 
     const graph = await getGraphViewModel(root);
     expect(graph.tasks.find((task) => task.taskId === "T-001")?.executorLabel).toBe("Mixed");
@@ -103,12 +126,14 @@ describe("desktop search and statistics API", () => {
       taskTotal: 1,
       averageImplementationTimeMs: null
     });
-    expect(snapshot.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: "desktop_results_read_failed", path: "results" })
-    ]));
-    expect(snapshot.errors).toEqual(expect.arrayContaining([
-      expect.stringContaining("results: Result files could not be listed")
-    ]));
+    expect(snapshot.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "desktop_results_read_failed", path: "results" })
+      ])
+    );
+    expect(snapshot.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("results: Result files could not be listed")])
+    );
   });
 
   it("refreshes cached desktop projection diagnostics after results directory becomes unreadable", async () => {
@@ -119,12 +144,14 @@ describe("desktop search and statistics API", () => {
 
     const snapshot = await getDesktopProjectSnapshot({ projectRoot: root, canvasId: null });
 
-    expect(snapshot.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: "desktop_results_read_failed", path: "results" })
-    ]));
-    expect(snapshot.errors).toEqual(expect.arrayContaining([
-      expect.stringContaining("results: Result files could not be listed")
-    ]));
+    expect(snapshot.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "desktop_results_read_failed", path: "results" })
+      ])
+    );
+    expect(snapshot.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("results: Result files could not be listed")])
+    );
   });
 
   it("reports search result file listing failures through public diagnostics without changing search results", async () => {
@@ -134,14 +161,18 @@ describe("desktop search and statistics API", () => {
     await expect(searchProject(root, "T-001 task prompt", { kinds: ["prompt"] })).resolves.toEqual([
       expect.objectContaining({ kind: "prompt", ref: "T-001", targetRef: "T-001" })
     ]);
-    const projection = await searchProjectWithDiagnostics(root, "T-001 task prompt", { kinds: ["prompt"] });
+    const projection = await searchProjectWithDiagnostics(root, "T-001 task prompt", {
+      kinds: ["prompt"]
+    });
 
     expect(projection.results).toEqual([
       expect.objectContaining({ kind: "prompt", ref: "T-001", targetRef: "T-001" })
     ]);
-    expect(projection.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: "desktop_results_read_failed", path: "results" })
-    ]));
+    expect(projection.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "desktop_results_read_failed", path: "results" })
+      ])
+    );
   });
 
   it("reports malformed result metadata through snapshot diagnostics", async () => {
@@ -157,49 +188,84 @@ describe("desktop search and statistics API", () => {
       taskTotal: 1,
       averageImplementationTimeMs: null
     });
-    expect(statisticsProjection.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        code: "desktop_result_metadata_read_failed",
-        path: "results/T-001/blocks/B-001/runs/RUN-BAD/metadata.json"
-      })
-    ]));
-    expect(snapshot.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        code: "desktop_result_metadata_read_failed",
-        path: "results/T-001/blocks/B-001/runs/RUN-BAD/metadata.json"
-      })
-    ]));
-    expect(snapshot.errors).toEqual(expect.arrayContaining([
-      expect.stringContaining("results/T-001/blocks/B-001/runs/RUN-BAD/metadata.json: Result metadata could not be read or parsed")
-    ]));
+    expect(statisticsProjection.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "desktop_result_metadata_read_failed",
+          path: "results/T-001/blocks/B-001/runs/RUN-BAD/metadata.json"
+        })
+      ])
+    );
+    expect(snapshot.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "desktop_result_metadata_read_failed",
+          path: "results/T-001/blocks/B-001/runs/RUN-BAD/metadata.json"
+        })
+      ])
+    );
+    expect(snapshot.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "results/T-001/blocks/B-001/runs/RUN-BAD/metadata.json: Result metadata could not be read or parsed"
+        )
+      ])
+    );
   });
 
   it("reports empty and oversized result metadata through statistics diagnostics", async () => {
     const { root, init } = await createTestWorkspace();
-    const emptyRunDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-EMPTY");
-    const oversizedRunDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-OVERSIZED");
+    const emptyRunDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-EMPTY"
+    );
+    const oversizedRunDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-OVERSIZED"
+    );
     await mkdir(emptyRunDir, { recursive: true });
     await mkdir(oversizedRunDir, { recursive: true });
     await writeFile(join(emptyRunDir, "metadata.json"), "", "utf8");
-    await writeFile(join(oversizedRunDir, "metadata.json"), " ".repeat(maxIndexedResultFileBytes + 1), "utf8");
+    await writeFile(
+      join(oversizedRunDir, "metadata.json"),
+      " ".repeat(maxIndexedResultFileBytes + 1),
+      "utf8"
+    );
 
     const projection = await getStatisticsProjection(root);
 
-    expect(projection.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        code: "desktop_result_metadata_read_failed",
-        path: "results/T-001/blocks/B-001/runs/RUN-EMPTY/metadata.json"
-      }),
-      expect.objectContaining({
-        code: "desktop_result_metadata_read_failed",
-        path: "results/T-001/blocks/B-001/runs/RUN-OVERSIZED/metadata.json"
-      })
-    ]));
+    expect(projection.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "desktop_result_metadata_read_failed",
+          path: "results/T-001/blocks/B-001/runs/RUN-EMPTY/metadata.json"
+        }),
+        expect.objectContaining({
+          code: "desktop_result_metadata_read_failed",
+          path: "results/T-001/blocks/B-001/runs/RUN-OVERSIZED/metadata.json"
+        })
+      ])
+    );
   });
 
   it("reports result index byte limits through snapshot diagnostics without changing statistics shape", async () => {
     const { root, init } = await createTestWorkspace();
-    const limitedDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-SNAPSHOT-LIMIT");
+    const limitedDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-SNAPSHOT-LIMIT"
+    );
     await mkdir(limitedDir, { recursive: true });
 
     const bodySize = 250_000;
@@ -221,23 +287,32 @@ describe("desktop search and statistics API", () => {
       taskTotal: 1,
       averageImplementationTimeMs: null
     });
-    expect(snapshot.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        code: "desktop_results_index_byte_limit_exceeded",
-        path: "results",
-        message: expect.stringContaining(`limit=${maxIndexedResultTotalBodyBytes}`)
-      })
-    ]));
-    expect(snapshot.errors).toEqual(expect.arrayContaining([
-      expect.stringContaining("results: Results index body byte limit exceeded")
-    ]));
+    expect(snapshot.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "desktop_results_index_byte_limit_exceeded",
+          path: "results",
+          message: expect.stringContaining(`limit=${maxIndexedResultTotalBodyBytes}`)
+        })
+      ])
+    );
+    expect(snapshot.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("results: Results index body byte limit exceeded")
+      ])
+    );
     expect(statisticsProjection.statistics).toMatchObject({
       taskTotal: 1,
       averageImplementationTimeMs: null
     });
-    expect(statisticsProjection.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: "desktop_results_index_byte_limit_exceeded", path: "results" })
-    ]));
+    expect(statisticsProjection.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "desktop_results_index_byte_limit_exceeded",
+          path: "results"
+        })
+      ])
+    );
   });
 
   it("refreshes cached desktop projection after task manager result and state writes", async () => {
@@ -250,7 +325,11 @@ describe("desktop search and statistics API", () => {
     await submitBlockResult({
       projectRoot: root,
       ref: "T-001#B-001",
-      reportPath: await writeReport(root, "cache-invalidation-report.md", "cache invalidation marker\n")
+      reportPath: await writeReport(
+        root,
+        "cache-invalidation-report.md",
+        "cache invalidation marker\n"
+      )
     });
 
     const snapshot = await getDesktopProjectSnapshot({ projectRoot: root, canvasId: null });
@@ -259,18 +338,29 @@ describe("desktop search and statistics API", () => {
     expect(snapshot.todoGroups?.completed).toEqual([
       expect.objectContaining({ ref: "T-001#B-001" })
     ]);
-    expect(search.results).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "run_record", ref: "T-001/blocks/B-001/runs/RUN-001/report.md" })
-    ]));
+    expect(search.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "run_record",
+          ref: "T-001/blocks/B-001/runs/RUN-001/report.md"
+        })
+      ])
+    );
   });
 
   it("refreshes cached desktop projection after external prompt file edits", async () => {
     const { root, init } = await createTestWorkspace();
 
     await searchProjectWithDiagnostics(root, "external prompt cache marker");
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), "# Edited prompt\n\nexternal prompt cache marker\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"),
+      "# Edited prompt\n\nexternal prompt cache marker\n",
+      "utf8"
+    );
 
-    const search = await searchProjectWithDiagnostics(root, "external prompt cache marker", { kinds: ["prompt"] });
+    const search = await searchProjectWithDiagnostics(root, "external prompt cache marker", {
+      kinds: ["prompt"]
+    });
 
     expect(search.results).toEqual([
       expect.objectContaining({
@@ -286,7 +376,9 @@ describe("desktop search and statistics API", () => {
     const secondCanvas = await createTaskCanvas(root, { name: "Search-only canvas" });
     const secondWorkspace = await resolveTaskCanvasWorkspace(root, secondCanvas.canvasId);
     const secondManifest = basicManifest();
-    const firstTask = secondManifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    const firstTask = secondManifest.nodes.find(
+      (node) => node.type === "task" && node.id === "T-001"
+    );
     if (firstTask?.type !== "task") {
       throw new Error("Fixture task missing.");
     }
@@ -294,8 +386,12 @@ describe("desktop search and statistics API", () => {
     await writeJsonFile(secondWorkspace.manifestFile, secondManifest);
     await writePromptFiles(secondWorkspace.packageDir, secondManifest);
 
-    await expect(searchProject(root, "Unique downstream task", { canvasId: "default" })).resolves.toEqual([]);
-    await expect(searchProject(root, "Unique downstream task", { canvasId: secondCanvas.canvasId })).resolves.toEqual([
+    await expect(
+      searchProject(root, "Unique downstream task", { canvasId: "default" })
+    ).resolves.toEqual([]);
+    await expect(
+      searchProject(root, "Unique downstream task", { canvasId: secondCanvas.canvasId })
+    ).resolves.toEqual([
       expect.objectContaining({
         canvasId: secondCanvas.canvasId,
         canvasName: "Search-only canvas",
@@ -322,19 +418,31 @@ describe("desktop search and statistics API", () => {
 
     const plan = await getProjectExecutionPlan(root);
 
-    expect(plan.phases.map((phase) => ({ phaseIndex: phase.phaseIndex, canvasId: phase.canvasId, canvasName: phase.canvasName }))).toEqual([
+    expect(
+      plan.phases.map((phase) => ({
+        phaseIndex: phase.phaseIndex,
+        canvasId: phase.canvasId,
+        canvasName: phase.canvasName
+      }))
+    ).toEqual([
       { phaseIndex: 1, canvasId: "default", canvasName: "Test Plan" },
       { phaseIndex: 2, canvasId: secondCanvas.canvasId, canvasName: "Follow-up canvas" }
     ]);
     expect(plan.phases[0].readyQueue.map((item) => item.ref)).toEqual(["T-001#B-001"]);
     expect(plan.phases[1].readyQueue).toEqual([
-      expect.objectContaining({ canvasId: secondCanvas.canvasId, ref: "T-001#B-001", parallelSafe: true })
+      expect.objectContaining({
+        canvasId: secondCanvas.canvasId,
+        ref: "T-001#B-001",
+        parallelSafe: true
+      })
     ]);
     expect(plan.readyQueue.map((item) => `${item.canvasId}:${item.ref}`)).toEqual([
       "default:T-001#B-001",
       `${secondCanvas.canvasId}:T-001#B-001`
     ]);
-    expect(plan.notes).toContain("Project graph dependencies gate ready queues; canvases without upstream blockers may run in parallel.");
+    expect(plan.notes).toContain(
+      "Project graph dependencies gate ready queues; canvases without upstream blockers may run in parallel."
+    );
   });
 
   it("orders project execution phases by project graph blockers", async () => {
@@ -367,11 +475,17 @@ describe("desktop search and statistics API", () => {
     expect(plan.phases[0].readyQueue.map((item) => item.ref)).toEqual(["T-001#B-001"]);
     expect(plan.phases[1].readyQueue).toEqual([]);
     expect(plan.phases[1].blockedCount).toBe(1);
-    expect(plan.readyQueue.map((item) => `${item.canvasId}:${item.ref}`)).toEqual(["default:T-001#B-001"]);
-    expect(todo.ready.map((item) => `${item.canvasId}:${item.ref}`)).toEqual(["default:T-001#B-001"]);
-    expect(todo.planned.find((item) => item.canvasId === secondCanvas.canvasId && item.ref === "T-001#B-001")?.dependencyBlockers).toEqual([
-      "canvas:default"
+    expect(plan.readyQueue.map((item) => `${item.canvasId}:${item.ref}`)).toEqual([
+      "default:T-001#B-001"
     ]);
+    expect(todo.ready.map((item) => `${item.canvasId}:${item.ref}`)).toEqual([
+      "default:T-001#B-001"
+    ]);
+    expect(
+      todo.planned.find(
+        (item) => item.canvasId === secondCanvas.canvasId && item.ref === "T-001#B-001"
+      )?.dependencyBlockers
+    ).toEqual(["canvas:default"]);
     const downstreamStatus = await getExecutionStatus({ projectRoot: secondWorkspace });
     const downstreamHint = downstreamStatus.claimHints.find((hint) => hint.ref === "T-001#B-001");
     expect(downstreamStatus.nextClaimable).toEqual([]);
@@ -428,10 +542,14 @@ describe("desktop search and statistics API", () => {
 
     const todo = await getTodoGroups(root);
 
-    expect(todo.ready.map((item) => `${item.canvasId}:${item.ref}`)).toEqual(["default:T-001#B-001"]);
-    expect(todo.planned.find((item) => item.canvasId === secondCanvas.canvasId && item.ref === "T-001#B-001")?.dependencyBlockers).toEqual([
-      "default:T-001"
+    expect(todo.ready.map((item) => `${item.canvasId}:${item.ref}`)).toEqual([
+      "default:T-001#B-001"
     ]);
+    expect(
+      todo.planned.find(
+        (item) => item.canvasId === secondCanvas.canvasId && item.ref === "T-001#B-001"
+      )?.dependencyBlockers
+    ).toEqual(["default:T-001"]);
   });
 
   it("blocks open feedback claims when project graph upstream blockers are incomplete", async () => {
@@ -441,7 +559,11 @@ describe("desktop search and statistics API", () => {
     await writeJsonFile(secondWorkspace.manifestFile, basicManifest());
     await writePromptFiles(secondWorkspace.packageDir, basicManifest());
     await claimNext({ projectRoot: secondWorkspace });
-    await submitBlockResult({ projectRoot: secondWorkspace, ref: "T-001#B-001", reportPath: await writeReport(root, "downstream-report.md") });
+    await submitBlockResult({
+      projectRoot: secondWorkspace,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "downstream-report.md")
+    });
     await claimNext({ projectRoot: secondWorkspace });
     await submitReviewResult({
       projectRoot: secondWorkspace,
@@ -484,7 +606,11 @@ describe("desktop search and statistics API", () => {
     const { root } = await createTestWorkspace();
 
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "implemented-b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "implemented-b.md")
+    });
     await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,
@@ -501,14 +627,19 @@ describe("desktop search and statistics API", () => {
     const { root } = await createTestWorkspace();
     const brokenCanvas = await createTaskCanvas(root, { name: "Broken imported canvas" });
     const brokenWorkspace = await resolveTaskCanvasWorkspace(root, brokenCanvas.canvasId);
-    const invalidManifest = basicManifest() as unknown as { nodes: Array<{ blocks: Array<Record<string, unknown>> }> };
+    const invalidManifest = basicManifest() as unknown as {
+      nodes: Array<{ blocks: Array<Record<string, unknown>> }>;
+    };
     invalidManifest.nodes[0].blocks[0].type = "check";
     await writeJsonFile(brokenWorkspace.manifestFile, invalidManifest);
 
     await expect(getStatistics(root)).resolves.toMatchObject({ taskTotal: 1, blockTotal: 2 });
     await expect(getStatisticsProjection(root)).resolves.toMatchObject({
       diagnostics: expect.arrayContaining([
-        expect.objectContaining({ code: "desktop_canvas_execution_snapshot_failed", path: brokenCanvas.canvasId })
+        expect.objectContaining({
+          code: "desktop_canvas_execution_snapshot_failed",
+          path: brokenCanvas.canvasId
+        })
       ])
     });
     await expect(getTodoGroups(root)).resolves.toMatchObject({

@@ -67,7 +67,9 @@ describe("MCP tools: project context", () => {
         }
       ]
     });
-    expect(JSON.stringify(result)).toContain("Use project.projectId and canvasId exactly as returned here");
+    expect(JSON.stringify(result)).toContain(
+      "Use project.projectId and canvasId exactly as returned here"
+    );
     expect(JSON.stringify(result)).not.toContain("/sensitive");
     expect(gateway.validateProject).toHaveBeenCalledWith("ecco-the-dolphin-f7761c39");
     expect(gateway.validateProject).toHaveBeenCalledWith("tidesinger-e7bb1716");
@@ -77,9 +79,15 @@ describe("MCP tools: project context", () => {
 
   it("keeps other PlanWeave context visible when one context reader fails", async () => {
     const gateway = createGateway();
-    gateway.getProjectGraph.mockRejectedValueOnce(new Error("Could not read /sensitive/home/projects/project-1/canvases/default/package/manifest.json"));
+    gateway.getProjectGraph.mockRejectedValueOnce(
+      new Error(
+        "Could not read /sensitive/home/projects/project-1/canvases/default/package/manifest.json"
+      )
+    );
 
-    const result = readJson(await handlePlanweaveTool("get_project_tree", { projectId: "project-1" }, gateway));
+    const result = readJson(
+      await handlePlanweaveTool("get_project_tree", { projectId: "project-1" }, gateway)
+    );
 
     expect(result).toMatchObject({
       projects: [
@@ -104,7 +112,13 @@ describe("MCP tools: project context", () => {
 
   it("opens projects by projectId only", async () => {
     const gateway = createGateway();
-    const result = readJson(await handlePlanweaveTool("open_project", { projectId: "project-1", rootPath: "/ignored" }, gateway));
+    const result = readJson(
+      await handlePlanweaveTool(
+        "open_project",
+        { projectId: "project-1", rootPath: "/ignored" },
+        gateway
+      )
+    );
 
     expect(gateway.openProject).toHaveBeenCalledWith("project-1");
     expect(JSON.stringify(result)).not.toContain("/ignored");
@@ -113,7 +127,9 @@ describe("MCP tools: project context", () => {
 
   it("keeps get_project_overview as an open_project compatibility alias", async () => {
     const gateway = createGateway();
-    const result = readJson(await handlePlanweaveTool("get_project_overview", { projectId: "project-1" }, gateway));
+    const result = readJson(
+      await handlePlanweaveTool("get_project_overview", { projectId: "project-1" }, gateway)
+    );
 
     expect(gateway.openProject).toHaveBeenCalledWith("project-1");
     expect(result).toMatchObject({ project: { projectId: "project-1" } });
@@ -121,7 +137,9 @@ describe("MCP tools: project context", () => {
 
   it("validates projects by projectId only", async () => {
     const gateway = createGateway();
-    const result = readJson(await handlePlanweaveTool("validate_project", { projectId: "project-1" }, gateway));
+    const result = readJson(
+      await handlePlanweaveTool("validate_project", { projectId: "project-1" }, gateway)
+    );
     const outputSchema = z.object(planweaveToolOutputSchemas.validate_project);
 
     expect(gateway.validateProject).toHaveBeenCalledWith("project-1");
@@ -140,7 +158,13 @@ describe("MCP tools: project context", () => {
 
   it("returns sanitized execution status by projectId and canvasId", async () => {
     const gateway = createGateway();
-    const result = readJson(await handlePlanweaveTool("get_status", { projectId: "project-1", canvasId: "default" }, gateway));
+    const result = readJson(
+      await handlePlanweaveTool(
+        "get_status",
+        { projectId: "project-1", canvasId: "default" },
+        gateway
+      )
+    );
 
     expect(gateway.getStatus).toHaveBeenCalledWith("project-1", "default");
     expect(result).toMatchObject({
@@ -170,7 +194,13 @@ describe("MCP tools: project context", () => {
 
   it("returns rendered prompts without writing source prompts", async () => {
     const gateway = createGateway();
-    const result = readJson(await handlePlanweaveTool("get_prompt", { projectId: "project-1", canvasId: "default", ref: "T-001#I-001" }, gateway));
+    const result = readJson(
+      await handlePlanweaveTool(
+        "get_prompt",
+        { projectId: "project-1", canvasId: "default", ref: "T-001#I-001" },
+        gateway
+      )
+    );
 
     expect(gateway.getPrompt).toHaveBeenCalledWith("project-1", "default", "T-001#I-001");
     expect(result).toEqual({
@@ -185,7 +215,13 @@ describe("MCP tools: project context", () => {
 
   it("returns the resolved canvas id for rendered prompts when canvasId is omitted", async () => {
     const gateway = createGateway();
-    const result = readJson(await handlePlanweaveTool("get_prompt", { projectId: "project-1", ref: "T-001#I-001" }, gateway));
+    const result = readJson(
+      await handlePlanweaveTool(
+        "get_prompt",
+        { projectId: "project-1", ref: "T-001#I-001" },
+        gateway
+      )
+    );
 
     expect(gateway.getPrompt).toHaveBeenCalledWith("project-1", undefined, "T-001#I-001");
     expect(result).toEqual({
@@ -205,13 +241,16 @@ describe("MCP tools: project context", () => {
           canvasId: "default",
           canvasName: "Default",
           ref: "T-001#I-001",
-          title: "Run log https://example.com/docs/path /api/status /Users/me/My Project/results/T-001/run.log",
-          excerpt: "needle appears in /Users/me/My Project/canvases/default/package/nodes/T-001/prompt.md",
+          title:
+            "Run log https://example.com/docs/path /api/status /Users/me/My Project/results/T-001/run.log",
+          excerpt:
+            "needle appears in /Users/me/My Project/canvases/default/package/nodes/T-001/prompt.md",
           match: {
             field: "body",
             start: 0,
             length: 6,
-            excerpt: "needle appears in /Users/me/My Project/canvases/default/package/nodes/T-001/prompt.md",
+            excerpt:
+              "needle appears in /Users/me/My Project/canvases/default/package/nodes/T-001/prompt.md",
             excerptStart: 0
           }
         }
@@ -219,7 +258,8 @@ describe("MCP tools: project context", () => {
       diagnostics: [
         {
           code: "search_manifest_read_failed",
-          message: "Could not read /sensitive/home/projects/project-1/canvases/default/package/manifest.json",
+          message:
+            "Could not read /sensitive/home/projects/project-1/canvases/default/package/manifest.json",
           path: "/sensitive/home/projects/project-1/canvases/default/package/manifest.json"
         }
       ]
@@ -227,7 +267,13 @@ describe("MCP tools: project context", () => {
     const result = readJson(
       await handlePlanweaveTool(
         "search_project",
-        { projectId: "project-1", canvasId: "default", query: "  needle  ", kinds: ["prompt"], limit: 5 },
+        {
+          projectId: "project-1",
+          canvasId: "default",
+          query: "  needle  ",
+          kinds: ["prompt"],
+          limit: 5
+        },
         gateway
       )
     );
@@ -265,8 +311,12 @@ describe("MCP tools: project context", () => {
       ]
     });
     expect(JSON.stringify(result)).not.toContain("/sensitive");
-    expect(JSON.stringify(result)).not.toContain("/sensitive/home/projects/project-1/canvases/default/package/manifest.json");
-    expect(JSON.stringify(result)).not.toContain("/sensitive/home/projects/project-1/results/T-001/run.log");
+    expect(JSON.stringify(result)).not.toContain(
+      "/sensitive/home/projects/project-1/canvases/default/package/manifest.json"
+    );
+    expect(JSON.stringify(result)).not.toContain(
+      "/sensitive/home/projects/project-1/results/T-001/run.log"
+    );
     expect(JSON.stringify(result)).not.toContain("/Users/me/My Project");
     expect(JSON.stringify(result)).toContain("https://example.com/docs/path");
     expect(JSON.stringify(result)).toContain("/api/status");
@@ -276,18 +326,34 @@ describe("MCP tools: project context", () => {
   it("rejects invalid search query, kinds, and limit", async () => {
     const gateway = createGateway();
 
-    await expect(handlePlanweaveTool("search_project", { projectId: "project-1", query: " " }, gateway)).rejects.toThrow("query is required");
-    await expect(handlePlanweaveTool("search_project", { projectId: "project-1", query: "needle", kinds: ["unknown"] }, gateway)).rejects.toThrow(
-      "kinds[0] must be one of"
-    );
-    await expect(handlePlanweaveTool("search_project", { projectId: "project-1", query: "needle", limit: 101 }, gateway)).rejects.toThrow(
-      "limit must be an integer from 1 to 100"
-    );
+    await expect(
+      handlePlanweaveTool("search_project", { projectId: "project-1", query: " " }, gateway)
+    ).rejects.toThrow("query is required");
+    await expect(
+      handlePlanweaveTool(
+        "search_project",
+        { projectId: "project-1", query: "needle", kinds: ["unknown"] },
+        gateway
+      )
+    ).rejects.toThrow("kinds[0] must be one of");
+    await expect(
+      handlePlanweaveTool(
+        "search_project",
+        { projectId: "project-1", query: "needle", limit: 101 },
+        gateway
+      )
+    ).rejects.toThrow("limit must be an integer from 1 to 100");
   });
 
   it("lists ready blocks from the selected ready queue", async () => {
     const gateway = createGateway();
-    const result = readJson(await handlePlanweaveTool("list_ready_blocks", { projectId: "project-1", canvasId: "default" }, gateway));
+    const result = readJson(
+      await handlePlanweaveTool(
+        "list_ready_blocks",
+        { projectId: "project-1", canvasId: "default" },
+        gateway
+      )
+    );
 
     expect(gateway.listReadyBlocks).toHaveBeenCalledWith("project-1", "default");
     expect(result).toEqual({
@@ -310,20 +376,34 @@ describe("MCP tools: project context", () => {
   it("rejects local path arguments for read-only context tools", async () => {
     const gateway = createGateway();
 
-    await expect(handlePlanweaveTool("get_status", { projectId: "project-1", rootPath: "/ignored" }, gateway)).rejects.toThrow(
-      "rootPath is not accepted"
-    );
-    await expect(handlePlanweaveTool("get_prompt", { projectId: "project-1", ref: "T-001#I-001", projectRoot: "/ignored" }, gateway)).rejects.toThrow(
-      "projectRoot is not accepted"
-    );
-    await expect(handlePlanweaveTool("list_ready_blocks", { projectId: "project-1", workspaceRoot: "/ignored" }, gateway)).rejects.toThrow(
-      "workspaceRoot is not accepted"
-    );
+    await expect(
+      handlePlanweaveTool("get_status", { projectId: "project-1", rootPath: "/ignored" }, gateway)
+    ).rejects.toThrow("rootPath is not accepted");
+    await expect(
+      handlePlanweaveTool(
+        "get_prompt",
+        { projectId: "project-1", ref: "T-001#I-001", projectRoot: "/ignored" },
+        gateway
+      )
+    ).rejects.toThrow("projectRoot is not accepted");
+    await expect(
+      handlePlanweaveTool(
+        "list_ready_blocks",
+        { projectId: "project-1", workspaceRoot: "/ignored" },
+        gateway
+      )
+    ).rejects.toThrow("workspaceRoot is not accepted");
   });
 
   it("creates managed projects without accepting root paths", async () => {
     const gateway = createGateway();
-    const result = readJson(await handlePlanweaveTool("create_project", { name: "New Project", rootPath: "/ignored" }, gateway));
+    const result = readJson(
+      await handlePlanweaveTool(
+        "create_project",
+        { name: "New Project", rootPath: "/ignored" },
+        gateway
+      )
+    );
 
     expect(gateway.initProject).toHaveBeenCalledWith("New Project");
     expect(result).toEqual({
@@ -339,7 +419,9 @@ describe("MCP tools: project context", () => {
 
   it("keeps init_project as a compatibility alias for create_project", async () => {
     const gateway = createGateway();
-    const result = readJson(await handlePlanweaveTool("init_project", { name: "New Project" }, gateway));
+    const result = readJson(
+      await handlePlanweaveTool("init_project", { name: "New Project" }, gateway)
+    );
 
     expect(gateway.initProject).toHaveBeenCalledWith("New Project");
     expect(result).toMatchObject({
@@ -352,7 +434,13 @@ describe("MCP tools: project context", () => {
 
   it("creates a new task canvas in a registered project", async () => {
     const gateway = createGateway();
-    const result = readJson(await handlePlanweaveTool("create_canvas", { projectId: "project-1", name: "Release plan", canvasId: "ignored" }, gateway));
+    const result = readJson(
+      await handlePlanweaveTool(
+        "create_canvas",
+        { projectId: "project-1", name: "Release plan", canvasId: "ignored" },
+        gateway
+      )
+    );
 
     expect(gateway.createCanvas).toHaveBeenCalledWith("project-1", "Release plan");
     expect(result).toEqual({
@@ -372,16 +460,27 @@ describe("MCP tools: project context", () => {
     const gateway = createGateway();
     gateway.validateProject.mockResolvedValueOnce({
       ok: false,
-      errors: [{ code: "missing_prompt", message: "Prompt is missing.", path: "nodes/T-001/prompt.md" }],
+      errors: [
+        { code: "missing_prompt", message: "Prompt is missing.", path: "nodes/T-001/prompt.md" }
+      ],
       warnings: [],
       summary: {
         errorCount: 1,
         warningCount: 0,
-        groups: [{ code: "missing_prompt", message: "Prompt is missing.", count: 1, examples: ["nodes/T-001/prompt.md"] }]
+        groups: [
+          {
+            code: "missing_prompt",
+            message: "Prompt is missing.",
+            count: 1,
+            examples: ["nodes/T-001/prompt.md"]
+          }
+        ]
       }
     });
 
-    const result = readJson(await handlePlanweaveTool("explain_validation_errors", { projectId: "project-1" }, gateway));
+    const result = readJson(
+      await handlePlanweaveTool("explain_validation_errors", { projectId: "project-1" }, gateway)
+    );
 
     expect(result).toMatchObject({
       ok: false,
@@ -396,6 +495,8 @@ describe("MCP tools: project context", () => {
   });
 
   it("rejects missing projectId", async () => {
-    await expect(handlePlanweaveTool("open_project", { rootPath: "/not-accepted" }, createGateway())).rejects.toThrow("projectId is required");
+    await expect(
+      handlePlanweaveTool("open_project", { rootPath: "/not-accepted" }, createGateway())
+    ).rejects.toThrow("projectId is required");
   });
 });

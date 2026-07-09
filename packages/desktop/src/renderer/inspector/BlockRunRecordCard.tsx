@@ -9,7 +9,14 @@ import type {
 import { XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { createTranslator } from "../i18n";
 import { TerminalOpenButton } from "./TerminalOpenButton";
@@ -41,8 +48,10 @@ export function BlockRunRecordCard({
   tmuxAvailable = false,
   t
 }: BlockRunRecordCardProps) {
-  const executorLabel = selectedRunRecord.executor ?? selectedRunRecord.adapter ?? t("manualExecutor");
-  const stderrIsFailure = typeof selectedRunRecord.exitCode === "number" && selectedRunRecord.exitCode !== 0;
+  const executorLabel =
+    selectedRunRecord.executor ?? selectedRunRecord.adapter ?? t("manualExecutor");
+  const stderrIsFailure =
+    typeof selectedRunRecord.exitCode === "number" && selectedRunRecord.exitCode !== 0;
   const displayMarkdown = selectedRunRecord.displayMarkdown || selectedRunRecord.reportMarkdown;
 
   return (
@@ -64,7 +73,13 @@ export function BlockRunRecordCard({
             tmuxAvailable={tmuxAvailable}
             t={t}
           />
-          <Button size="icon-sm" variant="ghost" aria-label={t("closeRecord")} onPointerDown={(event) => event.stopPropagation()} onClick={() => setSelectedRunRecord(null)}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t("closeRecord")}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => setSelectedRunRecord(null)}
+          >
             <XIcon data-icon="inline-start" />
           </Button>
         </CardAction>
@@ -75,22 +90,26 @@ export function BlockRunRecordCard({
         </div>
         {selectedRunRecord.agentSessionId ? (
           <div className="rounded-md border bg-muted/40 px-2 py-1 text-xs">
-            <span className="font-medium">{t("agentSession")}:</span> <span className="font-mono">{selectedRunRecord.agentSessionId}</span>
+            <span className="font-medium">{t("agentSession")}:</span>{" "}
+            <span className="font-mono">{selectedRunRecord.agentSessionId}</span>
           </div>
         ) : null}
         {selectedRunRecord.tmuxSessionId ? (
           <div className="rounded-md border bg-muted/40 px-2 py-1 text-xs">
-            <span className="font-medium">{t("tmuxSession")}:</span> <span className="font-mono">{selectedRunRecord.tmuxSessionId}</span>
+            <span className="font-medium">{t("tmuxSession")}:</span>{" "}
+            <span className="font-mono">{selectedRunRecord.tmuxSessionId}</span>
           </div>
         ) : null}
         {selectedRunRecord.tmuxAttachCommand ? (
           <div className="rounded-md border bg-muted/40 px-2 py-1 text-xs">
-            <span className="font-medium">{t("tmuxAttach")}:</span> <span className="break-all font-mono">{selectedRunRecord.tmuxAttachCommand}</span>
+            <span className="font-medium">{t("tmuxAttach")}:</span>{" "}
+            <span className="break-all font-mono">{selectedRunRecord.tmuxAttachCommand}</span>
           </div>
         ) : null}
         {selectedRunRecord.executionCwd ? (
           <div className="rounded-md border bg-muted/40 px-2 py-1 text-xs">
-            <span className="font-medium">{t("executionCwd")}:</span> <span className="break-all font-mono">{selectedRunRecord.executionCwd}</span>
+            <span className="font-medium">{t("executionCwd")}:</span>{" "}
+            <span className="break-all font-mono">{selectedRunRecord.executionCwd}</span>
           </div>
         ) : null}
         {selectedRunRecord.stdoutSummary ? (
@@ -99,7 +118,11 @@ export function BlockRunRecordCard({
           </div>
         ) : null}
         {selectedRunRecord.stderrSummary ? (
-          <div className={stderrIsFailure ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+          <div
+            className={
+              stderrIsFailure ? "text-xs text-destructive" : "text-xs text-muted-foreground"
+            }
+          >
             {stderrIsFailure ? t("stderr") : t("terminalOutput")}: {selectedRunRecord.stderrSummary}
           </div>
         ) : null}
@@ -109,7 +132,9 @@ export function BlockRunRecordCard({
             <pre className="whitespace-pre-wrap text-xs">{displayMarkdown}</pre>
           </ScrollArea>
         ) : (
-          <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">{t("noRunReport")}</div>
+          <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
+            {t("noRunReport")}
+          </div>
         )}
       </CardContent>
     </Card>

@@ -1,4 +1,8 @@
-import type { PlanGraphCommand, PlanGraphAffectedRefs, PlanGraphCommandDiagnostic } from "./commands.js";
+import type {
+  PlanGraphCommand,
+  PlanGraphAffectedRefs,
+  PlanGraphCommandDiagnostic
+} from "./commands.js";
 import type { PlanGraph } from "./domain/types.js";
 import type { PlanPackageGraphMutation } from "../graph/mutation.js";
 import type { PackageWorkspaceRef } from "../types.js";
@@ -14,7 +18,10 @@ export type PlanGraphIndexStore = {
   rebuild(options?: { clearHistory?: boolean }): Promise<PlanGraph>;
   indexChangedPaths(paths: string[], options?: { clearHistory?: boolean }): Promise<PlanGraph>;
   load(): Promise<PlanGraph | null>;
-  getProjectionVersion(projectionName: string, cacheKey: string): Promise<PlanGraphProjectionVersion | null>;
+  getProjectionVersion(
+    projectionName: string,
+    cacheKey: string
+  ): Promise<PlanGraphProjectionVersion | null>;
   setProjectionVersion(projection: PlanGraphProjectionVersion): Promise<void>;
   clearProjectionVersions(): Promise<void>;
 };
@@ -29,7 +36,10 @@ export type PlanGraphProjectionVersion = {
 
 export type PlanGraphPackageRepository = {
   load(projectRoot: PackageWorkspaceRef): Promise<LoadedPlanGraphPackage>;
-  commit(options: { projectRoot: PackageWorkspaceRef; mutation: PlanPackageGraphMutation }): Promise<PlanGraphCommandDiagnostic[]>;
+  commit(options: {
+    projectRoot: PackageWorkspaceRef;
+    mutation: PlanPackageGraphMutation;
+  }): Promise<PlanGraphCommandDiagnostic[]>;
   packageFilePath(loaded: LoadedPlanGraphPackage, packagePath: string): string;
 };
 
@@ -60,8 +70,15 @@ export type PlanGraphIndexStoreFactory = (options: {
 }) => Promise<PlanGraphIndexStore & { log: PlanGraphOperationLog; indexPath: string }>;
 
 export type PlanGraphLayoutStore = {
-  read(projectRoot: PackageWorkspaceRef, layoutScope: UpdateLayoutCommand["layoutScope"]): Promise<unknown>;
-  write(projectRoot: PackageWorkspaceRef, layoutScope: UpdateLayoutCommand["layoutScope"], layout: unknown): Promise<unknown>;
+  read(
+    projectRoot: PackageWorkspaceRef,
+    layoutScope: UpdateLayoutCommand["layoutScope"]
+  ): Promise<unknown>;
+  write(
+    projectRoot: PackageWorkspaceRef,
+    layoutScope: UpdateLayoutCommand["layoutScope"],
+    layout: unknown
+  ): Promise<unknown>;
 };
 
 export type PlanGraphCommandDependencies = {

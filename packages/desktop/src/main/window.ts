@@ -65,7 +65,11 @@ export function configureNavigationHandling(
   });
 }
 
-export async function createWindow(options: { isDev: boolean; isSmoke: boolean; isStartupSmoke?: boolean }): Promise<BrowserWindow> {
+export async function createWindow(options: {
+  isDev: boolean;
+  isSmoke: boolean;
+  isStartupSmoke?: boolean;
+}): Promise<BrowserWindow> {
   // macOS liquid glass requires a transparent window so the NSGlassEffectView
   // behind the web contents can blend with whatever sits behind the window.
   const isMac = process.platform === "darwin";
@@ -99,11 +103,18 @@ export async function createWindow(options: { isDev: boolean; isSmoke: boolean; 
   await applyLiquidGlassToWindow(window);
 
   if (options.isSmoke) {
-    window.webContents.on("console-message", (details: ElectronEvent<WebContentsConsoleMessageEventParams>) => {
-      console.log(JSON.stringify({ event: "PLANWEAVE_DESKTOP_RENDERER_CONSOLE", message: details.message }));
-    });
+    window.webContents.on(
+      "console-message",
+      (details: ElectronEvent<WebContentsConsoleMessageEventParams>) => {
+        console.log(
+          JSON.stringify({ event: "PLANWEAVE_DESKTOP_RENDERER_CONSOLE", message: details.message })
+        );
+      }
+    );
     window.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
-      console.error(JSON.stringify({ event: "PLANWEAVE_DESKTOP_LOAD_FAILED", errorCode, errorDescription }));
+      console.error(
+        JSON.stringify({ event: "PLANWEAVE_DESKTOP_LOAD_FAILED", errorCode, errorDescription })
+      );
     });
     window.webContents.on("render-process-gone", (_event, details) => {
       console.error(JSON.stringify({ event: "PLANWEAVE_DESKTOP_RENDERER_GONE", details }));

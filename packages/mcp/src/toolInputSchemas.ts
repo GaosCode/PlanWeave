@@ -89,7 +89,10 @@ export const packageDefaultsInputSchema = z.object({
 
 export const reviewPipelineStepInputSchema = z
   .object({
-    blockRef: z.preprocess((value) => (value === undefined || value === null || value === "" ? null : value), requiredTrimmedStringSchema.nullable()),
+    blockRef: z.preprocess(
+      (value) => (value === undefined || value === null || value === "" ? null : value),
+      requiredTrimmedStringSchema.nullable()
+    ),
     blockId: blockRefSchema,
     title: requiredTrimmedStringSchema,
     enabled: z.boolean().default(true),
@@ -103,7 +106,11 @@ export const reviewPipelineStepInputSchema = z
     promptMarkdown: z.string()
   })
   .superRefine((step, context) => {
-    if (step.blockId === undefined && step.blockRef !== null && blockIdFromStepRef(step.blockRef) === undefined) {
+    if (
+      step.blockId === undefined &&
+      step.blockRef !== null &&
+      blockIdFromStepRef(step.blockRef) === undefined
+    ) {
       context.addIssue({
         code: "custom",
         message: "blockRef must use '<taskId>#<blockId>'.",
@@ -129,8 +136,12 @@ const updateTaskInputSchema = z.object(updateTaskInputShape).refine(hasUpdateFie
 });
 const updateBlockInputSchema = z
   .object(updateBlockInputShape)
-  .refine(hasBlockTarget, { message: "blockRef is required unless taskId and blockId are provided." })
-  .refine(hasUpdateField, { message: "At least one of title, promptMarkdown, or executor must be provided." });
+  .refine(hasBlockTarget, {
+    message: "blockRef is required unless taskId and blockId are provided."
+  })
+  .refine(hasUpdateField, {
+    message: "At least one of title, promptMarkdown, or executor must be provided."
+  });
 const updateReviewPipelineInputSchema = z.object(updateReviewPipelineInputShape);
 
 export type ParsedCreateTaskToolArgs = {
@@ -191,7 +202,9 @@ export function parseUpdateTaskToolArgs(record: Record<string, unknown>): Parsed
   };
 }
 
-export function parseUpdateBlockToolArgs(record: Record<string, unknown>): ParsedUpdateBlockToolArgs {
+export function parseUpdateBlockToolArgs(
+  record: Record<string, unknown>
+): ParsedUpdateBlockToolArgs {
   const parsed = updateBlockInputSchema.parse(record);
   return {
     projectId: parsed.projectId,
@@ -201,7 +214,9 @@ export function parseUpdateBlockToolArgs(record: Record<string, unknown>): Parse
   };
 }
 
-export function parseUpdateReviewPipelineToolArgs(record: Record<string, unknown>): ParsedUpdateReviewPipelineToolArgs {
+export function parseUpdateReviewPipelineToolArgs(
+  record: Record<string, unknown>
+): ParsedUpdateReviewPipelineToolArgs {
   const parsed = updateReviewPipelineInputSchema.parse(record);
   return {
     projectId: parsed.projectId,
@@ -214,15 +229,27 @@ export function parseUpdateReviewPipelineToolArgs(record: Record<string, unknown
   };
 }
 
-function hasUpdateField(input: { title?: string; promptMarkdown?: string; executor?: string | null }): boolean {
-  return input.title !== undefined || input.promptMarkdown !== undefined || input.executor !== undefined;
+function hasUpdateField(input: {
+  title?: string;
+  promptMarkdown?: string;
+  executor?: string | null;
+}): boolean {
+  return (
+    input.title !== undefined || input.promptMarkdown !== undefined || input.executor !== undefined
+  );
 }
 
 function hasBlockTarget(input: { blockRef?: string; taskId?: string; blockId?: string }): boolean {
-  return input.blockRef !== undefined || (input.taskId !== undefined && input.blockId !== undefined);
+  return (
+    input.blockRef !== undefined || (input.taskId !== undefined && input.blockId !== undefined)
+  );
 }
 
-function updateFields(input: { title?: string; promptMarkdown?: string; executor?: string | null }) {
+function updateFields(input: {
+  title?: string;
+  promptMarkdown?: string;
+  executor?: string | null;
+}) {
   return {
     title: input.title,
     promptMarkdown: input.promptMarkdown,

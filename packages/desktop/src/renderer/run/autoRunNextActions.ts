@@ -1,4 +1,8 @@
-import type { AutoRunNextAction, DesktopAutoRunRetrospectiveSummary, DesktopAutoRunState } from "@planweave-ai/runtime";
+import type {
+  AutoRunNextAction,
+  DesktopAutoRunRetrospectiveSummary,
+  DesktopAutoRunState
+} from "@planweave-ai/runtime";
 
 export type AutoRunNextActionCommand =
   | "start"
@@ -52,17 +56,23 @@ function descriptor(
 ): AutoRunNextActionDescriptor {
   return {
     ...input,
-    disabledReason: input.enabled ? null : input.disabledReason ?? null
+    disabledReason: input.enabled ? null : (input.disabledReason ?? null)
   };
 }
 
-export function buildAutoRunNextActionDescriptor(context: AutoRunNextActionContext): AutoRunNextActionDescriptor | null {
+export function buildAutoRunNextActionDescriptor(
+  context: AutoRunNextActionContext
+): AutoRunNextActionDescriptor | null {
   const source = context.state?.explanation.nextAction ?? context.retrospective?.nextAction ?? null;
   if (!source) {
     return null;
   }
   const recordId = context.state?.latestRecordId ?? context.retrospective?.latestRecordId ?? null;
-  const recordPath = context.state?.latestRecordPath ?? context.retrospective?.latestRecordPath ?? source.targetPath ?? null;
+  const recordPath =
+    context.state?.latestRecordPath ??
+    context.retrospective?.latestRecordPath ??
+    source.targetPath ??
+    null;
   const ref = source.ref ?? context.state?.currentRef ?? context.retrospective?.blockedRef ?? null;
   const base = {
     manualCommand: source.command,

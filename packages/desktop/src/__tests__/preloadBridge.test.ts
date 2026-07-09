@@ -1,8 +1,21 @@
-import type { DesktopAutoRunEvent, DesktopPackageFileChangeEvent, DesktopProjectSummary, DesktopRuntimeStateChangeEvent } from "@planweave-ai/runtime";
+import type {
+  DesktopAutoRunEvent,
+  DesktopPackageFileChangeEvent,
+  DesktopProjectSummary,
+  DesktopRuntimeStateChangeEvent
+} from "@planweave-ai/runtime";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeInvokeApi } from "../preload/bridgeInvocation";
-import { appUpdateChangedChannel, appUpdateInvokeChannels, type AppUpdateState } from "../shared/appUpdate";
-import { defaultDesktopSettings, desktopSettingsInvokeChannels, type DesktopUiSettings } from "../shared/desktopSettings";
+import {
+  appUpdateChangedChannel,
+  appUpdateInvokeChannels,
+  type AppUpdateState
+} from "../shared/appUpdate";
+import {
+  defaultDesktopSettings,
+  desktopSettingsInvokeChannels,
+  type DesktopUiSettings
+} from "../shared/desktopSettings";
 import {
   autoRunChangedChannel,
   desktopBridgeInvokeChannels,
@@ -10,7 +23,11 @@ import {
   runtimeStateChangedChannel,
   type DesktopBridgeInvokeMethod
 } from "../shared/ipcChannels";
-import { mcpTunnelChangedChannel, mcpTunnelInvokeChannels, type McpTunnelStatus } from "../shared/mcpTunnel";
+import {
+  mcpTunnelChangedChannel,
+  mcpTunnelInvokeChannels,
+  type McpTunnelStatus
+} from "../shared/mcpTunnel";
 import { windowAppearanceInvokeChannels } from "../shared/windowAppearance";
 
 type IpcRendererListener = (event: unknown, payload: unknown) => void;
@@ -50,10 +67,12 @@ describe("preload bridge invocation", () => {
   });
 
   it("maps every invoke bridge method to its channel and forwards raw args", async () => {
-    const invoke = vi.fn<Parameters<typeof createDesktopBridgeInvokeApi>[0]>(async (channel: string, ...args: unknown[]) => ({
-      channel,
-      args
-    }));
+    const invoke = vi.fn<Parameters<typeof createDesktopBridgeInvokeApi>[0]>(
+      async (channel: string, ...args: unknown[]) => ({
+        channel,
+        args
+      })
+    );
     const api = createDesktopBridgeInvokeApi(invoke);
     const ref = { projectRoot: "/tmp/project", canvasId: "canvas-a" };
     const apiMethods = Object.keys(api).sort();
@@ -92,14 +111,20 @@ describe("preload bridge invocation", () => {
   });
 
   it("forwards refreshPackageFileChanges options through the invoke bridge", async () => {
-    const invoke = vi.fn<Parameters<typeof createDesktopBridgeInvokeApi>[0]>(async () => ({ ok: true }));
+    const invoke = vi.fn<Parameters<typeof createDesktopBridgeInvokeApi>[0]>(async () => ({
+      ok: true
+    }));
     const api = createDesktopBridgeInvokeApi(invoke);
     const ref = { projectRoot: "/tmp/project", canvasId: "canvas-a" };
     const options = { changedPaths: ["package/nodes/T-001/prompt.md"] };
 
     await api.refreshPackageFileChanges(ref, options);
 
-    expect(invoke).toHaveBeenCalledWith(desktopBridgeInvokeChannels.refreshPackageFileChanges, ref, options);
+    expect(invoke).toHaveBeenCalledWith(
+      desktopBridgeInvokeChannels.refreshPackageFileChanges,
+      ref,
+      options
+    );
   });
 
   it("forwards executor preflight requests through the invoke bridge", async () => {
@@ -115,18 +140,27 @@ describe("preload bridge invocation", () => {
 
     await api.testExecutorProfile(ref, "codex");
 
-    expect(invoke).toHaveBeenCalledWith(desktopBridgeInvokeChannels.testExecutorProfile, ref, "codex");
+    expect(invoke).toHaveBeenCalledWith(
+      desktopBridgeInvokeChannels.testExecutorProfile,
+      ref,
+      "codex"
+    );
   });
 
   it("exposes package file change subscription with unsubscribe", async () => {
     await import("../preload/preload");
-    const api = electronMock.exposed.get("planweave") as { onPackageFileChanged(callback: (event: DesktopPackageFileChangeEvent) => void): () => void };
+    const api = electronMock.exposed.get("planweave") as {
+      onPackageFileChanged(callback: (event: DesktopPackageFileChangeEvent) => void): () => void;
+    };
     const callback = vi.fn();
 
     const unsubscribe = api.onPackageFileChanged(callback);
 
     expect(electronMock.ipcRenderer.on).toHaveBeenCalledTimes(1);
-    const [channel, listener] = electronMock.ipcRenderer.on.mock.calls[0] as [string, IpcRendererListener];
+    const [channel, listener] = electronMock.ipcRenderer.on.mock.calls[0] as [
+      string,
+      IpcRendererListener
+    ];
     expect(channel).toBe(packageFileChangedChannel);
     const event: DesktopPackageFileChangeEvent = {
       projectRoot: "/tmp/project",
@@ -143,13 +177,18 @@ describe("preload bridge invocation", () => {
 
   it("exposes auto-run change subscription with unsubscribe", async () => {
     await import("../preload/preload");
-    const api = electronMock.exposed.get("planweave") as { onAutoRunChanged(callback: (event: DesktopAutoRunEvent) => void): () => void };
+    const api = electronMock.exposed.get("planweave") as {
+      onAutoRunChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;
+    };
     const callback = vi.fn();
 
     const unsubscribe = api.onAutoRunChanged(callback);
 
     expect(electronMock.ipcRenderer.on).toHaveBeenCalledTimes(1);
-    const [channel, listener] = electronMock.ipcRenderer.on.mock.calls[0] as [string, IpcRendererListener];
+    const [channel, listener] = electronMock.ipcRenderer.on.mock.calls[0] as [
+      string,
+      IpcRendererListener
+    ];
     expect(channel).toBe(autoRunChangedChannel);
     const event: DesktopAutoRunEvent = {
       projectRoot: "/tmp/project",
@@ -208,13 +247,18 @@ describe("preload bridge invocation", () => {
 
   it("exposes runtime state change subscription with unsubscribe", async () => {
     await import("../preload/preload");
-    const api = electronMock.exposed.get("planweave") as { onRuntimeStateChanged(callback: (event: DesktopRuntimeStateChangeEvent) => void): () => void };
+    const api = electronMock.exposed.get("planweave") as {
+      onRuntimeStateChanged(callback: (event: DesktopRuntimeStateChangeEvent) => void): () => void;
+    };
     const callback = vi.fn();
 
     const unsubscribe = api.onRuntimeStateChanged(callback);
 
     expect(electronMock.ipcRenderer.on).toHaveBeenCalledTimes(1);
-    const [channel, listener] = electronMock.ipcRenderer.on.mock.calls[0] as [string, IpcRendererListener];
+    const [channel, listener] = electronMock.ipcRenderer.on.mock.calls[0] as [
+      string,
+      IpcRendererListener
+    ];
     expect(channel).toBe(runtimeStateChangedChannel);
     const event: DesktopRuntimeStateChangeEvent = {
       projectRoot: "/tmp/project",
@@ -243,8 +287,15 @@ describe("preload bridge invocation", () => {
 
     await import("../preload/preload");
     const api = electronMock.exposed.get("planweaveWindow") as {
-      getWindowMaterialCapabilities(): Promise<{ platform: string; reason: "supported"; supported: boolean }>;
-      setWindowMaterial(settings: { enabled: boolean; appearance: "system" | "light" | "dark" }): Promise<void>;
+      getWindowMaterialCapabilities(): Promise<{
+        platform: string;
+        reason: "supported";
+        supported: boolean;
+      }>;
+      setWindowMaterial(settings: {
+        enabled: boolean;
+        appearance: "system" | "light" | "dark";
+      }): Promise<void>;
     };
 
     await expect(api.getWindowMaterialCapabilities()).resolves.toEqual({
@@ -254,11 +305,16 @@ describe("preload bridge invocation", () => {
     });
     await api.setWindowMaterial({ appearance: "dark", enabled: true });
 
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(windowAppearanceInvokeChannels.getWindowMaterialCapabilities);
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(windowAppearanceInvokeChannels.setWindowMaterial, {
-      appearance: "dark",
-      enabled: true
-    });
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      windowAppearanceInvokeChannels.getWindowMaterialCapabilities
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      windowAppearanceInvokeChannels.setWindowMaterial,
+      {
+        appearance: "dark",
+        enabled: true
+      }
+    );
   });
 
   it("exposes the app update API through a separate preload surface", async () => {
@@ -290,12 +346,23 @@ describe("preload bridge invocation", () => {
     await api.installAppUpdate();
     const unsubscribe = api.onAppUpdateChanged(callback);
 
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(appUpdateInvokeChannels.getAppUpdateState);
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(appUpdateInvokeChannels.checkForAppUpdate);
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(appUpdateInvokeChannels.downloadAppUpdate);
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(appUpdateInvokeChannels.installAppUpdate);
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      appUpdateInvokeChannels.getAppUpdateState
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      appUpdateInvokeChannels.checkForAppUpdate
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      appUpdateInvokeChannels.downloadAppUpdate
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      appUpdateInvokeChannels.installAppUpdate
+    );
 
-    const [channel, listener] = electronMock.ipcRenderer.on.mock.calls[0] as [string, IpcRendererListener];
+    const [channel, listener] = electronMock.ipcRenderer.on.mock.calls[0] as [
+      string,
+      IpcRendererListener
+    ];
     expect(channel).toBe(appUpdateChangedChannel);
     listener({}, state);
     expect(callback).toHaveBeenCalledWith(state);
@@ -319,13 +386,18 @@ describe("preload bridge invocation", () => {
 
     await expect(api.getDesktopSettings()).resolves.toBe(settings);
     await api.saveDesktopSettings({ appearance: "dark" });
-    await api.migrateLegacyDesktopSettings("{\"appearance\":\"dark\"}");
+    await api.migrateLegacyDesktopSettings('{"appearance":"dark"}');
 
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(desktopSettingsInvokeChannels.getDesktopSettings);
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(desktopSettingsInvokeChannels.saveDesktopSettings, { appearance: "dark" });
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      desktopSettingsInvokeChannels.getDesktopSettings
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      desktopSettingsInvokeChannels.saveDesktopSettings,
+      { appearance: "dark" }
+    );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       desktopSettingsInvokeChannels.migrateLegacyDesktopSettings,
-      "{\"appearance\":\"dark\"}"
+      '{"appearance":"dark"}'
     );
   });
 
@@ -399,23 +471,49 @@ describe("preload bridge invocation", () => {
     await api.setTunnelAutoStart(true);
     await api.startLocalMcp({ port: 8788 });
     await api.stopLocalMcp();
-    await api.startTunnel({ tunnelId: "tunnel_0123456789abcdef0123456789abcdef", runtimeApiKey: "secret-key" });
-    await api.stopTunnel();
-    const unsubscribe = api.onMcpTunnelChanged(callback);
-
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.getMcpTunnelStatus);
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.downloadTunnelClient);
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.setTunnelClientPath, "/usr/local/bin/tunnel-client");
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.setTunnelAutoStart, true);
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.startLocalMcp, { port: 8788 });
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.stopLocalMcp);
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.startTunnel, {
+    await api.startTunnel({
       tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
       runtimeApiKey: "secret-key"
     });
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(mcpTunnelInvokeChannels.stopTunnel);
+    await api.stopTunnel();
+    const unsubscribe = api.onMcpTunnelChanged(callback);
 
-    const [channel, listener] = electronMock.ipcRenderer.on.mock.calls[0] as [string, IpcRendererListener];
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      mcpTunnelInvokeChannels.getMcpTunnelStatus
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      mcpTunnelInvokeChannels.downloadTunnelClient
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      mcpTunnelInvokeChannels.setTunnelClientPath,
+      "/usr/local/bin/tunnel-client"
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      mcpTunnelInvokeChannels.setTunnelAutoStart,
+      true
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      mcpTunnelInvokeChannels.startLocalMcp,
+      { port: 8788 }
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      mcpTunnelInvokeChannels.stopLocalMcp
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      mcpTunnelInvokeChannels.startTunnel,
+      {
+        tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+        runtimeApiKey: "secret-key"
+      }
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      mcpTunnelInvokeChannels.stopTunnel
+    );
+
+    const [channel, listener] = electronMock.ipcRenderer.on.mock.calls[0] as [
+      string,
+      IpcRendererListener
+    ];
     expect(channel).toBe(mcpTunnelChangedChannel);
     listener({}, status);
     expect(callback).toHaveBeenCalledWith(status);
@@ -428,7 +526,9 @@ describe("preload bridge invocation", () => {
     electronMock.ipcRenderer.invoke.mockResolvedValue(undefined);
 
     await import("../preload/preload");
-    const api = electronMock.exposed.get("planweave") as { revealPathInFinder(path: string): Promise<void> };
+    const api = electronMock.exposed.get("planweave") as {
+      revealPathInFinder(path: string): Promise<void>;
+    };
     const smokeApi = electronMock.exposed.get("planweaveSmoke") as {
       clearLastRevealPath(): void;
       getLastRevealPath(): string | null;
@@ -437,7 +537,10 @@ describe("preload bridge invocation", () => {
     expect(smokeApi.getLastRevealPath()).toBeNull();
     await api.revealPathInFinder("/tmp/record/metadata.json");
 
-    expect(electronMock.ipcRenderer.invoke).not.toHaveBeenCalledWith(desktopBridgeInvokeChannels.revealPathInFinder, "/tmp/record/metadata.json");
+    expect(electronMock.ipcRenderer.invoke).not.toHaveBeenCalledWith(
+      desktopBridgeInvokeChannels.revealPathInFinder,
+      "/tmp/record/metadata.json"
+    );
     expect(smokeApi.getLastRevealPath()).toBe("/tmp/record/metadata.json");
 
     smokeApi.clearLastRevealPath();
@@ -448,11 +551,16 @@ describe("preload bridge invocation", () => {
     electronMock.ipcRenderer.invoke.mockResolvedValue(undefined);
 
     await import("../preload/preload");
-    const api = electronMock.exposed.get("planweave") as { revealPathInFinder(path: string): Promise<void> };
+    const api = electronMock.exposed.get("planweave") as {
+      revealPathInFinder(path: string): Promise<void>;
+    };
 
     await api.revealPathInFinder("/tmp/record/metadata.json");
 
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(desktopBridgeInvokeChannels.revealPathInFinder, "/tmp/record/metadata.json");
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      desktopBridgeInvokeChannels.revealPathInFinder,
+      "/tmp/record/metadata.json"
+    );
   });
 
   it("does not expose the smoke reveal path signal outside smoke mode", async () => {

@@ -9,8 +9,16 @@ import { BlockInspector } from "../renderer/inspector/BlockInspector";
 import { TaskInspector } from "../renderer/inspector/TaskInspector";
 import { TodoGroupCard } from "../renderer/components/TodoGroupCard";
 import { createTranslator } from "../renderer/i18n";
-import type { DesktopBlockDetail, DesktopGraphViewModel, DesktopTaskDetail, DesktopTodoItem } from "@planweave-ai/runtime";
-import { cleanupRendererTestEnvironment, stubSelectLayoutApis } from "./helpers/rendererTestEnvironment";
+import type {
+  DesktopBlockDetail,
+  DesktopGraphViewModel,
+  DesktopTaskDetail,
+  DesktopTodoItem
+} from "@planweave-ai/runtime";
+import {
+  cleanupRendererTestEnvironment,
+  stubSelectLayoutApis
+} from "./helpers/rendererTestEnvironment";
 
 afterEach(cleanupRendererTestEnvironment);
 
@@ -300,7 +308,10 @@ describe("desktop renderer component interactions", () => {
   });
 
   it("lets block prompt textareas grow into the inspector page scroll", () => {
-    const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "scrollHeight");
+    const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "scrollHeight"
+    );
     Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", {
       configurable: true,
       get() {
@@ -357,8 +368,12 @@ describe("desktop renderer component interactions", () => {
     try {
       render(<BlockInspectorHarness />);
 
-      const effectivePrompt = screen.getByRole("textbox", { name: "Effective Prompt" }) as HTMLTextAreaElement;
-      const sourcePrompt = screen.getByRole("textbox", { name: "Source Prompt" }) as HTMLTextAreaElement;
+      const effectivePrompt = screen.getByRole("textbox", {
+        name: "Effective Prompt"
+      }) as HTMLTextAreaElement;
+      const sourcePrompt = screen.getByRole("textbox", {
+        name: "Source Prompt"
+      }) as HTMLTextAreaElement;
       const inspectorContent = screen.getByTestId("block-inspector-content");
       expect(inspectorContent).not.toHaveClass("min-h-0");
       expect(inspectorContent).not.toHaveClass("flex-1");
@@ -369,13 +384,21 @@ describe("desktop renderer component interactions", () => {
       expect(effectivePrompt.style.height).toBe(`${effectivePrompt.scrollHeight}px`);
       expect(sourcePrompt.style.height).toBe(`${sourcePrompt.scrollHeight}px`);
 
-      fireEvent.change(sourcePrompt, { target: { value: `# Source\n${Array.from({ length: 12 }, (_value, index) => `- line ${index + 1}`).join("\n")}` } });
+      fireEvent.change(sourcePrompt, {
+        target: {
+          value: `# Source\n${Array.from({ length: 12 }, (_value, index) => `- line ${index + 1}`).join("\n")}`
+        }
+      });
 
       expect(sourcePrompt.value).toContain("- line 12");
       expect(sourcePrompt.style.height).toBe(`${sourcePrompt.scrollHeight}px`);
     } finally {
       if (scrollHeightDescriptor) {
-        Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", scrollHeightDescriptor);
+        Object.defineProperty(
+          HTMLTextAreaElement.prototype,
+          "scrollHeight",
+          scrollHeightDescriptor
+        );
       } else {
         Reflect.deleteProperty(HTMLTextAreaElement.prototype, "scrollHeight");
       }
@@ -505,7 +528,6 @@ describe("desktop renderer component interactions", () => {
     expect(screen.queryByRole("option", { name: "pi-auto" })).not.toBeInTheDocument();
   });
 
-
   it("autosaves block prompt edits without rendering the manual save button", async () => {
     vi.useFakeTimers();
     const saveSelectedBlockPrompt = vi.fn().mockResolvedValue(undefined);
@@ -597,7 +619,9 @@ describe("desktop renderer component interactions", () => {
 
     try {
       expect(screen.queryByRole("button", { name: "保存 Prompt" })).not.toBeInTheDocument();
-      fireEvent.change(screen.getByRole("textbox", { name: "Source Prompt" }), { target: { value: "# Updated block prompt\n" } });
+      fireEvent.change(screen.getByRole("textbox", { name: "Source Prompt" }), {
+        target: { value: "# Updated block prompt\n" }
+      });
       expect(saveSelectedBlockPrompt).not.toHaveBeenCalled();
 
       await act(async () => {

@@ -1,8 +1,19 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { claimNext, getExecutionStatus, submitBlockResult, submitReviewResult, trustCommand } from "../index.js";
+import {
+  claimNext,
+  getExecutionStatus,
+  submitBlockResult,
+  submitReviewResult,
+  trustCommand
+} from "../index.js";
 import { executeReviewHook, runReviewHookProcess } from "../taskManager/reviewHook.js";
 import type { ReviewHookDefinition } from "../types.js";
-import { basicManifest, createTestWorkspace, writeReport, writeReviewResult } from "./promptTestHelpers.js";
+import {
+  basicManifest,
+  createTestWorkspace,
+  writeReport,
+  writeReviewResult
+} from "./promptTestHelpers.js";
 
 const reviewRef = "T-001#R-001";
 
@@ -28,7 +39,12 @@ async function submitNeedsChangesWithHook(
   const reportPath = await writeReport(root, "implementation.md", "Implementation report.\n");
   await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath });
   await claimNext({ projectRoot: root });
-  const resultPath = await writeReviewResult(root, "needs_changes", "Original feedback.", reviewRef);
+  const resultPath = await writeReviewResult(
+    root,
+    "needs_changes",
+    "Original feedback.",
+    reviewRef
+  );
   await submitReviewResult({ projectRoot: root, ref: reviewRef, resultPath });
   const status = await getExecutionStatus({ projectRoot: root });
   const reviewBlock = status.blocks.find((block) => block.ref === reviewRef);
@@ -139,10 +155,14 @@ describe("review hook execution boundary", () => {
   });
 
   it("blocks when hook output is not JSON", async () => {
-    const hook = executableHook("process.stdin.resume(); process.stdin.on('end', () => process.stdout.write('not json'));");
+    const hook = executableHook(
+      "process.stdin.resume(); process.stdin.on('end', () => process.stdout.write('not json'));"
+    );
 
     await expect(submitNeedsChangesWithHook(hook)).resolves.toMatchObject({
-      blockedReason: expect.stringContaining("Review hook failed: Review hook returned invalid JSON"),
+      blockedReason: expect.stringContaining(
+        "Review hook failed: Review hook returned invalid JSON"
+      ),
       feedbackContent: null
     });
   });
@@ -153,7 +173,9 @@ describe("review hook execution boundary", () => {
     );
 
     await expect(submitNeedsChangesWithHook(hook)).resolves.toMatchObject({
-      blockedReason: expect.stringContaining("Review hook failed: Review hook output schema invalid"),
+      blockedReason: expect.stringContaining(
+        "Review hook failed: Review hook output schema invalid"
+      ),
       feedbackContent: null
     });
   });
@@ -164,7 +186,9 @@ describe("review hook execution boundary", () => {
     );
 
     await expect(submitNeedsChangesWithHook(hook)).resolves.toMatchObject({
-      blockedReason: expect.stringContaining("Review hook failed: Review hook stdout exceeded 1048576 bytes."),
+      blockedReason: expect.stringContaining(
+        "Review hook failed: Review hook stdout exceeded 1048576 bytes."
+      ),
       feedbackContent: null
     });
   });
@@ -175,13 +199,17 @@ describe("review hook execution boundary", () => {
     );
 
     await expect(submitNeedsChangesWithHook(hook)).resolves.toMatchObject({
-      blockedReason: expect.stringContaining("Review hook failed: Review hook stderr exceeded 1048576 bytes."),
+      blockedReason: expect.stringContaining(
+        "Review hook failed: Review hook stderr exceeded 1048576 bytes."
+      ),
       feedbackContent: null
     });
   });
 
   it("blocks on non-zero exit with bounded stderr detail", async () => {
-    const hook = executableHook("process.stdin.resume(); process.stdin.on('end', () => { console.error('hook exploded'); process.exit(7); });");
+    const hook = executableHook(
+      "process.stdin.resume(); process.stdin.on('end', () => { console.error('hook exploded'); process.exit(7); });"
+    );
 
     await expect(submitNeedsChangesWithHook(hook)).resolves.toMatchObject({
       blockedReason: "Review hook failed: hook exploded",

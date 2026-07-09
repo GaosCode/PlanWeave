@@ -40,17 +40,25 @@ async function resolvePackagedMacAppPath() {
     .filter((entry) => entry.isDirectory() && entry.name.startsWith("mac"))
     .map((entry) => resolve(releaseDir, entry.name, "PlanWeave.app"))
     .sort();
-  return (await firstExisting(candidates)) ?? pathExists(resolve(releaseDir, "mac-arm64", "PlanWeave.app"));
+  return (
+    (await firstExisting(candidates)) ??
+    pathExists(resolve(releaseDir, "mac-arm64", "PlanWeave.app"))
+  );
 }
 
 async function resolvePackagedUnpackedDir(platform) {
   const releaseDir = resolve(packageRoot, "release");
   const entries = await readdir(releaseDir, { withFileTypes: true }).catch(() => []);
   const candidates = entries
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith(platform) && entry.name.endsWith("-unpacked"))
+    .filter(
+      (entry) =>
+        entry.isDirectory() && entry.name.startsWith(platform) && entry.name.endsWith("-unpacked")
+    )
     .map((entry) => resolve(releaseDir, entry.name))
     .sort();
-  return (await firstExisting(candidates)) ?? pathExists(resolve(releaseDir, `${platform}-unpacked`));
+  return (
+    (await firstExisting(candidates)) ?? pathExists(resolve(releaseDir, `${platform}-unpacked`))
+  );
 }
 
 async function resolvePackagedApp() {
@@ -114,7 +122,9 @@ async function verifyAsarContents(appAsarPath) {
   const entries = (await listPackage(appAsarPath)).map(normalizeAsarEntry);
   const missing = requiredAsarEntries.filter((entry) => !hasEntry(entries, entry));
   if (missing.length > 0) {
-    throw new Error(`Packaged app.asar is missing runtime entries:\n${missing.map((entry) => `- ${entry}`).join("\n")}`);
+    throw new Error(
+      `Packaged app.asar is missing runtime entries:\n${missing.map((entry) => `- ${entry}`).join("\n")}`
+    );
   }
 }
 
@@ -150,7 +160,9 @@ async function smokeLaunch(executablePath, platform) {
         return;
       }
       if (reason === "timeout") {
-        reject(new Error(`Packaged app did not report startup readiness before timeout:\n${output}`));
+        reject(
+          new Error(`Packaged app did not report startup readiness before timeout:\n${output}`)
+        );
         return;
       }
       if (code !== null && code !== 0) {

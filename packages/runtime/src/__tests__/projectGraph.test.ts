@@ -73,7 +73,10 @@ async function createTwoCanvasProject(manifest = projectGraph()) {
   return loadProjectGraph(root);
 }
 
-async function writeLegacyRootDefaultCanvas(workspaceRoot: string, manifest: PlanPackageManifest = basicManifest()) {
+async function writeLegacyRootDefaultCanvas(
+  workspaceRoot: string,
+  manifest: PlanPackageManifest = basicManifest()
+) {
   const packageDir = join(workspaceRoot, "package");
   await writeJsonFile(join(packageDir, "manifest.json"), manifest);
   await writePromptFiles(packageDir, manifest);
@@ -88,7 +91,13 @@ describe("project graph schema and compiler", () => {
       stateFile: "canvases/default/state.json",
       resultsDir: "canvases/default/results"
     });
-    expect(canonicalProjectCanvasNode({ id: "canvas-123", title: "Canvas 123", description: "Test canvas" })).toEqual({
+    expect(
+      canonicalProjectCanvasNode({
+        id: "canvas-123",
+        title: "Canvas 123",
+        description: "Test canvas"
+      })
+    ).toEqual({
       id: "canvas-123",
       type: "canvas",
       title: "Canvas 123",
@@ -129,7 +138,9 @@ describe("project graph schema and compiler", () => {
     const loaded = await createTwoCanvasProject(manifest);
     const graph = await compileProjectGraph({ ...loaded, manifest });
 
-    expect(codes(graph)).toEqual(expect.arrayContaining(["project_canvas_id_duplicate", "project_canvas_edge_to_missing"]));
+    expect(codes(graph)).toEqual(
+      expect.arrayContaining(["project_canvas_id_duplicate", "project_canvas_edge_to_missing"])
+    );
   });
 
   it("detects missing tasks in cross-canvas task edges", async () => {
@@ -161,7 +172,8 @@ describe("project graph schema and compiler", () => {
   it("detects mixed canvas and cross-task cycles", async () => {
     const { root, init } = await createTestWorkspace();
     for (const canvasId of ["B", "C", "D"]) {
-      const manifest = canvasId === "B" ? basicManifest({ includeSecondTask: true }) : basicManifest();
+      const manifest =
+        canvasId === "B" ? basicManifest({ includeSecondTask: true }) : basicManifest();
       const packageDir = join(init.workspace.workspaceRoot, "canvases", canvasId, "package");
       await writeJsonFile(join(packageDir, "manifest.json"), manifest);
       await writePromptFiles(packageDir, manifest);
@@ -176,9 +188,21 @@ describe("project graph schema and compiler", () => {
       ],
       edges: [{ from: "C", to: "D", type: "depends_on" }],
       crossTaskEdges: [
-        { from: { canvasId: "default", taskId: "T-001" }, to: { canvasId: "B", taskId: "T-001" }, type: "depends_on" },
-        { from: { canvasId: "B", taskId: "T-002" }, to: { canvasId: "default", taskId: "T-001" }, type: "depends_on" },
-        { from: { canvasId: "D", taskId: "T-001" }, to: { canvasId: "C", taskId: "T-001" }, type: "depends_on" }
+        {
+          from: { canvasId: "default", taskId: "T-001" },
+          to: { canvasId: "B", taskId: "T-001" },
+          type: "depends_on"
+        },
+        {
+          from: { canvasId: "B", taskId: "T-002" },
+          to: { canvasId: "default", taskId: "T-001" },
+          type: "depends_on"
+        },
+        {
+          from: { canvasId: "D", taskId: "T-001" },
+          to: { canvasId: "C", taskId: "T-001" },
+          type: "depends_on"
+        }
       ]
     });
 
@@ -224,8 +248,12 @@ describe("project graph schema and compiler", () => {
     const loaded = await createTwoCanvasProject(manifest);
     const graph = await compileProjectGraph(loaded);
 
-    expect(graph.crossTaskDependencies({ canvasId: "desktop", taskId: "T-001" })).toEqual([{ canvasId: "default", taskId: "T-001" }]);
-    expect(graph.taskDependencies({ canvasId: "desktop", taskId: "T-001" })).toEqual([{ canvasId: "default", taskId: "T-001" }]);
+    expect(graph.crossTaskDependencies({ canvasId: "desktop", taskId: "T-001" })).toEqual([
+      { canvasId: "default", taskId: "T-001" }
+    ]);
+    expect(graph.taskDependencies({ canvasId: "desktop", taskId: "T-001" })).toEqual([
+      { canvasId: "default", taskId: "T-001" }
+    ]);
   });
 });
 
@@ -255,8 +283,13 @@ describe("project graph loader", () => {
     const loaded = await loadProjectGraph(root);
 
     expect(loaded.source).toBe("legacy_registry");
-    expect(loaded.diagnostics.map((warning) => warning.code)).toContain("project_graph_missing_legacy_registry_used");
-    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default", secondCanvas.canvasId]);
+    expect(loaded.diagnostics.map((warning) => warning.code)).toContain(
+      "project_graph_missing_legacy_registry_used"
+    );
+    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual([
+      "default",
+      secondCanvas.canvasId
+    ]);
     expect(loaded.manifest.canvases[0]).toMatchObject({
       id: "default",
       packageDir: "canvases/default/package",
@@ -273,7 +306,9 @@ describe("project graph loader", () => {
     const loaded = await loadProjectGraph(root);
 
     expect(loaded.source).toBe("legacy_default_canvas");
-    expect(loaded.diagnostics.map((warning) => warning.code)).toContain("project_graph_missing_default_canvas_used");
+    expect(loaded.diagnostics.map((warning) => warning.code)).toContain(
+      "project_graph_missing_default_canvas_used"
+    );
     expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default"]);
     expect(loaded.manifest.canvases[0]).toMatchObject({
       packageDir: "canvases/default/package",
@@ -319,7 +354,9 @@ describe("project graph loader", () => {
       return actualFs.stat(path, options);
     });
 
-    await expect(detectDefaultCanvasWorkspaceMigration(init.workspace)).rejects.toMatchObject({ code: "EACCES" });
+    await expect(detectDefaultCanvasWorkspaceMigration(init.workspace)).rejects.toMatchObject({
+      code: "EACCES"
+    });
   });
 
   it("does not treat legacy default state stat failures as missing state data", async () => {
@@ -335,7 +372,9 @@ describe("project graph loader", () => {
       return actualFs.stat(path, options);
     });
 
-    await expect(detectDefaultCanvasWorkspaceMigration(init.workspace)).rejects.toMatchObject({ code: "EIO" });
+    await expect(detectDefaultCanvasWorkspaceMigration(init.workspace)).rejects.toMatchObject({
+      code: "EIO"
+    });
   });
 
   it("does not treat project graph stat failures as missing during default canvas migration", async () => {
@@ -350,7 +389,9 @@ describe("project graph loader", () => {
       return actualFs.stat(candidate, options);
     });
 
-    await expect(applyDefaultCanvasWorkspaceMigration(init.workspace)).rejects.toMatchObject({ code: "EPERM" });
+    await expect(applyDefaultCanvasWorkspaceMigration(init.workspace)).rejects.toMatchObject({
+      code: "EPERM"
+    });
   });
 
   it("explicitly migrates legacy root default canvas data and quarantines root files", async () => {
@@ -365,7 +406,9 @@ describe("project graph loader", () => {
 
     expect(result.action).toBe("migrate");
     expect(result.legacyBackupPaths.packageDir).toBeTruthy();
-    await expect(access(join(init.workspace.workspaceRoot, "canvases", "default", "package", "manifest.json"))).resolves.toBeUndefined();
+    await expect(
+      access(join(init.workspace.workspaceRoot, "canvases", "default", "package", "manifest.json"))
+    ).resolves.toBeUndefined();
     await expect(access(join(init.workspace.workspaceRoot, "package"))).rejects.toThrow();
     await expect(access(result.legacyBackupPaths.packageDir!)).resolves.toBeUndefined();
     expect(graph.canvases[0]).toMatchObject({
@@ -386,8 +429,13 @@ describe("project graph loader", () => {
     await writeLegacyRootDefaultCanvas(init.workspace.workspaceRoot, manifest);
     await writeJsonFile(join(secondPackageDir, "manifest.json"), secondManifest);
     await writePromptFiles(secondPackageDir, secondManifest);
-    await writeJsonFile(join(init.workspace.workspaceRoot, "canvases", "second", "state.json"), createEmptyState());
-    await mkdir(join(init.workspace.workspaceRoot, "canvases", "second", "results"), { recursive: true });
+    await writeJsonFile(
+      join(init.workspace.workspaceRoot, "canvases", "second", "state.json"),
+      createEmptyState()
+    );
+    await mkdir(join(init.workspace.workspaceRoot, "canvases", "second", "results"), {
+      recursive: true
+    });
     await writeJsonFile(join(init.workspace.workspaceRoot, "desktop", "canvases.json"), {
       version: "desktop-canvases/v1",
       canvases: [
@@ -415,7 +463,10 @@ describe("project graph loader", () => {
     await applyDefaultCanvasWorkspaceMigration(init.workspace);
     const graph = JSON.parse(await readFile(projectGraphPath(init.workspace), "utf8"));
 
-    expect(graph.canvases.map((canvas: { id: string }) => canvas.id)).toEqual(["default", "second"]);
+    expect(graph.canvases.map((canvas: { id: string }) => canvas.id)).toEqual([
+      "default",
+      "second"
+    ]);
     expect(graph.canvases[0]).toMatchObject({
       id: "default",
       packageDir: "canvases/default/package",
@@ -433,15 +484,26 @@ describe("project graph loader", () => {
   it("does not write when legacy and canonical default canvas data conflict", async () => {
     const { init } = await createTestWorkspace();
     const beforeProjectGraph = await readFile(projectGraphPath(init.workspace), "utf8");
-    await writeLegacyRootDefaultCanvas(init.workspace.workspaceRoot, basicManifest({ includeSecondTask: true }));
+    await writeLegacyRootDefaultCanvas(
+      init.workspace.workspaceRoot,
+      basicManifest({ includeSecondTask: true })
+    );
 
     const migration = await detectDefaultCanvasWorkspaceMigration(init.workspace);
 
     expect(migration.action).toBe("conflict");
-    await expect(applyDefaultCanvasWorkspaceMigration(init.workspace)).rejects.toThrow("default_canvas_legacy_root_conflict");
-    await expect(readFile(projectGraphPath(init.workspace), "utf8")).resolves.toBe(beforeProjectGraph);
-    await expect(access(join(init.workspace.workspaceRoot, "package", "manifest.json"))).resolves.toBeUndefined();
-    await expect(access(join(init.workspace.workspaceRoot, "migration-quarantine"))).rejects.toThrow();
+    await expect(applyDefaultCanvasWorkspaceMigration(init.workspace)).rejects.toThrow(
+      "default_canvas_legacy_root_conflict"
+    );
+    await expect(readFile(projectGraphPath(init.workspace), "utf8")).resolves.toBe(
+      beforeProjectGraph
+    );
+    await expect(
+      access(join(init.workspace.workspaceRoot, "package", "manifest.json"))
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(init.workspace.workspaceRoot, "migration-quarantine"))
+    ).rejects.toThrow();
   });
 
   it("resolves legacy canvas workspaces and validates missing manifests as diagnostics", async () => {
@@ -467,7 +529,9 @@ describe("project graph loader", () => {
     const graph = await compileProjectGraph(loaded);
 
     expect(loaded.source).toBe("legacy_registry");
-    expect(graph.diagnostics.errors.map((error) => error.code)).toContain("project_canvas_manifest_read_failed");
+    expect(graph.diagnostics.errors.map((error) => error.code)).toContain(
+      "project_canvas_manifest_read_failed"
+    );
   });
 
   it("can compile a formal two-canvas graph from disk", async () => {
@@ -492,7 +556,10 @@ describe("project graph loader", () => {
 
   it("rejects invalid project-graph.json schema", async () => {
     const { root, init } = await createTestWorkspace();
-    await writeJsonFile(projectGraphPath(init.workspace), { version: "plan-project/v1", canvases: [] });
+    await writeJsonFile(projectGraphPath(init.workspace), {
+      version: "plan-project/v1",
+      canvases: []
+    });
 
     await expect(loadProjectGraph(root)).rejects.toThrow();
   });
@@ -530,8 +597,14 @@ describe("project graph workspace resolution", () => {
     const workspace = projectCanvasWorkspace(init.workspace, canvas);
 
     expect(workspace.workspaceRoot).toBe(join(init.workspace.workspaceRoot, "canvases", "default"));
-    expect(workspace.packageDir).toBe(join(init.workspace.workspaceRoot, "canvases", "default", "package"));
-    expect(workspace.stateFile).toBe(join(init.workspace.workspaceRoot, "canvases", "default", "state.json"));
-    expect(workspace.resultsDir).toBe(join(init.workspace.workspaceRoot, "canvases", "default", "results"));
+    expect(workspace.packageDir).toBe(
+      join(init.workspace.workspaceRoot, "canvases", "default", "package")
+    );
+    expect(workspace.stateFile).toBe(
+      join(init.workspace.workspaceRoot, "canvases", "default", "state.json")
+    );
+    expect(workspace.resultsDir).toBe(
+      join(init.workspace.workspaceRoot, "canvases", "default", "results")
+    );
   });
 });

@@ -3,7 +3,12 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanupAutoRunControlTestEnvironment, createTranslator, loadAutoRunControl, renderAutoRunControlHook } from "./helpers/autoRunControlHarness";
+import {
+  cleanupAutoRunControlTestEnvironment,
+  createTranslator,
+  loadAutoRunControl,
+  renderAutoRunControlHook
+} from "./helpers/autoRunControlHarness";
 
 afterEach(() => {
   cleanupAutoRunControlTestEnvironment();
@@ -20,7 +25,6 @@ describe("auto run control hook floating position", () => {
       top: "clamp(12px, 55px, calc(100% - 12px))"
     });
   });
-
 
   it("updates floating control position from controlled settings changes", async () => {
     const { useAutoRunControl } = await loadAutoRunControl();
@@ -57,7 +61,6 @@ describe("auto run control hook floating position", () => {
     });
   });
 
-
   it("keeps a persisted floating control position reachable when the graph surface shrinks", async () => {
     let surfaceWidth = 1000;
     let surfaceHeight = 700;
@@ -68,11 +71,31 @@ describe("auto run control hook floating position", () => {
     document.body.append(surface);
     Object.defineProperty(surface, "getBoundingClientRect", {
       configurable: true,
-      value: () => ({ left: 0, top: 0, width: surfaceWidth, height: surfaceHeight, right: surfaceWidth, bottom: surfaceHeight, x: 0, y: 0, toJSON: vi.fn() })
+      value: () => ({
+        left: 0,
+        top: 0,
+        width: surfaceWidth,
+        height: surfaceHeight,
+        right: surfaceWidth,
+        bottom: surfaceHeight,
+        x: 0,
+        y: 0,
+        toJSON: vi.fn()
+      })
     });
     Object.defineProperty(control, "getBoundingClientRect", {
       configurable: true,
-      value: () => ({ left: 860, top: 600, width: 140, height: 64, right: 1000, bottom: 664, x: 860, y: 600, toJSON: vi.fn() })
+      value: () => ({
+        left: 860,
+        top: 600,
+        width: 140,
+        height: 64,
+        right: 1000,
+        bottom: 664,
+        x: 860,
+        y: 600,
+        toJSON: vi.fn()
+      })
     });
 
     const { result } = await renderAutoRunControlHook({
@@ -98,7 +121,6 @@ describe("auto run control hook floating position", () => {
     });
   });
 
-
   it("clamps floating control drag position and commits it when dragging stops", async () => {
     const onPositionCommit = vi.fn();
 
@@ -107,11 +129,31 @@ describe("auto run control hook floating position", () => {
     const button = document.createElement("button");
     Object.defineProperty(surface, "getBoundingClientRect", {
       configurable: true,
-      value: () => ({ left: 0, top: 0, width: 500, height: 300, right: 500, bottom: 300, x: 0, y: 0, toJSON: vi.fn() })
+      value: () => ({
+        left: 0,
+        top: 0,
+        width: 500,
+        height: 300,
+        right: 500,
+        bottom: 300,
+        x: 0,
+        y: 0,
+        toJSON: vi.fn()
+      })
     });
     Object.defineProperty(control, "getBoundingClientRect", {
       configurable: true,
-      value: () => ({ left: 900, top: 900, width: 100, height: 50, right: 1000, bottom: 950, x: 900, y: 900, toJSON: vi.fn() })
+      value: () => ({
+        left: 900,
+        top: 900,
+        width: 100,
+        height: 50,
+        right: 1000,
+        bottom: 950,
+        x: 900,
+        y: 900,
+        toJSON: vi.fn()
+      })
     });
     Object.defineProperty(button, "closest", {
       configurable: true,
@@ -126,7 +168,10 @@ describe("auto run control hook floating position", () => {
       }
     });
     Object.defineProperty(button, "setPointerCapture", { configurable: true, value: vi.fn() });
-    Object.defineProperty(button, "hasPointerCapture", { configurable: true, value: vi.fn(() => true) });
+    Object.defineProperty(button, "hasPointerCapture", {
+      configurable: true,
+      value: vi.fn(() => true)
+    });
     Object.defineProperty(button, "releasePointerCapture", { configurable: true, value: vi.fn() });
 
     const { result } = await renderAutoRunControlHook({
@@ -167,5 +212,4 @@ describe("auto run control hook floating position", () => {
     expect(onPositionCommit).toHaveBeenCalledWith({ left: 388, top: 238 });
     expect(button.releasePointerCapture).toHaveBeenCalledWith(7);
   });
-
 });

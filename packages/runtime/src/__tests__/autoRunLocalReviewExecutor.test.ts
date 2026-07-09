@@ -55,7 +55,19 @@ describe("Auto Run local review executor", () => {
       adapterResult: { kind: "review", adapter: "local-review", agentSessionId: null },
       submitResult: { ref: "T-001#R-001", verdict: "passed", status: "completed" }
     });
-    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "R-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "R-001",
+          "runs",
+          "RUN-001",
+          "metadata.json"
+        )
+      )
+    ).resolves.toMatchObject({
       executor: "fake-local-review",
       adapter: "local-review",
       agentSessionId: null,

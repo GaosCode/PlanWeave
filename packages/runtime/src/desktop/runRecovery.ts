@@ -1,6 +1,11 @@
 import { createAutoRunExplanation } from "../taskManager/autoRun.js";
 import type { AutoRunExplanation } from "../types.js";
-import type { DesktopAutoRunOptions, DesktopAutoRunPhase, DesktopAutoRunScope, DesktopAutoRunState } from "./types.js";
+import type {
+  DesktopAutoRunOptions,
+  DesktopAutoRunPhase,
+  DesktopAutoRunScope,
+  DesktopAutoRunState
+} from "./types.js";
 
 const persistedInFlightPhases: DesktopAutoRunPhase[] = ["running", "pausing"];
 
@@ -122,7 +127,9 @@ function validExplanation(value: unknown): AutoRunExplanation | null {
   };
 }
 
-function withRecoveredExplanation(state: Omit<DesktopAutoRunState, "explanation">): DesktopAutoRunState {
+function withRecoveredExplanation(
+  state: Omit<DesktopAutoRunState, "explanation">
+): DesktopAutoRunState {
   return {
     ...state,
     explanation: createAutoRunExplanation({
@@ -137,7 +144,10 @@ function withRecoveredExplanation(state: Omit<DesktopAutoRunState, "explanation"
   };
 }
 
-export function normalizePersistedAutoRunState(value: unknown, paths: { statePath: string; eventLogPath: string }): DesktopAutoRunState | null {
+export function normalizePersistedAutoRunState(
+  value: unknown,
+  paths: { statePath: string; eventLogPath: string }
+): DesktopAutoRunState | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -151,7 +161,18 @@ export function normalizePersistedAutoRunState(value: unknown, paths: { statePat
   const elapsedMs = requiredNumber(value, "elapsedMs");
   const startedAt = requiredString(value, "startedAt");
   const updatedAt = requiredString(value, "updatedAt");
-  if (!phase || !scope || !options || !runId || !projectRoot || stepCount === null || stepLimit === null || elapsedMs === null || !startedAt || !updatedAt) {
+  if (
+    !phase ||
+    !scope ||
+    !options ||
+    !runId ||
+    !projectRoot ||
+    stepCount === null ||
+    stepLimit === null ||
+    elapsedMs === null ||
+    !startedAt ||
+    !updatedAt
+  ) {
     return null;
   }
   const state: DesktopAutoRunState = {
@@ -190,7 +211,10 @@ export function normalizePersistedAutoRunState(value: unknown, paths: { statePat
   return state;
 }
 
-export function recoverPersistedAutoRunState(state: DesktopAutoRunState, hasActiveLoop: boolean): DesktopAutoRunState {
+export function recoverPersistedAutoRunState(
+  state: DesktopAutoRunState,
+  hasActiveLoop: boolean
+): DesktopAutoRunState {
   if (hasActiveLoop || !persistedInFlightPhases.includes(state.phase)) {
     return state;
   }

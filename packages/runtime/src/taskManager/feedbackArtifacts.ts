@@ -13,11 +13,19 @@ export type FeedbackArtifact = {
   resolvedAt?: string;
 };
 
-function feedbackArtifactPath(workspace: ProjectWorkspace, taskId: string, feedbackId: string): string {
+function feedbackArtifactPath(
+  workspace: ProjectWorkspace,
+  taskId: string,
+  feedbackId: string
+): string {
   return join(workspace.resultsDir, taskId, "feedback", feedbackId, "feedback.json");
 }
 
-export async function writeFeedbackArtifact(workspace: ProjectWorkspace, taskId: string, artifact: FeedbackArtifact): Promise<void> {
+export async function writeFeedbackArtifact(
+  workspace: ProjectWorkspace,
+  taskId: string,
+  artifact: FeedbackArtifact
+): Promise<void> {
   await writeJsonFile(feedbackArtifactPath(workspace, taskId, artifact.feedbackId), artifact);
 }
 
@@ -25,7 +33,8 @@ export async function patchFeedbackArtifact(
   workspace: ProjectWorkspace,
   taskId: string,
   feedbackId: string,
-  patch: Pick<FeedbackArtifact, "status"> & Partial<Pick<FeedbackArtifact, "latestSubmissionId" | "resolvedAt">>
+  patch: Pick<FeedbackArtifact, "status"> &
+    Partial<Pick<FeedbackArtifact, "latestSubmissionId" | "resolvedAt">>
 ): Promise<void> {
   const path = feedbackArtifactPath(workspace, taskId, feedbackId);
   const current = await readJsonFile<FeedbackArtifact>(path);

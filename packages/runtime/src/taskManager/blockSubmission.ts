@@ -8,16 +8,28 @@ import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
-import type { ExecutionGraphSession, PackageWorkspaceRef, ProjectWorkspace, SubmitResult } from "../types.js";
+import type {
+  ExecutionGraphSession,
+  PackageWorkspaceRef,
+  ProjectWorkspace,
+  SubmitResult
+} from "../types.js";
 import { exists, loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { getBlock } from "./selectors.js";
 import { incrementTaskIndexCount, readTaskIndex, updateTaskIndex } from "./resultIndex.js";
 
 async function fileHash(path: string): Promise<string> {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+  return createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
 }
 
-async function runHasSubmittedResult(runDir: string, ref: string, runId: string, reportHash?: string): Promise<boolean> {
+async function runHasSubmittedResult(
+  runDir: string,
+  ref: string,
+  runId: string,
+  reportHash?: string
+): Promise<boolean> {
   const metadataPath = join(runDir, "metadata.json");
   const reportPath = join(runDir, "report.md");
   if (!(await exists(metadataPath)) || !(await exists(reportPath))) {
@@ -46,7 +58,10 @@ async function findPersistedRun(
   const runRoot = join(workspace.resultsDir, taskId, "blocks", blockId, "runs");
   const index = await readTaskIndex(workspace, taskId);
   const indexedRunId = index.latestRunByBlock?.[ref];
-  if (indexedRunId && (await runHasSubmittedResult(join(runRoot, indexedRunId), ref, indexedRunId, reportHash))) {
+  if (
+    indexedRunId &&
+    (await runHasSubmittedResult(join(runRoot, indexedRunId), ref, indexedRunId, reportHash))
+  ) {
     return indexedRunId;
   }
   const entries = await optionalReaddir(runRoot, { withFileTypes: true });
@@ -96,7 +111,11 @@ export async function submitBlockResult(options: {
           [options.ref]: persistedRunId
         }
       }));
-      state.blocks[options.ref] = { ...state.blocks[options.ref], status: "completed", lastRunId: persistedRunId };
+      state.blocks[options.ref] = {
+        ...state.blocks[options.ref],
+        status: "completed",
+        lastRunId: persistedRunId
+      };
       state.currentRefs = state.currentRefs.filter((ref) => ref !== options.ref);
       state = refreshDerivedState(manifest, state);
       await writeState(workspace.stateFile, state);
@@ -119,7 +138,9 @@ export async function submitBlockResult(options: {
     if (options.reportPath !== reportDestination) {
       await copyFile(options.reportPath, reportDestination);
     }
-    const previousMetadata = (await exists(metadataPath)) ? await readJsonFile<Record<string, unknown>>(metadataPath) : {};
+    const previousMetadata = (await exists(metadataPath))
+      ? await readJsonFile<Record<string, unknown>>(metadataPath)
+      : {};
     await writeJsonFile(metadataPath, {
       ...previousMetadata,
       ref: options.ref,
@@ -138,7 +159,11 @@ export async function submitBlockResult(options: {
       },
       counts: incrementTaskIndexCount(index, "runs")
     }));
-    state.blocks[options.ref] = { ...state.blocks[options.ref], status: "completed", lastRunId: runId };
+    state.blocks[options.ref] = {
+      ...state.blocks[options.ref],
+      status: "completed",
+      lastRunId: runId
+    };
     state.currentRefs = state.currentRefs.filter((ref) => ref !== options.ref);
     state = refreshDerivedState(manifest, state);
     await writeState(workspace.stateFile, state);

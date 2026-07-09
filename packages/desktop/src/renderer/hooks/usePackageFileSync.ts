@@ -8,7 +8,9 @@ import type {
 import { bridge, desktopCanvasReference } from "../bridge";
 
 function hasProjectPromptChangeDiagnostic(result: DesktopPackageFileSyncResult): boolean {
-  return result.diagnostics.some((diagnostic) => diagnostic.code === "package_change_non_package_prompt");
+  return result.diagnostics.some(
+    (diagnostic) => diagnostic.code === "package_change_non_package_prompt"
+  );
 }
 
 function shouldReloadCanvasAfterRefresh(result: DesktopPackageFileSyncResult): boolean {
@@ -97,16 +99,23 @@ function mergeChangedPathRefresh(
   };
 }
 
-function mergeManualRefresh(pending: PendingPackageFileRefresh, resolveWaiter: (() => void) | undefined): PendingPackageFileRefresh {
+function mergeManualRefresh(
+  pending: PendingPackageFileRefresh,
+  resolveWaiter: (() => void) | undefined
+): PendingPackageFileRefresh {
   return {
     ...pending,
     fullRefreshRequested: true,
-    resolveWaiters: resolveWaiter ? [...pending.resolveWaiters, resolveWaiter] : pending.resolveWaiters
+    resolveWaiters: resolveWaiter
+      ? [...pending.resolveWaiters, resolveWaiter]
+      : pending.resolveWaiters
   };
 }
 
 function isEventForTarget(event: DesktopPackageFileChangeEvent, target: RefreshTarget): boolean {
-  return event.projectRoot === target.project.rootPath && (event.canvasId ?? null) === target.canvasId;
+  return (
+    event.projectRoot === target.project.rootPath && (event.canvasId ?? null) === target.canvasId
+  );
 }
 
 function isSameRefreshTarget(left: RefreshTarget | null, right: RefreshTarget): boolean {
@@ -153,13 +162,19 @@ export function usePackageFileSync({
   const refreshInFlightRef = useRef(false);
   const targetKeyRef = useRef<string | null>(null);
   const latestTargetRef = useRef<RefreshTarget | null>(null);
-  const targetKey = selectedProject ? `${selectedProject.rootPath}\u0000${selectedCanvasId ?? ""}` : null;
+  const targetKey = selectedProject
+    ? `${selectedProject.rootPath}\u0000${selectedCanvasId ?? ""}`
+    : null;
   if (targetKeyRef.current !== targetKey) {
     targetKeyRef.current = targetKey;
     refreshGenerationRef.current += 1;
   }
   latestTargetRef.current = selectedProject
-    ? { project: selectedProject, canvasId: selectedCanvasId, generation: refreshGenerationRef.current }
+    ? {
+        project: selectedProject,
+        canvasId: selectedCanvasId,
+        generation: refreshGenerationRef.current
+      }
     : null;
 
   const isCurrentRefreshTarget = useCallback((target: RefreshTarget): boolean => {
@@ -172,22 +187,31 @@ export function usePackageFileSync({
     );
   }, []);
 
-  const activeWatcherChangedPathsForTarget = useCallback((target: RefreshTarget): Set<string> | null => {
-    if (!refreshInFlightRef.current || !isSameRefreshTarget(activeRefreshTargetRef.current, target)) {
-      return null;
-    }
-    return activeWatcherChangedPathsRef.current;
-  }, []);
+  const activeWatcherChangedPathsForTarget = useCallback(
+    (target: RefreshTarget): Set<string> | null => {
+      if (
+        !refreshInFlightRef.current ||
+        !isSameRefreshTarget(activeRefreshTargetRef.current, target)
+      ) {
+        return null;
+      }
+      return activeWatcherChangedPathsRef.current;
+    },
+    []
+  );
 
-  const takePendingRefreshForTarget = useCallback((target: RefreshTarget): PendingPackageFileRefresh | null => {
-    const pending = pendingWatcherRefreshRef.current;
-    if (!pending || isSameRefreshTarget(pending.target, target)) {
-      return pending;
-    }
-    pendingWatcherRefreshRef.current = null;
-    resolvePendingWaiters(pending);
-    return null;
-  }, []);
+  const takePendingRefreshForTarget = useCallback(
+    (target: RefreshTarget): PendingPackageFileRefresh | null => {
+      const pending = pendingWatcherRefreshRef.current;
+      if (!pending || isSameRefreshTarget(pending.target, target)) {
+        return pending;
+      }
+      pendingWatcherRefreshRef.current = null;
+      resolvePendingWaiters(pending);
+      return null;
+    },
+    []
+  );
 
   useEffect(() => {
     const target = latestTargetRef.current;
@@ -199,42 +223,56 @@ export function usePackageFileSync({
     resolvePendingWaiters(pending);
   }, [targetKey]);
 
-  const runPackageFileRefresh = useCallback(async (pending: PendingPackageFileRefresh) => {
-    if (!bridge || !isCurrentRefreshTarget(pending.target)) {
-      return;
-    }
-    try {
-      const ref = desktopCanvasReference(pending.target.project, pending.target.canvasId);
-      const changedPaths = sortedChangedPaths(pending.changedPaths);
-      const options: DesktopPackageFileRefreshOptions | undefined = pending.fullRefreshRequested ? undefined : { changedPaths };
-      const result = options ? await bridge.refreshPackageFileChanges(ref, options) : await bridge.refreshPackageFileChanges(ref);
-      if (!isCurrentRefreshTarget(pending.target)) {
+  const runPackageFileRefresh = useCallback(
+    async (pending: PendingPackageFileRefresh) => {
+      if (!bridge || !isCurrentRefreshTarget(pending.target)) {
         return;
       }
-      const uiResult = syncResultWithWatcherMetadata(result, pending.event, changedPaths.length);
-      setFileSyncDiagnostics(uiResult.diagnostics.map((diagnostic) => diagnostic.message));
-      setFileSyncResult?.(uiResult);
-      if (!uiResult.ok) {
-        const message = syncErrorMessage(uiResult);
-        setError(message);
-        try {
-          await refreshProjectDerivedState();
-        } catch (caught) {
-          setError([message, errorMessage(caught)].filter(Boolean).join("\n"));
+      try {
+        const ref = desktopCanvasReference(pending.target.project, pending.target.canvasId);
+        const changedPaths = sortedChangedPaths(pending.changedPaths);
+        const options: DesktopPackageFileRefreshOptions | undefined = pending.fullRefreshRequested
+          ? undefined
+          : { changedPaths };
+        const result = options
+          ? await bridge.refreshPackageFileChanges(ref, options)
+          : await bridge.refreshPackageFileChanges(ref);
+        if (!isCurrentRefreshTarget(pending.target)) {
+          return;
         }
-        return;
+        const uiResult = syncResultWithWatcherMetadata(result, pending.event, changedPaths.length);
+        setFileSyncDiagnostics(uiResult.diagnostics.map((diagnostic) => diagnostic.message));
+        setFileSyncResult?.(uiResult);
+        if (!uiResult.ok) {
+          const message = syncErrorMessage(uiResult);
+          setError(message);
+          try {
+            await refreshProjectDerivedState();
+          } catch (caught) {
+            setError([message, errorMessage(caught)].filter(Boolean).join("\n"));
+          }
+          return;
+        }
+        if (shouldReloadCanvasAfterRefresh(uiResult)) {
+          await reloadCurrentCanvas();
+        } else {
+          await refreshProjectDerivedState();
+        }
+      } catch (caught) {
+        if (isCurrentRefreshTarget(pending.target)) {
+          setError(errorMessage(caught));
+        }
       }
-      if (shouldReloadCanvasAfterRefresh(uiResult)) {
-        await reloadCurrentCanvas();
-      } else {
-        await refreshProjectDerivedState();
-      }
-    } catch (caught) {
-      if (isCurrentRefreshTarget(pending.target)) {
-        setError(errorMessage(caught));
-      }
-    }
-  }, [isCurrentRefreshTarget, refreshProjectDerivedState, reloadCurrentCanvas, setError, setFileSyncDiagnostics, setFileSyncResult]);
+    },
+    [
+      isCurrentRefreshTarget,
+      refreshProjectDerivedState,
+      reloadCurrentCanvas,
+      setError,
+      setFileSyncDiagnostics,
+      setFileSyncResult
+    ]
+  );
 
   const drainRefreshQueue = useCallback(() => {
     if (drainPromiseRef.current) {
@@ -268,25 +306,28 @@ export function usePackageFileSync({
     return drainPromiseRef.current;
   }, [runPackageFileRefresh]);
 
-  const enqueueWatcherRefresh = useCallback((event: DesktopPackageFileChangeEvent) => {
-    const target = latestTargetRef.current;
-    if (!bridge || !target || !isEventForTarget(event, target)) {
-      return;
-    }
-    const pending = takePendingRefreshForTarget(target) ?? {
-      changedPaths: new Set<string>(),
-      event: undefined,
-      fullRefreshRequested: false,
-      resolveWaiters: [],
-      target
-    };
-    pendingWatcherRefreshRef.current = mergeWatcherRefresh(
-      { ...pending, target },
-      event,
-      activeWatcherChangedPathsForTarget(target)
-    );
-    void drainRefreshQueue();
-  }, [activeWatcherChangedPathsForTarget, drainRefreshQueue, takePendingRefreshForTarget]);
+  const enqueueWatcherRefresh = useCallback(
+    (event: DesktopPackageFileChangeEvent) => {
+      const target = latestTargetRef.current;
+      if (!bridge || !target || !isEventForTarget(event, target)) {
+        return;
+      }
+      const pending = takePendingRefreshForTarget(target) ?? {
+        changedPaths: new Set<string>(),
+        event: undefined,
+        fullRefreshRequested: false,
+        resolveWaiters: [],
+        target
+      };
+      pendingWatcherRefreshRef.current = mergeWatcherRefresh(
+        { ...pending, target },
+        event,
+        activeWatcherChangedPathsForTarget(target)
+      );
+      void drainRefreshQueue();
+    },
+    [activeWatcherChangedPathsForTarget, drainRefreshQueue, takePendingRefreshForTarget]
+  );
 
   const refreshPackageFiles = useCallback(
     async (options?: DesktopPackageFileRefreshOptions, event?: DesktopPackageFileChangeEvent) => {

@@ -18,14 +18,22 @@ describe("initWorkspace", () => {
 
     expect(manifest.version).toBe("plan-package/v1");
     expect(manifest).not.toHaveProperty("global_prompt");
-    expect(result.workspace.packageDir).toBe(join(result.workspace.workspaceRoot, "canvases", "default", "package"));
-    expect(result.workspace.stateFile).toBe(join(result.workspace.workspaceRoot, "canvases", "default", "state.json"));
-    expect(result.workspace.resultsDir).toBe(join(result.workspace.workspaceRoot, "canvases", "default", "results"));
+    expect(result.workspace.packageDir).toBe(
+      join(result.workspace.workspaceRoot, "canvases", "default", "package")
+    );
+    expect(result.workspace.stateFile).toBe(
+      join(result.workspace.workspaceRoot, "canvases", "default", "state.json")
+    );
+    expect(result.workspace.resultsDir).toBe(
+      join(result.workspace.workspaceRoot, "canvases", "default", "results")
+    );
     await expect(access(join(home, "config", "global-prompt.md"))).resolves.toBeUndefined();
     await expect(access(join(result.workspace.workspaceRoot, "package"))).rejects.toThrow();
     await expect(access(join(result.workspace.workspaceRoot, "state.json"))).rejects.toThrow();
     await expect(access(join(result.workspace.workspaceRoot, "results"))).rejects.toThrow();
-    await expect(readFile(result.workspace.projectPromptFile, "utf8")).resolves.toContain("# Project Prompt");
+    await expect(readFile(result.workspace.projectPromptFile, "utf8")).resolves.toContain(
+      "# Project Prompt"
+    );
     await expect(readJsonFile(projectGraphPath(result.workspace))).resolves.toMatchObject({
       version: "plan-project/v1",
       canvases: [
@@ -38,7 +46,14 @@ describe("initWorkspace", () => {
         }
       ]
     });
-    expect(state).toEqual({ currentRefs: [], currentFeedbackId: null, currentReviewBlockRef: null, tasks: {}, blocks: {}, feedback: {} });
+    expect(state).toEqual({
+      currentRefs: [],
+      currentFeedbackId: null,
+      currentReviewBlockRef: null,
+      tasks: {},
+      blocks: {},
+      feedback: {}
+    });
     delete process.env.PLANWEAVE_HOME;
   });
 
@@ -60,7 +75,11 @@ describe("initWorkspace", () => {
       kind: "managed",
       sourceRoot: null
     });
-    await expect(access(join(result.workspace.workspaceRoot, "canvases", "default", "package", "manifest.json"))).resolves.toBeUndefined();
+    await expect(
+      access(
+        join(result.workspace.workspaceRoot, "canvases", "default", "package", "manifest.json")
+      )
+    ).resolves.toBeUndefined();
     await expect(access(join(result.workspace.workspaceRoot, "package"))).rejects.toThrow();
     await expect(access(join(home, "mcp-projects"))).rejects.toThrow();
     delete process.env.PLANWEAVE_HOME;
@@ -87,7 +106,9 @@ describe("initWorkspace", () => {
       kind: "managed",
       sourceRoot: null
     });
-    await expect(access(join(root, "canvases", "default", "package", "manifest.json"))).resolves.toBeUndefined();
+    await expect(
+      access(join(root, "canvases", "default", "package", "manifest.json"))
+    ).resolves.toBeUndefined();
     delete process.env.PLANWEAVE_HOME;
   });
 
@@ -97,7 +118,9 @@ describe("initWorkspace", () => {
     process.env.PLANWEAVE_HOME = home;
     await mkdir(root, { recursive: true });
 
-    await expect(initWorkspace({ projectRoot: root })).rejects.toThrow(`PlanWeave projects must be initialized directly under '${join(home, "projects")}'.`);
+    await expect(initWorkspace({ projectRoot: root })).rejects.toThrow(
+      `PlanWeave projects must be initialized directly under '${join(home, "projects")}'.`
+    );
     await expect(access(join(home, "projects"))).rejects.toThrow();
     delete process.env.PLANWEAVE_HOME;
   });

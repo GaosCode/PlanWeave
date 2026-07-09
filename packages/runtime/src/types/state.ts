@@ -1,5 +1,13 @@
 export const taskStatuses = ["planned", "ready", "in_progress", "implemented"] as const;
-export const blockStatuses = ["planned", "ready", "in_progress", "completed", "needs_changes", "blocked", "diverged"] as const;
+export const blockStatuses = [
+  "planned",
+  "ready",
+  "in_progress",
+  "completed",
+  "needs_changes",
+  "blocked",
+  "diverged"
+] as const;
 export const feedbackStatuses = ["open", "in_progress", "resolved", "dismissed"] as const;
 export const reviewVerdicts = ["passed", "needs_changes"] as const;
 

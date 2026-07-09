@@ -15,7 +15,12 @@ async function withLockedRuntime<T>(
   return withCanvasLock(dirname(workspace.stateFile), async () => fn(await loadRuntime(options)));
 }
 
-export async function markBlockBlocked(options: { projectRoot: PackageWorkspaceRef; ref: string; reason: string; session?: ExecutionGraphSession }) {
+export async function markBlockBlocked(options: {
+  projectRoot: PackageWorkspaceRef;
+  ref: string;
+  reason: string;
+  session?: ExecutionGraphSession;
+}) {
   return withLockedRuntime(options, async (context) => {
     const { workspace, manifest, graph } = context;
     const block = getBlock(graph, options.ref);
@@ -36,7 +41,12 @@ export async function markBlockBlocked(options: { projectRoot: PackageWorkspaceR
   });
 }
 
-export async function markBlockDiverged(options: { projectRoot: PackageWorkspaceRef; ref: string; reason: string; session?: ExecutionGraphSession }) {
+export async function markBlockDiverged(options: {
+  projectRoot: PackageWorkspaceRef;
+  ref: string;
+  reason: string;
+  session?: ExecutionGraphSession;
+}) {
   return withLockedRuntime(options, async (context) => {
     const { workspace, manifest, graph } = context;
     const block = getBlock(graph, options.ref);
@@ -48,7 +58,14 @@ export async function markBlockDiverged(options: { projectRoot: PackageWorkspace
       ...context.state.blocks[options.ref],
       status: "diverged",
       divergenceReason: options.reason.trim(),
-      ...(block.type === "review" ? { activeFeedbackId: null, pendingFeedbackId: null, completionReason: null, passedWorkRevision: null } : {})
+      ...(block.type === "review"
+        ? {
+            activeFeedbackId: null,
+            pendingFeedbackId: null,
+            completionReason: null,
+            passedWorkRevision: null
+          }
+        : {})
     };
     if (block.type === "review" && taskId) {
       await clearReviewCompletionReason(workspace, taskId, options.ref);
@@ -59,7 +76,12 @@ export async function markBlockDiverged(options: { projectRoot: PackageWorkspace
   });
 }
 
-export async function unblockBlock(options: { projectRoot: PackageWorkspaceRef; ref: string; reason: string; session?: ExecutionGraphSession }) {
+export async function unblockBlock(options: {
+  projectRoot: PackageWorkspaceRef;
+  ref: string;
+  reason: string;
+  session?: ExecutionGraphSession;
+}) {
   return withLockedRuntime(options, async (context) => {
     const { workspace, manifest, graph } = context;
     getBlock(graph, options.ref);
@@ -76,7 +98,11 @@ export async function unblockBlock(options: { projectRoot: PackageWorkspaceRef; 
       blockedReason: null
     };
     await writeState(workspace.stateFile, refreshDerivedState(manifest, context.state));
-    return { ref: options.ref, status: context.state.blocks[options.ref].status, reason: options.reason.trim() };
+    return {
+      ref: options.ref,
+      status: context.state.blocks[options.ref].status,
+      reason: options.reason.trim()
+    };
   });
 }
 
@@ -104,7 +130,12 @@ export async function releaseInProgressBlock(options: {
   });
 }
 
-export async function resolveBlockDivergence(options: { projectRoot: PackageWorkspaceRef; ref: string; reason: string; session?: ExecutionGraphSession }) {
+export async function resolveBlockDivergence(options: {
+  projectRoot: PackageWorkspaceRef;
+  ref: string;
+  reason: string;
+  session?: ExecutionGraphSession;
+}) {
   return withLockedRuntime(options, async (context) => {
     const { workspace, manifest, graph } = context;
     const block = getBlock(graph, options.ref);
@@ -120,12 +151,23 @@ export async function resolveBlockDivergence(options: { projectRoot: PackageWork
       ...current,
       status: blockDependenciesCompleted(graph, context.state, options.ref) ? "ready" : "planned",
       divergenceReason: null,
-      ...(block.type === "review" ? { activeFeedbackId: null, pendingFeedbackId: null, completionReason: null, passedWorkRevision: null } : {})
+      ...(block.type === "review"
+        ? {
+            activeFeedbackId: null,
+            pendingFeedbackId: null,
+            completionReason: null,
+            passedWorkRevision: null
+          }
+        : {})
     };
     if (block.type === "review" && taskId) {
       await clearReviewCompletionReason(workspace, taskId, options.ref);
     }
     await writeState(workspace.stateFile, refreshDerivedState(manifest, context.state));
-    return { ref: options.ref, status: context.state.blocks[options.ref].status, reason: options.reason.trim() };
+    return {
+      ref: options.ref,
+      status: context.state.blocks[options.ref].status,
+      reason: options.reason.trim()
+    };
   });
 }

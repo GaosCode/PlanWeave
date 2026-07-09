@@ -1,9 +1,16 @@
-import type { ExecutorProfile, ManifestBlock, ManifestTaskNode, PlanPackageManifest } from "../types.js";
+import type {
+  ExecutorProfile,
+  ManifestBlock,
+  ManifestTaskNode,
+  PlanPackageManifest
+} from "../types.js";
 import { basicManifest } from "./promptTestHelpers.js";
 
 type BasicManifestOptions = Parameters<typeof basicManifest>[0];
 
-export function manifestTestBuilder(options: BasicManifestOptions = {}): PlanPackageManifestTestBuilder {
+export function manifestTestBuilder(
+  options: BasicManifestOptions = {}
+): PlanPackageManifestTestBuilder {
   return new PlanPackageManifestTestBuilder(basicManifest(options));
 }
 
@@ -52,7 +59,13 @@ export class PlanPackageManifestTestBuilder {
     return this;
   }
 
-  withParallelExecution({ enabled = true, maxConcurrent = 1 }: { enabled?: boolean; maxConcurrent?: number } = {}): this {
+  withParallelExecution({
+    enabled = true,
+    maxConcurrent = 1
+  }: {
+    enabled?: boolean;
+    maxConcurrent?: number;
+  } = {}): this {
     this.manifest.execution = {
       ...this.manifest.execution,
       parallel: {
@@ -78,7 +91,11 @@ export class PlanPackageManifestTestBuilder {
     return this;
   }
 
-  withBlock(taskId: string, blockId: string, update: (block: ManifestBlock) => ManifestBlock): this {
+  withBlock(
+    taskId: string,
+    blockId: string,
+    update: (block: ManifestBlock) => ManifestBlock
+  ): this {
     let found = false;
     this.withTask(taskId, (task) => ({
       ...task,

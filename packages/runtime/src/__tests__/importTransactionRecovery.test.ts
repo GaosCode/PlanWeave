@@ -2,7 +2,19 @@ import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ImportTransaction } from "../package/importTransaction.js";
-import { tempWorkspace, writeText, recoveryRoot, realFs, fsFailWrite, fsWithCleanupFailure, fsInstallFail, readRecovery, recoverClean, expectOp, writeJsonFile } from "./support/importTransactionTestHarness.js";
+import {
+  tempWorkspace,
+  writeText,
+  recoveryRoot,
+  realFs,
+  fsFailWrite,
+  fsWithCleanupFailure,
+  fsInstallFail,
+  readRecovery,
+  recoverClean,
+  expectOp,
+  writeJsonFile
+} from "./support/importTransactionTestHarness.js";
 
 describe("ImportTransaction: recovery", () => {
   it("recovers an installed replace rollback after target removal interrupts backup restore", async () => {
@@ -40,7 +52,9 @@ describe("ImportTransaction: recovery", () => {
 
     await expect(access(target)).rejects.toThrow();
     expect(await readFile(join(backupPath, "manifest.json"), "utf8")).toBe("old\n");
-    await expect(access(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"))).resolves.toBeUndefined();
+    await expect(
+      access(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"))
+    ).resolves.toBeUndefined();
 
     await recoverClean(workspaceRoot, transactionId);
 
@@ -98,7 +112,9 @@ describe("ImportTransaction: recovery", () => {
     });
 
     await transaction.replacePath(firstTarget, firstStaged);
-    await expect(transaction.replacePath(secondTarget, secondStaged)).rejects.toThrow("second staged install interrupted");
+    await expect(transaction.replacePath(secondTarget, secondStaged)).rejects.toThrow(
+      "second staged install interrupted"
+    );
 
     expect(await readFile(join(firstTarget, "manifest.json"), "utf8")).toBe("new package\n");
     await expect(access(secondTarget)).rejects.toThrow();
@@ -159,13 +175,19 @@ describe("ImportTransaction: recovery", () => {
     });
 
     await transaction.replacePath(target, staged);
-    const backupPath = (await readRecovery(workspaceRoot, transactionId)).operations[0]?.backupPath ?? "";
+    const backupPath =
+      (await readRecovery(workspaceRoot, transactionId)).operations[0]?.backupPath ?? "";
 
     await expect(transaction.rollback()).rejects.toThrow("recovery cleanup interrupted");
 
     expect(await readFile(join(target, "manifest.json"), "utf8")).toBe("old\n");
     await expect(access(backupPath)).rejects.toThrow();
-    await expectOp(workspaceRoot, transactionId, { target, type: "replace", targetExisted: true, phase: "rolledBack" });
+    await expectOp(workspaceRoot, transactionId, {
+      target,
+      type: "replace",
+      targetExisted: true,
+      phase: "rolledBack"
+    });
 
     await recoverClean(workspaceRoot, transactionId);
 
@@ -187,9 +209,16 @@ describe("ImportTransaction: recovery", () => {
       fs: fsInstallFail(staged, target)
     });
 
-    await expect(transaction.replacePath(target, staged)).rejects.toThrow("staged install interrupted");
+    await expect(transaction.replacePath(target, staged)).rejects.toThrow(
+      "staged install interrupted"
+    );
     await expect(access(target)).rejects.toThrow();
-    await expectOp(workspaceRoot, transactionId, { target, type: "replace", targetExisted: true, phase: "backedUp" });
+    await expectOp(workspaceRoot, transactionId, {
+      target,
+      type: "replace",
+      targetExisted: true,
+      phase: "backedUp"
+    });
 
     await recoverClean(workspaceRoot, transactionId);
 
@@ -215,8 +244,11 @@ describe("ImportTransaction: recovery", () => {
       }
     });
 
-    await expect(transaction.replacePath(target, staged)).rejects.toThrow("staged install interrupted");
-    const backupPath = (await readRecovery(workspaceRoot, transactionId)).operations[0]?.backupPath ?? "";
+    await expect(transaction.replacePath(target, staged)).rejects.toThrow(
+      "staged install interrupted"
+    );
+    const backupPath =
+      (await readRecovery(workspaceRoot, transactionId)).operations[0]?.backupPath ?? "";
     await expect(access(target)).rejects.toThrow();
     expect(await readFile(join(backupPath, "manifest.json"), "utf8")).toBe("old\n");
 
@@ -224,7 +256,12 @@ describe("ImportTransaction: recovery", () => {
 
     expect(await readFile(join(target, "manifest.json"), "utf8")).toBe("old\n");
     await expect(access(backupPath)).rejects.toThrow();
-    await expectOp(workspaceRoot, transactionId, { target, type: "replace", targetExisted: true, phase: "rolledBack" });
+    await expectOp(workspaceRoot, transactionId, {
+      target,
+      type: "replace",
+      targetExisted: true,
+      phase: "rolledBack"
+    });
 
     await recoverClean(workspaceRoot, transactionId);
 
@@ -245,13 +282,19 @@ describe("ImportTransaction: recovery", () => {
     });
 
     await transaction.removePath(target);
-    const backupPath = (await readRecovery(workspaceRoot, transactionId)).operations[0]?.backupPath ?? "";
+    const backupPath =
+      (await readRecovery(workspaceRoot, transactionId)).operations[0]?.backupPath ?? "";
 
     await expect(transaction.rollback()).rejects.toThrow("recovery cleanup interrupted");
 
     expect(await readFile(join(target, "old.txt"), "utf8")).toBe("old result\n");
     await expect(access(backupPath)).rejects.toThrow();
-    await expectOp(workspaceRoot, transactionId, { target, type: "remove", targetExisted: true, phase: "rolledBack" });
+    await expectOp(workspaceRoot, transactionId, {
+      target,
+      type: "remove",
+      targetExisted: true,
+      phase: "rolledBack"
+    });
 
     await recoverClean(workspaceRoot, transactionId);
 
@@ -268,7 +311,12 @@ describe("ImportTransaction: recovery", () => {
 
     await transaction.removePath(target);
     await expect(access(target)).rejects.toThrow();
-    await expectOp(workspaceRoot, transactionId, { target, type: "remove", targetExisted: true, phase: "backedUp" });
+    await expectOp(workspaceRoot, transactionId, {
+      target,
+      type: "remove",
+      targetExisted: true,
+      phase: "backedUp"
+    });
 
     await recoverClean(workspaceRoot, transactionId);
 
@@ -300,7 +348,9 @@ describe("ImportTransaction: recovery", () => {
       }
     });
 
-    await expect(transaction.replacePath(target, staged)).rejects.toThrow("backedUp phase write failed");
+    await expect(transaction.replacePath(target, staged)).rejects.toThrow(
+      "backedUp phase write failed"
+    );
 
     const recovery = await readRecovery(workspaceRoot, transactionId);
     expect(recovery.operations).toMatchObject([
@@ -337,11 +387,15 @@ describe("ImportTransaction: recovery", () => {
       }
     });
 
-    await expect(transaction.replacePath(target, staged)).rejects.toThrow("backedUp phase write failed");
+    await expect(transaction.replacePath(target, staged)).rejects.toThrow(
+      "backedUp phase write failed"
+    );
 
     const recovered = await ImportTransaction.recover({ workspaceRoot, transactionId });
     await expect(recovered.rollback()).rejects.toThrow("planned operation has a backup");
-    await expect(access(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"))).resolves.toBeUndefined();
+    await expect(
+      access(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"))
+    ).resolves.toBeUndefined();
   });
 
   it("does not delete an installed replacement when persisted phase is still backedUp", async () => {
@@ -369,7 +423,9 @@ describe("ImportTransaction: recovery", () => {
       }
     });
 
-    await expect(transaction.replacePath(target, staged)).rejects.toThrow("installed phase write failed");
+    await expect(transaction.replacePath(target, staged)).rejects.toThrow(
+      "installed phase write failed"
+    );
 
     const recovery = await readRecovery(workspaceRoot, transactionId);
     expect(recovery.operations).toMatchObject([
@@ -380,11 +436,15 @@ describe("ImportTransaction: recovery", () => {
     expect(await readFile(join(backupPath, "manifest.json"), "utf8")).toBe("old\n");
 
     const recovered = await ImportTransaction.recover({ workspaceRoot, transactionId });
-    await expect(recovered.rollback()).rejects.toThrow("replace operation target unexpectedly exists while backup is present");
+    await expect(recovered.rollback()).rejects.toThrow(
+      "replace operation target unexpectedly exists while backup is present"
+    );
 
     expect(await readFile(join(target, "manifest.json"), "utf8")).toBe("new\n");
     expect(await readFile(join(backupPath, "manifest.json"), "utf8")).toBe("old\n");
-    await expect(access(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"))).resolves.toBeUndefined();
+    await expect(
+      access(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"))
+    ).resolves.toBeUndefined();
   });
 
   it("skips rollback operations that were already persisted as rolledBack after a later operation succeeds", async () => {
@@ -432,7 +492,12 @@ describe("ImportTransaction: recovery", () => {
     await expect(access(secondBackupPath)).rejects.toThrow();
     await expect(readRecovery(workspaceRoot, transactionId)).resolves.toMatchObject({
       operations: [
-        { target: firstTarget, type: "replace", targetExisted: true, phase: "rollingBackFromInstalled" },
+        {
+          target: firstTarget,
+          type: "replace",
+          targetExisted: true,
+          phase: "rollingBackFromInstalled"
+        },
         { target: secondTarget, type: "replace", targetExisted: true, phase: "rolledBack" }
       ]
     });
@@ -493,17 +558,26 @@ describe("ImportTransaction: recovery", () => {
       }
     });
 
-    await expect(transaction.replacePath(target, staged)).rejects.toThrow("staged install interrupted");
+    await expect(transaction.replacePath(target, staged)).rejects.toThrow(
+      "staged install interrupted"
+    );
     backupPath = (await readRecovery(workspaceRoot, transactionId)).operations[0]?.backupPath ?? "";
     await expect(transaction.rollback()).rejects.toThrow("backup restore interrupted");
 
     await writeText(target, "external state\n");
     const recovered = await ImportTransaction.recover({ workspaceRoot, transactionId });
-    await expect(recovered.rollback()).rejects.toThrow("backedUp rollback target unexpectedly exists while backup is present");
+    await expect(recovered.rollback()).rejects.toThrow(
+      "backedUp rollback target unexpectedly exists while backup is present"
+    );
 
     expect(await readFile(target, "utf8")).toBe("external state\n");
     expect(await readFile(backupPath, "utf8")).toBe("old state\n");
-    await expectOp(workspaceRoot, transactionId, { target, type: "replace", targetExisted: true, phase: "rollingBackFromBackedUp" });
+    await expectOp(workspaceRoot, transactionId, {
+      target,
+      type: "replace",
+      targetExisted: true,
+      phase: "rollingBackFromBackedUp"
+    });
   });
 
   it("recovers an installed replace when rolledBack progress cannot be persisted after target restore", async () => {
@@ -523,7 +597,12 @@ describe("ImportTransaction: recovery", () => {
     await expect(transaction.rollback()).rejects.toThrow("rolledBack phase write failed");
 
     expect(await readFile(target, "utf8")).toBe("old state\n");
-    await expectOp(workspaceRoot, transactionId, { target, type: "replace", targetExisted: true, phase: "rollingBackFromInstalled" });
+    await expectOp(workspaceRoot, transactionId, {
+      target,
+      type: "replace",
+      targetExisted: true,
+      phase: "rollingBackFromInstalled"
+    });
 
     await recoverClean(workspaceRoot, transactionId);
 
@@ -548,11 +627,18 @@ describe("ImportTransaction: recovery", () => {
       }
     });
 
-    await expect(transaction.replacePath(target, staged)).rejects.toThrow("staged install interrupted");
+    await expect(transaction.replacePath(target, staged)).rejects.toThrow(
+      "staged install interrupted"
+    );
     await expect(transaction.rollback()).rejects.toThrow("rolledBack phase write failed");
 
     expect(await readFile(join(target, "manifest.json"), "utf8")).toBe("old\n");
-    await expectOp(workspaceRoot, transactionId, { target, type: "replace", targetExisted: true, phase: "rollingBackFromBackedUp" });
+    await expectOp(workspaceRoot, transactionId, {
+      target,
+      type: "replace",
+      targetExisted: true,
+      phase: "rollingBackFromBackedUp"
+    });
 
     await recoverClean(workspaceRoot, transactionId);
 
@@ -575,7 +661,12 @@ describe("ImportTransaction: recovery", () => {
     await expect(transaction.rollback()).rejects.toThrow("rolledBack phase write failed");
 
     expect(await readFile(join(target, "old.txt"), "utf8")).toBe("old result\n");
-    await expectOp(workspaceRoot, transactionId, { target, type: "remove", targetExisted: true, phase: "rollingBackFromBackedUp" });
+    await expectOp(workspaceRoot, transactionId, {
+      target,
+      type: "remove",
+      targetExisted: true,
+      phase: "rollingBackFromBackedUp"
+    });
 
     await recoverClean(workspaceRoot, transactionId);
 
@@ -599,7 +690,12 @@ describe("ImportTransaction: recovery", () => {
     await expect(transaction.rollback()).rejects.toThrow("rolledBack phase write failed");
 
     await expect(access(target)).rejects.toThrow();
-    await expectOp(workspaceRoot, transactionId, { target, type: "replace", targetExisted: false, phase: "rollingBackFromInstalled" });
+    await expectOp(workspaceRoot, transactionId, {
+      target,
+      type: "replace",
+      targetExisted: false,
+      phase: "rollingBackFromInstalled"
+    });
 
     await recoverClean(workspaceRoot, transactionId);
 

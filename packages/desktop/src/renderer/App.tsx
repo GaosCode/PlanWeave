@@ -32,8 +32,12 @@ function AppWorkspaceChrome({
   leftSidebarWidth: number;
   rightSidebarCollapsed: boolean;
   rightSidebarWidth: number;
-  setLeftSidebarCollapsedPreference: ReturnType<typeof useResizableSidebarLayout>["setLeftSidebarCollapsedPreference"];
-  setRightSidebarCollapsedPreference: ReturnType<typeof useResizableSidebarLayout>["setRightSidebarCollapsedPreference"];
+  setLeftSidebarCollapsedPreference: ReturnType<
+    typeof useResizableSidebarLayout
+  >["setLeftSidebarCollapsedPreference"];
+  setRightSidebarCollapsedPreference: ReturnType<
+    typeof useResizableSidebarLayout
+  >["setRightSidebarCollapsedPreference"];
   settings: ProjectWorkspaceShellInput["settings"];
   startSidebarResize: ReturnType<typeof useResizableSidebarLayout>["startSidebarResize"];
 }) {
@@ -92,7 +96,13 @@ function AppSettingsChrome({
   return (
     <>
       <AppSettingsRoute {...settingsRouteProps} />
-      <AppOverlays error={error} successMessage={successMessage} setError={setError} setSuccessMessage={setSuccessMessage} t={t} />
+      <AppOverlays
+        error={error}
+        successMessage={successMessage}
+        setError={setError}
+        setSuccessMessage={setSuccessMessage}
+        t={t}
+      />
     </>
   );
 }
@@ -184,7 +194,13 @@ export function App() {
               settings={settings}
               startSidebarResize={startSidebarResize}
             />
-            <AppOverlays error={error} successMessage={successMessage} setError={setError} setSuccessMessage={setSuccessMessage} t={t} />
+            <AppOverlays
+              error={error}
+              successMessage={successMessage}
+              setError={setError}
+              setSuccessMessage={setSuccessMessage}
+              t={t}
+            />
           </>
         )}
       </div>

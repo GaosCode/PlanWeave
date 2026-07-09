@@ -54,7 +54,9 @@ describe("desktop runtime subscriptions hook", () => {
         listProjects: vi.fn().mockResolvedValueOnce([project]).mockResolvedValue([]),
         getDesktopProjectSnapshot,
         getDesktopRuntimeRefresh,
-        refreshPackageFileChanges: vi.fn().mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
+        refreshPackageFileChanges: vi
+          .fn()
+          .mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
         watchPackageFiles: vi.fn().mockResolvedValue(undefined)
       });
       vi.stubGlobal("planweave", bridge);
@@ -85,7 +87,10 @@ describe("desktop runtime subscriptions hook", () => {
         await flushAsyncEffects();
       });
 
-      expect(getDesktopRuntimeRefresh).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" });
+      expect(getDesktopRuntimeRefresh).toHaveBeenCalledWith({
+        projectRoot: project.rootPath,
+        canvasId: "canvas-main"
+      });
       expect(getDesktopProjectSnapshot).not.toHaveBeenCalled();
       expect(result.current.runtimeDiagnostics).toEqual([runtimeDiagnostic]);
       expect(setError).toHaveBeenCalledWith("Auto Run state could not be parsed.");
@@ -95,12 +100,14 @@ describe("desktop runtime subscriptions hook", () => {
   });
 
   it("refreshes only the graph when the current canvas runtime state changes", async () => {
-    let runtimeStateChangedCallback: ((event: {
-      projectRoot: string;
-      canvasId: string | null;
-      stateFile: string;
-      changedAt: string;
-    }) => void) | null = null;
+    let runtimeStateChangedCallback:
+      | ((event: {
+          projectRoot: string;
+          canvasId: string | null;
+          stateFile: string;
+          changedAt: string;
+        }) => void)
+      | null = null;
     const refreshedGraph: DesktopGraphViewModel = {
       ...graph,
       graphVersion: "pgv-runtime-state-event"
@@ -115,7 +122,9 @@ describe("desktop runtime subscriptions hook", () => {
         runtimeStateChangedCallback = callback;
         return () => undefined;
       }),
-      refreshPackageFileChanges: vi.fn().mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
+      refreshPackageFileChanges: vi
+        .fn()
+        .mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
       watchPackageFiles: vi.fn().mockResolvedValue(undefined),
       watchRuntimeState: vi.fn().mockResolvedValue(undefined)
     });
@@ -146,7 +155,10 @@ describe("desktop runtime subscriptions hook", () => {
       await flushAsyncEffects();
     });
 
-    expect(getGraphViewModel).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" });
+    expect(getGraphViewModel).toHaveBeenCalledWith({
+      projectRoot: project.rootPath,
+      canvasId: "canvas-main"
+    });
     expect(getDesktopProjectSnapshot).not.toHaveBeenCalled();
     expect(result.current.graph?.graphVersion).toBe("pgv-runtime-state-event");
   });

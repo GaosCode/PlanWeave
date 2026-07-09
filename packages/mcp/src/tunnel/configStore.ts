@@ -119,7 +119,9 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-export function createFileTunnelConfigStore(configPath = defaultTunnelConfigPath()): TunnelConfigStore {
+export function createFileTunnelConfigStore(
+  configPath = defaultTunnelConfigPath()
+): TunnelConfigStore {
   const resolvedPath = resolve(configPath);
   return {
     path: () => resolvedPath,
@@ -131,12 +133,16 @@ export function createFileTunnelConfigStore(configPath = defaultTunnelConfigPath
       try {
         parsed = JSON.parse(await readFile(resolvedPath, "utf8"));
       } catch (error) {
-        throw new Error(`Failed to read MCP tunnel config at ${resolvedPath}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(
+          `Failed to read MCP tunnel config at ${resolvedPath}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
       try {
         return normalizeTunnelConfig(parsed);
       } catch (error) {
-        throw new Error(`Invalid MCP tunnel config at ${resolvedPath}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(
+          `Invalid MCP tunnel config at ${resolvedPath}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     },
     async write(config: TunnelConfig): Promise<void> {
@@ -149,7 +155,10 @@ export function createFileTunnelConfigStore(configPath = defaultTunnelConfigPath
         }
       });
       const tempPath = join(dir, `.config-${process.pid}-${Date.now()}.tmp`);
-      await writeFile(tempPath, `${JSON.stringify(normalized, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+      await writeFile(tempPath, `${JSON.stringify(normalized, null, 2)}\n`, {
+        encoding: "utf8",
+        mode: 0o600
+      });
       await rename(tempPath, resolvedPath);
       const written = await stat(resolvedPath);
       if ((written.mode & 0o777) !== 0o600) {

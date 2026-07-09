@@ -24,7 +24,11 @@ export function subcommandOptionLongs(parentName: string, name: string): string[
   return command.options.flatMap((option) => (option.long ? [option.long] : []));
 }
 
-export function nestedSubcommandOptionLongs(parentName: string, childName: string, name: string): string[] {
+export function nestedSubcommandOptionLongs(
+  parentName: string,
+  childName: string,
+  name: string
+): string[] {
   const parent = createProgram().commands.find((item) => item.name() === parentName);
   if (!parent) {
     throw new Error(`Missing command '${parentName}'.`);

@@ -72,18 +72,28 @@ function crossTaskEdge(from: ProjectTaskRef, to: ProjectTaskRef): ProjectCrossTa
 }
 
 export function isProjectGraphCommand(command: PlanGraphCommand): command is ProjectGraphCommand {
-  return command.type === "addCanvasDependency"
-    || command.type === "removeCanvasDependency"
-    || command.type === "addCrossTaskDependency"
-    || command.type === "removeCrossTaskDependency";
+  return (
+    command.type === "addCanvasDependency" ||
+    command.type === "removeCanvasDependency" ||
+    command.type === "addCrossTaskDependency" ||
+    command.type === "removeCrossTaskDependency"
+  );
 }
 
 function inverseForProjectGraphCommand(command: ProjectGraphCommand): ProjectGraphCommand {
   if (command.type === "addCanvasDependency") {
-    return { type: "removeCanvasDependency", fromCanvasId: command.fromCanvasId, toCanvasId: command.toCanvasId };
+    return {
+      type: "removeCanvasDependency",
+      fromCanvasId: command.fromCanvasId,
+      toCanvasId: command.toCanvasId
+    };
   }
   if (command.type === "removeCanvasDependency") {
-    return { type: "addCanvasDependency", fromCanvasId: command.fromCanvasId, toCanvasId: command.toCanvasId };
+    return {
+      type: "addCanvasDependency",
+      fromCanvasId: command.fromCanvasId,
+      toCanvasId: command.toCanvasId
+    };
   }
   if (command.type === "addCrossTaskDependency") {
     return { type: "removeCrossTaskDependency", from: command.from, to: command.to };
@@ -102,7 +112,10 @@ function commandAffectedRefs(command: ProjectGraphCommand): PlanGraphAffectedRef
   return {
     ...emptyAffectedRefs(),
     canvases: [...new Set([command.from.canvasId, command.to.canvasId])],
-    tasks: [`${command.from.canvasId}:${command.from.taskId}`, `${command.to.canvasId}:${command.to.taskId}`],
+    tasks: [
+      `${command.from.canvasId}:${command.from.taskId}`,
+      `${command.to.canvasId}:${command.to.taskId}`
+    ],
     packageFiles: ["project-graph.json"]
   };
 }
@@ -131,15 +144,26 @@ function nextProjectGraphManifest(
     if (manifest.crossTaskEdges.some((candidate) => projectCrossTaskEdgeKey(candidate) === key)) {
       return { manifest, changed: false };
     }
-    return { manifest: { ...manifest, crossTaskEdges: [...manifest.crossTaskEdges, edge] }, changed: true };
+    return {
+      manifest: { ...manifest, crossTaskEdges: [...manifest.crossTaskEdges, edge] },
+      changed: true
+    };
   }
   const edge = crossTaskEdge(command.from, command.to);
   const key = projectCrossTaskEdgeKey(edge);
-  const crossTaskEdges = manifest.crossTaskEdges.filter((candidate) => projectCrossTaskEdgeKey(candidate) !== key);
-  return { manifest: { ...manifest, crossTaskEdges }, changed: crossTaskEdges.length !== manifest.crossTaskEdges.length };
+  const crossTaskEdges = manifest.crossTaskEdges.filter(
+    (candidate) => projectCrossTaskEdgeKey(candidate) !== key
+  );
+  return {
+    manifest: { ...manifest, crossTaskEdges },
+    changed: crossTaskEdges.length !== manifest.crossTaskEdges.length
+  };
 }
 
-function validateBaseVersion(currentVersion: string, command: ProjectGraphCommand): PlanGraphCommandDiagnostic | null {
+function validateBaseVersion(
+  currentVersion: string,
+  command: ProjectGraphCommand
+): PlanGraphCommandDiagnostic | null {
   if (!command.baseGraphVersion || command.baseGraphVersion === currentVersion) {
     return null;
   }
@@ -269,8 +293,11 @@ export async function applyProjectGraphHistoryCommand(
       return latest;
     }
   }
-  return latest ?? fail({
-    command,
-    diagnostics: [diagnostic("history_empty", "No project graph command to apply.")]
-  });
+  return (
+    latest ??
+    fail({
+      command,
+      diagnostics: [diagnostic("history_empty", "No project graph command to apply.")]
+    })
+  );
 }

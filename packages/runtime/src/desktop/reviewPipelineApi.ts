@@ -1,7 +1,11 @@
 import { optionalReadFile } from "../fs/optionalFile.js";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { commitPlanPackageGraphMutation } from "../graph/editGraph.js";
-import { buildPlanPackageManifestChangeMutation, removePromptSideEffect, writePromptSideEffects } from "../graph/mutation.js";
+import {
+  buildPlanPackageManifestChangeMutation,
+  removePromptSideEffect,
+  writePromptSideEffects
+} from "../graph/mutation.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { executePlanGraphCommand, type PlanGraphCommandResult } from "../plangraph/index.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
@@ -15,7 +19,11 @@ import type {
   PlanPackageManifest,
   ReviewTriggerCondition
 } from "../types.js";
-import type { DesktopReviewPipeline, DesktopReviewPipelineStepInput, DesktopUpdateReviewPipelineInput } from "./types.js";
+import type {
+  DesktopReviewPipeline,
+  DesktopReviewPipelineStepInput,
+  DesktopUpdateReviewPipelineInput
+} from "./types.js";
 
 async function readOptionalFile(path: string): Promise<string> {
   return (await optionalReadFile(path, "utf8")) ?? "";
@@ -51,7 +59,10 @@ function promptPath(taskId: string, blockId: string): string {
   return `nodes/${taskId}/blocks/${blockId}.prompt.md`;
 }
 
-async function graphEditResult(projectRoot: PackageWorkspaceRef, result: PlanGraphCommandResult): Promise<GraphEditResult> {
+async function graphEditResult(
+  projectRoot: PackageWorkspaceRef,
+  result: PlanGraphCommandResult
+): Promise<GraphEditResult> {
   const { manifest } = await loadPackage(projectRoot);
   const graph = compileTaskGraph(manifest);
   return {
@@ -73,7 +84,8 @@ function normalizeStep(options: {
   step: DesktopReviewPipelineStepInput;
   fallbackDependency: string | null;
 }): ManifestReviewBlock {
-  const blockId = options.step.blockId?.trim() || nextReviewBlockId(options.task, options.usedBlockIds);
+  const blockId =
+    options.step.blockId?.trim() || nextReviewBlockId(options.task, options.usedBlockIds);
   options.usedBlockIds.add(blockId);
   const existing = options.existing.get(blockId);
   return {
@@ -100,7 +112,10 @@ function reviewBlocks(task: ManifestTaskNode): ManifestReviewBlock[] {
   return task.blocks.filter((block): block is ManifestReviewBlock => block.type === "review");
 }
 
-export async function getReviewPipeline(projectRoot: PackageWorkspaceRef, taskId: string): Promise<DesktopReviewPipeline> {
+export async function getReviewPipeline(
+  projectRoot: PackageWorkspaceRef,
+  taskId: string
+): Promise<DesktopReviewPipeline> {
   const { workspace, manifest } = await loadPackage(projectRoot);
   const graph = compileTaskGraph(manifest);
   const task = graph.tasksById.get(taskId);
@@ -117,10 +132,13 @@ export async function getReviewPipeline(projectRoot: PackageWorkspaceRef, taskId
       triggerCondition: normalizeTrigger(block.review.triggerCondition),
       inputContext: block.review.inputContext ?? "latest implementation reports",
       passCriteria: block.review.passCriteria ?? "All acceptance criteria are satisfied.",
-      feedbackFormat: block.review.feedbackFormat ?? "Actionable feedback for implementation blocks.",
+      feedbackFormat:
+        block.review.feedbackFormat ?? "Actionable feedback for implementation blocks.",
       maxFeedbackCycles: block.review.maxFeedbackCycles,
       hook: block.review.hook,
-      promptMarkdown: await readOptionalFile(await resolvePackagePath(workspace.packageDir, block.prompt))
+      promptMarkdown: await readOptionalFile(
+        await resolvePackagePath(workspace.packageDir, block.prompt)
+      )
     }))
   );
   return {
@@ -215,10 +233,14 @@ function buildReviewPipelineMutation(
   const removedPrompts = task.blocks
     .filter((block) => block.type === "review" && !reviewPromptPaths.has(block.prompt))
     .map((block) => removePromptSideEffect(block.prompt));
-  const promptMarkdownByBlockIdMap = new Map(promptMarkdownByBlockId.map((item) => [item.blockId, item.markdown]));
+  const promptMarkdownByBlockIdMap = new Map(
+    promptMarkdownByBlockId.map((item) => [item.blockId, item.markdown])
+  );
   const sideEffects = [
     ...removedPrompts,
-    ...nextReviewBlocks.flatMap((block) => writePromptSideEffects(block.prompt, promptMarkdownByBlockIdMap.get(block.id) ?? ""))
+    ...nextReviewBlocks.flatMap((block) =>
+      writePromptSideEffects(block.prompt, promptMarkdownByBlockIdMap.get(block.id) ?? "")
+    )
   ];
   const nextTask: ManifestTaskNode = {
     ...task,
@@ -227,7 +249,9 @@ function buildReviewPipelineMutation(
   const nextManifest = {
     ...manifest,
     review: { ...packageDefaults },
-    nodes: manifest.nodes.map((node) => (node.type === "task" && node.id === task.id ? nextTask : node))
+    nodes: manifest.nodes.map((node) =>
+      node.type === "task" && node.id === task.id ? nextTask : node
+    )
   };
   return {
     taskId: task.id,
@@ -258,7 +282,10 @@ export async function bulkApplyReviewPipeline(
   }
   const result = await commitPlanPackageGraphMutation({
     projectRoot,
-    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks, sideEffects })
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
+      affectedTasks,
+      sideEffects
+    })
   });
   invalidateDesktopProjectProjection(projectRoot);
   return result;

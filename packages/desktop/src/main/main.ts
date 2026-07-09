@@ -1,7 +1,11 @@
 import { app, BrowserWindow } from "electron";
 import { registerApplicationMenu } from "./appMenu.js";
 import { checkForAppUpdate, registerAppUpdateHandlers } from "./appUpdate.js";
-import { autoStartMcpTunnel, registerMcpTunnelHandlers, stopMcpTunnelProcesses } from "./mcpTunnel/mcpTunnelHandlers.js";
+import {
+  autoStartMcpTunnel,
+  registerMcpTunnelHandlers,
+  stopMcpTunnelProcesses
+} from "./mcpTunnel/mcpTunnelHandlers.js";
 import { registerDesktopSettingsHandlers } from "./desktopSettingsHandlers.js";
 import { applyPersistedPlanweaveHomeSetting } from "./desktopSettingsStore.js";
 import { registerPackageWatchHandlers } from "./packageWatch.js";
@@ -34,7 +38,9 @@ if (isSmokeRun && process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR) {
 }
 
 registerRuntimeBridgeHandlers();
-registerDesktopSettingsHandlers(undefined, { planweaveHomeBaseline: planweaveHomeBaselineForSettingsStore });
+registerDesktopSettingsHandlers(undefined, {
+  planweaveHomeBaseline: planweaveHomeBaselineForSettingsStore
+});
 registerPackageWatchHandlers();
 registerRuntimeStateWatchHandlers();
 registerWindowAppearanceHandlers();

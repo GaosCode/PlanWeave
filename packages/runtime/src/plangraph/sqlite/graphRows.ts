@@ -1,5 +1,17 @@
-import type { PlanGraph, PlanGraphBlockNode, PlanGraphTaskNode, PromptRef } from "../domain/types.js";
-import { jsonString, nullableStringColumn, parseJsonArray, parseJsonRecord, stringArrayColumn, stringColumn } from "./columns.js";
+import type {
+  PlanGraph,
+  PlanGraphBlockNode,
+  PlanGraphTaskNode,
+  PromptRef
+} from "../domain/types.js";
+import {
+  jsonString,
+  nullableStringColumn,
+  parseJsonArray,
+  parseJsonRecord,
+  stringArrayColumn,
+  stringColumn
+} from "./columns.js";
 import type { SqliteDatabase } from "./connection.js";
 
 export function writeGraphIndex(db: SqliteDatabase, projectRoot: string, graph: PlanGraph): void {
@@ -14,7 +26,14 @@ export function writeGraphIndex(db: SqliteDatabase, projectRoot: string, graph: 
     db.prepare(
       `INSERT INTO graph_meta (project_root, package_fingerprint, graph_version, project_json, diagnostics_json, indexed_at)
        VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(projectRoot, graph.packageFingerprint, graph.graphVersion, jsonString(graph.project), jsonString(graph.diagnostics), indexedAt);
+    ).run(
+      projectRoot,
+      graph.packageFingerprint,
+      graph.graphVersion,
+      jsonString(graph.project),
+      jsonString(graph.diagnostics),
+      indexedAt
+    );
 
     const insertTask = db.prepare(
       `INSERT INTO tasks
@@ -57,7 +76,9 @@ export function writeGraphIndex(db: SqliteDatabase, projectRoot: string, graph: 
       );
     }
 
-    const insertEdge = db.prepare("INSERT INTO edges (project_root, edge_type, from_ref, to_ref) VALUES (?, ?, ?, ?)");
+    const insertEdge = db.prepare(
+      "INSERT INTO edges (project_root, edge_type, from_ref, to_ref) VALUES (?, ?, ?, ?)"
+    );
     for (const edge of graph.edges) {
       if (edge.type === "taskDependsOn") {
         insertEdge.run(projectRoot, edge.type, edge.fromTaskId, edge.toTaskId);
@@ -71,7 +92,15 @@ export function writeGraphIndex(db: SqliteDatabase, projectRoot: string, graph: 
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     );
     for (const prompt of graph.promptRefs.values()) {
-      insertPrompt.run(projectRoot, prompt.ownerKind, prompt.ownerRef, prompt.path, prompt.contentHash, prompt.preview, indexedAt);
+      insertPrompt.run(
+        projectRoot,
+        prompt.ownerKind,
+        prompt.ownerRef,
+        prompt.path,
+        prompt.contentHash,
+        prompt.preview,
+        indexedAt
+      );
     }
     db.exec("COMMIT");
   } catch (error) {
@@ -82,12 +111,21 @@ export function writeGraphIndex(db: SqliteDatabase, projectRoot: string, graph: 
 
 function deleteTaskRows(db: SqliteDatabase, projectRoot: string, taskId: string): void {
   db.prepare("DELETE FROM tasks WHERE project_root = ? AND task_id = ?").run(projectRoot, taskId);
-  db.prepare("DELETE FROM prompt_index WHERE project_root = ? AND owner_ref = ?").run(projectRoot, taskId);
+  db.prepare("DELETE FROM prompt_index WHERE project_root = ? AND owner_ref = ?").run(
+    projectRoot,
+    taskId
+  );
 }
 
 function deleteBlockRows(db: SqliteDatabase, projectRoot: string, blockRef: string): void {
-  db.prepare("DELETE FROM blocks WHERE project_root = ? AND block_ref = ?").run(projectRoot, blockRef);
-  db.prepare("DELETE FROM prompt_index WHERE project_root = ? AND owner_ref = ?").run(projectRoot, blockRef);
+  db.prepare("DELETE FROM blocks WHERE project_root = ? AND block_ref = ?").run(
+    projectRoot,
+    blockRef
+  );
+  db.prepare("DELETE FROM prompt_index WHERE project_root = ? AND owner_ref = ?").run(
+    projectRoot,
+    blockRef
+  );
 }
 
 function upsertTaskRow(db: SqliteDatabase, projectRoot: string, task: PlanGraphTaskNode): void {
@@ -129,24 +167,53 @@ function upsertBlockRow(db: SqliteDatabase, projectRoot: string, block: PlanGrap
   );
 }
 
-function upsertPromptRow(db: SqliteDatabase, projectRoot: string, prompt: PromptRef, indexedAt: string): void {
+function upsertPromptRow(
+  db: SqliteDatabase,
+  projectRoot: string,
+  prompt: PromptRef,
+  indexedAt: string
+): void {
   db.prepare(
     `INSERT OR REPLACE INTO prompt_index (project_root, owner_kind, owner_ref, path, content_hash, preview, indexed_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(projectRoot, prompt.ownerKind, prompt.ownerRef, prompt.path, prompt.contentHash, prompt.preview, indexedAt);
+  ).run(
+    projectRoot,
+    prompt.ownerKind,
+    prompt.ownerRef,
+    prompt.path,
+    prompt.contentHash,
+    prompt.preview,
+    indexedAt
+  );
 }
 
-function writeGraphMeta(db: SqliteDatabase, projectRoot: string, graph: PlanGraph, indexedAt: string): void {
+function writeGraphMeta(
+  db: SqliteDatabase,
+  projectRoot: string,
+  graph: PlanGraph,
+  indexedAt: string
+): void {
   db.prepare("DELETE FROM graph_meta WHERE project_root = ?").run(projectRoot);
   db.prepare(
     `INSERT INTO graph_meta (project_root, package_fingerprint, graph_version, project_json, diagnostics_json, indexed_at)
      VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(projectRoot, graph.packageFingerprint, graph.graphVersion, jsonString(graph.project), jsonString(graph.diagnostics), indexedAt);
+  ).run(
+    projectRoot,
+    graph.packageFingerprint,
+    graph.graphVersion,
+    jsonString(graph.project),
+    jsonString(graph.diagnostics),
+    indexedAt
+  );
 }
 
 function changedPromptOwnerRefs(graph: PlanGraph, paths: string[]): string[] {
-  const normalized = new Set(paths.map(normalizePackagePath).filter((path): path is string => path !== null));
-  return [...graph.promptRefs.values()].filter((prompt) => normalized.has(prompt.path)).map((prompt) => prompt.ownerRef);
+  const normalized = new Set(
+    paths.map(normalizePackagePath).filter((path): path is string => path !== null)
+  );
+  return [...graph.promptRefs.values()]
+    .filter((prompt) => normalized.has(prompt.path))
+    .map((prompt) => prompt.ownerRef);
 }
 
 function normalizePackagePath(path: string): string | null {
@@ -178,14 +245,21 @@ export function shouldFullRebuildChangedPaths(paths: string[]): boolean {
   });
 }
 
-export function writeChangedPromptIndex(db: SqliteDatabase, projectRoot: string, graph: PlanGraph, paths: string[]): void {
+export function writeChangedPromptIndex(
+  db: SqliteDatabase,
+  projectRoot: string,
+  graph: PlanGraph,
+  paths: string[]
+): void {
   const ownerRefs = changedPromptOwnerRefs(graph, paths);
   const indexedAt = new Date().toISOString();
   db.exec("BEGIN");
   try {
     writeGraphMeta(db, projectRoot, graph, indexedAt);
     db.prepare("DELETE FROM edges WHERE project_root = ?").run(projectRoot);
-    const insertEdge = db.prepare("INSERT INTO edges (project_root, edge_type, from_ref, to_ref) VALUES (?, ?, ?, ?)");
+    const insertEdge = db.prepare(
+      "INSERT INTO edges (project_root, edge_type, from_ref, to_ref) VALUES (?, ?, ?, ?)"
+    );
     for (const edge of graph.edges) {
       if (edge.type === "taskDependsOn") {
         insertEdge.run(projectRoot, edge.type, edge.fromTaskId, edge.toTaskId);
@@ -229,7 +303,9 @@ export function readGraphIndex(db: SqliteDatabase, projectRoot: string): PlanGra
   }
 
   const promptRefs = new Map<string, PromptRef>();
-  for (const row of db.prepare("SELECT * FROM prompt_index WHERE project_root = ? ORDER BY owner_ref").all(projectRoot)) {
+  for (const row of db
+    .prepare("SELECT * FROM prompt_index WHERE project_root = ? ORDER BY owner_ref")
+    .all(projectRoot)) {
     const prompt: PromptRef = {
       ownerKind: stringColumn(row, "owner_kind") === "task" ? "task" : "block",
       ownerRef: stringColumn(row, "owner_ref"),
@@ -241,7 +317,9 @@ export function readGraphIndex(db: SqliteDatabase, projectRoot: string): PlanGra
   }
 
   const tasks = new Map<string, PlanGraphTaskNode>();
-  for (const row of db.prepare("SELECT * FROM tasks WHERE project_root = ? ORDER BY task_id").all(projectRoot)) {
+  for (const row of db
+    .prepare("SELECT * FROM tasks WHERE project_root = ? ORDER BY task_id")
+    .all(projectRoot)) {
     const taskId = stringColumn(row, "task_id");
     const promptRef = promptRefs.get(taskId);
     if (!promptRef) {
@@ -259,7 +337,9 @@ export function readGraphIndex(db: SqliteDatabase, projectRoot: string): PlanGra
   }
 
   const blocks = new Map<string, PlanGraphBlockNode>();
-  for (const row of db.prepare("SELECT * FROM blocks WHERE project_root = ? ORDER BY block_ref").all(projectRoot)) {
+  for (const row of db
+    .prepare("SELECT * FROM blocks WHERE project_root = ? ORDER BY block_ref")
+    .all(projectRoot)) {
     const ref = stringColumn(row, "block_ref");
     const promptRef = promptRefs.get(ref);
     if (!promptRef) {
@@ -281,22 +361,39 @@ export function readGraphIndex(db: SqliteDatabase, projectRoot: string): PlanGra
     });
   }
 
-  const edges = db.prepare("SELECT * FROM edges WHERE project_root = ? ORDER BY edge_type, from_ref, to_ref").all(projectRoot).map((row) => {
-    const type = stringColumn(row, "edge_type");
-    if (type === "taskDependsOn") {
-      return { type, fromTaskId: stringColumn(row, "from_ref"), toTaskId: stringColumn(row, "to_ref") } as const;
-    }
-    if (type === "blockDependsOn") {
-      return { type, fromBlockRef: stringColumn(row, "from_ref"), toBlockRef: stringColumn(row, "to_ref") } as const;
-    }
-    throw new Error(`SQLite index contains unsupported edge type '${type}'.`);
-  });
+  const edges = db
+    .prepare("SELECT * FROM edges WHERE project_root = ? ORDER BY edge_type, from_ref, to_ref")
+    .all(projectRoot)
+    .map((row) => {
+      const type = stringColumn(row, "edge_type");
+      if (type === "taskDependsOn") {
+        return {
+          type,
+          fromTaskId: stringColumn(row, "from_ref"),
+          toTaskId: stringColumn(row, "to_ref")
+        } as const;
+      }
+      if (type === "blockDependsOn") {
+        return {
+          type,
+          fromBlockRef: stringColumn(row, "from_ref"),
+          toBlockRef: stringColumn(row, "to_ref")
+        } as const;
+      }
+      throw new Error(`SQLite index contains unsupported edge type '${type}'.`);
+    });
 
   return {
     graphVersion: stringColumn(meta, "graph_version"),
     packageFingerprint: stringColumn(meta, "package_fingerprint"),
-    project: parseJsonRecord(stringColumn(meta, "project_json"), "project_json") as PlanGraph["project"],
-    diagnostics: parseJsonArray(stringColumn(meta, "diagnostics_json"), "diagnostics_json") as PlanGraph["diagnostics"],
+    project: parseJsonRecord(
+      stringColumn(meta, "project_json"),
+      "project_json"
+    ) as PlanGraph["project"],
+    diagnostics: parseJsonArray(
+      stringColumn(meta, "diagnostics_json"),
+      "diagnostics_json"
+    ) as PlanGraph["diagnostics"],
     tasks,
     blocks,
     edges,

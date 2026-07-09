@@ -86,21 +86,31 @@ export const runtimeGateway: RuntimeGateway = {
   },
   async getStatus(projectId, canvasId) {
     const selectedCanvasId = await resolveSelectedCanvasId(projectId, canvasId);
-    return sanitizeExecutionStatus(await getExecutionStatus({ projectRoot: await resolveCanvasWorkspace(projectId, canvasId) }), selectedCanvasId);
+    return sanitizeExecutionStatus(
+      await getExecutionStatus({ projectRoot: await resolveCanvasWorkspace(projectId, canvasId) }),
+      selectedCanvasId
+    );
   },
   async getPrompt(projectId, canvasId, ref) {
     const selectedCanvasId = await resolveSelectedCanvasId(projectId, canvasId);
     return {
       canvasId: selectedCanvasId,
-      markdown: await renderPrompt({ projectRoot: await resolveCanvasWorkspace(projectId, selectedCanvasId), ref })
+      markdown: await renderPrompt({
+        projectRoot: await resolveCanvasWorkspace(projectId, selectedCanvasId),
+        ref
+      })
     };
   },
   async searchProject(projectId, args) {
-    const projection = await searchProjectWithDiagnostics(await resolveProjectRoot(projectId), args.query, {
-      canvasId: args.canvasId,
-      kinds: args.kinds,
-      limit: args.limit
-    });
+    const projection = await searchProjectWithDiagnostics(
+      await resolveProjectRoot(projectId),
+      args.query,
+      {
+        canvasId: args.canvasId,
+        kinds: args.kinds,
+        limit: args.limit
+      }
+    );
     return {
       results: projection.results.map(sanitizeSearchResult),
       diagnostics: sanitizeValidationIssues(projection.diagnostics)
@@ -133,7 +143,9 @@ export const runtimeGateway: RuntimeGateway = {
     });
   },
   async validateExecutionReadiness(projectId, canvasId) {
-    return runtimeValidateExecutionReadiness({ projectRoot: await resolveCanvasWorkspace(projectId, canvasId) });
+    return runtimeValidateExecutionReadiness({
+      projectRoot: await resolveCanvasWorkspace(projectId, canvasId)
+    });
   },
   async getTaskDetail(projectId, taskId, canvasId) {
     return getTaskDetail(await resolveCanvasWorkspace(projectId, canvasId), taskId);
@@ -148,7 +160,10 @@ export const runtimeGateway: RuntimeGateway = {
     return updateReviewPipeline(await resolveCanvasWorkspace(projectId, canvasId), taskId, input);
   },
   async bulkApplyReviewPipeline(projectId, canvasId, updates) {
-    return runtimeBulkApplyReviewPipeline(await resolveCanvasWorkspace(projectId, canvasId), updates);
+    return runtimeBulkApplyReviewPipeline(
+      await resolveCanvasWorkspace(projectId, canvasId),
+      updates
+    );
   },
   async createTask(projectId, canvasId, input) {
     return addTaskNode(await resolveCanvasWorkspace(projectId, canvasId), input);
@@ -161,7 +176,11 @@ export const runtimeGateway: RuntimeGateway = {
     return updateTaskFields(workspace, taskId, input);
   },
   async updateTaskAcceptance(projectId, canvasId, taskId, acceptance) {
-    return updateTaskAcceptance(await resolveCanvasWorkspace(projectId, canvasId), taskId, acceptance);
+    return updateTaskAcceptance(
+      await resolveCanvasWorkspace(projectId, canvasId),
+      taskId,
+      acceptance
+    );
   },
   async removeTask(projectId, canvasId, taskId) {
     return removeTaskNode(await resolveCanvasWorkspace(projectId, canvasId), taskId);
@@ -177,16 +196,22 @@ export const runtimeGateway: RuntimeGateway = {
     return updateBlockFields(workspace, blockRef, input);
   },
   async bulkUpdateTasks(projectId, canvasId, updates) {
-    return runtimeBulkUpdateTasks(await resolveCanvasWorkspace(projectId, canvasId), updates.map((update) => ({
-      taskId: update.taskId,
-      fields: update.input
-    })));
+    return runtimeBulkUpdateTasks(
+      await resolveCanvasWorkspace(projectId, canvasId),
+      updates.map((update) => ({
+        taskId: update.taskId,
+        fields: update.input
+      }))
+    );
   },
   async bulkUpdateBlocks(projectId, canvasId, updates) {
-    return runtimeBulkUpdateBlocks(await resolveCanvasWorkspace(projectId, canvasId), updates.map((update) => ({
-      blockRef: update.blockRef,
-      fields: update.input
-    })));
+    return runtimeBulkUpdateBlocks(
+      await resolveCanvasWorkspace(projectId, canvasId),
+      updates.map((update) => ({
+        blockRef: update.blockRef,
+        fields: update.input
+      }))
+    );
   },
   async bulkRemoveGraphItems(projectId, canvasId, input) {
     return runtimeBulkRemoveGraphItems(await resolveCanvasWorkspace(projectId, canvasId), {
@@ -203,31 +228,59 @@ export const runtimeGateway: RuntimeGateway = {
     return updateBlockPlanning(await resolveCanvasWorkspace(projectId, canvasId), blockRef, input);
   },
   async bulkUpdateParallelPolicy(projectId, canvasId, input) {
-    return runtimeBulkUpdateParallelPolicy(await resolveCanvasWorkspace(projectId, canvasId), input);
+    return runtimeBulkUpdateParallelPolicy(
+      await resolveCanvasWorkspace(projectId, canvasId),
+      input
+    );
   },
   async updateBlockDependencies(projectId, canvasId, blockRef, dependsOn) {
-    return updateBlockDependencies(await resolveCanvasWorkspace(projectId, canvasId), blockRef, dependsOn);
+    return updateBlockDependencies(
+      await resolveCanvasWorkspace(projectId, canvasId),
+      blockRef,
+      dependsOn
+    );
   },
   async removeBlock(projectId, canvasId, blockRef) {
     return removeBlock(await resolveCanvasWorkspace(projectId, canvasId), blockRef);
   },
   async addDependency(projectId, canvasId, fromTaskId, toTaskId) {
-    return addDependencyEdge(await resolveCanvasWorkspace(projectId, canvasId), fromTaskId, toTaskId);
+    return addDependencyEdge(
+      await resolveCanvasWorkspace(projectId, canvasId),
+      fromTaskId,
+      toTaskId
+    );
   },
   async removeDependency(projectId, canvasId, fromTaskId, toTaskId) {
-    return removeDependencyEdge(await resolveCanvasWorkspace(projectId, canvasId), fromTaskId, toTaskId);
+    return removeDependencyEdge(
+      await resolveCanvasWorkspace(projectId, canvasId),
+      fromTaskId,
+      toTaskId
+    );
   },
   async setTaskDependencies(projectId, canvasId, taskId, dependsOn) {
-    return runtimeSetTaskDependencies({ projectRoot: await resolveCanvasWorkspace(projectId, canvasId), taskId, dependsOn });
+    return runtimeSetTaskDependencies({
+      projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
+      taskId,
+      dependsOn
+    });
   },
   async bulkAddTaskDependencies(projectId, canvasId, edges) {
-    return runtimeBulkAddTaskDependencies({ projectRoot: await resolveCanvasWorkspace(projectId, canvasId), edges });
+    return runtimeBulkAddTaskDependencies({
+      projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
+      edges
+    });
   },
   async bulkSetTaskDependencies(projectId, canvasId, updates) {
-    return runtimeBulkSetTaskDependencies({ projectRoot: await resolveCanvasWorkspace(projectId, canvasId), updates });
+    return runtimeBulkSetTaskDependencies({
+      projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
+      updates
+    });
   },
   async bulkSetBlockDependencies(projectId, canvasId, updates) {
-    return runtimeBulkSetBlockDependencies({ projectRoot: await resolveCanvasWorkspace(projectId, canvasId), updates });
+    return runtimeBulkSetBlockDependencies({
+      projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
+      updates
+    });
   },
   async applyCanvasLaneLayout(projectId, canvasId, input) {
     return runtimeApplyCanvasLaneLayout(await resolveCanvasWorkspace(projectId, canvasId), input);
@@ -248,19 +301,37 @@ export const runtimeGateway: RuntimeGateway = {
     return readProjectPrompt(await resolveProjectRoot(projectId));
   },
   async listPackageFiles(projectId, canvasId, limit, cursor) {
-    return runtimeListPackageFiles({ projectRoot: await resolveCanvasWorkspace(projectId, canvasId), limit, cursor });
+    return runtimeListPackageFiles({
+      projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
+      limit,
+      cursor
+    });
   },
   async readPackageFile(projectId, canvasId, path, maxBytes) {
-    return runtimeReadPackageFile({ projectRoot: await resolveCanvasWorkspace(projectId, canvasId), path, maxBytes });
+    return runtimeReadPackageFile({
+      projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
+      path,
+      maxBytes
+    });
   },
   async readPromptSource(projectId, canvasId, input) {
-    return runtimeReadPromptSource({ projectRoot: await resolveCanvasWorkspace(projectId, canvasId), ...input });
+    return runtimeReadPromptSource({
+      projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
+      ...input
+    });
   },
   async readRenderedPrompt(projectId, canvasId, ref, maxBytes) {
-    return runtimeReadRenderedPrompt({ projectRoot: await resolveCanvasWorkspace(projectId, canvasId), ref, maxBytes });
+    return runtimeReadRenderedPrompt({
+      projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
+      ref,
+      maxBytes
+    });
   },
   async getPromptSources(projectId, canvasId, ref) {
-    return runtimeGetPromptSources({ projectRoot: await resolveCanvasWorkspace(projectId, canvasId), ref });
+    return runtimeGetPromptSources({
+      projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
+      ref
+    });
   },
   async updateProjectPrompt(projectId, markdown) {
     return updateProjectPrompt(await resolveProjectRoot(projectId), markdown);
@@ -277,7 +348,9 @@ export const runtimeGateway: RuntimeGateway = {
     return {
       project,
       projectPromptMarkdown: await readProjectPrompt(project.rootPath),
-      planPackages: await Promise.all(canvases.map((canvas) => exportCanvasPackage(projectId, canvas.canvasId)))
+      planPackages: await Promise.all(
+        canvases.map((canvas) => exportCanvasPackage(projectId, canvas.canvasId))
+      )
     };
   },
   async importPlanPackage(input) {
@@ -310,7 +383,10 @@ async function resolveProjectRoot(projectId: string): Promise<string> {
   return project.rootPath;
 }
 
-async function resolveSelectedCanvasId(projectId: string, canvasId?: string | null): Promise<string | null> {
+async function resolveSelectedCanvasId(
+  projectId: string,
+  canvasId?: string | null
+): Promise<string | null> {
   if (canvasId) {
     return canvasId;
   }

@@ -2,9 +2,25 @@ import { afterEach, describe, expect, it } from "vitest";
 import { join } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { writeJsonFile } from "../json.js";
-import { getFeedbackRecords, getReviewAttempts, getRunRecord, listBlockRunRecords, searchProject } from "../desktop/index.js";
-import { claimNext, submitBlockResult, submitFeedback, submitReviewResult } from "../taskManager/index.js";
-import { basicManifest, createTestWorkspace, writeReport, writeReviewResult } from "./promptTestHelpers.js";
+import {
+  getFeedbackRecords,
+  getReviewAttempts,
+  getRunRecord,
+  listBlockRunRecords,
+  searchProject
+} from "../desktop/index.js";
+import {
+  claimNext,
+  submitBlockResult,
+  submitFeedback,
+  submitReviewResult
+} from "../taskManager/index.js";
+import {
+  basicManifest,
+  createTestWorkspace,
+  writeReport,
+  writeReviewResult
+} from "./promptTestHelpers.js";
 
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
@@ -32,7 +48,11 @@ describe("desktop records API", () => {
       finishedAt: "2026-05-23T02:00:00.000Z",
       exitCode: 0
     });
-    await writeFile(join(runsRoot, "RUN-002", "stderr.log"), "\u001b[31mRead README.md\u001b[0m\n", "utf8");
+    await writeFile(
+      join(runsRoot, "RUN-002", "stderr.log"),
+      "\u001b[31mRead README.md\u001b[0m\n",
+      "utf8"
+    );
 
     const records = await listBlockRunRecords(root, "T-001#B-001");
 
@@ -61,8 +81,14 @@ describe("desktop records API", () => {
       join(runDir, "stdout.md"),
       [
         JSON.stringify({ type: "step_start", sessionID: "ses_live_123" }),
-        JSON.stringify({ type: "message_part_updated", part: { type: "text", text: "Live progress one." } }),
-        JSON.stringify({ type: "message_part_updated", part: { type: "text", text: "Live progress two." } })
+        JSON.stringify({
+          type: "message_part_updated",
+          part: { type: "text", text: "Live progress one." }
+        }),
+        JSON.stringify({
+          type: "message_part_updated",
+          part: { type: "text", text: "Live progress two." }
+        })
       ].join("\n"),
       "utf8"
     );
@@ -155,20 +181,32 @@ describe("desktop records API", () => {
       ref: "T-001#B-001",
       reportPath: await writeReport(root, "run-record.md", "desktop run record needle\n")
     });
-    await writeJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"), {
-      runId: "RUN-001",
-      ref: "T-001#B-001",
-      executor: "codex",
-      adapter: "codex-exec",
-      projectRoot: root,
-      executionCwd: root,
-      agentSessionId: "THREAD-123",
-      codexSessionId: "THREAD-123",
-      tmuxSessionId: "planweave-T-001-B-001-RUN-001-abcd1234",
-      tmuxAttachCommand: "tmux attach-session -t planweave-T-001-B-001-RUN-001-abcd1234",
-      tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-T-001-B-001-RUN-001-abcd1234",
-      exitCode: 0
-    });
+    await writeJsonFile(
+      join(
+        init.workspace.resultsDir,
+        "T-001",
+        "blocks",
+        "B-001",
+        "runs",
+        "RUN-001",
+        "metadata.json"
+      ),
+      {
+        runId: "RUN-001",
+        ref: "T-001#B-001",
+        executor: "codex",
+        adapter: "codex-exec",
+        projectRoot: root,
+        executionCwd: root,
+        agentSessionId: "THREAD-123",
+        codexSessionId: "THREAD-123",
+        tmuxSessionId: "planweave-T-001-B-001-RUN-001-abcd1234",
+        tmuxAttachCommand: "tmux attach-session -t planweave-T-001-B-001-RUN-001-abcd1234",
+        tmuxReadOnlyAttachCommand:
+          "tmux attach-session -r -t planweave-T-001-B-001-RUN-001-abcd1234",
+        exitCode: 0
+      }
+    );
     await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,
@@ -188,7 +226,8 @@ describe("desktop records API", () => {
         agentSessionId: "THREAD-123",
         codexSessionId: "THREAD-123",
         tmuxSessionId: "planweave-T-001-B-001-RUN-001-abcd1234",
-        tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-T-001-B-001-RUN-001-abcd1234",
+        tmuxReadOnlyAttachCommand:
+          "tmux attach-session -r -t planweave-T-001-B-001-RUN-001-abcd1234",
         reportPath: expect.stringContaining("report.md")
       })
     ]);
@@ -227,7 +266,11 @@ describe("desktop records API", () => {
     );
     expect(await searchProject(root, "feedback needle")).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: "review_attempt", ref: expect.stringContaining("review-result.json"), targetRef: "T-001#R-001" }),
+        expect.objectContaining({
+          kind: "review_attempt",
+          ref: expect.stringContaining("review-result.json"),
+          targetRef: "T-001#R-001"
+        }),
         expect.objectContaining({ kind: "feedback", ref: "FE-001", targetRef: "T-001#R-001" })
       ])
     );
@@ -236,7 +279,11 @@ describe("desktop records API", () => {
   it("lists review attempts and feedback records newest first", async () => {
     const { root } = await createTestWorkspace(basicManifest({ reviewMaxFeedbackCycles: 2 }));
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
     await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,
@@ -244,7 +291,10 @@ describe("desktop records API", () => {
       resultPath: await writeReviewResult(root, "needs_changes", "first feedback")
     });
     await claimNext({ projectRoot: root });
-    await submitFeedback({ projectRoot: root, reportPath: await writeReport(root, "feedback-1.md", "first fix\n") });
+    await submitFeedback({
+      projectRoot: root,
+      reportPath: await writeReport(root, "feedback-1.md", "first fix\n")
+    });
     await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,
@@ -252,7 +302,10 @@ describe("desktop records API", () => {
       resultPath: await writeReviewResult(root, "needs_changes", "second feedback")
     });
     await claimNext({ projectRoot: root });
-    await submitFeedback({ projectRoot: root, reportPath: await writeReport(root, "feedback-2.md", "second fix\n") });
+    await submitFeedback({
+      projectRoot: root,
+      reportPath: await writeReport(root, "feedback-2.md", "second fix\n")
+    });
     await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,
@@ -266,8 +319,18 @@ describe("desktop records API", () => {
       { attemptId: "REV-001", verdict: "needs_changes", contentPreview: "first feedback" }
     ]);
     await expect(getFeedbackRecords(root, "T-001#R-001")).resolves.toMatchObject([
-      { feedbackId: "FE-002", status: "resolved", latestSubmissionId: "FS-001", content: "second feedback" },
-      { feedbackId: "FE-001", status: "resolved", latestSubmissionId: "FS-001", content: "first feedback" }
+      {
+        feedbackId: "FE-002",
+        status: "resolved",
+        latestSubmissionId: "FS-001",
+        content: "second feedback"
+      },
+      {
+        feedbackId: "FE-001",
+        status: "resolved",
+        latestSubmissionId: "FS-001",
+        content: "first feedback"
+      }
     ]);
   });
 });

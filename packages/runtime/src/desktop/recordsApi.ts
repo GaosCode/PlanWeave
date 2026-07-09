@@ -5,7 +5,11 @@ import { readJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { readState } from "../state.js";
 import type { ExecutorProfile, PackageWorkspaceRef, ReviewVerdict } from "../types.js";
-import { cleanOutputSummary, displayMarkdownForRecord, outputSummaryForRecord } from "./runRecordOutput.js";
+import {
+  cleanOutputSummary,
+  displayMarkdownForRecord,
+  outputSummaryForRecord
+} from "./runRecordOutput.js";
 import type {
   DesktopBlockRunRecordSummary,
   DesktopFeedbackRecord,
@@ -48,7 +52,9 @@ function feedbackRunRecordId(feedbackId: string, runId: string): string {
   return `${feedbackId}::${runId}`;
 }
 
-type ParsedRunRecordId = { kind: "block"; blockRef: string; runId: string } | { kind: "feedback"; feedbackId: string; runId: string };
+type ParsedRunRecordId =
+  | { kind: "block"; blockRef: string; runId: string }
+  | { kind: "feedback"; feedbackId: string; runId: string };
 
 function parseRunRecordId(recordId: string): ParsedRunRecordId {
   const [ref, runId, extra] = recordId.split("::");
@@ -105,7 +111,10 @@ function latestTimestamp(...values: Array<string | null>): string | null {
   return latest;
 }
 
-async function runFileUpdateTimes(runDir: string, metadataPath: string): Promise<{
+async function runFileUpdateTimes(
+  runDir: string,
+  metadataPath: string
+): Promise<{
   stdoutUpdatedAt: string | null;
   stderrUpdatedAt: string | null;
   metadataUpdatedAt: string | null;
@@ -122,8 +131,11 @@ async function runFileUpdateTimes(runDir: string, metadataPath: string): Promise
   const metadataUpdatedAt = await fileUpdatedAt(metadataPath);
   const heartbeatPath = join(runDir, "heartbeat.json");
   const heartbeatUpdatedAt = await fileUpdatedAt(heartbeatPath);
-  const heartbeat: Record<string, unknown> = heartbeatUpdatedAt ? await readJsonFile<Record<string, unknown>>(heartbeatPath).catch(() => ({})) : {};
-  const lastHeartbeatAt = typeof heartbeat.lastHeartbeatAt === "string" ? heartbeat.lastHeartbeatAt : null;
+  const heartbeat: Record<string, unknown> = heartbeatUpdatedAt
+    ? await readJsonFile<Record<string, unknown>>(heartbeatPath).catch(() => ({}))
+    : {};
+  const lastHeartbeatAt =
+    typeof heartbeat.lastHeartbeatAt === "string" ? heartbeat.lastHeartbeatAt : null;
   return {
     stdoutUpdatedAt,
     stderrUpdatedAt,
@@ -133,14 +145,26 @@ async function runFileUpdateTimes(runDir: string, metadataPath: string): Promise
     heartbeatStatus: typeof heartbeat.status === "string" ? heartbeat.status : null,
     heartbeatPid: typeof heartbeat.pid === "number" ? heartbeat.pid : null,
     lastHeartbeatAt,
-    lastActivityAt: latestTimestamp(stdoutUpdatedAt, stderrUpdatedAt, lastHeartbeatAt, heartbeatUpdatedAt),
+    lastActivityAt: latestTimestamp(
+      stdoutUpdatedAt,
+      stderrUpdatedAt,
+      lastHeartbeatAt,
+      heartbeatUpdatedAt
+    ),
     lastOutputAt: latestTimestamp(stdoutUpdatedAt, stderrUpdatedAt)
   };
 }
 
 function adapterField(metadata: Record<string, unknown>): ExecutorProfile["adapter"] | null {
   const value = metadata.adapter;
-  return value === "manual" || value === "codex-exec" || value === "opencode-exec" || value === "claude-code-exec" || value === "pi-exec" || value === "local-review" ? value : null;
+  return value === "manual" ||
+    value === "codex-exec" ||
+    value === "opencode-exec" ||
+    value === "claude-code-exec" ||
+    value === "pi-exec" ||
+    value === "local-review"
+    ? value
+    : null;
 }
 
 function runOrderValue(record: DesktopBlockRunRecordSummary): number {
@@ -152,7 +176,10 @@ function runOrderValue(record: DesktopBlockRunRecordSummary): number {
   return runNumber ? Number.parseInt(runNumber, 10) : 0;
 }
 
-function compareRunRecordsNewestFirst(left: DesktopBlockRunRecordSummary, right: DesktopBlockRunRecordSummary): number {
+function compareRunRecordsNewestFirst(
+  left: DesktopBlockRunRecordSummary,
+  right: DesktopBlockRunRecordSummary
+): number {
   const byTime = runOrderValue(right) - runOrderValue(left);
   if (byTime !== 0) {
     return byTime;
@@ -176,7 +203,9 @@ async function runRecordSummary(options: {
   const { taskId, blockId } = parseBlockRef(options.blockRef);
   const runDir = join(blockRunRoot(options.resultsDir, options.blockRef), options.runId);
   const metadataPath = join(runDir, "metadata.json");
-  const metadata = (await exists(metadataPath)) ? await readJsonFile<Record<string, unknown>>(metadataPath) : {};
+  const metadata = (await exists(metadataPath))
+    ? await readJsonFile<Record<string, unknown>>(metadataPath)
+    : {};
   const adapter = adapterField(metadata);
   const stdout = await readOptionalFile(join(runDir, "stdout.md"));
   const stderr = await readOptionalFile(join(runDir, "stderr.log"));
@@ -194,7 +223,15 @@ async function runRecordSummary(options: {
     adapter,
     executionCwd: stringField(metadata, "executionCwd"),
     projectRoot: stringField(metadata, "projectRoot"),
-    agentSessionId: firstStringField(metadata, ["agentSessionId", "codexSessionId", "opencodeSessionId", "sessionId", "session_id", "threadId", "thread_id"]),
+    agentSessionId: firstStringField(metadata, [
+      "agentSessionId",
+      "codexSessionId",
+      "opencodeSessionId",
+      "sessionId",
+      "session_id",
+      "threadId",
+      "thread_id"
+    ]),
     codexSessionId: stringField(metadata, "codexSessionId"),
     tmuxSessionId: firstStringField(metadata, ["tmuxSessionId", "tmuxSessionName"]),
     tmuxAttachCommand: stringField(metadata, "tmuxAttachCommand"),
@@ -218,10 +255,14 @@ async function feedbackRunRecordSummary(options: {
 }): Promise<DesktopBlockRunRecordSummary> {
   const runDir = join(feedbackRunRoot(options.resultsDir), options.runId);
   const metadataPath = join(runDir, "metadata.json");
-  const metadata = (await exists(metadataPath)) ? await readJsonFile<Record<string, unknown>>(metadataPath) : {};
+  const metadata = (await exists(metadataPath))
+    ? await readJsonFile<Record<string, unknown>>(metadataPath)
+    : {};
   const feedbackId = stringField(metadata, "feedbackId") ?? options.feedbackId;
   if (feedbackId !== options.feedbackId) {
-    throw new Error(`Run record id '${feedbackRunRecordId(options.feedbackId, options.runId)}' does not match feedback metadata '${feedbackId}'.`);
+    throw new Error(
+      `Run record id '${feedbackRunRecordId(options.feedbackId, options.runId)}' does not match feedback metadata '${feedbackId}'.`
+    );
   }
   const sourceReviewBlockRef = stringField(metadata, "sourceReviewBlockRef");
   if (!sourceReviewBlockRef) {
@@ -231,7 +272,9 @@ async function feedbackRunRecordSummary(options: {
   const adapter = adapterField(metadata);
   const stdout = await readOptionalFile(join(runDir, "stdout.md"));
   const stderr = await readOptionalFile(join(runDir, "stderr.log"));
-  const promptPath = (await exists(join(runDir, "prompt.md"))) ? join(runDir, "prompt.md") : join(runDir, "feedback.md");
+  const promptPath = (await exists(join(runDir, "prompt.md")))
+    ? join(runDir, "prompt.md")
+    : join(runDir, "feedback.md");
   const reportPath = join(runDir, "report.md");
   const updateTimes = await runFileUpdateTimes(runDir, metadataPath);
   return {
@@ -247,7 +290,15 @@ async function feedbackRunRecordSummary(options: {
     adapter,
     executionCwd: stringField(metadata, "executionCwd"),
     projectRoot: stringField(metadata, "projectRoot"),
-    agentSessionId: firstStringField(metadata, ["agentSessionId", "codexSessionId", "opencodeSessionId", "sessionId", "session_id", "threadId", "thread_id"]),
+    agentSessionId: firstStringField(metadata, [
+      "agentSessionId",
+      "codexSessionId",
+      "opencodeSessionId",
+      "sessionId",
+      "session_id",
+      "threadId",
+      "thread_id"
+    ]),
     codexSessionId: stringField(metadata, "codexSessionId"),
     tmuxSessionId: firstStringField(metadata, ["tmuxSessionId", "tmuxSessionName"]),
     tmuxAttachCommand: stringField(metadata, "tmuxAttachCommand"),
@@ -264,12 +315,17 @@ async function feedbackRunRecordSummary(options: {
   };
 }
 
-async function feedbackRunRecordSummariesForBlock(resultsDir: string, blockRef: string): Promise<DesktopBlockRunRecordSummary[]> {
+async function feedbackRunRecordSummariesForBlock(
+  resultsDir: string,
+  blockRef: string
+): Promise<DesktopBlockRunRecordSummary[]> {
   const runIds = await listDirectories(feedbackRunRoot(resultsDir));
   const records = await Promise.all(
     runIds.map(async (runId) => {
       const metadataPath = join(feedbackRunRoot(resultsDir), runId, "metadata.json");
-      const metadata = (await exists(metadataPath)) ? await readJsonFile<Record<string, unknown>>(metadataPath) : {};
+      const metadata = (await exists(metadataPath))
+        ? await readJsonFile<Record<string, unknown>>(metadataPath)
+        : {};
       if (stringField(metadata, "sourceReviewBlockRef") !== blockRef) {
         return null;
       }
@@ -280,23 +336,44 @@ async function feedbackRunRecordSummariesForBlock(resultsDir: string, blockRef: 
   return records.filter((record): record is DesktopBlockRunRecordSummary => record !== null);
 }
 
-export async function listBlockRunRecords(projectRoot: PackageWorkspaceRef, blockRef: string): Promise<DesktopBlockRunRecordSummary[]> {
+export async function listBlockRunRecords(
+  projectRoot: PackageWorkspaceRef,
+  blockRef: string
+): Promise<DesktopBlockRunRecordSummary[]> {
   const { workspace } = await loadPackage(projectRoot);
   const runIds = await listDirectories(blockRunRoot(workspace.resultsDir, blockRef));
-  const blockRecords = await Promise.all(runIds.map((runId) => runRecordSummary({ resultsDir: workspace.resultsDir, blockRef, runId })));
+  const blockRecords = await Promise.all(
+    runIds.map((runId) => runRecordSummary({ resultsDir: workspace.resultsDir, blockRef, runId }))
+  );
   const feedbackRecords = await feedbackRunRecordSummariesForBlock(workspace.resultsDir, blockRef);
   return [...blockRecords, ...feedbackRecords].sort(compareRunRecordsNewestFirst);
 }
 
-export async function getRunRecord(projectRoot: PackageWorkspaceRef, recordId: string): Promise<DesktopRunRecord> {
+export async function getRunRecord(
+  projectRoot: PackageWorkspaceRef,
+  recordId: string
+): Promise<DesktopRunRecord> {
   const parsed = parseRunRecordId(recordId);
   const { workspace } = await loadPackage(projectRoot);
   const summary =
     parsed.kind === "block"
-      ? await runRecordSummary({ resultsDir: workspace.resultsDir, blockRef: parsed.blockRef, runId: parsed.runId })
-      : await feedbackRunRecordSummary({ resultsDir: workspace.resultsDir, feedbackId: parsed.feedbackId, runId: parsed.runId });
-  const runDir = parsed.kind === "block" ? join(blockRunRoot(workspace.resultsDir, parsed.blockRef), parsed.runId) : join(feedbackRunRoot(workspace.resultsDir), parsed.runId);
-  const metadata = (await exists(summary.metadataPath)) ? await readJsonFile<Record<string, unknown>>(summary.metadataPath) : {};
+      ? await runRecordSummary({
+          resultsDir: workspace.resultsDir,
+          blockRef: parsed.blockRef,
+          runId: parsed.runId
+        })
+      : await feedbackRunRecordSummary({
+          resultsDir: workspace.resultsDir,
+          feedbackId: parsed.feedbackId,
+          runId: parsed.runId
+        });
+  const runDir =
+    parsed.kind === "block"
+      ? join(blockRunRoot(workspace.resultsDir, parsed.blockRef), parsed.runId)
+      : join(feedbackRunRoot(workspace.resultsDir), parsed.runId);
+  const metadata = (await exists(summary.metadataPath))
+    ? await readJsonFile<Record<string, unknown>>(summary.metadataPath)
+    : {};
   const reportMarkdown = await readOptionalFile(join(runDir, "report.md"));
   const stdout = await readOptionalFile(join(runDir, "stdout.md"));
   const stderr = await readOptionalFile(join(runDir, "stderr.log"));
@@ -316,16 +393,23 @@ export async function getRunRecord(projectRoot: PackageWorkspaceRef, recordId: s
   };
 }
 
-export async function getReviewAttempts(projectRoot: PackageWorkspaceRef, blockRef: string): Promise<DesktopReviewAttemptSummary[]> {
+export async function getReviewAttempts(
+  projectRoot: PackageWorkspaceRef,
+  blockRef: string
+): Promise<DesktopReviewAttemptSummary[]> {
   const { workspace } = await loadPackage(projectRoot);
   const { taskId, blockId } = parseBlockRef(blockRef);
-  const attemptIds = (await listDirectories(reviewAttemptRoot(workspace.resultsDir, blockRef))).sort(compareIdsNewestFirst);
+  const attemptIds = (
+    await listDirectories(reviewAttemptRoot(workspace.resultsDir, blockRef))
+  ).sort(compareIdsNewestFirst);
   return Promise.all(
     attemptIds.map(async (attemptId) => {
       const attemptDir = join(reviewAttemptRoot(workspace.resultsDir, blockRef), attemptId);
       const resultPath = join(attemptDir, "review-result.json");
       const metadataPath = join(attemptDir, "metadata.json");
-      const result = (await exists(resultPath)) ? await readJsonFile<Record<string, unknown>>(resultPath) : {};
+      const result = (await exists(resultPath))
+        ? await readJsonFile<Record<string, unknown>>(resultPath)
+        : {};
       const content = typeof result.content === "string" ? result.content : "";
       return {
         ref: blockRef,
@@ -341,7 +425,10 @@ export async function getReviewAttempts(projectRoot: PackageWorkspaceRef, blockR
   );
 }
 
-export async function getFeedbackRecords(projectRoot: PackageWorkspaceRef, blockRef: string): Promise<DesktopFeedbackRecord[]> {
+export async function getFeedbackRecords(
+  projectRoot: PackageWorkspaceRef,
+  blockRef: string
+): Promise<DesktopFeedbackRecord[]> {
   const { workspace } = await loadPackage(projectRoot);
   const state = await readState(workspace.stateFile);
   return Object.entries(state.feedback)

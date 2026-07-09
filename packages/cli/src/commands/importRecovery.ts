@@ -39,7 +39,11 @@ export function registerImportRecoveryCommand(program: Command): void {
     .option("--json", "print machine-readable output")
     .action(async (options: ImportRecoveryOptions) => {
       const transactions = await listPendingImportRecoveries(await resolveCliProjectRoot());
-      console.log(options.json ? JSON.stringify({ pending: transactions }, null, 2) : formatPendingImportTransactionsHuman(transactions));
+      console.log(
+        options.json
+          ? JSON.stringify({ pending: transactions }, null, 2)
+          : formatPendingImportTransactionsHuman(transactions)
+      );
     });
 
   importRecovery
@@ -50,6 +54,10 @@ export function registerImportRecoveryCommand(program: Command): void {
     .action(async (transactionId: string, options: ImportRecoveryOptions) => {
       await rollbackPendingImportRecovery(await resolveCliProjectRoot(), transactionId);
       const result = { ok: true, transactionId };
-      console.log(options.json ? JSON.stringify(result, null, 2) : `Rolled back package import recovery transaction: ${transactionId}`);
+      console.log(
+        options.json
+          ? JSON.stringify(result, null, 2)
+          : `Rolled back package import recovery transaction: ${transactionId}`
+      );
     });
 }

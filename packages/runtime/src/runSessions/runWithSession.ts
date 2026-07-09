@@ -5,7 +5,14 @@ import { getAutoRunStatus, runAutoRunStep } from "../taskManager/autoRun.js";
 import type { AutoRunStatus, AutoRunStepResult, ClaimScope, ReviewVerdict } from "../types.js";
 import { appendRunSessionEvent, createRunSession, updateRunSession } from "./repository.js";
 import { resetRuntimeState } from "./reset.js";
-import type { RunSessionAutoRunSummary, RunSessionPhase, RunSessionScope, RunWithSessionOptions, RunWithSessionResult, UpdateRunSessionPatch } from "./types.js";
+import type {
+  RunSessionAutoRunSummary,
+  RunSessionPhase,
+  RunSessionScope,
+  RunWithSessionOptions,
+  RunWithSessionResult,
+  UpdateRunSessionPatch
+} from "./types.js";
 
 const defaultStepLimit = 10_000;
 
@@ -67,25 +74,37 @@ function feedbackId(step: AutoRunStepResult): string | null {
   if (step.claim.kind === "feedback") {
     return step.claim.feedbackId;
   }
-  return step.kind === "submitted" && "feedbackId" in step.submitResult ? step.submitResult.feedbackId ?? null : null;
+  return step.kind === "submitted" && "feedbackId" in step.submitResult
+    ? (step.submitResult.feedbackId ?? null)
+    : null;
 }
 
 async function sessionWorkspace(projectRoot: RunWithSessionOptions["projectRoot"]) {
   return (await loadPackage(projectRoot)).workspace;
 }
 
-async function blockRunRecordPath(projectRoot: RunWithSessionOptions["projectRoot"], ref: string, runId: string): Promise<string> {
+async function blockRunRecordPath(
+  projectRoot: RunWithSessionOptions["projectRoot"],
+  ref: string,
+  runId: string
+): Promise<string> {
   const workspace = await sessionWorkspace(projectRoot);
   const { taskId, blockId } = parseBlockRef(ref);
   return join(workspace.resultsDir, taskId, "blocks", blockId, "runs", runId, "metadata.json");
 }
 
-async function feedbackRunRecordPath(projectRoot: RunWithSessionOptions["projectRoot"], runId: string): Promise<string> {
+async function feedbackRunRecordPath(
+  projectRoot: RunWithSessionOptions["projectRoot"],
+  runId: string
+): Promise<string> {
   const workspace = await sessionWorkspace(projectRoot);
   return join(workspace.resultsDir, "feedback-runs", runId, "metadata.json");
 }
 
-async function stepRecordLink(projectRoot: RunWithSessionOptions["projectRoot"], step: Extract<AutoRunStepResult, { kind: "submitted" | "manual" }>): Promise<StepRecordLink | null> {
+async function stepRecordLink(
+  projectRoot: RunWithSessionOptions["projectRoot"],
+  step: Extract<AutoRunStepResult, { kind: "submitted" | "manual" }>
+): Promise<StepRecordLink | null> {
   if (!step.adapterResult.runId) {
     return null;
   }
@@ -104,7 +123,10 @@ async function stepRecordLink(projectRoot: RunWithSessionOptions["projectRoot"],
   return null;
 }
 
-async function stepRecordLinks(projectRoot: RunWithSessionOptions["projectRoot"], step: AutoRunStepResult): Promise<StepRecordLink[]> {
+async function stepRecordLinks(
+  projectRoot: RunWithSessionOptions["projectRoot"],
+  step: AutoRunStepResult
+): Promise<StepRecordLink[]> {
   if (step.kind === "batch_submitted") {
     const nested = await Promise.all(step.steps.map((item) => stepRecordLinks(projectRoot, item)));
     return nested.flat();
@@ -122,13 +144,21 @@ function activeStatusRecord(status: AutoRunStatus): StepRecordLink | null {
       (run): run is Extract<AutoRunStatus["latestRuns"][number], { kind: "feedback" }> =>
         run.kind === "feedback" && run.feedbackId === status.current.feedbackId && !run.finishedAt
     );
-    return feedbackRun?.feedbackId ? { recordId: `${feedbackRun.feedbackId}::${feedbackRun.runId}`, recordPath: feedbackRun.metadataPath } : null;
+    return feedbackRun?.feedbackId
+      ? {
+          recordId: `${feedbackRun.feedbackId}::${feedbackRun.runId}`,
+          recordPath: feedbackRun.metadataPath
+        }
+      : null;
   }
   const activeRefs = new Set(status.current.refs);
   const blockRun = status.latestRuns.find(
-    (run): run is Extract<AutoRunStatus["latestRuns"][number], { kind: "block" }> => run.kind === "block" && activeRefs.has(run.ref) && !run.finishedAt
+    (run): run is Extract<AutoRunStatus["latestRuns"][number], { kind: "block" }> =>
+      run.kind === "block" && activeRefs.has(run.ref) && !run.finishedAt
   );
-  return blockRun ? { recordId: `${blockRun.ref}::${blockRun.runId}`, recordPath: blockRun.metadataPath } : null;
+  return blockRun
+    ? { recordId: `${blockRun.ref}::${blockRun.runId}`, recordPath: blockRun.metadataPath }
+    : null;
 }
 
 function currentClaimRefs(status: AutoRunStatus): string[] {
@@ -150,7 +180,9 @@ function executorName(step: AutoRunStepResult): string | null {
 
 function outputSummary(step: AutoRunStepResult): string | null {
   if (step.kind === "submitted") {
-    return "stdout" in step.adapterResult ? step.adapterResult.stdout?.trim().slice(0, 300) || null : null;
+    return "stdout" in step.adapterResult
+      ? step.adapterResult.stdout?.trim().slice(0, 300) || null
+      : null;
   }
   if (step.kind === "manual") {
     return step.adapterResult.nextCommand;
@@ -169,7 +201,9 @@ function outputSummary(step: AutoRunStepResult): string | null {
     return step.claim.kind === "blocked" ? step.claim.reason : "Auto Run blocked.";
   }
   if (step.kind === "idle") {
-    return step.claim.kind === "none" ? step.claim.reason ?? "No claimable work." : "No claimable work.";
+    return step.claim.kind === "none"
+      ? (step.claim.reason ?? "No claimable work.")
+      : "No claimable work.";
   }
   return null;
 }
@@ -178,7 +212,10 @@ function finalPhaseForStep(step: AutoRunStepResult, status: AutoRunStatus): RunS
   if (step.kind === "idle") {
     return status.warnings.length > 0 ? "blocked" : "completed";
   }
-  if (step.kind === "manual" || (step.kind === "batch_submitted" && step.steps.some((item) => item.kind === "manual"))) {
+  if (
+    step.kind === "manual" ||
+    (step.kind === "batch_submitted" && step.steps.some((item) => item.kind === "manual"))
+  ) {
     return "manual";
   }
   if (step.kind === "blocked" || step.kind === "batch") {
@@ -202,7 +239,9 @@ function autoRunSummary(options: {
   };
 }
 
-function finalEventType(phase: RunSessionPhase): "session_completed" | "session_manual" | "session_blocked" | "session_stopped" {
+function finalEventType(
+  phase: RunSessionPhase
+): "session_completed" | "session_manual" | "session_blocked" | "session_stopped" {
   if (phase === "completed") {
     return "session_completed";
   }
@@ -215,7 +254,10 @@ function finalEventType(phase: RunSessionPhase): "session_completed" | "session_
   return "session_stopped";
 }
 
-function terminalReasonForPhase(phase: RunSessionPhase, stopReason: RunStopReason | null): RunWithSessionResult["terminalReason"] {
+function terminalReasonForPhase(
+  phase: RunSessionPhase,
+  stopReason: RunStopReason | null
+): RunWithSessionResult["terminalReason"] {
   if (stopReason === "step_limit") {
     return "step_limit_reached";
   }
@@ -255,7 +297,9 @@ async function updateSessionAutoRunSummary(options: {
   return updateRunSession(options.projectRoot, options.sessionId, patch);
 }
 
-export async function runWithSession(options: RunWithSessionOptions): Promise<RunWithSessionResult> {
+export async function runWithSession(
+  options: RunWithSessionOptions
+): Promise<RunWithSessionResult> {
   const session = await createRunSession({
     projectRoot: options.projectRoot,
     kind: "run",
@@ -420,12 +464,17 @@ export async function runWithSession(options: RunWithSessionOptions): Promise<Ru
       latestRecord: latestSessionRecord,
       finishedAt
     });
-    await appendRunSessionEvent(options.projectRoot, session.sessionId, finalEventType(finalPhase), {
-      phase: finalPhase,
-      finishedAt,
-      stepCount: steps.length,
-      stopReason
-    });
+    await appendRunSessionEvent(
+      options.projectRoot,
+      session.sessionId,
+      finalEventType(finalPhase),
+      {
+        phase: finalPhase,
+        finishedAt,
+        stepCount: steps.length,
+        stopReason
+      }
+    );
     return {
       session: finalSession,
       steps,

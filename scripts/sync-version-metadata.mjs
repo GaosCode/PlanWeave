@@ -151,14 +151,19 @@ async function syncVersionSourceFile(target, version, changedFiles) {
     invalidFiles.push(`${sourceFile.path} has invalid version ${JSON.stringify(match[1])}`);
     return;
   }
-  const nextText = currentText.replace(sourceFile.pattern, (text) => text.replace(match[1], version));
+  const nextText = currentText.replace(sourceFile.pattern, (text) =>
+    text.replace(match[1], version)
+  );
   await writeIfChanged(sourceFile.path, nextText, changedFiles);
 }
 
 async function syncReadmeBadgeFile(relativePath, version, changedFiles) {
   const currentText = await readText(relativePath);
   const startIndex = currentText.indexOf(readmeBadgeStartMarker);
-  const endIndex = currentText.indexOf(readmeBadgeEndMarker, startIndex + readmeBadgeStartMarker.length);
+  const endIndex = currentText.indexOf(
+    readmeBadgeEndMarker,
+    startIndex + readmeBadgeStartMarker.length
+  );
 
   if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
     invalidFiles.push(`${relativePath} does not contain a supported planweave-badges block`);
@@ -191,7 +196,9 @@ let rootPackageVersion;
 for (const [target, packageJsonPath] of Object.entries(packages)) {
   const packageJson = await readJson(packageJsonPath);
   if (!semverPattern.test(packageJson.version)) {
-    invalidFiles.push(`${packageJsonPath} has invalid version ${JSON.stringify(packageJson.version)}`);
+    invalidFiles.push(
+      `${packageJsonPath} has invalid version ${JSON.stringify(packageJson.version)}`
+    );
     continue;
   }
 
@@ -213,7 +220,9 @@ if (rootPackageVersion) {
 }
 
 if (invalidFiles.length > 0) {
-  console.error(`Version metadata is invalid:\n${invalidFiles.map((file) => `- ${file}`).join("\n")}`);
+  console.error(
+    `Version metadata is invalid:\n${invalidFiles.map((file) => `- ${file}`).join("\n")}`
+  );
   process.exit(1);
 }
 

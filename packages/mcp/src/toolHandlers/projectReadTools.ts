@@ -20,7 +20,8 @@ type ProjectTreeArgs = {
 };
 
 export const projectReadToolHandlers = {
-  get_project_tree: async (args, gateway) => jsonToolResult(await buildProjectTree(gateway, parseProjectTreeArgs(args))),
+  get_project_tree: async (args, gateway) =>
+    jsonToolResult(await buildProjectTree(gateway, parseProjectTreeArgs(args))),
   list_projects: async (_args, gateway) => {
     const projects = await gateway.listProjects();
     return jsonToolResult({ projects: projects.map(sanitizeProject) });
@@ -48,16 +49,21 @@ export const projectReadToolHandlers = {
   },
   create_project: async (args, gateway) => {
     const record = readObjectArgs(args);
-    return jsonToolResult({ project: sanitizeProject(await gateway.initProject(nonEmptyString(record.name, "name"))) });
+    return jsonToolResult({
+      project: sanitizeProject(await gateway.initProject(nonEmptyString(record.name, "name")))
+    });
   },
   init_project: async (args, gateway) => {
     const record = readObjectArgs(args);
-    return jsonToolResult({ project: sanitizeProject(await gateway.initProject(nonEmptyString(record.name, "name"))) });
+    return jsonToolResult({
+      project: sanitizeProject(await gateway.initProject(nonEmptyString(record.name, "name")))
+    });
   },
   create_canvas: async (args, gateway) => {
     const record = readObjectArgs(args);
     const { projectId } = parseProjectArgs(record);
-    const name = typeof record.name === "string" && record.name.trim() ? record.name.trim() : undefined;
+    const name =
+      typeof record.name === "string" && record.name.trim() ? record.name.trim() : undefined;
     return jsonToolResult({ canvas: await gateway.createCanvas(projectId, name) });
   },
   validate_project: async (args, gateway) => {
@@ -66,7 +72,9 @@ export const projectReadToolHandlers = {
   },
   explain_validation_errors: async (args, gateway) => {
     const { projectId } = parseProjectArgs(args);
-    return jsonToolResult(explainValidationReport(sanitizeValidationReport(await gateway.validateProject(projectId))));
+    return jsonToolResult(
+      explainValidationReport(sanitizeValidationReport(await gateway.validateProject(projectId)))
+    );
   }
 } satisfies PlanweavePartialToolHandlerRegistry;
 
@@ -76,7 +84,10 @@ function parseProjectTreeArgs(args: unknown): ProjectTreeArgs {
   }
   const record = readObjectArgs(args);
   return {
-    projectId: typeof record.projectId === "string" && record.projectId.trim() ? record.projectId.trim() : undefined,
+    projectId:
+      typeof record.projectId === "string" && record.projectId.trim()
+        ? record.projectId.trim()
+        : undefined,
     includeTasks: record.includeTasks !== false,
     includeStatus: record.includeStatus !== false
   };
@@ -84,7 +95,9 @@ function parseProjectTreeArgs(args: unknown): ProjectTreeArgs {
 
 async function buildProjectTree(gateway: RuntimeGateway, args: ProjectTreeArgs) {
   const allProjects = await gateway.listProjects();
-  const projects = args.projectId ? allProjects.filter((project) => project.projectId === args.projectId) : allProjects;
+  const projects = args.projectId
+    ? allProjects.filter((project) => project.projectId === args.projectId)
+    : allProjects;
   if (args.projectId && projects.length === 0) {
     throw new Error(`Project '${args.projectId}' is not registered in PlanWeave.`);
   }
@@ -96,28 +109,49 @@ async function buildProjectTree(gateway: RuntimeGateway, args: ProjectTreeArgs) 
       "When the user names an existing PlanWeave project, inspect this tree before deciding whether to open an existing project or initialize a new one.",
       "Use get_project_graph, get_task_detail, get_block_detail, or read_prompt to inspect a selected branch in more detail."
     ],
-    projects: await Promise.all(projects.map((project) => buildProjectContext(gateway, project, args))),
+    projects: await Promise.all(
+      projects.map((project) => buildProjectContext(gateway, project, args))
+    ),
     errors: [] as Array<{ scope: string; message: string }>
   };
 }
 
-async function buildProjectContext(gateway: RuntimeGateway, project: DesktopProjectSummary, args: ProjectTreeArgs) {
+async function buildProjectContext(
+  gateway: RuntimeGateway,
+  project: DesktopProjectSummary,
+  args: ProjectTreeArgs
+) {
   const errors: Array<{ scope: string; message: string }> = [];
-  const validation = await captureContextValue(`validate_project:${project.projectId}`, errors, async () => {
-    const report = await gateway.validateProject(project.projectId);
-    return sanitizeValidationReport(report);
-  });
+  const validation = await captureContextValue(
+    `validate_project:${project.projectId}`,
+    errors,
+    async () => {
+      const report = await gateway.validateProject(project.projectId);
+      return sanitizeValidationReport(report);
+    }
+  );
   const status = args.includeStatus
     ? await captureContextValue(`get_status:${project.projectId}`, errors, async () => {
-        const projectStatus = await gateway.getStatus(project.projectId, project.activeCanvasId ?? undefined);
+        const projectStatus = await gateway.getStatus(
+          project.projectId,
+          project.activeCanvasId ?? undefined
+        );
         return { ...projectStatus, warnings: sanitizeValidationIssues(projectStatus.warnings) };
       })
     : null;
   const readyBlocks = args.includeStatus
-    ? await captureContextValue(`list_ready_blocks:${project.projectId}`, errors, async () => (await gateway.listReadyBlocks(project.projectId)).readyBlocks)
+    ? await captureContextValue(
+        `list_ready_blocks:${project.projectId}`,
+        errors,
+        async () => (await gateway.listReadyBlocks(project.projectId)).readyBlocks
+      )
     : [];
   const canvases = args.includeTasks
-    ? await Promise.all(project.taskCanvases.map((canvas) => buildGraphContext(gateway, project.projectId, canvas.canvasId, canvas.name, errors)))
+    ? await Promise.all(
+        project.taskCanvases.map((canvas) =>
+          buildGraphContext(gateway, project.projectId, canvas.canvasId, canvas.name, errors)
+        )
+      )
     : [];
 
   return {
@@ -167,7 +201,10 @@ async function captureContextValue<T>(
   try {
     return await read();
   } catch (error) {
-    errors.push({ scope, message: sanitizeLocalPaths(error instanceof Error ? error.message : String(error)) });
+    errors.push({
+      scope,
+      message: sanitizeLocalPaths(error instanceof Error ? error.message : String(error))
+    });
     return null;
   }
 }

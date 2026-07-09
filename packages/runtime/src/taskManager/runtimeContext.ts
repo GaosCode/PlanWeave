@@ -2,7 +2,14 @@ import { optionalReadFile, optionalStat } from "../fs/optionalFile.js";
 import { createExecutionGraphSession, drainGraphReadQueue } from "../graph/session.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { ensureStateForManifest, readState, writeState } from "../state.js";
-import type { CompiledExecutionGraph, ExecutionGraphSession, PackageWorkspaceRef, PlanPackageManifest, ProjectWorkspace, RuntimeState } from "../types.js";
+import type {
+  CompiledExecutionGraph,
+  ExecutionGraphSession,
+  PackageWorkspaceRef,
+  PlanPackageManifest,
+  ProjectWorkspace,
+  RuntimeState
+} from "../types.js";
 
 export type RuntimeContext = {
   workspace: ProjectWorkspace;
@@ -60,6 +67,9 @@ export async function loadRuntime(options: RuntimeOptions): Promise<RuntimeConte
   return context;
 }
 
-export function refreshDerivedState(manifest: PlanPackageManifest, state: RuntimeState): RuntimeState {
+export function refreshDerivedState(
+  manifest: PlanPackageManifest,
+  state: RuntimeState
+): RuntimeState {
   return ensureStateForManifest(manifest, state);
 }

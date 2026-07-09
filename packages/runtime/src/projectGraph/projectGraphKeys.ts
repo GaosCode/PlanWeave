@@ -1,4 +1,9 @@
-import type { ProjectCanvasEdge, ProjectCrossTaskEdge, ProjectTaskRef, ProjectTaskRefString } from "./types.js";
+import type {
+  ProjectCanvasEdge,
+  ProjectCrossTaskEdge,
+  ProjectTaskRef,
+  ProjectTaskRefString
+} from "./types.js";
 
 export function projectTaskRefKey(ref: ProjectTaskRef): ProjectTaskRefString {
   return `${ref.canvasId}::${ref.taskId}`;

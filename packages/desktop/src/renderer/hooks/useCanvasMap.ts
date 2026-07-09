@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import type { DesktopCanvasGraphViewModel, DesktopCanvasMapLayout, DesktopProjectSummary } from "@planweave-ai/runtime";
+import type {
+  DesktopCanvasGraphViewModel,
+  DesktopCanvasMapLayout,
+  DesktopProjectSummary
+} from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
 import type { CanvasFlowNode } from "../types";
 
@@ -32,7 +36,9 @@ export function useCanvasMap({ activeCanvasId, selectedProject, setError }: UseC
     const errors: string[] = [];
     if (graphResult.status === "fulfilled") {
       setCanvasGraph(graphResult.value);
-      setSelectedMapCanvasId((current) => current ?? activeCanvasId ?? graphResult.value.canvases[0]?.canvasId ?? null);
+      setSelectedMapCanvasId(
+        (current) => current ?? activeCanvasId ?? graphResult.value.canvases[0]?.canvasId ?? null
+      );
     } else {
       setCanvasGraph(null);
       errors.push(errorMessage(graphResult.reason));
@@ -77,7 +83,8 @@ export function useCanvasMap({ activeCanvasId, selectedProject, setError }: UseC
     setCanvasMapLayout(await bridge.resetCanvasMapLayout(selectedProject.rootPath));
   }, [selectedProject]);
 
-  const selectedCanvas = canvasGraph?.canvases.find((canvas) => canvas.canvasId === selectedMapCanvasId) ?? null;
+  const selectedCanvas =
+    canvasGraph?.canvases.find((canvas) => canvas.canvasId === selectedMapCanvasId) ?? null;
 
   return {
     canvasGraph,

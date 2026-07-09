@@ -121,10 +121,14 @@ export function readMcpConfig(env: McpConfigEnv = process.env): McpConfig {
   const oauthEnabled = parseBooleanFlag(env.PLANWEAVE_MCP_OAUTH_ENABLED);
   const oauthClientStorePath = readOptionalString(env.PLANWEAVE_MCP_OAUTH_CLIENT_STORE);
   const oauthTokenStorePath = readOptionalString(env.PLANWEAVE_MCP_OAUTH_TOKEN_STORE);
-  const oauthRedirectUriPrefixes = parseRedirectUriPrefixes(env.PLANWEAVE_MCP_OAUTH_REDIRECT_URI_PREFIXES);
+  const oauthRedirectUriPrefixes = parseRedirectUriPrefixes(
+    env.PLANWEAVE_MCP_OAUTH_REDIRECT_URI_PREFIXES
+  );
   const toolDiscoveryMode = parseToolDiscoveryMode(env.PLANWEAVE_MCP_TOOL_DISCOVERY);
   if (!token && !oauthEnabled && !loopbackHosts.has(host)) {
-    throw new Error("PLANWEAVE_MCP_TOKEN or PLANWEAVE_MCP_OAUTH_ENABLED is required when PLANWEAVE_MCP_HOST is not loopback.");
+    throw new Error(
+      "PLANWEAVE_MCP_TOKEN or PLANWEAVE_MCP_OAUTH_ENABLED is required when PLANWEAVE_MCP_HOST is not loopback."
+    );
   }
 
   return {

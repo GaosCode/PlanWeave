@@ -2,9 +2,22 @@
 
 import "@testing-library/jest-dom/vitest";
 import { useState } from "react";
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { DesktopCanvasGraphViewModel, DesktopGraphViewModel, DesktopProjectSummary, DesktopTaskDraft } from "@planweave-ai/runtime";
+import type {
+  DesktopCanvasGraphViewModel,
+  DesktopGraphViewModel,
+  DesktopProjectSummary,
+  DesktopTaskDraft
+} from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { AppSuccessToast } from "../renderer/components/AppSuccessToast";
@@ -200,7 +213,9 @@ describe("desktop renderer interface interactions", () => {
         handleRevealProject={vi.fn().mockResolvedValue(undefined)}
         handleTaskPanelSelect={handleTaskPanelSelect}
         loadProject={loadProject}
-        notificationItems={[{ id: "dirty", title: "Dirty", detail: "T-001", tone: "secondary", read: false }]}
+        notificationItems={[
+          { id: "dirty", title: "Dirty", detail: "T-001", tone: "secondary", read: false }
+        ]}
         onToggleSidebar={vi.fn()}
         onTogglePinnedProject={vi.fn()}
         pinnedProjectIds={new Set()}
@@ -410,14 +425,25 @@ describe("desktop renderer interface interactions", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: /Main canvas\s*2/ })).toHaveAttribute("data-variant", "secondary");
-    expect(screen.getByTestId("canvas-toggle-canvas-main")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /Main canvas\s*2/ })).toHaveAttribute(
+      "data-variant",
+      "secondary"
+    );
+    expect(screen.getByTestId("canvas-toggle-canvas-main")).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
     expect(screen.getByRole("button", { name: /Implement runtime bridge\s*T-001/ })).toBeVisible();
 
     await userEvent.click(screen.getByTestId("canvas-toggle-canvas-main"));
 
-    expect(screen.getByTestId("canvas-toggle-canvas-main")).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("button", { name: /Implement runtime bridge\s*T-001/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId("canvas-toggle-canvas-main")).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
+    expect(
+      screen.queryByRole("button", { name: /Implement runtime bridge\s*T-001/ })
+    ).not.toBeInTheDocument();
   });
 
   it("allows editing generated New Task drafts before confirmation", async () => {
@@ -681,7 +707,9 @@ describe("desktop renderer interface interactions", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: /Broken canvas Error: Expected array/ })).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /Broken canvas Error: Expected array/ })
+    ).toBeVisible();
     expect(screen.queryByRole("button", { name: /Broken canvas\s*2/ })).not.toBeInTheDocument();
   });
 
@@ -704,7 +732,9 @@ describe("desktop renderer interface interactions", () => {
       diagnostics: [],
       health: {
         severity: "ok",
-        canvases: [{ canvasId: "canvas-main", severity: "ok", blockerCount: 0, diagnosticCount: 0 }],
+        canvases: [
+          { canvasId: "canvas-main", severity: "ok", blockerCount: 0, diagnosticCount: 0 }
+        ],
         edges: [],
         blockedBlocks: [],
         diagnostics: []
@@ -750,7 +780,9 @@ describe("desktop renderer interface interactions", () => {
       diagnostics: [],
       health: {
         severity: "ok",
-        canvases: [{ canvasId: "canvas-main", severity: "ok", blockerCount: 0, diagnosticCount: 0 }],
+        canvases: [
+          { canvasId: "canvas-main", severity: "ok", blockerCount: 0, diagnosticCount: 0 }
+        ],
         edges: [],
         blockedBlocks: [],
         diagnostics: []
@@ -780,10 +812,12 @@ describe("desktop renderer interface interactions", () => {
     await userEvent.type(screen.getByRole("spinbutton", { name: "Max concurrent blocks" }), "4");
     await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
-    await waitFor(() => expect(onExecutionPolicySave).toHaveBeenCalledWith("canvas-main", {
-      parallelEnabled: true,
-      maxConcurrent: 4
-    }));
+    await waitFor(() =>
+      expect(onExecutionPolicySave).toHaveBeenCalledWith("canvas-main", {
+        parallelEnabled: true,
+        maxConcurrent: 4
+      })
+    );
   });
 
   it("blocks invalid selected canvas execution policy input", async () => {
@@ -805,7 +839,9 @@ describe("desktop renderer interface interactions", () => {
       diagnostics: [],
       health: {
         severity: "ok",
-        canvases: [{ canvasId: "canvas-main", severity: "ok", blockerCount: 0, diagnosticCount: 0 }],
+        canvases: [
+          { canvasId: "canvas-main", severity: "ok", blockerCount: 0, diagnosticCount: 0 }
+        ],
         edges: [],
         blockedBlocks: [],
         diagnostics: []
@@ -853,13 +889,16 @@ describe("desktop renderer interface interactions", () => {
       diagnostics: [],
       health: {
         severity: "warning",
-        canvases: [{ canvasId: "canvas-main", severity: "warning", blockerCount: 0, diagnosticCount: 1 }],
+        canvases: [
+          { canvasId: "canvas-main", severity: "warning", blockerCount: 0, diagnosticCount: 1 }
+        ],
         edges: [],
         blockedBlocks: [],
         diagnostics: [
           {
             code: "project_graph_missing_legacy_registry_used",
-            message: "Project graph manifest is missing; derived canvas graph from legacy desktop canvas registry.",
+            message:
+              "Project graph manifest is missing; derived canvas graph from legacy desktop canvas registry.",
             path: "project-graph.json"
           }
         ]
@@ -920,7 +959,16 @@ describe("desktop renderer interface interactions", () => {
           { canvasId: "canvas-main", severity: "warning", blockerCount: 1, diagnosticCount: 0 },
           { canvasId: "canvas-upstream", severity: "ok", blockerCount: 0, diagnosticCount: 0 }
         ],
-        edges: [{ from: "canvas-main", to: "canvas-upstream", type: "depends_on", severity: "warning", blockerCount: 1, diagnosticCount: 0 }],
+        edges: [
+          {
+            from: "canvas-main",
+            to: "canvas-upstream",
+            type: "depends_on",
+            severity: "warning",
+            blockerCount: 1,
+            diagnosticCount: 0
+          }
+        ],
         blockedBlocks: [
           {
             blocked: {
@@ -980,7 +1028,14 @@ describe("desktop renderer interface interactions", () => {
     const addPaletteComponent = vi.fn().mockResolvedValue(undefined);
     const handlePaletteDragStart = vi.fn();
 
-    render(<ComponentPalette addPaletteComponent={addPaletteComponent} handlePaletteDragStart={handlePaletteDragStart} settings={settings} t={t} />);
+    render(
+      <ComponentPalette
+        addPaletteComponent={addPaletteComponent}
+        handlePaletteDragStart={handlePaletteDragStart}
+        settings={settings}
+        t={t}
+      />
+    );
 
     await userEvent.click(screen.getByRole("button", { name: "Task Node" }));
     fireEvent.dragStart(screen.getByRole("button", { name: "Review Block" }));
@@ -990,5 +1045,4 @@ describe("desktop renderer interface interactions", () => {
     expect(addPaletteComponent).toHaveBeenCalledWith("task");
     expect(handlePaletteDragStart).toHaveBeenCalledWith(expect.any(Object), "review");
   });
-
 });

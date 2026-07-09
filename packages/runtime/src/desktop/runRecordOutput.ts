@@ -9,7 +9,11 @@ export function cleanOutputSummary(value: string): string {
     .slice(0, 400);
 }
 
-export function outputSummaryForRecord(adapter: ExecutorProfile["adapter"] | null, stdout: string, stderr: string): string {
+export function outputSummaryForRecord(
+  adapter: ExecutorProfile["adapter"] | null,
+  stdout: string,
+  stderr: string
+): string {
   if (adapter === "opencode-exec") {
     const parsed = parseOpencodeJsonOutput(stdout);
     const report = opencodeReport(parsed, "", "");
@@ -20,7 +24,11 @@ export function outputSummaryForRecord(adapter: ExecutorProfile["adapter"] | nul
   return cleanOutputSummary(stdout || stderr);
 }
 
-function liveOutputMarkdown(adapter: ExecutorProfile["adapter"] | null, stdout: string, stderr: string): string {
+function liveOutputMarkdown(
+  adapter: ExecutorProfile["adapter"] | null,
+  stdout: string,
+  stderr: string
+): string {
   if (adapter === "opencode-exec") {
     return opencodeReport(parseOpencodeJsonOutput(stdout), "", stderr).trim();
   }
@@ -37,5 +45,7 @@ export function displayMarkdownForRecord(options: {
     return { displayMarkdown: options.reportMarkdown, displayMarkdownSource: "report" };
   }
   const liveMarkdown = liveOutputMarkdown(options.adapter, options.stdout, options.stderr);
-  return liveMarkdown ? { displayMarkdown: liveMarkdown, displayMarkdownSource: "live-output" } : { displayMarkdown: "", displayMarkdownSource: "none" };
+  return liveMarkdown
+    ? { displayMarkdown: liveMarkdown, displayMarkdownSource: "live-output" }
+    : { displayMarkdown: "", displayMarkdownSource: "none" };
 }

@@ -25,6 +25,8 @@ export async function getStatistics(projectRoot: string): Promise<DesktopStatist
   return (await getStatisticsProjection(projectRoot)).statistics;
 }
 
-export async function getStatisticsProjection(projectRoot: string): Promise<DesktopStatisticsProjection> {
+export async function getStatisticsProjection(
+  projectRoot: string
+): Promise<DesktopStatisticsProjection> {
   return readDesktopProjectStatisticsProjection(projectRoot);
 }

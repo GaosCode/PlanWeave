@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import type * as React from "react";
-import type { DesktopAutoRunRetrospectiveSummary, DesktopAutoRunScope, DesktopAutoRunState, DesktopBlockDetail, DesktopProjectSummary } from "@planweave-ai/runtime";
+import type {
+  DesktopAutoRunRetrospectiveSummary,
+  DesktopAutoRunScope,
+  DesktopAutoRunState,
+  DesktopBlockDetail,
+  DesktopProjectSummary
+} from "@planweave-ai/runtime";
 import { autoRunEventMatchesCanvas, shouldRefreshGraphForAutoRunEvent } from "../autoRunEvents";
 import { bridge, desktopCanvasReference } from "../bridge";
 import type { createTranslator } from "../i18n";
-import { buildAutoRunNextActionDescriptor, type AutoRunNextActionDescriptor } from "../run/autoRunNextActions";
+import {
+  buildAutoRunNextActionDescriptor,
+  type AutoRunNextActionDescriptor
+} from "../run/autoRunNextActions";
 import type { AutoRunScopeMode, FloatingControlDrag, FloatingControlPosition } from "../types";
 import { clamp } from "../viewHelpers";
 
@@ -15,7 +24,10 @@ type UseAutoRunControlArgs = {
   selectedBlock: DesktopBlockDetail | null;
   selectedProject: DesktopProjectSummary | null;
   selectedTaskPanelId: string | null;
-  handleOpenRunRecord: (recordId: string | null | undefined, canvasId?: string | null) => Promise<void>;
+  handleOpenRunRecord: (
+    recordId: string | null | undefined,
+    canvasId?: string | null
+  ) => Promise<void>;
   setError: (message: string | null) => void;
   setAutoRunState: (state: DesktopAutoRunState | null) => void;
   t: ReturnType<typeof createTranslator>;
@@ -36,7 +48,9 @@ function isActiveAutoRunState(state: DesktopAutoRunState | null): boolean {
   return state?.phase === "running" || state?.phase === "pausing";
 }
 
-function isValidControlPosition(position: FloatingControlPosition | null | undefined): position is FloatingControlPosition {
+function isValidControlPosition(
+  position: FloatingControlPosition | null | undefined
+): position is FloatingControlPosition {
   return Boolean(
     position &&
       Number.isFinite(position.left) &&
@@ -51,22 +65,34 @@ function missingAutoRunStateError(caught: unknown, runId: string): boolean {
   return message.includes(`Auto Run '${runId}'`) && message.includes("auto_run_state_missing");
 }
 
-function sameControlPosition(left: FloatingControlPosition | null, right: FloatingControlPosition | null): boolean {
+function sameControlPosition(
+  left: FloatingControlPosition | null,
+  right: FloatingControlPosition | null
+): boolean {
   return left?.left === right?.left && left?.top === right?.top;
 }
 
-function sameControlViewport(left: FloatingControlViewport | null, right: FloatingControlViewport | null): boolean {
+function sameControlViewport(
+  left: FloatingControlViewport | null,
+  right: FloatingControlViewport | null
+): boolean {
   return left?.maxLeft === right?.maxLeft && left?.maxTop === right?.maxTop;
 }
 
-function clampControlPosition(position: FloatingControlPosition, drag: FloatingControlDrag): FloatingControlPosition {
+function clampControlPosition(
+  position: FloatingControlPosition,
+  drag: FloatingControlDrag
+): FloatingControlPosition {
   return {
     left: clamp(position.left, drag.minLeft, drag.maxLeft),
     top: clamp(position.top, drag.minTop, drag.maxTop)
   };
 }
 
-function clampMeasuredControlPosition(position: FloatingControlPosition, viewport: FloatingControlViewport): FloatingControlPosition {
+function clampMeasuredControlPosition(
+  position: FloatingControlPosition,
+  viewport: FloatingControlViewport
+): FloatingControlPosition {
   return {
     left: clamp(position.left, floatingControlInset, viewport.maxLeft),
     top: clamp(position.top, floatingControlInset, viewport.maxTop)
@@ -81,12 +107,21 @@ function measuredControlViewport(element: HTMLElement): FloatingControlViewport 
   const controlBounds = element.getBoundingClientRect();
   const surfaceBounds = surface.getBoundingClientRect();
   return {
-    maxLeft: Math.max(floatingControlInset, surfaceBounds.width - controlBounds.width - floatingControlInset),
-    maxTop: Math.max(floatingControlInset, surfaceBounds.height - controlBounds.height - floatingControlInset)
+    maxLeft: Math.max(
+      floatingControlInset,
+      surfaceBounds.width - controlBounds.width - floatingControlInset
+    ),
+    maxTop: Math.max(
+      floatingControlInset,
+      surfaceBounds.height - controlBounds.height - floatingControlInset
+    )
   };
 }
 
-function positionFromPointer(event: React.PointerEvent<HTMLButtonElement>, drag: FloatingControlDrag): FloatingControlPosition {
+function positionFromPointer(
+  event: React.PointerEvent<HTMLButtonElement>,
+  drag: FloatingControlDrag
+): FloatingControlPosition {
   return clampControlPosition(
     {
       left: event.clientX - drag.containerLeft - drag.offsetX,
@@ -114,25 +149,33 @@ export function useAutoRunControl({
 }: UseAutoRunControlArgs) {
   const [autoRunScopeMode, setAutoRunScopeMode] = useState<AutoRunScopeMode>("project");
   const [miniRunPanelOpen, setMiniRunPanelOpen] = useState(false);
-  const [autoRunControlPosition, setAutoRunControlPosition] = useState<FloatingControlPosition | null>(() => {
-    const configuredPosition = position !== undefined ? position : initialPosition;
-    return isValidControlPosition(configuredPosition) ? configuredPosition : null;
-  });
+  const [autoRunControlPosition, setAutoRunControlPosition] =
+    useState<FloatingControlPosition | null>(() => {
+      const configuredPosition = position !== undefined ? position : initialPosition;
+      return isValidControlPosition(configuredPosition) ? configuredPosition : null;
+    });
   const [autoRunControlDrag, setAutoRunControlDrag] = useState<FloatingControlDrag | null>(null);
   const [autoRunControlElement, setAutoRunControlElement] = useState<HTMLDivElement | null>(null);
-  const [autoRunControlViewport, setAutoRunControlViewport] = useState<FloatingControlViewport | null>(null);
-  const [autoRunRetrospective, setAutoRunRetrospective] = useState<DesktopAutoRunRetrospectiveSummary | null>(null);
+  const [autoRunControlViewport, setAutoRunControlViewport] =
+    useState<FloatingControlViewport | null>(null);
+  const [autoRunRetrospective, setAutoRunRetrospective] =
+    useState<DesktopAutoRunRetrospectiveSummary | null>(null);
 
   const autoRunControlRef = useCallback((element: HTMLDivElement | null) => {
-    setAutoRunControlElement((currentElement) => (currentElement === element ? currentElement : element));
+    setAutoRunControlElement((currentElement) =>
+      currentElement === element ? currentElement : element
+    );
   }, []);
 
-  const applyAutoRunState = useCallback(async (nextState: DesktopAutoRunState, options: { refreshDerivedState?: boolean } = {}) => {
-    setAutoRunState(nextState);
-    if (options.refreshDerivedState) {
-      await onAutoRunDerivedStateRefresh?.();
-    }
-  }, [onAutoRunDerivedStateRefresh, setAutoRunState]);
+  const applyAutoRunState = useCallback(
+    async (nextState: DesktopAutoRunState, options: { refreshDerivedState?: boolean } = {}) => {
+      setAutoRunState(nextState);
+      if (options.refreshDerivedState) {
+        await onAutoRunDerivedStateRefresh?.();
+      }
+    },
+    [onAutoRunDerivedStateRefresh, setAutoRunState]
+  );
   const autoRunRunId = autoRunState?.runId ?? null;
   const activeRunId = isActiveAutoRunState(autoRunState) ? autoRunRunId : null;
 
@@ -141,23 +184,30 @@ export function useAutoRunControl({
       return;
     }
     const nextPosition = isValidControlPosition(position) ? position : null;
-    setAutoRunControlPosition((currentPosition) => (sameControlPosition(currentPosition, nextPosition) ? currentPosition : nextPosition));
+    setAutoRunControlPosition((currentPosition) =>
+      sameControlPosition(currentPosition, nextPosition) ? currentPosition : nextPosition
+    );
   }, [position]);
 
   useEffect(() => {
     if (!autoRunControlElement) {
-      setAutoRunControlViewport((currentViewport) => (currentViewport === null ? currentViewport : null));
+      setAutoRunControlViewport((currentViewport) =>
+        currentViewport === null ? currentViewport : null
+      );
       return;
     }
 
     const updateViewport = () => {
       const nextViewport = measuredControlViewport(autoRunControlElement);
-      setAutoRunControlViewport((currentViewport) => (sameControlViewport(currentViewport, nextViewport) ? currentViewport : nextViewport));
+      setAutoRunControlViewport((currentViewport) =>
+        sameControlViewport(currentViewport, nextViewport) ? currentViewport : nextViewport
+      );
     };
     updateViewport();
 
     const surface = autoRunControlElement.closest("[data-graph-surface]");
-    const resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(updateViewport) : null;
+    const resizeObserver =
+      typeof ResizeObserver === "function" ? new ResizeObserver(updateViewport) : null;
     resizeObserver?.observe(autoRunControlElement);
     if (surface instanceof HTMLElement) {
       resizeObserver?.observe(surface);
@@ -199,7 +249,14 @@ export function useAutoRunControl({
     return () => {
       cancelled = true;
     };
-  }, [autoRunRunId, autoRunState?.phase, selectedCanvasId, selectedProject, setAutoRunState, setError]);
+  }, [
+    autoRunRunId,
+    autoRunState?.phase,
+    selectedCanvasId,
+    selectedProject,
+    setAutoRunState,
+    setError
+  ]);
 
   useEffect(() => {
     if (!bridge || !selectedProject) {
@@ -212,7 +269,9 @@ export function useAutoRunControl({
       if (activeRunId && event.runId !== activeRunId) {
         return;
       }
-      void applyAutoRunState(event.state, { refreshDerivedState: shouldRefreshGraphForAutoRunEvent(event) });
+      void applyAutoRunState(event.state, {
+        refreshDerivedState: shouldRefreshGraphForAutoRunEvent(event)
+      });
     });
   }, [activeRunId, applyAutoRunState, selectedCanvasId, selectedProject]);
 
@@ -252,23 +311,44 @@ export function useAutoRunControl({
     state: autoRunState
   });
 
-  const startAutoRunWithScope = useCallback(async (scope: DesktopAutoRunScope) => {
-    if (!bridge || !selectedProject) {
-      return;
-    }
-    try {
-      setMiniRunPanelOpen(true);
-      if (autoRunState && ["running", "pausing"].includes(autoRunState.phase)) {
+  const startAutoRunWithScope = useCallback(
+    async (scope: DesktopAutoRunScope) => {
+      if (!bridge || !selectedProject) {
         return;
       }
-      if (autoRunState?.phase === "blocked" && autoRunState.currentRef) {
-        await bridge.unblockBlock(desktopCanvasReference(selectedProject, selectedCanvasId), autoRunState.currentRef, "Retry requested from Auto Run.");
+      try {
+        setMiniRunPanelOpen(true);
+        if (autoRunState && ["running", "pausing"].includes(autoRunState.phase)) {
+          return;
+        }
+        if (autoRunState?.phase === "blocked" && autoRunState.currentRef) {
+          await bridge.unblockBlock(
+            desktopCanvasReference(selectedProject, selectedCanvasId),
+            autoRunState.currentRef,
+            "Retry requested from Auto Run."
+          );
+        }
+        await applyAutoRunState(
+          await bridge.startAutoRun(
+            desktopCanvasReference(selectedProject, selectedCanvasId),
+            scope,
+            20,
+            { tmuxEnabled: tmuxMonitoringEnabled }
+          )
+        );
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
       }
-      await applyAutoRunState(await bridge.startAutoRun(desktopCanvasReference(selectedProject, selectedCanvasId), scope, 20, { tmuxEnabled: tmuxMonitoringEnabled }));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }, [applyAutoRunState, autoRunState, selectedCanvasId, selectedProject, setError, tmuxMonitoringEnabled]);
+    },
+    [
+      applyAutoRunState,
+      autoRunState,
+      selectedCanvasId,
+      selectedProject,
+      setError,
+      tmuxMonitoringEnabled
+    ]
+  );
 
   const handleAutoRunClick = useCallback(async () => {
     if (!bridge || !selectedProject) {
@@ -276,7 +356,10 @@ export function useAutoRunControl({
     }
     try {
       setMiniRunPanelOpen(true);
-      if (!autoRunState || ["completed", "blocked", "failed", "stopped"].includes(autoRunState.phase)) {
+      if (
+        !autoRunState ||
+        ["completed", "blocked", "failed", "stopped"].includes(autoRunState.phase)
+      ) {
         const scope = selectedAutoRunScope();
         if (!scope) {
           setError(t("selectBlockFirst"));
@@ -295,87 +378,105 @@ export function useAutoRunControl({
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [applyAutoRunState, autoRunState, selectedAutoRunScope, selectedProject, setError, startAutoRunWithScope, t]);
-
-  const openRecordOrRevealPath = useCallback(async (action: AutoRunNextActionDescriptor) => {
-    if (action.recordId) {
-      await handleOpenRunRecord(action.recordId, autoRunState?.canvasId ?? selectedCanvasId);
-      return;
-    }
-    if (bridge && action.targetPath) {
-      await bridge.revealPathInFinder(action.targetPath);
-    }
-  }, [autoRunState?.canvasId, handleOpenRunRecord, selectedCanvasId]);
-
-  const handleAutoRunNextAction = useCallback(async (action: AutoRunNextActionDescriptor) => {
-    if (!action.enabled) {
-      return;
-    }
-    if (!bridge || !selectedProject) {
-      setError(t("bridgeUnavailable"));
-      return;
-    }
-    try {
-      if (action.command === "start") {
-        const scope = selectedAutoRunScope();
-        if (!scope) {
-          setError(t("selectBlockFirst"));
-          return;
-        }
-        await startAutoRunWithScope(scope);
-        return;
-      }
-      if (action.command === "wait") {
-        return;
-      }
-      if (action.command === "resume") {
-        if (!autoRunState) {
-          setError(t("runUnavailable"));
-          return;
-        }
-        await applyAutoRunState(await bridge.resumeAutoRun(autoRunState.runId));
-        return;
-      }
-      if (action.command === "copy_manual_command") {
-        if (!action.manualCommand) {
-          setError(t("manualCommandUnavailable"));
-          return;
-        }
-        if (!navigator.clipboard) {
-          setError(`${t("manualCommandUnavailable")}: ${action.manualCommand}`);
-          return;
-        }
-        await navigator.clipboard.writeText(action.manualCommand);
-        return;
-      }
-      if (action.command === "inspect_record" || action.command === "review_status") {
-        await openRecordOrRevealPath(action);
-        return;
-      }
-      if (action.command === "retry_ref") {
-        if (!action.ref) {
-          setError(t("retryRefUnavailable"));
-          return;
-        }
-        const ref = desktopCanvasReference(selectedProject, selectedCanvasId);
-        await bridge.unblockBlock(ref, action.ref, "Retry requested from Auto Run.");
-        await applyAutoRunState(await bridge.startAutoRun(ref, { kind: "block", blockRef: action.ref }, 20, { tmuxEnabled: tmuxMonitoringEnabled }));
-      }
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
   }, [
     applyAutoRunState,
     autoRunState,
-    openRecordOrRevealPath,
     selectedAutoRunScope,
-    selectedCanvasId,
     selectedProject,
     setError,
     startAutoRunWithScope,
-    t,
-    tmuxMonitoringEnabled
+    t
   ]);
+
+  const openRecordOrRevealPath = useCallback(
+    async (action: AutoRunNextActionDescriptor) => {
+      if (action.recordId) {
+        await handleOpenRunRecord(action.recordId, autoRunState?.canvasId ?? selectedCanvasId);
+        return;
+      }
+      if (bridge && action.targetPath) {
+        await bridge.revealPathInFinder(action.targetPath);
+      }
+    },
+    [autoRunState?.canvasId, handleOpenRunRecord, selectedCanvasId]
+  );
+
+  const handleAutoRunNextAction = useCallback(
+    async (action: AutoRunNextActionDescriptor) => {
+      if (!action.enabled) {
+        return;
+      }
+      if (!bridge || !selectedProject) {
+        setError(t("bridgeUnavailable"));
+        return;
+      }
+      try {
+        if (action.command === "start") {
+          const scope = selectedAutoRunScope();
+          if (!scope) {
+            setError(t("selectBlockFirst"));
+            return;
+          }
+          await startAutoRunWithScope(scope);
+          return;
+        }
+        if (action.command === "wait") {
+          return;
+        }
+        if (action.command === "resume") {
+          if (!autoRunState) {
+            setError(t("runUnavailable"));
+            return;
+          }
+          await applyAutoRunState(await bridge.resumeAutoRun(autoRunState.runId));
+          return;
+        }
+        if (action.command === "copy_manual_command") {
+          if (!action.manualCommand) {
+            setError(t("manualCommandUnavailable"));
+            return;
+          }
+          if (!navigator.clipboard) {
+            setError(`${t("manualCommandUnavailable")}: ${action.manualCommand}`);
+            return;
+          }
+          await navigator.clipboard.writeText(action.manualCommand);
+          return;
+        }
+        if (action.command === "inspect_record" || action.command === "review_status") {
+          await openRecordOrRevealPath(action);
+          return;
+        }
+        if (action.command === "retry_ref") {
+          if (!action.ref) {
+            setError(t("retryRefUnavailable"));
+            return;
+          }
+          const ref = desktopCanvasReference(selectedProject, selectedCanvasId);
+          await bridge.unblockBlock(ref, action.ref, "Retry requested from Auto Run.");
+          await applyAutoRunState(
+            await bridge.startAutoRun(ref, { kind: "block", blockRef: action.ref }, 20, {
+              tmuxEnabled: tmuxMonitoringEnabled
+            })
+          );
+        }
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    [
+      applyAutoRunState,
+      autoRunState,
+      openRecordOrRevealPath,
+      selectedAutoRunScope,
+      selectedCanvasId,
+      selectedProject,
+      setError,
+      startAutoRunWithScope,
+      t,
+      tmuxMonitoringEnabled
+    ]
+  );
 
   const stopAutoRunClick = useCallback(async () => {
     if (!bridge || !autoRunState) {
@@ -411,46 +512,63 @@ export function useAutoRunControl({
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [autoRunState, onAutoRunDerivedStateRefresh, selectedCanvasId, selectedProject, setAutoRunState, setError, t]);
+  }, [
+    autoRunState,
+    onAutoRunDerivedStateRefresh,
+    selectedCanvasId,
+    selectedProject,
+    setAutoRunState,
+    setError,
+    t
+  ]);
 
-  const startAutoRunControlDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    const control = event.currentTarget.closest("[data-auto-run-control]");
-    const surface = event.currentTarget.closest("[data-graph-surface]");
-    if (!(control instanceof HTMLElement) || !(surface instanceof HTMLElement)) {
-      return;
-    }
-    const controlBounds = control.getBoundingClientRect();
-    const surfaceBounds = surface.getBoundingClientRect();
-    const inset = floatingControlInset;
-    const drag = {
-      pointerId: event.pointerId,
-      offsetX: event.clientX - controlBounds.left,
-      offsetY: event.clientY - controlBounds.top,
-      containerLeft: surfaceBounds.left,
-      containerTop: surfaceBounds.top,
-      minLeft: inset,
-      minTop: inset,
-      maxLeft: Math.max(inset, surfaceBounds.width - controlBounds.width - inset),
-      maxTop: Math.max(inset, surfaceBounds.height - controlBounds.height - inset)
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setAutoRunControlDrag(drag);
-    if (autoRunControlPosition) {
-      setAutoRunControlPosition(clampControlPosition(autoRunControlPosition, drag));
-    }
-  }, [autoRunControlPosition]);
+  const startAutoRunControlDrag = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      const control = event.currentTarget.closest("[data-auto-run-control]");
+      const surface = event.currentTarget.closest("[data-graph-surface]");
+      if (!(control instanceof HTMLElement) || !(surface instanceof HTMLElement)) {
+        return;
+      }
+      const controlBounds = control.getBoundingClientRect();
+      const surfaceBounds = surface.getBoundingClientRect();
+      const inset = floatingControlInset;
+      const drag = {
+        pointerId: event.pointerId,
+        offsetX: event.clientX - controlBounds.left,
+        offsetY: event.clientY - controlBounds.top,
+        containerLeft: surfaceBounds.left,
+        containerTop: surfaceBounds.top,
+        minLeft: inset,
+        minTop: inset,
+        maxLeft: Math.max(inset, surfaceBounds.width - controlBounds.width - inset),
+        maxTop: Math.max(inset, surfaceBounds.height - controlBounds.height - inset)
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setAutoRunControlDrag(drag);
+      if (autoRunControlPosition) {
+        setAutoRunControlPosition(clampControlPosition(autoRunControlPosition, drag));
+      }
+    },
+    [autoRunControlPosition]
+  );
 
-  const commitAutoRunControlPosition = useCallback((nextPosition: FloatingControlPosition) => {
-    setAutoRunControlPosition(nextPosition);
-    onPositionCommit?.(nextPosition);
-  }, [onPositionCommit]);
+  const commitAutoRunControlPosition = useCallback(
+    (nextPosition: FloatingControlPosition) => {
+      setAutoRunControlPosition(nextPosition);
+      onPositionCommit?.(nextPosition);
+    },
+    [onPositionCommit]
+  );
 
-  const commitCurrentAutoRunControlPosition = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    if (!autoRunControlDrag || event.pointerId !== autoRunControlDrag.pointerId) {
-      return;
-    }
-    commitAutoRunControlPosition(positionFromPointer(event, autoRunControlDrag));
-  }, [autoRunControlDrag, commitAutoRunControlPosition]);
+  const commitCurrentAutoRunControlPosition = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (!autoRunControlDrag || event.pointerId !== autoRunControlDrag.pointerId) {
+        return;
+      }
+      commitAutoRunControlPosition(positionFromPointer(event, autoRunControlDrag));
+    },
+    [autoRunControlDrag, commitAutoRunControlPosition]
+  );
 
   const moveAutoRunControl = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -462,17 +580,21 @@ export function useAutoRunControl({
     [autoRunControlDrag]
   );
 
-  const stopAutoRunControlDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    commitCurrentAutoRunControlPosition(event);
-    setAutoRunControlDrag(null);
-  }, [commitCurrentAutoRunControlPosition]);
+  const stopAutoRunControlDrag = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      commitCurrentAutoRunControlPosition(event);
+      setAutoRunControlDrag(null);
+    },
+    [commitCurrentAutoRunControlPosition]
+  );
 
-  const measuredAutoRunControlPosition = autoRunControlPosition && autoRunControlViewport
-    ? clampMeasuredControlPosition(autoRunControlPosition, autoRunControlViewport)
-    : null;
+  const measuredAutoRunControlPosition =
+    autoRunControlPosition && autoRunControlViewport
+      ? clampMeasuredControlPosition(autoRunControlPosition, autoRunControlViewport)
+      : null;
   const autoRunControlStyle: React.CSSProperties = measuredAutoRunControlPosition
     ? {
         left: `${measuredAutoRunControlPosition.left}px`,

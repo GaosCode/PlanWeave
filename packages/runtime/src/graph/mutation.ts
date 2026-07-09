@@ -1,6 +1,12 @@
 import { affectedTaskIdsForManifestChange } from "./affectedTasks.js";
 import { parseBlockRef } from "./compileTaskGraph.js";
-import type { ManifestBlock, ManifestEdge, ManifestNode, ManifestTaskNode, PlanPackageManifest } from "../types.js";
+import type {
+  ManifestBlock,
+  ManifestEdge,
+  ManifestNode,
+  ManifestTaskNode,
+  PlanPackageManifest
+} from "../types.js";
 
 export type PlanPackageGraphMutationIntent =
   | { kind: "addNode"; node: ManifestNode; promptMarkdown?: string }
@@ -34,7 +40,10 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-export function writePromptSideEffects(packagePath: string, markdown: string | undefined): PlanPackageGraphMutationSideEffect[] {
+export function writePromptSideEffects(
+  packagePath: string,
+  markdown: string | undefined
+): PlanPackageGraphMutationSideEffect[] {
   return markdown === undefined ? [] : [{ kind: "writePrompt", packagePath, markdown }];
 }
 
@@ -53,7 +62,9 @@ function packageDirname(packagePath: string): string {
 }
 
 function taskNode(manifest: PlanPackageManifest, taskId: string): ManifestTaskNode {
-  const node = manifest.nodes.find((candidate) => candidate.type === "task" && candidate.id === taskId);
+  const node = manifest.nodes.find(
+    (candidate) => candidate.type === "task" && candidate.id === taskId
+  );
   if (!node || node.type !== "task") {
     throw new Error(`Task '${taskId}' does not exist.`);
   }
@@ -69,7 +80,10 @@ export function buildPlanPackageManifestChangeMutation(
   } = {}
 ): PlanPackageGraphMutation {
   return {
-    affectedTasks: unique([...affectedTaskIdsForManifestChange(manifest, nextManifest), ...(options.affectedTasks ?? [])]),
+    affectedTasks: unique([
+      ...affectedTaskIdsForManifestChange(manifest, nextManifest),
+      ...(options.affectedTasks ?? [])
+    ]),
     nextManifest,
     sideEffects: options.sideEffects ?? []
   };
@@ -93,9 +107,13 @@ function removeBlock(manifest: PlanPackageManifest, blockRef: string): PlanPacka
   };
   const nextManifest = {
     ...manifest,
-    nodes: manifest.nodes.map((node) => (node.type === "task" && node.id === taskId ? nextTask : node))
+    nodes: manifest.nodes.map((node) =>
+      node.type === "task" && node.id === taskId ? nextTask : node
+    )
   };
-  return buildPlanPackageManifestChangeMutation(manifest, nextManifest, { sideEffects: [removePromptSideEffect(block.prompt)] });
+  return buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
+    sideEffects: [removePromptSideEffect(block.prompt)]
+  });
 }
 
 export function buildPlanPackageGraphMutation(
@@ -111,7 +129,9 @@ export function buildPlanPackageGraphMutation(
     return buildPlanPackageManifestChangeMutation(manifest, nextManifest, { sideEffects });
   }
   if (intent.kind === "addTaskNode") {
-    const blockPromptMarkdown = new Map(intent.blockPromptMarkdown?.map((item) => [item.blockId, item.markdown]) ?? []);
+    const blockPromptMarkdown = new Map(
+      intent.blockPromptMarkdown?.map((item) => [item.blockId, item.markdown]) ?? []
+    );
     const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
     if (intent.taskPromptMarkdown !== undefined) {
       sideEffects.push(...writePromptSideEffects(intent.node.prompt, intent.taskPromptMarkdown));
@@ -130,12 +150,19 @@ export function buildPlanPackageGraphMutation(
     const nextTask: ManifestTaskNode = { ...task, blocks: [...task.blocks, intent.block] };
     const nextManifest = {
       ...manifest,
-      nodes: manifest.nodes.map((node) => (node.type === "task" && node.id === intent.taskId ? nextTask : node))
+      nodes: manifest.nodes.map((node) =>
+        node.type === "task" && node.id === intent.taskId ? nextTask : node
+      )
     };
-    return buildPlanPackageManifestChangeMutation(manifest, nextManifest, { sideEffects: writePromptSideEffects(intent.block.prompt, intent.promptMarkdown) });
+    return buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
+      sideEffects: writePromptSideEffects(intent.block.prompt, intent.promptMarkdown)
+    });
   }
   if (intent.kind === "updateNode") {
-    const nextManifest = { ...manifest, nodes: manifest.nodes.map((node) => (node.id === intent.node.id ? intent.node : node)) };
+    const nextManifest = {
+      ...manifest,
+      nodes: manifest.nodes.map((node) => (node.id === intent.node.id ? intent.node : node))
+    };
     return buildPlanPackageManifestChangeMutation(manifest, nextManifest);
   }
   if (intent.kind === "removeNode") {
@@ -149,7 +176,9 @@ export function buildPlanPackageGraphMutation(
     const nextManifest = {
       ...manifest,
       nodes: manifest.nodes.filter((node) => node.id !== intent.nodeId),
-      edges: manifest.edges.filter((edge) => edge.from !== intent.nodeId && edge.to !== intent.nodeId)
+      edges: manifest.edges.filter(
+        (edge) => edge.from !== intent.nodeId && edge.to !== intent.nodeId
+      )
     };
     return buildPlanPackageManifestChangeMutation(manifest, nextManifest, { sideEffects });
   }
@@ -158,7 +187,10 @@ export function buildPlanPackageGraphMutation(
     return buildPlanPackageManifestChangeMutation(manifest, nextManifest);
   }
   if (intent.kind === "removeEdge") {
-    const nextManifest = { ...manifest, edges: manifest.edges.filter((edge) => !sameEdge(edge, intent.edge)) };
+    const nextManifest = {
+      ...manifest,
+      edges: manifest.edges.filter((edge) => !sameEdge(edge, intent.edge))
+    };
     return buildPlanPackageManifestChangeMutation(manifest, nextManifest);
   }
   if (intent.kind === "removeBlock") {
@@ -174,7 +206,9 @@ export function buildPlanPackageGraphMutation(
   }
   const { taskId } = parseBlockRef(intent.blockRef);
   const task = taskNode(manifest, taskId);
-  const block = task.blocks.find((candidate) => candidate.id === parseBlockRef(intent.blockRef).blockId);
+  const block = task.blocks.find(
+    (candidate) => candidate.id === parseBlockRef(intent.blockRef).blockId
+  );
   if (!block) {
     throw new Error(`Block '${intent.blockRef}' does not exist.`);
   }

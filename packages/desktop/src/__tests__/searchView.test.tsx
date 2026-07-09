@@ -4,13 +4,24 @@ import "@testing-library/jest-dom/vitest";
 import { useState } from "react";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { DesktopProjectSummary, DesktopSearchResult, DesktopSearchResultKind } from "@planweave-ai/runtime";
+import type {
+  DesktopProjectSummary,
+  DesktopSearchResult,
+  DesktopSearchResultKind
+} from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopSearchCanvasScope } from "../renderer/hooks/useDesktopSearch";
 import { createTranslator } from "../renderer/i18n";
 import { SearchView } from "../renderer/views/SearchView";
 
-const searchResultKinds: DesktopSearchResultKind[] = ["task", "block", "prompt", "run_record", "review_attempt", "feedback"];
+const searchResultKinds: DesktopSearchResultKind[] = [
+  "task",
+  "block",
+  "prompt",
+  "run_record",
+  "review_attempt",
+  "feedback"
+];
 const project: DesktopProjectSummary = {
   projectId: "P-001",
   name: "Demo",
@@ -69,7 +80,8 @@ describe("SearchView", () => {
   it("updates result kind and canvas scope controls through props", async () => {
     stubResizeObserver();
     function SearchHarness() {
-      const [selectedKinds, setSelectedKinds] = useState<DesktopSearchResultKind[]>(searchResultKinds);
+      const [selectedKinds, setSelectedKinds] =
+        useState<DesktopSearchResultKind[]>(searchResultKinds);
       const [scope, setScope] = useState<DesktopSearchCanvasScope>("all");
       return (
         <SearchView
@@ -93,7 +105,9 @@ describe("SearchView", () => {
           setSearchCanvasScope={setScope}
           setSearchQuery={vi.fn()}
           setSearchResultKindEnabled={(kind, enabled) => {
-            setSelectedKinds((current) => (enabled ? [...current, kind] : current.filter((selected) => selected !== kind)));
+            setSelectedKinds((current) =>
+              enabled ? [...current, kind] : current.filter((selected) => selected !== kind)
+            );
           }}
           t={createTranslator("en")}
         />
@@ -132,13 +146,17 @@ describe("SearchView", () => {
       />
     );
 
-    expect(screen.getByTestId("search-status")).toHaveTextContent("Searching task and block summaries");
+    expect(screen.getByTestId("search-status")).toHaveTextContent(
+      "Searching task and block summaries"
+    );
     expect(screen.queryByText("No results found")).not.toBeInTheDocument();
   });
 
   it("keeps summary results visible while body search is pending", () => {
     stubResizeObserver();
-    const results: DesktopSearchResult[] = [{ kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }];
+    const results: DesktopSearchResult[] = [
+      { kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }
+    ];
 
     render(
       <SearchView
@@ -159,7 +177,9 @@ describe("SearchView", () => {
       />
     );
 
-    expect(screen.getByTestId("search-status")).toHaveTextContent("Expanding body search Summary results: 1");
+    expect(screen.getByTestId("search-status")).toHaveTextContent(
+      "Expanding body search Summary results: 1"
+    );
     expect(screen.getAllByText("Alpha task").length).toBeGreaterThan(0);
   });
 
@@ -189,7 +209,9 @@ describe("SearchView", () => {
 
   it("shows result count after completed searches with matches", () => {
     stubResizeObserver();
-    const results: DesktopSearchResult[] = [{ kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }];
+    const results: DesktopSearchResult[] = [
+      { kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }
+    ];
 
     render(
       <SearchView

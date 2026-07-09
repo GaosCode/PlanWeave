@@ -1,5 +1,10 @@
 import type { Command } from "commander";
-import { schemaDocuments, schemaTopicOrder, type SchemaDocument, type SchemaTopicName } from "../schemaDocs/index.js";
+import {
+  schemaDocuments,
+  schemaTopicOrder,
+  type SchemaDocument,
+  type SchemaTopicName
+} from "../schemaDocs/index.js";
 
 function formatSchemaDocument(document: SchemaDocument): string {
   return [
@@ -23,7 +28,9 @@ function formatSchemaDocument(document: SchemaDocument): string {
 
 export function formatSchemaHelp(topicName?: string): string {
   if (topicName === "all") {
-    return schemaTopicOrder.map((name) => formatSchemaDocument(schemaDocuments[name])).join("\n\n---\n\n");
+    return schemaTopicOrder
+      .map((name) => formatSchemaDocument(schemaDocuments[name]))
+      .join("\n\n---\n\n");
   }
   if (topicName && topicName in schemaDocuments) {
     return formatSchemaDocument(schemaDocuments[topicName as SchemaTopicName]);

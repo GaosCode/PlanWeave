@@ -1,5 +1,11 @@
 import { getAutoRunStatus } from "../taskManager/autoRun.js";
-import type { AutoRunStepResult, ClaimScope, ProjectWorkspace, ReviewVerdict, ValidationIssue } from "../types.js";
+import type {
+  AutoRunStepResult,
+  ClaimScope,
+  ProjectWorkspace,
+  ReviewVerdict,
+  ValidationIssue
+} from "../types.js";
 import type { DesktopAutoRunPhase, DesktopAutoRunScope, DesktopAutoRunState } from "./types.js";
 
 export function claimRef(step: AutoRunStepResult): string | null {
@@ -13,7 +19,7 @@ export function claimRef(step: AutoRunStepResult): string | null {
     return null;
   }
   if (step.kind === "blocked") {
-    return step.claim.kind === "blocked" ? step.claim.ref ?? null : null;
+    return step.claim.kind === "blocked" ? (step.claim.ref ?? null) : null;
   }
   if (step.kind === "batch_submitted") {
     return step.claim.refs[0] ?? null;
@@ -45,7 +51,9 @@ export function claimRefs(step: AutoRunStepResult): string[] {
 
 export function completedRefs(step: AutoRunStepResult): string[] {
   if (step.kind === "submitted") {
-    return "ref" in step.submitResult && step.submitResult.status === "completed" ? [step.submitResult.ref] : [];
+    return "ref" in step.submitResult && step.submitResult.status === "completed"
+      ? [step.submitResult.ref]
+      : [];
   }
   if (step.kind === "batch_submitted") {
     return step.steps.flatMap((item) => completedRefs(item));
@@ -79,7 +87,9 @@ export function executorName(step: AutoRunStepResult): string | null {
 
 export function outputSummary(step: AutoRunStepResult): string | null {
   if (step.kind === "submitted") {
-    return "stdout" in step.adapterResult ? step.adapterResult.stdout?.trim().slice(0, 300) || null : null;
+    return "stdout" in step.adapterResult
+      ? step.adapterResult.stdout?.trim().slice(0, 300) || null
+      : null;
   }
   if (step.kind === "manual") {
     return step.adapterResult.nextCommand;
@@ -91,20 +101,31 @@ export function outputSummary(step: AutoRunStepResult): string | null {
     return step.claim.kind === "blocked" ? step.claim.reason : "Auto Run blocked.";
   }
   if (step.kind === "idle") {
-    return step.claim.kind === "none" ? step.claim.reason ?? "No claimable work." : "No claimable work.";
+    return step.claim.kind === "none"
+      ? (step.claim.reason ?? "No claimable work.")
+      : "No claimable work.";
   }
   return null;
 }
 
-export function terminalPatch(step: AutoRunStepResult, warnings: ValidationIssue[] = []): Partial<DesktopAutoRunState> | null {
+export function terminalPatch(
+  step: AutoRunStepResult,
+  warnings: ValidationIssue[] = []
+): Partial<DesktopAutoRunState> | null {
   if (step.kind === "idle") {
     if (warnings.length > 0) {
-      return { phase: "blocked", error: warnings[0]?.message ?? "Auto Run finished with warnings." };
+      return {
+        phase: "blocked",
+        error: warnings[0]?.message ?? "Auto Run finished with warnings."
+      };
     }
     return { phase: "completed" };
   }
   if (step.kind === "blocked") {
-    return { phase: "blocked", error: step.claim.kind === "blocked" ? step.claim.reason : "Auto Run blocked." };
+    return {
+      phase: "blocked",
+      error: step.claim.kind === "blocked" ? step.claim.reason : "Auto Run blocked."
+    };
   }
   if (step.kind === "manual") {
     return { phase: "manual" };
@@ -115,7 +136,10 @@ export function terminalPatch(step: AutoRunStepResult, warnings: ValidationIssue
   return null;
 }
 
-export function phaseAfterStep(current: DesktopAutoRunState, patch: Partial<DesktopAutoRunState> | null): DesktopAutoRunPhase {
+export function phaseAfterStep(
+  current: DesktopAutoRunState,
+  patch: Partial<DesktopAutoRunState> | null
+): DesktopAutoRunPhase {
   if (patch?.phase && patch.phase !== "completed") {
     return patch.phase;
   }
@@ -128,7 +152,9 @@ export function phaseAfterStep(current: DesktopAutoRunState, patch: Partial<Desk
   return current.phase;
 }
 
-export async function latestStatus(workspace: ProjectWorkspace): Promise<{ record: { recordId: string; path: string } | null; warnings: ValidationIssue[] }> {
+export async function latestStatus(
+  workspace: ProjectWorkspace
+): Promise<{ record: { recordId: string; path: string } | null; warnings: ValidationIssue[] }> {
   const status = await getAutoRunStatus({ projectRoot: workspace });
   if (!status.explanation.latestRecordId || !status.explanation.latestRecordPath) {
     return { record: null, warnings: status.warnings };

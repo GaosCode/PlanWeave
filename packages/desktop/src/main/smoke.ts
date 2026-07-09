@@ -346,7 +346,12 @@ export async function runSmokeCheck(window: BrowserWindow): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     const state = await readSmokeState(window);
     const missingText = requiredText.filter((text) => !state.pageText.includes(text));
-    if (missingText.length === 0 && state.autoRunControlAvailable && state.bridgeAvailable && !state.nodeRequireAvailable) {
+    if (
+      missingText.length === 0 &&
+      state.autoRunControlAvailable &&
+      state.bridgeAvailable &&
+      !state.nodeRequireAvailable
+    ) {
       let workflow: Record<string, unknown>;
       let rendererManual: Record<string, unknown>;
       try {

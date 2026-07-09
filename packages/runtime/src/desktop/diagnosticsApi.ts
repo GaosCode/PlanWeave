@@ -25,7 +25,9 @@ function graphQualityDiagnostic(diagnostic: GraphQualityDiagnostic): DesktopGrap
   };
 }
 
-function executionReadinessDiagnostic(diagnostic: ExecutionReadinessDiagnostic): DesktopGraphDiagnosticIssue {
+function executionReadinessDiagnostic(
+  diagnostic: ExecutionReadinessDiagnostic
+): DesktopGraphDiagnosticIssue {
   return {
     code: diagnostic.code,
     message: diagnostic.message,
@@ -37,7 +39,9 @@ function executionReadinessDiagnostic(diagnostic: ExecutionReadinessDiagnostic):
   };
 }
 
-export async function getDesktopGraphDiagnostics(projectRoot: PackageWorkspaceRef): Promise<DesktopGraphDiagnostics> {
+export async function getDesktopGraphDiagnostics(
+  projectRoot: PackageWorkspaceRef
+): Promise<DesktopGraphDiagnostics> {
   const [graphQuality, executionReadiness] = await Promise.all([
     validateGraphQuality({ projectRoot }),
     validateExecutionReadiness({ projectRoot })

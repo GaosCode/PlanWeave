@@ -1,5 +1,9 @@
 import { InvalidArgumentError, type Command } from "commander";
-import { listSourceDefaultProjectCandidates, readProject, resolveSourceDefaultProjectRoot } from "@planweave-ai/runtime";
+import {
+  listSourceDefaultProjectCandidates,
+  readProject,
+  resolveSourceDefaultProjectRoot
+} from "@planweave-ai/runtime";
 
 export type ProjectRootCommandOptions = {
   projectRoot?: string;
@@ -25,7 +29,11 @@ function parseProjectRootOption(value: string): string {
 
 export function addProjectRootOption(program: Command): Command {
   return program
-    .option("--project-root <path>", "resolve the PlanWeave project from this root instead of INIT_CWD or cwd", parseProjectRootOption)
+    .option(
+      "--project-root <path>",
+      "resolve the PlanWeave project from this root instead of INIT_CWD or cwd",
+      parseProjectRootOption
+    )
     .hook("preAction", (rootCommand) => {
       projectRootOverride = rootCommand.opts<ProjectRootCommandOptions>().projectRoot;
     });
@@ -51,7 +59,9 @@ export async function resolveCliProjectRootFromRaw(rawRoot: string): Promise<str
     return candidates[0].projectRoot;
   }
   if (candidates.length > 1) {
-    const candidateList = candidates.map((candidate) => `${candidate.projectId} (${candidate.projectRoot})`).join(", ");
+    const candidateList = candidates
+      .map((candidate) => `${candidate.projectId} (${candidate.projectRoot})`)
+      .join(", ");
     throw new Error(
       `Multiple PlanWeave projects are linked to source root '${rawRoot}'. Run 'planweave use <projectId> --source-root ${rawRoot}' to choose one. Candidates: ${candidateList}`
     );
@@ -64,7 +74,9 @@ export async function resolveCliProjectRoot(): Promise<string> {
     return resolveCliProjectRootFromRaw(trimProjectRoot(projectRootOverride, "--project-root"));
   }
   if (process.env.PLANWEAVE_PROJECT_ROOT !== undefined) {
-    return resolveCliProjectRootFromRaw(trimProjectRoot(process.env.PLANWEAVE_PROJECT_ROOT, "PLANWEAVE_PROJECT_ROOT"));
+    return resolveCliProjectRootFromRaw(
+      trimProjectRoot(process.env.PLANWEAVE_PROJECT_ROOT, "PLANWEAVE_PROJECT_ROOT")
+    );
   }
   return resolveCliProjectRootFromRaw(resolveRawCliProjectRoot());
 }
@@ -73,5 +85,7 @@ export function explicitCliProjectRoot(): string | null {
   if (projectRootOverride !== undefined) {
     return trimProjectRoot(projectRootOverride, "--project-root");
   }
-  return process.env.PLANWEAVE_PROJECT_ROOT === undefined ? null : trimProjectRoot(process.env.PLANWEAVE_PROJECT_ROOT, "PLANWEAVE_PROJECT_ROOT");
+  return process.env.PLANWEAVE_PROJECT_ROOT === undefined
+    ? null
+    : trimProjectRoot(process.env.PLANWEAVE_PROJECT_ROOT, "PLANWEAVE_PROJECT_ROOT");
 }

@@ -16,7 +16,10 @@ afterEach(async () => {
   delete process.env.PLANWEAVE_HOME;
 });
 
-async function waitForRun(runId: string, predicate: (state: Awaited<ReturnType<typeof getAutoRunState>>) => boolean) {
+async function waitForRun(
+  runId: string,
+  predicate: (state: Awaited<ReturnType<typeof getAutoRunState>>) => boolean
+) {
   let state = await getAutoRunState(runId);
   for (let attempt = 0; attempt < 500 && !predicate(state); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -25,9 +28,17 @@ async function waitForRun(runId: string, predicate: (state: Awaited<ReturnType<t
   return state;
 }
 
-async function waitForRunEvent(events: DesktopAutoRunEvent[], runId: string, eventType: string): Promise<DesktopAutoRunEvent[]> {
+async function waitForRunEvent(
+  events: DesktopAutoRunEvent[],
+  runId: string,
+  eventType: string
+): Promise<DesktopAutoRunEvent[]> {
   let runEvents = events.filter((event) => event.runId === runId);
-  for (let attempt = 0; attempt < 500 && !runEvents.some((event) => event.eventType === eventType); attempt += 1) {
+  for (
+    let attempt = 0;
+    attempt < 500 && !runEvents.some((event) => event.eventType === eventType);
+    attempt += 1
+  ) {
     await new Promise((resolve) => setTimeout(resolve, 20));
     runEvents = events.filter((event) => event.runId === runId);
   }
@@ -52,7 +63,9 @@ describe("desktop auto run events", () => {
     });
 
     try {
-      const started = await startAutoRun(root, null, { kind: "project" }, 0, { tmuxEnabled: false });
+      const started = await startAutoRun(root, null, { kind: "project" }, 0, {
+        tmuxEnabled: false
+      });
       startedRunIds.add(started.runId);
       expect(started.phase).toBe("running");
 
@@ -64,8 +77,14 @@ describe("desktop auto run events", () => {
         error: "Step limit reached.",
         options: { tmuxEnabled: false }
       });
-      expect(runEvents.map((event) => event.eventType)).toEqual(["run_started", "step_limit_reached"]);
-      expect(consoleError).toHaveBeenCalledWith("Auto Run event listener failed.", expect.any(Error));
+      expect(runEvents.map((event) => event.eventType)).toEqual([
+        "run_started",
+        "step_limit_reached"
+      ]);
+      expect(consoleError).toHaveBeenCalledWith(
+        "Auto Run event listener failed.",
+        expect.any(Error)
+      );
       expect(runEvents[0]).toMatchObject({
         projectRoot: root,
         canvasId: null,

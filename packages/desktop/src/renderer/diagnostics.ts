@@ -38,12 +38,7 @@ const desktopPerformanceDiagnosticCodes = new Set([
   "desktop_statistics_slow_part"
 ]);
 
-const packageDiagnosticPrefixes = [
-  "package_",
-  "manifest_",
-  "prompt_",
-  "project_canvas_manifest_"
-];
+const packageDiagnosticPrefixes = ["package_", "manifest_", "prompt_", "project_canvas_manifest_"];
 
 const searchDiagnosticPrefixes = [
   "desktop_search_",
@@ -52,9 +47,7 @@ const searchDiagnosticPrefixes = [
   "desktop_search_body_index_"
 ];
 
-const runtimeDiagnosticCodes = new Set([
-  "desktop_canvas_runtime_input_failed"
-]);
+const runtimeDiagnosticCodes = new Set(["desktop_canvas_runtime_input_failed"]);
 
 const runtimeDiagnosticPrefixes = [
   "auto_run_state_",
@@ -79,7 +72,9 @@ function hasAnyPrefix(value: string, prefixes: string[]): boolean {
   return prefixes.some((prefix) => value.startsWith(prefix));
 }
 
-export function desktopDiagnosticSource(diagnostic: Pick<ValidationIssue, "code"> & { source?: string }): DesktopDiagnosticSource {
+export function desktopDiagnosticSource(
+  diagnostic: Pick<ValidationIssue, "code"> & { source?: string }
+): DesktopDiagnosticSource {
   if (diagnostic.source === "graph_quality" || diagnostic.source === "execution_readiness") {
     return "graphQuality";
   }
@@ -92,7 +87,10 @@ export function desktopDiagnosticSource(diagnostic: Pick<ValidationIssue, "code"
   if (hasAnyPrefix(diagnostic.code, searchDiagnosticPrefixes)) {
     return "search";
   }
-  if (runtimeDiagnosticCodes.has(diagnostic.code) || hasAnyPrefix(diagnostic.code, runtimeDiagnosticPrefixes)) {
+  if (
+    runtimeDiagnosticCodes.has(diagnostic.code) ||
+    hasAnyPrefix(diagnostic.code, runtimeDiagnosticPrefixes)
+  ) {
     return "runtime";
   }
   if (hasAnyPrefix(diagnostic.code, projectDiagnosticPrefixes)) {
@@ -105,7 +103,9 @@ export function isDesktopPerformanceDiagnostic(diagnostic: Pick<ValidationIssue,
   return desktopDiagnosticSource(diagnostic) === "performance";
 }
 
-export function groupDesktopDiagnostics(diagnostics: DesktopDiagnostic[]): DesktopDiagnosticGroup[] {
+export function groupDesktopDiagnostics(
+  diagnostics: DesktopDiagnostic[]
+): DesktopDiagnosticGroup[] {
   const grouped: Record<DesktopDiagnosticSource, DesktopDiagnostic[]> = {
     performance: [],
     package: [],

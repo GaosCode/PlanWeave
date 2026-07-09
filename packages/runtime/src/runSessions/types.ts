@@ -1,10 +1,26 @@
-import type { AutoRunStatus, AutoRunStepResult, ClaimScope, PackageWorkspaceRef } from "../types.js";
+import type {
+  AutoRunStatus,
+  AutoRunStepResult,
+  ClaimScope,
+  PackageWorkspaceRef
+} from "../types.js";
 
 export type RunSessionKind = "run" | "reset";
 export type RunSessionTrigger = "manual" | "cron" | "desktop" | "api";
-export type RunSessionPhase = "created" | "resetting" | "running" | "completed" | "manual" | "blocked" | "failed" | "stopped";
+export type RunSessionPhase =
+  | "created"
+  | "resetting"
+  | "running"
+  | "completed"
+  | "manual"
+  | "blocked"
+  | "failed"
+  | "stopped";
 
-export type RunSessionScope = { kind: "project" } | { kind: "task"; taskId: string } | { kind: "block"; blockRef: string };
+export type RunSessionScope =
+  | { kind: "project" }
+  | { kind: "task"; taskId: string }
+  | { kind: "block"; blockRef: string };
 
 export type RunSessionResetSummary = {
   performed: boolean;
@@ -51,7 +67,11 @@ export type RunSessionEvent = {
 } & Record<string, unknown>;
 
 export type RunSessionDiagnostic = {
-  code: "run_session_read_failed" | "run_session_invalid" | "run_session_event_read_failed" | "run_session_event_invalid";
+  code:
+    | "run_session_read_failed"
+    | "run_session_invalid"
+    | "run_session_event_read_failed"
+    | "run_session_event_invalid";
   sessionId: string;
   path: string;
   message: string;
@@ -67,7 +87,10 @@ export type CreateRunSessionOptions = {
 };
 
 export type UpdateRunSessionPatch = Partial<
-  Pick<RunSessionState, "phase" | "finishedAt" | "reset" | "autoRun" | "latestRecordId" | "latestRecordPath" | "error">
+  Pick<
+    RunSessionState,
+    "phase" | "finishedAt" | "reset" | "autoRun" | "latestRecordId" | "latestRecordPath" | "error"
+  >
 >;
 
 export type ListRunSessionsResult = {

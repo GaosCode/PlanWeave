@@ -31,11 +31,17 @@ const nativeResources: Record<NativeLanguage, NativeCatalog> = {
   }
 };
 
-export function resolveNativeLanguage(language: string | undefined, systemLocale?: string): NativeLanguage {
+export function resolveNativeLanguage(
+  language: string | undefined,
+  systemLocale?: string
+): NativeLanguage {
   const locale = language === "system" || !language ? systemLocale : language;
   return locale?.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
 }
 
-export function createNativeTranslator(language: string | undefined, systemLocale?: string): NativeCatalog {
+export function createNativeTranslator(
+  language: string | undefined,
+  systemLocale?: string
+): NativeCatalog {
   return nativeResources[resolveNativeLanguage(language, systemLocale)];
 }

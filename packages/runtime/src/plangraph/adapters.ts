@@ -1,4 +1,8 @@
-import { commitPlanGraphPackageMutation, loadPlanGraphPackage, packageFilePath } from "./packageRepository.js";
+import {
+  commitPlanGraphPackageMutation,
+  loadPlanGraphPackage,
+  packageFilePath
+} from "./packageRepository.js";
 import { createSqlitePlanGraphStore } from "./sqliteIndex.js";
 import { desktopLayoutCommandStore } from "../desktop/layoutStore.js";
 import type { PlanGraphCommandDependencies } from "./ports.js";

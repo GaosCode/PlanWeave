@@ -8,7 +8,10 @@ type AppUpdateSettingsRowProps = {
   t: ReturnType<typeof createTranslator>;
 };
 
-function appUpdateDescription(state: AppUpdateState, t: ReturnType<typeof createTranslator>): string {
+function appUpdateDescription(
+  state: AppUpdateState,
+  t: ReturnType<typeof createTranslator>
+): string {
   switch (state.status) {
     case "unsupported":
       return t("appUpdateUnsupported");
@@ -31,15 +34,31 @@ function appUpdateDescription(state: AppUpdateState, t: ReturnType<typeof create
 }
 
 export function AppUpdateSettingsRow({ t }: AppUpdateSettingsRowProps) {
-  const { appUpdateAvailable, appUpdateState, checkForAppUpdate } = useAppUpdate({ setError: () => undefined });
+  const { appUpdateAvailable, appUpdateState, checkForAppUpdate } = useAppUpdate({
+    setError: () => undefined
+  });
 
   return (
-    <Field orientation="horizontal" className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0">
+    <Field
+      orientation="horizontal"
+      className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0"
+    >
       <FieldContent className="min-w-0">
         <FieldLabel className="text-sm font-semibold">{t("appUpdate")}</FieldLabel>
-        <FieldDescription className="break-words [overflow-wrap:anywhere]">{appUpdateDescription(appUpdateState, t)}</FieldDescription>
+        <FieldDescription className="break-words [overflow-wrap:anywhere]">
+          {appUpdateDescription(appUpdateState, t)}
+        </FieldDescription>
       </FieldContent>
-      <Button disabled={!appUpdateAvailable || appUpdateState.status === "checking" || appUpdateState.status === "downloading"} size="sm" variant="outline" onClick={() => void checkForAppUpdate()}>
+      <Button
+        disabled={
+          !appUpdateAvailable ||
+          appUpdateState.status === "checking" ||
+          appUpdateState.status === "downloading"
+        }
+        size="sm"
+        variant="outline"
+        onClick={() => void checkForAppUpdate()}
+      >
         {appUpdateState.status === "checking" ? t("checkingForAppUpdate") : t("checkForAppUpdate")}
       </Button>
     </Field>

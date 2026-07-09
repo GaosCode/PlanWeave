@@ -33,7 +33,10 @@ function promptFileMarkdown(markdown: string): string {
 }
 
 function slugPart(value: string): string {
-  const slug = value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-");
+  const slug = value
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-");
   let start = 0;
   let end = slug.length;
   while (start < end && slug[start] === "-") {
@@ -92,10 +95,14 @@ function createBlock(options: {
       review: { required: true, maxFeedbackCycles: options.maxFeedbackCycles, hook: null }
     };
   }
-  return { ...common, type: options.type, parallel: { safe: false, locks: [] } };
+  return { ...common, type: options.type, parallel: { locks: [] } };
 }
 
-function planNewBlockPlacement(task: ManifestTaskNode, block: ManifestBlock, explicitDependsOn: boolean): {
+function planNewBlockPlacement(
+  task: ManifestTaskNode,
+  block: ManifestBlock,
+  explicitDependsOn: boolean
+): {
   task: ManifestTaskNode;
   insertIndex: number | null;
   affectedDependsOn: Array<{ blockRef: string; dependsOn: string[] }>;
@@ -162,16 +169,23 @@ function addBlockMutation(
   const placement = planNewBlockPlacement(task, block, explicitDependsOn);
   const nextManifest = {
     ...manifest,
-    nodes: manifest.nodes.map((node) => (node.type === "task" && node.id === task.id ? placement.task : node))
+    nodes: manifest.nodes.map((node) =>
+      node.type === "task" && node.id === task.id ? placement.task : node
+    )
   };
-  const sideEffects: PlanPackageGraphMutationSideEffect[] = [{ kind: "writePrompt", packagePath: block.prompt, markdown: promptMarkdown }];
+  const sideEffects: PlanPackageGraphMutationSideEffect[] = [
+    { kind: "writePrompt", packagePath: block.prompt, markdown: promptMarkdown }
+  ];
   return buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
     affectedTasks: [task.id],
     sideEffects
   });
 }
 
-function buildTaskNodeForCreate(manifest: PlanPackageManifest, input: DesktopAddTaskInput): {
+function buildTaskNodeForCreate(
+  manifest: PlanPackageManifest,
+  input: DesktopAddTaskInput
+): {
   node: ManifestTaskNode;
   taskPromptMarkdown: string;
   blockPromptMarkdown: Array<{ blockId: string; markdown: string }>;
@@ -181,7 +195,10 @@ function buildTaskNodeForCreate(manifest: PlanPackageManifest, input: DesktopAdd
   const blockTypes = input.blockTypes?.length ? input.blockTypes : defaultTaskBlockTypes();
   const blocks: ManifestBlock[] = [];
   for (const type of blockTypes) {
-    const blockId = nextBlockId({ id: taskId, type: "task", title, prompt: "", acceptance: [], blocks }, type);
+    const blockId = nextBlockId(
+      { id: taskId, type: "task", title, prompt: "", acceptance: [], blocks },
+      type
+    );
     blocks.push(
       createBlock({
         taskId,
@@ -204,11 +221,17 @@ function buildTaskNodeForCreate(manifest: PlanPackageManifest, input: DesktopAdd
       blocks
     },
     taskPromptMarkdown: input.promptMarkdown,
-    blockPromptMarkdown: blocks.map((block) => ({ blockId: block.id, markdown: promptFileMarkdown(`# ${block.title}\n\n${input.promptMarkdown}`) }))
+    blockPromptMarkdown: blocks.map((block) => ({
+      blockId: block.id,
+      markdown: promptFileMarkdown(`# ${block.title}\n\n${input.promptMarkdown}`)
+    }))
   };
 }
 
-export async function addTaskNode(projectRoot: PackageWorkspaceRef, input: DesktopAddTaskInput): Promise<GraphEditResult> {
+export async function addTaskNode(
+  projectRoot: PackageWorkspaceRef,
+  input: DesktopAddTaskInput
+): Promise<GraphEditResult> {
   const { manifest } = await loadPackage(projectRoot);
   const { node, taskPromptMarkdown, blockPromptMarkdown } = buildTaskNodeForCreate(manifest, input);
   const snapshot: TaskComponentSnapshot = {
@@ -217,12 +240,17 @@ export async function addTaskNode(projectRoot: PackageWorkspaceRef, input: Deskt
     blockPromptMarkdown,
     insertIndex: null,
     affectedTaskEdges: [],
-    layoutNode: input.layoutPosition ? { nodeId: node.id, x: input.layoutPosition.x, y: input.layoutPosition.y } : null
+    layoutNode: input.layoutPosition
+      ? { nodeId: node.id, x: input.layoutPosition.x, y: input.layoutPosition.y }
+      : null
   };
   return executeDesktopPlanGraphCommand(projectRoot, { type: "addTask", snapshot });
 }
 
-export async function addBlock(projectRoot: PackageWorkspaceRef, input: DesktopAddBlockInput): Promise<GraphEditResult> {
+export async function addBlock(
+  projectRoot: PackageWorkspaceRef,
+  input: DesktopAddBlockInput
+): Promise<GraphEditResult> {
   const { manifest } = await loadPackage(projectRoot);
   const graph = compileTaskGraph(manifest);
   const task = getTask(graph, input.taskId);
@@ -233,7 +261,11 @@ export async function addBlock(projectRoot: PackageWorkspaceRef, input: DesktopA
     blockId,
     type: input.type,
     title: input.title,
-    dependsOn: explicitDependsOn ? (input.dependsOn ?? []) : (task.blocks.length > 0 ? [task.blocks[task.blocks.length - 1].id] : []),
+    dependsOn: explicitDependsOn
+      ? (input.dependsOn ?? [])
+      : task.blocks.length > 0
+        ? [task.blocks[task.blocks.length - 1].id]
+        : [],
     executor: normalizeOptionalText(input.executor ?? null),
     maxFeedbackCycles: manifest.review.maxFeedbackCycles
   });
@@ -260,7 +292,10 @@ export async function bulkCreateTasks(
   const affectedTasks: string[] = [];
   const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
   for (const input of tasks) {
-    const { node, taskPromptMarkdown, blockPromptMarkdown } = buildTaskNodeForCreate(nextManifest, input);
+    const { node, taskPromptMarkdown, blockPromptMarkdown } = buildTaskNodeForCreate(
+      nextManifest,
+      input
+    );
     const mutation = buildPlanPackageGraphMutation(nextManifest, {
       kind: "addTaskNode",
       node,
@@ -273,7 +308,10 @@ export async function bulkCreateTasks(
   }
   const result = await commitPlanPackageGraphMutation({
     projectRoot,
-    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks, sideEffects })
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
+      affectedTasks,
+      sideEffects
+    })
   });
   invalidateDesktopProjectProjection(projectRoot);
   return result;
@@ -300,18 +338,31 @@ export async function bulkCreateBlocks(
       blockId,
       type: input.type,
       title: input.title,
-      dependsOn: explicitDependsOn ? (input.dependsOn ?? []) : (task.blocks.length > 0 ? [task.blocks[task.blocks.length - 1].id] : []),
+      dependsOn: explicitDependsOn
+        ? (input.dependsOn ?? [])
+        : task.blocks.length > 0
+          ? [task.blocks[task.blocks.length - 1].id]
+          : [],
       executor: normalizeOptionalText(input.executor ?? null),
       maxFeedbackCycles: nextManifest.review.maxFeedbackCycles
     });
-    const mutation = addBlockMutation(nextManifest, task, block, promptFileMarkdown(input.promptMarkdown), explicitDependsOn);
+    const mutation = addBlockMutation(
+      nextManifest,
+      task,
+      block,
+      promptFileMarkdown(input.promptMarkdown),
+      explicitDependsOn
+    );
     nextManifest = mutation.nextManifest;
     affectedTasks.push(...mutation.affectedTasks, task.id);
     sideEffects.push(...mutation.sideEffects);
   }
   const result = await commitPlanPackageGraphMutation({
     projectRoot,
-    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks, sideEffects })
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
+      affectedTasks,
+      sideEffects
+    })
   });
   invalidateDesktopProjectProjection(projectRoot);
   return result;

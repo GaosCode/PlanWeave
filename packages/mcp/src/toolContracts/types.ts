@@ -18,6 +18,10 @@ export type ToolDefinition = {
   annotations: typeof readOnlyAnnotations | typeof writeAnnotations;
 };
 
-export type PlanweavePartialToolDefinitionRegistry = Partial<Record<PlanweaveToolName, ToolDefinition>>;
+export type PlanweavePartialToolDefinitionRegistry = Partial<
+  Record<PlanweaveToolName, ToolDefinition>
+>;
 
-export type PlanweavePartialToolOutputSchemaRegistry = Partial<Record<PlanweaveToolName, z.core.$ZodLooseShape>>;
+export type PlanweavePartialToolOutputSchemaRegistry = Partial<
+  Record<PlanweaveToolName, z.core.$ZodLooseShape>
+>;

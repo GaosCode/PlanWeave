@@ -18,10 +18,15 @@ export async function validateAuthorizeParams(
   redirectUriPrefixes?: string[]
 ): Promise<{ ok: true; value: AuthorizeParams } | { ok: false; error: string }> {
   const url = requestUrl(req);
-  return validateAuthorizeSearchParams(url.searchParams, clientStore, requestContext(req).resource, {
-    persistRecoveredClient: false,
-    redirectUriPrefixes
-  });
+  return validateAuthorizeSearchParams(
+    url.searchParams,
+    clientStore,
+    requestContext(req).resource,
+    {
+      persistRecoveredClient: false,
+      redirectUriPrefixes
+    }
+  );
 }
 
 export async function validateAuthorizeSearchParams(

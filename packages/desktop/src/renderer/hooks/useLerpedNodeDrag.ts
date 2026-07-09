@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { applyNodeChanges } from "@xyflow/react";
-import type { Node, NodeChange, NodePositionChange, OnNodesChange, XYPosition } from "@xyflow/react";
+import type {
+  Node,
+  NodeChange,
+  NodePositionChange,
+  OnNodesChange,
+  XYPosition
+} from "@xyflow/react";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const DEFAULT_DRAG_LERP_ALPHA = 0.78;
@@ -77,7 +83,9 @@ function commitPositions<NodeType extends Node>(
 
   let moved = false;
   const committedNodes = nodes.map((node) => {
-    const targetPosition = targets.get(node.id)?.position ?? (fallbackNode?.id === node.id ? fallbackNode.position : undefined);
+    const targetPosition =
+      targets.get(node.id)?.position ??
+      (fallbackNode?.id === node.id ? fallbackNode.position : undefined);
     if (!targetPosition) {
       return node;
     }
@@ -245,20 +253,23 @@ export function useLerpedNodeDrag<NodeType extends Node>({
     [onNodesChange, scheduleFrame, shouldAnimate]
   );
 
-  const commitDragTargets = useCallback((fallbackNode?: DragStopFallback) => {
-    const targets = new Map(targetsRef.current);
-    targetsRef.current.clear();
-    stopAnimation();
+  const commitDragTargets = useCallback(
+    (fallbackNode?: DragStopFallback) => {
+      const targets = new Map(targetsRef.current);
+      targetsRef.current.clear();
+      stopAnimation();
 
-    const committedNodes = commitPositions(latestNodesRef.current, targets, fallbackNode);
-    latestNodesRef.current = committedNodes;
-    setNodes((currentNodes) => {
-      const nextNodes = commitPositions(currentNodes, targets, fallbackNode);
-      latestNodesRef.current = nextNodes;
-      return nextNodes;
-    });
-    return committedNodes;
-  }, [setNodes, stopAnimation]);
+      const committedNodes = commitPositions(latestNodesRef.current, targets, fallbackNode);
+      latestNodesRef.current = committedNodes;
+      setNodes((currentNodes) => {
+        const nextNodes = commitPositions(currentNodes, targets, fallbackNode);
+        latestNodesRef.current = nextNodes;
+        return nextNodes;
+      });
+      return committedNodes;
+    },
+    [setNodes, stopAnimation]
+  );
 
   return useMemo(
     () => ({

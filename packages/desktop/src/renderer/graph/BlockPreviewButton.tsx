@@ -1,6 +1,11 @@
 import type { DesktopBlockPreview } from "@planweave-ai/runtime";
 import { Badge } from "@/components/ui/badge";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger
+} from "@/components/ui/context-menu";
 import type { TaskNodeData } from "../types";
 import { statusVariant } from "../viewHelpers";
 

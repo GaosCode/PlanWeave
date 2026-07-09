@@ -16,7 +16,10 @@ export function reviewResultEnvironment(input: ReviewResultContractInput): NodeJ
   };
 }
 
-export function appendReviewResultFileInstruction(prompt: string, input: ReviewResultContractInput): string {
+export function appendReviewResultFileInstruction(
+  prompt: string,
+  input: ReviewResultContractInput
+): string {
   return [
     prompt.trimEnd(),
     "",
@@ -43,14 +46,21 @@ export function appendReviewResultFileInstruction(prompt: string, input: ReviewR
   ].join("\n");
 }
 
-export async function assertReviewResultJsonReadable(input: { executorName: string; resultPath: string }): Promise<void> {
+export async function assertReviewResultJsonReadable(input: {
+  executorName: string;
+  resultPath: string;
+}): Promise<void> {
   try {
     await access(input.resultPath, constants.R_OK);
   } catch (error) {
     if (isNodeFileNotFoundError(error)) {
-      throw new Error(`Executor '${input.executorName}' did not create review result JSON at ${input.resultPath}.`);
+      throw new Error(
+        `Executor '${input.executorName}' did not create review result JSON at ${input.resultPath}.`
+      );
     }
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Executor '${input.executorName}' could not read review result JSON at ${input.resultPath}: ${detail}`);
+    throw new Error(
+      `Executor '${input.executorName}' could not read review result JSON at ${input.resultPath}: ${detail}`
+    );
   }
 }

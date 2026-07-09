@@ -37,7 +37,9 @@ async function createTempStorePath(): Promise<string> {
   return join(dir, "clients.json");
 }
 
-async function startOAuthServer(options: { clientStorePath?: string; tokenStorePath?: string } = {}): Promise<string> {
+async function startOAuthServer(
+  options: { clientStorePath?: string; tokenStorePath?: string } = {}
+): Promise<string> {
   const { clientStorePath, tokenStorePath } = options;
   const storePath = clientStorePath ?? (await createTempStorePath());
   server = createPlanweaveMcpHttpServer({
@@ -89,7 +91,10 @@ function extractCsrfNonce(html: string): string {
   return match[1];
 }
 
-async function createOAuthAccessToken(baseUrl: string, resource = `${baseUrl}/mcp`): Promise<string> {
+async function createOAuthAccessToken(
+  baseUrl: string,
+  resource = `${baseUrl}/mcp`
+): Promise<string> {
   const registerResponse = await fetch(`${baseUrl}/oauth/register`, {
     method: "POST",
     body: JSON.stringify({
@@ -254,7 +259,10 @@ describe("PlanWeave MCP OAuth server", () => {
 
   it("accepts OpenAI tunnel resources and binds the token for local MCP access", async () => {
     const baseUrl = await startOAuthServer();
-    const token = await createOAuthAccessToken(baseUrl, "https://tunnel-service.gateway.unified-0.internal.api.openai.org/v1/mcp/tunnel_6a35ec951cf48191bf6b7b899cf8842e");
+    const token = await createOAuthAccessToken(
+      baseUrl,
+      "https://tunnel-service.gateway.unified-0.internal.api.openai.org/v1/mcp/tunnel_6a35ec951cf48191bf6b7b899cf8842e"
+    );
 
     const response = await fetch(`${baseUrl}/mcp`, {
       method: "POST",
@@ -291,7 +299,8 @@ describe("PlanWeave MCP OAuth server", () => {
   it("persists OAuth access token hashes across MCP server restarts", async () => {
     const clientStorePath = await createTempStorePath();
     const tokenStorePath = await createTempStorePath();
-    const resource = "https://tunnel-service.gateway.unified-0.internal.api.openai.org/v1/mcp/tunnel_6a35ec951cf48191bf6b7b899cf8842e";
+    const resource =
+      "https://tunnel-service.gateway.unified-0.internal.api.openai.org/v1/mcp/tunnel_6a35ec951cf48191bf6b7b899cf8842e";
     const firstBaseUrl = await startOAuthServer({ clientStorePath, tokenStorePath });
     const token = await createOAuthAccessToken(firstBaseUrl, resource);
     const storedTokens = await readFile(tokenStorePath, "utf8");
@@ -374,12 +383,15 @@ describe("PlanWeave MCP OAuth server", () => {
       response_type: "code",
       client_id: clientId,
       redirect_uri: redirectUri,
-      resource: "https://tunnel-service.gateway.unified-0.internal.api.openai.org/v1/mcp/tunnel_6a35ec951cf48191bf6b7b899cf8842e",
+      resource:
+        "https://tunnel-service.gateway.unified-0.internal.api.openai.org/v1/mcp/tunnel_6a35ec951cf48191bf6b7b899cf8842e",
       scope: "planweave:mcp",
       code_challenge: pkceChallenge("test-verifier-for-planweave-oauth"),
       code_challenge_method: "S256"
     };
-    const response = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(authorizeParams)}`);
+    const response = await fetch(
+      `${baseUrl}/oauth/authorize?${new URLSearchParams(authorizeParams)}`
+    );
 
     expect(response.status).toBe(200);
     const authorizeHtml = await response.text();
@@ -422,7 +434,8 @@ describe("PlanWeave MCP OAuth server", () => {
         response_type: "code",
         client_id: "external-client-id",
         redirect_uri: "https://chatgpt.com/connector/oauth/QTOb4VcHdCsW",
-        resource: "https://tunnel-service.gateway.unified-0.internal.api.openai.org/v1/mcp/tunnel_6a35ec951cf48191bf6b7b899cf8842e",
+        resource:
+          "https://tunnel-service.gateway.unified-0.internal.api.openai.org/v1/mcp/tunnel_6a35ec951cf48191bf6b7b899cf8842e",
         scope: "planweave:mcp",
         code_challenge: pkceChallenge("test-verifier-for-planweave-oauth"),
         code_challenge_method: "S256"
@@ -509,7 +522,9 @@ describe("PlanWeave MCP OAuth server", () => {
       code_challenge_method: "S256",
       state: "state-csrf"
     };
-    const authorizeResponse = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(authorizeParams)}`);
+    const authorizeResponse = await fetch(
+      `${baseUrl}/oauth/authorize?${new URLSearchParams(authorizeParams)}`
+    );
     expect(authorizeResponse.status).toBe(200);
     await authorizeResponse.text();
 
@@ -548,7 +563,9 @@ describe("PlanWeave MCP OAuth server", () => {
       code_challenge_method: "S256",
       state: "state-reuse"
     };
-    const authorizeResponse = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(authorizeParams)}`);
+    const authorizeResponse = await fetch(
+      `${baseUrl}/oauth/authorize?${new URLSearchParams(authorizeParams)}`
+    );
     const authorizeHtml = await authorizeResponse.text();
     const csrfNonce = extractCsrfNonce(authorizeHtml);
     const confirmBody = new URLSearchParams({ ...authorizeParams, csrf_nonce: csrfNonce });
@@ -596,7 +613,9 @@ describe("PlanWeave MCP OAuth server", () => {
       code_challenge: pkceChallenge(verifier),
       code_challenge_method: "S256"
     };
-    const authorizeResponse = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(authorizeParams)}`);
+    const authorizeResponse = await fetch(
+      `${baseUrl}/oauth/authorize?${new URLSearchParams(authorizeParams)}`
+    );
     const csrfNonce = extractCsrfNonce(await authorizeResponse.text());
 
     const confirmResponse = await fetch(`${baseUrl}/oauth/authorize/confirm`, {

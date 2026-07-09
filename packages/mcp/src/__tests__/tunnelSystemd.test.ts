@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { renderSystemdEnvFile, renderSystemdService, renderSystemdTemplates } from "../tunnel/systemd.js";
+import {
+  renderSystemdEnvFile,
+  renderSystemdService,
+  renderSystemdTemplates
+} from "../tunnel/systemd.js";
 
 describe("MCP tunnel systemd renderer", () => {
   it("renders a deterministic service template", () => {
@@ -13,8 +17,8 @@ describe("MCP tunnel systemd renderer", () => {
     });
 
     expect(service).toContain("User=planweave");
-    expect(service).toContain("EnvironmentFile=\"/etc/planweave/mcp-tunnel.env\"");
-    expect(service).toContain("ExecStart=\"/usr/local/bin/planweave\" mcp tunnel run --serve");
+    expect(service).toContain('EnvironmentFile="/etc/planweave/mcp-tunnel.env"');
+    expect(service).toContain('ExecStart="/usr/local/bin/planweave" mcp tunnel run --serve');
     expect(service).toContain("Restart=always");
   });
 

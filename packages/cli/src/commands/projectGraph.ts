@@ -13,11 +13,15 @@ import {
 } from "./formatters/projectGraphFormatters.js";
 
 export function registerProjectGraphCommand(program: Command): void {
-  const command = program.command("project-graph").description("Manage the formal project-graph.json canvas graph");
+  const command = program
+    .command("project-graph")
+    .description("Manage the formal project-graph.json canvas graph");
 
   command
     .command("migrate")
-    .description("Write project-graph.json from the current legacy/default canvas graph when it is missing")
+    .description(
+      "Write project-graph.json from the current legacy/default canvas graph when it is missing"
+    )
     .option("--json", "print machine-readable output")
     .action(async (options: { json?: boolean }) => {
       const projectRoot = await resolveCliProjectRoot();

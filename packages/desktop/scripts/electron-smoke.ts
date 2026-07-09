@@ -16,7 +16,12 @@ async function resolvePackagedExecutable(): Promise<string> {
     .filter((entry) => entry.isDirectory() && entry.name.startsWith("mac"))
     .map((entry) => resolve(releaseDir, entry.name, "PlanWeave.app"))
     .sort()[0];
-  return resolve(appPath ?? resolve(releaseDir, "mac-arm64", "PlanWeave.app"), "Contents", "MacOS", "PlanWeave");
+  return resolve(
+    appPath ?? resolve(releaseDir, "mac-arm64", "PlanWeave.app"),
+    "Contents",
+    "MacOS",
+    "PlanWeave"
+  );
 }
 
 const smokeHome = await mkdtemp(join(tmpdir(), "planweave-desktop-smoke-home-"));
@@ -25,10 +30,14 @@ const smokeProjectRoot = await mkdtemp(join(tmpdir(), "planweave-desktop-smoke-p
 process.env.PLANWEAVE_HOME = smokeHome;
 const init = await initWorkspace({ projectRoot: smokeProjectRoot });
 
-await cp(resolve(repoRoot, "examples", "basic-plan-package", "package"), init.workspace.packageDir, {
-  recursive: true,
-  force: true
-});
+await cp(
+  resolve(repoRoot, "examples", "basic-plan-package", "package"),
+  init.workspace.packageDir,
+  {
+    recursive: true,
+    force: true
+  }
+);
 await writeFile(init.workspace.projectPromptFile, "Desktop smoke project prompt.\n", "utf8");
 
 const smokeCommand = usePackagedApp ? await resolvePackagedExecutable() : electronBin;
@@ -40,7 +49,12 @@ const child = spawn(smokeCommand, smokeArgs, {
     ...process.env,
     PLANWEAVE_HOME: smokeHome,
     PLANWEAVE_DESKTOP_SMOKE_PROJECT_ROOT: smokeProjectRoot,
-    PLANWEAVE_DESKTOP_SMOKE_EXTERNAL_PROMPT_PATH: join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"),
+    PLANWEAVE_DESKTOP_SMOKE_EXTERNAL_PROMPT_PATH: join(
+      init.workspace.packageDir,
+      "nodes",
+      "T-001",
+      "prompt.md"
+    ),
     PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR: smokeUserData,
     PLANWEAVE_DESKTOP_SMOKE: "1"
   },

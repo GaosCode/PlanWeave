@@ -7,7 +7,16 @@ export type DesktopAutoRunScope =
   | { kind: "task"; taskId: string }
   | { kind: "block"; blockRef: string };
 
-export type DesktopAutoRunPhase = "idle" | "running" | "pausing" | "paused" | "manual" | "completed" | "blocked" | "failed" | "stopped";
+export type DesktopAutoRunPhase =
+  | "idle"
+  | "running"
+  | "pausing"
+  | "paused"
+  | "manual"
+  | "completed"
+  | "blocked"
+  | "failed"
+  | "stopped";
 
 export type DesktopAutoRunOptions = {
   tmuxEnabled?: boolean;
@@ -92,7 +101,10 @@ export type DesktopAutoRunLogEvent = {
 };
 
 export type DesktopAutoRunEventLogDiagnostic = {
-  code: "auto_run_event_log_bad_line" | "auto_run_event_log_read_failed" | "auto_run_event_log_missing";
+  code:
+    | "auto_run_event_log_bad_line"
+    | "auto_run_event_log_read_failed"
+    | "auto_run_event_log_missing";
   message: string;
   line?: number;
   path: string;

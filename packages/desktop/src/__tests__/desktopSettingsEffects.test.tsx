@@ -6,7 +6,10 @@ import { defaultDesktopSettings, desktopSettingsKey } from "../renderer/settings
 import { useDesktopSettingsEffects } from "../renderer/hooks/useDesktopSettingsEffects";
 import type { AppearanceMode, DesktopUiSettings } from "../renderer/types";
 
-function settingsWithAppearance(appearance: AppearanceMode, windowMaterialEnabled = false): DesktopUiSettings {
+function settingsWithAppearance(
+  appearance: AppearanceMode,
+  windowMaterialEnabled = false
+): DesktopUiSettings {
   return {
     ...defaultDesktopSettings,
     appearance,
@@ -101,7 +104,10 @@ describe("useDesktopSettingsEffects", () => {
 
     renderHook(() => useDesktopSettingsEffects(settingsWithAppearance("dark")));
 
-    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(desktopSettingsKey, expect.any(String));
+    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(
+      desktopSettingsKey,
+      expect.any(String)
+    );
   });
 
   it("adds the root dark class when system appearance prefers dark", () => {
@@ -131,13 +137,18 @@ describe("useDesktopSettingsEffects", () => {
   it("cleans up the system appearance listener on unmount", () => {
     const prefersDark = stubPrefersDark(false);
 
-    const { unmount } = renderHook(() => useDesktopSettingsEffects(settingsWithAppearance("system")));
+    const { unmount } = renderHook(() =>
+      useDesktopSettingsEffects(settingsWithAppearance("system"))
+    );
     unmount();
 
     act(() => prefersDark.setMatches(true));
 
     expect(document.documentElement.classList.contains("dark")).toBe(false);
-    expect(prefersDark.mediaQueryList.removeEventListener).toHaveBeenCalledWith("change", expect.any(Function));
+    expect(prefersDark.mediaQueryList.removeEventListener).toHaveBeenCalledWith(
+      "change",
+      expect.any(Function)
+    );
   });
 
   it("removes the root dark class when light appearance is forced", () => {
@@ -159,14 +170,11 @@ describe("useDesktopSettingsEffects", () => {
 
   it("sets the root window material state when material is enabled", () => {
     stubPrefersDark(false);
-    const { rerender } = renderHook(
-      ({ settings }) => useDesktopSettingsEffects(settings),
-      {
-        initialProps: {
-          settings: settingsWithAppearance("light", true)
-        }
+    const { rerender } = renderHook(({ settings }) => useDesktopSettingsEffects(settings), {
+      initialProps: {
+        settings: settingsWithAppearance("light", true)
       }
-    );
+    });
 
     expect(document.documentElement.dataset.windowMaterial).toBe("true");
 
@@ -192,10 +200,12 @@ describe("useDesktopSettingsEffects", () => {
 
     renderHook(() => useDesktopSettingsEffects(settingsWithAppearance("light", true)));
 
-    await waitFor(() => expect(setWindowMaterial).toHaveBeenCalledWith({
-      appearance: "light",
-      enabled: false
-    }));
+    await waitFor(() =>
+      expect(setWindowMaterial).toHaveBeenCalledWith({
+        appearance: "light",
+        enabled: false
+      })
+    );
     expect(document.documentElement.dataset.windowMaterial).toBeUndefined();
   });
 

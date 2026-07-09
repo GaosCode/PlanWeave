@@ -102,7 +102,9 @@ export function useDesktopSettingsEffects(settings: DesktopUiSettings) {
       return;
     }
     const applyWindowMaterial = async () => {
-      const capabilities = windowApi.getWindowMaterialCapabilities ? await windowApi.getWindowMaterialCapabilities() : { supported: true };
+      const capabilities = windowApi.getWindowMaterialCapabilities
+        ? await windowApi.getWindowMaterialCapabilities()
+        : { supported: true };
       if (cancelled) {
         return;
       }

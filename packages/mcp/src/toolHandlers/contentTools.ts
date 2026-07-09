@@ -18,7 +18,14 @@ export const contentToolHandlers = {
   list_package_files: async (args, gateway) => {
     const record = readObjectArgs(args);
     const { projectId, canvasId } = parseProjectCanvasArgs(record);
-    return jsonToolResult(await gateway.listPackageFiles(projectId, canvasId, parseOptionalPositiveInteger(record.limit, "limit"), optionalNonEmptyString(record.cursor, "cursor")));
+    return jsonToolResult(
+      await gateway.listPackageFiles(
+        projectId,
+        canvasId,
+        parseOptionalPositiveInteger(record.limit, "limit"),
+        optionalNonEmptyString(record.cursor, "cursor")
+      )
+    );
   },
   read_package_file: async (args, gateway) => {
     const record = readObjectArgs(args);
@@ -59,7 +66,13 @@ export const contentToolHandlers = {
   get_prompt_sources: async (args, gateway) => {
     const record = readObjectArgs(args);
     const { projectId, canvasId } = parseProjectCanvasArgs(record);
-    return jsonToolResult({ promptSources: await gateway.getPromptSources(projectId, canvasId, nonEmptyString(record.ref, "ref")) });
+    return jsonToolResult({
+      promptSources: await gateway.getPromptSources(
+        projectId,
+        canvasId,
+        nonEmptyString(record.ref, "ref")
+      )
+    });
   },
   write_task_prompt: async (args, gateway) => {
     const record = readObjectArgs(args);
@@ -75,7 +88,9 @@ export const contentToolHandlers = {
     const { projectId, canvasId } = parseProjectCanvasArgs(record);
     const target = parsePromptSourceTarget(record.target);
     if (target === "project") {
-      return jsonToolResult({ markdown: await gateway.updateProjectPrompt(projectId, requiredMarkdown(record.markdown)) });
+      return jsonToolResult({
+        markdown: await gateway.updateProjectPrompt(projectId, requiredMarkdown(record.markdown))
+      });
     }
     if (target === "task") {
       return graphEditResult(
@@ -102,7 +117,9 @@ export const contentToolHandlers = {
   update_project_prompt: async (args, gateway) => {
     const record = readObjectArgs(args);
     const { projectId } = parseProjectArgs(record);
-    return jsonToolResult({ markdown: await gateway.updateProjectPrompt(projectId, requiredMarkdown(record.markdown)) });
+    return jsonToolResult({
+      markdown: await gateway.updateProjectPrompt(projectId, requiredMarkdown(record.markdown))
+    });
   },
   refresh_prompts: async (args, gateway) => refreshPrompts(args, gateway, false),
   refresh_prompts_summary: async (args, gateway) => refreshPrompts(args, gateway, false),
@@ -112,7 +129,12 @@ export const contentToolHandlers = {
 async function refreshPrompts(args: unknown, gateway: RuntimeGateway, includeFullDetails: boolean) {
   const record = readObjectArgs(args);
   const { projectId, canvasId } = parseProjectCanvasArgs(record);
-  return jsonToolResult({ refresh: summarizeRefreshPrompts(await gateway.refreshPrompts(projectId, canvasId), includeFullDetails) });
+  return jsonToolResult({
+    refresh: summarizeRefreshPrompts(
+      await gateway.refreshPrompts(projectId, canvasId),
+      includeFullDetails
+    )
+  });
 }
 
 function graphEditResult(result: Awaited<ReturnType<RuntimeGateway["updateTask"]>>) {
@@ -129,7 +151,11 @@ function parseOptionalPositiveInteger(value: unknown, field: string): number | u
   return value;
 }
 
-function parseEnum<T extends string>(value: unknown, field: string, allowed: readonly T[]): T | undefined {
+function parseEnum<T extends string>(
+  value: unknown,
+  field: string,
+  allowed: readonly T[]
+): T | undefined {
   if (value === undefined || value === null || value === "") {
     return undefined;
   }

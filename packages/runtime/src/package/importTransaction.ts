@@ -69,25 +69,34 @@ function assertValidImportTransactionId(transactionId: string): void {
     transactionId.includes("\\") ||
     /\s/.test(transactionId)
   ) {
-    throw new Error(`Invalid import transaction id '${transactionId}'. Import transaction ids must be single recovery directory names.`);
+    throw new Error(
+      `Invalid import transaction id '${transactionId}'. Import transaction ids must be single recovery directory names.`
+    );
   }
 }
 
 function assertWorkspaceTarget(workspaceRoot: string, target: string): void {
   const relativeTarget = relative(resolve(workspaceRoot), resolve(target));
   if (!relativeTarget || relativeTarget.startsWith("..") || isAbsolute(relativeTarget)) {
-    throw new Error(`Import transaction target '${target}' is outside the PlanWeave workspace or points at the workspace root.`);
+    throw new Error(
+      `Import transaction target '${target}' is outside the PlanWeave workspace or points at the workspace root.`
+    );
   }
 }
 
 function assertRecoveryBackupPath(recoveryRoot: string, backupPath: string): void {
   const relativeBackup = relative(resolve(recoveryRoot), resolve(backupPath));
   if (!relativeBackup || relativeBackup.startsWith("..") || isAbsolute(relativeBackup)) {
-    throw new Error(`Import transaction backup path '${backupPath}' is outside the recovery directory or points at the recovery root.`);
+    throw new Error(
+      `Import transaction backup path '${backupPath}' is outside the recovery directory or points at the recovery root.`
+    );
   }
 }
 
-async function removeRollbackTarget(fs: ImportTransactionFileSystem, target: string): Promise<void> {
+async function removeRollbackTarget(
+  fs: ImportTransactionFileSystem,
+  target: string
+): Promise<void> {
   try {
     await fs.rm(target, { recursive: true, force: true });
   } catch (error) {
@@ -119,7 +128,9 @@ function parseOperation(raw: unknown, recoveryFile: string): ImportTransactionOp
     throw new Error(`Invalid import transaction recovery operation backupPath in ${recoveryFile}.`);
   }
   if (typeof targetExisted !== "boolean") {
-    throw new Error(`Invalid import transaction recovery operation targetExisted in ${recoveryFile}.`);
+    throw new Error(
+      `Invalid import transaction recovery operation targetExisted in ${recoveryFile}.`
+    );
   }
   if (
     phase !== "planned" &&
@@ -132,7 +143,9 @@ function parseOperation(raw: unknown, recoveryFile: string): ImportTransactionOp
     throw new Error(`Invalid import transaction recovery operation phase in ${recoveryFile}.`);
   }
   if (type === "remove" && !targetExisted) {
-    throw new Error(`Invalid import transaction remove operation without an original target in ${recoveryFile}.`);
+    throw new Error(
+      `Invalid import transaction remove operation without an original target in ${recoveryFile}.`
+    );
   }
   return {
     id,
@@ -185,14 +198,27 @@ async function readValidatedRecoveryFile(options: {
 }> {
   const workspaceRoot = resolve(options.workspaceRoot);
   assertValidImportTransactionId(options.transactionId);
-  const recoveryRoot = join(workspaceRoot, "desktop", "recovery", "package-import", options.transactionId);
+  const recoveryRoot = join(
+    workspaceRoot,
+    "desktop",
+    "recovery",
+    "package-import",
+    options.transactionId
+  );
   const recoveryFile = join(recoveryRoot, "recovery.json");
-  const recovery = parseRecoveryFile(await options.fs.readJsonFile<unknown>(recoveryFile), recoveryFile);
+  const recovery = parseRecoveryFile(
+    await options.fs.readJsonFile<unknown>(recoveryFile),
+    recoveryFile
+  );
   if (recovery.transactionId !== options.transactionId) {
-    throw new Error(`Import transaction recovery id mismatch: expected '${options.transactionId}', found '${recovery.transactionId}'.`);
+    throw new Error(
+      `Import transaction recovery id mismatch: expected '${options.transactionId}', found '${recovery.transactionId}'.`
+    );
   }
   if (recovery.workspaceRoot !== workspaceRoot) {
-    throw new Error(`Import transaction recovery workspace mismatch: expected '${workspaceRoot}', found '${recovery.workspaceRoot}'.`);
+    throw new Error(
+      `Import transaction recovery workspace mismatch: expected '${workspaceRoot}', found '${recovery.workspaceRoot}'.`
+    );
   }
   for (const operation of recovery.operations) {
     assertWorkspaceTarget(workspaceRoot, operation.target);
@@ -236,7 +262,13 @@ export class ImportTransaction {
   }) {
     this.workspaceRoot = resolve(options.workspaceRoot);
     this.transactionId = options.transactionId;
-    this.recoveryRoot = join(this.workspaceRoot, "desktop", "recovery", "package-import", this.transactionId);
+    this.recoveryRoot = join(
+      this.workspaceRoot,
+      "desktop",
+      "recovery",
+      "package-import",
+      this.transactionId
+    );
     this.createdAt = options.createdAt ?? new Date().toISOString();
     this.fs = options.fs;
   }
@@ -281,7 +313,11 @@ export class ImportTransaction {
 
   async replacePath(target: string, staged: string): Promise<void> {
     assertWorkspaceTarget(this.workspaceRoot, target);
-    const operation = this.nextOperation("replace", target, (await this.fs.optionalStat(target)) !== null);
+    const operation = this.nextOperation(
+      "replace",
+      target,
+      (await this.fs.optionalStat(target)) !== null
+    );
     this.operations.push(operation);
     await this.writeRecoveryFile();
     if (operation.targetExisted) {
@@ -335,7 +371,8 @@ export class ImportTransaction {
           continue;
         }
         const previousPhase = operation.phase;
-        operation.phase = previousPhase === "installed" ? "rollingBackFromInstalled" : "rollingBackFromBackedUp";
+        operation.phase =
+          previousPhase === "installed" ? "rollingBackFromInstalled" : "rollingBackFromBackedUp";
         try {
           await this.writeRecoveryFile();
         } catch (error) {
@@ -363,7 +400,11 @@ export class ImportTransaction {
     this.operations = [];
   }
 
-  private nextOperation(type: ImportTransactionOperation["type"], target: string, targetExisted: boolean): ImportTransactionOperation {
+  private nextOperation(
+    type: ImportTransactionOperation["type"],
+    target: string,
+    targetExisted: boolean
+  ): ImportTransactionOperation {
     const id = String(this.operations.length + 1).padStart(6, "0");
     return {
       id,
@@ -382,11 +423,15 @@ export class ImportTransaction {
     await this.restoreRollingBackOperation(operation);
   }
 
-  private isRollingBackPhase(phase: ImportTransactionOperationPhase): phase is "rollingBackFromInstalled" | "rollingBackFromBackedUp" {
+  private isRollingBackPhase(
+    phase: ImportTransactionOperationPhase
+  ): phase is "rollingBackFromInstalled" | "rollingBackFromBackedUp" {
     return phase === "rollingBackFromInstalled" || phase === "rollingBackFromBackedUp";
   }
 
-  private async assertPlannedOperationMatchesDisk(operation: ImportTransactionOperation): Promise<void> {
+  private async assertPlannedOperationMatchesDisk(
+    operation: ImportTransactionOperation
+  ): Promise<void> {
     const targetExists = (await this.fs.optionalStat(operation.target)) !== null;
     const backupExists = (await this.fs.optionalStat(operation.backupPath)) !== null;
     if (backupExists) {
@@ -412,7 +457,9 @@ export class ImportTransaction {
           throw new Error(`backup missing at ${operation.backupPath}`);
         }
         if (targetExists) {
-          throw new Error(`${operation.type} operation target unexpectedly exists while backup is present`);
+          throw new Error(
+            `${operation.type} operation target unexpectedly exists while backup is present`
+          );
         }
         return;
       case "installed":
@@ -452,7 +499,9 @@ export class ImportTransaction {
         await this.fs.rename(operation.backupPath, operation.target);
         return;
       }
-      throw new Error(`rollingBack operation cannot be resolved because target and backup are both missing at ${operation.target}`);
+      throw new Error(
+        `rollingBack operation cannot be resolved because target and backup are both missing at ${operation.target}`
+      );
     }
     if (!targetExists && !backupExists) {
       return;

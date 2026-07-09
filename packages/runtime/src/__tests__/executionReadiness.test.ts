@@ -61,8 +61,16 @@ describe("validateExecutionReadiness", () => {
     expect(result.ok).toBe(true);
     expect(result.diagnostics).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ code: "current_work_active", severity: "warning", suggestedTool: "get_status" }),
-        expect.objectContaining({ code: "open_feedback_pending", severity: "warning", suggestedTool: "get_status" })
+        expect.objectContaining({
+          code: "current_work_active",
+          severity: "warning",
+          suggestedTool: "get_status"
+        }),
+        expect.objectContaining({
+          code: "open_feedback_pending",
+          severity: "warning",
+          suggestedTool: "get_status"
+        })
       ])
     );
   });
@@ -84,7 +92,11 @@ describe("validateExecutionReadiness", () => {
     expect(result.ok).toBe(false);
     expect(result.nextClaimable).toEqual([]);
     expect(result.diagnostics).toContainEqual(
-      expect.objectContaining({ code: "no_ready_blocks", severity: "error", suggestedTool: "validate_project" })
+      expect.objectContaining({
+        code: "no_ready_blocks",
+        severity: "error",
+        suggestedTool: "validate_project"
+      })
     );
   });
 });

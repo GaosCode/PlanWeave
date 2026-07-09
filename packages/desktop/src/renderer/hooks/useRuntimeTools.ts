@@ -10,7 +10,8 @@ const unavailableRuntimeTools: DesktopRuntimeToolAvailability = {
 };
 
 export function useRuntimeTools() {
-  const [runtimeTools, setRuntimeTools] = useState<DesktopRuntimeToolAvailability>(unavailableRuntimeTools);
+  const [runtimeTools, setRuntimeTools] =
+    useState<DesktopRuntimeToolAvailability>(unavailableRuntimeTools);
 
   const refreshRuntimeTools = useCallback(async () => {
     if (!bridge) {

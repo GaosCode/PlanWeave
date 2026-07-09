@@ -53,7 +53,12 @@ export type PackageDraftFileDiff = {
 };
 
 export type PackageDraftImportEffect = {
-  type: "replace_package" | "reset_state" | "reset_results" | "write_project_graph" | "remove_canvas";
+  type:
+    | "replace_package"
+    | "reset_state"
+    | "reset_results"
+    | "write_project_graph"
+    | "remove_canvas";
   path: string;
 };
 
@@ -81,7 +86,10 @@ function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
 }
 
-function validationReport(errors: ValidationIssue[], warnings: ValidationIssue[] = []): ValidationReport {
+function validationReport(
+  errors: ValidationIssue[],
+  warnings: ValidationIssue[] = []
+): ValidationReport {
   return {
     ok: errors.length === 0,
     errors,
@@ -131,7 +139,11 @@ function draftWorkspace(draftRoot: string, packageDir: string): ProjectWorkspace
 function deriveCanvasId(packageDir: string): string | null {
   const parts = packageDir.split(sep);
   const packageIndex = parts.length - 1;
-  if (parts[packageIndex] !== "package" || packageIndex < 2 || parts[packageIndex - 2] !== "canvases") {
+  if (
+    parts[packageIndex] !== "package" ||
+    packageIndex < 2 ||
+    parts[packageIndex - 2] !== "canvases"
+  ) {
     return null;
   }
   return parts[packageIndex - 1] ?? null;
@@ -187,14 +199,22 @@ function addEntries(target: Map<string, string>, entries: Map<string, string>): 
   }
 }
 
-async function addOptionalFile(target: Map<string, string>, path: string, absolutePath: string): Promise<void> {
+async function addOptionalFile(
+  target: Map<string, string>,
+  path: string,
+  absolutePath: string
+): Promise<void> {
   const content = await optionalReadFile(absolutePath, "utf8");
   if (content !== null) {
     target.set(path, content);
   }
 }
 
-async function addRemovalOnlyFiles(target: Map<string, string>, root: string, prefix: string): Promise<void> {
+async function addRemovalOnlyFiles(
+  target: Map<string, string>,
+  root: string,
+  prefix: string
+): Promise<void> {
   for (const path of await readFilePathSet(root, prefix)) {
     target.set(path, "");
   }
@@ -207,17 +227,34 @@ function mergeReports(reports: ValidationReport[]): ValidationReport {
   );
 }
 
-async function validateCanvasWorkspace(canvasId: string | null, workspace: ProjectWorkspace): Promise<PackageDraftCanvasReport> {
+async function validateCanvasWorkspace(
+  canvasId: string | null,
+  workspace: ProjectWorkspace
+): Promise<PackageDraftCanvasReport> {
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
   let manifest: PlanPackageManifest | null = null;
   try {
-    manifest = manifestSchema.parse(await readJsonFile<unknown>(workspace.manifestFile)) as PlanPackageManifest;
+    manifest = manifestSchema.parse(
+      await readJsonFile<unknown>(workspace.manifestFile)
+    ) as PlanPackageManifest;
   } catch (error) {
     if (error instanceof ZodError) {
-      errors.push(...zodIssues(error, "manifest_schema", canvasId ? `${canvasId}/manifest.json` : "manifest.json"));
+      errors.push(
+        ...zodIssues(
+          error,
+          "manifest_schema",
+          canvasId ? `${canvasId}/manifest.json` : "manifest.json"
+        )
+      );
     } else {
-      errors.push(issue("manifest_read_failed", error instanceof Error ? error.message : String(error), canvasId ? `${canvasId}/manifest.json` : "manifest.json"));
+      errors.push(
+        issue(
+          "manifest_read_failed",
+          error instanceof Error ? error.message : String(error),
+          canvasId ? `${canvasId}/manifest.json` : "manifest.json"
+        )
+      );
     }
   }
 
@@ -234,7 +271,9 @@ async function validateCanvasWorkspace(canvasId: string | null, workspace: Proje
     packageDir: workspace.packageDir,
     validation: validationReport(errors, warnings),
     graphQuality,
-    fileCount: (await optionalStat(workspace.packageDir)) ? await countFiles(workspace.packageDir) : 0
+    fileCount: (await optionalStat(workspace.packageDir))
+      ? await countFiles(workspace.packageDir)
+      : 0
   };
 }
 
@@ -243,10 +282,14 @@ async function loadDraftProjectGraph(draftRoot: string): Promise<ProjectGraphMan
   if (!(await optionalStat(path))) {
     return null;
   }
-  return projectGraphManifestSchema.parse(await readJsonFile<unknown>(path)) as ProjectGraphManifest;
+  return projectGraphManifestSchema.parse(
+    await readJsonFile<unknown>(path)
+  ) as ProjectGraphManifest;
 }
 
-export async function validatePackageDraft(options: { draftRoot: string }): Promise<PackageDraftValidationResult> {
+export async function validatePackageDraft(options: {
+  draftRoot: string;
+}): Promise<PackageDraftValidationResult> {
   const draftRoot = resolve(options.draftRoot);
   const rootErrors: ValidationIssue[] = [];
   const rootWarnings: ValidationIssue[] = [];
@@ -254,7 +297,9 @@ export async function validatePackageDraft(options: { draftRoot: string }): Prom
   let mode: PackageDraftMode | null = null;
 
   if (!(await optionalStat(draftRoot))) {
-    const validation = validationReport([issue("draft_root_missing", "Package draft root does not exist.", ".")]);
+    const validation = validationReport([
+      issue("draft_root_missing", "Package draft root does not exist.", ".")
+    ]);
     return { ok: false, draftRoot, mode: null, validation, canvases };
   }
 
@@ -279,18 +324,32 @@ export async function validatePackageDraft(options: { draftRoot: string }): Prom
       mode = "single-canvas";
       canvases.push(await validateCanvasWorkspace(null, draftWorkspace(draftRoot, draftRoot)));
     } else {
-      rootErrors.push(issue("draft_root_invalid", "Package draft root must contain manifest.json or project-graph.json.", "."));
+      rootErrors.push(
+        issue(
+          "draft_root_invalid",
+          "Package draft root must contain manifest.json or project-graph.json.",
+          "."
+        )
+      );
     }
   } catch (error) {
     if (error instanceof ZodError) {
       rootErrors.push(...zodIssues(error, "project_graph_schema", "project-graph.json"));
     } else {
-      rootErrors.push(issue("draft_read_failed", error instanceof Error ? error.message : String(error), "."));
+      rootErrors.push(
+        issue("draft_read_failed", error instanceof Error ? error.message : String(error), ".")
+      );
     }
   }
 
-  const validation = mergeReports([validationReport(rootErrors, rootWarnings), ...canvases.map((canvas) => canvas.validation)]);
-  const qualityErrorCount = canvases.reduce((count, canvas) => count + (canvas.graphQuality?.summary.errorCount ?? 0), 0);
+  const validation = mergeReports([
+    validationReport(rootErrors, rootWarnings),
+    ...canvases.map((canvas) => canvas.validation)
+  ]);
+  const qualityErrorCount = canvases.reduce(
+    (count, canvas) => count + (canvas.graphQuality?.summary.errorCount ?? 0),
+    0
+  );
   return {
     ok: validation.ok && qualityErrorCount === 0,
     draftRoot,
@@ -300,8 +359,13 @@ export async function validatePackageDraft(options: { draftRoot: string }): Prom
   };
 }
 
-function compareFileMaps(draft: Map<string, string>, target: Map<string, string>): PackageDraftFileDiff[] {
-  const paths = [...new Set([...draft.keys(), ...target.keys()])].sort((left, right) => left.localeCompare(right));
+function compareFileMaps(
+  draft: Map<string, string>,
+  target: Map<string, string>
+): PackageDraftFileDiff[] {
+  const paths = [...new Set([...draft.keys(), ...target.keys()])].sort((left, right) =>
+    left.localeCompare(right)
+  );
   return paths.map((path) => {
     if (!draft.has(path)) {
       return { path, type: "removed" };
@@ -322,7 +386,11 @@ type PackageDraftImportPlan = {
   removedCanvases: ProjectCanvasNode[];
 };
 
-async function singleCanvasImportPlan(projectRoot: string, draftRoot: string, canvasId?: string | null): Promise<PackageDraftImportPlan> {
+async function singleCanvasImportPlan(
+  projectRoot: string,
+  draftRoot: string,
+  canvasId?: string | null
+): Promise<PackageDraftImportPlan> {
   const projectWorkspace = await requireInitializedProjectWorkspace(projectRoot);
   const { resolveTaskCanvasWorkspace } = await import("../desktop/canvasApi.js");
   const canvasWorkspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
@@ -347,7 +415,10 @@ async function singleCanvasImportPlan(projectRoot: string, draftRoot: string, ca
   };
 }
 
-async function projectImportPlan(projectRoot: string, draftRoot: string): Promise<PackageDraftImportPlan> {
+async function projectImportPlan(
+  projectRoot: string,
+  draftRoot: string
+): Promise<PackageDraftImportPlan> {
   const projectWorkspace = await requireInitializedProjectWorkspace(projectRoot);
   const projectGraph = await loadDraftProjectGraph(draftRoot);
   if (!projectGraph) {
@@ -355,8 +426,13 @@ async function projectImportPlan(projectRoot: string, draftRoot: string): Promis
   }
   const sourceFiles = new Map<string, string>();
   const targetFiles = new Map<string, string>();
-  const effects: PackageDraftImportEffect[] = [{ type: "write_project_graph", path: "project-graph.json" }];
-  sourceFiles.set("project-graph.json", await readFile(join(draftRoot, "project-graph.json"), "utf8"));
+  const effects: PackageDraftImportEffect[] = [
+    { type: "write_project_graph", path: "project-graph.json" }
+  ];
+  sourceFiles.set(
+    "project-graph.json",
+    await readFile(join(draftRoot, "project-graph.json"), "utf8")
+  );
   await addOptionalFile(targetFiles, "project-graph.json", projectGraphPath(projectWorkspace));
 
   for (const canvas of projectGraph.canvases) {
@@ -367,10 +443,21 @@ async function projectImportPlan(projectRoot: string, draftRoot: string): Promis
     const targetWorkspace = projectCanvasWorkspace(projectWorkspace, canvas);
     const packagePrefix = workspacePath(projectWorkspace, targetWorkspace.packageDir);
     addEntries(sourceFiles, await readFileMap(sourcePackageDir, packagePrefix));
-    sourceFiles.set(workspacePath(projectWorkspace, targetWorkspace.stateFile), emptyStateContent());
+    sourceFiles.set(
+      workspacePath(projectWorkspace, targetWorkspace.stateFile),
+      emptyStateContent()
+    );
     addEntries(targetFiles, await readFileMap(targetWorkspace.packageDir, packagePrefix));
-    await addOptionalFile(targetFiles, workspacePath(projectWorkspace, targetWorkspace.stateFile), targetWorkspace.stateFile);
-    await addRemovalOnlyFiles(targetFiles, targetWorkspace.resultsDir, workspacePath(projectWorkspace, targetWorkspace.resultsDir));
+    await addOptionalFile(
+      targetFiles,
+      workspacePath(projectWorkspace, targetWorkspace.stateFile),
+      targetWorkspace.stateFile
+    );
+    await addRemovalOnlyFiles(
+      targetFiles,
+      targetWorkspace.resultsDir,
+      workspacePath(projectWorkspace, targetWorkspace.resultsDir)
+    );
     effects.push(
       { type: "replace_package", path: packagePrefix },
       { type: "reset_state", path: workspacePath(projectWorkspace, targetWorkspace.stateFile) },
@@ -380,12 +467,26 @@ async function projectImportPlan(projectRoot: string, draftRoot: string): Promis
 
   const currentProjectGraph = await loadProjectGraph(projectRoot);
   const nextCanvasIds = new Set(projectGraph.canvases.map((canvas) => canvas.id));
-  const removedCanvases = currentProjectGraph.manifest.canvases.filter((canvas) => !nextCanvasIds.has(canvas.id));
+  const removedCanvases = currentProjectGraph.manifest.canvases.filter(
+    (canvas) => !nextCanvasIds.has(canvas.id)
+  );
   for (const canvas of removedCanvases) {
     const targetWorkspace = projectCanvasWorkspace(projectWorkspace, canvas);
-    await addRemovalOnlyFiles(targetFiles, targetWorkspace.packageDir, workspacePath(projectWorkspace, targetWorkspace.packageDir));
-    await addOptionalFile(targetFiles, workspacePath(projectWorkspace, targetWorkspace.stateFile), targetWorkspace.stateFile);
-    await addRemovalOnlyFiles(targetFiles, targetWorkspace.resultsDir, workspacePath(projectWorkspace, targetWorkspace.resultsDir));
+    await addRemovalOnlyFiles(
+      targetFiles,
+      targetWorkspace.packageDir,
+      workspacePath(projectWorkspace, targetWorkspace.packageDir)
+    );
+    await addOptionalFile(
+      targetFiles,
+      workspacePath(projectWorkspace, targetWorkspace.stateFile),
+      targetWorkspace.stateFile
+    );
+    await addRemovalOnlyFiles(
+      targetFiles,
+      targetWorkspace.resultsDir,
+      workspacePath(projectWorkspace, targetWorkspace.resultsDir)
+    );
     effects.push({ type: "remove_canvas", path: canvas.id });
   }
 
@@ -399,7 +500,11 @@ async function projectImportPlan(projectRoot: string, draftRoot: string): Promis
   };
 }
 
-async function importPlan(result: PackageDraftValidationResult, projectRoot: string, canvasId?: string | null): Promise<PackageDraftImportPlan | null> {
+async function importPlan(
+  result: PackageDraftValidationResult,
+  projectRoot: string,
+  canvasId?: string | null
+): Promise<PackageDraftImportPlan | null> {
   if (result.mode === "single-canvas") {
     return singleCanvasImportPlan(projectRoot, result.draftRoot, canvasId);
   }
@@ -440,11 +545,16 @@ function errorSummary(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function rollbackApplyFailure(transaction: ImportTransaction, importError: unknown): Promise<never> {
+async function rollbackApplyFailure(
+  transaction: ImportTransaction,
+  importError: unknown
+): Promise<never> {
   try {
     await transaction.rollback();
   } catch (rollbackError) {
-    throw new Error(`Package draft import apply failed: ${errorSummary(importError)}; rollback failed: ${errorSummary(rollbackError)}`);
+    throw new Error(
+      `Package draft import apply failed: ${errorSummary(importError)}; rollback failed: ${errorSummary(rollbackError)}`
+    );
   }
   throw new Error(`Package draft import apply failed: ${errorSummary(importError)}`);
 }
@@ -457,7 +567,11 @@ async function commitImportTransaction(transaction: ImportTransaction): Promise<
   }
 }
 
-async function applySingleCanvasDraft(options: { draftRoot: string; projectRoot: string; canvasId?: string | null }): Promise<void> {
+async function applySingleCanvasDraft(options: {
+  draftRoot: string;
+  projectRoot: string;
+  canvasId?: string | null;
+}): Promise<void> {
   const { resolveTaskCanvasWorkspace } = await import("../desktop/canvasApi.js");
   const projectWorkspace = await requireInitializedProjectWorkspace(options.projectRoot);
   const workspace = await resolveTaskCanvasWorkspace(options.projectRoot, options.canvasId);
@@ -465,7 +579,9 @@ async function applySingleCanvasDraft(options: { draftRoot: string; projectRoot:
   const stagedPackage = join(tempRoot, "package");
   const stagedState = join(tempRoot, "state.json");
   const stagedResults = join(tempRoot, "results");
-  const transaction = await ImportTransaction.create({ workspaceRoot: projectWorkspace.workspaceRoot });
+  const transaction = await ImportTransaction.create({
+    workspaceRoot: projectWorkspace.workspaceRoot
+  });
   try {
     await cp(resolve(options.draftRoot), stagedPackage, { recursive: true });
     await writeJsonFile(stagedState, createEmptyState());
@@ -486,7 +602,10 @@ async function writeTextFile(path: string, content: string): Promise<void> {
   await writeFile(path, content, "utf8");
 }
 
-async function applyProjectDraft(options: { draftRoot: string; projectRoot: string }): Promise<void> {
+async function applyProjectDraft(options: {
+  draftRoot: string;
+  projectRoot: string;
+}): Promise<void> {
   const plan = await projectImportPlan(options.projectRoot, resolve(options.draftRoot));
   const projectWorkspace = plan.projectWorkspace;
   const projectGraph = await loadDraftProjectGraph(resolve(options.draftRoot));
@@ -495,9 +614,14 @@ async function applyProjectDraft(options: { draftRoot: string; projectRoot: stri
   }
   const tempRoot = await mkdtemp(join(tmpdir(), "planweave-project-import-"));
   const stagedGraph = join(tempRoot, "project-graph.json");
-  const transaction = await ImportTransaction.create({ workspaceRoot: projectWorkspace.workspaceRoot });
+  const transaction = await ImportTransaction.create({
+    workspaceRoot: projectWorkspace.workspaceRoot
+  });
   try {
-    await writeTextFile(stagedGraph, await readFile(join(resolve(options.draftRoot), "project-graph.json"), "utf8"));
+    await writeTextFile(
+      stagedGraph,
+      await readFile(join(resolve(options.draftRoot), "project-graph.json"), "utf8")
+    );
     await transaction.replacePath(projectGraphPath(projectWorkspace), stagedGraph);
     for (const canvas of plan.removedCanvases) {
       const targetWorkspace = projectCanvasWorkspace(projectWorkspace, canvas);

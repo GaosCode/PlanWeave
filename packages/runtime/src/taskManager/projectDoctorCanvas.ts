@@ -6,7 +6,13 @@ import { readJsonFile } from "../json.js";
 import { findOrphanState } from "../package/orphans.js";
 import { manifestSchema } from "../schema/manifest.js";
 import { readState } from "../state.js";
-import type { DoctorIssue, PlanPackageManifest, ProjectDoctorIssue, ProjectWorkspace, ValidationIssue } from "../types.js";
+import type {
+  DoctorIssue,
+  PlanPackageManifest,
+  ProjectDoctorIssue,
+  ProjectWorkspace,
+  ValidationIssue
+} from "../types.js";
 import { validateDesktopLayout } from "../validation/desktopLayoutValidation.js";
 
 export type ProjectDoctorCanvasDiagnostics = {
@@ -23,7 +29,11 @@ function workspaceRelative(workspace: ProjectWorkspace, path: string): string {
   return toPosixPath(relative(workspace.workspaceRoot, path)) || ".";
 }
 
-function canvasIssuePath(workspace: ProjectWorkspace, manifest: PlanPackageManifest | null, path?: string): string | undefined {
+function canvasIssuePath(
+  workspace: ProjectWorkspace,
+  manifest: PlanPackageManifest | null,
+  path?: string
+): string | undefined {
   if (!path) {
     return undefined;
   }
@@ -59,7 +69,11 @@ function canvasValidationDoctorIssue(
   };
 }
 
-function canvasDoctorIssuePath(workspace: ProjectWorkspace, manifest: PlanPackageManifest | null, issue: DoctorIssue): string | undefined {
+function canvasDoctorIssuePath(
+  workspace: ProjectWorkspace,
+  manifest: PlanPackageManifest | null,
+  issue: DoctorIssue
+): string | undefined {
   if (issue.path) {
     return canvasIssuePath(workspace, manifest, issue.path);
   }
@@ -99,7 +113,11 @@ export function canvasDoctorIssue(
   };
 }
 
-export function canvasWorkspaceIssue(canvasId: string, path: string, error: unknown): ProjectDoctorIssue {
+export function canvasWorkspaceIssue(
+  canvasId: string,
+  path: string,
+  error: unknown
+): ProjectDoctorIssue {
   return {
     code: "canvas_workspace_invalid",
     message: error instanceof Error ? error.message : String(error),
@@ -119,7 +137,13 @@ export async function validateCanvasPackageForDoctor(options: {
 
   try {
     if (!(await optionalStat(workspace.workspaceRoot))) {
-      errors.push({ code: "workspace_missing", message: "PlanWeave workspace does not exist.", canvasId, path: ".", source: "canvas_package" });
+      errors.push({
+        code: "workspace_missing",
+        message: "PlanWeave workspace does not exist.",
+        canvasId,
+        path: ".",
+        source: "canvas_package"
+      });
       return { errors, warnings, manifest: null };
     }
   } catch (error) {
@@ -134,7 +158,13 @@ export async function validateCanvasPackageForDoctor(options: {
   }
   try {
     if (!(await optionalStat(workspace.manifestFile))) {
-      errors.push({ code: "manifest_missing", message: "package/manifest.json does not exist.", canvasId, path: "package/manifest.json", source: "canvas_package" });
+      errors.push({
+        code: "manifest_missing",
+        message: "package/manifest.json does not exist.",
+        canvasId,
+        path: "package/manifest.json",
+        source: "canvas_package"
+      });
       return { errors, warnings, manifest: null };
     }
   } catch (error) {
@@ -158,22 +188,47 @@ export async function validateCanvasPackageForDoctor(options: {
           code: "manifest_schema",
           message: zodIssue.message,
           canvasId,
-          path: zodIssue.path.length > 0 ? `package/manifest.json:${zodIssue.path.join(".")}` : "package/manifest.json",
+          path:
+            zodIssue.path.length > 0
+              ? `package/manifest.json:${zodIssue.path.join(".")}`
+              : "package/manifest.json",
           source: "canvas_package"
         });
       }
     } else {
-      errors.push({ code: "manifest_read_failed", message: error instanceof Error ? error.message : String(error), canvasId, path: "package/manifest.json", source: "canvas_package" });
+      errors.push({
+        code: "manifest_read_failed",
+        message: error instanceof Error ? error.message : String(error),
+        canvasId,
+        path: "package/manifest.json",
+        source: "canvas_package"
+      });
     }
     return { errors, warnings, manifest: null };
   }
 
   const graph = await compilePackageGraph(manifest, workspace.packageDir);
-  errors.push(...graph.diagnostics.errors.map((item) => canvasValidationDoctorIssue(canvasId, workspace, manifest, item)));
-  warnings.push(...graph.diagnostics.warnings.map((item) => canvasValidationDoctorIssue(canvasId, workspace, manifest, item)));
+  errors.push(
+    ...graph.diagnostics.errors.map((item) =>
+      canvasValidationDoctorIssue(canvasId, workspace, manifest, item)
+    )
+  );
+  warnings.push(
+    ...graph.diagnostics.warnings.map((item) =>
+      canvasValidationDoctorIssue(canvasId, workspace, manifest, item)
+    )
+  );
   const layoutReport = await validateDesktopLayout(workspace, manifest);
-  errors.push(...layoutReport.errors.map((item) => canvasValidationDoctorIssue(canvasId, workspace, manifest, item)));
-  warnings.push(...layoutReport.warnings.map((item) => canvasValidationDoctorIssue(canvasId, workspace, manifest, item)));
+  errors.push(
+    ...layoutReport.errors.map((item) =>
+      canvasValidationDoctorIssue(canvasId, workspace, manifest, item)
+    )
+  );
+  warnings.push(
+    ...layoutReport.warnings.map((item) =>
+      canvasValidationDoctorIssue(canvasId, workspace, manifest, item)
+    )
+  );
 
   try {
     const rawState = await readState(workspace.stateFile);

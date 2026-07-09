@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
-import type { DesktopAutoRunState, DesktopBlockDetail, DesktopProjectSummary, DesktopRunRecord, ValidationIssue } from "@planweave-ai/runtime";
+import type {
+  DesktopAutoRunState,
+  DesktopBlockDetail,
+  DesktopProjectSummary,
+  DesktopRunRecord,
+  ValidationIssue
+} from "@planweave-ai/runtime";
 import { bridge, desktopCanvasReference } from "../bridge";
 import type { Language } from "../i18n";
 import type { AppView } from "../types";
@@ -37,7 +43,10 @@ export function useDesktopProjectSession({
   const [autoRunState, setAutoRunState] = useState<DesktopAutoRunState | null>(null);
   const [autoRunDiagnostics, setAutoRunDiagnostics] = useState<ValidationIssue[]>([]);
   const initialSelectionEffectSkipped = useRef(false);
-  const [taskFocusRequest, setTaskFocusRequest] = useState<{ taskId: string; version: number } | null>(null);
+  const [taskFocusRequest, setTaskFocusRequest] = useState<{
+    taskId: string;
+    version: number;
+  } | null>(null);
   const [selectedTaskPanelId, setSelectedTaskPanelId] = useState<string | null>(null);
 
   const clearTaskPanelSelection = useCallback(() => {
@@ -51,32 +60,54 @@ export function useDesktopProjectSession({
     setSelectedRunRecord(null);
     setBlockInspectorOpen(false);
     clearSelectedBlockRecords();
-  }, [clearSelectedBlockRecords, clearTaskPanelSelection, setBlockInspectorOpen, setSelectedBlock, setSelectedRunRecord]);
+  }, [
+    clearSelectedBlockRecords,
+    clearTaskPanelSelection,
+    setBlockInspectorOpen,
+    setSelectedBlock,
+    setSelectedRunRecord
+  ]);
 
-  const setAutoRunStateFromControl = useCallback((nextState: SetStateAction<DesktopAutoRunState | null>) => {
-    setAutoRunState(nextState);
-    setAutoRunDiagnostics(clearDiagnostics);
-  }, []);
+  const setAutoRunStateFromControl = useCallback(
+    (nextState: SetStateAction<DesktopAutoRunState | null>) => {
+      setAutoRunState(nextState);
+      setAutoRunDiagnostics(clearDiagnostics);
+    },
+    []
+  );
 
   const refreshLatestAutoRunSummary = useCallback(
-    async (projectRoot = projectState.selectedProject?.rootPath, canvasId = projectState.selectedCanvasId) => {
+    async (
+      projectRoot = projectState.selectedProject?.rootPath,
+      canvasId = projectState.selectedCanvasId
+    ) => {
       if (!bridge || !projectRoot) {
         setAutoRunState(null);
         setAutoRunDiagnostics(clearDiagnostics);
         return null;
       }
-      const summary = await bridge.getLatestAutoRunSummaryWithDiagnostics({ projectRoot, canvasId });
+      const summary = await bridge.getLatestAutoRunSummaryWithDiagnostics({
+        projectRoot,
+        canvasId
+      });
       setAutoRunState(summary.state);
       setAutoRunDiagnostics(summary.diagnostics);
       return summary.state;
     },
-    [projectState.selectedCanvasId, projectState.selectedProject?.rootPath, setAutoRunState, setAutoRunDiagnostics]
+    [
+      projectState.selectedCanvasId,
+      projectState.selectedProject?.rootPath,
+      setAutoRunState,
+      setAutoRunDiagnostics
+    ]
   );
 
   const selectTaskPanel = useCallback(
     (taskId: string | null) => {
       setSelectedTaskPanelId(taskId);
-      setTaskFocusRequest((current) => (taskId ? { taskId, version: (current?.version ?? 0) + 1 } : null));
+      setTaskFocusRequest((current) =>
+        taskId ? { taskId, version: (current?.version ?? 0) + 1 } : null
+      );
       setActiveView("graph");
     },
     [setActiveView]
@@ -84,7 +115,8 @@ export function useDesktopProjectSession({
 
   const openTaskInspector = useCallback(
     async (taskId: string, canvasIdOverride?: string | null) => {
-      const canvasId = canvasIdOverride === undefined ? projectState.selectedCanvasId : canvasIdOverride;
+      const canvasId =
+        canvasIdOverride === undefined ? projectState.selectedCanvasId : canvasIdOverride;
       try {
         selectTaskPanel(taskId);
         if (!bridge || !projectState.selectedProject) {
@@ -99,12 +131,19 @@ export function useDesktopProjectSession({
         setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [language, projectState.selectedCanvasId, projectState.selectedProject, selectTaskPanel, setError]
+    [
+      language,
+      projectState.selectedCanvasId,
+      projectState.selectedProject,
+      selectTaskPanel,
+      setError
+    ]
   );
 
   const openBlockInspector = useCallback(
     async (ref: string, canvasIdOverride?: string | null) => {
-      const canvasId = canvasIdOverride === undefined ? projectState.selectedCanvasId : canvasIdOverride;
+      const canvasId =
+        canvasIdOverride === undefined ? projectState.selectedCanvasId : canvasIdOverride;
       try {
         const block = await selectBlock(ref, canvasId);
         if (block) {
@@ -122,13 +161,29 @@ export function useDesktopProjectSession({
         setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [language, projectState.selectedCanvasId, projectState.selectedProject, selectBlock, selectTaskPanel, setError]
+    [
+      language,
+      projectState.selectedCanvasId,
+      projectState.selectedProject,
+      selectBlock,
+      selectTaskPanel,
+      setError
+    ]
   );
 
   const openProject = useCallback(
-    async (project: DesktopProjectSummary, canvasId?: string | null, options: { recordCanvasSelection?: boolean } = {}) => {
+    async (
+      project: DesktopProjectSummary,
+      canvasId?: string | null,
+      options: { recordCanvasSelection?: boolean } = {}
+    ) => {
       const nextCanvasId = resolveProjectCanvasId(project, canvasId);
-      if (bridge && canvasId !== undefined && nextCanvasId && options.recordCanvasSelection !== false) {
+      if (
+        bridge &&
+        canvasId !== undefined &&
+        nextCanvasId &&
+        options.recordCanvasSelection !== false
+      ) {
         await bridge.selectTaskCanvas(project.rootPath, nextCanvasId);
       }
       clearSelectionForCanvasChange();
@@ -204,13 +259,21 @@ export function useDesktopProjectSession({
         return null;
       }
       const canvas = await bridge.renameTaskCanvas(project.rootPath, canvasId, name);
-      const refreshed = await projectState.refreshProjectSummary(project.rootPath, projectState.selectedCanvasId);
+      const refreshed = await projectState.refreshProjectSummary(
+        project.rootPath,
+        projectState.selectedCanvasId
+      );
       if (projectState.selectedProject?.projectId === project.projectId && refreshed) {
         await openProject(refreshed, projectState.selectedCanvasId);
       }
       return canvas;
     },
-    [openProject, projectState.refreshProjectSummary, projectState.selectedCanvasId, projectState.selectedProject?.projectId]
+    [
+      openProject,
+      projectState.refreshProjectSummary,
+      projectState.selectedCanvasId,
+      projectState.selectedProject?.projectId
+    ]
   );
 
   useEffect(() => {
@@ -219,7 +282,11 @@ export function useDesktopProjectSession({
       return;
     }
     clearSelectionForCanvasChange();
-  }, [clearSelectionForCanvasChange, projectState.selectedCanvasId, projectState.selectedProject?.projectId]);
+  }, [
+    clearSelectionForCanvasChange,
+    projectState.selectedCanvasId,
+    projectState.selectedProject?.projectId
+  ]);
 
   useEffect(() => {
     void refreshLatestAutoRunSummary();

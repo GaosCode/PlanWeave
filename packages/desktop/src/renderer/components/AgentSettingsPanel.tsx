@@ -52,8 +52,16 @@ export function AgentSettingsPanel({
     <div className="overflow-hidden rounded-lg border bg-background">
       <div className="flex items-center justify-between gap-4 border-b px-5 py-4">
         <div className="text-sm text-muted-foreground">{labels.agentInstallStatus}</div>
-        <Button disabled={agentDetectionRefreshing} size="sm" variant="outline" onClick={() => void refreshAgentDetections()}>
-          <RefreshCwIcon className={cn("size-4", agentDetectionRefreshing ? "animate-spin" : "")} data-icon="inline-start" />
+        <Button
+          disabled={agentDetectionRefreshing}
+          size="sm"
+          variant="outline"
+          onClick={() => void refreshAgentDetections()}
+        >
+          <RefreshCwIcon
+            className={cn("size-4", agentDetectionRefreshing ? "animate-spin" : "")}
+            data-icon="inline-start"
+          />
           {agentDetectionRefreshing ? labels.agentRefreshing : labels.agentRefresh}
         </Button>
       </div>
@@ -63,7 +71,10 @@ export function AgentSettingsPanel({
         const fullAccessCommand = `${agent.command} ${agent.fullAccessArgs.join(" ")}`;
         const expanded = expandedAgent === agent.kind;
         return (
-          <div key={agent.kind} className={cn("border-b last:border-b-0", !agent.installed ? "opacity-50" : "")}>
+          <div
+            key={agent.kind}
+            className={cn("border-b last:border-b-0", !agent.installed ? "opacity-50" : "")}
+          >
             <div className="flex min-h-24 items-start justify-between gap-4 px-5 py-5">
               <div className="min-w-0">
                 <div className="font-semibold">{agent.name}</div>
@@ -83,7 +94,9 @@ export function AgentSettingsPanel({
                   variant="ghost"
                   onClick={() => setExpandedAgent(expanded ? null : agent.kind)}
                 >
-                  <ChevronDownIcon className={cn("size-4 transition-transform", expanded ? "rotate-180" : "")} />
+                  <ChevronDownIcon
+                    className={cn("size-4 transition-transform", expanded ? "rotate-180" : "")}
+                  />
                 </Button>
                 <Switch
                   aria-label={agent.name}
@@ -105,7 +118,9 @@ export function AgentSettingsPanel({
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <div className="text-sm font-medium">{labels.agentFullAccess}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{labels.agentFullAccessDescription.replace("{command}", fullAccessCommand)}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {labels.agentFullAccessDescription.replace("{command}", fullAccessCommand)}
+                    </div>
                   </div>
                   <Switch
                     aria-label={labels.agentFullAccess}

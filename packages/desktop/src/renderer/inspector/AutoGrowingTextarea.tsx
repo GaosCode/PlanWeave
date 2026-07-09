@@ -3,7 +3,12 @@ import type { ComponentProps } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-export function AutoGrowingTextarea({ className, style, value, ...props }: ComponentProps<typeof Textarea> & { value: string }) {
+export function AutoGrowingTextarea({
+  className,
+  style,
+  value,
+  ...props
+}: ComponentProps<typeof Textarea> & { value: string }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const resizeTextarea = useCallback(() => {
     const textarea = textareaRef.current;
@@ -40,5 +45,13 @@ export function AutoGrowingTextarea({ className, style, value, ...props }: Compo
     };
   }, [resizeTextarea]);
 
-  return <Textarea ref={textareaRef} className={cn("overflow-hidden [field-sizing:fixed]", className)} style={{ ...style, fieldSizing: "fixed" }} value={value} {...props} />;
+  return (
+    <Textarea
+      ref={textareaRef}
+      className={cn("overflow-hidden [field-sizing:fixed]", className)}
+      style={{ ...style, fieldSizing: "fixed" }}
+      value={value}
+      {...props}
+    />
+  );
 }

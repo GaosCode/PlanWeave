@@ -20,9 +20,13 @@ describe("desktop renderer workflow guardrails", () => {
     expect(smokeSource).toContain('await clickByTestId("sidebar-statistics")');
     expect(smokeSource).toContain('await clickByTestId("sidebar-search")');
     expect(smokeSource).toContain('await clickByTestId("sidebar-settings")');
-    expect(smokeSource).toContain('await waitForSelector("[data-auto-run-control]", "Floating Auto Run control")');
+    expect(smokeSource).toContain(
+      'await waitForSelector("[data-auto-run-control]", "Floating Auto Run control")'
+    );
     expect(smokeSource).toContain('await clickByTestId("auto-run-trigger")');
-    expect(smokeSource).toContain('await waitForSelector(\'[data-testid="auto-run-mini-panel"]\', "mini Auto Run panel")');
+    expect(smokeSource).toContain(
+      'await waitForSelector(\'[data-testid="auto-run-mini-panel"]\', "mini Auto Run panel")'
+    );
     expect(smokeSource).toContain('await clickByTestId("auto-run-open-record")');
     expect(smokeSource).toContain('recordActionPath.endsWith("metadata.json")');
     expect(smokeSource).toContain("recordRunId !== statusRunId");
@@ -40,6 +44,8 @@ describe("desktop renderer workflow guardrails", () => {
     expect(smokeSource).not.toContain("planweave:rendererSmoke");
     expect(mainSource).toContain("app.isPackaged && !isDev && !isSmokeRun");
     expect(mainSource).toContain("delete process.env.PLANWEAVE_HOME");
-    expect(mainSource).toContain('app.setPath("userData", process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR)');
+    expect(mainSource).toContain(
+      'app.setPath("userData", process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR)'
+    );
   });
 });

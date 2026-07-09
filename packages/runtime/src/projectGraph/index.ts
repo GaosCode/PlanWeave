@@ -7,11 +7,25 @@ export {
   detectDefaultCanvasWorkspaceMigration,
   legacyDefaultCanvasWorkspacePaths
 } from "./defaultCanvasWorkspaceMigration.js";
-export { parseProjectTaskRefKey, projectCanvasEdgeKey, projectCrossTaskEdgeKey, projectTaskRefKey } from "./projectGraphKeys.js";
-export { loadProjectGraph, loadProjectGraphForWorkspace, projectGraphPath, writeProjectGraph } from "./loadProjectGraph.js";
+export {
+  parseProjectTaskRefKey,
+  projectCanvasEdgeKey,
+  projectCrossTaskEdgeKey,
+  projectTaskRefKey
+} from "./projectGraphKeys.js";
+export {
+  loadProjectGraph,
+  loadProjectGraphForWorkspace,
+  projectGraphPath,
+  writeProjectGraph
+} from "./loadProjectGraph.js";
 export { materializeProjectGraph } from "./materializeProjectGraph.js";
 export { defaultCanvasProjectGraph, projectGraphFromLegacyRegistry } from "./migration.js";
-export { projectGraphManifestSchema, projectGraphManifestSchemaTopLevelFields, projectGraphManifestSchema as projectGraphSchema } from "./schema.js";
+export {
+  projectGraphManifestSchema,
+  projectGraphManifestSchemaTopLevelFields,
+  projectGraphManifestSchema as projectGraphSchema
+} from "./schema.js";
 export { projectCanvasWorkspace, resolveProjectCanvasWorkspace } from "./projectGraphWorkspace.js";
 export {
   projectGraphEdgeTypes,
@@ -21,7 +35,10 @@ export {
   supportedProjectGraphVersion as projectGraphVersion
 } from "./types.js";
 export type * from "./types.js";
-export type { CreateCanvasWorkspaceOptions, CreateCanvasWorkspaceResult } from "./createCanvasWorkspace.js";
+export type {
+  CreateCanvasWorkspaceOptions,
+  CreateCanvasWorkspaceResult
+} from "./createCanvasWorkspace.js";
 export type { MaterializeProjectGraphResult } from "./materializeProjectGraph.js";
 export type {
   DefaultCanvasWorkspaceMigrationAction,

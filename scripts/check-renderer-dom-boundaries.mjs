@@ -68,17 +68,15 @@ function findViolations(repoPath, source) {
     return [];
   }
 
-  return source
-    .split("\n")
-    .flatMap((line, index) =>
-      bannedPatterns
-        .filter(({ pattern }) => pattern.test(line))
-        .map(({ name }) => ({
-          line: index + 1,
-          name,
-          repoPath
-        }))
-    );
+  return source.split("\n").flatMap((line, index) =>
+    bannedPatterns
+      .filter(({ pattern }) => pattern.test(line))
+      .map(({ name }) => ({
+        line: index + 1,
+        name,
+        repoPath
+      }))
+  );
 }
 
 const sourceFiles = await collectSourceFiles(desktopSrc);
@@ -91,7 +89,9 @@ for (const file of sourceFiles) {
 }
 
 if (violations.length > 0) {
-  console.error("DOM boundary check failed. Move DOM access into an approved boundary file or hook:");
+  console.error(
+    "DOM boundary check failed. Move DOM access into an approved boundary file or hook:"
+  );
   for (const violation of violations) {
     console.error(`- ${violation.repoPath}:${violation.line} uses ${violation.name}`);
   }

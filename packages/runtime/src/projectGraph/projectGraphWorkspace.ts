@@ -16,7 +16,10 @@ function assertWorkspaceChild(projectWorkspace: ProjectWorkspace, path: string):
   }
 }
 
-export function projectCanvasWorkspace(projectWorkspace: ProjectWorkspace, canvas: ProjectCanvasNode): ProjectWorkspace {
+export function projectCanvasWorkspace(
+  projectWorkspace: ProjectWorkspace,
+  canvas: ProjectCanvasNode
+): ProjectWorkspace {
   const packageDir = fromWorkspaceRelative(projectWorkspace, canvas.packageDir);
   const stateFile = fromWorkspaceRelative(projectWorkspace, canvas.stateFile);
   const resultsDir = fromWorkspaceRelative(projectWorkspace, canvas.resultsDir);
@@ -33,7 +36,10 @@ export function projectCanvasWorkspace(projectWorkspace: ProjectWorkspace, canva
   };
 }
 
-export async function resolveProjectCanvasWorkspace(projectRoot: string, canvasId: string): Promise<ProjectWorkspace> {
+export async function resolveProjectCanvasWorkspace(
+  projectRoot: string,
+  canvasId: string
+): Promise<ProjectWorkspace> {
   const { workspace, manifest } = await loadProjectGraph(projectRoot);
   const canvas = manifest.canvases.find((candidate) => candidate.id === canvasId);
   if (!canvas) {

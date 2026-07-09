@@ -14,9 +14,12 @@ type TaskNodeStatusVisual = {
 
 const cardClassNames: Record<TaskNodeStatusTone, string> = {
   neutral: "border-border/80 bg-surface-raised text-text shadow-sm",
-  running: "border-state-running/55 bg-state-running-surface text-text-strong shadow-sm ring-1 ring-state-running/15",
-  complete: "border-state-success/55 bg-state-success-surface text-text-strong shadow-sm ring-1 ring-state-success/15",
-  problem: "border-state-failed/60 bg-state-failed-surface text-text-strong shadow-sm ring-1 ring-state-failed/15"
+  running:
+    "border-state-running/55 bg-state-running-surface text-text-strong shadow-sm ring-1 ring-state-running/15",
+  complete:
+    "border-state-success/55 bg-state-success-surface text-text-strong shadow-sm ring-1 ring-state-success/15",
+  problem:
+    "border-state-failed/60 bg-state-failed-surface text-text-strong shadow-sm ring-1 ring-state-failed/15"
 };
 
 const markerClassNames: Record<TaskNodeStatusTone, string> = {
@@ -63,7 +66,15 @@ export function taskNodeStatusVisual(status: string, hasException: boolean): Tas
   };
 }
 
-export function TaskNodeStatusMarker({ hasException, label, status }: { hasException: boolean; label: string; status: string }) {
+export function TaskNodeStatusMarker({
+  hasException,
+  label,
+  status
+}: {
+  hasException: boolean;
+  label: string;
+  status: string;
+}) {
   const visual = taskNodeStatusVisual(status, hasException);
   const Icon = visual.Icon;
 
@@ -74,7 +85,11 @@ export function TaskNodeStatusMarker({ hasException, label, status }: { hasExcep
       data-testid="task-node-status-marker"
       variant="outline"
     >
-      <Icon className={visual.iconName === "loader" ? "animate-spin" : undefined} data-status-icon={visual.iconName} aria-hidden="true" />
+      <Icon
+        className={visual.iconName === "loader" ? "animate-spin" : undefined}
+        data-status-icon={visual.iconName}
+        aria-hidden="true"
+      />
       {label}
     </Badge>
   );

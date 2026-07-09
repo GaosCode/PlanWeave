@@ -25,5 +25,13 @@ export function TaskDependencyEdge({
     targetPosition
   });
 
-  return <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} interactionWidth={interactionWidth ?? 32} />;
+  return (
+    <BaseEdge
+      id={id}
+      path={edgePath}
+      markerEnd={markerEnd}
+      style={style}
+      interactionWidth={interactionWidth ?? 32}
+    />
+  );
 }

@@ -1,10 +1,21 @@
 import { join } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
-import type { BlockExplanation, CurrentWork, CurrentWorkItem, ManifestBlock, PackageWorkspaceRef } from "../types.js";
+import type {
+  BlockExplanation,
+  CurrentWork,
+  CurrentWorkItem,
+  ManifestBlock,
+  PackageWorkspaceRef
+} from "../types.js";
 import { canvasCommandFlag, commandCanvasIdForWorkspace } from "./canvasCommandScope.js";
 import { getExecutionStatus } from "./executionStatus.js";
 import { loadRuntimeReadonly } from "./runtimeContext.js";
-import { effectiveBlockExecutor, effectiveFeedbackExecutor, getBlock, isActiveFeedbackStatus } from "./selectors.js";
+import {
+  effectiveBlockExecutor,
+  effectiveFeedbackExecutor,
+  getBlock,
+  isActiveFeedbackStatus
+} from "./selectors.js";
 
 function submitCommand(ref: string, block: ManifestBlock, canvasId: string | null = null): string {
   if (block.type === "review") {
@@ -20,7 +31,13 @@ function reportPath(block: ManifestBlock): string {
   return "<report.md>";
 }
 
-function currentItem(ref: string, block: ManifestBlock, packageDir: string, canvasId: string | null, effectiveExecutor: string): CurrentWorkItem {
+function currentItem(
+  ref: string,
+  block: ManifestBlock,
+  packageDir: string,
+  canvasId: string | null,
+  effectiveExecutor: string
+): CurrentWorkItem {
   const { taskId, blockId } = parseBlockRef(ref);
   return {
     kind: "block",
@@ -35,7 +52,10 @@ function currentItem(ref: string, block: ManifestBlock, packageDir: string, canv
   };
 }
 
-export async function explainBlock(options: { projectRoot: PackageWorkspaceRef; ref: string }): Promise<BlockExplanation> {
+export async function explainBlock(options: {
+  projectRoot: PackageWorkspaceRef;
+  ref: string;
+}): Promise<BlockExplanation> {
   const context = await loadRuntimeReadonly(options);
   const block = getBlock(context.graph, options.ref);
   const status = await getExecutionStatus(options);
@@ -46,24 +66,39 @@ export async function explainBlock(options: { projectRoot: PackageWorkspaceRef; 
   return {
     ...hint,
     promptPath: join(context.workspace.packageDir, block.prompt),
-    submitCommand: submitCommand(options.ref, block, await commandCanvasIdForWorkspace(context.workspace))
+    submitCommand: submitCommand(
+      options.ref,
+      block,
+      await commandCanvasIdForWorkspace(context.workspace)
+    )
   };
 }
 
-export async function getCurrentWork(options: { projectRoot: PackageWorkspaceRef }): Promise<CurrentWork> {
+export async function getCurrentWork(options: {
+  projectRoot: PackageWorkspaceRef;
+}): Promise<CurrentWork> {
   const context = await loadRuntimeReadonly(options);
   const canvasId = await commandCanvasIdForWorkspace(context.workspace);
   const defaultExecutor = context.manifest.execution.defaultExecutor;
   const items = context.state.currentRefs.map((ref) =>
-    currentItem(ref, getBlock(context.graph, ref), context.workspace.packageDir, canvasId, effectiveBlockExecutor(context.graph, ref, defaultExecutor))
+    currentItem(
+      ref,
+      getBlock(context.graph, ref),
+      context.workspace.packageDir,
+      canvasId,
+      effectiveBlockExecutor(context.graph, ref, defaultExecutor)
+    )
   );
   const activeFeedbackId =
-    context.state.currentFeedbackId && isActiveFeedbackStatus(context.state.feedback[context.state.currentFeedbackId]?.status)
+    context.state.currentFeedbackId &&
+    isActiveFeedbackStatus(context.state.feedback[context.state.currentFeedbackId]?.status)
       ? context.state.currentFeedbackId
       : null;
   if (activeFeedbackId) {
     const feedback = context.state.feedback[activeFeedbackId];
-    const taskId = feedback ? context.graph.blockTaskByRef.get(feedback.sourceReviewBlockRef) : null;
+    const taskId = feedback
+      ? context.graph.blockTaskByRef.get(feedback.sourceReviewBlockRef)
+      : null;
     if (feedback && taskId) {
       items.push({
         kind: "feedback",
@@ -71,8 +106,18 @@ export async function getCurrentWork(options: { projectRoot: PackageWorkspaceRef
         feedbackId: activeFeedbackId,
         sourceReviewBlockRef: feedback.sourceReviewBlockRef,
         taskId,
-        effectiveExecutor: effectiveFeedbackExecutor(context.graph, feedback.sourceReviewBlockRef, defaultExecutor),
-        promptPath: join(context.workspace.resultsDir, taskId, "feedback", activeFeedbackId, "feedback.json"),
+        effectiveExecutor: effectiveFeedbackExecutor(
+          context.graph,
+          feedback.sourceReviewBlockRef,
+          defaultExecutor
+        ),
+        promptPath: join(
+          context.workspace.resultsDir,
+          taskId,
+          "feedback",
+          activeFeedbackId,
+          "feedback.json"
+        ),
         reportPath: "<feedback-report.md>",
         submitCommand: `planweave submit-feedback${canvasCommandFlag(canvasId)} --report <feedback-report.md>`
       });

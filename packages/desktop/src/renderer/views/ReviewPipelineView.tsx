@@ -1,13 +1,31 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { DesktopGraphViewModel, DesktopReviewPipeline, DesktopReviewPipelineStepInput } from "@planweave-ai/runtime";
+import type {
+  DesktopGraphViewModel,
+  DesktopReviewPipeline,
+  DesktopReviewPipelineStepInput
+} from "@planweave-ai/runtime";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from "@/components/ui/card";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { createTranslator } from "../i18n";
 import { parseNonNegativeIntegerInput } from "../hooks/reviewPipelineDraft";
@@ -47,15 +65,26 @@ export function ReviewPipelineView({
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-normal text-text-strong">{t("reviewPipeline")}</h1>
+          <h1 className="text-2xl font-semibold tracking-normal text-text-strong">
+            {t("reviewPipeline")}
+          </h1>
           <p className="mt-1 text-sm text-text-muted">{t("settingsReviewHint")}</p>
         </div>
         <div className="flex w-full min-w-0 flex-wrap items-center gap-2 md:w-auto md:justify-end">
-          <Button className="max-w-full min-w-0 overflow-hidden" variant="outline" onClick={addReviewStep}>
+          <Button
+            className="max-w-full min-w-0 overflow-hidden"
+            variant="outline"
+            onClick={addReviewStep}
+          >
             <PlusIcon data-icon="inline-start" />
             {t("addReviewStep")}
           </Button>
-          <Button className="max-w-full min-w-0 overflow-hidden" onClick={() => void saveReviewPipeline()}>{t("saveReviewPipeline")}</Button>
+          <Button
+            className="max-w-full min-w-0 overflow-hidden"
+            onClick={() => void saveReviewPipeline()}
+          >
+            {t("saveReviewPipeline")}
+          </Button>
         </div>
       </div>
       <div className="flex flex-wrap items-end gap-3 rounded-md border border-border/80 bg-surface-raised p-4 shadow-sm">
@@ -77,9 +106,20 @@ export function ReviewPipelineView({
         </div>
         <Field className="min-w-[10rem] flex-1 sm:w-40 sm:flex-none">
           <FieldLabel>{t("packageDefaultCycles")}</FieldLabel>
-          <Input min={0} type="number" value={reviewDefaultCyclesDraft} onChange={(event) => setReviewDefaultCyclesDraft(parseNonNegativeIntegerInput(event.target.value))} />
+          <Input
+            min={0}
+            type="number"
+            value={reviewDefaultCyclesDraft}
+            onChange={(event) =>
+              setReviewDefaultCyclesDraft(parseNonNegativeIntegerInput(event.target.value))
+            }
+          />
         </Field>
-        {reviewPipeline ? <Badge className="max-w-full shrink-0" variant="outline">{reviewPipeline.packageDefaults.completionPolicy}</Badge> : null}
+        {reviewPipeline ? (
+          <Badge className="max-w-full shrink-0" variant="outline">
+            {reviewPipeline.packageDefaults.completionPolicy}
+          </Badge>
+        ) : null}
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-3 pr-3">
@@ -87,7 +127,10 @@ export function ReviewPipelineView({
             const hook = step.hook;
             const hookArgs = hook?.args ?? [];
             return (
-              <Card className="rounded-md border-border/80 bg-surface-raised shadow-sm" key={`${step.blockId || "new"}-${index}`}>
+              <Card
+                className="rounded-md border-border/80 bg-surface-raised shadow-sm"
+                key={`${step.blockId || "new"}-${index}`}
+              >
                 <CardHeader>
                   <CardTitle className="flex min-w-0 items-center gap-2 text-base">
                     <Badge variant={step.enabled ? "secondary" : "outline"}>{index + 1}</Badge>
@@ -95,13 +138,30 @@ export function ReviewPipelineView({
                   </CardTitle>
                   <CardDescription>{step.blockId || t("newReviewStep")}</CardDescription>
                   <CardAction className="flex gap-1">
-                    <Button disabled={index === 0} size="icon-sm" variant="ghost" aria-label={t("moveUp")} onClick={() => moveReviewStep(index, -1)}>
+                    <Button
+                      disabled={index === 0}
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={t("moveUp")}
+                      onClick={() => moveReviewStep(index, -1)}
+                    >
                       <ArrowUpIcon data-icon="inline-start" />
                     </Button>
-                    <Button disabled={index === reviewDraft.length - 1} size="icon-sm" variant="ghost" aria-label={t("moveDown")} onClick={() => moveReviewStep(index, 1)}>
+                    <Button
+                      disabled={index === reviewDraft.length - 1}
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={t("moveDown")}
+                      onClick={() => moveReviewStep(index, 1)}
+                    >
                       <ArrowDownIcon data-icon="inline-start" />
                     </Button>
-                    <Button size="icon-sm" variant="ghost" aria-label={t("remove")} onClick={() => removeReviewStep(index)}>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={t("remove")}
+                      onClick={() => removeReviewStep(index)}
+                    >
                       <Trash2Icon data-icon="inline-start" />
                     </Button>
                   </CardAction>
@@ -110,12 +170,20 @@ export function ReviewPipelineView({
                   <FieldGroup>
                     <Field>
                       <FieldLabel>{t("title")}</FieldLabel>
-                      <Input value={step.title} onChange={(event) => updateReviewStep(index, { title: event.target.value })} />
+                      <Input
+                        value={step.title}
+                        onChange={(event) => updateReviewStep(index, { title: event.target.value })}
+                      />
                     </Field>
                     <div className="grid gap-3 lg:grid-cols-3">
                       <Field>
                         <FieldLabel>{t("enabled")}</FieldLabel>
-                        <Select value={step.enabled ? "enabled" : "disabled"} onValueChange={(value) => updateReviewStep(index, { enabled: value === "enabled" })}>
+                        <Select
+                          value={step.enabled ? "enabled" : "disabled"}
+                          onValueChange={(value) =>
+                            updateReviewStep(index, { enabled: value === "enabled" })
+                          }
+                        >
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
@@ -129,11 +197,25 @@ export function ReviewPipelineView({
                       </Field>
                       <Field>
                         <FieldLabel>{t("preset")}</FieldLabel>
-                        <Input value={step.preset} onChange={(event) => updateReviewStep(index, { preset: event.target.value })} />
+                        <Input
+                          value={step.preset}
+                          onChange={(event) =>
+                            updateReviewStep(index, { preset: event.target.value })
+                          }
+                        />
                       </Field>
                       <Field>
                         <FieldLabel>{t("maxFeedbackCycles")}</FieldLabel>
-                        <Input min={0} type="number" value={step.maxFeedbackCycles} onChange={(event) => updateReviewStep(index, { maxFeedbackCycles: parseNonNegativeIntegerInput(event.target.value) })} />
+                        <Input
+                          min={0}
+                          type="number"
+                          value={step.maxFeedbackCycles}
+                          onChange={(event) =>
+                            updateReviewStep(index, {
+                              maxFeedbackCycles: parseNonNegativeIntegerInput(event.target.value)
+                            })
+                          }
+                        />
                       </Field>
                     </div>
                     <Field>
@@ -142,7 +224,8 @@ export function ReviewPipelineView({
                         value={step.triggerCondition}
                         onValueChange={(value) =>
                           updateReviewStep(index, {
-                            triggerCondition: value === "manual" ? "manual" : "after_required_work_completed"
+                            triggerCondition:
+                              value === "manual" ? "manual" : "after_required_work_completed"
                           })
                         }
                       >
@@ -151,7 +234,9 @@ export function ReviewPipelineView({
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
-                            <SelectItem value="after_required_work_completed">{t("afterRequiredWork")}</SelectItem>
+                            <SelectItem value="after_required_work_completed">
+                              {t("afterRequiredWork")}
+                            </SelectItem>
                             <SelectItem value="manual">{t("manualTrigger")}</SelectItem>
                           </SelectGroup>
                         </SelectContent>
@@ -160,15 +245,33 @@ export function ReviewPipelineView({
                     <div className="grid gap-3 lg:grid-cols-3">
                       <Field>
                         <FieldLabel>{t("inputContext")}</FieldLabel>
-                        <Textarea className="min-h-24 resize-none" value={step.inputContext} onChange={(event) => updateReviewStep(index, { inputContext: event.target.value })} />
+                        <Textarea
+                          className="min-h-24 resize-none"
+                          value={step.inputContext}
+                          onChange={(event) =>
+                            updateReviewStep(index, { inputContext: event.target.value })
+                          }
+                        />
                       </Field>
                       <Field>
                         <FieldLabel>{t("passCriteria")}</FieldLabel>
-                        <Textarea className="min-h-24 resize-none" value={step.passCriteria} onChange={(event) => updateReviewStep(index, { passCriteria: event.target.value })} />
+                        <Textarea
+                          className="min-h-24 resize-none"
+                          value={step.passCriteria}
+                          onChange={(event) =>
+                            updateReviewStep(index, { passCriteria: event.target.value })
+                          }
+                        />
                       </Field>
                       <Field>
                         <FieldLabel>{t("feedbackFormat")}</FieldLabel>
-                        <Textarea className="min-h-24 resize-none" value={step.feedbackFormat} onChange={(event) => updateReviewStep(index, { feedbackFormat: event.target.value })} />
+                        <Textarea
+                          className="min-h-24 resize-none"
+                          value={step.feedbackFormat}
+                          onChange={(event) =>
+                            updateReviewStep(index, { feedbackFormat: event.target.value })
+                          }
+                        />
                       </Field>
                     </div>
                     <div className="grid gap-3 lg:grid-cols-2">
@@ -181,7 +284,9 @@ export function ReviewPipelineView({
                             updateReviewStep(index, {
                               hook: command
                                 ? {
-                                    id: step.hook?.id ?? `${step.blockId || `review-${index + 1}`}-hook`,
+                                    id:
+                                      step.hook?.id ??
+                                      `${step.blockId || `review-${index + 1}`}-hook`,
                                     type: "executable",
                                     command,
                                     args: step.hook?.args ?? [],
@@ -224,7 +329,9 @@ export function ReviewPipelineView({
                                       hook: {
                                         ...hook,
                                         args: hook.args.map((currentArg, currentIndex) =>
-                                          currentIndex === argIndex ? event.target.value : currentArg
+                                          currentIndex === argIndex
+                                            ? event.target.value
+                                            : currentArg
                                         )
                                       }
                                     })
@@ -255,7 +362,9 @@ export function ReviewPipelineView({
                                     updateReviewStep(index, {
                                       hook: {
                                         ...hook,
-                                        args: hook.args.filter((_, currentIndex) => currentIndex !== argIndex)
+                                        args: hook.args.filter(
+                                          (_, currentIndex) => currentIndex !== argIndex
+                                        )
                                       }
                                     })
                                   }
@@ -287,7 +396,13 @@ export function ReviewPipelineView({
                     </div>
                     <Field>
                       <FieldLabel>{t("taskPrompt")}</FieldLabel>
-                      <Textarea className="min-h-40 resize-none" value={step.promptMarkdown} onChange={(event) => updateReviewStep(index, { promptMarkdown: event.target.value })} />
+                      <Textarea
+                        className="min-h-40 resize-none"
+                        value={step.promptMarkdown}
+                        onChange={(event) =>
+                          updateReviewStep(index, { promptMarkdown: event.target.value })
+                        }
+                      />
                       <FieldDescription>{t("reviewPromptHint")}</FieldDescription>
                     </Field>
                   </FieldGroup>

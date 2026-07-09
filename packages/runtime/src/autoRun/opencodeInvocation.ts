@@ -61,7 +61,11 @@ function isDirectOpencodeRun(profile: OpencodeExecExecutorProfile): boolean {
   return basename(profile.command) === "opencode" && profile.args.includes("run");
 }
 
-export function opencodeInvocation(profile: OpencodeExecExecutorProfile, prompt: string, cwd: string): OpencodeInvocation {
+export function opencodeInvocation(
+  profile: OpencodeExecExecutorProfile,
+  prompt: string,
+  cwd: string
+): OpencodeInvocation {
   if (!isDirectOpencodeRun(profile)) {
     return { args: profile.args, stdin: prompt, jsonMode: false, sessionId: null };
   }

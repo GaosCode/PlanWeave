@@ -1,6 +1,10 @@
 import { parseBlockRef } from "../../graph/compileTaskGraph.js";
 import { commitPlanPackageGraphMutation } from "../../graph/editGraph.js";
-import { buildPlanPackageGraphMutation, buildPlanPackageManifestChangeMutation, type PlanPackageGraphMutationSideEffect } from "../../graph/mutation.js";
+import {
+  buildPlanPackageGraphMutation,
+  buildPlanPackageManifestChangeMutation,
+  type PlanPackageGraphMutationSideEffect
+} from "../../graph/mutation.js";
 import { loadPackage } from "../../package/loadPackage.js";
 import type {
   GraphEditResult,
@@ -13,10 +17,17 @@ import type { DesktopGraphEditValidationInput, DesktopLayout } from "../types.js
 import { getDesktopLayout } from "../layoutApi.js";
 import { executeDesktopPlanGraphCommand } from "./editModelCommand.js";
 import type { DesktopBulkRemoveGraphItemsInput } from "./editModelTypes.js";
-import { crossTaskEdgeDeleteDiagnostic, graphEditDiagnostics, graphEditResult } from "./editModelValidation.js";
+import {
+  crossTaskEdgeDeleteDiagnostic,
+  graphEditDiagnostics,
+  graphEditResult
+} from "./editModelValidation.js";
 import { invalidateDesktopProjectProjection } from "./projectProjectionModel.js";
 
-export async function removeTaskNode(projectRoot: PackageWorkspaceRef, taskId: string): Promise<GraphEditResult> {
+export async function removeTaskNode(
+  projectRoot: PackageWorkspaceRef,
+  taskId: string
+): Promise<GraphEditResult> {
   const blocked = await crossTaskEdgeDeleteDiagnostic(projectRoot, taskId);
   if (blocked) {
     return blocked;
@@ -29,11 +40,17 @@ export async function removeTaskNode(projectRoot: PackageWorkspaceRef, taskId: s
   });
 }
 
-export async function removeBlock(projectRoot: PackageWorkspaceRef, ref: string): Promise<GraphEditResult> {
+export async function removeBlock(
+  projectRoot: PackageWorkspaceRef,
+  ref: string
+): Promise<GraphEditResult> {
   return executeDesktopPlanGraphCommand(projectRoot, { type: "removeBlock", blockRef: ref });
 }
 
-export async function validateGraphEdit(projectRoot: PackageWorkspaceRef, input: DesktopGraphEditValidationInput): Promise<GraphEditResult> {
+export async function validateGraphEdit(
+  projectRoot: PackageWorkspaceRef,
+  input: DesktopGraphEditValidationInput
+): Promise<GraphEditResult> {
   const { manifest } = await loadPackage(projectRoot);
   if (input.kind === "addDependencyEdge") {
     const mutation = buildPlanPackageGraphMutation(manifest, {
@@ -50,18 +67,30 @@ export async function validateGraphEdit(projectRoot: PackageWorkspaceRef, input:
     return graphEditResult(mutation.nextManifest, mutation.affectedTasks);
   }
   if (input.kind === "removeTaskNode") {
-    const mutation = buildPlanPackageGraphMutation(manifest, { kind: "removeNode", nodeId: input.taskId });
+    const mutation = buildPlanPackageGraphMutation(manifest, {
+      kind: "removeNode",
+      nodeId: input.taskId
+    });
     return graphEditResult(mutation.nextManifest, mutation.affectedTasks);
   }
-  const mutation = buildPlanPackageGraphMutation(manifest, { kind: "removeBlock", blockRef: input.blockRef });
+  const mutation = buildPlanPackageGraphMutation(manifest, {
+    kind: "removeBlock",
+    blockRef: input.blockRef
+  });
   return graphEditResult(mutation.nextManifest, mutation.affectedTasks);
 }
 
-function taskDependencyEdge(input: { dependentTaskId: string; dependsOnTaskId: string }): ManifestEdge {
+function taskDependencyEdge(input: {
+  dependentTaskId: string;
+  dependsOnTaskId: string;
+}): ManifestEdge {
   return { from: input.dependentTaskId, to: input.dependsOnTaskId, type: "depends_on" };
 }
 
-function removeBlockDependency(manifest: PlanPackageManifest, input: { blockRef: string; dependsOnBlockId: string }): PlanPackageManifest {
+function removeBlockDependency(
+  manifest: PlanPackageManifest,
+  input: { blockRef: string; dependsOnBlockId: string }
+): PlanPackageManifest {
   const { taskId, blockId } = parseBlockRef(input.blockRef);
   const task = manifest.nodes.find((node) => node.type === "task" && node.id === taskId);
   if (!task || task.type !== "task") {
@@ -79,7 +108,12 @@ function removeBlockDependency(manifest: PlanPackageManifest, input: { blockRef:
             ...task,
             blocks: task.blocks.map((candidate) =>
               candidate.id === blockId
-                ? { ...candidate, depends_on: candidate.depends_on.filter((dependency) => dependency !== input.dependsOnBlockId) }
+                ? {
+                    ...candidate,
+                    depends_on: candidate.depends_on.filter(
+                      (dependency) => dependency !== input.dependsOnBlockId
+                    )
+                  }
                 : candidate
             )
           }
@@ -96,7 +130,12 @@ export async function bulkRemoveGraphItems(
   const blockRefs = input.blockRefs ?? [];
   const taskDependencyEdges = input.taskDependencyEdges ?? [];
   const blockDependencyEdges = input.blockDependencyEdges ?? [];
-  if (taskIds.length === 0 && blockRefs.length === 0 && taskDependencyEdges.length === 0 && blockDependencyEdges.length === 0) {
+  if (
+    taskIds.length === 0 &&
+    blockRefs.length === 0 &&
+    taskDependencyEdges.length === 0 &&
+    blockDependencyEdges.length === 0
+  ) {
     throw new Error("bulk_remove_graph_items requires at least one item to remove.");
   }
   const { manifest } = await loadPackage(projectRoot);
@@ -115,7 +154,10 @@ export async function bulkRemoveGraphItems(
   const affectedTasks: string[] = [];
   const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
   for (const edge of taskDependencyEdges) {
-    const mutation = buildPlanPackageGraphMutation(nextManifest, { kind: "removeEdge", edge: taskDependencyEdge(edge) });
+    const mutation = buildPlanPackageGraphMutation(nextManifest, {
+      kind: "removeEdge",
+      edge: taskDependencyEdge(edge)
+    });
     nextManifest = mutation.nextManifest;
     affectedTasks.push(...mutation.affectedTasks, edge.dependentTaskId, edge.dependsOnTaskId);
   }
@@ -131,14 +173,21 @@ export async function bulkRemoveGraphItems(
     sideEffects.push(...mutation.sideEffects);
   }
   for (const taskId of taskIds) {
-    const mutation = buildPlanPackageGraphMutation(nextManifest, { kind: "removeNode", nodeId: taskId, removeTaskDirectory: true });
+    const mutation = buildPlanPackageGraphMutation(nextManifest, {
+      kind: "removeNode",
+      nodeId: taskId,
+      removeTaskDirectory: true
+    });
     nextManifest = mutation.nextManifest;
     affectedTasks.push(...mutation.affectedTasks, taskId);
     sideEffects.push(...mutation.sideEffects);
   }
   const result = await commitPlanPackageGraphMutation({
     projectRoot,
-    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks, sideEffects })
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
+      affectedTasks,
+      sideEffects
+    })
   });
   invalidateDesktopProjectProjection(projectRoot);
   return result;
@@ -151,7 +200,11 @@ export async function addDependencyEdge(
   baseGraphVersion?: string,
   layoutSnapshot?: DesktopLayout
 ): Promise<GraphEditResult> {
-  return executeDesktopPlanGraphCommand(projectRoot, { type: "addTaskDependency", fromTaskId, toTaskId, baseGraphVersion }, { layoutSnapshot });
+  return executeDesktopPlanGraphCommand(
+    projectRoot,
+    { type: "addTaskDependency", fromTaskId, toTaskId, baseGraphVersion },
+    { layoutSnapshot }
+  );
 }
 
 export async function removeDependencyEdge(
@@ -161,7 +214,11 @@ export async function removeDependencyEdge(
   baseGraphVersion?: string,
   layoutSnapshot?: DesktopLayout
 ): Promise<GraphEditResult> {
-  return executeDesktopPlanGraphCommand(projectRoot, { type: "removeTaskDependency", fromTaskId, toTaskId, baseGraphVersion }, { layoutSnapshot });
+  return executeDesktopPlanGraphCommand(
+    projectRoot,
+    { type: "removeTaskDependency", fromTaskId, toTaskId, baseGraphVersion },
+    { layoutSnapshot }
+  );
 }
 
 export async function reconnectDependencyEdge(
@@ -173,12 +230,16 @@ export async function reconnectDependencyEdge(
   baseGraphVersion?: string,
   layoutSnapshot?: DesktopLayout
 ): Promise<GraphEditResult> {
-  return executeDesktopPlanGraphCommand(projectRoot, {
-    type: "reconnectTaskDependency",
-    fromTaskId,
-    oldToTaskId,
-    newFromTaskId,
-    newToTaskId,
-    baseGraphVersion
-  }, { layoutSnapshot });
+  return executeDesktopPlanGraphCommand(
+    projectRoot,
+    {
+      type: "reconnectTaskDependency",
+      fromTaskId,
+      oldToTaskId,
+      newFromTaskId,
+      newToTaskId,
+      baseGraphVersion
+    },
+    { layoutSnapshot }
+  );
 }

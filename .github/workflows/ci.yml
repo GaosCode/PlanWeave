@@ -41,6 +41,10 @@ jobs:
       - name: Build packages
         run: pnpm -r build
 
+      # Distinct from typecheck so style/format failures are easy to spot in CI logs.
+      - name: Biome check
+        run: pnpm biome:check
+
       - name: Lint and typecheck
         run: pnpm lint
 

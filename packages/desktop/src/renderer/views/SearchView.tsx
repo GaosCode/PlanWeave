@@ -1,5 +1,9 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { DesktopProjectSummary, DesktopSearchResult, DesktopSearchResultKind } from "@planweave-ai/runtime";
+import type {
+  DesktopProjectSummary,
+  DesktopSearchResult,
+  DesktopSearchResultKind
+} from "@planweave-ai/runtime";
 import { FolderOpenIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,7 +29,10 @@ type SearchViewProps = {
   t: ReturnType<typeof createTranslator>;
 };
 
-function searchKindLabel(kind: DesktopSearchResultKind, t: ReturnType<typeof createTranslator>): string {
+function searchKindLabel(
+  kind: DesktopSearchResultKind,
+  t: ReturnType<typeof createTranslator>
+): string {
   switch (kind) {
     case "task":
       return t("searchKindTask");
@@ -44,7 +51,10 @@ function searchKindLabel(kind: DesktopSearchResultKind, t: ReturnType<typeof cre
   return exhaustiveKind;
 }
 
-function searchStatusLabel(status: DesktopSearchStatus, t: ReturnType<typeof createTranslator>): string | null {
+function searchStatusLabel(
+  status: DesktopSearchStatus,
+  t: ReturnType<typeof createTranslator>
+): string | null {
   switch (status.phase) {
     case "idle":
       return null;
@@ -55,7 +65,9 @@ function searchStatusLabel(status: DesktopSearchStatus, t: ReturnType<typeof cre
     case "body_loading":
       return `${t("searchStatusBodyLoading")} ${t("searchStatusSummaryCount")}: ${status.summaryResultCount}`;
     case "complete":
-      return status.resultCount === 0 ? null : `${t("searchStatusResultCount")}: ${status.resultCount}`;
+      return status.resultCount === 0
+        ? null
+        : `${t("searchStatusResultCount")}: ${status.resultCount}`;
     case "error":
       return `${t("searchStatusError")}: ${status.message}`;
   }
@@ -111,7 +123,11 @@ export function SearchView({
       <div className="flex flex-col gap-4 rounded-md border border-border/80 bg-surface-raised p-4 shadow-sm">
         <div className="flex flex-col gap-2">
           <div className="text-sm font-medium text-text-strong">{t("query")}</div>
-          <Input data-testid="search-query-input" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
+          <Input
+            data-testid="search-query-input"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
         </div>
         <div className="flex flex-col gap-2">
           <div className="text-xs font-medium text-text-muted">{t("searchResultKinds")}</div>
@@ -156,7 +172,9 @@ export function SearchView({
               {t("searchScopeCurrentCanvas")}
             </Button>
           </div>
-          {!selectedCanvasId ? <div className="text-xs text-text-muted">{t("searchNoCanvasHint")}</div> : null}
+          {!selectedCanvasId ? (
+            <div className="text-xs text-text-muted">{t("searchNoCanvasHint")}</div>
+          ) : null}
         </div>
       </div>
       <ScrollArea className="min-h-0 flex-1">
@@ -170,7 +188,9 @@ export function SearchView({
             </Button>
           </div>
         ) : !hasQuery ? (
-          <div className="rounded-md border border-border/80 bg-surface-muted/70 p-4 text-sm text-text-muted">{t("searchEmptyHint")}</div>
+          <div className="rounded-md border border-border/80 bg-surface-muted/70 p-4 text-sm text-text-muted">
+            {t("searchEmptyHint")}
+          </div>
         ) : (
           <div className="flex flex-col gap-3">
             {statusLabel ? (
@@ -186,7 +206,9 @@ export function SearchView({
               </div>
             ) : null}
             {showNoResults ? (
-              <div className="rounded-md border border-border/80 bg-surface-muted/70 p-4 text-sm text-text-muted">{t("searchNoResults")}</div>
+              <div className="rounded-md border border-border/80 bg-surface-muted/70 p-4 text-sm text-text-muted">
+                {t("searchNoResults")}
+              </div>
             ) : (
               <SearchResultList
                 canvasLabel={t("searchResultCanvas")}

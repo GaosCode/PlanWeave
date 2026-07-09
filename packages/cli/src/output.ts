@@ -27,7 +27,9 @@ export function formatValidationReport(report: ValidationReport): string {
     lines.push("");
     lines.push("Warnings:");
     for (const warning of report.warnings) {
-      lines.push(`- [${warning.code}] ${warning.message}${warning.path ? ` (${warning.path})` : ""}`);
+      lines.push(
+        `- [${warning.code}] ${warning.message}${warning.path ? ` (${warning.path})` : ""}`
+      );
     }
   }
 

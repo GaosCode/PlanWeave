@@ -72,7 +72,9 @@ describe("dependency edit runtime helpers", () => {
     const written = await readManifest(init.workspace.manifestFile);
 
     expect(result.ok).toBe(false);
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("duplicate_dependency_update");
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "duplicate_dependency_update"
+    );
     expect(written.edges).toEqual([]);
   });
 
@@ -99,7 +101,11 @@ describe("dependency edit runtime helpers", () => {
     const afterDuplicate = await readManifest(init.workspace.manifestFile);
 
     expect(duplicateResult.ok).toBe(false);
-    expect(duplicateResult.diagnostics.map((diagnostic) => diagnostic.code)).toContain("duplicate_dependency_update");
-    expect(afterDuplicate.nodes[0]?.blocks.find((block) => block.id === "R-001")?.depends_on).toEqual([]);
+    expect(duplicateResult.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "duplicate_dependency_update"
+    );
+    expect(
+      afterDuplicate.nodes[0]?.blocks.find((block) => block.id === "R-001")?.depends_on
+    ).toEqual([]);
   });
 });

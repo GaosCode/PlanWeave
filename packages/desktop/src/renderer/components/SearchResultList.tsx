@@ -21,7 +21,9 @@ export function searchNavigationTarget(result: DesktopSearchResult): SearchNavig
   return { kind: "none" };
 }
 
-export function highlightedSearchExcerpt(result: DesktopSearchResult): Array<{ text: string; highlighted: boolean }> {
+export function highlightedSearchExcerpt(
+  result: DesktopSearchResult
+): Array<{ text: string; highlighted: boolean }> {
   const excerpt = result.match?.excerpt ?? result.excerpt;
   const match = result.match;
   if (!match || match.length <= 0) {
@@ -99,7 +101,9 @@ export function SearchResultList({
           <>
             <div className="flex items-center justify-between gap-2">
               <span className="truncate text-sm font-medium">{result.title}</span>
-              <Badge variant={target.kind === "none" ? "destructive" : "outline"}>{kindLabels[result.kind]}</Badge>
+              <Badge variant={target.kind === "none" ? "destructive" : "outline"}>
+                {kindLabels[result.kind]}
+              </Badge>
             </div>
             <div className="grid gap-1 text-xs text-text-muted sm:grid-cols-2">
               <div className="min-w-0 truncate">
@@ -116,13 +120,18 @@ export function SearchResultList({
                 {result.targetRef ?? result.ref}
               </div>
               <div className="min-w-0 truncate">
-                <span className="font-medium text-text">{searchMatchSourceLabel(result, matchSourceLabels)}</span>
+                <span className="font-medium text-text">
+                  {searchMatchSourceLabel(result, matchSourceLabels)}
+                </span>
               </div>
             </div>
             <div className="line-clamp-2 text-xs leading-5 text-muted-foreground">
               {highlightedSearchExcerpt(result).map((part, index) =>
                 part.highlighted ? (
-                  <mark className="rounded-sm bg-state-warning-surface px-0.5 text-text-strong" key={index}>
+                  <mark
+                    className="rounded-sm bg-state-warning-surface px-0.5 text-text-strong"
+                    key={index}
+                  >
                     {part.text}
                   </mark>
                 ) : (
@@ -130,13 +139,18 @@ export function SearchResultList({
                 )
               )}
             </div>
-            {target.kind === "none" ? <div className="text-xs text-destructive">{targetMissingLabel}</div> : null}
+            {target.kind === "none" ? (
+              <div className="text-xs text-destructive">{targetMissingLabel}</div>
+            ) : null}
           </>
         );
         const key = `${result.canvasId ?? "project"}-${result.kind}-${result.ref}`;
         if (target.kind === "none") {
           return (
-            <article className="flex flex-col gap-1 rounded-md border border-border/80 bg-surface-raised p-3 text-left text-text shadow-sm" key={key}>
+            <article
+              className="flex flex-col gap-1 rounded-md border border-border/80 bg-surface-raised p-3 text-left text-text shadow-sm"
+              key={key}
+            >
               {resultContent}
             </article>
           );

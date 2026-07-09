@@ -10,7 +10,11 @@ describe("Auto Run feedback executor failure recovery", () => {
   it("reopens the feedback envelope and clears currentFeedbackId when the feedback executor throws", async () => {
     const { root, init } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
     await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,

@@ -7,7 +7,14 @@ import {
 import type { PlanGraphAffectedRefs, PlanGraphCommand } from "../commands.js";
 import type { PlanGraphOperationLogEntry } from "../ports.js";
 import type { PackageWorkspaceRef, ProjectWorkspace } from "../../types.js";
-import { isRecord, jsonString, nullableStringColumn, numberColumn, parseJsonRecord, stringColumn } from "./columns.js";
+import {
+  isRecord,
+  jsonString,
+  nullableStringColumn,
+  numberColumn,
+  parseJsonRecord,
+  stringColumn
+} from "./columns.js";
 
 export type OperationLogCoalescingEntry = {
   id: number;
@@ -34,7 +41,10 @@ function parseAffected(value: string): PlanGraphAffectedRefs {
   return parseJsonRecord(value, "affected_json") as PlanGraphAffectedRefs;
 }
 
-function operationLogJson(row: Record<string, unknown>, fieldName: "command_json" | "inverse_json"): unknown {
+function operationLogJson(
+  row: Record<string, unknown>,
+  fieldName: "command_json" | "inverse_json"
+): unknown {
   const operationId = numberColumn(row, "id");
   try {
     return JSON.parse(stringColumn(row, fieldName));
@@ -79,7 +89,10 @@ function operationLogInverse(row: Record<string, unknown>): PlanGraphCommand | P
   }
 }
 
-export function operationLogEntry(row: Record<string, unknown>, projectRoot: string): PlanGraphOperationLogEntry {
+export function operationLogEntry(
+  row: Record<string, unknown>,
+  projectRoot: string
+): PlanGraphOperationLogEntry {
   return {
     id: numberColumn(row, "id"),
     workspaceRef: parseWorkspaceRef(row.workspace_ref_json, projectRoot),
@@ -93,7 +106,10 @@ export function operationLogEntry(row: Record<string, unknown>, projectRoot: str
   };
 }
 
-function operationLogCoalescingEntry(row: Record<string, unknown>, projectRoot: string): OperationLogCoalescingEntry {
+function operationLogCoalescingEntry(
+  row: Record<string, unknown>,
+  projectRoot: string
+): OperationLogCoalescingEntry {
   return {
     id: numberColumn(row, "id"),
     workspaceRef: parseWorkspaceRef(row.workspace_ref_json, projectRoot),
@@ -102,7 +118,10 @@ function operationLogCoalescingEntry(row: Record<string, unknown>, projectRoot: 
   };
 }
 
-export function tryOperationLogCoalescingEntry(row: Record<string, unknown>, projectRoot: string): OperationLogCoalescingEntry | null {
+export function tryOperationLogCoalescingEntry(
+  row: Record<string, unknown>,
+  projectRoot: string
+): OperationLogCoalescingEntry | null {
   try {
     return operationLogCoalescingEntry(row, projectRoot);
   } catch {
@@ -143,7 +162,10 @@ export function promptHistoryTarget(command: PlanGraphCommand): string | null {
   return null;
 }
 
-export function mergeAffectedRefs(left: PlanGraphAffectedRefs, right: PlanGraphAffectedRefs): PlanGraphAffectedRefs {
+export function mergeAffectedRefs(
+  left: PlanGraphAffectedRefs,
+  right: PlanGraphAffectedRefs
+): PlanGraphAffectedRefs {
   return {
     canvases: [...new Set([...left.canvases, ...right.canvases])],
     tasks: [...new Set([...left.tasks, ...right.tasks])],

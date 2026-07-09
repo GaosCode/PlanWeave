@@ -46,7 +46,10 @@ describe("STEP-1 CLI contract: project graph", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-project-"));
     const env = { ...process.env, PLANWEAVE_HOME: home, INIT_CWD: root };
     const init = JSON.parse((await runCli(["init", "--project-graph", "--json"], env)).stdout);
-    const projectGraphBefore = await readFile(join(init.workspace.workspaceRoot, "project-graph.json"), "utf8");
+    const projectGraphBefore = await readFile(
+      join(init.workspace.workspaceRoot, "project-graph.json"),
+      "utf8"
+    );
     const legacyPackageDir = join(init.workspace.workspaceRoot, "package");
     await cp(init.workspace.packageDir, legacyPackageDir, { recursive: true });
     await writeFile(
@@ -72,10 +75,18 @@ describe("STEP-1 CLI contract: project graph", () => {
     expect(failure.code).not.toBe(0);
     expect(result).toMatchObject({
       action: "conflict",
-      diagnostics: expect.arrayContaining([expect.objectContaining({ code: "default_canvas_legacy_root_conflict" })])
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ code: "default_canvas_legacy_root_conflict" })
+      ])
     });
-    await expect(readFile(join(init.workspace.workspaceRoot, "project-graph.json"), "utf8")).resolves.toBe(projectGraphBefore);
-    await expect(access(join(init.workspace.workspaceRoot, "package", "manifest.json"))).resolves.toBeUndefined();
-    await expect(access(join(init.workspace.workspaceRoot, "migration-quarantine"))).rejects.toThrow();
+    await expect(
+      readFile(join(init.workspace.workspaceRoot, "project-graph.json"), "utf8")
+    ).resolves.toBe(projectGraphBefore);
+    await expect(
+      access(join(init.workspace.workspaceRoot, "package", "manifest.json"))
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(init.workspace.workspaceRoot, "migration-quarantine"))
+    ).rejects.toThrow();
   }, 20_000);
 });

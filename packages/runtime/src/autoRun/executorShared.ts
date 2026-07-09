@@ -8,7 +8,12 @@ import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { isCommandTrusted, untrustedExecutorCommandError } from "../taskManager/hookTrustStore.js";
-import type { ClaimResult, ExecutorProfile, PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
+import type {
+  ClaimResult,
+  ExecutorProfile,
+  PackageWorkspaceRef,
+  ProjectWorkspace
+} from "../types.js";
 import { runCommandInTmux, type TmuxSessionInfo } from "./tmuxExecutor.js";
 
 export type BlockClaim = Extract<ClaimResult, { kind: "block" }>;
@@ -64,7 +69,9 @@ export type StdinCommandResult = {
   limitExceeded?: ExecutorOutputLimitExceeded;
 };
 
-export function executorRuntimeLimits(profile: Pick<ExecutorProfile, "adapter"> & Partial<ExecutorRuntimeLimits>): ExecutorRuntimeLimits {
+export function executorRuntimeLimits(
+  profile: Pick<ExecutorProfile, "adapter"> & Partial<ExecutorRuntimeLimits>
+): ExecutorRuntimeLimits {
   return {
     timeoutMs: profile.timeoutMs ?? DEFAULT_EXECUTOR_TIMEOUT_MS,
     maxStdoutBytes: profile.maxStdoutBytes ?? DEFAULT_EXECUTOR_MAX_STDOUT_BYTES,
@@ -84,12 +91,17 @@ export async function assertPackageExecutorCommandTrusted(options: {
   if (options.profile.adapter === "manual" || !("command" in options.profile)) {
     return;
   }
-  if (!(await isCommandTrusted(options.projectRoot, options.profile.command, options.profile.args))) {
+  if (
+    !(await isCommandTrusted(options.projectRoot, options.profile.command, options.profile.args))
+  ) {
     throw untrustedExecutorCommandError(options.profile.command, options.executorName);
   }
 }
 
-export function executorLimitFailureMessage(input: { executorName: string; limitExceeded: ExecutorOutputLimitExceeded }): string {
+export function executorLimitFailureMessage(input: {
+  executorName: string;
+  limitExceeded: ExecutorOutputLimitExceeded;
+}): string {
   return `Executor '${input.executorName}' exceeded ${input.limitExceeded.stream} output limit of ${input.limitExceeded.limitBytes} bytes; partial output was preserved.`;
 }
 
@@ -121,10 +133,18 @@ export function executorHeartbeatPath(stdoutPath: string): string {
   return join(dirname(stdoutPath), "heartbeat.json");
 }
 
-function startExecutorHeartbeat(options: { path: string; pid: number | null; intervalMs?: number }): {
+function startExecutorHeartbeat(options: {
+  path: string;
+  pid: number | null;
+  intervalMs?: number;
+}): {
   markStdout: () => void;
   markStderr: () => void;
-  finish: (patch: Partial<Pick<ExecutorHeartbeatState, "status" | "finishedAt" | "exitCode" | "timedOut" | "error">>) => Promise<void>;
+  finish: (
+    patch: Partial<
+      Pick<ExecutorHeartbeatState, "status" | "finishedAt" | "exitCode" | "timedOut" | "error">
+    >
+  ) => Promise<void>;
 } {
   const now = new Date().toISOString();
   let state: ExecutorHeartbeatState = {
@@ -142,9 +162,7 @@ function startExecutorHeartbeat(options: { path: string; pid: number | null; int
   let writeChain = Promise.resolve();
   const write = (patch: Partial<ExecutorHeartbeatState>): Promise<void> => {
     state = { ...state, ...patch };
-    writeChain = writeChain
-      .catch(() => undefined)
-      .then(() => writeJsonFile(options.path, state));
+    writeChain = writeChain.catch(() => undefined).then(() => writeJsonFile(options.path, state));
     return writeChain;
   };
   const intervalMs = options.intervalMs ?? DEFAULT_EXECUTOR_HEARTBEAT_INTERVAL_MS;
@@ -158,10 +176,16 @@ function startExecutorHeartbeat(options: { path: string; pid: number | null; int
   void write({});
   return {
     markStdout: () => {
-      void write({ lastHeartbeatAt: new Date().toISOString(), lastStdoutAt: new Date().toISOString() });
+      void write({
+        lastHeartbeatAt: new Date().toISOString(),
+        lastStdoutAt: new Date().toISOString()
+      });
     },
     markStderr: () => {
-      void write({ lastHeartbeatAt: new Date().toISOString(), lastStderrAt: new Date().toISOString() });
+      void write({
+        lastHeartbeatAt: new Date().toISOString(),
+        lastStderrAt: new Date().toISOString()
+      });
     },
     finish: async (patch) => {
       if (heartbeatTimer) {
@@ -176,7 +200,10 @@ function outputLimitMarker(streamName: "stdout" | "stderr", limitBytes: number):
   return `\n[planweave: ${streamName} output truncated after ${limitBytes} bytes; executor terminated]\n`;
 }
 
-export async function readBoundedTextFile(path: string, limitBytes: number): Promise<{ text: string; truncated: boolean }> {
+export async function readBoundedTextFile(
+  path: string,
+  limitBytes: number
+): Promise<{ text: string; truncated: boolean }> {
   const file = await open(path, "r");
   try {
     const stats = await file.stat();
@@ -187,20 +214,28 @@ export async function readBoundedTextFile(path: string, limitBytes: number): Pro
     if (stats.size <= limitBytes) {
       return { text, truncated: false };
     }
-    return { text: `${text}\n[planweave: output summary truncated after ${limitBytes} bytes]\n`, truncated: true };
+    return {
+      text: `${text}\n[planweave: output summary truncated after ${limitBytes} bytes]\n`,
+      truncated: true
+    };
   } finally {
     await file.close();
   }
 }
 
-export function workspaceExecutorEnv(workspace: Pick<ProjectWorkspace, "planweaveHome">, env?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function workspaceExecutorEnv(
+  workspace: Pick<ProjectWorkspace, "planweaveHome">,
+  env?: NodeJS.ProcessEnv
+): NodeJS.ProcessEnv {
   return {
     ...(env ?? {}),
     PLANWEAVE_HOME: workspace.planweaveHome
   };
 }
 
-export function workspaceExecutionCwd(workspace: Pick<ProjectWorkspace, "rootPath" | "sourceRoot">): string {
+export function workspaceExecutionCwd(
+  workspace: Pick<ProjectWorkspace, "rootPath" | "sourceRoot">
+): string {
   return workspace.sourceRoot ?? workspace.rootPath;
 }
 
@@ -218,13 +253,18 @@ export async function allocateRunId(runRoot: string): Promise<string> {
   await mkdir(runRoot, { recursive: true });
   for (let attempt = 1; attempt <= 1000; attempt++) {
     const existing = await optionalReaddir(runRoot, { withFileTypes: true });
-    const count = existing?.filter((entry) => entry.isDirectory() && /^RUN-\d+$/.test(entry.name)).length ?? 0;
+    const count =
+      existing?.filter((entry) => entry.isDirectory() && /^RUN-\d+$/.test(entry.name)).length ?? 0;
     const candidate = `RUN-${String(count + attempt).padStart(3, "0")}`;
     try {
       await mkdir(join(runRoot, candidate), { recursive: false });
       return candidate;
     } catch (error) {
-      if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST") {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error as NodeJS.ErrnoException).code === "EEXIST"
+      ) {
         continue;
       }
       throw error;
@@ -239,7 +279,13 @@ export async function prepareBlockRun(options: {
   executorName: string;
   profile: ExecutorProfile;
   prompt: string;
-}): Promise<{ runId: string; runDir: string; promptPath: string; metadataPath: string; startedAt: string }> {
+}): Promise<{
+  runId: string;
+  runDir: string;
+  promptPath: string;
+  metadataPath: string;
+  startedAt: string;
+}> {
   const { workspace } = await loadPackage(options.projectRoot);
   const { taskId, blockId } = parseBlockRef(options.claim.ref);
   const runRoot = join(workspace.resultsDir, taskId, "blocks", blockId, "runs");
@@ -265,7 +311,10 @@ export async function prepareBlockRun(options: {
   return { runId, runDir, promptPath, metadataPath, startedAt };
 }
 
-export async function finishRunMetadata(path: string, patch: Record<string, unknown>): Promise<void> {
+export async function finishRunMetadata(
+  path: string,
+  patch: Record<string, unknown>
+): Promise<void> {
   let previous: Record<string, unknown> = {};
   if (await pathExists(path)) {
     previous = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
@@ -297,8 +346,12 @@ export async function execWithStdin(options: {
     let stderrBytes = 0;
     let timedOut = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;
-    const forceKillTimeout: { value: ReturnType<typeof setTimeout> | undefined } = { value: undefined };
-    const runtimeTimeout: { value: ReturnType<typeof setTimeout> | undefined } = { value: undefined };
+    const forceKillTimeout: { value: ReturnType<typeof setTimeout> | undefined } = {
+      value: undefined
+    };
+    const runtimeTimeout: { value: ReturnType<typeof setTimeout> | undefined } = {
+      value: undefined
+    };
     let settled = false;
     let limitExceeded: ExecutorOutputLimitExceeded | undefined;
 
@@ -374,7 +427,13 @@ export async function execWithStdin(options: {
         return;
       }
       settled = true;
-      resolve({ stdout, stderr, exitCode: limitExceeded ? 1 : timedOut ? 124 : code ?? 1, timedOut, limitExceeded });
+      resolve({
+        stdout,
+        stderr,
+        exitCode: limitExceeded ? 1 : timedOut ? 124 : (code ?? 1),
+        timedOut,
+        limitExceeded
+      });
     });
     try {
       child.stdin.end(options.stdin);
@@ -427,11 +486,24 @@ export async function execWithStreaming(options: {
       onStdout: options.onStdout,
       onStderr: options.onStderr
     });
-    const [stdout, stderr] = await Promise.all([readBoundedTextFile(result.stdoutPath, maxStdoutBytes), readBoundedTextFile(result.stderrPath, maxStderrBytes)]);
+    const [stdout, stderr] = await Promise.all([
+      readBoundedTextFile(result.stdoutPath, maxStdoutBytes),
+      readBoundedTextFile(result.stderrPath, maxStderrBytes)
+    ]);
     const limitExceeded =
       result.limitExceeded ??
-      (stdout.truncated ? { stream: "stdout" as const, limitBytes: maxStdoutBytes } : stderr.truncated ? { stream: "stderr" as const, limitBytes: maxStderrBytes } : undefined);
-    return { ...result, stdout: stdout.text, stderr: stderr.text, exitCode: limitExceeded ? 1 : result.exitCode, limitExceeded };
+      (stdout.truncated
+        ? { stream: "stdout" as const, limitBytes: maxStdoutBytes }
+        : stderr.truncated
+          ? { stream: "stderr" as const, limitBytes: maxStderrBytes }
+          : undefined);
+    return {
+      ...result,
+      stdout: stdout.text,
+      stderr: stderr.text,
+      exitCode: limitExceeded ? 1 : result.exitCode,
+      limitExceeded
+    };
   }
   await mkdir(dirname(options.stdoutPath), { recursive: true });
   await mkdir(dirname(options.stderrPath), { recursive: true });
@@ -451,7 +523,9 @@ export async function execWithStreaming(options: {
     });
     let timedOut = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;
-    const forceKillTimeout: { value: ReturnType<typeof setTimeout> | undefined } = { value: undefined };
+    const forceKillTimeout: { value: ReturnType<typeof setTimeout> | undefined } = {
+      value: undefined
+    };
     let stdout = "";
     let stderr = "";
     let stdoutBytes = 0;
@@ -495,14 +569,19 @@ export async function execWithStreaming(options: {
       reject(error);
     };
 
-    const enqueueCallback = (callback: ((chunk: string) => void | Promise<void>) | undefined, chunk: string): void => {
+    const enqueueCallback = (
+      callback: ((chunk: string) => void | Promise<void>) | undefined,
+      chunk: string
+    ): void => {
       if (!callback) {
         return;
       }
-      callbackChain = callbackChain.then(() => callback(chunk)).catch((error: unknown) => {
-        callbackError = error;
-        terminateChild();
-      });
+      callbackChain = callbackChain
+        .then(() => callback(chunk))
+        .catch((error: unknown) => {
+          callbackError = error;
+          terminateChild();
+        });
     };
 
     const writeBoundedOutput = (streamName: "stdout" | "stderr", chunk: Buffer): void => {
@@ -535,7 +614,10 @@ export async function execWithStreaming(options: {
         }
       }
       if (currentBytes + chunk.length <= limitBytes) {
-        enqueueCallback(streamName === "stdout" ? options.onStdout : options.onStderr, chunk.toString("utf8"));
+        enqueueCallback(
+          streamName === "stdout" ? options.onStdout : options.onStderr,
+          chunk.toString("utf8")
+        );
         return;
       }
       const marker = outputLimitMarker(streamName, limitBytes);
@@ -575,7 +657,7 @@ export async function execWithStreaming(options: {
           await heartbeat.finish({
             status: callbackError ? "failed" : "finished",
             finishedAt: new Date().toISOString(),
-            exitCode: callbackError || limitExceeded ? 1 : timedOut ? 124 : code ?? 1,
+            exitCode: callbackError || limitExceeded ? 1 : timedOut ? 124 : (code ?? 1),
             timedOut,
             error: callbackError ? errorText(callbackError) : null
           });
@@ -590,7 +672,7 @@ export async function execWithStreaming(options: {
             stderrPath: options.stderrPath,
             stdout,
             stderr,
-            exitCode: limitExceeded ? 1 : timedOut ? 124 : code ?? 1,
+            exitCode: limitExceeded ? 1 : timedOut ? 124 : (code ?? 1),
             timedOut,
             limitExceeded
           });

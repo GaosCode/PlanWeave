@@ -99,12 +99,18 @@ describe("desktop review pipeline API", () => {
         hook: { id: "security-hook", command: "node" }
       }
     });
-    await expect(readFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "R-001.prompt.md"), "utf8")).resolves.toBe(
-      "# Architecture review\n"
-    );
-    await expect(readFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "R-002.prompt.md"), "utf8")).resolves.toBe(
-      "# Security review\n"
-    );
+    await expect(
+      readFile(
+        join(init.workspace.packageDir, "nodes", "T-001", "blocks", "R-001.prompt.md"),
+        "utf8"
+      )
+    ).resolves.toBe("# Architecture review\n");
+    await expect(
+      readFile(
+        join(init.workspace.packageDir, "nodes", "T-001", "blocks", "R-002.prompt.md"),
+        "utf8"
+      )
+    ).resolves.toBe("# Security review\n");
   });
 
   it("allows clearing all review steps from a task", async () => {
@@ -120,14 +126,22 @@ describe("desktop review pipeline API", () => {
       })
     ).resolves.toMatchObject({ ok: true, affectedTasks: ["T-001"] });
 
-    await expect(getReviewPipeline(root, "T-001")).resolves.toMatchObject({ taskId: "T-001", steps: [] });
+    await expect(getReviewPipeline(root, "T-001")).resolves.toMatchObject({
+      taskId: "T-001",
+      steps: []
+    });
     const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
     if (task?.type !== "task") {
       throw new Error("Fixture task missing.");
     }
     expect(task.blocks.map((block) => block.type)).toEqual(["implementation"]);
-    await expect(readFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "R-001.prompt.md"), "utf8")).rejects.toMatchObject({
+    await expect(
+      readFile(
+        join(init.workspace.packageDir, "nodes", "T-001", "blocks", "R-001.prompt.md"),
+        "utf8"
+      )
+    ).rejects.toMatchObject({
       code: "ENOENT"
     });
   });

@@ -3,7 +3,14 @@ import { access, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { getAutoRunState, getLatestAutoRunSummary, pauseAutoRun, resumeAutoRun, startAutoRun, stopAutoRun } from "../desktop/index.js";
+import {
+  getAutoRunState,
+  getLatestAutoRunSummary,
+  pauseAutoRun,
+  resumeAutoRun,
+  startAutoRun,
+  stopAutoRun
+} from "../desktop/index.js";
 import type { PlanPackageManifest } from "../types.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 
@@ -26,7 +33,10 @@ afterEach(async () => {
   delete process.env.PLANWEAVE_HOME;
 });
 
-async function waitForRun(runId: string, predicate: (state: Awaited<ReturnType<typeof getAutoRunState>>) => boolean) {
+async function waitForRun(
+  runId: string,
+  predicate: (state: Awaited<ReturnType<typeof getAutoRunState>>) => boolean
+) {
   let state = await getAutoRunState(runId);
   for (let attempt = 0; attempt < 500 && !predicate(state); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -44,7 +54,10 @@ async function readAutoRunEvents(eventLogPath: string): Promise<AutoRunEventLogE
     .map((line) => JSON.parse(line) as AutoRunEventLogEntry);
 }
 
-async function waitForEvent(eventLogPath: string, predicate: (event: AutoRunEventLogEntry) => boolean): Promise<void> {
+async function waitForEvent(
+  eventLogPath: string,
+  predicate: (event: AutoRunEventLogEntry) => boolean
+): Promise<void> {
   let events: AutoRunEventLogEntry[] = [];
   for (let attempt = 0; attempt < 500; attempt += 1) {
     events = await readAutoRunEvents(eventLogPath).catch(() => []);
@@ -53,7 +66,9 @@ async function waitForEvent(eventLogPath: string, predicate: (event: AutoRunEven
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  throw new Error(`Timed out waiting for Auto Run event. Observed events: ${events.map((event) => event.type).join(", ")}`);
+  throw new Error(
+    `Timed out waiting for Auto Run event. Observed events: ${events.map((event) => event.type).join(", ")}`
+  );
 }
 
 async function waitForRunRelease(runId: string): Promise<void> {
@@ -115,8 +130,17 @@ describe("desktop auto run control events", () => {
     expect(events.filter((event) => event.type === "pause_requested")).toHaveLength(1);
     expect(events).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: "pause_requested", previousPhase: "running", nextPhase: "pausing" }),
-        expect.objectContaining({ type: "step_finish", phase: "paused", stepKind: "submitted", pausedAfterStep: true })
+        expect.objectContaining({
+          type: "pause_requested",
+          previousPhase: "running",
+          nextPhase: "pausing"
+        }),
+        expect.objectContaining({
+          type: "step_finish",
+          phase: "paused",
+          stepKind: "submitted",
+          pausedAfterStep: true
+        })
       ])
     );
   });
@@ -159,7 +183,11 @@ describe("desktop auto run control events", () => {
     const events = await readAutoRunEvents(finished.eventLogPath);
     expect(events.filter((event) => event.type === "run_resumed")).toHaveLength(0);
     expect(events.filter((event) => event.type === "step_start")).toHaveLength(1);
-    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "step_finish", phase: "running", stepKind: "submitted" })]));
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "step_finish", phase: "running", stepKind: "submitted" })
+      ])
+    );
   });
 
   it("records stop after a manual phase as the final auditable transition", async () => {
@@ -188,15 +216,27 @@ describe("desktop auto run control events", () => {
       currentExecutor: "manual"
     });
 
-    await expect(stopAutoRun(started.runId)).resolves.toMatchObject({ runId: started.runId, phase: "stopped" });
-    await expect(getAutoRunState(started.runId)).rejects.toThrow(`Auto Run '${started.runId}' does not exist.`);
-    await expect(getLatestAutoRunSummary(root, null)).resolves.toMatchObject({ runId: started.runId, phase: "stopped" });
+    await expect(stopAutoRun(started.runId)).resolves.toMatchObject({
+      runId: started.runId,
+      phase: "stopped"
+    });
+    await expect(getAutoRunState(started.runId)).rejects.toThrow(
+      `Auto Run '${started.runId}' does not exist.`
+    );
+    await expect(getLatestAutoRunSummary(root, null)).resolves.toMatchObject({
+      runId: started.runId,
+      phase: "stopped"
+    });
 
     const events = await readAutoRunEvents(manual.eventLogPath);
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "step_finish", phase: "manual", stepKind: "manual" }),
-        expect.objectContaining({ type: "run_stopped", previousPhase: "manual", nextPhase: "stopped" })
+        expect.objectContaining({
+          type: "run_stopped",
+          previousPhase: "manual",
+          nextPhase: "stopped"
+        })
       ])
     );
   });
@@ -223,19 +263,45 @@ describe("desktop auto run control events", () => {
     startedRunIds.add(started.runId);
     await waitForEvent(started.eventLogPath, (event) => event.type === "step_start");
 
-    await expect(stopAutoRun(started.runId)).resolves.toMatchObject({ runId: started.runId, phase: "stopped" });
+    await expect(stopAutoRun(started.runId)).resolves.toMatchObject({
+      runId: started.runId,
+      phase: "stopped"
+    });
     await waitForPath(markerPath);
-    await waitForPath(join(workspace.init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "report.md"));
+    await waitForPath(
+      join(
+        workspace.init.workspace.resultsDir,
+        "T-001",
+        "blocks",
+        "B-001",
+        "runs",
+        "RUN-001",
+        "report.md"
+      )
+    );
     await waitForEvent(started.eventLogPath, (event) => event.type === "stopped_step_ignored");
     await waitForRunRelease(started.runId);
-    await expect(getLatestAutoRunSummary(workspace.root, null)).resolves.toMatchObject({ runId: started.runId, phase: "stopped", stepCount: 0 });
+    await expect(getLatestAutoRunSummary(workspace.root, null)).resolves.toMatchObject({
+      runId: started.runId,
+      phase: "stopped",
+      stepCount: 0
+    });
 
     const events = await readAutoRunEvents(started.eventLogPath);
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "step_start", phase: "running" }),
-        expect.objectContaining({ type: "run_stopped", previousPhase: "running", nextPhase: "stopped" }),
-        expect.objectContaining({ type: "stopped_step_ignored", phase: "stopped", stepKind: "submitted", stoppedPhase: "stopped" })
+        expect.objectContaining({
+          type: "run_stopped",
+          previousPhase: "running",
+          nextPhase: "stopped"
+        }),
+        expect.objectContaining({
+          type: "stopped_step_ignored",
+          phase: "stopped",
+          stepKind: "submitted",
+          stoppedPhase: "stopped"
+        })
       ])
     );
     expect(events.filter((event) => event.type === "step_finish")).toHaveLength(0);

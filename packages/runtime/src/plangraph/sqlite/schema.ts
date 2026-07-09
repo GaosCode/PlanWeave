@@ -13,10 +13,14 @@ const sqliteIndexDefinitions = [
 ] as const;
 
 export function ensureSchema(db: SqliteDatabase): void {
-  const projectionVersionsTable = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projection_versions'").get();
+  const projectionVersionsTable = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projection_versions'")
+    .get();
   if (projectionVersionsTable) {
     const columns = db.prepare("PRAGMA table_info(projection_versions)").all();
-    const cacheKeyColumn = columns.find((column) => isRecord(column) && column.name === "cache_key");
+    const cacheKeyColumn = columns.find(
+      (column) => isRecord(column) && column.name === "cache_key"
+    );
     const cacheKeyPrimaryKeyPosition = isRecord(cacheKeyColumn) ? cacheKeyColumn.pk : null;
     if (cacheKeyPrimaryKeyPosition !== 3) {
       db.exec("DROP TABLE projection_versions");
@@ -102,7 +106,9 @@ export function ensureSchema(db: SqliteDatabase): void {
     );
   `);
   const operationLogColumns = db.prepare("PRAGMA table_info(operation_log)").all();
-  if (!operationLogColumns.some((column) => isRecord(column) && column.name === "workspace_ref_json")) {
+  if (
+    !operationLogColumns.some((column) => isRecord(column) && column.name === "workspace_ref_json")
+  ) {
     db.exec("ALTER TABLE operation_log ADD COLUMN workspace_ref_json TEXT");
   }
   ensureIndexes(db);

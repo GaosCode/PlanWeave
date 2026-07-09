@@ -1,6 +1,10 @@
 import * as z from "zod/v4";
 import { projectInput } from "./inputShapes.js";
-import { readOnlyAnnotations, writeAnnotations, type PlanweavePartialToolDefinitionRegistry } from "./types.js";
+import {
+  readOnlyAnnotations,
+  writeAnnotations,
+  type PlanweavePartialToolDefinitionRegistry
+} from "./types.js";
 
 export const projectToolDefinitions = {
   get_project_tree: {
@@ -21,7 +25,8 @@ export const projectToolDefinitions = {
   },
   list_projects_summary: {
     title: "List PlanWeave Project Summaries",
-    description: "List registered PlanWeave projects with projectId, name, active canvas, canvas count, and diagnostics counts.",
+    description:
+      "List registered PlanWeave projects with projectId, name, active canvas, canvas count, and diagnostics counts.",
     annotations: readOnlyAnnotations
   },
   open_project: {
@@ -32,13 +37,15 @@ export const projectToolDefinitions = {
   },
   open_project_summary: {
     title: "Open PlanWeave Project Summary",
-    description: "Return one registered PlanWeave project's metadata and canvas summaries by projectId.",
+    description:
+      "Return one registered PlanWeave project's metadata and canvas summaries by projectId.",
     inputSchema: projectInput,
     annotations: readOnlyAnnotations
   },
   list_canvases: {
     title: "List PlanWeave Canvases",
-    description: "List canvas summaries for one registered PlanWeave project without returning task or prompt bodies.",
+    description:
+      "List canvas summaries for one registered PlanWeave project without returning task or prompt bodies.",
     inputSchema: projectInput,
     annotations: readOnlyAnnotations
   },
@@ -62,25 +69,35 @@ export const projectToolDefinitions = {
   },
   get_project_overview: {
     title: "Get PlanWeave Project Overview",
-    description: "Compatibility alias for open_project. Return a registered PlanWeave project's canvases and high-level summary.",
+    description:
+      "Compatibility alias for open_project. Return a registered PlanWeave project's canvases and high-level summary.",
     inputSchema: projectInput,
     annotations: readOnlyAnnotations
   },
   add_canvas_dependency: {
     title: "Add PlanWeave Canvas Dependency",
     description: "Add a project graph dependency edge from one canvas to another canvas.",
-    inputSchema: { ...projectInput, fromCanvasId: z.string().min(1), toCanvasId: z.string().min(1) },
+    inputSchema: {
+      ...projectInput,
+      fromCanvasId: z.string().min(1),
+      toCanvasId: z.string().min(1)
+    },
     annotations: writeAnnotations
   },
   remove_canvas_dependency: {
     title: "Remove PlanWeave Canvas Dependency",
     description: "Remove a project graph dependency edge from one canvas to another canvas.",
-    inputSchema: { ...projectInput, fromCanvasId: z.string().min(1), toCanvasId: z.string().min(1) },
+    inputSchema: {
+      ...projectInput,
+      fromCanvasId: z.string().min(1),
+      toCanvasId: z.string().min(1)
+    },
     annotations: writeAnnotations
   },
   add_cross_task_dependency: {
     title: "Add PlanWeave Cross-Task Dependency",
-    description: "Add a project graph dependency from a task in one canvas to a task in another canvas.",
+    description:
+      "Add a project graph dependency from a task in one canvas to a task in another canvas.",
     inputSchema: {
       ...projectInput,
       fromCanvasId: z.string().min(1),
@@ -92,7 +109,8 @@ export const projectToolDefinitions = {
   },
   remove_cross_task_dependency: {
     title: "Remove PlanWeave Cross-Task Dependency",
-    description: "Remove a project graph dependency from a task in one canvas to a task in another canvas.",
+    description:
+      "Remove a project graph dependency from a task in one canvas to a task in another canvas.",
     inputSchema: {
       ...projectInput,
       fromCanvasId: z.string().min(1),

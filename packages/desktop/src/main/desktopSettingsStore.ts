@@ -19,7 +19,12 @@ export class DesktopSettingsStoreError extends Error {
   readonly settingsFile: string;
   readonly cause: unknown;
 
-  constructor(code: DesktopSettingsStoreErrorCode, settingsFile: string, message: string, cause: unknown) {
+  constructor(
+    code: DesktopSettingsStoreErrorCode,
+    settingsFile: string,
+    message: string,
+    cause: unknown
+  ) {
     super(message);
     this.name = "DesktopSettingsStoreError";
     this.code = code;
@@ -54,7 +59,10 @@ function hasExplicitWindowMaterialPreference(value: unknown): boolean {
   return typeof value.windowMaterial.enabled === "boolean";
 }
 
-function applyMacosMaterialDefault(settings: DesktopUiSettings, platform: NodeJS.Platform): DesktopUiSettings {
+function applyMacosMaterialDefault(
+  settings: DesktopUiSettings,
+  platform: NodeJS.Platform
+): DesktopUiSettings {
   if (platform !== "darwin" || settings.windowMaterial.enabled) {
     return settings;
   }
@@ -100,7 +108,10 @@ export function applyPersistedPlanweaveHomeSetting(
     }
     throw caught;
   }
-  applyPlanweaveHomeSetting(normalizeDesktopSettings(JSON.parse(raw) as unknown), baselinePlanweaveHome);
+  applyPlanweaveHomeSetting(
+    normalizeDesktopSettings(JSON.parse(raw) as unknown),
+    baselinePlanweaveHome
+  );
 }
 
 type DesktopSettingsStoreOptions = {
@@ -121,7 +132,7 @@ export class DesktopSettingsStore {
     this.planweaveHomeBaseline =
       resolvedOptions.planweaveHomeBaseline === null
         ? null
-        : resolvedOptions.planweaveHomeBaseline ?? process.env.PLANWEAVE_HOME;
+        : (resolvedOptions.planweaveHomeBaseline ?? process.env.PLANWEAVE_HOME);
   }
 
   private initialSettings(): DesktopUiSettings {
@@ -146,7 +157,12 @@ export class DesktopSettingsStore {
       applyPlanweaveHomeSetting(normalized, this.planweaveHomeBaseline);
       return normalized;
     } catch (caught) {
-      throw new DesktopSettingsStoreError("invalid_json", this.settingsFile, `Desktop settings file contains invalid JSON: ${this.settingsFile}`, caught);
+      throw new DesktopSettingsStoreError(
+        "invalid_json",
+        this.settingsFile,
+        `Desktop settings file contains invalid JSON: ${this.settingsFile}`,
+        caught
+      );
     }
   }
 

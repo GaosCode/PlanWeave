@@ -27,11 +27,7 @@ export type UseDesktopProjectArgs = {
   updateSettings: (update: DesktopSettingsUpdate) => void;
 };
 
-export function useDesktopProject({
-  setError,
-  t,
-  updateSettings
-}: UseDesktopProjectArgs) {
+export function useDesktopProject({ setError, t, updateSettings }: UseDesktopProjectArgs) {
   const [projects, setProjects] = useState<DesktopProjectSummary[]>([]);
   const [projectLoading, setProjectLoading] = useState(Boolean(bridge));
   const [projectRefreshing, setProjectRefreshing] = useState(false);
@@ -46,10 +42,13 @@ export function useDesktopProject({
   const [projectDiagnostics, setProjectDiagnostics] = useState<ValidationIssue[]>([]);
   const [graphDiagnostics, setGraphDiagnostics] = useState<ValidationIssue[]>([]);
   const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<ValidationIssue[]>([]);
-  const [runtimeRefreshSnapshot, setRuntimeRefreshSnapshot] = useState<DesktopRuntimeRefreshSnapshot | null>(null);
+  const [runtimeRefreshSnapshot, setRuntimeRefreshSnapshot] =
+    useState<DesktopRuntimeRefreshSnapshot | null>(null);
   const [projectPromptMarkdown, setProjectPromptMarkdown] = useState<string | null>(null);
   const [projectPromptPolicy, setProjectPromptPolicy] = useState<ProjectPromptPolicy | null>(null);
-  const [pendingImportRecoveries, setPendingImportRecoveries] = useState<PendingImportTransaction[]>([]);
+  const [pendingImportRecoveries, setPendingImportRecoveries] = useState<
+    PendingImportTransaction[]
+  >([]);
 
   const {
     applyDesktopProjectSnapshot,
@@ -115,7 +114,10 @@ export function useDesktopProject({
     const canvasRef = desktopCanvasReference(selectedProject, selectedCanvasId);
     const snapshot = await bridge.getDesktopRuntimeRefresh(canvasRef);
     const currentCanvas = currentCanvasRef.current;
-    if (currentCanvas.projectRoot !== canvasRef.projectRoot || currentCanvas.canvasId !== canvasRef.canvasId) {
+    if (
+      currentCanvas.projectRoot !== canvasRef.projectRoot ||
+      currentCanvas.canvasId !== canvasRef.canvasId
+    ) {
       return;
     }
     const errors = applyRuntimeRefreshSnapshot(snapshot);
@@ -126,7 +128,14 @@ export function useDesktopProject({
     if (errors.length > 0) {
       setError(errors.join("\n"));
     }
-  }, [applyRuntimeRefreshSnapshot, currentCanvasRef, refreshDesktopGraphDiagnostics, selectedCanvasId, selectedProject, setError]);
+  }, [
+    applyRuntimeRefreshSnapshot,
+    currentCanvasRef,
+    refreshDesktopGraphDiagnostics,
+    selectedCanvasId,
+    selectedProject,
+    setError
+  ]);
 
   const { rollbackPendingImportRecovery } = useDesktopImportRecovery({
     refreshProjectDerivedState,

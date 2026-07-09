@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import type { DesktopGraphViewModel, DesktopProjectSummary, DesktopReviewPipeline, DesktopReviewPipelineStepInput } from "@planweave-ai/runtime";
+import type {
+  DesktopGraphViewModel,
+  DesktopProjectSummary,
+  DesktopReviewPipeline,
+  DesktopReviewPipelineStepInput
+} from "@planweave-ai/runtime";
 import { bridge, desktopCanvasReference } from "../bridge";
 import type { createTranslator } from "../i18n";
 import { normalizeReviewPipelineDraft } from "./reviewPipelineDraft";
@@ -18,7 +23,14 @@ function missingReviewTaskError(caught: unknown, taskId: string): boolean {
   return message.includes(`Task '${taskId}' does not exist.`);
 }
 
-export function useReviewPipeline({ graph, reloadCurrentCanvas, selectedCanvasId, selectedProject, setError, t }: UseReviewPipelineArgs) {
+export function useReviewPipeline({
+  graph,
+  reloadCurrentCanvas,
+  selectedCanvasId,
+  selectedProject,
+  setError,
+  t
+}: UseReviewPipelineArgs) {
   const [reviewTaskId, setReviewTaskId] = useState<string | null>(null);
   const [reviewPipeline, setReviewPipeline] = useState<DesktopReviewPipeline | null>(null);
   const [reviewDraft, setReviewDraft] = useState<DesktopReviewPipelineStepInput[]>([]);
@@ -32,11 +44,18 @@ export function useReviewPipeline({ graph, reloadCurrentCanvas, selectedCanvasId
       return;
     }
     const graphTaskIds = new Set(graph.tasks.map((task) => task.taskId));
-    setReviewTaskId((current) => (current && graphTaskIds.has(current) ? current : graph.tasks[0]?.taskId ?? null));
+    setReviewTaskId((current) =>
+      current && graphTaskIds.has(current) ? current : (graph.tasks[0]?.taskId ?? null)
+    );
   }, [graph]);
 
   useEffect(() => {
-    if (!bridge || !selectedProject || !reviewTaskId || !graph?.tasks.some((task) => task.taskId === reviewTaskId)) {
+    if (
+      !bridge ||
+      !selectedProject ||
+      !reviewTaskId ||
+      !graph?.tasks.some((task) => task.taskId === reviewTaskId)
+    ) {
       setReviewPipeline(null);
       setReviewDraft([]);
       return;
@@ -81,9 +100,14 @@ export function useReviewPipeline({ graph, reloadCurrentCanvas, selectedCanvasId
     [reviewTaskId]
   );
 
-  const updateReviewStep = useCallback((index: number, patch: Partial<DesktopReviewPipelineStepInput>) => {
-    setReviewDraft((current) => current.map((step, stepIndex) => (stepIndex === index ? { ...step, ...patch } : step)));
-  }, []);
+  const updateReviewStep = useCallback(
+    (index: number, patch: Partial<DesktopReviewPipelineStepInput>) => {
+      setReviewDraft((current) =>
+        current.map((step, stepIndex) => (stepIndex === index ? { ...step, ...patch } : step))
+      );
+    },
+    []
+  );
 
   const addReviewStep = useCallback(() => {
     setReviewDraft((current) => [
@@ -148,7 +172,15 @@ export function useReviewPipeline({ graph, reloadCurrentCanvas, selectedCanvasId
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [reloadCurrentCanvas, reviewDefaultCyclesDraft, reviewDraft, reviewTaskId, selectedCanvasId, selectedProject, setError]);
+  }, [
+    reloadCurrentCanvas,
+    reviewDefaultCyclesDraft,
+    reviewDraft,
+    reviewTaskId,
+    selectedCanvasId,
+    selectedProject,
+    setError
+  ]);
 
   return {
     addReviewStep,

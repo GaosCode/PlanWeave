@@ -71,11 +71,18 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForSessionRecord(projectRoot: string, sessionId: string, recordId: string): Promise<void> {
+async function waitForSessionRecord(
+  projectRoot: string,
+  sessionId: string,
+  recordId: string
+): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     try {
       const detail = await getRunSession(projectRoot, sessionId);
-      if (detail.session.latestRecordId === recordId && detail.events.some((event) => event.type === "step_start" && event.recordId === recordId)) {
+      if (
+        detail.session.latestRecordId === recordId &&
+        detail.events.some((event) => event.type === "step_start" && event.recordId === recordId)
+      ) {
         return;
       }
     } catch {
@@ -87,7 +94,10 @@ async function waitForSessionRecord(projectRoot: string, sessionId: string, reco
   expect(detail.session.latestRecordId).toBe(recordId);
 }
 
-async function waitForAutoRunStatus(projectRoot: string, predicate: (status: Awaited<ReturnType<typeof getAutoRunStatus>>) => boolean) {
+async function waitForAutoRunStatus(
+  projectRoot: string,
+  predicate: (status: Awaited<ReturnType<typeof getAutoRunStatus>>) => boolean
+) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const status = await getAutoRunStatus({ projectRoot });
     if (predicate(status)) {
@@ -102,7 +112,12 @@ describe("runWithSession", () => {
   it("creates a run session, resets state, and records the first block run", async () => {
     const { root, init } = await createTestWorkspace(automaticManifest());
 
-    const result = await runWithSession({ projectRoot: root, reset: true, stepLimit: 10, ...noTmux });
+    const result = await runWithSession({
+      projectRoot: root,
+      reset: true,
+      stepLimit: 10,
+      ...noTmux
+    });
     const detail = await getRunSession(root, result.session.sessionId);
 
     expect(result.session).toMatchObject({
@@ -110,11 +125,18 @@ describe("runWithSession", () => {
       kind: "run",
       phase: "completed",
       reset: expect.objectContaining({ performed: true, forced: false, reason: null }),
-      autoRun: expect.objectContaining({ stepCount: 3, parallel: false, executorOverride: null, stopReason: null }),
+      autoRun: expect.objectContaining({
+        stepCount: 3,
+        parallel: false,
+        executorOverride: null,
+        stopReason: null
+      }),
       latestRecordId: "T-001#R-001::RUN-001",
       error: null
     });
-    expect(detail.events.map((event) => event.type).filter((eventType) => eventType !== "step_start")).toEqual([
+    expect(
+      detail.events.map((event) => event.type).filter((eventType) => eventType !== "step_start")
+    ).toEqual([
       "session_started",
       "reset_started",
       "reset_completed",
@@ -124,12 +146,20 @@ describe("runWithSession", () => {
       "session_completed"
     ]);
     const stepEvents = detail.events.filter((event) => event.type === "step_finish");
-    expect(stepEvents.find((event) => JSON.stringify(event.claimRefs) === JSON.stringify(["T-001#B-001"]))).toMatchObject({
+    expect(
+      stepEvents.find(
+        (event) => JSON.stringify(event.claimRefs) === JSON.stringify(["T-001#B-001"])
+      )
+    ).toMatchObject({
       stepKind: "submitted",
       recordId: "T-001#B-001::RUN-001",
       recordLinks: [expect.objectContaining({ recordId: "T-001#B-001::RUN-001" })]
     });
-    expect(stepEvents.find((event) => JSON.stringify(event.claimRefs) === JSON.stringify(["T-001#R-001"]))).toMatchObject({
+    expect(
+      stepEvents.find(
+        (event) => JSON.stringify(event.claimRefs) === JSON.stringify(["T-001#R-001"])
+      )
+    ).toMatchObject({
       stepKind: "submitted",
       reviewAttemptId: expect.any(String),
       reviewVerdict: "passed",
@@ -141,14 +171,33 @@ describe("runWithSession", () => {
       recordId: null,
       recordLinks: []
     });
-    await expect(access(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toBeUndefined();
+    await expect(
+      access(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-001",
+          "metadata.json"
+        )
+      )
+    ).resolves.toBeUndefined();
   });
 
   it("keeps block run history across repeated forced reset runs", async () => {
     const { root, init } = await createTestWorkspace(automaticManifest());
 
     await runWithSession({ projectRoot: root, reset: true, stepLimit: 10, ...noTmux });
-    const second = await runWithSession({ projectRoot: root, reset: true, force: true, reason: "  rerun acceptance  ", stepLimit: 10, ...noTmux });
+    const second = await runWithSession({
+      projectRoot: root,
+      reset: true,
+      force: true,
+      reason: "  rerun acceptance  ",
+      stepLimit: 10,
+      ...noTmux
+    });
 
     expect(second.session).toMatchObject({
       sessionId: "SESSION-0002",
@@ -156,15 +205,47 @@ describe("runWithSession", () => {
       reset: expect.objectContaining({ performed: true, forced: true, reason: "rerun acceptance" }),
       latestRecordId: "T-001#R-001::RUN-002"
     });
-    await expect(access(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toBeUndefined();
-    await expect(access(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-002", "metadata.json"))).resolves.toBeUndefined();
+    await expect(
+      access(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-001",
+          "metadata.json"
+        )
+      )
+    ).resolves.toBeUndefined();
+    await expect(
+      access(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-002",
+          "metadata.json"
+        )
+      )
+    ).resolves.toBeUndefined();
 
     const detail = await getRunSession(root, "SESSION-0002");
     expect(detail.events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "reset_started", reason: "rerun acceptance", force: true }),
-        expect.objectContaining({ type: "reset_completed", reset: expect.objectContaining({ reason: "rerun acceptance" }) }),
-        expect.objectContaining({ type: "step_finish", stepKind: "submitted", claimRefs: ["T-001#B-001"], recordId: "T-001#B-001::RUN-002" })
+        expect.objectContaining({
+          type: "reset_completed",
+          reset: expect.objectContaining({ reason: "rerun acceptance" })
+        }),
+        expect.objectContaining({
+          type: "step_finish",
+          stepKind: "submitted",
+          claimRefs: ["T-001#B-001"],
+          recordId: "T-001#B-001::RUN-002"
+        })
       ])
     );
   }, 20_000);
@@ -172,13 +253,22 @@ describe("runWithSession", () => {
   it("maps a manual step to a manual final session phase", async () => {
     const { root } = await createTestWorkspace();
 
-    const result = await runWithSession({ projectRoot: root, once: true, executorName: "manual", ...noTmux });
+    const result = await runWithSession({
+      projectRoot: root,
+      once: true,
+      executorName: "manual",
+      ...noTmux
+    });
     const detail = await getRunSession(root, result.session.sessionId);
 
     expect(result.session).toMatchObject({
       sessionId: "SESSION-0001",
       phase: "manual",
-      autoRun: expect.objectContaining({ stepCount: 1, executorOverride: "manual", stopReason: null }),
+      autoRun: expect.objectContaining({
+        stepCount: 1,
+        executorOverride: "manual",
+        stopReason: null
+      }),
       latestRecordId: "T-001#B-001::RUN-001"
     });
     expect(result.steps).toHaveLength(1);
@@ -200,15 +290,27 @@ describe("runWithSession", () => {
   });
 
   it("maps manual steps inside a parallel batch to a manual final session phase", async () => {
-    const { root } = await createTestWorkspace(basicManifest({ includeSecondTask: true, parallel: true, maxConcurrent: 2 }));
+    const { root } = await createTestWorkspace(
+      basicManifest({ includeSecondTask: true, parallel: true, maxConcurrent: 2 })
+    );
 
-    const result = await runWithSession({ projectRoot: root, parallel: true, executorName: "manual", ...noTmux });
+    const result = await runWithSession({
+      projectRoot: root,
+      parallel: true,
+      executorName: "manual",
+      ...noTmux
+    });
     const detail = await getRunSession(root, result.session.sessionId);
 
     expect(result.session).toMatchObject({
       sessionId: "SESSION-0001",
       phase: "manual",
-      autoRun: expect.objectContaining({ stepCount: 1, parallel: true, executorOverride: "manual", stopReason: null }),
+      autoRun: expect.objectContaining({
+        stepCount: 1,
+        parallel: true,
+        executorOverride: "manual",
+        stopReason: null
+      }),
       latestRecordId: "T-002#B-001::RUN-001"
     });
     expect(result.steps).toHaveLength(1);
@@ -243,7 +345,10 @@ describe("runWithSession", () => {
     await runAutoRunStep({ projectRoot: root });
     await waitForAutoRunStatus(
       root,
-      (currentStatus) => currentStatus.warnings.length === 0 && currentStatus.explanation.nextAction.kind === "start" && currentStatus.explanation.nextAction.ref === "T-001#R-001"
+      (currentStatus) =>
+        currentStatus.warnings.length === 0 &&
+        currentStatus.explanation.nextAction.kind === "start" &&
+        currentStatus.explanation.nextAction.ref === "T-001#R-001"
     );
 
     const result = await runWithSession({ projectRoot: root, once: true, ...noTmux });
@@ -262,11 +367,17 @@ describe("runWithSession", () => {
       kind: "submitted",
       claim: { kind: "block", ref: "T-001#R-001" }
     });
-    expect(state.blocks["T-001#B-001"]).toMatchObject({ status: "completed", lastRunId: "RUN-001" });
+    expect(state.blocks["T-001#B-001"]).toMatchObject({
+      status: "completed",
+      lastRunId: "RUN-001"
+    });
     expect(status.explanation.latestRecordId).toBe("T-001#R-001::RUN-001");
-    await expect(readFile(join(init.workspace.resultsDir, "run-sessions", "SESSION-0001", "events.ndjson"), "utf8")).resolves.not.toContain(
-      "reset_completed"
-    );
+    await expect(
+      readFile(
+        join(init.workspace.resultsDir, "run-sessions", "SESSION-0001", "events.ndjson"),
+        "utf8"
+      )
+    ).resolves.not.toContain("reset_completed");
   });
 
   it("links the active run record before a slow step finishes", async () => {
@@ -279,7 +390,9 @@ describe("runWithSession", () => {
     expect(pendingDetail.session).toMatchObject({
       phase: "running",
       latestRecordId: "T-001#B-001::RUN-001",
-      latestRecordPath: expect.stringContaining(join("T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))
+      latestRecordPath: expect.stringContaining(
+        join("T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json")
+      )
     });
     expect(pendingDetail.events).toEqual(
       expect.arrayContaining([
@@ -310,7 +423,13 @@ describe("runWithSession", () => {
     expect(result.steps).toHaveLength(1);
     expect(result.status.explanation.nextAction.kind).toBe("start");
     expect(detail.events).toEqual(
-      expect.arrayContaining([expect.objectContaining({ type: "session_completed", phase: "completed", stopReason: "step_limit" })])
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "session_completed",
+          phase: "completed",
+          stopReason: "step_limit"
+        })
+      ])
     );
   });
 
@@ -352,7 +471,9 @@ describe("runWithSession", () => {
 
     const result = await runWithSession({ projectRoot: root, stepLimit: 3, ...noTmux });
     const detail = await getRunSession(root, result.session.sessionId);
-    const feedbackStep = detail.events.find((event) => event.type === "step_finish" && event.recordId === "FE-001::RUN-001");
+    const feedbackStep = detail.events.find(
+      (event) => event.type === "step_finish" && event.recordId === "FE-001::RUN-001"
+    );
 
     expect(result.session).toMatchObject({
       phase: "completed",

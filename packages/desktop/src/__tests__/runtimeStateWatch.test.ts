@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { desktopBridgeInvokeChannels, runtimeStateChangedChannel } from "../shared/ipcChannels";
 
-type RegisteredHandler = (event: { sender: TestWebContents }, ref: { projectRoot: string; canvasId?: string | null }) => unknown;
+type RegisteredHandler = (
+  event: { sender: TestWebContents },
+  ref: { projectRoot: string; canvasId?: string | null }
+) => unknown;
 type WatchCallback = (eventType: string, filename: string | Buffer | null) => void;
 
 type TestWebContents = {
@@ -112,19 +115,28 @@ function createWebContents(id = 1): TestWebContents {
   };
 }
 
-async function registerAndWatch(webContents: TestWebContents, workspace: TestWorkspace): Promise<void> {
+async function registerAndWatch(
+  webContents: TestWebContents,
+  workspace: TestWorkspace
+): Promise<void> {
   runtimeMock.state.workspace = workspace;
   const { registerRuntimeStateWatchHandlers } = await import("../main/runtimeStateWatch");
   registerRuntimeStateWatchHandlers();
   const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.watchRuntimeState);
   expect(handler).toBeDefined();
-  await handler?.({ sender: webContents }, { projectRoot: workspace.rootPath, canvasId: "canvas-a" });
+  await handler?.(
+    { sender: webContents },
+    { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
+  );
 }
 
 async function unwatch(webContents: TestWebContents, workspace: TestWorkspace): Promise<void> {
   const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.unwatchRuntimeState);
   expect(handler).toBeDefined();
-  await handler?.({ sender: webContents }, { projectRoot: workspace.rootPath, canvasId: "canvas-a" });
+  await handler?.(
+    { sender: webContents },
+    { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
+  );
 }
 
 async function flushDebounce(): Promise<void> {
@@ -159,7 +171,9 @@ describe("runtime state watcher", () => {
 
   afterEach(async () => {
     vi.useRealTimers();
-    await Promise.all(tempRoots.splice(0).map((rootPath) => rm(rootPath, { recursive: true, force: true })));
+    await Promise.all(
+      tempRoots.splice(0).map((rootPath) => rm(rootPath, { recursive: true, force: true }))
+    );
   });
 
   it("notifies subscribers when the current canvas state file changes", async () => {
@@ -169,11 +183,19 @@ describe("runtime state watcher", () => {
 
     await registerAndWatch(webContents, workspace);
 
-    expect(fsMock.watch).toHaveBeenCalledWith(join(workspace.rootPath, "canvases", "canvas-a"), { recursive: false }, expect.any(Function));
+    expect(fsMock.watch).toHaveBeenCalledWith(
+      join(workspace.rootPath, "canvases", "canvas-a"),
+      { recursive: false },
+      expect.any(Function)
+    );
     const watcher = fsMock.watchers[0];
     expect(watcher).toBeDefined();
 
-    await writeFile(workspace.stateFile, JSON.stringify({ version: 1, tasks: { "T-001": "done" } }), "utf8");
+    await writeFile(
+      workspace.stateFile,
+      JSON.stringify({ version: 1, tasks: { "T-001": "done" } }),
+      "utf8"
+    );
     watcher?.callback("change", "state.json");
     await wait(250);
 
@@ -207,7 +229,11 @@ describe("runtime state watcher", () => {
     await unwatch(webContents, workspace);
 
     expect(fsMock.watchers[0]?.close).toHaveBeenCalled();
-    await writeFile(workspace.stateFile, JSON.stringify({ version: 1, tasks: { "T-001": "done" } }), "utf8");
+    await writeFile(
+      workspace.stateFile,
+      JSON.stringify({ version: 1, tasks: { "T-001": "done" } }),
+      "utf8"
+    );
     fsMock.watchers[0]?.callback("change", "state.json");
     await flushDebounce();
 

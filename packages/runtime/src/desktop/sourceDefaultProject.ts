@@ -51,7 +51,9 @@ async function writeSourceDefaultProjectFile(file: SourceDefaultProjectFile): Pr
   });
 }
 
-async function registeredProject(projectId: string): Promise<{ project: ProjectMetadata; workspaceRoot: string } | null> {
+async function registeredProject(
+  projectId: string
+): Promise<{ project: ProjectMetadata; workspaceRoot: string } | null> {
   const planweaveHome = resolvePlanweaveHome();
   const workspaceRoot = join(planweaveHome, "projects", projectId);
   const projectFile = join(workspaceRoot, "project.json");
@@ -65,7 +67,9 @@ async function registeredProject(projectId: string): Promise<{ project: ProjectM
   return { project, workspaceRoot };
 }
 
-async function registeredProjects(): Promise<Array<{ project: ProjectMetadata; workspaceRoot: string }>> {
+async function registeredProjects(): Promise<
+  Array<{ project: ProjectMetadata; workspaceRoot: string }>
+> {
   const planweaveHome = resolvePlanweaveHome();
   const projectsRoot = join(planweaveHome, "projects");
   const entries = await optionalReaddir(projectsRoot, { withFileTypes: true });
@@ -73,11 +77,11 @@ async function registeredProjects(): Promise<Array<{ project: ProjectMetadata; w
     return [];
   }
   const projects = await Promise.all(
-    entries
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => registeredProject(entry.name))
+    entries.filter((entry) => entry.isDirectory()).map((entry) => registeredProject(entry.name))
   );
-  return projects.filter((project): project is { project: ProjectMetadata; workspaceRoot: string } => project !== null);
+  return projects.filter(
+    (project): project is { project: ProjectMetadata; workspaceRoot: string } => project !== null
+  );
 }
 
 async function normalizeSourceRoot(sourceRoot: string): Promise<string> {
@@ -89,7 +93,10 @@ async function normalizeSourceRoot(sourceRoot: string): Promise<string> {
   return resolvedSourceRoot;
 }
 
-async function validateSourceDefaultProject(sourceRoot: string, projectId: string): Promise<SourceDefaultProjectEntry> {
+async function validateSourceDefaultProject(
+  sourceRoot: string,
+  projectId: string
+): Promise<SourceDefaultProjectEntry> {
   const resolvedSourceRoot = await normalizeSourceRoot(sourceRoot);
   const registered = await registeredProject(projectId);
   if (!registered) {
@@ -112,7 +119,10 @@ async function validateSourceDefaultProject(sourceRoot: string, projectId: strin
   };
 }
 
-export async function setSourceDefaultProject(sourceRoot: string, projectId: string): Promise<SourceDefaultProjectEntry> {
+export async function setSourceDefaultProject(
+  sourceRoot: string,
+  projectId: string
+): Promise<SourceDefaultProjectEntry> {
   const entry = await validateSourceDefaultProject(sourceRoot, projectId);
   const file = await readSourceDefaultProjectFile();
   file.defaults[entry.sourceRoot] = entry;
@@ -143,7 +153,9 @@ export async function updateSourceDefaultProjectReference(
   }
 }
 
-export async function clearSourceDefaultProject(sourceRoot: string): Promise<SourceDefaultProjectEntry | null> {
+export async function clearSourceDefaultProject(
+  sourceRoot: string
+): Promise<SourceDefaultProjectEntry | null> {
   const resolvedSourceRoot = await normalizeSourceRoot(sourceRoot);
   const file = await readSourceDefaultProjectFile();
   const current = file.defaults[resolvedSourceRoot] ?? null;
@@ -152,13 +164,17 @@ export async function clearSourceDefaultProject(sourceRoot: string): Promise<Sou
   return current;
 }
 
-export async function getSourceDefaultProject(sourceRoot: string): Promise<SourceDefaultProjectEntry | null> {
+export async function getSourceDefaultProject(
+  sourceRoot: string
+): Promise<SourceDefaultProjectEntry | null> {
   const resolvedSourceRoot = await normalizeSourceRoot(sourceRoot);
   const file = await readSourceDefaultProjectFile();
   return file.defaults[resolvedSourceRoot] ?? null;
 }
 
-export async function listSourceDefaultProjectCandidates(sourceRoot: string): Promise<SourceDefaultProjectCandidate[]> {
+export async function listSourceDefaultProjectCandidates(
+  sourceRoot: string
+): Promise<SourceDefaultProjectCandidate[]> {
   const resolvedSourceRoot = await normalizeSourceRoot(sourceRoot);
   const candidates: SourceDefaultProjectCandidate[] = [];
   for (const registered of await registeredProjects()) {
@@ -185,7 +201,10 @@ export async function listSourceDefaultProjectCandidates(sourceRoot: string): Pr
       kind: registered.project.kind === "managed" ? "managed" : "external"
     });
   }
-  return candidates.sort((left, right) => left.name.localeCompare(right.name) || left.projectId.localeCompare(right.projectId));
+  return candidates.sort(
+    (left, right) =>
+      left.name.localeCompare(right.name) || left.projectId.localeCompare(right.projectId)
+  );
 }
 
 export async function resolveSourceDefaultProjectRoot(sourceRoot: string): Promise<string | null> {

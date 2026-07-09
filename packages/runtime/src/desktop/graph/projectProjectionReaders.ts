@@ -14,18 +14,21 @@ import {
   projectProjectionKey,
   projectionContextCache
 } from "./projectProjectionCache.js";
-import {
-  hydrateResultsFileIndexBodies
-} from "./resultsFileIndex.js";
+import { hydrateResultsFileIndexBodies } from "./resultsFileIndex.js";
 import {
   buildSearchBodyIndexForCanvas,
   buildSearchIndexFromCanvasIndexes,
   mergeSearchIndexBodies,
   type DesktopSearchIndex
 } from "./searchIndexModel.js";
-import { buildStatisticsProjectionFromIndexes, type DesktopStatisticsProjection } from "./statisticsIndexModel.js";
+import {
+  buildStatisticsProjectionFromIndexes,
+  type DesktopStatisticsProjection
+} from "./statisticsIndexModel.js";
 
-export async function readDesktopProjectProjectionContext(projectRoot: string): Promise<DesktopProjectProjectionContext> {
+export async function readDesktopProjectProjectionContext(
+  projectRoot: string
+): Promise<DesktopProjectProjectionContext> {
   const key = projectProjectionKey(projectRoot);
   const cached = projectProjectionCache.get(key);
   const next = await buildDesktopProjectProjection(projectRoot, cached);
@@ -38,7 +41,9 @@ export async function readDesktopProjectProjectionContext(projectRoot: string): 
   return context;
 }
 
-export async function readDesktopProjectProjection(projectRoot: string): Promise<DesktopProjectProjection> {
+export async function readDesktopProjectProjection(
+  projectRoot: string
+): Promise<DesktopProjectProjection> {
   return (await readDesktopProjectProjectionContext(projectRoot)).projection;
 }
 
@@ -61,12 +66,13 @@ async function buildCanvasBodySearchIndex(input: {
     input.diagnostics,
     "body search index construction",
     input.canvasId,
-    () => buildSearchBodyIndexForCanvas({
-      aggregation: input.aggregation,
-      canvasId: input.canvasId,
-      snapshot: input.entry.snapshot,
-      resultIndex: hydratedResultsIndex
-    })
+    () =>
+      buildSearchBodyIndexForCanvas({
+        aggregation: input.aggregation,
+        canvasId: input.canvasId,
+        snapshot: input.entry.snapshot,
+        resultIndex: hydratedResultsIndex
+      })
   );
   input.entry.bodySearchIndex = bodySearchIndex;
   return bodySearchIndex;
@@ -85,9 +91,12 @@ async function buildProjectSummarySearchIndex(input: {
     input.diagnostics,
     "summary search index construction",
     input.projectRoot,
-    async () => buildSearchIndexFromCanvasIndexes(input.projection.todoContext.aggregation.orderedCanvasIds
-      .map((canvasId) => input.cached?.canvases.get(canvasId)?.searchIndex)
-      .filter((index): index is DesktopSearchIndex => index !== undefined))
+    async () =>
+      buildSearchIndexFromCanvasIndexes(
+        input.projection.todoContext.aggregation.orderedCanvasIds
+          .map((canvasId) => input.cached?.canvases.get(canvasId)?.searchIndex)
+          .filter((index): index is DesktopSearchIndex => index !== undefined)
+      )
   );
   for (const diagnostic of input.diagnostics) {
     appendProjectProjectionDiagnostic(searchIndex.diagnostics, diagnostic);
@@ -113,12 +122,14 @@ async function buildProjectBodySearchIndex(input: {
     if (!entry) {
       continue;
     }
-    bodyIndexes.push(await buildCanvasBodySearchIndex({
-      aggregation: input.projection.todoContext.aggregation,
-      canvasId,
-      entry,
-      diagnostics: input.diagnostics
-    }));
+    bodyIndexes.push(
+      await buildCanvasBodySearchIndex({
+        aggregation: input.projection.todoContext.aggregation,
+        canvasId,
+        entry,
+        diagnostics: input.diagnostics
+      })
+    );
   }
   const bodySearchIndex = await captureProjectionPart(
     input.diagnostics,
@@ -137,7 +148,10 @@ export async function readDesktopProjectSearchIndex(
   projectRoot: string,
   options: { includeBodies?: boolean } = {}
 ): Promise<DesktopSearchIndex> {
-  return readDesktopProjectSearchIndexFromContext(await readDesktopProjectProjectionContext(projectRoot), options);
+  return readDesktopProjectSearchIndexFromContext(
+    await readDesktopProjectProjectionContext(projectRoot),
+    options
+  );
 }
 
 export async function readDesktopProjectSearchIndexFromContext(
@@ -175,7 +189,8 @@ export async function buildDesktopProjectStatisticsProjectionFromProjection(
     diagnostics,
     "statistics projection",
     path,
-    async () => buildStatisticsProjectionFromIndexes(projection.todoContext, projection.resultsByCanvas)
+    async () =>
+      buildStatisticsProjectionFromIndexes(projection.todoContext, projection.resultsByCanvas)
   );
   for (const diagnostic of diagnostics) {
     appendProjectProjectionDiagnostic(statisticsProjection.diagnostics, diagnostic);
@@ -183,14 +198,19 @@ export async function buildDesktopProjectStatisticsProjectionFromProjection(
   return statisticsProjection;
 }
 
-export async function readDesktopProjectStatisticsProjection(projectRoot: string): Promise<DesktopStatisticsProjection> {
+export async function readDesktopProjectStatisticsProjection(
+  projectRoot: string
+): Promise<DesktopStatisticsProjection> {
   const key = projectProjectionKey(projectRoot);
   const projection = await readDesktopProjectProjection(projectRoot);
   const cached = projectProjectionCache.get(key);
   if (cached?.statisticsProjection) {
     return cached.statisticsProjection;
   }
-  const statisticsProjection = await buildDesktopProjectStatisticsProjectionFromProjection(projection, projectRoot);
+  const statisticsProjection = await buildDesktopProjectStatisticsProjectionFromProjection(
+    projection,
+    projectRoot
+  );
   if (cached) {
     cached.statisticsProjection = statisticsProjection;
   }

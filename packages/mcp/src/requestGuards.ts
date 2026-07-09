@@ -17,7 +17,10 @@ function resolveRequestPort(req: IncomingMessage, config: Pick<McpConfig, "port"
 }
 
 /** Host forms accepted for the configured bind address (DNS-rebinding defense). */
-export function expectedRequestHosts(config: Pick<McpConfig, "host" | "port">, port: number): Set<string> {
+export function expectedRequestHosts(
+  config: Pick<McpConfig, "host" | "port">,
+  port: number
+): Set<string> {
   const hosts = new Set<string>([formatHostPort(config.host, port)]);
   if (isLoopbackHost(config.host)) {
     hosts.add(formatHostPort("127.0.0.1", port));
@@ -58,7 +61,11 @@ export function isRequestOriginAllowed(
   }
   try {
     const originUrl = new URL(origin);
-    const originPort = originUrl.port ? Number(originUrl.port) : originUrl.protocol === "https:" ? 443 : 80;
+    const originPort = originUrl.port
+      ? Number(originUrl.port)
+      : originUrl.protocol === "https:"
+        ? 443
+        : 80;
     const originHost = formatHostPort(originUrl.hostname, originPort);
     if (!allowedHosts.has(originHost)) {
       return { ok: false, error: "invalid_origin" };

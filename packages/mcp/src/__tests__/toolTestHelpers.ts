@@ -78,13 +78,29 @@ export type TestGateway = RuntimeGateway & {
   searchProject: ReturnType<RuntimeGateway["searchProject"] & typeof vi.fn>;
   listReadyBlocks: ReturnType<RuntimeGateway["listReadyBlocks"] & typeof vi.fn>;
   createCanvas: ReturnType<RuntimeGateway["createCanvas"] & typeof vi.fn>;
-  getProjectGraph: ReturnType<typeof vi.fn<(projectId: string, canvasId?: string) => Promise<DesktopGraphViewModel>>>;
+  getProjectGraph: ReturnType<
+    typeof vi.fn<(projectId: string, canvasId?: string) => Promise<DesktopGraphViewModel>>
+  >;
   inspectGraph: ReturnType<typeof vi.fn<RuntimeGateway["inspectGraph"]>>;
   validateGraphQuality: ReturnType<typeof vi.fn<RuntimeGateway["validateGraphQuality"]>>;
-  validateExecutionReadiness: ReturnType<typeof vi.fn<RuntimeGateway["validateExecutionReadiness"]>>;
-  getTaskDetail: ReturnType<typeof vi.fn<(projectId: string, taskId: string, canvasId?: string) => Promise<DesktopTaskDetail>>>;
-  getBlockDetail: ReturnType<typeof vi.fn<(projectId: string, blockRef: string, canvasId?: string) => Promise<DesktopBlockDetail>>>;
-  getReviewPipeline: ReturnType<typeof vi.fn<(projectId: string, taskId: string, canvasId?: string) => Promise<DesktopReviewPipeline>>>;
+  validateExecutionReadiness: ReturnType<
+    typeof vi.fn<RuntimeGateway["validateExecutionReadiness"]>
+  >;
+  getTaskDetail: ReturnType<
+    typeof vi.fn<
+      (projectId: string, taskId: string, canvasId?: string) => Promise<DesktopTaskDetail>
+    >
+  >;
+  getBlockDetail: ReturnType<
+    typeof vi.fn<
+      (projectId: string, blockRef: string, canvasId?: string) => Promise<DesktopBlockDetail>
+    >
+  >;
+  getReviewPipeline: ReturnType<
+    typeof vi.fn<
+      (projectId: string, taskId: string, canvasId?: string) => Promise<DesktopReviewPipeline>
+    >
+  >;
   updateReviewPipeline: ReturnType<RuntimeGateway["updateReviewPipeline"] & typeof vi.fn>;
   bulkApplyReviewPipeline: ReturnType<RuntimeGateway["bulkApplyReviewPipeline"] & typeof vi.fn>;
   createTask: ReturnType<RuntimeGateway["createTask"] & typeof vi.fn>;
@@ -97,7 +113,9 @@ export type TestGateway = RuntimeGateway & {
   updateBlock: ReturnType<RuntimeGateway["updateBlock"] & typeof vi.fn>;
   bulkUpdateBlocks: ReturnType<RuntimeGateway["bulkUpdateBlocks"] & typeof vi.fn>;
   bulkRemoveGraphItems: ReturnType<RuntimeGateway["bulkRemoveGraphItems"] & typeof vi.fn>;
-  updateCanvasExecutionPolicy: ReturnType<RuntimeGateway["updateCanvasExecutionPolicy"] & typeof vi.fn>;
+  updateCanvasExecutionPolicy: ReturnType<
+    RuntimeGateway["updateCanvasExecutionPolicy"] & typeof vi.fn
+  >;
   updateBlockPlanning: ReturnType<RuntimeGateway["updateBlockPlanning"] & typeof vi.fn>;
   bulkUpdateParallelPolicy: ReturnType<RuntimeGateway["bulkUpdateParallelPolicy"] & typeof vi.fn>;
   updateBlockDependencies: ReturnType<RuntimeGateway["updateBlockDependencies"] & typeof vi.fn>;
@@ -118,8 +136,12 @@ export type TestGateway = RuntimeGateway & {
   readPromptSource: ReturnType<typeof vi.fn<RuntimeGateway["readPromptSource"]>>;
   readRenderedPrompt: ReturnType<typeof vi.fn<RuntimeGateway["readRenderedPrompt"]>>;
   getPromptSources: ReturnType<typeof vi.fn<RuntimeGateway["getPromptSources"]>>;
-  updateProjectPrompt: ReturnType<typeof vi.fn<(projectId: string, markdown: string) => Promise<string>>>;
-  refreshPrompts: ReturnType<typeof vi.fn<(projectId: string, canvasId?: string) => Promise<RefreshPromptsResult>>>;
+  updateProjectPrompt: ReturnType<
+    typeof vi.fn<(projectId: string, markdown: string) => Promise<string>>
+  >;
+  refreshPrompts: ReturnType<
+    typeof vi.fn<(projectId: string, canvasId?: string) => Promise<RefreshPromptsResult>>
+  >;
   exportPlanPackage: ReturnType<RuntimeGateway["exportPlanPackage"] & typeof vi.fn>;
   importPlanPackage: ReturnType<RuntimeGateway["importPlanPackage"] & typeof vi.fn>;
   validatePackageDraft: ReturnType<typeof vi.fn<RuntimeGateway["validatePackageDraft"]>>;
@@ -224,13 +246,22 @@ export function createGateway(): TestGateway {
     warnings: [
       {
         code: "status_manifest_warning",
-        message: "Manifest warning at /sensitive/home/projects/project-1/canvases/default/package/manifest.json",
+        message:
+          "Manifest warning at /sensitive/home/projects/project-1/canvases/default/package/manifest.json",
         path: "/sensitive/home/projects/project-1/canvases/default/package/manifest.json"
       }
     ],
     counts: {
       tasks: { planned: 0, ready: 1, in_progress: 0, implemented: 0 },
-      blocks: { planned: 0, ready: 1, in_progress: 0, completed: 0, needs_changes: 0, blocked: 0, diverged: 0 },
+      blocks: {
+        planned: 0,
+        ready: 1,
+        in_progress: 0,
+        completed: 0,
+        needs_changes: 0,
+        blocked: 0,
+        diverged: 0
+      },
       feedback: { open: 0, in_progress: 0, resolved: 0, dismissed: 0 }
     },
     orphanState: [],
@@ -269,7 +300,18 @@ export function createGateway(): TestGateway {
         promptMarkdown: "# Task",
         promptMissing: false,
         promptPreview: "Task",
-        blocks: [{ ref: "T-001#I-001", blockId: "I-001", type: "implementation", title: "Implement", status: "ready", executor: null, promptMissing: false, exceptionReason: null }],
+        blocks: [
+          {
+            ref: "T-001#I-001",
+            blockId: "I-001",
+            type: "implementation",
+            title: "Implement",
+            status: "ready",
+            executor: null,
+            promptMissing: false,
+            exceptionReason: null
+          }
+        ],
         blockPreview: [],
         hiddenBlockRefs: [],
         overflowBlockCount: 0,
@@ -330,7 +372,16 @@ export function createGateway(): TestGateway {
       limit: 50,
       total: 1,
       truncated: false,
-      items: [{ ref: "T-001#I-001", blockId: "I-001", type: "implementation", title: "Implement", status: "ready", dependsOn: [] }]
+      items: [
+        {
+          ref: "T-001#I-001",
+          blockId: "I-001",
+          type: "implementation",
+          title: "Implement",
+          status: "ready",
+          dependsOn: []
+        }
+      ]
     }
   };
   const graphQuality: GraphQualityReport = {
@@ -399,7 +450,14 @@ export function createGateway(): TestGateway {
     graph: {
       version: "plan-project/v1",
       canvases: [
-        { id: "default", type: "canvas", title: "Default", packageDir: "package", stateFile: "state.json", resultsDir: "results" },
+        {
+          id: "default",
+          type: "canvas",
+          title: "Default",
+          packageDir: "package",
+          stateFile: "state.json",
+          resultsDir: "results"
+        },
         {
           id: "canvas-new",
           type: "canvas",
@@ -483,9 +541,17 @@ export function createGateway(): TestGateway {
       return [project];
     },
     openProject: vi.fn(async () => project),
-    validateProject: vi.fn(async () => ({ ok: true, errors: [], warnings: [], summary: validValidationSummary })),
+    validateProject: vi.fn(async () => ({
+      ok: true,
+      errors: [],
+      warnings: [],
+      summary: validValidationSummary
+    })),
     getStatus: vi.fn(async () => status),
-    getPrompt: vi.fn(async (_projectId, canvasId) => ({ canvasId: canvasId ?? "default", markdown: "# Rendered prompt" })),
+    getPrompt: vi.fn(async (_projectId, canvasId) => ({
+      canvasId: canvasId ?? "default",
+      markdown: "# Rendered prompt"
+    })),
     searchProject: vi.fn(async () => ({ results: [searchResult], diagnostics: [] })),
     listReadyBlocks: vi.fn(async () => ({ readyBlocks: [readyBlock] })),
     getProjectGraph: vi.fn(async () => graph),
@@ -545,16 +611,34 @@ export function createGateway(): TestGateway {
     readProjectPrompt: vi.fn(async () => "# Project"),
     listPackageFiles: vi.fn(async () => packageFiles),
     readPackageFile: vi.fn(async () => contentRead),
-    readPromptSource: vi.fn(async () => ({ ...contentRead, contentRef: { ...contentRead.contentRef, kind: "prompt_source", path: "nodes/T-001/prompt.md" } })),
-    readRenderedPrompt: vi.fn(async () => ({ ...contentRead, contentRef: { ...contentRead.contentRef, kind: "rendered_prompt", ref: "T-001#I-001" }, content: "# Rendered prompt" })),
+    readPromptSource: vi.fn(async () => ({
+      ...contentRead,
+      contentRef: {
+        ...contentRead.contentRef,
+        kind: "prompt_source",
+        path: "nodes/T-001/prompt.md"
+      }
+    })),
+    readRenderedPrompt: vi.fn(async () => ({
+      ...contentRead,
+      contentRef: { ...contentRead.contentRef, kind: "rendered_prompt", ref: "T-001#I-001" },
+      content: "# Rendered prompt"
+    })),
     getPromptSources: vi.fn(async () => ({ ref: "T-001#I-001", sources: promptSources })),
     updateProjectPrompt: vi.fn(async (_projectId, markdown) => markdown),
-    refreshPrompts: vi.fn(async () => ({ prompts: [{ ref: "T-001#I-001", path: "", markdown: "# Surface" }] })),
-    exportPlanPackage: vi.fn(async () => ({ canvasId: "default", files: [{ path: "manifest.json", content: "{}", encoding: "utf8" }] })),
+    refreshPrompts: vi.fn(async () => ({
+      prompts: [{ ref: "T-001#I-001", path: "", markdown: "# Surface" }]
+    })),
+    exportPlanPackage: vi.fn(async () => ({
+      canvasId: "default",
+      files: [{ path: "manifest.json", content: "{}", encoding: "utf8" }]
+    })),
     exportProject: vi.fn(async () => ({
       project,
       projectPromptMarkdown: "# Project",
-      planPackages: [{ canvasId: "default", files: [{ path: "manifest.json", content: "{}", encoding: "utf8" }] }]
+      planPackages: [
+        { canvasId: "default", files: [{ path: "manifest.json", content: "{}", encoding: "utf8" }] }
+      ]
     })),
     importPlanPackage: vi.fn(async () => ({
       project,

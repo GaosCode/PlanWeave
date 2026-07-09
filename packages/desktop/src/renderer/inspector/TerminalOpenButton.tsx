@@ -7,7 +7,13 @@ import type {
 } from "@planweave-ai/runtime";
 import { CheckIcon, ChevronDownIcon, TerminalIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { createTranslator } from "../i18n";
 
@@ -94,10 +100,19 @@ export function TerminalOpenButton({
 }: TerminalOpenButtonProps) {
   const normalizedTerminalApps = Array.isArray(terminalApps) ? terminalApps : [];
   const availableApps = normalizedTerminalApps.filter((app) => app.available);
-  const defaultAvailableApp = availableApps.find((app) => app.appId === defaultTerminalAppId) ?? availableApps[0] ?? null;
-  const canAttachTmux = Boolean(terminalAvailability?.available && recordId && onOpenRunTerminal && tmuxAvailable);
+  const defaultAvailableApp =
+    availableApps.find((app) => app.appId === defaultTerminalAppId) ?? availableApps[0] ?? null;
+  const canAttachTmux = Boolean(
+    terminalAvailability?.available && recordId && onOpenRunTerminal && tmuxAvailable
+  );
   const actionLabel = canAttachTmux ? t("openTmuxTerminal") : t("openTerminal");
-  const availabilityDescription = canAttachTmux ? null : terminalAvailabilityDescription(terminalAvailability?.unavailableReason, missingSessionReason, t);
+  const availabilityDescription = canAttachTmux
+    ? null
+    : terminalAvailabilityDescription(
+        terminalAvailability?.unavailableReason,
+        missingSessionReason,
+        t
+      );
   const disabledReason = terminalDisabledReason({
     canAttachTmux,
     canvasRef,
@@ -107,7 +122,11 @@ export function TerminalOpenButton({
     t
   });
   const disabled = Boolean(disabledReason);
-  const title = disabledReason ?? (defaultAvailableApp ? `${actionLabel}: ${defaultAvailableApp.label}${availabilityDescription ? ` - ${availabilityDescription}` : ""}` : actionLabel);
+  const title =
+    disabledReason ??
+    (defaultAvailableApp
+      ? `${actionLabel}: ${defaultAvailableApp.label}${availabilityDescription ? ` - ${availabilityDescription}` : ""}`
+      : actionLabel);
   const ariaLabel = disabledReason ?? label ?? actionLabel;
   const buttonLabel = label ?? null;
 
@@ -171,7 +190,11 @@ export function TerminalOpenButton({
             >
               <TerminalAppIcon app={app} />
               <span className="min-w-0 flex-1 truncate">{app.label}</span>
-              {app.available ? null : <span className="max-w-24 truncate text-xs text-muted-foreground">{app.unavailableReason ?? t("unavailable")}</span>}
+              {app.available ? null : (
+                <span className="max-w-24 truncate text-xs text-muted-foreground">
+                  {app.unavailableReason ?? t("unavailable")}
+                </span>
+              )}
               {app.appId === defaultTerminalAppId ? <CheckIcon className="ml-auto" /> : null}
             </DropdownMenuItem>
           ))}

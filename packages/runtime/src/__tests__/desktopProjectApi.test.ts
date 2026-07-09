@@ -1,4 +1,14 @@
-import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  stat,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -60,8 +70,9 @@ function nodeIoError(code: string): NodeJS.ErrnoException {
 }
 
 function resultReadPaths(resultsDir: string): string[] {
-  return vi.mocked(readFile).mock.calls
-    .map(([path]) => (typeof path === "string" ? path : null))
+  return vi
+    .mocked(readFile)
+    .mock.calls.map(([path]) => (typeof path === "string" ? path : null))
     .filter((path): path is string => path !== null && path.startsWith(resultsDir));
 }
 
@@ -170,27 +181,39 @@ describe("desktop project API", () => {
       workspaceRoot: nextWorkspaceRoot,
       taskCanvases: [expect.objectContaining({ canvasId: "default", name: nextName })]
     });
-    await expect(listProjects()).resolves.toContainEqual(expect.objectContaining({ projectId: nextProjectId, name: nextName }));
+    await expect(listProjects()).resolves.toContainEqual(
+      expect.objectContaining({ projectId: nextProjectId, name: nextName })
+    );
 
-    await expect(readJsonFile<ProjectMetadata>(join(nextWorkspaceRoot, "project.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile<ProjectMetadata>(join(nextWorkspaceRoot, "project.json"))
+    ).resolves.toMatchObject({
       id: nextProjectId,
       name: nextName,
       kind: "managed",
       rootPath: nextWorkspaceRoot,
       sourceRoot: resolvedSourceRoot
     });
-    await expect(readJsonFile<{ projectId: string }>(join(nextWorkspaceRoot, "desktop", "layout.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile<{ projectId: string }>(join(nextWorkspaceRoot, "desktop", "layout.json"))
+    ).resolves.toMatchObject({
       projectId: nextProjectId
     });
     await expect(
-      readJsonFile<{ projectId: string }>(join(nextWorkspaceRoot, "desktop", "canvas-map-layout.json"))
+      readJsonFile<{ projectId: string }>(
+        join(nextWorkspaceRoot, "desktop", "canvas-map-layout.json")
+      )
     ).resolves.toMatchObject({
       projectId: nextProjectId
     });
     const graph = await loadProjectGraph(nextWorkspaceRoot);
-    expect(graph.manifest.canvases).toEqual([expect.objectContaining({ id: "default", title: nextName })]);
+    expect(graph.manifest.canvases).toEqual([
+      expect.objectContaining({ id: "default", title: nextName })
+    ]);
     await expect(
-      readJsonFile<PlanPackageManifest>(join(nextWorkspaceRoot, "canvases", "default", "package", "manifest.json"))
+      readJsonFile<PlanPackageManifest>(
+        join(nextWorkspaceRoot, "canvases", "default", "package", "manifest.json")
+      )
     ).resolves.toMatchObject({
       project: expect.objectContaining({ title: nextName })
     });
@@ -283,7 +306,9 @@ describe("desktop project API", () => {
       return actualFs.stat(path, options);
     });
 
-    await expect(openProject({ projectId: init.workspace.id })).rejects.toMatchObject({ code: "EPERM" });
+    await expect(openProject({ projectId: init.workspace.id })).rejects.toMatchObject({
+      code: "EPERM"
+    });
   });
 
   it("materializes missing formal project graphs when opening existing legacy projects", async () => {
@@ -504,7 +529,9 @@ describe("desktop project API", () => {
       return actualFs.stat(path, options);
     });
 
-    await expect(setSourceDefaultProject(sourceRoot, project.projectId)).rejects.toMatchObject({ code: "EPERM" });
+    await expect(setSourceDefaultProject(sourceRoot, project.projectId)).rejects.toMatchObject({
+      code: "EPERM"
+    });
   });
 
   it("does not hide source root realpath I/O failures while listing source default candidates", async () => {
@@ -525,7 +552,9 @@ describe("desktop project API", () => {
       return actualFs.realpath(path, options);
     });
 
-    await expect(listSourceDefaultProjectCandidates(sourceRoot)).rejects.toMatchObject({ code: "EACCES" });
+    await expect(listSourceDefaultProjectCandidates(sourceRoot)).rejects.toMatchObject({
+      code: "EACCES"
+    });
   });
 
   it("rejects source default projects bound to another source root", async () => {
@@ -536,14 +565,18 @@ describe("desktop project API", () => {
     const project = await initManagedProject("Managed Source Mismatch");
     await linkProjectSourceRoot(project.projectId, sourceRoot);
 
-    await expect(setSourceDefaultProject(otherSourceRoot, project.projectId)).rejects.toThrow("is linked to source root");
+    await expect(setSourceDefaultProject(otherSourceRoot, project.projectId)).rejects.toThrow(
+      "is linked to source root"
+    );
   });
 
   it("rejects source root binding for external projects", async () => {
     const { init } = await createTestWorkspace();
     const sourceRoot = await mkdtemp(join(tmpdir(), "planweave-source-"));
 
-    await expect(linkProjectSourceRoot(init.workspace.id, sourceRoot)).rejects.toThrow("Only managed PlanWeave projects can bind a source root.");
+    await expect(linkProjectSourceRoot(init.workspace.id, sourceRoot)).rejects.toThrow(
+      "Only managed PlanWeave projects can bind a source root."
+    );
   });
 
   it("keeps valid projects visible when another PlanWeave registry entry is stale", async () => {
@@ -606,7 +639,14 @@ describe("desktop project API", () => {
 
   it("clears projection result body cache when removing an external project", async () => {
     const { init, root } = await createTestWorkspace();
-    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-REMOVE-CACHE");
+    const runDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-REMOVE-CACHE"
+    );
     const reportPath = join(runDir, "report.md");
     await mkdir(runDir, { recursive: true });
     await writeFile(reportPath, "remove project cache needle\n", "utf8");

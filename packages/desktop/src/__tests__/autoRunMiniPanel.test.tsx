@@ -90,7 +90,12 @@ describe("AutoRunMiniPanel", () => {
         autoRunRetrospective={null}
         autoRunState={createFailedAutoRunState()}
         canStop={true}
-        executorPreflight={{ error: null, loading: false, result: null, runPreflight: vi.fn().mockResolvedValue(null) }}
+        executorPreflight={{
+          error: null,
+          loading: false,
+          result: null,
+          runPreflight: vi.fn().mockResolvedValue(null)
+        }}
         handleAutoRunClick={vi.fn().mockResolvedValue(undefined)}
         handleAutoRunNextAction={handleAutoRunNextAction}
         handleRevealPathInFinder={handleRevealPathInFinder}
@@ -112,9 +117,15 @@ describe("AutoRunMiniPanel", () => {
     await userEvent.click(screen.getByTestId("auto-run-next-action"));
     expect(handleAutoRunNextAction).toHaveBeenCalledWith(nextAction);
 
-    await userEvent.click(within(screen.getByTestId("auto-run-failure-section")).getByRole("button", { name: "Failure details" }));
+    await userEvent.click(
+      within(screen.getByTestId("auto-run-failure-section")).getByRole("button", {
+        name: "Failure details"
+      })
+    );
     expect(screen.getByTestId("auto-run-error")).toHaveTextContent("Executor failed");
-    expect(screen.getByTestId("auto-run-command")).toHaveTextContent("planweave run --scope block --block T-001#B-001");
+    expect(screen.getByTestId("auto-run-command")).toHaveTextContent(
+      "planweave run --scope block --block T-001#B-001"
+    );
 
     await userEvent.click(screen.getByTestId("auto-run-open-record"));
     expect(handleRevealPathInFinder).toHaveBeenCalledWith("/tmp/demo/results/record.json");

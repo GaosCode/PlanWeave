@@ -3,7 +3,11 @@ import type { ProjectWorkspace, ValidationIssue } from "../types.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import { getReviewAttempts, getRunRecord } from "./recordsApi.js";
 import { cloneAutoRunState } from "./runStateStore.js";
-import { readLatestPersistedAutoRunState, readPersistedAutoRunEventLog, readPersistedAutoRunStateWithDiagnostics } from "./runStateRepository.js";
+import {
+  readLatestPersistedAutoRunState,
+  readPersistedAutoRunEventLog,
+  readPersistedAutoRunStateWithDiagnostics
+} from "./runStateRepository.js";
 import type {
   DesktopAutoRunLogEvent,
   DesktopAutoRunRetrospectiveSummary,
@@ -23,7 +27,10 @@ function recordRefFromRecordId(recordId: string | null): string | null {
   return ref?.includes("#") ? ref : null;
 }
 
-function completedRefsFromEvents(events: DesktopAutoRunLogEvent[], diagnostics: ValidationIssue[]): string[] {
+function completedRefsFromEvents(
+  events: DesktopAutoRunLogEvent[],
+  diagnostics: ValidationIssue[]
+): string[] {
   const refs = new Set<string>();
   for (const event of events) {
     if (event.type !== "step_finish") {
@@ -76,10 +83,18 @@ function blockedRefFromState(state: DesktopAutoRunState): string | null {
   if (state.phase !== "blocked" && state.phase !== "failed") {
     return null;
   }
-  return state.currentRef ?? state.explanation.nextAction.ref ?? recordRefFromRecordId(state.latestRecordId);
+  return (
+    state.currentRef ??
+    state.explanation.nextAction.ref ??
+    recordRefFromRecordId(state.latestRecordId)
+  );
 }
 
-async function latestReportPath(workspace: ProjectWorkspace, recordId: string | null, diagnostics: ValidationIssue[]): Promise<string | null> {
+async function latestReportPath(
+  workspace: ProjectWorkspace,
+  recordId: string | null,
+  diagnostics: ValidationIssue[]
+): Promise<string | null> {
   if (!recordId) {
     return null;
   }
@@ -103,7 +118,11 @@ async function reviewVerdictsFromEvents(
   const reviewAttempts: Array<{ ref: string; attemptId: string }> = [];
   const seen = new Set<string>();
   for (const event of events) {
-    if (event.type !== "step_finish" || event.data.reviewVerdict === undefined || event.data.reviewVerdict === null) {
+    if (
+      event.type !== "step_finish" ||
+      event.data.reviewVerdict === undefined ||
+      event.data.reviewVerdict === null
+    ) {
       continue;
     }
     const attemptId = stringOrNull(event.data.reviewAttemptId);
@@ -137,7 +156,12 @@ async function reviewVerdictsFromEvents(
   const summaries: DesktopAutoRunRetrospectiveSummary["reviewVerdicts"] = [];
   for (const { ref, attemptId } of reviewAttempts) {
     try {
-      const summary = reviewAttemptSummaryFromAttempts(await getReviewAttempts(workspace, ref), ref, attemptId, diagnostics);
+      const summary = reviewAttemptSummaryFromAttempts(
+        await getReviewAttempts(workspace, ref),
+        ref,
+        attemptId,
+        diagnostics
+      );
       if (summary) {
         summaries.push(summary);
       }
@@ -165,7 +189,9 @@ function refreshedExplanation(state: DesktopAutoRunState): DesktopAutoRunState["
 }
 
 function diagnosticMessage(diagnostic: ValidationIssue): string {
-  return diagnostic.path ? `${diagnostic.code}: ${diagnostic.path}: ${diagnostic.message}` : `${diagnostic.code}: ${diagnostic.message}`;
+  return diagnostic.path
+    ? `${diagnostic.code}: ${diagnostic.path}: ${diagnostic.message}`
+    : `${diagnostic.code}: ${diagnostic.message}`;
 }
 
 async function buildAutoRunRetrospective(
@@ -196,7 +222,8 @@ async function buildAutoRunRetrospective(
     stepCount: clonedState.stepCount,
     completedBlockRefs: completedRefsFromEvents(eventLog.events, diagnostics),
     blockedRef: blockedRefFromState({ ...clonedState, explanation }),
-    failedReason: clonedState.phase === "failed" || clonedState.phase === "blocked" ? clonedState.error : null,
+    failedReason:
+      clonedState.phase === "failed" || clonedState.phase === "blocked" ? clonedState.error : null,
     reviewVerdicts: await reviewVerdictsFromEvents(workspace, eventLog.events, diagnostics),
     latestRecordId: clonedState.latestRecordId,
     latestRecordPath: clonedState.latestRecordPath,
@@ -217,16 +244,22 @@ export async function getAutoRunRetrospective(
     throw new Error(`Auto Run '${runId}' does not exist.`);
   }
   if (!state) {
-    throw new Error(`Auto Run '${runId}' could not be read: ${diagnostics.map(diagnosticMessage).join("; ")}`);
+    throw new Error(
+      `Auto Run '${runId}' could not be read: ${diagnostics.map(diagnosticMessage).join("; ")}`
+    );
   }
   return buildAutoRunRetrospective(workspace, state);
 }
 
-export async function getLatestAutoRunRetrospective(projectRoot: string, canvasId?: string | null): Promise<DesktopAutoRunRetrospectiveSummary | null> {
+export async function getLatestAutoRunRetrospective(
+  projectRoot: string,
+  canvasId?: string | null
+): Promise<DesktopAutoRunRetrospectiveSummary | null> {
   const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
   const normalizedCanvasId = canvasId ?? null;
   const { state, diagnostics } = await readLatestPersistedAutoRunState(workspace, {
-    matches: (candidate) => candidate.projectRoot === projectRoot && candidate.canvasId === normalizedCanvasId
+    matches: (candidate) =>
+      candidate.projectRoot === projectRoot && candidate.canvasId === normalizedCanvasId
   });
   return state ? buildAutoRunRetrospective(workspace, state, diagnostics) : null;
 }

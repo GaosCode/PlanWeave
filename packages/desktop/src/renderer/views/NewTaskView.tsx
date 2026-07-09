@@ -1,11 +1,24 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { BlockType, DesktopGraphViewModel, DesktopProjectSummary, DesktopTaskDraft, DesktopTaskDraftMode } from "@planweave-ai/runtime";
+import type {
+  BlockType,
+  DesktopGraphViewModel,
+  DesktopProjectSummary,
+  DesktopTaskDraft,
+  DesktopTaskDraftMode
+} from "@planweave-ai/runtime";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { createTranslator } from "../i18n";
 import type { AppView } from "../types";
@@ -36,7 +49,10 @@ function acceptanceText(acceptance: string[]): string {
 }
 
 function acceptanceItems(text: string): string[] {
-  return text.split("\n").map((item) => item.trim()).filter(Boolean);
+  return text
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 export function NewTaskView({
@@ -58,45 +74,65 @@ export function NewTaskView({
   taskDraft
 }: NewTaskViewProps) {
   const hasProject = Boolean(selectedProject);
-  const updateTaskDraftTask = (taskIndex: number, patch: Partial<DesktopTaskDraft["tasks"][number]>) => {
+  const updateTaskDraftTask = (
+    taskIndex: number,
+    patch: Partial<DesktopTaskDraft["tasks"][number]>
+  ) => {
     setTaskDraft((current) =>
       current
         ? {
-          ...current,
-          tasks: current.tasks.map((task, index) => (index === taskIndex ? { ...task, ...patch } : task))
-        }
+            ...current,
+            tasks: current.tasks.map((task, index) =>
+              index === taskIndex ? { ...task, ...patch } : task
+            )
+          }
         : current
     );
   };
-  const updateTaskDraftBlock = (blockIndex: number, patch: Partial<DesktopTaskDraft["blocks"][number]>) => {
+  const updateTaskDraftBlock = (
+    blockIndex: number,
+    patch: Partial<DesktopTaskDraft["blocks"][number]>
+  ) => {
     setTaskDraft((current) =>
       current
         ? {
-          ...current,
-          blocks: current.blocks.map((block, index) => (index === blockIndex ? { ...block, ...patch } : block))
-        }
+            ...current,
+            blocks: current.blocks.map((block, index) =>
+              index === blockIndex ? { ...block, ...patch } : block
+            )
+          }
         : current
     );
   };
-  const targetCanvasName = selectedProject?.taskCanvases.find((canvas) => canvas.canvasId === selectedCanvasId)?.name
-    ?? selectedProject?.taskCanvases.find((canvas) => canvas.canvasId === selectedProject.activeCanvasId)?.name
-    ?? selectedProject?.taskCanvases[0]?.name
-    ?? selectedProject?.name
-    ?? t("noProject");
+  const targetCanvasName =
+    selectedProject?.taskCanvases.find((canvas) => canvas.canvasId === selectedCanvasId)?.name ??
+    selectedProject?.taskCanvases.find(
+      (canvas) => canvas.canvasId === selectedProject.activeCanvasId
+    )?.name ??
+    selectedProject?.taskCanvases[0]?.name ??
+    selectedProject?.name ??
+    t("noProject");
   const draftTaskCount = taskDraft?.tasks.length ?? 0;
-  const draftBlockCount = (taskDraft?.blocks.length ?? 0) + (taskDraft?.tasks.reduce((sum, task) => sum + task.blockTypes.length, 0) ?? 0);
+  const draftBlockCount =
+    (taskDraft?.blocks.length ?? 0) +
+    (taskDraft?.tasks.reduce((sum, task) => sum + task.blockTypes.length, 0) ?? 0);
   return (
     <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_360px] gap-4">
       <Card className="min-h-0">
         <CardHeader>
           <CardTitle>{t("authoring")}</CardTitle>
-          <CardDescription>{hasProject ? t("taskInputHint") : t("newTaskNoProjectHint")}</CardDescription>
+          <CardDescription>
+            {hasProject ? t("taskInputHint") : t("newTaskNoProjectHint")}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <FieldGroup>
             <Field>
               <FieldLabel>{t("creationMode")}</FieldLabel>
-              <Select value={newTaskMode} onValueChange={(value) => setNewTaskMode(value as DesktopTaskDraftMode)}>
+              <Select
+                value={newTaskMode}
+                onValueChange={(value) => setNewTaskMode(value as DesktopTaskDraftMode)}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -130,14 +166,26 @@ export function NewTaskView({
             ) : null}
             <Field>
               <FieldLabel>{t("taskInput")}</FieldLabel>
-              <Textarea data-testid="new-task-input" className="min-h-64 resize-none" value={newTaskText} onChange={(event) => setNewTaskText(event.target.value)} />
+              <Textarea
+                data-testid="new-task-input"
+                className="min-h-64 resize-none"
+                value={newTaskText}
+                onChange={(event) => setNewTaskText(event.target.value)}
+              />
               <FieldDescription>{t("taskInputHint")}</FieldDescription>
             </Field>
             <div className="flex gap-2">
-              <Button data-testid="new-task-generate-draft" disabled={!hasProject || !newTaskText.trim()} onClick={() => void generateTaskDraft()}>
+              <Button
+                data-testid="new-task-generate-draft"
+                disabled={!hasProject || !newTaskText.trim()}
+                onClick={() => void generateTaskDraft()}
+              >
                 {t("generateDraft")}
               </Button>
-              <Button variant="outline" onClick={() => void (hasProject ? setActiveView("graph") : handleOpenProject())}>
+              <Button
+                variant="outline"
+                onClick={() => void (hasProject ? setActiveView("graph") : handleOpenProject())}
+              >
                 {hasProject ? t("skipToCanvas") : t("openProject")}
               </Button>
             </div>
@@ -148,24 +196,37 @@ export function NewTaskView({
         <CardHeader>
           <CardTitle>{t("draftPreview")}</CardTitle>
           <CardDescription>
-            {targetCanvasName} · {t("taskCount")}: {draftTaskCount} · {t("blockCount")}: {draftBlockCount}
+            {targetCanvasName} · {t("taskCount")}: {draftTaskCount} · {t("blockCount")}:{" "}
+            {draftBlockCount}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-col gap-3">
           <ScrollArea className="min-h-0 flex-1">
             <div className="flex flex-col gap-3 pr-2">
               {taskDraft?.tasks.map((task, index) => (
-                <div className="flex flex-col gap-2 rounded-lg border p-3" key={`${task.title}-${index}`}>
+                <div
+                  className="flex flex-col gap-2 rounded-lg border p-3"
+                  key={`${task.title}-${index}`}
+                >
                   <Field>
                     <FieldLabel>{t("taskTitle")}</FieldLabel>
-                    <Input value={task.title} onChange={(event) => updateTaskDraftTask(index, { title: event.target.value })} />
+                    <Input
+                      value={task.title}
+                      onChange={(event) =>
+                        updateTaskDraftTask(index, { title: event.target.value })
+                      }
+                    />
                   </Field>
                   <Field>
                     <FieldLabel>{t("acceptance")}</FieldLabel>
                     <Textarea
                       className="min-h-20 resize-y"
                       value={acceptanceText(task.acceptance)}
-                      onChange={(event) => updateTaskDraftTask(index, { acceptance: acceptanceItems(event.target.value) })}
+                      onChange={(event) =>
+                        updateTaskDraftTask(index, {
+                          acceptance: acceptanceItems(event.target.value)
+                        })
+                      }
                     />
                   </Field>
                   <Field>
@@ -192,19 +253,36 @@ export function NewTaskView({
                   </Field>
                   <Field>
                     <FieldLabel>{t("taskPrompt")}</FieldLabel>
-                    <Textarea className="min-h-28 resize-y" value={task.promptMarkdown} onChange={(event) => updateTaskDraftTask(index, { promptMarkdown: event.target.value })} />
+                    <Textarea
+                      className="min-h-28 resize-y"
+                      value={task.promptMarkdown}
+                      onChange={(event) =>
+                        updateTaskDraftTask(index, { promptMarkdown: event.target.value })
+                      }
+                    />
                   </Field>
                 </div>
               ))}
               {taskDraft?.blocks.map((block, index) => (
-                <div className="flex flex-col gap-2 rounded-lg border p-3" key={`${block.taskId}-${block.title}-${index}`}>
+                <div
+                  className="flex flex-col gap-2 rounded-lg border p-3"
+                  key={`${block.taskId}-${block.title}-${index}`}
+                >
                   <Field>
                     <FieldLabel>{t("blockTitle")}</FieldLabel>
-                    <Input value={block.title} onChange={(event) => updateTaskDraftBlock(index, { title: event.target.value })} />
+                    <Input
+                      value={block.title}
+                      onChange={(event) =>
+                        updateTaskDraftBlock(index, { title: event.target.value })
+                      }
+                    />
                   </Field>
                   <Field>
                     <FieldLabel>{t("targetTask")}</FieldLabel>
-                    <Select value={block.taskId} onValueChange={(value) => updateTaskDraftBlock(index, { taskId: value })}>
+                    <Select
+                      value={block.taskId}
+                      onValueChange={(value) => updateTaskDraftBlock(index, { taskId: value })}
+                    >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -221,7 +299,12 @@ export function NewTaskView({
                   </Field>
                   <Field>
                     <FieldLabel>{t("blockType")}</FieldLabel>
-                    <Select value={block.type} onValueChange={(value) => updateTaskDraftBlock(index, { type: value as BlockType })}>
+                    <Select
+                      value={block.type}
+                      onValueChange={(value) =>
+                        updateTaskDraftBlock(index, { type: value as BlockType })
+                      }
+                    >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -229,7 +312,9 @@ export function NewTaskView({
                         <SelectGroup>
                           {blockTypes.map((type) => (
                             <SelectItem value={type} key={type}>
-                              {type === "implementation" ? t("implementationBlock") : t("reviewBlock")}
+                              {type === "implementation"
+                                ? t("implementationBlock")
+                                : t("reviewBlock")}
                             </SelectItem>
                           ))}
                         </SelectGroup>
@@ -238,13 +323,23 @@ export function NewTaskView({
                   </Field>
                   <Field>
                     <FieldLabel>{t("blockPrompt")}</FieldLabel>
-                    <Textarea className="min-h-28 resize-y" value={block.promptMarkdown} onChange={(event) => updateTaskDraftBlock(index, { promptMarkdown: event.target.value })} />
+                    <Textarea
+                      className="min-h-28 resize-y"
+                      value={block.promptMarkdown}
+                      onChange={(event) =>
+                        updateTaskDraftBlock(index, { promptMarkdown: event.target.value })
+                      }
+                    />
                   </Field>
                 </div>
               ))}
             </div>
           </ScrollArea>
-          <Button data-testid="new-task-confirm-write" disabled={!hasProject || !taskDraft} onClick={() => void confirmTaskDraft()}>
+          <Button
+            data-testid="new-task-confirm-write"
+            disabled={!hasProject || !taskDraft}
+            onClick={() => void confirmTaskDraft()}
+          >
             {t("confirmWrite")}
           </Button>
         </CardContent>

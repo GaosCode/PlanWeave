@@ -4,7 +4,10 @@ import { getAutoRunStatus } from "../index.js";
 import { readJsonFile } from "../json.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
-import { createContractOpencodeExecAdapter, runContractAutoRunStep } from "./autoRunTestBuilders.js";
+import {
+  createContractOpencodeExecAdapter,
+  runContractAutoRunStep
+} from "./autoRunTestBuilders.js";
 
 describe("Auto Run OpenCode executor", () => {
   it("opencode-exec adapter records OpenCode runs without Codex resume/session handling", async () => {
@@ -40,10 +43,26 @@ describe("Auto Run OpenCode executor", () => {
     expect(step).toMatchObject({
       kind: "submitted",
       claim: { kind: "block", ref: "T-001#B-001" },
-      adapterResult: { kind: "block", adapter: "opencode-exec", agentSessionId: "ses_1ad7a1fa5ffeDAcFVbSB6Z2z9j" },
+      adapterResult: {
+        kind: "block",
+        adapter: "opencode-exec",
+        agentSessionId: "ses_1ad7a1fa5ffeDAcFVbSB6Z2z9j"
+      },
       submitResult: { ref: "T-001#B-001", runId: "RUN-001", status: "completed" }
     });
-    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-001",
+          "metadata.json"
+        )
+      )
+    ).resolves.toMatchObject({
       executor: "fake-opencode",
       adapter: "opencode-exec",
       projectRoot: init.workspace.rootPath,
@@ -102,7 +121,19 @@ describe("Auto Run OpenCode executor", () => {
         reason: expect.stringContaining(expected)
       }
     });
-    await expect(readJsonFile(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-001",
+          "metadata.json"
+        )
+      )
+    ).resolves.toMatchObject({
       executor: "failing-opencode",
       adapter: "opencode-exec",
       exitCode: 1,

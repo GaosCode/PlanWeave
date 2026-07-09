@@ -19,7 +19,11 @@ function errorMessage(caught: unknown): string {
   return caught instanceof Error ? caught.message : String(caught);
 }
 
-function preflightCacheKey(canvasRef: DesktopCanvasReference, executorName: string, cacheKey: string | null | undefined): string {
+function preflightCacheKey(
+  canvasRef: DesktopCanvasReference,
+  executorName: string,
+  cacheKey: string | null | undefined
+): string {
   return JSON.stringify({
     projectRoot: canvasRef.projectRoot,
     canvasId: canvasRef.canvasId ?? null,
@@ -28,7 +32,12 @@ function preflightCacheKey(canvasRef: DesktopCanvasReference, executorName: stri
   });
 }
 
-export function useExecutorPreflight({ bridgeUnavailableMessage, cacheKey, canvasRef, executorName }: UseExecutorPreflightArgs) {
+export function useExecutorPreflight({
+  bridgeUnavailableMessage,
+  cacheKey,
+  canvasRef,
+  executorName
+}: UseExecutorPreflightArgs) {
   const cacheRef = useRef(new Map<string, ExecutorPreflightResult>());
   const currentCacheKeyRef = useRef<string | null>(null);
   const latestRequestRef = useRef<{ key: string; requestId: number } | null>(null);
@@ -38,7 +47,8 @@ export function useExecutorPreflight({ bridgeUnavailableMessage, cacheKey, canva
     loading: false,
     result: null
   });
-  const currentCacheKey = canvasRef && executorName ? preflightCacheKey(canvasRef, executorName, cacheKey) : null;
+  const currentCacheKey =
+    canvasRef && executorName ? preflightCacheKey(canvasRef, executorName, cacheKey) : null;
 
   useEffect(() => {
     currentCacheKeyRef.current = currentCacheKey;
@@ -66,13 +76,21 @@ export function useExecutorPreflight({ bridgeUnavailableMessage, cacheKey, canva
     try {
       const result = await bridge.testExecutorProfile(canvasRef, executorName);
       cacheRef.current.set(currentCacheKey, result);
-      if (latestRequestRef.current?.requestId === requestId && latestRequestRef.current.key === currentCacheKey && currentCacheKeyRef.current === currentCacheKey) {
+      if (
+        latestRequestRef.current?.requestId === requestId &&
+        latestRequestRef.current.key === currentCacheKey &&
+        currentCacheKeyRef.current === currentCacheKey
+      ) {
         setState({ error: null, loading: false, result });
       }
       return result;
     } catch (caught) {
       const message = errorMessage(caught);
-      if (latestRequestRef.current?.requestId === requestId && latestRequestRef.current.key === currentCacheKey && currentCacheKeyRef.current === currentCacheKey) {
+      if (
+        latestRequestRef.current?.requestId === requestId &&
+        latestRequestRef.current.key === currentCacheKey &&
+        currentCacheKeyRef.current === currentCacheKey
+      ) {
         setState({ error: message, loading: false, result: null });
       }
       return null;

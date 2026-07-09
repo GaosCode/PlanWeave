@@ -7,7 +7,12 @@ import { getTunnelStatusReport, resolveRuntimeApiKey } from "../tunnel/status.js
 
 describe("MCP tunnel status", () => {
   it("resolves Runtime API key from env without exposing the value in status", () => {
-    expect(resolveRuntimeApiKey({ OPENAI_RUNTIME_API_KEY: " openai-key ", CONTROL_PLANE_API_KEY: "control-key" })).toEqual({
+    expect(
+      resolveRuntimeApiKey({
+        OPENAI_RUNTIME_API_KEY: " openai-key ",
+        CONTROL_PLANE_API_KEY: "control-key"
+      })
+    ).toEqual({
       available: true,
       source: "OPENAI_RUNTIME_API_KEY",
       value: "openai-key"
@@ -16,7 +21,10 @@ describe("MCP tunnel status", () => {
 
   it("reports missing config pieces without starting processes", async () => {
     const dir = await mkdtemp(join(tmpdir(), "planweave-mcp-status-"));
-    const report = await getTunnelStatusReport(createFileTunnelConfigStore(join(dir, "config.json")), {});
+    const report = await getTunnelStatusReport(
+      createFileTunnelConfigStore(join(dir, "config.json")),
+      {}
+    );
 
     expect(report.configured).toBe(false);
     expect(report.binary.available).toBe(false);
@@ -53,6 +61,10 @@ describe("MCP tunnel status", () => {
     expect(report.binary.available).toBe(true);
     expect(report.binary.verified).toBe(false);
     expect(report.configured).toBe(false);
-    expect(report.checks).toEqual(expect.arrayContaining([expect.objectContaining({ check: "binary_checksum", status: "failed" })]));
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ check: "binary_checksum", status: "failed" })
+      ])
+    );
   });
 });

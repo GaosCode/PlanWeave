@@ -1,5 +1,10 @@
 import { useCallback } from "react";
-import type { DesktopAutoRunState, DesktopGraphViewModel, DesktopPackageFileChangeEvent, PendingImportTransaction } from "@planweave-ai/runtime";
+import type {
+  DesktopAutoRunState,
+  DesktopGraphViewModel,
+  DesktopPackageFileChangeEvent,
+  PendingImportTransaction
+} from "@planweave-ai/runtime";
 import type { createTranslator } from "../i18n";
 import { buildNotificationItems } from "../notifications";
 import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
@@ -41,7 +46,9 @@ export function useAppNotifications({
       if (settings.readNotificationIds.includes(notificationId)) {
         return;
       }
-      updateSettings((current) => ({ readNotificationIds: [...current.readNotificationIds, notificationId] }));
+      updateSettings((current) => ({
+        readNotificationIds: [...current.readNotificationIds, notificationId]
+      }));
     },
     [settings.readNotificationIds, updateSettings]
   );

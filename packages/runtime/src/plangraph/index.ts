@@ -59,7 +59,11 @@ export {
   selectTaskBlocks,
   selectUpstreamTasks
 } from "./domain/selectors.js";
-export { executePlanGraphCommand, redoPlanGraphCommand, undoPlanGraphCommand } from "./executeCommand.js";
+export {
+  executePlanGraphCommand,
+  redoPlanGraphCommand,
+  undoPlanGraphCommand
+} from "./executeCommand.js";
 export type { ExecutePlanGraphCommandOptions, PlanGraphHistoryOptions } from "./executeCommand.js";
 export { loadPlanGraphPackage } from "./packageRepository.js";
 export { buildPlanGraphViewProjection } from "./projections/graphViewProjection.js";

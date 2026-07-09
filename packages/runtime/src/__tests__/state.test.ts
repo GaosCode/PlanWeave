@@ -62,6 +62,8 @@ describe("readState Zod validation", () => {
   });
 
   it("returns empty state when the state file is missing", async () => {
-    await expect(readState(join("/tmp", `planweave-missing-state-${Date.now()}.json`))).resolves.toEqual(createEmptyState());
+    await expect(
+      readState(join("/tmp", `planweave-missing-state-${Date.now()}.json`))
+    ).resolves.toEqual(createEmptyState());
   });
 });

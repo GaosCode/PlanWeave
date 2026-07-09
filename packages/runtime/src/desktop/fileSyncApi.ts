@@ -22,7 +22,11 @@ import {
   invalidateDesktopProjectProjection,
   invalidateDesktopProjectProjectionDerived
 } from "./graph/projectProjectionModel.js";
-import type { DesktopPackageFileRefreshOptions, DesktopPackageFileSnapshotRef, DesktopPackageFileSyncResult } from "./types.js";
+import type {
+  DesktopPackageFileRefreshOptions,
+  DesktopPackageFileSnapshotRef,
+  DesktopPackageFileSyncResult
+} from "./types.js";
 
 const MAX_SNAPSHOT_IDS_PER_PROJECT = 5;
 
@@ -71,8 +75,12 @@ function dirtyPromptRefs(previous: PackageFileSnapshot, next: PackageFileSnapsho
 
 function changedPackagePaths(previous: PackageFileSnapshot, next: PackageFileSnapshot): string[] {
   const paths = new Set([...Object.keys(previous.promptFiles), ...Object.keys(next.promptFiles)]);
-  const changedPaths = [...paths].filter((path) => changed(previous.promptFiles[path], next.promptFiles[path]));
-  return changed(previous.manifestFile, next.manifestFile) ? ["manifest.json", ...changedPaths] : changedPaths;
+  const changedPaths = [...paths].filter((path) =>
+    changed(previous.promptFiles[path], next.promptFiles[path])
+  );
+  return changed(previous.manifestFile, next.manifestFile)
+    ? ["manifest.json", ...changedPaths]
+    : changedPaths;
 }
 
 async function snapshotKey(projectRoot: PackageWorkspaceRef): Promise<string> {
@@ -80,7 +88,10 @@ async function snapshotKey(projectRoot: PackageWorkspaceRef): Promise<string> {
 }
 
 function normalizeWatcherPath(path: string): string {
-  let normalized = path.split("\\").join("/").replace(/^\.\/+/, "");
+  let normalized = path
+    .split("\\")
+    .join("/")
+    .replace(/^\.\/+/, "");
   while (normalized.startsWith("//")) {
     normalized = normalized.slice(1);
   }
@@ -95,19 +106,25 @@ function normalizeWatcherPath(path: string): string {
 function isPromptOnlyChangedPath(path: string): boolean {
   const normalized = normalizeWatcherPath(path);
   if (
-    normalized === "manifest.json"
-    || normalized === "package/manifest.json"
-    || normalized === "policy/project-prompt.md"
-    || normalized.startsWith("policy/")
+    normalized === "manifest.json" ||
+    normalized === "package/manifest.json" ||
+    normalized === "policy/project-prompt.md" ||
+    normalized.startsWith("policy/")
   ) {
     return false;
   }
-  const packagePath = normalized.startsWith("package/") ? normalized.slice("package/".length) : normalized;
+  const packagePath = normalized.startsWith("package/")
+    ? normalized.slice("package/".length)
+    : normalized;
   return packagePath.startsWith("nodes/") && packagePath.endsWith(".md");
 }
 
 function isPromptOnlyPackageRefresh(changedPaths: string[] | undefined): boolean {
-  return Array.isArray(changedPaths) && changedPaths.length > 0 && changedPaths.every(isPromptOnlyChangedPath);
+  return (
+    Array.isArray(changedPaths) &&
+    changedPaths.length > 0 &&
+    changedPaths.every(isPromptOnlyChangedPath)
+  );
 }
 
 function stableResolvedPath(path: string): string {
@@ -119,10 +136,14 @@ function stableResolvedPath(path: string): string {
   }
 }
 
-async function resolveCanvasIdForPackageWorkspace(workspace: ProjectWorkspace): Promise<string | null> {
+async function resolveCanvasIdForPackageWorkspace(
+  workspace: ProjectWorkspace
+): Promise<string | null> {
   const packageDir = stableResolvedPath(workspace.packageDir);
   const canvases = await listTaskCanvasWorkspaces(workspace.rootPath);
-  const match = canvases.find((canvas) => stableResolvedPath(canvas.workspace.packageDir) === packageDir);
+  const match = canvases.find(
+    (canvas) => stableResolvedPath(canvas.workspace.packageDir) === packageDir
+  );
   return match?.canvasId ?? null;
 }
 
@@ -161,7 +182,11 @@ function trimSnapshotIds(projectKey: string): void {
   }
 }
 
-function snapshotRef(projectKey: string, projectRoot: string, snapshot: PackageFileSnapshot): DesktopPackageFileSnapshotRef {
+function snapshotRef(
+  projectKey: string,
+  projectRoot: string,
+  snapshot: PackageFileSnapshot
+): DesktopPackageFileSnapshotRef {
   const snapshotId = nextSnapshotId();
   snapshotsById.set(snapshotId, { projectKey, snapshot });
   const snapshotIds = snapshotIdsByProject.get(projectKey) ?? [];
@@ -176,7 +201,10 @@ function snapshotRef(projectKey: string, projectRoot: string, snapshot: PackageF
   };
 }
 
-function previousSnapshot(projectKey: string, snapshotId?: string | null): PackageFileSnapshot | null {
+function previousSnapshot(
+  projectKey: string,
+  snapshotId?: string | null
+): PackageFileSnapshot | null {
   if (!snapshotId) {
     return snapshots.get(projectKey) ?? null;
   }
@@ -214,7 +242,12 @@ function syncResult(options: {
 }
 
 function hasExternalPackageChange(result: DesktopPackageFileSyncResult): boolean {
-  return result.fullRefresh || result.affectedTasks.length > 0 || result.dirtyPromptRefs.length > 0 || result.diagnostics.length > 0;
+  return (
+    result.fullRefresh ||
+    result.affectedTasks.length > 0 ||
+    result.dirtyPromptRefs.length > 0 ||
+    result.diagnostics.length > 0
+  );
 }
 
 async function indexPlanGraphExternalChange(
@@ -252,7 +285,9 @@ async function indexPlanGraphExternalChange(
   }
 }
 
-export async function createDesktopPackageFileSnapshot(projectRoot: PackageWorkspaceRef): Promise<DesktopPackageFileSnapshotRef> {
+export async function createDesktopPackageFileSnapshot(
+  projectRoot: PackageWorkspaceRef
+): Promise<DesktopPackageFileSnapshotRef> {
   invalidateDesktopProjectProjection(projectRoot);
   const projectKey = await snapshotKey(projectRoot);
   const snapshot = await createRuntimePackageFileSnapshot(projectRoot);
@@ -291,7 +326,11 @@ export async function detectDesktopPackageFileChanges(
     diagnostics: result.impact.diagnostics
   });
   dirtyRefsByProject.set(projectKey, detected.dirtyPromptRefs);
-  return indexPlanGraphExternalChange(projectRoot, result.snapshot ? changedPackagePaths(previous, result.snapshot) : ["manifest.json"], detected);
+  return indexPlanGraphExternalChange(
+    projectRoot,
+    result.snapshot ? changedPackagePaths(previous, result.snapshot) : ["manifest.json"],
+    detected
+  );
 }
 
 export async function refreshChangedDesktopPackagePrompts(
@@ -339,7 +378,11 @@ export async function refreshChangedDesktopPackagePrompts(
     refreshStats: result.refreshStats
   });
   dirtyRefsByProject.set(projectKey, refreshed.dirtyPromptRefs);
-  return indexPlanGraphExternalChange(projectRoot, changedPackagePaths(previous, result.snapshot), refreshed);
+  return indexPlanGraphExternalChange(
+    projectRoot,
+    changedPackagePaths(previous, result.snapshot),
+    refreshed
+  );
 }
 
 export async function refreshPackageFileChanges(

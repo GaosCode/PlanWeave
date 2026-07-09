@@ -5,7 +5,11 @@ import type { ComponentProps } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { highlightedSearchExcerpt, SearchResultList, searchNavigationTarget } from "../renderer/components/SearchResultList";
+import {
+  highlightedSearchExcerpt,
+  SearchResultList,
+  searchNavigationTarget
+} from "../renderer/components/SearchResultList";
 import type { DesktopSearchResult } from "@planweave-ai/runtime";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 
@@ -33,16 +37,49 @@ const searchResultListLabels = {
   },
   refLabel: "Ref",
   targetLabel: "Target"
-} satisfies Pick<ComponentProps<typeof SearchResultList>, "canvasLabel" | "kindLabels" | "matchSourceLabels" | "refLabel" | "targetLabel">;
+} satisfies Pick<
+  ComponentProps<typeof SearchResultList>,
+  "canvasLabel" | "kindLabels" | "matchSourceLabels" | "refLabel" | "targetLabel"
+>;
 
 describe("desktop renderer component interactions", () => {
   it("routes every searchable result kind to a canvas node or record target", async () => {
     const results: DesktopSearchResult[] = [
-      { kind: "prompt", ref: "T-001", targetRef: "T-001", title: "Task prompt", excerpt: "task prompt" },
-      { kind: "prompt", ref: "T-001#B-001", targetRef: "T-001#B-001", title: "Block prompt", excerpt: "block prompt" },
-      { kind: "review_attempt", ref: "T-001/reviews/R-001/attempts/REV-001/review-result.json", targetRef: "T-001#R-001", title: "Review", excerpt: "review" },
-      { kind: "feedback", ref: "FE-001", targetRef: "T-001#R-001", title: "Feedback", excerpt: "feedback" },
-      { kind: "run_record", ref: "T-001/blocks/B-001/runs/RUN-001/report.md", recordId: "T-001#B-001::RUN-001", title: "Run", excerpt: "run" }
+      {
+        kind: "prompt",
+        ref: "T-001",
+        targetRef: "T-001",
+        title: "Task prompt",
+        excerpt: "task prompt"
+      },
+      {
+        kind: "prompt",
+        ref: "T-001#B-001",
+        targetRef: "T-001#B-001",
+        title: "Block prompt",
+        excerpt: "block prompt"
+      },
+      {
+        kind: "review_attempt",
+        ref: "T-001/reviews/R-001/attempts/REV-001/review-result.json",
+        targetRef: "T-001#R-001",
+        title: "Review",
+        excerpt: "review"
+      },
+      {
+        kind: "feedback",
+        ref: "FE-001",
+        targetRef: "T-001#R-001",
+        title: "Feedback",
+        excerpt: "feedback"
+      },
+      {
+        kind: "run_record",
+        ref: "T-001/blocks/B-001/runs/RUN-001/report.md",
+        recordId: "T-001#B-001::RUN-001",
+        title: "Run",
+        excerpt: "run"
+      }
     ];
     const onOpenResult = vi.fn();
 
@@ -54,10 +91,19 @@ describe("desktop renderer component interactions", () => {
       { kind: "record", recordId: "T-001#B-001::RUN-001" }
     ]);
 
-    render(<SearchResultList {...searchResultListLabels} results={results} targetMissingLabel="No jump target" onOpenResult={onOpenResult} />);
+    render(
+      <SearchResultList
+        {...searchResultListLabels}
+        results={results}
+        targetMissingLabel="No jump target"
+        onOpenResult={onOpenResult}
+      />
+    );
     await userEvent.click(screen.getByRole("button", { name: /Feedback/ }));
 
-    expect(onOpenResult).toHaveBeenCalledWith(expect.objectContaining({ kind: "feedback", targetRef: "T-001#R-001" }));
+    expect(onOpenResult).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "feedback", targetRef: "T-001#R-001" })
+    );
   });
 
   it("renders search results without navigation targets as non-interactive diagnostics", async () => {
@@ -71,7 +117,14 @@ describe("desktop renderer component interactions", () => {
 
     expect(searchNavigationTarget(result)).toEqual({ kind: "none" });
 
-    render(<SearchResultList {...searchResultListLabels} results={[result]} targetMissingLabel="No jump target" onOpenResult={onOpenResult} />);
+    render(
+      <SearchResultList
+        {...searchResultListLabels}
+        results={[result]}
+        targetMissingLabel="No jump target"
+        onOpenResult={onOpenResult}
+      />
+    );
 
     expect(screen.queryByRole("button", { name: /Run without record id/ })).not.toBeInTheDocument();
     expect(screen.getByText("No jump target")).toBeInTheDocument();
@@ -105,7 +158,14 @@ describe("desktop renderer component interactions", () => {
       { text: " safely", highlighted: false }
     ]);
 
-    render(<SearchResultList {...searchResultListLabels} results={[result]} targetMissingLabel="No jump target" onOpenResult={vi.fn()} />);
+    render(
+      <SearchResultList
+        {...searchResultListLabels}
+        results={[result]}
+        targetMissingLabel="No jump target"
+        onOpenResult={vi.fn()}
+      />
+    );
 
     expect(screen.getByText("Block prompt")).toBeInTheDocument();
     expect(screen.getByText(/Main canvas \(canvas-main\)/)).toBeInTheDocument();

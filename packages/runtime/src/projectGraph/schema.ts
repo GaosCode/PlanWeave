@@ -4,7 +4,10 @@ import { projectGraphEdgeTypes, supportedProjectGraphVersion } from "./types.js"
 const canvasIdSchema = z
   .string()
   .min(1)
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "Canvas id must be CLI-safe: start with a letter or number, then use only letters, numbers, dots, underscores, or hyphens.");
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/,
+    "Canvas id must be CLI-safe: start with a letter or number, then use only letters, numbers, dots, underscores, or hyphens."
+  );
 
 const projectTaskRefSchema = z
   .object({
@@ -48,7 +51,9 @@ const projectGraphManifestSchemaShape = {
   crossTaskEdges: z.array(projectCrossTaskEdgeSchema).default([])
 };
 
-export const projectGraphManifestSchemaTopLevelFields = Object.freeze(Object.keys(projectGraphManifestSchemaShape));
+export const projectGraphManifestSchemaTopLevelFields = Object.freeze(
+  Object.keys(projectGraphManifestSchemaShape)
+);
 
 export const projectGraphManifestSchema = z.object(projectGraphManifestSchemaShape).strict();
 

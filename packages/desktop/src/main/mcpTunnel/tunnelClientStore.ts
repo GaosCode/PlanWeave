@@ -48,7 +48,9 @@ export function mcpTunnelLegacyConfigPath(userDataDir: string): string {
   return join(mcpTunnelLegacyDataDir(userDataDir), configFileName);
 }
 
-export function mcpTunnelConfigStorePaths(userDataDir?: string | null): TunnelClientConfigStorePaths {
+export function mcpTunnelConfigStorePaths(
+  userDataDir?: string | null
+): TunnelClientConfigStorePaths {
   return {
     configPath: mcpTunnelConfigPath(),
     legacyConfigPath: userDataDir ? mcpTunnelLegacyConfigPath(userDataDir) : null
@@ -95,17 +97,23 @@ async function readConfigFile(path: string): Promise<TunnelClientConfig | null> 
     if (isMissingFileError(error)) {
       return null;
     }
-    throw new Error(`Failed to read MCP tunnel config at ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to read MCP tunnel config at ${path}: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 
   try {
     return normalizeTunnelClientConfig(JSON.parse(raw));
   } catch (error) {
-    throw new Error(`Invalid MCP tunnel config JSON at ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Invalid MCP tunnel config JSON at ${path}: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 
-export async function readTunnelClientConfig(paths: TunnelClientConfigStorePaths = mcpTunnelConfigStorePaths()): Promise<TunnelClientConfig> {
+export async function readTunnelClientConfig(
+  paths: TunnelClientConfigStorePaths = mcpTunnelConfigStorePaths()
+): Promise<TunnelClientConfig> {
   const config = await readConfigFile(paths.configPath);
   if (config) {
     return config;
@@ -122,7 +130,10 @@ export async function readTunnelClientConfig(paths: TunnelClientConfigStorePaths
   return defaultTunnelClientConfig();
 }
 
-export async function writeTunnelClientConfig(config: TunnelClientConfig, paths: Pick<TunnelClientConfigStorePaths, "configPath"> = mcpTunnelConfigStorePaths()): Promise<void> {
+export async function writeTunnelClientConfig(
+  config: TunnelClientConfig,
+  paths: Pick<TunnelClientConfigStorePaths, "configPath"> = mcpTunnelConfigStorePaths()
+): Promise<void> {
   const dir = dirname(paths.configPath);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await chmod(dir, 0o700).catch((error: unknown) => {

@@ -22,8 +22,16 @@ import {
 import { listTaskCanvasWorkspaces } from "../desktop/canvasApi.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { readProjectPaths } from "../paths.js";
-import { commitCanvasWorkspaceWrite, stageCanvasWorkspaceWrite } from "../projectGraph/canvasWorkspaceRecovery.js";
-import { canonicalProjectCanvasNode, loadProjectGraph, projectGraphPath, writeProjectGraph } from "../projectGraph/index.js";
+import {
+  commitCanvasWorkspaceWrite,
+  stageCanvasWorkspaceWrite
+} from "../projectGraph/canvasWorkspaceRecovery.js";
+import {
+  canonicalProjectCanvasNode,
+  loadProjectGraph,
+  projectGraphPath,
+  writeProjectGraph
+} from "../projectGraph/index.js";
 import { readState } from "../state.js";
 import { claimNext, getCurrentWork, getExecutionStatus } from "../taskManager/index.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
@@ -41,7 +49,9 @@ let actualFs: typeof import("node:fs/promises");
 
 beforeEach(async () => {
   actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
-  vi.mocked(cp).mockImplementation((source, destination, options) => actualFs.cp(source, destination, options));
+  vi.mocked(cp).mockImplementation((source, destination, options) =>
+    actualFs.cp(source, destination, options)
+  );
   vi.mocked(stat).mockImplementation((path, options) => actualFs.stat(path, options));
 });
 
@@ -56,7 +66,9 @@ function nodeIoError(code: string): NodeJS.ErrnoException {
 
 type CanvasStorageMode = "project_graph" | "legacy_registry";
 
-async function createWorkspaceForCanvasStorageMode(mode: CanvasStorageMode): Promise<Awaited<ReturnType<typeof createTestWorkspace>>> {
+async function createWorkspaceForCanvasStorageMode(
+  mode: CanvasStorageMode
+): Promise<Awaited<ReturnType<typeof createTestWorkspace>>> {
   const workspace = await createTestWorkspace();
   if (mode === "legacy_registry") {
     await rm(projectGraphPath(workspace.init.workspace));
@@ -69,7 +81,10 @@ describe("desktop task canvas API", () => {
     const { init } = await createTestWorkspace();
     const finalRoot = join(init.workspace.workspaceRoot, "canvases", "staged-create");
 
-    const staged = await stageCanvasWorkspaceWrite(init.workspace, { canvasId: "staged-create", finalRoot });
+    const staged = await stageCanvasWorkspaceWrite(init.workspace, {
+      canvasId: "staged-create",
+      finalRoot
+    });
     expect(basename(staged.stagingRoot)).toMatch(/^staged-create-\d+-[a-f0-9-]+$/);
     await mkdir(join(staged.workspace.packageDir, "nodes"), { recursive: true });
     await writeJsonFile(staged.workspace.manifestFile, basicManifest());
@@ -116,12 +131,20 @@ describe("desktop task canvas API", () => {
     const secondCanvas = await createTaskCanvas(root, { name: "Second plan" });
     expect(secondCanvas.packageDir).toBe(`canvases/${secondCanvas.canvasId}/package`);
     const secondWorkspace = await resolveTaskCanvasWorkspace(root, secondCanvas.canvasId);
-    expect(secondWorkspace.packageDir).toBe(join(init.workspace.workspaceRoot, "canvases", secondCanvas.canvasId, "package"));
-    expect(secondWorkspace.stateFile).toBe(join(init.workspace.workspaceRoot, "canvases", secondCanvas.canvasId, "state.json"));
-    expect(secondWorkspace.resultsDir).toBe(join(init.workspace.workspaceRoot, "canvases", secondCanvas.canvasId, "results"));
+    expect(secondWorkspace.packageDir).toBe(
+      join(init.workspace.workspaceRoot, "canvases", secondCanvas.canvasId, "package")
+    );
+    expect(secondWorkspace.stateFile).toBe(
+      join(init.workspace.workspaceRoot, "canvases", secondCanvas.canvasId, "state.json")
+    );
+    expect(secondWorkspace.resultsDir).toBe(
+      join(init.workspace.workspaceRoot, "canvases", secondCanvas.canvasId, "results")
+    );
     await expect(access(secondWorkspace.manifestFile)).resolves.toBeUndefined();
     await expect(access(secondWorkspace.stateFile)).resolves.toBeUndefined();
-    await expect(readdir(join(init.workspace.workspaceRoot, "desktop", "canvas-staging"))).resolves.toEqual([]);
+    await expect(
+      readdir(join(init.workspace.workspaceRoot, "desktop", "canvas-staging"))
+    ).resolves.toEqual([]);
 
     await expect(
       addTaskNode(secondWorkspace, {
@@ -150,11 +173,21 @@ describe("desktop task canvas API", () => {
       nodes: [{ nodeId: "T-CANVAS-TWO-WORK", x: 30, y: 40 }],
       updatedAt: new Date(0).toISOString()
     });
-    expect((await getDesktopLayout(defaultWorkspace)).nodes).toEqual([{ nodeId: "T-001", x: 10, y: 20 }]);
-    expect((await getDesktopLayout(secondWorkspace)).nodes).toEqual([{ nodeId: "T-CANVAS-TWO-WORK", x: 30, y: 40 }]);
+    expect((await getDesktopLayout(defaultWorkspace)).nodes).toEqual([
+      { nodeId: "T-001", x: 10, y: 20 }
+    ]);
+    expect((await getDesktopLayout(secondWorkspace)).nodes).toEqual([
+      { nodeId: "T-CANVAS-TWO-WORK", x: 30, y: 40 }
+    ]);
 
     const aggregatedCanvases = await listTaskCanvases(root);
-    expect(aggregatedCanvases.map((canvas) => ({ canvasId: canvas.canvasId, name: canvas.name, taskCount: canvas.taskCount }))).toEqual([
+    expect(
+      aggregatedCanvases.map((canvas) => ({
+        canvasId: canvas.canvasId,
+        name: canvas.name,
+        taskCount: canvas.taskCount
+      }))
+    ).toEqual([
       { canvasId: "default", name: "Test Plan", taskCount: 1 },
       { canvasId: secondCanvas.canvasId, name: "Second plan", taskCount: 1 }
     ]);
@@ -162,12 +195,22 @@ describe("desktop task canvas API", () => {
     const todo = await getTodoGroups(root);
     expect(todo.ready).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ canvasId: "default", canvasName: "Test Plan", ref: "T-001#B-001" }),
-        expect.objectContaining({ canvasId: secondCanvas.canvasId, canvasName: "Second plan", ref: "T-CANVAS-TWO-WORK#B-001" })
+        expect.objectContaining({
+          canvasId: "default",
+          canvasName: "Test Plan",
+          ref: "T-001#B-001"
+        }),
+        expect.objectContaining({
+          canvasId: secondCanvas.canvasId,
+          canvasName: "Second plan",
+          ref: "T-CANVAS-TWO-WORK#B-001"
+        })
       ])
     );
 
-    const searchResults = await searchProject(root, "Unique canvas two prompt", { kinds: ["prompt"] });
+    const searchResults = await searchProject(root, "Unique canvas two prompt", {
+      kinds: ["prompt"]
+    });
     expect(searchResults).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -177,7 +220,9 @@ describe("desktop task canvas API", () => {
         })
       ])
     );
-    expect(new Set(searchResults.map((result) => result.canvasId))).toEqual(new Set([secondCanvas.canvasId]));
+    expect(new Set(searchResults.map((result) => result.canvasId))).toEqual(
+      new Set([secondCanvas.canvasId])
+    );
     await expect(getStatistics(root)).resolves.toMatchObject({
       taskTotal: 2,
       blockTotal: 4,
@@ -187,7 +232,10 @@ describe("desktop task canvas API", () => {
 
   describe.each<{
     mode: CanvasStorageMode;
-  }>([{ mode: "project_graph" }, { mode: "legacy_registry" }])("shared canvas lifecycle behavior for $mode", ({ mode }) => {
+  }>([
+    { mode: "project_graph" },
+    { mode: "legacy_registry" }
+  ])("shared canvas lifecycle behavior for $mode", ({ mode }) => {
     it("creates, duplicates, renames, removes, and resets canvases through the same public API", async () => {
       const { root, init } = await createWorkspaceForCanvasStorageMode(mode);
 
@@ -203,7 +251,9 @@ describe("desktop task canvas API", () => {
       const createdWorkspace = await resolveTaskCanvasWorkspace(root, created.canvasId);
       await expect(access(createdWorkspace.manifestFile)).resolves.toBeUndefined();
       await expect(access(createdWorkspace.stateFile)).resolves.toBeUndefined();
-      await expect(readdir(join(init.workspace.workspaceRoot, "desktop", "canvas-staging"))).resolves.toEqual([]);
+      await expect(
+        readdir(join(init.workspace.workspaceRoot, "desktop", "canvas-staging"))
+      ).resolves.toEqual([]);
 
       const duplicated = await duplicateTaskCanvas(root, created.canvasId, { name: "Shared copy" });
       const renamed = await renameTaskCanvas(root, duplicated.canvasId, " Shared renamed ");
@@ -227,14 +277,21 @@ describe("desktop task canvas API", () => {
         taskCount: 0,
         diagnostics: []
       });
-      expect(workspaces.map((workspace) => ({ canvasId: workspace.canvasId, canvasName: workspace.canvasName }))).toEqual([
+      expect(
+        workspaces.map((workspace) => ({
+          canvasId: workspace.canvasId,
+          canvasName: workspace.canvasName
+        }))
+      ).toEqual([
         { canvasId: "default", canvasName: "Test Plan" },
         { canvasId: created.canvasId, canvasName: "Shared plan" },
         { canvasId: duplicated.canvasId, canvasName: "Shared renamed" }
       ]);
 
       const afterRemove = await removeTaskCanvas(root, duplicated.canvasId);
-      expect(afterRemove.map((canvas) => ({ canvasId: canvas.canvasId, name: canvas.name }))).toEqual([
+      expect(
+        afterRemove.map((canvas) => ({ canvasId: canvas.canvasId, name: canvas.name }))
+      ).toEqual([
         { canvasId: "default", name: "Test Plan" },
         { canvasId: created.canvasId, name: "Shared plan" }
       ]);
@@ -245,7 +302,13 @@ describe("desktop task canvas API", () => {
       await writeFile(stalePrompt, "# Stale task prompt\n", "utf8");
 
       const afterDefaultReset = await removeTaskCanvas(root, "default");
-      expect(afterDefaultReset.map((canvas) => ({ canvasId: canvas.canvasId, name: canvas.name, taskCount: canvas.taskCount }))).toEqual([
+      expect(
+        afterDefaultReset.map((canvas) => ({
+          canvasId: canvas.canvasId,
+          name: canvas.name,
+          taskCount: canvas.taskCount
+        }))
+      ).toEqual([
         { canvasId: "default", name: "Test Plan", taskCount: 0 },
         { canvasId: created.canvasId, name: "Shared plan", taskCount: 0 }
       ]);
@@ -254,10 +317,17 @@ describe("desktop task canvas API", () => {
       if (mode === "project_graph") {
         const loaded = await loadProjectGraph(root);
         expect(loaded.source).toBe("project_graph");
-        expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default", created.canvasId]);
+        expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual([
+          "default",
+          created.canvasId
+        ]);
       } else {
-        const registry = await readJsonFile<{ canvases: Array<{ canvasId: string; name: string }> }>(join(init.workspace.workspaceRoot, "desktop", "canvases.json"));
-        expect(registry.canvases.map((canvas) => ({ canvasId: canvas.canvasId, name: canvas.name }))).toEqual([
+        const registry = await readJsonFile<{
+          canvases: Array<{ canvasId: string; name: string }>;
+        }>(join(init.workspace.workspaceRoot, "desktop", "canvases.json"));
+        expect(
+          registry.canvases.map((canvas) => ({ canvasId: canvas.canvasId, name: canvas.name }))
+        ).toEqual([
           { canvasId: "default", name: "Test Plan" },
           { canvasId: created.canvasId, name: "Shared plan" }
         ]);
@@ -277,22 +347,35 @@ describe("desktop task canvas API", () => {
     });
     await claimNext({ projectRoot: sourceWorkspace });
     await mkdir(join(sourceWorkspace.resultsDir, "manual"), { recursive: true });
-    await writeFile(join(sourceWorkspace.resultsDir, "manual", "source-result.md"), "source result\n", "utf8");
+    await writeFile(
+      join(sourceWorkspace.resultsDir, "manual", "source-result.md"),
+      "source result\n",
+      "utf8"
+    );
 
     const duplicated = await duplicateTaskCanvas(root, "default");
     const duplicatedWorkspace = await resolveTaskCanvasWorkspace(root, duplicated.canvasId);
     const loaded = await loadProjectGraph(root);
-    const duplicatedManifest = await readJsonFile<{ project: { title: string } }>(duplicatedWorkspace.manifestFile);
+    const duplicatedManifest = await readJsonFile<{ project: { title: string } }>(
+      duplicatedWorkspace.manifestFile
+    );
 
     expect(duplicated).toMatchObject({
       canvasId: duplicated.canvasId,
       name: "Test Plan copy",
       taskCount: 1
     });
-    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default", duplicated.canvasId]);
-    expect(loaded.manifest.canvases.find((canvas) => canvas.id === duplicated.canvasId)?.title).toBe("Test Plan copy");
+    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual([
+      "default",
+      duplicated.canvasId
+    ]);
+    expect(
+      loaded.manifest.canvases.find((canvas) => canvas.id === duplicated.canvasId)?.title
+    ).toBe("Test Plan copy");
     expect(duplicatedManifest.project.title).toBe("Test Plan copy");
-    await expect(readFile(join(duplicatedWorkspace.packageDir, "nodes", "T-001", "prompt.md"), "utf8")).resolves.toBe(
+    await expect(
+      readFile(join(duplicatedWorkspace.packageDir, "nodes", "T-001", "prompt.md"), "utf8")
+    ).resolves.toBe(
       await readFile(join(sourceWorkspace.packageDir, "nodes", "T-001", "prompt.md"), "utf8")
     );
     await expect(readState(duplicatedWorkspace.stateFile)).resolves.toEqual({
@@ -320,11 +403,17 @@ describe("desktop task canvas API", () => {
     });
     await claimNext({ projectRoot: sourceWorkspace });
     await mkdir(join(sourceWorkspace.resultsDir, "manual"), { recursive: true });
-    await writeFile(join(sourceWorkspace.resultsDir, "manual", "source-result.md"), "source result\n", "utf8");
+    await writeFile(
+      join(sourceWorkspace.resultsDir, "manual", "source-result.md"),
+      "source result\n",
+      "utf8"
+    );
 
     const created = await createProjectFromTaskCanvas(root, "default");
     const copiedWorkspace = await resolveTaskCanvasWorkspace(created.rootPath, "default");
-    const copiedManifest = await readJsonFile<{ project: { title: string } }>(copiedWorkspace.manifestFile);
+    const copiedManifest = await readJsonFile<{ project: { title: string } }>(
+      copiedWorkspace.manifestFile
+    );
 
     expect(created).toMatchObject({
       name: "Test Plan copy",
@@ -342,7 +431,9 @@ describe("desktop task canvas API", () => {
       })
     ]);
     expect(copiedManifest.project.title).toBe("Test Plan copy");
-    await expect(readFile(join(copiedWorkspace.packageDir, "nodes", "T-001", "prompt.md"), "utf8")).resolves.toBe(
+    await expect(
+      readFile(join(copiedWorkspace.packageDir, "nodes", "T-001", "prompt.md"), "utf8")
+    ).resolves.toBe(
       await readFile(join(sourceWorkspace.packageDir, "nodes", "T-001", "prompt.md"), "utf8")
     );
     await expect(readState(copiedWorkspace.stateFile)).resolves.toEqual({
@@ -380,21 +471,41 @@ describe("desktop task canvas API", () => {
 
     const duplicated = await duplicateTaskCanvas(root, "default", { name: "Legacy duplicate" });
     const duplicatedWorkspace = await resolveTaskCanvasWorkspace(root, duplicated.canvasId);
-    const registry = await readJsonFile<{ canvases: Array<{ canvasId: string; name: string }> }>(join(init.workspace.workspaceRoot, "desktop", "canvases.json"));
-    const duplicatedManifest = await readJsonFile<{ project: { title: string } }>(duplicatedWorkspace.manifestFile);
+    const registry = await readJsonFile<{ canvases: Array<{ canvasId: string; name: string }> }>(
+      join(init.workspace.workspaceRoot, "desktop", "canvases.json")
+    );
+    const duplicatedManifest = await readJsonFile<{ project: { title: string } }>(
+      duplicatedWorkspace.manifestFile
+    );
 
     expect(duplicated).toMatchObject({
       canvasId: duplicated.canvasId,
       name: "Legacy duplicate",
       taskCount: 1
     });
-    expect(registry.canvases.map((canvas) => canvas.canvasId)).toEqual(["default", duplicated.canvasId]);
-    expect(registry.canvases.find((canvas) => canvas.canvasId === duplicated.canvasId)?.name).toBe("Legacy duplicate");
-    expect(duplicatedManifest.project.title).toBe("Legacy duplicate");
-    await expect(readFile(join(duplicatedWorkspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"), "utf8")).resolves.toBe(
-      await readFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"), "utf8")
+    expect(registry.canvases.map((canvas) => canvas.canvasId)).toEqual([
+      "default",
+      duplicated.canvasId
+    ]);
+    expect(registry.canvases.find((canvas) => canvas.canvasId === duplicated.canvasId)?.name).toBe(
+      "Legacy duplicate"
     );
-    await expect(readState(duplicatedWorkspace.stateFile)).resolves.toMatchObject({ currentRefs: [], blocks: {} });
+    expect(duplicatedManifest.project.title).toBe("Legacy duplicate");
+    await expect(
+      readFile(
+        join(duplicatedWorkspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"),
+        "utf8"
+      )
+    ).resolves.toBe(
+      await readFile(
+        join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"),
+        "utf8"
+      )
+    );
+    await expect(readState(duplicatedWorkspace.stateFile)).resolves.toMatchObject({
+      currentRefs: [],
+      blocks: {}
+    });
     await expect(readdir(duplicatedWorkspace.resultsDir)).resolves.toEqual([]);
   });
 
@@ -454,7 +565,9 @@ describe("desktop task canvas API", () => {
     const { root } = await createTestWorkspace();
     const canvas = await createTaskCanvas(root, { name: "Imported legacy plan" });
     const canvasWorkspace = await resolveTaskCanvasWorkspace(root, canvas.canvasId);
-    const manifest = basicManifest() as unknown as { nodes: Array<Record<string, unknown> & { blocks?: Array<Record<string, unknown>> }> };
+    const manifest = basicManifest() as unknown as {
+      nodes: Array<Record<string, unknown> & { blocks?: Array<Record<string, unknown>> }>;
+    };
     manifest.nodes.unshift({ id: "G-001", type: "goal", title: "Removed goal" });
     manifest.nodes[1].blocks?.splice(1, 0, {
       id: "C-001",
@@ -478,7 +591,12 @@ describe("desktop task canvas API", () => {
     const { root, init } = await createTestWorkspace();
     await rm(projectGraphPath(init.workspace));
     const manifest = basicManifest();
-    const legacyPackageDir = join(init.workspace.workspaceRoot, "canvases", "legacy-import", "package");
+    const legacyPackageDir = join(
+      init.workspace.workspaceRoot,
+      "canvases",
+      "legacy-import",
+      "package"
+    );
     await writeJsonFile(join(legacyPackageDir, "manifest.json"), manifest);
     await writePromptFiles(legacyPackageDir, manifest);
     await writeJsonFile(join(init.workspace.workspaceRoot, "desktop", "canvases.json"), {
@@ -504,8 +622,12 @@ describe("desktop task canvas API", () => {
         taskCount: 1
       })
     ]);
-    expect(workspace.stateFile).toBe(join(init.workspace.workspaceRoot, "canvases", "legacy-import", "state.json"));
-    expect(workspace.resultsDir).toBe(join(init.workspace.workspaceRoot, "canvases", "legacy-import", "results"));
+    expect(workspace.stateFile).toBe(
+      join(init.workspace.workspaceRoot, "canvases", "legacy-import", "state.json")
+    );
+    expect(workspace.resultsDir).toBe(
+      join(init.workspace.workspaceRoot, "canvases", "legacy-import", "results")
+    );
   });
 
   it("uses the active canvas for CLI-style package resolution", async () => {
@@ -536,7 +658,10 @@ describe("desktop task canvas API", () => {
     expect(paths.resultsDir).toBe(secondWorkspace.resultsDir);
     expect(status.nextClaimable).toEqual(["T-ACTIVE-CANVAS-WORK#B-001"]);
     expect(claim).toMatchObject({ kind: "block", ref: "T-ACTIVE-CANVAS-WORK#B-001" });
-    expect(current.owner).toMatchObject({ canvasId: secondCanvas.canvasId, taskIds: ["T-ACTIVE-CANVAS-WORK"] });
+    expect(current.owner).toMatchObject({
+      canvasId: secondCanvas.canvasId,
+      taskIds: ["T-ACTIVE-CANVAS-WORK"]
+    });
   });
 
   it("does not fall back to the first formal canvas when active canvas stat fails with EACCES", async () => {
@@ -606,9 +731,14 @@ describe("desktop task canvas API", () => {
       ]
     });
 
-    await expect(removeTaskCanvas(root, created.canvasId)).rejects.toThrow("referenced by project graph dependencies");
+    await expect(removeTaskCanvas(root, created.canvasId)).rejects.toThrow(
+      "referenced by project graph dependencies"
+    );
     loaded = await loadProjectGraph(root);
-    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default", created.canvasId]);
+    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual([
+      "default",
+      created.canvasId
+    ]);
     expect(loaded.manifest.edges).toHaveLength(1);
     expect(loaded.manifest.crossTaskEdges).toHaveLength(1);
 
@@ -620,15 +750,30 @@ describe("desktop task canvas API", () => {
 
     const remaining = await removeTaskCanvas(root, created.canvasId);
     loaded = await loadProjectGraph(root);
-    const quarantineEntries = await readdir(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine"));
+    const quarantineEntries = await readdir(
+      join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine")
+    );
 
     expect(remaining.map((canvas) => canvas.canvasId)).toEqual(["default"]);
     expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default"]);
     expect(loaded.manifest.edges).toEqual([]);
     expect(loaded.manifest.crossTaskEdges).toEqual([]);
-    await expect(access(join(init.workspace.workspaceRoot, "canvases", created.canvasId))).rejects.toThrow();
+    await expect(
+      access(join(init.workspace.workspaceRoot, "canvases", created.canvasId))
+    ).rejects.toThrow();
     expect(quarantineEntries).toHaveLength(1);
-    await expect(access(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine", quarantineEntries[0], "package", "manifest.json"))).resolves.toBeUndefined();
+    await expect(
+      access(
+        join(
+          init.workspace.workspaceRoot,
+          "desktop",
+          "canvas-quarantine",
+          quarantineEntries[0],
+          "package",
+          "manifest.json"
+        )
+      )
+    ).resolves.toBeUndefined();
   });
 
   it("resets formal default canvases by clearing stale package files without removing the canvas", async () => {
@@ -642,14 +787,24 @@ describe("desktop task canvas API", () => {
     const secondCanvas = await createTaskCanvas(root, { name: "Second plan" });
     const defaultWorkspace = await resolveTaskCanvasWorkspace(root, "default");
     const staleNodePrompt = join(defaultWorkspace.packageDir, "nodes", "T-STALE", "prompt.md");
-    const staleBlockPrompt = join(defaultWorkspace.packageDir, "nodes", "T-STALE", "blocks", "B-STALE.prompt.md");
-    await mkdir(join(defaultWorkspace.packageDir, "nodes", "T-STALE", "blocks"), { recursive: true });
+    const staleBlockPrompt = join(
+      defaultWorkspace.packageDir,
+      "nodes",
+      "T-STALE",
+      "blocks",
+      "B-STALE.prompt.md"
+    );
+    await mkdir(join(defaultWorkspace.packageDir, "nodes", "T-STALE", "blocks"), {
+      recursive: true
+    });
     await writeFile(staleNodePrompt, "# Stale task prompt\n", "utf8");
     await writeFile(staleBlockPrompt, "# Stale block prompt\n", "utf8");
 
     const remaining = await removeTaskCanvas(root, "default");
     const loaded = await loadProjectGraph(root);
-    const resetManifest = await readJsonFile<{ project: { title: string }; nodes: unknown[] }>(defaultWorkspace.manifestFile);
+    const resetManifest = await readJsonFile<{ project: { title: string }; nodes: unknown[] }>(
+      defaultWorkspace.manifestFile
+    );
 
     expect(remaining.map((canvas) => canvas.canvasId)).toEqual(["default", secondCanvas.canvasId]);
     expect(remaining.find((canvas) => canvas.canvasId === "default")).toMatchObject({
@@ -657,7 +812,10 @@ describe("desktop task canvas API", () => {
       taskCount: 0,
       diagnostics: []
     });
-    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default", secondCanvas.canvasId]);
+    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual([
+      "default",
+      secondCanvas.canvasId
+    ]);
     expect(resetManifest.project.title).toBe("Root plan");
     expect(resetManifest.nodes).toEqual([]);
     await expect(access(staleNodePrompt)).rejects.toThrow();
@@ -680,7 +838,9 @@ describe("desktop task canvas API", () => {
     const manifest = await readJsonFile<{ project: { title: string } }>(workspace.manifestFile);
 
     expect(renamed).toMatchObject({ canvasId: created.canvasId, name: "Renamed formal canvas" });
-    expect(loaded.manifest.canvases.find((canvas) => canvas.id === created.canvasId)?.title).toBe("Renamed formal canvas");
+    expect(loaded.manifest.canvases.find((canvas) => canvas.id === created.canvasId)?.title).toBe(
+      "Renamed formal canvas"
+    );
     expect(manifest.project.title).toBe("Renamed formal canvas");
   });
 
@@ -690,19 +850,25 @@ describe("desktop task canvas API", () => {
     const created = await createTaskCanvas(root, { name: "Original legacy canvas" });
 
     const renamed = await renameTaskCanvas(root, created.canvasId, "Renamed legacy canvas");
-    const registry = await readJsonFile<{ canvases: Array<{ canvasId: string; name: string }> }>(join(init.workspace.workspaceRoot, "desktop", "canvases.json"));
+    const registry = await readJsonFile<{ canvases: Array<{ canvasId: string; name: string }> }>(
+      join(init.workspace.workspaceRoot, "desktop", "canvases.json")
+    );
     const workspace = await resolveTaskCanvasWorkspace(root, created.canvasId);
     const manifest = await readJsonFile<{ project: { title: string } }>(workspace.manifestFile);
 
     expect(renamed).toMatchObject({ canvasId: created.canvasId, name: "Renamed legacy canvas" });
-    expect(registry.canvases.find((canvas) => canvas.canvasId === created.canvasId)?.name).toBe("Renamed legacy canvas");
+    expect(registry.canvases.find((canvas) => canvas.canvasId === created.canvasId)?.name).toBe(
+      "Renamed legacy canvas"
+    );
     expect(manifest.project.title).toBe("Renamed legacy canvas");
   });
 
   it("rejects empty task canvas names", async () => {
     const { root } = await createTestWorkspace();
 
-    await expect(renameTaskCanvas(root, "default", "   ")).rejects.toThrow("Task canvas name is required.");
+    await expect(renameTaskCanvas(root, "default", "   ")).rejects.toThrow(
+      "Task canvas name is required."
+    );
   });
 
   it("restores formal canvas workspace on write failure", async () => {
@@ -715,7 +881,9 @@ describe("desktop task canvas API", () => {
     });
     const created = await createTaskCanvas(root, { name: "Rollback" });
     const canvasRoot = join(init.workspace.workspaceRoot, "canvases", created.canvasId);
-    await mkdir(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine"), { recursive: true });
+    await mkdir(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine"), {
+      recursive: true
+    });
 
     try {
       await chmod(init.workspace.workspaceRoot, 0o555);
@@ -725,9 +893,14 @@ describe("desktop task canvas API", () => {
     }
 
     const loaded = await loadProjectGraph(root);
-    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default", created.canvasId]);
+    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual([
+      "default",
+      created.canvasId
+    ]);
     await expect(access(join(canvasRoot, "package", "manifest.json"))).resolves.toBeUndefined();
-    await expect(readdir(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine"))).resolves.toEqual([]);
+    await expect(
+      readdir(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine"))
+    ).resolves.toEqual([]);
   });
 
   it("quarantines legacy canvas workspaces when removing non-default canvases", async () => {
@@ -737,14 +910,31 @@ describe("desktop task canvas API", () => {
     const canvasRoot = join(init.workspace.workspaceRoot, "canvases", created.canvasId);
 
     const remaining = await removeTaskCanvas(root, created.canvasId);
-    const quarantineEntries = await readdir(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine"));
-    const registry = await readJsonFile<Record<string, unknown>>(join(init.workspace.workspaceRoot, "desktop", "canvases.json"));
+    const quarantineEntries = await readdir(
+      join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine")
+    );
+    const registry = await readJsonFile<Record<string, unknown>>(
+      join(init.workspace.workspaceRoot, "desktop", "canvases.json")
+    );
 
     expect(remaining.map((canvas) => canvas.canvasId)).toEqual(["default"]);
-    expect(registry).toMatchObject({ canvases: [expect.objectContaining({ canvasId: "default" })] });
+    expect(registry).toMatchObject({
+      canvases: [expect.objectContaining({ canvasId: "default" })]
+    });
     await expect(access(canvasRoot)).rejects.toThrow();
     expect(quarantineEntries).toHaveLength(1);
-    await expect(access(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine", quarantineEntries[0], "package", "manifest.json"))).resolves.toBeUndefined();
+    await expect(
+      access(
+        join(
+          init.workspace.workspaceRoot,
+          "desktop",
+          "canvas-quarantine",
+          quarantineEntries[0],
+          "package",
+          "manifest.json"
+        )
+      )
+    ).resolves.toBeUndefined();
   });
 
   it("resets legacy default canvases by clearing stale package files without removing the canvas", async () => {
@@ -756,7 +946,9 @@ describe("desktop task canvas API", () => {
     await writeFile(staleNodePrompt, "# Stale task prompt\n", "utf8");
 
     const remaining = await removeTaskCanvas(root, "default");
-    const registry = await readJsonFile<{ canvases: Array<{ canvasId: string }> }>(join(init.workspace.workspaceRoot, "desktop", "canvases.json"));
+    const registry = await readJsonFile<{ canvases: Array<{ canvasId: string }> }>(
+      join(init.workspace.workspaceRoot, "desktop", "canvases.json")
+    );
     const resetManifest = await readJsonFile<{ nodes: unknown[] }>(defaultWorkspace.manifestFile);
 
     expect(remaining.map((canvas) => canvas.canvasId)).toEqual(["default"]);
@@ -785,8 +977,13 @@ describe("desktop task canvas API", () => {
       await chmod(desktopRoot, 0o755);
     }
 
-    const registry = await readJsonFile<{ canvases: Array<{ canvasId: string }> }>(join(desktopRoot, "canvases.json"));
-    expect(registry.canvases.map((canvas) => canvas.canvasId)).toEqual(["default", created.canvasId]);
+    const registry = await readJsonFile<{ canvases: Array<{ canvasId: string }> }>(
+      join(desktopRoot, "canvases.json")
+    );
+    expect(registry.canvases.map((canvas) => canvas.canvasId)).toEqual([
+      "default",
+      created.canvasId
+    ]);
     await expect(access(join(canvasRoot, "package", "manifest.json"))).resolves.toBeUndefined();
     await expect(readdir(join(desktopRoot, "canvas-quarantine"))).resolves.toEqual([]);
   });
@@ -811,7 +1008,9 @@ describe("desktop task canvas API", () => {
       ]
     });
 
-    await expect(removeTaskCanvas(root, "default")).rejects.toThrow("referenced by project graph dependencies");
+    await expect(removeTaskCanvas(root, "default")).rejects.toThrow(
+      "referenced by project graph dependencies"
+    );
 
     const loaded = await loadProjectGraph(root);
     expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default", "downstream"]);

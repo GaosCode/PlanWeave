@@ -1,9 +1,24 @@
 import { useState, type ReactNode } from "react";
 import { ChevronDownIcon, ChevronRightIcon, CopyIcon, GaugeIcon, Wand2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
-import { diagnosticFixActionFor, type DiagnosticFixAction, type DiagnosticFixContext } from "../diagnosticFixActions";
-import { groupDesktopDiagnostics, type DesktopDiagnostic, type DesktopDiagnosticSource } from "../diagnostics";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger
+} from "@/components/ui/popover";
+import {
+  diagnosticFixActionFor,
+  type DiagnosticFixAction,
+  type DiagnosticFixContext
+} from "../diagnosticFixActions";
+import {
+  groupDesktopDiagnostics,
+  type DesktopDiagnostic,
+  type DesktopDiagnosticSource
+} from "../diagnostics";
 import type { TranslationKey } from "../i18n";
 import type { FloatingAutoRunTranslator } from "./floatingAutoRunTypes";
 
@@ -36,7 +51,11 @@ function DisclosureSection({
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
-        {open ? <ChevronDownIcon data-icon="inline-start" /> : <ChevronRightIcon data-icon="inline-start" />}
+        {open ? (
+          <ChevronDownIcon data-icon="inline-start" />
+        ) : (
+          <ChevronRightIcon data-icon="inline-start" />
+        )}
         {title}
       </Button>
       {open ? <div className="border-t border-border/70 p-2">{children}</div> : null}
@@ -75,12 +94,19 @@ function DiagnosticActionButton({
       variant="outline"
       onClick={() => {
         onStart(actionKey);
-        void action.run().catch((caught: unknown) => {
-          actionContext.setError(errorMessage(caught));
-        }).finally(onFinish);
+        void action
+          .run()
+          .catch((caught: unknown) => {
+            actionContext.setError(errorMessage(caught));
+          })
+          .finally(onFinish);
       }}
     >
-      {action.kind === "apply" ? <Wand2Icon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
+      {action.kind === "apply" ? (
+        <Wand2Icon data-icon="inline-start" />
+      ) : (
+        <CopyIcon data-icon="inline-start" />
+      )}
       {t(action.labelKey)}
     </Button>
   );
@@ -112,8 +138,10 @@ function DesktopDiagnosticsList({
             >
               <div className="font-medium text-text-strong">{diagnostic.code}</div>
               <div className="break-words text-muted-foreground">{diagnostic.message}</div>
-              {diagnostic.path ? <div className="mt-1 break-all text-text-faint">{diagnostic.path}</div> : null}
-              {(diagnostic.severity || diagnostic.suggestedTool || diagnostic.fixId) ? (
+              {diagnostic.path ? (
+                <div className="mt-1 break-all text-text-faint">{diagnostic.path}</div>
+              ) : null}
+              {diagnostic.severity || diagnostic.suggestedTool || diagnostic.fixId ? (
                 <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-text-faint">
                   {diagnostic.severity ? <span>{diagnostic.severity}</span> : null}
                   {diagnostic.suggestedTool ? <span>{diagnostic.suggestedTool}</span> : null}
@@ -149,9 +177,15 @@ const diagnosticTitleKeys = {
   other: "otherDiagnostics"
 } satisfies Record<DesktopDiagnosticSource, TranslationKey>;
 
-export function DesktopDiagnosticsPopover({ actionContext, diagnostics, disabled, t }: DesktopDiagnosticsPopoverProps) {
+export function DesktopDiagnosticsPopover({
+  actionContext,
+  diagnostics,
+  disabled,
+  t
+}: DesktopDiagnosticsPopoverProps) {
   const groups = groupDesktopDiagnostics(diagnostics);
-  const defaultOpenSource = groups.find((group) => group.source === "performance")?.source ?? groups[0]?.source ?? null;
+  const defaultOpenSource =
+    groups.find((group) => group.source === "performance")?.source ?? groups[0]?.source ?? null;
   const hasDiagnostics = groups.length > 0;
   return (
     <Popover>
@@ -193,7 +227,10 @@ export function DesktopDiagnosticsPopover({ actionContext, diagnostics, disabled
               );
             })
           ) : (
-            <div className="rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-xs text-muted-foreground" data-testid="desktop-diagnostics-empty">
+            <div
+              className="rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-xs text-muted-foreground"
+              data-testid="desktop-diagnostics-empty"
+            >
               {t("desktopDiagnosticsNoIssues")}
             </div>
           )}

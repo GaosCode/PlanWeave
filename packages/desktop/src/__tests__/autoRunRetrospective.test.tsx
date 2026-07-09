@@ -2,7 +2,16 @@
 
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { autoRunState, cleanupAutoRunControlTestEnvironment, createDesktopBridgeMock, createTranslator, loadAutoRunControl, project, selectedBlock, stubAutoRunControlBridge } from "./helpers/autoRunControlHarness";
+import {
+  autoRunState,
+  cleanupAutoRunControlTestEnvironment,
+  createDesktopBridgeMock,
+  createTranslator,
+  loadAutoRunControl,
+  project,
+  selectedBlock,
+  stubAutoRunControlBridge
+} from "./helpers/autoRunControlHarness";
 
 afterEach(() => {
   cleanupAutoRunControlTestEnvironment();
@@ -66,11 +75,13 @@ describe("auto run control hook retrospective", () => {
     rerender({ state: blockedState });
 
     await waitFor(() => {
-      expect(getAutoRunRetrospective).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, blockedState.runId);
+      expect(getAutoRunRetrospective).toHaveBeenCalledWith(
+        { projectRoot: project.rootPath, canvasId: "canvas-main" },
+        blockedState.runId
+      );
       expect(result.current.autoRunRetrospective?.runId).toBe(blockedState.runId);
     });
   });
-
 
   it("clears stale auto-run state when retrospective state was deleted", async () => {
     const blockedState = autoRunState({
@@ -78,11 +89,13 @@ describe("auto run control hook retrospective", () => {
       runId: "DESKTOP-RUN-0008",
       currentRef: selectedBlock.ref
     });
-    const getAutoRunRetrospective = vi.fn().mockRejectedValue(
-      new Error(
-        "Error invoking remote method 'planweave:getAutoRunRetrospective': Error: Auto Run 'DESKTOP-RUN-0008' could not be read: auto_run_state_missing: /tmp/demo/results/auto-runs/DESKTOP-RUN-0008/state.json: Auto Run state '/tmp/demo/results/auto-runs/DESKTOP-RUN-0008/state.json' does not exist."
-      )
-    );
+    const getAutoRunRetrospective = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          "Error invoking remote method 'planweave:getAutoRunRetrospective': Error: Auto Run 'DESKTOP-RUN-0008' could not be read: auto_run_state_missing: /tmp/demo/results/auto-runs/DESKTOP-RUN-0008/state.json: Auto Run state '/tmp/demo/results/auto-runs/DESKTOP-RUN-0008/state.json' does not exist."
+        )
+      );
     const bridge = createDesktopBridgeMock({
       getAutoRunRetrospective,
       getLatestAutoRunRetrospective: vi.fn()
@@ -107,10 +120,14 @@ describe("auto run control hook retrospective", () => {
       })
     );
 
-    await waitFor(() => expect(getAutoRunRetrospective).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, blockedState.runId));
+    await waitFor(() =>
+      expect(getAutoRunRetrospective).toHaveBeenCalledWith(
+        { projectRoot: project.rootPath, canvasId: "canvas-main" },
+        blockedState.runId
+      )
+    );
     await waitFor(() => expect(setAutoRunState).toHaveBeenCalledWith(null));
     expect(result.current.autoRunRetrospective).toBeNull();
     expect(setError).not.toHaveBeenCalled();
   });
-
 });

@@ -99,7 +99,10 @@ export type GraphInspectionSliceResult = {
   blocks: GraphInspectionBoundedSection<GraphInspectionBlock>;
 };
 
-export type GraphInspectionResult = GraphInspectionSummaryResult | GraphInspectionTasksResult | GraphInspectionSliceResult;
+export type GraphInspectionResult =
+  | GraphInspectionSummaryResult
+  | GraphInspectionTasksResult
+  | GraphInspectionSliceResult;
 
 export type GraphQualityReviewPolicy = "none" | "risk-based" | "required";
 

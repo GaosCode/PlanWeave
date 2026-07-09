@@ -12,5 +12,10 @@
     },
     "types": ["vite/client"]
   },
-  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx", "src/preload/global.d.ts", "vite.config.ts"]
+  "include": [
+    "src/renderer/**/*.ts",
+    "src/renderer/**/*.tsx",
+    "src/preload/global.d.ts",
+    "vite.config.ts"
+  ]
 }

@@ -2,7 +2,13 @@ import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ImportTransaction } from "../package/importTransaction.js";
-import { tempWorkspace, writeText, recoveryRoot, fsFailWrite, expectOp } from "./support/importTransactionTestHarness.js";
+import {
+  tempWorkspace,
+  writeText,
+  recoveryRoot,
+  fsFailWrite,
+  expectOp
+} from "./support/importTransactionTestHarness.js";
 
 describe("ImportTransaction: rollback", () => {
   it("restores a replaced path on rollback", async () => {
@@ -18,7 +24,12 @@ describe("ImportTransaction: rollback", () => {
 
     await transaction.replacePath(target, staged);
     expect(await readFile(join(target, "manifest.json"), "utf8")).toBe("new\n");
-    await expectOp(workspaceRoot, transactionId, { target, type: "replace", targetExisted: true, phase: "installed" });
+    await expectOp(workspaceRoot, transactionId, {
+      target,
+      type: "replace",
+      targetExisted: true,
+      phase: "installed"
+    });
 
     await transaction.rollback();
 
@@ -71,12 +82,17 @@ describe("ImportTransaction: rollback", () => {
     const transaction = await ImportTransaction.create({ workspaceRoot, transactionId });
 
     await transaction.replacePath(target, staged);
-    await rm(join(recoveryRoot(workspaceRoot, transactionId), "backups", "000001"), { recursive: true, force: true });
+    await rm(join(recoveryRoot(workspaceRoot, transactionId), "backups", "000001"), {
+      recursive: true,
+      force: true
+    });
 
     await expect(transaction.rollback()).rejects.toThrow("backup missing");
 
     expect(await readFile(target, "utf8")).toBe("new state\n");
-    await expect(access(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"))).resolves.toBeUndefined();
+    await expect(
+      access(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"))
+    ).resolves.toBeUndefined();
   });
 
   it("reports a backedUp missing backup without treating rollback as complete", async () => {
@@ -88,12 +104,20 @@ describe("ImportTransaction: rollback", () => {
     const transaction = await ImportTransaction.create({ workspaceRoot, transactionId });
 
     await transaction.removePath(target);
-    await rm(join(recoveryRoot(workspaceRoot, transactionId), "backups", "000001"), { recursive: true, force: true });
+    await rm(join(recoveryRoot(workspaceRoot, transactionId), "backups", "000001"), {
+      recursive: true,
+      force: true
+    });
 
     await expect(transaction.rollback()).rejects.toThrow("backup missing");
 
     await expect(access(target)).rejects.toThrow();
-    await expectOp(workspaceRoot, transactionId, { target, type: "remove", targetExisted: true, phase: "backedUp" });
+    await expectOp(workspaceRoot, transactionId, {
+      target,
+      type: "remove",
+      targetExisted: true,
+      phase: "backedUp"
+    });
   });
 
   it("does not mutate disk when rollingBack progress cannot be persisted", async () => {
@@ -113,7 +137,12 @@ describe("ImportTransaction: rollback", () => {
     await expect(transaction.rollback()).rejects.toThrow("rollback progress write failed");
 
     expect(await readFile(target, "utf8")).toBe("new state\n");
-    await expectOp(workspaceRoot, transactionId, { target, type: "replace", targetExisted: true, phase: "installed" });
+    await expectOp(workspaceRoot, transactionId, {
+      target,
+      type: "replace",
+      targetExisted: true,
+      phase: "installed"
+    });
     await expect(access(recoveryRoot(workspaceRoot, transactionId))).resolves.toBeUndefined();
   });
 
@@ -132,9 +161,13 @@ describe("ImportTransaction: rollback", () => {
 
     await expect(transaction.rollback()).rejects.toThrow("Import transaction rollback failed");
 
-    const recovery = JSON.parse(await readFile(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"), "utf8")) as {
+    const recovery = JSON.parse(
+      await readFile(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"), "utf8")
+    ) as {
       operations: Array<{ target: string; type: string }>;
     };
-    expect(recovery.operations).toContainEqual(expect.objectContaining({ target, type: "replace" }));
+    expect(recovery.operations).toContainEqual(
+      expect.objectContaining({ target, type: "replace" })
+    );
   });
 });

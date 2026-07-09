@@ -8,14 +8,24 @@ import { describe, expect, it } from "vitest";
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "../../../..");
 
-async function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
-  return execFileAsync("pnpm", ["--silent", "--filter", "@planweave-ai/cli", "planweave", ...args], {
-    cwd: repoRoot,
-    env
-  });
+async function runCli(
+  args: string[],
+  env: NodeJS.ProcessEnv
+): Promise<{ stdout: string; stderr: string }> {
+  return execFileAsync(
+    "pnpm",
+    ["--silent", "--filter", "@planweave-ai/cli", "planweave", ...args],
+    {
+      cwd: repoRoot,
+      env
+    }
+  );
 }
 
-async function expectCliFailure(args: string[], env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string; code: number }> {
+async function expectCliFailure(
+  args: string[],
+  env: NodeJS.ProcessEnv
+): Promise<{ stdout: string; stderr: string; code: number }> {
   try {
     await runCli(args, env);
   } catch (error) {
@@ -76,7 +86,10 @@ describe("CLI error handling", () => {
     const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
     const projectRoot = await mkdtemp(join(tmpdir(), "planweave-project-"));
     const env = withoutInitCwd({ ...process.env, PLANWEAVE_HOME: home });
-    const failure = await expectCliFailure(["--project-root", projectRoot, "status", "--json"], env);
+    const failure = await expectCliFailure(
+      ["--project-root", projectRoot, "status", "--json"],
+      env
+    );
 
     expect(failure.code).toBe(1);
     expect(failure.stdout).toBe("");

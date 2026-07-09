@@ -73,9 +73,24 @@ describe("import recovery", () => {
     });
 
     await expect(listPendingImportTransactions(workspaceRoot)).resolves.toMatchObject([
-      { transactionId: "tx-a", createdAt: "2026-01-01T00:00:00.000Z", operationCount: 0, phases: [] },
-      { transactionId: "tx-c", createdAt: "2026-01-01T00:00:00.000Z", operationCount: 0, phases: [] },
-      { transactionId: "tx-b", createdAt: "2026-01-02T00:00:00.000Z", operationCount: 0, phases: [] }
+      {
+        transactionId: "tx-a",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        operationCount: 0,
+        phases: []
+      },
+      {
+        transactionId: "tx-c",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        operationCount: 0,
+        phases: []
+      },
+      {
+        transactionId: "tx-b",
+        createdAt: "2026-01-02T00:00:00.000Z",
+        operationCount: 0,
+        phases: []
+      }
     ]);
   });
 
@@ -101,7 +116,9 @@ describe("import recovery", () => {
     const root = recoveryRoot(workspaceRoot, "invalid id");
     await mkdir(root, { recursive: true });
 
-    await expect(listPendingImportTransactions(workspaceRoot)).rejects.toThrow("Invalid import transaction id");
+    await expect(listPendingImportTransactions(workspaceRoot)).rejects.toThrow(
+      "Invalid import transaction id"
+    );
   });
 
   it("rejects invalid transaction ids before creating recovery state", async () => {
@@ -109,7 +126,9 @@ describe("import recovery", () => {
     const invalidIds = ["", ".", "..", "tx/id", "tx\\id", "tx id"];
 
     for (const transactionId of invalidIds) {
-      await expect(ImportTransaction.create({ workspaceRoot, transactionId })).rejects.toThrow("Invalid import transaction id");
+      await expect(ImportTransaction.create({ workspaceRoot, transactionId })).rejects.toThrow(
+        "Invalid import transaction id"
+      );
     }
   });
 
@@ -139,7 +158,9 @@ describe("import recovery", () => {
       operations: []
     });
 
-    await expect(listPendingImportTransactions(workspaceRoot)).rejects.toThrow("Invalid import transaction id");
+    await expect(listPendingImportTransactions(workspaceRoot)).rejects.toThrow(
+      "Invalid import transaction id"
+    );
   });
 
   it("fails when a recovery belongs to another workspace", async () => {
@@ -191,10 +212,17 @@ describe("import recovery", () => {
     await writeFile(staged, "new state\n", "utf8");
     const transaction = await ImportTransaction.create({ workspaceRoot, transactionId });
     await transaction.replacePath(target, staged);
-    await rm(join(recoveryRoot(workspaceRoot, transactionId), "backups", "000001"), { recursive: true, force: true });
+    await rm(join(recoveryRoot(workspaceRoot, transactionId), "backups", "000001"), {
+      recursive: true,
+      force: true
+    });
 
-    await expect(rollbackPendingImportTransaction({ workspaceRoot, transactionId })).rejects.toThrow("backup missing");
+    await expect(
+      rollbackPendingImportTransaction({ workspaceRoot, transactionId })
+    ).rejects.toThrow("backup missing");
 
-    await expect(access(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"))).resolves.toBeUndefined();
+    await expect(
+      access(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"))
+    ).resolves.toBeUndefined();
   });
 });

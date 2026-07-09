@@ -1,6 +1,19 @@
-import type { CompiledExecutionGraph, ManifestBlock, ManifestTaskNode, PlanPackageManifest, ValidationIssue } from "../../types.js";
+import type {
+  CompiledExecutionGraph,
+  ManifestBlock,
+  ManifestTaskNode,
+  PlanPackageManifest,
+  ValidationIssue
+} from "../../types.js";
 import type { PlanGraphCommandDiagnostic } from "../commands.js";
-import type { PlanGraph, PlanGraphBlockNode, PlanGraphEdge, PlanGraphTaskNode, PromptIndexEntry, PromptRef } from "./types.js";
+import type {
+  PlanGraph,
+  PlanGraphBlockNode,
+  PlanGraphEdge,
+  PlanGraphTaskNode,
+  PromptIndexEntry,
+  PromptRef
+} from "./types.js";
 
 export type BuildPlanGraphInput = {
   manifest: PlanPackageManifest;
@@ -34,7 +47,11 @@ function missingPromptRef(ownerKind: "task" | "block", ownerRef: string, path: s
   };
 }
 
-function taskNode(task: ManifestTaskNode, promptRef: PromptRef, canvasId: string | null): PlanGraphTaskNode {
+function taskNode(
+  task: ManifestTaskNode,
+  promptRef: PromptRef,
+  canvasId: string | null
+): PlanGraphTaskNode {
   return {
     taskId: task.id,
     canvasId,
@@ -76,13 +93,15 @@ export function buildPlanGraph(input: BuildPlanGraphInput): PlanGraph {
     if (!task) {
       continue;
     }
-    const taskPrompt = input.promptIndex.get(task.prompt) ?? missingPromptRef("task", task.id, task.prompt);
+    const taskPrompt =
+      input.promptIndex.get(task.prompt) ?? missingPromptRef("task", task.id, task.prompt);
     promptRefs.set(taskPrompt.ownerRef, taskPrompt);
     tasks.set(task.id, taskNode(task, taskPrompt, canvasId));
 
     for (const block of task.blocks) {
       const ref = blockRef(task.id, block.id);
-      const prompt = input.promptIndex.get(block.prompt) ?? missingPromptRef("block", ref, block.prompt);
+      const prompt =
+        input.promptIndex.get(block.prompt) ?? missingPromptRef("block", ref, block.prompt);
       promptRefs.set(prompt.ownerRef, prompt);
       blocks.set(ref, blockNode(task.id, block, prompt));
     }

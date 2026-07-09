@@ -20,7 +20,9 @@ export type LocalMcpServerManagerOptions = {
 
 export class LocalMcpServerManager {
   private server: Server | null = null;
-  private options: Required<Pick<LocalMcpServerManagerOptions, "host" | "maxRequestBodyBytes" | "port">> &
+  private options: Required<
+    Pick<LocalMcpServerManagerOptions, "host" | "maxRequestBodyBytes" | "port">
+  > &
     Pick<LocalMcpServerManagerOptions, "oauth">;
   private status: LocalMcpServerStatus;
 
@@ -48,7 +50,14 @@ export class LocalMcpServerManager {
     return this.status;
   }
 
-  async start(input: { host?: string | null; port?: number | null; oauth?: McpOAuthConfig | null; token?: string | null } = {}): Promise<LocalMcpServerStatus> {
+  async start(
+    input: {
+      host?: string | null;
+      port?: number | null;
+      oauth?: McpOAuthConfig | null;
+      token?: string | null;
+    } = {}
+  ): Promise<LocalMcpServerStatus> {
     if (this.server && this.status.phase === "running") {
       return this.status;
     }

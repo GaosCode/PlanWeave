@@ -50,8 +50,12 @@ describe("executor environment", () => {
       process.env.PLANWEAVE_HOME = previousHome;
     }
 
-    await expect(readFile(join(root, "codex-cwd.txt"), "utf8")).resolves.toBe(init.workspace.rootPath);
-    await expect(readFile(join(root, "codex-planweave-home.txt"), "utf8")).resolves.toBe(init.workspace.planweaveHome);
+    await expect(readFile(join(root, "codex-cwd.txt"), "utf8")).resolves.toBe(
+      init.workspace.rootPath
+    );
+    await expect(readFile(join(root, "codex-planweave-home.txt"), "utf8")).resolves.toBe(
+      init.workspace.planweaveHome
+    );
   });
 
   it("runs opencode-exec in the project directory with the PlanWeave data home", async () => {
@@ -99,7 +103,11 @@ describe("executor environment", () => {
       process.env.PLANWEAVE_HOME = previousHome;
     }
 
-    await expect(readFile(join(root, "opencode-cwd.txt"), "utf8")).resolves.toBe(init.workspace.rootPath);
-    await expect(readFile(join(root, "opencode-planweave-home.txt"), "utf8")).resolves.toBe(init.workspace.planweaveHome);
+    await expect(readFile(join(root, "opencode-cwd.txt"), "utf8")).resolves.toBe(
+      init.workspace.rootPath
+    );
+    await expect(readFile(join(root, "opencode-planweave-home.txt"), "utf8")).resolves.toBe(
+      init.workspace.planweaveHome
+    );
   });
 });

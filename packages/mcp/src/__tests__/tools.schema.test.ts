@@ -8,7 +8,9 @@ import { handlePlanweaveTool } from "../tools.js";
 
 describe("MCP tools: schema", () => {
   it("returns schema documents as JSON text content", async () => {
-    const result = readJson(await handlePlanweaveTool("get_schema", { topic: "manifest" }, createGateway()));
+    const result = readJson(
+      await handlePlanweaveTool("get_schema", { topic: "manifest" }, createGateway())
+    );
 
     expect(result).toEqual({
       topic: "manifest",
@@ -30,17 +32,21 @@ describe("MCP tools: schema", () => {
       ]),
       documents: {}
     });
-    expect(JSON.stringify(result)).not.toContain("\"schema\"");
+    expect(JSON.stringify(result)).not.toContain('"schema"');
   });
 
   it("returns state and layout schema documents by topic", async () => {
-    await expect(readJson(await handlePlanweaveTool("get_schema", { topic: "state" }, createGateway()))).toEqual({
+    await expect(
+      readJson(await handlePlanweaveTool("get_schema", { topic: "state" }, createGateway()))
+    ).toEqual({
       topic: "state",
       documents: {
         state: schemaDocuments.state
       }
     });
-    await expect(readJson(await handlePlanweaveTool("get_schema", { topic: "layout" }, createGateway()))).toEqual({
+    await expect(
+      readJson(await handlePlanweaveTool("get_schema", { topic: "layout" }, createGateway()))
+    ).toEqual({
       topic: "layout",
       documents: {
         layout: schemaDocuments.layout
@@ -49,9 +55,9 @@ describe("MCP tools: schema", () => {
   });
 
   it("reports the complete runtime schema topic list for unknown topics", async () => {
-    await expect(handlePlanweaveTool("get_schema", { topic: "unknown" }, createGateway())).rejects.toThrow(
-      `topic must be one of: ${runtimeSchemaTopicOrder.join(", ")}.`
-    );
+    await expect(
+      handlePlanweaveTool("get_schema", { topic: "unknown" }, createGateway())
+    ).rejects.toThrow(`topic must be one of: ${runtimeSchemaTopicOrder.join(", ")}.`);
   });
 
   it("uses runtime schema topics in MCP get_schema input and output schemas", () => {
@@ -60,7 +66,9 @@ describe("MCP tools: schema", () => {
 
     for (const topic of runtimeSchemaTopicOrder) {
       expect(inputSchema.safeParse({ topic }).success).toBe(true);
-      expect(outputSchema.safeParse({ topic, documents: { [topic]: schemaDocuments[topic] } }).success).toBe(true);
+      expect(
+        outputSchema.safeParse({ topic, documents: { [topic]: schemaDocuments[topic] } }).success
+      ).toBe(true);
     }
     expect(outputSchema.safeParse({ topic: null, topics: [], documents: {} }).success).toBe(true);
   });

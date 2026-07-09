@@ -3,9 +3,7 @@ import {
   resetRuntimeBridgeMocks,
   restoreRuntimeBridgeEnv
 } from "./support/runtimeBridgeTestHarness.js";
-import {
-  desktopBridgeInvokeChannels
-} from "../shared/ipcChannels";
+import { desktopBridgeInvokeChannels } from "../shared/ipcChannels";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const { electronMock, runtimeMock } = getRuntimeBridgeMocks();
@@ -23,7 +21,9 @@ describe("runtime bridge handlers: import recovery", () => {
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 
-    const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.listPendingImportRecoveries);
+    const handler = electronMock.handlers.get(
+      desktopBridgeInvokeChannels.listPendingImportRecoveries
+    );
     expect(handler).toBeDefined();
 
     await expect(handler?.(null, "/tmp/project")).resolves.toEqual([
@@ -44,12 +44,17 @@ describe("runtime bridge handlers: import recovery", () => {
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 
-    const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.rollbackPendingImportRecovery);
+    const handler = electronMock.handlers.get(
+      desktopBridgeInvokeChannels.rollbackPendingImportRecovery
+    );
     expect(handler).toBeDefined();
 
     await handler?.(null, "/tmp/project", "import-tx-1");
 
     expect(runtimeMock.resolveTaskCanvasWorkspace).not.toHaveBeenCalled();
-    expect(runtimeMock.rollbackPendingImportRecovery).toHaveBeenCalledWith("/tmp/project", "import-tx-1");
+    expect(runtimeMock.rollbackPendingImportRecovery).toHaveBeenCalledWith(
+      "/tmp/project",
+      "import-tx-1"
+    );
   });
 });

@@ -12,7 +12,10 @@ import {
   validateTaskBlocks
 } from "./graphIndexes.js";
 
-export function applyGraphEditOperation(session: ExecutionGraphSession, operation: GraphEditOperation): ValidationIssue[] {
+export function applyGraphEditOperation(
+  session: ExecutionGraphSession,
+  operation: GraphEditOperation
+): ValidationIssue[] {
   const graph = session.graph;
   const manifest = session.fileSnapshot.manifest;
   if (operation.type === "update_prompt") {
@@ -76,8 +79,12 @@ export function applyGraphEditOperation(session: ExecutionGraphSession, operatio
     if (!node) {
       return [issue("node_missing", `Node '${operation.nodeId}' does not exist.`, "nodes")];
     }
-    const removedEdges = manifest.edges.filter((edge) => edge.from === operation.nodeId || edge.to === operation.nodeId);
-    manifest.edges = manifest.edges.filter((edge) => edge.from !== operation.nodeId && edge.to !== operation.nodeId);
+    const removedEdges = manifest.edges.filter(
+      (edge) => edge.from === operation.nodeId || edge.to === operation.nodeId
+    );
+    manifest.edges = manifest.edges.filter(
+      (edge) => edge.from !== operation.nodeId && edge.to !== operation.nodeId
+    );
     for (const edge of removedEdges) {
       removeEdgeIndexes(graph, edge);
     }

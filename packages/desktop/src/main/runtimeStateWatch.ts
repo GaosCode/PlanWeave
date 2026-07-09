@@ -67,12 +67,19 @@ async function fingerprintStateFile(path: string): Promise<RuntimeStateFingerpri
   }
 }
 
-function changedFingerprint(left: RuntimeStateFingerprint | null, right: RuntimeStateFingerprint | null): boolean {
-  return left?.mtimeMs !== right?.mtimeMs || left?.size !== right?.size || left?.hash !== right?.hash;
+function changedFingerprint(
+  left: RuntimeStateFingerprint | null,
+  right: RuntimeStateFingerprint | null
+): boolean {
+  return (
+    left?.mtimeMs !== right?.mtimeMs || left?.size !== right?.size || left?.hash !== right?.hash
+  );
 }
 
 function warnPollingSnapshotFailure(stateFile: string, caught: unknown): void {
-  console.warn(`PlanWeave runtime state polling watch failed for '${stateFile}': ${caught instanceof Error ? caught.message : String(caught)}`);
+  console.warn(
+    `PlanWeave runtime state polling watch failed for '${stateFile}': ${caught instanceof Error ? caught.message : String(caught)}`
+  );
 }
 
 function startNativeRuntimeStateWatchBackend(
@@ -98,7 +105,9 @@ function startNativeRuntimeStateWatchBackend(
       lastFingerprint
     };
   } catch (caught) {
-    console.warn(`PlanWeave native runtime state watch failed for '${stateFile}': ${caught instanceof Error ? caught.message : String(caught)}`);
+    console.warn(
+      `PlanWeave native runtime state watch failed for '${stateFile}': ${caught instanceof Error ? caught.message : String(caught)}`
+    );
     return null;
   }
 }
@@ -130,14 +139,20 @@ async function startPollingRuntimeStateWatchBackend(
   return backend;
 }
 
-async function startRuntimeStateWatchBackend(stateFile: string, recordChange: () => void): Promise<RuntimeStateWatchBackend> {
+async function startRuntimeStateWatchBackend(
+  stateFile: string,
+  recordChange: () => void
+): Promise<RuntimeStateWatchBackend> {
   const lastFingerprint = await fingerprintStateFile(stateFile);
-  return startNativeRuntimeStateWatchBackend(stateFile, lastFingerprint, recordChange)
-    ?? (await startPollingRuntimeStateWatchBackend(stateFile, lastFingerprint, recordChange));
+  return (
+    startNativeRuntimeStateWatchBackend(stateFile, lastFingerprint, recordChange) ??
+    (await startPollingRuntimeStateWatchBackend(stateFile, lastFingerprint, recordChange))
+  );
 }
 
 function addPendingRuntimeStateWatchSubscriber(key: string, webContents: WebContents): void {
-  const subscribers = pendingRuntimeStateWatchSubscribers.get(key) ?? new Map<number, WebContents>();
+  const subscribers =
+    pendingRuntimeStateWatchSubscribers.get(key) ?? new Map<number, WebContents>();
   subscribers.set(webContents.id, webContents);
   pendingRuntimeStateWatchSubscribers.set(key, subscribers);
 }
@@ -179,7 +194,10 @@ function closeRuntimeStateWatch(activeWatch: RuntimeStateWatch): void {
   }
 }
 
-async function flushRuntimeStateChange(projectRoot: string, canvasId?: string | null): Promise<void> {
+async function flushRuntimeStateChange(
+  projectRoot: string,
+  canvasId?: string | null
+): Promise<void> {
   const key = watchKey(projectRoot, canvasId);
   const activeWatch = runtimeStateWatches.get(key);
   if (!activeWatch || activeWatch.closed) {
@@ -229,7 +247,9 @@ async function getOrCreateRuntimeStateWatch(
       }
       currentWatch.timer = setTimeout(() => {
         void flushRuntimeStateChange(projectRoot, canvasId).catch((caught: unknown) => {
-          console.warn(`PlanWeave runtime state watch flush failed for '${workspace.stateFile}': ${caught instanceof Error ? caught.message : String(caught)}`);
+          console.warn(
+            `PlanWeave runtime state watch flush failed for '${workspace.stateFile}': ${caught instanceof Error ? caught.message : String(caught)}`
+          );
         });
       }, runtimeStateWatchDebounceMs);
     };
@@ -256,7 +276,11 @@ async function getOrCreateRuntimeStateWatch(
   }
 }
 
-async function startRuntimeStateWatch(projectRoot: string, canvasId: string | null | undefined, webContents: WebContents): Promise<void> {
+async function startRuntimeStateWatch(
+  projectRoot: string,
+  canvasId: string | null | undefined,
+  webContents: WebContents
+): Promise<void> {
   const key = watchKey(projectRoot, canvasId);
   addPendingRuntimeStateWatchSubscriber(key, webContents);
   let activeWatch: RuntimeStateWatch;
@@ -284,7 +308,11 @@ async function startRuntimeStateWatch(projectRoot: string, canvasId: string | nu
   removePendingRuntimeStateWatchSubscriber(key, webContents.id);
 }
 
-function stopRuntimeStateWatch(projectRoot: string, canvasId: string | null | undefined, webContents: WebContents): void {
+function stopRuntimeStateWatch(
+  projectRoot: string,
+  canvasId: string | null | undefined,
+  webContents: WebContents
+): void {
   const key = watchKey(projectRoot, canvasId);
   removePendingRuntimeStateWatchSubscriber(key, webContents.id);
   const activeWatch = runtimeStateWatches.get(key);
@@ -309,6 +337,14 @@ function stopRuntimeStateWatch(projectRoot: string, canvasId: string | null | un
 }
 
 export function registerRuntimeStateWatchHandlers(): void {
-  ipcMain.handle(desktopBridgeInvokeChannels.watchRuntimeState, (event, ref: DesktopCanvasReference) => startRuntimeStateWatch(ref.projectRoot, ref.canvasId, event.sender));
-  ipcMain.handle(desktopBridgeInvokeChannels.unwatchRuntimeState, (event, ref: DesktopCanvasReference) => stopRuntimeStateWatch(ref.projectRoot, ref.canvasId, event.sender));
+  ipcMain.handle(
+    desktopBridgeInvokeChannels.watchRuntimeState,
+    (event, ref: DesktopCanvasReference) =>
+      startRuntimeStateWatch(ref.projectRoot, ref.canvasId, event.sender)
+  );
+  ipcMain.handle(
+    desktopBridgeInvokeChannels.unwatchRuntimeState,
+    (event, ref: DesktopCanvasReference) =>
+      stopRuntimeStateWatch(ref.projectRoot, ref.canvasId, event.sender)
+  );
 }

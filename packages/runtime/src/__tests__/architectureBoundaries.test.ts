@@ -21,8 +21,14 @@ async function sourceFiles(directory: string): Promise<string[]> {
 describe("runtime architecture boundaries", () => {
   it("keeps task manager independent from desktop modules", async () => {
     const taskManagerFiles = await sourceFiles(join(runtimeRoot, "taskManager"));
-    const imports = await Promise.all(taskManagerFiles.map(async (file) => [file, await readFile(file, "utf8")] as const));
+    const imports = await Promise.all(
+      taskManagerFiles.map(async (file) => [file, await readFile(file, "utf8")] as const)
+    );
 
-    expect(imports.filter(([, content]) => /from\s+["']\.\.\/desktop\//.test(content)).map(([file]) => file)).toEqual([]);
+    expect(
+      imports
+        .filter(([, content]) => /from\s+["']\.\.\/desktop\//.test(content))
+        .map(([file]) => file)
+    ).toEqual([]);
   });
 });

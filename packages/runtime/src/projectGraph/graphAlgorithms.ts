@@ -43,7 +43,10 @@ export function findCycle(adjacency: Map<string, string[]>): string[] | null {
       }
       if (visiting.has(next)) {
         const cycleStart = stack.findIndex((item) => item.id === next);
-        return stack.slice(cycleStart).map((item) => item.id).concat(next);
+        return stack
+          .slice(cycleStart)
+          .map((item) => item.id)
+          .concat(next);
       }
       if (!visited.has(next)) {
         visiting.add(next);

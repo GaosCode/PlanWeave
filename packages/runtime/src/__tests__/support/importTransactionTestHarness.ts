@@ -78,8 +78,13 @@ export function fsInstallFail(staged: string, target: string): typeof realFs {
   };
 }
 
-export async function readRecovery(workspaceRoot: string, transactionId: string): Promise<RecoveryJson> {
-  return JSON.parse(await readFile(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"), "utf8")) as RecoveryJson;
+export async function readRecovery(
+  workspaceRoot: string,
+  transactionId: string
+): Promise<RecoveryJson> {
+  return JSON.parse(
+    await readFile(join(recoveryRoot(workspaceRoot, transactionId), "recovery.json"), "utf8")
+  ) as RecoveryJson;
 }
 
 export async function recoverClean(workspaceRoot: string, transactionId: string): Promise<void> {
@@ -93,6 +98,7 @@ export async function expectOp(
   transactionId: string,
   operation: Partial<RecoveryJson["operations"][number]>
 ): Promise<void> {
-  await expect(readRecovery(workspaceRoot, transactionId)).resolves.toMatchObject({ operations: [operation] });
+  await expect(readRecovery(workspaceRoot, transactionId)).resolves.toMatchObject({
+    operations: [operation]
+  });
 }
-

@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { tmuxRunnerSource } from "../autoRun/tmuxRunnerScript.js";
 
-async function runNodeScript(path: string, cwd: string): Promise<{ exitCode: number; stderr: string }> {
+async function runNodeScript(
+  path: string,
+  cwd: string
+): Promise<{ exitCode: number; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path], { cwd, stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
@@ -79,7 +82,10 @@ describe("tmux runner script", () => {
       configPath,
       JSON.stringify({
         command: process.execPath,
-        args: ["-e", "process.on('SIGTERM', () => {}); process.stdout.write('trigger'); setInterval(() => {}, 100);"],
+        args: [
+          "-e",
+          "process.on('SIGTERM', () => {}); process.stdout.write('trigger'); setInterval(() => {}, 100);"
+        ],
         cwd: dir,
         env: {},
         stdinPath,
@@ -97,7 +103,9 @@ describe("tmux runner script", () => {
     const result = await runNodeScript(runnerPath, dir);
 
     expect(result.exitCode).toBe(1);
-    await expect(readFile(donePath, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>)).resolves.toMatchObject({
+    await expect(
+      readFile(donePath, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>)
+    ).resolves.toMatchObject({
       exitCode: 1,
       timedOut: false
     });
@@ -147,7 +155,10 @@ setTimeout(() => process.stdout.write("trigger"), 500);
     );
     await writeFile(runnerPath, tmuxRunnerSource(configPath), "utf8");
 
-    const runner = spawn(process.execPath, [runnerPath], { cwd: dir, stdio: ["ignore", "ignore", "pipe"] });
+    const runner = spawn(process.execPath, [runnerPath], {
+      cwd: dir,
+      stdio: ["ignore", "ignore", "pipe"]
+    });
     let stderr = "";
     const runnerDone = new Promise<{ exitCode: number; stderr: string }>((resolve, reject) => {
       runner.stderr.setEncoding("utf8");
@@ -168,7 +179,9 @@ setTimeout(() => process.stdout.write("trigger"), 500);
       const result = await runnerDone;
 
       expect(result.exitCode).toBe(1);
-      await expect(readFile(donePath, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>)).resolves.toMatchObject({
+      await expect(
+        readFile(donePath, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>)
+      ).resolves.toMatchObject({
         exitCode: 1,
         timedOut: false,
         error: expect.stringContaining("stdout log stream failed")
@@ -218,7 +231,10 @@ setTimeout(() => process.stdout.write("trigger"), 500);
     );
     await writeFile(runnerPath, tmuxRunnerSource(configPath), "utf8");
 
-    const runner = spawn(process.execPath, [runnerPath], { cwd: dir, stdio: ["ignore", "ignore", "pipe"] });
+    const runner = spawn(process.execPath, [runnerPath], {
+      cwd: dir,
+      stdio: ["ignore", "ignore", "pipe"]
+    });
     const runnerDone = new Promise<{ exitCode: number; stderr: string }>((resolve, reject) => {
       let stderr = "";
       runner.stderr.setEncoding("utf8");

@@ -1,6 +1,10 @@
 import { BrowserWindow, ipcMain, nativeTheme } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
-import { windowAppearanceInvokeChannels, type WindowMaterialCapabilities, type WindowMaterialSettings } from "../shared/windowAppearance.js";
+import {
+  windowAppearanceInvokeChannels,
+  type WindowMaterialCapabilities,
+  type WindowMaterialSettings
+} from "../shared/windowAppearance.js";
 
 const lightWindowBackground = "#f7f8fa";
 const darkWindowBackground = "#1f211f";
@@ -30,7 +34,10 @@ export function getWindowMaterialCapabilities(): WindowMaterialCapabilities {
   return { platform: process.platform, reason: "unsupported-platform", supported: false };
 }
 
-export function windowBackgroundColor(appearance: WindowMaterialSettings["appearance"], materialEnabled = false): string {
+export function windowBackgroundColor(
+  appearance: WindowMaterialSettings["appearance"],
+  materialEnabled = false
+): string {
   if (materialEnabled && getWindowMaterialCapabilities().supported) {
     return materialWindowBackground;
   }
@@ -55,7 +62,10 @@ export async function applyLiquidGlassToWindow(window: BrowserWindow): Promise<v
       window.setBackgroundColor(materialWindowBackground);
     }
   } catch (error) {
-    console.error("Failed to apply liquid glass:", error instanceof Error ? error.message : String(error));
+    console.error(
+      "Failed to apply liquid glass:",
+      error instanceof Error ? error.message : String(error)
+    );
   }
 }
 
@@ -87,6 +97,9 @@ function setWindowMaterial(event: IpcMainInvokeEvent, settings: WindowMaterialSe
 }
 
 export function registerWindowAppearanceHandlers(): void {
-  ipcMain.handle(windowAppearanceInvokeChannels.getWindowMaterialCapabilities, getWindowMaterialCapabilities);
+  ipcMain.handle(
+    windowAppearanceInvokeChannels.getWindowMaterialCapabilities,
+    getWindowMaterialCapabilities
+  );
   ipcMain.handle(windowAppearanceInvokeChannels.setWindowMaterial, setWindowMaterial);
 }

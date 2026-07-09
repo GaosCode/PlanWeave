@@ -10,7 +10,8 @@ import {
 import { jsonToolResult } from "../toolHelpers.js";
 import { handlePlanweaveTool, planweaveToolNames } from "../tools.js";
 
-const noopHandler: PlanweaveToolHandler = async (): Promise<CallToolResult> => jsonToolResult({ ok: true });
+const noopHandler: PlanweaveToolHandler = async (): Promise<CallToolResult> =>
+  jsonToolResult({ ok: true });
 
 describe("tool dispatcher", () => {
   it("registers every PlanWeave tool exactly once", () => {
@@ -27,26 +28,29 @@ describe("tool dispatcher", () => {
 
   it("does not register handlers outside PlanweaveToolName", () => {
     const allowed = new Set<string>(planweaveToolNames);
-    const registeredNames = planweaveToolHandlerRegistries.flatMap((registry) => Object.keys(registry));
+    const registeredNames = planweaveToolHandlerRegistries.flatMap((registry) =>
+      Object.keys(registry)
+    );
 
     expect(registeredNames.every((name) => allowed.has(name))).toBe(true);
   });
 
   it("rejects duplicate handler names", () => {
     expect(() =>
-      buildPlanweaveToolHandlerRegistry([
-        { get_schema: noopHandler },
-        { get_schema: noopHandler }
-      ])
+      buildPlanweaveToolHandlerRegistry([{ get_schema: noopHandler }, { get_schema: noopHandler }])
     ).toThrow("Duplicate PlanWeave tool handler(s): get_schema");
   });
 
   it("rejects handlers outside PlanweaveToolName", () => {
-    expect(() => buildPlanweaveToolHandlerRegistry([{ unknown_tool: noopHandler }])).toThrow("Unexpected PlanWeave tool handler(s): unknown_tool");
+    expect(() => buildPlanweaveToolHandlerRegistry([{ unknown_tool: noopHandler }])).toThrow(
+      "Unexpected PlanWeave tool handler(s): unknown_tool"
+    );
   });
 
   it("rejects incomplete handler registries", () => {
-    expect(() => buildPlanweaveToolHandlerRegistry([])).toThrow("Missing PlanWeave tool handler(s):");
+    expect(() => buildPlanweaveToolHandlerRegistry([])).toThrow(
+      "Missing PlanWeave tool handler(s):"
+    );
   });
 
   it("handlePlanweaveTool delegates to the registered handler", async () => {

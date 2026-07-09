@@ -18,7 +18,12 @@ function shouldSkipExitAnimation() {
   return window.matchMedia(reducedMotionQuery).matches;
 }
 
-export function AnimatedTreeRegion({ children, className, expanded, unmountOnExit = false }: AnimatedTreeRegionProps) {
+export function AnimatedTreeRegion({
+  children,
+  className,
+  expanded,
+  unmountOnExit = false
+}: AnimatedTreeRegionProps) {
   const [shouldRender, setShouldRender] = useState(() => expanded || !unmountOnExit);
 
   useEffect(() => {
@@ -47,7 +52,9 @@ export function AnimatedTreeRegion({ children, className, expanded, unmountOnExi
       aria-hidden={!expanded}
       className={cn(
         "grid min-w-0 transition-[grid-template-rows,opacity,transform] duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)]",
-        expanded ? "grid-rows-[1fr] translate-y-0 opacity-100" : "pointer-events-none grid-rows-[0fr] -translate-y-1 opacity-0"
+        expanded
+          ? "grid-rows-[1fr] translate-y-0 opacity-100"
+          : "pointer-events-none grid-rows-[0fr] -translate-y-1 opacity-0"
       )}
       inert={expanded ? undefined : true}
     >

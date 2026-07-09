@@ -2,7 +2,11 @@ import { access, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readJsonFile, writeJsonFile } from "../json.js";
-import { canonicalProjectCanvasNode, projectGraphPath, projectCanvasWorkspace } from "../projectGraph/index.js";
+import {
+  canonicalProjectCanvasNode,
+  projectGraphPath,
+  projectCanvasWorkspace
+} from "../projectGraph/index.js";
 import { DEFAULT_CANVAS_WORKSPACE_STALE_THRESHOLD_MS } from "../projectGraph/canvasWorkspaceRecovery.js";
 import { runProjectDoctor } from "../taskManager/index.js";
 import type { ProjectGraphManifest } from "../projectGraph/index.js";
@@ -46,10 +50,12 @@ function twoCanvasProjectGraph(): ProjectGraphManifest {
   };
 }
 
-async function createTwoCanvasProject(): Promise<Awaited<ReturnType<typeof createTestWorkspace>> & {
-  graph: ProjectGraphManifest;
-  desktopManifest: PlanPackageManifest;
-}> {
+async function createTwoCanvasProject(): Promise<
+  Awaited<ReturnType<typeof createTestWorkspace>> & {
+    graph: ProjectGraphManifest;
+    desktopManifest: PlanPackageManifest;
+  }
+> {
   const workspace = await createTestWorkspace();
   const graph = twoCanvasProjectGraph();
   const desktopCanvas = graph.canvases.find((canvas) => canvas.id === "desktop");
@@ -262,8 +268,18 @@ describe("runProjectDoctor", () => {
   it("reports canvas workspace recovery anomalies and repairs orphan and staging directories conservatively", async () => {
     const { root, init } = await createTestWorkspace();
     const orphanRoot = join(init.workspace.workspaceRoot, "canvases", "orphaned-canvas");
-    const stagingRoot = join(init.workspace.workspaceRoot, "desktop", "canvas-staging", "stale-create");
-    const quarantineRoot = join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine", "deleted-canvas");
+    const stagingRoot = join(
+      init.workspace.workspaceRoot,
+      "desktop",
+      "canvas-staging",
+      "stale-create"
+    );
+    const quarantineRoot = join(
+      init.workspace.workspaceRoot,
+      "desktop",
+      "canvas-quarantine",
+      "deleted-canvas"
+    );
     await mkdir(join(orphanRoot, "package"), { recursive: true });
     await writeJsonFile(join(orphanRoot, "package", "manifest.json"), basicManifest());
     await writeJsonFile(join(orphanRoot, "state.json"), {
@@ -286,13 +302,25 @@ describe("runProjectDoctor", () => {
     expect(report.ok).toBe(false);
     expect(report.errors).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ code: "orphan_canvas_directory", source: "project_graph", path: "canvases/orphaned-canvas" }),
-        expect.objectContaining({ code: "stale_canvas_staging_directory", source: "project_graph", path: "desktop/canvas-staging/stale-create" })
+        expect.objectContaining({
+          code: "orphan_canvas_directory",
+          source: "project_graph",
+          path: "canvases/orphaned-canvas"
+        }),
+        expect.objectContaining({
+          code: "stale_canvas_staging_directory",
+          source: "project_graph",
+          path: "desktop/canvas-staging/stale-create"
+        })
       ])
     );
     expect(report.warnings).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ code: "stale_canvas_quarantine_directory", source: "project_graph", path: "desktop/canvas-quarantine/deleted-canvas" })
+        expect.objectContaining({
+          code: "stale_canvas_quarantine_directory",
+          source: "project_graph",
+          path: "desktop/canvas-quarantine/deleted-canvas"
+        })
       ])
     );
 
@@ -313,8 +341,18 @@ describe("runProjectDoctor", () => {
   it("does not report fresh canvas recovery directories as stale or delete fresh staging during repair", async () => {
     const { root, init } = await createTestWorkspace();
     const orphanRoot = join(init.workspace.workspaceRoot, "canvases", "orphaned-canvas");
-    const stagingRoot = join(init.workspace.workspaceRoot, "desktop", "canvas-staging", "fresh-create");
-    const quarantineRoot = join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine", "fresh-delete");
+    const stagingRoot = join(
+      init.workspace.workspaceRoot,
+      "desktop",
+      "canvas-staging",
+      "fresh-create"
+    );
+    const quarantineRoot = join(
+      init.workspace.workspaceRoot,
+      "desktop",
+      "canvas-quarantine",
+      "fresh-delete"
+    );
     await mkdir(join(orphanRoot, "package"), { recursive: true });
     await writeJsonFile(join(orphanRoot, "package", "manifest.json"), basicManifest());
     await mkdir(join(orphanRoot, "results"), { recursive: true });
@@ -327,9 +365,15 @@ describe("runProjectDoctor", () => {
 
     expect(report.ok).toBe(true);
     expect(report.repaired).toBe(true);
-    expect(report.errors).toEqual([expect.objectContaining({ code: "orphan_canvas_directory", repaired: true })]);
-    expect(report.errors.some((issue) => issue.code === "stale_canvas_staging_directory")).toBe(false);
-    expect(report.warnings.some((issue) => issue.code === "stale_canvas_quarantine_directory")).toBe(false);
+    expect(report.errors).toEqual([
+      expect.objectContaining({ code: "orphan_canvas_directory", repaired: true })
+    ]);
+    expect(report.errors.some((issue) => issue.code === "stale_canvas_staging_directory")).toBe(
+      false
+    );
+    expect(
+      report.warnings.some((issue) => issue.code === "stale_canvas_quarantine_directory")
+    ).toBe(false);
     await expect(access(orphanRoot)).rejects.toThrow();
     await expect(access(stagingRoot)).resolves.toBeUndefined();
     await expect(access(quarantineRoot)).resolves.toBeUndefined();
@@ -349,8 +393,14 @@ describe("runProjectDoctor", () => {
     expect(report.errors.some((issue) => issue.code === "orphan_canvas_directory")).toBe(false);
     expect(report.warnings).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ code: "unrecognized_orphan_canvas_directory", path: "canvases/user-notes" }),
-        expect.objectContaining({ code: "unrecognized_orphan_canvas_directory", path: "canvases/invalid-canvas" })
+        expect.objectContaining({
+          code: "unrecognized_orphan_canvas_directory",
+          path: "canvases/user-notes"
+        }),
+        expect.objectContaining({
+          code: "unrecognized_orphan_canvas_directory",
+          path: "canvases/invalid-canvas"
+        })
       ])
     );
     await expect(access(userDirectory)).resolves.toBeUndefined();

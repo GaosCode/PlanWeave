@@ -20,7 +20,9 @@ import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 
 describe("PlanGraph projections", () => {
   it("builds todo and review projections from PlanGraph and runtime status", async () => {
-    const { root } = await createTestWorkspace(basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] }));
+    const { root } = await createTestWorkspace(
+      basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] })
+    );
     const runtime = await loadRuntime({ projectRoot: root });
     const status = await buildExecutionStatus(runtime);
     const { graph } = await loadPlanGraphPackage(root);
@@ -40,7 +42,9 @@ describe("PlanGraph projections", () => {
 
     expect(todo.graphVersion).toBe(graph.graphVersion);
     expect(todo.groups.ready.map((item) => item.ref)).toEqual(["T-002#B-001"]);
-    expect(todo.groups.planned.find((item) => item.ref === "T-001#B-001")?.dependencyBlockers).toEqual(["T-002"]);
+    expect(
+      todo.groups.planned.find((item) => item.ref === "T-001#B-001")?.dependencyBlockers
+    ).toEqual(["T-002"]);
     expect(review.graphVersion).toBe(graph.graphVersion);
     expect(review.items.map((item) => item.ref)).toEqual(["T-001#R-001", "T-002#R-001"]);
     expect(review.ready).toEqual([]);
@@ -53,7 +57,9 @@ describe("PlanGraph projections", () => {
     if (!defaultCanvas) {
       throw new Error("Default canvas missing.");
     }
-    const resultsByCanvas = new Map([["default", await buildResultsFileIndex(defaultCanvas.workspace)]]);
+    const resultsByCanvas = new Map([
+      ["default", await buildResultsFileIndex(defaultCanvas.workspace)]
+    ]);
     const graphVersion = todoContext.snapshotsByCanvas.get("default")?.graphVersion;
     if (!graphVersion) {
       throw new Error("Default canvas graph version missing.");
@@ -79,7 +85,9 @@ describe("PlanGraph projections", () => {
     });
     expect(canvasMap.graphVersion).toBe(graphVersion);
     expect(canvasMap.viewModel.canvases.map((canvas) => canvas.canvasId)).toEqual(["default"]);
-    expect(canvasMap.viewModel.health.canvases.map((canvas) => canvas.canvasId)).toEqual(["default"]);
+    expect(canvasMap.viewModel.health.canvases.map((canvas) => canvas.canvasId)).toEqual([
+      "default"
+    ]);
   });
 
   it("stores projection version metadata and invalidates it on index rebuild", async () => {
@@ -96,7 +104,9 @@ describe("PlanGraph projections", () => {
       updatedAt: "2026-01-01T00:00:00.000Z"
     });
 
-    await expect(store.getProjectionVersion("todo", `todo:${graph.graphVersion}`)).resolves.toMatchObject({
+    await expect(
+      store.getProjectionVersion("todo", `todo:${graph.graphVersion}`)
+    ).resolves.toMatchObject({
       projectionName: "todo",
       graphVersion: graph.graphVersion,
       projectionVersion: "todo/v1",
@@ -104,7 +114,9 @@ describe("PlanGraph projections", () => {
     });
 
     await store.rebuild();
-    await expect(store.getProjectionVersion("todo", `todo:${graph.graphVersion}`)).resolves.toBeNull();
+    await expect(
+      store.getProjectionVersion("todo", `todo:${graph.graphVersion}`)
+    ).resolves.toBeNull();
   });
 
   it("invalidates projection version metadata on changed package paths", async () => {
@@ -122,7 +134,9 @@ describe("PlanGraph projections", () => {
     });
     await store.indexChangedPaths(["nodes/T-001/prompt.md"]);
 
-    await expect(store.getProjectionVersion("todo", `todo:${graph.graphVersion}`)).resolves.toBeNull();
+    await expect(
+      store.getProjectionVersion("todo", `todo:${graph.graphVersion}`)
+    ).resolves.toBeNull();
   });
 
   it("changes metadata graphVersion for same-size restored-mtime prompt edits", async () => {

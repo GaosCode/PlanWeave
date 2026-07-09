@@ -1,6 +1,11 @@
 import { runCodexBlock, runCodexFeedback } from "./codexExecutor.js";
 import { workspaceExecutionCwd } from "./executorShared.js";
-import { adapterProfileMismatch, type ExecutorBlockInput, type ExecutorFeedbackInput, type ExecutorIntegration } from "./executorIntegration.js";
+import {
+  adapterProfileMismatch,
+  type ExecutorBlockInput,
+  type ExecutorFeedbackInput,
+  type ExecutorIntegration
+} from "./executorIntegration.js";
 
 export const codexIntegration: ExecutorIntegration = {
   adapter: "codex-exec",

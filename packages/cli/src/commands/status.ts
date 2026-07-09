@@ -1,6 +1,11 @@
 import type { Command } from "commander";
 import { getExecutionStatus, type ClaimHint } from "@planweave-ai/runtime";
-import { addCanvasOption, resolveCliCanvasId, resolveCliPackageWorkspace, type CanvasCommandOptions } from "../cliWorkspace.js";
+import {
+  addCanvasOption,
+  resolveCliCanvasId,
+  resolveCliPackageWorkspace,
+  type CanvasCommandOptions
+} from "../cliWorkspace.js";
 import { formatExecutionStatusHuman } from "./formatters/statusFormatters.js";
 
 function withCanvasFlag(command: string | null, canvasId: string | null): string | null {
@@ -11,7 +16,10 @@ function withCanvasFlag(command: string | null, canvasId: string | null): string
   return [binary, subcommand, "--canvas", canvasId, ...rest].join(" ");
 }
 
-function withCanvasCommands<T extends { claimHints: ClaimHint[] }>(status: T, canvasId: string | null): T {
+function withCanvasCommands<T extends { claimHints: ClaimHint[] }>(
+  status: T,
+  canvasId: string | null
+): T {
   if (!canvasId) {
     return status;
   }
@@ -26,16 +34,20 @@ function withCanvasCommands<T extends { claimHints: ClaimHint[] }>(status: T, ca
 }
 
 export function registerStatusCommand(program: Command): void {
-  addCanvasOption(program
-    .command("status")
-    .description("Show the current PlanWeave block execution status")
-    .option("--json", "print machine-readable output"))
-    .action(async (options: { json?: boolean } & CanvasCommandOptions) => {
-      const status = withCanvasCommands(await getExecutionStatus({ projectRoot: await resolveCliPackageWorkspace(options) }), resolveCliCanvasId(options));
-      if (options.json) {
-        console.log(JSON.stringify(status, null, 2));
-        return;
-      }
-      console.log(formatExecutionStatusHuman(status));
-    });
+  addCanvasOption(
+    program
+      .command("status")
+      .description("Show the current PlanWeave block execution status")
+      .option("--json", "print machine-readable output")
+  ).action(async (options: { json?: boolean } & CanvasCommandOptions) => {
+    const status = withCanvasCommands(
+      await getExecutionStatus({ projectRoot: await resolveCliPackageWorkspace(options) }),
+      resolveCliCanvasId(options)
+    );
+    if (options.json) {
+      console.log(JSON.stringify(status, null, 2));
+      return;
+    }
+    console.log(formatExecutionStatusHuman(status));
+  });
 }

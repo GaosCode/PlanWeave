@@ -32,7 +32,11 @@ type VerifyAssetsReport = {
 type ReleaseAssetsModule = {
   loadDesktopBuildConfig(path?: string): Promise<BuildConfig>;
   expectedReleaseAssets(config: BuildConfig, version: string): string[];
-  verifyAssets(directory: string, expectedNames: string[], logger?: { log(message: string): void }): Promise<VerifyAssetsReport>;
+  verifyAssets(
+    directory: string,
+    expectedNames: string[],
+    logger?: { log(message: string): void }
+  ): Promise<VerifyAssetsReport>;
 };
 
 async function loadReleaseAssetsModule() {
@@ -73,7 +77,9 @@ describe("release asset verification", () => {
     const directory = await createReleaseAssetDir(expected.filter((name) => name !== missingAsset));
 
     try {
-      await expect(releaseAssets.verifyAssets(directory, expected, { log: () => undefined })).rejects.toThrow(missingAsset);
+      await expect(
+        releaseAssets.verifyAssets(directory, expected, { log: () => undefined })
+      ).rejects.toThrow(missingAsset);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -88,7 +94,9 @@ describe("release asset verification", () => {
     const logs: string[] = [];
 
     try {
-      const report = await releaseAssets.verifyAssets(directory, expected, { log: (message) => logs.push(message) });
+      const report = await releaseAssets.verifyAssets(directory, expected, {
+        log: (message) => logs.push(message)
+      });
 
       expect(report.missing).toEqual([]);
       expect(report.extra).toEqual([extraAsset]);
@@ -101,7 +109,11 @@ describe("release asset verification", () => {
   });
 
   it("rejects a CLI version that does not match packages/desktop/package.json", async () => {
-    await expect(execFileAsync(process.execPath, [scriptPath, "--dir", tmpdir(), "--version", "0.0.0"], { cwd: repoRoot })).rejects.toMatchObject({
+    await expect(
+      execFileAsync(process.execPath, [scriptPath, "--dir", tmpdir(), "--version", "0.0.0"], {
+        cwd: repoRoot
+      })
+    ).rejects.toMatchObject({
       stderr: expect.stringContaining("Version mismatch")
     });
   });
@@ -116,9 +128,13 @@ describe("release asset verification", () => {
     const verifyAssetsJob = workflowSource.slice(verifyAssetsStart, verifyAssetsEnd);
     const desktopPackage = JSON.parse(packageSource) as { scripts?: Record<string, string> };
 
-    expect(desktopPackage.scripts?.["verify:release-assets"]).toBe("node scripts/verify-release-assets.mjs");
+    expect(desktopPackage.scripts?.["verify:release-assets"]).toBe(
+      "node scripts/verify-release-assets.mjs"
+    );
     expect(verifyAssetsJob).toContain("uses: actions/checkout@v4");
-    expect(verifyAssetsJob).toContain('node packages/desktop/scripts/verify-release-assets.mjs --dir desktop-artifacts --version "${VERSION}"');
+    expect(verifyAssetsJob).toContain(
+      'node packages/desktop/scripts/verify-release-assets.mjs --dir desktop-artifacts --version "${VERSION}"'
+    );
     expect(verifyAssetsJob).not.toContain("required_patterns=");
     expect(verifyAssetsJob).not.toContain("PlanWeave-${VERSION}-linux-x86_64.AppImage");
   });

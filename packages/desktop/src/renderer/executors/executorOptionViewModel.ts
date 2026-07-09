@@ -55,7 +55,11 @@ function detectionForName(name: string, agentDetections: readonly DesktopAgentDe
   return agentDetections.find((agent) => agent.kind === agentKind) ?? null;
 }
 
-function viewForName(name: string, source: ExecutorOptionView["source"], agentDetections: readonly DesktopAgentDetection[]): ExecutorOptionView {
+function viewForName(
+  name: string,
+  source: ExecutorOptionView["source"],
+  agentDetections: readonly DesktopAgentDetection[]
+): ExecutorOptionView {
   const canonicalName = canonicalExecutorName(name);
   const detection = detectionForName(name, agentDetections);
   return {
@@ -63,7 +67,7 @@ function viewForName(name: string, source: ExecutorOptionView["source"], agentDe
     label: canonicalName,
     source,
     detected: detection ? detection.installed : null,
-    detectionMessage: detection ? detection.version ?? detection.unavailableReason : null,
+    detectionMessage: detection ? (detection.version ?? detection.unavailableReason) : null,
     disabled: detection?.installed === false
   };
 }
@@ -75,7 +79,9 @@ export function buildExecutorOptionViews({
 }: ExecutorOptionViewModelInput): ExecutorOptionView[] {
   const manifestNames = uniqueCanonicalNames(executorOptions);
   const manifestNameSet = new Set(manifestNames);
-  const currentValueNames = uniqueCanonicalNames(currentExecutorNames).filter((name) => !manifestNameSet.has(name));
+  const currentValueNames = uniqueCanonicalNames(currentExecutorNames).filter(
+    (name) => !manifestNameSet.has(name)
+  );
 
   return [
     ...currentValueNames.map((name) => viewForName(name, "current-value", agentDetections)),

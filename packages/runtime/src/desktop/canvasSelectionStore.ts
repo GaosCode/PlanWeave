@@ -22,7 +22,10 @@ function activeCanvasPath(workspace: ProjectWorkspace): string {
 }
 
 function selectedRegistryCanvasId(registry: TaskCanvasRegistry): string | null {
-  if (registry.activeCanvasId && registry.canvases.some((canvas) => canvas.canvasId === registry.activeCanvasId)) {
+  if (
+    registry.activeCanvasId &&
+    registry.canvases.some((canvas) => canvas.canvasId === registry.activeCanvasId)
+  ) {
     return registry.activeCanvasId;
   }
   return registry.canvases[0]?.canvasId ?? null;
@@ -36,7 +39,10 @@ async function readLegacyRegistry(workspace: ProjectWorkspace): Promise<TaskCanv
   return normalizeRegistry(await readJsonFile<unknown>(path));
 }
 
-async function readProjectGraphActiveCanvas(workspace: ProjectWorkspace, canvasIds: string[]): Promise<string | null> {
+async function readProjectGraphActiveCanvas(
+  workspace: ProjectWorkspace,
+  canvasIds: string[]
+): Promise<string | null> {
   const path = activeCanvasPath(workspace);
   if (await optionalStat(path)) {
     const raw = await readJsonFile<unknown>(path);
@@ -50,11 +56,16 @@ async function readProjectGraphActiveCanvas(workspace: ProjectWorkspace, canvasI
   return canvasIds[0] ?? null;
 }
 
-export async function readActiveTaskCanvasSelection(projectRoot: string): Promise<ActiveTaskCanvasSelection> {
+export async function readActiveTaskCanvasSelection(
+  projectRoot: string
+): Promise<ActiveTaskCanvasSelection> {
   const projectWorkspace = await resolveProjectWorkspace(projectRoot);
   const loaded = await loadProjectGraph(projectRoot);
   if (loaded.source === "project_graph") {
-    const activeCanvasId = await readProjectGraphActiveCanvas(projectWorkspace, loaded.manifest.canvases.map((canvas) => canvas.id));
+    const activeCanvasId = await readProjectGraphActiveCanvas(
+      projectWorkspace,
+      loaded.manifest.canvases.map((canvas) => canvas.id)
+    );
     if (!activeCanvasId) {
       throw new Error("Project has no task canvas.");
     }
@@ -68,7 +79,10 @@ export async function readActiveTaskCanvasSelection(projectRoot: string): Promis
   return { activeCanvasId };
 }
 
-export async function writeActiveTaskCanvasSelection(projectRoot: string, activeCanvasId: string): Promise<ActiveTaskCanvasSelection> {
+export async function writeActiveTaskCanvasSelection(
+  projectRoot: string,
+  activeCanvasId: string
+): Promise<ActiveTaskCanvasSelection> {
   const projectWorkspace = await resolveProjectWorkspace(projectRoot);
   const loaded = await loadProjectGraph(projectRoot);
   if (loaded.source === "project_graph") {

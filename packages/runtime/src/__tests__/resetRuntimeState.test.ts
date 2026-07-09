@@ -32,7 +32,9 @@ describe("resetRuntimeState", () => {
   it("readState returns an empty state only when the state file is missing", async () => {
     const { init } = await createTestWorkspace();
 
-    await expect(readState(join(init.workspace.workspaceRoot, "missing-state.json"))).resolves.toEqual({
+    await expect(
+      readState(join(init.workspace.workspaceRoot, "missing-state.json"))
+    ).resolves.toEqual({
       currentRefs: [],
       currentFeedbackId: null,
       currentReviewBlockRef: null,
@@ -58,7 +60,9 @@ describe("resetRuntimeState", () => {
     const { root } = await createTestWorkspace();
     await claimBlock({ projectRoot: root, ref: "T-001#B-001" });
 
-    await expect(resetRuntimeState({ projectRoot: root })).rejects.toThrow("Cannot reset runtime state while active work exists");
+    await expect(resetRuntimeState({ projectRoot: root })).rejects.toThrow(
+      "Cannot reset runtime state while active work exists"
+    );
   });
 
   it("refuses raw active refs even when they are stale for the current manifest", async () => {
@@ -69,7 +73,9 @@ describe("resetRuntimeState", () => {
     };
     await writeFile(init.workspace.stateFile, `${JSON.stringify(staleState, null, 2)}\n`, "utf8");
 
-    await expect(resetRuntimeState({ projectRoot: root })).rejects.toThrow("currentRefs=T-404#B-001");
+    await expect(resetRuntimeState({ projectRoot: root })).rejects.toThrow(
+      "currentRefs=T-404#B-001"
+    );
   });
 
   it("resets canvas state from the current manifest and preserves package and results", async () => {
@@ -134,7 +140,11 @@ describe("resetRuntimeState", () => {
     const { root } = await createTestWorkspace();
     const session = await createRunSession({ projectRoot: root, kind: "reset" });
 
-    const result = await resetRuntimeState({ projectRoot: root, reason: "  rerun acceptance  ", session });
+    const result = await resetRuntimeState({
+      projectRoot: root,
+      reason: "  rerun acceptance  ",
+      session
+    });
     const detail = await getRunSession(root, session.sessionId);
 
     expect(result.sessionId).toBe(session.sessionId);
@@ -144,11 +154,18 @@ describe("resetRuntimeState", () => {
       phase: "resetting",
       reset: expect.objectContaining({ performed: true, forced: false, reason: "rerun acceptance" })
     });
-    expect(detail.events.map((event) => event.type)).toEqual(["session_started", "reset_started", "reset_completed"]);
+    expect(detail.events.map((event) => event.type)).toEqual([
+      "session_started",
+      "reset_started",
+      "reset_completed"
+    ]);
     expect(detail.events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "reset_started", reason: "rerun acceptance" }),
-        expect.objectContaining({ type: "reset_completed", reset: expect.objectContaining({ reason: "rerun acceptance" }) })
+        expect.objectContaining({
+          type: "reset_completed",
+          reset: expect.objectContaining({ reason: "rerun acceptance" })
+        })
       ])
     );
     expect(detail.events.at(-1)).toMatchObject({
@@ -168,7 +185,9 @@ describe("resetRuntimeState", () => {
     const { root, init } = await createTestWorkspace();
     await claimBlock({ projectRoot: root, ref: "T-001#B-001" });
 
-    await expect(resetRuntimeState({ projectRoot: root, force: true, sessionId: "../SESSION-0001" })).rejects.toThrow("Invalid run session id");
+    await expect(
+      resetRuntimeState({ projectRoot: root, force: true, sessionId: "../SESSION-0001" })
+    ).rejects.toThrow("Invalid run session id");
 
     const state = await readState(init.workspace.stateFile);
     expect(state.currentRefs).toEqual(["T-001#B-001"]);
@@ -190,7 +209,12 @@ describe("resetRuntimeState", () => {
   it("resets only the selected non-default canvas workspace", async () => {
     const { root, init } = await createTestWorkspace();
     const secondaryManifest = basicManifest();
-    const secondaryPackageDir = join(init.workspace.workspaceRoot, "canvases", "secondary", "package");
+    const secondaryPackageDir = join(
+      init.workspace.workspaceRoot,
+      "canvases",
+      "secondary",
+      "package"
+    );
     await writeJsonFile(join(secondaryPackageDir, "manifest.json"), secondaryManifest);
     await writePromptFiles(secondaryPackageDir, secondaryManifest);
     await writeProjectGraph(init.workspace, {
@@ -224,6 +248,8 @@ describe("resetRuntimeState", () => {
 
     expect((await readState(init.workspace.stateFile)).currentRefs).toEqual(["T-001#B-001"]);
     expect((await readState(secondary.stateFile)).currentRefs).toEqual([]);
-    expect((await readState(secondary.stateFile)).blocks["T-001#B-001"]).toMatchObject({ status: "ready" });
+    expect((await readState(secondary.stateFile)).blocks["T-001#B-001"]).toMatchObject({
+      status: "ready"
+    });
   });
 });

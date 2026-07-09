@@ -1,5 +1,10 @@
 import type { ExecutorAdapterResult, ExecutorProfile } from "./executor.js";
-import type { ClaimResult, SubmitFeedbackResult, SubmitResult, SubmitReviewResult } from "./taskManager.js";
+import type {
+  ClaimResult,
+  SubmitFeedbackResult,
+  SubmitResult,
+  SubmitReviewResult
+} from "./taskManager.js";
 import type { BlockStatus, FeedbackStatus } from "./state.js";
 import type { ValidationIssue } from "./validation.js";
 
@@ -68,9 +73,20 @@ export type AutoRunLatestFeedbackRunSummary = AutoRunLatestRunSummaryBase & {
   status: FeedbackStatus;
 };
 
-export type AutoRunLatestRunSummary = AutoRunLatestBlockRunSummary | AutoRunLatestFeedbackRunSummary;
+export type AutoRunLatestRunSummary =
+  | AutoRunLatestBlockRunSummary
+  | AutoRunLatestFeedbackRunSummary;
 
-export type AutoRunExplanationPhase = "idle" | "running" | "pausing" | "paused" | "manual" | "completed" | "blocked" | "failed" | "stopped";
+export type AutoRunExplanationPhase =
+  | "idle"
+  | "running"
+  | "pausing"
+  | "paused"
+  | "manual"
+  | "completed"
+  | "blocked"
+  | "failed"
+  | "stopped";
 
 export type AutoRunNextAction =
   | {

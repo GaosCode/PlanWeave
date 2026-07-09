@@ -52,9 +52,14 @@ export async function resolveTmuxAttachIntent(input: {
   };
 }
 
-export async function resolveTerminalOpenIntent(input: DesktopOpenTerminalInput): Promise<TerminalOpenIntent> {
+export async function resolveTerminalOpenIntent(
+  input: DesktopOpenTerminalInput
+): Promise<TerminalOpenIntent> {
   if (input.recordId) {
-    const workspaceRef = await resolveTaskCanvasWorkspace(input.ref.projectRoot, input.ref.canvasId);
+    const workspaceRef = await resolveTaskCanvasWorkspace(
+      input.ref.projectRoot,
+      input.ref.canvasId
+    );
     const record = await getRunRecord(workspaceRef, input.recordId);
     return {
       cwd: record.executionCwd ?? record.projectRoot ?? input.ref.projectRoot
@@ -65,13 +70,16 @@ export async function resolveTerminalOpenIntent(input: DesktopOpenTerminalInput)
   };
 }
 
-export async function getRunTerminalAvailability(input: DesktopRunTerminalAvailabilityInput): Promise<DesktopRunTerminalAvailability[]> {
+export async function getRunTerminalAvailability(
+  input: DesktopRunTerminalAvailabilityInput
+): Promise<DesktopRunTerminalAvailability[]> {
   const workspaceRef = await resolveTaskCanvasWorkspace(input.ref.projectRoot, input.ref.canvasId);
   return Promise.all(
     input.recordIds.map(async (recordId): Promise<DesktopRunTerminalAvailability> => {
       try {
         const record = await getRunRecord(workspaceRef, recordId);
-        const sessionName = record.tmuxSessionId ?? metadataString(record.metadata, "tmuxSessionName");
+        const sessionName =
+          record.tmuxSessionId ?? metadataString(record.metadata, "tmuxSessionName");
         if (!sessionName) {
           return {
             recordId,

@@ -44,7 +44,10 @@ function diagnostic(input: {
   };
 }
 
-function compileGraphDiagnostic(issue: ValidationIssue, severity: GraphQualityDiagnosticSeverity): GraphQualityDiagnostic {
+function compileGraphDiagnostic(
+  issue: ValidationIssue,
+  severity: GraphQualityDiagnosticSeverity
+): GraphQualityDiagnostic {
   return diagnostic({
     code: issue.code,
     severity,
@@ -79,7 +82,10 @@ function isConservativeGateTask(task: ManifestTaskNode): boolean {
 }
 
 function taskDependencyCount(graph: CompiledExecutionGraph): number {
-  return [...graph.taskDependenciesByTask.values()].reduce((count, dependencies) => count + dependencies.length, 0);
+  return [...graph.taskDependenciesByTask.values()].reduce(
+    (count, dependencies) => count + dependencies.length,
+    0
+  );
 }
 
 function missingImplementationTasks(graph: CompiledExecutionGraph): GraphQualityDiagnostic | null {
@@ -102,7 +108,10 @@ function missingImplementationTasks(graph: CompiledExecutionGraph): GraphQuality
   });
 }
 
-function reviewsMissingImplementationDependencies(graph: CompiledExecutionGraph, strict: boolean): GraphQualityDiagnostic | null {
+function reviewsMissingImplementationDependencies(
+  graph: CompiledExecutionGraph,
+  strict: boolean
+): GraphQualityDiagnostic | null {
   const affectedIds: string[] = [];
   for (const taskId of graph.taskNodesInManifestOrder) {
     const task = graph.tasksById.get(taskId);
@@ -115,7 +124,9 @@ function reviewsMissingImplementationDependencies(graph: CompiledExecutionGraph,
     }
     for (const block of reviewBlocks(task)) {
       const reviewRef = `${taskId}#${block.id}`;
-      const missing = implementationRefs.filter((implementationRef) => !graph.blockReachable(reviewRef, implementationRef));
+      const missing = implementationRefs.filter(
+        (implementationRef) => !graph.blockReachable(reviewRef, implementationRef)
+      );
       if (missing.length > 0) {
         affectedIds.push(reviewRef);
       }
@@ -141,7 +152,9 @@ function orphanedTasks(graph: CompiledExecutionGraph): GraphQualityDiagnostic | 
     return null;
   }
   const affectedIds = graph.taskNodesInManifestOrder.filter(
-    (taskId) => (graph.taskDependenciesByTask.get(taskId) ?? []).length === 0 && (graph.taskDependentsByTask.get(taskId) ?? []).length === 0
+    (taskId) =>
+      (graph.taskDependenciesByTask.get(taskId) ?? []).length === 0 &&
+      (graph.taskDependentsByTask.get(taskId) ?? []).length === 0
   );
   if (affectedIds.length === 0) {
     return null;
@@ -151,7 +164,8 @@ function orphanedTasks(graph: CompiledExecutionGraph): GraphQualityDiagnostic | 
     severity: "warning",
     message: "Some tasks are not connected to the task dependency graph.",
     affectedIds,
-    suggestion: "Connect independent tasks with depends_on edges when execution order matters, or split unrelated work into separate plans.",
+    suggestion:
+      "Connect independent tasks with depends_on edges when execution order matters, or split unrelated work into separate plans.",
     suggestedTool: "add_task_dependency",
     ruleType: "structural"
   });
@@ -177,7 +191,8 @@ function missingReviewBlocks(
     severity: reviewPolicy === "required" ? (strict ? "error" : "warning") : "info",
     message: "Some tasks do not include a review block.",
     affectedIds,
-    suggestion: "Add review blocks for tasks where implementation quality should be independently checked.",
+    suggestion:
+      "Add review blocks for tasks where implementation quality should be independently checked.",
     suggestedTool: "create_block",
     fixId: "add_review_blocks",
     ruleType: "policy"
@@ -204,14 +219,18 @@ function missingCanvasGate(
     severity: strict ? "error" : "warning",
     message: "The canvas is missing a gate task required by the configured gate policy.",
     affectedIds: ["canvas"],
-    suggestion: "Add a clearly named gate task, for example id GATE, an id ending in -GATE or _GATE, or a title containing Gate.",
+    suggestion:
+      "Add a clearly named gate task, for example id GATE, an id ending in -GATE or _GATE, or a title containing Gate.",
     suggestedTool: "create_task",
     fixId: "add_canvas_gate_task",
     ruleType: "policy"
   });
 }
 
-function gateIncompleteDependencies(graph: CompiledExecutionGraph, strict: boolean): GraphQualityDiagnostic | null {
+function gateIncompleteDependencies(
+  graph: CompiledExecutionGraph,
+  strict: boolean
+): GraphQualityDiagnostic | null {
   const gateTaskIds: string[] = [];
   const requiredTaskIds: string[] = [];
   for (const taskId of graph.taskNodesInManifestOrder) {
@@ -259,7 +278,11 @@ function sparseDependencies(
   minTaskCountForSparseCheck: number
 ): GraphQualityDiagnostic | null {
   const taskCount = graph.taskNodesInManifestOrder.length;
-  if (heuristics === "off" || taskCount < minTaskCountForSparseCheck || taskDependencyCount(graph) > 0) {
+  if (
+    heuristics === "off" ||
+    taskCount < minTaskCountForSparseCheck ||
+    taskDependencyCount(graph) > 0
+  ) {
     return null;
   }
   return diagnostic({
@@ -267,7 +290,8 @@ function sparseDependencies(
     severity: "warning",
     message: "The task graph has several tasks but no task dependencies.",
     affectedIds: graph.taskNodesInManifestOrder,
-    suggestion: "Add depends_on edges for real execution ordering constraints, or keep heuristics off for intentionally independent plans.",
+    suggestion:
+      "Add depends_on edges for real execution ordering constraints, or keep heuristics off for intentionally independent plans.",
     suggestedTool: "bulk_add_task_dependencies",
     ruleType: "heuristic"
   });
@@ -281,13 +305,17 @@ function reviewLoopCyclesMissing(
   if (reviewPolicy === "none") {
     return null;
   }
-  const reviewRefs = graph.blockRefsInManifestOrder.filter((ref) => graph.blocksByRef.get(ref)?.type === "review");
+  const reviewRefs = graph.blockRefsInManifestOrder.filter(
+    (ref) => graph.blocksByRef.get(ref)?.type === "review"
+  );
   if (reviewRefs.length === 0) {
     return null;
   }
   const affectedIds = reviewRefs.filter((ref) => {
     const block = graph.blocksByRef.get(ref);
-    return block?.type === "review" && block.review.required && block.review.maxFeedbackCycles === 0;
+    return (
+      block?.type === "review" && block.review.required && block.review.maxFeedbackCycles === 0
+    );
   });
   if (affectedIds.length === 0) {
     return null;
@@ -297,7 +325,8 @@ function reviewLoopCyclesMissing(
     severity: reviewPolicy === "required" && strict ? "error" : "warning",
     message: "Required review blocks should allow at least one feedback cycle.",
     affectedIds,
-    suggestion: "Set review.maxFeedbackCycles to at least 1 for review gates that are expected to drive a feedback loop.",
+    suggestion:
+      "Set review.maxFeedbackCycles to at least 1 for review gates that are expected to drive a feedback loop.",
     suggestedTool: "set_review_pipeline",
     fixId: "enable_review_feedback_cycles",
     ruleType: "policy"
@@ -319,7 +348,8 @@ function layoutSingleColumnRisk(
   return diagnostic({
     code: "layout_single_column_risk",
     severity: "info",
-    message: "Large canvases with very few task dependencies are likely to render as a hard-to-scan flat layout.",
+    message:
+      "Large canvases with very few task dependencies are likely to render as a hard-to-scan flat layout.",
     affectedIds: graph.taskNodesInManifestOrder,
     suggestion: "Add dependency lanes or apply a canvas lane layout after import.",
     suggestedTool: "bulk_add_task_dependencies",
@@ -328,7 +358,10 @@ function layoutSingleColumnRisk(
   });
 }
 
-function acceptanceTooWeak(graph: CompiledExecutionGraph, heuristics: "on" | "off"): GraphQualityDiagnostic | null {
+function acceptanceTooWeak(
+  graph: CompiledExecutionGraph,
+  heuristics: "on" | "off"
+): GraphQualityDiagnostic | null {
   if (heuristics === "off") {
     return null;
   }
@@ -374,7 +407,12 @@ async function promptDuplicateMany(
       continue;
     }
     try {
-      const content = (await readFile(await resolvePackagePath(packageDir, block.prompt, { requireExisting: true }), "utf8")).trim();
+      const content = (
+        await readFile(
+          await resolvePackagePath(packageDir, block.prompt, { requireExisting: true }),
+          "utf8"
+        )
+      ).trim();
       if (!content) {
         continue;
       }
@@ -388,26 +426,32 @@ async function promptDuplicateMany(
   const diagnostics: GraphQualityDiagnostic[] = [];
   const affectedIds = [...refsByPrompt.values()].filter((refs) => refs.length >= 3).flat();
   if (affectedIds.length > 0) {
-    diagnostics.push(diagnostic({
-      code: "prompt_duplicate_many",
-      severity: "info",
-      message: "Several blocks share identical prompt text.",
-      affectedIds,
-      suggestion: "Use shared policy prompts for common guidance, but keep block prompts specific to the assigned work.",
-      suggestedTool: "write_prompt_source",
-      ruleType: "heuristic"
-    }));
+    diagnostics.push(
+      diagnostic({
+        code: "prompt_duplicate_many",
+        severity: "info",
+        message: "Several blocks share identical prompt text.",
+        affectedIds,
+        suggestion:
+          "Use shared policy prompts for common guidance, but keep block prompts specific to the assigned work.",
+        suggestedTool: "write_prompt_source",
+        ruleType: "heuristic"
+      })
+    );
   }
   if (unreadableRefs.length > 0) {
-    diagnostics.push(diagnostic({
-      code: "prompt_heuristic_read_failed",
-      severity: "warning",
-      message: "Some prompt files could not be read during graph quality heuristics.",
-      affectedIds: unreadableRefs,
-      suggestion: "Run validate_project and fix missing or unreadable prompt files before relying on heuristic quality checks.",
-      suggestedTool: "validate_project",
-      ruleType: "heuristic"
-    }));
+    diagnostics.push(
+      diagnostic({
+        code: "prompt_heuristic_read_failed",
+        severity: "warning",
+        message: "Some prompt files could not be read during graph quality heuristics.",
+        affectedIds: unreadableRefs,
+        suggestion:
+          "Run validate_project and fix missing or unreadable prompt files before relying on heuristic quality checks.",
+        suggestedTool: "validate_project",
+        ruleType: "heuristic"
+      })
+    );
   }
   return diagnostics;
 }
@@ -417,7 +461,9 @@ function orphanTaskCount(graph: CompiledExecutionGraph): number {
     return 0;
   }
   return graph.taskNodesInManifestOrder.filter(
-    (taskId) => (graph.taskDependenciesByTask.get(taskId) ?? []).length === 0 && (graph.taskDependentsByTask.get(taskId) ?? []).length === 0
+    (taskId) =>
+      (graph.taskDependenciesByTask.get(taskId) ?? []).length === 0 &&
+      (graph.taskDependentsByTask.get(taskId) ?? []).length === 0
   ).length;
 }
 
@@ -425,15 +471,24 @@ function qualityScore(errorCount: number, warningCount: number, infoCount: numbe
   return Math.max(0, Math.min(100, 100 - errorCount * 35 - warningCount * 10 - infoCount * 3));
 }
 
-export async function validateGraphQuality(input: ValidateGraphQualityInput): Promise<GraphQualityReport> {
+export async function validateGraphQuality(
+  input: ValidateGraphQualityInput
+): Promise<GraphQualityReport> {
   const reviewPolicy = input.reviewPolicy ?? "risk-based";
   const gatePolicy = input.gatePolicy ?? "none";
   const heuristics = input.heuristics ?? "on";
   const strict = input.strict ?? false;
-  const minTaskCountForSparseCheck = input.minTaskCountForSparseCheck ?? DEFAULT_SPARSE_TASK_THRESHOLD;
+  const minTaskCountForSparseCheck =
+    input.minTaskCountForSparseCheck ?? DEFAULT_SPARSE_TASK_THRESHOLD;
   const { workspace, manifest } = await loadPackage(input.projectRoot);
-  const graph = await compilePackageGraph(manifest, workspace.packageDir, { validatePromptContents: false });
-  const promptHeuristicDiagnostics = await promptDuplicateMany(graph, workspace.packageDir, heuristics);
+  const graph = await compilePackageGraph(manifest, workspace.packageDir, {
+    validatePromptContents: false
+  });
+  const promptHeuristicDiagnostics = await promptDuplicateMany(
+    graph,
+    workspace.packageDir,
+    heuristics
+  );
   const diagnostics = [
     ...compileGraphDiagnostics(graph),
     missingImplementationTasks(graph),
@@ -459,7 +514,10 @@ export async function validateGraphQuality(input: ValidateGraphQualityInput): Pr
       taskCount: graph.taskNodesInManifestOrder.length,
       blockCount: graph.blockRefsInManifestOrder.length,
       taskDependencyCount: taskDependencyCount(graph),
-      reviewBlockCount: [...graph.reviewBlocksByTask.values()].reduce((count, refs) => count + refs.length, 0),
+      reviewBlockCount: [...graph.reviewBlocksByTask.values()].reduce(
+        (count, refs) => count + refs.length,
+        0
+      ),
       orphanTaskCount: orphanCount,
       score: qualityScore(errorCount, warningCount, infoCount),
       errorCount,

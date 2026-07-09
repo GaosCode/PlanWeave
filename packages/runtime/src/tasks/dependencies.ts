@@ -24,5 +24,8 @@ export function tasksHaveDependencyRelationship(
   right: string,
   graph: CompiledExecutionGraph = compileTaskGraph(manifest)
 ): boolean {
-  return hasDependencyPath(manifest, left, right, graph) || hasDependencyPath(manifest, right, left, graph);
+  return (
+    hasDependencyPath(manifest, left, right, graph) ||
+    hasDependencyPath(manifest, right, left, graph)
+  );
 }

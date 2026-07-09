@@ -3,10 +3,7 @@ import {
   resetRuntimeBridgeMocks,
   restoreRuntimeBridgeEnv
 } from "./support/runtimeBridgeTestHarness.js";
-import {
-  autoRunChangedChannel,
-  desktopBridgeInvokeChannels
-} from "../shared/ipcChannels";
+import { autoRunChangedChannel, desktopBridgeInvokeChannels } from "../shared/ipcChannels";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { electronMock, runtimeMock } = getRuntimeBridgeMocks();
@@ -42,7 +39,9 @@ describe("runtime bridge handlers: graph and project", () => {
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 
-    const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.getDesktopProjectSnapshot);
+    const handler = electronMock.handlers.get(
+      desktopBridgeInvokeChannels.getDesktopProjectSnapshot
+    );
     expect(handler).toBeDefined();
 
     const ref = { projectRoot: "/tmp/project", canvasId: "canvas-a" };
@@ -72,7 +71,13 @@ describe("runtime bridge handlers: graph and project", () => {
 
     const ref = { projectRoot: "/tmp/project", canvasId: "canvas-a" };
     const input = { parallelEnabled: true, maxConcurrent: 3 };
-    await expect(electronMock.handlers.get(desktopBridgeInvokeChannels.updateCanvasExecutionPolicy)?.(null, ref, input)).resolves.toEqual({
+    await expect(
+      electronMock.handlers.get(desktopBridgeInvokeChannels.updateCanvasExecutionPolicy)?.(
+        null,
+        ref,
+        input
+      )
+    ).resolves.toEqual({
       ok: true,
       affectedTasks: ["T-001"],
       diagnostics: []
@@ -93,7 +98,9 @@ describe("runtime bridge handlers: graph and project", () => {
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 
-    const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.getDesktopGraphDiagnostics);
+    const handler = electronMock.handlers.get(
+      desktopBridgeInvokeChannels.getDesktopGraphDiagnostics
+    );
     expect(handler).toBeDefined();
 
     await handler?.(null, { projectRoot: "/tmp/project", canvasId: "canvas-a" });
@@ -135,7 +142,11 @@ describe("runtime bridge handlers: graph and project", () => {
     await handler?.(null, ref, options);
 
     expect(runtimeMock.resolveTaskCanvasWorkspace).not.toHaveBeenCalled();
-    expect(runtimeMock.resetDesktopRuntimeState).toHaveBeenCalledWith("/tmp/project", "canvas-a", options);
+    expect(runtimeMock.resetDesktopRuntimeState).toHaveBeenCalledWith(
+      "/tmp/project",
+      "canvas-a",
+      options
+    );
   });
 
   it("resolves canvas references before testing executor profiles", async () => {
@@ -167,7 +178,9 @@ describe("runtime bridge handlers: graph and project", () => {
     registerPackageWatchHandlers();
     registerRuntimeStateWatchHandlers();
 
-    expect(new Set(electronMock.handlers.keys())).toEqual(new Set(Object.values(desktopBridgeInvokeChannels)));
+    expect(new Set(electronMock.handlers.keys())).toEqual(
+      new Set(Object.values(desktopBridgeInvokeChannels))
+    );
     expect(electronMock.handlers.has(desktopBridgeInvokeChannels.watchPackageFiles)).toBe(true);
     expect(electronMock.handlers.has(desktopBridgeInvokeChannels.unwatchPackageFiles)).toBe(true);
     expect(electronMock.handlers.has(desktopBridgeInvokeChannels.watchRuntimeState)).toBe(true);
@@ -207,9 +220,19 @@ describe("runtime bridge handlers: graph and project", () => {
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 
-    await electronMock.handlers.get(desktopBridgeInvokeChannels.revealProjectInFinder)?.(null, "/tmp/project");
-    await electronMock.handlers.get(desktopBridgeInvokeChannels.revealPathInFinder)?.(null, "/tmp/project/.planweave/runs/RUN-001/metadata.json");
-    await electronMock.handlers.get(desktopBridgeInvokeChannels.revealTaskCanvasInFinder)?.(null, "/tmp/project", "canvas-a");
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.revealProjectInFinder)?.(
+      null,
+      "/tmp/project"
+    );
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.revealPathInFinder)?.(
+      null,
+      "/tmp/project/.planweave/runs/RUN-001/metadata.json"
+    );
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.revealTaskCanvasInFinder)?.(
+      null,
+      "/tmp/project",
+      "canvas-a"
+    );
 
     expect(electronMock.shell.openPath).not.toHaveBeenCalled();
     expect(electronMock.shell.showItemInFolder).not.toHaveBeenCalled();
@@ -226,7 +249,11 @@ describe("runtime bridge handlers: graph and project", () => {
     });
     registerRuntimeBridgeHandlers();
 
-    await electronMock.handlers.get(desktopBridgeInvokeChannels.revealTaskCanvasInFinder)?.(null, "/tmp/project", "canvas-a");
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.revealTaskCanvasInFinder)?.(
+      null,
+      "/tmp/project",
+      "canvas-a"
+    );
 
     expect(runtimeMock.resolveTaskCanvasWorkspace).toHaveBeenCalledWith("/tmp/project", "canvas-a");
     expect(electronMock.shell.openPath).toHaveBeenCalledWith("/tmp/project/canvases/canvas-a");

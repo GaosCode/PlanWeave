@@ -22,6 +22,8 @@ describe("CLI entrypoint detection", () => {
     writeFileSync(entrypointPath, "#!/usr/bin/env node\n", "utf8");
 
     expect(isCliEntrypoint(pathToFileURL(entrypointPath).href, undefined)).toBe(false);
-    expect(isCliEntrypoint(pathToFileURL(entrypointPath).href, join(tempDir, "missing"))).toBe(false);
+    expect(isCliEntrypoint(pathToFileURL(entrypointPath).href, join(tempDir, "missing"))).toBe(
+      false
+    );
   });
 });

@@ -39,7 +39,14 @@ function updateLabel(state: AppUpdateState, t: ReturnType<typeof createTranslato
   return t("appUpdateUnknownVersion");
 }
 
-export function AppUpdateToast({ onCheck, onDismiss, onDownload, onInstall, state, t }: AppUpdateToastProps) {
+export function AppUpdateToast({
+  onCheck,
+  onDismiss,
+  onDownload,
+  onInstall,
+  state,
+  t
+}: AppUpdateToastProps) {
   const [dismissedKey, setDismissedKey] = useState<string | null>(null);
   const key = toastKey(state);
   const hidden = !key || dismissedKey === key || state.status === "unsupported";
@@ -90,7 +97,10 @@ export function AppUpdateToast({ onCheck, onDismiss, onDownload, onInstall, stat
       {state.status === "downloading" ? (
         <div className="flex flex-col gap-1">
           <div className="h-1.5 overflow-hidden rounded-full bg-surface-muted">
-            <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${progressPercent}%` }} />
+            <div
+              className="h-full rounded-full bg-primary transition-[width]"
+              style={{ width: `${progressPercent}%` }}
+            />
           </div>
           <div className="text-xs text-text-muted">{`${progressPercent}%`}</div>
         </div>

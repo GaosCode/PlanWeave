@@ -22,9 +22,23 @@ export type ProjectCanvasNullableArgs = ProjectArgs & {
   canvasId?: string | null;
 };
 
-const localPathArgNames = new Set(["rootPath", "projectRoot", "workspaceRoot", "packageDir", "resultsDir", "stateFile"]);
+const localPathArgNames = new Set([
+  "rootPath",
+  "projectRoot",
+  "workspaceRoot",
+  "packageDir",
+  "resultsDir",
+  "stateFile"
+]);
 const runtimeSchemaTopicNames = new Set<string>(runtimeSchemaTopicOrder);
-const searchResultKinds = new Set<DesktopSearchResultKind>(["task", "block", "prompt", "run_record", "review_attempt", "feedback"]);
+const searchResultKinds = new Set<DesktopSearchResultKind>([
+  "task",
+  "block",
+  "prompt",
+  "run_record",
+  "review_attempt",
+  "feedback"
+]);
 
 export function jsonToolResult(value: Record<string, unknown>): CallToolResult {
   return {
@@ -132,7 +146,10 @@ export function optionalNullableString(value: unknown, field: string): string | 
   return nonEmptyString(value, field);
 }
 
-export function optionalNullableNonEmptyString(value: unknown, field: string): string | null | undefined {
+export function optionalNullableNonEmptyString(
+  value: unknown,
+  field: string
+): string | null | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -184,7 +201,10 @@ export function parseGetPromptArgs(args: unknown): ProjectCanvasNullableArgs & {
   };
 }
 
-export function parseSearchProjectArgs(args: unknown): { projectId: string; search: SearchProjectArgs } {
+export function parseSearchProjectArgs(args: unknown): {
+  projectId: string;
+  search: SearchProjectArgs;
+} {
   const record = readObjectArgs(args);
   const { projectId, canvasId } = parseReadonlyProjectCanvasArgs(record);
   return {
@@ -242,7 +262,10 @@ export function parsePackageFiles(value: unknown): ExportedPlanPackageFile[] {
     }
     return {
       path: nonEmptyString(record.path, `files[${index}].path`),
-      content: typeof record.content === "string" ? record.content : nonEmptyString(record.content, `files[${index}].content`),
+      content:
+        typeof record.content === "string"
+          ? record.content
+          : nonEmptyString(record.content, `files[${index}].content`),
       encoding
     };
   });
@@ -264,7 +287,8 @@ function sanitizeWindowsLocalPaths(value: string): string {
 }
 
 function sanitizeUnixLocalPaths(value: string): string {
-  const unixLocalPathPattern = /(^|[\s"'`(])((?:\/Users|\/home|\/tmp|\/var\/folders|\/private\/tmp|\/sensitive)\/[^"'`,;)]+)/g;
+  const unixLocalPathPattern =
+    /(^|[\s"'`(])((?:\/Users|\/home|\/tmp|\/var\/folders|\/private\/tmp|\/sensitive)\/[^"'`,;)]+)/g;
   return value.replace(unixLocalPathPattern, (match, prefix: string, path: string) => {
     const trailingWhitespace = path.match(/\s+$/)?.[0] ?? "";
     return `${prefix}${summarizeLocalPath(path.trimEnd())}${trailingWhitespace}`;
@@ -299,7 +323,9 @@ function parseSearchKinds(value: unknown): DesktopSearchResultKind[] | undefined
   }
   return value.map((item, index) => {
     if (typeof item !== "string" || !searchResultKinds.has(item as DesktopSearchResultKind)) {
-      throw new Error(`kinds[${index}] must be one of: task, block, prompt, run_record, review_attempt, feedback.`);
+      throw new Error(
+        `kinds[${index}] must be one of: task, block, prompt, run_record, review_attempt, feedback.`
+      );
     }
     return item as DesktopSearchResultKind;
   });

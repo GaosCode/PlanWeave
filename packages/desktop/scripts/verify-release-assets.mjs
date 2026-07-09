@@ -6,9 +6,23 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const packageJsonPath = fileURLToPath(new URL("../package.json", import.meta.url));
 
 const releaseMatrix = [
-  { platform: "linux", target: "AppImage", os: "linux", arch: "x86_64", ext: "AppImage", artifact: "default" },
+  {
+    platform: "linux",
+    target: "AppImage",
+    os: "linux",
+    arch: "x86_64",
+    ext: "AppImage",
+    artifact: "default"
+  },
   { platform: "linux", target: "deb", os: "linux", arch: "amd64", ext: "deb", artifact: "default" },
-  { platform: "linux", target: "tar.gz", os: "linux", arch: "x64", ext: "tar.gz", artifact: "default" },
+  {
+    platform: "linux",
+    target: "tar.gz",
+    os: "linux",
+    arch: "x64",
+    ext: "tar.gz",
+    artifact: "default"
+  },
   { platform: "mac", target: "dmg", os: "mac", arch: "universal", ext: "dmg", artifact: "dmg" },
   { platform: "mac", target: "zip", os: "mac", arch: "universal", ext: "zip", artifact: "default" },
   { platform: "win", target: "nsis", os: "win", arch: "x64", ext: "exe", artifact: "default" },
@@ -34,7 +48,10 @@ function readString(record, key, name) {
 
 function readStringArray(record, key, name) {
   const value = record[key];
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry.length === 0)) {
+  if (
+    !Array.isArray(value) ||
+    value.some((entry) => typeof entry !== "string" || entry.length === 0)
+  ) {
     throw new Error(`Expected ${name}.${key} to be an array of target names.`);
   }
   return value;
@@ -47,7 +64,10 @@ function assertTarget(targets, platform, target) {
 }
 
 export async function loadDesktopBuildConfig(path = packageJsonPath) {
-  const packageJson = assertRecord(JSON.parse(await readFile(path, "utf8")), "packages/desktop/package.json");
+  const packageJson = assertRecord(
+    JSON.parse(await readFile(path, "utf8")),
+    "packages/desktop/package.json"
+  );
   const build = assertRecord(packageJson.build, "packages/desktop/package.json build");
   const dmg = assertRecord(build.dmg, "packages/desktop/package.json build.dmg");
   const linux = assertRecord(build.linux, "packages/desktop/package.json build.linux");
@@ -162,7 +182,9 @@ export async function runCli(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   const config = await loadDesktopBuildConfig();
   if (options.version !== config.version) {
-    throw new Error(`Version mismatch: --version ${options.version} does not match packages/desktop/package.json version ${config.version}.`);
+    throw new Error(
+      `Version mismatch: --version ${options.version} does not match packages/desktop/package.json version ${config.version}.`
+    );
   }
 
   const expected = expectedReleaseAssets(config, options.version);
@@ -170,7 +192,8 @@ export async function runCli(argv = process.argv.slice(2)) {
   console.log("Release asset verification passed.");
 }
 
-const isDirectRun = process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+const isDirectRun =
+  process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 if (isDirectRun) {
   try {
     await runCli();

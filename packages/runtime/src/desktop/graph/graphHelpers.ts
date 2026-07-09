@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { isNodeFileNotFoundError } from "../../fs/optionalFile.js";
 import { parseBlockRef } from "../../graph/compileTaskGraph.js";
-import type { BlockStatus, CompiledExecutionGraph, ManifestBlock, ManifestTaskNode, ValidationIssue } from "../../types.js";
+import type {
+  BlockStatus,
+  CompiledExecutionGraph,
+  ManifestBlock,
+  ManifestTaskNode,
+  ValidationIssue
+} from "../../types.js";
 import type { DesktopTaskException } from "../types.js";
 
 export type PromptFileReadResult = {
@@ -10,7 +16,10 @@ export type PromptFileReadResult = {
   diagnostic: ValidationIssue | null;
 };
 
-export async function readOptionalFile(path: string, packagePath: string): Promise<PromptFileReadResult> {
+export async function readOptionalFile(
+  path: string,
+  packagePath: string
+): Promise<PromptFileReadResult> {
   try {
     return {
       markdown: await readFile(path, "utf8"),
@@ -24,7 +33,9 @@ export async function readOptionalFile(path: string, packagePath: string): Promi
       missing,
       diagnostic: {
         code: missing ? "prompt_missing" : "prompt_read_failed",
-        message: missing ? `Prompt file '${packagePath}' does not exist.` : `Prompt '${packagePath}' could not be read.`,
+        message: missing
+          ? `Prompt file '${packagePath}' does not exist.`
+          : `Prompt '${packagePath}' could not be read.`,
         path: packagePath
       }
     };
@@ -54,7 +65,9 @@ export function getBlock(graph: CompiledExecutionGraph, ref: string): ManifestBl
 export function sortBlockRefsForTask(graph: CompiledExecutionGraph, taskId: string): string[] {
   const refs = graph.blocksByTask.get(taskId) ?? [];
   const order = new Map(refs.map((ref, index) => [ref, index]));
-  const dependencies = new Map(refs.map((ref) => [ref, new Set(graph.blockDependenciesByRef.get(ref) ?? [])]));
+  const dependencies = new Map(
+    refs.map((ref) => [ref, new Set(graph.blockDependenciesByRef.get(ref) ?? [])])
+  );
   const sorted: string[] = [];
   const ready = refs.filter((ref) => (dependencies.get(ref)?.size ?? 0) === 0);
 
@@ -80,7 +93,11 @@ export function sortBlockRefsForTask(graph: CompiledExecutionGraph, taskId: stri
   return sorted.length === refs.length ? sorted : refs;
 }
 
-export function exceptionForBlock(ref: string, status: BlockStatus, reason?: string | null): DesktopTaskException | null {
+export function exceptionForBlock(
+  ref: string,
+  status: BlockStatus,
+  reason?: string | null
+): DesktopTaskException | null {
   if (status === "blocked") {
     return { ref, source: "blocked", reason: reason ?? `${ref} is blocked.` };
   }
@@ -94,7 +111,9 @@ export function exceptionForBlock(ref: string, status: BlockStatus, reason?: str
 }
 
 export function executorLabel(task: ManifestTaskNode): string {
-  const blockExecutors = new Set(task.blocks.map((block) => block.executor ?? task.executor ?? null));
+  const blockExecutors = new Set(
+    task.blocks.map((block) => block.executor ?? task.executor ?? null)
+  );
   if (blockExecutors.size > 1) {
     return "Mixed";
   }

@@ -1,7 +1,10 @@
 /* @vitest-environment jsdom */
 
 import { act, renderHook, waitFor } from "@testing-library/react";
-import type { DesktopPackageFileChangeEvent, DesktopPackageFileSyncResult } from "@planweave-ai/runtime";
+import type {
+  DesktopPackageFileChangeEvent,
+  DesktopPackageFileSyncResult
+} from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { project } from "./helpers/desktopProjectFixtures";
@@ -19,7 +22,9 @@ function createDeferred<T>() {
   return { promise, reject, resolve };
 }
 
-function createSuccessfulSyncResult(overrides: Partial<DesktopPackageFileSyncResult> = {}): DesktopPackageFileSyncResult {
+function createSuccessfulSyncResult(
+  overrides: Partial<DesktopPackageFileSyncResult> = {}
+): DesktopPackageFileSyncResult {
   return {
     ok: true,
     fullRefresh: false,
@@ -68,7 +73,10 @@ describe("desktop renderer hook interfaces", () => {
       await result.current.refreshPackageFiles();
     });
 
-    expect(bridge.refreshPackageFileChanges).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" });
+    expect(bridge.refreshPackageFileChanges).toHaveBeenCalledWith({
+      projectRoot: project.rootPath,
+      canvasId: "canvas-main"
+    });
     expect(refreshProjectDerivedState).toHaveBeenCalledTimes(1);
     expect(reloadCurrentCanvas).not.toHaveBeenCalled();
     expect(setFileSyncDiagnostics).toHaveBeenCalledWith([]);
@@ -81,7 +89,13 @@ describe("desktop renderer hook interfaces", () => {
         fullRefresh: false,
         primed: false,
         affectedTasks: ["T-ALPHA"],
-        diagnostics: [{ code: "plangraph_index_refresh_failed", message: "SQLite index refresh failed.", path: "cache/plangraph.sqlite" }],
+        diagnostics: [
+          {
+            code: "plangraph_index_refresh_failed",
+            message: "SQLite index refresh failed.",
+            path: "cache/plangraph.sqlite"
+          }
+        ],
         dirtyPromptRefs: ["T-ALPHA#B-001"]
       })
     });
@@ -244,7 +258,10 @@ describe("desktop renderer hook interfaces", () => {
     const secondEvent: DesktopPackageFileChangeEvent = {
       projectRoot: project.rootPath,
       canvasId: "canvas-main",
-      paths: ["package/nodes/T-ALPHA/blocks/B-001.prompt.md", "package/nodes/T-ALPHA/blocks/B-002.prompt.md"],
+      paths: [
+        "package/nodes/T-ALPHA/blocks/B-001.prompt.md",
+        "package/nodes/T-ALPHA/blocks/B-002.prompt.md"
+      ],
       changedPathCount: 2,
       backendKind: "polling",
       triggeredAt: "2026-06-23T00:00:01.000Z"
@@ -562,7 +579,10 @@ describe("desktop renderer hook interfaces", () => {
     });
 
     await waitFor(() => expect(bridge.refreshPackageFileChanges).toHaveBeenCalledTimes(2));
-    expect(bridge.refreshPackageFileChanges).toHaveBeenNthCalledWith(2, { projectRoot: project.rootPath, canvasId: "canvas-next" });
+    expect(bridge.refreshPackageFileChanges).toHaveBeenNthCalledWith(2, {
+      projectRoot: project.rootPath,
+      canvasId: "canvas-next"
+    });
 
     await act(async () => {
       secondRefresh.resolve(createSuccessfulSyncResult({ fullRefresh: true }));
@@ -626,7 +646,10 @@ describe("desktop renderer hook interfaces", () => {
     });
 
     await waitFor(() => expect(bridge.refreshPackageFileChanges).toHaveBeenCalledTimes(2));
-    expect(bridge.refreshPackageFileChanges).toHaveBeenNthCalledWith(2, { projectRoot: project.rootPath, canvasId: "canvas-main" });
+    expect(bridge.refreshPackageFileChanges).toHaveBeenNthCalledWith(2, {
+      projectRoot: project.rootPath,
+      canvasId: "canvas-main"
+    });
 
     await act(async () => {
       secondRefresh.resolve(createSuccessfulSyncResult({ fullRefresh: true }));
@@ -647,7 +670,13 @@ describe("desktop renderer hook interfaces", () => {
         fullRefresh: false,
         primed: false,
         affectedTasks: [],
-        diagnostics: [{ code: "package_change_non_package_prompt", message: "Project prompt changed.", path: "policy/project-prompt.md" }],
+        diagnostics: [
+          {
+            code: "package_change_non_package_prompt",
+            message: "Project prompt changed.",
+            path: "policy/project-prompt.md"
+          }
+        ],
         dirtyPromptRefs: []
       })
     });

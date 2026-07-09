@@ -3,7 +3,11 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultDesktopSettings } from "../shared/desktopSettings";
-import { DesktopSettingsStore, DesktopSettingsStoreError, applyPersistedPlanweaveHomeSetting } from "../main/desktopSettingsStore";
+import {
+  DesktopSettingsStore,
+  DesktopSettingsStoreError,
+  applyPersistedPlanweaveHomeSetting
+} from "../main/desktopSettingsStore";
 import { desktopHomePaths } from "../main/planweaveHomePaths";
 
 const tempRoots: string[] = [];
@@ -380,7 +384,9 @@ describe("DesktopSettingsStore", () => {
       code: "invalid_json",
       settingsFile: store.settingsFile
     });
-    await expect(store.mergePatch({ appearance: "dark" })).rejects.toBeInstanceOf(DesktopSettingsStoreError);
+    await expect(store.mergePatch({ appearance: "dark" })).rejects.toBeInstanceOf(
+      DesktopSettingsStoreError
+    );
     await expect(readFile(store.settingsFile, "utf8")).resolves.toBe("{");
   });
 

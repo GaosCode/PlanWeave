@@ -47,7 +47,10 @@ export function useAutoRunController({
   tmuxMonitoringEnabled
 }: {
   autoRunState: DesktopAutoRunState | null;
-  handleOpenRunRecord: (recordId: string | null | undefined, canvasId?: string | null) => Promise<void>;
+  handleOpenRunRecord: (
+    recordId: string | null | undefined,
+    canvasId?: string | null
+  ) => Promise<void>;
   onAutoRunDerivedStateRefresh: () => Promise<void>;
   onPositionCommit: (position: FloatingControlPosition) => void;
   position: FloatingControlPosition | null;

@@ -302,7 +302,10 @@ describe("useLerpedNodeDrag", () => {
 
     let committedNodes: TestNode[] = [];
     act(() => {
-      committedNodes = result.current.commitDragTargets({ id: "T-001", position: { x: 100, y: 80 } });
+      committedNodes = result.current.commitDragTargets({
+        id: "T-001",
+        position: { x: 100, y: 80 }
+      });
     });
 
     expect(committedNodes[0].position).toEqual({ x: 100, y: 80 });
@@ -316,7 +319,10 @@ describe("useLerpedNodeDrag", () => {
     let committedNodes: TestNode[] = [];
     act(() => {
       result.current.onNodesChange([stopDraggingChange("T-001", 50, 40)]);
-      committedNodes = result.current.commitDragTargets({ id: "T-001", position: { x: 100, y: 80 } });
+      committedNodes = result.current.commitDragTargets({
+        id: "T-001",
+        position: { x: 100, y: 80 }
+      });
     });
 
     expect(committedNodes[0]).toMatchObject({

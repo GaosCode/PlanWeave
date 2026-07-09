@@ -70,7 +70,11 @@ describe("runDoctor", () => {
     expect(report.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: "stale_current_ref", ref: "T-404#B-001", repaired: true }),
-        expect.objectContaining({ code: "index_state_mismatch", ref: "T-001#B-001", repaired: true })
+        expect.objectContaining({
+          code: "index_state_mismatch",
+          ref: "T-001#B-001",
+          repaired: true
+        })
       ])
     );
     const status = await getExecutionStatus({ projectRoot: root });
@@ -79,7 +83,9 @@ describe("runDoctor", () => {
       status: "completed",
       lastRunId: "RUN-002"
     });
-    await expect(readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"))
+    ).resolves.toMatchObject({
       latestRunByBlock: { "T-001#B-001": "RUN-002" },
       counts: { runs: 2 }
     });
@@ -118,7 +124,11 @@ describe("runDoctor", () => {
     expect(report.ok).toBe(false);
     expect(report.issues).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ code: "index_state_mismatch", ref: "T-001#B-001", repaired: false })
+        expect.objectContaining({
+          code: "index_state_mismatch",
+          ref: "T-001#B-001",
+          repaired: false
+        })
       ])
     );
     const status = await getExecutionStatus({ projectRoot: root });
@@ -170,7 +180,9 @@ describe("runDoctor", () => {
         })
       ])
     );
-    await expect(readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile<TaskResultIndex>(join(init.workspace.resultsDir, "T-001", "index.json"))
+    ).resolves.toMatchObject({
       latestRunByBlock: { "T-001#B-001": "RUN-001" },
       counts: { runs: 1 }
     });

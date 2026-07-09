@@ -1,6 +1,11 @@
 import type { ExecutionStatus } from "../../taskManager/executionStatus.js";
 import type { PlanGraph, PlanGraphBlockNode, PlanGraphTaskNode } from "../domain/types.js";
-import { selectDownstreamTasks, selectTask, selectTaskBlocks, selectUpstreamTasks } from "../domain/selectors.js";
+import {
+  selectDownstreamTasks,
+  selectTask,
+  selectTaskBlocks,
+  selectUpstreamTasks
+} from "../domain/selectors.js";
 
 function lineList(lines: string[]): string {
   return lines.length > 0 ? lines.map((line) => `- ${line}`).join("\n") : "- None.";
@@ -11,7 +16,8 @@ function statusByBlockRef(status?: ExecutionStatus): Map<string, string> {
 }
 
 function blockLine(block: PlanGraphBlockNode, statuses: Map<string, string>): string {
-  const dependencyText = block.dependsOn.length > 0 ? `; depends on ${block.dependsOn.join(", ")}` : "";
+  const dependencyText =
+    block.dependsOn.length > 0 ? `; depends on ${block.dependsOn.join(", ")}` : "";
   return `${block.ref} [${block.type}] ${block.title} (${statuses.get(block.ref) ?? "planned"}${dependencyText})`;
 }
 
@@ -35,7 +41,9 @@ export function buildAgentClaimMarkdown(options: {
   const statuses = statusByBlockRef(options.status);
   const upstreamTasks = selectUpstreamTasks(options.graph, task.taskId).map(taskLine);
   const downstreamTasks = selectDownstreamTasks(options.graph, task.taskId).map(taskLine);
-  const taskBlocks = selectTaskBlocks(options.graph, task.taskId).map((item) => blockLine(item, statuses));
+  const taskBlocks = selectTaskBlocks(options.graph, task.taskId).map((item) =>
+    blockLine(item, statuses)
+  );
   const directDependencies = block.dependsOn.map((ref) => {
     const dependency = options.graph.blocks.get(ref);
     return dependency ? blockLine(dependency, statuses) : `${ref} (missing)`;

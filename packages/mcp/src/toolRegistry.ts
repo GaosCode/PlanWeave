@@ -1,7 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { planweaveToolDefinitions } from "./toolDefinitions.js";
 import { planweaveToolOutputSchemas } from "./toolSchemas.js";
-import { defaultPlanweaveToolNames, handlePlanweaveTool, planweaveToolNames, type PlanweaveToolName } from "./tools.js";
+import {
+  defaultPlanweaveToolNames,
+  handlePlanweaveTool,
+  planweaveToolNames,
+  type PlanweaveToolName
+} from "./tools.js";
 
 export type PlanweaveToolDiscoveryMode = "default" | "compat";
 
@@ -9,7 +14,10 @@ function toolNamesForDiscoveryMode(mode: PlanweaveToolDiscoveryMode): readonly P
   return mode === "compat" ? planweaveToolNames : defaultPlanweaveToolNames;
 }
 
-export function registerPlanweaveTools(server: McpServer, options: { discoveryMode?: PlanweaveToolDiscoveryMode } = {}): void {
+export function registerPlanweaveTools(
+  server: McpServer,
+  options: { discoveryMode?: PlanweaveToolDiscoveryMode } = {}
+): void {
   for (const name of toolNamesForDiscoveryMode(options.discoveryMode ?? "default")) {
     const definition = planweaveToolDefinitions[name];
     server.registerTool(

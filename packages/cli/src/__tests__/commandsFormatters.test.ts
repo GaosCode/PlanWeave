@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { formatExecutorProfilesHuman, formatExecutorTestHuman, formatExecutorTestJson } from "../commands/formatters/executorFormatters.js";
+import {
+  formatExecutorProfilesHuman,
+  formatExecutorTestHuman,
+  formatExecutorTestJson
+} from "../commands/formatters/executorFormatters.js";
 import {
   formatProjectGraphConflictDiagnostics,
   formatProjectGraphMaterializeHuman,
   formatProjectGraphMigrationHuman
 } from "../commands/formatters/projectGraphFormatters.js";
-import { formatClaimHint, formatExecutionStatusHuman } from "../commands/formatters/statusFormatters.js";
+import {
+  formatClaimHint,
+  formatExecutionStatusHuman
+} from "../commands/formatters/statusFormatters.js";
 
 describe("planweave CLI command formatters", () => {
   it("prints executor preflight facts as JSON", () => {
@@ -16,10 +23,29 @@ describe("planweave CLI command formatters", () => {
         ok: true,
         message: "v26.3.0",
         checks: [
-          { check: "profile_exists", status: "passed", message: "Executor profile 'node-version' exists." },
-          { check: "adapter_supported", status: "passed", message: "Executor adapter 'codex-exec' is supported." },
-          { check: "cwd_resolved", status: "passed", message: "Project cwd resolved.", cwd: "/tmp/project" },
-          { check: "command_started", status: "passed", message: "Command started.", command: process.execPath, cwd: "/tmp/project" },
+          {
+            check: "profile_exists",
+            status: "passed",
+            message: "Executor profile 'node-version' exists."
+          },
+          {
+            check: "adapter_supported",
+            status: "passed",
+            message: "Executor adapter 'codex-exec' is supported."
+          },
+          {
+            check: "cwd_resolved",
+            status: "passed",
+            message: "Project cwd resolved.",
+            cwd: "/tmp/project"
+          },
+          {
+            check: "command_started",
+            status: "passed",
+            message: "Command started.",
+            command: process.execPath,
+            cwd: "/tmp/project"
+          },
           {
             check: "command_version",
             status: "passed",
@@ -56,11 +82,32 @@ describe("planweave CLI command formatters", () => {
         ok: false,
         message: "Executor profile 'missing-profile' does not exist.",
         checks: [
-          { check: "profile_exists", status: "failed", message: "Executor profile 'missing-profile' does not exist." },
-          { check: "adapter_supported", status: "skipped", message: "Executor profile does not exist." },
-          { check: "cwd_resolved", status: "passed", message: "Project cwd resolved.", cwd: "/tmp/project" },
-          { check: "command_started", status: "skipped", message: "Executor profile does not exist." },
-          { check: "command_version", status: "skipped", message: "Executor profile does not exist." }
+          {
+            check: "profile_exists",
+            status: "failed",
+            message: "Executor profile 'missing-profile' does not exist."
+          },
+          {
+            check: "adapter_supported",
+            status: "skipped",
+            message: "Executor profile does not exist."
+          },
+          {
+            check: "cwd_resolved",
+            status: "passed",
+            message: "Project cwd resolved.",
+            cwd: "/tmp/project"
+          },
+          {
+            check: "command_started",
+            status: "skipped",
+            message: "Executor profile does not exist."
+          },
+          {
+            check: "command_version",
+            status: "skipped",
+            message: "Executor profile does not exist."
+          }
         ]
       })
     ).toBe("failed missing-profile: Executor profile 'missing-profile' does not exist.");
@@ -110,7 +157,8 @@ describe("planweave CLI command formatters", () => {
         blockId: "R-001",
         blockType: "review",
         status: "ready",
-        statusReason: "Optional review gate is not required and is not claimable; task can complete without it.",
+        statusReason:
+          "Optional review gate is not required and is not claimable; task can complete without it.",
         ready: false,
         readyReason: null,
         blockedByBlocks: [],
@@ -131,7 +179,9 @@ describe("planweave CLI command formatters", () => {
           needsChangesReturnsTo: ["T-001#B-001"]
         }
       })
-    ).toContain("ready: Optional review gate is not required and is not claimable; task can complete without it.");
+    ).toContain(
+      "ready: Optional review gate is not required and is not claimable; task can complete without it."
+    );
   });
 
   it("prints execution status in human output", () => {
@@ -167,21 +217,35 @@ describe("planweave CLI command formatters", () => {
       warnings: [{ code: "example_warning", message: "Check this." }],
       counts: {
         tasks: { planned: 0, ready: 1, in_progress: 0, implemented: 0 },
-        blocks: { planned: 0, ready: 1, in_progress: 0, completed: 0, needs_changes: 0, blocked: 0, diverged: 0 },
+        blocks: {
+          planned: 0,
+          ready: 1,
+          in_progress: 0,
+          completed: 0,
+          needs_changes: 0,
+          blocked: 0,
+          diverged: 0
+        },
         feedback: { open: 0, in_progress: 0, resolved: 0, dismissed: 0 }
       },
       orphanState: [],
       orphanResults: []
     };
 
-    expect(formatExecutionStatusHuman(status)).toContain("Next claimable: T-001#B-001\nNext parallel claimable: T-001#B-001");
-    expect(formatExecutionStatusHuman(status)).toContain("Warnings:\n- example_warning: Check this.");
+    expect(formatExecutionStatusHuman(status)).toContain(
+      "Next claimable: T-001#B-001\nNext parallel claimable: T-001#B-001"
+    );
+    expect(formatExecutionStatusHuman(status)).toContain(
+      "Warnings:\n- example_warning: Check this."
+    );
   });
 
   it("prints project graph migration summaries in human output", () => {
-    expect(formatProjectGraphConflictDiagnostics([{ code: "conflict", message: "Legacy and canonical paths both exist." }])).toBe(
-      "conflict: Legacy and canonical paths both exist."
-    );
+    expect(
+      formatProjectGraphConflictDiagnostics([
+        { code: "conflict", message: "Legacy and canonical paths both exist." }
+      ])
+    ).toBe("conflict: Legacy and canonical paths both exist.");
     expect(
       formatProjectGraphMigrationHuman({
         action: "migrate",
@@ -214,6 +278,8 @@ describe("planweave CLI command formatters", () => {
         source: "legacy_default_canvas",
         canvasCount: 1
       })
-    ).toBe("Project graph: /tmp/project/project-graph.json\nSource: legacy_default_canvas\nCanvases: 1");
+    ).toBe(
+      "Project graph: /tmp/project/project-graph.json\nSource: legacy_default_canvas\nCanvases: 1"
+    );
   });
 });

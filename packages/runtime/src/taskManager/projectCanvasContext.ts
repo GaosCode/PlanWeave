@@ -1,5 +1,9 @@
 import { compileProjectGraph, loadProjectGraphForWorkspace } from "../projectGraph/index.js";
-import type { CompiledProjectGraph, ProjectGraphSource, ProjectTaskRef } from "../projectGraph/index.js";
+import type {
+  CompiledProjectGraph,
+  ProjectGraphSource,
+  ProjectTaskRef
+} from "../projectGraph/index.js";
 import { findCurrentProjectCanvasByPackageDir } from "./canvasCommandScope.js";
 import type { RuntimeContext } from "./runtimeContext.js";
 
@@ -32,7 +36,10 @@ function issueDisplayName(issue: { code: string; message: string; path?: string 
   return `${issue.code}${issue.path ? ` [${issue.path}]` : ""}: ${issue.message}`;
 }
 
-export async function renderProjectCanvasContext(context: RuntimeContext, taskId: string): Promise<ProjectCanvasContext> {
+export async function renderProjectCanvasContext(
+  context: RuntimeContext,
+  taskId: string
+): Promise<ProjectCanvasContext> {
   const loaded = await loadProjectGraphForWorkspace(context.workspace);
   const graph = await compileProjectGraph(loaded);
   if (graph.diagnostics.errors.length > 0) {

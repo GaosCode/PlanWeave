@@ -317,7 +317,13 @@ export type DesktopProjectSnapshot = {
   errors: string[];
 };
 
-export type DesktopSearchResultKind = "task" | "block" | "prompt" | "run_record" | "review_attempt" | "feedback";
+export type DesktopSearchResultKind =
+  | "task"
+  | "block"
+  | "prompt"
+  | "run_record"
+  | "review_attempt"
+  | "feedback";
 
 export type DesktopSearchFilters = {
   kinds?: DesktopSearchResultKind[];

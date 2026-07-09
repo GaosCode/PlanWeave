@@ -1,8 +1,15 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createTaskCanvas, resolveTaskCanvasWorkspace, searchProjectWithDiagnostics } from "../desktop/index.js";
-import { createDesktopPackageFileSnapshot, refreshPackageFileChanges } from "../desktop/fileSyncApi.js";
+import {
+  createTaskCanvas,
+  resolveTaskCanvasWorkspace,
+  searchProjectWithDiagnostics
+} from "../desktop/index.js";
+import {
+  createDesktopPackageFileSnapshot,
+  refreshPackageFileChanges
+} from "../desktop/fileSyncApi.js";
 import {
   invalidateDesktopProjectProjection,
   peekDesktopCanvasProjectionCacheEntryForTests,
@@ -22,7 +29,9 @@ describe("desktop projection selective invalidation", () => {
     const secondCanvas = await createTaskCanvas(root, { name: "Sibling canvas" });
     const secondWorkspace = await resolveTaskCanvasWorkspace(root, secondCanvas.canvasId);
     const secondManifest = basicManifest();
-    const secondTask = secondManifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    const secondTask = secondManifest.nodes.find(
+      (node) => node.type === "task" && node.id === "T-001"
+    );
     if (secondTask?.type !== "task") {
       throw new Error("Fixture task missing.");
     }
@@ -34,7 +43,10 @@ describe("desktop projection selective invalidation", () => {
     await createDesktopPackageFileSnapshot(secondWorkspace);
     await readDesktopProjectSearchIndex(root);
 
-    const siblingBefore = peekDesktopCanvasProjectionCacheEntryForTests(root, secondCanvas.canvasId);
+    const siblingBefore = peekDesktopCanvasProjectionCacheEntryForTests(
+      root,
+      secondCanvas.canvasId
+    );
     const defaultBefore = peekDesktopCanvasProjectionCacheEntryForTests(root, "default");
     expect(siblingBefore).toBeDefined();
     expect(defaultBefore).toBeDefined();
@@ -63,7 +75,10 @@ describe("desktop projection selective invalidation", () => {
     expect(defaultAfter).toBeUndefined();
     expect(defaultBefore).toBeDefined();
 
-    const search = await searchProjectWithDiagnostics(root, promptNeedle, { kinds: ["prompt"], includeBodies: true });
+    const search = await searchProjectWithDiagnostics(root, promptNeedle, {
+      kinds: ["prompt"],
+      includeBodies: true
+    });
     expect(search.results).toEqual([
       expect.objectContaining({ canvasId: "default", ref: "T-001#B-001", targetRef: "T-001#B-001" })
     ]);
@@ -81,7 +96,10 @@ describe("desktop projection selective invalidation", () => {
     await createDesktopPackageFileSnapshot(secondWorkspace);
     await readDesktopProjectSearchIndex(root);
 
-    const siblingBefore = peekDesktopCanvasProjectionCacheEntryForTests(root, secondCanvas.canvasId);
+    const siblingBefore = peekDesktopCanvasProjectionCacheEntryForTests(
+      root,
+      secondCanvas.canvasId
+    );
     const defaultBefore = peekDesktopCanvasProjectionCacheEntryForTests(root, "default");
     expect(siblingBefore).toBeDefined();
     expect(defaultBefore).toBeDefined();
@@ -98,7 +116,9 @@ describe("desktop projection selective invalidation", () => {
       refreshStats: expect.objectContaining({ mode: "full" })
     });
 
-    expect(peekDesktopCanvasProjectionCacheEntryForTests(root, secondCanvas.canvasId)).toBeUndefined();
+    expect(
+      peekDesktopCanvasProjectionCacheEntryForTests(root, secondCanvas.canvasId)
+    ).toBeUndefined();
     expect(peekDesktopCanvasProjectionCacheEntryForTests(root, "default")).toBeUndefined();
 
     await readDesktopProjectSearchIndex(root);

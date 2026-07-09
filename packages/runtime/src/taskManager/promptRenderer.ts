@@ -32,10 +32,17 @@ export type PromptSurface = {
 };
 
 function renderNodeList(title: string, lines: string[]): string {
-  return [`## ${title}`, "", lines.length > 0 ? lines.map((line) => `- ${line}`).join("\n") : "- None."].join("\n");
+  return [
+    `## ${title}`,
+    "",
+    lines.length > 0 ? lines.map((line) => `- ${line}`).join("\n") : "- None."
+  ].join("\n");
 }
 
-async function readPromptFile(path: string, options: { allowMissing: boolean }): Promise<{ markdown: string; missing: boolean }> {
+async function readPromptFile(
+  path: string,
+  options: { allowMissing: boolean }
+): Promise<{ markdown: string; missing: boolean }> {
   try {
     return {
       markdown: await readFile(path, "utf8"),
@@ -87,7 +94,10 @@ async function latestReportSnippet(path: string): Promise<string> {
   }
 }
 
-async function renderLatestImplementationReports(context: RuntimeContext, taskId: string): Promise<string[]> {
+async function renderLatestImplementationReports(
+  context: RuntimeContext,
+  taskId: string
+): Promise<string[]> {
   const lines: string[] = [];
   for (const ref of requiredImplementationRefs(context.graph, taskId)) {
     const lastRunId = context.state.blocks[ref]?.lastRunId;
@@ -95,15 +105,29 @@ async function renderLatestImplementationReports(context: RuntimeContext, taskId
       continue;
     }
     const { blockId } = parseBlockRef(ref);
-    const reportPath = join(context.workspace.resultsDir, taskId, "blocks", blockId, "runs", lastRunId, "report.md");
+    const reportPath = join(
+      context.workspace.resultsDir,
+      taskId,
+      "blocks",
+      blockId,
+      "runs",
+      lastRunId,
+      "report.md"
+    );
     lines.push(`${ref} ${lastRunId}: ${await latestReportSnippet(reportPath)}`);
   }
   return lines;
 }
 
-async function renderFocusedReviewLines(context: RuntimeContext, reviewBlockRef: string): Promise<string[]> {
+async function renderFocusedReviewLines(
+  context: RuntimeContext,
+  reviewBlockRef: string
+): Promise<string[]> {
   const feedbackEntry = Object.entries(context.state.feedback)
-    .filter(([, feedback]) => feedback.sourceReviewBlockRef === reviewBlockRef && feedback.status === "resolved")
+    .filter(
+      ([, feedback]) =>
+        feedback.sourceReviewBlockRef === reviewBlockRef && feedback.status === "resolved"
+    )
     .at(-1);
   if (!feedbackEntry) {
     return [];
@@ -153,15 +177,27 @@ export async function renderPromptSurface(options: {
   const promptPolicy = await readProjectPromptPolicy(workspace);
   const allowMissingPromptSources = options.allowMissingPromptSources ?? false;
   const globalPrompt = promptPolicy.includeGlobalPrompt
-    ? await readPromptFile(join(resolvePlanweaveHome(), "config", "global-prompt.md"), { allowMissing: true })
+    ? await readPromptFile(join(resolvePlanweaveHome(), "config", "global-prompt.md"), {
+        allowMissing: true
+      })
     : { markdown: "", missing: false };
   const projectPrompt = await readPromptFile(workspace.projectPromptFile, { allowMissing: true });
-  const taskPrompt = await readPromptFile(await resolvePackagePath(workspace.packageDir, task.prompt, { requireExisting: !allowMissingPromptSources }), {
-    allowMissing: allowMissingPromptSources
-  });
-  const blockPrompt = await readPromptFile(await resolvePackagePath(workspace.packageDir, block.prompt, { requireExisting: !allowMissingPromptSources }), {
-    allowMissing: allowMissingPromptSources
-  });
+  const taskPrompt = await readPromptFile(
+    await resolvePackagePath(workspace.packageDir, task.prompt, {
+      requireExisting: !allowMissingPromptSources
+    }),
+    {
+      allowMissing: allowMissingPromptSources
+    }
+  );
+  const blockPrompt = await readPromptFile(
+    await resolvePackagePath(workspace.packageDir, block.prompt, {
+      requireExisting: !allowMissingPromptSources
+    }),
+    {
+      allowMissing: allowMissingPromptSources
+    }
+  );
   const projectCanvasContext = await renderProjectCanvasContext(context, taskId);
   const planGraphContext = buildAgentClaimMarkdown({
     graph: (await loadPlanGraphPackage(workspace)).graph,
@@ -207,9 +243,12 @@ export async function renderPromptSurface(options: {
       missing: blockPrompt.missing
     })
   ];
-  const dependencyLines = (graph.blockDependenciesByRef.get(options.ref) ?? []).map((dependency) => `${dependency}: ${state.blocks[dependency]?.status ?? "planned"}`);
+  const dependencyLines = (graph.blockDependenciesByRef.get(options.ref) ?? []).map(
+    (dependency) => `${dependency}: ${state.blocks[dependency]?.status ?? "planned"}`
+  );
   const latestImplementationReports = await renderLatestImplementationReports(context, taskId);
-  const focusedReviewLines = block.type === "review" ? await renderFocusedReviewLines(context, options.ref) : [];
+  const focusedReviewLines =
+    block.type === "review" ? await renderFocusedReviewLines(context, options.ref) : [];
   const reviewSchema =
     block.type === "review"
       ? [
@@ -261,17 +300,16 @@ export async function renderPromptSurface(options: {
     "## Block Prompt",
     blockPrompt.markdown.trim(),
     renderNodeList("Task Acceptance", task.acceptance),
-    renderNodeList(
-      "Execution Context",
-      [
-        `Task status: ${state.tasks[taskId]?.status ?? "planned"}`,
-        `Block status: ${state.blocks[options.ref]?.status ?? "planned"}`,
-        `Completion policy: ${manifest.review.completionPolicy}`
-      ]
-    ),
+    renderNodeList("Execution Context", [
+      `Task status: ${state.tasks[taskId]?.status ?? "planned"}`,
+      `Block status: ${state.blocks[options.ref]?.status ?? "planned"}`,
+      `Completion policy: ${manifest.review.completionPolicy}`
+    ]),
     renderNodeList("Dependency / Block Status", dependencyLines),
     renderNodeList("Latest Implementation / Feedback Summary", latestImplementationReports),
-    focusedReviewLines.length > 0 ? renderNodeList("Focused Re-review Context", focusedReviewLines) : "",
+    focusedReviewLines.length > 0
+      ? renderNodeList("Focused Re-review Context", focusedReviewLines)
+      : "",
     reviewSchema,
     implementationReportGuidance,
     includeSubmissionInstructions ? "## Submission Instructions" : "",

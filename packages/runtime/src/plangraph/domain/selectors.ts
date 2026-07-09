@@ -1,4 +1,10 @@
-import type { BlockRef, PlanGraph, PlanGraphBlockNode, PlanGraphTaskNode, TaskId } from "./types.js";
+import type {
+  BlockRef,
+  PlanGraph,
+  PlanGraphBlockNode,
+  PlanGraphTaskNode,
+  TaskId
+} from "./types.js";
 
 export function selectTask(graph: PlanGraph, taskId: TaskId): PlanGraphTaskNode | undefined {
   return graph.tasks.get(taskId);
@@ -13,7 +19,9 @@ export function selectTaskBlocks(graph: PlanGraph, taskId: TaskId): PlanGraphBlo
   if (!task) {
     return [];
   }
-  return task.blockRefs.map((ref) => graph.blocks.get(ref)).filter((block): block is PlanGraphBlockNode => block !== undefined);
+  return task.blockRefs
+    .map((ref) => graph.blocks.get(ref))
+    .filter((block): block is PlanGraphBlockNode => block !== undefined);
 }
 
 export function selectUpstreamTasks(graph: PlanGraph, taskId: TaskId): PlanGraphTaskNode[] {
@@ -45,7 +53,8 @@ export function selectBlockedReason(graph: PlanGraph, taskId: TaskId): string | 
     return `Task '${taskId}' does not exist.`;
   }
   const missingDependency = graph.edges.find(
-    (edge) => edge.type === "taskDependsOn" && edge.fromTaskId === taskId && !graph.tasks.has(edge.toTaskId)
+    (edge) =>
+      edge.type === "taskDependsOn" && edge.fromTaskId === taskId && !graph.tasks.has(edge.toTaskId)
   );
   if (missingDependency) {
     if (missingDependency.type !== "taskDependsOn") {
@@ -57,9 +66,13 @@ export function selectBlockedReason(graph: PlanGraph, taskId: TaskId): string | 
 }
 
 export function selectClaimableTasks(graph: PlanGraph): PlanGraphTaskNode[] {
-  return [...graph.tasks.values()].filter((task) => selectUpstreamTasks(graph, task.taskId).length === 0);
+  return [...graph.tasks.values()].filter(
+    (task) => selectUpstreamTasks(graph, task.taskId).length === 0
+  );
 }
 
 export function selectReviewReadyBlocks(graph: PlanGraph): PlanGraphBlockNode[] {
-  return [...graph.blocks.values()].filter((block) => block.type === "review" && block.dependsOn.every((ref) => graph.blocks.has(ref)));
+  return [...graph.blocks.values()].filter(
+    (block) => block.type === "review" && block.dependsOn.every((ref) => graph.blocks.has(ref))
+  );
 }

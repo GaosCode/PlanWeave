@@ -22,7 +22,13 @@ describe("FileSyncPopover", () => {
     render(
       <FileSyncPopover
         affectedTasks={["T-002"]}
-        diagnostics={[{ code: "prompt_changed", message: "Prompt changed on disk.", path: "nodes/T-001/prompt.md" }]}
+        diagnostics={[
+          {
+            code: "prompt_changed",
+            message: "Prompt changed on disk.",
+            path: "nodes/T-001/prompt.md"
+          }
+        ]}
         dirtyPromptRefs={["T-001#B-001"]}
         disabled={false}
         issueCount={4}
@@ -50,14 +56,26 @@ describe("FileSyncPopover", () => {
     await userEvent.click(screen.getByRole("button", { name: "Recheck files" }));
     expect(refreshPackageFiles).toHaveBeenCalledTimes(1);
 
-    await userEvent.click(within(screen.getByTestId("file-sync-dirty-prompts-section")).getByRole("button", { name: "Dirty Prompts" }));
+    await userEvent.click(
+      within(screen.getByTestId("file-sync-dirty-prompts-section")).getByRole("button", {
+        name: "Dirty Prompts"
+      })
+    );
     await userEvent.click(screen.getByRole("button", { name: "T-001#B-001" }));
     expect(onOpenFileSyncRef).toHaveBeenCalledWith("T-001#B-001");
 
-    await userEvent.click(within(screen.getByTestId("file-sync-affected-tasks-section")).getByRole("button", { name: "Affected tasks" }));
+    await userEvent.click(
+      within(screen.getByTestId("file-sync-affected-tasks-section")).getByRole("button", {
+        name: "Affected tasks"
+      })
+    );
     expect(screen.getByRole("button", { name: "T-002" })).toBeInTheDocument();
 
-    await userEvent.click(within(screen.getByTestId("file-sync-diagnostics-section")).getByRole("button", { name: "Diagnostics" }));
+    await userEvent.click(
+      within(screen.getByTestId("file-sync-diagnostics-section")).getByRole("button", {
+        name: "Diagnostics"
+      })
+    );
     expect(screen.getByTestId("file-sync-diagnostic")).toHaveTextContent("Prompt changed on disk.");
   });
 });

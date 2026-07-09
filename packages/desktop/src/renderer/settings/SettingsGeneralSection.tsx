@@ -1,9 +1,22 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { DesktopRuntimeToolAvailability, ProjectPromptPolicy } from "@planweave-ai/runtime";
 import { Button } from "@/components/ui/button";
-import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { AppUpdateSettingsRow } from "./AppUpdateSettingsRow";
 import { SettingsSwitchRow } from "../components/SettingsSwitchRow";
@@ -46,7 +59,10 @@ const appearanceOptions = [
   { value: "system", labelKey: "appearanceSystem" },
   { value: "light", labelKey: "appearanceLight" },
   { value: "dark", labelKey: "appearanceDark" }
-] satisfies Array<{ value: AppearanceMode; labelKey: "appearanceSystem" | "appearanceLight" | "appearanceDark" }>;
+] satisfies Array<{
+  value: AppearanceMode;
+  labelKey: "appearanceSystem" | "appearanceLight" | "appearanceDark";
+}>;
 
 function isAppearanceMode(value: string): value is AppearanceMode {
   return appearanceOptions.some((option) => option.value === value);
@@ -56,7 +72,9 @@ function SettingGroup({ children, title }: { children: ReactNode; title: string 
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-base font-semibold text-text-strong">{title}</h2>
-      <FieldGroup className="gap-0 overflow-hidden rounded-md border border-border/80 bg-surface-raised shadow-sm">{children}</FieldGroup>
+      <FieldGroup className="gap-0 overflow-hidden rounded-md border border-border/80 bg-surface-raised shadow-sm">
+        {children}
+      </FieldGroup>
     </section>
   );
 }
@@ -81,7 +99,8 @@ export function SettingsGeneralSection({
   updateProjectPromptPolicy,
   updateSettings
 }: SettingsGeneralSectionProps) {
-  const [windowMaterialCapabilities, setWindowMaterialCapabilities] = useState<WindowMaterialCapabilities | null>(null);
+  const [windowMaterialCapabilities, setWindowMaterialCapabilities] =
+    useState<WindowMaterialCapabilities | null>(null);
   const [planweaveHomeDraft, setPlanweaveHomeDraft] = useState(settings.planweaveHome);
 
   useEffect(() => {
@@ -116,17 +135,25 @@ export function SettingsGeneralSection({
   return (
     <section data-testid="settings-section-general" className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-normal text-text-strong">{t("settingsGeneral")}</h1>
+        <h1 className="text-2xl font-semibold tracking-normal text-text-strong">
+          {t("settingsGeneral")}
+        </h1>
         <p className="mt-1 text-sm text-text-muted">{t("settingsGeneralHint")}</p>
       </div>
       <SettingGroup title={t("interfaceSettings")}>
         <AppUpdateSettingsRow t={t} />
-        <Field orientation="horizontal" className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0">
+        <Field
+          orientation="horizontal"
+          className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0"
+        >
           <FieldContent>
             <FieldLabel className="text-sm font-semibold">{t("language")}</FieldLabel>
             <FieldDescription>{t("languageSettingHint")}</FieldDescription>
           </FieldContent>
-          <Select value={language} onValueChange={(value) => updateSettings({ language: value as Language })}>
+          <Select
+            value={language}
+            onValueChange={(value) => updateSettings({ language: value as Language })}
+          >
             <SelectTrigger aria-label={t("language")} className="w-40">
               <SelectValue />
             </SelectTrigger>
@@ -141,7 +168,10 @@ export function SettingsGeneralSection({
             </SelectContent>
           </Select>
         </Field>
-        <Field orientation="horizontal" className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0">
+        <Field
+          orientation="horizontal"
+          className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0"
+        >
           <FieldContent>
             <FieldLabel className="text-sm font-semibold">{t("useDarkAppearance")}</FieldLabel>
             <FieldDescription>{t("useDarkAppearanceHint")}</FieldDescription>
@@ -173,7 +203,11 @@ export function SettingsGeneralSection({
           checked={windowMaterialSupported && settings.windowMaterial.enabled}
           disabled={!windowMaterialSupported}
           title={t("enhancedWindowMaterial")}
-          description={windowMaterialSupported ? t("enhancedWindowMaterialHint") : t("enhancedWindowMaterialUnavailableHint")}
+          description={
+            windowMaterialSupported
+              ? t("enhancedWindowMaterialHint")
+              : t("enhancedWindowMaterialUnavailableHint")
+          }
           onCheckedChange={(checked) => updateSettings({ windowMaterial: { enabled: checked } })}
         />
         <SettingsSwitchRow
@@ -184,9 +218,14 @@ export function SettingsGeneralSection({
         />
       </SettingGroup>
       <SettingGroup title={t("workspaceSettings")}>
-        <Field orientation="horizontal" className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0">
+        <Field
+          orientation="horizontal"
+          className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0"
+        >
           <FieldContent>
-            <FieldLabel htmlFor="planweave-home" className="text-sm font-semibold">{t("planweaveHome")}</FieldLabel>
+            <FieldLabel htmlFor="planweave-home" className="text-sm font-semibold">
+              {t("planweaveHome")}
+            </FieldLabel>
             <FieldDescription>{t("planweaveHomeHint")}</FieldDescription>
           </FieldContent>
           <Input
@@ -211,9 +250,21 @@ export function SettingsGeneralSection({
       <SettingGroup title={t("notificationRules")}>
         {[
           { key: "autoRunFailure", label: t("notifyAutoRun"), description: t("notifyAutoRunHint") },
-          { key: "graphExceptions", label: t("notifyGraphExceptions"), description: t("notifyGraphExceptionsHint") },
-          { key: "dirtyPrompts", label: t("notifyDirtyPrompts"), description: t("notifyDirtyPromptsHint") },
-          { key: "fileSyncConflict", label: t("notifyFileSync"), description: t("notifyFileSyncHint") }
+          {
+            key: "graphExceptions",
+            label: t("notifyGraphExceptions"),
+            description: t("notifyGraphExceptionsHint")
+          },
+          {
+            key: "dirtyPrompts",
+            label: t("notifyDirtyPrompts"),
+            description: t("notifyDirtyPromptsHint")
+          },
+          {
+            key: "fileSyncConflict",
+            label: t("notifyFileSync"),
+            description: t("notifyFileSyncHint")
+          }
         ].map(({ key, label, description }) => (
           <SettingsSwitchRow
             checked={settings.notifications[key as keyof DesktopUiSettings["notifications"]]}
@@ -235,7 +286,11 @@ export function SettingsGeneralSection({
           checked={runtimeTools.tmux.available && settings.execution.tmuxMonitoring}
           disabled={!runtimeTools.tmux.available}
           title={t("tmuxMonitoring")}
-          description={runtimeTools.tmux.available ? t("tmuxMonitoringHint") : t("tmuxMonitoringUnavailableHint")}
+          description={
+            runtimeTools.tmux.available
+              ? t("tmuxMonitoringHint")
+              : t("tmuxMonitoringUnavailableHint")
+          }
           onCheckedChange={(checked) => updateSettings({ execution: { tmuxMonitoring: checked } })}
         />
         <div className="flex justify-end border-b border-border/80 px-5 py-3 last:border-b-0">
@@ -245,12 +300,19 @@ export function SettingsGeneralSection({
         </div>
       </SettingGroup>
       <SettingGroup title={t("promptSettings")}>
-        <Field orientation="horizontal" className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0">
+        <Field
+          orientation="horizontal"
+          className="items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0"
+        >
           <FieldContent>
             <FieldLabel className="text-sm font-semibold">{t("projectPromptProject")}</FieldLabel>
             <FieldDescription>{t("projectPromptProjectHint")}</FieldDescription>
           </FieldContent>
-          <Select value={selectedProjectId ?? ""} disabled={!projectSelectorAvailable} onValueChange={onProjectSelect}>
+          <Select
+            value={selectedProjectId ?? ""}
+            disabled={!projectSelectorAvailable}
+            onValueChange={onProjectSelect}
+          >
             <SelectTrigger aria-label={t("projectPromptProject")} className="w-72">
               <SelectValue placeholder={t("projectMissing")} />
             </SelectTrigger>
@@ -269,15 +331,29 @@ export function SettingsGeneralSection({
           checked={projectPromptPolicy?.includeGlobalPrompt ?? false}
           disabled={!projectPromptPolicyAvailable}
           title={t("inheritGlobalPrompt")}
-          description={projectPromptPolicyAvailable ? t("inheritGlobalPromptHint") : t("inheritGlobalPromptUnavailableHint")}
+          description={
+            projectPromptPolicyAvailable
+              ? t("inheritGlobalPromptHint")
+              : t("inheritGlobalPromptUnavailableHint")
+          }
           onCheckedChange={(checked) => {
             void updateProjectPromptPolicy?.({ includeGlobalPrompt: checked });
           }}
         />
-        <Field data-disabled={!projectPromptAvailable} orientation="vertical" className="border-b px-5 py-4 last:border-b-0">
+        <Field
+          data-disabled={!projectPromptAvailable}
+          orientation="vertical"
+          className="border-b px-5 py-4 last:border-b-0"
+        >
           <FieldContent>
-            <FieldLabel htmlFor="project-canvas-prompt" className="text-sm font-semibold">{t("projectCanvasPrompt")}</FieldLabel>
-            <FieldDescription>{projectPromptAvailable ? t("projectCanvasPromptHint") : t("projectCanvasPromptUnavailableHint")}</FieldDescription>
+            <FieldLabel htmlFor="project-canvas-prompt" className="text-sm font-semibold">
+              {t("projectCanvasPrompt")}
+            </FieldLabel>
+            <FieldDescription>
+              {projectPromptAvailable
+                ? t("projectCanvasPromptHint")
+                : t("projectCanvasPromptUnavailableHint")}
+            </FieldDescription>
           </FieldContent>
           <Textarea
             aria-label={t("projectCanvasPrompt")}
@@ -288,7 +364,12 @@ export function SettingsGeneralSection({
             onChange={(event) => onProjectPromptDraftChange(event.target.value)}
           />
           <div className="flex justify-end">
-            <Button size="sm" variant="outline" disabled={!projectPromptAvailable || projectPromptSaving} onClick={onProjectPromptSave}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!projectPromptAvailable || projectPromptSaving}
+              onClick={onProjectPromptSave}
+            >
               {t("saveProjectCanvasPrompt")}
             </Button>
           </div>

@@ -20,7 +20,13 @@ async function readStreamedCommandResult(result: {
   timedOut: boolean;
   limitExceeded?: ExecutorOutputLimitExceeded;
 }): Promise<StreamedCommandResult> {
-  return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, timedOut: result.timedOut, limitExceeded: result.limitExceeded };
+  return {
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    timedOut: result.timedOut,
+    limitExceeded: result.limitExceeded
+  };
 }
 
 export async function runStreamingCommandWithSessionCapture(options: {

@@ -74,7 +74,10 @@ function normalizeLayout(input: unknown, projectId: string): LayoutFile {
     return defaultLayout(projectId);
   }
   const raw = input as Record<string, unknown>;
-  const updatedAt = typeof raw.updatedAt === "string" && raw.updatedAt.trim() ? raw.updatedAt : new Date(0).toISOString();
+  const updatedAt =
+    typeof raw.updatedAt === "string" && raw.updatedAt.trim()
+      ? raw.updatedAt
+      : new Date(0).toISOString();
   if (Array.isArray(raw.nodes)) {
     return {
       version: "desktop-layout/v1",
@@ -104,27 +107,56 @@ function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
 }
 
-function validateLayoutShape(input: unknown): { errors: ValidationIssue[]; warnings: ValidationIssue[] } {
+function validateLayoutShape(input: unknown): {
+  errors: ValidationIssue[];
+  warnings: ValidationIssue[];
+} {
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
   if (!input || typeof input !== "object" || Array.isArray(input)) {
-    errors.push(issue("invalid_layout_schema", "Desktop layout must be a JSON object.", "desktop/layout.json"));
+    errors.push(
+      issue("invalid_layout_schema", "Desktop layout must be a JSON object.", "desktop/layout.json")
+    );
     return { errors, warnings };
   }
   const raw = input as Record<string, unknown>;
   if (Array.isArray(raw.nodes)) {
     if (raw.version !== "desktop-layout/v1") {
-      errors.push(issue("invalid_layout_schema", "Desktop layout version must be 'desktop-layout/v1'.", "desktop/layout.json:version"));
+      errors.push(
+        issue(
+          "invalid_layout_schema",
+          "Desktop layout version must be 'desktop-layout/v1'.",
+          "desktop/layout.json:version"
+        )
+      );
     }
     if (typeof raw.projectId !== "string" || !raw.projectId.trim()) {
-      errors.push(issue("invalid_layout_schema", "Desktop layout projectId must be a non-empty string.", "desktop/layout.json:projectId"));
+      errors.push(
+        issue(
+          "invalid_layout_schema",
+          "Desktop layout projectId must be a non-empty string.",
+          "desktop/layout.json:projectId"
+        )
+      );
     }
     if (typeof raw.updatedAt !== "string" || !raw.updatedAt.trim()) {
-      errors.push(issue("invalid_layout_schema", "Desktop layout updatedAt must be an ISO timestamp string.", "desktop/layout.json:updatedAt"));
+      errors.push(
+        issue(
+          "invalid_layout_schema",
+          "Desktop layout updatedAt must be an ISO timestamp string.",
+          "desktop/layout.json:updatedAt"
+        )
+      );
     }
     raw.nodes.forEach((node, index) => {
       if (!normalizeLayoutNode(node)) {
-        errors.push(issue("invalid_layout_schema", "Desktop layout node must include nodeId, x, and y.", `desktop/layout.json:nodes.${index}`));
+        errors.push(
+          issue(
+            "invalid_layout_schema",
+            "Desktop layout node must include nodeId, x, and y.",
+            `desktop/layout.json:nodes.${index}`
+          )
+        );
       }
     });
     return { errors, warnings };
@@ -139,16 +171,31 @@ function validateLayoutShape(input: unknown): { errors: ValidationIssue[]; warni
     );
     for (const [nodeId, node] of Object.entries(raw.nodes)) {
       if (!normalizeLegacyLayoutNode(nodeId, node)) {
-        errors.push(issue("invalid_layout_schema", "Legacy desktop layout node must include position.x and position.y.", `desktop/layout.json:nodes.${nodeId}`));
+        errors.push(
+          issue(
+            "invalid_layout_schema",
+            "Legacy desktop layout node must include position.x and position.y.",
+            `desktop/layout.json:nodes.${nodeId}`
+          )
+        );
       }
     }
     return { errors, warnings };
   }
-  errors.push(issue("invalid_layout_schema", "Desktop layout nodes must be an array of { nodeId, x, y } entries.", "desktop/layout.json:nodes"));
+  errors.push(
+    issue(
+      "invalid_layout_schema",
+      "Desktop layout nodes must be an array of { nodeId, x, y } entries.",
+      "desktop/layout.json:nodes"
+    )
+  );
   return { errors, warnings };
 }
 
-export async function validateDesktopLayout(workspace: ProjectWorkspace, manifest: PlanPackageManifest): Promise<{
+export async function validateDesktopLayout(
+  workspace: ProjectWorkspace,
+  manifest: PlanPackageManifest
+): Promise<{
   errors: ValidationIssue[];
   warnings: ValidationIssue[];
 }> {
@@ -159,7 +206,13 @@ export async function validateDesktopLayout(workspace: ProjectWorkspace, manifes
     }
   } catch (error) {
     return {
-      errors: [issue("layout_read_failed", error instanceof Error ? error.message : String(error), "desktop/layout.json")],
+      errors: [
+        issue(
+          "layout_read_failed",
+          error instanceof Error ? error.message : String(error),
+          "desktop/layout.json"
+        )
+      ],
       warnings: []
     };
   }
@@ -168,21 +221,29 @@ export async function validateDesktopLayout(workspace: ProjectWorkspace, manifes
     rawLayout = await readJsonFile<unknown>(path);
   } catch (error) {
     return {
-      errors: [issue("layout_read_failed", error instanceof Error ? error.message : String(error), "desktop/layout.json")],
+      errors: [
+        issue(
+          "layout_read_failed",
+          error instanceof Error ? error.message : String(error),
+          "desktop/layout.json"
+        )
+      ],
       warnings: []
     };
   }
   const report = validateLayoutShape(rawLayout);
   const layout = normalizeLayout(rawLayout, workspace.id);
   const nodeIds = manifestNodeIds(manifest);
-  report.warnings.push(...layout.nodes
-    .filter((node) => !nodeIds.has(node.nodeId))
-    .map((node) =>
-      issue(
-        "stale_layout_reference",
-        `Desktop layout references missing manifest node '${node.nodeId}'.`,
-        `desktop/layout.json:${node.nodeId}`
+  report.warnings.push(
+    ...layout.nodes
+      .filter((node) => !nodeIds.has(node.nodeId))
+      .map((node) =>
+        issue(
+          "stale_layout_reference",
+          `Desktop layout references missing manifest node '${node.nodeId}'.`,
+          `desktop/layout.json:${node.nodeId}`
+        )
       )
-    ));
+  );
   return report;
 }

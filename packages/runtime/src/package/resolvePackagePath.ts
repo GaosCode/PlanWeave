@@ -10,7 +10,9 @@ function assertContained(root: string, candidate: string, packagePath: string): 
   if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) {
     return;
   }
-  throw new PackagePathError(`Package path '${packagePath}' must stay inside the package directory.`);
+  throw new PackagePathError(
+    `Package path '${packagePath}' must stay inside the package directory.`
+  );
 }
 
 async function realpathNearestExistingParent(candidate: string): Promise<string> {
@@ -38,7 +40,9 @@ export async function resolvePackagePath(
   options: { requireExisting?: boolean; forWrite?: boolean } = {}
 ): Promise<string> {
   if (isAbsolute(packagePath)) {
-    throw new PackagePathError(`Package path '${packagePath}' must be relative to the package directory.`);
+    throw new PackagePathError(
+      `Package path '${packagePath}' must be relative to the package directory.`
+    );
   }
 
   const root = resolve(packageDir);

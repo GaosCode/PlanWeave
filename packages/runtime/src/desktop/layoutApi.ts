@@ -24,7 +24,10 @@ function graphCommandError(result: Awaited<ReturnType<typeof executePlanGraphCom
   return new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
 }
 
-export async function saveDesktopLayout(projectRoot: PackageWorkspaceRef, layout: DesktopLayout): Promise<DesktopLayout> {
+export async function saveDesktopLayout(
+  projectRoot: PackageWorkspaceRef,
+  layout: DesktopLayout
+): Promise<DesktopLayout> {
   const result = await executePlanGraphCommand({
     projectRoot,
     command: { type: "updateLayout", layoutScope: "desktop", layout },
@@ -40,7 +43,11 @@ export async function resetDesktopLayout(projectRoot: PackageWorkspaceRef): Prom
   const workspace = await resolvePackageWorkspace(projectRoot);
   const result = await executePlanGraphCommand({
     projectRoot,
-    command: { type: "updateLayout", layoutScope: "desktop", layout: defaultDesktopLayout(workspace.id) },
+    command: {
+      type: "updateLayout",
+      layoutScope: "desktop",
+      layout: defaultDesktopLayout(workspace.id)
+    },
     dependencies: { layoutStore: desktopLayoutCommandStore }
   });
   if (!result.ok) {
@@ -60,7 +67,12 @@ export type ApplyCanvasLaneLayoutOptions = {
   startY?: number;
 };
 
-function taskDepth(taskId: string, dependenciesByTask: Map<string, string[]>, depths: Map<string, number>, visiting: Set<string>): number {
+function taskDepth(
+  taskId: string,
+  dependenciesByTask: Map<string, string[]>,
+  depths: Map<string, number>,
+  visiting: Set<string>
+): number {
   const existing = depths.get(taskId);
   if (existing !== undefined) {
     return existing;
@@ -70,15 +82,23 @@ function taskDepth(taskId: string, dependenciesByTask: Map<string, string[]>, de
   }
   visiting.add(taskId);
   const dependencies = dependenciesByTask.get(taskId) ?? [];
-  const depth = dependencies.length === 0
-    ? 0
-    : Math.max(...dependencies.map((dependencyId) => taskDepth(dependencyId, dependenciesByTask, depths, visiting))) + 1;
+  const depth =
+    dependencies.length === 0
+      ? 0
+      : Math.max(
+          ...dependencies.map((dependencyId) =>
+            taskDepth(dependencyId, dependenciesByTask, depths, visiting)
+          )
+        ) + 1;
   visiting.delete(taskId);
   depths.set(taskId, depth);
   return depth;
 }
 
-export async function applyCanvasLaneLayout(projectRoot: PackageWorkspaceRef, options: ApplyCanvasLaneLayoutOptions = {}): Promise<DesktopLayout> {
+export async function applyCanvasLaneLayout(
+  projectRoot: PackageWorkspaceRef,
+  options: ApplyCanvasLaneLayoutOptions = {}
+): Promise<DesktopLayout> {
   const { workspace, manifest } = await loadPackage(projectRoot);
   const graph = compileTaskGraph(manifest);
   if (graph.diagnostics.errors.length > 0) {

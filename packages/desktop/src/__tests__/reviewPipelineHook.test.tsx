@@ -194,7 +194,10 @@ describe("desktop renderer hook interfaces", () => {
     );
 
     await waitFor(() =>
-      expect(getReviewPipeline).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, "T-ALPHA")
+      expect(getReviewPipeline).toHaveBeenCalledWith(
+        { projectRoot: project.rootPath, canvasId: "canvas-main" },
+        "T-ALPHA"
+      )
     );
 
     rerender({
@@ -204,9 +207,15 @@ describe("desktop renderer hook interfaces", () => {
 
     await waitFor(() => expect(result.current.reviewTaskId).toBe("T-GAMMA"));
     await waitFor(() =>
-      expect(getReviewPipeline).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-alt" }, "T-GAMMA")
+      expect(getReviewPipeline).toHaveBeenCalledWith(
+        { projectRoot: project.rootPath, canvasId: "canvas-alt" },
+        "T-GAMMA"
+      )
     );
-    expect(getReviewPipeline).not.toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-alt" }, "T-ALPHA");
+    expect(getReviewPipeline).not.toHaveBeenCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-alt" },
+      "T-ALPHA"
+    );
   });
 
   it("clears stale review task selection when the selected task was deleted before the graph refreshes", async () => {
@@ -239,11 +248,18 @@ describe("desktop renderer hook interfaces", () => {
     );
 
     await waitFor(() =>
-      expect(getReviewPipeline).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, "T-ALPHA")
+      expect(getReviewPipeline).toHaveBeenCalledWith(
+        { projectRoot: project.rootPath, canvasId: "canvas-main" },
+        "T-ALPHA"
+      )
     );
 
     await act(async () => {
-      rejectReviewPipeline(new Error("Error invoking remote method 'planweave:getReviewPipeline': Error: Task 'T-ALPHA' does not exist."));
+      rejectReviewPipeline(
+        new Error(
+          "Error invoking remote method 'planweave:getReviewPipeline': Error: Task 'T-ALPHA' does not exist."
+        )
+      );
     });
 
     await waitFor(() => expect(result.current.reviewTaskId).toBeNull());

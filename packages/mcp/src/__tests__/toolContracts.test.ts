@@ -18,7 +18,9 @@ import {
 import { planweaveToolHandlerRegistries, planweaveToolHandlers } from "../toolDispatcher.js";
 import { planweaveToolOutputSchemaRegistries, planweaveToolOutputSchemas } from "../toolSchemas.js";
 
-function countRegisteredNames(registries: readonly Readonly<Record<string, unknown>>[]): Map<string, number> {
+function countRegisteredNames(
+  registries: readonly Readonly<Record<string, unknown>>[]
+): Map<string, number> {
   const counts = new Map<string, number>();
   for (const registry of registries) {
     for (const name of Object.keys(registry)) {
@@ -28,7 +30,9 @@ function countRegisteredNames(registries: readonly Readonly<Record<string, unkno
   return counts;
 }
 
-function registryOwners(registries: readonly Readonly<Record<string, unknown>>[]): Map<string, string[]> {
+function registryOwners(
+  registries: readonly Readonly<Record<string, unknown>>[]
+): Map<string, string[]> {
   const owners = new Map<string, string[]>();
   registries.forEach((registry, index) => {
     for (const name of Object.keys(registry)) {
@@ -57,9 +61,17 @@ const parserBackedInputShapes = {
   create_task: { parser: "parseCreateTaskToolArgs", shape: createTaskInputShape },
   update_task: { parser: "parseUpdateTaskToolArgs", shape: updateTaskInputShape },
   update_block: { parser: "parseUpdateBlockToolArgs", shape: updateBlockInputShape },
-  update_review_pipeline: { parser: "parseUpdateReviewPipelineToolArgs", shape: updateReviewPipelineInputShape },
-  set_review_pipeline: { parser: "parseUpdateReviewPipelineToolArgs", shape: updateReviewPipelineInputShape }
-} satisfies Partial<Record<PlanweaveToolName, { parser: string; shape: NonNullable<ToolDefinition["inputSchema"]> }>>;
+  update_review_pipeline: {
+    parser: "parseUpdateReviewPipelineToolArgs",
+    shape: updateReviewPipelineInputShape
+  },
+  set_review_pipeline: {
+    parser: "parseUpdateReviewPipelineToolArgs",
+    shape: updateReviewPipelineInputShape
+  }
+} satisfies Partial<
+  Record<PlanweaveToolName, { parser: string; shape: NonNullable<ToolDefinition["inputSchema"]> }>
+>;
 
 describe("MCP tool contracts", () => {
   it("keeps a complete matrix for every public tool contract", () => {
@@ -138,19 +150,29 @@ describe("MCP tool contracts", () => {
       failures.push(`Unexpected debug/heavy tool(s): ${unexpectedDebugTools.join(", ")}`);
     }
 
-    const duplicateDiscoveryTools = [...defaultTools].filter((name) => compatTools.has(name)).sort();
+    const duplicateDiscoveryTools = [...defaultTools]
+      .filter((name) => compatTools.has(name))
+      .sort();
     if (duplicateDiscoveryTools.length > 0) {
-      failures.push(`Tools cannot be both default and compat discovery: ${duplicateDiscoveryTools.join(", ")}`);
+      failures.push(
+        `Tools cannot be both default and compat discovery: ${duplicateDiscoveryTools.join(", ")}`
+      );
     }
 
-    const missingDiscoveryTools = planweaveToolNames.filter((name) => !defaultTools.has(name) && !compatTools.has(name));
+    const missingDiscoveryTools = planweaveToolNames.filter(
+      (name) => !defaultTools.has(name) && !compatTools.has(name)
+    );
     if (missingDiscoveryTools.length > 0) {
-      failures.push(`Tools missing default/compat discovery classification: ${missingDiscoveryTools.join(", ")}`);
+      failures.push(
+        `Tools missing default/compat discovery classification: ${missingDiscoveryTools.join(", ")}`
+      );
     }
 
     const debugOutsideCompat = [...debugTools].filter((name) => !compatTools.has(name)).sort();
     if (debugOutsideCompat.length > 0) {
-      failures.push(`Debug/heavy tools must be compat-discovery only: ${debugOutsideCompat.join(", ")}`);
+      failures.push(
+        `Debug/heavy tools must be compat-discovery only: ${debugOutsideCompat.join(", ")}`
+      );
     }
 
     for (const row of matrix) {
@@ -159,19 +181,25 @@ describe("MCP tool contracts", () => {
         continue;
       }
       if (row.definitionOwners.length !== 1) {
-        failures.push(`${row.name}: expected exactly one definition owner, found ${row.definitionOwners.join(", ") || "none"}`);
+        failures.push(
+          `${row.name}: expected exactly one definition owner, found ${row.definitionOwners.join(", ") || "none"}`
+        );
       }
       if (!row.outputSchema) {
         failures.push(`${row.name}: missing output schema`);
       }
       if (row.outputSchemaOwners.length !== 1) {
-        failures.push(`${row.name}: expected exactly one output schema owner, found ${row.outputSchemaOwners.join(", ") || "none"}`);
+        failures.push(
+          `${row.name}: expected exactly one output schema owner, found ${row.outputSchemaOwners.join(", ") || "none"}`
+        );
       }
       if (!row.handler) {
         failures.push(`${row.name}: missing handler`);
       }
       if (row.handlerOwners.length !== 1) {
-        failures.push(`${row.name}: expected exactly one handler owner, found ${row.handlerOwners.join(", ") || "none"}`);
+        failures.push(
+          `${row.name}: expected exactly one handler owner, found ${row.handlerOwners.join(", ") || "none"}`
+        );
       }
       if (!row.definition.title.trim()) {
         failures.push(`${row.name}: definition title must be non-empty`);
@@ -182,8 +210,13 @@ describe("MCP tool contracts", () => {
       if (!row.definition.annotations) {
         failures.push(`${row.name}: definition annotations must be present`);
       }
-      if (row.parserBackedInputShape && row.definition.inputSchema !== row.parserBackedInputShape.shape) {
-        failures.push(`${row.name}: definition inputSchema must use ${row.parserBackedInputShape.parser} shared input shape`);
+      if (
+        row.parserBackedInputShape &&
+        row.definition.inputSchema !== row.parserBackedInputShape.shape
+      ) {
+        failures.push(
+          `${row.name}: definition inputSchema must use ${row.parserBackedInputShape.parser} shared input shape`
+        );
       }
       if (row.debugHeavy && row.discovery !== "compat") {
         failures.push(`${row.name}: debug/heavy tool must not be default-discoverable`);
@@ -213,7 +246,9 @@ describe("MCP tool contracts", () => {
   });
 
   it("keeps default discovery tools covered by output schemas", () => {
-    expect(defaultPlanweaveToolNames.every((name) => Boolean(planweaveToolOutputSchemas[name]))).toBe(true);
+    expect(
+      defaultPlanweaveToolNames.every((name) => Boolean(planweaveToolOutputSchemas[name]))
+    ).toBe(true);
   });
 
   it("rejects duplicate contract names", () => {
@@ -221,10 +256,7 @@ describe("MCP tool contracts", () => {
 
     expect(() =>
       buildToolContractRegistry<ToolDefinition>(
-        [
-          { get_schema: definition },
-          { get_schema: definition }
-        ],
+        [{ get_schema: definition }, { get_schema: definition }],
         ["get_schema"],
         "PlanWeave tool definition"
       )
@@ -244,8 +276,8 @@ describe("MCP tool contracts", () => {
   });
 
   it("rejects missing contract names", () => {
-    expect(() => buildToolContractRegistry<ToolDefinition>([], ["get_schema"], "PlanWeave tool definition")).toThrow(
-      "Missing PlanWeave tool definition(s): get_schema"
-    );
+    expect(() =>
+      buildToolContractRegistry<ToolDefinition>([], ["get_schema"], "PlanWeave tool definition")
+    ).toThrow("Missing PlanWeave tool definition(s): get_schema");
   });
 });

@@ -1,7 +1,12 @@
 import type { BlockStatus, TaskStatus } from "../../types.js";
 import type { ExecutionStatus } from "../../taskManager/executionStatus.js";
 import type { RuntimeContext } from "../../taskManager/runtimeContext.js";
-import type { DesktopBlockPreview, DesktopGraphEdgeViewModel, DesktopTaskException, DesktopTaskNodeViewModel } from "../../desktop/types.js";
+import type {
+  DesktopBlockPreview,
+  DesktopGraphEdgeViewModel,
+  DesktopTaskException,
+  DesktopTaskNodeViewModel
+} from "../../desktop/types.js";
 import type { PlanGraph, PlanGraphBlockNode, PlanGraphTaskNode } from "../domain/types.js";
 
 export type PlanGraphViewProjection = {
@@ -10,7 +15,10 @@ export type PlanGraphViewProjection = {
   edges: DesktopGraphEdgeViewModel[];
 };
 
-function blockStatus(status: ExecutionStatus, ref: string): { status: BlockStatus; reason: string | null } {
+function blockStatus(
+  status: ExecutionStatus,
+  ref: string
+): { status: BlockStatus; reason: string | null } {
   const block = status.blocks.find((item) => item.ref === ref);
   return {
     status: block?.status ?? "planned",
@@ -22,7 +30,11 @@ function taskStatus(status: ExecutionStatus, taskId: string): TaskStatus {
   return status.tasks.find((item) => item.taskId === taskId)?.status ?? "planned";
 }
 
-function exceptionForBlock(ref: string, status: BlockStatus, reason: string | null): DesktopTaskException | null {
+function exceptionForBlock(
+  ref: string,
+  status: BlockStatus,
+  reason: string | null
+): DesktopTaskException | null {
   if (status === "blocked") {
     return { ref, source: "blocked", reason: reason ?? `${ref} is blocked.` };
   }
@@ -35,7 +47,11 @@ function exceptionForBlock(ref: string, status: BlockStatus, reason: string | nu
   return null;
 }
 
-function effectiveExecutor(task: PlanGraphTaskNode, block: PlanGraphBlockNode, runtime: RuntimeContext): string | null {
+function effectiveExecutor(
+  task: PlanGraphTaskNode,
+  block: PlanGraphBlockNode,
+  runtime: RuntimeContext
+): string | null {
   return block.executor ?? task.executor ?? runtime.manifest.execution.defaultExecutor ?? null;
 }
 
@@ -43,19 +59,28 @@ function executorLabel(task: PlanGraphTaskNode, graph: PlanGraph, runtime: Runti
   const blockExecutors = new Set(
     task.blockRefs.map((ref) => {
       const block = graph.blocks.get(ref);
-      return block ? effectiveExecutor(task, block, runtime) : task.executor ?? runtime.manifest.execution.defaultExecutor ?? null;
+      return block
+        ? effectiveExecutor(task, block, runtime)
+        : (task.executor ?? runtime.manifest.execution.defaultExecutor ?? null);
     })
   );
   if (blockExecutors.size > 1) {
     return "Mixed";
   }
-  return [...blockExecutors][0] ?? task.executor ?? runtime.manifest.execution.defaultExecutor ?? "manual";
+  return (
+    [...blockExecutors][0] ??
+    task.executor ??
+    runtime.manifest.execution.defaultExecutor ??
+    "manual"
+  );
 }
 
 function sortedBlockRefsForTask(graph: PlanGraph, task: PlanGraphTaskNode): string[] {
   const refs = task.blockRefs;
   const order = new Map(refs.map((ref, index) => [ref, index]));
-  const dependencies = new Map(refs.map((ref) => [ref, new Set(graph.blocks.get(ref)?.dependsOn ?? [])]));
+  const dependencies = new Map(
+    refs.map((ref) => [ref, new Set(graph.blocks.get(ref)?.dependsOn ?? [])])
+  );
   const dependents = new Map<string, string[]>();
   for (const ref of refs) {
     for (const dependency of graph.blocks.get(ref)?.dependsOn ?? []) {

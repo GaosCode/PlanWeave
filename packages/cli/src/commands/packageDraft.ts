@@ -13,7 +13,9 @@ function requiredDraftRoot(value: string | undefined): string {
   return value.trim();
 }
 
-function formatDraftValidationHuman(result: Awaited<ReturnType<typeof validatePackageDraft>>): string {
+function formatDraftValidationHuman(
+  result: Awaited<ReturnType<typeof validatePackageDraft>>
+): string {
   const lines = [
     `Package draft: ${result.ok ? "ok" : "failed"}`,
     `mode: ${result.mode ?? "unknown"}`,
@@ -28,7 +30,9 @@ function formatDraftValidationHuman(result: Awaited<ReturnType<typeof validatePa
 }
 
 export function registerPackageDraftCommand(program: Command): void {
-  const draft = program.command("package-draft").description("Validate PlanWeave package draft directories");
+  const draft = program
+    .command("package-draft")
+    .description("Validate PlanWeave package draft directories");
 
   draft
     .command("validate")
@@ -36,8 +40,12 @@ export function registerPackageDraftCommand(program: Command): void {
     .requiredOption("--draft-root <path>", "draft package root")
     .option("--json", "print machine-readable output")
     .action(async (options: PackageDraftOptions) => {
-      const result = await validatePackageDraft({ draftRoot: requiredDraftRoot(options.draftRoot) });
-      console.log(options.json ? JSON.stringify(result, null, 2) : formatDraftValidationHuman(result));
+      const result = await validatePackageDraft({
+        draftRoot: requiredDraftRoot(options.draftRoot)
+      });
+      console.log(
+        options.json ? JSON.stringify(result, null, 2) : formatDraftValidationHuman(result)
+      );
       if (!result.ok) {
         process.exitCode = 1;
       }
@@ -49,7 +57,9 @@ export function registerPackageDraftCommand(program: Command): void {
     .requiredOption("--draft-root <path>", "draft package root")
     .option("--json", "print machine-readable output")
     .action(async (options: PackageDraftOptions) => {
-      const result = await validatePackageDraft({ draftRoot: requiredDraftRoot(options.draftRoot) });
+      const result = await validatePackageDraft({
+        draftRoot: requiredDraftRoot(options.draftRoot)
+      });
       const quality = {
         ok: result.ok,
         draftRoot: result.draftRoot,
@@ -60,7 +70,9 @@ export function registerPackageDraftCommand(program: Command): void {
         })),
         validation: result.validation
       };
-      console.log(options.json ? JSON.stringify(quality, null, 2) : formatDraftValidationHuman(result));
+      console.log(
+        options.json ? JSON.stringify(quality, null, 2) : formatDraftValidationHuman(result)
+      );
       if (!result.ok) {
         process.exitCode = 1;
       }

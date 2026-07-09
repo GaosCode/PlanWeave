@@ -41,7 +41,9 @@ describe("task node status visuals", () => {
   it("uses a spinning loader for in-progress task nodes", () => {
     render(<TaskNodeStatusMarker hasException={false} label="in_progress" status="in_progress" />);
 
-    const icon = screen.getByTestId("task-node-status-marker").querySelector("[data-status-icon='loader']");
+    const icon = screen
+      .getByTestId("task-node-status-marker")
+      .querySelector("[data-status-icon='loader']");
     expect(icon).toBeInTheDocument();
     expect(icon).toHaveClass("animate-spin");
   });

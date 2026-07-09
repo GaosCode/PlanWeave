@@ -1,4 +1,9 @@
-import type { ExecutorAdapterResult, ExecutorProfile, PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
+import type {
+  ExecutorAdapterResult,
+  ExecutorProfile,
+  PackageWorkspaceRef,
+  ProjectWorkspace
+} from "../types.js";
 import type { BlockClaim, FeedbackClaim } from "./executorShared.js";
 
 export type ExecutorRuntimeOptions = {
@@ -31,6 +36,11 @@ export type ExecutorIntegration = {
   runFeedback(input: ExecutorFeedbackInput): Promise<ExecutorAdapterResult>;
 };
 
-export function adapterProfileMismatch(adapter: ExecutorProfile["adapter"], profile: ExecutorProfile): Error {
-  return new Error(`Executor integration '${adapter}' received profile adapter '${profile.adapter}'.`);
+export function adapterProfileMismatch(
+  adapter: ExecutorProfile["adapter"],
+  profile: ExecutorProfile
+): Error {
+  return new Error(
+    `Executor integration '${adapter}' received profile adapter '${profile.adapter}'.`
+  );
 }

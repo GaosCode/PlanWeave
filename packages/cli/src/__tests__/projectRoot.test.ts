@@ -2,7 +2,12 @@ import { mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getSourceDefaultProject, initManagedProject, linkProjectSourceRoot, setSourceDefaultProject } from "@planweave-ai/runtime";
+import {
+  getSourceDefaultProject,
+  initManagedProject,
+  linkProjectSourceRoot,
+  setSourceDefaultProject
+} from "@planweave-ai/runtime";
 import { createProgram } from "../index.js";
 import { resolveCliProjectRoot, resolveCliProjectRootFromRaw } from "../projectRoot.js";
 
@@ -53,7 +58,9 @@ describe("CLI project root resolution", () => {
     await linkProjectSourceRoot(secondProject.projectId, sourceRoot);
     process.env.INIT_CWD = sourceRoot;
 
-    await expect(resolveCliProjectRoot()).rejects.toThrow("Multiple PlanWeave projects are linked to source root");
+    await expect(resolveCliProjectRoot()).rejects.toThrow(
+      "Multiple PlanWeave projects are linked to source root"
+    );
   });
 
   it("lets PLANWEAVE_PROJECT_ROOT override the source root default", async () => {
@@ -78,7 +85,10 @@ describe("CLI project root resolution", () => {
     await linkProjectSourceRoot(alternateProject.projectId, sourceRoot);
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-    await createProgram().parseAsync(["use", project.projectId, "--source-root", sourceRoot, "--json"], { from: "user" });
+    await createProgram().parseAsync(
+      ["use", project.projectId, "--source-root", sourceRoot, "--json"],
+      { from: "user" }
+    );
 
     expect(JSON.parse(log.mock.calls.at(-1)?.[0] ?? "{}")).toMatchObject({
       action: "set",

@@ -8,7 +8,12 @@ const fsMock = vi.hoisted(() => ({
 
 vi.mock("node:fs/promises", () => fsMock);
 
-import { isNodeFileNotFoundError, optionalReadFile, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
+import {
+  isNodeFileNotFoundError,
+  optionalReadFile,
+  optionalReaddir,
+  optionalStat
+} from "../fs/optionalFile.js";
 
 function nodeFileError(code: string): NodeJS.ErrnoException {
   const error = new Error(`${code} failure`) as NodeJS.ErrnoException;
@@ -34,7 +39,9 @@ describe("optional file helpers", () => {
     fsMock.readFile.mockRejectedValueOnce(nodeFileError("ENOENT"));
 
     await expect(optionalStat("/missing")).resolves.toBeNull();
-    await expect(optionalReaddir("/not-a-directory/child", { withFileTypes: true })).resolves.toBeNull();
+    await expect(
+      optionalReaddir("/not-a-directory/child", { withFileTypes: true })
+    ).resolves.toBeNull();
     await expect(optionalReadFile("/missing", "utf8")).resolves.toBeNull();
   });
 

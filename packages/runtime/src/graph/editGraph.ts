@@ -7,7 +7,11 @@ import { writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
 import { manifestSchema } from "../schema/manifest.js";
-import { buildPlanPackageGraphMutation, type PlanPackageGraphMutation, type PlanPackageGraphMutationSideEffect } from "./mutation.js";
+import {
+  buildPlanPackageGraphMutation,
+  type PlanPackageGraphMutation,
+  type PlanPackageGraphMutationSideEffect
+} from "./mutation.js";
 import type {
   CompiledTaskGraph,
   GraphEditResult,
@@ -19,7 +23,12 @@ import type {
 } from "../types.js";
 
 export type PackageFileChange =
-  | { kind: "manifest"; before: PlanPackageManifest; after: PlanPackageManifest; graph?: CompiledTaskGraph }
+  | {
+      kind: "manifest";
+      before: PlanPackageManifest;
+      after: PlanPackageManifest;
+      graph?: CompiledTaskGraph;
+    }
   | { kind: "prompt"; manifest: PlanPackageManifest; ref: string; graph?: CompiledTaskGraph };
 
 export type PackageChangeImpact = GraphEditResult & {
@@ -34,13 +43,21 @@ function validateForWrite(manifest: PlanPackageManifest): ValidationIssue[] {
   const parsed = manifestSchema.safeParse(manifest);
   if (!parsed.success) {
     return parsed.error.issues.map((item) =>
-      issue("manifest_schema_invalid", item.message, item.path.length > 0 ? item.path.join(".") : "manifest.json")
+      issue(
+        "manifest_schema_invalid",
+        item.message,
+        item.path.length > 0 ? item.path.join(".") : "manifest.json"
+      )
     );
   }
   return compileTaskGraph(manifest).diagnostics.errors;
 }
 
-function result(manifest: PlanPackageManifest, affectedTasks: string[], diagnostics: ValidationIssue[] = []): GraphEditResult {
+function result(
+  manifest: PlanPackageManifest,
+  affectedTasks: string[],
+  diagnostics: ValidationIssue[] = []
+): GraphEditResult {
   const graph = compileTaskGraph(manifest);
   const allDiagnostics = [...diagnostics, ...graph.diagnostics.errors];
   return {
@@ -51,7 +68,10 @@ function result(manifest: PlanPackageManifest, affectedTasks: string[], diagnost
   };
 }
 
-async function writeManifest(projectRoot: PackageWorkspaceRef, manifest: PlanPackageManifest): Promise<void> {
+async function writeManifest(
+  projectRoot: PackageWorkspaceRef,
+  manifest: PlanPackageManifest
+): Promise<void> {
   const diagnostics = validateForWrite(manifest);
   if (diagnostics.length > 0) {
     throw new Error(diagnostics.map((item) => `${item.code}: ${item.message}`).join("; "));
@@ -65,11 +85,21 @@ type SideEffectBackup =
   | { kind: "file"; targetPath: string; content: Buffer }
   | { kind: "directory"; targetPath: string; backupPath: string };
 
-async function sideEffectTargetPath(packageDir: string, sideEffect: PlanPackageGraphMutationSideEffect): Promise<string> {
-  return resolvePackagePath(packageDir, sideEffect.packagePath, sideEffect.kind === "writePrompt" ? { forWrite: true } : undefined);
+async function sideEffectTargetPath(
+  packageDir: string,
+  sideEffect: PlanPackageGraphMutationSideEffect
+): Promise<string> {
+  return resolvePackagePath(
+    packageDir,
+    sideEffect.packagePath,
+    sideEffect.kind === "writePrompt" ? { forWrite: true } : undefined
+  );
 }
 
-async function backupSideEffectTarget(targetPath: string, temporaryRoot: string): Promise<SideEffectBackup> {
+async function backupSideEffectTarget(
+  targetPath: string,
+  temporaryRoot: string
+): Promise<SideEffectBackup> {
   try {
     const stats = await lstat(targetPath);
     if (stats.isDirectory()) {
@@ -116,7 +146,9 @@ async function applyMutationSideEffectsWithRollback(
     const targetPath = await sideEffectTargetPath(packageDir, sideEffect);
     targetPaths.set(targetPath, targetPath);
   }
-  const backups = await Promise.all([...targetPaths.values()].map((targetPath) => backupSideEffectTarget(targetPath, temporaryRoot)));
+  const backups = await Promise.all(
+    [...targetPaths.values()].map((targetPath) => backupSideEffectTarget(targetPath, temporaryRoot))
+  );
 
   try {
     for (const sideEffect of sideEffects) {
@@ -148,8 +180,10 @@ export async function commitPlanPackageGraphMutation(options: {
     return result(options.mutation.nextManifest, options.mutation.affectedTasks, diagnostics);
   }
   const { workspace } = await loadPackage(options.projectRoot);
-  await applyMutationSideEffectsWithRollback(workspace.packageDir, options.mutation.sideEffects, () =>
-    writeManifest(options.projectRoot, options.mutation.nextManifest)
+  await applyMutationSideEffectsWithRollback(
+    workspace.packageDir,
+    options.mutation.sideEffects,
+    () => writeManifest(options.projectRoot, options.mutation.nextManifest)
   );
   return result(options.mutation.nextManifest, options.mutation.affectedTasks);
 }
@@ -161,18 +195,33 @@ export async function addNode(options: {
 }): Promise<GraphEditResult> {
   const { manifest } = await loadPackage(options.projectRoot);
   if (manifest.nodes.some((node) => node.id === options.node.id)) {
-    return result(manifest, [], [issue("node_id_duplicate", `Node '${options.node.id}' already exists.`, "nodes")]);
+    return result(
+      manifest,
+      [],
+      [issue("node_id_duplicate", `Node '${options.node.id}' already exists.`, "nodes")]
+    );
   }
   return commitPlanPackageGraphMutation({
     projectRoot: options.projectRoot,
-    mutation: buildPlanPackageGraphMutation(manifest, { kind: "addNode", node: options.node, promptMarkdown: options.promptMarkdown })
+    mutation: buildPlanPackageGraphMutation(manifest, {
+      kind: "addNode",
+      node: options.node,
+      promptMarkdown: options.promptMarkdown
+    })
   });
 }
 
-export async function updateNode(options: { projectRoot: PackageWorkspaceRef; node: ManifestNode }): Promise<GraphEditResult> {
+export async function updateNode(options: {
+  projectRoot: PackageWorkspaceRef;
+  node: ManifestNode;
+}): Promise<GraphEditResult> {
   const { manifest } = await loadPackage(options.projectRoot);
   if (!manifest.nodes.some((node) => node.id === options.node.id)) {
-    return result(manifest, [], [issue("node_missing", `Node '${options.node.id}' does not exist.`, "nodes")]);
+    return result(
+      manifest,
+      [],
+      [issue("node_missing", `Node '${options.node.id}' does not exist.`, "nodes")]
+    );
   }
   return commitPlanPackageGraphMutation({
     projectRoot: options.projectRoot,
@@ -188,7 +237,11 @@ export async function removeNode(options: {
   const { manifest } = await loadPackage(options.projectRoot);
   const node = manifest.nodes.find((item) => item.id === options.nodeId);
   if (!node) {
-    return result(manifest, [], [issue("node_missing", `Node '${options.nodeId}' does not exist.`, "nodes")]);
+    return result(
+      manifest,
+      [],
+      [issue("node_missing", `Node '${options.nodeId}' does not exist.`, "nodes")]
+    );
   }
   const mutation = buildPlanPackageGraphMutation(manifest, {
     kind: "removeNode",
@@ -198,9 +251,19 @@ export async function removeNode(options: {
   return commitPlanPackageGraphMutation({ projectRoot: options.projectRoot, mutation });
 }
 
-export async function addEdge(options: { projectRoot: PackageWorkspaceRef; edge: ManifestEdge }): Promise<GraphEditResult> {
+export async function addEdge(options: {
+  projectRoot: PackageWorkspaceRef;
+  edge: ManifestEdge;
+}): Promise<GraphEditResult> {
   const { manifest } = await loadPackage(options.projectRoot);
-  if (manifest.edges.some((edge) => edge.from === options.edge.from && edge.to === options.edge.to && edge.type === options.edge.type)) {
+  if (
+    manifest.edges.some(
+      (edge) =>
+        edge.from === options.edge.from &&
+        edge.to === options.edge.to &&
+        edge.type === options.edge.type
+    )
+  ) {
     return result(manifest, [], [issue("edge_duplicate", "Edge already exists.", "edges")]);
   }
   return commitPlanPackageGraphMutation({
@@ -209,7 +272,10 @@ export async function addEdge(options: { projectRoot: PackageWorkspaceRef; edge:
   });
 }
 
-export async function removeEdge(options: { projectRoot: PackageWorkspaceRef; edge: ManifestEdge }): Promise<GraphEditResult> {
+export async function removeEdge(options: {
+  projectRoot: PackageWorkspaceRef;
+  edge: ManifestEdge;
+}): Promise<GraphEditResult> {
   const { manifest } = await loadPackage(options.projectRoot);
   return commitPlanPackageGraphMutation({
     projectRoot: options.projectRoot,
@@ -225,11 +291,19 @@ export async function updatePromptSurface(options: {
   const { manifest } = await loadPackage(options.projectRoot);
   const task = manifest.nodes.find((node) => node.type === "task" && node.id === options.taskId);
   if (!task || task.type !== "task") {
-    return result(manifest, [], [issue("task_missing", `Task '${options.taskId}' does not exist.`, options.taskId)]);
+    return result(
+      manifest,
+      [],
+      [issue("task_missing", `Task '${options.taskId}' does not exist.`, options.taskId)]
+    );
   }
   return commitPlanPackageGraphMutation({
     projectRoot: options.projectRoot,
-    mutation: buildPlanPackageGraphMutation(manifest, { kind: "writeTaskPrompt", taskId: task.id, markdown: options.taskBody })
+    mutation: buildPlanPackageGraphMutation(manifest, {
+      kind: "writeTaskPrompt",
+      taskId: task.id,
+      markdown: options.taskBody
+    })
   });
 }
 
@@ -237,7 +311,12 @@ export function affectedTasksForPackageFileChange(change: PackageFileChange): Pa
   if (change.kind === "manifest") {
     const beforeGraph = compileTaskGraph(change.before);
     const afterGraph = compileTaskGraph(change.after);
-    const affectedTasks = affectedTaskIdsForManifestChange(change.before, change.after, beforeGraph, afterGraph);
+    const affectedTasks = affectedTaskIdsForManifestChange(
+      change.before,
+      change.after,
+      beforeGraph,
+      afterGraph
+    );
     return {
       ok: afterGraph.diagnostics.errors.length === 0,
       affectedTasks,

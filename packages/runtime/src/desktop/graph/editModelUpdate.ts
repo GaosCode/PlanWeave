@@ -1,9 +1,20 @@
 import { commitPlanPackageGraphMutation } from "../../graph/editGraph.js";
-import { buildPlanPackageBlockFieldEditMutation, buildPlanPackageTaskFieldEditMutation } from "../../graph/fieldEditMutation.js";
-import { buildPlanPackageManifestChangeMutation, type PlanPackageGraphMutationSideEffect } from "../../graph/mutation.js";
+import {
+  buildPlanPackageBlockFieldEditMutation,
+  buildPlanPackageTaskFieldEditMutation
+} from "../../graph/fieldEditMutation.js";
+import {
+  buildPlanPackageManifestChangeMutation,
+  type PlanPackageGraphMutationSideEffect
+} from "../../graph/mutation.js";
 import { writeJsonFile } from "../../json.js";
 import { loadPackage } from "../../package/loadPackage.js";
-import type { GraphEditResult, PackageWorkspaceRef, PlanPackageManifest, ReviewHookDefinition } from "../../types.js";
+import type {
+  GraphEditResult,
+  PackageWorkspaceRef,
+  PlanPackageManifest,
+  ReviewHookDefinition
+} from "../../types.js";
 import type { DesktopPromptSaveOptions } from "../types.js";
 import { invalidateDesktopProjectProjection } from "./projectProjectionModel.js";
 import { executeDesktopPlanGraphCommand } from "./editModelCommand.js";
@@ -14,7 +25,11 @@ import type {
   DesktopBulkUpdateTaskInput,
   DesktopTaskFieldEditInput
 } from "./editModelTypes.js";
-import { hasFieldEditValue, manifestValidationResult, requireNonEmptyTitle } from "./editModelValidation.js";
+import {
+  hasFieldEditValue,
+  manifestValidationResult,
+  requireNonEmptyTitle
+} from "./editModelValidation.js";
 import type { PlanGraphCommand } from "../../plangraph/index.js";
 
 type UpdateTaskFieldsCommand = Extract<PlanGraphCommand, { type: "updateTaskFields" }>;
@@ -42,7 +57,11 @@ export async function updateTaskFields(
   });
 }
 
-export async function updateTaskTitle(projectRoot: PackageWorkspaceRef, taskId: string, title: string): Promise<GraphEditResult> {
+export async function updateTaskTitle(
+  projectRoot: PackageWorkspaceRef,
+  taskId: string,
+  title: string
+): Promise<GraphEditResult> {
   return updateTaskFields(projectRoot, taskId, { title });
 }
 
@@ -77,7 +96,11 @@ export async function updateBlockFields(
   });
 }
 
-export async function updateBlockTitle(projectRoot: PackageWorkspaceRef, ref: string, title: string): Promise<GraphEditResult> {
+export async function updateBlockTitle(
+  projectRoot: PackageWorkspaceRef,
+  ref: string,
+  title: string
+): Promise<GraphEditResult> {
   return updateBlockFields(projectRoot, ref, { title });
 }
 
@@ -90,19 +113,35 @@ export async function updateBlockPrompt(
   return updateBlockFields(projectRoot, ref, { promptMarkdown: markdown }, options);
 }
 
-export async function updateTaskExecutor(projectRoot: PackageWorkspaceRef, taskId: string, executorName: string | null): Promise<GraphEditResult> {
+export async function updateTaskExecutor(
+  projectRoot: PackageWorkspaceRef,
+  taskId: string,
+  executorName: string | null
+): Promise<GraphEditResult> {
   return updateTaskFields(projectRoot, taskId, { executor: executorName });
 }
 
-export async function updateTaskAcceptance(projectRoot: PackageWorkspaceRef, taskId: string, acceptance: string[]): Promise<GraphEditResult> {
+export async function updateTaskAcceptance(
+  projectRoot: PackageWorkspaceRef,
+  taskId: string,
+  acceptance: string[]
+): Promise<GraphEditResult> {
   return updateTaskFields(projectRoot, taskId, { acceptance });
 }
 
-export async function updateBlockExecutor(projectRoot: PackageWorkspaceRef, ref: string, executorName: string | null): Promise<GraphEditResult> {
+export async function updateBlockExecutor(
+  projectRoot: PackageWorkspaceRef,
+  ref: string,
+  executorName: string | null
+): Promise<GraphEditResult> {
   return updateBlockFields(projectRoot, ref, { executor: executorName });
 }
 
-export async function updateBlockDependencies(projectRoot: PackageWorkspaceRef, ref: string, dependsOn: string[]): Promise<GraphEditResult> {
+export async function updateBlockDependencies(
+  projectRoot: PackageWorkspaceRef,
+  ref: string,
+  dependsOn: string[]
+): Promise<GraphEditResult> {
   return updateBlockFields(projectRoot, ref, { dependsOn });
 }
 
@@ -110,6 +149,7 @@ export async function updateBlockPlanning(
   projectRoot: PackageWorkspaceRef,
   ref: string,
   input: {
+    exclusive?: boolean;
     parallelSafe?: boolean;
     parallelLocks?: string[];
     reviewRequired?: boolean;
@@ -131,7 +171,10 @@ function updateCanvasExecutionPolicyManifest(
   ) {
     throw new Error("At least one execution policy field must be provided.");
   }
-  if (input.maxConcurrent !== undefined && (!Number.isInteger(input.maxConcurrent) || input.maxConcurrent < 1)) {
+  if (
+    input.maxConcurrent !== undefined &&
+    (!Number.isInteger(input.maxConcurrent) || input.maxConcurrent < 1)
+  ) {
     throw new Error("maxConcurrent must be a positive integer.");
   }
 
@@ -181,6 +224,7 @@ export async function bulkUpdateParallelPolicy(
     blocks: Array<{
       blockRef: string;
       input: {
+        exclusive?: boolean;
         parallelSafe?: boolean;
         parallelLocks?: string[];
       };
@@ -188,15 +232,20 @@ export async function bulkUpdateParallelPolicy(
   }
 ): Promise<GraphEditResult> {
   if (!input.canvasPolicy && input.blocks.length === 0) {
-    throw new Error("bulk_update_parallel_policy requires canvasPolicy or at least one block update.");
+    throw new Error(
+      "bulk_update_parallel_policy requires canvasPolicy or at least one block update."
+    );
   }
   const { manifest } = await loadPackage(projectRoot);
-  let nextManifest = input.canvasPolicy ? updateCanvasExecutionPolicyManifest(manifest, input.canvasPolicy) : manifest;
+  let nextManifest = input.canvasPolicy
+    ? updateCanvasExecutionPolicyManifest(manifest, input.canvasPolicy)
+    : manifest;
   const affectedTasks = input.canvasPolicy ? nextManifest.nodes.map((node) => node.id) : [];
   const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
   for (const update of input.blocks) {
     const mutation = buildPlanPackageBlockFieldEditMutation(nextManifest, {
       blockRef: update.blockRef,
+      exclusive: update.input.exclusive,
       parallelSafe: update.input.parallelSafe,
       parallelLocks: update.input.parallelLocks
     });
@@ -206,7 +255,10 @@ export async function bulkUpdateParallelPolicy(
   }
   const result = await commitPlanPackageGraphMutation({
     projectRoot,
-    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks, sideEffects })
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
+      affectedTasks,
+      sideEffects
+    })
   });
   invalidateDesktopProjectProjection(projectRoot);
   return result;
@@ -227,14 +279,20 @@ export async function bulkUpdateTasks(
     if (!hasFieldEditValue(update.fields)) {
       throw new Error("At least one task field must be provided.");
     }
-    const mutation = buildPlanPackageTaskFieldEditMutation(nextManifest, { taskId: update.taskId, ...update.fields });
+    const mutation = buildPlanPackageTaskFieldEditMutation(nextManifest, {
+      taskId: update.taskId,
+      ...update.fields
+    });
     nextManifest = mutation.nextManifest;
     affectedTasks.push(...mutation.affectedTasks, update.taskId);
     sideEffects.push(...mutation.sideEffects);
   }
   const result = await commitPlanPackageGraphMutation({
     projectRoot,
-    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks, sideEffects })
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
+      affectedTasks,
+      sideEffects
+    })
   });
   invalidateDesktopProjectProjection(projectRoot);
   return result;
@@ -255,14 +313,20 @@ export async function bulkUpdateBlocks(
     if (!hasFieldEditValue(update.fields)) {
       throw new Error("At least one block field must be provided.");
     }
-    const mutation = buildPlanPackageBlockFieldEditMutation(nextManifest, { blockRef: update.blockRef, ...update.fields });
+    const mutation = buildPlanPackageBlockFieldEditMutation(nextManifest, {
+      blockRef: update.blockRef,
+      ...update.fields
+    });
     nextManifest = mutation.nextManifest;
     affectedTasks.push(...mutation.affectedTasks, mutation.taskId);
     sideEffects.push(...mutation.sideEffects);
   }
   const result = await commitPlanPackageGraphMutation({
     projectRoot,
-    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks, sideEffects })
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
+      affectedTasks,
+      sideEffects
+    })
   });
   invalidateDesktopProjectProjection(projectRoot);
   return result;

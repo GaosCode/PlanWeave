@@ -28,7 +28,11 @@ afterEach(() => {
 describe("toolPackageFiles", () => {
   it("rejects imported package paths that escape the package root", async () => {
     await expect(
-      importPackageFiles("Bad Import", [{ path: "../manifest.json", content: "{}", encoding: "utf8" }], false)
+      importPackageFiles(
+        "Bad Import",
+        [{ path: "../manifest.json", content: "{}", encoding: "utf8" }],
+        false
+      )
     ).rejects.toThrow("Invalid package file path");
   });
 
@@ -40,8 +44,26 @@ describe("toolPackageFiles", () => {
 
     expect(result.validation.ok).toBe(true);
     expect(result.importedFiles).toBe(packageFiles.length);
-    await expect(readFile(join(result.project.rootPath, "canvases", "default", "package", "manifest.json"), "utf8")).resolves.toBe(packageFiles[0].content);
-    await expect(readFile(join(result.project.rootPath, "canvases", "default", "package", "nodes", "T-001", "prompt.md"), "utf8")).resolves.toBe("# Task\n");
+    await expect(
+      readFile(
+        join(result.project.rootPath, "canvases", "default", "package", "manifest.json"),
+        "utf8"
+      )
+    ).resolves.toBe(packageFiles[0].content);
+    await expect(
+      readFile(
+        join(
+          result.project.rootPath,
+          "canvases",
+          "default",
+          "package",
+          "nodes",
+          "T-001",
+          "prompt.md"
+        ),
+        "utf8"
+      )
+    ).resolves.toBe("# Task\n");
     await expect(access(join(result.project.rootPath, "package"))).rejects.toThrow();
   });
 

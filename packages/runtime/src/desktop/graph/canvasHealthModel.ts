@@ -43,7 +43,10 @@ function diagnosticLevel(diagnostic: ValidationIssue, errorKeys: Set<string>): D
   return errorKeys.has(diagnosticKey(diagnostic)) ? "error" : "warning";
 }
 
-function maxSeverity(current: DesktopCanvasHealthSeverity, next: DesktopCanvasHealthSeverity): DesktopCanvasHealthSeverity {
+function maxSeverity(
+  current: DesktopCanvasHealthSeverity,
+  next: DesktopCanvasHealthSeverity
+): DesktopCanvasHealthSeverity {
   if (current === "error" || next === "error") {
     return "error";
   }
@@ -53,7 +56,12 @@ function maxSeverity(current: DesktopCanvasHealthSeverity, next: DesktopCanvasHe
   return "ok";
 }
 
-function splitProjectBlockerRef(ref: string): { kind: "canvas"; canvasId: string } | { kind: "task"; canvasId: string; taskId: string } | null {
+function splitProjectBlockerRef(
+  ref: string
+):
+  | { kind: "canvas"; canvasId: string }
+  | { kind: "task"; canvasId: string; taskId: string }
+  | null {
   if (ref.startsWith("canvas:")) {
     const canvasId = ref.slice("canvas:".length);
     return canvasId ? { kind: "canvas", canvasId } : null;
@@ -70,18 +78,26 @@ function splitProjectBlockerRef(ref: string): { kind: "canvas"; canvasId: string
 }
 
 function taskTitle(context: ProjectTodoContext, canvasId: string, taskId: string): string {
-  return context.snapshotsByCanvas.get(canvasId)?.runtime?.graph.tasksById.get(taskId)?.title ?? taskId;
+  return (
+    context.snapshotsByCanvas.get(canvasId)?.runtime?.graph.tasksById.get(taskId)?.title ?? taskId
+  );
 }
 
 function taskStatus(context: ProjectTodoContext, canvasId: string, taskId: string): TaskStatus {
-  return context.aggregation.runtimeSnapshotsByCanvas.get(canvasId)?.taskStatusById.get(taskId) ?? "planned";
+  return (
+    context.aggregation.runtimeSnapshotsByCanvas.get(canvasId)?.taskStatusById.get(taskId) ??
+    "planned"
+  );
 }
 
 function canvasTitle(context: ProjectTodoContext, canvasId: string): string {
   return context.aggregation.canvasesById.get(canvasId)?.canvasName ?? canvasId;
 }
 
-function projectBlockerFromRef(context: ProjectTodoContext, rawRef: string): DesktopCanvasHealthBlocker | null {
+function projectBlockerFromRef(
+  context: ProjectTodoContext,
+  rawRef: string
+): DesktopCanvasHealthBlocker | null {
   const parsed = splitProjectBlockerRef(rawRef);
   if (!parsed) {
     return null;
@@ -110,7 +126,9 @@ function blockedBlocks(context: ProjectTodoContext): DesktopCanvasHealthBlockedB
     if (!snapshot?.status || !snapshot.runtime) {
       continue;
     }
-    const blockStatusByRef = new Map(snapshot.status.blocks.map((block) => [block.ref, block.status]));
+    const blockStatusByRef = new Map(
+      snapshot.status.blocks.map((block) => [block.ref, block.status])
+    );
     for (const hint of snapshot.status.claimHints) {
       const status = blockStatusByRef.get(hint.ref);
       if (hint.blockedByProject.length === 0 || status !== "ready") {
@@ -136,7 +154,9 @@ function blockedBlocks(context: ProjectTodoContext): DesktopCanvasHealthBlockedB
           status
         },
         blockers,
-        reason: hint.statusReason ?? `Project graph blockers are not complete: ${hint.blockedByProject.join(", ")}.`
+        reason:
+          hint.statusReason ??
+          `Project graph blockers are not complete: ${hint.blockedByProject.join(", ")}.`
       });
     }
   }
@@ -154,7 +174,11 @@ function canvasSummaries(
       (context.aggregation.canvasesById.get(canvasId)?.canvas.diagnostics.length ?? 0) +
       diagnostics.filter((diagnostic) => diagnosticMentionsCanvas(diagnostic, canvasId)).length;
     const blockerCount = blocked.filter((item) => item.blocked.canvasId === canvasId).length;
-    const hasError = diagnostics.some((diagnostic) => diagnosticMentionsCanvas(diagnostic, canvasId) && diagnosticLevel(diagnostic, errorKeys) === "error");
+    const hasError = diagnostics.some(
+      (diagnostic) =>
+        diagnosticMentionsCanvas(diagnostic, canvasId) &&
+        diagnosticLevel(diagnostic, errorKeys) === "error"
+    );
     return {
       canvasId,
       severity: hasError ? "error" : diagnosticCount > 0 || blockerCount > 0 ? "warning" : "ok",
@@ -176,17 +200,28 @@ function edgeSummaries(
 ): DesktopCanvasHealthEdgeSummary[] {
   return context.aggregation.graph.manifest.edges.map((edge) => {
     const edgeDiagnostics = diagnostics.filter(
-      (diagnostic) => diagnostic.path === "edges" && diagnostic.message.includes(edge.from) && diagnostic.message.includes(edge.to)
+      (diagnostic) =>
+        diagnostic.path === "edges" &&
+        diagnostic.message.includes(edge.from) &&
+        diagnostic.message.includes(edge.to)
     );
-    const blockerCount = blocked.filter((item) =>
-      item.blocked.canvasId === edge.from && item.blockers.some((blocker) => blocker.canvasId === edge.to)
+    const blockerCount = blocked.filter(
+      (item) =>
+        item.blocked.canvasId === edge.from &&
+        item.blockers.some((blocker) => blocker.canvasId === edge.to)
     ).length;
-    const hasError = edgeDiagnostics.some((diagnostic) => diagnosticLevel(diagnostic, errorKeys) === "error");
+    const hasError = edgeDiagnostics.some(
+      (diagnostic) => diagnosticLevel(diagnostic, errorKeys) === "error"
+    );
     return {
       from: edge.from,
       to: edge.to,
       type: edge.type,
-      severity: hasError ? "error" : edgeDiagnostics.length > 0 || blockerCount > 0 ? "warning" : "ok",
+      severity: hasError
+        ? "error"
+        : edgeDiagnostics.length > 0 || blockerCount > 0
+          ? "warning"
+          : "ok",
       blockerCount,
       diagnosticCount: edgeDiagnostics.length
     };
@@ -204,7 +239,12 @@ export function buildCanvasHealth(context: ProjectTodoContext): DesktopCanvasHea
   const errorKeys = new Set([...errorDiagnostics, ...context.diagnostics].map(diagnosticKey));
   const blocked = blockedBlocks(context);
   const canvases = canvasSummaries(context, diagnostics, errorKeys, blocked);
-  const edgeSummaryByKey = new Map(edgeSummaries(context, diagnostics, errorKeys, blocked).map((edge) => [edgeKey(edge.from, edge.to, edge.type), edge]));
+  const edgeSummaryByKey = new Map(
+    edgeSummaries(context, diagnostics, errorKeys, blocked).map((edge) => [
+      edgeKey(edge.from, edge.to, edge.type),
+      edge
+    ])
+  );
   const edges = context.aggregation.graph.manifest.edges.map((edge) => {
     const summary = edgeSummaryByKey.get(edgeKey(edge.from, edge.to, edge.type));
     if (!summary) {
@@ -213,7 +253,11 @@ export function buildCanvasHealth(context: ProjectTodoContext): DesktopCanvasHea
     return summary;
   });
   const diagnosticSeverity = diagnostics.reduce<DesktopCanvasHealthSeverity>(
-    (severity, diagnostic) => maxSeverity(severity, diagnosticLevel(diagnostic, errorKeys) === "error" ? "error" : "warning"),
+    (severity, diagnostic) =>
+      maxSeverity(
+        severity,
+        diagnosticLevel(diagnostic, errorKeys) === "error" ? "error" : "warning"
+      ),
     "ok"
   );
   const blockerSeverity: DesktopCanvasHealthSeverity = blocked.length > 0 ? "warning" : "ok";

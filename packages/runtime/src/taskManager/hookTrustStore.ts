@@ -32,7 +32,9 @@ const emptyTrustedCommands = (): TrustedCommandsFile => ({
 });
 
 export function commandFingerprint(command: string, args: string[]): string {
-  return createHash("sha256").update(JSON.stringify([command, ...args])).digest("hex");
+  return createHash("sha256")
+    .update(JSON.stringify([command, ...args]))
+    .digest("hex");
 }
 
 /**
@@ -40,7 +42,9 @@ export function commandFingerprint(command: string, args: string[]): string {
  * not under a canvas package root. Canvas workspaces may rewrite workspaceRoot
  * to canvases/<id>; always key off planweaveHome + project id.
  */
-export function trustedCommandsPath(workspace: Pick<ProjectWorkspace, "planweaveHome" | "id">): string {
+export function trustedCommandsPath(
+  workspace: Pick<ProjectWorkspace, "planweaveHome" | "id">
+): string {
   return join(workspace.planweaveHome, "projects", workspace.id, "policy", "trusted-commands.json");
 }
 
@@ -59,7 +63,10 @@ async function ensurePrivateDirectory(dir: string): Promise<void> {
   }
 }
 
-async function writePrivateTrustedCommands(path: string, value: TrustedCommandsFile): Promise<void> {
+async function writePrivateTrustedCommands(
+  path: string,
+  value: TrustedCommandsFile
+): Promise<void> {
   const directory = dirname(path);
   await ensurePrivateDirectory(directory);
   const temporaryPath = join(
@@ -67,7 +74,10 @@ async function writePrivateTrustedCommands(path: string, value: TrustedCommandsF
     `.${basename(path)}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
   );
   try {
-    await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600
+    });
     await rename(temporaryPath, path);
     const written = await stat(path);
     if ((written.mode & 0o777) !== 0o600) {
@@ -87,7 +97,9 @@ async function readTrustedCommandsFile(path: string): Promise<TrustedCommandsFil
   return trustedCommandsSchema.parse(raw);
 }
 
-export async function listTrustedCommands(projectRoot: PackageWorkspaceRef): Promise<TrustedCommand[]> {
+export async function listTrustedCommands(
+  projectRoot: PackageWorkspaceRef
+): Promise<TrustedCommand[]> {
   const workspace = await resolveTrustWorkspace(projectRoot);
   const file = await readTrustedCommandsFile(trustedCommandsPath(workspace));
   return file.entries;

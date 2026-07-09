@@ -1,7 +1,4 @@
-import type {
-  FeedbackStatus,
-  ReviewVerdict
-} from "../../types.js";
+import type { FeedbackStatus, ReviewVerdict } from "../../types.js";
 
 export type DesktopBlockRunRecordSummary = {
   recordId: string;

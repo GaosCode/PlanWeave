@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildExecutorOptionViews, executorOptionNames } from "../renderer/executors/executorOptionViewModel";
+import {
+  buildExecutorOptionViews,
+  executorOptionNames
+} from "../renderer/executors/executorOptionViewModel";
 
 describe("executor option view model", () => {
   it("keeps manifest executors authoritative even when local detection does not install them", () => {
@@ -70,7 +73,15 @@ describe("executor option view model", () => {
     expect(
       executorOptionNames({
         currentExecutorNames: ["pi-auto"],
-        executorOptions: ["default", "manual", "codex", "codex-auto", "claude-code-auto", "pi", "pi-auto"]
+        executorOptions: [
+          "default",
+          "manual",
+          "codex",
+          "codex-auto",
+          "claude-code-auto",
+          "pi",
+          "pi-auto"
+        ]
       })
     ).toEqual(["manual", "codex", "claude-code", "pi"]);
   });

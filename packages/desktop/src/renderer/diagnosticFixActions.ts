@@ -44,7 +44,9 @@ const copyFixTools = {
   connect_canvas_gate_dependencies: "bulk_add_task_dependencies"
 } satisfies Record<CopyFixId, string>;
 
-function hasExplicitCanvasContext(context: DiagnosticFixContext): context is DiagnosticFixContext & {
+function hasExplicitCanvasContext(
+  context: DiagnosticFixContext
+): context is DiagnosticFixContext & {
   projectRoot: string;
   canvasId: string;
 } {
@@ -86,7 +88,10 @@ function copyCommandFor(
   return lines.join("\n");
 }
 
-export function diagnosticFixActionFor(diagnostic: DesktopDiagnostic, context: DiagnosticFixContext): DiagnosticFixAction | null {
+export function diagnosticFixActionFor(
+  diagnostic: DesktopDiagnostic,
+  context: DiagnosticFixContext
+): DiagnosticFixAction | null {
   if (!diagnostic.fixId) {
     return null;
   }
@@ -101,7 +106,10 @@ export function diagnosticFixActionFor(diagnostic: DesktopDiagnostic, context: D
       labelKey: "diagnosticApplyFix",
       run: async () => {
         context.setError(null);
-        await context.applyCanvasLaneLayout({ projectRoot: context.projectRoot, canvasId: context.canvasId });
+        await context.applyCanvasLaneLayout({
+          projectRoot: context.projectRoot,
+          canvasId: context.canvasId
+        });
         await context.refreshProjectDerivedState();
       }
     };

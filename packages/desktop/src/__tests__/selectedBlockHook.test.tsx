@@ -133,7 +133,10 @@ describe("selected block hook auto-run events", () => {
       getBlockDetail: vi.fn().mockResolvedValue(blockDetail),
       getFeedbackRecords: vi.fn().mockResolvedValue([]),
       getReviewAttempts: vi.fn().mockResolvedValue([]),
-      getRunRecord: vi.fn().mockResolvedValueOnce(runRecord()).mockResolvedValueOnce(refreshedRecord),
+      getRunRecord: vi
+        .fn()
+        .mockResolvedValueOnce(runRecord())
+        .mockResolvedValueOnce(refreshedRecord),
       listBlockRunRecords: vi.fn().mockResolvedValue([runRecordSummary]),
       onAutoRunChanged: vi.fn((callback: (event: DesktopAutoRunEvent) => void) => {
         onAutoRunChangedCallback = callback;
@@ -181,7 +184,10 @@ describe("selected block hook auto-run events", () => {
       startedAt: "2026-05-23T00:00:00.000Z",
       updatedAt: "2026-05-23T00:00:01.000Z"
     };
-    const eventState: DesktopAutoRunState = { ...eventStateBase, explanation: explanationFor(eventStateBase) };
+    const eventState: DesktopAutoRunState = {
+      ...eventStateBase,
+      explanation: explanationFor(eventStateBase)
+    };
 
     await act(async () => {
       onAutoRunChangedCallback?.(autoRunEvent(eventState));
@@ -205,7 +211,10 @@ describe("selected block hook auto-run events", () => {
       getBlockDetail: vi.fn().mockResolvedValue(blockDetail),
       getFeedbackRecords: vi.fn().mockResolvedValue([]),
       getReviewAttempts: vi.fn().mockResolvedValue([]),
-      listBlockRunRecords: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([newRecordSummary]),
+      listBlockRunRecords: vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([newRecordSummary]),
       onAutoRunChanged: vi.fn((callback: (event: DesktopAutoRunEvent) => void) => {
         onAutoRunChangedCallback = callback;
         return () => undefined;
@@ -251,7 +260,10 @@ describe("selected block hook auto-run events", () => {
       startedAt: "2026-05-23T00:00:03.000Z",
       updatedAt: "2026-05-23T00:00:04.000Z"
     };
-    const eventState: DesktopAutoRunState = { ...eventStateBase, explanation: explanationFor(eventStateBase) };
+    const eventState: DesktopAutoRunState = {
+      ...eventStateBase,
+      explanation: explanationFor(eventStateBase)
+    };
 
     await act(async () => {
       onAutoRunChangedCallback?.(autoRunEvent(eventState));

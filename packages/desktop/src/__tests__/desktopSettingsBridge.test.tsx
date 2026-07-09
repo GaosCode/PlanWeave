@@ -3,8 +3,15 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDesktopSettingsBridge } from "../renderer/hooks/useDesktopSettingsBridge";
-import { defaultDesktopSettings, desktopSettingsKey, loadDesktopSettings } from "../renderer/settings";
-import { legacyDesktopSettingsMigrationMarkerKey, type PlanWeaveDesktopSettingsApi } from "../shared/desktopSettings";
+import {
+  defaultDesktopSettings,
+  desktopSettingsKey,
+  loadDesktopSettings
+} from "../renderer/settings";
+import {
+  legacyDesktopSettingsMigrationMarkerKey,
+  type PlanWeaveDesktopSettingsApi
+} from "../shared/desktopSettings";
 import type { DesktopUiSettings } from "../renderer/types";
 
 function stubLocalStorage() {
@@ -66,10 +73,15 @@ describe("desktop settings bridge", () => {
     const { result } = renderHook(() => useDesktopSettingsBridge({ setError, settingsApi }));
 
     expect(result.current.settings).toEqual(defaultDesktopSettings);
-    await waitFor(() => expect(settingsApi.migrateLegacyDesktopSettings).toHaveBeenCalledWith(legacyPayload));
+    await waitFor(() =>
+      expect(settingsApi.migrateLegacyDesktopSettings).toHaveBeenCalledWith(legacyPayload)
+    );
     expect(result.current.settings).toMatchObject({ appearance: "dark", language: "en" });
     expect(window.localStorage.getItem(legacyDesktopSettingsMigrationMarkerKey)).toBe("1");
-    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(desktopSettingsKey, expect.any(String));
+    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(
+      desktopSettingsKey,
+      expect.any(String)
+    );
     expect(setError).not.toHaveBeenCalled();
   });
 
@@ -84,7 +96,11 @@ describe("desktop settings bridge", () => {
 
     renderHook(() => useDesktopSettingsBridge({ setError: vi.fn(), settingsApi }));
 
-    await waitFor(() => expect(settingsApi.migrateLegacyDesktopSettings).toHaveBeenCalledWith(JSON.stringify({ appearance: "dark" })));
+    await waitFor(() =>
+      expect(settingsApi.migrateLegacyDesktopSettings).toHaveBeenCalledWith(
+        JSON.stringify({ appearance: "dark" })
+      )
+    );
   });
 
   it("saves settings through the desktop settings bridge without writing runtime settings to localStorage", async () => {
@@ -105,7 +121,10 @@ describe("desktop settings bridge", () => {
 
     await waitFor(() => expect(result.current.settings.appearance).toBe("dark"));
     expect(settingsApi.saveDesktopSettings).toHaveBeenCalledWith({ appearance: "dark" });
-    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(desktopSettingsKey, expect.any(String));
+    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(
+      desktopSettingsKey,
+      expect.any(String)
+    );
     expect(setError).not.toHaveBeenCalled();
   });
 
@@ -136,7 +155,9 @@ describe("desktop settings bridge", () => {
       }),
       migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings)
     };
-    const { result } = renderHook(() => useDesktopSettingsBridge({ setError: vi.fn(), settingsApi }));
+    const { result } = renderHook(() =>
+      useDesktopSettingsBridge({ setError: vi.fn(), settingsApi })
+    );
 
     act(() => {
       result.current.updateSettings({ appearance: "dark" });
@@ -146,7 +167,9 @@ describe("desktop settings bridge", () => {
     await waitFor(() => expect(settingsApi.saveDesktopSettings).toHaveBeenCalledTimes(2));
     expect(maxConcurrentSaves).toBe(1);
     expect(settingsApi.saveDesktopSettings).toHaveBeenNthCalledWith(1, { appearance: "dark" });
-    expect(settingsApi.saveDesktopSettings).toHaveBeenNthCalledWith(2, { notifications: { autoRunFailure: false } });
+    expect(settingsApi.saveDesktopSettings).toHaveBeenNthCalledWith(2, {
+      notifications: { autoRunFailure: false }
+    });
     expect(result.current.settings).toMatchObject({
       appearance: "dark",
       notifications: {
@@ -174,11 +197,17 @@ describe("desktop settings bridge", () => {
       }),
       migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings)
     };
-    const { result } = renderHook(() => useDesktopSettingsBridge({ setError: vi.fn(), settingsApi }));
+    const { result } = renderHook(() =>
+      useDesktopSettingsBridge({ setError: vi.fn(), settingsApi })
+    );
 
     act(() => {
-      result.current.updateSettings((current) => ({ review: { ...current.review, strictReview: false } }));
-      result.current.updateSettings((current) => ({ review: { ...current.review, feedbackLoop: false } }));
+      result.current.updateSettings((current) => ({
+        review: { ...current.review, strictReview: false }
+      }));
+      result.current.updateSettings((current) => ({
+        review: { ...current.review, feedbackLoop: false }
+      }));
     });
 
     await waitFor(() =>
@@ -219,8 +248,13 @@ describe("desktop settings bridge", () => {
         return migratedSettings;
       })
     };
-    window.localStorage.setItem(desktopSettingsKey, JSON.stringify({ appearance: "dark", language: "en" }));
-    const { result } = renderHook(() => useDesktopSettingsBridge({ setError: vi.fn(), settingsApi }));
+    window.localStorage.setItem(
+      desktopSettingsKey,
+      JSON.stringify({ appearance: "dark", language: "en" })
+    );
+    const { result } = renderHook(() =>
+      useDesktopSettingsBridge({ setError: vi.fn(), settingsApi })
+    );
 
     await waitFor(() => expect(getDesktopSettings).toHaveBeenCalledTimes(1));
     act(() => result.current.updateSettings({ appearance: "light" }));
@@ -229,7 +263,9 @@ describe("desktop settings bridge", () => {
 
     act(() => resolveGetDesktopSettings(defaultDesktopSettings));
 
-    await waitFor(() => expect(settingsApi.saveDesktopSettings).toHaveBeenCalledWith({ appearance: "light" }));
+    await waitFor(() =>
+      expect(settingsApi.saveDesktopSettings).toHaveBeenCalledWith({ appearance: "light" })
+    );
     expect(settingsApi.migrateLegacyDesktopSettings).toHaveBeenCalledTimes(1);
     expect(calls).toEqual(["migrate", "save"]);
     expect(result.current.settings).toMatchObject({
@@ -267,7 +303,9 @@ describe("desktop settings bridge", () => {
     const setError = vi.fn();
     const { result } = renderHook(() => useDesktopSettingsBridge({ setError, settingsApi }));
 
-    await waitFor(() => expect(result.current.settings).toMatchObject({ appearance: "light", language: "en" }));
+    await waitFor(() =>
+      expect(result.current.settings).toMatchObject({ appearance: "light", language: "en" })
+    );
 
     act(() => {
       result.current.updateSettings({ appearance: "dark" });
@@ -314,7 +352,9 @@ describe("desktop settings bridge", () => {
     const setError = vi.fn();
     const { result } = renderHook(() => useDesktopSettingsBridge({ setError, settingsApi }));
 
-    await waitFor(() => expect(result.current.settings).toMatchObject({ appearance: "light", language: "en" }));
+    await waitFor(() =>
+      expect(result.current.settings).toMatchObject({ appearance: "light", language: "en" })
+    );
 
     act(() => {
       result.current.updateSettings({ appearance: "dark" });
@@ -341,20 +381,30 @@ describe("desktop settings bridge", () => {
 
     act(() => result.current.updateSettings({ appearance: "dark" }));
 
-    await waitFor(() => expect(setError).toHaveBeenCalledWith("Desktop settings bridge is unavailable."));
+    await waitFor(() =>
+      expect(setError).toHaveBeenCalledWith("Desktop settings bridge is unavailable.")
+    );
     expect(result.current.settings.appearance).toBe(defaultDesktopSettings.appearance);
-    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(desktopSettingsKey, expect.any(String));
+    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(
+      desktopSettingsKey,
+      expect.any(String)
+    );
   });
 
   it("supports explicit test-only in-memory settings updates when no desktop settings bridge exists", () => {
     const setError = vi.fn();
-    const { result } = renderHook(() => useDesktopSettingsBridge({ setError, settingsApi: null, allowInMemoryFallback: true }));
+    const { result } = renderHook(() =>
+      useDesktopSettingsBridge({ setError, settingsApi: null, allowInMemoryFallback: true })
+    );
     window.localStorage.setItem.mockClear();
 
     act(() => result.current.updateSettings({ appearance: "dark" }));
 
     expect(result.current.settings.appearance).toBe("dark");
-    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(desktopSettingsKey, expect.any(String));
+    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(
+      desktopSettingsKey,
+      expect.any(String)
+    );
     expect(setError).not.toHaveBeenCalled();
   });
 

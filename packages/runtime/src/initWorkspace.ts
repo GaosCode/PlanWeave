@@ -7,7 +7,12 @@ import { createManagedProjectId } from "./projectId.js";
 import { createEmptyState } from "./state.js";
 import { writeJsonFile } from "./json.js";
 import { materializeProjectGraph } from "./projectGraph/index.js";
-import type { InitWorkspaceResult, PlanPackageManifest, ProjectMetadata, ProjectWorkspace } from "./types.js";
+import type {
+  InitWorkspaceResult,
+  PlanPackageManifest,
+  ProjectMetadata,
+  ProjectWorkspace
+} from "./types.js";
 
 export function initialManifest(projectName: string): PlanPackageManifest {
   return {
@@ -49,12 +54,16 @@ async function initializeWorkspace(
 ): Promise<InitWorkspaceResult> {
   const alreadyExists = await exists(workspace.projectFile);
   if (alreadyExists && options.force) {
-    throw new Error(`init --force would overwrite existing workspace '${workspace.workspaceRoot}'.`);
+    throw new Error(
+      `init --force would overwrite existing workspace '${workspace.workspaceRoot}'.`
+    );
   }
 
   const resetting = options.resetPackage || options.resetResults;
   if (resetting && !alreadyExists) {
-    throw new Error(`PlanWeave workspace for project '${workspace.rootPath}' has not been initialized.`);
+    throw new Error(
+      `PlanWeave workspace for project '${workspace.rootPath}' has not been initialized.`
+    );
   }
 
   let backup: InitWorkspaceResult["backup"];
@@ -93,7 +102,11 @@ async function initializeWorkspace(
   await mkdir(workspace.resultsDir, { recursive: true });
 
   if (!(await exists(join(resolvePlanweaveHome(), "config", "global-prompt.md")))) {
-    await writeFile(join(resolvePlanweaveHome(), "config", "global-prompt.md"), "# Global Prompt\n", "utf8");
+    await writeFile(
+      join(resolvePlanweaveHome(), "config", "global-prompt.md"),
+      "# Global Prompt\n",
+      "utf8"
+    );
   }
   if (!(await exists(workspace.projectPromptFile))) {
     await writeFile(workspace.projectPromptFile, "# Project Prompt\n", "utf8");
@@ -105,8 +118,11 @@ async function initializeWorkspace(
     await writeJsonFile(workspace.stateFile, createEmptyState());
   }
 
-  const shouldMaterializeProjectGraph = options.projectGraph || !alreadyExists || options.resetPackage;
-  const materializedProjectGraph = shouldMaterializeProjectGraph ? await materializeProjectGraph(workspace.rootPath) : undefined;
+  const shouldMaterializeProjectGraph =
+    options.projectGraph || !alreadyExists || options.resetPackage;
+  const materializedProjectGraph = shouldMaterializeProjectGraph
+    ? await materializeProjectGraph(workspace.rootPath)
+    : undefined;
   const projectGraph = options.projectGraph ? materializedProjectGraph : undefined;
 
   return {
@@ -135,11 +151,16 @@ export async function initWorkspace(options: {
   }
   const workspace = await resolveProjectWorkspace(rootPath);
   const homeRelativePath = relative(canonicalPlanweaveHome, rootPath);
-  const isInsidePlanweaveHome = homeRelativePath === "" || (!homeRelativePath.startsWith("..") && !isAbsolute(homeRelativePath));
+  const isInsidePlanweaveHome =
+    homeRelativePath === "" ||
+    (!homeRelativePath.startsWith("..") && !isAbsolute(homeRelativePath));
   const topLevelHomeSegment = homeRelativePath.split(/[\\/]/)[0];
-  const isLegacyManagedLocation = topLevelHomeSegment === "mcp-projects" || topLevelHomeSegment === "mcp-imports";
+  const isLegacyManagedLocation =
+    topLevelHomeSegment === "mcp-projects" || topLevelHomeSegment === "mcp-imports";
   if (isInsidePlanweaveHome && !isLegacyManagedLocation && workspace.workspaceRoot !== rootPath) {
-    throw new Error(`PlanWeave projects must be initialized directly under '${join(planweaveHome, "projects")}'.`);
+    throw new Error(
+      `PlanWeave projects must be initialized directly under '${join(planweaveHome, "projects")}'.`
+    );
   }
   const projectName = basename(rootPath);
   const createdAt = new Date().toISOString();

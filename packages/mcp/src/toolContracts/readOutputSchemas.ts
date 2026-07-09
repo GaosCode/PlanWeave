@@ -14,13 +14,17 @@ export const readToolOutputSchemas = {
   explain_validation_errors: {
     ok: z.boolean(),
     issues: z.array(validationIssueSchema.passthrough()),
-    explanations: z.array(z.object({
-      code: z.string(),
-      severity: z.enum(["error", "warning"]),
-      path: z.string().nullable(),
-      explanation: z.string(),
-      suggestedAction: z.string()
-    }).passthrough())
+    explanations: z.array(
+      z
+        .object({
+          code: z.string(),
+          severity: z.enum(["error", "warning"]),
+          path: z.string().nullable(),
+          explanation: z.string(),
+          suggestedAction: z.string()
+        })
+        .passthrough()
+    )
   },
   get_status: executionStatusSchema,
   search_project: {

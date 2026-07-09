@@ -66,7 +66,6 @@ describe("auto run control hook events", () => {
     expect(onAutoRunDerivedStateRefresh).not.toHaveBeenCalled();
   });
 
-
   it("adopts an external auto-run event when no local auto-run state exists", async () => {
     const externalRunState = autoRunState({
       runId: "DESKTOP-RUN-EXTERNAL",
@@ -104,7 +103,6 @@ describe("auto run control hook events", () => {
     expect(result.current.autoRunState).toEqual(externalRunState);
   });
 
-
   it("adopts an external run_started event over an old settled local run", async () => {
     const oldCompletedState = autoRunState({
       runId: "DESKTOP-RUN-OLD",
@@ -123,7 +121,9 @@ describe("auto run control hook events", () => {
     const { useAutoRunControl } = await loadAutoRunControl();
 
     const { result } = renderHook(() => {
-      const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(oldCompletedState);
+      const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(
+        oldCompletedState
+      );
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
         handleOpenRunRecord: vi.fn(),
@@ -145,7 +145,6 @@ describe("auto run control hook events", () => {
     expect(bridge.getAutoRunState).not.toHaveBeenCalled();
     expect(result.current.autoRunState).toEqual(externalRunState);
   });
-
 
   it("adopts an external run_started event after the current run settles", async () => {
     const runningState = autoRunState({
@@ -170,7 +169,9 @@ describe("auto run control hook events", () => {
     const { useAutoRunControl } = await loadAutoRunControl();
 
     const { result } = renderHook(() => {
-      const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(runningState);
+      const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(
+        runningState
+      );
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
         handleOpenRunRecord: vi.fn(),
@@ -195,7 +196,6 @@ describe("auto run control hook events", () => {
     expect(bridge.getAutoRunState).not.toHaveBeenCalled();
     expect(result.current.autoRunState).toEqual(externalRunState);
   });
-
 
   it("refreshes graph data once after an auto-run event reaches a settled phase", async () => {
     const runningState = autoRunState();

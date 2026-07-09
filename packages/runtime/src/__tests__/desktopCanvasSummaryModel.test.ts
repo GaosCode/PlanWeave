@@ -24,7 +24,10 @@ describe("desktop canvas summary model", () => {
     vi.mocked(readFile).mockImplementation((path, options) => actualFs.readFile(path, options));
     const { root, init } = await createTestWorkspace();
     const canvases = Array.from({ length: 20 }, (_, index) =>
-      canonicalProjectCanvasNode({ id: index === 0 ? "default" : `summary-${index}`, title: index === 0 ? "Test Plan" : `Summary ${index}` })
+      canonicalProjectCanvasNode({
+        id: index === 0 ? "default" : `summary-${index}`,
+        title: index === 0 ? "Test Plan" : `Summary ${index}`
+      })
     );
     await writeProjectGraph(init.workspace, {
       version: "plan-project/v1",
@@ -39,8 +42,9 @@ describe("desktop canvas summary model", () => {
 
     vi.mocked(readFile).mockClear();
     const summaries = await listTaskCanvases(root);
-    const manifestReadPaths = vi.mocked(readFile).mock.calls
-      .map(([path]) => typeof path === "string" ? path : null)
+    const manifestReadPaths = vi
+      .mocked(readFile)
+      .mock.calls.map(([path]) => (typeof path === "string" ? path : null))
       .filter((path): path is string => path !== null && path.endsWith("/package/manifest.json"));
 
     expect(summaries).toHaveLength(20);

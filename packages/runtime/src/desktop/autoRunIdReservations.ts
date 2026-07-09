@@ -62,13 +62,16 @@ function parseAutoRunIdReservationState(value: unknown): AutoRunIdReservationSta
   if (record.version !== 1) {
     return null;
   }
-  const highestRunId = record.highestRunId === null || (typeof record.highestRunId === "string" && isDesktopRunId(record.highestRunId))
-    ? record.highestRunId
-    : null;
+  const highestRunId =
+    record.highestRunId === null ||
+    (typeof record.highestRunId === "string" && isDesktopRunId(record.highestRunId))
+      ? record.highestRunId
+      : null;
   if (record.highestRunId !== null && highestRunId === null) {
     return null;
   }
-  const migratedAt = record.migratedAt === null || typeof record.migratedAt === "string" ? record.migratedAt : null;
+  const migratedAt =
+    record.migratedAt === null || typeof record.migratedAt === "string" ? record.migratedAt : null;
   if (record.migratedAt !== null && migratedAt === null) {
     return null;
   }
@@ -79,9 +82,13 @@ function parseAutoRunIdReservationState(value: unknown): AutoRunIdReservationSta
   };
 }
 
-async function readAutoRunIdReservationState(workspace: ProjectWorkspace): Promise<AutoRunIdReservationState | null> {
+async function readAutoRunIdReservationState(
+  workspace: ProjectWorkspace
+): Promise<AutoRunIdReservationState | null> {
   try {
-    return parseAutoRunIdReservationState(await readJsonFile<unknown>(autoRunIdReservationIndexPath(workspace)));
+    return parseAutoRunIdReservationState(
+      await readJsonFile<unknown>(autoRunIdReservationIndexPath(workspace))
+    );
   } catch (error) {
     if (isNodeFileNotFoundError(error) || error instanceof SyntaxError) {
       return null;
@@ -90,14 +97,19 @@ async function readAutoRunIdReservationState(workspace: ProjectWorkspace): Promi
   }
 }
 
-async function writeAutoRunIdReservationState(workspace: ProjectWorkspace, state: AutoRunIdReservationState): Promise<void> {
+async function writeAutoRunIdReservationState(
+  workspace: ProjectWorkspace,
+  state: AutoRunIdReservationState
+): Promise<void> {
   await writeJsonFile(autoRunIdReservationIndexPath(workspace), state);
 }
 
 async function listAutoRunIdReservationDirectories(workspace: ProjectWorkspace): Promise<string[]> {
   try {
     const entries = await readdir(globalAutoRunIdsRoot(workspace), { withFileTypes: true });
-    return entries.filter((entry) => entry.isDirectory() && isDesktopRunId(entry.name)).map((entry) => entry.name);
+    return entries
+      .filter((entry) => entry.isDirectory() && isDesktopRunId(entry.name))
+      .map((entry) => entry.name);
   } catch (error) {
     if (isNodeFileNotFoundError(error)) {
       return [];
@@ -149,7 +161,9 @@ export async function ensureAutoRunIdReservationsMigrated(
 
   const reservationRunIds = await listAutoRunIdReservationDirectories(workspace);
   const highestReservedRunId = highestRunId(reservationRunIds);
-  const highestKnownRunId = highestRunId([state.highestRunId, highestReservedRunId].filter((runId): runId is string => runId !== null));
+  const highestKnownRunId = highestRunId(
+    [state.highestRunId, highestReservedRunId].filter((runId): runId is string => runId !== null)
+  );
   if (highestKnownRunId !== state.highestRunId) {
     const repairedState: AutoRunIdReservationState = {
       ...state,
@@ -161,7 +175,10 @@ export async function ensureAutoRunIdReservationsMigrated(
   return state;
 }
 
-export async function reserveAutoRunId(workspace: ProjectWorkspace, runId: string): Promise<boolean> {
+export async function reserveAutoRunId(
+  workspace: ProjectWorkspace,
+  runId: string
+): Promise<boolean> {
   try {
     await mkdir(join(globalAutoRunIdsRoot(workspace), runId), { recursive: false });
     return true;
@@ -173,11 +190,16 @@ export async function reserveAutoRunId(workspace: ProjectWorkspace, runId: strin
   }
 }
 
-export async function recordReservedAutoRunId(workspace: ProjectWorkspace, runId: string): Promise<void> {
+export async function recordReservedAutoRunId(
+  workspace: ProjectWorkspace,
+  runId: string
+): Promise<void> {
   const state = await readAutoRunIdReservationState(workspace);
   const reservationRunIds = await listAutoRunIdReservationDirectories(workspace);
   const nextHighestRunId = highestRunId(
-    [state?.highestRunId ?? null, highestRunId(reservationRunIds), runId].filter((candidate): candidate is string => candidate !== null)
+    [state?.highestRunId ?? null, highestRunId(reservationRunIds), runId].filter(
+      (candidate): candidate is string => candidate !== null
+    )
   );
   await writeAutoRunIdReservationState(workspace, {
     version: 1,

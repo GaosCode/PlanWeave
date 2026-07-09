@@ -4,7 +4,16 @@ import { act, renderHook } from "@testing-library/react";
 import { useState } from "react";
 import type { DesktopAutoRunState } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { autoRunState, cleanupAutoRunControlTestEnvironment, createDesktopBridgeMock, createTranslator, loadAutoRunControl, project, selectedBlock, stubAutoRunControlBridge } from "./helpers/autoRunControlHarness";
+import {
+  autoRunState,
+  cleanupAutoRunControlTestEnvironment,
+  createDesktopBridgeMock,
+  createTranslator,
+  loadAutoRunControl,
+  project,
+  selectedBlock,
+  stubAutoRunControlBridge
+} from "./helpers/autoRunControlHarness";
 
 afterEach(() => {
   cleanupAutoRunControlTestEnvironment();
@@ -48,7 +57,6 @@ describe("auto run control hook actions", () => {
       { tmuxEnabled: true }
     );
   });
-
 
   it("unblocks the current blocked block before retrying auto-run", async () => {
     const blockedState = autoRunState({
@@ -100,7 +108,11 @@ describe("auto run control hook actions", () => {
       await result.current.handleAutoRunClick();
     });
 
-    expect(bridge.unblockBlock).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, selectedBlock.ref, "Retry requested from Auto Run.");
+    expect(bridge.unblockBlock).toHaveBeenCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-main" },
+      selectedBlock.ref,
+      "Retry requested from Auto Run."
+    );
     expect(bridge.startAutoRun).toHaveBeenCalledWith(
       { projectRoot: project.rootPath, canvasId: "canvas-main" },
       { kind: "project" },
@@ -110,7 +122,6 @@ describe("auto run control hook actions", () => {
     expect(calls).toEqual(["unblock", "start"]);
     expect(result.current.autoRunState).toEqual(runningState);
   });
-
 
   it("keeps manual Auto Run state waiting for manual submission instead of starting a new run", async () => {
     const manualState = autoRunState({
@@ -163,7 +174,6 @@ describe("auto run control hook actions", () => {
     expect(bridge.startAutoRun).not.toHaveBeenCalled();
     expect(result.current.autoRunState).toEqual(manualState);
   });
-
 
   it("copies manual submit commands from the next action without submitting", async () => {
     const clipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
@@ -220,10 +230,11 @@ describe("auto run control hook actions", () => {
       await result.current.handleAutoRunNextAction(result.current.autoRunNextAction!);
     });
 
-    expect(clipboard.writeText).toHaveBeenCalledWith("planweave submit-result T-ALPHA#B-001 --report report.md");
+    expect(clipboard.writeText).toHaveBeenCalledWith(
+      "planweave submit-result T-ALPHA#B-001 --report report.md"
+    );
     expect(bridge.startAutoRun).not.toHaveBeenCalled();
   });
-
 
   it("resumes paused auto-run from the next action descriptor", async () => {
     const pausedState = autoRunState({
@@ -253,7 +264,9 @@ describe("auto run control hook actions", () => {
     const { useAutoRunControl } = await loadAutoRunControl();
 
     const { result } = renderHook(() => {
-      const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(pausedState);
+      const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(
+        pausedState
+      );
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
         handleOpenRunRecord: vi.fn(),
@@ -276,9 +289,12 @@ describe("auto run control hook actions", () => {
     expect(result.current.autoRunState).toEqual(runningState);
   });
 
-
   it("resets runtime state through the desktop bridge after confirmation", async () => {
-    const pausedState = autoRunState({ phase: "manual", currentRef: selectedBlock.ref, currentExecutor: "manual" });
+    const pausedState = autoRunState({
+      phase: "manual",
+      currentRef: selectedBlock.ref,
+      currentExecutor: "manual"
+    });
     const resetRuntimeState = vi.fn().mockResolvedValue({
       session: { sessionId: "SESSION-0001" },
       stoppedAutoRunIds: [pausedState.runId]
@@ -290,7 +306,9 @@ describe("auto run control hook actions", () => {
     const onAutoRunDerivedStateRefresh = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() => {
-      const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(pausedState);
+      const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(
+        pausedState
+      );
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
         handleOpenRunRecord: vi.fn(),
@@ -310,7 +328,9 @@ describe("auto run control hook actions", () => {
       await result.current.resetRuntimeStateClick();
     });
 
-    expect(confirm).toHaveBeenCalledWith("Reset runtime state for this canvas? This clears current claims, feedback, and review progress. Existing records stay on disk.");
+    expect(confirm).toHaveBeenCalledWith(
+      "Reset runtime state for this canvas? This clears current claims, feedback, and review progress. Existing records stay on disk."
+    );
     expect(resetRuntimeState).toHaveBeenCalledWith(
       { projectRoot: project.rootPath, canvasId: "canvas-main" },
       { force: true, reason: "Desktop reset requested." }
@@ -318,7 +338,6 @@ describe("auto run control hook actions", () => {
     expect(result.current.autoRunState).toBeNull();
     expect(onAutoRunDerivedStateRefresh).toHaveBeenCalledTimes(1);
   });
-
 
   it("blocks runtime reset while an Auto Run step is active", async () => {
     const runningState = autoRunState({ phase: "running" });
@@ -348,11 +367,12 @@ describe("auto run control hook actions", () => {
       await result.current.resetRuntimeStateClick();
     });
 
-    expect(setError).toHaveBeenCalledWith("Stop Auto Run and wait for the current step to settle before resetting runtime state.");
+    expect(setError).toHaveBeenCalledWith(
+      "Stop Auto Run and wait for the current step to settle before resetting runtime state."
+    );
     expect(confirm).not.toHaveBeenCalled();
     expect(resetRuntimeState).not.toHaveBeenCalled();
   });
-
 
   it("opens an internal run record before falling back to revealing the record path", async () => {
     const failedState = autoRunState({
@@ -435,7 +455,6 @@ describe("auto run control hook actions", () => {
     expect(bridge.revealPathInFinder).toHaveBeenCalledWith("/tmp/record.json");
   });
 
-
   it("retries a blocked ref from resolve_error by unblocking and starting that block", async () => {
     const blockedState = autoRunState({
       phase: "blocked",
@@ -457,7 +476,10 @@ describe("auto run control hook actions", () => {
         }
       }
     });
-    const runningState = autoRunState({ phase: "running", scope: { kind: "block", blockRef: selectedBlock.ref } });
+    const runningState = autoRunState({
+      phase: "running",
+      scope: { kind: "block", blockRef: selectedBlock.ref }
+    });
     const calls: string[] = [];
     const bridge = createDesktopBridgeMock({
       unblockBlock: vi.fn().mockImplementation(async () => {
@@ -472,7 +494,9 @@ describe("auto run control hook actions", () => {
     const { useAutoRunControl } = await loadAutoRunControl();
 
     const { result } = renderHook(() => {
-      const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(blockedState);
+      const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(
+        blockedState
+      );
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
         handleOpenRunRecord: vi.fn(),
@@ -491,7 +515,11 @@ describe("auto run control hook actions", () => {
       await result.current.handleAutoRunNextAction(result.current.autoRunNextAction!);
     });
 
-    expect(bridge.unblockBlock).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, selectedBlock.ref, "Retry requested from Auto Run.");
+    expect(bridge.unblockBlock).toHaveBeenCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-main" },
+      selectedBlock.ref,
+      "Retry requested from Auto Run."
+    );
     expect(bridge.startAutoRun).toHaveBeenCalledWith(
       { projectRoot: project.rootPath, canvasId: "canvas-main" },
       { kind: "block", blockRef: selectedBlock.ref },
@@ -501,5 +529,4 @@ describe("auto run control hook actions", () => {
     expect(calls).toEqual(["unblock", "start"]);
     expect(result.current.autoRunState).toEqual(runningState);
   });
-
 });

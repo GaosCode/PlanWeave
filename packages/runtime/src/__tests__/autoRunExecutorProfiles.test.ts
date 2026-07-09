@@ -121,7 +121,11 @@ describe("Auto Run executor profiles", () => {
         stdout: expect.stringContaining("--sandbox")
       }
     });
-    expect(step.kind === "submitted" && step.adapterResult.kind === "block" ? step.adapterResult.stdout : "").toContain("workspace-write");
+    expect(
+      step.kind === "submitted" && step.adapterResult.kind === "block"
+        ? step.adapterResult.stdout
+        : ""
+    ).toContain("workspace-write");
   });
 
   it("lists built-in and package-defined executor profiles", async () => {
@@ -140,8 +144,16 @@ describe("Auto Run executor profiles", () => {
         expect.objectContaining({ name: "codex", adapter: "codex-exec", source: "builtin" }),
         expect.objectContaining({ name: "codex-auto", adapter: "codex-exec", source: "builtin" }),
         expect.objectContaining({ name: "opencode", adapter: "opencode-exec", source: "builtin" }),
-        expect.objectContaining({ name: "claude-code", adapter: "claude-code-exec", source: "builtin" }),
-        expect.objectContaining({ name: "claude-code-auto", adapter: "claude-code-exec", source: "builtin" }),
+        expect.objectContaining({
+          name: "claude-code",
+          adapter: "claude-code-exec",
+          source: "builtin"
+        }),
+        expect.objectContaining({
+          name: "claude-code-auto",
+          adapter: "claude-code-exec",
+          source: "builtin"
+        }),
         expect.objectContaining({ name: "pi", adapter: "pi-exec", source: "builtin" }),
         expect.objectContaining({ name: "pi-auto", adapter: "pi-exec", source: "builtin" }),
         expect.objectContaining({ name: "project-codex", adapter: "codex-exec", source: "package" })

@@ -2,7 +2,10 @@
 
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { readAppViewHistoryAvailability, useAppViewHistory } from "../renderer/hooks/useAppViewHistory";
+import {
+  readAppViewHistoryAvailability,
+  useAppViewHistory
+} from "../renderer/hooks/useAppViewHistory";
 
 describe("app view history", () => {
   it("keeps forward navigation available after returning to a previous app view", async () => {

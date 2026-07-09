@@ -11,7 +11,9 @@ type UpdaterListener = (...args: unknown[]) => void;
 
 const electronMock = vi.hoisted(() => {
   const handlers = new Map<string, RegisteredHandler>();
-  const windows: Array<{ webContents: { isDestroyed: () => boolean; send: ReturnType<typeof vi.fn> } }> = [];
+  const windows: Array<{
+    webContents: { isDestroyed: () => boolean; send: ReturnType<typeof vi.fn> };
+  }> = [];
   return {
     handlers,
     windows,
@@ -74,7 +76,9 @@ vi.mock("electron-updater", () => ({
 
 describe("resolveAppUpdateDelivery", () => {
   it("uses github-releases on unsigned macOS and in-app elsewhere or when signed", () => {
-    expect(resolveAppUpdateDelivery({ platform: "darwin", codeSigned: false })).toBe("github-releases");
+    expect(resolveAppUpdateDelivery({ platform: "darwin", codeSigned: false })).toBe(
+      "github-releases"
+    );
     expect(resolveAppUpdateDelivery({ platform: "darwin", codeSigned: true })).toBe("in-app");
     expect(resolveAppUpdateDelivery({ platform: "win32", codeSigned: false })).toBe("in-app");
     expect(resolveAppUpdateDelivery({ platform: "linux", codeSigned: false })).toBe("in-app");
@@ -116,7 +120,9 @@ describe("app update handlers", () => {
 
     registerAppUpdateHandlers();
 
-    expect(new Set(electronMock.handlers.keys())).toEqual(new Set(Object.values(appUpdateInvokeChannels)));
+    expect(new Set(electronMock.handlers.keys())).toEqual(
+      new Set(Object.values(appUpdateInvokeChannels))
+    );
   });
 
   it("returns unsupported for update checks outside packaged builds", async () => {
@@ -142,10 +148,13 @@ describe("app update handlers", () => {
       releaseName: "PlanWeave 0.1.2"
     });
 
-    expect(send).toHaveBeenCalledWith(appUpdateChangedChannel, expect.objectContaining({
-      status: "available",
-      update: expect.objectContaining({ version: "0.1.2" })
-    }));
+    expect(send).toHaveBeenCalledWith(
+      appUpdateChangedChannel,
+      expect.objectContaining({
+        status: "available",
+        update: expect.objectContaining({ version: "0.1.2" })
+      })
+    );
   });
 
   it("on unsigned macOS opens GitHub Releases instead of downloading or installing", async () => {
@@ -154,11 +163,9 @@ describe("app update handlers", () => {
     const send = vi.fn();
     electronMock.windows.push({ webContents: { isDestroyed: () => false, send } });
 
-    const {
-      downloadAppUpdate,
-      installAppUpdate,
-      registerAppUpdateHandlers
-    } = await import("../main/appUpdate");
+    const { downloadAppUpdate, installAppUpdate, registerAppUpdateHandlers } = await import(
+      "../main/appUpdate"
+    );
     registerAppUpdateHandlers();
 
     updaterMock.emit("update-available", {
@@ -184,11 +191,9 @@ describe("app update handlers", () => {
     electronMock.app.isPackaged = true;
     updaterMock.autoUpdater.downloadUpdate.mockResolvedValue(undefined);
 
-    const {
-      downloadAppUpdate,
-      installAppUpdate,
-      registerAppUpdateHandlers
-    } = await import("../main/appUpdate");
+    const { downloadAppUpdate, installAppUpdate, registerAppUpdateHandlers } = await import(
+      "../main/appUpdate"
+    );
     registerAppUpdateHandlers();
 
     updaterMock.emit("update-available", {

@@ -41,13 +41,20 @@ describe("desktop renderer hook interfaces", () => {
       selectTaskPanel: vi.fn(),
       settings: {
         defaultExecutor: "",
-        palette: { defaultBlockSet: ["implementation"], dragHint: true, visible: { task: true, implementation: true, review: true } }
+        palette: {
+          defaultBlockSet: ["implementation"],
+          dragHint: true,
+          visible: { task: true, implementation: true, review: true }
+        }
       } as unknown as DesktopUiSettings,
       t: createTranslator("en")
     };
-    const { result, rerender } = renderHook(({ currentGraph }) => useGraphPaletteActions({ ...baseArgs, graph: currentGraph }), {
-      initialProps: { currentGraph: { ...graph, graphVersion: "pgv-before" } }
-    });
+    const { result, rerender } = renderHook(
+      ({ currentGraph }) => useGraphPaletteActions({ ...baseArgs, graph: currentGraph }),
+      {
+        initialProps: { currentGraph: { ...graph, graphVersion: "pgv-before" } }
+      }
+    );
 
     rerender({ currentGraph: { ...graph, graphVersion: "pgv-after" } });
     await act(async () => {
@@ -105,17 +112,32 @@ describe("desktop renderer hook interfaces", () => {
         selectTaskPanel: vi.fn(),
         settings: {
           defaultExecutor: "",
-          palette: { defaultBlockSet: ["implementation"], dragHint: true, visible: { task: true, implementation: true, review: true } }
+          palette: {
+            defaultBlockSet: ["implementation"],
+            dragHint: true,
+            visible: { task: true, implementation: true, review: true }
+          }
         } as unknown as DesktopUiSettings,
         t: createTranslator("en")
       })
     );
 
     await act(async () => {
-      await result.current.handleConnect({ source: "T-BETA", target: "T-ALPHA", sourceHandle: null, targetHandle: null });
+      await result.current.handleConnect({
+        source: "T-BETA",
+        target: "T-ALPHA",
+        sourceHandle: null,
+        targetHandle: null
+      });
     });
 
-    expect(bridge.addDependencyEdge).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, "T-ALPHA", "T-BETA", "pgv-before", undefined);
+    expect(bridge.addDependencyEdge).toHaveBeenCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-main" },
+      "T-ALPHA",
+      "T-BETA",
+      "pgv-before",
+      undefined
+    );
     expect(refreshProjectDerivedState).toHaveBeenCalledTimes(1);
   });
 
@@ -145,7 +167,11 @@ describe("desktop renderer hook interfaces", () => {
         selectTaskPanel: vi.fn(),
         settings: {
           defaultExecutor: "",
-          palette: { defaultBlockSet: ["implementation"], dragHint: true, visible: { task: true, implementation: true, review: true } }
+          palette: {
+            defaultBlockSet: ["implementation"],
+            dragHint: true,
+            visible: { task: true, implementation: true, review: true }
+          }
         } as unknown as DesktopUiSettings,
         t: createTranslator("en")
       })
@@ -176,7 +202,9 @@ describe("desktop renderer hook interfaces", () => {
   });
 
   it("adds dropped tasks with their initial layout in a single graph edit", async () => {
-    const addTaskNode = vi.fn().mockResolvedValue({ ok: true, affectedTasks: ["T-NEW"], diagnostics: [] });
+    const addTaskNode = vi
+      .fn()
+      .mockResolvedValue({ ok: true, affectedTasks: ["T-NEW"], diagnostics: [] });
     const bridge = createDesktopBridgeMock({
       addTaskNode,
       getDesktopLayout: vi.fn().mockResolvedValue(layout),
@@ -207,7 +235,11 @@ describe("desktop renderer hook interfaces", () => {
         selectTaskPanel,
         settings: {
           defaultExecutor: "",
-          palette: { defaultBlockSet: ["implementation"], dragHint: true, visible: { task: true, implementation: true, review: true } }
+          palette: {
+            defaultBlockSet: ["implementation"],
+            dragHint: true,
+            visible: { task: true, implementation: true, review: true }
+          }
         } as unknown as DesktopUiSettings,
         t: createTranslator("en")
       })
@@ -261,7 +293,10 @@ describe("desktop renderer hook interfaces", () => {
       await result.current.handleDeleteTaskNode("T-ALPHA");
     });
 
-    expect(bridge.removeTaskNode).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, "T-ALPHA");
+    expect(bridge.removeTaskNode).toHaveBeenCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-main" },
+      "T-ALPHA"
+    );
     expect(clearReviewTaskSelection).toHaveBeenCalledWith("T-ALPHA");
     expect(loadProject).toHaveBeenCalledWith(project, "canvas-main");
   });
@@ -325,12 +360,14 @@ describe("desktop renderer hook interfaces", () => {
       await result.current.handleDeleteBlock(selectedBlock.ref);
     });
 
-    expect(bridge.removeBlock).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" }, selectedBlock.ref);
+    expect(bridge.removeBlock).toHaveBeenCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-main" },
+      selectedBlock.ref
+    );
     expect(refreshProjectDerivedState).toHaveBeenCalledTimes(1);
     expect(setSelectedBlock).toHaveBeenCalledWith(null);
     expect(setSelectedRunRecord).toHaveBeenCalledWith(null);
     expect(setBlockInspectorOpen).toHaveBeenCalledWith(false);
     expect(clearSelectedBlockRecords).toHaveBeenCalledTimes(1);
   });
-
 });

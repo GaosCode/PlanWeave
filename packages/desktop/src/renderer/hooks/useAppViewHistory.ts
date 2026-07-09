@@ -1,4 +1,11 @@
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useRef,
+  useState
+} from "react";
 import type { AppView } from "../types";
 
 export const appViewHistoryChangedEvent = "planweave:app-view-history-changed";
@@ -9,7 +16,17 @@ type AppViewHistoryState = {
   planweaveHistoryMaxIndex?: number;
 };
 
-const appViews = new Set<AppView>(["new-task", "graph", "canvas-map", "review-pipeline", "todo", "statistics", "search", "notifications", "settings"]);
+const appViews = new Set<AppView>([
+  "new-task",
+  "graph",
+  "canvas-map",
+  "review-pipeline",
+  "todo",
+  "statistics",
+  "search",
+  "notifications",
+  "settings"
+]);
 
 function isAppView(value: unknown): value is AppView {
   return typeof value === "string" && appViews.has(value as AppView);
@@ -21,9 +38,17 @@ function readAppViewHistoryState(state: unknown): AppViewHistoryState {
   }
   const candidate = state as AppViewHistoryState;
   return {
-    planweaveAppView: isAppView(candidate.planweaveAppView) ? candidate.planweaveAppView : undefined,
-    planweaveHistoryIndex: typeof candidate.planweaveHistoryIndex === "number" ? candidate.planweaveHistoryIndex : undefined,
-    planweaveHistoryMaxIndex: typeof candidate.planweaveHistoryMaxIndex === "number" ? candidate.planweaveHistoryMaxIndex : undefined
+    planweaveAppView: isAppView(candidate.planweaveAppView)
+      ? candidate.planweaveAppView
+      : undefined,
+    planweaveHistoryIndex:
+      typeof candidate.planweaveHistoryIndex === "number"
+        ? candidate.planweaveHistoryIndex
+        : undefined,
+    planweaveHistoryMaxIndex:
+      typeof candidate.planweaveHistoryMaxIndex === "number"
+        ? candidate.planweaveHistoryMaxIndex
+        : undefined
   };
 }
 
@@ -37,8 +62,12 @@ export function readAppViewHistoryAvailability() {
   };
 }
 
-export function useAppViewHistory(initialView: AppView): [AppView, Dispatch<SetStateAction<AppView>>] {
-  const [activeView, setActiveViewState] = useState<AppView>(() => readAppViewHistoryState(window.history.state).planweaveAppView ?? initialView);
+export function useAppViewHistory(
+  initialView: AppView
+): [AppView, Dispatch<SetStateAction<AppView>>] {
+  const [activeView, setActiveViewState] = useState<AppView>(
+    () => readAppViewHistoryState(window.history.state).planweaveAppView ?? initialView
+  );
   const activeViewRef = useRef(activeView);
 
   useEffect(() => {

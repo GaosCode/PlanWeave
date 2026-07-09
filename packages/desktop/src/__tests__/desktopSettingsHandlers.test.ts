@@ -55,9 +55,18 @@ describe("desktop settings handlers", () => {
     const { registerDesktopSettingsHandlers } = await import("../main/desktopSettingsHandlers");
     registerDesktopSettingsHandlers(await tempStore());
 
-    expect(electronMock.ipcMain.handle).toHaveBeenCalledWith(desktopSettingsInvokeChannels.getDesktopSettings, expect.any(Function));
-    expect(electronMock.ipcMain.handle).toHaveBeenCalledWith(desktopSettingsInvokeChannels.saveDesktopSettings, expect.any(Function));
-    expect(electronMock.ipcMain.handle).toHaveBeenCalledWith(desktopSettingsInvokeChannels.migrateLegacyDesktopSettings, expect.any(Function));
+    expect(electronMock.ipcMain.handle).toHaveBeenCalledWith(
+      desktopSettingsInvokeChannels.getDesktopSettings,
+      expect.any(Function)
+    );
+    expect(electronMock.ipcMain.handle).toHaveBeenCalledWith(
+      desktopSettingsInvokeChannels.saveDesktopSettings,
+      expect.any(Function)
+    );
+    expect(electronMock.ipcMain.handle).toHaveBeenCalledWith(
+      desktopSettingsInvokeChannels.migrateLegacyDesktopSettings,
+      expect.any(Function)
+    );
   });
 
   it("saves normalized settings patches through the store", async () => {
@@ -65,15 +74,18 @@ describe("desktop settings handlers", () => {
     const store = await tempStore();
     registerDesktopSettingsHandlers(store);
 
-    const saved = await handler(desktopSettingsInvokeChannels.saveDesktopSettings)({}, {
-      appearance: "dark",
-      layout: {
-        leftSidebar: {
-          collapsed: true,
-          width: 1
+    const saved = await handler(desktopSettingsInvokeChannels.saveDesktopSettings)(
+      {},
+      {
+        appearance: "dark",
+        layout: {
+          leftSidebar: {
+            collapsed: true,
+            width: 1
+          }
         }
       }
-    });
+    );
 
     expect(saved).toMatchObject({
       appearance: "dark",
@@ -133,26 +145,29 @@ describe("desktop settings handlers", () => {
     });
     registerDesktopSettingsHandlers(store);
 
-    const saved = await handler(desktopSettingsInvokeChannels.saveDesktopSettings)({}, {
-      notifications: {
-        autoRunFailure: false
-      },
-      layout: {
-        leftSidebar: {
-          width: 320
-        }
-      },
-      palette: {
-        visible: {
-          implementation: true
-        }
-      },
-      agents: {
-        codex: {
-          enabled: false
+    const saved = await handler(desktopSettingsInvokeChannels.saveDesktopSettings)(
+      {},
+      {
+        notifications: {
+          autoRunFailure: false
+        },
+        layout: {
+          leftSidebar: {
+            width: 320
+          }
+        },
+        palette: {
+          visible: {
+            implementation: true
+          }
+        },
+        agents: {
+          codex: {
+            enabled: false
+          }
         }
       }
-    });
+    );
 
     expect(saved).toMatchObject({
       notifications: {
@@ -205,10 +220,15 @@ describe("desktop settings handlers", () => {
     });
     registerDesktopSettingsHandlers(store);
 
-    const migrated = await handler(desktopSettingsInvokeChannels.migrateLegacyDesktopSettings)({}, JSON.stringify({ appearance: "dark" }));
+    const migrated = await handler(desktopSettingsInvokeChannels.migrateLegacyDesktopSettings)(
+      {},
+      JSON.stringify({ appearance: "dark" })
+    );
 
     expect(migrated).toMatchObject({ appearance: "light" });
-    expect(JSON.parse(await readFile(store.settingsFile, "utf8"))).toMatchObject({ appearance: "light" });
+    expect(JSON.parse(await readFile(store.settingsFile, "utf8"))).toMatchObject({
+      appearance: "light"
+    });
   });
 
   it("writes legacy settings when the new settings file is missing", async () => {
@@ -216,10 +236,15 @@ describe("desktop settings handlers", () => {
     const store = await tempStore();
     registerDesktopSettingsHandlers(store);
 
-    const migrated = await handler(desktopSettingsInvokeChannels.migrateLegacyDesktopSettings)({}, JSON.stringify({ appearance: "dark" }));
+    const migrated = await handler(desktopSettingsInvokeChannels.migrateLegacyDesktopSettings)(
+      {},
+      JSON.stringify({ appearance: "dark" })
+    );
 
     expect(migrated).toMatchObject({ appearance: "dark" });
-    expect(JSON.parse(await readFile(store.settingsFile, "utf8"))).toMatchObject({ appearance: "dark" });
+    expect(JSON.parse(await readFile(store.settingsFile, "utf8"))).toMatchObject({
+      appearance: "dark"
+    });
   });
 
   it("serializes rapid saves so read-modify-write patches do not lose fields", async () => {
@@ -251,8 +276,14 @@ describe("desktop settings handlers", () => {
     const store = await tempStore();
     registerDesktopSettingsHandlers(store);
 
-    const saved = handler(desktopSettingsInvokeChannels.saveDesktopSettings)({}, { appearance: "light" });
-    const migrated = handler(desktopSettingsInvokeChannels.migrateLegacyDesktopSettings)({}, JSON.stringify({ appearance: "dark" }));
+    const saved = handler(desktopSettingsInvokeChannels.saveDesktopSettings)(
+      {},
+      { appearance: "light" }
+    );
+    const migrated = handler(desktopSettingsInvokeChannels.migrateLegacyDesktopSettings)(
+      {},
+      JSON.stringify({ appearance: "dark" })
+    );
 
     await expect(saved).resolves.toMatchObject({ appearance: "light" });
     await expect(migrated).resolves.toMatchObject({ appearance: "light" });

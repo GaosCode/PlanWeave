@@ -1,6 +1,11 @@
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import type { FileFingerprint, PackageFileSnapshot, PackageWorkspaceRef, ValidationIssue } from "../../types.js";
+import type {
+  FileFingerprint,
+  PackageFileSnapshot,
+  PackageWorkspaceRef,
+  ValidationIssue
+} from "../../types.js";
 import type { ProjectCanvasRuntimeSnapshot } from "./projectCanvasAggregation.js";
 import {
   clearResultsFileIndexCache,
@@ -96,7 +101,10 @@ export type CachedProjectProjection = {
 
 export const desktopProjectProjectionCacheVersion = 2;
 export const projectProjectionCache = new Map<string, CachedProjectProjection>();
-export const projectionContextCache = new WeakMap<DesktopProjectProjectionContext, CachedProjectProjection>();
+export const projectionContextCache = new WeakMap<
+  DesktopProjectProjectionContext,
+  CachedProjectProjection
+>();
 
 function stableResolvedPath(path: string): string {
   const resolved = resolve(path);
@@ -131,7 +139,10 @@ export function invalidateDesktopProjectProjection(projectRoot?: PackageWorkspac
  * Drop one canvas's derived projection entry while keeping sibling canvases and
  * results-index caches. Prompt-only edits do not change results fingerprints.
  */
-export function invalidateDesktopCanvasProjection(projectRoot: PackageWorkspaceRef, canvasId: string): void {
+export function invalidateDesktopCanvasProjection(
+  projectRoot: PackageWorkspaceRef,
+  canvasId: string
+): void {
   const key = projectProjectionKey(projectRoot);
   const cached = projectProjectionCache.get(key);
   if (!cached || !cached.canvases.has(canvasId)) {

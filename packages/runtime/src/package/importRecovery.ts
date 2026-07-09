@@ -30,9 +30,13 @@ async function listRecoveryTransactionIds(recoveryRoot: string): Promise<string[
     .sort((left, right) => left.localeCompare(right));
 }
 
-export async function listPendingImportTransactions(workspaceRoot: string): Promise<PendingImportTransaction[]> {
+export async function listPendingImportTransactions(
+  workspaceRoot: string
+): Promise<PendingImportTransaction[]> {
   const resolvedWorkspaceRoot = resolve(workspaceRoot);
-  const transactionIds = await listRecoveryTransactionIds(packageImportRecoveryRoot(resolvedWorkspaceRoot));
+  const transactionIds = await listRecoveryTransactionIds(
+    packageImportRecoveryRoot(resolvedWorkspaceRoot)
+  );
   const pending: PendingImportTransaction[] = [];
   for (const transactionId of transactionIds) {
     const summary = await readImportTransactionRecoverySummary({
@@ -49,7 +53,9 @@ export async function listPendingImportTransactions(workspaceRoot: string): Prom
   }
   return pending.sort((left, right) => {
     const createdAtOrder = left.createdAt.localeCompare(right.createdAt);
-    return createdAtOrder === 0 ? left.transactionId.localeCompare(right.transactionId) : createdAtOrder;
+    return createdAtOrder === 0
+      ? left.transactionId.localeCompare(right.transactionId)
+      : createdAtOrder;
   });
 }
 

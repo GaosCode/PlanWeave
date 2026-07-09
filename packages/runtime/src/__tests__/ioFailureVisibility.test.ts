@@ -17,7 +17,10 @@ function pathKey(path: PathLike): string {
   return path.toString();
 }
 
-function shiftFailure(map: Map<string, Array<NodeJS.ErrnoException | null>>, path: PathLike): NodeJS.ErrnoException | null {
+function shiftFailure(
+  map: Map<string, Array<NodeJS.ErrnoException | null>>,
+  path: PathLike
+): NodeJS.ErrnoException | null {
   const failures = map.get(pathKey(path));
   if (!failures || failures.length === 0) {
     return null;
@@ -38,28 +41,46 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       if (failure) {
         throw failure;
       }
-      return actual.access(path, ...(args as Parameters<typeof actual.access> extends [PathLike, ...infer Rest] ? Rest : never));
+      return actual.access(
+        path,
+        ...(args as Parameters<typeof actual.access> extends [PathLike, ...infer Rest]
+          ? Rest
+          : never)
+      );
     },
     open: async (path: PathLike, ...args: unknown[]) => {
       const failure = shiftFailure(fsFailures.open, path);
       if (failure) {
         throw failure;
       }
-      return actual.open(path, ...(args as Parameters<typeof actual.open> extends [PathLike, ...infer Rest] ? Rest : never));
+      return actual.open(
+        path,
+        ...(args as Parameters<typeof actual.open> extends [PathLike, ...infer Rest] ? Rest : never)
+      );
     },
     readdir: async (path: PathLike, ...args: unknown[]) => {
       const failure = shiftFailure(fsFailures.readdir, path);
       if (failure) {
         throw failure;
       }
-      return actual.readdir(path, ...(args as Parameters<typeof actual.readdir> extends [PathLike, ...infer Rest] ? Rest : never));
+      return actual.readdir(
+        path,
+        ...(args as Parameters<typeof actual.readdir> extends [PathLike, ...infer Rest]
+          ? Rest
+          : never)
+      );
     },
     readFile: async (path: PathLike, ...args: unknown[]) => {
       const failure = shiftFailure(fsFailures.readFile, path);
       if (failure) {
         throw failure;
       }
-      return actual.readFile(path, ...(args as Parameters<typeof actual.readFile> extends [PathLike, ...infer Rest] ? Rest : never));
+      return actual.readFile(
+        path,
+        ...(args as Parameters<typeof actual.readFile> extends [PathLike, ...infer Rest]
+          ? Rest
+          : never)
+      );
     },
     rename: async (oldPath: PathLike, newPath: PathLike) => {
       const failure = shiftFailure(fsFailures.rename, newPath);
@@ -73,17 +94,30 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       if (failure) {
         throw failure;
       }
-      return actual.stat(path, ...(args as Parameters<typeof actual.stat> extends [PathLike, ...infer Rest] ? Rest : never));
+      return actual.stat(
+        path,
+        ...(args as Parameters<typeof actual.stat> extends [PathLike, ...infer Rest] ? Rest : never)
+      );
     }
   };
 });
 
 import { getRunRecord, listBlockRunRecords } from "../desktop/index.js";
 import { getReviewPipeline } from "../desktop/reviewPipelineApi.js";
-import { nextPersistedAutoRunId, readPersistedAutoRunEventLog, readPersistedAutoRunState } from "../desktop/runStateRepository.js";
+import {
+  nextPersistedAutoRunId,
+  readPersistedAutoRunEventLog,
+  readPersistedAutoRunState
+} from "../desktop/runStateRepository.js";
 import { initWorkspace } from "../initWorkspace.js";
 import { readProjectPrompt, readProjectPromptPolicy } from "../projectPromptPolicy.js";
-import { applyDefaultCanvasWorkspaceMigration, canonicalProjectCanvasNode, loadProjectGraph, projectCanvasWorkspace, projectGraphPath } from "../projectGraph/index.js";
+import {
+  applyDefaultCanvasWorkspaceMigration,
+  canonicalProjectCanvasNode,
+  loadProjectGraph,
+  projectCanvasWorkspace,
+  projectGraphPath
+} from "../projectGraph/index.js";
 import { canvasRecoveryPathExists } from "../projectGraph/canvasWorkspaceRecovery.js";
 import { writeJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
@@ -94,8 +128,21 @@ import { createRunSession } from "../runSessions/index.js";
 import { commandCanvasIdForWorkspace } from "../taskManager/canvasCommandScope.js";
 import { validateCanvasPackageForDoctor } from "../taskManager/projectDoctorCanvas.js";
 import { getAutoRunStatus } from "../taskManager/autoRun.js";
-import { renderPrompt, runDoctor, submitBlockResult, submitFeedback, submitReviewResult, claimNext } from "../taskManager/index.js";
-import { basicManifest, createTestWorkspace, writePromptFiles, writeReport, writeReviewResult } from "./promptTestHelpers.js";
+import {
+  renderPrompt,
+  runDoctor,
+  submitBlockResult,
+  submitFeedback,
+  submitReviewResult,
+  claimNext
+} from "../taskManager/index.js";
+import {
+  basicManifest,
+  createTestWorkspace,
+  writePromptFiles,
+  writeReport,
+  writeReviewResult
+} from "./promptTestHelpers.js";
 
 function nodeFileError(code: string, path?: string): NodeJS.ErrnoException {
   const error = new Error(`${code} failure${path ? `: ${path}` : ""}`) as NodeJS.ErrnoException;
@@ -106,27 +153,48 @@ function nodeFileError(code: string, path?: string): NodeJS.ErrnoException {
   return error;
 }
 
-function failOnce(kind: keyof typeof fsFailures, path: string, code: string): NodeJS.ErrnoException {
+function failOnce(
+  kind: keyof typeof fsFailures,
+  path: string,
+  code: string
+): NodeJS.ErrnoException {
   const failure = nodeFileError(code, path);
   fsFailures[kind].set(path, [...(fsFailures[kind].get(path) ?? []), failure]);
   return failure;
 }
 
-function failSequence(kind: keyof typeof fsFailures, path: string, codes: string[]): NodeJS.ErrnoException[] {
+function failSequence(
+  kind: keyof typeof fsFailures,
+  path: string,
+  codes: string[]
+): NodeJS.ErrnoException[] {
   const failures = codes.map((code) => nodeFileError(code, path));
   fsFailures[kind].set(path, [...(fsFailures[kind].get(path) ?? []), ...failures]);
   return failures;
 }
 
-function failAfterSuccesses(kind: keyof typeof fsFailures, path: string, successes: number, code: string): NodeJS.ErrnoException {
+function failAfterSuccesses(
+  kind: keyof typeof fsFailures,
+  path: string,
+  successes: number,
+  code: string
+): NodeJS.ErrnoException {
   const failure = nodeFileError(code, path);
-  fsFailures[kind].set(path, [...(fsFailures[kind].get(path) ?? []), ...Array.from({ length: successes }, () => null), failure]);
+  fsFailures[kind].set(path, [
+    ...(fsFailures[kind].get(path) ?? []),
+    ...Array.from({ length: successes }, () => null),
+    failure
+  ]);
   return failure;
 }
 
 async function completeImplementation(root: string): Promise<void> {
   await claimNext({ projectRoot: root });
-  await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "implementation.md") });
+  await submitBlockResult({
+    projectRoot: root,
+    ref: "T-001#B-001",
+    reportPath: await writeReport(root, "implementation.md")
+  });
   await claimNext({ projectRoot: root });
 }
 
@@ -148,7 +216,13 @@ describe("filesystem I/O failure visibility", () => {
     const expected = failOnce("stat", indexPath, "EACCES");
     failOnce("access", indexPath, "EACCES");
 
-    await expect(submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "blocked.md") })).rejects.toBe(expected);
+    await expect(
+      submitBlockResult({
+        projectRoot: root,
+        ref: "T-001#B-001",
+        reportPath: await writeReport(root, "blocked.md")
+      })
+    ).rejects.toBe(expected);
   });
 
   it("does not allocate a review attempt id when the attempts directory read fails after missing-path probing", async () => {
@@ -175,10 +249,21 @@ describe("filesystem I/O failure visibility", () => {
       resultPath: await writeReviewResult(root, "needs_changes", "Fix the edge case.")
     });
     await claimNext({ projectRoot: root });
-    const submissionRoot = join(init.workspace.resultsDir, "T-001", "feedback", "FE-001", "submissions");
+    const submissionRoot = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "feedback",
+      "FE-001",
+      "submissions"
+    );
     const [, expected] = failSequence("readdir", submissionRoot, ["ENOENT", "EIO"]);
 
-    await expect(submitFeedback({ projectRoot: root, reportPath: await writeReport(root, "feedback.md", "Fixed.\n") })).rejects.toBe(expected);
+    await expect(
+      submitFeedback({
+        projectRoot: root,
+        reportPath: await writeReport(root, "feedback.md", "Fixed.\n")
+      })
+    ).rejects.toBe(expected);
   });
 
   it("does not initialize over an inaccessible existing project metadata file", async () => {
@@ -214,8 +299,20 @@ describe("filesystem I/O failure visibility", () => {
   it("does not hide unreadable run record output as empty output", async () => {
     const { root, init } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "run.md", "done\n") });
-    const stdoutPath = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "stdout.md");
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "run.md", "done\n")
+    });
+    const stdoutPath = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-001",
+      "stdout.md"
+    );
     const expected = failOnce("readFile", stdoutPath, "EIO");
     failOnce("access", stdoutPath, "EIO");
 
@@ -224,11 +321,17 @@ describe("filesystem I/O failure visibility", () => {
 
   it("reports canvas workspace stat failures as workspace_read_failed instead of workspace_missing", async () => {
     const { root, init } = await createTestWorkspace();
-    const canvasWorkspace = projectCanvasWorkspace(init.workspace, canonicalProjectCanvasNode({ id: "default", title: "Default" }));
+    const canvasWorkspace = projectCanvasWorkspace(
+      init.workspace,
+      canonicalProjectCanvasNode({ id: "default", title: "Default" })
+    );
     failOnce("access", canvasWorkspace.workspaceRoot, "EACCES");
     const expected = failOnce("stat", canvasWorkspace.workspaceRoot, "EACCES");
 
-    const report = await validateCanvasPackageForDoctor({ canvasId: "default", workspace: canvasWorkspace });
+    const report = await validateCanvasPackageForDoctor({
+      canvasId: "default",
+      workspace: canvasWorkspace
+    });
 
     expect(report.errors).toEqual(
       expect.arrayContaining([
@@ -247,7 +350,11 @@ describe("filesystem I/O failure visibility", () => {
   it("does not show an inaccessible Auto Run run directory as no latest run", async () => {
     const { root, init } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "auto-run.md", "done\n") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "auto-run.md", "done\n")
+    });
     const runRoot = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs");
     const expected = failOnce("readdir", runRoot, "EACCES");
 
@@ -257,8 +364,20 @@ describe("filesystem I/O failure visibility", () => {
   it("does not hide unreadable Auto Run output as an empty output summary", async () => {
     const { root, init } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "auto-run-output.md", "done\n") });
-    const stdoutPath = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "stdout.md");
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "auto-run-output.md", "done\n")
+    });
+    const stdoutPath = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-001",
+      "stdout.md"
+    );
     await writeFile(stdoutPath, "streamed output\n", "utf8");
     const expected = failOnce("readFile", stdoutPath, "EIO");
     failOnce("access", stdoutPath, "EIO");
@@ -269,7 +388,11 @@ describe("filesystem I/O failure visibility", () => {
   it("does not let doctor repair classify unreadable run metadata as a missing run", async () => {
     const { root, init } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "doctor.md", "done\n") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "doctor.md", "done\n")
+    });
     await writeJsonFile(init.workspace.stateFile, {
       currentRefs: [],
       currentFeedbackId: null,
@@ -280,7 +403,15 @@ describe("filesystem I/O failure visibility", () => {
       },
       feedback: {}
     });
-    const metadataPath = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json");
+    const metadataPath = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-001",
+      "metadata.json"
+    );
     const expected = failOnce("stat", metadataPath, "EACCES");
     failOnce("access", metadataPath, "EACCES");
 
@@ -290,7 +421,15 @@ describe("filesystem I/O failure visibility", () => {
   it("does not render unreadable latest implementation reports as unavailable prompt text", async () => {
     const { root, init } = await createTestWorkspace();
     await completeImplementation(root);
-    const reportPath = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "report.md");
+    const reportPath = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-001",
+      "report.md"
+    );
     const expected = failOnce("readFile", reportPath, "EIO");
 
     await expect(renderPrompt({ projectRoot: root, ref: "T-001#R-001" })).rejects.toBe(expected);
@@ -299,10 +438,20 @@ describe("filesystem I/O failure visibility", () => {
   it("keeps missing latest implementation reports as unavailable prompt text", async () => {
     const { root, init } = await createTestWorkspace();
     await completeImplementation(root);
-    const reportPath = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "report.md");
+    const reportPath = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-001",
+      "report.md"
+    );
     failOnce("readFile", reportPath, "ENOENT");
 
-    await expect(renderPrompt({ projectRoot: root, ref: "T-001#R-001" })).resolves.toContain("T-001#B-001 RUN-001: (unavailable)");
+    await expect(renderPrompt({ projectRoot: root, ref: "T-001#R-001" })).resolves.toContain(
+      "T-001#B-001 RUN-001: (unavailable)"
+    );
   });
 
   it("treats ENOTDIR prompt source reads as missing when missing prompts are allowed", async () => {
@@ -310,7 +459,9 @@ describe("filesystem I/O failure visibility", () => {
     const globalPromptPath = join(resolvePlanweaveHome(), "config", "global-prompt.md");
     failOnce("readFile", globalPromptPath, "ENOTDIR");
 
-    await expect(renderPrompt({ projectRoot: root, ref: "T-001#B-001", allowMissingPromptSources: true })).resolves.not.toContain("ENOTDIR failure");
+    await expect(
+      renderPrompt({ projectRoot: root, ref: "T-001#B-001", allowMissingPromptSources: true })
+    ).resolves.not.toContain("ENOTDIR failure");
   });
 
   it("treats ENOTDIR project prompt policy and project prompt reads as missing", async () => {
@@ -341,7 +492,13 @@ describe("filesystem I/O failure visibility", () => {
 
   it("does not show unreadable review pipeline prompts as empty prompt text", async () => {
     const { root, init } = await createTestWorkspace();
-    const reviewPromptPath = join(init.workspace.packageDir, "nodes", "T-001", "blocks", "R-001.prompt.md");
+    const reviewPromptPath = join(
+      init.workspace.packageDir,
+      "nodes",
+      "T-001",
+      "blocks",
+      "R-001.prompt.md"
+    );
     const expected = failOnce("readFile", reviewPromptPath, "EIO");
 
     await expect(getReviewPipeline(root, "T-001")).rejects.toBe(expected);
@@ -349,10 +506,17 @@ describe("filesystem I/O failure visibility", () => {
 
   it("does not treat unreadable persisted Auto Run state as no state", async () => {
     const { init } = await createTestWorkspace();
-    const statePath = join(init.workspace.resultsDir, "auto-runs", "DESKTOP-RUN-0001", "state.json");
+    const statePath = join(
+      init.workspace.resultsDir,
+      "auto-runs",
+      "DESKTOP-RUN-0001",
+      "state.json"
+    );
     const expected = failOnce("readFile", statePath, "EIO");
 
-    await expect(readPersistedAutoRunState(init.workspace, "DESKTOP-RUN-0001")).rejects.toBe(expected);
+    await expect(readPersistedAutoRunState(init.workspace, "DESKTOP-RUN-0001")).rejects.toBe(
+      expected
+    );
   });
 
   it("does not allocate an Auto Run id when a registered project graph cannot be inspected", async () => {
@@ -388,10 +552,17 @@ describe("filesystem I/O failure visibility", () => {
 
   it("treats ENOTDIR Auto Run event logs as missing diagnostics", async () => {
     const { init } = await createTestWorkspace();
-    const eventLogPath = join(init.workspace.resultsDir, "auto-runs", "DESKTOP-RUN-0001", "events.ndjson");
+    const eventLogPath = join(
+      init.workspace.resultsDir,
+      "auto-runs",
+      "DESKTOP-RUN-0001",
+      "events.ndjson"
+    );
     failOnce("readFile", eventLogPath, "ENOTDIR");
 
-    await expect(readPersistedAutoRunEventLog(init.workspace, "DESKTOP-RUN-0001")).resolves.toMatchObject({
+    await expect(
+      readPersistedAutoRunEventLog(init.workspace, "DESKTOP-RUN-0001")
+    ).resolves.toMatchObject({
       runId: "DESKTOP-RUN-0001",
       events: [],
       diagnostics: [
@@ -415,7 +586,11 @@ describe("filesystem I/O failure visibility", () => {
     const dir = await mkdtemp(join(tmpdir(), "planweave-tmux-output-"));
     const outputPath = join(dir, "stdout.md");
     failOnce("stat", outputPath, "ENOENT");
-    await expect(readNewTmuxText(outputPath, 0)).resolves.toEqual({ text: "", offset: 0, limitExceeded: false });
+    await expect(readNewTmuxText(outputPath, 0)).resolves.toEqual({
+      text: "",
+      offset: 0,
+      limitExceeded: false
+    });
 
     const expected = failOnce("stat", outputPath, "EIO");
     await expect(readNewTmuxText(outputPath, 0)).rejects.toBe(expected);
@@ -426,7 +601,11 @@ describe("filesystem I/O failure visibility", () => {
     const outputPath = join(dir, "stdout.md");
     await writeFile(outputPath, "partial output\n", "utf8");
     failOnce("open", outputPath, "ENOTDIR");
-    await expect(readNewTmuxText(outputPath, 0)).resolves.toEqual({ text: "", offset: 0, limitExceeded: false });
+    await expect(readNewTmuxText(outputPath, 0)).resolves.toEqual({
+      text: "",
+      offset: 0,
+      limitExceeded: false
+    });
 
     const expected = failOnce("open", outputPath, "EACCES");
     await expect(readNewTmuxText(outputPath, 0)).rejects.toBe(expected);
@@ -465,7 +644,13 @@ describe("filesystem I/O failure visibility", () => {
     const legacyPackageDir = join(init.workspace.workspaceRoot, "package");
     await writeJsonFile(join(legacyPackageDir, "manifest.json"), manifest);
     await writePromptFiles(legacyPackageDir, manifest);
-    const canonicalManifestPath = join(init.workspace.workspaceRoot, "canvases", "default", "package", "manifest.json");
+    const canonicalManifestPath = join(
+      init.workspace.workspaceRoot,
+      "canvases",
+      "default",
+      "package",
+      "manifest.json"
+    );
     const expected = failAfterSuccesses("readFile", canonicalManifestPath, 1, "EIO");
 
     await expect(applyDefaultCanvasWorkspaceMigration(init.workspace)).rejects.toBe(expected);
@@ -475,12 +660,14 @@ describe("filesystem I/O failure visibility", () => {
     const dir = await mkdtemp(join(tmpdir(), "planweave-review-result-"));
     const resultPath = join(dir, "review-result.json");
     failOnce("access", resultPath, "ENOENT");
-    await expect(assertReviewResultJsonReadable({ executorName: "fake-review", resultPath })).rejects.toThrow(
-      `Executor 'fake-review' did not create review result JSON at ${resultPath}.`
-    );
+    await expect(
+      assertReviewResultJsonReadable({ executorName: "fake-review", resultPath })
+    ).rejects.toThrow(`Executor 'fake-review' did not create review result JSON at ${resultPath}.`);
 
     const expected = failOnce("access", resultPath, "EACCES");
-    await expect(assertReviewResultJsonReadable({ executorName: "fake-review", resultPath })).rejects.toThrow(
+    await expect(
+      assertReviewResultJsonReadable({ executorName: "fake-review", resultPath })
+    ).rejects.toThrow(
       `Executor 'fake-review' could not read review result JSON at ${resultPath}: ${expected.message}`
     );
   });

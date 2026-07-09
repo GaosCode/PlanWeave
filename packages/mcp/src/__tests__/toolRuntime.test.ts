@@ -43,13 +43,20 @@ describe("MCP runtime gateway", () => {
     const home = await mkdtemp(join(tmpdir(), "planweave-mcp-home-"));
     process.env.PLANWEAVE_HOME = home;
 
-    const imported = await runtimeGateway.importPlanPackage({ name: "Imported Package", files: packageFiles });
+    const imported = await runtimeGateway.importPlanPackage({
+      name: "Imported Package",
+      files: packageFiles
+    });
     const projectRoot = join(home, "projects", imported.project.projectId);
 
-    await expect(readFile(join(projectRoot, "canvases", "default", "package", "manifest.json"), "utf8")).resolves.toBe(packageFiles[0].content);
+    await expect(
+      readFile(join(projectRoot, "canvases", "default", "package", "manifest.json"), "utf8")
+    ).resolves.toBe(packageFiles[0].content);
     await expect(access(join(projectRoot, "package"))).rejects.toThrow();
 
-    await expect(runtimeGateway.exportPlanPackage(imported.project.projectId)).resolves.toMatchObject({
+    await expect(
+      runtimeGateway.exportPlanPackage(imported.project.projectId)
+    ).resolves.toMatchObject({
       canvasId: "default",
       files: packageFiles
     });
@@ -75,21 +82,36 @@ describe("MCP runtime gateway", () => {
       })
     ).resolves.toMatchObject({ ok: true });
 
-    const result = await runtimeGateway.updateTask(project.projectId, undefined, "T-MCP-TASK-FIELDS", {
-      title: "Updated MCP task fields",
-      promptMarkdown: "# Updated task prompt\n",
-      executor: "codex-auto"
-    });
+    const result = await runtimeGateway.updateTask(
+      project.projectId,
+      undefined,
+      "T-MCP-TASK-FIELDS",
+      {
+        title: "Updated MCP task fields",
+        promptMarkdown: "# Updated task prompt\n",
+        executor: "codex-auto"
+      }
+    );
 
-    expect(result).toMatchObject({ ok: true, affectedTasks: ["T-MCP-TASK-FIELDS"], diagnostics: [] });
-    await expect(runtimeGateway.getTaskDetail(project.projectId, "T-MCP-TASK-FIELDS")).resolves.toMatchObject({
+    expect(result).toMatchObject({
+      ok: true,
+      affectedTasks: ["T-MCP-TASK-FIELDS"],
+      diagnostics: []
+    });
+    await expect(
+      runtimeGateway.getTaskDetail(project.projectId, "T-MCP-TASK-FIELDS")
+    ).resolves.toMatchObject({
       title: "Updated MCP task fields",
       executor: "codex-auto",
       promptMarkdown: "# Updated task prompt\n"
     });
 
-    await expect(undoDesktopPlanGraphCommand(project.rootPath)).resolves.toMatchObject({ ok: true });
-    await expect(runtimeGateway.getTaskDetail(project.projectId, "T-MCP-TASK-FIELDS")).resolves.toMatchObject({
+    await expect(undoDesktopPlanGraphCommand(project.rootPath)).resolves.toMatchObject({
+      ok: true
+    });
+    await expect(
+      runtimeGateway.getTaskDetail(project.projectId, "T-MCP-TASK-FIELDS")
+    ).resolves.toMatchObject({
       title: "MCP task fields",
       executor: null,
       promptMarkdown: "# Original task prompt\n"
@@ -108,21 +130,36 @@ describe("MCP runtime gateway", () => {
       })
     ).resolves.toMatchObject({ ok: true });
 
-    const result = await runtimeGateway.updateBlock(project.projectId, undefined, "T-MCP-BLOCK-FIELDS#B-001", {
-      title: "Updated MCP block fields",
-      promptMarkdown: "# Updated block prompt\n",
-      executor: "manual"
-    });
+    const result = await runtimeGateway.updateBlock(
+      project.projectId,
+      undefined,
+      "T-MCP-BLOCK-FIELDS#B-001",
+      {
+        title: "Updated MCP block fields",
+        promptMarkdown: "# Updated block prompt\n",
+        executor: "manual"
+      }
+    );
 
-    expect(result).toMatchObject({ ok: true, affectedTasks: ["T-MCP-BLOCK-FIELDS"], diagnostics: [] });
-    await expect(runtimeGateway.getBlockDetail(project.projectId, "T-MCP-BLOCK-FIELDS#B-001")).resolves.toMatchObject({
+    expect(result).toMatchObject({
+      ok: true,
+      affectedTasks: ["T-MCP-BLOCK-FIELDS"],
+      diagnostics: []
+    });
+    await expect(
+      runtimeGateway.getBlockDetail(project.projectId, "T-MCP-BLOCK-FIELDS#B-001")
+    ).resolves.toMatchObject({
       title: "Updated MCP block fields",
       executor: "manual",
       promptMarkdown: "# Updated block prompt\n"
     });
 
-    await expect(undoDesktopPlanGraphCommand(project.rootPath)).resolves.toMatchObject({ ok: true });
-    await expect(runtimeGateway.getBlockDetail(project.projectId, "T-MCP-BLOCK-FIELDS#B-001")).resolves.toMatchObject({
+    await expect(undoDesktopPlanGraphCommand(project.rootPath)).resolves.toMatchObject({
+      ok: true
+    });
+    await expect(
+      runtimeGateway.getBlockDetail(project.projectId, "T-MCP-BLOCK-FIELDS#B-001")
+    ).resolves.toMatchObject({
       title: "Implement work",
       executor: null,
       promptMarkdown: expect.stringContaining("# Implement work")

@@ -5,7 +5,12 @@ import { canvasCommandFlagForWorkspace } from "../taskManager/canvasCommandScope
 import { writeJsonFile } from "../json.js";
 import type { ExecutorAdapterResult } from "../types.js";
 import { allocateRunId, prepareBlockRun, workspaceExecutionCwd } from "./executorShared.js";
-import { adapterProfileMismatch, type ExecutorBlockInput, type ExecutorFeedbackInput, type ExecutorIntegration } from "./executorIntegration.js";
+import {
+  adapterProfileMismatch,
+  type ExecutorBlockInput,
+  type ExecutorFeedbackInput,
+  type ExecutorIntegration
+} from "./executorIntegration.js";
 
 async function runManualBlock(input: ExecutorBlockInput): Promise<ExecutorAdapterResult> {
   if (input.profile.adapter !== "manual") {

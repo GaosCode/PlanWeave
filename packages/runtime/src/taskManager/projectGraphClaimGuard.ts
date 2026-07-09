@@ -46,11 +46,18 @@ export function createProjectGraphClaimGuardFromAggregation(
   }
 
   return {
-    blockersForTask: (taskId: string) => projectBlockersForTask(aggregation, currentCanvas.canvasId, taskId),
-    blockerReasonForTask: (taskId: string) => projectBlockerReasonForTask(aggregation, currentCanvas.canvasId, taskId)
+    blockersForTask: (taskId: string) =>
+      projectBlockersForTask(aggregation, currentCanvas.canvasId, taskId),
+    blockerReasonForTask: (taskId: string) =>
+      projectBlockerReasonForTask(aggregation, currentCanvas.canvasId, taskId)
   };
 }
 
-export async function createProjectGraphClaimGuard(context: RuntimeContext): Promise<ProjectGraphClaimGuard> {
-  return createProjectGraphClaimGuardFromAggregation(context, await loadProjectCanvasRuntimeAggregation(context.workspace));
+export async function createProjectGraphClaimGuard(
+  context: RuntimeContext
+): Promise<ProjectGraphClaimGuard> {
+  return createProjectGraphClaimGuardFromAggregation(
+    context,
+    await loadProjectCanvasRuntimeAggregation(context.workspace)
+  );
 }

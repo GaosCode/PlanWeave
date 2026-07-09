@@ -17,12 +17,17 @@ function SettingGroup({ children, title }: { children: ReactNode; title: string 
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-base font-semibold text-text-strong">{title}</h2>
-      <FieldGroup className="gap-0 overflow-hidden rounded-md border border-border/80 bg-surface-raised shadow-sm">{children}</FieldGroup>
+      <FieldGroup className="gap-0 overflow-hidden rounded-md border border-border/80 bg-surface-raised shadow-sm">
+        {children}
+      </FieldGroup>
     </section>
   );
 }
 
-function updateReviewSettings(settings: DesktopUiSettings, checked: boolean): DesktopUiSettings["review"] {
+function updateReviewSettings(
+  settings: DesktopUiSettings,
+  checked: boolean
+): DesktopUiSettings["review"] {
   if (!checked) {
     return {
       pipelineEnabled: false,
@@ -37,13 +42,20 @@ function updateReviewSettings(settings: DesktopUiSettings, checked: boolean): De
   };
 }
 
-export function SettingsReviewSection({ graph, settings, t, updateSettings }: SettingsReviewSectionProps) {
+export function SettingsReviewSection({
+  graph,
+  settings,
+  t,
+  updateSettings
+}: SettingsReviewSectionProps) {
   const reviewDisabled = !settings.review.pipelineEnabled;
 
   return (
     <section data-testid="settings-section-review" className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-normal text-text-strong">{t("settingsReview")}</h1>
+        <h1 className="text-2xl font-semibold tracking-normal text-text-strong">
+          {t("settingsReview")}
+        </h1>
         <p className="mt-1 text-sm text-text-muted">{t("settingsReviewHint")}</p>
       </div>
       <SettingGroup title={t("reviewPipeline")}>
@@ -51,7 +63,9 @@ export function SettingsReviewSection({ graph, settings, t, updateSettings }: Se
           checked={settings.review.pipelineEnabled}
           title={t("reviewPipelineEnabled")}
           description={t("reviewPipelineEnabledHint")}
-          onCheckedChange={(checked) => updateSettings((current) => ({ review: updateReviewSettings(current, checked) }))}
+          onCheckedChange={(checked) =>
+            updateSettings((current) => ({ review: updateReviewSettings(current, checked) }))
+          }
         />
         <SettingsSwitchRow
           checked={!reviewDisabled && settings.review.strictReview}
@@ -72,11 +86,15 @@ export function SettingsReviewSection({ graph, settings, t, updateSettings }: Se
           disabled={reviewDisabled}
           title={t("autoAppendReviewBlock")}
           description={t("autoAppendReviewBlockHint")}
-          onCheckedChange={(checked) => updateSettings({ review: { autoAppendReviewBlock: checked } })}
+          onCheckedChange={(checked) =>
+            updateSettings({ review: { autoAppendReviewBlock: checked } })
+          }
         />
       </SettingGroup>
       <Separator />
-      <p className="text-sm text-text-muted">{graph ? t("reviewSettingsProjectScoped") : t("reviewSettingsNoProject")}</p>
+      <p className="text-sm text-text-muted">
+        {graph ? t("reviewSettingsProjectScoped") : t("reviewSettingsNoProject")}
+      </p>
     </section>
   );
 }

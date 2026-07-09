@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createCanvasWorkspace } from "../projectGraph/createCanvasWorkspace.js";
 import { readJsonFile } from "../json.js";
 import { projectGraphPath } from "../projectGraph/index.js";
-import { readActiveTaskCanvasSelection, writeActiveTaskCanvasSelection } from "../desktop/canvasSelectionStore.js";
+import {
+  readActiveTaskCanvasSelection,
+  writeActiveTaskCanvasSelection
+} from "../desktop/canvasSelectionStore.js";
 import { validatePackage } from "../validatePackage.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 
@@ -35,9 +38,20 @@ describe("createCanvasWorkspace", () => {
 
     expect(first.canvasId).toBe("optimization-plan");
     expect(second.canvasId).toBe("optimization-plan-2");
-    expect(first.canvasValidationArgs).toEqual(["validate", "--canvas", "optimization-plan", "--json"]);
+    expect(first.canvasValidationArgs).toEqual([
+      "validate",
+      "--canvas",
+      "optimization-plan",
+      "--json"
+    ]);
     expect(first.projectValidationArgs).toEqual(["validate", "--json"]);
-    expect(second.qualityArgs).toEqual(["graph", "quality", "--canvas", "optimization-plan-2", "--json"]);
+    expect(second.qualityArgs).toEqual([
+      "graph",
+      "quality",
+      "--canvas",
+      "optimization-plan-2",
+      "--json"
+    ]);
     expect(first).not.toHaveProperty("projectPromptPath");
     expect(first).not.toHaveProperty("validationCommand");
     expect(first).not.toHaveProperty("qualityCommand");
@@ -55,8 +69,16 @@ describe("createCanvasWorkspace", () => {
   it("accepts explicit CLI-safe ids and still avoids conflicts", async () => {
     const { root } = await createTestWorkspace();
 
-    const first = await createCanvasWorkspace({ cwd: root, id: "release_2026.07", title: "Release Plan" });
-    const second = await createCanvasWorkspace({ cwd: root, id: "release_2026.07", title: "Release Plan Again" });
+    const first = await createCanvasWorkspace({
+      cwd: root,
+      id: "release_2026.07",
+      title: "Release Plan"
+    });
+    const second = await createCanvasWorkspace({
+      cwd: root,
+      id: "release_2026.07",
+      title: "Release Plan Again"
+    });
 
     expect(first.canvasId).toBe("release_2026.07");
     expect(second.canvasId).toBe("release_2026.07-2");
@@ -65,8 +87,12 @@ describe("createCanvasWorkspace", () => {
   it("rejects empty titles and invalid explicit ids", async () => {
     const { root } = await createTestWorkspace();
 
-    await expect(createCanvasWorkspace({ cwd: root, title: "   " })).rejects.toThrow("Canvas title must not be empty.");
-    await expect(createCanvasWorkspace({ cwd: root, id: "-bad", title: "Bad Id" })).rejects.toThrow("Canvas id must be CLI-safe");
+    await expect(createCanvasWorkspace({ cwd: root, title: "   " })).rejects.toThrow(
+      "Canvas title must not be empty."
+    );
+    await expect(createCanvasWorkspace({ cwd: root, id: "-bad", title: "Bad Id" })).rejects.toThrow(
+      "Canvas id must be CLI-safe"
+    );
   });
 
   it("dry-runs without creating directories, project graph entries, state, or active selection", async () => {
@@ -74,7 +100,12 @@ describe("createCanvasWorkspace", () => {
     const beforeGraph = await readFile(projectGraphPath(init.workspace), "utf8");
     const activePath = join(init.workspace.workspaceRoot, "desktop", "active-canvas.json");
 
-    const result = await createCanvasWorkspace({ cwd: root, title: "Dry Run Plan", dryRun: true, activate: true });
+    const result = await createCanvasWorkspace({
+      cwd: root,
+      title: "Dry Run Plan",
+      dryRun: true,
+      activate: true
+    });
 
     expect(result).toMatchObject({
       canvasId: "dry-run-plan",
@@ -93,18 +124,36 @@ describe("createCanvasWorkspace", () => {
     const result = await createCanvasWorkspace({ cwd: root, title: "Runtime Canvas" });
     const manifest = await readJsonFile<Record<string, unknown>>(result.manifestPath);
     const state = await readJsonFile<Record<string, unknown>>(result.statePath);
-    const projectGraph = await readJsonFile<{ canvases: Array<{ id: string; packageDir: string; stateFile: string; resultsDir: string }> }>(
-      projectGraphPath(init.workspace)
-    );
+    const projectGraph = await readJsonFile<{
+      canvases: Array<{ id: string; packageDir: string; stateFile: string; resultsDir: string }>;
+    }>(projectGraphPath(init.workspace));
 
     expect(result).toMatchObject({
       canvasId: "runtime-canvas",
       created: true,
       activated: false,
       packageDir: join(init.workspace.workspaceRoot, "canvases", "runtime-canvas", "package"),
-      manifestPath: join(init.workspace.workspaceRoot, "canvases", "runtime-canvas", "package", "manifest.json"),
-      taskPromptsDir: join(init.workspace.workspaceRoot, "canvases", "runtime-canvas", "package", "nodes"),
-      blockPromptsDir: join(init.workspace.workspaceRoot, "canvases", "runtime-canvas", "package", "nodes")
+      manifestPath: join(
+        init.workspace.workspaceRoot,
+        "canvases",
+        "runtime-canvas",
+        "package",
+        "manifest.json"
+      ),
+      taskPromptsDir: join(
+        init.workspace.workspaceRoot,
+        "canvases",
+        "runtime-canvas",
+        "package",
+        "nodes"
+      ),
+      blockPromptsDir: join(
+        init.workspace.workspaceRoot,
+        "canvases",
+        "runtime-canvas",
+        "package",
+        "nodes"
+      )
     });
     await expect(access(join(result.packageDir, "nodes"))).resolves.toBeUndefined();
     await expect(access(join(result.packageDir, "prompts"))).rejects.toThrow();
@@ -115,7 +164,14 @@ describe("createCanvasWorkspace", () => {
       nodes: [],
       edges: []
     });
-    expect(state).toEqual({ currentRefs: [], currentFeedbackId: null, currentReviewBlockRef: null, tasks: {}, blocks: {}, feedback: {} });
+    expect(state).toEqual({
+      currentRefs: [],
+      currentFeedbackId: null,
+      currentReviewBlockRef: null,
+      tasks: {},
+      blocks: {},
+      feedback: {}
+    });
     expect(projectGraph.canvases).toContainEqual({
       id: "runtime-canvas",
       type: "canvas",
@@ -132,17 +188,25 @@ describe("createCanvasWorkspace", () => {
 
     await createCanvasWorkspace({ cwd: root, title: "Inactive Canvas" });
 
-    await expect(readActiveTaskCanvasSelection(root)).resolves.toEqual({ activeCanvasId: "default" });
+    await expect(readActiveTaskCanvasSelection(root)).resolves.toEqual({
+      activeCanvasId: "default"
+    });
   });
 
   it("updates the active canvas when activation is requested", async () => {
     const { root } = await createTestWorkspace();
     await writeActiveTaskCanvasSelection(root, "default");
 
-    const result = await createCanvasWorkspace({ cwd: root, title: "Active Canvas", activate: true });
+    const result = await createCanvasWorkspace({
+      cwd: root,
+      title: "Active Canvas",
+      activate: true
+    });
 
     expect(result.activated).toBe(true);
-    await expect(readActiveTaskCanvasSelection(root)).resolves.toEqual({ activeCanvasId: "active-canvas" });
+    await expect(readActiveTaskCanvasSelection(root)).resolves.toEqual({
+      activeCanvasId: "active-canvas"
+    });
   });
 
   it("does not rewrite existing canvas manifests", async () => {

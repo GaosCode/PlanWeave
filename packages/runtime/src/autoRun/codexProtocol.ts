@@ -1,6 +1,7 @@
 import type { CodexExecExecutorProfile } from "../types.js";
 
-const CODEX_STATUS_SESSION_PATTERN = /(?:^|[\s│|>])Session\s*:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=\s|[│|]|$)/i;
+const CODEX_STATUS_SESSION_PATTERN =
+  /(?:^|[\s│|>])Session\s*:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=\s|[│|]|$)/i;
 
 export function codexExecArgs(profile: CodexExecExecutorProfile): string[] {
   if (!profile.sandbox) {
@@ -11,10 +12,18 @@ export function codexExecArgs(profile: CodexExecExecutorProfile): string[] {
   if (stdinPromptIndex === -1) {
     return [...profile.args, ...sandboxArgs];
   }
-  return [...profile.args.slice(0, stdinPromptIndex), ...sandboxArgs, ...profile.args.slice(stdinPromptIndex)];
+  return [
+    ...profile.args.slice(0, stdinPromptIndex),
+    ...sandboxArgs,
+    ...profile.args.slice(stdinPromptIndex)
+  ];
 }
 
-export function codexResumeArgs(profile: CodexExecExecutorProfile, sessionId: string, prompt: string): string[] {
+export function codexResumeArgs(
+  profile: CodexExecExecutorProfile,
+  sessionId: string,
+  prompt: string
+): string[] {
   const execIndex = profile.args.indexOf("exec");
   const prefix = execIndex === -1 ? [] : profile.args.slice(0, execIndex);
   const sandboxArgs = profile.sandbox ? ["--sandbox", profile.sandbox] : [];
@@ -62,7 +71,9 @@ export function extractCodexSessionId(output: string): string | null {
         return sessionId;
       }
     } catch {
-      const match = trimmed.match(/^(?:codexSessionId|sessionId|session_id|session id|threadId|thread_id)\s*[:=]\s*([A-Za-z0-9_.:-]+)$/i);
+      const match = trimmed.match(
+        /^(?:codexSessionId|sessionId|session_id|session id|threadId|thread_id)\s*[:=]\s*([A-Za-z0-9_.:-]+)$/i
+      );
       if (match) {
         return match[1];
       }

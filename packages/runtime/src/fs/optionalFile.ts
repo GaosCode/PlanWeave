@@ -25,7 +25,10 @@ export async function optionalStat(path: string): Promise<Stats | null> {
   }
 }
 
-export async function optionalReaddir(path: string, options: { withFileTypes: true }): Promise<Dirent[] | null> {
+export async function optionalReaddir(
+  path: string,
+  options: { withFileTypes: true }
+): Promise<Dirent[] | null> {
   try {
     return await readdir(path, options);
   } catch (error) {
@@ -36,7 +39,10 @@ export async function optionalReaddir(path: string, options: { withFileTypes: tr
   }
 }
 
-export async function optionalReadFile(path: string, encoding: BufferEncoding): Promise<string | null> {
+export async function optionalReadFile(
+  path: string,
+  encoding: BufferEncoding
+): Promise<string | null> {
   try {
     return await readFile(path, encoding);
   } catch (error) {

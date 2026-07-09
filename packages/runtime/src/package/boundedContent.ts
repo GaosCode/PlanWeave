@@ -51,7 +51,10 @@ function normalizePackagePath(path: string): string {
   return path.split("\\").join("/");
 }
 
-function boundedContent(content: string, maxBytes: number): { content: string; truncated: boolean } {
+function boundedContent(
+  content: string,
+  maxBytes: number
+): { content: string; truncated: boolean } {
   if (Buffer.byteLength(content, "utf8") <= maxBytes) {
     return { content, truncated: false };
   }
@@ -74,7 +77,9 @@ async function visitFiles(root: string, dir: string, files: string[]): Promise<v
   }
 }
 
-function ownerMapForPackage(manifest: Awaited<ReturnType<typeof loadPackage>>["manifest"]): Map<string, PackageContentOwner> {
+function ownerMapForPackage(
+  manifest: Awaited<ReturnType<typeof loadPackage>>["manifest"]
+): Map<string, PackageContentOwner> {
   const owners = new Map<string, PackageContentOwner>([["manifest.json", { kind: "manifest" }]]);
   for (const node of manifest.nodes) {
     owners.set(node.prompt, { kind: "task", ref: node.id });
@@ -85,7 +90,11 @@ function ownerMapForPackage(manifest: Awaited<ReturnType<typeof loadPackage>>["m
   return owners;
 }
 
-function contentRef(kind: PackageContentRef["kind"], content: string, input: { path?: string; ref?: string }): PackageContentRef {
+function contentRef(
+  kind: PackageContentRef["kind"],
+  content: string,
+  input: { path?: string; ref?: string }
+): PackageContentRef {
   return {
     kind,
     ...input,
@@ -109,7 +118,9 @@ export async function listPackageFiles(options: {
   const selected = paths.slice(offset, offset + limit);
   const files: PackageFileSummary[] = [];
   for (const path of selected) {
-    const absolutePath = await resolvePackagePath(workspace.packageDir, path, { requireExisting: true });
+    const absolutePath = await resolvePackagePath(workspace.packageDir, path, {
+      requireExisting: true
+    });
     const content = await readFile(absolutePath, "utf8");
     const metadata = await stat(absolutePath);
     files.push({
@@ -140,7 +151,12 @@ export async function readPackageFile(options: {
   maxBytes?: number;
 }): Promise<PackageContentReadResult> {
   const { workspace } = await loadPackage(options.projectRoot);
-  return readBoundedPackagePath(workspace.packageDir, options.path, "package_file", options.maxBytes);
+  return readBoundedPackagePath(
+    workspace.packageDir,
+    options.path,
+    "package_file",
+    options.maxBytes
+  );
 }
 
 async function readBoundedPackagePath(
@@ -184,7 +200,12 @@ export async function readPromptSource(options: {
     if (!task) {
       throw new Error(`Task '${options.taskId}' does not exist.`);
     }
-    return readBoundedPackagePath(workspace.packageDir, task.prompt, "prompt_source", options.maxBytes);
+    return readBoundedPackagePath(
+      workspace.packageDir,
+      task.prompt,
+      "prompt_source",
+      options.maxBytes
+    );
   }
   if (!options.blockRef) {
     throw new Error("blockRef is required for block prompt source reads.");
@@ -195,7 +216,12 @@ export async function readPromptSource(options: {
   if (!task || !block) {
     throw new Error(`Block '${options.blockRef}' does not exist.`);
   }
-  return readBoundedPackagePath(workspace.packageDir, block.prompt, "prompt_source", options.maxBytes);
+  return readBoundedPackagePath(
+    workspace.packageDir,
+    block.prompt,
+    "prompt_source",
+    options.maxBytes
+  );
 }
 
 export async function readRenderedPrompt(options: {
@@ -203,7 +229,11 @@ export async function readRenderedPrompt(options: {
   ref: string;
   maxBytes?: number;
 }): Promise<PackageContentReadResult> {
-  const surface = await renderPromptSurface({ projectRoot: options.projectRoot, ref: options.ref, allowMissingPromptSources: true });
+  const surface = await renderPromptSurface({
+    projectRoot: options.projectRoot,
+    ref: options.ref,
+    allowMissingPromptSources: true
+  });
   const bounded = boundedContent(surface.markdown, options.maxBytes ?? DEFAULT_MAX_BYTES);
   return {
     contentRef: contentRef("rendered_prompt", surface.markdown, { ref: options.ref }),
@@ -212,11 +242,12 @@ export async function readRenderedPrompt(options: {
   };
 }
 
-export async function getPromptSources(options: {
-  projectRoot: PackageWorkspaceRef;
-  ref: string;
-}) {
-  const surface = await renderPromptSurface({ projectRoot: options.projectRoot, ref: options.ref, allowMissingPromptSources: true });
+export async function getPromptSources(options: { projectRoot: PackageWorkspaceRef; ref: string }) {
+  const surface = await renderPromptSurface({
+    projectRoot: options.projectRoot,
+    ref: options.ref,
+    allowMissingPromptSources: true
+  });
   return {
     ref: options.ref,
     sources: surface.sources

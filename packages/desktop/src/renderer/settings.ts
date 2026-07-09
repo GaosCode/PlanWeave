@@ -14,7 +14,10 @@ export {
   visibleBlockSet
 } from "../shared/desktopSettings";
 
-export function orderProjectsByPinnedIds<T extends { projectId: string }>(projects: T[], pinnedProjectIds: string[]): T[] {
+export function orderProjectsByPinnedIds<T extends { projectId: string }>(
+  projects: T[],
+  pinnedProjectIds: string[]
+): T[] {
   if (pinnedProjectIds.length === 0) {
     return projects;
   }

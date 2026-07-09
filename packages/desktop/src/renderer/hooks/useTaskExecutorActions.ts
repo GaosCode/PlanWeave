@@ -21,7 +21,11 @@ export function useTaskExecutorActions({
         return;
       }
       try {
-        const result = await bridge.updateTaskExecutor(desktopCanvasReference(selectedProject, selectedCanvasId), taskId, executorName);
+        const result = await bridge.updateTaskExecutor(
+          desktopCanvasReference(selectedProject, selectedCanvasId),
+          taskId,
+          executorName
+        );
         if (!result.ok) {
           setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
           return;

@@ -7,7 +7,11 @@ import {
   trustCommand,
   type TrustedCommand
 } from "@planweave-ai/runtime";
-import { addCanvasOption, resolveCliPackageWorkspace, type CanvasCommandOptions } from "../cliWorkspace.js";
+import {
+  addCanvasOption,
+  resolveCliPackageWorkspace,
+  type CanvasCommandOptions
+} from "../cliWorkspace.js";
 
 type TrustJsonOptions = CanvasCommandOptions & {
   json?: boolean;
@@ -55,7 +59,10 @@ async function trustReviewHook(options: TrustJsonOptions, ref: string): Promise<
   return trustCommand(projectRoot, hook.command, hook.args);
 }
 
-async function trustExecutorProfile(options: TrustJsonOptions, executorName: string): Promise<TrustedCommand> {
+async function trustExecutorProfile(
+  options: TrustJsonOptions,
+  executorName: string
+): Promise<TrustedCommand> {
   const projectRoot = await resolveCliPackageWorkspace(options);
   const profiles = await listExecutorProfiles({ projectRoot });
   const profile = profiles.find((item) => item.name === executorName);
@@ -69,7 +76,9 @@ async function trustExecutorProfile(options: TrustJsonOptions, executorName: str
 }
 
 export function registerTrustCommand(program: Command): void {
-  const trust = program.command("trust").description("Approve local hook and executor commands for this project");
+  const trust = program
+    .command("trust")
+    .description("Approve local hook and executor commands for this project");
 
   addCanvasOption(
     trust

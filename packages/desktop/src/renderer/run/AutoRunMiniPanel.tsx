@@ -1,9 +1,30 @@
 import { useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
-import type { DesktopAutoRunRetrospectiveSummary, DesktopAutoRunState, DesktopProjectSummary } from "@planweave-ai/runtime";
-import { ChevronDownIcon, ChevronRightIcon, ClipboardIcon, FolderOpenIcon, PauseIcon, PlayIcon, RefreshCwIcon, RotateCcwIcon, SquareIcon } from "lucide-react";
+import type {
+  DesktopAutoRunRetrospectiveSummary,
+  DesktopAutoRunState,
+  DesktopProjectSummary
+} from "@planweave-ai/runtime";
+import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  ClipboardIcon,
+  FolderOpenIcon,
+  PauseIcon,
+  PlayIcon,
+  RefreshCwIcon,
+  RotateCcwIcon,
+  SquareIcon
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger
+} from "@/components/ui/popover";
 import { formatElapsed } from "../viewHelpers";
 import type { AutoRunNextActionDescriptor } from "./autoRunNextActions";
 import type { ExecutorPreflightView, FloatingAutoRunTranslator } from "./floatingAutoRunTypes";
@@ -53,7 +74,11 @@ function DisclosureSection({
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
-        {open ? <ChevronDownIcon data-icon="inline-start" /> : <ChevronRightIcon data-icon="inline-start" />}
+        {open ? (
+          <ChevronDownIcon data-icon="inline-start" />
+        ) : (
+          <ChevronRightIcon data-icon="inline-start" />
+        )}
         {title}
       </Button>
       {open ? <div className="border-t border-border/70 p-2">{children}</div> : null}
@@ -61,30 +86,61 @@ function DisclosureSection({
   );
 }
 
-function FailureDetailRow({ label, testId, value }: { label: string; testId?: string; value: string | null | undefined }) {
+function FailureDetailRow({
+  label,
+  testId,
+  value
+}: {
+  label: string;
+  testId?: string;
+  value: string | null | undefined;
+}) {
   if (!value) {
     return null;
   }
   return (
     <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
       <span className="text-muted-foreground">{label}</span>
-      <span className="min-w-0 break-words" data-testid={testId}>{value}</span>
+      <span className="min-w-0 break-words" data-testid={testId}>
+        {value}
+      </span>
     </div>
   );
 }
 
-function AutoRunFailureDetails({ state, t }: { state: DesktopAutoRunState; t: FloatingAutoRunTranslator }) {
+function AutoRunFailureDetails({
+  state,
+  t
+}: {
+  state: DesktopAutoRunState;
+  t: FloatingAutoRunTranslator;
+}) {
   const explanation = state.explanation;
   return (
-    <div className="rounded-md border border-destructive/50 bg-destructive/5 p-2 text-xs" data-testid="auto-run-failure-details">
+    <div
+      className="rounded-md border border-destructive/50 bg-destructive/5 p-2 text-xs"
+      data-testid="auto-run-failure-details"
+    >
       <div className="mb-2 font-medium text-destructive">{t("failureDetails")}</div>
       <div className="flex flex-col gap-1.5">
         <FailureDetailRow label={t("phase")} value={state.phase} />
-        <FailureDetailRow label={t("error")} testId="auto-run-error" value={explanation.error ?? state.error} />
+        <FailureDetailRow
+          label={t("error")}
+          testId="auto-run-error"
+          value={explanation.error ?? state.error}
+        />
         <FailureDetailRow label={t("nextAction")} value={explanation.nextAction.message} />
         <FailureDetailRow label={t("actionKind")} value={explanation.nextAction.kind} />
-        <FailureDetailRow label={t("suggestedCommand")} testId="auto-run-command" value={explanation.nextAction.command} />
-        <FailureDetailRow label={t("latestRecordPath")} testId="auto-run-latest-record-path" value={explanation.latestRecordPath} />
+        <FailureDetailRow
+          label={t("suggestedCommand")}
+          testId="auto-run-command"
+          value={explanation.nextAction.command}
+        />
+        <FailureDetailRow
+          label={t("latestRecordPath")}
+          testId="auto-run-latest-record-path"
+          value={explanation.latestRecordPath}
+        />
         <FailureDetailRow label={t("currentBlock")} value={explanation.currentRef} />
         <FailureDetailRow label={t("agent")} value={explanation.currentExecutor} />
         <FailureDetailRow label={t("latestOutput")} value={explanation.latestOutputSummary} />
@@ -111,7 +167,9 @@ function AutoRunActionRow({
         <div className="min-w-0">
           <div className="font-medium text-text-strong">{t("nextAction")}</div>
           <div className="break-words text-muted-foreground">{action.message}</div>
-          {action.disabledReason ? <div className="mt-1 break-words text-text-faint">{action.disabledReason}</div> : null}
+          {action.disabledReason ? (
+            <div className="mt-1 break-words text-text-faint">{action.disabledReason}</div>
+          ) : null}
         </div>
         <Button
           data-action-kind={action.nextActionKind}
@@ -121,12 +179,19 @@ function AutoRunActionRow({
           variant={action.command === "retry_ref" ? "destructive" : "outline"}
           onClick={() => void handleAutoRunNextAction(action)}
         >
-          {action.command === "copy_manual_command" ? <ClipboardIcon data-icon="inline-start" /> : <PlayIcon data-icon="inline-start" />}
+          {action.command === "copy_manual_command" ? (
+            <ClipboardIcon data-icon="inline-start" />
+          ) : (
+            <PlayIcon data-icon="inline-start" />
+          )}
           {action.label}
         </Button>
       </div>
       {action.manualCommand ? (
-        <div className="break-all rounded border border-border/70 bg-background px-2 py-1 font-mono text-[11px]" data-testid="auto-run-manual-command">
+        <div
+          className="break-all rounded border border-border/70 bg-background px-2 py-1 font-mono text-[11px]"
+          data-testid="auto-run-manual-command"
+        >
           {action.manualCommand}
         </div>
       ) : null}
@@ -146,7 +211,9 @@ function AutoRunRetrospectiveDetails({
   if (!retrospective) {
     return null;
   }
-  const verdicts = retrospective.reviewVerdicts.map((review) => review.verdict ?? t("none")).join(", ");
+  const verdicts = retrospective.reviewVerdicts
+    .map((review) => review.verdict ?? t("none"))
+    .join(", ");
   return (
     <div className="text-xs" data-testid="auto-run-retrospective-details">
       <div className="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-muted-foreground">
@@ -159,13 +226,19 @@ function AutoRunRetrospectiveDetails({
         <span>{t("elapsedTime")}</span>
         <span>{formatElapsed(retrospective.elapsedMs)}</span>
         <span>{t("latestReportPath")}</span>
-        <span className="min-w-0 break-all" data-testid="auto-run-latest-report-path">{retrospective.latestReportPath ?? "-"}</span>
+        <span className="min-w-0 break-all" data-testid="auto-run-latest-report-path">
+          {retrospective.latestReportPath ?? "-"}
+        </span>
         <span>{t("nextSuggestion")}</span>
         <span className="min-w-0 break-words">{retrospective.nextAction.message}</span>
       </div>
       {retrospective.latestReportPath ? (
         <div className="mt-2 flex justify-end">
-          <Button size="sm" variant="outline" onClick={() => void handleRevealPathInFinder(retrospective.latestReportPath)}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void handleRevealPathInFinder(retrospective.latestReportPath)}
+          >
             <FolderOpenIcon data-icon="inline-start" />
             {t("openReport")}
           </Button>
@@ -201,7 +274,11 @@ export function AutoRunMiniPanel({
         <Button
           data-testid="auto-run-trigger"
           size="icon-lg"
-          variant={autoRunState?.phase === "blocked" || autoRunState?.phase === "failed" ? "destructive" : "default"}
+          variant={
+            autoRunState?.phase === "blocked" || autoRunState?.phase === "failed"
+              ? "destructive"
+              : "default"
+          }
           aria-label={t("autoRun")}
           title={t("autoRun")}
           disabled={!hasProject}
@@ -219,7 +296,9 @@ export function AutoRunMiniPanel({
       <PopoverContent align="end" className="w-96" data-testid="auto-run-mini-panel">
         <PopoverHeader>
           <PopoverTitle>{t("miniRunPanel")}</PopoverTitle>
-          <PopoverDescription>{selectedProject?.name ?? t("autoRunNoProjectHint")}</PopoverDescription>
+          <PopoverDescription>
+            {selectedProject?.name ?? t("autoRunNoProjectHint")}
+          </PopoverDescription>
         </PopoverHeader>
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-2">
@@ -228,7 +307,11 @@ export function AutoRunMiniPanel({
               data-phase={autoRunState?.phase ?? "idle"}
               data-run-id={autoRunState?.runId ?? ""}
               data-testid="auto-run-mini-status"
-              variant={autoRunState?.phase === "blocked" || autoRunState?.phase === "failed" ? "destructive" : "outline"}
+              variant={
+                autoRunState?.phase === "blocked" || autoRunState?.phase === "failed"
+                  ? "destructive"
+                  : "outline"
+              }
             >
               {autoRunState?.phase ?? t("miniPanelEmpty")}
             </Badge>
@@ -256,11 +339,17 @@ export function AutoRunMiniPanel({
             ) : null}
           </div>
           {preflightExecutor ? (
-            <DisclosureSection title={t("executorPreflight")} testId="auto-run-executor-preflight-section">
+            <DisclosureSection
+              title={t("executorPreflight")}
+              testId="auto-run-executor-preflight-section"
+            >
               <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
                 <span>{preflightExecutor}</span>
                 {executorPreflight.result ? (
-                  <Badge data-testid="auto-run-executor-preflight-status" variant={executorPreflight.result.ok ? "secondary" : "destructive"}>
+                  <Badge
+                    data-testid="auto-run-executor-preflight-status"
+                    variant={executorPreflight.result.ok ? "secondary" : "destructive"}
+                  >
                     {executorPreflight.result.ok ? t("preflightPassed") : t("preflightFailed")}
                   </Badge>
                 ) : executorPreflight.error ? (
@@ -275,13 +364,20 @@ export function AutoRunMiniPanel({
                   variant="outline"
                   onClick={() => void executorPreflight.runPreflight()}
                 >
-                  <RefreshCwIcon className={executorPreflight.loading ? "animate-spin" : undefined} data-icon="inline-start" />
+                  <RefreshCwIcon
+                    className={executorPreflight.loading ? "animate-spin" : undefined}
+                    data-icon="inline-start"
+                  />
                   {executorPreflight.loading ? t("preflightRunning") : t("runPreflight")}
                 </Button>
               </div>
             </DisclosureSection>
           ) : null}
-          <AutoRunActionRow action={autoRunNextAction} handleAutoRunNextAction={handleAutoRunNextAction} t={t} />
+          <AutoRunActionRow
+            action={autoRunNextAction}
+            handleAutoRunNextAction={handleAutoRunNextAction}
+            t={t}
+          />
           {explanation?.latestOutputSummary ? (
             <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
               {t("latestOutput")}: {explanation.latestOutputSummary}
@@ -297,7 +393,12 @@ export function AutoRunMiniPanel({
               <AutoRunFailureDetails state={autoRunState} t={t} />
             </DisclosureSection>
           ) : explanation?.error ? (
-            <div className="rounded-md border border-destructive p-2 text-xs text-destructive" data-testid="auto-run-error">{explanation.error}</div>
+            <div
+              className="rounded-md border border-destructive p-2 text-xs text-destructive"
+              data-testid="auto-run-error"
+            >
+              {explanation.error}
+            </div>
           ) : null}
           {autoRunRetrospective ? (
             <DisclosureSection title={t("retrospective")} testId="auto-run-retrospective">
@@ -309,7 +410,12 @@ export function AutoRunMiniPanel({
             </DisclosureSection>
           ) : null}
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="outline" disabled={!hasProject} onClick={() => void resetRuntimeStateClick()}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!hasProject}
+              onClick={() => void resetRuntimeStateClick()}
+            >
               <RotateCcwIcon data-icon="inline-start" />
               {t("resetRuntimeState")}
             </Button>

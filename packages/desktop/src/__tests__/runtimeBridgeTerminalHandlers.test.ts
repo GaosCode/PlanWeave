@@ -6,9 +6,7 @@ import {
 } from "./support/runtimeBridgeTestHarness.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  desktopBridgeInvokeChannels
-} from "../shared/ipcChannels";
+import { desktopBridgeInvokeChannels } from "../shared/ipcChannels";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { childProcessMock, electronMock, runtimeMock } = getRuntimeBridgeMocks();
@@ -25,26 +23,31 @@ describe("runtime bridge handlers: terminal", () => {
   it("detects terminal apps with icon data from application bundle icons", async () => {
     const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
     const pngBytes = Buffer.from("terminal-icon-png");
-    childProcessMock.execFile.mockImplementation((command: string, args: string[], _options: unknown, callback: ExecFileCallback) => {
-      if (command === "/usr/bin/sips") {
-        const outputPath = args.at(-1);
-        if (!outputPath) {
-          callback(new Error("Missing sips output path."), "", "");
+    childProcessMock.execFile.mockImplementation(
+      (command: string, args: string[], _options: unknown, callback: ExecFileCallback) => {
+        if (command === "/usr/bin/sips") {
+          const outputPath = args.at(-1);
+          if (!outputPath) {
+            callback(new Error("Missing sips output path."), "", "");
+            return;
+          }
+          void writeFile(outputPath, pngBytes).then(
+            () => callback(null, "", ""),
+            (caught: unknown) =>
+              callback(caught instanceof Error ? caught : new Error(String(caught)), "", "")
+          );
           return;
         }
-        void writeFile(outputPath, pngBytes).then(
-          () => callback(null, "", ""),
-          (caught: unknown) => callback(caught instanceof Error ? caught : new Error(String(caught)), "", "")
-        );
-        return;
+        callback(null, "", "");
       }
-      callback(null, "", "");
-    });
+    );
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 
     try {
-      const result = await electronMock.handlers.get(desktopBridgeInvokeChannels.detectTerminalApps)?.(null);
+      const result = await electronMock.handlers.get(
+        desktopBridgeInvokeChannels.detectTerminalApps
+      )?.(null);
 
       expect(result).toEqual([
         {
@@ -71,7 +74,17 @@ describe("runtime bridge handlers: terminal", () => {
       ]);
       expect(childProcessMock.execFile).toHaveBeenCalledWith(
         "/usr/bin/sips",
-        ["-z", "64", "64", "-s", "format", "png", "/System/Applications/Utilities/Terminal.app/Contents/Resources/Terminal.icns", "--out", expect.stringMatching(/terminal\.png$/)],
+        [
+          "-z",
+          "64",
+          "64",
+          "-s",
+          "format",
+          "png",
+          "/System/Applications/Utilities/Terminal.app/Contents/Resources/Terminal.icns",
+          "--out",
+          expect.stringMatching(/terminal\.png$/)
+        ],
         { timeout: 5_000, maxBuffer: 64 * 1024 },
         expect.any(Function)
       );
@@ -82,17 +95,21 @@ describe("runtime bridge handlers: terminal", () => {
   });
 
   it("returns unavailable terminal apps without failing detection", async () => {
-    childProcessMock.execFile.mockImplementation((command: string, args: string[], _options: unknown, callback: ExecFileCallback) => {
-      if (command === "/usr/bin/open" && args[0] === "-Ra" && args[1] === "Ghostty") {
-        callback(new Error("Unable to find application named 'Ghostty'"), "", "");
-        return;
+    childProcessMock.execFile.mockImplementation(
+      (command: string, args: string[], _options: unknown, callback: ExecFileCallback) => {
+        if (command === "/usr/bin/open" && args[0] === "-Ra" && args[1] === "Ghostty") {
+          callback(new Error("Unable to find application named 'Ghostty'"), "", "");
+          return;
+        }
+        callback(null, "", "");
       }
-      callback(null, "", "");
-    });
+    );
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 
-    const result = await electronMock.handlers.get(desktopBridgeInvokeChannels.detectTerminalApps)?.(null);
+    const result = await electronMock.handlers.get(
+      desktopBridgeInvokeChannels.detectTerminalApps
+    )?.(null);
 
     expect(result).toEqual(
       expect.arrayContaining([
@@ -111,7 +128,9 @@ describe("runtime bridge handlers: terminal", () => {
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 
-    await expect(electronMock.handlers.get(desktopBridgeInvokeChannels.getTerminalPreferences)?.(null)).resolves.toEqual({
+    await expect(
+      electronMock.handlers.get(desktopBridgeInvokeChannels.getTerminalPreferences)?.(null)
+    ).resolves.toEqual({
       defaultTerminalAppId: null
     });
 
@@ -123,25 +142,39 @@ describe("runtime bridge handlers: terminal", () => {
       defaultTerminalAppId: "ghostty"
     });
 
-    await expect(electronMock.handlers.get(desktopBridgeInvokeChannels.getTerminalPreferences)?.(null)).resolves.toEqual({
+    await expect(
+      electronMock.handlers.get(desktopBridgeInvokeChannels.getTerminalPreferences)?.(null)
+    ).resolves.toEqual({
       defaultTerminalAppId: "ghostty"
     });
-    await expect(readFile(join(process.env.PLANWEAVE_HOME ?? "", "config", "terminal-preferences.json"), "utf8")).resolves.toContain(
-      '"defaultTerminalAppId": "ghostty"'
-    );
+    await expect(
+      readFile(
+        join(process.env.PLANWEAVE_HOME ?? "", "config", "terminal-preferences.json"),
+        "utf8"
+      )
+    ).resolves.toContain('"defaultTerminalAppId": "ghostty"');
   });
 
   it("migrates legacy terminal preferences from Electron user data into PlanWeave Home", async () => {
-    await writeFile(join(electronMock.userDataDir, "terminal-preferences.json"), '{ "defaultTerminalAppId": "iterm2" }', "utf8");
+    await writeFile(
+      join(electronMock.userDataDir, "terminal-preferences.json"),
+      '{ "defaultTerminalAppId": "iterm2" }',
+      "utf8"
+    );
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 
-    await expect(electronMock.handlers.get(desktopBridgeInvokeChannels.getTerminalPreferences)?.(null)).resolves.toEqual({
+    await expect(
+      electronMock.handlers.get(desktopBridgeInvokeChannels.getTerminalPreferences)?.(null)
+    ).resolves.toEqual({
       defaultTerminalAppId: "iterm2"
     });
-    await expect(readFile(join(process.env.PLANWEAVE_HOME ?? "", "config", "terminal-preferences.json"), "utf8")).resolves.toContain(
-      '"defaultTerminalAppId": "iterm2"'
-    );
+    await expect(
+      readFile(
+        join(process.env.PLANWEAVE_HOME ?? "", "config", "terminal-preferences.json"),
+        "utf8"
+      )
+    ).resolves.toContain('"defaultTerminalAppId": "iterm2"');
   });
 
   it("rejects unsupported terminal preferences values", async () => {
@@ -162,16 +195,40 @@ describe("runtime bridge handlers: terminal", () => {
     const ref = { projectRoot: "/tmp/project", canvasId: "canvas-a" };
     const recordId = "T-001#B-001::RUN-001";
     const cases: Array<[string, unknown, string]> = [
-      [ch.openTerminal, { ref: { canvasId: "canvas-a" }, appId: "terminal" }, "Desktop canvas reference projectRoot is invalid."],
-      [ch.openRunTerminal, { ref: null, recordId, appId: "terminal" }, "Desktop canvas reference is invalid."],
-      [ch.getRunTerminalAvailability, { ref: { projectRoot: "/tmp/project", canvasId: 42 }, recordIds: [recordId] }, "Desktop canvas reference canvasId is invalid."],
+      [
+        ch.openTerminal,
+        { ref: { canvasId: "canvas-a" }, appId: "terminal" },
+        "Desktop canvas reference projectRoot is invalid."
+      ],
+      [
+        ch.openRunTerminal,
+        { ref: null, recordId, appId: "terminal" },
+        "Desktop canvas reference is invalid."
+      ],
+      [
+        ch.getRunTerminalAvailability,
+        { ref: { projectRoot: "/tmp/project", canvasId: 42 }, recordIds: [recordId] },
+        "Desktop canvas reference canvasId is invalid."
+      ],
       [ch.openTerminal, { ref }, "Terminal app id is invalid."],
       [ch.openTerminal, { ref, appId: "wezterm" }, "Terminal app id is invalid."],
       [ch.openRunTerminal, { ref, appId: "terminal" }, "Open terminal recordId is invalid."],
       [ch.openRunTerminal, { ref, recordId }, "Terminal app id is invalid."],
-      [ch.openTerminal, { ref, appId: "terminal", cwd: "/tmp/elsewhere" }, "Unsupported open terminal field 'cwd'."],
-      [ch.openRunTerminal, { ref, recordId, appId: "terminal", cwd: "/tmp/elsewhere" }, "Unsupported open terminal field 'cwd'."],
-      [ch.getRunTerminalAvailability, { ref, recordIds: [recordId], cwd: "/tmp/elsewhere" }, "Unsupported terminal availability field 'cwd'."]
+      [
+        ch.openTerminal,
+        { ref, appId: "terminal", cwd: "/tmp/elsewhere" },
+        "Unsupported open terminal field 'cwd'."
+      ],
+      [
+        ch.openRunTerminal,
+        { ref, recordId, appId: "terminal", cwd: "/tmp/elsewhere" },
+        "Unsupported open terminal field 'cwd'."
+      ],
+      [
+        ch.getRunTerminalAvailability,
+        { ref, recordIds: [recordId], cwd: "/tmp/elsewhere" },
+        "Unsupported terminal availability field 'cwd'."
+      ]
     ];
 
     for (const [channel, input, message] of cases) {
@@ -205,13 +262,15 @@ describe("runtime bridge handlers: terminal", () => {
   });
 
   it("marks stale run terminal metadata unavailable when the live tmux session is gone", async () => {
-    childProcessMock.execFile.mockImplementation((command: string, args: string[], _options: unknown, callback: ExecFileCallback) => {
-      if (command === "tmux" && args[0] === "has-session") {
-        callback(new Error("no such session"), "", "");
-        return;
+    childProcessMock.execFile.mockImplementation(
+      (command: string, args: string[], _options: unknown, callback: ExecFileCallback) => {
+        if (command === "tmux" && args[0] === "has-session") {
+          callback(new Error("no such session"), "", "");
+          return;
+        }
+        callback(null, "", "");
       }
-      callback(null, "", "");
-    });
+    );
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 
@@ -311,7 +370,9 @@ describe("runtime bridge handlers: terminal", () => {
       expect.any(Function)
     );
     expect(childProcessMock.execFile.mock.calls.some((call) => call[0] === "tmux")).toBe(false);
-    expect(childProcessMock.execFile.mock.calls.some((call) => call[0] === "/usr/bin/osascript")).toBe(false);
+    expect(
+      childProcessMock.execFile.mock.calls.some((call) => call[0] === "/usr/bin/osascript")
+    ).toBe(false);
   });
 
   it("opens regular iTerm2 and Ghostty windows at the run record cwd", async () => {
@@ -334,7 +395,9 @@ describe("runtime bridge handlers: terminal", () => {
       { maxBuffer: 64 * 1024 },
       expect.any(Function)
     );
-    expect(childProcessMock.execFile.mock.calls.some((call) => call[0] === "/usr/bin/osascript")).toBe(false);
+    expect(
+      childProcessMock.execFile.mock.calls.some((call) => call[0] === "/usr/bin/osascript")
+    ).toBe(false);
 
     childProcessMock.execFile.mockClear();
     runtimeMock.getRunRecord.mockResolvedValueOnce({
@@ -414,7 +477,10 @@ describe("runtime bridge handlers: terminal", () => {
       "T-001#B-001::RUN-001"
     );
     expect(
-      childProcessMock.execFile.mock.calls.some((call) => call[0] === "/usr/bin/osascript" || (call[0] === "/usr/bin/open" && call[1]?.[0] === "-a"))
+      childProcessMock.execFile.mock.calls.some(
+        (call) =>
+          call[0] === "/usr/bin/osascript" || (call[0] === "/usr/bin/open" && call[1]?.[0] === "-a")
+      )
     ).toBe(false);
   });
 
@@ -520,24 +586,36 @@ describe("runtime bridge handlers: terminal", () => {
 
     expect(childProcessMock.execFile).toHaveBeenCalledWith(
       "/usr/bin/open",
-      ["-n", "-a", "Ghostty", "--args", "-e", "tmux", "attach-session", "-t", "planweave-T-001-B-001-RUN-001-abcd1234"],
+      [
+        "-n",
+        "-a",
+        "Ghostty",
+        "--args",
+        "-e",
+        "tmux",
+        "attach-session",
+        "-t",
+        "planweave-T-001-B-001-RUN-001-abcd1234"
+      ],
       { cwd: "/tmp/project", maxBuffer: 64 * 1024 },
       expect.any(Function)
     );
   });
 
   it("does not swallow launcher failures outside desktop smoke mode", async () => {
-    childProcessMock.execFile.mockImplementation((command: string, args: string[], _options: unknown, callback: ExecFileCallback) => {
-      if (command === "/usr/bin/open" && args[0] === "-Ra") {
+    childProcessMock.execFile.mockImplementation(
+      (command: string, args: string[], _options: unknown, callback: ExecFileCallback) => {
+        if (command === "/usr/bin/open" && args[0] === "-Ra") {
+          callback(null, "", "");
+          return;
+        }
+        if (command === "tmux" && args[0] === "has-session") {
+          callback(new Error("no such session"), "", "");
+          return;
+        }
         callback(null, "", "");
-        return;
       }
-      if (command === "tmux" && args[0] === "has-session") {
-        callback(new Error("no such session"), "", "");
-        return;
-      }
-      callback(null, "", "");
-    });
+    );
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 

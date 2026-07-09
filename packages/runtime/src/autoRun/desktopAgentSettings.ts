@@ -25,7 +25,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function desktopSettingsFile(): string {
   const override = process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
-  return override ? resolve(override) : join(homedir(), ".planweave", "config", "desktop-settings.json");
+  return override
+    ? resolve(override)
+    : join(homedir(), ".planweave", "config", "desktop-settings.json");
 }
 
 function readDesktopAgentSettings(): DesktopAgentSettings | null {
@@ -78,7 +80,9 @@ function addArgOnce(args: readonly string[], arg: string): string[] {
   return [arg, ...args];
 }
 
-export function applyDesktopAgentSettingsToBuiltinProfiles(profiles: Record<string, ExecutorProfile>): Record<string, ExecutorProfile> {
+export function applyDesktopAgentSettingsToBuiltinProfiles(
+  profiles: Record<string, ExecutorProfile>
+): Record<string, ExecutorProfile> {
   const settings = readDesktopAgentSettings();
   if (!settings) {
     return profiles;
@@ -105,7 +109,10 @@ export function applyDesktopAgentSettingsToBuiltinProfiles(profiles: Record<stri
     for (const name of desktopAgentNames["claude-code"]) {
       const profile = next[name];
       if (profile?.adapter === "claude-code-exec") {
-        next[name] = { ...profile, args: addArgOnce(profile.args, "--dangerously-skip-permissions") };
+        next[name] = {
+          ...profile,
+          args: addArgOnce(profile.args, "--dangerously-skip-permissions")
+        };
       }
     }
   }

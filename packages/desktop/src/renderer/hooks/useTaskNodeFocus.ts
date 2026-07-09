@@ -8,10 +8,17 @@ const fallbackTaskNodeSize = {
 };
 
 type TaskFocusFlow = Pick<ReactFlowInstance<AppFlowNode, Edge>, "getNode" | "setCenter">;
-type TaskFocusNode = Pick<AppFlowNode, "id" | "type" | "position" | "width" | "height" | "measured">;
+type TaskFocusNode = Pick<
+  AppFlowNode,
+  "id" | "type" | "position" | "width" | "height" | "measured"
+>;
 type TaskFocusRequest = { taskId: string; version: number };
 
-export function focusTaskNode(flowInstance: TaskFocusFlow | null, nodes: TaskFocusNode[], taskId: string | null): boolean {
+export function focusTaskNode(
+  flowInstance: TaskFocusFlow | null,
+  nodes: TaskFocusNode[],
+  taskId: string | null
+): boolean {
   if (!flowInstance || !taskId) {
     return false;
   }
@@ -77,10 +84,8 @@ export function useTaskNodeFocus({
     }
     const externalFocusRequest =
       taskFocusRequest &&
-      (
-        consumedTaskFocusRequest.current?.taskId !== taskFocusRequest.taskId ||
-        consumedTaskFocusRequest.current.version !== taskFocusRequest.version
-      )
+      (consumedTaskFocusRequest.current?.taskId !== taskFocusRequest.taskId ||
+        consumedTaskFocusRequest.current.version !== taskFocusRequest.version)
         ? taskFocusRequest
         : null;
     const activeFocusRequest = externalFocusRequest ?? focusRequest;

@@ -1,7 +1,4 @@
-import type {
-  ReviewHookDefinition,
-  ReviewTriggerCondition
-} from "../../types.js";
+import type { ReviewHookDefinition, ReviewTriggerCondition } from "../../types.js";
 
 export type DesktopReviewPipelineStep = {
   blockRef: string;

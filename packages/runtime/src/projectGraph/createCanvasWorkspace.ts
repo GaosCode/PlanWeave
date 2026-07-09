@@ -12,7 +12,11 @@ import {
   stageCanvasWorkspaceWrite
 } from "./canvasWorkspaceRecovery.js";
 import { canonicalProjectCanvasNode } from "./canonicalWorkspace.js";
-import { loadProjectGraphForWorkspace, projectGraphPath, writeProjectGraph } from "./loadProjectGraph.js";
+import {
+  loadProjectGraphForWorkspace,
+  projectGraphPath,
+  writeProjectGraph
+} from "./loadProjectGraph.js";
 import { materializeProjectGraph } from "./materializeProjectGraph.js";
 import { projectCanvasWorkspace } from "./projectGraphWorkspace.js";
 import { projectGraphManifestSchema } from "./schema.js";
@@ -100,7 +104,10 @@ async function nextAvailableCanvasId(input: {
 }): Promise<string> {
   let suffix = 1;
   let candidate = input.baseId;
-  while (input.existingIds.has(candidate) || (await canvasWorkspaceExists(input.finalRootForId(candidate)))) {
+  while (
+    input.existingIds.has(candidate) ||
+    (await canvasWorkspaceExists(input.finalRootForId(candidate)))
+  ) {
     suffix += 1;
     candidate = `${input.baseId}-${suffix}`;
     assertValidCanvasId(candidate);
@@ -145,7 +152,9 @@ async function activateCanvas(projectRoot: string, canvasId: string): Promise<vo
   await writeActiveTaskCanvasSelection(projectRoot, canvasId);
 }
 
-export async function createCanvasWorkspace(options: CreateCanvasWorkspaceOptions): Promise<CreateCanvasWorkspaceResult> {
+export async function createCanvasWorkspace(
+  options: CreateCanvasWorkspaceOptions
+): Promise<CreateCanvasWorkspaceResult> {
   const title = trimRequiredTitle(options.title);
   const baseId = baseCanvasId({ explicitId: options.id, title });
   const projectRoot = options.cwd ?? process.cwd();
@@ -162,7 +171,8 @@ export async function createCanvasWorkspace(options: CreateCanvasWorkspaceOption
     baseId,
     existingIds,
     finalRootForId(id) {
-      return projectCanvasWorkspace(loaded.workspace, canonicalProjectCanvasNode({ id, title })).workspaceRoot;
+      return projectCanvasWorkspace(loaded.workspace, canonicalProjectCanvasNode({ id, title }))
+        .workspaceRoot;
     }
   });
   const canvas = canonicalProjectCanvasNode({ id: canvasId, title });
@@ -185,7 +195,10 @@ export async function createCanvasWorkspace(options: CreateCanvasWorkspaceOption
     });
   }
 
-  const staged = await stageCanvasWorkspaceWrite(loaded.workspace, { canvasId, finalRoot: canvasWorkspace.workspaceRoot });
+  const staged = await stageCanvasWorkspaceWrite(loaded.workspace, {
+    canvasId,
+    finalRoot: canvasWorkspace.workspaceRoot
+  });
   try {
     await mkdir(join(staged.workspace.packageDir, "nodes"), { recursive: true });
     await mkdir(staged.workspace.resultsDir, { recursive: true });

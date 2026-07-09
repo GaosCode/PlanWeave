@@ -1,7 +1,11 @@
 /* @vitest-environment jsdom */
 
 import { act, renderHook, waitFor } from "@testing-library/react";
-import type { DesktopAutoRunState, DesktopBlockDetail, ValidationIssue } from "@planweave-ai/runtime";
+import type {
+  DesktopAutoRunState,
+  DesktopBlockDetail,
+  ValidationIssue
+} from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { project } from "./helpers/desktopProjectFixtures";
@@ -133,7 +137,10 @@ describe("desktop project session hook", () => {
     expect(setBlockInspectorOpen).toHaveBeenCalledWith(false);
     expect(clearSelectedBlockRecords).toHaveBeenCalled();
     expect(loadProject).toHaveBeenCalledWith(project, "canvas-main");
-    expect(bridge.getLatestAutoRunSummaryWithDiagnostics).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" });
+    expect(bridge.getLatestAutoRunSummaryWithDiagnostics).toHaveBeenCalledWith({
+      projectRoot: project.rootPath,
+      canvasId: "canvas-main"
+    });
     expect(result.current.autoRunState).toEqual(expect.objectContaining({ runId: "RUN-001" }));
   });
 
@@ -152,7 +159,9 @@ describe("desktop project session hook", () => {
     };
     const bridge = createDesktopBridgeMock({
       duplicateTaskCanvas: vi.fn().mockResolvedValue(duplicatedCanvas),
-      getLatestAutoRunSummaryWithDiagnostics: vi.fn().mockResolvedValue({ state: null, diagnostics: [] }),
+      getLatestAutoRunSummaryWithDiagnostics: vi
+        .fn()
+        .mockResolvedValue({ state: null, diagnostics: [] }),
       selectTaskCanvas: vi.fn().mockResolvedValue(duplicatedCanvas.canvasId)
     });
     vi.stubGlobal("planweave", bridge);
@@ -185,7 +194,10 @@ describe("desktop project session hook", () => {
     expect(refreshProjectSummary).toHaveBeenCalledWith(project.rootPath, "canvas-copy");
     expect(bridge.selectTaskCanvas).toHaveBeenCalledWith(project.rootPath, "canvas-copy");
     expect(loadProject).toHaveBeenCalledWith(refreshedProject, "canvas-copy");
-    expect(bridge.getLatestAutoRunSummaryWithDiagnostics).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-copy" });
+    expect(bridge.getLatestAutoRunSummaryWithDiagnostics).toHaveBeenCalledWith({
+      projectRoot: project.rootPath,
+      canvasId: "canvas-copy"
+    });
   });
 
   it("keeps latest Auto Run summary diagnostics for the desktop diagnostics popover", async () => {
@@ -224,7 +236,10 @@ describe("desktop project session hook", () => {
       await result.current.refreshLatestAutoRunSummary(project.rootPath, "canvas-main");
     });
 
-    expect(bridge.getLatestAutoRunSummaryWithDiagnostics).toHaveBeenCalledWith({ projectRoot: project.rootPath, canvasId: "canvas-main" });
+    expect(bridge.getLatestAutoRunSummaryWithDiagnostics).toHaveBeenCalledWith({
+      projectRoot: project.rootPath,
+      canvasId: "canvas-main"
+    });
     expect(result.current.autoRunState).toBeNull();
     expect(result.current.autoRunDiagnostics).toEqual(autoRunDiagnostics);
   });

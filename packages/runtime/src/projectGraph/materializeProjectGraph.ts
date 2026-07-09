@@ -17,13 +17,17 @@ async function requireMaterializeProjectWorkspace(projectRoot: string) {
     return await requireInitializedProjectWorkspace(projectRoot);
   } catch (error) {
     if (error instanceof PlanWeaveWorkspaceNotInitializedError) {
-      throw new Error(`PlanWeave workspace has not been initialized. Run 'planweave init --project-graph --json' first.`);
+      throw new Error(
+        `PlanWeave workspace has not been initialized. Run 'planweave init --project-graph --json' first.`
+      );
     }
     throw error;
   }
 }
 
-export async function materializeProjectGraph(projectRoot: string): Promise<MaterializeProjectGraphResult> {
+export async function materializeProjectGraph(
+  projectRoot: string
+): Promise<MaterializeProjectGraphResult> {
   const workspace = await requireMaterializeProjectWorkspace(projectRoot);
   const loaded = await loadProjectGraph(projectRoot);
   const path = projectGraphPath(loaded.workspace);

@@ -10,5 +10,7 @@ export function formatExecutorTestHuman(result: ExecutorPreflightResult): string
 }
 
 export function formatExecutorProfilesHuman(result: ExecutorProfileSummary[]): string {
-  return result.map((profile) => `${profile.name}\t${profile.adapter}\t${profile.source}`).join("\n");
+  return result
+    .map((profile) => `${profile.name}\t${profile.adapter}\t${profile.source}`)
+    .join("\n");
 }

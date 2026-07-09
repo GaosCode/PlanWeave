@@ -16,6 +16,9 @@ export async function rebuildSessionFromPackage(session: ExecutionGraphSession):
   });
   session.graph = snapshot.graph;
   session.fileSnapshot = snapshot;
-  session.diagnostics = [...snapshot.graph.diagnostics.errors, ...snapshot.graph.diagnostics.warnings];
+  session.diagnostics = [
+    ...snapshot.graph.diagnostics.errors,
+    ...snapshot.graph.diagnostics.warnings
+  ];
   session.dirtyPromptRefs = new Set(session.graph.blockRefsInManifestOrder);
 }

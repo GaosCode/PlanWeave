@@ -54,8 +54,18 @@ async function makeHome(): Promise<string> {
 describe("planweave mcp command", () => {
   it("configures tunnel id and loopback MCP URL in PLANWEAVE_HOME", async () => {
     const home = await makeHome();
-    await parseCli(["mcp", "tunnel", "configure", "--tunnel-id", " tunnel_test ", "--port", "9797"]);
-    const config = JSON.parse(await readFile(join(home, "config", "mcp-tunnel", "config.json"), "utf8")) as {
+    await parseCli([
+      "mcp",
+      "tunnel",
+      "configure",
+      "--tunnel-id",
+      " tunnel_test ",
+      "--port",
+      "9797"
+    ]);
+    const config = JSON.parse(
+      await readFile(join(home, "config", "mcp-tunnel", "config.json"), "utf8")
+    ) as {
       tunnelId: string;
       mcpUrl: string;
     };
@@ -88,8 +98,12 @@ describe("planweave mcp command", () => {
 
     const statusOutput = await parseCli(["mcp", "tunnel", "status", "--json"]);
     const doctorOutput = await parseCli(["mcp", "tunnel", "doctor", "--json"]);
-    const status = JSON.parse(statusOutput) as { config: { tunnelIdConfigured: boolean; tunnelId?: string } };
-    const doctor = JSON.parse(doctorOutput) as { status: { config: { tunnelIdConfigured: boolean; tunnelId?: string } } };
+    const status = JSON.parse(statusOutput) as {
+      config: { tunnelIdConfigured: boolean; tunnelId?: string };
+    };
+    const doctor = JSON.parse(doctorOutput) as {
+      status: { config: { tunnelIdConfigured: boolean; tunnelId?: string } };
+    };
 
     expect(status.config.tunnelIdConfigured).toBe(true);
     expect(status.config).not.toHaveProperty("tunnelId");
@@ -115,7 +129,9 @@ describe("planweave mcp command", () => {
     await writeFile(wrongBinary, "#!/bin/sh\nexit 0\n", "utf8");
     await chmod(wrongBinary, 0o700);
 
-    await expect(parseCli(["mcp", "tunnel", "set-binary", wrongBinary])).rejects.toThrow("Configured binary must be named tunnel-client or tunnel-client.exe.");
+    await expect(parseCli(["mcp", "tunnel", "set-binary", wrongBinary])).rejects.toThrow(
+      "Configured binary must be named tunnel-client or tunnel-client.exe."
+    );
   });
 
   it("prints systemd templates without leaking the Runtime API key", async () => {
@@ -137,8 +153,8 @@ describe("planweave mcp command", () => {
       "/usr/bin/planweave"
     ]);
 
-    expect(output).toContain("ExecStart=\"/usr/bin/planweave\" mcp tunnel run --serve");
-    expect(output).toContain("EnvironmentFile=\"/etc/planweave/test.env\"");
+    expect(output).toContain('ExecStart="/usr/bin/planweave" mcp tunnel run --serve');
+    expect(output).toContain('EnvironmentFile="/etc/planweave/test.env"');
     expect(output).toContain("OPENAI_RUNTIME_API_KEY=replace-with-openai-runtime-api-key");
     expect(output).not.toContain("secret-runtime-key");
   });

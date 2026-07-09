@@ -32,7 +32,11 @@ async function waitForRunSummary(
   predicate: (state: NonNullable<Awaited<ReturnType<typeof getLatestAutoRunSummary>>>) => boolean
 ) {
   let state = await getLatestAutoRunSummary(projectRoot, canvasId);
-  for (let attempt = 0; attempt < 500 && (!state || state.runId !== runId || !predicate(state)); attempt += 1) {
+  for (
+    let attempt = 0;
+    attempt < 500 && (!state || state.runId !== runId || !predicate(state));
+    attempt += 1
+  ) {
     await new Promise((resolve) => setTimeout(resolve, 20));
     state = await getLatestAutoRunSummary(projectRoot, canvasId);
   }
@@ -47,12 +51,22 @@ async function writeAutoRunState(state: DesktopAutoRunState): Promise<void> {
   await writeJsonFile(state.statePath, state);
 }
 
-async function writeAutoRunEvents(state: DesktopAutoRunState, lines: Array<Record<string, unknown>>): Promise<void> {
+async function writeAutoRunEvents(
+  state: DesktopAutoRunState,
+  lines: Array<Record<string, unknown>>
+): Promise<void> {
   await mkdir(dirname(state.eventLogPath), { recursive: true });
-  await writeFile(state.eventLogPath, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`, "utf8");
+  await writeFile(
+    state.eventLogPath,
+    `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`,
+    "utf8"
+  );
 }
 
-function persistedState(workspace: ProjectWorkspace, patch: Partial<Omit<DesktopAutoRunState, "explanation">> = {}): DesktopAutoRunState {
+function persistedState(
+  workspace: ProjectWorkspace,
+  patch: Partial<Omit<DesktopAutoRunState, "explanation">> = {}
+): DesktopAutoRunState {
   const runId = patch.runId ?? "DESKTOP-RUN-1001";
   const runRoot = join(workspace.resultsDir, "auto-runs", runId);
   const base = {
@@ -68,7 +82,15 @@ function persistedState(workspace: ProjectWorkspace, patch: Partial<Omit<Desktop
     elapsedMs: 1000,
     latestOutputSummary: "done",
     latestRecordId: "T-001#B-001::RUN-001",
-    latestRecordPath: join(workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "metadata.json"),
+    latestRecordPath: join(
+      workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-001",
+      "metadata.json"
+    ),
     statePath: join(runRoot, "state.json"),
     eventLogPath: join(runRoot, "events.ndjson"),
     options: { tmuxEnabled: false },
@@ -126,7 +148,12 @@ describe("desktop auto run retrospective API", () => {
 
     const run = await startAutoRun(root, null, { kind: "project" }, 5, noTmux);
     startedRunIds.add(run.runId);
-    const state = await waitForRunSummary(root, null, run.runId, (nextState) => nextState.phase !== "running");
+    const state = await waitForRunSummary(
+      root,
+      null,
+      run.runId,
+      (nextState) => nextState.phase !== "running"
+    );
     expect(state.phase).toBe("completed");
 
     const eventLog = await listAutoRunEvents(root, null, run.runId);
@@ -171,7 +198,9 @@ describe("desktop auto run retrospective API", () => {
       blockedRef: null,
       failedReason: null,
       latestRecordId: "T-001#R-001::RUN-001",
-      latestRecordPath: expect.stringContaining(join("T-001", "blocks", "R-001", "runs", "RUN-001", "metadata.json")),
+      latestRecordPath: expect.stringContaining(
+        join("T-001", "blocks", "R-001", "runs", "RUN-001", "metadata.json")
+      ),
       latestReportPath: null,
       nextAction: {
         kind: "review_status"
@@ -186,7 +215,9 @@ describe("desktop auto run retrospective API", () => {
         contentPreview: "retrospective review passed"
       }
     ]);
-    await expect(getLatestAutoRunRetrospective(root, null)).resolves.toMatchObject({ runId: run.runId });
+    await expect(getLatestAutoRunRetrospective(root, null)).resolves.toMatchObject({
+      runId: run.runId
+    });
   });
 
   it("returns blocked failure facts and actionable ref without requiring a record", async () => {
@@ -202,7 +233,12 @@ describe("desktop auto run retrospective API", () => {
 
     const run = await startAutoRun(root, null, { kind: "project" }, 5, noTmux);
     startedRunIds.add(run.runId);
-    const state = await waitForRunSummary(root, null, run.runId, (nextState) => nextState.phase !== "running");
+    const state = await waitForRunSummary(
+      root,
+      null,
+      run.runId,
+      (nextState) => nextState.phase !== "running"
+    );
     expect(state.phase).toBe("blocked");
 
     const summary = await getAutoRunRetrospective(root, null, run.runId);
@@ -255,13 +291,18 @@ describe("desktop auto run retrospective API", () => {
     await mkdir(dirname(state.statePath), { recursive: true });
     await writeFile(state.statePath, "{", "utf8");
 
-    await expect(getAutoRunRetrospective(root, null, state.runId)).rejects.toThrow("auto_run_state_invalid_json");
+    await expect(getAutoRunRetrospective(root, null, state.runId)).rejects.toThrow(
+      "auto_run_state_invalid_json"
+    );
   });
 
   it("includes skipped corrupt latest state diagnostics in latest retrospective", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
     const valid = persistedState(init.workspace, { runId: "DESKTOP-RUN-2002", projectRoot: root });
-    const corrupt = persistedState(init.workspace, { runId: "DESKTOP-RUN-2003", projectRoot: root });
+    const corrupt = persistedState(init.workspace, {
+      runId: "DESKTOP-RUN-2003",
+      projectRoot: root
+    });
     await writeAutoRunState(valid);
     await writeAutoRunEvents(valid, []);
     await mkdir(dirname(corrupt.statePath), { recursive: true });
@@ -326,7 +367,15 @@ describe("desktop auto run retrospective API", () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
     const state = persistedState(init.workspace, {
       latestRecordId: "T-001#R-001::RUN-001",
-      latestRecordPath: join(init.workspace.resultsDir, "T-001", "blocks", "R-001", "runs", "RUN-001", "metadata.json")
+      latestRecordPath: join(
+        init.workspace.resultsDir,
+        "T-001",
+        "blocks",
+        "R-001",
+        "runs",
+        "RUN-001",
+        "metadata.json"
+      )
     });
     const attemptRoot = join(init.workspace.resultsDir, "T-001", "reviews", "R-001", "attempts");
     await mkdir(join(attemptRoot, "REV-001"), { recursive: true });

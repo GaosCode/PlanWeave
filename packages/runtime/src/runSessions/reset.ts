@@ -4,10 +4,16 @@ import { loadPackage } from "../package/loadPackage.js";
 import { createEmptyState, ensureStateForManifest, readState, writeState } from "../state.js";
 import type { BlockState, RuntimeState } from "../types.js";
 import { appendRunSessionEvent, assertValidRunSessionId, updateRunSession } from "./repository.js";
-import type { ResetRuntimeStateOptions, ResetRuntimeStateResult, RunSessionResetSummary } from "./types.js";
+import type {
+  ResetRuntimeStateOptions,
+  ResetRuntimeStateResult,
+  RunSessionResetSummary
+} from "./types.js";
 
 function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 function nullableString(value: unknown): string | null {
@@ -32,15 +38,25 @@ function inProgressRefs(blocks: Record<string, BlockState>): string[] {
 
 function activeWorkMessage(summary: RunSessionResetSummary): string {
   const parts = [
-    summary.previousCurrentRefs.length > 0 ? `currentRefs=${summary.previousCurrentRefs.join(",")}` : null,
-    summary.previousCurrentFeedbackId ? `currentFeedbackId=${summary.previousCurrentFeedbackId}` : null,
-    summary.previousCurrentReviewBlockRef ? `currentReviewBlockRef=${summary.previousCurrentReviewBlockRef}` : null,
-    summary.previousInProgressRefs.length > 0 ? `inProgress=${summary.previousInProgressRefs.join(",")}` : null
+    summary.previousCurrentRefs.length > 0
+      ? `currentRefs=${summary.previousCurrentRefs.join(",")}`
+      : null,
+    summary.previousCurrentFeedbackId
+      ? `currentFeedbackId=${summary.previousCurrentFeedbackId}`
+      : null,
+    summary.previousCurrentReviewBlockRef
+      ? `currentReviewBlockRef=${summary.previousCurrentReviewBlockRef}`
+      : null,
+    summary.previousInProgressRefs.length > 0
+      ? `inProgress=${summary.previousInProgressRefs.join(",")}`
+      : null
   ].filter((part): part is string => part !== null);
   return `Cannot reset runtime state while active work exists${parts.length > 0 ? ` (${parts.join("; ")})` : ""}.`;
 }
 
-export async function resetRuntimeState(options: ResetRuntimeStateOptions): Promise<ResetRuntimeStateResult> {
+export async function resetRuntimeState(
+  options: ResetRuntimeStateOptions
+): Promise<ResetRuntimeStateResult> {
   const { workspace, manifest } = await loadPackage(options.projectRoot);
   const sessionId = options.session?.sessionId ?? options.sessionId ?? null;
   if (sessionId) {

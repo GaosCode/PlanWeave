@@ -49,7 +49,10 @@ const graph: DesktopGraphViewModel = {
   dirtyPromptRefs: []
 };
 
-function graphWithExecutors(executorOptions: string[], patch: Partial<DesktopGraphViewModel> = {}): DesktopGraphViewModel {
+function graphWithExecutors(
+  executorOptions: string[],
+  patch: Partial<DesktopGraphViewModel> = {}
+): DesktopGraphViewModel {
   return {
     ...graph,
     executorOptions,
@@ -203,7 +206,9 @@ describe("executor preflight desktop UI", () => {
     await userEvent.click(screen.getByTestId("settings-run-executor-preflight"));
 
     expect(bridgeMock.api.testExecutorProfile).toHaveBeenCalledWith(canvasRef, "codex");
-    expect(await screen.findByTestId("executor-preflight-checks")).toHaveTextContent("profile_exists");
+    expect(await screen.findByTestId("executor-preflight-checks")).toHaveTextContent(
+      "profile_exists"
+    );
     expect(screen.getByTestId("executor-preflight-checks")).toHaveTextContent("command_started");
     expect(screen.getAllByText(/Command 'codex' could not be started/).length).toBeGreaterThan(0);
   });
@@ -234,7 +239,10 @@ describe("executor preflight desktop UI", () => {
         agentDetectionRefreshing={false}
         agents={[]}
         canvasRef={canvasRef}
-        graph={graphWithExecutors(["opencode"], { graphVersion: "pgv-next", packageFingerprint: "pkg-next" })}
+        graph={graphWithExecutors(["opencode"], {
+          graphVersion: "pgv-next",
+          packageFingerprint: "pkg-next"
+        })}
         refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
         settings={defaultDesktopSettings}
         t={t}
@@ -269,7 +277,11 @@ describe("executor preflight desktop UI", () => {
   });
 
   it("tests inherited effective block executors without treating inherit as an executor name", async () => {
-    bridgeMock.api.testExecutorProfile.mockResolvedValue({ ...preflightResult, ok: true, message: "executor preflight passed" });
+    bridgeMock.api.testExecutorProfile.mockResolvedValue({
+      ...preflightResult,
+      ok: true,
+      message: "executor preflight passed"
+    });
 
     render(
       <BlockInspector
@@ -300,7 +312,9 @@ describe("executor preflight desktop UI", () => {
     await userEvent.click(screen.getByTestId("block-executor-preflight"));
 
     expect(bridgeMock.api.testExecutorProfile).toHaveBeenCalledWith(canvasRef, "codex");
-    expect(await screen.findByTestId("block-executor-preflight-status")).toHaveTextContent("Preflight passed");
+    expect(await screen.findByTestId("block-executor-preflight-status")).toHaveTextContent(
+      "Preflight passed"
+    );
   });
 
   it("does not preflight a task executor inferred from renderer fallback defaults", () => {
@@ -365,11 +379,21 @@ describe("executor preflight desktop UI", () => {
       />
     );
 
-    await userEvent.click(within(screen.getByTestId("auto-run-executor-preflight-section")).getByRole("button", { name: "Executor preflight" }));
+    await userEvent.click(
+      within(screen.getByTestId("auto-run-executor-preflight-section")).getByRole("button", {
+        name: "Executor preflight"
+      })
+    );
     await userEvent.click(screen.getByTestId("auto-run-executor-preflight"));
     expect(bridgeMock.api.testExecutorProfile).toHaveBeenCalledWith(canvasRef, "codex");
-    await waitFor(() => expect(screen.getByTestId("auto-run-executor-preflight-status")).toHaveTextContent("Preflight failed"));
-    expect(screen.getByTestId("auto-run-executor-preflight-status")).not.toHaveTextContent(preflightResult.message);
+    await waitFor(() =>
+      expect(screen.getByTestId("auto-run-executor-preflight-status")).toHaveTextContent(
+        "Preflight failed"
+      )
+    );
+    expect(screen.getByTestId("auto-run-executor-preflight-status")).not.toHaveTextContent(
+      preflightResult.message
+    );
     expect(screen.queryByText(preflightResult.message)).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Auto Run" }));
@@ -377,7 +401,11 @@ describe("executor preflight desktop UI", () => {
   });
 
   it("runs startup executor preflight from the Auto Run panel with a runtime executor hint", async () => {
-    bridgeMock.api.testExecutorProfile.mockResolvedValue({ ...preflightResult, ok: true, message: "executor preflight passed" });
+    bridgeMock.api.testExecutorProfile.mockResolvedValue({
+      ...preflightResult,
+      ok: true,
+      message: "executor preflight passed"
+    });
 
     render(
       <FloatingAutoRunControl
@@ -416,13 +444,23 @@ describe("executor preflight desktop UI", () => {
       />
     );
 
-    expect(screen.getByTestId("auto-run-executor-preflight-section")).toHaveTextContent("Executor preflight");
+    expect(screen.getByTestId("auto-run-executor-preflight-section")).toHaveTextContent(
+      "Executor preflight"
+    );
     expect(screen.queryByText("codex")).not.toBeInTheDocument();
-    await userEvent.click(within(screen.getByTestId("auto-run-executor-preflight-section")).getByRole("button", { name: "Executor preflight" }));
+    await userEvent.click(
+      within(screen.getByTestId("auto-run-executor-preflight-section")).getByRole("button", {
+        name: "Executor preflight"
+      })
+    );
     expect(screen.getByText("codex")).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("auto-run-executor-preflight"));
 
     expect(bridgeMock.api.testExecutorProfile).toHaveBeenCalledWith(canvasRef, "codex");
-    await waitFor(() => expect(screen.getByTestId("auto-run-executor-preflight-status")).toHaveTextContent("Preflight passed"));
+    await waitFor(() =>
+      expect(screen.getByTestId("auto-run-executor-preflight-status")).toHaveTextContent(
+        "Preflight passed"
+      )
+    );
   });
 });

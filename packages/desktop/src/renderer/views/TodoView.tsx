@@ -13,7 +13,14 @@ type TodoViewProps = {
   todoGroups: DesktopTodoGroups | null;
 };
 
-const visibleTodoStatuses = ["ready", "in_progress", "needs_changes", "blocked", "diverged", "implemented"] as const;
+const visibleTodoStatuses = [
+  "ready",
+  "in_progress",
+  "needs_changes",
+  "blocked",
+  "diverged",
+  "implemented"
+] as const;
 
 type StatusKey = (typeof visibleTodoStatuses)[number];
 type Tone = "emerald" | "sky" | "amber" | "rose" | "violet" | "neutral";
@@ -49,9 +56,14 @@ export function TodoView({ executionPlan, handleBlockSelect, t, todoGroups }: To
   const readyCount = executionPlan?.readyQueue.length ?? todoGroups?.ready.length ?? 0;
 
   const statusLabel = (status: StatusKey) =>
-    t(status === "in_progress" ? "inProgress" : status === "needs_changes" ? "needsChanges" : status);
+    t(
+      status === "in_progress" ? "inProgress" : status === "needs_changes" ? "needsChanges" : status
+    );
 
-  const distribution = visibleTodoStatuses.map((status) => ({ status, count: todoGroups?.[status].length ?? 0 }));
+  const distribution = visibleTodoStatuses.map((status) => ({
+    status,
+    count: todoGroups?.[status].length ?? 0
+  }));
   const distributionTotal = distribution.reduce((total, item) => total + item.count, 0);
   const note = executionPlan?.notes[0] ?? `${t("readyQueue")}: ${readyCount}`;
 
@@ -66,7 +78,9 @@ export function TodoView({ executionPlan, handleBlockSelect, t, todoGroups }: To
                 {t("todo")}
               </div>
               <div className="flex items-end gap-3">
-                <span className="font-mono text-6xl leading-none font-semibold tracking-tight tabular-nums">{readyCount}</span>
+                <span className="font-mono text-6xl leading-none font-semibold tracking-tight tabular-nums">
+                  {readyCount}
+                </span>
                 <span className="pb-1.5 text-sm text-muted-foreground">{t("readyQueue")}</span>
               </div>
             </div>
@@ -103,13 +117,18 @@ export function TodoView({ executionPlan, handleBlockSelect, t, todoGroups }: To
                 const sequential = phase.sequentialReadyQueue.length;
                 const blocked = phase.blockedCount;
                 return (
-                  <div className="rounded-md border border-border/80 bg-surface-base p-4 shadow-sm transition-shadow hover:shadow-md" key={phase.canvasId}>
+                  <div
+                    className="rounded-md border border-border/80 bg-surface-base p-4 shadow-sm transition-shadow hover:shadow-md"
+                    key={phase.canvasId}
+                  >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
                           {t("phase")} {phase.phaseIndex}
                         </div>
-                        <div className="mt-0.5 truncate text-sm font-semibold">{phase.canvasName}</div>
+                        <div className="mt-0.5 truncate text-sm font-semibold">
+                          {phase.canvasName}
+                        </div>
                       </div>
                       <Badge className="shrink-0 font-mono tabular-nums" variant="outline">
                         {t("ready")}: {phase.readyQueue.length}
@@ -199,7 +218,10 @@ function SegmentedBar({
         : items.map((item) =>
             item.count > 0 ? (
               <div
-                className={cn("h-full transition-[width] duration-700 ease-out", toneBar[item.tone ?? statusTone[item.status as StatusKey]])}
+                className={cn(
+                  "h-full transition-[width] duration-700 ease-out",
+                  toneBar[item.tone ?? statusTone[item.status as StatusKey]]
+                )}
                 key={item.status}
                 style={{ width: `${(item.count / total) * 100}%` }}
               />

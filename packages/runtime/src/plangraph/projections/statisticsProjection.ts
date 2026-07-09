@@ -1,7 +1,12 @@
 import type { ExecutionStatus } from "../../taskManager/executionStatus.js";
 import type { DesktopStatistics } from "../../desktop/types.js";
 import type { ValidationIssue } from "../../types.js";
-import { appendDesktopDiagnostic, appendDesktopDiagnostics, desktopDiagnostic, errorMessage } from "../../desktop/graph/desktopDiagnostics.js";
+import {
+  appendDesktopDiagnostic,
+  appendDesktopDiagnostics,
+  desktopDiagnostic,
+  errorMessage
+} from "../../desktop/graph/desktopDiagnostics.js";
 import type { ResultsFileIndex } from "../../desktop/graph/resultsFileIndex.js";
 import type { ProjectTodoContext } from "./todoProjection.js";
 
@@ -20,11 +25,20 @@ export type StatisticsProjection = {
 function implementationDurationsFromResultsIndex(index: ResultsFileIndex): number[] {
   const implementationDurations: number[] = [];
   for (const entry of index.entries) {
-    if (!entry.relativePath.includes("/blocks/") || !entry.relativePath.endsWith("/metadata.json")) {
+    if (
+      !entry.relativePath.includes("/blocks/") ||
+      !entry.relativePath.endsWith("/metadata.json")
+    ) {
       continue;
     }
-    const startedAt = typeof entry.metadata?.startedAt === "string" ? Date.parse(entry.metadata.startedAt) : Number.NaN;
-    const finishedAt = typeof entry.metadata?.finishedAt === "string" ? Date.parse(entry.metadata.finishedAt) : Number.NaN;
+    const startedAt =
+      typeof entry.metadata?.startedAt === "string"
+        ? Date.parse(entry.metadata.startedAt)
+        : Number.NaN;
+    const finishedAt =
+      typeof entry.metadata?.finishedAt === "string"
+        ? Date.parse(entry.metadata.finishedAt)
+        : Number.NaN;
     if (Number.isFinite(startedAt) && Number.isFinite(finishedAt) && finishedAt >= startedAt) {
       implementationDurations.push(finishedAt - startedAt);
     }
@@ -32,24 +46,36 @@ function implementationDurationsFromResultsIndex(index: ResultsFileIndex): numbe
   return implementationDurations;
 }
 
-function statisticsPartsFromStatus(status: ExecutionStatus, implementationDurations: number[]): StatisticsParts {
+function statisticsPartsFromStatus(
+  status: ExecutionStatus,
+  implementationDurations: number[]
+): StatisticsParts {
   const reviewBlockCount = status.blocks.filter((block) => block.type === "review").length;
-  const reviewPassedCount = status.blocks.filter((block) => block.type === "review" && block.completionReason === "passed").length;
-  const feedbackEnvelopeCount = Object.values(status.counts.feedback).reduce((sum, count) => sum + count, 0);
+  const reviewPassedCount = status.blocks.filter(
+    (block) => block.type === "review" && block.completionReason === "passed"
+  ).length;
+  const feedbackEnvelopeCount = Object.values(status.counts.feedback).reduce(
+    (sum, count) => sum + count,
+    0
+  );
   return {
     implementationDurations,
     reviewBlockCount,
     stats: {
       taskTotal: status.taskTotal,
       implementedTaskCount: status.counts.tasks.implemented,
-      implementedRatio: status.taskTotal === 0 ? 0 : status.counts.tasks.implemented / status.taskTotal,
+      implementedRatio:
+        status.taskTotal === 0 ? 0 : status.counts.tasks.implemented / status.taskTotal,
       taskThroughput: status.counts.tasks.implemented,
       blockTotal: status.blockTotal,
       completedBlockCount: status.counts.blocks.completed,
       averageImplementationTimeMs:
         implementationDurations.length === 0
           ? null
-          : Math.round(implementationDurations.reduce((sum, duration) => sum + duration) / implementationDurations.length),
+          : Math.round(
+              implementationDurations.reduce((sum, duration) => sum + duration) /
+                implementationDurations.length
+            ),
       reviewPassedCount,
       reviewPassedRatio: reviewBlockCount === 0 ? 0 : reviewPassedCount / reviewBlockCount,
       feedbackEnvelopeCount,
@@ -98,9 +124,13 @@ function mergeStatisticsParts(parts: StatisticsParts[]): DesktopStatistics {
     averageImplementationTimeMs:
       totals.implementationDurations.length === 0
         ? null
-        : Math.round(totals.implementationDurations.reduce((sum, duration) => sum + duration) / totals.implementationDurations.length),
+        : Math.round(
+            totals.implementationDurations.reduce((sum, duration) => sum + duration) /
+              totals.implementationDurations.length
+          ),
     reviewPassedCount: totals.reviewPassedCount,
-    reviewPassedRatio: totals.reviewBlockCount === 0 ? 0 : totals.reviewPassedCount / totals.reviewBlockCount,
+    reviewPassedRatio:
+      totals.reviewBlockCount === 0 ? 0 : totals.reviewPassedCount / totals.reviewBlockCount,
     feedbackEnvelopeCount: totals.feedbackEnvelopeCount,
     reworkCount: totals.reworkCount,
     estimatedRemainingBlocks: totals.estimatedRemainingBlocks
@@ -119,21 +149,47 @@ export function buildStatisticsProjection(options: {
     const snapshot = options.context.snapshotsByCanvas.get(canvasId);
     const resultIndex = options.resultsByCanvas.get(canvasId);
     if (!snapshot) {
-      appendDesktopDiagnostic(diagnostics, desktopDiagnostic("desktop_canvas_execution_snapshot_missing", `Canvas '${canvasId}' execution snapshot is missing.`, canvasId));
+      appendDesktopDiagnostic(
+        diagnostics,
+        desktopDiagnostic(
+          "desktop_canvas_execution_snapshot_missing",
+          `Canvas '${canvasId}' execution snapshot is missing.`,
+          canvasId
+        )
+      );
       continue;
     }
     if (snapshot.error) {
-      appendDesktopDiagnostic(diagnostics, desktopDiagnostic("desktop_canvas_execution_snapshot_failed", `Canvas '${canvasId}' execution snapshot failed: ${errorMessage(snapshot.error)}`, canvasId));
+      appendDesktopDiagnostic(
+        diagnostics,
+        desktopDiagnostic(
+          "desktop_canvas_execution_snapshot_failed",
+          `Canvas '${canvasId}' execution snapshot failed: ${errorMessage(snapshot.error)}`,
+          canvasId
+        )
+      );
       continue;
     }
     if (!snapshot.status) {
-      appendDesktopDiagnostic(diagnostics, desktopDiagnostic("desktop_canvas_execution_status_missing", `Canvas '${canvasId}' execution status is unavailable.`, canvasId));
+      appendDesktopDiagnostic(
+        diagnostics,
+        desktopDiagnostic(
+          "desktop_canvas_execution_status_missing",
+          `Canvas '${canvasId}' execution status is unavailable.`,
+          canvasId
+        )
+      );
       continue;
     }
     if (resultIndex) {
       appendDesktopDiagnostics(diagnostics, resultIndex.diagnostics);
     }
-    parts.push(statisticsPartsFromStatus(snapshot.status, resultIndex ? implementationDurationsFromResultsIndex(resultIndex) : []));
+    parts.push(
+      statisticsPartsFromStatus(
+        snapshot.status,
+        resultIndex ? implementationDurationsFromResultsIndex(resultIndex) : []
+      )
+    );
   }
 
   return {

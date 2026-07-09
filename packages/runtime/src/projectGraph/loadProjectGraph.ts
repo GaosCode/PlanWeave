@@ -26,7 +26,7 @@ function projectGraphWorkspace(workspace: ProjectWorkspace): ProjectWorkspace {
     rootPath: workspace.rootPath,
     sourceRoot: workspace.sourceRoot,
     planweaveHome: workspace.planweaveHome,
-    workspaceRoot,
+    workspaceRoot
   });
 }
 
@@ -42,7 +42,12 @@ async function manifestTitle(manifestFile: string): Promise<string> {
   }
   if (raw && typeof raw === "object" && !Array.isArray(raw) && "project" in raw) {
     const project = (raw as { project?: unknown }).project;
-    if (project && typeof project === "object" && !Array.isArray(project) && typeof (project as { title?: unknown }).title === "string") {
+    if (
+      project &&
+      typeof project === "object" &&
+      !Array.isArray(project) &&
+      typeof (project as { title?: unknown }).title === "string"
+    ) {
       return (project as { title: string }).title.trim() || "任务画布";
     }
   }
@@ -59,13 +64,17 @@ async function legacyProjectGraph(workspace: ProjectWorkspace): Promise<ProjectG
   return projectGraphFromLegacyRegistry(registry);
 }
 
-export async function loadProjectGraphForWorkspace(workspaceRef: ProjectWorkspace): Promise<LoadedProjectGraph> {
+export async function loadProjectGraphForWorkspace(
+  workspaceRef: ProjectWorkspace
+): Promise<LoadedProjectGraph> {
   const workspace = projectGraphWorkspace(workspaceRef);
   const path = projectGraphPath(workspace);
   if (await optionalStat(path)) {
     return {
       workspace,
-      manifest: projectGraphManifestSchema.parse(await readJsonFile<unknown>(path)) as ProjectGraphManifest,
+      manifest: projectGraphManifestSchema.parse(
+        await readJsonFile<unknown>(path)
+      ) as ProjectGraphManifest,
       source: "project_graph",
       diagnostics: []
     };
@@ -103,7 +112,10 @@ export async function loadProjectGraph(projectRoot: string): Promise<LoadedProje
   return loadProjectGraphForWorkspace(await resolveProjectWorkspace(projectRoot));
 }
 
-export async function writeProjectGraph(workspace: ProjectWorkspace, manifest: ProjectGraphManifest): Promise<ProjectGraphManifest> {
+export async function writeProjectGraph(
+  workspace: ProjectWorkspace,
+  manifest: ProjectGraphManifest
+): Promise<ProjectGraphManifest> {
   const parsed = projectGraphManifestSchema.parse(manifest) as ProjectGraphManifest;
   await writeJsonFile(projectGraphPath(workspace), parsed);
   return parsed;

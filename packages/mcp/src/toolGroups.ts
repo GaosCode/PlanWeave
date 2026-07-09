@@ -2,12 +2,23 @@ export const toolGroups = [
   {
     name: "authoring_start",
     purpose: "Start a PlanWeave authoring workflow with lightweight guidance.",
-    recommendedTools: ["list_tool_groups", "get_planweave_guide", "get_authoring_rules", "create_project", "get_plan_package_examples"]
+    recommendedTools: [
+      "list_tool_groups",
+      "get_planweave_guide",
+      "get_authoring_rules",
+      "create_project",
+      "get_plan_package_examples"
+    ]
   },
   {
     name: "graph_read",
     purpose: "Inspect canvas graphs without returning prompt bodies or Desktop-only DTOs.",
-    recommendedTools: ["get_graph_summary", "list_tasks", "get_graph_slice", "validate_graph_quality"]
+    recommendedTools: [
+      "get_graph_summary",
+      "list_tasks",
+      "get_graph_slice",
+      "validate_graph_quality"
+    ]
   },
   {
     name: "package_draft_import",
@@ -17,7 +28,13 @@ export const toolGroups = [
   {
     name: "content_debug",
     purpose: "Read package files, prompt sources, or one rendered prompt by explicit selector.",
-    recommendedTools: ["list_package_files", "read_package_file", "read_prompt_source", "get_rendered_prompt", "get_prompt_sources"]
+    recommendedTools: [
+      "list_package_files",
+      "read_package_file",
+      "read_prompt_source",
+      "get_rendered_prompt",
+      "get_prompt_sources"
+    ]
   },
   {
     name: "precision_edit",
@@ -42,8 +59,17 @@ export const toolGroups = [
   },
   {
     name: "legacy_aliases",
-    purpose: "Compat-only tools kept for existing clients. They are hidden from default discovery; set PLANWEAVE_MCP_TOOL_DISCOVERY=compat to expose them through tools/list.",
-    recommendedTools: ["list_projects", "get_project_graph", "get_block_detail", "add_dependency", "remove_dependency", "refresh_prompts", "export_plan_package"]
+    purpose:
+      "Compat-only tools kept for existing clients. They are hidden from default discovery; set PLANWEAVE_MCP_TOOL_DISCOVERY=compat to expose them through tools/list.",
+    recommendedTools: [
+      "list_projects",
+      "get_project_graph",
+      "get_block_detail",
+      "add_dependency",
+      "remove_dependency",
+      "refresh_prompts",
+      "export_plan_package"
+    ]
   }
 ] as const;
 

@@ -1,7 +1,4 @@
-import type {
-  DesktopGraphViewModel,
-  DesktopReviewPipeline
-} from "@planweave-ai/runtime";
+import type { DesktopGraphViewModel, DesktopReviewPipeline } from "@planweave-ai/runtime";
 
 export const graph: DesktopGraphViewModel = {
   projectId: "P-001",

@@ -54,7 +54,10 @@ describe("application menu", () => {
 
     registerApplicationMenu({ checkForUpdates });
 
-    const template = electronMock.builtMenus[0] as Array<{ label?: string; submenu?: Array<{ label?: string; click?: () => void; role?: string }> }>;
+    const template = electronMock.builtMenus[0] as Array<{
+      label?: string;
+      submenu?: Array<{ label?: string; click?: () => void; role?: string }>;
+    }>;
     const appMenu = template[0];
     const updateItem = appMenu.submenu?.find((item) => item.label === "Check for Updates");
 
@@ -84,7 +87,10 @@ describe("application menu", () => {
 
     registerApplicationMenu({ checkForUpdates });
 
-    const template = electronMock.builtMenus[0] as Array<{ label?: string; submenu?: Array<{ label?: string; click?: () => void }> }>;
+    const template = electronMock.builtMenus[0] as Array<{
+      label?: string;
+      submenu?: Array<{ label?: string; click?: () => void }>;
+    }>;
     const updateItem = template[0].submenu?.find((item) => item.label === "检查更新");
     updateItem?.click?.();
     await Promise.resolve();
@@ -115,7 +121,10 @@ describe("application menu", () => {
 
     registerApplicationMenu({ checkForUpdates });
 
-    const template = electronMock.builtMenus[0] as Array<{ label?: string; submenu?: Array<{ label?: string; click?: () => void }> }>;
+    const template = electronMock.builtMenus[0] as Array<{
+      label?: string;
+      submenu?: Array<{ label?: string; click?: () => void }>;
+    }>;
     const updateItem = template[0].submenu?.find((item) => item.label === "Check for Updates");
     updateItem?.click?.();
     await Promise.resolve();
@@ -137,6 +146,12 @@ describe("application menu", () => {
     registerApplicationMenu({ checkForUpdates: vi.fn() });
 
     const template = electronMock.builtMenus[0] as Array<{ role?: string }>;
-    expect(template.slice(1).map((item) => item.role)).toEqual(["fileMenu", "editMenu", "viewMenu", "windowMenu", "help"]);
+    expect(template.slice(1).map((item) => item.role)).toEqual([
+      "fileMenu",
+      "editMenu",
+      "viewMenu",
+      "windowMenu",
+      "help"
+    ]);
   });
 });

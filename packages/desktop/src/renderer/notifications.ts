@@ -1,4 +1,9 @@
-import type { DesktopAutoRunState, DesktopGraphViewModel, DesktopPackageFileChangeEvent, PendingImportTransaction } from "@planweave-ai/runtime";
+import type {
+  DesktopAutoRunState,
+  DesktopGraphViewModel,
+  DesktopPackageFileChangeEvent,
+  PendingImportTransaction
+} from "@planweave-ai/runtime";
 import type { createTranslator } from "./i18n";
 import type { PromptConflictRef } from "./hooks/usePromptDrafts";
 import type { DesktopUiSettings, NotificationItem, NotificationItemDraft } from "./types";
@@ -25,21 +30,41 @@ export function buildNotificationItems({
   const readNotificationIds = new Set(settings.readNotificationIds);
   const notificationItems: NotificationItemDraft[] = [];
   if (settings.notifications.autoRunFailure && autoRunState?.error) {
-    notificationItems.push({ id: `auto-run-error:${autoRunState.error}`, title: t("notifyAutoRun"), detail: autoRunState.error, tone: "destructive" });
+    notificationItems.push({
+      id: `auto-run-error:${autoRunState.error}`,
+      title: t("notifyAutoRun"),
+      detail: autoRunState.error,
+      tone: "destructive"
+    });
   }
   if (settings.notifications.autoRunFailure && autoRunState?.latestRecordPath) {
-    notificationItems.push({ id: `latest-record:${autoRunState.latestRecordPath}`, title: t("latestRecord"), detail: autoRunState.latestRecordPath, tone: "outline" });
+    notificationItems.push({
+      id: `latest-record:${autoRunState.latestRecordPath}`,
+      title: t("latestRecord"),
+      detail: autoRunState.latestRecordPath,
+      tone: "outline"
+    });
   }
   if (settings.notifications.graphExceptions) {
     for (const task of graph?.tasks ?? []) {
       for (const exception of task.exceptions) {
-        notificationItems.push({ id: `${task.taskId}-${exception.ref}-${exception.source}`, title: `${t("graphExceptions")} · ${task.title}`, detail: exception.reason, tone: "destructive" });
+        notificationItems.push({
+          id: `${task.taskId}-${exception.ref}-${exception.source}`,
+          title: `${t("graphExceptions")} · ${task.title}`,
+          detail: exception.reason,
+          tone: "destructive"
+        });
       }
     }
   }
   if (settings.notifications.dirtyPrompts) {
     for (const ref of graph?.dirtyPromptRefs ?? []) {
-      notificationItems.push({ id: `dirty-${ref}`, title: t("notifyDirtyPrompts"), detail: ref, tone: "secondary" });
+      notificationItems.push({
+        id: `dirty-${ref}`,
+        title: t("notifyDirtyPrompts"),
+        detail: ref,
+        tone: "secondary"
+      });
     }
   }
   if (settings.notifications.fileSyncConflict) {
@@ -54,10 +79,22 @@ export function buildNotificationItems({
     }
     if (lastFileChange) {
       const detail = lastFileChange.paths.join(", ");
-      notificationItems.push({ id: `file-change:${detail}`, title: t("fileChangesDetected"), detail, tone: "outline", kind: "fileSync" });
+      notificationItems.push({
+        id: `file-change:${detail}`,
+        title: t("fileChangesDetected"),
+        detail,
+        tone: "outline",
+        kind: "fileSync"
+      });
     }
     for (const diagnostic of fileSyncDiagnostics) {
-      notificationItems.push({ id: `sync-${diagnostic}`, title: t("fileSyncConflict"), detail: diagnostic, tone: "destructive", kind: "fileSync" });
+      notificationItems.push({
+        id: `sync-${diagnostic}`,
+        title: t("fileSyncConflict"),
+        detail: diagnostic,
+        tone: "destructive",
+        kind: "fileSync"
+      });
     }
   }
   for (const recovery of pendingImportRecoveries) {
@@ -71,5 +108,7 @@ export function buildNotificationItems({
       recoveryRoot: recovery.recoveryRoot
     });
   }
-  return notificationItems.map((item): NotificationItem => ({ ...item, read: readNotificationIds.has(item.id) }));
+  return notificationItems.map(
+    (item): NotificationItem => ({ ...item, read: readNotificationIds.has(item.id) })
+  );
 }

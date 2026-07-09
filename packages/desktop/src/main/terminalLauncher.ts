@@ -1,5 +1,8 @@
 import { execFile, type ExecFileOptions } from "node:child_process";
-import type { DesktopRunTerminalUnavailableReason, DesktopTerminalAppId } from "@planweave-ai/runtime";
+import type {
+  DesktopRunTerminalUnavailableReason,
+  DesktopTerminalAppId
+} from "@planweave-ai/runtime";
 import { terminalAppById } from "./terminalApps.js";
 import type { TmuxAttachIntent } from "./tmuxRunRecordResolver.js";
 
@@ -13,7 +16,11 @@ type TerminalLauncher = {
   open(intent: TerminalOpenIntent): Promise<void>;
 };
 
-function execFileVoid(command: string, args: string[], options: ExecFileOptions = {}): Promise<void> {
+function execFileVoid(
+  command: string,
+  args: string[],
+  options: ExecFileOptions = {}
+): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile(command, args, { ...options, maxBuffer: 64 * 1024 }, (error) => {
       if (error) {
@@ -91,7 +98,9 @@ function iTermScript(command: string): string[] {
   ];
 }
 
-export async function checkTmuxSessionAvailability(sessionName: string): Promise<DesktopRunTerminalUnavailableReason | null> {
+export async function checkTmuxSessionAvailability(
+  sessionName: string
+): Promise<DesktopRunTerminalUnavailableReason | null> {
   try {
     await execFileVoid("tmux", ["has-session", "-t", sessionName], {
       timeout: 2_000,
@@ -147,15 +156,23 @@ const ghosttyLauncher: TerminalLauncher = {
   appId: "ghostty",
   async launch(intent) {
     const terminalApp = terminalAppById("ghostty");
-    await execFileVoid("/usr/bin/open", ["-n", "-a", terminalApp.macOpenName, "--args", "-e", ...tmuxCommandArgs(intent)], {
-      cwd: intent.cwd ?? undefined
-    });
+    await execFileVoid(
+      "/usr/bin/open",
+      ["-n", "-a", terminalApp.macOpenName, "--args", "-e", ...tmuxCommandArgs(intent)],
+      {
+        cwd: intent.cwd ?? undefined
+      }
+    );
   },
   async open(intent) {
     const terminalApp = terminalAppById("ghostty");
-    await execFileVoid("/usr/bin/open", ["-n", "-a", terminalApp.macOpenName, "--args", `--working-directory=${intent.cwd}`], {
-      cwd: intent.cwd
-    });
+    await execFileVoid(
+      "/usr/bin/open",
+      ["-n", "-a", terminalApp.macOpenName, "--args", `--working-directory=${intent.cwd}`],
+      {
+        cwd: intent.cwd
+      }
+    );
   }
 };
 
@@ -165,7 +182,10 @@ const launchers = new Map<DesktopTerminalAppId, TerminalLauncher>([
   [ghosttyLauncher.appId, ghosttyLauncher]
 ]);
 
-export async function launchRunTerminal(appId: DesktopTerminalAppId, intent: TmuxAttachIntent): Promise<void> {
+export async function launchRunTerminal(
+  appId: DesktopTerminalAppId,
+  intent: TmuxAttachIntent
+): Promise<void> {
   const launcher = launchers.get(appId);
   if (!launcher) {
     throw new Error(`Unsupported terminal app '${appId}'.`);
@@ -177,7 +197,10 @@ export async function launchRunTerminal(appId: DesktopTerminalAppId, intent: Tmu
   await launcher.launch(intent);
 }
 
-export async function openTerminal(appId: DesktopTerminalAppId, intent: TerminalOpenIntent): Promise<void> {
+export async function openTerminal(
+  appId: DesktopTerminalAppId,
+  intent: TerminalOpenIntent
+): Promise<void> {
   const launcher = launchers.get(appId);
   if (!launcher) {
     throw new Error(`Unsupported terminal app '${appId}'.`);

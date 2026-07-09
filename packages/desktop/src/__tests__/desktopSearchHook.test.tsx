@@ -1,7 +1,12 @@
 /* @vitest-environment jsdom */
 
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import type { DesktopProjectSummary, DesktopSearchProjection, DesktopSearchResult, ValidationIssue } from "@planweave-ai/runtime";
+import type {
+  DesktopProjectSummary,
+  DesktopSearchProjection,
+  DesktopSearchResult,
+  ValidationIssue
+} from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 
@@ -37,11 +42,14 @@ function searchArgsBase() {
     loadProject: vi.fn().mockResolvedValue(undefined),
     selectedCanvasId: "canvas-main",
     selectedProject: project,
-    setError: vi.fn(),
+    setError: vi.fn()
   };
 }
 
-function searchProjection(results: DesktopSearchResult[], diagnostics: ValidationIssue[] = []): DesktopSearchProjection {
+function searchProjection(
+  results: DesktopSearchResult[],
+  diagnostics: ValidationIssue[] = []
+): DesktopSearchProjection {
   return { diagnostics, results };
 }
 
@@ -60,7 +68,9 @@ afterEach(() => {
 
 describe("desktop search hook", () => {
   it("debounces bridge calls and deduplicates unchanged filter keys", async () => {
-    const searchResults: DesktopSearchResult[] = [{ kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }];
+    const searchResults: DesktopSearchResult[] = [
+      { kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }
+    ];
     const bridge = createDesktopBridgeMock({
       searchProjectWithDiagnostics: vi.fn().mockResolvedValue(searchProjection(searchResults))
     });
@@ -80,16 +90,30 @@ describe("desktop search hook", () => {
     await waitForSearchDebounce();
 
     expect(bridge.searchProjectWithDiagnostics).toHaveBeenCalledTimes(2);
-    expect(bridge.searchProjectWithDiagnostics).toHaveBeenNthCalledWith(1, project.rootPath, "Alpha", {
-      kinds: ["task", "block", "prompt", "run_record", "review_attempt", "feedback"],
-      includeBodies: false
-    });
-    expect(bridge.searchProjectWithDiagnostics).toHaveBeenNthCalledWith(2, project.rootPath, "Alpha", {
-      kinds: ["task", "block", "prompt", "run_record", "review_attempt", "feedback"],
-      includeBodies: true
-    });
+    expect(bridge.searchProjectWithDiagnostics).toHaveBeenNthCalledWith(
+      1,
+      project.rootPath,
+      "Alpha",
+      {
+        kinds: ["task", "block", "prompt", "run_record", "review_attempt", "feedback"],
+        includeBodies: false
+      }
+    );
+    expect(bridge.searchProjectWithDiagnostics).toHaveBeenNthCalledWith(
+      2,
+      project.rootPath,
+      "Alpha",
+      {
+        kinds: ["task", "block", "prompt", "run_record", "review_attempt", "feedback"],
+        includeBodies: true
+      }
+    );
     expect(result.current.searchResults).toEqual(searchResults);
-    expect(result.current.searchStatus).toEqual({ phase: "complete", resultCount: searchResults.length, expandedBodySearch: true });
+    expect(result.current.searchStatus).toEqual({
+      phase: "complete",
+      resultCount: searchResults.length,
+      expandedBodySearch: true
+    });
 
     act(() => {
       result.current.setSearchResultKindEnabled("task", true);
@@ -123,10 +147,14 @@ describe("desktop search hook", () => {
       await Promise.resolve();
     });
 
-    expect(bridge.searchProjectWithDiagnostics).toHaveBeenLastCalledWith(project.rootPath, "Alpha", {
-      kinds: ["task", "block", "prompt", "run_record", "review_attempt"],
-      includeBodies: true
-    });
+    expect(bridge.searchProjectWithDiagnostics).toHaveBeenLastCalledWith(
+      project.rootPath,
+      "Alpha",
+      {
+        kinds: ["task", "block", "prompt", "run_record", "review_attempt"],
+        includeBodies: true
+      }
+    );
 
     act(() => {
       result.current.setSearchCanvasScope("current");
@@ -135,26 +163,47 @@ describe("desktop search hook", () => {
       await Promise.resolve();
     });
 
-    expect(bridge.searchProjectWithDiagnostics).toHaveBeenLastCalledWith(project.rootPath, "Alpha", {
-      kinds: ["task", "block", "prompt", "run_record", "review_attempt"],
-      canvasId: "canvas-main",
-      includeBodies: true
-    });
+    expect(bridge.searchProjectWithDiagnostics).toHaveBeenLastCalledWith(
+      project.rootPath,
+      "Alpha",
+      {
+        kinds: ["task", "block", "prompt", "run_record", "review_attempt"],
+        canvasId: "canvas-main",
+        includeBodies: true
+      }
+    );
   });
 
   it("returns summary search before hydrating body results in the background", async () => {
     let resolveBodySearch: (projection: DesktopSearchProjection) => void = () => undefined;
-    const summaryResults: DesktopSearchResult[] = [{ kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }];
-    const bodyResults: DesktopSearchResult[] = [{ kind: "prompt", ref: "T-ALPHA", targetRef: "T-ALPHA", title: "Alpha task", excerpt: "Alpha prompt body" }];
+    const summaryResults: DesktopSearchResult[] = [
+      { kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }
+    ];
+    const bodyResults: DesktopSearchResult[] = [
+      {
+        kind: "prompt",
+        ref: "T-ALPHA",
+        targetRef: "T-ALPHA",
+        title: "Alpha task",
+        excerpt: "Alpha prompt body"
+      }
+    ];
     const bodyDiagnostics: ValidationIssue[] = [
-      { code: "desktop_search_index_slow_part", message: "Desktop projection body search index construction took 12 ms.", path: project.rootPath }
+      {
+        code: "desktop_search_index_slow_part",
+        message: "Desktop projection body search index construction took 12 ms.",
+        path: project.rootPath
+      }
     ];
     const bridge = createDesktopBridgeMock({
-      searchProjectWithDiagnostics: vi.fn()
+      searchProjectWithDiagnostics: vi
+        .fn()
         .mockResolvedValueOnce(searchProjection(summaryResults))
-        .mockReturnValueOnce(new Promise<DesktopSearchProjection>((resolve) => {
-          resolveBodySearch = resolve;
-        }))
+        .mockReturnValueOnce(
+          new Promise<DesktopSearchProjection>((resolve) => {
+            resolveBodySearch = resolve;
+          })
+        )
     });
     vi.stubGlobal("planweave", bridge);
     vi.resetModules();
@@ -167,17 +216,30 @@ describe("desktop search hook", () => {
     });
     await waitForSearchDebounce();
 
-    expect(bridge.searchProjectWithDiagnostics).toHaveBeenNthCalledWith(1, project.rootPath, "Alpha", {
-      kinds: ["task", "block", "prompt", "run_record", "review_attempt", "feedback"],
-      includeBodies: false
-    });
+    expect(bridge.searchProjectWithDiagnostics).toHaveBeenNthCalledWith(
+      1,
+      project.rootPath,
+      "Alpha",
+      {
+        kinds: ["task", "block", "prompt", "run_record", "review_attempt", "feedback"],
+        includeBodies: false
+      }
+    );
     expect(result.current.searchResults).toEqual(summaryResults);
-    expect(result.current.searchStatus).toEqual({ phase: "body_loading", summaryResultCount: summaryResults.length });
-    expect(result.current.searchDiagnostics).toEqual([]);
-    expect(bridge.searchProjectWithDiagnostics).toHaveBeenNthCalledWith(2, project.rootPath, "Alpha", {
-      kinds: ["task", "block", "prompt", "run_record", "review_attempt", "feedback"],
-      includeBodies: true
+    expect(result.current.searchStatus).toEqual({
+      phase: "body_loading",
+      summaryResultCount: summaryResults.length
     });
+    expect(result.current.searchDiagnostics).toEqual([]);
+    expect(bridge.searchProjectWithDiagnostics).toHaveBeenNthCalledWith(
+      2,
+      project.rootPath,
+      "Alpha",
+      {
+        kinds: ["task", "block", "prompt", "run_record", "review_attempt", "feedback"],
+        includeBodies: true
+      }
+    );
 
     await act(async () => {
       resolveBodySearch(searchProjection(bodyResults, bodyDiagnostics));
@@ -186,15 +248,21 @@ describe("desktop search hook", () => {
 
     await waitFor(() => expect(result.current.searchResults).toEqual(bodyResults));
     expect(result.current.searchDiagnostics).toEqual(bodyDiagnostics);
-    expect(result.current.searchStatus).toEqual({ phase: "complete", resultCount: bodyResults.length, expandedBodySearch: true });
+    expect(result.current.searchStatus).toEqual({
+      phase: "complete",
+      resultCount: bodyResults.length,
+      expandedBodySearch: true
+    });
   });
 
   it("reports summary loading while the first search phase is pending", async () => {
     let resolveSummarySearch: (projection: DesktopSearchProjection) => void = () => undefined;
     const bridge = createDesktopBridgeMock({
-      searchProjectWithDiagnostics: vi.fn().mockReturnValue(new Promise<DesktopSearchProjection>((resolve) => {
-        resolveSummarySearch = resolve;
-      }))
+      searchProjectWithDiagnostics: vi.fn().mockReturnValue(
+        new Promise<DesktopSearchProjection>((resolve) => {
+          resolveSummarySearch = resolve;
+        })
+      )
     });
     vi.stubGlobal("planweave", bridge);
     vi.resetModules();
@@ -242,7 +310,11 @@ describe("desktop search hook", () => {
     expect(result.current.searchStatus).toEqual({ phase: "idle" });
 
     await act(async () => {
-      resolveSearch(searchProjection([{ kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }]));
+      resolveSearch(
+        searchProjection([
+          { kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }
+        ])
+      );
       await Promise.resolve();
     });
 
@@ -253,17 +325,26 @@ describe("desktop search hook", () => {
   it("prevents stale searches from replacing a newer query state or results", async () => {
     let resolveAlphaSearch: (projection: DesktopSearchProjection) => void = () => undefined;
     let resolveBetaSearch: (projection: DesktopSearchProjection) => void = () => undefined;
-    const alphaResults: DesktopSearchResult[] = [{ kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }];
-    const betaResults: DesktopSearchResult[] = [{ kind: "task", ref: "T-BETA", title: "Beta task", excerpt: "Beta task" }];
+    const alphaResults: DesktopSearchResult[] = [
+      { kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }
+    ];
+    const betaResults: DesktopSearchResult[] = [
+      { kind: "task", ref: "T-BETA", title: "Beta task", excerpt: "Beta task" }
+    ];
     const bridge = createDesktopBridgeMock({
-      searchProjectWithDiagnostics: vi.fn()
-        .mockReturnValueOnce(new Promise<DesktopSearchProjection>((resolve) => {
-          resolveAlphaSearch = resolve;
-        }))
+      searchProjectWithDiagnostics: vi
+        .fn()
+        .mockReturnValueOnce(
+          new Promise<DesktopSearchProjection>((resolve) => {
+            resolveAlphaSearch = resolve;
+          })
+        )
         .mockResolvedValueOnce(searchProjection([]))
-        .mockReturnValueOnce(new Promise<DesktopSearchProjection>((resolve) => {
-          resolveBetaSearch = resolve;
-        }))
+        .mockReturnValueOnce(
+          new Promise<DesktopSearchProjection>((resolve) => {
+            resolveBetaSearch = resolve;
+          })
+        )
         .mockResolvedValueOnce(searchProjection(betaResults))
     });
     vi.stubGlobal("planweave", bridge);
@@ -298,7 +379,11 @@ describe("desktop search hook", () => {
     });
 
     await waitFor(() => expect(result.current.searchResults).toEqual(betaResults));
-    expect(result.current.searchStatus).toEqual({ phase: "complete", resultCount: betaResults.length, expandedBodySearch: true });
+    expect(result.current.searchStatus).toEqual({
+      phase: "complete",
+      resultCount: betaResults.length,
+      expandedBodySearch: true
+    });
   });
 
   it("opens task, block, and record targets from search results", async () => {
@@ -309,7 +394,13 @@ describe("desktop search hook", () => {
     const { result } = renderHook(() => useDesktopSearch(args));
 
     await act(async () => {
-      await result.current.handleSearchResultOpen({ kind: "prompt", ref: "T-001", targetRef: "T-001", title: "Task prompt", excerpt: "task" });
+      await result.current.handleSearchResultOpen({
+        kind: "prompt",
+        ref: "T-001",
+        targetRef: "T-001",
+        title: "Task prompt",
+        excerpt: "task"
+      });
       await result.current.handleSearchResultOpen({
         kind: "review_attempt",
         ref: "T-001/reviews/R-001/attempts/REV-001/review-result.json",
@@ -359,6 +450,8 @@ describe("desktop search hook", () => {
 
     expect(args.loadProject).toHaveBeenCalledWith(project, "canvas-other");
     expect(args.openTaskInspector).toHaveBeenCalledWith("T-REMOTE", "canvas-other");
-    expect(args.loadProject.mock.invocationCallOrder[0]).toBeLessThan(args.openTaskInspector.mock.invocationCallOrder[0]);
+    expect(args.loadProject.mock.invocationCallOrder[0]).toBeLessThan(
+      args.openTaskInspector.mock.invocationCallOrder[0]
+    );
   });
 });

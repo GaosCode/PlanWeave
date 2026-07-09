@@ -42,22 +42,42 @@ function SidebarLayoutHarness({
 
   return (
     <div>
-      <button type="button" data-testid="left-resize" onPointerDown={(event) => sidebarLayoutState.startSidebarResize(event, "left")}>
+      <button
+        type="button"
+        data-testid="left-resize"
+        onPointerDown={(event) => sidebarLayoutState.startSidebarResize(event, "left")}
+      >
         left resize
       </button>
-      <button type="button" data-testid="right-resize" onPointerDown={(event) => sidebarLayoutState.startSidebarResize(event, "right")}>
+      <button
+        type="button"
+        data-testid="right-resize"
+        onPointerDown={(event) => sidebarLayoutState.startSidebarResize(event, "right")}
+      >
         right resize
       </button>
-      <button type="button" data-testid="left-toggle" onClick={() => sidebarLayoutState.setLeftSidebarCollapsedPreference((current) => !current)}>
+      <button
+        type="button"
+        data-testid="left-toggle"
+        onClick={() => sidebarLayoutState.setLeftSidebarCollapsedPreference((current) => !current)}
+      >
         left toggle
       </button>
-      <button type="button" data-testid="right-toggle" onClick={() => sidebarLayoutState.setRightSidebarCollapsedPreference((current) => !current)}>
+      <button
+        type="button"
+        data-testid="right-toggle"
+        onClick={() => sidebarLayoutState.setRightSidebarCollapsedPreference((current) => !current)}
+      >
         right toggle
       </button>
       <output data-testid="left-width">{sidebarLayoutState.leftSidebarWidth}</output>
       <output data-testid="right-width">{sidebarLayoutState.rightSidebarWidth}</output>
-      <output data-testid="left-collapsed">{String(sidebarLayoutState.leftSidebarCollapsed)}</output>
-      <output data-testid="right-collapsed">{String(sidebarLayoutState.rightSidebarCollapsed)}</output>
+      <output data-testid="left-collapsed">
+        {String(sidebarLayoutState.leftSidebarCollapsed)}
+      </output>
+      <output data-testid="right-collapsed">
+        {String(sidebarLayoutState.rightSidebarCollapsed)}
+      </output>
     </div>
   );
 }
@@ -72,7 +92,12 @@ afterEach(() => {
 describe("useResizableSidebarLayout", () => {
   it("resizes the left sidebar and commits the final width on pointerup", () => {
     const onLayoutPatch = vi.fn();
-    render(<SidebarLayoutHarness initialLayout={sidebarLayout({ leftSidebar: { collapsed: false, width: 280 } })} onLayoutPatch={onLayoutPatch} />);
+    render(
+      <SidebarLayoutHarness
+        initialLayout={sidebarLayout({ leftSidebar: { collapsed: false, width: 280 } })}
+        onLayoutPatch={onLayoutPatch}
+      />
+    );
 
     fireEvent.pointerDown(screen.getByTestId("left-resize"), { clientX: 100 });
     expect(window.document.body.style.cursor).toBe("col-resize");
@@ -90,7 +115,12 @@ describe("useResizableSidebarLayout", () => {
 
   it("resizes the right sidebar by dragging left and commits on pointercancel", () => {
     const onLayoutPatch = vi.fn();
-    render(<SidebarLayoutHarness initialLayout={sidebarLayout({ rightSidebar: { collapsed: false, width: 300 } })} onLayoutPatch={onLayoutPatch} />);
+    render(
+      <SidebarLayoutHarness
+        initialLayout={sidebarLayout({ rightSidebar: { collapsed: false, width: 300 } })}
+        onLayoutPatch={onLayoutPatch}
+      />
+    );
 
     fireEvent.pointerDown(screen.getByTestId("right-resize"), { clientX: 400 });
     fireEvent.pointerMove(window, { clientX: 350 });

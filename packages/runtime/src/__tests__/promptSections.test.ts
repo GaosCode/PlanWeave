@@ -83,7 +83,9 @@ describe("prompt section parsing", () => {
     const second = formatSection("user", "notes", "second");
     const markdown = `${first}\n\n${second}`;
 
-    expect(replacePromptSection(markdown, "user", "notes", "updated")).toBe(`${formatSection("user", "notes", "updated")}\n\n${second}`);
+    expect(replacePromptSection(markdown, "user", "notes", "updated")).toBe(
+      `${formatSection("user", "notes", "updated")}\n\n${second}`
+    );
   });
 
   it("throws the existing error when replacing a missing section", () => {
@@ -110,7 +112,10 @@ describe("prompt section parsing", () => {
   });
 
   it("scans repeated malformed markers without matching through a section regex", () => {
-    const markdown = Array.from({ length: 1000 }, (_, index) => `<!-- planweave:managed:start repeated-${index} -->`).join("\n");
+    const markdown = Array.from(
+      { length: 1000 },
+      (_, index) => `<!-- planweave:managed:start repeated-${index} -->`
+    ).join("\n");
 
     expect(parsePromptSections(markdown)).toEqual([]);
     expect(findPromptSectionBoundaryIssues(markdown)).toHaveLength(1000);

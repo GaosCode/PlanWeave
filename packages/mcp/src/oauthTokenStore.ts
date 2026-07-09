@@ -74,7 +74,9 @@ export function createFileOAuthTokenStore(path: string): OAuthTokenStore {
     }
     const file: StoredTokenFile = {
       version: 1,
-      tokens: [...tokens.values()].sort((left, right) => left.tokenHash.localeCompare(right.tokenHash))
+      tokens: [...tokens.values()].sort((left, right) =>
+        left.tokenHash.localeCompare(right.tokenHash)
+      )
     };
     await writePrivateJsonFile(path, file);
   }

@@ -10,7 +10,9 @@ export type LoadedPlanPackage = {
   manifest: PlanPackageManifest;
 };
 
-export async function resolvePackageWorkspace(workspaceRef: PackageWorkspaceRef): Promise<ProjectWorkspace> {
+export async function resolvePackageWorkspace(
+  workspaceRef: PackageWorkspaceRef
+): Promise<ProjectWorkspace> {
   return typeof workspaceRef === "string" ? resolveTaskCanvasWorkspace(workspaceRef) : workspaceRef;
 }
 

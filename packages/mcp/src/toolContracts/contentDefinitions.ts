@@ -10,18 +10,24 @@ import {
   promptSourceWriteInput,
   taskPromptInput
 } from "./inputShapes.js";
-import { readOnlyAnnotations, writeAnnotations, type PlanweavePartialToolDefinitionRegistry } from "./types.js";
+import {
+  readOnlyAnnotations,
+  writeAnnotations,
+  type PlanweavePartialToolDefinitionRegistry
+} from "./types.js";
 
 export const contentToolDefinitions = {
   get_prompt: {
     title: "Get PlanWeave Rendered Prompt",
-    description: "Return the rendered prompt markdown for a block without modifying source prompts.",
+    description:
+      "Return the rendered prompt markdown for a block without modifying source prompts.",
     inputSchema: { ...optionalProjectCanvasInput, ref: z.string().min(1) },
     annotations: readOnlyAnnotations
   },
   read_prompt: {
     title: "Read PlanWeave Prompt",
-    description: "Compatibility source/rendered prompt reader. Prefer read_prompt_source or get_rendered_prompt.",
+    description:
+      "Compatibility source/rendered prompt reader. Prefer read_prompt_source or get_rendered_prompt.",
     inputSchema: {
       ...projectCanvasInput,
       target: z.enum(["project", "task", "block"]),
@@ -41,7 +47,11 @@ export const contentToolDefinitions = {
   get_rendered_prompt: {
     title: "Get PlanWeave Rendered Prompt",
     description: "Render and return one block prompt surface by ref.",
-    inputSchema: { ...projectCanvasInput, ref: z.string().min(1), maxBytes: z.number().int().positive().optional() },
+    inputSchema: {
+      ...projectCanvasInput,
+      ref: z.string().min(1),
+      maxBytes: z.number().int().positive().optional()
+    },
     annotations: readOnlyAnnotations
   },
   get_prompt_sources: {
@@ -59,7 +69,11 @@ export const contentToolDefinitions = {
   read_package_file: {
     title: "Read PlanWeave Package File",
     description: "Read one package file by relative path.",
-    inputSchema: { ...projectCanvasInput, path: z.string().min(1), maxBytes: z.number().int().positive().optional() },
+    inputSchema: {
+      ...projectCanvasInput,
+      path: z.string().min(1),
+      maxBytes: z.number().int().positive().optional()
+    },
     annotations: readOnlyAnnotations
   },
   write_task_prompt: {
@@ -88,25 +102,29 @@ export const contentToolDefinitions = {
   },
   refresh_prompts: {
     title: "Refresh PlanWeave Prompts",
-    description: "Compatibility alias for refresh_prompts_summary. Returns a bounded summary without markdown.",
+    description:
+      "Compatibility alias for refresh_prompts_summary. Returns a bounded summary without markdown.",
     inputSchema: projectCanvasInput,
     annotations: writeAnnotations
   },
   refresh_prompts_summary: {
     title: "Refresh PlanWeave Prompts Summary",
-    description: "Render block prompt surfaces for the selected canvas and return counts/refs without markdown.",
+    description:
+      "Render block prompt surfaces for the selected canvas and return counts/refs without markdown.",
     inputSchema: projectCanvasInput,
     annotations: writeAnnotations
   },
   export_project: {
     title: "Export PlanWeave Project",
-    description: "Compatibility alias for export_project_summary. Full project content requires export_project_full_debug.",
+    description:
+      "Compatibility alias for export_project_summary. Full project content requires export_project_full_debug.",
     inputSchema: projectInput,
     annotations: readOnlyAnnotations
   },
   export_project_summary: {
     title: "Export PlanWeave Project Summary",
-    description: "Export project metadata, project prompt metadata, and package file inventories without file contents.",
+    description:
+      "Export project metadata, project prompt metadata, and package file inventories without file contents.",
     inputSchema: projectInput,
     annotations: readOnlyAnnotations
   },
@@ -116,16 +134,21 @@ export const contentToolDefinitions = {
     inputSchema: {
       ...projectInput,
       includeProjectPrompt: z.boolean().optional(),
-      packageFiles: z.array(z.object({
-        canvasId: z.string().nullable().optional(),
-        path: z.string().min(1)
-      })).optional()
+      packageFiles: z
+        .array(
+          z.object({
+            canvasId: z.string().nullable().optional(),
+            path: z.string().min(1)
+          })
+        )
+        .optional()
     },
     annotations: readOnlyAnnotations
   },
   export_plan_package: {
     title: "Export PlanWeave Package",
-    description: "Compatibility alias for export_plan_package_summary by default. includeFiles true remains available for compatibility; prefer explicit full/files tools.",
+    description:
+      "Compatibility alias for export_plan_package_summary by default. includeFiles true remains available for compatibility; prefer explicit full/files tools.",
     inputSchema: { ...projectCanvasInput, includeFiles: z.boolean().optional() },
     annotations: readOnlyAnnotations
   },
@@ -143,7 +166,8 @@ export const contentToolDefinitions = {
   },
   import_plan_package: {
     title: "Import PlanWeave Package",
-    description: "Compatibility file-set import into a managed project. Prefer validate_package_draft, preview_package_import, and import_package_draft for draft roots.",
+    description:
+      "Compatibility file-set import into a managed project. Prefer validate_package_draft, preview_package_import, and import_package_draft for draft roots.",
     inputSchema: {
       name: z.string().min(1),
       files: z.array(packageFileSchema).min(1),
@@ -159,7 +183,8 @@ export const contentToolDefinitions = {
   },
   preview_package_import: {
     title: "Preview PlanWeave Package Draft Import",
-    description: "Dry-run a package draft import and return validation, quality, and file diff summaries.",
+    description:
+      "Dry-run a package draft import and return validation, quality, and file diff summaries.",
     inputSchema: { ...projectCanvasInput, draftRoot: z.string().min(1) },
     annotations: readOnlyAnnotations
   },

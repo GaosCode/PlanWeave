@@ -134,6 +134,11 @@ export type ExecutorAdapterResult =
     };
 
 export type ExecutorAdapter = {
-  runBlock(input: { claim: Extract<ClaimResult, { kind: "block" }>; prompt: string }): Promise<ExecutorAdapterResult>;
-  runFeedback(input: { claim: Extract<ClaimResult, { kind: "feedback" }> }): Promise<ExecutorAdapterResult>;
+  runBlock(input: {
+    claim: Extract<ClaimResult, { kind: "block" }>;
+    prompt: string;
+  }): Promise<ExecutorAdapterResult>;
+  runFeedback(input: {
+    claim: Extract<ClaimResult, { kind: "feedback" }>;
+  }): Promise<ExecutorAdapterResult>;
 };

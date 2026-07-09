@@ -13,10 +13,14 @@ export const projectToolOutputSchemas = {
     desktopSelection: z.null(),
     guidance: z.array(z.string()),
     projects: z.array(planweaveContextProjectSchema),
-    errors: z.array(z.object({
-      scope: z.string(),
-      message: z.string()
-    }).passthrough())
+    errors: z.array(
+      z
+        .object({
+          scope: z.string(),
+          message: z.string()
+        })
+        .passthrough()
+    )
   },
   list_projects: {
     projects: z.array(sanitizedProjectSchema)

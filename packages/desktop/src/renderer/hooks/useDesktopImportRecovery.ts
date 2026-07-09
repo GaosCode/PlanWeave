@@ -3,7 +3,10 @@ import type { DesktopProjectSummary } from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
 
 type UseDesktopImportRecoveryArgs = {
-  refreshProjectDerivedState: (options?: { includeLayout?: boolean; includePrompt?: boolean }) => Promise<void>;
+  refreshProjectDerivedState: (options?: {
+    includeLayout?: boolean;
+    includePrompt?: boolean;
+  }) => Promise<void>;
   selectedProject: DesktopProjectSummary | null;
   setError: (message: string | null) => void;
 };
@@ -23,26 +26,40 @@ export function useDesktopImportRecovery({
   selectedProject,
   setError
 }: UseDesktopImportRecoveryArgs) {
-  const rollbackPendingImportRecovery = useCallback(async (transactionId: string) => {
-    if (!bridge || !selectedProject) {
-      return { status: "unavailable", transactionId } satisfies DesktopImportRecoveryRollbackResult;
-    }
-    try {
-      await bridge.rollbackPendingImportRecovery(selectedProject.rootPath, transactionId);
-    } catch (caught) {
-      const error = errorMessage(caught);
-      setError(error);
-      return { status: "rollbackFailed", transactionId, error } satisfies DesktopImportRecoveryRollbackResult;
-    }
-    try {
-      await refreshProjectDerivedState({ includeLayout: true });
-    } catch (caught) {
-      const error = errorMessage(caught);
-      setError(error);
-      return { status: "refreshFailed", transactionId, error } satisfies DesktopImportRecoveryRollbackResult;
-    }
-    return { status: "rolledBack", transactionId } satisfies DesktopImportRecoveryRollbackResult;
-  }, [refreshProjectDerivedState, selectedProject, setError]);
+  const rollbackPendingImportRecovery = useCallback(
+    async (transactionId: string) => {
+      if (!bridge || !selectedProject) {
+        return {
+          status: "unavailable",
+          transactionId
+        } satisfies DesktopImportRecoveryRollbackResult;
+      }
+      try {
+        await bridge.rollbackPendingImportRecovery(selectedProject.rootPath, transactionId);
+      } catch (caught) {
+        const error = errorMessage(caught);
+        setError(error);
+        return {
+          status: "rollbackFailed",
+          transactionId,
+          error
+        } satisfies DesktopImportRecoveryRollbackResult;
+      }
+      try {
+        await refreshProjectDerivedState({ includeLayout: true });
+      } catch (caught) {
+        const error = errorMessage(caught);
+        setError(error);
+        return {
+          status: "refreshFailed",
+          transactionId,
+          error
+        } satisfies DesktopImportRecoveryRollbackResult;
+      }
+      return { status: "rolledBack", transactionId } satisfies DesktopImportRecoveryRollbackResult;
+    },
+    [refreshProjectDerivedState, selectedProject, setError]
+  );
 
   return { rollbackPendingImportRecovery };
 }

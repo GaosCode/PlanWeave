@@ -65,7 +65,8 @@ describe("desktop renderer component interactions", () => {
       reportPath: null,
       metadataPath: "/tmp/project/.planweave/results/T-001/blocks/B-001/runs/RUN-001/metadata.json",
       stdoutSummary: "",
-      stderrSummary: "> build · mimo-v2.5-pro → Read README.md ← Write CHECKLIST.md Wrote file successfully.",
+      stderrSummary:
+        "> build · mimo-v2.5-pro → Read README.md ← Write CHECKLIST.md Wrote file successfully.",
       promptMarkdown: "",
       reportMarkdown: "## Implementation Report",
       displayMarkdown: "## Implementation Report",
@@ -73,16 +74,29 @@ describe("desktop renderer component interactions", () => {
       metadata: {}
     };
 
-    const { rerender } = render(<BlockRunRecordCard selectedRunRecord={runRecord} setSelectedRunRecord={vi.fn()} t={createTranslator("zh-CN")} />);
+    const { rerender } = render(
+      <BlockRunRecordCard
+        selectedRunRecord={runRecord}
+        setSelectedRunRecord={vi.fn()}
+        t={createTranslator("zh-CN")}
+      />
+    );
 
     expect(screen.getByText(/终端输出:/)).toBeInTheDocument();
     expect(screen.getByText(/连接命令:/)).toBeInTheDocument();
-    expect(screen.getByText("tmux attach-session -t planweave-T-001-B-001-RUN-001-abcd1234")).toBeInTheDocument();
+    expect(
+      screen.getByText("tmux attach-session -t planweave-T-001-B-001-RUN-001-abcd1234")
+    ).toBeInTheDocument();
     expect(screen.queryByText(/错误输出:/)).not.toBeInTheDocument();
 
     rerender(
       <BlockRunRecordCard
-        selectedRunRecord={{ ...runRecord, recordId: "T-001#B-001::RUN-LEGACY", runId: "RUN-LEGACY", exitCode: undefined as unknown as number | null }}
+        selectedRunRecord={{
+          ...runRecord,
+          recordId: "T-001#B-001::RUN-LEGACY",
+          runId: "RUN-LEGACY",
+          exitCode: undefined as unknown as number | null
+        }}
         setSelectedRunRecord={vi.fn()}
         t={createTranslator("zh-CN")}
       />
@@ -231,13 +245,15 @@ describe("desktop renderer component interactions", () => {
       codexSessionId: null,
       tmuxSessionId: "planweave-T-001-B-001-RUN-STALE-abcd1234",
       tmuxAttachCommand: "tmux attach-session -t planweave-T-001-B-001-RUN-STALE-abcd1234",
-      tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-T-001-B-001-RUN-STALE-abcd1234",
+      tmuxReadOnlyAttachCommand:
+        "tmux attach-session -r -t planweave-T-001-B-001-RUN-STALE-abcd1234",
       exitCode: 0,
       startedAt: "2026-05-23T01:49:38.307Z",
       finishedAt: "2026-05-23T01:59:38.307Z",
       promptPath: null,
       reportPath: null,
-      metadataPath: "/tmp/project/.planweave/results/T-001/blocks/B-001/runs/RUN-STALE/metadata.json",
+      metadataPath:
+        "/tmp/project/.planweave/results/T-001/blocks/B-001/runs/RUN-STALE/metadata.json",
       stdoutSummary: "",
       stderrSummary: "",
       promptMarkdown: "",
@@ -269,7 +285,10 @@ describe("desktop renderer component interactions", () => {
 
     const button = screen.getByRole("button", { name: "Open terminal" });
     expect(button).toBeEnabled();
-    expect(button).toHaveAttribute("title", "Open terminal: Terminal - This tmux session is no longer running.");
+    expect(button).toHaveAttribute(
+      "title",
+      "Open terminal: Terminal - This tmux session is no longer running."
+    );
     await userEvent.click(button);
     expect(onOpenTerminal).toHaveBeenCalledWith("T-001#B-001::RUN-STALE", "terminal");
     expect(onOpenRunTerminal).not.toHaveBeenCalled();
@@ -319,7 +338,8 @@ describe("desktop renderer component interactions", () => {
         finishedAt: "2026-05-24T01:59:38.307Z",
         promptPath: null,
         reportPath: null,
-        metadataPath: "/tmp/project/.planweave/results/T-001/blocks/B-001/runs/RUN-NEW/metadata.json",
+        metadataPath:
+          "/tmp/project/.planweave/results/T-001/blocks/B-001/runs/RUN-NEW/metadata.json",
         stdoutSummary: "",
         stderrSummary: ""
       },
@@ -337,13 +357,15 @@ describe("desktop renderer component interactions", () => {
         codexSessionId: null,
         tmuxSessionId: "planweave-T-001-B-001-RUN-TMUX-abcd1234",
         tmuxAttachCommand: "tmux attach-session -t planweave-T-001-B-001-RUN-TMUX-abcd1234",
-        tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-T-001-B-001-RUN-TMUX-abcd1234",
+        tmuxReadOnlyAttachCommand:
+          "tmux attach-session -r -t planweave-T-001-B-001-RUN-TMUX-abcd1234",
         exitCode: 0,
         startedAt: "2026-05-23T01:49:38.307Z",
         finishedAt: "2026-05-23T01:59:38.307Z",
         promptPath: null,
         reportPath: null,
-        metadataPath: "/tmp/project/.planweave/results/T-001/blocks/B-001/runs/RUN-TMUX/metadata.json",
+        metadataPath:
+          "/tmp/project/.planweave/results/T-001/blocks/B-001/runs/RUN-TMUX/metadata.json",
         stdoutSummary: "",
         stderrSummary: ""
       }
@@ -441,7 +463,8 @@ describe("desktop renderer component interactions", () => {
         finishedAt: "2026-05-24T01:59:38.307Z",
         promptPath: null,
         reportPath: null,
-        metadataPath: "/tmp/project/.planweave/results/T-001/blocks/B-001/runs/RUN-NEW/metadata.json",
+        metadataPath:
+          "/tmp/project/.planweave/results/T-001/blocks/B-001/runs/RUN-NEW/metadata.json",
         stdoutSummary: "",
         stderrSummary: ""
       },
@@ -459,13 +482,15 @@ describe("desktop renderer component interactions", () => {
         codexSessionId: null,
         tmuxSessionId: "planweave-T-001-B-001-RUN-STALE-abcd1234",
         tmuxAttachCommand: "tmux attach-session -t planweave-T-001-B-001-RUN-STALE-abcd1234",
-        tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-T-001-B-001-RUN-STALE-abcd1234",
+        tmuxReadOnlyAttachCommand:
+          "tmux attach-session -r -t planweave-T-001-B-001-RUN-STALE-abcd1234",
         exitCode: 0,
         startedAt: "2026-05-23T01:49:38.307Z",
         finishedAt: "2026-05-23T01:59:38.307Z",
         promptPath: null,
         reportPath: null,
-        metadataPath: "/tmp/project/.planweave/results/T-001/blocks/B-001/runs/RUN-STALE/metadata.json",
+        metadataPath:
+          "/tmp/project/.planweave/results/T-001/blocks/B-001/runs/RUN-STALE/metadata.json",
         stdoutSummary: "",
         stderrSummary: ""
       }

@@ -12,7 +12,10 @@ export const statusVariant = {
   diverged: "destructive"
 } as const;
 
-export function defaultBlockTitleForUi(type: BlockType, t: ReturnType<typeof createTranslator>): string {
+export function defaultBlockTitleForUi(
+  type: BlockType,
+  t: ReturnType<typeof createTranslator>
+): string {
   if (type === "review") {
     return t("defaultReviewBlockTitle");
   }

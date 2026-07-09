@@ -50,10 +50,9 @@ const packageJson = require("../package.json") as { version: string };
 
 export function createProgram(): Command {
   const program = new Command();
-  addProjectRootOption(program
-    .name("planweave")
-    .description("PlanWeave CLI")
-    .version(packageJson.version));
+  addProjectRootOption(
+    program.name("planweave").description("PlanWeave CLI").version(packageJson.version)
+  );
   program.addHelpCommand(false);
 
   registerInitCommand(program);

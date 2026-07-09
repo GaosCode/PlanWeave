@@ -50,7 +50,8 @@ describe("import recovery notifications", () => {
     const onCopyImportRecoveryTransactionId = vi.fn().mockResolvedValue(undefined);
     const onRevealImportRecoveryDirectory = vi.fn().mockResolvedValue(undefined);
     const onRollbackImportRecovery = vi.fn().mockResolvedValue(undefined);
-    const recoveryRoot = "/tmp/project/desktop/recovery/package-import/import-tx-1/with/a/very/long/path/that/should/wrap/safely";
+    const recoveryRoot =
+      "/tmp/project/desktop/recovery/package-import/import-tx-1/with/a/very/long/path/that/should/wrap/safely";
 
     render(
       <NotificationsView

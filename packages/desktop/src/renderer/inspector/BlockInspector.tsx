@@ -18,10 +18,20 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { buildExecutorOptionViews, canonicalExecutorName } from "../executors/executorOptionViewModel";
+import {
+  buildExecutorOptionViews,
+  canonicalExecutorName
+} from "../executors/executorOptionViewModel";
 import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
 import type { createTranslator } from "../i18n";
 import { statusVariant } from "../viewHelpers";
@@ -96,14 +106,20 @@ export function BlockInspector({
   t
 }: BlockInspectorProps) {
   const latestBlockRun = blockRunRecords[0];
-  const latestTmuxBlockRun = blockRunRecords.find((record) => terminalAvailabilityByRecordId[record.recordId]?.available);
-  const latestTmuxAvailability = latestTmuxBlockRun ? terminalAvailabilityByRecordId[latestTmuxBlockRun.recordId] ?? null : null;
+  const latestTmuxBlockRun = blockRunRecords.find(
+    (record) => terminalAvailabilityByRecordId[record.recordId]?.available
+  );
+  const latestTmuxAvailability = latestTmuxBlockRun
+    ? (terminalAvailabilityByRecordId[latestTmuxBlockRun.recordId] ?? null)
+    : null;
   const terminalRecordId = latestTmuxBlockRun?.recordId ?? latestBlockRun?.recordId ?? null;
   const latestTmuxMissingReason = blockRunRecords.some((record) => record.tmuxSessionId)
     ? t("tmuxTerminalNoLiveBlockSession")
     : t("tmuxTerminalNoBlockSession");
   const latestReviewAttempt = blockReviewAttempts[0];
-  const selectedExecutor = selectedBlock?.executor ? canonicalExecutorName(selectedBlock.executor) : "__inherit";
+  const selectedExecutor = selectedBlock?.executor
+    ? canonicalExecutorName(selectedBlock.executor)
+    : "__inherit";
   const concreteExecutor = selectedBlock?.executor ?? selectedBlock?.effectiveExecutor ?? null;
   const concreteExecutorLabel = concreteExecutor ? canonicalExecutorName(concreteExecutor) : null;
   const preflightUsesInheritedExecutor = Boolean(!selectedBlock?.executor && concreteExecutor);
@@ -132,21 +148,33 @@ export function BlockInspector({
       return;
     }
     if (blockPromptBaselineRef.current?.ref !== selectedBlock.ref) {
-      blockPromptBaselineRef.current = { promptMarkdown: selectedBlock.promptMarkdown, ref: selectedBlock.ref };
+      blockPromptBaselineRef.current = {
+        promptMarkdown: selectedBlock.promptMarkdown,
+        ref: selectedBlock.ref
+      };
       onDraftDirtyChange?.(false);
       return;
     }
-    onDraftDirtyChange?.(blockPromptBaselineRef.current.promptMarkdown !== selectedBlock.promptMarkdown);
+    onDraftDirtyChange?.(
+      blockPromptBaselineRef.current.promptMarkdown !== selectedBlock.promptMarkdown
+    );
   }, [onDraftDirtyChange, selectedBlock]);
   const saveBlockPromptIfDirty = useCallback(() => {
     if (!selectedBlock || selectedRunRecord) {
       return;
     }
     const baseline = blockPromptBaselineRef.current;
-    if (!baseline || baseline.ref !== selectedBlock.ref || baseline.promptMarkdown === selectedBlock.promptMarkdown) {
+    if (
+      !baseline ||
+      baseline.ref !== selectedBlock.ref ||
+      baseline.promptMarkdown === selectedBlock.promptMarkdown
+    ) {
       return;
     }
-    blockPromptBaselineRef.current = { promptMarkdown: selectedBlock.promptMarkdown, ref: selectedBlock.ref };
+    blockPromptBaselineRef.current = {
+      promptMarkdown: selectedBlock.promptMarkdown,
+      ref: selectedBlock.ref
+    };
     onDraftDirtyChange?.(false);
     void saveSelectedBlockPrompt();
   }, [onDraftDirtyChange, saveSelectedBlockPrompt, selectedBlock, selectedRunRecord]);
@@ -155,7 +183,11 @@ export function BlockInspector({
       return undefined;
     }
     const baseline = blockPromptBaselineRef.current;
-    if (!baseline || baseline.ref !== selectedBlock.ref || baseline.promptMarkdown === selectedBlock.promptMarkdown) {
+    if (
+      !baseline ||
+      baseline.ref !== selectedBlock.ref ||
+      baseline.promptMarkdown === selectedBlock.promptMarkdown
+    ) {
       return undefined;
     }
     const timer = window.setTimeout(saveBlockPromptIfDirty, blockPromptAutosaveDelayMs);
@@ -167,7 +199,14 @@ export function BlockInspector({
   }
 
   return (
-    <Card className={cn("flex min-h-[420px] min-w-[380px] flex-col overflow-hidden bg-background shadow-xl", className)} size="sm" style={style}>
+    <Card
+      className={cn(
+        "flex min-h-[420px] min-w-[380px] flex-col overflow-hidden bg-background shadow-xl",
+        className
+      )}
+      size="sm"
+      style={style}
+    >
       <CardHeader className="border-b">
         <CardTitle>{selectedRunRecord ? t("runRecordDetail") : t("selectedBlock")}</CardTitle>
         <CardAction className="flex items-center gap-1">
@@ -187,7 +226,9 @@ export function BlockInspector({
             selectedRunRecord={selectedRunRecord}
             setSelectedRunRecord={setSelectedRunRecord}
             terminalApps={terminalApps}
-            terminalAvailability={terminalAvailabilityByRecordId[selectedRunRecord.recordId] ?? null}
+            terminalAvailability={
+              terminalAvailabilityByRecordId[selectedRunRecord.recordId] ?? null
+            }
             tmuxAvailable={tmuxAvailable}
             t={t}
           />
@@ -208,7 +249,12 @@ export function BlockInspector({
             </div>
             <div className="flex flex-col gap-1">
               <div className="text-xs font-medium text-muted-foreground">{t("agent")}</div>
-              <Select value={selectedExecutor} onValueChange={(value) => void saveSelectedBlockExecutor(value === "__inherit" ? null : value)}>
+              <Select
+                value={selectedExecutor}
+                onValueChange={(value) =>
+                  void saveSelectedBlockExecutor(value === "__inherit" ? null : value)
+                }
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -216,10 +262,18 @@ export function BlockInspector({
                   <SelectGroup>
                     <SelectItem value="__inherit">{t("inheritExecutor")}</SelectItem>
                     {blockExecutorOptions.map((executor) => (
-                      <SelectItem disabled={executor.disabled} value={executor.name} key={executor.name}>
+                      <SelectItem
+                        disabled={executor.disabled}
+                        value={executor.name}
+                        key={executor.name}
+                      >
                         <span className="flex min-w-0 items-center gap-2">
                           <span>{executor.label}</span>
-                          {executor.disabled ? <span className="text-xs text-muted-foreground">{t("unavailable")}</span> : null}
+                          {executor.disabled ? (
+                            <span className="text-xs text-muted-foreground">
+                              {t("unavailable")}
+                            </span>
+                          ) : null}
                         </span>
                       </SelectItem>
                     ))}
@@ -230,7 +284,10 @@ export function BlockInspector({
                 {!concreteExecutorLabel ? (
                   <span>{t("executorPreflightSelectConcrete")}</span>
                 ) : preflight.result ? (
-                  <Badge data-testid="block-executor-preflight-status" variant={preflight.result.ok ? "secondary" : "destructive"}>
+                  <Badge
+                    data-testid="block-executor-preflight-status"
+                    variant={preflight.result.ok ? "secondary" : "destructive"}
+                  >
                     {preflight.result.ok ? t("preflightPassed") : t("preflightFailed")}
                   </Badge>
                 ) : preflight.error ? (
@@ -251,7 +308,10 @@ export function BlockInspector({
                   title={t("runPreflight")}
                   onClick={() => void preflight.runPreflight()}
                 >
-                  <RefreshCwIcon className={preflight.loading ? "animate-spin" : undefined} data-icon="inline-start" />
+                  <RefreshCwIcon
+                    className={preflight.loading ? "animate-spin" : undefined}
+                    data-icon="inline-start"
+                  />
                 </Button>
               </div>
             </div>
@@ -264,7 +324,9 @@ export function BlockInspector({
                 <TerminalOpenButton
                   canvasRef={canvasRef}
                   defaultTerminalAppId={terminalDefaultAppId}
-                  label={latestTmuxAvailability?.available ? t("openTmuxTerminal") : t("openTerminal")}
+                  label={
+                    latestTmuxAvailability?.available ? t("openTmuxTerminal") : t("openTerminal")
+                  }
                   missingSessionReason={latestTmuxMissingReason}
                   onOpenTerminal={onOpenTerminal}
                   onOpenRunTerminal={onOpenRunTerminal}
@@ -278,11 +340,24 @@ export function BlockInspector({
               </div>
               <div className="mt-3 flex flex-col gap-2">
                 {latestBlockRun ? (
-                  <button className="flex items-center justify-between gap-2 rounded-md border p-2 text-left hover:bg-muted/50" type="button" onClick={() => void handleOpenRunRecord(latestBlockRun.recordId)}>
+                  <button
+                    className="flex items-center justify-between gap-2 rounded-md border p-2 text-left hover:bg-muted/50"
+                    type="button"
+                    onClick={() => void handleOpenRunRecord(latestBlockRun.recordId)}
+                  >
                     <span className="min-w-0 truncate">
-                      {t("latestRun")}: {latestBlockRun.finishedAt ?? latestBlockRun.startedAt ?? latestBlockRun.runId}
+                      {t("latestRun")}:{" "}
+                      {latestBlockRun.finishedAt ??
+                        latestBlockRun.startedAt ??
+                        latestBlockRun.runId}
                     </span>
-                    <Badge variant={latestBlockRun.exitCode === 0 || latestBlockRun.exitCode === null ? "secondary" : "destructive"}>
+                    <Badge
+                      variant={
+                        latestBlockRun.exitCode === 0 || latestBlockRun.exitCode === null
+                          ? "secondary"
+                          : "destructive"
+                      }
+                    >
                       {latestBlockRun.exitCode ?? "-"}
                     </Badge>
                   </button>
@@ -293,9 +368,15 @@ export function BlockInspector({
                   <div className="rounded-md border p-2">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium">{t("latestReviewAttempt")}</span>
-                      <Badge variant={latestReviewAttempt.verdict === "passed" ? "secondary" : "outline"}>{latestReviewAttempt.verdict ?? "-"}</Badge>
+                      <Badge
+                        variant={latestReviewAttempt.verdict === "passed" ? "secondary" : "outline"}
+                      >
+                        {latestReviewAttempt.verdict ?? "-"}
+                      </Badge>
                     </div>
-                    <div className="max-h-40 overflow-auto whitespace-pre-wrap text-muted-foreground">{latestReviewAttempt.contentPreview}</div>
+                    <div className="max-h-40 overflow-auto whitespace-pre-wrap text-muted-foreground">
+                      {latestReviewAttempt.contentPreview}
+                    </div>
                   </div>
                 ) : null}
                 {blockFeedbackRecords.map((feedbackRecord) => (
@@ -304,9 +385,15 @@ export function BlockInspector({
                       <span className="font-medium">
                         {t("feedbackMarker")} {feedbackRecord.feedbackId}
                       </span>
-                      <Badge variant={feedbackRecord.status === "resolved" ? "secondary" : "destructive"}>{feedbackRecord.status}</Badge>
+                      <Badge
+                        variant={feedbackRecord.status === "resolved" ? "secondary" : "destructive"}
+                      >
+                        {feedbackRecord.status}
+                      </Badge>
                     </div>
-                    <div className="max-h-40 overflow-auto whitespace-pre-wrap text-muted-foreground">{feedbackRecord.content}</div>
+                    <div className="max-h-40 overflow-auto whitespace-pre-wrap text-muted-foreground">
+                      {feedbackRecord.content}
+                    </div>
                   </div>
                 ))}
                 {selectedBlock.reviewGate ? (
@@ -314,7 +401,9 @@ export function BlockInspector({
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium">{t("reviewGate")}</span>
                       <Badge variant={selectedBlock.reviewGate.required ? "secondary" : "outline"}>
-                        {selectedBlock.reviewGate.required ? t("reviewRequired") : selectedBlock.reviewGate.requiredReason}
+                        {selectedBlock.reviewGate.required
+                          ? t("reviewRequired")
+                          : selectedBlock.reviewGate.requiredReason}
                       </Badge>
                     </div>
                     <div className="mt-2 grid grid-cols-[112px_minmax(0,1fr)] gap-x-2 gap-y-1 text-muted-foreground">
@@ -322,17 +411,31 @@ export function BlockInspector({
                       <span>{selectedBlock.reviewGate.executorRole}</span>
                       <span>{t("reviewUnlocks")}</span>
                       <span className="truncate">
-                        {selectedBlock.reviewGate.unlocksTasks.length ? selectedBlock.reviewGate.unlocksTasks.join(", ") : t("noBlockers")}
+                        {selectedBlock.reviewGate.unlocksTasks.length
+                          ? selectedBlock.reviewGate.unlocksTasks.join(", ")
+                          : t("noBlockers")}
                       </span>
                       <span>{t("reviewNeedsChangesReturnsTo")}</span>
-                      <span className="truncate">{selectedBlock.reviewGate.needsChangesReturnsTo.join(", ")}</span>
+                      <span className="truncate">
+                        {selectedBlock.reviewGate.needsChangesReturnsTo.join(", ")}
+                      </span>
                     </div>
                   </div>
                 ) : null}
-                {selectedBlock.exceptionReason ? <div className="rounded-md border border-destructive p-2 text-destructive">{selectedBlock.exceptionReason}</div> : null}
+                {selectedBlock.exceptionReason ? (
+                  <div className="rounded-md border border-destructive p-2 text-destructive">
+                    {selectedBlock.exceptionReason}
+                  </div>
+                ) : null}
               </div>
             </div>
-            <BlockConnectionsCard blocks={taskBlocks} dependencies={selectedBlock.dependencies} selectedBlockRef={selectedBlock.ref} onBlockSelect={onBlockSelect} t={t} />
+            <BlockConnectionsCard
+              blocks={taskBlocks}
+              dependencies={selectedBlock.dependencies}
+              selectedBlockRef={selectedBlock.ref}
+              onBlockSelect={onBlockSelect}
+              t={t}
+            />
             <div className="flex shrink-0 flex-col gap-2 rounded-lg border bg-card p-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-sm font-semibold">{t("effectivePrompt")}</div>
@@ -351,13 +454,21 @@ export function BlockInspector({
                 {selectedBlock.promptSources
                   .filter((source) => source.included && source.preview.length > 0)
                   .map((source) => (
-                    <div className="grid grid-cols-[132px_minmax(0,1fr)] gap-2" key={`${source.kind}-preview`}>
+                    <div
+                      className="grid grid-cols-[132px_minmax(0,1fr)] gap-2"
+                      key={`${source.kind}-preview`}
+                    >
                       <span className="truncate font-medium">{source.label}</span>
                       <span className="truncate">{source.preview}</span>
                     </div>
                   ))}
               </div>
-              <AutoGrowingTextarea aria-label={t("effectivePrompt")} className="min-h-48 resize-none font-mono text-xs" readOnly value={selectedBlock.promptSurfaceMarkdown} />
+              <AutoGrowingTextarea
+                aria-label={t("effectivePrompt")}
+                className="min-h-48 resize-none font-mono text-xs"
+                readOnly
+                value={selectedBlock.promptSurfaceMarkdown}
+              />
             </div>
             <AutoGrowingTextarea
               aria-label={t("sourcePrompt")}

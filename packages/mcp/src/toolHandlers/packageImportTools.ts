@@ -1,10 +1,17 @@
-import { jsonToolResult, nonEmptyString, parseProjectCanvasArgs, readObjectArgs } from "../toolHelpers.js";
+import {
+  jsonToolResult,
+  nonEmptyString,
+  parseProjectCanvasArgs,
+  readObjectArgs
+} from "../toolHelpers.js";
 import type { PlanweavePartialToolHandlerRegistry } from "../toolDispatcher.js";
 
 export const packageImportToolHandlers = {
   validate_package_draft: async (args, gateway) => {
     const record = readObjectArgs(args);
-    return jsonToolResult({ draft: await gateway.validatePackageDraft(nonEmptyString(record.draftRoot, "draftRoot")) });
+    return jsonToolResult({
+      draft: await gateway.validatePackageDraft(nonEmptyString(record.draftRoot, "draftRoot"))
+    });
   },
   preview_package_import: async (args, gateway) => {
     const record = readObjectArgs(args);

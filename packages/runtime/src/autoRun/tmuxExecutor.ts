@@ -67,9 +67,16 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-async function runCommand(command: string, args: string[], cwd?: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+async function runCommand(
+  command: string,
+  args: string[],
+  cwd?: string
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, PATH: [process.env.PATH, ...runtimePathEntries].filter(Boolean).join(":") };
+    const env = {
+      ...process.env,
+      PATH: [process.env.PATH, ...runtimePathEntries].filter(Boolean).join(":")
+    };
     const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
@@ -118,7 +125,13 @@ function isProcessAlive(pid: number): boolean {
 }
 
 async function tmuxPanePid(sessionName: string): Promise<number | null> {
-  const result = await runCommand("tmux", ["display-message", "-p", "-t", sessionName, "#{pane_pid}"]);
+  const result = await runCommand("tmux", [
+    "display-message",
+    "-p",
+    "-t",
+    sessionName,
+    "#{pane_pid}"
+  ]);
   if (result.exitCode !== 0) {
     return null;
   }
@@ -188,7 +201,9 @@ export async function killActiveTmuxSessions(): Promise<string[]> {
 }
 
 export async function killTmuxSessionsForRun(runId: string): Promise<string[]> {
-  const records = [...activeTmuxSessions.values()].filter((record) => record.tmuxOwnerRunId === runId);
+  const records = [...activeTmuxSessions.values()].filter(
+    (record) => record.tmuxOwnerRunId === runId
+  );
   const killed: string[] = [];
   await Promise.all(
     records.map(async (record) => {
@@ -233,7 +248,10 @@ export async function createTmuxSessionInfo(options: {
     return null;
   }
   const label = safeRef(options.ref ?? options.kind);
-  const name = `planweave-${label}-${safeRef(options.runId)}-${shortHash(options.runDir)}`.slice(0, 100);
+  const name = `planweave-${label}-${safeRef(options.runId)}-${shortHash(options.runDir)}`.slice(
+    0,
+    100
+  );
   return {
     sessionName: name,
     tmuxOwnerRunId: options.tmuxOwnerRunId,
@@ -258,7 +276,11 @@ export async function tmuxPathExists(path: string): Promise<boolean> {
   return (await optionalStat(path)) !== null;
 }
 
-export async function readNewTmuxText(path: string, offset: number, maxOffset?: number): Promise<{ text: string; offset: number; limitExceeded: boolean }> {
+export async function readNewTmuxText(
+  path: string,
+  offset: number,
+  maxOffset?: number
+): Promise<{ text: string; offset: number; limitExceeded: boolean }> {
   const metadata = await optionalStat(path);
   if (!metadata) {
     return { text: "", offset, limitExceeded: false };
@@ -284,7 +306,11 @@ export async function readNewTmuxText(path: string, offset: number, maxOffset?: 
   try {
     const buffer = Buffer.alloc(length);
     await file.read(buffer, 0, length, offset);
-    return { text: buffer.toString("utf8"), offset: nextOffset, limitExceeded: maxOffset !== undefined && size > maxOffset };
+    return {
+      text: buffer.toString("utf8"),
+      offset: nextOffset,
+      limitExceeded: maxOffset !== undefined && size > maxOffset
+    };
   } finally {
     await file.close();
   }
@@ -313,15 +339,22 @@ async function waitForDoneFile(path: string): Promise<boolean> {
   return tmuxPathExists(path);
 }
 
-export async function runCommandInTmux(
-  options: RunInTmuxOptions
-): Promise<{ stdoutPath: string; stderrPath: string; exitCode: number; timedOut: boolean; limitExceeded?: TmuxOutputLimitExceeded }> {
+export async function runCommandInTmux(options: RunInTmuxOptions): Promise<{
+  stdoutPath: string;
+  stderrPath: string;
+  exitCode: number;
+  timedOut: boolean;
+  limitExceeded?: TmuxOutputLimitExceeded;
+}> {
   await mkdir(dirname(options.stdoutPath), { recursive: true });
   await mkdir(dirname(options.stderrPath), { recursive: true });
   await writeFile(options.stdoutPath, "", "utf8");
   await writeFile(options.stderrPath, "", "utf8");
 
-  const tmuxRoot = join(dirname(options.stdoutPath), `.tmux-${safeRef(basename(options.stdoutPath))}`);
+  const tmuxRoot = join(
+    dirname(options.stdoutPath),
+    `.tmux-${safeRef(basename(options.stdoutPath))}`
+  );
   await mkdir(tmuxRoot, { recursive: true });
   const stdinPath = join(tmuxRoot, "stdin.txt");
   const donePath = join(tmuxRoot, "done.json");
@@ -373,9 +406,15 @@ exit "$runner_exit"
   );
   await chmod(scriptPath, 0o755);
 
-  const started = await runCommand("tmux", ["new-session", "-d", "-s", options.tmux.sessionName, "-c", options.cwd, scriptPath], options.cwd);
+  const started = await runCommand(
+    "tmux",
+    ["new-session", "-d", "-s", options.tmux.sessionName, "-c", options.cwd, scriptPath],
+    options.cwd
+  );
   if (started.exitCode !== 0) {
-    throw new Error(started.stderr.trim() || `tmux failed to start session '${options.tmux.sessionName}'.`);
+    throw new Error(
+      started.stderr.trim() || `tmux failed to start session '${options.tmux.sessionName}'.`
+    );
   }
   activeTmuxSessions.set(options.tmux.sessionName, {
     sessionName: options.tmux.sessionName,
@@ -388,27 +427,53 @@ exit "$runner_exit"
   try {
     while (!(await tmuxPathExists(donePath))) {
       await sleep(100);
-      const stdoutTail = await flushTail({ path: options.stdoutPath, offset: stdoutOffset, maxBytes: options.maxStdoutBytes, onChunk: options.onStdout });
+      const stdoutTail = await flushTail({
+        path: options.stdoutPath,
+        offset: stdoutOffset,
+        maxBytes: options.maxStdoutBytes,
+        onChunk: options.onStdout
+      });
       stdoutOffset = stdoutTail.offset;
       if (stdoutTail.limitExceeded && options.maxStdoutBytes !== undefined) {
         observedLimitExceeded = { stream: "stdout", limitBytes: options.maxStdoutBytes };
       }
-      const stderrTail = await flushTail({ path: options.stderrPath, offset: stderrOffset, maxBytes: options.maxStderrBytes, onChunk: options.onStderr });
+      const stderrTail = await flushTail({
+        path: options.stderrPath,
+        offset: stderrOffset,
+        maxBytes: options.maxStderrBytes,
+        onChunk: options.onStderr
+      });
       stderrOffset = stderrTail.offset;
       if (stderrTail.limitExceeded && options.maxStderrBytes !== undefined) {
-        observedLimitExceeded = observedLimitExceeded ?? { stream: "stderr", limitBytes: options.maxStderrBytes };
+        observedLimitExceeded = observedLimitExceeded ?? {
+          stream: "stderr",
+          limitBytes: options.maxStderrBytes
+        };
       }
       if (!(await hasTmuxSession(options.tmux.sessionName))) {
         await waitForDoneFile(donePath);
-        const finalStdoutTail = await flushTail({ path: options.stdoutPath, offset: stdoutOffset, maxBytes: options.maxStdoutBytes, onChunk: options.onStdout });
+        const finalStdoutTail = await flushTail({
+          path: options.stdoutPath,
+          offset: stdoutOffset,
+          maxBytes: options.maxStdoutBytes,
+          onChunk: options.onStdout
+        });
         stdoutOffset = finalStdoutTail.offset;
         if (finalStdoutTail.limitExceeded && options.maxStdoutBytes !== undefined) {
           observedLimitExceeded = { stream: "stdout", limitBytes: options.maxStdoutBytes };
         }
-        const finalStderrTail = await flushTail({ path: options.stderrPath, offset: stderrOffset, maxBytes: options.maxStderrBytes, onChunk: options.onStderr });
+        const finalStderrTail = await flushTail({
+          path: options.stderrPath,
+          offset: stderrOffset,
+          maxBytes: options.maxStderrBytes,
+          onChunk: options.onStderr
+        });
         stderrOffset = finalStderrTail.offset;
         if (finalStderrTail.limitExceeded && options.maxStderrBytes !== undefined) {
-          observedLimitExceeded = observedLimitExceeded ?? { stream: "stderr", limitBytes: options.maxStderrBytes };
+          observedLimitExceeded = observedLimitExceeded ?? {
+            stream: "stderr",
+            limitBytes: options.maxStderrBytes
+          };
         }
         if (await tmuxPathExists(donePath)) {
           break;
@@ -422,15 +487,28 @@ exit "$runner_exit"
         };
       }
     }
-    const stdoutTail = await flushTail({ path: options.stdoutPath, offset: stdoutOffset, maxBytes: options.maxStdoutBytes, onChunk: options.onStdout });
+    const stdoutTail = await flushTail({
+      path: options.stdoutPath,
+      offset: stdoutOffset,
+      maxBytes: options.maxStdoutBytes,
+      onChunk: options.onStdout
+    });
     stdoutOffset = stdoutTail.offset;
     if (stdoutTail.limitExceeded && options.maxStdoutBytes !== undefined) {
       observedLimitExceeded = { stream: "stdout", limitBytes: options.maxStdoutBytes };
     }
-    const stderrTail = await flushTail({ path: options.stderrPath, offset: stderrOffset, maxBytes: options.maxStderrBytes, onChunk: options.onStderr });
+    const stderrTail = await flushTail({
+      path: options.stderrPath,
+      offset: stderrOffset,
+      maxBytes: options.maxStderrBytes,
+      onChunk: options.onStderr
+    });
     stderrOffset = stderrTail.offset;
     if (stderrTail.limitExceeded && options.maxStderrBytes !== undefined) {
-      observedLimitExceeded = observedLimitExceeded ?? { stream: "stderr", limitBytes: options.maxStderrBytes };
+      observedLimitExceeded = observedLimitExceeded ?? {
+        stream: "stderr",
+        limitBytes: options.maxStderrBytes
+      };
     }
 
     const done = JSON.parse(await readFile(donePath, "utf8")) as TmuxDone;

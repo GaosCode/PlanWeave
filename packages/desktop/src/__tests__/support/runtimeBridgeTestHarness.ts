@@ -18,7 +18,9 @@ const childProcessMock = vi.hoisted(() => ({
 
 const electronMock = vi.hoisted(() => {
   const handlers = new Map<string, RegisteredHandler>();
-  const windows: Array<{ webContents: { isDestroyed: () => boolean; send: ReturnType<typeof vi.fn> } }> = [];
+  const windows: Array<{
+    webContents: { isDestroyed: () => boolean; send: ReturnType<typeof vi.fn> };
+  }> = [];
   return {
     handlers,
     windows,
@@ -55,9 +57,17 @@ const runtimeMock = vi.hoisted(() => {
   return {
     autoRunEventListeners,
     applyCanvasLaneLayout: vi.fn(async (workspace: unknown) => ({ workspace, nodes: [] })),
-    getDesktopGraphDiagnostics: vi.fn(async (workspace: unknown) => ({ workspace, diagnostics: [] })),
+    getDesktopGraphDiagnostics: vi.fn(async (workspace: unknown) => ({
+      workspace,
+      diagnostics: []
+    })),
     getDesktopProjectSnapshot: vi.fn(async (ref: unknown) => ({ ref })),
-    getDesktopRuntimeRefresh: vi.fn(async (ref: unknown) => ({ ref, latestAutoRun: null, diagnostics: [], errors: [] })),
+    getDesktopRuntimeRefresh: vi.fn(async (ref: unknown) => ({
+      ref,
+      latestAutoRun: null,
+      diagnostics: [],
+      errors: []
+    })),
     getGraphViewModel: vi.fn(async (workspace: unknown) => ({ workspace })),
     getRunRecord: vi.fn(async () => ({
       recordId: "T-001#B-001::RUN-001",
@@ -99,11 +109,13 @@ const runtimeMock = vi.hoisted(() => {
         phases: ["prepared", "applied"]
       }
     ]),
-    resetDesktopRuntimeState: vi.fn(async (projectRoot: string, canvasId: string | null | undefined, options: unknown) => ({
-      projectRoot,
-      canvasId,
-      options
-    })),
+    resetDesktopRuntimeState: vi.fn(
+      async (projectRoot: string, canvasId: string | null | undefined, options: unknown) => ({
+        projectRoot,
+        canvasId,
+        options
+      })
+    ),
     resolveProjectCanvasWorkspace: vi.fn(async (projectRoot: string, canvasId: string) => ({
       projectRoot,
       canvasId,
@@ -153,7 +165,8 @@ vi.mock("electron", () => ({
 }));
 
 vi.mock("@planweave-ai/runtime", async () => {
-  const actual = await vi.importActual<typeof import("@planweave-ai/runtime")>("@planweave-ai/runtime");
+  const actual =
+    await vi.importActual<typeof import("@planweave-ai/runtime")>("@planweave-ai/runtime");
   return {
     ...actual,
     applyCanvasLaneLayout: runtimeMock.applyCanvasLaneLayout,
@@ -197,9 +210,16 @@ export async function resetRuntimeBridgeMocks(): Promise<void> {
   electronMock.shell.openPath.mockClear();
   electronMock.shell.showItemInFolder.mockClear();
   childProcessMock.execFile.mockReset();
-  childProcessMock.execFile.mockImplementation((_command: string, _args: string[], _options: unknown, callback: (error: Error | null, stdout: string, stderr: string) => void) => {
-    callback(null, "", "");
-  });
+  childProcessMock.execFile.mockImplementation(
+    (
+      _command: string,
+      _args: string[],
+      _options: unknown,
+      callback: (error: Error | null, stdout: string, stderr: string) => void
+    ) => {
+      callback(null, "", "");
+    }
+  );
   delete process.env.PLANWEAVE_DESKTOP_SMOKE;
   runtimeMock.autoRunEventListeners.clear();
   runtimeMock.applyCanvasLaneLayout.mockClear();

@@ -6,7 +6,10 @@ import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js"
 import type { PackageWorkspaceRef, PlanPackageManifest, ProjectWorkspace } from "../types.js";
 import type { PlanGraphLayoutStore } from "../plangraph/ports.js";
 import type { DesktopLayout, DesktopLayoutNode } from "./types.js";
-import { readActiveTaskCanvasSelection, writeActiveTaskCanvasSelection } from "./canvasSelectionStore.js";
+import {
+  readActiveTaskCanvasSelection,
+  writeActiveTaskCanvasSelection
+} from "./canvasSelectionStore.js";
 
 export function defaultDesktopLayout(projectId: string): DesktopLayout {
   return {
@@ -70,7 +73,10 @@ function normalizeLayout(input: unknown, projectId: string): DesktopLayout {
     return defaultDesktopLayout(projectId);
   }
   const raw = input as Record<string, unknown>;
-  const updatedAt = typeof raw.updatedAt === "string" && raw.updatedAt.trim() ? raw.updatedAt : new Date(0).toISOString();
+  const updatedAt =
+    typeof raw.updatedAt === "string" && raw.updatedAt.trim()
+      ? raw.updatedAt
+      : new Date(0).toISOString();
   if (Array.isArray(raw.nodes)) {
     return {
       version: "desktop-layout/v1",
@@ -104,34 +110,50 @@ function filterLayoutNodes(layout: DesktopLayout, manifest: PlanPackageManifest)
   };
 }
 
-export async function getDesktopLayoutDirect(projectRoot: PackageWorkspaceRef): Promise<DesktopLayout> {
+export async function getDesktopLayoutDirect(
+  projectRoot: PackageWorkspaceRef
+): Promise<DesktopLayout> {
   const { workspace, manifest } = await loadPackage(projectRoot);
   return getDesktopLayoutForPackage(workspace, manifest);
 }
 
-export async function getDesktopLayoutForPackage(workspace: ProjectWorkspace, manifest: PlanPackageManifest): Promise<DesktopLayout> {
+export async function getDesktopLayoutForPackage(
+  workspace: ProjectWorkspace,
+  manifest: PlanPackageManifest
+): Promise<DesktopLayout> {
   const path = layoutPathForWorkspace(workspace);
   if (!(await optionalStat(path))) {
     return defaultDesktopLayout(workspace.id);
   }
-  return filterLayoutNodes(normalizeLayout(await readJsonFile<unknown>(path), workspace.id), manifest);
+  return filterLayoutNodes(
+    normalizeLayout(await readJsonFile<unknown>(path), workspace.id),
+    manifest
+  );
 }
 
-export async function saveDesktopLayoutDirect(projectRoot: PackageWorkspaceRef, layout: DesktopLayout): Promise<DesktopLayout> {
+export async function saveDesktopLayoutDirect(
+  projectRoot: PackageWorkspaceRef,
+  layout: DesktopLayout
+): Promise<DesktopLayout> {
   const { workspace, manifest } = await loadPackage(projectRoot);
-  const next = filterLayoutNodes({
-    ...layout,
-    version: "desktop-layout/v1",
-    projectId: workspace.id,
-    updatedAt: new Date().toISOString()
-  }, manifest);
+  const next = filterLayoutNodes(
+    {
+      ...layout,
+      version: "desktop-layout/v1",
+      projectId: workspace.id,
+      updatedAt: new Date().toISOString()
+    },
+    manifest
+  );
   const path = layoutPathForWorkspace(workspace);
   await mkdir(dirname(path), { recursive: true });
   await writeJsonFile(path, next);
   return next;
 }
 
-export async function resetDesktopLayoutDirect(projectRoot: PackageWorkspaceRef): Promise<DesktopLayout> {
+export async function resetDesktopLayoutDirect(
+  projectRoot: PackageWorkspaceRef
+): Promise<DesktopLayout> {
   const workspace = await resolvePackageWorkspace(projectRoot);
   await rm(await layoutPath(projectRoot), { force: true });
   return defaultDesktopLayout(workspace.id);
@@ -151,7 +173,10 @@ export const desktopLayoutCommandStore: PlanGraphLayoutStore = {
   async write(projectRoot, layoutScope, layout) {
     if (layoutScope === "canvas") {
       const projectWorkspace = typeof projectRoot === "string" ? projectRoot : projectRoot.rootPath;
-      const activeCanvasId = layout && typeof layout === "object" && !Array.isArray(layout) ? (layout as Record<string, unknown>).activeCanvasId : null;
+      const activeCanvasId =
+        layout && typeof layout === "object" && !Array.isArray(layout)
+          ? (layout as Record<string, unknown>).activeCanvasId
+          : null;
       if (typeof activeCanvasId !== "string" || !activeCanvasId.trim()) {
         throw new Error("Active canvas selection requires activeCanvasId.");
       }

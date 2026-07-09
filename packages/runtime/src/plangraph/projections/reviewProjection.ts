@@ -9,7 +9,14 @@ export type ReviewProjectionItem = {
   taskId: string;
   blockId: string;
   title: string;
-  status: "planned" | "ready" | "in_progress" | "completed" | "needs_changes" | "blocked" | "diverged";
+  status:
+    | "planned"
+    | "ready"
+    | "in_progress"
+    | "completed"
+    | "needs_changes"
+    | "blocked"
+    | "diverged";
   dependencyBlockers: string[];
   reviewGate: ReviewGateHint | null;
 };
@@ -32,17 +39,23 @@ export function buildReviewProjection(input: {
       return [];
     }
     const claimHint = claimHintByRef.get(blockStatus.ref);
-    const dependencyBlockers = claimHint ? [...claimHint.blockedByTasks, ...claimHint.blockedByBlocks, ...claimHint.blockedByProject] : [];
-    const title = input.planGraph?.blocks.get(blockStatus.ref)?.title ?? getBlock(input.runtime.graph, blockStatus.ref).title;
-    return [{
-      ref: blockStatus.ref,
-      taskId: blockStatus.taskId,
-      blockId: blockStatus.blockId,
-      title,
-      status: blockStatus.status,
-      dependencyBlockers,
-      reviewGate: claimHint?.reviewGate ?? null
-    }];
+    const dependencyBlockers = claimHint
+      ? [...claimHint.blockedByTasks, ...claimHint.blockedByBlocks, ...claimHint.blockedByProject]
+      : [];
+    const title =
+      input.planGraph?.blocks.get(blockStatus.ref)?.title ??
+      getBlock(input.runtime.graph, blockStatus.ref).title;
+    return [
+      {
+        ref: blockStatus.ref,
+        taskId: blockStatus.taskId,
+        blockId: blockStatus.blockId,
+        title,
+        status: blockStatus.status,
+        dependencyBlockers,
+        reviewGate: claimHint?.reviewGate ?? null
+      }
+    ];
   });
   return {
     graphVersion: input.graphVersion,

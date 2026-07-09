@@ -1,5 +1,10 @@
 import { compileTaskGraph } from "./compileTaskGraph.js";
-import type { CompiledTaskGraph, ManifestEdge, ManifestNode, PlanPackageManifest } from "../types.js";
+import type {
+  CompiledTaskGraph,
+  ManifestEdge,
+  ManifestNode,
+  PlanPackageManifest
+} from "../types.js";
 
 function nodeChanged(left: ManifestNode | undefined, right: ManifestNode | undefined): boolean {
   return JSON.stringify(left ?? null) !== JSON.stringify(right ?? null);
@@ -17,7 +22,11 @@ function addTaskDependents(graph: CompiledTaskGraph, taskId: string, affected: S
   }
 }
 
-function affectedTaskIdsForEdge(edge: ManifestEdge, graph: CompiledTaskGraph, affected: Set<string>): void {
+function affectedTaskIdsForEdge(
+  edge: ManifestEdge,
+  graph: CompiledTaskGraph,
+  affected: Set<string>
+): void {
   if (edge.type === "depends_on") {
     if (graph.tasksById.has(edge.from)) {
       addTaskDependents(graph, edge.from, affected);
@@ -55,15 +64,21 @@ export function affectedTaskIdsForManifestChange(
       addTaskDependents(afterGraph, nodeId, affected);
     }
     if (!beforeGraph.tasksById.has(nodeId) && !afterGraph.tasksById.has(nodeId)) {
-      for (const edge of [...before.edges, ...after.edges].filter((edge) => edge.from === nodeId || edge.to === nodeId)) {
+      for (const edge of [...before.edges, ...after.edges].filter(
+        (edge) => edge.from === nodeId || edge.to === nodeId
+      )) {
         affectedTaskIdsForEdge(edge, beforeGraph, affected);
         affectedTaskIdsForEdge(edge, afterGraph, affected);
       }
     }
   }
 
-  const beforeEdges = new Map(before.edges.map((edge) => [`${edge.from}\u0000${edge.type}\u0000${edge.to}`, edge]));
-  const afterEdges = new Map(after.edges.map((edge) => [`${edge.from}\u0000${edge.type}\u0000${edge.to}`, edge]));
+  const beforeEdges = new Map(
+    before.edges.map((edge) => [`${edge.from}\u0000${edge.type}\u0000${edge.to}`, edge])
+  );
+  const afterEdges = new Map(
+    after.edges.map((edge) => [`${edge.from}\u0000${edge.type}\u0000${edge.to}`, edge])
+  );
   const edgeKeys = new Set([...beforeEdges.keys(), ...afterEdges.keys()]);
   for (const key of edgeKeys) {
     if (beforeEdges.has(key) && afterEdges.has(key)) {
@@ -77,5 +92,7 @@ export function affectedTaskIdsForManifestChange(
     affectedTaskIdsForEdge(edge, afterGraph, affected);
   }
 
-  return [...affected].filter((taskId) => beforeGraph.tasksById.has(taskId) || afterGraph.tasksById.has(taskId));
+  return [...affected].filter(
+    (taskId) => beforeGraph.tasksById.has(taskId) || afterGraph.tasksById.has(taskId)
+  );
 }

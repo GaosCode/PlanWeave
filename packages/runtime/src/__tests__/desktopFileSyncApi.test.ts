@@ -8,15 +8,9 @@ import {
   refreshChangedDesktopPackagePrompts,
   refreshPackageFileChanges
 } from "../desktop/index.js";
-import {
-  undoDesktopPlanGraphCommand,
-  updateTaskTitle
-} from "../desktop/graphApi.js";
+import { undoDesktopPlanGraphCommand, updateTaskTitle } from "../desktop/graphApi.js";
 import { writeJsonFile } from "../json.js";
-import {
-  executePlanGraphCommand,
-  undoPlanGraphCommand
-} from "../plangraph/index.js";
+import { executePlanGraphCommand, undoPlanGraphCommand } from "../plangraph/index.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 
 afterEach(() => {
@@ -34,23 +28,33 @@ describe("desktop file sync API", () => {
     });
     expect(snapshot.snapshotId).toMatch(/^PKG-SNAPSHOT-/);
 
-    await expect(detectDesktopPackageFileChanges(root, snapshot.snapshotId)).resolves.toMatchObject({
-      ok: true,
-      primed: false,
-      dirtyPromptRefs: []
-    });
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"), "# external edit\n", "utf8");
+    await expect(detectDesktopPackageFileChanges(root, snapshot.snapshotId)).resolves.toMatchObject(
+      {
+        ok: true,
+        primed: false,
+        dirtyPromptRefs: []
+      }
+    );
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"),
+      "# external edit\n",
+      "utf8"
+    );
 
-    await expect(detectDesktopPackageFileChanges(root, snapshot.snapshotId)).resolves.toMatchObject({
-      ok: true,
-      primed: false,
-      fullRefresh: true,
-      affectedTasks: ["T-001"],
-      dirtyPromptRefs: ["T-001#B-001"]
-    });
+    await expect(detectDesktopPackageFileChanges(root, snapshot.snapshotId)).resolves.toMatchObject(
+      {
+        ok: true,
+        primed: false,
+        fullRefresh: true,
+        affectedTasks: ["T-001"],
+        dirtyPromptRefs: ["T-001#B-001"]
+      }
+    );
     await expect(getDirtyPromptRefs(root)).resolves.toEqual(["T-001#B-001"]);
 
-    await expect(refreshChangedDesktopPackagePrompts(root, snapshot.snapshotId)).resolves.toMatchObject({
+    await expect(
+      refreshChangedDesktopPackagePrompts(root, snapshot.snapshotId)
+    ).resolves.toMatchObject({
       ok: true,
       primed: false,
       fullRefresh: true,
@@ -75,13 +79,19 @@ describe("desktop file sync API", () => {
     await expect(detectDesktopPackageFileChanges(root, snapshots[0].snapshotId)).rejects.toThrow(
       `Package file snapshot '${snapshots[0].snapshotId}' has expired or does not exist.`
     );
-    await expect(detectDesktopPackageFileChanges(root, snapshots[1].snapshotId)).resolves.toMatchObject({
+    await expect(
+      detectDesktopPackageFileChanges(root, snapshots[1].snapshotId)
+    ).resolves.toMatchObject({
       ok: true,
       primed: false,
       dirtyPromptRefs: []
     });
 
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), "# latest baseline edit\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"),
+      "# latest baseline edit\n",
+      "utf8"
+    );
     await expect(detectDesktopPackageFileChanges(root)).resolves.toMatchObject({
       ok: true,
       primed: false,
@@ -96,28 +106,42 @@ describe("desktop file sync API", () => {
     const snapshot = await createDesktopPackageFileSnapshot(root);
 
     for (let index = 0; index < 6; index += 1) {
-      await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), `# refresh edit ${index}\n`, "utf8");
+      await writeFile(
+        join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"),
+        `# refresh edit ${index}\n`,
+        "utf8"
+      );
       await expect(refreshPackageFileChanges(root)).resolves.toMatchObject({
         ok: true,
         primed: false
       });
     }
 
-    await expect(detectDesktopPackageFileChanges(root, snapshot.snapshotId)).resolves.toMatchObject({
-      ok: true,
-      primed: false,
-      fullRefresh: true,
-      affectedTasks: ["T-001"],
-      dirtyPromptRefs: ["T-001"]
-    });
+    await expect(detectDesktopPackageFileChanges(root, snapshot.snapshotId)).resolves.toMatchObject(
+      {
+        ok: true,
+        primed: false,
+        fullRefresh: true,
+        affectedTasks: ["T-001"],
+        dirtyPromptRefs: ["T-001"]
+      }
+    );
   });
 
   it("refreshes changed package prompt paths incrementally from watcher paths", async () => {
     const { root, init } = await createTestWorkspace();
     await createDesktopPackageFileSnapshot(root);
 
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"), "# external block prompt edit\n", "utf8");
-    await expect(refreshPackageFileChanges(root, { changedPaths: ["package/nodes/T-001/blocks/B-001.prompt.md"] })).resolves.toMatchObject({
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"),
+      "# external block prompt edit\n",
+      "utf8"
+    );
+    await expect(
+      refreshPackageFileChanges(root, {
+        changedPaths: ["package/nodes/T-001/blocks/B-001.prompt.md"]
+      })
+    ).resolves.toMatchObject({
       ok: true,
       primed: false,
       fullRefresh: false,
@@ -133,8 +157,14 @@ describe("desktop file sync API", () => {
       diagnostics: []
     });
 
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), "# external task prompt edit\n", "utf8");
-    await expect(refreshPackageFileChanges(root, { changedPaths: ["nodes/T-001/prompt.md"] })).resolves.toMatchObject({
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"),
+      "# external task prompt edit\n",
+      "utf8"
+    );
+    await expect(
+      refreshPackageFileChanges(root, { changedPaths: ["nodes/T-001/prompt.md"] })
+    ).resolves.toMatchObject({
       ok: true,
       primed: false,
       fullRefresh: false,
@@ -155,8 +185,16 @@ describe("desktop file sync API", () => {
     const { root, init } = await createTestWorkspace();
     await createDesktopPackageFileSnapshot(root);
 
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), "# external task prompt edit\n", "utf8");
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"), "# external block prompt edit\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"),
+      "# external task prompt edit\n",
+      "utf8"
+    );
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"),
+      "# external block prompt edit\n",
+      "utf8"
+    );
 
     await expect(
       refreshPackageFileChanges(root, {
@@ -193,7 +231,9 @@ describe("desktop file sync API", () => {
     };
 
     await writeJsonFile(init.workspace.manifestFile, nextManifest);
-    await expect(refreshPackageFileChanges(root, { changedPaths: ["package/manifest.json"] })).resolves.toMatchObject({
+    await expect(
+      refreshPackageFileChanges(root, { changedPaths: ["package/manifest.json"] })
+    ).resolves.toMatchObject({
       ok: true,
       primed: false,
       affectedTasks: ["T-002"],
@@ -201,17 +241,23 @@ describe("desktop file sync API", () => {
         changedPathCount: 1,
         mode: "full"
       }),
-      diagnostics: [expect.objectContaining({ code: "package_change_manifest_requires_full_refresh" })]
+      diagnostics: [
+        expect.objectContaining({ code: "package_change_manifest_requires_full_refresh" })
+      ]
     });
 
-    await expect(refreshPackageFileChanges(root, { changedPaths: ["package/nodes/T-001"] })).resolves.toMatchObject({
+    await expect(
+      refreshPackageFileChanges(root, { changedPaths: ["package/nodes/T-001"] })
+    ).resolves.toMatchObject({
       ok: true,
       primed: false,
       refreshStats: expect.objectContaining({
         changedPathCount: 1,
         mode: "full"
       }),
-      diagnostics: [expect.objectContaining({ code: "package_change_coarse_path_requires_full_refresh" })]
+      diagnostics: [
+        expect.objectContaining({ code: "package_change_coarse_path_requires_full_refresh" })
+      ]
     });
     await expect(refreshPackageFileChanges(root, { changedPaths: [] })).resolves.toMatchObject({
       ok: true,
@@ -229,7 +275,9 @@ describe("desktop file sync API", () => {
     await createDesktopPackageFileSnapshot(root);
 
     await writeFile(init.workspace.projectPromptFile, "# Updated project prompt\n", "utf8");
-    await expect(refreshPackageFileChanges(root, { changedPaths: ["policy/project-prompt.md"] })).resolves.toMatchObject({
+    await expect(
+      refreshPackageFileChanges(root, { changedPaths: ["policy/project-prompt.md"] })
+    ).resolves.toMatchObject({
       ok: true,
       primed: false,
       dirtyPromptRefs: [],
@@ -241,11 +289,15 @@ describe("desktop file sync API", () => {
   it("does not clear PlanGraph command history for project prompt watcher paths", async () => {
     const { root, init } = await createTestWorkspace();
     await createDesktopPackageFileSnapshot(root);
-    await expect(updateTaskTitle(root, "T-001", "Local command edit")).resolves.toMatchObject({ ok: true });
+    await expect(updateTaskTitle(root, "T-001", "Local command edit")).resolves.toMatchObject({
+      ok: true
+    });
     await expect(refreshPackageFileChanges(root)).resolves.toMatchObject({ ok: true });
 
     await writeFile(init.workspace.projectPromptFile, "# Updated project prompt\n", "utf8");
-    await expect(refreshPackageFileChanges(root, { changedPaths: ["policy/project-prompt.md"] })).resolves.toMatchObject({
+    await expect(
+      refreshPackageFileChanges(root, { changedPaths: ["policy/project-prompt.md"] })
+    ).resolves.toMatchObject({
       ok: true,
       dirtyPromptRefs: [],
       diagnostics: [expect.objectContaining({ code: "package_change_non_package_prompt" })]
@@ -257,13 +309,19 @@ describe("desktop file sync API", () => {
   it("does not clear PlanGraph command history for unknown watcher paths when package files did not change", async () => {
     const { root } = await createTestWorkspace();
     await createDesktopPackageFileSnapshot(root);
-    await expect(updateTaskTitle(root, "T-001", "Local command edit")).resolves.toMatchObject({ ok: true });
+    await expect(updateTaskTitle(root, "T-001", "Local command edit")).resolves.toMatchObject({
+      ok: true
+    });
     await expect(refreshPackageFileChanges(root)).resolves.toMatchObject({ ok: true });
 
-    await expect(refreshPackageFileChanges(root, { changedPaths: ["package/results/report.md"] })).resolves.toMatchObject({
+    await expect(
+      refreshPackageFileChanges(root, { changedPaths: ["package/results/report.md"] })
+    ).resolves.toMatchObject({
       ok: true,
       dirtyPromptRefs: [],
-      diagnostics: [expect.objectContaining({ code: "package_change_unknown_path_requires_full_refresh" })]
+      diagnostics: [
+        expect.objectContaining({ code: "package_change_unknown_path_requires_full_refresh" })
+      ]
     });
 
     await expect(undoDesktopPlanGraphCommand(root)).resolves.toMatchObject({ ok: true });
@@ -274,7 +332,11 @@ describe("desktop file sync API", () => {
     await createDesktopPackageFileSnapshot(root);
     await rm(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"));
 
-    await expect(refreshPackageFileChanges(root, { changedPaths: ["package/nodes/T-001/blocks/B-001.prompt.md"] })).resolves.toMatchObject({
+    await expect(
+      refreshPackageFileChanges(root, {
+        changedPaths: ["package/nodes/T-001/blocks/B-001.prompt.md"]
+      })
+    ).resolves.toMatchObject({
       ok: false,
       primed: false,
       fullRefresh: true,
@@ -298,7 +360,9 @@ describe("desktop file sync API", () => {
     const firstSnapshot = await createDesktopPackageFileSnapshot(first.root);
     const second = await createTestWorkspace();
 
-    await expect(detectDesktopPackageFileChanges(second.root, firstSnapshot.snapshotId)).rejects.toThrow(
+    await expect(
+      detectDesktopPackageFileChanges(second.root, firstSnapshot.snapshotId)
+    ).rejects.toThrow(
       `Package file snapshot '${firstSnapshot.snapshotId}' belongs to a different project.`
     );
   });
@@ -328,12 +392,18 @@ describe("desktop file sync API", () => {
     ).resolves.toMatchObject({ ok: true });
 
     const snapshot = await createDesktopPackageFileSnapshot(root);
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), "# external prompt edit\n", "utf8");
-    await expect(detectDesktopPackageFileChanges(root, snapshot.snapshotId)).resolves.toMatchObject({
-      ok: true,
-      fullRefresh: true,
-      dirtyPromptRefs: ["T-001"]
-    });
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"),
+      "# external prompt edit\n",
+      "utf8"
+    );
+    await expect(detectDesktopPackageFileChanges(root, snapshot.snapshotId)).resolves.toMatchObject(
+      {
+        ok: true,
+        fullRefresh: true,
+        dirtyPromptRefs: ["T-001"]
+      }
+    );
 
     const undoResult = await undoPlanGraphCommand({ projectRoot: root });
     expect(undoResult.ok).toBe(false);
@@ -343,7 +413,9 @@ describe("desktop file sync API", () => {
   it("keeps PlanGraph command history when refreshing package files after a local command save", async () => {
     const { root } = await createTestWorkspace();
     await createDesktopPackageFileSnapshot(root);
-    await expect(updateTaskTitle(root, "T-001", "Local command edit")).resolves.toMatchObject({ ok: true });
+    await expect(updateTaskTitle(root, "T-001", "Local command edit")).resolves.toMatchObject({
+      ok: true
+    });
 
     await expect(refreshPackageFileChanges(root)).resolves.toMatchObject({
       ok: true,

@@ -1,4 +1,11 @@
-import { ArrowLeftIcon, BlocksIcon, BotIcon, CableIcon, GitPullRequestIcon, SettingsIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  BlocksIcon,
+  BotIcon,
+  CableIcon,
+  GitPullRequestIcon,
+  SettingsIcon
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { createTranslator } from "../i18n";
 import { HistoryNavigationButtons } from "../components/HistoryNavigationButtons";
@@ -29,7 +36,12 @@ export function SettingsNav({ section, setSection, onBackToApp, t }: SettingsNav
         </div>
       </div>
       <div className="flex min-h-0 flex-1 flex-col p-3">
-        <Button data-testid="settings-back-to-app" className="mb-4 justify-start text-text-muted hover:bg-surface-muted hover:text-text-strong" variant="ghost" onClick={onBackToApp}>
+        <Button
+          data-testid="settings-back-to-app"
+          className="mb-4 justify-start text-text-muted hover:bg-surface-muted hover:text-text-strong"
+          variant="ghost"
+          onClick={onBackToApp}
+        >
           <ArrowLeftIcon data-icon="inline-start" />
           {t("backToApp")}
         </Button>

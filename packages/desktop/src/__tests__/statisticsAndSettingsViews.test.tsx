@@ -15,7 +15,14 @@ describe("desktop renderer component interactions", () => {
   it("shows a project-opening empty state for statistics when no project is selected", async () => {
     const handleOpenProject = vi.fn().mockResolvedValue(undefined);
 
-    render(<StatisticsView handleOpenProject={handleOpenProject} selectedProject={null} statistics={null} t={createTranslator("en")} />);
+    render(
+      <StatisticsView
+        handleOpenProject={handleOpenProject}
+        selectedProject={null}
+        statistics={null}
+        t={createTranslator("en")}
+      />
+    );
 
     expect(screen.getByText("Open a project to view statistics")).toBeInTheDocument();
     expect(screen.getByText(/task completion, block totals/)).toBeInTheDocument();

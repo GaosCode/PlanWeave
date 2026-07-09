@@ -6,8 +6,14 @@ let tempFileCounter = 0;
 export async function writePrivateJsonFile(path: string, value: unknown): Promise<void> {
   const dir = dirname(path);
   await ensurePrivateDirectory(dir);
-  const tempPath = join(dir, `.${basename(path)}-${process.pid}-${Date.now()}-${tempFileCounter++}.tmp`);
-  await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  const tempPath = join(
+    dir,
+    `.${basename(path)}-${process.pid}-${Date.now()}-${tempFileCounter++}.tmp`
+  );
+  await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600
+  });
   await rename(tempPath, path);
   const written = await stat(path);
   if ((written.mode & 0o777) !== 0o600) {

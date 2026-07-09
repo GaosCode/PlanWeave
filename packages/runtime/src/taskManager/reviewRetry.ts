@@ -3,7 +3,13 @@ import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
-import type { ClaimScope, ManifestReviewBlock, PackageWorkspaceRef, PlanPackageManifest, RetryReviewResult } from "../types.js";
+import type {
+  ClaimScope,
+  ManifestReviewBlock,
+  PackageWorkspaceRef,
+  PlanPackageManifest,
+  RetryReviewResult
+} from "../types.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { clearReviewCompletionReason } from "./resultIndex.js";
 import { blockDependenciesCompleted, blockInScope } from "./selectors.js";
@@ -21,7 +27,11 @@ export async function resetMaxCycleReviewsForRetry(options: {
     for (const ref of graph.blockRefsInManifestOrder) {
       const block = graph.blocksByRef.get(ref);
       const blockState = state.blocks[ref];
-      if (block?.type !== "review" || blockState?.completionReason !== "max_cycles_reached" || !blockInScope(ref, graph, options.scope)) {
+      if (
+        block?.type !== "review" ||
+        blockState?.completionReason !== "max_cycles_reached" ||
+        !blockInScope(ref, graph, options.scope)
+      ) {
         continue;
       }
       refs.push(ref);
@@ -68,7 +78,11 @@ function requireMaxFeedbackCycles(value: number): number {
   return value;
 }
 
-function updateReviewBlockMaxCycles(manifest: PlanPackageManifest, ref: string, maxFeedbackCycles: number): PlanPackageManifest {
+function updateReviewBlockMaxCycles(
+  manifest: PlanPackageManifest,
+  ref: string,
+  maxFeedbackCycles: number
+): PlanPackageManifest {
   const [taskId, blockId] = ref.split("#");
   let found = false;
   const nodes = manifest.nodes.map((node) => {
@@ -117,7 +131,10 @@ export async function retryReview(options: {
     throw new Error(`Block '${options.ref}' is not a review block.`);
   }
 
-  await writeJsonFile(workspace.manifestFile, updateReviewBlockMaxCycles(manifest, options.ref, maxFeedbackCycles));
+  await writeJsonFile(
+    workspace.manifestFile,
+    updateReviewBlockMaxCycles(manifest, options.ref, maxFeedbackCycles)
+  );
   const reset = await resetMaxCycleReviewsForRetry({
     projectRoot: workspace,
     scope: { kind: "block", blockRef: options.ref }

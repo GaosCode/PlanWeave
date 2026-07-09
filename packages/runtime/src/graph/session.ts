@@ -1,5 +1,8 @@
 import { loadPackage } from "../package/loadPackage.js";
-import { createPackageFileSnapshot, createPackageFileSnapshotFromLoadedPackage } from "../package/fileChanges.js";
+import {
+  createPackageFileSnapshot,
+  createPackageFileSnapshotFromLoadedPackage
+} from "../package/fileChanges.js";
 import type {
   DrainGraphReadQueueResult,
   ExecutionGraphSession,
@@ -12,11 +15,17 @@ import type {
 } from "../types.js";
 import { applyGraphEditOperation } from "./session/applyOperation.js";
 import { dedupeFileChanges, normalizePackagePath, promptPathToRefs } from "./session/fileQueue.js";
-import { alignGraphOrder, rebuildEdgeIndexes, refreshReachability } from "./session/graphIndexes.js";
+import {
+  alignGraphOrder,
+  rebuildEdgeIndexes,
+  refreshReachability
+} from "./session/graphIndexes.js";
 import { diffManifestToGraphOps } from "./session/manifestDiff.js";
 import { readManifest, rebuildSessionFromPackage } from "./session/rebuild.js";
 
-export async function createExecutionGraphSession(projectRoot: PackageWorkspaceRef): Promise<ExecutionGraphSession> {
+export async function createExecutionGraphSession(
+  projectRoot: PackageWorkspaceRef
+): Promise<ExecutionGraphSession> {
   const { workspace, manifest } = await loadPackage(projectRoot);
   const snapshot = await createPackageFileSnapshotFromLoadedPackage({ workspace, manifest });
   return createExecutionGraphSessionFromSnapshot({ projectRoot, workspace, snapshot });
@@ -39,21 +48,33 @@ export function createExecutionGraphSessionFromSnapshot(input: {
       enqueuedAt: new Date().toISOString()
     },
     dirtyPromptRefs: new Set(),
-    diagnostics: [...input.snapshot.graph.diagnostics.errors, ...input.snapshot.graph.diagnostics.warnings]
+    diagnostics: [
+      ...input.snapshot.graph.diagnostics.errors,
+      ...input.snapshot.graph.diagnostics.warnings
+    ]
   };
 }
 
-export function enqueuePackageFileChanges(session: ExecutionGraphSession, changes: PackageFileChange[]): void {
+export function enqueuePackageFileChanges(
+  session: ExecutionGraphSession,
+  changes: PackageFileChange[]
+): void {
   session.readQueue.fileChanges.push(...changes);
   session.readQueue.enqueuedAt = new Date().toISOString();
 }
 
-export function enqueueGraphEditOperations(session: ExecutionGraphSession, operations: GraphEditOperation[]): void {
+export function enqueueGraphEditOperations(
+  session: ExecutionGraphSession,
+  operations: GraphEditOperation[]
+): void {
   session.readQueue.graphOps.push(...operations);
   session.readQueue.enqueuedAt = new Date().toISOString();
 }
 
-async function applyQueuedGraphOperations(session: ExecutionGraphSession, operations: GraphEditOperation[]): Promise<ValidationIssue[]> {
+async function applyQueuedGraphOperations(
+  session: ExecutionGraphSession,
+  operations: GraphEditOperation[]
+): Promise<ValidationIssue[]> {
   const diagnostics: ValidationIssue[] = [];
   for (const operation of operations) {
     diagnostics.push(...applyGraphEditOperation(session, operation));
@@ -66,7 +87,10 @@ async function applyQueuedGraphOperations(session: ExecutionGraphSession, operat
   return diagnostics;
 }
 
-function drainResult(session: ExecutionGraphSession, refreshed: boolean): DrainGraphReadQueueResult {
+function drainResult(
+  session: ExecutionGraphSession,
+  refreshed: boolean
+): DrainGraphReadQueueResult {
   return {
     session,
     refreshed,
@@ -75,7 +99,9 @@ function drainResult(session: ExecutionGraphSession, refreshed: boolean): DrainG
   };
 }
 
-export async function drainGraphReadQueue(session: ExecutionGraphSession): Promise<DrainGraphReadQueueResult> {
+export async function drainGraphReadQueue(
+  session: ExecutionGraphSession
+): Promise<DrainGraphReadQueueResult> {
   const fileChanges = dedupeFileChanges(session.readQueue.fileChanges);
   const graphOps = session.readQueue.graphOps;
   session.readQueue = {
@@ -91,8 +117,13 @@ export async function drainGraphReadQueue(session: ExecutionGraphSession): Promi
     return drainResult(session, session.dirtyPromptRefs.size > 0 || diagnostics.length > 0);
   }
 
-  const normalizedChanges = fileChanges.map((change) => ({ ...change, path: normalizePackagePath(session, change.path) }));
-  const manifestChanged = normalizedChanges.some((change) => change.path === "manifest.json" || change.path.endsWith("/manifest.json"));
+  const normalizedChanges = fileChanges.map((change) => ({
+    ...change,
+    path: normalizePackagePath(session, change.path)
+  }));
+  const manifestChanged = normalizedChanges.some(
+    (change) => change.path === "manifest.json" || change.path.endsWith("/manifest.json")
+  );
   if (manifestChanged) {
     const nextManifest = await readManifest(session.packageRoot);
     const operations = diffManifestToGraphOps(session.fileSnapshot.manifest, nextManifest);
@@ -106,7 +137,10 @@ export async function drainGraphReadQueue(session: ExecutionGraphSession): Promi
     alignGraphOrder(session.graph, nextManifest);
     rebuildEdgeIndexes(session.graph, nextManifest);
     refreshReachability(session.graph);
-    session.diagnostics = [...session.graph.diagnostics.errors, ...session.graph.diagnostics.warnings];
+    session.diagnostics = [
+      ...session.graph.diagnostics.errors,
+      ...session.graph.diagnostics.warnings
+    ];
     return drainResult(session, session.dirtyPromptRefs.size > 0 || operations.length > 0);
   }
 

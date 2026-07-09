@@ -1,7 +1,10 @@
 import { nonEmptyString, sanitizeProject } from "./toolHelpers.js";
 import type { ExportedPlanPackage, RuntimeGateway } from "./toolTypes.js";
 
-export function summarizeRefreshPrompts(result: Awaited<ReturnType<RuntimeGateway["refreshPrompts"]>>, includeMarkdown: boolean) {
+export function summarizeRefreshPrompts(
+  result: Awaited<ReturnType<RuntimeGateway["refreshPrompts"]>>,
+  includeMarkdown: boolean
+) {
   return {
     promptCount: result.prompts.length,
     contentIncluded: includeMarkdown,
@@ -37,7 +40,9 @@ export function summarizeProjectExport(exported: ExportedProject, includeFiles: 
       contentIncluded: false,
       markdownBytes: Buffer.byteLength(exported.projectPromptMarkdown, "utf8")
     },
-    planPackages: exported.planPackages.map((planPackage) => summarizePlanPackage(planPackage, includeFiles))
+    planPackages: exported.planPackages.map((planPackage) =>
+      summarizePlanPackage(planPackage, includeFiles)
+    )
   };
 }
 
@@ -49,7 +54,10 @@ export function fullProjectExport(exported: ExportedProject) {
   };
 }
 
-export function selectProjectExportFiles(exported: ExportedProject, record: Record<string, unknown>) {
+export function selectProjectExportFiles(
+  exported: ExportedProject,
+  record: Record<string, unknown>
+) {
   const requestedFiles = Array.isArray(record.packageFiles) ? record.packageFiles : [];
   const selectedPackages = new Map<string, ExportedPlanPackage>();
   for (const item of requestedFiles) {
@@ -57,7 +65,10 @@ export function selectProjectExportFiles(exported: ExportedProject, record: Reco
       throw new Error("packageFiles entries must be objects.");
     }
     const request = item as Record<string, unknown>;
-    const canvasId = request.canvasId === null || request.canvasId === undefined ? null : nonEmptyString(request.canvasId, "packageFiles[].canvasId");
+    const canvasId =
+      request.canvasId === null || request.canvasId === undefined
+        ? null
+        : nonEmptyString(request.canvasId, "packageFiles[].canvasId");
     const path = nonEmptyString(request.path, "packageFiles[].path");
     const planPackage = exported.planPackages.find((candidate) => candidate.canvasId === canvasId);
     if (!planPackage) {
@@ -74,7 +85,8 @@ export function selectProjectExportFiles(exported: ExportedProject, record: Reco
   }
   return {
     project: sanitizeProject(exported.project),
-    projectPromptMarkdown: record.includeProjectPrompt === true ? exported.projectPromptMarkdown : undefined,
+    projectPromptMarkdown:
+      record.includeProjectPrompt === true ? exported.projectPromptMarkdown : undefined,
     planPackages: [...selectedPackages.values()]
   };
 }

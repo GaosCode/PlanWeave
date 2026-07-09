@@ -7,12 +7,22 @@ import type { AppView } from "../types";
 type UseDesktopProjectActionsArgs = {
   clearReviewTaskSelection: (taskId?: string | null) => void;
   createTaskCanvas: (project: DesktopProjectSummary) => Promise<unknown>;
-  createProjectFromTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<DesktopProjectSummary | null>;
+  createProjectFromTaskCanvas: (
+    project: DesktopProjectSummary,
+    canvasId: string
+  ) => Promise<DesktopProjectSummary | null>;
   deleteTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   duplicateTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<unknown>;
   renameProject: (project: DesktopProjectSummary, name: string) => Promise<unknown>;
-  renameTaskCanvas: (project: DesktopProjectSummary, canvasId: string, name: string) => Promise<unknown>;
-  refreshProjectSummary: (projectRoot: string, canvasId?: string | null) => Promise<DesktopProjectSummary | null>;
+  renameTaskCanvas: (
+    project: DesktopProjectSummary,
+    canvasId: string,
+    name: string
+  ) => Promise<unknown>;
+  refreshProjectSummary: (
+    projectRoot: string,
+    canvasId?: string | null
+  ) => Promise<DesktopProjectSummary | null>;
   removeProject: (project: DesktopProjectSummary) => Promise<void>;
   setActiveView: (view: AppView) => void;
   setError: (message: string | null) => void;
@@ -51,7 +61,10 @@ export function useDesktopProjectActions({
 
   const handleRevealProject = useCallback(
     async (project: DesktopProjectSummary) => {
-      const path = project.kind === "managed" ? project.workspaceRoot : project.sourceRoot ?? project.rootPath;
+      const path =
+        project.kind === "managed"
+          ? project.workspaceRoot
+          : (project.sourceRoot ?? project.rootPath);
       if (!bridge) {
         setError(t("bridgeUnavailable"));
         return;
@@ -211,7 +224,9 @@ export function useDesktopProjectActions({
         return;
       }
       const resetOnlyCanvas = canvasId === "default" || project.taskCanvases.length === 1;
-      if (!window.confirm(t(resetOnlyCanvas ? "resetTaskCanvasConfirm" : "deleteTaskCanvasConfirm"))) {
+      if (
+        !window.confirm(t(resetOnlyCanvas ? "resetTaskCanvasConfirm" : "deleteTaskCanvasConfirm"))
+      ) {
         return;
       }
       try {

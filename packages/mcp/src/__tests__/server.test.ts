@@ -166,7 +166,9 @@ describe("PlanWeave MCP HTTP server", () => {
   });
 
   it("returns a generic MCP 500 without leaking error.message", async () => {
-    const connectSpy = vi.spyOn(McpServer.prototype, "connect").mockRejectedValue(new Error("/secret/path leaked"));
+    const connectSpy = vi
+      .spyOn(McpServer.prototype, "connect")
+      .mockRejectedValue(new Error("/secret/path leaked"));
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       const baseUrl = await startServer(undefined);
@@ -273,18 +275,52 @@ describe("PlanWeave MCP HTTP server", () => {
 
     expect(toolsResponse.status).toBe(200);
     const toolsPayload = await readMcpResponse(toolsResponse);
-    const tools = (toolsPayload as { result: { tools: Array<{ name: string; outputSchema?: unknown; annotations?: { readOnlyHint?: boolean } }> } }).result.tools;
+    const tools = (
+      toolsPayload as {
+        result: {
+          tools: Array<{
+            name: string;
+            outputSchema?: unknown;
+            annotations?: { readOnlyHint?: boolean };
+          }>;
+        };
+      }
+    ).result.tools;
     const toolNames = tools.map((tool) => tool.name);
     expect(toolNames.sort()).toEqual([...defaultPlanweaveToolNames].sort());
-    expect(toolNames).not.toEqual(expect.arrayContaining(["get_block_detail", "get_project_graph", "refresh_prompts", "export_plan_package_full"]));
-    expect(tools.every((tool) => tool.outputSchema && typeof tool.outputSchema === "object")).toBe(true);
+    expect(toolNames).not.toEqual(
+      expect.arrayContaining([
+        "get_block_detail",
+        "get_project_graph",
+        "refresh_prompts",
+        "export_plan_package_full"
+      ])
+    );
+    expect(tools.every((tool) => tool.outputSchema && typeof tool.outputSchema === "object")).toBe(
+      true
+    );
     expect(tools).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "get_status", annotations: expect.objectContaining({ readOnlyHint: true }) }),
-        expect.objectContaining({ name: "get_rendered_prompt", annotations: expect.objectContaining({ readOnlyHint: true }) }),
-        expect.objectContaining({ name: "search_project", annotations: expect.objectContaining({ readOnlyHint: true }) }),
-        expect.objectContaining({ name: "list_ready_blocks", annotations: expect.objectContaining({ readOnlyHint: true }) }),
-        expect.objectContaining({ name: "get_graph_summary", annotations: expect.objectContaining({ readOnlyHint: true }) })
+        expect.objectContaining({
+          name: "get_status",
+          annotations: expect.objectContaining({ readOnlyHint: true })
+        }),
+        expect.objectContaining({
+          name: "get_rendered_prompt",
+          annotations: expect.objectContaining({ readOnlyHint: true })
+        }),
+        expect.objectContaining({
+          name: "search_project",
+          annotations: expect.objectContaining({ readOnlyHint: true })
+        }),
+        expect.objectContaining({
+          name: "list_ready_blocks",
+          annotations: expect.objectContaining({ readOnlyHint: true })
+        }),
+        expect.objectContaining({
+          name: "get_graph_summary",
+          annotations: expect.objectContaining({ readOnlyHint: true })
+        })
       ])
     );
   });

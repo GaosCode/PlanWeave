@@ -63,7 +63,11 @@ function labeledSessionId(line: string): string | null {
   const colonIndex = line.indexOf(":");
   const equalsIndex = line.indexOf("=");
   const separatorIndex =
-    colonIndex === -1 ? equalsIndex : equalsIndex === -1 ? colonIndex : Math.min(colonIndex, equalsIndex);
+    colonIndex === -1
+      ? equalsIndex
+      : equalsIndex === -1
+        ? colonIndex
+        : Math.min(colonIndex, equalsIndex);
   if (separatorIndex === -1) {
     return null;
   }
@@ -104,7 +108,12 @@ export function extractOpencodeSessionId(output: string): string | null {
     }
     try {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-      const sessionId = parsed.sessionID ?? parsed.sessionId ?? parsed.session_id ?? parsed.threadId ?? parsed.thread_id;
+      const sessionId =
+        parsed.sessionID ??
+        parsed.sessionId ??
+        parsed.session_id ??
+        parsed.threadId ??
+        parsed.thread_id;
       if (typeof sessionId === "string" && sessionId.trim()) {
         return sessionId;
       }
@@ -145,10 +154,18 @@ function toolSummary(value: unknown): string | null {
   const state = isRecord(part.state) ? part.state : {};
   const status = stringValue(state.status);
   const output = stringValue(state.output);
-  return [`- ${tool}`, title ? ` ${title}` : "", status ? ` (${status})` : "", output ? `: ${output}` : ""].join("");
+  return [
+    `- ${tool}`,
+    title ? ` ${title}` : "",
+    status ? ` (${status})` : "",
+    output ? `: ${output}` : ""
+  ].join("");
 }
 
-function errorDetails(value: unknown, options: { allowBareErrorObject?: boolean } = {}): OpencodeErrorDetails | null {
+function errorDetails(
+  value: unknown,
+  options: { allowBareErrorObject?: boolean } = {}
+): OpencodeErrorDetails | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -296,15 +313,29 @@ export function parseOpencodeJsonOutput(output: string): OpencodeJsonOutput {
 const sessionListHint =
   "OpenCode session id was not found in this run output. Run `opencode session list` in the execution directory to find the latest OpenCode session.";
 
-function withSessionListHint(report: string, output: OpencodeJsonOutput, fallbackStdout: string, fallbackStderr: string, knownSessionId?: string | null): string {
-  const sessionId = knownSessionId ?? output.sessionId ?? extractOpencodeSessionId(`${fallbackStdout}\n${fallbackStderr}`);
+function withSessionListHint(
+  report: string,
+  output: OpencodeJsonOutput,
+  fallbackStdout: string,
+  fallbackStderr: string,
+  knownSessionId?: string | null
+): string {
+  const sessionId =
+    knownSessionId ??
+    output.sessionId ??
+    extractOpencodeSessionId(`${fallbackStdout}\n${fallbackStderr}`);
   if (sessionId || !report.trim()) {
     return report;
   }
   return `${report.trim()}\n\n---\n${sessionListHint}`;
 }
 
-export function opencodeReport(output: OpencodeJsonOutput, fallbackStdout: string, fallbackStderr: string, knownSessionId?: string | null): string {
+export function opencodeReport(
+  output: OpencodeJsonOutput,
+  fallbackStdout: string,
+  fallbackStderr: string,
+  knownSessionId?: string | null
+): string {
   let report: string;
   if (output.text) {
     report = output.text;

@@ -17,16 +17,31 @@ export function runContractAutoRunStep(options: AutoRunStepOptions) {
   return runAutoRunStep({ tmuxEnabled: false, ...options });
 }
 
-export function createContractCodexExecAdapter(options: Parameters<typeof createCodexExecAdapter>[0]) {
-  return createCodexExecAdapter({ ...options, runtime: { ...options.runtime, tmuxEnabled: false } });
+export function createContractCodexExecAdapter(
+  options: Parameters<typeof createCodexExecAdapter>[0]
+) {
+  return createCodexExecAdapter({
+    ...options,
+    runtime: { ...options.runtime, tmuxEnabled: false }
+  });
 }
 
-export function createContractOpencodeExecAdapter(options: Parameters<typeof createOpencodeExecAdapter>[0]) {
-  return createOpencodeExecAdapter({ ...options, runtime: { ...options.runtime, tmuxEnabled: false } });
+export function createContractOpencodeExecAdapter(
+  options: Parameters<typeof createOpencodeExecAdapter>[0]
+) {
+  return createOpencodeExecAdapter({
+    ...options,
+    runtime: { ...options.runtime, tmuxEnabled: false }
+  });
 }
 
-export function createContractLocalReviewAdapter(options: Parameters<typeof createLocalReviewAdapter>[0]) {
-  return createLocalReviewAdapter({ ...options, runtime: { ...options.runtime, tmuxEnabled: false } });
+export function createContractLocalReviewAdapter(
+  options: Parameters<typeof createLocalReviewAdapter>[0]
+) {
+  return createLocalReviewAdapter({
+    ...options,
+    runtime: { ...options.runtime, tmuxEnabled: false }
+  });
 }
 
 export async function waitForAutoRunStatus(

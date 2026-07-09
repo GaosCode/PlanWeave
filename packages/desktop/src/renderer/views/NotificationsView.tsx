@@ -34,7 +34,9 @@ export function NotificationsView({
 }: NotificationsViewProps) {
   const unreadCount = notificationItems.filter((item) => !item.read).length;
   const pendingRollbackTransactionIdsRef = useRef<Set<string>>(new Set());
-  const [pendingRollbackTransactionIds, setPendingRollbackTransactionIds] = useState<Set<string>>(() => new Set());
+  const [pendingRollbackTransactionIds, setPendingRollbackTransactionIds] = useState<Set<string>>(
+    () => new Set()
+  );
 
   const setRollbackPending = (transactionId: string, pending: boolean) => {
     const nextPendingTransactionIds = new Set(pendingRollbackTransactionIdsRef.current);
@@ -62,28 +64,53 @@ export function NotificationsView({
   return (
     <section className="flex h-full min-h-0 flex-col gap-4" data-testid="notifications-view">
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-normal text-text-strong">{t("notifications")}</h1>
+        <h1 className="text-2xl font-semibold tracking-normal text-text-strong">
+          {t("notifications")}
+        </h1>
         <div className="text-sm text-text-muted">
-          {notificationItems.length > 0 ? `${t("unreadNotifications")}: ${unreadCount} / ${notificationItems.length}` : t("noNotificationsFiltered")}
+          {notificationItems.length > 0
+            ? `${t("unreadNotifications")}: ${unreadCount} / ${notificationItems.length}`
+            : t("noNotificationsFiltered")}
         </div>
         <div className="text-sm text-text-muted">{t("notificationRulesHint")}</div>
       </div>
       <div className="flex min-h-0 flex-col gap-2">
-        {notificationItems.length === 0 ? <div className="rounded-md border border-border/80 bg-surface-muted/70 p-4 text-sm text-text-muted">{t("noNotifications")}</div> : null}
+        {notificationItems.length === 0 ? (
+          <div className="rounded-md border border-border/80 bg-surface-muted/70 p-4 text-sm text-text-muted">
+            {t("noNotifications")}
+          </div>
+        ) : null}
         {notificationItems.map((item) => (
-          <div className={`flex items-start justify-between gap-3 rounded-md border border-border/80 p-3 shadow-sm ${item.read ? "bg-surface-muted/70 text-text-muted" : "bg-surface-raised text-text"}`} key={item.id}>
+          <div
+            className={`flex items-start justify-between gap-3 rounded-md border border-border/80 p-3 shadow-sm ${item.read ? "bg-surface-muted/70 text-text-muted" : "bg-surface-raised text-text"}`}
+            key={item.id}
+          >
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-text-strong">{item.title}</div>
               <div className="break-words text-xs text-text-muted">{item.detail}</div>
               {item.kind === "fileSync" ? (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => void refreshPackageFiles()}>{t("fileSyncReload")}</Button>
-                  <Button size="sm" variant="outline" onClick={() => onMarkNotificationRead(item.id)}>{t("fileSyncAcknowledge")}</Button>
+                  <Button size="sm" variant="secondary" onClick={() => void refreshPackageFiles()}>
+                    {t("fileSyncReload")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onMarkNotificationRead(item.id)}
+                  >
+                    {t("fileSyncAcknowledge")}
+                  </Button>
                 </div>
               ) : null}
               {item.kind === "promptConflict" ? (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => void onReloadPromptConflicts()}>{t("fileSyncReload")}</Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void onReloadPromptConflicts()}
+                  >
+                    {t("fileSyncReload")}
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"
@@ -110,19 +137,34 @@ export function NotificationsView({
                 <div className="mt-3 min-w-0">
                   <div className="mb-2 text-xs text-text-muted">
                     <span className="font-medium text-text">{t("importRecoveryDirectory")}: </span>
-                    <span className="font-mono break-all [overflow-wrap:anywhere]" data-testid="import-recovery-directory">{item.recoveryRoot}</span>
+                    <span
+                      className="font-mono break-all [overflow-wrap:anywhere]"
+                      data-testid="import-recovery-directory"
+                    >
+                      {item.recoveryRoot}
+                    </span>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" onClick={() => void onRevealImportRecoveryDirectory?.(item.recoveryRoot)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void onRevealImportRecoveryDirectory?.(item.recoveryRoot)}
+                    >
                       <FolderOpenIcon data-icon="inline-start" />
                       {t("importRecoveryRevealDirectory")}
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => void onCopyImportRecoveryTransactionId?.(item.transactionId)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void onCopyImportRecoveryTransactionId?.(item.transactionId)}
+                    >
                       <CopyIcon data-icon="inline-start" />
                       {t("importRecoveryCopyTransactionId")}
                     </Button>
                     <Button
-                      aria-busy={pendingRollbackTransactionIds.has(item.transactionId) ? true : undefined}
+                      aria-busy={
+                        pendingRollbackTransactionIds.has(item.transactionId) ? true : undefined
+                      }
                       disabled={pendingRollbackTransactionIds.has(item.transactionId)}
                       size="sm"
                       variant="secondary"
@@ -136,7 +178,9 @@ export function NotificationsView({
               ) : null}
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <Badge variant={item.read ? "outline" : "secondary"}>{item.read ? t("read") : t("unread")}</Badge>
+              <Badge variant={item.read ? "outline" : "secondary"}>
+                {item.read ? t("read") : t("unread")}
+              </Badge>
               <Badge variant={item.tone}>{item.tone}</Badge>
               <Button
                 aria-label={`${t("markNotificationRead")}: ${item.title}`}

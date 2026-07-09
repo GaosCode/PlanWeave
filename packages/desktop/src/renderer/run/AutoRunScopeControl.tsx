@@ -6,7 +6,14 @@ import {
   ContextMenuRadioItem,
   ContextMenuSeparator
 } from "@/components/ui/context-menu";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select";
 import type { AutoRunScopeMode } from "../types";
 import type { AutoRunScopeModeSetter, FloatingAutoRunTranslator } from "./floatingAutoRunTypes";
 
@@ -35,9 +42,17 @@ export function AutoRunScopeContextMenu({
   return (
     <ContextMenuContent>
       <ContextMenuLabel>{t("autoRunScope")}</ContextMenuLabel>
-      <ContextMenuRadioGroup value={autoRunScopeMode} onValueChange={(value) => setAutoRunScopeMode(value as AutoRunScopeMode)}>
-        <ContextMenuRadioItem disabled={!hasProject} value="project">{t("projectScope")}</ContextMenuRadioItem>
-        <ContextMenuRadioItem disabled={!hasProject || (!selectedTaskPanelId && !selectedBlockPresent)} value="selectedTask">
+      <ContextMenuRadioGroup
+        value={autoRunScopeMode}
+        onValueChange={(value) => setAutoRunScopeMode(value as AutoRunScopeMode)}
+      >
+        <ContextMenuRadioItem disabled={!hasProject} value="project">
+          {t("projectScope")}
+        </ContextMenuRadioItem>
+        <ContextMenuRadioItem
+          disabled={!hasProject || (!selectedTaskPanelId && !selectedBlockPresent)}
+          value="selectedTask"
+        >
           {t("selectedTaskScope")}
         </ContextMenuRadioItem>
         <ContextMenuRadioItem disabled={!hasProject || !selectedBlockPresent} value="selectedBlock">
@@ -45,7 +60,9 @@ export function AutoRunScopeContextMenu({
         </ContextMenuRadioItem>
       </ContextMenuRadioGroup>
       <ContextMenuSeparator />
-      <ContextMenuItem onSelect={() => setMiniRunPanelOpen(true)}>{t("miniRunPanel")}</ContextMenuItem>
+      <ContextMenuItem onSelect={() => setMiniRunPanelOpen(true)}>
+        {t("miniRunPanel")}
+      </ContextMenuItem>
     </ContextMenuContent>
   );
 }
@@ -59,7 +76,10 @@ export function AutoRunScopeControl({
   t
 }: AutoRunScopeControlProps) {
   return (
-    <Select value={autoRunScopeMode} onValueChange={(value) => setAutoRunScopeMode(value as AutoRunScopeMode)}>
+    <Select
+      value={autoRunScopeMode}
+      onValueChange={(value) => setAutoRunScopeMode(value as AutoRunScopeMode)}
+    >
       <SelectTrigger className="h-9 w-36" disabled={!hasProject} title={t("autoRunScope")}>
         <SelectValue aria-label={t("autoRunScope")} />
       </SelectTrigger>

@@ -14,14 +14,27 @@ describe("desktop agent tool detection", () => {
   });
 
   it("adds Homebrew paths when detecting agent CLI versions", async () => {
-    execFileMock.mockImplementation((command: string, _args: string[], _options: unknown, callback: (error: Error | null, stdout: string, stderr: string) => void) => {
-      callback(null, `${command} 1.2.3\n`, "");
-    });
+    execFileMock.mockImplementation(
+      (
+        command: string,
+        _args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callback(null, `${command} 1.2.3\n`, "");
+      }
+    );
     const { detectAgentTools } = await import("../main/agentTools");
 
     const agents = await detectAgentTools();
 
-    expect(agents.map((agent) => ({ command: agent.command, installed: agent.installed, version: agent.version }))).toEqual([
+    expect(
+      agents.map((agent) => ({
+        command: agent.command,
+        installed: agent.installed,
+        version: agent.version
+      }))
+    ).toEqual([
       { command: "codex", installed: true, version: "codex 1.2.3" },
       { command: "claude", installed: true, version: "claude 1.2.3" },
       { command: "opencode", installed: true, version: "opencode 1.2.3" },
@@ -43,7 +56,17 @@ describe("desktop agent tool detection", () => {
   it("deduplicates agent detection PATH entries", async () => {
     const { agentDetectionPath } = await import("../main/agentTools");
 
-    expect(agentDetectionPath("/usr/bin:/bin").split(":")).toEqual(["/usr/bin", "/bin", "/opt/homebrew/bin", "/usr/local/bin"]);
-    expect(agentDetectionPath("/opt/homebrew/bin").split(":")).toEqual(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]);
+    expect(agentDetectionPath("/usr/bin:/bin").split(":")).toEqual([
+      "/usr/bin",
+      "/bin",
+      "/opt/homebrew/bin",
+      "/usr/local/bin"
+    ]);
+    expect(agentDetectionPath("/opt/homebrew/bin").split(":")).toEqual([
+      "/opt/homebrew/bin",
+      "/usr/local/bin",
+      "/usr/bin",
+      "/bin"
+    ]);
   });
 });

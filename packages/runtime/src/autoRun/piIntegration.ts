@@ -1,4 +1,9 @@
-import { adapterProfileMismatch, type ExecutorBlockInput, type ExecutorFeedbackInput, type ExecutorIntegration } from "./executorIntegration.js";
+import {
+  adapterProfileMismatch,
+  type ExecutorBlockInput,
+  type ExecutorFeedbackInput,
+  type ExecutorIntegration
+} from "./executorIntegration.js";
 import { workspaceExecutionCwd } from "./executorShared.js";
 import { runTerminalAgentBlock, runTerminalAgentFeedback } from "./terminalAgentExecutor.js";
 

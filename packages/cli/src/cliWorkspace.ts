@@ -14,7 +14,9 @@ export function resolveCliCanvasId(options: CanvasCommandOptions = {}): string |
   return options.canvas?.trim() || process.env.PLANWEAVE_CANVAS_ID?.trim() || null;
 }
 
-export async function resolveCliPackageWorkspace(options: CanvasCommandOptions = {}): Promise<PackageWorkspaceRef> {
+export async function resolveCliPackageWorkspace(
+  options: CanvasCommandOptions = {}
+): Promise<PackageWorkspaceRef> {
   const projectRoot = await resolveCliProjectRoot();
   const canvasId = resolveCliCanvasId(options);
   return canvasId ? resolveTaskCanvasWorkspace(projectRoot, canvasId) : projectRoot;

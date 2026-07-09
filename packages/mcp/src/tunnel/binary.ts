@@ -24,7 +24,9 @@ export function getTunnelClientBinaryStartError(binary: TunnelClientBinaryStatus
   return null;
 }
 
-function createTunnelClientBinaryStartTarget(binary: TunnelClientBinaryStatus): TunnelClientBinaryStartTarget {
+function createTunnelClientBinaryStartTarget(
+  binary: TunnelClientBinaryStatus
+): TunnelClientBinaryStartTarget {
   const startError = getTunnelClientBinaryStartError(binary);
   if (startError) {
     throw new Error(startError);
@@ -55,7 +57,9 @@ function createTunnelClientBinaryStartTarget(binary: TunnelClientBinaryStatus): 
   };
 }
 
-export function assertTunnelClientBinaryStartTarget(binary: TunnelClientBinaryStartTarget): TunnelClientBinaryStartTarget {
+export function assertTunnelClientBinaryStartTarget(
+  binary: TunnelClientBinaryStartTarget
+): TunnelClientBinaryStartTarget {
   if (binary[tunnelClientBinaryStartTargetBrand] !== true) {
     throw new Error("Tunnel client binary start target is not trusted.");
   }
@@ -76,9 +80,14 @@ function hasMacQuarantine(path: string): Promise<boolean> {
     return Promise.resolve(false);
   }
   return new Promise((resolve) => {
-    execFile("/usr/bin/xattr", ["-p", "com.apple.quarantine", path], { timeout: 5_000 }, (error) => {
-      resolve(!error);
-    });
+    execFile(
+      "/usr/bin/xattr",
+      ["-p", "com.apple.quarantine", path],
+      { timeout: 5_000 },
+      (error) => {
+        resolve(!error);
+      }
+    );
   });
 }
 
@@ -109,7 +118,10 @@ function isSupportedBinaryName(path: string): boolean {
   return supportedBinaryName(path) !== null;
 }
 
-export async function resolveTunnelClientBinary(path: string | null, verification?: TunnelClientBinaryVerification | null): Promise<TunnelClientBinaryStatus> {
+export async function resolveTunnelClientBinary(
+  path: string | null,
+  verification?: TunnelClientBinaryVerification | null
+): Promise<TunnelClientBinaryStatus> {
   const expectedBinarySha256 = normalizeSha256(verification?.binarySha256);
   const assetSha256 = normalizeSha256(verification?.assetSha256);
   if (!path?.trim()) {
@@ -192,7 +204,8 @@ export async function resolveTunnelClientBinary(path: string | null, verificatio
           sha256,
           version: null,
           verified: false,
-          error: "macOS blocked tunnel-client because the downloaded file is quarantined. Allow it in Privacy & Security or remove the quarantine attribute before starting."
+          error:
+            "macOS blocked tunnel-client because the downloaded file is quarantined. Allow it in Privacy & Security or remove the quarantine attribute before starting."
         };
       }
       return {
@@ -230,7 +243,8 @@ export async function resolveTunnelClientBinary(path: string | null, verificatio
         sha256,
         version: null,
         verified: true,
-        error: "macOS blocked tunnel-client because the downloaded file is quarantined. Allow it in Privacy & Security or remove the quarantine attribute before starting."
+        error:
+          "macOS blocked tunnel-client because the downloaded file is quarantined. Allow it in Privacy & Security or remove the quarantine attribute before starting."
       };
     }
     return {

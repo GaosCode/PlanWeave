@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type PointerEvent as ReactPointerEvent,
+  type SetStateAction
+} from "react";
 import { desktopSidebarWidthBounds } from "../settings";
 import type { DesktopUiSettings } from "../types";
 
@@ -28,7 +36,10 @@ function clampSidebarWidth(width: number, bounds: { min: number; max: number }):
   return Math.min(bounds.max, Math.max(bounds.min, Math.round(width)));
 }
 
-export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseResizableSidebarLayoutArgs): UseResizableSidebarLayoutResult {
+export function useResizableSidebarLayout({
+  initialLayout,
+  onLayoutPatch
+}: UseResizableSidebarLayoutArgs): UseResizableSidebarLayoutResult {
   const cleanupResizeRef = useRef<(() => void) | null>(null);
   const activeResizeSideRef = useRef<ResizableSidebarSide | null>(null);
   const localInteractionRef = useRef({
@@ -37,10 +48,18 @@ export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseR
     rightCollapsed: false,
     rightWidth: false
   });
-  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(() => initialLayout.leftSidebar.collapsed);
-  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(() => initialLayout.rightSidebar.collapsed);
-  const [leftSidebarWidth, setLeftSidebarWidth] = useState(() => clampSidebarWidth(initialLayout.leftSidebar.width, desktopSidebarWidthBounds.left));
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(() => clampSidebarWidth(initialLayout.rightSidebar.width, desktopSidebarWidthBounds.right));
+  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(
+    () => initialLayout.leftSidebar.collapsed
+  );
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(
+    () => initialLayout.rightSidebar.collapsed
+  );
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(() =>
+    clampSidebarWidth(initialLayout.leftSidebar.width, desktopSidebarWidthBounds.left)
+  );
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(() =>
+    clampSidebarWidth(initialLayout.rightSidebar.width, desktopSidebarWidthBounds.right)
+  );
 
   useEffect(() => {
     if (!localInteractionRef.current.leftCollapsed) {
@@ -50,10 +69,14 @@ export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseR
       setRightSidebarCollapsed(initialLayout.rightSidebar.collapsed);
     }
     if (activeResizeSideRef.current !== "left" && !localInteractionRef.current.leftWidth) {
-      setLeftSidebarWidth(clampSidebarWidth(initialLayout.leftSidebar.width, desktopSidebarWidthBounds.left));
+      setLeftSidebarWidth(
+        clampSidebarWidth(initialLayout.leftSidebar.width, desktopSidebarWidthBounds.left)
+      );
     }
     if (activeResizeSideRef.current !== "right" && !localInteractionRef.current.rightWidth) {
-      setRightSidebarWidth(clampSidebarWidth(initialLayout.rightSidebar.width, desktopSidebarWidthBounds.right));
+      setRightSidebarWidth(
+        clampSidebarWidth(initialLayout.rightSidebar.width, desktopSidebarWidthBounds.right)
+      );
     }
   }, [
     initialLayout.leftSidebar.collapsed,
@@ -62,23 +85,29 @@ export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseR
     initialLayout.rightSidebar.width
   ]);
 
-  const setLeftSidebarCollapsedPreference: Dispatch<SetStateAction<boolean>> = useCallback((action) => {
-    setLeftSidebarCollapsed((current) => {
-      localInteractionRef.current.leftCollapsed = true;
-      const collapsed = typeof action === "function" ? action(current) : action;
-      onLayoutPatch({ leftSidebar: { collapsed } });
-      return collapsed;
-    });
-  }, [onLayoutPatch]);
+  const setLeftSidebarCollapsedPreference: Dispatch<SetStateAction<boolean>> = useCallback(
+    (action) => {
+      setLeftSidebarCollapsed((current) => {
+        localInteractionRef.current.leftCollapsed = true;
+        const collapsed = typeof action === "function" ? action(current) : action;
+        onLayoutPatch({ leftSidebar: { collapsed } });
+        return collapsed;
+      });
+    },
+    [onLayoutPatch]
+  );
 
-  const setRightSidebarCollapsedPreference: Dispatch<SetStateAction<boolean>> = useCallback((action) => {
-    setRightSidebarCollapsed((current) => {
-      localInteractionRef.current.rightCollapsed = true;
-      const collapsed = typeof action === "function" ? action(current) : action;
-      onLayoutPatch({ rightSidebar: { collapsed } });
-      return collapsed;
-    });
-  }, [onLayoutPatch]);
+  const setRightSidebarCollapsedPreference: Dispatch<SetStateAction<boolean>> = useCallback(
+    (action) => {
+      setRightSidebarCollapsed((current) => {
+        localInteractionRef.current.rightCollapsed = true;
+        const collapsed = typeof action === "function" ? action(current) : action;
+        onLayoutPatch({ rightSidebar: { collapsed } });
+        return collapsed;
+      });
+    },
+    [onLayoutPatch]
+  );
 
   const startSidebarResize = useCallback(
     (event: ReactPointerEvent, side: ResizableSidebarSide) => {
@@ -93,7 +122,8 @@ export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseR
 
       const startX = event.clientX;
       const startWidth = side === "left" ? leftSidebarWidth : rightSidebarWidth;
-      const bounds = side === "left" ? desktopSidebarWidthBounds.left : desktopSidebarWidthBounds.right;
+      const bounds =
+        side === "left" ? desktopSidebarWidthBounds.left : desktopSidebarWidthBounds.right;
       const updateWidth = side === "left" ? setLeftSidebarWidth : setRightSidebarWidth;
       const previousCursor = window.document.body.style.cursor;
       const previousUserSelect = window.document.body.style.userSelect;
@@ -104,7 +134,10 @@ export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseR
 
       const handlePointerMove = (moveEvent: PointerEvent) => {
         const delta = moveEvent.clientX - startX;
-        finalWidth = clampSidebarWidth(side === "left" ? startWidth + delta : startWidth - delta, bounds);
+        finalWidth = clampSidebarWidth(
+          side === "left" ? startWidth + delta : startWidth - delta,
+          bounds
+        );
         updateWidth(finalWidth);
       };
 
@@ -122,7 +155,11 @@ export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseR
 
       const stopResize = () => {
         cleanupResize();
-        onLayoutPatch(side === "left" ? { leftSidebar: { width: finalWidth } } : { rightSidebar: { width: finalWidth } });
+        onLayoutPatch(
+          side === "left"
+            ? { leftSidebar: { width: finalWidth } }
+            : { rightSidebar: { width: finalWidth } }
+        );
       };
 
       cleanupResizeRef.current = cleanupResize;

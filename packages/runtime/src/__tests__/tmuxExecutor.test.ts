@@ -89,7 +89,10 @@ describe("tmux executor", () => {
 
     const result = await runCommandInTmux({
       command: process.execPath,
-      args: ["-e", "process.stdout.write('hello from tmux'); process.stderr.write('progress from tmux');"],
+      args: [
+        "-e",
+        "process.stdout.write('hello from tmux'); process.stderr.write('progress from tmux');"
+      ],
       cwd: dir,
       stdin: "",
       stdoutPath: join(dir, "stdout.md"),
@@ -173,8 +176,12 @@ describe("tmux executor", () => {
       limitExceeded: { stream: "stdout", limitBytes: 128 }
     });
     expect((await stat(stdoutPath)).size).toBeLessThan(256);
-    await expect(readFile(stdoutPath, "utf8")).resolves.toContain("stdout output truncated after 128 bytes");
-    await expect(readFile(donePath, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>)).resolves.toMatchObject({
+    await expect(readFile(stdoutPath, "utf8")).resolves.toContain(
+      "stdout output truncated after 128 bytes"
+    );
+    await expect(
+      readFile(donePath, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>)
+    ).resolves.toMatchObject({
       exitCode: 1,
       timedOut: false,
       limitExceeded: { stream: "stdout", limitBytes: 128 }
@@ -197,7 +204,10 @@ describe("tmux executor", () => {
     await expect(
       runCommandInTmux({
         command: process.execPath,
-        args: ["-e", "process.on('SIGTERM', () => {}); process.stdout.write('trigger'); setInterval(() => {}, 100);"],
+        args: [
+          "-e",
+          "process.on('SIGTERM', () => {}); process.stdout.write('trigger'); setInterval(() => {}, 100);"
+        ],
         cwd: dir,
         stdin: "",
         stdoutPath: join(dir, "stdout.md"),
@@ -321,7 +331,9 @@ setInterval(() => {}, 100);
       await waitForFile(heartbeatPath);
       await waitForFile(childPidPath);
       childPid = Number.parseInt(await readFile(childPidPath, "utf8"), 10);
-      await expect(killTmuxSessionsForRun("AUTO-RUN-FORCE-STOP")).resolves.toEqual([tmux!.sessionName]);
+      await expect(killTmuxSessionsForRun("AUTO-RUN-FORCE-STOP")).resolves.toEqual([
+        tmux!.sessionName
+      ]);
       await expect(running).resolves.toMatchObject({ exitCode: 130, timedOut: false });
       const sizeAfterStop = (await stat(heartbeatPath)).size;
       await sleep(800);

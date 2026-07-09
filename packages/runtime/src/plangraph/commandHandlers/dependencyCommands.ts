@@ -14,7 +14,10 @@ import type {
 import type { LoadedPlanGraphPackage } from "../packageRepository.js";
 import { diagnostic, taskFromManifest, type PlanGraphCommandHandler } from "./types.js";
 
-type DependencyCommand = AddTaskDependencyCommand | RemoveTaskDependencyCommand | ReconnectTaskDependencyCommand;
+type DependencyCommand =
+  | AddTaskDependencyCommand
+  | RemoveTaskDependencyCommand
+  | ReconnectTaskDependencyCommand;
 
 function sameEdge(left: ManifestEdge, right: ManifestEdge): boolean {
   return left.from === right.from && left.to === right.to && left.type === right.type;
@@ -24,9 +27,18 @@ function dependencyEdge(fromTaskId: string, toTaskId: string): ManifestEdge {
   return { from: fromTaskId, to: toTaskId, type: "depends_on" };
 }
 
-function validateDependencyCommand(manifest: PlanPackageManifest, command: DependencyCommand): PlanGraphCommandDiagnostic | null {
-  const fromTaskIds = command.type === "reconnectTaskDependency" ? [command.fromTaskId, command.newFromTaskId ?? command.fromTaskId] : [command.fromTaskId];
-  const toTaskIds = command.type === "reconnectTaskDependency" ? [command.oldToTaskId, command.newToTaskId] : [command.toTaskId];
+function validateDependencyCommand(
+  manifest: PlanPackageManifest,
+  command: DependencyCommand
+): PlanGraphCommandDiagnostic | null {
+  const fromTaskIds =
+    command.type === "reconnectTaskDependency"
+      ? [command.fromTaskId, command.newFromTaskId ?? command.fromTaskId]
+      : [command.fromTaskId];
+  const toTaskIds =
+    command.type === "reconnectTaskDependency"
+      ? [command.oldToTaskId, command.newToTaskId]
+      : [command.toTaskId];
   for (const fromTaskId of fromTaskIds) {
     if (!taskFromManifest(manifest, fromTaskId)) {
       return diagnostic("task_missing", `Task '${fromTaskId}' does not exist.`, fromTaskId);
@@ -47,7 +59,9 @@ function reconnectDependencyMutation(
   const oldEdge = dependencyEdge(command.fromTaskId, command.oldToTaskId);
   const newEdge = dependencyEdge(command.newFromTaskId ?? command.fromTaskId, command.newToTaskId);
   if (sameEdge(oldEdge, newEdge)) {
-    return buildPlanPackageManifestChangeMutation(manifest, manifest, { affectedTasks: [command.fromTaskId] });
+    return buildPlanPackageManifestChangeMutation(manifest, manifest, {
+      affectedTasks: [command.fromTaskId]
+    });
   }
   if (!manifest.edges.some((edge) => sameEdge(edge, oldEdge))) {
     return diagnostic("edge_missing", "Task dependency edge does not exist.", "edges");
@@ -65,9 +79,16 @@ export const dependencyCommandHandler: PlanGraphCommandHandler<DependencyCommand
   family: "dependency",
   commandTypes: ["addTaskDependency", "removeTaskDependency", "reconnectTaskDependency"],
   handles(command: PlanGraphCommand): command is DependencyCommand {
-    return command.type === "addTaskDependency" || command.type === "removeTaskDependency" || command.type === "reconnectTaskDependency";
+    return (
+      command.type === "addTaskDependency" ||
+      command.type === "removeTaskDependency" ||
+      command.type === "reconnectTaskDependency"
+    );
   },
-  mutation(loaded: LoadedPlanGraphPackage, command: DependencyCommand): PlanPackageGraphMutation | PlanGraphCommandDiagnostic {
+  mutation(
+    loaded: LoadedPlanGraphPackage,
+    command: DependencyCommand
+  ): PlanPackageGraphMutation | PlanGraphCommandDiagnostic {
     const dependencyDiagnostic = validateDependencyCommand(loaded.manifest, command);
     if (dependencyDiagnostic) {
       return dependencyDiagnostic;
@@ -90,10 +111,18 @@ export const dependencyCommandHandler: PlanGraphCommandHandler<DependencyCommand
   },
   inverse(_loaded: LoadedPlanGraphPackage, command: DependencyCommand): PlanGraphCommand {
     if (command.type === "addTaskDependency") {
-      return { type: "removeTaskDependency", fromTaskId: command.fromTaskId, toTaskId: command.toTaskId };
+      return {
+        type: "removeTaskDependency",
+        fromTaskId: command.fromTaskId,
+        toTaskId: command.toTaskId
+      };
     }
     if (command.type === "removeTaskDependency") {
-      return { type: "addTaskDependency", fromTaskId: command.fromTaskId, toTaskId: command.toTaskId };
+      return {
+        type: "addTaskDependency",
+        fromTaskId: command.fromTaskId,
+        toTaskId: command.toTaskId
+      };
     }
     return {
       type: "reconnectTaskDependency",

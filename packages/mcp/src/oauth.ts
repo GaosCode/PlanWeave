@@ -1,13 +1,31 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { McpOAuthConfig } from "./config.js";
-import { createMemoryOAuthClientStore, type OAuthClientStore, type RegisteredClient } from "./oauthClientStore.js";
+import {
+  createMemoryOAuthClientStore,
+  type OAuthClientStore,
+  type RegisteredClient
+} from "./oauthClientStore.js";
 import { createMemoryOAuthTokenStore, type OAuthTokenStore } from "./oauthTokenStore.js";
-import { validateAuthorizeParams, validateAuthorizeSearchParams, type AuthorizeParams } from "./oauthAuthorization.js";
+import {
+  validateAuthorizeParams,
+  validateAuthorizeSearchParams,
+  type AuthorizeParams
+} from "./oauthAuthorization.js";
 import { consentPage, errorPage } from "./oauthConsent.js";
 import { readFormBody, readJsonBody, requestContext, writeHtml, writeJson } from "./oauthHttp.js";
-import { authorizationServerMetadata, defaultOAuthScope, protectedResourceMetadata } from "./oauthMetadata.js";
+import {
+  authorizationServerMetadata,
+  defaultOAuthScope,
+  protectedResourceMetadata
+} from "./oauthMetadata.js";
 import { bearerToken, randomToken, tokenHash, verifyPkce } from "./oauthSecurity.js";
-import { isAllowedOAuthResource, isAllowedRedirectUri, optionalString, scopeIncludesDefault, stringArray } from "./oauthValidation.js";
+import {
+  isAllowedOAuthResource,
+  isAllowedRedirectUri,
+  optionalString,
+  scopeIncludesDefault,
+  stringArray
+} from "./oauthValidation.js";
 import { isRequestOriginAllowed } from "./requestGuards.js";
 
 const defaultAccessTokenTtlMs = 60 * 60 * 1000;
@@ -26,7 +44,10 @@ type ConsentSession = AuthorizeParams & {
   expiresAt: number;
 };
 
-type OAuthProviderOptions = Pick<McpOAuthConfig, "accessTokenTtlMs" | "authorizationCodeTtlMs" | "redirectUriPrefixes"> & {
+type OAuthProviderOptions = Pick<
+  McpOAuthConfig,
+  "accessTokenTtlMs" | "authorizationCodeTtlMs" | "redirectUriPrefixes"
+> & {
   clientStore?: OAuthClientStore;
   tokenStore?: OAuthTokenStore;
   maxRequestBodyBytes: number;
@@ -47,7 +68,11 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
 
   return {
     async handleRequest(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
-      if (req.method === "GET" && (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp")) {
+      if (
+        req.method === "GET" &&
+        (path === "/.well-known/oauth-protected-resource" ||
+          path === "/.well-known/oauth-protected-resource/mcp")
+      ) {
         writeJson(res, 200, protectedResourceMetadata(requestContext(req)));
         return true;
       }
@@ -56,11 +81,24 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
         return true;
       }
       if (req.method === "POST" && path === "/oauth/register") {
-        await handleRegister(req, res, options.maxRequestBodyBytes, clientStore, options.redirectUriPrefixes);
+        await handleRegister(
+          req,
+          res,
+          options.maxRequestBodyBytes,
+          clientStore,
+          options.redirectUriPrefixes
+        );
         return true;
       }
       if (req.method === "GET" && path === "/oauth/authorize") {
-        await handleAuthorizePage(req, res, clientStore, consentSessions, authorizationCodeTtlMs, options.redirectUriPrefixes);
+        await handleAuthorizePage(
+          req,
+          res,
+          clientStore,
+          consentSessions,
+          authorizationCodeTtlMs,
+          options.redirectUriPrefixes
+        );
         return true;
       }
       if (req.method === "POST" && path === "/oauth/authorize/confirm") {
@@ -78,7 +116,14 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
         return true;
       }
       if (req.method === "POST" && path === "/oauth/token") {
-        await handleToken(req, res, options.maxRequestBodyBytes, authorizationCodes, tokenStore, accessTokenTtlMs);
+        await handleToken(
+          req,
+          res,
+          options.maxRequestBodyBytes,
+          authorizationCodes,
+          tokenStore,
+          accessTokenTtlMs
+        );
         return true;
       }
       return false;
@@ -98,7 +143,10 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
         await tokenStore.delete(hash);
         return false;
       }
-      return isAllowedOAuthResource(stored.resource, requestContext(req).resource) && scopeIncludesDefault(stored.scope);
+      return (
+        isAllowedOAuthResource(stored.resource, requestContext(req).resource) &&
+        scopeIncludesDefault(stored.scope)
+      );
     },
 
     writeUnauthorized(req: IncomingMessage, res: ServerResponse): void {
@@ -125,7 +173,10 @@ async function handleRegister(
     return;
   }
   const redirectUris = stringArray(body.value.redirect_uris);
-  if (redirectUris.length === 0 || redirectUris.some((uri) => !isAllowedRedirectUri(uri, redirectUriPrefixes))) {
+  if (
+    redirectUris.length === 0 ||
+    redirectUris.some((uri) => !isAllowedRedirectUri(uri, redirectUriPrefixes))
+  ) {
     writeJson(res, 400, { error: "invalid_redirect_uris" });
     return;
   }
@@ -299,7 +350,12 @@ async function handleToken(
     writeJson(res, 400, { error: "invalid_grant" });
     return;
   }
-  if (stored.clientId !== clientId || stored.redirectUri !== redirectUri || stored.resource !== resource || !verifyPkce(codeVerifier, stored.codeChallenge)) {
+  if (
+    stored.clientId !== clientId ||
+    stored.redirectUri !== redirectUri ||
+    stored.resource !== resource ||
+    !verifyPkce(codeVerifier, stored.codeChallenge)
+  ) {
     writeJson(res, 400, { error: "invalid_grant" });
     return;
   }

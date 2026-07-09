@@ -21,8 +21,16 @@ function supportedLanguage(value: string | null): Language {
   return value === "en" || value === "zh-CN" ? value : "zh-CN";
 }
 
-function latestRecordMatchesBlock(event: DesktopAutoRunEvent, blockRef: string, records: DesktopBlockRunRecordSummary[]): boolean {
-  return Boolean(event.latestRecordId && (records.some((record) => record.recordId === event.latestRecordId) || event.latestRecordId.startsWith(`${blockRef}::`)));
+function latestRecordMatchesBlock(
+  event: DesktopAutoRunEvent,
+  blockRef: string,
+  records: DesktopBlockRunRecordSummary[]
+): boolean {
+  return Boolean(
+    event.latestRecordId &&
+      (records.some((record) => record.recordId === event.latestRecordId) ||
+        event.latestRecordId.startsWith(`${blockRef}::`))
+  );
 }
 
 const maxTerminalAvailabilityCandidateRecords = 50;
@@ -42,9 +50,13 @@ export function BlockInspectorWindow() {
   const [blockRunRecords, setBlockRunRecords] = useState<DesktopBlockRunRecordSummary[]>([]);
   const [blockReviewAttempts, setBlockReviewAttempts] = useState<DesktopReviewAttemptSummary[]>([]);
   const [blockFeedbackRecords, setBlockFeedbackRecords] = useState<DesktopFeedbackRecord[]>([]);
-  const [terminalDefaultAppId, setTerminalDefaultAppId] = useState<DesktopTerminalAppId | null>(null);
+  const [terminalDefaultAppId, setTerminalDefaultAppId] = useState<DesktopTerminalAppId | null>(
+    null
+  );
   const [terminalApps, setTerminalApps] = useState<DesktopTerminalAppDetection[]>([]);
-  const [terminalAvailabilityByRecordId, setTerminalAvailabilityByRecordId] = useState<Record<string, DesktopRunTerminalAvailability>>({});
+  const [terminalAvailabilityByRecordId, setTerminalAvailabilityByRecordId] = useState<
+    Record<string, DesktopRunTerminalAvailability>
+  >({});
   const [terminalAvailabilityRefreshKey, setTerminalAvailabilityRefreshKey] = useState(0);
   const [tmuxAvailable, setTmuxAvailable] = useState(false);
   const [error, setError] = useState<string | null>(bridge ? null : t("bridgeUnavailable"));
@@ -57,13 +69,19 @@ export function BlockInspectorWindow() {
       return;
     }
     const runtimeBridge = bridge;
-    void Promise.all([runtimeBridge.detectTerminalApps(), runtimeBridge.getTerminalPreferences(), runtimeBridge.detectRuntimeTools()])
+    void Promise.all([
+      runtimeBridge.detectTerminalApps(),
+      runtimeBridge.getTerminalPreferences(),
+      runtimeBridge.detectRuntimeTools()
+    ])
       .then(([apps, preferences, runtimeTools]) => {
         setTerminalApps(Array.isArray(apps) ? apps : []);
         setTmuxAvailable(Boolean(runtimeTools?.tmux?.available));
         setTerminalDefaultAppId(preferences?.defaultTerminalAppId ?? null);
       })
-      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+      .catch((caught: unknown) =>
+        setError(caught instanceof Error ? caught.message : String(caught))
+      );
   }, []);
 
   useEffect(() => {
@@ -75,7 +93,13 @@ export function BlockInspectorWindow() {
       .filter((record) => record.tmuxSessionId)
       .slice(0, maxTerminalAvailabilityCandidateRecords)
       .map((record) => record.recordId);
-    const recordIds = [...new Set([selectedRunRecord?.recordId, ...candidateRecordIds].filter((recordId): recordId is string => typeof recordId === "string" && recordId.length > 0))];
+    const recordIds = [
+      ...new Set(
+        [selectedRunRecord?.recordId, ...candidateRecordIds].filter(
+          (recordId): recordId is string => typeof recordId === "string" && recordId.length > 0
+        )
+      )
+    ];
     if (recordIds.length === 0) {
       setTerminalAvailabilityByRecordId({});
       return undefined;
@@ -87,7 +111,9 @@ export function BlockInspectorWindow() {
         if (cancelled) {
           return;
         }
-        setTerminalAvailabilityByRecordId(Object.fromEntries(availability.map((item) => [item.recordId, item])));
+        setTerminalAvailabilityByRecordId(
+          Object.fromEntries(availability.map((item) => [item.recordId, item]))
+        );
       })
       .catch((caught: unknown) => {
         if (!cancelled) {
@@ -97,7 +123,13 @@ export function BlockInspectorWindow() {
     return () => {
       cancelled = true;
     };
-  }, [blockRunRecords, canvasId, projectRoot, selectedRunRecord?.recordId, terminalAvailabilityRefreshKey]);
+  }, [
+    blockRunRecords,
+    canvasId,
+    projectRoot,
+    selectedRunRecord?.recordId,
+    terminalAvailabilityRefreshKey
+  ]);
 
   const updateDraftDirty = useCallback((nextDraftDirty: boolean) => {
     draftDirtyRef.current = nextDraftDirty;
@@ -105,7 +137,10 @@ export function BlockInspectorWindow() {
   }, []);
 
   const loadBlock = useCallback(
-    async (ref: string, options: { resetSelectedRunRecord?: boolean; skipCommitWhenDirty?: boolean } = {}) => {
+    async (
+      ref: string,
+      options: { resetSelectedRunRecord?: boolean; skipCommitWhenDirty?: boolean } = {}
+    ) => {
       if (!bridge || !projectRoot || !ref) {
         return;
       }
@@ -167,20 +202,17 @@ export function BlockInspectorWindow() {
     [canvasId, projectRoot]
   );
 
-  const handleTerminalDefaultAppChange = useCallback(
-    async (appId: DesktopTerminalAppId) => {
-      setTerminalDefaultAppId(appId);
-      if (!bridge) {
-        return;
-      }
-      try {
-        await bridge.updateTerminalPreferences({ defaultTerminalAppId: appId });
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
-      }
-    },
-    []
-  );
+  const handleTerminalDefaultAppChange = useCallback(async (appId: DesktopTerminalAppId) => {
+    setTerminalDefaultAppId(appId);
+    if (!bridge) {
+      return;
+    }
+    try {
+      await bridge.updateTerminalPreferences({ defaultTerminalAppId: appId });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }, []);
 
   const handleOpenRunTerminal = useCallback(
     async (recordId: string, appId: DesktopTerminalAppId) => {
@@ -229,8 +261,13 @@ export function BlockInspectorWindow() {
         return;
       }
       const selectedRecordId = selectedRunRecord?.recordId ?? null;
-      const latestRecordMatchesSelectedRecord = Boolean(event.latestRecordId && event.latestRecordId === selectedRecordId);
-      const blockMatched = event.currentRef === blockRef || latestRecordMatchesBlock(event, blockRef, blockRunRecords) || latestRecordMatchesSelectedRecord;
+      const latestRecordMatchesSelectedRecord = Boolean(
+        event.latestRecordId && event.latestRecordId === selectedRecordId
+      );
+      const blockMatched =
+        event.currentRef === blockRef ||
+        latestRecordMatchesBlock(event, blockRef, blockRunRecords) ||
+        latestRecordMatchesSelectedRecord;
       if (!blockMatched) {
         return;
       }
@@ -239,19 +276,33 @@ export function BlockInspectorWindow() {
         void runtimeBridge
           .getRunRecord({ projectRoot, canvasId }, event.latestRecordId)
           .then(setSelectedRunRecord)
-          .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+          .catch((caught: unknown) =>
+            setError(caught instanceof Error ? caught.message : String(caught))
+          );
       }
       if (!draftDirty) {
         void loadBlock(blockRef, { resetSelectedRunRecord: false, skipCommitWhenDirty: true });
       }
     });
-  }, [blockRef, blockRunRecords, canvasId, draftDirty, loadBlock, projectRoot, selectedRunRecord?.recordId]);
+  }, [
+    blockRef,
+    blockRunRecords,
+    canvasId,
+    draftDirty,
+    loadBlock,
+    projectRoot,
+    selectedRunRecord?.recordId
+  ]);
 
   const saveSelectedBlockTitle = useCallback(async () => {
     if (!bridge || !projectRoot || !selectedBlock) {
       return;
     }
-    const result = await bridge.updateBlockTitle({ projectRoot, canvasId }, selectedBlock.ref, selectedBlock.title);
+    const result = await bridge.updateBlockTitle(
+      { projectRoot, canvasId },
+      selectedBlock.ref,
+      selectedBlock.title
+    );
     if (!result.ok) {
       setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
       return;
@@ -264,7 +315,11 @@ export function BlockInspectorWindow() {
       if (!bridge || !projectRoot || !selectedBlock) {
         return;
       }
-      const result = await bridge.updateBlockExecutor({ projectRoot, canvasId }, selectedBlock.ref, executorName);
+      const result = await bridge.updateBlockExecutor(
+        { projectRoot, canvasId },
+        selectedBlock.ref,
+        executorName
+      );
       if (!result.ok) {
         setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
         return;
@@ -278,10 +333,15 @@ export function BlockInspectorWindow() {
     if (!bridge || !projectRoot || !selectedBlock) {
       return;
     }
-    const result = await bridge.updateBlockPrompt({ projectRoot, canvasId }, selectedBlock.ref, selectedBlock.promptMarkdown, {
-      baseGraphVersion: selectedBlock.graphVersion,
-      basePromptHash: selectedBlock.promptHash
-    });
+    const result = await bridge.updateBlockPrompt(
+      { projectRoot, canvasId },
+      selectedBlock.ref,
+      selectedBlock.promptMarkdown,
+      {
+        baseGraphVersion: selectedBlock.graphVersion,
+        basePromptHash: selectedBlock.promptHash
+      }
+    );
     if (!result.ok) {
       setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
       return;

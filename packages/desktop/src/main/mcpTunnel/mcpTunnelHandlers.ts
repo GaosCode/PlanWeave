@@ -6,16 +6,21 @@ import type {
   StartLocalMcpInput,
   StartTunnelInput
 } from "../../shared/mcpTunnel.js";
-import {
-  mcpTunnelChangedChannel,
-  mcpTunnelInvokeChannels
-} from "../../shared/mcpTunnel.js";
+import { mcpTunnelChangedChannel, mcpTunnelInvokeChannels } from "../../shared/mcpTunnel.js";
 import { LocalMcpServerManager } from "./localMcpProcess.js";
 import { downloadOfficialTunnelClient } from "./tunnelClientDownloader.js";
-import { resolveTunnelClientBinary, resolveTunnelClientBinaryStartTarget, tunnelClientDownloadUrl } from "./tunnelClientBinary.js";
+import {
+  resolveTunnelClientBinary,
+  resolveTunnelClientBinaryStartTarget,
+  tunnelClientDownloadUrl
+} from "./tunnelClientBinary.js";
 import type { TunnelClientBinaryVerification } from "./tunnelClientBinary.js";
 import { TunnelClientProcessManager } from "./tunnelClientProcess.js";
-import { mcpTunnelConfigStorePaths, readTunnelClientConfig, writeTunnelClientConfig } from "./tunnelClientStore.js";
+import {
+  mcpTunnelConfigStorePaths,
+  readTunnelClientConfig,
+  writeTunnelClientConfig
+} from "./tunnelClientStore.js";
 
 const localMcp = new LocalMcpServerManager();
 const tunnelClient = new TunnelClientProcessManager({ onStatusChange: () => void publishStatus() });
@@ -63,7 +68,9 @@ function encryptRuntimeApiKey(value: string | null): string | null {
     return null;
   }
   if (!runtimeApiKeyStorageAvailable()) {
-    throw new Error("Electron safeStorage is unavailable, so the runtime API key cannot be persisted securely.");
+    throw new Error(
+      "Electron safeStorage is unavailable, so the runtime API key cannot be persisted securely."
+    );
   }
   return safeStorage.encryptString(value).toString("base64");
 }
@@ -172,7 +179,9 @@ export async function setTunnelClientPath(path: string | null): Promise<McpTunne
 export async function setTunnelAutoStart(enabled: boolean): Promise<McpTunnelStatus> {
   await loadTunnelClientConfig();
   if (enabled && !hasRestorableRuntimeApiKey()) {
-    throw new Error("Auto-start requires a runtime API key that can be restored from secure storage.");
+    throw new Error(
+      "Auto-start requires a runtime API key that can be restored from secure storage."
+    );
   }
   tunnelAutoStart = enabled;
   await persistTunnelClientConfig();
@@ -223,7 +232,9 @@ export async function startTunnel(input: StartTunnelInput = {}): Promise<McpTunn
   const requestedTunnelId = input.tunnelId?.trim() || null;
   const requestedRuntimeApiKey = input.runtimeApiKey?.trim() || null;
   const effectiveTunnelId = requestedTunnelId ?? tunnelId;
-  const effectiveRuntimeApiKey = requestedRuntimeApiKey ?? (hasRestorableRuntimeApiKey() ? runtimeApiKey : sessionOnlyRuntimeApiKey());
+  const effectiveRuntimeApiKey =
+    requestedRuntimeApiKey ??
+    (hasRestorableRuntimeApiKey() ? runtimeApiKey : sessionOnlyRuntimeApiKey());
   if (!effectiveTunnelId) {
     throw new Error("tunnel_id is required.");
   }
@@ -245,17 +256,26 @@ export async function startTunnel(input: StartTunnelInput = {}): Promise<McpTunn
     }
     await persistTunnelClientConfig();
   }
-  const binaryStartTarget = await resolveTunnelClientBinaryStartTarget(tunnelClientPath, tunnelClientVerification);
+  const binaryStartTarget = await resolveTunnelClientBinaryStartTarget(
+    tunnelClientPath,
+    tunnelClientVerification
+  );
   let localStatus = localMcp.getStatus();
   if (localStatus.phase !== "running" || !localStatus.endpoint) {
     if (localStatus.phase === "starting" || localStatus.phase === "stopping") {
-      throw new Error("Wait for the local PlanWeave MCP server to finish changing state before starting the tunnel.");
+      throw new Error(
+        "Wait for the local PlanWeave MCP server to finish changing state before starting the tunnel."
+      );
     }
     localStatus = await localMcp.start();
     await publishStatus();
   }
   if (localStatus.phase !== "running" || !localStatus.endpoint) {
-    throw new Error(localStatus.error ? `Failed to start the local PlanWeave MCP server: ${localStatus.error}` : "Failed to start the local PlanWeave MCP server.");
+    throw new Error(
+      localStatus.error
+        ? `Failed to start the local PlanWeave MCP server: ${localStatus.error}`
+        : "Failed to start the local PlanWeave MCP server."
+    );
   }
   await tunnelClient.start({
     binary: binaryStartTarget,
@@ -287,7 +307,9 @@ export async function autoStartMcpTunnel(): Promise<void> {
   try {
     await startTunnel();
   } catch (error) {
-    console.error(`Failed to auto-start MCP tunnel: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      `Failed to auto-start MCP tunnel: ${error instanceof Error ? error.message : String(error)}`
+    );
     await publishStatus();
   }
 }
@@ -301,10 +323,18 @@ export async function stopMcpTunnelProcesses(): Promise<void> {
 export function registerMcpTunnelHandlers(): void {
   ipcMain.handle(mcpTunnelInvokeChannels.getMcpTunnelStatus, () => getMcpTunnelStatus());
   ipcMain.handle(mcpTunnelInvokeChannels.downloadTunnelClient, () => downloadTunnelClient());
-  ipcMain.handle(mcpTunnelInvokeChannels.setTunnelClientPath, (_event, path: string | null) => setTunnelClientPath(path));
-  ipcMain.handle(mcpTunnelInvokeChannels.setTunnelAutoStart, (_event, enabled: boolean) => setTunnelAutoStart(enabled));
-  ipcMain.handle(mcpTunnelInvokeChannels.startLocalMcp, (_event, input?: StartLocalMcpInput) => startLocalMcp(input));
+  ipcMain.handle(mcpTunnelInvokeChannels.setTunnelClientPath, (_event, path: string | null) =>
+    setTunnelClientPath(path)
+  );
+  ipcMain.handle(mcpTunnelInvokeChannels.setTunnelAutoStart, (_event, enabled: boolean) =>
+    setTunnelAutoStart(enabled)
+  );
+  ipcMain.handle(mcpTunnelInvokeChannels.startLocalMcp, (_event, input?: StartLocalMcpInput) =>
+    startLocalMcp(input)
+  );
   ipcMain.handle(mcpTunnelInvokeChannels.stopLocalMcp, () => stopLocalMcp());
-  ipcMain.handle(mcpTunnelInvokeChannels.startTunnel, (_event, input: StartTunnelInput) => startTunnel(input));
+  ipcMain.handle(mcpTunnelInvokeChannels.startTunnel, (_event, input: StartTunnelInput) =>
+    startTunnel(input)
+  );
   ipcMain.handle(mcpTunnelInvokeChannels.stopTunnel, () => stopTunnel());
 }

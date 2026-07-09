@@ -92,10 +92,14 @@ async function listMarkdownFiles(root: string): Promise<string[]> {
   return files;
 }
 
-async function snapshotPromptFiles(packageDir: string, mode: PromptFingerprintMode): Promise<Record<string, FileFingerprint>> {
+async function snapshotPromptFiles(
+  packageDir: string,
+  mode: PromptFingerprintMode
+): Promise<Record<string, FileFingerprint>> {
   const promptFiles: Record<string, FileFingerprint> = {};
   for (const file of await listMarkdownFiles(join(packageDir, "nodes"))) {
-    promptFiles[relative(packageDir, file)] = mode === "content" ? await fingerprint(file) : await statFingerprint(file);
+    promptFiles[relative(packageDir, file)] =
+      mode === "content" ? await fingerprint(file) : await statFingerprint(file);
   }
   return promptFiles;
 }
@@ -139,7 +143,11 @@ function promptRefreshStats(options: {
   };
 }
 
-async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
   const concurrency = normalizeConcurrency(limit);
   const results = new Array<R>(items.length);
   let nextIndex = 0;
@@ -166,7 +174,10 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item
 }
 
 function normalizeWatcherPath(path: string): string {
-  let normalized = path.split("\\").join("/").replace(/^\.\/+/, "");
+  let normalized = path
+    .split("\\")
+    .join("/")
+    .replace(/^\.\/+/, "");
   while (normalized.startsWith("//")) {
     normalized = normalized.slice(1);
   }
@@ -177,11 +188,18 @@ function normalizeWatcherPath(path: string): string {
   return normalized.slice(0, end);
 }
 
-export function normalizePackageChangedPaths(changedPaths: string[] | undefined): NormalizedPackageChangePaths {
+export function normalizePackageChangedPaths(
+  changedPaths: string[] | undefined
+): NormalizedPackageChangePaths {
   if (!changedPaths || changedPaths.length === 0) {
     return {
       changedPackagePaths: ["manifest.json"],
-      diagnostics: [issue("package_change_paths_empty", "Package file refresh did not receive changed paths; falling back to a full refresh.")],
+      diagnostics: [
+        issue(
+          "package_change_paths_empty",
+          "Package file refresh did not receive changed paths; falling back to a full refresh."
+        )
+      ],
       incremental: false
     };
   }
@@ -193,21 +211,41 @@ export function normalizePackageChangedPaths(changedPaths: string[] | undefined)
     const normalized = normalizeWatcherPath(rawPath);
     if (normalized === "manifest.json" || normalized === "package/manifest.json") {
       changedPackagePaths.push("manifest.json");
-      diagnostics.push(issue("package_change_manifest_requires_full_refresh", "Manifest changes require a full package refresh.", normalized));
+      diagnostics.push(
+        issue(
+          "package_change_manifest_requires_full_refresh",
+          "Manifest changes require a full package refresh.",
+          normalized
+        )
+      );
       continue;
     }
 
     if (normalized === "policy/project-prompt.md") {
       changedPackagePaths.push("policy/project-prompt.md");
-      diagnostics.push(issue("package_change_non_package_prompt", "Project prompt changes are not package prompt changes; falling back to a full refresh.", normalized));
+      diagnostics.push(
+        issue(
+          "package_change_non_package_prompt",
+          "Project prompt changes are not package prompt changes; falling back to a full refresh.",
+          normalized
+        )
+      );
       continue;
     }
 
-    const packagePath = normalized.startsWith("package/") ? normalized.slice("package/".length) : normalized;
+    const packagePath = normalized.startsWith("package/")
+      ? normalized.slice("package/".length)
+      : normalized;
     if (packagePath === "nodes" || packagePath.startsWith("nodes/")) {
       if (!packagePath.endsWith(".md")) {
         changedPackagePaths.push(packagePath);
-        diagnostics.push(issue("package_change_coarse_path_requires_full_refresh", "Directory-level package changes require a full package refresh.", normalized));
+        diagnostics.push(
+          issue(
+            "package_change_coarse_path_requires_full_refresh",
+            "Directory-level package changes require a full package refresh.",
+            normalized
+          )
+        );
         continue;
       }
       changedPackagePaths.push(packagePath);
@@ -215,7 +253,13 @@ export function normalizePackageChangedPaths(changedPaths: string[] | undefined)
     }
 
     changedPackagePaths.push(packagePath || "manifest.json");
-    diagnostics.push(issue("package_change_unknown_path_requires_full_refresh", "Unknown package watcher path requires a full package refresh.", normalized));
+    diagnostics.push(
+      issue(
+        "package_change_unknown_path_requires_full_refresh",
+        "Unknown package watcher path requires a full package refresh.",
+        normalized
+      )
+    );
   }
 
   return {
@@ -241,7 +285,10 @@ function affectedTasksForPromptPaths(graph: CompiledTaskGraph, paths: string[]):
   return [...affected];
 }
 
-function dedupedPromptSurfaceRefsForPromptPaths(graph: CompiledTaskGraph, paths: string[]): string[] {
+function dedupedPromptSurfaceRefsForPromptPaths(
+  graph: CompiledTaskGraph,
+  paths: string[]
+): string[] {
   const refs = new Set<string>();
   for (const path of paths) {
     for (const taskId of graph.taskNodesInManifestOrder) {
@@ -279,7 +326,10 @@ function graphPromptPaths(graph: CompiledTaskGraph): Set<string> {
   return paths;
 }
 
-function incrementalPromptImpact(graph: CompiledTaskGraph, changedPromptPaths: string[]): PackageChangeImpact {
+function incrementalPromptImpact(
+  graph: CompiledTaskGraph,
+  changedPromptPaths: string[]
+): PackageChangeImpact {
   return {
     ok: graph.diagnostics.errors.length === 0,
     affectedTasks: affectedTasksForPromptPaths(graph, changedPromptPaths),
@@ -291,8 +341,12 @@ function incrementalPromptImpact(graph: CompiledTaskGraph, changedPromptPaths: s
 
 function changedPackagePaths(previous: PackageFileSnapshot, next: PackageFileSnapshot): string[] {
   const paths = new Set([...Object.keys(previous.promptFiles), ...Object.keys(next.promptFiles)]);
-  const changedPaths = [...paths].filter((path) => changed(previous.promptFiles[path], next.promptFiles[path]));
-  return changed(previous.manifestFile, next.manifestFile) ? ["manifest.json", ...changedPaths] : changedPaths;
+  const changedPaths = [...paths].filter((path) =>
+    changed(previous.promptFiles[path], next.promptFiles[path])
+  );
+  return changed(previous.manifestFile, next.manifestFile)
+    ? ["manifest.json", ...changedPaths]
+    : changedPaths;
 }
 
 export async function createPackageFileSnapshotFromLoadedPackage(input: {
@@ -318,9 +372,11 @@ export async function createPackageFileSnapshotFromPackageRoot(input: {
   promptFingerprintMode?: PromptFingerprintMode;
 }): Promise<PackageFileSnapshot> {
   const promptFingerprintMode = input.promptFingerprintMode ?? "content";
-  const graph = input.graph ?? await compilePackageGraph(input.manifest, input.packageDir, {
-    validatePromptContents: promptFingerprintMode === "content"
-  });
+  const graph =
+    input.graph ??
+    (await compilePackageGraph(input.manifest, input.packageDir, {
+      validatePromptContents: promptFingerprintMode === "content"
+    }));
   return {
     manifest: input.manifest,
     graph,
@@ -329,12 +385,20 @@ export async function createPackageFileSnapshotFromPackageRoot(input: {
   };
 }
 
-export async function createPackageFileMetadataSnapshot(projectRoot: PackageWorkspaceRef): Promise<PackageFileSnapshot> {
+export async function createPackageFileMetadataSnapshot(
+  projectRoot: PackageWorkspaceRef
+): Promise<PackageFileSnapshot> {
   const { workspace, manifest } = await loadPackage(projectRoot);
-  return createPackageFileSnapshotFromLoadedPackage({ workspace, manifest, promptFingerprintMode: "stat" });
+  return createPackageFileSnapshotFromLoadedPackage({
+    workspace,
+    manifest,
+    promptFingerprintMode: "stat"
+  });
 }
 
-export async function createPackageFileSnapshot(projectRoot: PackageWorkspaceRef): Promise<PackageFileSnapshot> {
+export async function createPackageFileSnapshot(
+  projectRoot: PackageWorkspaceRef
+): Promise<PackageFileSnapshot> {
   const { workspace, manifest } = await loadPackage(projectRoot);
   return createPackageFileSnapshotFromLoadedPackage({ workspace, manifest });
 }
@@ -360,8 +424,13 @@ export async function detectPackageFileChanges(
         graph: snapshot.graph
       });
     } else {
-      const promptPaths = new Set([...Object.keys(previous.promptFiles), ...Object.keys(snapshot.promptFiles)]);
-      const changedPrompts = [...promptPaths].filter((path) => changed(previous.promptFiles[path], snapshot.promptFiles[path]));
+      const promptPaths = new Set([
+        ...Object.keys(previous.promptFiles),
+        ...Object.keys(snapshot.promptFiles)
+      ]);
+      const changedPrompts = [...promptPaths].filter((path) =>
+        changed(previous.promptFiles[path], snapshot.promptFiles[path])
+      );
       if (changedPrompts.length > 0) {
         impact = {
           ok: snapshot.graph.diagnostics.errors.length === 0,
@@ -401,13 +470,22 @@ export async function refreshChangedPackagePrompts(
     return {
       ...detected,
       refreshed: [],
-      refreshStats: promptRefreshStats({ requested: 0, refreshed: 0, concurrency: null, changedPathCount: 1, mode: "full", startedAt }),
+      refreshStats: promptRefreshStats({
+        requested: 0,
+        refreshed: 0,
+        concurrency: null,
+        changedPathCount: 1,
+        mode: "full",
+        startedAt
+      }),
       changedPackagePaths: ["manifest.json"],
       indexPackagePaths: ["manifest.json"],
       incremental: false
     };
   }
-  const result = detected.impact.fullRefresh ? await refreshPrompts({ projectRoot }) : { prompts: [] };
+  const result = detected.impact.fullRefresh
+    ? await refreshPrompts({ projectRoot })
+    : { prompts: [] };
   const snapshot = await createPackageFileSnapshot(projectRoot);
   const indexPackagePaths = changedPackagePaths(previous, snapshot);
   const refreshedCount = result.prompts.length;
@@ -464,17 +542,29 @@ export async function refreshChangedPackagePromptsForPaths(
   const startedAt = performance.now();
   const normalized = normalizePackageChangedPaths(changedPaths);
   if (!normalized.incremental) {
-    return refreshFullWithDiagnostics(projectRoot, previous, normalized.diagnostics, normalized.changedPackagePaths, startedAt);
+    return refreshFullWithDiagnostics(
+      projectRoot,
+      previous,
+      normalized.diagnostics,
+      normalized.changedPackagePaths,
+      startedAt
+    );
   }
 
   const knownPromptPaths = graphPromptPaths(previous.graph);
-  const unknownPromptPaths = normalized.changedPackagePaths.filter((path) => !knownPromptPaths.has(path));
+  const unknownPromptPaths = normalized.changedPackagePaths.filter(
+    (path) => !knownPromptPaths.has(path)
+  );
   if (unknownPromptPaths.length > 0) {
     return refreshFullWithDiagnostics(
       projectRoot,
       previous,
       unknownPromptPaths.map((path) =>
-        issue("package_change_prompt_not_in_graph", `Prompt '${path}' is not referenced by the current package graph; falling back to a full refresh.`, path)
+        issue(
+          "package_change_prompt_not_in_graph",
+          `Prompt '${path}' is not referenced by the current package graph; falling back to a full refresh.`,
+          path
+        )
       ),
       normalized.changedPackagePaths,
       startedAt
@@ -491,7 +581,13 @@ export async function refreshChangedPackagePromptsForPaths(
         return refreshFullWithDiagnostics(
           projectRoot,
           previous,
-          [issue("package_change_prompt_added_requires_full_refresh", `Prompt '${packagePath}' was added; falling back to a full refresh.`, packagePath)],
+          [
+            issue(
+              "package_change_prompt_added_requires_full_refresh",
+              `Prompt '${packagePath}' was added; falling back to a full refresh.`,
+              packagePath
+            )
+          ],
           normalized.changedPackagePaths,
           startedAt
         );
@@ -505,9 +601,16 @@ export async function refreshChangedPackagePromptsForPaths(
     }
 
     const impact = incrementalPromptImpact(previous.graph, changedPromptPaths);
-    const refsToRefresh = dedupedPromptSurfaceRefsForPromptPaths(previous.graph, changedPromptPaths);
-    const refreshConcurrency = normalizeConcurrency(options.refreshConcurrency ?? DEFAULT_PROMPT_REFRESH_CONCURRENCY);
-    const refreshed = await mapWithConcurrency(refsToRefresh, refreshConcurrency, (ref) => refreshPrompt({ projectRoot, ref }));
+    const refsToRefresh = dedupedPromptSurfaceRefsForPromptPaths(
+      previous.graph,
+      changedPromptPaths
+    );
+    const refreshConcurrency = normalizeConcurrency(
+      options.refreshConcurrency ?? DEFAULT_PROMPT_REFRESH_CONCURRENCY
+    );
+    const refreshed = await mapWithConcurrency(refsToRefresh, refreshConcurrency, (ref) =>
+      refreshPrompt({ projectRoot, ref })
+    );
     return {
       snapshot: impact.ok
         ? {

@@ -16,7 +16,9 @@ function searchIndex(documents: DesktopSearchDocument[]): DesktopSearchIndex {
   };
 }
 
-function searchDocument(overrides: Partial<DesktopSearchDocumentInput> & { ref: string }): DesktopSearchDocument {
+function searchDocument(
+  overrides: Partial<DesktopSearchDocumentInput> & { ref: string }
+): DesktopSearchDocument {
   return createDesktopSearchDocument({
     kind: "task",
     canvasId: "default",
@@ -28,63 +30,112 @@ function searchDocument(overrides: Partial<DesktopSearchDocumentInput> & { ref: 
 }
 
 function matchingDocuments(count: number): DesktopSearchDocument[] {
-  return Array.from({ length: count }, (_, index) => searchDocument({
-    ref: `T-${String(index).padStart(3, "0")}`,
-    title: `Limit match ${index}`,
-    body: "limit needle"
-  }));
+  return Array.from({ length: count }, (_, index) =>
+    searchDocument({
+      ref: `T-${String(index).padStart(3, "0")}`,
+      title: `Limit match ${index}`,
+      body: "limit needle"
+    })
+  );
 }
 
 describe("desktop search index model", () => {
   it("ranks exact title matches ahead of title includes and body-only matches", () => {
-    const results = searchDesktopSearchIndex(searchIndex([
-      searchDocument({ ref: "body", title: "Body only", body: "rank needle" }),
-      searchDocument({ ref: "title-includes", title: "Implement rank needle", body: "" }),
-      searchDocument({ ref: "title-exact", title: "rank needle", body: "" })
-    ]), "rank needle");
+    const results = searchDesktopSearchIndex(
+      searchIndex([
+        searchDocument({ ref: "body", title: "Body only", body: "rank needle" }),
+        searchDocument({ ref: "title-includes", title: "Implement rank needle", body: "" }),
+        searchDocument({ ref: "title-exact", title: "rank needle", body: "" })
+      ]),
+      "rank needle"
+    );
 
     expect(results.map((result) => result.ref)).toEqual(["title-exact", "title-includes", "body"]);
   });
 
   it("ranks title includes ahead of body includes", () => {
-    const results = searchDesktopSearchIndex(searchIndex([
-      searchDocument({ ref: "body-first", title: "Body first", body: "title priority needle" }),
-      searchDocument({ ref: "title-second", title: "Title priority needle", body: "" })
-    ]), "priority needle");
+    const results = searchDesktopSearchIndex(
+      searchIndex([
+        searchDocument({ ref: "body-first", title: "Body first", body: "title priority needle" }),
+        searchDocument({ ref: "title-second", title: "Title priority needle", body: "" })
+      ]),
+      "priority needle"
+    );
 
     expect(results.map((result) => result.ref)).toEqual(["title-second", "body-first"]);
   });
 
   it("ranks prompt task block and feedback matches ahead of historical result body matches", () => {
     const documents: DesktopSearchDocument[] = [
-      searchDocument({ kind: "run_record", ref: "run", title: "Run record", body: "kind priority needle" }),
-      searchDocument({ kind: "review_attempt", ref: "review", title: "Review attempt", body: "kind priority needle" }),
-      searchDocument({ kind: "feedback", ref: "feedback", title: "Feedback", body: "kind priority needle" }),
+      searchDocument({
+        kind: "run_record",
+        ref: "run",
+        title: "Run record",
+        body: "kind priority needle"
+      }),
+      searchDocument({
+        kind: "review_attempt",
+        ref: "review",
+        title: "Review attempt",
+        body: "kind priority needle"
+      }),
+      searchDocument({
+        kind: "feedback",
+        ref: "feedback",
+        title: "Feedback",
+        body: "kind priority needle"
+      }),
       searchDocument({ kind: "block", ref: "block", title: "Block", body: "kind priority needle" }),
       searchDocument({ kind: "task", ref: "task", title: "Task", body: "kind priority needle" }),
-      searchDocument({ kind: "prompt", ref: "prompt", title: "Prompt", body: "kind priority needle" })
+      searchDocument({
+        kind: "prompt",
+        ref: "prompt",
+        title: "Prompt",
+        body: "kind priority needle"
+      })
     ];
 
     const results = searchDesktopSearchIndex(searchIndex(documents), "priority needle");
 
-    expect(results.map((result) => result.ref)).toEqual(["feedback", "block", "task", "prompt", "run", "review"]);
+    expect(results.map((result) => result.ref)).toEqual([
+      "feedback",
+      "block",
+      "task",
+      "prompt",
+      "run",
+      "review"
+    ]);
   });
 
   it("uses original document order as the final stable tie breaker", () => {
-    const results = searchDesktopSearchIndex(searchIndex([
-      searchDocument({ ref: "first", title: "First", body: "stable order needle" }),
-      searchDocument({ ref: "second", title: "Second", body: "stable order needle" }),
-      searchDocument({ ref: "third", title: "Third", body: "stable order needle" })
-    ]), "order needle");
+    const results = searchDesktopSearchIndex(
+      searchIndex([
+        searchDocument({ ref: "first", title: "First", body: "stable order needle" }),
+        searchDocument({ ref: "second", title: "Second", body: "stable order needle" }),
+        searchDocument({ ref: "third", title: "Third", body: "stable order needle" })
+      ]),
+      "order needle"
+    );
 
     expect(results.map((result) => result.ref)).toEqual(["first", "second", "third"]);
   });
 
   it("ranks by preview length semantics without raw whitespace or over-limit text drift", () => {
-    const results = searchDesktopSearchIndex(searchIndex([
-      searchDocument({ ref: "long-preview", title: "Long preview", body: `needle ${"x".repeat(300)}` }),
-      searchDocument({ ref: "trimmed-preview", title: "Trimmed preview", body: `needle${" ".repeat(500)}` })
-    ]), "needle");
+    const results = searchDesktopSearchIndex(
+      searchIndex([
+        searchDocument({
+          ref: "long-preview",
+          title: "Long preview",
+          body: `needle ${"x".repeat(300)}`
+        }),
+        searchDocument({
+          ref: "trimmed-preview",
+          title: "Trimmed preview",
+          body: `needle${" ".repeat(500)}`
+        })
+      ]),
+      "needle"
+    );
 
     expect(results.map((result) => result.ref)).toEqual(["trimmed-preview", "long-preview"]);
   });
@@ -97,24 +148,42 @@ describe("desktop search index model", () => {
     expect(searchDesktopSearchIndex(index, "limit needle", { limit: 0 })).toHaveLength(1);
     expect(searchDesktopSearchIndex(index, "limit needle", { limit: -5 })).toHaveLength(1);
     expect(searchDesktopSearchIndex(index, "limit needle", { limit: 2.9 })).toHaveLength(2);
-    expect(searchDesktopSearchIndex(index, "limit needle", { limit: Number.POSITIVE_INFINITY })).toHaveLength(100);
-    expect(searchDesktopSearchIndex(index, "limit needle", { limit: Number.NaN })).toHaveLength(100);
+    expect(
+      searchDesktopSearchIndex(index, "limit needle", { limit: Number.POSITIVE_INFINITY })
+    ).toHaveLength(100);
+    expect(searchDesktopSearchIndex(index, "limit needle", { limit: Number.NaN })).toHaveLength(
+      100
+    );
   });
 
   it("returns only the requested limit after ranking matches", () => {
-    const results = searchDesktopSearchIndex(searchIndex([
-      searchDocument({ ref: "body", title: "Body only", body: "rank limit needle" }),
-      searchDocument({ ref: "title-includes", title: "Implement rank limit needle", body: "" }),
-      searchDocument({ ref: "title-exact", title: "rank limit needle", body: "" })
-    ]), "rank limit needle", { limit: 2 });
+    const results = searchDesktopSearchIndex(
+      searchIndex([
+        searchDocument({ ref: "body", title: "Body only", body: "rank limit needle" }),
+        searchDocument({ ref: "title-includes", title: "Implement rank limit needle", body: "" }),
+        searchDocument({ ref: "title-exact", title: "rank limit needle", body: "" })
+      ]),
+      "rank limit needle",
+      { limit: 2 }
+    );
 
     expect(results.map((result) => result.ref)).toEqual(["title-exact", "title-includes"]);
   });
 
   it("keeps kind and canvas filters active when limit is applied", () => {
     const documents: DesktopSearchDocument[] = [
-      searchDocument({ kind: "task", ref: "default-task", canvasId: "default", body: "filter needle" }),
-      searchDocument({ kind: "block", ref: "default-block", canvasId: "default", body: "filter needle" }),
+      searchDocument({
+        kind: "task",
+        ref: "default-task",
+        canvasId: "default",
+        body: "filter needle"
+      }),
+      searchDocument({
+        kind: "block",
+        ref: "default-block",
+        canvasId: "default",
+        body: "filter needle"
+      }),
       searchDocument({ kind: "task", ref: "other-task", canvasId: "other", body: "filter needle" })
     ];
     const kinds: DesktopSearchResultKind[] = ["task"];
@@ -129,35 +198,48 @@ describe("desktop search index model", () => {
   });
 
   it("matches prompt documents by body and ignores prompt titles", () => {
-    expect(searchDesktopSearchIndex(searchIndex([
-      searchDocument({
-        kind: "prompt",
-        ref: "prompt-title-only",
-        title: "Prompt title needle",
-        body: "Prompt body without the query"
-      })
-    ]), "title needle", { kinds: ["prompt"] })).toEqual([]);
+    expect(
+      searchDesktopSearchIndex(
+        searchIndex([
+          searchDocument({
+            kind: "prompt",
+            ref: "prompt-title-only",
+            title: "Prompt title needle",
+            body: "Prompt body without the query"
+          })
+        ]),
+        "title needle",
+        { kinds: ["prompt"] }
+      )
+    ).toEqual([]);
 
-    const results = searchDesktopSearchIndex(searchIndex([
-      searchDocument({
-        kind: "prompt",
-        ref: "prompt-body",
-        title: "Prompt title without the query",
-        body: "Prompt body needle"
-      })
-    ]), "body needle", { kinds: ["prompt"] });
+    const results = searchDesktopSearchIndex(
+      searchIndex([
+        searchDocument({
+          kind: "prompt",
+          ref: "prompt-body",
+          title: "Prompt title without the query",
+          body: "Prompt body needle"
+        })
+      ]),
+      "body needle",
+      { kinds: ["prompt"] }
+    );
 
     expect(results.map((result) => result.ref)).toEqual(["prompt-body"]);
   });
 
   it("returns title match metadata before body metadata for non-prompt documents", () => {
-    const results = searchDesktopSearchIndex(searchIndex([
-      searchDocument({
-        ref: "title-and-body",
-        title: "Implement searchable needle",
-        body: "Body also contains needle"
-      })
-    ]), "needle");
+    const results = searchDesktopSearchIndex(
+      searchIndex([
+        searchDocument({
+          ref: "title-and-body",
+          title: "Implement searchable needle",
+          body: "Body also contains needle"
+        })
+      ]),
+      "needle"
+    );
 
     expect(results[0]).toMatchObject({
       ref: "title-and-body",
@@ -172,13 +254,16 @@ describe("desktop search index model", () => {
   });
 
   it("returns body match metadata when title does not match", () => {
-    const results = searchDesktopSearchIndex(searchIndex([
-      searchDocument({
-        ref: "body-only",
-        title: "Body only",
-        body: "Body source before needle and after"
-      })
-    ]), "needle");
+    const results = searchDesktopSearchIndex(
+      searchIndex([
+        searchDocument({
+          ref: "body-only",
+          title: "Body only",
+          body: "Body source before needle and after"
+        })
+      ]),
+      "needle"
+    );
 
     expect(results[0]).toMatchObject({
       ref: "body-only",
@@ -193,14 +278,18 @@ describe("desktop search index model", () => {
   });
 
   it("returns prompt body match metadata while ignoring prompt title matches", () => {
-    const results = searchDesktopSearchIndex(searchIndex([
-      searchDocument({
-        kind: "prompt",
-        ref: "prompt-body-match",
-        title: "Prompt title needle",
-        body: "Prompt body contains needle"
-      })
-    ]), "needle", { kinds: ["prompt"] });
+    const results = searchDesktopSearchIndex(
+      searchIndex([
+        searchDocument({
+          kind: "prompt",
+          ref: "prompt-body-match",
+          title: "Prompt title needle",
+          body: "Prompt body contains needle"
+        })
+      ]),
+      "needle",
+      { kinds: ["prompt"] }
+    );
 
     expect(results[0]).toMatchObject({
       ref: "prompt-body-match",
@@ -215,14 +304,18 @@ describe("desktop search index model", () => {
   });
 
   it("returns historical result body match metadata", () => {
-    const results = searchDesktopSearchIndex(searchIndex([
-      searchDocument({
-        kind: "run_record",
-        ref: "run-record",
-        title: "T-001/blocks/B-001/runs/RUN-001/report.md",
-        body: "Run output contains needle"
-      })
-    ]), "needle", { kinds: ["run_record"] });
+    const results = searchDesktopSearchIndex(
+      searchIndex([
+        searchDocument({
+          kind: "run_record",
+          ref: "run-record",
+          title: "T-001/blocks/B-001/runs/RUN-001/report.md",
+          body: "Run output contains needle"
+        })
+      ]),
+      "needle",
+      { kinds: ["run_record"] }
+    );
 
     expect(results[0]).toMatchObject({
       ref: "run-record",
@@ -237,13 +330,16 @@ describe("desktop search index model", () => {
   });
 
   it("returns a bounded match excerpt that contains the query", () => {
-    const results = searchDesktopSearchIndex(searchIndex([
-      searchDocument({
-        ref: "long-body",
-        title: "Long body",
-        body: `${"before ".repeat(30)}needle ${"after ".repeat(30)}`
-      })
-    ]), "needle");
+    const results = searchDesktopSearchIndex(
+      searchIndex([
+        searchDocument({
+          ref: "long-body",
+          title: "Long body",
+          body: `${"before ".repeat(30)}needle ${"after ".repeat(30)}`
+        })
+      ]),
+      "needle"
+    );
 
     expect(results[0].match?.excerpt).toContain("needle");
     expect(results[0].match?.excerpt.length).toBeLessThanOrEqual(120);
@@ -251,36 +347,53 @@ describe("desktop search index model", () => {
 
   it("keeps match excerpt offsets aligned with the original source", () => {
     const body = `${"alpha\n".repeat(20)}wide   needle\tmatch ${"omega ".repeat(20)}`;
-    const results = searchDesktopSearchIndex(searchIndex([
-      searchDocument({
-        ref: "spaced-body",
-        title: "Spaced body",
-        body
-      })
-    ]), "needle");
+    const results = searchDesktopSearchIndex(
+      searchIndex([
+        searchDocument({
+          ref: "spaced-body",
+          title: "Spaced body",
+          body
+        })
+      ]),
+      "needle"
+    );
     const match = results[0].match;
 
     expect(match).toBeDefined();
-    expect(match?.excerpt).toBe(body.slice(match.excerptStart, match.excerptStart + match.excerpt.length));
-    expect(match?.excerpt.slice(match.start - match.excerptStart, match.start - match.excerptStart + match.length)).toBe("needle");
+    expect(match?.excerpt).toBe(
+      body.slice(match.excerptStart, match.excerptStart + match.excerpt.length)
+    );
+    expect(
+      match?.excerpt.slice(
+        match.start - match.excerptStart,
+        match.start - match.excerptStart + match.length
+      )
+    ).toBe("needle");
   });
 
   it("uses body excerpts when the body matches and title excerpts only for title-only matches", () => {
-    const results = searchDesktopSearchIndex(searchIndex([
-      searchDocument({
-        ref: "body-and-title",
-        title: "Title needle",
-        body: "Body needle source"
-      }),
-      searchDocument({
-        ref: "title-only",
-        title: "Title-only needle source",
-        body: "Body without the query"
-      })
-    ]), "needle");
+    const results = searchDesktopSearchIndex(
+      searchIndex([
+        searchDocument({
+          ref: "body-and-title",
+          title: "Title needle",
+          body: "Body needle source"
+        }),
+        searchDocument({
+          ref: "title-only",
+          title: "Title-only needle source",
+          body: "Body without the query"
+        })
+      ]),
+      "needle"
+    );
 
-    expect(results.find((result) => result.ref === "body-and-title")?.excerpt).toBe("Body needle source");
-    expect(results.find((result) => result.ref === "title-only")?.excerpt).toBe("Title-only needle source");
+    expect(results.find((result) => result.ref === "body-and-title")?.excerpt).toBe(
+      "Body needle source"
+    );
+    expect(results.find((result) => result.ref === "title-only")?.excerpt).toBe(
+      "Title-only needle source"
+    );
   });
 
   it("keeps body-only prompt and result matches out of summary-only indexes until body hydration is merged", () => {
@@ -301,26 +414,33 @@ describe("desktop search index model", () => {
         body: ""
       })
     ]);
-    const hydrated = mergeSearchIndexBodies(summary, searchIndex([
-      searchDocument({
-        kind: "prompt",
-        tier: "body",
-        ref: "T-001",
-        targetRef: "T-001",
-        title: "Prompt title hydration needle",
-        body: "Prompt hydrated body needle"
-      }),
-      searchDocument({
-        kind: "run_record",
-        tier: "body",
-        ref: "T-001/blocks/B-001/runs/RUN-001/report.md",
-        title: "T-001/blocks/B-001/runs/RUN-001/report.md",
-        body: "Result hydrated body needle"
-      })
-    ]));
+    const hydrated = mergeSearchIndexBodies(
+      summary,
+      searchIndex([
+        searchDocument({
+          kind: "prompt",
+          tier: "body",
+          ref: "T-001",
+          targetRef: "T-001",
+          title: "Prompt title hydration needle",
+          body: "Prompt hydrated body needle"
+        }),
+        searchDocument({
+          kind: "run_record",
+          tier: "body",
+          ref: "T-001/blocks/B-001/runs/RUN-001/report.md",
+          title: "T-001/blocks/B-001/runs/RUN-001/report.md",
+          body: "Result hydrated body needle"
+        })
+      ])
+    );
 
-    expect(searchDesktopSearchIndex(summary, "hydrated body needle", { kinds: ["prompt", "run_record"] })).toEqual([]);
-    const results = searchDesktopSearchIndex(hydrated, "hydrated body needle", { kinds: ["prompt", "run_record"] });
+    expect(
+      searchDesktopSearchIndex(summary, "hydrated body needle", { kinds: ["prompt", "run_record"] })
+    ).toEqual([]);
+    const results = searchDesktopSearchIndex(hydrated, "hydrated body needle", {
+      kinds: ["prompt", "run_record"]
+    });
 
     expect(results.map((result) => result.kind)).toEqual(["prompt", "run_record"]);
     expect(results[0]).toMatchObject({

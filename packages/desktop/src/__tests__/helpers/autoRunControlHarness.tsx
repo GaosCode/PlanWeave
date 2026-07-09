@@ -1,6 +1,13 @@
 import { cleanup, renderHook } from "@testing-library/react";
 import { useState } from "react";
-import type { AutoRunExplanation, DesktopAutoRunEvent, DesktopAutoRunState, DesktopBlockDetail, DesktopBridgeApi, DesktopProjectSummary } from "@planweave-ai/runtime";
+import type {
+  AutoRunExplanation,
+  DesktopAutoRunEvent,
+  DesktopAutoRunState,
+  DesktopBlockDetail,
+  DesktopBridgeApi,
+  DesktopProjectSummary
+} from "@planweave-ai/runtime";
 import { vi } from "vitest";
 import { createDesktopBridgeMock } from "../desktopBridgeMock";
 import { createTranslator } from "../../renderer/i18n";
@@ -38,7 +45,9 @@ export const selectedBlock: DesktopBlockDetail = {
   reviewGate: null
 };
 
-export function explanationFor(state: Omit<DesktopAutoRunState, "explanation">): AutoRunExplanation {
+export function explanationFor(
+  state: Omit<DesktopAutoRunState, "explanation">
+): AutoRunExplanation {
   return {
     phase: state.phase,
     currentRef: state.currentRef,
@@ -83,7 +92,10 @@ export function autoRunState(patch: Partial<DesktopAutoRunState> = {}): DesktopA
   return { ...state, explanation: patch.explanation ?? explanationFor(state) };
 }
 
-export function autoRunEvent(state: DesktopAutoRunState, patch: Partial<DesktopAutoRunEvent> = {}): DesktopAutoRunEvent {
+export function autoRunEvent(
+  state: DesktopAutoRunState,
+  patch: Partial<DesktopAutoRunEvent> = {}
+): DesktopAutoRunEvent {
   return {
     projectRoot: state.projectRoot,
     canvasId: state.canvasId,
@@ -111,7 +123,9 @@ export function stubAutoRunControlBridge(bridge: DesktopBridgeApi): DesktopBridg
   return bridge;
 }
 
-export function createAndStubAutoRunControlBridge(overrides: Partial<DesktopBridgeApi> = {}): DesktopBridgeApi {
+export function createAndStubAutoRunControlBridge(
+  overrides: Partial<DesktopBridgeApi> = {}
+): DesktopBridgeApi {
   return stubAutoRunControlBridge(createDesktopBridgeMock(overrides));
 }
 
@@ -135,7 +149,9 @@ export async function loadAutoRunControl() {
   return import("../../renderer/hooks/useAutoRunControl");
 }
 
-export function defaultAutoRunControlArgs(patch: Partial<AutoRunControlArgs> = {}): AutoRunControlArgs {
+export function defaultAutoRunControlArgs(
+  patch: Partial<AutoRunControlArgs> = {}
+): AutoRunControlArgs {
   return {
     autoRunState: null,
     handleOpenRunRecord: vi.fn(),
@@ -156,11 +172,16 @@ export async function renderAutoRunControlHook(args: Partial<AutoRunControlArgs>
   return renderHook(() => useAutoRunControl(defaultAutoRunControlArgs(args)));
 }
 
-export async function renderStatefulAutoRunControlHook(initialState: DesktopAutoRunState | null, args: Partial<AutoRunControlArgs> = {}) {
+export async function renderStatefulAutoRunControlHook(
+  initialState: DesktopAutoRunState | null,
+  args: Partial<AutoRunControlArgs> = {}
+) {
   const { useAutoRunControl } = await loadAutoRunControl();
   return renderHook(() => {
     const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(initialState);
-    return useAutoRunControl(defaultAutoRunControlArgs({ ...args, autoRunState: autoRunStateValue, setAutoRunState }));
+    return useAutoRunControl(
+      defaultAutoRunControlArgs({ ...args, autoRunState: autoRunStateValue, setAutoRunState })
+    );
   });
 }
 

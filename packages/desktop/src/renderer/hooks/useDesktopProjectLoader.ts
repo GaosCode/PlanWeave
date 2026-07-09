@@ -1,4 +1,10 @@
-import { useCallback, useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction
+} from "react";
 import type {
   DesktopGraphViewModel,
   DesktopProjectSnapshot,
@@ -15,10 +21,16 @@ import type {
 } from "./useDesktopProjectSnapshot";
 
 type UseDesktopProjectLoaderArgs = {
-  applyDesktopProjectSnapshot: (snapshot: DesktopProjectSnapshot, options?: ApplyDesktopProjectSnapshotOptions) => string[];
+  applyDesktopProjectSnapshot: (
+    snapshot: DesktopProjectSnapshot,
+    options?: ApplyDesktopProjectSnapshotOptions
+  ) => string[];
   clearProjectState: () => void;
   currentCanvasRef: MutableRefObject<CurrentDesktopCanvasRef>;
-  refreshDesktopGraphDiagnostics: (canvasRef: { projectRoot: string; canvasId?: string | null }) => Promise<boolean>;
+  refreshDesktopGraphDiagnostics: (canvasRef: {
+    projectRoot: string;
+    canvasId?: string | null;
+  }) => Promise<boolean>;
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
   setError: (message: string | null) => void;
@@ -36,11 +48,17 @@ type UseDesktopProjectLoaderArgs = {
   updateSettings: (update: DesktopSettingsUpdate) => void;
 };
 
-export function resolveProjectCanvasId(project: DesktopProjectSummary, requestedCanvasId?: string | null): string | null {
+export function resolveProjectCanvasId(
+  project: DesktopProjectSummary,
+  requestedCanvasId?: string | null
+): string | null {
   if (requestedCanvasId !== undefined) {
     return requestedCanvasId;
   }
-  if (project.activeCanvasId && project.taskCanvases.some((canvas) => canvas.canvasId === project.activeCanvasId)) {
+  if (
+    project.activeCanvasId &&
+    project.taskCanvases.some((canvas) => canvas.canvasId === project.activeCanvasId)
+  ) {
     return project.activeCanvasId;
   }
   return project.taskCanvases[0]?.canvasId ?? null;
@@ -81,7 +99,9 @@ export function useDesktopProjectLoader({
       const canvasId = resolveProjectCanvasId(project, requestedCanvasId);
       const currentCanvas = currentCanvasRef.current;
       const canKeepCurrentCanvas =
-        currentCanvas.hasGraph && currentCanvas.projectRoot === project.rootPath && currentCanvas.canvasId === canvasId;
+        currentCanvas.hasGraph &&
+        currentCanvas.projectRoot === project.rootPath &&
+        currentCanvas.canvasId === canvasId;
       currentCanvasRef.current = {
         canvasId,
         hasGraph: canKeepCurrentCanvas ? currentCanvas.hasGraph : false,
@@ -97,7 +117,10 @@ export function useDesktopProjectLoader({
       const canvasRef = desktopCanvasReference(project, canvasId);
       const isCurrentCanvasRequest = () => {
         const currentCanvas = currentCanvasRef.current;
-        return currentCanvas.projectRoot === canvasRef.projectRoot && currentCanvas.canvasId === canvasRef.canvasId;
+        return (
+          currentCanvas.projectRoot === canvasRef.projectRoot &&
+          currentCanvas.canvasId === canvasRef.canvasId
+        );
       };
       const errors: string[] = [];
       try {
@@ -105,7 +128,9 @@ export function useDesktopProjectLoader({
         if (!isCurrentCanvasRequest()) {
           return;
         }
-        errors.push(...applyDesktopProjectSnapshot(snapshot, { includeLayout: true, includePrompt: true }));
+        errors.push(
+          ...applyDesktopProjectSnapshot(snapshot, { includeLayout: true, includePrompt: true })
+        );
         if (snapshot.graph) {
           try {
             const diagnosticsApplied = await refreshDesktopGraphDiagnostics(canvasRef);
@@ -203,29 +228,43 @@ export function useDesktopProjectLoader({
     await refreshDesktopGraphDiagnostics(canvasRef);
   }, [refreshDesktopGraphDiagnostics, selectedCanvasId, selectedProject, setGraph]);
 
-  const refreshProjectDerivedState = useCallback(async (options: ApplyDesktopProjectSnapshotOptions = {}) => {
-    if (!bridge || !selectedProject) {
-      return;
-    }
-    const canvasRef = desktopCanvasReference(selectedProject, selectedCanvasId);
-    const snapshot = await bridge.getDesktopProjectSnapshot(canvasRef);
-    const currentCanvas = currentCanvasRef.current;
-    if (currentCanvas.projectRoot !== canvasRef.projectRoot || currentCanvas.canvasId !== canvasRef.canvasId) {
-      return;
-    }
-    const errors = applyDesktopProjectSnapshot(snapshot, options);
-    if (snapshot.graph) {
-      const diagnosticsApplied = await refreshDesktopGraphDiagnostics(canvasRef);
-      if (!diagnosticsApplied) {
+  const refreshProjectDerivedState = useCallback(
+    async (options: ApplyDesktopProjectSnapshotOptions = {}) => {
+      if (!bridge || !selectedProject) {
         return;
       }
-    } else {
-      setGraphDiagnostics([]);
-    }
-    if (errors.length > 0) {
-      setError(errors.join("\n"));
-    }
-  }, [applyDesktopProjectSnapshot, currentCanvasRef, refreshDesktopGraphDiagnostics, selectedCanvasId, selectedProject, setError, setGraphDiagnostics]);
+      const canvasRef = desktopCanvasReference(selectedProject, selectedCanvasId);
+      const snapshot = await bridge.getDesktopProjectSnapshot(canvasRef);
+      const currentCanvas = currentCanvasRef.current;
+      if (
+        currentCanvas.projectRoot !== canvasRef.projectRoot ||
+        currentCanvas.canvasId !== canvasRef.canvasId
+      ) {
+        return;
+      }
+      const errors = applyDesktopProjectSnapshot(snapshot, options);
+      if (snapshot.graph) {
+        const diagnosticsApplied = await refreshDesktopGraphDiagnostics(canvasRef);
+        if (!diagnosticsApplied) {
+          return;
+        }
+      } else {
+        setGraphDiagnostics([]);
+      }
+      if (errors.length > 0) {
+        setError(errors.join("\n"));
+      }
+    },
+    [
+      applyDesktopProjectSnapshot,
+      currentCanvasRef,
+      refreshDesktopGraphDiagnostics,
+      selectedCanvasId,
+      selectedProject,
+      setError,
+      setGraphDiagnostics
+    ]
+  );
 
   const refreshGraphAndLayout = useCallback(async () => {
     await refreshProjectDerivedState({ includeLayout: true });
@@ -236,7 +275,9 @@ export function useDesktopProjectLoader({
       if (!bridge || !selectedProject) {
         return;
       }
-      setProjectPromptPolicy(await bridge.updateProjectPromptPolicy(selectedProject.rootPath, patch));
+      setProjectPromptPolicy(
+        await bridge.updateProjectPromptPolicy(selectedProject.rootPath, patch)
+      );
     },
     [selectedProject, setProjectPromptPolicy]
   );
@@ -246,7 +287,9 @@ export function useDesktopProjectLoader({
       if (!bridge || !selectedProject) {
         return;
       }
-      setProjectPromptMarkdown(await bridge.updateProjectPrompt(selectedProject.rootPath, markdown));
+      setProjectPromptMarkdown(
+        await bridge.updateProjectPrompt(selectedProject.rootPath, markdown)
+      );
     },
     [selectedProject, setProjectPromptMarkdown]
   );
@@ -270,63 +313,71 @@ export function useDesktopProjectLoader({
     [selectedProject?.rootPath, setProjects, setSelectedCanvasId, setSelectedProject]
   );
 
-  const refreshProjects = useCallback(async (options: { selectProjectId?: string } = {}) => {
-    if (!bridge) {
-      return;
-    }
-    setProjectRefreshing(true);
-    try {
-      const nextProjects = await bridge.listProjects();
-      setProjects(nextProjects);
-      const requestedProject = options.selectProjectId ? nextProjects.find((item) => item.projectId === options.selectProjectId) ?? null : null;
-      if (requestedProject) {
-        await loadProject(requestedProject);
+  const refreshProjects = useCallback(
+    async (options: { selectProjectId?: string } = {}) => {
+      if (!bridge) {
         return;
       }
-      const currentProject =
-        nextProjects.find((item) => item.projectId === selectedProject?.projectId) ??
-        nextProjects.find((item) => item.rootPath === selectedProject?.rootPath) ??
-        null;
-      if (currentProject) {
-        setSelectedProject(currentProject);
-        setSelectedCanvasId((currentCanvasId) =>
-          currentCanvasId && currentProject.taskCanvases.some((canvas) => canvas.canvasId === currentCanvasId)
-            ? currentCanvasId
-            : resolveProjectCanvasId(currentProject)
-        );
-        setExpandedProjectId((currentExpandedProjectId) =>
-          currentExpandedProjectId === selectedProject?.projectId ? currentProject.projectId : currentExpandedProjectId
-        );
+      setProjectRefreshing(true);
+      try {
+        const nextProjects = await bridge.listProjects();
+        setProjects(nextProjects);
+        const requestedProject = options.selectProjectId
+          ? (nextProjects.find((item) => item.projectId === options.selectProjectId) ?? null)
+          : null;
+        if (requestedProject) {
+          await loadProject(requestedProject);
+          return;
+        }
+        const currentProject =
+          nextProjects.find((item) => item.projectId === selectedProject?.projectId) ??
+          nextProjects.find((item) => item.rootPath === selectedProject?.rootPath) ??
+          null;
+        if (currentProject) {
+          setSelectedProject(currentProject);
+          setSelectedCanvasId((currentCanvasId) =>
+            currentCanvasId &&
+            currentProject.taskCanvases.some((canvas) => canvas.canvasId === currentCanvasId)
+              ? currentCanvasId
+              : resolveProjectCanvasId(currentProject)
+          );
+          setExpandedProjectId((currentExpandedProjectId) =>
+            currentExpandedProjectId === selectedProject?.projectId
+              ? currentProject.projectId
+              : currentExpandedProjectId
+          );
+          setError(null);
+          return;
+        }
+        const nextProject = nextProjects[0] ?? null;
+        if (nextProject) {
+          await loadProject(nextProject);
+          return;
+        }
+        setSelectedProject(null);
+        setSelectedCanvasId(null);
+        setExpandedProjectId(null);
+        clearProjectState();
         setError(null);
-        return;
+      } catch (caught) {
+        setError(errorMessage(caught));
+      } finally {
+        setProjectRefreshing(false);
       }
-      const nextProject = nextProjects[0] ?? null;
-      if (nextProject) {
-        await loadProject(nextProject);
-        return;
-      }
-      setSelectedProject(null);
-      setSelectedCanvasId(null);
-      setExpandedProjectId(null);
-      clearProjectState();
-      setError(null);
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setProjectRefreshing(false);
-    }
-  }, [
-    clearProjectState,
-    loadProject,
-    selectedProject?.projectId,
-    selectedProject?.rootPath,
-    setError,
-    setExpandedProjectId,
-    setProjectRefreshing,
-    setProjects,
-    setSelectedCanvasId,
-    setSelectedProject
-  ]);
+    },
+    [
+      clearProjectState,
+      loadProject,
+      selectedProject?.projectId,
+      selectedProject?.rootPath,
+      setError,
+      setExpandedProjectId,
+      setProjectRefreshing,
+      setProjects,
+      setSelectedCanvasId,
+      setSelectedProject
+    ]
+  );
 
   const handleOpenProject = useCallback(async () => {
     if (!bridge) {
@@ -339,7 +390,9 @@ export function useDesktopProjectLoader({
         return;
       }
       const project = await bridge.initOrOpenProject(selectedPath);
-      setProjects((items) => (items.some((item) => item.projectId === project.projectId) ? items : [...items, project]));
+      setProjects((items) =>
+        items.some((item) => item.projectId === project.projectId) ? items : [...items, project]
+      );
       await loadProject(project);
     } catch (caught) {
       setError(`${t("openProjectFailedHint")}\n${errorMessage(caught)}`);
@@ -367,7 +420,15 @@ export function useDesktopProjectLoader({
       setExpandedProjectId(null);
       clearProjectState();
     },
-    [clearProjectState, loadProject, selectedProject?.projectId, setExpandedProjectId, setProjects, setSelectedCanvasId, setSelectedProject]
+    [
+      clearProjectState,
+      loadProject,
+      selectedProject?.projectId,
+      setExpandedProjectId,
+      setProjects,
+      setSelectedCanvasId,
+      setSelectedProject
+    ]
   );
 
   return {

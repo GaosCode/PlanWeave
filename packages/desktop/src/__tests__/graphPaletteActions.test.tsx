@@ -3,7 +3,11 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type * as React from "react";
 import type { Edge, Node } from "@xyflow/react";
-import type { DesktopGraphViewModel, DesktopLayout, DesktopProjectSummary } from "@planweave-ai/runtime";
+import type {
+  DesktopGraphViewModel,
+  DesktopLayout,
+  DesktopProjectSummary
+} from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { createTranslator } from "../renderer/i18n";
@@ -208,9 +212,19 @@ describe("useGraphPaletteActions layout snapshots", () => {
     };
 
     await act(async () => {
-      await result.current.handleConnect({ source: "T-BETA", target: "T-ALPHA", sourceHandle: null, targetHandle: null });
+      await result.current.handleConnect({
+        source: "T-BETA",
+        target: "T-ALPHA",
+        sourceHandle: null,
+        targetHandle: null
+      });
       await result.current.handleEdgesDelete([dependencyEdge]);
-      await result.current.handleReconnectEdge(dependencyEdge, { source: "T-ALPHA", target: "T-BETA", sourceHandle: null, targetHandle: null });
+      await result.current.handleReconnectEdge(dependencyEdge, {
+        source: "T-ALPHA",
+        target: "T-BETA",
+        sourceHandle: null,
+        targetHandle: null
+      });
     });
 
     expect(addDependencyEdge).toHaveBeenCalledWith(

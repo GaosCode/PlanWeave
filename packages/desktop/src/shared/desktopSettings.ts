@@ -175,7 +175,10 @@ export const defaultDesktopSettings: DesktopUiSettings = {
   }
 };
 
-export function mergeDesktopSettings(current: DesktopUiSettings, patch: DesktopSettingsPatch): DesktopUiSettings {
+export function mergeDesktopSettings(
+  current: DesktopUiSettings,
+  patch: DesktopSettingsPatch
+): DesktopUiSettings {
   return {
     ...current,
     ...patch,
@@ -255,10 +258,15 @@ function isLanguage(value: unknown): value is DesktopUiSettings["language"] {
 }
 
 function stringArray(value: unknown): string[] | undefined {
-  return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : undefined;
+  return Array.isArray(value) && value.every((item) => typeof item === "string")
+    ? value
+    : undefined;
 }
 
-function booleanField<T extends Record<string, boolean>>(defaults: T, source: unknown): Partial<T> | undefined {
+function booleanField<T extends Record<string, boolean>>(
+  defaults: T,
+  source: unknown
+): Partial<T> | undefined {
   if (!isRecord(source)) {
     return undefined;
   }
@@ -302,7 +310,9 @@ function normalizeSidebarLayout(
   return hasValidField ? next : undefined;
 }
 
-function normalizeFloatingControlPosition(source: unknown): FloatingControlPosition | null | undefined {
+function normalizeFloatingControlPosition(
+  source: unknown
+): FloatingControlPosition | null | undefined {
   if (source === null) {
     return null;
   }
@@ -355,8 +365,14 @@ export function normalizeDesktopSettingsPatch(value: unknown): DesktopSettingsPa
   }
 
   if (isRecord(value.layout)) {
-    const leftSidebar = normalizeSidebarLayout(desktopSidebarWidthBounds.left, value.layout.leftSidebar);
-    const rightSidebar = normalizeSidebarLayout(desktopSidebarWidthBounds.right, value.layout.rightSidebar);
+    const leftSidebar = normalizeSidebarLayout(
+      desktopSidebarWidthBounds.left,
+      value.layout.leftSidebar
+    );
+    const rightSidebar = normalizeSidebarLayout(
+      desktopSidebarWidthBounds.right,
+      value.layout.rightSidebar
+    );
     const autoRunPosition = isRecord(value.layout.autoRunControl)
       ? normalizeFloatingControlPosition(value.layout.autoRunControl.position)
       : undefined;
@@ -383,7 +399,9 @@ export function normalizeDesktopSettingsPatch(value: unknown): DesktopSettingsPa
     const visible = booleanField(defaultDesktopSettings.palette.visible, value.palette.visible);
     const defaultBlockSet =
       Array.isArray(value.palette.defaultBlockSet) &&
-      value.palette.defaultBlockSet.every((item): item is BlockType => item === "implementation" || item === "review")
+      value.palette.defaultBlockSet.every(
+        (item): item is BlockType => item === "implementation" || item === "review"
+      )
         ? value.palette.defaultBlockSet
         : undefined;
     if (visible || defaultBlockSet || typeof value.palette.dragHint === "boolean") {
@@ -403,7 +421,9 @@ export function normalizeDesktopSettingsPatch(value: unknown): DesktopSettingsPa
   if (isRecord(value.agents)) {
     const agents: DesktopSettingsPatch["agents"] = {};
     let hasValidAgent = false;
-    for (const kind of Object.keys(defaultDesktopSettings.agents) as Array<keyof DesktopUiSettings["agents"]>) {
+    for (const kind of Object.keys(defaultDesktopSettings.agents) as Array<
+      keyof DesktopUiSettings["agents"]
+    >) {
       const agent = booleanField(defaultDesktopSettings.agents[kind], value.agents[kind]);
       if (agent) {
         agents[kind] = agent;
@@ -434,8 +454,9 @@ export function normalizeLegacyDesktopSettingsPayload(payload: unknown): Desktop
 }
 
 export function visibleBlockSet(settings: DesktopUiSettings): BlockType[] {
-  const configured = settings.palette.defaultBlockSet.filter((type): type is BlockType =>
-    (["implementation", "review"] as BlockType[]).includes(type) && settings.palette.visible[type]
+  const configured = settings.palette.defaultBlockSet.filter(
+    (type): type is BlockType =>
+      (["implementation", "review"] as BlockType[]).includes(type) && settings.palette.visible[type]
   );
   return configured.length > 0 ? configured : ["implementation"];
 }

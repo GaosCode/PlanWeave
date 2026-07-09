@@ -46,7 +46,9 @@ function serverPortFromUrl(url: URL): number {
 }
 
 function servedMcpOAuthEnabled(env: NodeJS.ProcessEnv): boolean {
-  return ["1", "true", "yes", "on"].includes((env.PLANWEAVE_MCP_OAUTH_ENABLED ?? "").trim().toLowerCase());
+  return ["1", "true", "yes", "on"].includes(
+    (env.PLANWEAVE_MCP_OAUTH_ENABLED ?? "").trim().toLowerCase()
+  );
 }
 
 function servedMcpAuthConfigured(env: NodeJS.ProcessEnv): boolean {
@@ -68,11 +70,11 @@ function servedMcpOAuthConfig(env: NodeJS.ProcessEnv): McpOAuthConfig | undefine
   };
 }
 
-async function stopManagers(localMcp: RunLocalMcpManager | null, tunnelClient: RunTunnelClientManager): Promise<void> {
-  await Promise.allSettled([
-    tunnelClient.stop(),
-    localMcp ? localMcp.stop() : Promise.resolve()
-  ]);
+async function stopManagers(
+  localMcp: RunLocalMcpManager | null,
+  tunnelClient: RunTunnelClientManager
+): Promise<void> {
+  await Promise.allSettled([tunnelClient.stop(), localMcp ? localMcp.stop() : Promise.resolve()]);
 }
 
 export async function runMcpTunnel(
@@ -87,12 +89,19 @@ export async function runMcpTunnel(
   const mcpUrl = parseLoopbackMcpUrl(config.mcpUrl);
   const runtimeApiKey = resolveRuntimeApiKey(input.env ?? process.env);
   if (!runtimeApiKey.available) {
-    throw new Error("Runtime API key is missing. Set OPENAI_RUNTIME_API_KEY or CONTROL_PLANE_API_KEY.");
+    throw new Error(
+      "Runtime API key is missing. Set OPENAI_RUNTIME_API_KEY or CONTROL_PLANE_API_KEY."
+    );
   }
   if (!config.tunnelId) {
-    throw new Error("Tunnel id is not configured. Run planweave mcp tunnel configure --tunnel-id <id>.");
+    throw new Error(
+      "Tunnel id is not configured. Run planweave mcp tunnel configure --tunnel-id <id>."
+    );
   }
-  const binary = await resolveTunnelClientBinaryStartTarget(config.tunnelClientPath, config.verification);
+  const binary = await resolveTunnelClientBinaryStartTarget(
+    config.tunnelClientPath,
+    config.verification
+  );
   let settle: ((result: { exitCode: number; error?: Error }) => void) | null = null;
   const tunnelClient =
     dependencies.tunnelClient ??
@@ -113,7 +122,8 @@ export async function runMcpTunnel(
     );
   }
   const env = input.env ?? process.env;
-  const localMcp = input.serve === true ? dependencies.localMcp ?? new LocalMcpServerManager() : null;
+  const localMcp =
+    input.serve === true ? (dependencies.localMcp ?? new LocalMcpServerManager()) : null;
   if (localMcp) {
     const localStatus: LocalMcpServerStatus = await localMcp.start({
       host: serverHostFromUrl(mcpUrl),

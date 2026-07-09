@@ -56,7 +56,13 @@ describe("desktop renderer hook interfaces", () => {
 
     const { result } = renderHook(() => useDetectedAgents());
 
-    await waitFor(() => expect(result.current.agentDetections.map((agent) => agent.kind)).toEqual(["claude-code", "opencode", "pi"]));
+    await waitFor(() =>
+      expect(result.current.agentDetections.map((agent) => agent.kind)).toEqual([
+        "claude-code",
+        "opencode",
+        "pi"
+      ])
+    );
     expect(result.current).not.toHaveProperty("executorOptions");
   });
 
@@ -77,7 +83,9 @@ describe("desktop renderer hook interfaces", () => {
     const bridge = createDesktopBridgeMock({
       listProjects: vi.fn().mockResolvedValue([project]),
       getDesktopProjectSnapshot: vi.fn().mockResolvedValue(projectSnapshot()),
-      refreshPackageFileChanges: vi.fn().mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
+      refreshPackageFileChanges: vi
+        .fn()
+        .mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
       watchPackageFiles: vi.fn().mockResolvedValue(undefined)
     });
     vi.stubGlobal("planweave", bridge);
@@ -97,13 +105,15 @@ describe("desktop renderer hook interfaces", () => {
 
     expect(result.current.graph?.graphVersion).toBe(projectSnapshot().graph.graphVersion);
     expect(result.current.selectedCanvasId).toBe("canvas-main");
-    expect(result.current).toEqual(expect.objectContaining({
-      loadProject: expect.any(Function),
-      refreshProjectDerivedState: expect.any(Function),
-      refreshRuntimeState: expect.any(Function),
-      rollbackPendingImportRecovery: expect.any(Function),
-      updateProjectPrompt: expect.any(Function)
-    }));
+    expect(result.current).toEqual(
+      expect.objectContaining({
+        loadProject: expect.any(Function),
+        refreshProjectDerivedState: expect.any(Function),
+        refreshRuntimeState: expect.any(Function),
+        rollbackPendingImportRecovery: expect.any(Function),
+        updateProjectPrompt: expect.any(Function)
+      })
+    );
     expect(updateSettings).toHaveBeenCalledWith({ runtimePath: project.workspaceRoot });
   });
 });

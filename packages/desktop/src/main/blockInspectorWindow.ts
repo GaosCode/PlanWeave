@@ -31,7 +31,10 @@ function blockWindowQuery(input: OpenBlockInspectorWindowInput): Record<string, 
   };
 }
 
-async function loadBlockWindow(window: BrowserWindow, input: OpenBlockInspectorWindowInput): Promise<void> {
+async function loadBlockWindow(
+  window: BrowserWindow,
+  input: OpenBlockInspectorWindowInput
+): Promise<void> {
   const devServerUrl = process.env.PLANWEAVE_DESKTOP_DEV_SERVER_URL;
   if (devServerUrl) {
     const url = new URL(devServerUrl);
@@ -44,7 +47,9 @@ async function loadBlockWindow(window: BrowserWindow, input: OpenBlockInspectorW
   await window.loadFile(rendererEntry(), { query: blockWindowQuery(input) });
 }
 
-export async function openBlockInspectorWindow(input: OpenBlockInspectorWindowInput): Promise<void> {
+export async function openBlockInspectorWindow(
+  input: OpenBlockInspectorWindowInput
+): Promise<void> {
   const key = blockWindowKey(input);
   const existing = blockInspectorWindows.get(key);
   if (existing && !existing.isDestroyed()) {

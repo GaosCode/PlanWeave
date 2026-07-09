@@ -3,7 +3,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/index.js";
 import { writeJsonFile } from "../json.js";
-import { canonicalProjectCanvasNode, projectGraphPath, writeProjectGraph } from "../projectGraph/index.js";
+import {
+  canonicalProjectCanvasNode,
+  projectGraphPath,
+  writeProjectGraph
+} from "../projectGraph/index.js";
 import { createEmptyState } from "../state.js";
 import { validatePackage } from "../validatePackage.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
@@ -82,7 +86,9 @@ describe("validatePackage", () => {
         }),
         expect.objectContaining({
           code: "prompt_missing",
-          path: expect.stringContaining(`canvases/${canvas.canvasId}/package/nodes/T-001/blocks/B-001.prompt.md`)
+          path: expect.stringContaining(
+            `canvases/${canvas.canvasId}/package/nodes/T-001/blocks/B-001.prompt.md`
+          )
         })
       ])
     );
@@ -97,7 +103,10 @@ describe("validatePackage", () => {
     const targetManifest = basicManifest();
     await writeJsonFile(targetWorkspace.manifestFile, targetManifest);
     await writePromptFiles(targetWorkspace.packageDir, targetManifest);
-    await writeJsonFile(brokenWorkspace.manifestFile, { version: "plan-package/v1", nodes: "invalid" });
+    await writeJsonFile(brokenWorkspace.manifestFile, {
+      version: "plan-package/v1",
+      nodes: "invalid"
+    });
 
     const report = await validatePackage({ projectRoot: targetWorkspace });
 
@@ -317,7 +326,11 @@ describe("validatePackage", () => {
         })
       ])
     );
-    expect(report.warnings.filter((warning) => warning.code === "project_graph_missing_default_canvas_used")).toHaveLength(1);
+    expect(
+      report.warnings.filter(
+        (warning) => warning.code === "project_graph_missing_default_canvas_used"
+      )
+    ).toHaveLength(1);
   });
 
   it("reports canonical default missing with legacy root data without canonical validation noise", async () => {
@@ -336,23 +349,38 @@ describe("validatePackage", () => {
         }
       ]
     });
-    await writeFile(join(init.workspace.workspaceRoot, "package", "manifest.json"), "{ invalid json", "utf8");
+    await writeFile(
+      join(init.workspace.workspaceRoot, "package", "manifest.json"),
+      "{ invalid json",
+      "utf8"
+    );
     await writeJsonFile(join(init.workspace.workspaceRoot, "state.json"), createEmptyState());
     await mkdir(join(init.workspace.workspaceRoot, "results"), { recursive: true });
 
     const report = await validatePackage({ projectRoot: root });
 
     expect(report.ok).toBe(false);
-    expect(report.errors.map((error) => error.code)).toEqual(["default_canvas_canonical_missing_legacy_root_present"]);
-    expect(report.errors.map((error) => error.code)).not.toContain("project_canvas_manifest_read_failed");
+    expect(report.errors.map((error) => error.code)).toEqual([
+      "default_canvas_canonical_missing_legacy_root_present"
+    ]);
+    expect(report.errors.map((error) => error.code)).not.toContain(
+      "project_canvas_manifest_read_failed"
+    );
     expect(report.errors.map((error) => error.code)).not.toContain("workspace_missing");
-    expect(report.errors.map((error) => error.code).filter((code) => code.startsWith("project_cross_task_"))).toEqual([]);
+    expect(
+      report.errors
+        .map((error) => error.code)
+        .filter((code) => code.startsWith("project_cross_task_"))
+    ).toEqual([]);
   });
 
   it("reports mixed conflicting default canvas layouts as an error", async () => {
     const { root, init } = await createTestWorkspace();
     const legacyManifest = basicManifest({ includeSecondTask: true });
-    await writeJsonFile(join(init.workspace.workspaceRoot, "package", "manifest.json"), legacyManifest);
+    await writeJsonFile(
+      join(init.workspace.workspaceRoot, "package", "manifest.json"),
+      legacyManifest
+    );
     await writePromptFiles(join(init.workspace.workspaceRoot, "package"), legacyManifest);
     await writeJsonFile(join(init.workspace.workspaceRoot, "state.json"), createEmptyState());
     await mkdir(join(init.workspace.workspaceRoot, "results"), { recursive: true });
@@ -371,9 +399,13 @@ describe("validatePackage", () => {
 
   it("accepts mixed identical default canvas layouts with a warning", async () => {
     const { root, init } = await createTestWorkspace();
-    await cp(init.workspace.packageDir, join(init.workspace.workspaceRoot, "package"), { recursive: true });
+    await cp(init.workspace.packageDir, join(init.workspace.workspaceRoot, "package"), {
+      recursive: true
+    });
     await cp(init.workspace.stateFile, join(init.workspace.workspaceRoot, "state.json"));
-    await cp(init.workspace.resultsDir, join(init.workspace.workspaceRoot, "results"), { recursive: true });
+    await cp(init.workspace.resultsDir, join(init.workspace.workspaceRoot, "results"), {
+      recursive: true
+    });
 
     const report = await validatePackage({ projectRoot: root });
 
@@ -390,7 +422,10 @@ describe("validatePackage", () => {
 
   it("validates only canvases referenced by a formal project graph", async () => {
     const { root, init } = await createTestWorkspace();
-    await writeJsonFile(init.workspace.manifestFile, { version: "plan-package/v1", nodes: "invalid" });
+    await writeJsonFile(init.workspace.manifestFile, {
+      version: "plan-package/v1",
+      nodes: "invalid"
+    });
     const packageDir = join(init.workspace.workspaceRoot, "manual-only", "package");
     const manifest = basicManifest();
     await writeJsonFile(join(packageDir, "manifest.json"), manifest);
@@ -421,7 +456,9 @@ describe("validatePackage", () => {
     const { root, init } = await createTestWorkspace();
     await mkdir(join(init.workspace.resultsDir, "auto-runs", "RUN-001"), { recursive: true });
     await mkdir(join(init.workspace.resultsDir, "feedback-runs", "RUN-001"), { recursive: true });
-    await mkdir(join(init.workspace.resultsDir, "run-sessions", "SESSION-0001"), { recursive: true });
+    await mkdir(join(init.workspace.resultsDir, "run-sessions", "SESSION-0001"), {
+      recursive: true
+    });
 
     const report = await validatePackage({ projectRoot: root });
 

@@ -21,9 +21,15 @@ export function findCurrentProjectCanvasByPackageDir(
   return null;
 }
 
-export async function commandCanvasIdForWorkspace(workspace: ProjectWorkspace): Promise<string | null> {
+export async function commandCanvasIdForWorkspace(
+  workspace: ProjectWorkspace
+): Promise<string | null> {
   const loaded = await loadProjectGraphForWorkspace(workspace);
-  const canvas = findCurrentProjectCanvasByPackageDir(loaded.workspace, workspace, loaded.manifest.canvases);
+  const canvas = findCurrentProjectCanvasByPackageDir(
+    loaded.workspace,
+    workspace,
+    loaded.manifest.canvases
+  );
   if (canvas) {
     if (loaded.source === "project_graph") {
       return canvas.id;

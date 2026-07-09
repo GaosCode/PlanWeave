@@ -20,7 +20,13 @@ type SidebarNavProps = {
   t: ReturnType<typeof createTranslator>;
 };
 
-export function SidebarNav({ activeView, canOpenCanvasMap, notificationItems, onSelectView, t }: SidebarNavProps) {
+export function SidebarNav({
+  activeView,
+  canOpenCanvasMap,
+  notificationItems,
+  onSelectView,
+  t
+}: SidebarNavProps) {
   const unreadNotificationCount = notificationItems.filter((item) => !item.read).length;
   const navButtonClass =
     "h-8 justify-start rounded-md px-2 text-text-muted hover:bg-surface-muted hover:text-text-strong disabled:text-text-faint data-[variant=secondary]:border-state-selected/25 data-[variant=secondary]:bg-state-selected-surface data-[variant=secondary]:text-text-strong data-[variant=secondary]:shadow-sm [&_svg]:size-4";
@@ -81,7 +87,9 @@ export function SidebarNav({ activeView, canOpenCanvasMap, notificationItems, on
       >
         <BellIcon data-icon="inline-start" />
         {t("notifications")}
-        {unreadNotificationCount > 0 ? <Badge variant="destructive">{unreadNotificationCount}</Badge> : null}
+        {unreadNotificationCount > 0 ? (
+          <Badge variant="destructive">{unreadNotificationCount}</Badge>
+        ) : null}
       </Button>
       <Button
         data-testid="sidebar-settings"

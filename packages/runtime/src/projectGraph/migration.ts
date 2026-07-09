@@ -1,7 +1,10 @@
 import type { TaskCanvasRegistry } from "../desktop/canvasRegistry.js";
 import type { ProjectCanvasNode, ProjectGraphManifest } from "./types.js";
 import { supportedProjectGraphVersion } from "./types.js";
-import { canonicalProjectCanvasNode, type CanonicalCanvasWorkspacePaths } from "./canonicalWorkspace.js";
+import {
+  canonicalProjectCanvasNode,
+  type CanonicalCanvasWorkspacePaths
+} from "./canonicalWorkspace.js";
 
 export function projectGraphFromLegacyRegistry(registry: TaskCanvasRegistry): ProjectGraphManifest {
   return {
@@ -23,7 +26,10 @@ export function projectGraphFromLegacyRegistry(registry: TaskCanvasRegistry): Pr
   };
 }
 
-export function defaultCanvasProjectGraph(title: string, paths?: CanonicalCanvasWorkspacePaths): ProjectGraphManifest {
+export function defaultCanvasProjectGraph(
+  title: string,
+  paths?: CanonicalCanvasWorkspacePaths
+): ProjectGraphManifest {
   const canvas: ProjectCanvasNode = paths
     ? {
         id: "default",

@@ -6,7 +6,12 @@ import { createExecutionGraphSessionFromSnapshot } from "../../graph/session.js"
 import { resolveProjectWorkspace } from "../../project.js";
 import { projectGraphPath } from "../../projectGraph/index.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "../../taskManager/runtimeContext.js";
-import type { FileFingerprint, PackageFileSnapshot, ProjectWorkspace, ValidationIssue } from "../../types.js";
+import type {
+  FileFingerprint,
+  PackageFileSnapshot,
+  ProjectWorkspace,
+  ValidationIssue
+} from "../../types.js";
 import { appendDesktopDiagnostic, desktopDiagnostic, errorMessage } from "./desktopDiagnostics.js";
 import {
   loadProjectCanvasAggregation,
@@ -55,7 +60,9 @@ async function optionalFileStatFingerprint(path: string): Promise<FileStatFinger
   };
 }
 
-function packageInputFingerprintFromSnapshot(snapshot: PackageFileSnapshot): PackageInputFingerprint {
+function packageInputFingerprintFromSnapshot(
+  snapshot: PackageFileSnapshot
+): PackageInputFingerprint {
   return {
     manifestFile: snapshot.manifestFile,
     promptFiles: snapshot.promptFiles
@@ -83,7 +90,10 @@ async function canvasRuntimeInput(workspace: ProjectWorkspace): Promise<CanvasRu
   }
 }
 
-async function canvasRuntimeInputFromSnapshot(workspace: ProjectWorkspace, snapshot: PackageFileSnapshot): Promise<CanvasRuntimeInput> {
+async function canvasRuntimeInputFromSnapshot(
+  workspace: ProjectWorkspace,
+  snapshot: PackageFileSnapshot
+): Promise<CanvasRuntimeInput> {
   return {
     fingerprint: {
       workspace: workspaceFingerprint(workspace),
@@ -104,7 +114,11 @@ async function canvasRuntimeInputWithDiagnostics(
   } catch (caught) {
     appendDesktopDiagnostic(
       diagnostics,
-      desktopDiagnostic("desktop_canvas_runtime_input_failed", `Canvas runtime input could not be read: ${errorMessage(caught)}`, canvasId)
+      desktopDiagnostic(
+        "desktop_canvas_runtime_input_failed",
+        `Canvas runtime input could not be read: ${errorMessage(caught)}`,
+        canvasId
+      )
     );
     return null;
   }
@@ -139,7 +153,11 @@ async function cacheCanvasRuntimeInputFromSnapshot(
   } catch (caught) {
     appendDesktopDiagnostic(
       diagnostics,
-      desktopDiagnostic("desktop_canvas_runtime_input_failed", `Canvas runtime input could not be read: ${errorMessage(caught)}`, canvasId)
+      desktopDiagnostic(
+        "desktop_canvas_runtime_input_failed",
+        `Canvas runtime input could not be read: ${errorMessage(caught)}`,
+        canvasId
+      )
     );
     runtimeInputsByCanvas.set(canvasId, null);
     return null;
@@ -151,19 +169,34 @@ async function buildProjectInputFingerprint(projectRoot: string): Promise<Projec
   return {
     projectFile: await optionalFileStatFingerprint(workspace.projectFile),
     projectGraphFile: await optionalFileStatFingerprint(projectGraphPath(workspace)),
-    legacyCanvasRegistryFile: await optionalFileStatFingerprint(join(workspace.workspaceRoot, "desktop", "canvases.json"))
+    legacyCanvasRegistryFile: await optionalFileStatFingerprint(
+      join(workspace.workspaceRoot, "desktop", "canvases.json")
+    )
   };
 }
 
-function sameFileStatFingerprint(left: FileStatFingerprint | null, right: FileStatFingerprint | null): boolean {
-  return left?.path === right?.path && left?.mtimeMs === right?.mtimeMs && left?.size === right?.size;
+function sameFileStatFingerprint(
+  left: FileStatFingerprint | null,
+  right: FileStatFingerprint | null
+): boolean {
+  return (
+    left?.path === right?.path && left?.mtimeMs === right?.mtimeMs && left?.size === right?.size
+  );
 }
 
-function sameFileFingerprint(left: FileFingerprint | undefined, right: FileFingerprint | undefined): boolean {
-  return left?.path === right?.path && left?.hash === right?.hash && left?.mtimeMs === right?.mtimeMs;
+function sameFileFingerprint(
+  left: FileFingerprint | undefined,
+  right: FileFingerprint | undefined
+): boolean {
+  return (
+    left?.path === right?.path && left?.hash === right?.hash && left?.mtimeMs === right?.mtimeMs
+  );
 }
 
-function samePromptFileFingerprints(left: Record<string, FileFingerprint>, right: Record<string, FileFingerprint>): boolean {
+function samePromptFileFingerprints(
+  left: Record<string, FileFingerprint>,
+  right: Record<string, FileFingerprint>
+): boolean {
   const paths = new Set([...Object.keys(left), ...Object.keys(right)]);
   for (const path of paths) {
     if (!sameFileFingerprint(left[path], right[path])) {
@@ -173,50 +206,83 @@ function samePromptFileFingerprints(left: Record<string, FileFingerprint>, right
   return true;
 }
 
-function samePackageInputFingerprint(left: PackageInputFingerprint, right: PackageInputFingerprint): boolean {
-  return sameFileFingerprint(left.manifestFile, right.manifestFile) && samePromptFileFingerprints(left.promptFiles, right.promptFiles);
+function samePackageInputFingerprint(
+  left: PackageInputFingerprint,
+  right: PackageInputFingerprint
+): boolean {
+  return (
+    sameFileFingerprint(left.manifestFile, right.manifestFile) &&
+    samePromptFileFingerprints(left.promptFiles, right.promptFiles)
+  );
 }
 
-function sameProjectInputFingerprint(left: ProjectInputFingerprint, right: ProjectInputFingerprint): boolean {
-  return sameFileStatFingerprint(left.projectFile, right.projectFile)
-    && sameFileStatFingerprint(left.projectGraphFile, right.projectGraphFile)
-    && sameFileStatFingerprint(left.legacyCanvasRegistryFile, right.legacyCanvasRegistryFile);
+function sameProjectInputFingerprint(
+  left: ProjectInputFingerprint,
+  right: ProjectInputFingerprint
+): boolean {
+  return (
+    sameFileStatFingerprint(left.projectFile, right.projectFile) &&
+    sameFileStatFingerprint(left.projectGraphFile, right.projectGraphFile) &&
+    sameFileStatFingerprint(left.legacyCanvasRegistryFile, right.legacyCanvasRegistryFile)
+  );
 }
 
-function sameWorkspaceFingerprint(left: CanvasWorkspaceFingerprint, right: CanvasWorkspaceFingerprint): boolean {
-  return left.rootPath === right.rootPath
-    && left.packageDir === right.packageDir
-    && left.stateFile === right.stateFile
-    && left.resultsDir === right.resultsDir;
+function sameWorkspaceFingerprint(
+  left: CanvasWorkspaceFingerprint,
+  right: CanvasWorkspaceFingerprint
+): boolean {
+  return (
+    left.rootPath === right.rootPath &&
+    left.packageDir === right.packageDir &&
+    left.stateFile === right.stateFile &&
+    left.resultsDir === right.resultsDir
+  );
 }
 
-function sameCanvasRuntimeInputFingerprint(left: CanvasRuntimeInputFingerprint, right: CanvasRuntimeInputFingerprint): boolean {
-  return sameWorkspaceFingerprint(left.workspace, right.workspace)
-    && samePackageInputFingerprint(left.packageFiles, right.packageFiles)
-    && sameFileStatFingerprint(left.stateFile, right.stateFile);
+function sameCanvasRuntimeInputFingerprint(
+  left: CanvasRuntimeInputFingerprint,
+  right: CanvasRuntimeInputFingerprint
+): boolean {
+  return (
+    sameWorkspaceFingerprint(left.workspace, right.workspace) &&
+    samePackageInputFingerprint(left.packageFiles, right.packageFiles) &&
+    sameFileStatFingerprint(left.stateFile, right.stateFile)
+  );
 }
 
-function sameCanvasBlockerFingerprint(left: CanvasBlockerFingerprint, right: CanvasBlockerFingerprint): boolean {
-  return left.canvasDependencies.length === right.canvasDependencies.length
-    && left.canvasDependencies.every((dependency, index) => {
+function sameCanvasBlockerFingerprint(
+  left: CanvasBlockerFingerprint,
+  right: CanvasBlockerFingerprint
+): boolean {
+  return (
+    left.canvasDependencies.length === right.canvasDependencies.length &&
+    left.canvasDependencies.every((dependency, index) => {
       const next = right.canvasDependencies[index];
       return dependency.canvasId === next?.canvasId && dependency.complete === next.complete;
-    })
-    && left.crossTaskDependencies.length === right.crossTaskDependencies.length
-    && left.crossTaskDependencies.every((dependency, index) => {
+    }) &&
+    left.crossTaskDependencies.length === right.crossTaskDependencies.length &&
+    left.crossTaskDependencies.every((dependency, index) => {
       const next = right.crossTaskDependencies[index];
-      return dependency.canvasId === next?.canvasId
-        && dependency.taskId === next.taskId
-        && dependency.dependsOnCanvasId === next.dependsOnCanvasId
-        && dependency.dependsOnTaskId === next.dependsOnTaskId
-        && dependency.status === next.status;
-    });
+      return (
+        dependency.canvasId === next?.canvasId &&
+        dependency.taskId === next.taskId &&
+        dependency.dependsOnCanvasId === next.dependsOnCanvasId &&
+        dependency.dependsOnTaskId === next.dependsOnTaskId &&
+        dependency.status === next.status
+      );
+    })
+  );
 }
 
-function sameCanvasProjectionFingerprint(left: CanvasProjectionFingerprint, right: CanvasProjectionFingerprint): boolean {
-  return sameCanvasRuntimeInputFingerprint(left, right)
-    && sameResultsFileFingerprintSnapshot(left.results, right.results)
-    && sameCanvasBlockerFingerprint(left.blockers, right.blockers);
+function sameCanvasProjectionFingerprint(
+  left: CanvasProjectionFingerprint,
+  right: CanvasProjectionFingerprint
+): boolean {
+  return (
+    sameCanvasRuntimeInputFingerprint(left, right) &&
+    sameResultsFileFingerprintSnapshot(left.results, right.results) &&
+    sameCanvasBlockerFingerprint(left.blockers, right.blockers)
+  );
 }
 
 function slowDiagnosticThresholdMs(): number | null {
@@ -261,24 +327,35 @@ export async function captureProjectionPart<T>(
   }
 }
 
-function canvasBlockerFingerprint(aggregation: ProjectCanvasAggregationContext, canvasId: string): CanvasBlockerFingerprint {
+function canvasBlockerFingerprint(
+  aggregation: ProjectCanvasAggregationContext,
+  canvasId: string
+): CanvasBlockerFingerprint {
   const canvasDependencies = (aggregation.graph.canvasDependenciesByCanvas.get(canvasId) ?? [])
     .map((dependencyCanvasId) => ({
       canvasId: dependencyCanvasId,
       complete: aggregation.runtimeSnapshotsByCanvas.get(dependencyCanvasId)?.complete ?? false
     }))
     .sort((left, right) => left.canvasId.localeCompare(right.canvasId));
-  const taskIds = Array.from(aggregation.runtimeSnapshotsByCanvas.get(canvasId)?.taskStatusById.keys() ?? []);
-  const crossTaskDependencies = taskIds.flatMap((taskId) => aggregation.graph
-    .crossTaskDependencies({ canvasId, taskId })
-    .filter((dependency) => dependency.canvasId !== canvasId)
-    .map((dependency) => ({
-      canvasId,
-      taskId,
-      dependsOnCanvasId: dependency.canvasId,
-      dependsOnTaskId: dependency.taskId,
-      status: aggregation.runtimeSnapshotsByCanvas.get(dependency.canvasId)?.taskStatusById.get(dependency.taskId) ?? null
-    })))
+  const taskIds = Array.from(
+    aggregation.runtimeSnapshotsByCanvas.get(canvasId)?.taskStatusById.keys() ?? []
+  );
+  const crossTaskDependencies = taskIds
+    .flatMap((taskId) =>
+      aggregation.graph
+        .crossTaskDependencies({ canvasId, taskId })
+        .filter((dependency) => dependency.canvasId !== canvasId)
+        .map((dependency) => ({
+          canvasId,
+          taskId,
+          dependsOnCanvasId: dependency.canvasId,
+          dependsOnTaskId: dependency.taskId,
+          status:
+            aggregation.runtimeSnapshotsByCanvas
+              .get(dependency.canvasId)
+              ?.taskStatusById.get(dependency.taskId) ?? null
+        }))
+    )
     .sort((left, right) => {
       const leftKey = `${left.canvasId}:${left.taskId}:${left.dependsOnCanvasId}:${left.dependsOnTaskId}`;
       const rightKey = `${right.canvasId}:${right.taskId}:${right.dependsOnCanvasId}:${right.dependsOnTaskId}`;
@@ -295,26 +372,46 @@ async function loadCanvasRuntimeSnapshot(
   runtimeInputsByCanvas: Map<string, CanvasRuntimeInput | null>,
   runtimesByCanvas: Map<string, RuntimeContext>
 ): Promise<ProjectCanvasRuntimeSnapshot> {
-  const currentInput = await cachedCanvasRuntimeInput(workspace, canvasId, diagnostics, runtimeInputsByCanvas, { refresh: true });
+  const currentInput = await cachedCanvasRuntimeInput(
+    workspace,
+    canvasId,
+    diagnostics,
+    runtimeInputsByCanvas,
+    { refresh: true }
+  );
   const cachedEntry = cached?.canvases.get(canvasId);
   if (
-    currentInput
-    && cachedEntry?.version === desktopProjectProjectionCacheVersion
-    && cachedEntry.fingerprint
-    && sameCanvasRuntimeInputFingerprint(cachedEntry.fingerprint, currentInput.fingerprint)
+    currentInput &&
+    cachedEntry?.version === desktopProjectProjectionCacheVersion &&
+    cachedEntry.fingerprint &&
+    sameCanvasRuntimeInputFingerprint(cachedEntry.fingerprint, currentInput.fingerprint)
   ) {
     return cachedEntry.runtimeSnapshot;
   }
 
   const session = currentInput
-    ? createExecutionGraphSessionFromSnapshot({ projectRoot: workspace, workspace, snapshot: currentInput.snapshot })
+    ? createExecutionGraphSessionFromSnapshot({
+        projectRoot: workspace,
+        workspace,
+        snapshot: currentInput.snapshot
+      })
     : undefined;
-  const runtime = session ? await loadRuntimeReadonly({ projectRoot: workspace, session }) : await loadRuntimeReadonly({ projectRoot: workspace });
+  const runtime = session
+    ? await loadRuntimeReadonly({ projectRoot: workspace, session })
+    : await loadRuntimeReadonly({ projectRoot: workspace });
   runtimesByCanvas.set(canvasId, runtime);
   if (session) {
-    await cacheCanvasRuntimeInputFromSnapshot(workspace, canvasId, session.fileSnapshot, diagnostics, runtimeInputsByCanvas);
+    await cacheCanvasRuntimeInputFromSnapshot(
+      workspace,
+      canvasId,
+      session.fileSnapshot,
+      diagnostics,
+      runtimeInputsByCanvas
+    );
   } else {
-    await cachedCanvasRuntimeInput(workspace, canvasId, diagnostics, runtimeInputsByCanvas, { refresh: true });
+    await cachedCanvasRuntimeInput(workspace, canvasId, diagnostics, runtimeInputsByCanvas, {
+      refresh: true
+    });
   }
   return runtimeSnapshotFromGraphState(runtime.graph, runtime.state);
 }
@@ -324,11 +421,13 @@ function cachedCanvasEntryIsReusable(
   currentFingerprint: CanvasProjectionFingerprint | null,
   projectInputsChanged: boolean
 ): cachedEntry is CanvasProjectionCacheEntry {
-  return !projectInputsChanged
-    && currentFingerprint !== null
-    && cachedEntry?.version === desktopProjectProjectionCacheVersion
-    && cachedEntry.fingerprint !== null
-    && sameCanvasProjectionFingerprint(cachedEntry.fingerprint, currentFingerprint);
+  return (
+    !projectInputsChanged &&
+    currentFingerprint !== null &&
+    cachedEntry?.version === desktopProjectProjectionCacheVersion &&
+    cachedEntry.fingerprint !== null &&
+    sameCanvasProjectionFingerprint(cachedEntry.fingerprint, currentFingerprint)
+  );
 }
 
 function missingRuntimeSnapshot(): ProjectCanvasRuntimeSnapshot {
@@ -349,11 +448,18 @@ function appendCanvasExecutionSnapshotDiagnostics(
   }
   appendDesktopDiagnostic(
     diagnostics,
-    desktopDiagnostic("desktop_canvas_execution_snapshot_failed", errorMessage(snapshot.error), canvasId)
+    desktopDiagnostic(
+      "desktop_canvas_execution_snapshot_failed",
+      errorMessage(snapshot.error),
+      canvasId
+    )
   );
 }
 
-export function appendProjectProjectionDiagnostic(diagnostics: ValidationIssue[], diagnostic: ValidationIssue): void {
+export function appendProjectProjectionDiagnostic(
+  diagnostics: ValidationIssue[],
+  diagnostic: ValidationIssue
+): void {
   if (diagnostic.code !== "desktop_canvas_execution_snapshot_failed") {
     appendDesktopDiagnostic(diagnostics, diagnostic);
     return;
@@ -392,12 +498,21 @@ async function buildCanvasCacheEntry(input: {
       input.diagnostics,
       "per-canvas snapshot",
       input.canvasId,
-      () => buildCanvasExecutionSnapshot(input.aggregation, input.canvasId, input.runtime ?? input.cachedEntry?.snapshot.runtime ?? undefined)
+      () =>
+        buildCanvasExecutionSnapshot(
+          input.aggregation,
+          input.canvasId,
+          input.runtime ?? input.cachedEntry?.snapshot.runtime ?? undefined
+        )
     );
   } catch (caught) {
     appendDesktopDiagnostic(
       input.diagnostics,
-      desktopDiagnostic("desktop_canvas_execution_snapshot_failed", errorMessage(caught), input.canvasId)
+      desktopDiagnostic(
+        "desktop_canvas_execution_snapshot_failed",
+        errorMessage(caught),
+        input.canvasId
+      )
     );
     snapshot = failedCanvasExecutionSnapshot(canvas.canvas.taskCount, caught);
   }
@@ -405,17 +520,19 @@ async function buildCanvasCacheEntry(input: {
     input.diagnostics,
     "summary search index construction",
     input.canvasId,
-    () => buildSearchIndexForCanvas({
-      aggregation: input.aggregation,
-      canvasId: input.canvasId,
-      snapshot,
-      resultIndex: resultsIndex
-    })
+    () =>
+      buildSearchIndexForCanvas({
+        aggregation: input.aggregation,
+        canvasId: input.canvasId,
+        snapshot,
+        resultIndex: resultsIndex
+      })
   );
   return {
     version: desktopProjectProjectionCacheVersion,
     fingerprint: input.fingerprint,
-    runtimeSnapshot: input.aggregation.runtimeSnapshotsByCanvas.get(input.canvasId) ?? missingRuntimeSnapshot(),
+    runtimeSnapshot:
+      input.aggregation.runtimeSnapshotsByCanvas.get(input.canvasId) ?? missingRuntimeSnapshot(),
     snapshot,
     resultsIndex,
     searchIndex,
@@ -423,7 +540,10 @@ async function buildCanvasCacheEntry(input: {
   };
 }
 
-export async function buildDesktopProjectProjection(projectRoot: string, cached: CachedProjectProjection | undefined): Promise<CachedProjectProjection> {
+export async function buildDesktopProjectProjection(
+  projectRoot: string,
+  cached: CachedProjectProjection | undefined
+): Promise<CachedProjectProjection> {
   const diagnostics: ValidationIssue[] = [];
   const runtimeInputsByCanvas = new Map<string, CanvasRuntimeInput | null>();
   const runtimesByCanvas = new Map<string, RuntimeContext>();
@@ -431,21 +551,24 @@ export async function buildDesktopProjectProjection(projectRoot: string, cached:
     diagnostics,
     "project aggregation",
     projectRoot,
-    () => loadProjectCanvasAggregation(projectRoot, {
-      loadRuntimeSnapshot: (workspace, canvasId) => loadCanvasRuntimeSnapshot(
-        workspace,
-        canvasId,
-        cached,
-        diagnostics,
-        runtimeInputsByCanvas,
-        runtimesByCanvas
-      )
-    })
+    () =>
+      loadProjectCanvasAggregation(projectRoot, {
+        loadRuntimeSnapshot: (workspace, canvasId) =>
+          loadCanvasRuntimeSnapshot(
+            workspace,
+            canvasId,
+            cached,
+            diagnostics,
+            runtimeInputsByCanvas,
+            runtimesByCanvas
+          )
+      })
   );
   const projectFingerprint = await buildProjectInputFingerprint(projectRoot);
-  const projectInputsChanged = !cached
-    || cached.version !== desktopProjectProjectionCacheVersion
-    || !sameProjectInputFingerprint(cached.projectFingerprint, projectFingerprint);
+  const projectInputsChanged =
+    !cached ||
+    cached.version !== desktopProjectProjectionCacheVersion ||
+    !sameProjectInputFingerprint(cached.projectFingerprint, projectFingerprint);
   const canvases = new Map<string, CanvasProjectionCacheEntry>();
   const snapshotsByCanvas = new Map<string, CanvasExecutionSnapshot>();
   const resultsByCanvas = new Map<string, ResultsFileIndex>();
@@ -455,7 +578,12 @@ export async function buildDesktopProjectProjection(projectRoot: string, cached:
     if (!canvas) {
       continue;
     }
-    const runtimeInput = await cachedCanvasRuntimeInput(canvas.workspace, canvasId, diagnostics, runtimeInputsByCanvas);
+    const runtimeInput = await cachedCanvasRuntimeInput(
+      canvas.workspace,
+      canvasId,
+      diagnostics,
+      runtimeInputsByCanvas
+    );
     const runtimeInputFingerprint = runtimeInput?.fingerprint ?? null;
     const resultsFingerprint = await captureProjectionPart(
       diagnostics,
@@ -481,7 +609,7 @@ export async function buildDesktopProjectProjection(projectRoot: string, cached:
           cachedEntry,
           runtime: runtimesByCanvas.get(canvasId),
           diagnostics
-    });
+        });
     canvases.set(canvasId, entry);
     snapshotsByCanvas.set(canvasId, entry.snapshot);
     resultsByCanvas.set(canvasId, entry.resultsIndex);

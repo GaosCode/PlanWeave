@@ -11,7 +11,10 @@ import type { DesktopLayout } from "../types.js";
 import { getDesktopLayout, saveDesktopLayoutDirect } from "../layoutApi.js";
 import { invalidateDesktopProjectProjection } from "./projectProjectionModel.js";
 
-async function commandResult(projectRoot: PackageWorkspaceRef, result: PlanGraphCommandResult): Promise<GraphEditResult> {
+async function commandResult(
+  projectRoot: PackageWorkspaceRef,
+  result: PlanGraphCommandResult
+): Promise<GraphEditResult> {
   const { manifest } = await loadPackage(projectRoot);
   const graph = compileTaskGraph(manifest);
   return {
@@ -37,7 +40,9 @@ export async function executeDesktopPlanGraphCommand(
   return commandResult(resultWorkspace, result);
 }
 
-export async function undoDesktopPlanGraphCommand(projectRoot: PackageWorkspaceRef): Promise<GraphEditResult> {
+export async function undoDesktopPlanGraphCommand(
+  projectRoot: PackageWorkspaceRef
+): Promise<GraphEditResult> {
   const result = await undoPlanGraphCommand({ projectRoot });
   const resultWorkspace = result.ok ? result.workspaceRef : projectRoot;
   await applyLayoutNodeSideEffects(resultWorkspace, result);
@@ -45,7 +50,9 @@ export async function undoDesktopPlanGraphCommand(projectRoot: PackageWorkspaceR
   return commandResult(resultWorkspace, result);
 }
 
-export async function redoDesktopPlanGraphCommand(projectRoot: PackageWorkspaceRef): Promise<GraphEditResult> {
+export async function redoDesktopPlanGraphCommand(
+  projectRoot: PackageWorkspaceRef
+): Promise<GraphEditResult> {
   const result = await redoPlanGraphCommand({ projectRoot });
   const resultWorkspace = result.ok ? result.workspaceRef : projectRoot;
   await applyLayoutNodeSideEffects(resultWorkspace, result);
@@ -53,7 +60,10 @@ export async function redoDesktopPlanGraphCommand(projectRoot: PackageWorkspaceR
   return commandResult(resultWorkspace, result);
 }
 
-async function applyLayoutNodeSideEffects(projectRoot: PackageWorkspaceRef, result: PlanGraphCommandResult): Promise<void> {
+async function applyLayoutNodeSideEffects(
+  projectRoot: PackageWorkspaceRef,
+  result: PlanGraphCommandResult
+): Promise<void> {
   if (!result.ok) {
     return;
   }

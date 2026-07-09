@@ -2,7 +2,11 @@ import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createDefaultTunnelConfig, createFileTunnelConfigStore, normalizeTunnelConfig } from "../tunnel/configStore.js";
+import {
+  createDefaultTunnelConfig,
+  createFileTunnelConfigStore,
+  normalizeTunnelConfig
+} from "../tunnel/configStore.js";
 
 describe("MCP tunnel config store", () => {
   it("returns defaults when config is missing", async () => {

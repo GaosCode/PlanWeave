@@ -33,10 +33,12 @@ export const contentToolOutputSchemas = {
     prompt: packageContentReadSchema
   },
   get_prompt_sources: {
-    promptSources: z.object({
-      ref: z.string(),
-      sources: z.array(passthroughObjectSchema)
-    }).passthrough()
+    promptSources: z
+      .object({
+        ref: z.string(),
+        sources: z.array(passthroughObjectSchema)
+      })
+      .passthrough()
   },
   list_package_files: packageFileListSchema,
   read_package_file: {
@@ -52,28 +54,40 @@ export const contentToolOutputSchemas = {
     markdown: z.string()
   },
   refresh_prompts: {
-    refresh: z.object({
-      prompts: z.array(z.object({
-        ref: z.string(),
-        path: z.string(),
-        markdownBytes: z.number(),
-        markdown: z.string().optional()
-      }).passthrough()),
-      promptCount: z.number(),
-      contentIncluded: z.boolean()
-    }).passthrough()
+    refresh: z
+      .object({
+        prompts: z.array(
+          z
+            .object({
+              ref: z.string(),
+              path: z.string(),
+              markdownBytes: z.number(),
+              markdown: z.string().optional()
+            })
+            .passthrough()
+        ),
+        promptCount: z.number(),
+        contentIncluded: z.boolean()
+      })
+      .passthrough()
   },
   refresh_prompts_summary: {
-    refresh: z.object({
-      prompts: z.array(z.object({
-        ref: z.string(),
-        path: z.string(),
-        markdownBytes: z.number(),
-        markdown: z.string().optional()
-      }).passthrough()),
-      promptCount: z.number(),
-      contentIncluded: z.boolean()
-    }).passthrough()
+    refresh: z
+      .object({
+        prompts: z.array(
+          z
+            .object({
+              ref: z.string(),
+              path: z.string(),
+              markdownBytes: z.number(),
+              markdown: z.string().optional()
+            })
+            .passthrough()
+        ),
+        promptCount: z.number(),
+        contentIncluded: z.boolean()
+      })
+      .passthrough()
   },
   export_project: {
     projectExport: projectExportSummarySchema

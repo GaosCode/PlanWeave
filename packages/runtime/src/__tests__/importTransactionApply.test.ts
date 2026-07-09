@@ -2,7 +2,12 @@ import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ImportTransaction } from "../package/importTransaction.js";
-import { tempWorkspace, writeText, recoveryRoot, realFs } from "./support/importTransactionTestHarness.js";
+import {
+  tempWorkspace,
+  writeText,
+  recoveryRoot,
+  realFs
+} from "./support/importTransactionTestHarness.js";
 
 describe("ImportTransaction: apply and commit", () => {
   it("cleans the recovery directory on commit", async () => {
@@ -74,7 +79,9 @@ describe("ImportTransaction: apply and commit", () => {
       }
     });
 
-    await expect(transaction.replacePath(target, staged)).rejects.toThrow("backup directory write failed");
+    await expect(transaction.replacePath(target, staged)).rejects.toThrow(
+      "backup directory write failed"
+    );
 
     expect(await readFile(join(target, "manifest.json"), "utf8")).toBe("old\n");
     expect(await readFile(join(staged, "manifest.json"), "utf8")).toBe("new\n");

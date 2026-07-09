@@ -3,7 +3,12 @@ import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { unzipSync } from "fflate";
 import { tunnelClientDownloadUrl } from "./binary.js";
-import type { GitHubRelease, GitHubReleaseAsset, TunnelClientDownloadResult, TunnelClientPlatformAsset } from "./types.js";
+import type {
+  GitHubRelease,
+  GitHubReleaseAsset,
+  TunnelClientDownloadResult,
+  TunnelClientPlatformAsset
+} from "./types.js";
 
 const latestReleaseApiUrl = "https://api.github.com/repos/openai/tunnel-client/releases/latest";
 
@@ -11,8 +16,18 @@ function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-export function tunnelClientPlatformAsset(platform = process.platform, arch = process.arch): TunnelClientPlatformAsset {
-  const os = platform === "win32" ? "windows" : platform === "darwin" ? "darwin" : platform === "linux" ? "linux" : null;
+export function tunnelClientPlatformAsset(
+  platform = process.platform,
+  arch = process.arch
+): TunnelClientPlatformAsset {
+  const os =
+    platform === "win32"
+      ? "windows"
+      : platform === "darwin"
+        ? "darwin"
+        : platform === "linux"
+          ? "linux"
+          : null;
   const cpu = arch === "x64" ? "amd64" : arch === "arm64" ? "arm64" : null;
   if (!os || !cpu) {
     throw new Error(`Unsupported tunnel-client platform: ${platform}-${arch}.`);
@@ -35,7 +50,10 @@ function parseRelease(value: unknown): GitHubRelease {
     tag_name: record.tag_name,
     assets: record.assets.map((asset) => {
       const assetRecord = asset as Record<string, unknown>;
-      if (typeof assetRecord.name !== "string" || typeof assetRecord.browser_download_url !== "string") {
+      if (
+        typeof assetRecord.name !== "string" ||
+        typeof assetRecord.browser_download_url !== "string"
+      ) {
         throw new Error("Invalid tunnel-client release asset metadata.");
       }
       return {
@@ -87,9 +105,7 @@ function isHexSha256(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
     const hex =
-      (code >= 48 && code <= 57) ||
-      (code >= 65 && code <= 70) ||
-      (code >= 97 && code <= 102);
+      (code >= 48 && code <= 57) || (code >= 65 && code <= 70) || (code >= 97 && code <= 102);
     if (!hex) {
       return false;
     }
@@ -112,9 +128,14 @@ function isWhitespace(value: string | undefined): boolean {
   }
 }
 
-export function selectTunnelClientReleaseAssets(release: GitHubRelease, platformAsset: TunnelClientPlatformAsset): { checksumAsset: GitHubReleaseAsset; platformZipAsset: GitHubReleaseAsset } {
+export function selectTunnelClientReleaseAssets(
+  release: GitHubRelease,
+  platformAsset: TunnelClientPlatformAsset
+): { checksumAsset: GitHubReleaseAsset; platformZipAsset: GitHubReleaseAsset } {
   const checksumAsset = release.assets.find((asset) => asset.name === "SHA256SUMS.txt");
-  const platformZipAsset = release.assets.find((asset) => asset.name.endsWith(platformAsset.assetSuffix));
+  const platformZipAsset = release.assets.find((asset) =>
+    asset.name.endsWith(platformAsset.assetSuffix)
+  );
   if (!checksumAsset) {
     throw new Error("Tunnel client release is missing SHA256SUMS.txt.");
   }
@@ -148,7 +169,9 @@ async function fetchRelease(): Promise<GitHubRelease> {
   });
   if (!response.ok) {
     if (response.status === 403) {
-      throw new Error(`GitHub API rate limit blocked tunnel-client metadata. Open ${tunnelClientDownloadUrl} and try again later.`);
+      throw new Error(
+        `GitHub API rate limit blocked tunnel-client metadata. Open ${tunnelClientDownloadUrl} and try again later.`
+      );
     }
     throw new Error(`Failed to fetch tunnel-client release metadata: ${response.status}.`);
   }
@@ -157,17 +180,24 @@ async function fetchRelease(): Promise<GitHubRelease> {
 
 function extractBinary(zipBytes: Uint8Array, binaryName: string): Uint8Array {
   const entries = unzipSync(zipBytes);
-  const entry = Object.entries(entries).find(([name]) => name === binaryName || name.endsWith(`/${binaryName}`));
+  const entry = Object.entries(entries).find(
+    ([name]) => name === binaryName || name.endsWith(`/${binaryName}`)
+  );
   if (!entry) {
     throw new Error(`Tunnel client archive does not contain ${binaryName}.`);
   }
   return entry[1];
 }
 
-export async function downloadOfficialTunnelClient(targetRoot: string): Promise<TunnelClientDownloadResult> {
+export async function downloadOfficialTunnelClient(
+  targetRoot: string
+): Promise<TunnelClientDownloadResult> {
   const platformAsset = tunnelClientPlatformAsset();
   const release = await fetchRelease();
-  const { checksumAsset, platformZipAsset } = selectTunnelClientReleaseAssets(release, platformAsset);
+  const { checksumAsset, platformZipAsset } = selectTunnelClientReleaseAssets(
+    release,
+    platformAsset
+  );
   const [checksumText, zipBytes] = await Promise.all([
     fetchText(checksumAsset.browser_download_url),
     fetchBytes(platformZipAsset.browser_download_url)

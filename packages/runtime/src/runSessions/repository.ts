@@ -20,7 +20,16 @@ import type { PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
 const sessionIdPattern = /^SESSION-(\d{4,})$/;
 const runSessionKinds = new Set(["run", "reset"]);
 const runSessionTriggers = new Set(["manual", "cron", "desktop", "api"]);
-const runSessionPhases = new Set(["created", "resetting", "running", "completed", "manual", "blocked", "failed", "stopped"]);
+const runSessionPhases = new Set([
+  "created",
+  "resetting",
+  "running",
+  "completed",
+  "manual",
+  "blocked",
+  "failed",
+  "stopped"
+]);
 const autoRunStopReasons = new Set(["none", "once", "step_limit", "no_steps"]);
 
 export function assertValidRunSessionId(sessionId: string): void {
@@ -45,7 +54,9 @@ function sessionEventsPath(workspace: ProjectWorkspace, sessionId: string): stri
   return join(sessionRoot(workspace, sessionId), "events.ndjson");
 }
 
-async function resolveSessionWorkspace(projectRoot: PackageWorkspaceRef): Promise<ProjectWorkspace> {
+async function resolveSessionWorkspace(
+  projectRoot: PackageWorkspaceRef
+): Promise<ProjectWorkspace> {
   return resolvePackageWorkspace(projectRoot);
 }
 
@@ -56,7 +67,11 @@ async function canvasIdForWorkspace(workspace: ProjectWorkspace): Promise<string
 async function listExistingSessionIds(workspace: ProjectWorkspace): Promise<string[]> {
   const root = runSessionsRoot(workspace);
   const entries = await optionalReaddir(root, { withFileTypes: true });
-  return entries?.filter((entry) => entry.isDirectory() && sessionIdPattern.test(entry.name)).map((entry) => entry.name) ?? [];
+  return (
+    entries
+      ?.filter((entry) => entry.isDirectory() && sessionIdPattern.test(entry.name))
+      .map((entry) => entry.name) ?? []
+  );
 }
 
 function nextSessionId(existing: string[]): string {
@@ -81,7 +96,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function invalidSessionDiagnostic(sessionId: string, path: string, message: string): RunSessionDiagnostic {
+function invalidSessionDiagnostic(
+  sessionId: string,
+  path: string,
+  message: string
+): RunSessionDiagnostic {
   return { code: "run_session_invalid", sessionId, path, message };
 }
 
@@ -105,7 +124,9 @@ function isNullableString(value: unknown): boolean {
   return value === null || typeof value === "string";
 }
 
-type StoredRunSessionResetSummary = Omit<RunSessionResetSummary, "reason"> & { reason?: string | null };
+type StoredRunSessionResetSummary = Omit<RunSessionResetSummary, "reason"> & {
+  reason?: string | null;
+};
 
 function isResetSummary(value: unknown): value is StoredRunSessionResetSummary | null {
   if (value === null) {
@@ -126,7 +147,9 @@ function isResetSummary(value: unknown): value is StoredRunSessionResetSummary |
   );
 }
 
-function normalizeResetSummary(value: StoredRunSessionResetSummary | null): RunSessionResetSummary | null {
+function normalizeResetSummary(
+  value: StoredRunSessionResetSummary | null
+): RunSessionResetSummary | null {
   return value === null ? null : { ...value, reason: value.reason ?? null };
 }
 
@@ -142,53 +165,112 @@ function isAutoRunSummary(value: unknown): boolean {
     value.stepCount >= 0 &&
     typeof value.parallel === "boolean" &&
     isNullableString(value.executorOverride) &&
-    (value.stopReason === null || (typeof value.stopReason === "string" && autoRunStopReasons.has(value.stopReason)))
+    (value.stopReason === null ||
+      (typeof value.stopReason === "string" && autoRunStopReasons.has(value.stopReason)))
   );
 }
 
-function validateSessionState(value: unknown, sessionId: string, path: string): { session: RunSessionState | null; diagnostics: RunSessionDiagnostic[] } {
+function validateSessionState(
+  value: unknown,
+  sessionId: string,
+  path: string
+): { session: RunSessionState | null; diagnostics: RunSessionDiagnostic[] } {
   if (!isRecord(value)) {
-    return { session: null, diagnostics: [invalidSessionDiagnostic(sessionId, path, "Run session summary must be a JSON object.")] };
+    return {
+      session: null,
+      diagnostics: [
+        invalidSessionDiagnostic(sessionId, path, "Run session summary must be a JSON object.")
+      ]
+    };
   }
   const diagnostics: RunSessionDiagnostic[] = [];
   if (value.sessionId !== sessionId) {
-    diagnostics.push(invalidSessionDiagnostic(sessionId, path, "Run session summary sessionId does not match its directory."));
+    diagnostics.push(
+      invalidSessionDiagnostic(
+        sessionId,
+        path,
+        "Run session summary sessionId does not match its directory."
+      )
+    );
   }
   if (!runSessionKinds.has(String(value.kind))) {
-    diagnostics.push(invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid kind."));
+    diagnostics.push(
+      invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid kind.")
+    );
   }
   if (!runSessionTriggers.has(String(value.trigger))) {
-    diagnostics.push(invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid trigger."));
+    diagnostics.push(
+      invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid trigger.")
+    );
   }
   if (typeof value.projectRoot !== "string" || value.projectRoot.length === 0) {
-    diagnostics.push(invalidSessionDiagnostic(sessionId, path, "Run session summary is missing projectRoot."));
+    diagnostics.push(
+      invalidSessionDiagnostic(sessionId, path, "Run session summary is missing projectRoot.")
+    );
   }
   if (typeof value.canvasId !== "string" || value.canvasId.length === 0) {
-    diagnostics.push(invalidSessionDiagnostic(sessionId, path, "Run session summary is missing canvasId."));
+    diagnostics.push(
+      invalidSessionDiagnostic(sessionId, path, "Run session summary is missing canvasId.")
+    );
   }
   if (!isRunSessionScope(value.scope)) {
-    diagnostics.push(invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid scope."));
+    diagnostics.push(
+      invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid scope.")
+    );
   }
   if (!runSessionPhases.has(String(value.phase))) {
-    diagnostics.push(invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid phase."));
+    diagnostics.push(
+      invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid phase.")
+    );
   }
-  if (typeof value.startedAt !== "string" || value.startedAt.length === 0 || typeof value.updatedAt !== "string" || value.updatedAt.length === 0) {
-    diagnostics.push(invalidSessionDiagnostic(sessionId, path, "Run session summary is missing startedAt or updatedAt."));
+  if (
+    typeof value.startedAt !== "string" ||
+    value.startedAt.length === 0 ||
+    typeof value.updatedAt !== "string" ||
+    value.updatedAt.length === 0
+  ) {
+    diagnostics.push(
+      invalidSessionDiagnostic(
+        sessionId,
+        path,
+        "Run session summary is missing startedAt or updatedAt."
+      )
+    );
   }
   if (!isNullableString(value.finishedAt)) {
-    diagnostics.push(invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid finishedAt."));
+    diagnostics.push(
+      invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid finishedAt.")
+    );
   }
   const storedResetSummary = value.reset;
   const resetSummaryValid = isResetSummary(storedResetSummary);
   const resetSummary = resetSummaryValid ? normalizeResetSummary(storedResetSummary) : null;
   if (!resetSummaryValid) {
-    diagnostics.push(invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid reset summary."));
+    diagnostics.push(
+      invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid reset summary.")
+    );
   }
   if (!isAutoRunSummary(value.autoRun)) {
-    diagnostics.push(invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid autoRun summary."));
+    diagnostics.push(
+      invalidSessionDiagnostic(
+        sessionId,
+        path,
+        "Run session summary has an invalid autoRun summary."
+      )
+    );
   }
-  if (!isNullableString(value.latestRecordId) || !isNullableString(value.latestRecordPath) || !isNullableString(value.error)) {
-    diagnostics.push(invalidSessionDiagnostic(sessionId, path, "Run session summary has invalid nullable string fields."));
+  if (
+    !isNullableString(value.latestRecordId) ||
+    !isNullableString(value.latestRecordPath) ||
+    !isNullableString(value.error)
+  ) {
+    diagnostics.push(
+      invalidSessionDiagnostic(
+        sessionId,
+        path,
+        "Run session summary has invalid nullable string fields."
+      )
+    );
   }
   if (diagnostics.length > 0) {
     return { session: null, diagnostics };
@@ -197,7 +279,10 @@ function validateSessionState(value: unknown, sessionId: string, path: string): 
   return { session: { ...session, reset: resetSummary }, diagnostics: [] };
 }
 
-async function readSessionState(workspace: ProjectWorkspace, sessionId: string): Promise<{ session: RunSessionState | null; diagnostics: RunSessionDiagnostic[] }> {
+async function readSessionState(
+  workspace: ProjectWorkspace,
+  sessionId: string
+): Promise<{ session: RunSessionState | null; diagnostics: RunSessionDiagnostic[] }> {
   const path = sessionSummaryPath(workspace, sessionId);
   try {
     return validateSessionState(await readJsonFile<unknown>(path), sessionId, path);
@@ -251,7 +336,10 @@ export async function createRunSession(options: CreateRunSessionOptions): Promis
     error: null
   };
   await writeJsonFile(sessionSummaryPath(workspace, sessionId), session);
-  await appendRunSessionEvent(options.projectRoot, sessionId, "session_started", { timestamp: now, phase: session.phase });
+  await appendRunSessionEvent(options.projectRoot, sessionId, "session_started", {
+    timestamp: now,
+    phase: session.phase
+  });
   return session;
 }
 
@@ -295,7 +383,9 @@ export async function appendRunSessionEvent(
   await appendFile(sessionEventsPath(workspace, sessionId), `${JSON.stringify(event)}\n`, "utf8");
 }
 
-export async function listRunSessions(projectRoot: PackageWorkspaceRef): Promise<ListRunSessionsResult> {
+export async function listRunSessions(
+  projectRoot: PackageWorkspaceRef
+): Promise<ListRunSessionsResult> {
   const workspace = await resolveSessionWorkspace(projectRoot);
   const diagnostics: RunSessionDiagnostic[] = [];
   const sessions: RunSessionState[] = [];
@@ -306,11 +396,17 @@ export async function listRunSessions(projectRoot: PackageWorkspaceRef): Promise
       sessions.push(read.session);
     }
   }
-  sessions.sort((left, right) => right.startedAt.localeCompare(left.startedAt) || right.sessionId.localeCompare(left.sessionId));
+  sessions.sort(
+    (left, right) =>
+      right.startedAt.localeCompare(left.startedAt) || right.sessionId.localeCompare(left.sessionId)
+  );
   return { sessions, diagnostics };
 }
 
-export async function getRunSession(projectRoot: PackageWorkspaceRef, sessionId: string): Promise<RunSessionDetail> {
+export async function getRunSession(
+  projectRoot: PackageWorkspaceRef,
+  sessionId: string
+): Promise<RunSessionDetail> {
   assertValidRunSessionId(sessionId);
   const workspace = await resolveSessionWorkspace(projectRoot);
   const read = await readSessionState(workspace, sessionId);
@@ -328,7 +424,12 @@ export async function getRunSession(projectRoot: PackageWorkspaceRef, sessionId:
       }
       try {
         const parsed = JSON.parse(line) as unknown;
-        if (!isRecord(parsed) || parsed.sessionId !== sessionId || typeof parsed.type !== "string" || typeof parsed.timestamp !== "string") {
+        if (
+          !isRecord(parsed) ||
+          parsed.sessionId !== sessionId ||
+          typeof parsed.type !== "string" ||
+          typeof parsed.timestamp !== "string"
+        ) {
           diagnostics.push({
             code: "run_session_event_invalid",
             sessionId,

@@ -1,6 +1,9 @@
 import { access } from "node:fs/promises";
 import { ipcMain } from "electron";
-import { desktopSettingsInvokeChannels, normalizeDesktopSettingsPatch } from "../shared/desktopSettings.js";
+import {
+  desktopSettingsInvokeChannels,
+  normalizeDesktopSettingsPatch
+} from "../shared/desktopSettings.js";
 import { DesktopSettingsStore } from "./desktopSettingsStore.js";
 
 function errorCode(caught: unknown): string | null {
@@ -31,7 +34,8 @@ export function registerDesktopSettingsHandlers(
   store: DesktopSettingsStore | undefined = undefined,
   options: RegisterDesktopSettingsHandlersOptions = {}
 ): void {
-  const settingsStore = store ?? new DesktopSettingsStore({ planweaveHomeBaseline: options.planweaveHomeBaseline });
+  const settingsStore =
+    store ?? new DesktopSettingsStore({ planweaveHomeBaseline: options.planweaveHomeBaseline });
   let queue = Promise.resolve();
   const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
     const next = queue.catch(() => undefined).then(operation);
@@ -42,16 +46,20 @@ export function registerDesktopSettingsHandlers(
     return next;
   };
 
-  ipcMain.handle(desktopSettingsInvokeChannels.getDesktopSettings, () => enqueue(() => settingsStore.read()));
+  ipcMain.handle(desktopSettingsInvokeChannels.getDesktopSettings, () =>
+    enqueue(() => settingsStore.read())
+  );
   ipcMain.handle(desktopSettingsInvokeChannels.saveDesktopSettings, (_event, patch: unknown) =>
     enqueue(() => settingsStore.mergePatch(normalizeDesktopSettingsPatch(patch)))
   );
-  ipcMain.handle(desktopSettingsInvokeChannels.migrateLegacyDesktopSettings, (_event, payload: unknown) =>
-    enqueue(async () => {
-      if (await settingsFileExists(settingsStore.settingsFile)) {
-        return settingsStore.read();
-      }
-      return settingsStore.migrateLegacy(payload);
-    })
+  ipcMain.handle(
+    desktopSettingsInvokeChannels.migrateLegacyDesktopSettings,
+    (_event, payload: unknown) =>
+      enqueue(async () => {
+        if (await settingsFileExists(settingsStore.settingsFile)) {
+          return settingsStore.read();
+        }
+        return settingsStore.migrateLegacy(payload);
+      })
   );
 }

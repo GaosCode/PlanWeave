@@ -5,7 +5,8 @@ export const projectSchemaDocument: SchemaDocument<"project"> = {
   name: "project",
   summary: "Project-level canvas graph schema.",
   path: "project-graph.json inside the CLI-returned workspaceRoot",
-  ownership: "User/agent editable project graph source. Do not write runtime state, results, or desktop layout here.",
+  ownership:
+    "User/agent editable project graph source. Do not write runtime state, results, or desktop layout here.",
   validation: ["planweave validate --json", "planweave schema project"],
   schema: {
     version: supportedProjectGraphVersion,
@@ -15,12 +16,17 @@ export const projectSchemaDocument: SchemaDocument<"project"> = {
         type: "canvas",
         title: "string, non-empty",
         description: "string, optional",
-        packageDir: "workspaceRoot-relative package directory; default canvas uses canvases/default/package",
-        stateFile: "workspaceRoot-relative runtime state file; default canvas uses canvases/default/state.json",
-        resultsDir: "workspaceRoot-relative results directory; default canvas uses canvases/default/results"
+        packageDir:
+          "workspaceRoot-relative package directory; default canvas uses canvases/default/package",
+        stateFile:
+          "workspaceRoot-relative runtime state file; default canvas uses canvases/default/state.json",
+        resultsDir:
+          "workspaceRoot-relative results directory; default canvas uses canvases/default/results"
       }
     ],
-    edges: [{ from: "CLI-safe canvas id", to: "CLI-safe canvas id", type: projectGraphEdgeTypes[0] }],
+    edges: [
+      { from: "CLI-safe canvas id", to: "CLI-safe canvas id", type: projectGraphEdgeTypes[0] }
+    ],
     crossTaskEdges: [
       {
         from: { canvasId: "CLI-safe canvas id", taskId: "task id string" },

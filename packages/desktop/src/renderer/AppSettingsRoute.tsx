@@ -1,5 +1,11 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { DesktopAgentDetection, DesktopGraphViewModel, DesktopProjectSummary, DesktopRuntimeToolAvailability, ProjectPromptPolicy } from "@planweave-ai/runtime";
+import type {
+  DesktopAgentDetection,
+  DesktopGraphViewModel,
+  DesktopProjectSummary,
+  DesktopRuntimeToolAvailability,
+  ProjectPromptPolicy
+} from "@planweave-ai/runtime";
 import type { createTranslator, Language } from "./i18n";
 import type { AppView, DesktopSettingsUpdate, DesktopUiSettings } from "./types";
 import { SettingsView } from "./views/SettingsView";

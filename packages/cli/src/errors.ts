@@ -1,6 +1,8 @@
 import { PlanWeaveWorkspaceNotInitializedError } from "@planweave-ai/runtime";
 
-export function workspaceNotInitializedJson(error: PlanWeaveWorkspaceNotInitializedError): Record<string, unknown> {
+export function workspaceNotInitializedJson(
+  error: PlanWeaveWorkspaceNotInitializedError
+): Record<string, unknown> {
   return {
     initialized: false,
     projectRoot: error.projectRoot,
@@ -12,11 +14,16 @@ export function workspaceNotInitializedJson(error: PlanWeaveWorkspaceNotInitiali
     statePath: error.statePath,
     resultsDir: error.resultsDir,
     message: error.message,
-    nextCommands: ["planweave init --json", "planweave --project-root /path/to/project paths --json"]
+    nextCommands: [
+      "planweave init --json",
+      "planweave --project-root /path/to/project paths --json"
+    ]
   };
 }
 
-export function formatWorkspaceNotInitialized(error: PlanWeaveWorkspaceNotInitializedError): string {
+export function formatWorkspaceNotInitialized(
+  error: PlanWeaveWorkspaceNotInitializedError
+): string {
   return [
     `PlanWeave workspace is not initialized for project: ${error.projectRoot}`,
     "",

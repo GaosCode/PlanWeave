@@ -4,7 +4,12 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { assertTunnelClientBinaryStartTarget } from "./binary.js";
-import type { TunnelClientArgsInput, TunnelClientBinaryStartTarget, TunnelClientExecutableName, TunnelClientStatus } from "./types.js";
+import type {
+  TunnelClientArgsInput,
+  TunnelClientBinaryStartTarget,
+  TunnelClientExecutableName,
+  TunnelClientStatus
+} from "./types.js";
 
 const profileName = "planweave-local-http";
 const healthListenAddr = "127.0.0.1:0";
@@ -27,23 +32,43 @@ export function buildTunnelClientInitArgs(input: TunnelClientArgsInput): string[
 }
 
 export function buildTunnelClientRunArgs(healthUrlFile: string): string[] {
-  return ["run", "--profile", profileName, "--harpoon.allow-plaintext-http", "--health.listen-addr", healthListenAddr, "--health.url-file", healthUrlFile];
+  return [
+    "run",
+    "--profile",
+    profileName,
+    "--harpoon.allow-plaintext-http",
+    "--health.listen-addr",
+    healthListenAddr,
+    "--health.url-file",
+    healthUrlFile
+  ];
 }
 
 function tunnelClientCommand(binary: TunnelClientBinaryStartTarget): TunnelClientExecutableName {
   return binary.executableName === "tunnel-client.exe" ? "tunnel-client.exe" : "tunnel-client";
 }
 
-function buildTunnelClientEnv(binary: TunnelClientBinaryStartTarget, runtimeApiKey: string, tunnelId: string): NodeJS.ProcessEnv {
+function buildTunnelClientEnv(
+  binary: TunnelClientBinaryStartTarget,
+  runtimeApiKey: string,
+  tunnelId: string
+): NodeJS.ProcessEnv {
   return {
     ...process.env,
-    PATH: process.env.PATH ? `${binary.executableDir}${delimiter}${process.env.PATH}` : binary.executableDir,
+    PATH: process.env.PATH
+      ? `${binary.executableDir}${delimiter}${process.env.PATH}`
+      : binary.executableDir,
     CONTROL_PLANE_TUNNEL_ID: tunnelId,
     CONTROL_PLANE_API_KEY: runtimeApiKey
   };
 }
 
-function execTunnelClient(binary: TunnelClientBinaryStartTarget, args: string[], runtimeApiKey: string, tunnelId: string): Promise<void> {
+function execTunnelClient(
+  binary: TunnelClientBinaryStartTarget,
+  args: string[],
+  runtimeApiKey: string,
+  tunnelId: string
+): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile(
       tunnelClientCommand(binary),
@@ -69,9 +94,16 @@ function redactValue(message: string, value: string, replacement: string): strin
   return value ? message.split(value).join(replacement) : message;
 }
 
-function redactTunnelClientError(error: unknown, secrets: { runtimeApiKey: string; tunnelId: string }): string {
+function redactTunnelClientError(
+  error: unknown,
+  secrets: { runtimeApiKey: string; tunnelId: string }
+): string {
   const message = error instanceof Error ? error.message : String(error);
-  return redactValue(redactValue(message, secrets.runtimeApiKey, "[redacted-runtime-api-key]"), secrets.tunnelId, "[redacted-tunnel-id]");
+  return redactValue(
+    redactValue(message, secrets.runtimeApiKey, "[redacted-runtime-api-key]"),
+    secrets.tunnelId,
+    "[redacted-tunnel-id]"
+  );
 }
 
 export class TunnelClientProcessManager {
@@ -89,7 +121,13 @@ export class TunnelClientProcessManager {
     error: null
   };
 
-  constructor(options: { healthUrlTimeoutMs?: number; onStatusChange?: () => void; readyTimeoutMs?: number } = {}) {
+  constructor(
+    options: {
+      healthUrlTimeoutMs?: number;
+      onStatusChange?: () => void;
+      readyTimeoutMs?: number;
+    } = {}
+  ) {
     this.healthUrlTimeoutMs = options.healthUrlTimeoutMs ?? defaultHealthUrlTimeoutMs;
     this.onStatusChange = options.onStatusChange ?? null;
     this.readyTimeoutMs = options.readyTimeoutMs ?? defaultReadyTimeoutMs;
@@ -172,11 +210,18 @@ export class TunnelClientProcessManager {
             pid: null,
             healthUrl: lastHealthUrl,
             ready: false,
-            error: code === 0 ? null : `tunnel-client exited with code ${code ?? "null"} signal ${signal ?? "null"}.`
+            error:
+              code === 0
+                ? null
+                : `tunnel-client exited with code ${code ?? "null"} signal ${signal ?? "null"}.`
           };
           this.onStatusChange?.();
         });
-        const healthUrl = await this.waitForHealthUrl(child, healthUrlFile, this.healthUrlTimeoutMs);
+        const healthUrl = await this.waitForHealthUrl(
+          child,
+          healthUrlFile,
+          this.healthUrlTimeoutMs
+        );
         lastHealthUrl = healthUrl;
         const ready = await this.waitForReady(healthUrl, this.readyTimeoutMs);
         this.status = {
@@ -260,7 +305,11 @@ export class TunnelClientProcessManager {
     return this.status;
   }
 
-  private waitForHealthUrl(child: ChildProcess, healthUrlFile: string, timeoutMs: number): Promise<string> {
+  private waitForHealthUrl(
+    child: ChildProcess,
+    healthUrlFile: string,
+    timeoutMs: number
+  ): Promise<string> {
     return new Promise((resolve, reject) => {
       let settled = false;
       const timeout = setTimeout(() => {
@@ -268,18 +317,20 @@ export class TunnelClientProcessManager {
         reject(new Error("Timed out waiting for tunnel-client health URL."));
       }, timeoutMs);
       const interval = setInterval(() => {
-        void readFile(healthUrlFile, "utf8").then((content) => {
-          if (settled) {
-            return;
-          }
-          const healthUrl = content.trim();
-          if (!/^https?:\/\/127\.0\.0\.1:\d+$/.test(healthUrl)) {
-            return;
-          }
-          settled = true;
-          cleanup();
-          resolve(healthUrl);
-        }).catch(() => undefined);
+        void readFile(healthUrlFile, "utf8")
+          .then((content) => {
+            if (settled) {
+              return;
+            }
+            const healthUrl = content.trim();
+            if (!/^https?:\/\/127\.0\.0\.1:\d+$/.test(healthUrl)) {
+              return;
+            }
+            settled = true;
+            cleanup();
+            resolve(healthUrl);
+          })
+          .catch(() => undefined);
       }, 100);
       const handleExit = () => {
         settled = true;

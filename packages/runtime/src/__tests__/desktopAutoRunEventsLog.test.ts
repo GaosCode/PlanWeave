@@ -14,7 +14,11 @@ function eventLogPath(workspace: ProjectWorkspace, runId: string): string {
   return join(workspace.resultsDir, "auto-runs", runId, "events.ndjson");
 }
 
-async function writeEventLog(workspace: ProjectWorkspace, runId: string, lines: string[]): Promise<string> {
+async function writeEventLog(
+  workspace: ProjectWorkspace,
+  runId: string,
+  lines: string[]
+): Promise<string> {
   const path = eventLogPath(workspace, runId);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${lines.join("\n")}\n`, "utf8");

@@ -77,7 +77,9 @@ function publish(nextState: AppUpdateState): AppUpdateState {
   return state;
 }
 
-function setState(next: Omit<AppUpdateState, "currentVersion" | "updatedAt" | "delivery">): AppUpdateState {
+function setState(
+  next: Omit<AppUpdateState, "currentVersion" | "updatedAt" | "delivery">
+): AppUpdateState {
   return publish({
     ...next,
     delivery: currentDelivery(),
@@ -119,7 +121,11 @@ export async function checkForAppUpdate(): Promise<AppUpdateState> {
   if (!ensurePackaged()) {
     return unsupportedState();
   }
-  if (state.status === "checking" || state.status === "downloading" || state.status === "downloaded") {
+  if (
+    state.status === "checking" ||
+    state.status === "downloading" ||
+    state.status === "downloaded"
+  ) {
     return state;
   }
   const checkedAt = nowIso();
@@ -220,7 +226,8 @@ export async function installAppUpdate(): Promise<AppUpdateState> {
     return setState({
       status: "error",
       checkedAt: state.checkedAt,
-      error: "In-app install is not available for unsigned macOS builds. Download from GitHub Releases.",
+      error:
+        "In-app install is not available for unsigned macOS builds. Download from GitHub Releases.",
       progress: null,
       update: latestUpdateInfo
     });

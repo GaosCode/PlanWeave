@@ -10,7 +10,11 @@ import {
   type GraphQualityReport,
   type GraphQualityReviewPolicy
 } from "@planweave-ai/runtime";
-import { addCanvasOption, resolveCliPackageWorkspace, type CanvasCommandOptions } from "../cliWorkspace.js";
+import {
+  addCanvasOption,
+  resolveCliPackageWorkspace,
+  type CanvasCommandOptions
+} from "../cliWorkspace.js";
 
 const graphInspectionViews = ["summary", "tasks", "slice"] as const;
 const graphQualityReviewPolicies = ["none", "risk-based", "required"] as const;
@@ -39,7 +43,12 @@ function isOneOf<T extends string>(value: string, choices: readonly T[]): value 
   return choices.includes(value as T);
 }
 
-function parseChoice<T extends string>(flag: string, value: string | undefined, choices: readonly T[], defaultValue: T): T {
+function parseChoice<T extends string>(
+  flag: string,
+  value: string | undefined,
+  choices: readonly T[],
+  defaultValue: T
+): T {
   const candidate = value ?? defaultValue;
   if (isOneOf(candidate, choices)) {
     return candidate;
@@ -62,7 +71,10 @@ function formatPage(label: string, page: { total: number; nextCursor: string | n
   return `${label}: total ${page.total}, next cursor ${page.nextCursor ?? "none"}`;
 }
 
-function formatBoundedSection(label: string, section: { total: number; truncated: boolean }): string {
+function formatBoundedSection(
+  label: string,
+  section: { total: number; truncated: boolean }
+): string {
   return `${label}: total ${section.total}, truncated ${section.truncated ? "yes" : "no"}`;
 }
 
@@ -76,7 +88,9 @@ function formatGraphInspectHuman(result: GraphInspectionResult): string {
       formatPage("tasks preview", result.page)
     ];
     for (const task of result.tasksPreview) {
-      lines.push(`- task ${task.taskId}: ${task.title} [${task.status}], blocks ${task.blockCount}, reviews ${task.reviewBlockCount}`);
+      lines.push(
+        `- task ${task.taskId}: ${task.title} [${task.status}], blocks ${task.blockCount}, reviews ${task.reviewBlockCount}`
+      );
     }
     return lines.join("\n");
   }
@@ -84,7 +98,9 @@ function formatGraphInspectHuman(result: GraphInspectionResult): string {
   if (result.view === "tasks") {
     const lines = ["Graph tasks", formatPage("tasks", result.page)];
     for (const task of result.tasks) {
-      lines.push(`- task ${task.taskId}: ${task.title} [${task.status}], blocks ${task.blockCount}, reviews ${task.reviewBlockCount}`);
+      lines.push(
+        `- task ${task.taskId}: ${task.title} [${task.status}], blocks ${task.blockCount}, reviews ${task.reviewBlockCount}`
+      );
     }
     return lines.join("\n");
   }
@@ -98,16 +114,22 @@ function formatGraphInspectHuman(result: GraphInspectionResult): string {
     formatBoundedSection("blocks", result.blocks)
   ];
   for (const task of result.dependencies.items) {
-    lines.push(`- dependency task ${task.taskId}: ${task.title} [${task.status}], blocks ${task.blockCount}`);
+    lines.push(
+      `- dependency task ${task.taskId}: ${task.title} [${task.status}], blocks ${task.blockCount}`
+    );
   }
   for (const task of result.dependents.items) {
-    lines.push(`- dependent task ${task.taskId}: ${task.title} [${task.status}], blocks ${task.blockCount}`);
+    lines.push(
+      `- dependent task ${task.taskId}: ${task.title} [${task.status}], blocks ${task.blockCount}`
+    );
   }
   for (const edge of result.edges.items) {
     lines.push(`- edge ${edge.from} -> ${edge.to}`);
   }
   for (const block of result.blocks.items) {
-    lines.push(`- block ${block.ref}: ${block.title} [${block.type}, ${block.status}], dependencies ${block.dependsOn.length}`);
+    lines.push(
+      `- block ${block.ref}: ${block.title} [${block.type}, ${block.status}], dependencies ${block.dependsOn.length}`
+    );
   }
   return lines.join("\n");
 }
@@ -143,55 +165,90 @@ function formatGraphQualityHuman(report: GraphQualityReport): string {
 export function registerGraphCommand(program: Command): void {
   const graph = program.command("graph").description("Inspect and validate PlanWeave task graphs");
 
-  addCanvasOption(graph
-    .command("inspect")
-    .description("Inspect the selected task graph")
-    .option("--view <summary|tasks|slice>", "inspection view: summary, tasks, or slice", "summary")
-    .option("--task <taskId>", "task id for --view slice")
-    .option("--limit <n>", "maximum number of items to return")
-    .option("--cursor <cursor>", "pagination cursor returned by summary or tasks inspections")
-    .option("--json", "print machine-readable output"))
-    .action(async (options: GraphInspectOptions) => {
-      const view = parseChoice<GraphInspectionView>("--view", options.view, graphInspectionViews, "summary");
-      if (view === "slice" && options.cursor) {
-        throw new Error("--cursor is not supported for graph inspect --view slice.");
-      }
-      const limit = parsePositiveInteger("--limit", options.limit);
-      const result = await inspectGraph({
-        projectRoot: await resolveCliPackageWorkspace(options),
-        view,
-        taskId: options.task,
-        limit,
-        cursor: options.cursor
-      });
-      console.log(options.json ? JSON.stringify(result, null, 2) : formatGraphInspectHuman(result));
+  addCanvasOption(
+    graph
+      .command("inspect")
+      .description("Inspect the selected task graph")
+      .option(
+        "--view <summary|tasks|slice>",
+        "inspection view: summary, tasks, or slice",
+        "summary"
+      )
+      .option("--task <taskId>", "task id for --view slice")
+      .option("--limit <n>", "maximum number of items to return")
+      .option("--cursor <cursor>", "pagination cursor returned by summary or tasks inspections")
+      .option("--json", "print machine-readable output")
+  ).action(async (options: GraphInspectOptions) => {
+    const view = parseChoice<GraphInspectionView>(
+      "--view",
+      options.view,
+      graphInspectionViews,
+      "summary"
+    );
+    if (view === "slice" && options.cursor) {
+      throw new Error("--cursor is not supported for graph inspect --view slice.");
+    }
+    const limit = parsePositiveInteger("--limit", options.limit);
+    const result = await inspectGraph({
+      projectRoot: await resolveCliPackageWorkspace(options),
+      view,
+      taskId: options.task,
+      limit,
+      cursor: options.cursor
     });
+    console.log(options.json ? JSON.stringify(result, null, 2) : formatGraphInspectHuman(result));
+  });
 
-  addCanvasOption(graph
-    .command("quality")
-    .description("Validate graph structure and quality policy")
-    .option("--json", "print machine-readable output")
-    .option("--review-policy <none|risk-based|required>", "review coverage policy: none, risk-based, or required")
-    .option("--gate-policy <none|required>", "canvas gate policy: none or required")
-    .option("--heuristics <on|off>", "enable or disable heuristic diagnostics")
-    .option("--strict", "promote strict policy diagnostics to errors")
-    .option("--min-task-count-for-sparse-check <n>", "minimum task count before sparse dependency heuristics run"))
-    .action(async (options: GraphQualityOptions) => {
-      const reviewPolicy = parseChoice<GraphQualityReviewPolicy>("--review-policy", options.reviewPolicy, graphQualityReviewPolicies, "risk-based");
-      const gatePolicy = parseChoice<GraphQualityGatePolicy>("--gate-policy", options.gatePolicy, graphQualityGatePolicies, "none");
-      const heuristics = parseChoice<GraphQualityHeuristics>("--heuristics", options.heuristics, graphQualityHeuristics, "on");
-      const minTaskCountForSparseCheck = parsePositiveInteger("--min-task-count-for-sparse-check", options.minTaskCountForSparseCheck);
-      const report = await validateGraphQuality({
-        projectRoot: await resolveCliPackageWorkspace(options),
-        reviewPolicy,
-        gatePolicy,
-        heuristics,
-        strict: options.strict,
-        minTaskCountForSparseCheck
-      });
-      console.log(options.json ? JSON.stringify(report, null, 2) : formatGraphQualityHuman(report));
-      if (!report.ok) {
-        process.exitCode = 1;
-      }
+  addCanvasOption(
+    graph
+      .command("quality")
+      .description("Validate graph structure and quality policy")
+      .option("--json", "print machine-readable output")
+      .option(
+        "--review-policy <none|risk-based|required>",
+        "review coverage policy: none, risk-based, or required"
+      )
+      .option("--gate-policy <none|required>", "canvas gate policy: none or required")
+      .option("--heuristics <on|off>", "enable or disable heuristic diagnostics")
+      .option("--strict", "promote strict policy diagnostics to errors")
+      .option(
+        "--min-task-count-for-sparse-check <n>",
+        "minimum task count before sparse dependency heuristics run"
+      )
+  ).action(async (options: GraphQualityOptions) => {
+    const reviewPolicy = parseChoice<GraphQualityReviewPolicy>(
+      "--review-policy",
+      options.reviewPolicy,
+      graphQualityReviewPolicies,
+      "risk-based"
+    );
+    const gatePolicy = parseChoice<GraphQualityGatePolicy>(
+      "--gate-policy",
+      options.gatePolicy,
+      graphQualityGatePolicies,
+      "none"
+    );
+    const heuristics = parseChoice<GraphQualityHeuristics>(
+      "--heuristics",
+      options.heuristics,
+      graphQualityHeuristics,
+      "on"
+    );
+    const minTaskCountForSparseCheck = parsePositiveInteger(
+      "--min-task-count-for-sparse-check",
+      options.minTaskCountForSparseCheck
+    );
+    const report = await validateGraphQuality({
+      projectRoot: await resolveCliPackageWorkspace(options),
+      reviewPolicy,
+      gatePolicy,
+      heuristics,
+      strict: options.strict,
+      minTaskCountForSparseCheck
     });
+    console.log(options.json ? JSON.stringify(report, null, 2) : formatGraphQualityHuman(report));
+    if (!report.ok) {
+      process.exitCode = 1;
+    }
+  });
 }

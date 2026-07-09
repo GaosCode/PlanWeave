@@ -4,8 +4,13 @@ export const stateSchemaDocument: SchemaDocument<"state"> = {
   name: "state",
   summary: "Runtime execution state schema.",
   path: "CLI-returned statePath; default canvas uses canvases/default/state.json",
-  ownership: "Runtime owned. Do not hand-author during plan import; use claim/submit/recovery commands.",
-  validation: ["planweave status --json", "planweave doctor", "planweave doctor --repair for narrow state/results drift only"],
+  ownership:
+    "Runtime owned. Do not hand-author during plan import; use claim/submit/recovery commands.",
+  validation: [
+    "planweave status --json",
+    "planweave doctor",
+    "planweave doctor --repair for narrow state/results drift only"
+  ],
   schema: {
     currentRefs: "block ref string[]",
     currentFeedbackId: "feedback id string | null",
@@ -18,7 +23,15 @@ export const stateSchemaDocument: SchemaDocument<"state"> = {
     },
     blocks: {
       "[blockRef]": {
-        status: ["planned", "ready", "in_progress", "completed", "needs_changes", "blocked", "diverged"],
+        status: [
+          "planned",
+          "ready",
+          "in_progress",
+          "completed",
+          "needs_changes",
+          "blocked",
+          "diverged"
+        ],
         lastRunId: "string | null, optional",
         latestReviewAttemptId: "string | null, optional",
         activeFeedbackId: "string | null, optional",
