@@ -88,8 +88,8 @@ export type TaskNodeData = {
 export type TaskFlowNode = Node<TaskNodeData, "task">;
 
 export type CanvasNodeLabels = {
-  blocked: string;
   copyAgentPrompt: string;
+  dependency: string;
   error: string;
   open: string;
   warning: string;

@@ -11,6 +11,15 @@ import type {
 import type { AppFlowNode, TaskFlowNode, TaskNodeData } from "../types";
 import { TaskNodeCard } from "./TaskNodeCard";
 import { TaskDependencyEdge } from "./TaskDependencyEdge";
+import {
+  dependencyEdgeColor,
+  dependencyEdgeColorForSource,
+  dependencyEdgeDefaultOpacity,
+  dependencyEdgeDimmedOpacity,
+  dependencyEdgeHighlightedOpacity,
+  dependencyEdgeSourceColors,
+  markerEndWithColor
+} from "./dependencyEdgeVisual";
 import { displayEdgeManifestData, executionFlowEndpoints } from "./dependencyEdges";
 
 export const nodeTypes = {
@@ -30,22 +39,6 @@ export type AppEdgeTypes = typeof edgeTypes;
 const defaultLayoutOrigin = { x: 80, y: 80 };
 const defaultLayoutColumnGap = 460;
 const defaultLayoutRowGap = 360;
-const defaultEdgeOpacity = 0.56;
-const highlightedEdgeOpacity = 0.96;
-const dimmedEdgeOpacity = 0.12;
-const edgeSourcePalette = [
-  "#2563eb",
-  "#16a34a",
-  "#dc2626",
-  "#9333ea",
-  "#0891b2",
-  "#ca8a04",
-  "#db2777",
-  "#4f46e5",
-  "#059669",
-  "#ea580c"
-];
-
 type FlowPosition = {
   x: number;
   y: number;
@@ -241,14 +234,15 @@ export function graphNodes(
 
 export function graphEdges(graph: DesktopGraphViewModel): Edge[] {
   const nodeIds = new Set(graph.tasks.map((task) => task.taskId));
-  const sourceColors = edgeSourceColors(graph);
+  const dependencyLinks = graph.edges.map(executionFlowEndpoints).filter((link) => nodeIds.has(link.source) && nodeIds.has(link.target));
+  const sourceColors = dependencyEdgeSourceColors(graph.tasks.map((task) => task.taskId), dependencyLinks);
   return graph.edges
     .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to))
     .map((edge) => {
       const isTaskDependency = edge.type === "depends_on";
       const endpoints = executionFlowEndpoints(edge);
       const edgeId = `${edge.from}-${edge.type}-${edge.to}`;
-      const color = sourceColors.get(endpoints.source) ?? edgeSourcePalette[0];
+      const color = sourceColors.get(endpoints.source) ?? dependencyEdgeColorForSource(endpoints.source);
       return {
         id: edgeId,
         source: endpoints.source,
@@ -270,7 +264,7 @@ export function graphEdges(graph: DesktopGraphViewModel): Edge[] {
         style: {
           stroke: color,
           strokeWidth: isTaskDependency ? 2.2 : 1.9,
-          opacity: defaultEdgeOpacity,
+          opacity: dependencyEdgeDefaultOpacity,
           transition: "opacity 120ms ease, stroke-width 120ms ease"
         }
       } satisfies Edge;
@@ -292,7 +286,7 @@ export function styleGraphEdgesForInteraction(edges: Edge[], interaction: GraphE
     const relatedToEdge = hasHoveredEdge && edge.id === hoveredEdgeId;
     const related = !hasInteraction || relatedToNode || relatedToEdge || relatedToSelection;
     const highlighted = relatedToNode || relatedToEdge || relatedToSelection;
-    const color = edgeSourceColor(edge);
+    const color = dependencyEdgeColor(edge);
     return {
       ...edge,
       ...(lockedBySelection ? { interactionWidth: 1, reconnectable: false, selectable: false } : {}),
@@ -301,59 +295,8 @@ export function styleGraphEdgesForInteraction(edges: Edge[], interaction: GraphE
         ...edge.style,
         stroke: color,
         strokeWidth: highlighted ? 3.2 : related ? edge.style?.strokeWidth ?? 2 : 1.4,
-        opacity: highlighted ? highlightedEdgeOpacity : related ? edge.style?.opacity ?? defaultEdgeOpacity : dimmedEdgeOpacity
+        opacity: highlighted ? dependencyEdgeHighlightedOpacity : related ? edge.style?.opacity ?? dependencyEdgeDefaultOpacity : dependencyEdgeDimmedOpacity
       }
     };
   });
-}
-
-function edgeSourceColors(graph: DesktopGraphViewModel): Map<string, string> {
-  const adjacency = new Map(graph.tasks.map((task) => [task.taskId, new Set<string>()]));
-  for (const edge of graph.edges) {
-    const endpoints = executionFlowEndpoints(edge);
-    adjacency.get(endpoints.source)?.add(endpoints.target);
-    adjacency.get(endpoints.target)?.add(endpoints.source);
-  }
-  const assigned = new Map<string, string>();
-  for (const task of graph.tasks) {
-    const unavailable = new Set([...adjacency.get(task.taskId) ?? []].flatMap((taskId) => {
-      const color = assigned.get(taskId);
-      return color ? [color] : [];
-    }));
-    const baseIndex = stablePaletteIndex(task.taskId);
-    let selected = edgeSourcePalette[baseIndex];
-    for (let offset = 0; offset < edgeSourcePalette.length; offset += 1) {
-      const candidate = edgeSourcePalette[(baseIndex + offset) % edgeSourcePalette.length];
-      if (!unavailable.has(candidate)) {
-        selected = candidate;
-        break;
-      }
-    }
-    assigned.set(task.taskId, selected);
-  }
-  return assigned;
-}
-
-function stablePaletteIndex(value: string): number {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
-  }
-  return hash % edgeSourcePalette.length;
-}
-
-function edgeSourceColor(edge: Edge): string {
-  const data = edge.data;
-  if (data && typeof data === "object" && "sourceColor" in data && typeof data.sourceColor === "string") {
-    return data.sourceColor;
-  }
-  const stroke = edge.style?.stroke;
-  return typeof stroke === "string" ? stroke : edgeSourcePalette[0];
-}
-
-function markerEndWithColor(markerEnd: Edge["markerEnd"], color: string): Edge["markerEnd"] {
-  if (!markerEnd || typeof markerEnd !== "object") {
-    return markerEnd;
-  }
-  return { ...markerEnd, color };
 }

@@ -10,8 +10,11 @@ import type { CanvasFlowNode } from "../types";
 export function CanvasNodeCard({ data }: NodeProps<CanvasFlowNode>) {
   const hasDiagnostics = data.canvas.diagnostics.length > 0;
   const healthSeverity = data.health?.severity ?? "ok";
-  const hasHealthIssue = healthSeverity !== "ok";
+  const diagnosticCount = data.health?.diagnosticCount ?? 0;
   const blockerCount = data.health?.blockerCount ?? 0;
+  const hasErrorHealth = healthSeverity === "error";
+  const hasWarningDiagnostics = healthSeverity === "warning" && diagnosticCount > 0;
+  const hasDependencyWait = blockerCount > 0;
 
   return (
     <ContextMenu>
@@ -20,8 +23,8 @@ export function CanvasNodeCard({ data }: NodeProps<CanvasFlowNode>) {
           className={cn(
             "w-[280px] border bg-surface-raised text-text shadow-sm transition-[border-color,box-shadow] duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-standard)]",
             data.selected ? "border-state-selected shadow-md ring-2 ring-state-selected/25" : "border-border/80",
-            hasDiagnostics || healthSeverity === "error" ? "border-state-failed/70 bg-state-failed-surface" : null,
-            !hasDiagnostics && healthSeverity === "warning" ? "border-state-warning/75 bg-state-warning-surface" : null
+            hasDiagnostics || hasErrorHealth ? "border-state-failed/70 bg-state-failed-surface" : null,
+            !hasDiagnostics && hasWarningDiagnostics ? "border-state-warning/75 bg-state-warning-surface" : null
           )}
           size="sm"
           onClick={() => data.onSelect(data.canvas.canvasId)}
@@ -37,10 +40,19 @@ export function CanvasNodeCard({ data }: NodeProps<CanvasFlowNode>) {
                   <AlertTriangleIcon className="size-3" aria-hidden="true" />
                   {data.labels.error}
                 </Badge>
-              ) : hasHealthIssue ? (
-                <Badge className="shrink-0 gap-1" variant={healthSeverity === "error" ? "destructive" : "secondary"}>
+              ) : hasErrorHealth ? (
+                <Badge className="shrink-0 gap-1" variant="destructive">
                   <AlertTriangleIcon className="size-3" aria-hidden="true" />
-                  {blockerCount > 0 ? data.labels.blocked : data.labels.warning}
+                  {data.labels.error}
+                </Badge>
+              ) : hasWarningDiagnostics ? (
+                <Badge className="shrink-0 gap-1" variant="secondary">
+                  <AlertTriangleIcon className="size-3" aria-hidden="true" />
+                  {data.labels.warning}
+                </Badge>
+              ) : hasDependencyWait ? (
+                <Badge className="shrink-0" variant="secondary">
+                  {data.labels.dependency}
                 </Badge>
               ) : null}
             </CardTitle>

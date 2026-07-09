@@ -7,6 +7,7 @@ import type {
 } from "@planweave-ai/runtime";
 import type { CanvasFlowNode, CanvasNodeData } from "../types";
 import { CanvasNodeCard } from "./CanvasNodeCard";
+import { dependencyEdgeColorForSource, dependencyEdgeDefaultOpacity, dependencyEdgeSourceColors } from "./dependencyEdgeVisual";
 
 export const canvasNodeTypes = {
   canvas: CanvasNodeCard
@@ -20,16 +21,6 @@ export type DisplayCanvasEdgeData = {
   manifestFrom: string;
   manifestTo: string;
 };
-
-function edgeStroke(health: DesktopCanvasHealthEdgeSummary | null): string {
-  if (health?.severity === "error") {
-    return "#dc2626";
-  }
-  if (health?.severity === "warning") {
-    return "#d97706";
-  }
-  return "#0f766e";
-}
 
 export function canvasMapNodes(
   graph: DesktopCanvasGraphViewModel,
@@ -64,34 +55,38 @@ export function canvasMapNodes(
 export function canvasMapEdges(graph: DesktopCanvasGraphViewModel): Edge[] {
   const canvasIds = new Set(graph.canvases.map((canvas) => canvas.canvasId));
   const healthByEdge = new Map(graph.health.edges.map((edge) => [`${edge.from}:${edge.type}:${edge.to}`, edge]));
-  return graph.edges
-    .filter((edge) => canvasIds.has(edge.from) && canvasIds.has(edge.to))
-    .map((edge) => {
-      const health = healthByEdge.get(`${edge.from}:${edge.type}:${edge.to}`) ?? null;
-      const stroke = edgeStroke(health);
-      return {
-        id: `${edge.from}-${edge.type}-${edge.to}`,
-        source: edge.to,
-        target: edge.from,
-        data: {
-          health,
-          manifestEdgeType: edge.type,
-          manifestFrom: edge.from,
-          manifestTo: edge.to
-        } satisfies DisplayCanvasEdgeData,
-        animated: health?.severity === "warning",
-        type: "smoothstep",
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: stroke,
-          width: 18,
-          height: 18
-        },
-        style: {
-          stroke,
-          strokeWidth: health && health.severity !== "ok" ? 3 : 2.4,
-          opacity: 0.95
-        }
-      } satisfies Edge;
-    });
+  const visibleEdges = graph.edges.filter((edge) => canvasIds.has(edge.from) && canvasIds.has(edge.to));
+  const sourceColors = dependencyEdgeSourceColors(
+    graph.canvases.map((canvas) => canvas.canvasId),
+    visibleEdges.map((edge) => ({ source: edge.to, target: edge.from }))
+  );
+  return visibleEdges.map((edge) => {
+    const health = healthByEdge.get(`${edge.from}:${edge.type}:${edge.to}`) ?? null;
+    const sourceColor = sourceColors.get(edge.to) ?? dependencyEdgeColorForSource(edge.to);
+    return {
+      id: `${edge.from}-${edge.type}-${edge.to}`,
+      source: edge.to,
+      target: edge.from,
+      data: {
+        health,
+        manifestEdgeType: edge.type,
+        manifestFrom: edge.from,
+        manifestTo: edge.to
+      } satisfies DisplayCanvasEdgeData,
+      animated: false,
+      type: "smoothstep",
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: sourceColor,
+        width: 18,
+        height: 18
+      },
+      style: {
+        stroke: sourceColor,
+        strokeWidth: 2.2,
+        opacity: dependencyEdgeDefaultOpacity,
+        transition: "opacity 120ms ease, stroke-width 120ms ease"
+      }
+    } satisfies Edge;
+  });
 }

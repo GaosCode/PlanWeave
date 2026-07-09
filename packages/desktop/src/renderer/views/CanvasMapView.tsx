@@ -130,18 +130,18 @@ export function CanvasMapView({
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  const blockedLabel = t("blocked");
+  const dependencyLabel = t("canvasDependency");
   const copyAgentPromptLabel = t("copyAgentPrompt");
   const errorLabel = t("error");
   const enterCanvasLabel = t("enterCanvas");
   const warningLabel = t("warning");
   const canvasNodeLabels = useMemo(() => ({
-    blocked: blockedLabel,
     copyAgentPrompt: copyAgentPromptLabel,
+    dependency: dependencyLabel,
     error: errorLabel,
     open: enterCanvasLabel,
     warning: warningLabel
-  }), [blockedLabel, copyAgentPromptLabel, enterCanvasLabel, errorLabel, warningLabel]);
+  }), [copyAgentPromptLabel, dependencyLabel, enterCanvasLabel, errorLabel, warningLabel]);
 
   const openCanvas = useCallback(
     (canvasId: string) => {

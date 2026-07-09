@@ -1,0 +1,60 @@
+import { describe, expect, it } from "vitest";
+import type { DesktopCanvasGraphViewModel } from "@planweave-ai/runtime";
+import { canvasMapEdges } from "../renderer/graph/canvasFlowModel";
+import { dependencyEdgeDefaultOpacity, dependencyEdgeSourceColors } from "../renderer/graph/dependencyEdgeVisual";
+
+describe("canvas map visuals", () => {
+  it("renders canvas dependencies with the shared dependency edge palette and no warning animation", () => {
+    const graph: DesktopCanvasGraphViewModel = {
+      projectId: "P-001",
+      projectTitle: "Canvas map",
+      canvases: [
+        canvas("downstream"),
+        canvas("upstream")
+      ],
+      edges: [{ from: "downstream", to: "upstream", type: "depends_on" }],
+      crossTaskEdges: [],
+      diagnostics: [],
+      health: {
+        severity: "warning",
+        canvases: [
+          { canvasId: "downstream", severity: "warning", blockerCount: 1, diagnosticCount: 0 },
+          { canvasId: "upstream", severity: "ok", blockerCount: 0, diagnosticCount: 0 }
+        ],
+        edges: [{ from: "downstream", to: "upstream", type: "depends_on", severity: "warning", blockerCount: 1, diagnosticCount: 0 }],
+        blockedBlocks: [],
+        diagnostics: []
+      }
+    };
+
+    const expectedColor = dependencyEdgeSourceColors(
+      ["downstream", "upstream"],
+      [{ source: "upstream", target: "downstream" }]
+    ).get("upstream");
+
+    expect(canvasMapEdges(graph)).toEqual([
+      expect.objectContaining({
+        id: "downstream-depends_on-upstream",
+        source: "upstream",
+        target: "downstream",
+        animated: false,
+        markerEnd: expect.objectContaining({ color: expectedColor }),
+        style: expect.objectContaining({
+          stroke: expectedColor,
+          strokeWidth: 2.2,
+          opacity: dependencyEdgeDefaultOpacity
+        })
+      })
+    ]);
+  });
+});
+
+function canvas(canvasId: string): DesktopCanvasGraphViewModel["canvases"][number] {
+  return {
+    canvasId,
+    title: canvasId,
+    packageDir: `canvases/${canvasId}/package`,
+    executionPolicy: null,
+    diagnostics: []
+  };
+}
