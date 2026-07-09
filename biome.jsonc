@@ -1,0 +1,91 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.3/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    // Force-ignore build/output artifacts so the scanner never indexes them.
+    // Regular ignores also cover lockfile, archive, and declaration files.
+    "includes": [
+      "**",
+      "!!**/dist",
+      "!!**/release",
+      "!!**/output",
+      "!!**/.coverage",
+      "!!**/node_modules",
+      "!**/archive",
+      "!**/pnpm-lock.yaml",
+      "!**/*.d.ts",
+      "!packages/desktop/build/icon.iconset"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineEnding": "lf",
+    // Match existing long lines in runtime/cli; 80 would reflow nearly every file.
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      // Existing sources omit trailing commas in multi-line lists/objects.
+      "trailingCommas": "none",
+      "arrowParentheses": "always"
+    }
+  },
+  "json": {
+    "formatter": {
+      "trailingCommas": "none"
+    }
+  },
+  "css": {
+    "parser": {
+      // Desktop renderer uses Tailwind @apply / @theme directives.
+      "tailwindDirectives": true
+    },
+    "formatter": {
+      "enabled": true,
+      "indentStyle": "space",
+      "indentWidth": 2,
+      "lineWidth": 100
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      // Adoption posture: noisy groups start as warn so biome:check can exit 0
+      // without a mass rewrite. Promote incrementally in follow-ups.
+      "style": "warn",
+      "a11y": "warn",
+      "complexity": "warn",
+      "performance": "warn",
+      // Existing React lists/hooks and intentional regex control chars are common.
+      "suspicious": "warn",
+      "correctness": {
+        // Existing codebase has many intentional unused params/locals; promote later.
+        "noUnusedVariables": "warn",
+        "noUnusedFunctionParameters": "warn",
+        "noUnusedImports": "warn",
+        // React hook dependency lists are often intentionally incomplete/extra.
+        "useExhaustiveDependencies": "warn",
+        "useHookAtTopLevel": "warn"
+      }
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        // Keep first adoption to format+lint only; import reorder churn is a follow-up.
+        "organizeImports": "off"
+      }
+    }
+  }
+}
