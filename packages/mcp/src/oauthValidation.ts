@@ -11,11 +11,14 @@ export function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-export function isAllowedRedirectUri(value: string): boolean {
+export function isAllowedRedirectUri(value: string, redirectUriPrefixes?: string[]): boolean {
   try {
     const url = new URL(value);
     if (url.protocol === "https:") {
-      return true;
+      if (!redirectUriPrefixes || redirectUriPrefixes.length === 0) {
+        return true;
+      }
+      return redirectUriPrefixes.some((prefix) => value.startsWith(prefix));
     }
     return url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "::1");
   } catch {

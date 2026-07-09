@@ -1,23 +1,35 @@
 import type { IncomingMessage } from "node:http";
 import type { OAuthClientStore, RegisteredClient } from "./oauthClientStore.js";
-import type { ConsentPageParams } from "./oauthConsent.js";
 import { requestContext, requestUrl } from "./oauthHttp.js";
 import { isAllowedOAuthResource, isAllowedRedirectUri, normalizeScope } from "./oauthValidation.js";
 
+export type AuthorizeParams = {
+  clientId: string;
+  codeChallenge: string;
+  redirectUri: string;
+  resource: string;
+  scope: string;
+  state: string | null;
+};
+
 export async function validateAuthorizeParams(
   req: IncomingMessage,
-  clientStore: OAuthClientStore
-): Promise<{ ok: true; value: ConsentPageParams } | { ok: false; error: string }> {
+  clientStore: OAuthClientStore,
+  redirectUriPrefixes?: string[]
+): Promise<{ ok: true; value: AuthorizeParams } | { ok: false; error: string }> {
   const url = requestUrl(req);
-  return validateAuthorizeSearchParams(url.searchParams, clientStore, requestContext(req).resource, { persistRecoveredClient: false });
+  return validateAuthorizeSearchParams(url.searchParams, clientStore, requestContext(req).resource, {
+    persistRecoveredClient: false,
+    redirectUriPrefixes
+  });
 }
 
 export async function validateAuthorizeSearchParams(
   params: URLSearchParams,
   clientStore: OAuthClientStore,
   expectedResource: string,
-  options: { persistRecoveredClient: boolean }
-): Promise<{ ok: true; value: ConsentPageParams } | { ok: false; error: string }> {
+  options: { persistRecoveredClient: boolean; redirectUriPrefixes?: string[] }
+): Promise<{ ok: true; value: AuthorizeParams } | { ok: false; error: string }> {
   if (params.get("response_type") !== "code") {
     return { ok: false, error: "unsupported_response_type" };
   }
@@ -43,7 +55,8 @@ export async function validateAuthorizeSearchParams(
     persist: options.persistRecoveredClient,
     redirectUri,
     resource,
-    expectedResource
+    expectedResource,
+    redirectUriPrefixes: options.redirectUriPrefixes
   });
   if (!client) {
     return { ok: false, error: "invalid_client" };
@@ -66,13 +79,24 @@ export async function validateAuthorizeSearchParams(
 
 async function resolveRegisteredClient(
   clientStore: OAuthClientStore,
-  input: { clientId: string; persist: boolean; redirectUri: string; resource: string; expectedResource: string }
+  input: {
+    clientId: string;
+    persist: boolean;
+    redirectUri: string;
+    resource: string;
+    expectedResource: string;
+    redirectUriPrefixes?: string[];
+  }
 ): Promise<RegisteredClient | undefined> {
   const existing = await clientStore.get(input.clientId);
   if (existing) {
     return existing;
   }
-  if (!isRecoverablePlanweaveClientId(input.clientId) || !isAllowedRedirectUri(input.redirectUri) || !isAllowedOAuthResource(input.resource, input.expectedResource)) {
+  if (
+    !isRecoverablePlanweaveClientId(input.clientId) ||
+    !isAllowedRedirectUri(input.redirectUri, input.redirectUriPrefixes) ||
+    !isAllowedOAuthResource(input.resource, input.expectedResource)
+  ) {
     return undefined;
   }
   const client: RegisteredClient = {

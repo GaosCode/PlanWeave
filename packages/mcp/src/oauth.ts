@@ -2,12 +2,13 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { McpOAuthConfig } from "./config.js";
 import { createMemoryOAuthClientStore, type OAuthClientStore, type RegisteredClient } from "./oauthClientStore.js";
 import { createMemoryOAuthTokenStore, type OAuthTokenStore } from "./oauthTokenStore.js";
-import { validateAuthorizeParams, validateAuthorizeSearchParams } from "./oauthAuthorization.js";
+import { validateAuthorizeParams, validateAuthorizeSearchParams, type AuthorizeParams } from "./oauthAuthorization.js";
 import { consentPage, errorPage } from "./oauthConsent.js";
 import { readFormBody, readJsonBody, requestContext, writeHtml, writeJson } from "./oauthHttp.js";
 import { authorizationServerMetadata, defaultOAuthScope, protectedResourceMetadata } from "./oauthMetadata.js";
 import { bearerToken, randomToken, tokenHash, verifyPkce } from "./oauthSecurity.js";
 import { isAllowedOAuthResource, isAllowedRedirectUri, optionalString, scopeIncludesDefault, stringArray } from "./oauthValidation.js";
+import { isRequestOriginAllowed } from "./requestGuards.js";
 
 const defaultAccessTokenTtlMs = 60 * 60 * 1000;
 const defaultAuthorizationCodeTtlMs = 5 * 60 * 1000;
@@ -21,10 +22,16 @@ type AuthorizationCode = {
   scope: string;
 };
 
-type OAuthProviderOptions = Pick<McpOAuthConfig, "accessTokenTtlMs" | "authorizationCodeTtlMs"> & {
+type ConsentSession = AuthorizeParams & {
+  expiresAt: number;
+};
+
+type OAuthProviderOptions = Pick<McpOAuthConfig, "accessTokenTtlMs" | "authorizationCodeTtlMs" | "redirectUriPrefixes"> & {
   clientStore?: OAuthClientStore;
   tokenStore?: OAuthTokenStore;
   maxRequestBodyBytes: number;
+  host: string;
+  port: number;
 };
 
 export type OAuthProvider = ReturnType<typeof createOAuthProvider>;
@@ -33,8 +40,10 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
   const clientStore = options.clientStore ?? createMemoryOAuthClientStore();
   const tokenStore = options.tokenStore ?? createMemoryOAuthTokenStore();
   const authorizationCodes = new Map<string, AuthorizationCode>();
+  const consentSessions = new Map<string, ConsentSession>();
   const accessTokenTtlMs = options.accessTokenTtlMs ?? defaultAccessTokenTtlMs;
   const authorizationCodeTtlMs = options.authorizationCodeTtlMs ?? defaultAuthorizationCodeTtlMs;
+  const hostPortConfig = { host: options.host, port: options.port };
 
   return {
     async handleRequest(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
@@ -47,15 +56,25 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
         return true;
       }
       if (req.method === "POST" && path === "/oauth/register") {
-        await handleRegister(req, res, options.maxRequestBodyBytes, clientStore);
+        await handleRegister(req, res, options.maxRequestBodyBytes, clientStore, options.redirectUriPrefixes);
         return true;
       }
       if (req.method === "GET" && path === "/oauth/authorize") {
-        await handleAuthorizePage(req, res, clientStore);
+        await handleAuthorizePage(req, res, clientStore, consentSessions, authorizationCodeTtlMs, options.redirectUriPrefixes);
         return true;
       }
       if (req.method === "POST" && path === "/oauth/authorize/confirm") {
-        await handleAuthorizeConfirm(req, res, options.maxRequestBodyBytes, clientStore, authorizationCodes, authorizationCodeTtlMs);
+        await handleAuthorizeConfirm(
+          req,
+          res,
+          options.maxRequestBodyBytes,
+          clientStore,
+          authorizationCodes,
+          consentSessions,
+          authorizationCodeTtlMs,
+          hostPortConfig,
+          options.redirectUriPrefixes
+        );
         return true;
       }
       if (req.method === "POST" && path === "/oauth/token") {
@@ -97,7 +116,8 @@ async function handleRegister(
   req: IncomingMessage,
   res: ServerResponse,
   maxRequestBodyBytes: number,
-  clientStore: OAuthClientStore
+  clientStore: OAuthClientStore,
+  redirectUriPrefixes: string[] | undefined
 ): Promise<void> {
   const body = await readJsonBody(req, maxRequestBodyBytes);
   if (!body.ok) {
@@ -105,7 +125,7 @@ async function handleRegister(
     return;
   }
   const redirectUris = stringArray(body.value.redirect_uris);
-  if (redirectUris.length === 0 || redirectUris.some((uri) => !isAllowedRedirectUri(uri))) {
+  if (redirectUris.length === 0 || redirectUris.some((uri) => !isAllowedRedirectUri(uri, redirectUriPrefixes))) {
     writeJson(res, 400, { error: "invalid_redirect_uris" });
     return;
   }
@@ -130,14 +150,27 @@ async function handleRegister(
   });
 }
 
-async function handleAuthorizePage(req: IncomingMessage, res: ServerResponse, clientStore: OAuthClientStore): Promise<void> {
-  const params = await validateAuthorizeParams(req, clientStore);
+async function handleAuthorizePage(
+  req: IncomingMessage,
+  res: ServerResponse,
+  clientStore: OAuthClientStore,
+  consentSessions: Map<string, ConsentSession>,
+  authorizationCodeTtlMs: number,
+  redirectUriPrefixes: string[] | undefined
+): Promise<void> {
+  const params = await validateAuthorizeParams(req, clientStore, redirectUriPrefixes);
   if (!params.ok) {
     writeHtml(res, 400, errorPage(params.error));
     return;
   }
 
-  writeHtml(res, 200, consentPage(params.value));
+  const csrfNonce = randomToken(32);
+  consentSessions.set(csrfNonce, {
+    ...params.value,
+    expiresAt: Date.now() + authorizationCodeTtlMs
+  });
+
+  writeHtml(res, 200, consentPage({ ...params.value, csrfNonce }));
 }
 
 async function handleAuthorizeConfirm(
@@ -146,14 +179,73 @@ async function handleAuthorizeConfirm(
   maxRequestBodyBytes: number,
   clientStore: OAuthClientStore,
   authorizationCodes: Map<string, AuthorizationCode>,
-  authorizationCodeTtlMs: number
+  consentSessions: Map<string, ConsentSession>,
+  authorizationCodeTtlMs: number,
+  hostPortConfig: { host: string; port: number },
+  redirectUriPrefixes: string[] | undefined
 ): Promise<void> {
+  const originCheck = isRequestOriginAllowed(req, hostPortConfig);
+  if (!originCheck.ok) {
+    writeJson(res, originCheck.error === "invalid_host" ? 421 : 403, { error: originCheck.error });
+    return;
+  }
+
   const body = await readFormBody(req, maxRequestBodyBytes);
   if (!body.ok) {
     writeJson(res, body.statusCode, { error: body.error });
     return;
   }
-  const params = await validateAuthorizeSearchParams(new URLSearchParams(body.value), clientStore, requestContext(req).resource, { persistRecoveredClient: true });
+  const form = new URLSearchParams(body.value);
+  const csrfNonce = form.get("csrf_nonce") ?? "";
+  const session = csrfNonce ? consentSessions.get(csrfNonce) : undefined;
+  if (!session || session.expiresAt <= Date.now()) {
+    if (csrfNonce) {
+      consentSessions.delete(csrfNonce);
+    }
+    writeJson(res, 400, { error: "invalid_csrf_nonce" });
+    return;
+  }
+  // Single-use: consume before further validation so retries cannot reuse the nonce.
+  consentSessions.delete(csrfNonce);
+
+  // Session is authoritative; posted OAuth fields must match the pending consent (when present).
+  for (const [key, expected] of [
+    ["client_id", session.clientId],
+    ["redirect_uri", session.redirectUri],
+    ["resource", session.resource],
+    ["code_challenge", session.codeChallenge],
+    ["scope", session.scope]
+  ] as const) {
+    const posted = form.get(key);
+    if (posted !== null && posted !== expected) {
+      writeJson(res, 400, { error: "invalid_csrf_nonce" });
+      return;
+    }
+  }
+  const postedState = form.get("state");
+  if (postedState !== null && postedState !== (session.state ?? "")) {
+    writeJson(res, 400, { error: "invalid_csrf_nonce" });
+    return;
+  }
+
+  const params = await validateAuthorizeSearchParams(
+    new URLSearchParams({
+      response_type: "code",
+      client_id: session.clientId,
+      redirect_uri: session.redirectUri,
+      resource: session.resource,
+      code_challenge: session.codeChallenge,
+      code_challenge_method: "S256",
+      scope: session.scope,
+      ...(session.state ? { state: session.state } : {})
+    }),
+    clientStore,
+    requestContext(req).resource,
+    {
+      persistRecoveredClient: true,
+      redirectUriPrefixes
+    }
+  );
   if (!params.ok) {
     writeJson(res, 400, { error: params.error });
     return;

@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Server } from "node:http";
+import { request as httpRequest, type Server } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createPlanweaveMcpHttpServer } from "../server.js";
 import { defaultPlanweaveToolNames, planweaveToolNames } from "../tools.js";
@@ -315,5 +315,93 @@ describe("PlanWeave MCP HTTP server", () => {
         expect.objectContaining({ name: "export_plan_package_full" })
       ])
     );
+  });
+
+  it("rejects MCP POSTs with a non-allowlisted Host header", async () => {
+    const baseUrl = await startServer(undefined);
+    const url = new URL(`${baseUrl}/mcp`);
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+
+    const response = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
+      const req = httpRequest(
+        {
+          hostname: url.hostname,
+          port: url.port,
+          path: url.pathname,
+          method: "POST",
+          headers: {
+            host: "evil.example",
+            "content-type": "application/json",
+            "content-length": Buffer.byteLength(body)
+          }
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk) => chunks.push(chunk));
+          res.on("end", () => {
+            resolve({
+              statusCode: res.statusCode ?? 0,
+              body: Buffer.concat(chunks).toString("utf8")
+            });
+          });
+        }
+      );
+      req.on("error", reject);
+      req.write(body);
+      req.end();
+    });
+
+    expect(response.statusCode).toBe(421);
+    expect(JSON.parse(response.body)).toEqual({ error: "invalid_host" });
+  });
+
+  it("rejects MCP POSTs with a cross-site Origin header", async () => {
+    const baseUrl = await startServer(undefined);
+
+    const response = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      headers: {
+        "content-type": "application/json",
+        origin: "https://evil.example"
+      }
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "invalid_origin" });
+  });
+
+  it("accepts MCP POSTs with the loopback Host and no Origin", async () => {
+    const baseUrl = await startServer(undefined);
+
+    const response = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: {
+            name: "planweave-mcp-no-origin-test",
+            version: "0.0.0"
+          }
+        }
+      })
+    });
+
+    expect(response.status).toBe(200);
+    await expect(readMcpResponse(response)).resolves.toMatchObject({
+      result: {
+        serverInfo: {
+          name: "planweave-mcp"
+        }
+      }
+    });
   });
 });

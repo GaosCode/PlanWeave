@@ -79,6 +79,18 @@ describe("readMcpConfig", () => {
     });
   });
 
+  it("reads optional OAuth redirect URI prefixes", () => {
+    expect(
+      readMcpConfig({
+        PLANWEAVE_MCP_OAUTH_ENABLED: "true",
+        PLANWEAVE_MCP_OAUTH_REDIRECT_URI_PREFIXES: " https://chat.openai.com/,https://chatgpt.com/ "
+      }).oauth
+    ).toEqual({
+      enabled: true,
+      redirectUriPrefixes: ["https://chat.openai.com/", "https://chatgpt.com/"]
+    });
+  });
+
   it("reads explicit MCP tool discovery mode", () => {
     expect(readMcpConfig({ PLANWEAVE_MCP_TOOL_DISCOVERY: "compat" })).toMatchObject({ toolDiscoveryMode: "compat" });
     expect(() => readMcpConfig({ PLANWEAVE_MCP_TOOL_DISCOVERY: "all" })).toThrow("PLANWEAVE_MCP_TOOL_DISCOVERY");

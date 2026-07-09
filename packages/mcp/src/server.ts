@@ -11,7 +11,10 @@ import { createOAuthProvider, type OAuthProvider } from "./oauth.js";
 import { bearerToken } from "./oauthSecurity.js";
 import { createFileOAuthTokenStore } from "./oauthTokenStore.js";
 import { mcpPackageVersion } from "./packageInfo.js";
+import { isRequestOriginAllowed } from "./requestGuards.js";
 import { registerPlanweaveTools } from "./toolRegistry.js";
+
+export { expectedRequestHosts, isRequestOriginAllowed } from "./requestGuards.js";
 
 function writeJson(res: ServerResponse, statusCode: number, body: unknown): void {
   res.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
@@ -73,6 +76,11 @@ function createPlanweaveMcpServer(config: McpConfig): McpServer {
 }
 
 async function handleMcpRequest(req: IncomingMessage, res: ServerResponse, config: McpConfig, oauth: OAuthProvider | null): Promise<void> {
+  const originCheck = isRequestOriginAllowed(req, config);
+  if (!originCheck.ok) {
+    writeJson(res, originCheck.error === "invalid_host" ? 421 : 403, { error: originCheck.error });
+    return;
+  }
   if (oauth && !(await oauth.isAuthorized(req))) {
     oauth.writeUnauthorized(req, res);
     return;
@@ -128,7 +136,10 @@ export function createPlanweaveMcpHttpServer(config: McpConfig): Server {
           authorizationCodeTtlMs: config.oauth.authorizationCodeTtlMs,
           clientStore: createFileOAuthClientStore(config.oauth.clientStorePath ?? join(resolvePlanweaveHome(), "config", "mcp-oauth-clients.json")),
           tokenStore: createFileOAuthTokenStore(config.oauth.tokenStorePath ?? join(resolvePlanweaveHome(), "config", "mcp-oauth-tokens.json")),
-          maxRequestBodyBytes: config.maxRequestBodyBytes
+          maxRequestBodyBytes: config.maxRequestBodyBytes,
+          host: config.host,
+          port: config.port,
+          redirectUriPrefixes: config.oauth.redirectUriPrefixes
         })
       : null;
   return createServer((req, res) => {

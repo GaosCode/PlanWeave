@@ -4,6 +4,8 @@ export type McpOAuthConfig = {
   authorizationCodeTtlMs?: number;
   clientStorePath?: string;
   tokenStorePath?: string;
+  /** When set, HTTPS redirect URIs must start with one of these prefixes. Unset keeps permissive HTTPS defaults. */
+  redirectUriPrefixes?: string[];
 };
 
 export type McpConfig = {
@@ -22,6 +24,7 @@ export type McpConfigEnv = Partial<
     | "PLANWEAVE_MCP_MAX_BODY_BYTES"
     | "PLANWEAVE_MCP_OAUTH_CLIENT_STORE"
     | "PLANWEAVE_MCP_OAUTH_ENABLED"
+    | "PLANWEAVE_MCP_OAUTH_REDIRECT_URI_PREFIXES"
     | "PLANWEAVE_MCP_OAUTH_TOKEN_STORE"
     | "PLANWEAVE_MCP_PORT"
     | "PLANWEAVE_MCP_TOKEN"
@@ -34,7 +37,11 @@ export type McpConfigEnv = Partial<
 const defaultHost = "127.0.0.1";
 const defaultMaxRequestBodyBytes = 1_048_576;
 const defaultPort = 8787;
-const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1"]);
+export const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1"]);
+
+export function isLoopbackHost(host: string): boolean {
+  return loopbackHosts.has(host);
+}
 
 function readOptionalString(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -96,12 +103,25 @@ function parseToolDiscoveryMode(value: string | undefined): "default" | "compat"
   throw new Error("PLANWEAVE_MCP_TOOL_DISCOVERY must be 'default' or 'compat'.");
 }
 
+function parseRedirectUriPrefixes(value: string | undefined): string[] | undefined {
+  const trimmed = readOptionalString(value);
+  if (!trimmed) {
+    return undefined;
+  }
+  const prefixes = trimmed
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return prefixes.length > 0 ? prefixes : undefined;
+}
+
 export function readMcpConfig(env: McpConfigEnv = process.env): McpConfig {
   const host = readOptionalString(env.PLANWEAVE_MCP_HOST) ?? defaultHost;
   const token = readOptionalString(env.PLANWEAVE_MCP_TOKEN);
   const oauthEnabled = parseBooleanFlag(env.PLANWEAVE_MCP_OAUTH_ENABLED);
   const oauthClientStorePath = readOptionalString(env.PLANWEAVE_MCP_OAUTH_CLIENT_STORE);
   const oauthTokenStorePath = readOptionalString(env.PLANWEAVE_MCP_OAUTH_TOKEN_STORE);
+  const oauthRedirectUriPrefixes = parseRedirectUriPrefixes(env.PLANWEAVE_MCP_OAUTH_REDIRECT_URI_PREFIXES);
   const toolDiscoveryMode = parseToolDiscoveryMode(env.PLANWEAVE_MCP_TOOL_DISCOVERY);
   if (!token && !oauthEnabled && !loopbackHosts.has(host)) {
     throw new Error("PLANWEAVE_MCP_TOKEN or PLANWEAVE_MCP_OAUTH_ENABLED is required when PLANWEAVE_MCP_HOST is not loopback.");
@@ -114,7 +134,8 @@ export function readMcpConfig(env: McpConfigEnv = process.env): McpConfig {
       ? {
           enabled: true,
           ...(oauthClientStorePath ? { clientStorePath: oauthClientStorePath } : {}),
-          ...(oauthTokenStorePath ? { tokenStorePath: oauthTokenStorePath } : {})
+          ...(oauthTokenStorePath ? { tokenStorePath: oauthTokenStorePath } : {}),
+          ...(oauthRedirectUriPrefixes ? { redirectUriPrefixes: oauthRedirectUriPrefixes } : {})
         }
       : undefined,
     port: parsePort(env.PLANWEAVE_MCP_PORT),

@@ -1,6 +1,7 @@
 export type ConsentPageParams = {
   clientId: string;
   codeChallenge: string;
+  csrfNonce: string;
   redirectUri: string;
   resource: string;
   scope: string;
@@ -33,6 +34,7 @@ export function consentPage(params: ConsentPageParams): string {
       ${hiddenInput("code_challenge", params.codeChallenge)}
       ${hiddenInput("code_challenge_method", "S256")}
       ${hiddenInput("scope", params.scope)}
+      ${hiddenInput("csrf_nonce", params.csrfNonce)}
       ${params.state ? hiddenInput("state", params.state) : ""}
       <button type="submit">Allow</button>
     </form>

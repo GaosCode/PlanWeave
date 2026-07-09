@@ -81,6 +81,14 @@ async function readMcpResponse(response: Response): Promise<unknown> {
   return JSON.parse(dataLine.slice("data:".length).trim());
 }
 
+function extractCsrfNonce(html: string): string {
+  const match = /name="csrf_nonce" value="([^"]+)"/.exec(html);
+  if (!match?.[1]) {
+    throw new Error("consent page did not include csrf_nonce");
+  }
+  return match[1];
+}
+
 async function createOAuthAccessToken(baseUrl: string, resource = `${baseUrl}/mcp`): Promise<string> {
   const registerResponse = await fetch(`${baseUrl}/oauth/register`, {
     method: "POST",
@@ -111,7 +119,9 @@ async function createOAuthAccessToken(baseUrl: string, resource = `${baseUrl}/mc
     })}`
   );
   expect(authorizeResponse.status).toBe(200);
-  await expect(authorizeResponse.text()).resolves.toContain("Authorize PlanWeave MCP");
+  const authorizeHtml = await authorizeResponse.text();
+  expect(authorizeHtml).toContain("Authorize PlanWeave MCP");
+  const csrfNonce = extractCsrfNonce(authorizeHtml);
 
   const confirmResponse = await fetch(`${baseUrl}/oauth/authorize/confirm`, {
     method: "POST",
@@ -123,7 +133,8 @@ async function createOAuthAccessToken(baseUrl: string, resource = `${baseUrl}/mc
       resource,
       code_challenge: pkceChallenge(verifier),
       code_challenge_method: "S256",
-      state: "state-1"
+      state: "state-1",
+      csrf_nonce: csrfNonce
     }),
     headers: {
       "content-type": "application/x-www-form-urlencoded"
@@ -371,13 +382,17 @@ describe("PlanWeave MCP OAuth server", () => {
     const response = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(authorizeParams)}`);
 
     expect(response.status).toBe(200);
-    await expect(response.text()).resolves.toContain("Authorize PlanWeave MCP");
+    const authorizeHtml = await response.text();
+    expect(authorizeHtml).toContain("Authorize PlanWeave MCP");
     await expect(readFile(clientStorePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 
     const confirmResponse = await fetch(`${baseUrl}/oauth/authorize/confirm`, {
       method: "POST",
       redirect: "manual",
-      body: new URLSearchParams(authorizeParams),
+      body: new URLSearchParams({
+        ...authorizeParams,
+        csrf_nonce: extractCsrfNonce(authorizeHtml)
+      }),
       headers: {
         "content-type": "application/x-www-form-urlencoded"
       }
@@ -470,5 +485,131 @@ describe("PlanWeave MCP OAuth server", () => {
         }
       }
     });
+  });
+
+  it("rejects OAuth consent confirm without a CSRF nonce", async () => {
+    const baseUrl = await startOAuthServer();
+    const registerResponse = await fetch(`${baseUrl}/oauth/register`, {
+      method: "POST",
+      body: JSON.stringify({
+        redirect_uris: ["https://chat.openai.com/aip/oauth/callback"]
+      }),
+      headers: {
+        "content-type": "application/json"
+      }
+    });
+    const registration = (await registerResponse.json()) as { client_id: string };
+    const verifier = "test-verifier-for-planweave-oauth";
+    const authorizeParams = {
+      response_type: "code",
+      client_id: registration.client_id,
+      redirect_uri: "https://chat.openai.com/aip/oauth/callback",
+      resource: `${baseUrl}/mcp`,
+      code_challenge: pkceChallenge(verifier),
+      code_challenge_method: "S256",
+      state: "state-csrf"
+    };
+    const authorizeResponse = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(authorizeParams)}`);
+    expect(authorizeResponse.status).toBe(200);
+    await authorizeResponse.text();
+
+    const confirmResponse = await fetch(`${baseUrl}/oauth/authorize/confirm`, {
+      method: "POST",
+      redirect: "manual",
+      body: new URLSearchParams(authorizeParams),
+      headers: {
+        "content-type": "application/x-www-form-urlencoded"
+      }
+    });
+
+    expect(confirmResponse.status).toBe(400);
+    await expect(confirmResponse.json()).resolves.toEqual({ error: "invalid_csrf_nonce" });
+  });
+
+  it("rejects reused OAuth consent CSRF nonces", async () => {
+    const baseUrl = await startOAuthServer();
+    const registerResponse = await fetch(`${baseUrl}/oauth/register`, {
+      method: "POST",
+      body: JSON.stringify({
+        redirect_uris: ["https://chat.openai.com/aip/oauth/callback"]
+      }),
+      headers: {
+        "content-type": "application/json"
+      }
+    });
+    const registration = (await registerResponse.json()) as { client_id: string };
+    const verifier = "test-verifier-for-planweave-oauth";
+    const authorizeParams = {
+      response_type: "code",
+      client_id: registration.client_id,
+      redirect_uri: "https://chat.openai.com/aip/oauth/callback",
+      resource: `${baseUrl}/mcp`,
+      code_challenge: pkceChallenge(verifier),
+      code_challenge_method: "S256",
+      state: "state-reuse"
+    };
+    const authorizeResponse = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(authorizeParams)}`);
+    const authorizeHtml = await authorizeResponse.text();
+    const csrfNonce = extractCsrfNonce(authorizeHtml);
+    const confirmBody = new URLSearchParams({ ...authorizeParams, csrf_nonce: csrfNonce });
+
+    const firstConfirm = await fetch(`${baseUrl}/oauth/authorize/confirm`, {
+      method: "POST",
+      redirect: "manual",
+      body: confirmBody,
+      headers: {
+        "content-type": "application/x-www-form-urlencoded"
+      }
+    });
+    expect(firstConfirm.status).toBe(302);
+
+    const reusedConfirm = await fetch(`${baseUrl}/oauth/authorize/confirm`, {
+      method: "POST",
+      redirect: "manual",
+      body: confirmBody,
+      headers: {
+        "content-type": "application/x-www-form-urlencoded"
+      }
+    });
+    expect(reusedConfirm.status).toBe(400);
+    await expect(reusedConfirm.json()).resolves.toEqual({ error: "invalid_csrf_nonce" });
+  });
+
+  it("rejects OAuth consent confirm with a cross-site Origin", async () => {
+    const baseUrl = await startOAuthServer();
+    const registerResponse = await fetch(`${baseUrl}/oauth/register`, {
+      method: "POST",
+      body: JSON.stringify({
+        redirect_uris: ["https://chat.openai.com/aip/oauth/callback"]
+      }),
+      headers: {
+        "content-type": "application/json"
+      }
+    });
+    const registration = (await registerResponse.json()) as { client_id: string };
+    const verifier = "test-verifier-for-planweave-oauth";
+    const authorizeParams = {
+      response_type: "code",
+      client_id: registration.client_id,
+      redirect_uri: "https://chat.openai.com/aip/oauth/callback",
+      resource: `${baseUrl}/mcp`,
+      code_challenge: pkceChallenge(verifier),
+      code_challenge_method: "S256"
+    };
+    const authorizeResponse = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(authorizeParams)}`);
+    const csrfNonce = extractCsrfNonce(await authorizeResponse.text());
+
+    const confirmResponse = await fetch(`${baseUrl}/oauth/authorize/confirm`, {
+      method: "POST",
+      redirect: "manual",
+      body: new URLSearchParams({ ...authorizeParams, csrf_nonce: csrfNonce }),
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: "https://evil.example"
+      }
+    });
+
+    expect(confirmResponse.status).toBe(403);
+    await expect(confirmResponse.json()).resolves.toEqual({ error: "invalid_origin" });
   });
 });
