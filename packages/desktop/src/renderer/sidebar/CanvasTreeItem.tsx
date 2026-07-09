@@ -73,6 +73,7 @@ export function CanvasTreeItem({
 }: CanvasTreeItemProps) {
   const firstDiagnostic = canvas.diagnostics?.[0] ?? null;
   const canvasLabel = canvas.name || t("taskCanvas");
+  const displayedTaskCount = graph?.tasks.length ?? canvas.taskCount;
   const openTaskCanvasLabel = fileManagerLabel(t, "taskCanvas");
   const resetOnlyCanvas = canvas.canvasId === "default" || project.taskCanvases.length === 1;
   const [isRenaming, setIsRenaming] = useState(false);
@@ -164,7 +165,7 @@ export function CanvasTreeItem({
                   </Badge>
                 ) : (
                   <Badge className="shrink-0" variant="outline">
-                    {canvas.taskCount}
+                    {displayedTaskCount}
                   </Badge>
                 )}
               </Button>

@@ -165,6 +165,83 @@ describe("desktop renderer component interactions", () => {
     expect(screen.queryByText("T-TASK")).not.toBeInTheDocument();
   });
 
+  it("uses the loaded graph task count for the active canvas badge", () => {
+    const project: DesktopProjectSummary = {
+      projectId: "P-COUNT",
+      name: "count-example",
+      rootPath: "/tmp/count-example",
+      workspaceRoot: "/tmp/count-example",
+      activeCanvasId: "canvas-main",
+      taskCanvases: [
+        {
+          canvasId: "canvas-main",
+          name: "Main canvas",
+          taskCount: 3,
+          createdAt: "2026-05-22T00:00:00.000Z",
+          updatedAt: "2026-05-22T00:00:00.000Z"
+        }
+      ]
+    };
+    const graph: DesktopGraphViewModel = {
+      projectId: project.projectId,
+      projectTitle: project.name,
+      graphVersion: "pgv-test",
+      packageFingerprint: "pkg-test",
+      executorOptions: ["manual"],
+      tasks: Array.from({ length: 7 }, (_, index) => ({
+        taskId: `T-${String(index + 1).padStart(3, "0")}`,
+        title: `Task ${index + 1}`,
+        status: "planned" as const,
+        executor: null,
+        executorLabel: "inherit",
+        promptMarkdown: "",
+        promptPreview: "",
+        blocks: [],
+        blockPreview: [],
+        hiddenBlockRefs: [],
+        overflowBlockCount: 0,
+        exceptions: []
+      })),
+      edges: [],
+      diagnostics: [],
+      dirtyPromptRefs: []
+    };
+
+    render(
+      <ProjectSidebar
+        activeView="graph"
+        collapsed={false}
+        expandedProjectId={project.projectId}
+        graph={graph}
+        handleDeleteProject={vi.fn().mockResolvedValue(undefined)}
+        handleDeleteTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleDuplicateTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleDeleteTaskNode={vi.fn().mockResolvedValue(undefined)}
+        handleOpenProject={vi.fn().mockResolvedValue(undefined)}
+        handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
+        handleRefreshProjects={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRevealProject={vi.fn().mockResolvedValue(undefined)}
+        handleTaskPanelSelect={vi.fn()}
+        loadProject={vi.fn().mockResolvedValue(undefined)}
+        notificationItems={[]}
+        onToggleSidebar={vi.fn()}
+        onTogglePinnedProject={vi.fn()}
+        pinnedProjectIds={new Set()}
+        projectRefreshing={false}
+        projects={[project]}
+        resetLayout={vi.fn().mockResolvedValue(undefined)}
+        selectedProject={project}
+        selectedCanvasId="canvas-main"
+        selectedTaskPanelId={null}
+        setActiveView={vi.fn()}
+        t={createTranslator("zh-CN")}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /Main canvas\s*7/ })).toBeVisible();
+  });
+
   it("immediately unmounts collapsed tree content when reduced motion is requested", () => {
     const reducedMotionMediaQuery: MediaQueryList = {
       addEventListener: vi.fn(),
