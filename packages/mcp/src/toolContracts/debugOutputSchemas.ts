@@ -1,22 +1,37 @@
 import * as z from "zod/v4";
-import { blockDetailSchema, planPackageExportSchema, projectExportFilesSchema } from "./outputShapes.js";
+import {
+  blockDetailSchema,
+  graphSchema,
+  planPackageExportSchema,
+  projectExportFilesSchema
+} from "./outputShapes.js";
 import type { PlanweavePartialToolOutputSchemaRegistry } from "./types.js";
 
 export const debugToolOutputSchemas = {
+  get_project_graph_full_debug: {
+    graph: graphSchema,
+    heavy: z.boolean()
+  },
   get_block_detail_full_debug: {
     block: blockDetailSchema
   },
   refresh_prompts_full_debug: {
-    refresh: z.object({
-      prompts: z.array(z.object({
-        ref: z.string(),
-        path: z.string(),
-        markdownBytes: z.number(),
-        markdown: z.string()
-      }).passthrough()),
-      promptCount: z.number(),
-      contentIncluded: z.boolean()
-    }).passthrough()
+    refresh: z
+      .object({
+        prompts: z.array(
+          z
+            .object({
+              ref: z.string(),
+              path: z.string(),
+              markdownBytes: z.number(),
+              markdown: z.string()
+            })
+            .passthrough()
+        ),
+        promptCount: z.number(),
+        contentIncluded: z.boolean()
+      })
+      .passthrough()
   },
   export_project_full_debug: {
     projectExport: projectExportFilesSchema,

@@ -57,6 +57,7 @@ export const planweaveToolNames = [
   "list_ready_blocks",
   "preview_execution_graph",
   "get_project_graph",
+  "get_project_graph_full_debug",
   "get_graph_summary",
   "get_graph_slice",
   "list_tasks",
@@ -130,6 +131,7 @@ export const planweaveToolNames = [
 export type PlanweaveToolName = (typeof planweaveToolNames)[number];
 
 export const debugPlanweaveToolNames = [
+  "get_project_graph_full_debug",
   "get_block_detail_full_debug",
   "refresh_prompts_full_debug",
   "export_project_full_debug",
@@ -182,7 +184,17 @@ export type ExportedPlanPackage = {
 
 export type SanitizedExecutionStatus = Pick<
   PlanStatus,
-  "projectId" | "taskTotal" | "blockTotal" | "tasks" | "blocks" | "currentRefs" | "openFeedback" | "nextClaimable" | "claimHints" | "counts" | "warnings"
+  | "projectId"
+  | "taskTotal"
+  | "blockTotal"
+  | "tasks"
+  | "blocks"
+  | "currentRefs"
+  | "openFeedback"
+  | "nextClaimable"
+  | "claimHints"
+  | "counts"
+  | "warnings"
 > & {
   canvasId: string | null;
 };
@@ -201,7 +213,10 @@ export type RenderedPromptPayload = {
   markdown: string;
 };
 
-export type ReadyBlock = Pick<DesktopTodoItem, "ref" | "taskId" | "blockId" | "title" | "parallelSafe" | "locks" | "reviewGate"> & {
+export type ReadyBlock = Pick<
+  DesktopTodoItem,
+  "ref" | "taskId" | "blockId" | "title" | "parallelSafe" | "locks" | "reviewGate"
+> & {
   canvasId: string | null;
   canvasName: string | null;
 };
@@ -218,7 +233,11 @@ export type RuntimeGateway = {
   openProject(projectId: string): Promise<DesktopProjectSummary>;
   validateProject(projectId: string): Promise<ValidationReport>;
   getStatus(projectId: string, canvasId?: string | null): Promise<SanitizedExecutionStatus>;
-  getPrompt(projectId: string, canvasId: string | null | undefined, ref: string): Promise<RenderedPromptPayload>;
+  getPrompt(
+    projectId: string,
+    canvasId: string | null | undefined,
+    ref: string
+  ): Promise<RenderedPromptPayload>;
   searchProject(projectId: string, args: SearchProjectArgs): Promise<SearchProjectPayload>;
   listReadyBlocks(projectId: string, canvasId?: string | null): Promise<ReadyBlocksPayload>;
   getProjectGraph(projectId: string, canvasId?: string): Promise<DesktopGraphViewModel>;
@@ -230,12 +249,28 @@ export type RuntimeGateway = {
   validateGraphQuality(
     projectId: string,
     canvasId: string | undefined,
-    input: { reviewPolicy?: "none" | "risk-based" | "required"; gatePolicy?: "none" | "required"; heuristics?: "on" | "off"; strict?: boolean }
+    input: {
+      reviewPolicy?: "none" | "risk-based" | "required";
+      gatePolicy?: "none" | "required";
+      heuristics?: "on" | "off";
+      strict?: boolean;
+    }
   ): Promise<GraphQualityReport>;
-  validateExecutionReadiness(projectId: string, canvasId?: string): Promise<ExecutionReadinessReport>;
+  validateExecutionReadiness(
+    projectId: string,
+    canvasId?: string
+  ): Promise<ExecutionReadinessReport>;
   getTaskDetail(projectId: string, taskId: string, canvasId?: string): Promise<DesktopTaskDetail>;
-  getBlockDetail(projectId: string, blockRef: string, canvasId?: string): Promise<DesktopBlockDetail>;
-  getReviewPipeline(projectId: string, taskId: string, canvasId?: string): Promise<DesktopReviewPipeline>;
+  getBlockDetail(
+    projectId: string,
+    blockRef: string,
+    canvasId?: string
+  ): Promise<DesktopBlockDetail>;
+  getReviewPipeline(
+    projectId: string,
+    taskId: string,
+    canvasId?: string
+  ): Promise<DesktopReviewPipeline>;
   updateReviewPipeline(
     projectId: string,
     canvasId: string | undefined,
@@ -264,8 +299,17 @@ export type RuntimeGateway = {
     taskId: string,
     input: { title?: string; promptMarkdown?: string; executor?: string | null }
   ): Promise<GraphEditResult>;
-  updateTaskAcceptance(projectId: string, canvasId: string | undefined, taskId: string, acceptance: string[]): Promise<GraphEditResult>;
-  removeTask(projectId: string, canvasId: string | undefined, taskId: string): Promise<GraphEditResult>;
+  updateTaskAcceptance(
+    projectId: string,
+    canvasId: string | undefined,
+    taskId: string,
+    acceptance: string[]
+  ): Promise<GraphEditResult>;
+  removeTask(
+    projectId: string,
+    canvasId: string | undefined,
+    taskId: string
+  ): Promise<GraphEditResult>;
   bulkCreateTasks(
     projectId: string,
     canvasId: string | undefined,
@@ -310,7 +354,15 @@ export type RuntimeGateway = {
   bulkUpdateTasks(
     projectId: string,
     canvasId: string | undefined,
-    updates: Array<{ taskId: string; input: { title?: string; promptMarkdown?: string; executor?: string | null; acceptance?: string[] } }>
+    updates: Array<{
+      taskId: string;
+      input: {
+        title?: string;
+        promptMarkdown?: string;
+        executor?: string | null;
+        acceptance?: string[];
+      };
+    }>
   ): Promise<GraphEditResult>;
   bulkUpdateBlocks(
     projectId: string,
@@ -322,6 +374,7 @@ export type RuntimeGateway = {
         promptMarkdown?: string;
         executor?: string | null;
         dependsOn?: string[];
+        exclusive?: boolean;
         parallelSafe?: boolean;
         parallelLocks?: string[];
         reviewRequired?: boolean;
@@ -354,6 +407,7 @@ export type RuntimeGateway = {
     canvasId: string | undefined,
     blockRef: string,
     input: {
+      exclusive?: boolean;
       parallelSafe?: boolean;
       parallelLocks?: string[];
       reviewRequired?: boolean;
@@ -370,14 +424,41 @@ export type RuntimeGateway = {
         parallelEnabled?: boolean;
         maxConcurrent?: number;
       };
-      blocks: Array<{ blockRef: string; input: { parallelSafe?: boolean; parallelLocks?: string[] } }>;
+      blocks: Array<{
+        blockRef: string;
+        input: { exclusive?: boolean; parallelSafe?: boolean; parallelLocks?: string[] };
+      }>;
     }
   ): Promise<GraphEditResult>;
-  updateBlockDependencies(projectId: string, canvasId: string | undefined, blockRef: string, dependsOn: string[]): Promise<GraphEditResult>;
-  removeBlock(projectId: string, canvasId: string | undefined, blockRef: string): Promise<GraphEditResult>;
-  addDependency(projectId: string, canvasId: string | undefined, fromTaskId: string, toTaskId: string): Promise<GraphEditResult>;
-  removeDependency(projectId: string, canvasId: string | undefined, fromTaskId: string, toTaskId: string): Promise<GraphEditResult>;
-  setTaskDependencies(projectId: string, canvasId: string | undefined, taskId: string, dependsOn: string[]): Promise<GraphEditResult>;
+  updateBlockDependencies(
+    projectId: string,
+    canvasId: string | undefined,
+    blockRef: string,
+    dependsOn: string[]
+  ): Promise<GraphEditResult>;
+  removeBlock(
+    projectId: string,
+    canvasId: string | undefined,
+    blockRef: string
+  ): Promise<GraphEditResult>;
+  addDependency(
+    projectId: string,
+    canvasId: string | undefined,
+    fromTaskId: string,
+    toTaskId: string
+  ): Promise<GraphEditResult>;
+  removeDependency(
+    projectId: string,
+    canvasId: string | undefined,
+    fromTaskId: string,
+    toTaskId: string
+  ): Promise<GraphEditResult>;
+  setTaskDependencies(
+    projectId: string,
+    canvasId: string | undefined,
+    taskId: string,
+    dependsOn: string[]
+  ): Promise<GraphEditResult>;
   bulkAddTaskDependencies(
     projectId: string,
     canvasId: string | undefined,
@@ -398,20 +479,60 @@ export type RuntimeGateway = {
     canvasId: string | undefined,
     input: { columnWidth?: number; rowHeight?: number; startX?: number; startY?: number }
   ): Promise<DesktopLayout>;
-  addCanvasDependency(projectId: string, fromCanvasId: string, toCanvasId: string): Promise<ProjectGraphEditResult>;
-  removeCanvasDependency(projectId: string, fromCanvasId: string, toCanvasId: string): Promise<ProjectGraphEditResult>;
-  addCrossTaskDependency(projectId: string, from: ProjectTaskRef, to: ProjectTaskRef): Promise<ProjectGraphEditResult>;
-  removeCrossTaskDependency(projectId: string, from: ProjectTaskRef, to: ProjectTaskRef): Promise<ProjectGraphEditResult>;
+  addCanvasDependency(
+    projectId: string,
+    fromCanvasId: string,
+    toCanvasId: string
+  ): Promise<ProjectGraphEditResult>;
+  removeCanvasDependency(
+    projectId: string,
+    fromCanvasId: string,
+    toCanvasId: string
+  ): Promise<ProjectGraphEditResult>;
+  addCrossTaskDependency(
+    projectId: string,
+    from: ProjectTaskRef,
+    to: ProjectTaskRef
+  ): Promise<ProjectGraphEditResult>;
+  removeCrossTaskDependency(
+    projectId: string,
+    from: ProjectTaskRef,
+    to: ProjectTaskRef
+  ): Promise<ProjectGraphEditResult>;
   readProjectPrompt(projectId: string): Promise<string>;
-  listPackageFiles(projectId: string, canvasId: string | undefined, limit?: number, cursor?: string): Promise<PackageFileListResult>;
-  readPackageFile(projectId: string, canvasId: string | undefined, path: string, maxBytes?: number): Promise<PackageContentReadResult>;
+  listPackageFiles(
+    projectId: string,
+    canvasId: string | undefined,
+    limit?: number,
+    cursor?: string
+  ): Promise<PackageFileListResult>;
+  readPackageFile(
+    projectId: string,
+    canvasId: string | undefined,
+    path: string,
+    maxBytes?: number
+  ): Promise<PackageContentReadResult>;
   readPromptSource(
     projectId: string,
     canvasId: string | undefined,
-    input: { target: "project" | "task" | "block"; taskId?: string; blockRef?: string; maxBytes?: number }
+    input: {
+      target: "project" | "task" | "block";
+      taskId?: string;
+      blockRef?: string;
+      maxBytes?: number;
+    }
   ): Promise<PackageContentReadResult>;
-  readRenderedPrompt(projectId: string, canvasId: string | undefined, ref: string, maxBytes?: number): Promise<PackageContentReadResult>;
-  getPromptSources(projectId: string, canvasId: string | undefined, ref: string): Promise<{ ref: string; sources: PromptSourceSummary[] }>;
+  readRenderedPrompt(
+    projectId: string,
+    canvasId: string | undefined,
+    ref: string,
+    maxBytes?: number
+  ): Promise<PackageContentReadResult>;
+  getPromptSources(
+    projectId: string,
+    canvasId: string | undefined,
+    ref: string
+  ): Promise<{ ref: string; sources: PromptSourceSummary[] }>;
   updateProjectPrompt(projectId: string, markdown: string): Promise<string>;
   refreshPrompts(projectId: string, canvasId?: string): Promise<RefreshPromptsResult>;
   exportPlanPackage(projectId: string, canvasId?: string): Promise<ExportedPlanPackage>;
@@ -424,8 +545,20 @@ export type RuntimeGateway = {
     name: string;
     files: ExportedPlanPackageFile[];
     overwrite?: boolean;
-  }): Promise<{ project: DesktopProjectSummary; validation: ValidationReport; importedFiles: number }>;
+  }): Promise<{
+    project: DesktopProjectSummary;
+    validation: ValidationReport;
+    importedFiles: number;
+  }>;
   validatePackageDraft(draftRoot: string): Promise<PackageDraftValidationResult>;
-  previewPackageDraftImport(input: { draftRoot: string; projectId: string; canvasId?: string }): Promise<PackageDraftImportPreview>;
-  importPackageDraft(input: { draftRoot: string; projectId: string; canvasId?: string }): Promise<PackageDraftImportApplyResult>;
+  previewPackageDraftImport(input: {
+    draftRoot: string;
+    projectId: string;
+    canvasId?: string;
+  }): Promise<PackageDraftImportPreview>;
+  importPackageDraft(input: {
+    draftRoot: string;
+    projectId: string;
+    canvasId?: string;
+  }): Promise<PackageDraftImportApplyResult>;
 };

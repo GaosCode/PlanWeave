@@ -71,7 +71,11 @@ function normalizePackageWatchPath(path: string): string {
 }
 
 function shouldNotifyPackagePath(path: string): boolean {
-  return path === "package/manifest.json" || path === "policy/project-prompt.md" || /^package\/nodes\/.+\.md$/.test(path);
+  return (
+    path === "package/manifest.json" ||
+    path === "policy/project-prompt.md" ||
+    /^package\/nodes\/.+\.md$/.test(path)
+  );
 }
 
 function isDescendantPath(parentPath: string, childPath: string): boolean {
@@ -81,16 +85,37 @@ function isDescendantPath(parentPath: string, childPath: string): boolean {
 
 function watchedRootsForWorkspace(workspace: TaskCanvasWorkspace): PackageWatchRoot[] {
   const roots: PackageWatchRoot[] = [
-    { rootPath: workspace.packageDir, relativeRoot: "package", coarsePath: "package/manifest.json" },
-    { rootPath: join(workspace.packageDir, "nodes"), relativeRoot: "package/nodes", coarsePath: "package/manifest.json" },
-    { rootPath: dirname(workspace.projectPromptFile), relativeRoot: "policy", coarsePath: "policy/project-prompt.md", preserveOverlaps: true }
+    {
+      rootPath: workspace.packageDir,
+      relativeRoot: "package",
+      coarsePath: "package/manifest.json"
+    },
+    {
+      rootPath: join(workspace.packageDir, "nodes"),
+      relativeRoot: "package/nodes",
+      coarsePath: "package/manifest.json"
+    },
+    {
+      rootPath: dirname(workspace.projectPromptFile),
+      relativeRoot: "policy",
+      coarsePath: "policy/project-prompt.md",
+      preserveOverlaps: true
+    }
   ];
   return roots.filter(
-    (root) => root.preserveOverlaps || !roots.some((candidate) => candidate !== root && isDescendantPath(candidate.rootPath, root.rootPath))
+    (root) =>
+      root.preserveOverlaps ||
+      !roots.some(
+        (candidate) => candidate !== root && isDescendantPath(candidate.rootPath, root.rootPath)
+      )
   );
 }
 
-function normalizeWatchEventPath(relativeRoot: string, coarsePath: string, filename: string | Buffer | null): string {
+function normalizeWatchEventPath(
+  relativeRoot: string,
+  coarsePath: string,
+  filename: string | Buffer | null
+): string {
   if (!filename) {
     return coarsePath;
   }
@@ -98,16 +123,24 @@ function normalizeWatchEventPath(relativeRoot: string, coarsePath: string, filen
 }
 
 function dedupePackageWatchPaths(paths: Iterable<string>): string[] {
-  return [...new Set([...paths].map(normalizePackageWatchPath).filter(shouldNotifyPackagePath))].sort();
+  return [
+    ...new Set([...paths].map(normalizePackageWatchPath).filter(shouldNotifyPackagePath))
+  ].sort();
 }
 
 function isMissingPathError(caught: unknown): boolean {
   return caught instanceof Error && "code" in caught && caught.code === "ENOENT";
 }
 
-async function fingerprintIfPresent(path: string, hashContent = false): Promise<PackageFileFingerprint | null> {
+async function fingerprintIfPresent(
+  path: string,
+  hashContent = false
+): Promise<PackageFileFingerprint | null> {
   try {
-    const [metadata, content] = await Promise.all([stat(path), hashContent ? readFile(path) : Promise.resolve(null)]);
+    const [metadata, content] = await Promise.all([
+      stat(path),
+      hashContent ? readFile(path) : Promise.resolve(null)
+    ]);
     if (!metadata.isFile()) {
       return null;
     }
@@ -145,7 +178,8 @@ async function collectMarkdownFingerprints(
     if (entry.isDirectory()) {
       await collectMarkdownFingerprints(path, relativePath, snapshot);
     } else if (entry.isFile() && entry.name.endsWith(".md")) {
-      const fingerprint = await fingerprintIfPresent(path, true);
+      // Poll path uses mtime+size only. Content hashing every tick is too expensive on large packages.
+      const fingerprint = await fingerprintIfPresent(path, false);
       if (fingerprint) {
         snapshot.set(relativePath, fingerprint);
       }
@@ -153,13 +187,15 @@ async function collectMarkdownFingerprints(
   }
 }
 
-async function collectWatchedPackageFingerprints(workspace: TaskCanvasWorkspace): Promise<PackageFingerprintSnapshot> {
+async function collectWatchedPackageFingerprints(
+  workspace: TaskCanvasWorkspace
+): Promise<PackageFingerprintSnapshot> {
   const snapshot: PackageFingerprintSnapshot = new Map();
   const manifestFingerprint = await fingerprintIfPresent(workspace.manifestFile);
   if (manifestFingerprint) {
     snapshot.set("package/manifest.json", manifestFingerprint);
   }
-  const projectPromptFingerprint = await fingerprintIfPresent(workspace.projectPromptFile, true);
+  const projectPromptFingerprint = await fingerprintIfPresent(workspace.projectPromptFile, false);
   if (projectPromptFingerprint) {
     snapshot.set("policy/project-prompt.md", projectPromptFingerprint);
   }
@@ -167,8 +203,13 @@ async function collectWatchedPackageFingerprints(workspace: TaskCanvasWorkspace)
   return snapshot;
 }
 
-function changedFingerprint(left: PackageFileFingerprint | undefined, right: PackageFileFingerprint | undefined): boolean {
-  return left?.mtimeMs !== right?.mtimeMs || left?.size !== right?.size || left?.hash !== right?.hash;
+function changedFingerprint(
+  left: PackageFileFingerprint | undefined,
+  right: PackageFileFingerprint | undefined
+): boolean {
+  return (
+    left?.mtimeMs !== right?.mtimeMs || left?.size !== right?.size || left?.hash !== right?.hash
+  );
 }
 
 function diffWatchedPackageSnapshots(
@@ -180,10 +221,17 @@ function diffWatchedPackageSnapshots(
 }
 
 function warnPollingSnapshotFailure(workspaceRoot: string, caught: unknown): void {
-  console.warn(`PlanWeave package polling watch failed for '${workspaceRoot}': ${caught instanceof Error ? caught.message : String(caught)}`);
+  console.warn(
+    `PlanWeave package polling watch failed for '${workspaceRoot}': ${caught instanceof Error ? caught.message : String(caught)}`
+  );
 }
 
-function watchRoot(rootPath: string, relativeRoot: string, coarsePath: string, recordChange: (path: string) => void): FSWatcher | null {
+function watchRoot(
+  rootPath: string,
+  relativeRoot: string,
+  coarsePath: string,
+  recordChange: (path: string) => void
+): FSWatcher | null {
   if (!existsSync(rootPath)) {
     return null;
   }
@@ -263,7 +311,10 @@ async function startPackageWatchBackend(
   workspace: TaskCanvasWorkspace,
   recordChange: (path: string) => void
 ): Promise<PackageWatchBackend> {
-  return startNativePackageWatchBackend(workspace, recordChange) ?? (await startPollingPackageWatchBackend(workspace, recordChange));
+  return (
+    startNativePackageWatchBackend(workspace, recordChange) ??
+    (await startPollingPackageWatchBackend(workspace, recordChange))
+  );
 }
 
 function addPendingPackageWatchSubscriber(key: string, webContents: WebContents): void {
@@ -335,7 +386,10 @@ async function getOrCreatePackageWatch(
       if (currentWatch.timer) {
         clearTimeout(currentWatch.timer);
       }
-      currentWatch.timer = setTimeout(() => flushPackageFileChange(projectRoot, canvasId), packageWatchDebounceMs);
+      currentWatch.timer = setTimeout(
+        () => flushPackageFileChange(projectRoot, canvasId),
+        packageWatchDebounceMs
+      );
     };
     const backend = await startPackageWatchBackend(workspace, recordChange);
     const createdWatch: PackageWatch = {
@@ -386,7 +440,11 @@ function flushPackageFileChange(projectRoot: string, canvasId?: string | null): 
   }
 }
 
-async function startPackageWatch(projectRoot: string, canvasId: string | null | undefined, webContents: WebContents): Promise<void> {
+async function startPackageWatch(
+  projectRoot: string,
+  canvasId: string | null | undefined,
+  webContents: WebContents
+): Promise<void> {
   const key = watchKey(projectRoot, canvasId);
   addPendingPackageWatchSubscriber(key, webContents);
   let activeWatch: PackageWatch;
@@ -414,7 +472,11 @@ async function startPackageWatch(projectRoot: string, canvasId: string | null | 
   removePendingPackageWatchSubscriber(key, webContents.id);
 }
 
-function stopPackageWatch(projectRoot: string, canvasId: string | null | undefined, webContents: WebContents): void {
+function stopPackageWatch(
+  projectRoot: string,
+  canvasId: string | null | undefined,
+  webContents: WebContents
+): void {
   const key = watchKey(projectRoot, canvasId);
   removePendingPackageWatchSubscriber(key, webContents.id);
   const activeWatch = packageWatches.get(key);
@@ -442,6 +504,14 @@ function stopPackageWatch(projectRoot: string, canvasId: string | null | undefin
 }
 
 export function registerPackageWatchHandlers(): void {
-  ipcMain.handle(desktopBridgeInvokeChannels.watchPackageFiles, (event, ref: DesktopCanvasReference) => startPackageWatch(ref.projectRoot, ref.canvasId, event.sender));
-  ipcMain.handle(desktopBridgeInvokeChannels.unwatchPackageFiles, (event, ref: DesktopCanvasReference) => stopPackageWatch(ref.projectRoot, ref.canvasId, event.sender));
+  ipcMain.handle(
+    desktopBridgeInvokeChannels.watchPackageFiles,
+    (event, ref: DesktopCanvasReference) =>
+      startPackageWatch(ref.projectRoot, ref.canvasId, event.sender)
+  );
+  ipcMain.handle(
+    desktopBridgeInvokeChannels.unwatchPackageFiles,
+    (event, ref: DesktopCanvasReference) =>
+      stopPackageWatch(ref.projectRoot, ref.canvasId, event.sender)
+  );
 }

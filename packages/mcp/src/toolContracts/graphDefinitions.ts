@@ -25,24 +25,31 @@ import {
   updateReviewPipelineInputShape,
   updateTaskInputShape
 } from "./inputShapes.js";
-import { readOnlyAnnotations, writeAnnotations, type PlanweavePartialToolDefinitionRegistry } from "./types.js";
+import {
+  readOnlyAnnotations,
+  writeAnnotations,
+  type PlanweavePartialToolDefinitionRegistry
+} from "./types.js";
 
 export const graphToolDefinitions = {
   preview_execution_graph: {
     title: "Preview PlanWeave Execution Graph",
-    description: "Compatibility alias for get_project_graph. Preview the selected canvas DAG before or after graph edits.",
+    description:
+      "Compatibility alias for get_project_graph. Returns the canvas DAG without per-task promptMarkdown bodies. Prefer get_graph_summary, list_tasks, or get_graph_slice; use read_prompt_source or get_rendered_prompt for prompt bodies, or get_project_graph_full_debug for the heavy full dump.",
     inputSchema: projectCanvasInput,
     annotations: readOnlyAnnotations
   },
   get_project_graph: {
     title: "Get PlanWeave Project Graph",
-    description: "Legacy graph DTO. Prefer get_graph_summary, list_tasks, or get_graph_slice for bounded runtime graph inspection.",
+    description:
+      "Legacy graph DTO without per-task promptMarkdown bodies (contentIncluded=false). Prefer get_graph_summary, list_tasks, or get_graph_slice for bounded runtime graph inspection. Use read_prompt_source or get_rendered_prompt for prompt bodies, or get_project_graph_full_debug for the heavy full dump.",
     inputSchema: projectCanvasInput,
     annotations: readOnlyAnnotations
   },
   get_graph_summary: {
     title: "Get PlanWeave Graph Summary",
-    description: "Return a bounded runtime graph summary without prompt bodies or Desktop-only DTO fields.",
+    description:
+      "Return a bounded runtime graph summary without prompt bodies or Desktop-only DTO fields.",
     inputSchema: graphReadInput,
     annotations: readOnlyAnnotations
   },
@@ -60,7 +67,8 @@ export const graphToolDefinitions = {
   },
   validate_graph_quality: {
     title: "Validate PlanWeave Graph Quality",
-    description: "Run runtime graph quality diagnostics for a canvas, including review, gate, dependency, layout, and heuristic rules.",
+    description:
+      "Run runtime graph quality diagnostics for a canvas, including review, gate, dependency, layout, and heuristic rules.",
     inputSchema: {
       ...projectCanvasInput,
       reviewPolicy: graphReviewPolicySchema.optional(),
@@ -72,25 +80,33 @@ export const graphToolDefinitions = {
   },
   get_task_detail: {
     title: "Get PlanWeave Task Detail",
-    description: "Return a task's prompt, acceptance criteria, status, executor, and ordered block refs.",
+    description:
+      "Return a task's prompt, acceptance criteria, status, executor, and ordered block refs.",
     inputSchema: { ...projectCanvasInput, taskId: z.string().min(1) },
     annotations: readOnlyAnnotations
   },
   get_block_detail: {
     title: "Get PlanWeave Block Detail",
-    description: "Compatibility detail tool. Defaults to legacy full block fields, including prompt markdown and rendered prompt surface. Use view: summary or get_block_summary for bounded output.",
-    inputSchema: { ...projectCanvasInput, ...blockRefInput, view: z.enum(["legacy", "summary", "content"]).optional() },
+    description:
+      "Compatibility detail tool. Defaults to legacy full block fields, including prompt markdown and rendered prompt surface. Use view: summary or get_block_summary for bounded output.",
+    inputSchema: {
+      ...projectCanvasInput,
+      ...blockRefInput,
+      view: z.enum(["legacy", "summary", "content"]).optional()
+    },
     annotations: readOnlyAnnotations
   },
   get_block_summary: {
     title: "Get PlanWeave Block Summary",
-    description: "Return bounded block metadata without promptMarkdown, promptSurfaceMarkdown, or promptSources.",
+    description:
+      "Return bounded block metadata without promptMarkdown, promptSurfaceMarkdown, or promptSources.",
     inputSchema: { ...projectCanvasInput, ...blockRefInput },
     annotations: readOnlyAnnotations
   },
   get_review_pipeline: {
     title: "Get PlanWeave Review Pipeline",
-    description: "Return review gates configured for a task, including presets, pass criteria, feedback format, and prompt markdown.",
+    description:
+      "Return review gates configured for a task, including presets, pass criteria, feedback format, and prompt markdown.",
     inputSchema: { ...projectCanvasInput, taskId: z.string().min(1) },
     annotations: readOnlyAnnotations
   },
@@ -114,14 +130,19 @@ export const graphToolDefinitions = {
   },
   update_task: {
     title: "Update PlanWeave Task",
-    description: "Update a task title, prompt markdown, or executor. Use promptMarkdown here instead of a separate prompt-writing tool.",
+    description:
+      "Update a task title, prompt markdown, or executor. Use promptMarkdown here instead of a separate prompt-writing tool.",
     inputSchema: updateTaskInputShape,
     annotations: writeAnnotations
   },
   update_task_acceptance: {
     title: "Update PlanWeave Task Acceptance",
     description: "Replace a task's acceptance criteria.",
-    inputSchema: { ...projectCanvasInput, taskId: z.string().min(1), acceptance: z.array(z.string().min(1)).min(1) },
+    inputSchema: {
+      ...projectCanvasInput,
+      taskId: z.string().min(1),
+      acceptance: z.array(z.string().min(1)).min(1)
+    },
     annotations: writeAnnotations
   },
   remove_task: {
@@ -146,14 +167,15 @@ export const graphToolDefinitions = {
   },
   update_block: {
     title: "Update PlanWeave Block",
-    description: "Update a block title, prompt markdown, or executor. Use promptMarkdown here instead of a separate prompt-writing tool.",
+    description:
+      "Update a block title, prompt markdown, or executor. Use promptMarkdown here instead of a separate prompt-writing tool.",
     inputSchema: updateBlockInputShape,
     annotations: writeAnnotations
   },
   update_canvas_execution_policy: {
     title: "Update PlanWeave Canvas Execution Policy",
     description:
-      "Update selected top-level manifest execution policy fields for one canvas. Use this for execution.defaultExecutor and execution.parallel; use update_block_planning for per-block parallel safety and locks.",
+      "Update selected top-level manifest execution policy fields for one canvas. Use this for execution.defaultExecutor and execution.parallel; use update_block_planning for per-block exclusive/locks.",
     inputSchema: {
       ...projectCanvasInput,
       defaultExecutor: z.string().min(1).nullable().optional(),
@@ -165,10 +187,11 @@ export const graphToolDefinitions = {
   update_block_planning: {
     title: "Update PlanWeave Block Planning",
     description:
-      "Update per-block planning fields: implementation parallel safety/locks or review block planning fields. Use update_canvas_execution_policy for the canvas-level parallel enable/maxConcurrent switch.",
+      "Update per-block planning fields: exclusive lock / locks, or review block planning fields. Use update_canvas_execution_policy for the canvas-level parallel enable/maxConcurrent switch. parallelSafe is a deprecated alias for exclusive (inverted).",
     inputSchema: {
       ...projectCanvasInput,
       ...blockRefInput,
+      exclusive: z.boolean().optional(),
       parallelSafe: z.boolean().optional(),
       parallelLocks: z.array(z.string().min(1)).optional(),
       reviewRequired: z.boolean().optional(),
@@ -179,7 +202,8 @@ export const graphToolDefinitions = {
   },
   update_block_dependencies: {
     title: "Update PlanWeave Block Dependencies",
-    description: "Compatibility alias for set_block_dependencies. Replace a block's intra-task depends_on block id list.",
+    description:
+      "Compatibility alias for set_block_dependencies. Replace a block's intra-task depends_on block id list.",
     inputSchema: { ...projectCanvasInput, ...blockRefInput, dependsOn: z.array(z.string().min(1)) },
     annotations: writeAnnotations
   },
@@ -197,14 +221,24 @@ export const graphToolDefinitions = {
   },
   add_dependency: {
     title: "Add PlanWeave Dependency",
-    description: "Compatibility task dependency tool using manifest-oriented fromTaskId/toTaskId. Prefer add_task_dependency.",
-    inputSchema: { ...projectCanvasInput, fromTaskId: z.string().min(1), toTaskId: z.string().min(1) },
+    description:
+      "Compatibility task dependency tool using manifest-oriented fromTaskId/toTaskId. Prefer add_task_dependency.",
+    inputSchema: {
+      ...projectCanvasInput,
+      fromTaskId: z.string().min(1),
+      toTaskId: z.string().min(1)
+    },
     annotations: writeAnnotations
   },
   remove_dependency: {
     title: "Remove PlanWeave Dependency",
-    description: "Compatibility task dependency tool using manifest-oriented fromTaskId/toTaskId. Prefer remove_task_dependency.",
-    inputSchema: { ...projectCanvasInput, fromTaskId: z.string().min(1), toTaskId: z.string().min(1) },
+    description:
+      "Compatibility task dependency tool using manifest-oriented fromTaskId/toTaskId. Prefer remove_task_dependency.",
+    inputSchema: {
+      ...projectCanvasInput,
+      fromTaskId: z.string().min(1),
+      toTaskId: z.string().min(1)
+    },
     annotations: writeAnnotations
   },
   add_task_dependency: {
@@ -222,36 +256,45 @@ export const graphToolDefinitions = {
   set_task_dependencies: {
     title: "Set PlanWeave Task Dependencies",
     description: "Replace one task's full dependency list using dependsOn.",
-    inputSchema: { ...projectCanvasInput, taskId: z.string().min(1), dependsOn: z.array(z.string().min(1)) },
+    inputSchema: {
+      ...projectCanvasInput,
+      taskId: z.string().min(1),
+      dependsOn: z.array(z.string().min(1))
+    },
     annotations: writeAnnotations
   },
   bulk_create_tasks: {
     title: "Bulk Create PlanWeave Tasks",
-    description: "Create multiple task nodes in one runtime mutation. Returns a lightweight bulk edit summary.",
+    description:
+      "Create multiple task nodes in one runtime mutation. Returns a lightweight bulk edit summary.",
     inputSchema: { ...projectCanvasInput, tasks: z.array(bulkCreateTaskSchema).min(1) },
     annotations: writeAnnotations
   },
   bulk_create_blocks: {
     title: "Bulk Create PlanWeave Blocks",
-    description: "Create multiple blocks in one runtime mutation. Returns a lightweight bulk edit summary.",
+    description:
+      "Create multiple blocks in one runtime mutation. Returns a lightweight bulk edit summary.",
     inputSchema: { ...projectCanvasInput, blocks: z.array(bulkCreateBlockSchema).min(1) },
     annotations: writeAnnotations
   },
   bulk_update_tasks: {
     title: "Bulk Update PlanWeave Tasks",
-    description: "Update multiple task titles, prompt markdown bodies, executors, or acceptance criteria in one runtime mutation.",
+    description:
+      "Update multiple task titles, prompt markdown bodies, executors, or acceptance criteria in one runtime mutation.",
     inputSchema: { ...projectCanvasInput, updates: z.array(bulkUpdateTaskSchema).min(1) },
     annotations: writeAnnotations
   },
   bulk_update_blocks: {
     title: "Bulk Update PlanWeave Blocks",
-    description: "Update multiple block titles, prompt markdown bodies, executors, dependencies, parallel policy fields, or review gate fields in one runtime mutation.",
+    description:
+      "Update multiple block titles, prompt markdown bodies, executors, dependencies, parallel policy fields, or review gate fields in one runtime mutation.",
     inputSchema: { ...projectCanvasInput, updates: z.array(bulkUpdateBlockSchema).min(1) },
     annotations: writeAnnotations
   },
   bulk_remove_graph_items: {
     title: "Bulk Remove PlanWeave Graph Items",
-    description: "Remove task nodes, blocks, task dependency edges, and block dependency references in one runtime mutation.",
+    description:
+      "Remove task nodes, blocks, task dependency edges, and block dependency references in one runtime mutation.",
     inputSchema: {
       ...projectCanvasInput,
       tasks: z.array(z.string().min(1)).optional(),
@@ -281,27 +324,32 @@ export const graphToolDefinitions = {
   },
   bulk_apply_review_pipeline: {
     title: "Bulk Apply PlanWeave Review Pipelines",
-    description: "Replace review gate steps and package review defaults for multiple tasks after validating all inputs.",
+    description:
+      "Replace review gate steps and package review defaults for multiple tasks after validating all inputs.",
     inputSchema: { ...projectCanvasInput, updates: z.array(reviewPipelineBulkUpdateSchema).min(1) },
     annotations: writeAnnotations
   },
   bulk_update_parallel_policy: {
     title: "Bulk Update PlanWeave Parallel Policy",
-    description: "Update canvas-level parallel settings and per-block parallel safety/locks after validating all inputs.",
+    description:
+      "Update canvas-level parallel settings and per-block parallel safety/locks after validating all inputs.",
     inputSchema: {
       ...projectCanvasInput,
-      canvasPolicy: z.object({
-        defaultExecutor: z.string().min(1).nullable().optional(),
-        parallelEnabled: z.boolean().optional(),
-        maxConcurrent: z.number().int().positive().optional()
-      }).optional(),
+      canvasPolicy: z
+        .object({
+          defaultExecutor: z.string().min(1).nullable().optional(),
+          parallelEnabled: z.boolean().optional(),
+          maxConcurrent: z.number().int().positive().optional()
+        })
+        .optional(),
       blocks: z.array(parallelBlockPolicySchema).optional()
     },
     annotations: writeAnnotations
   },
   apply_canvas_lane_layout: {
     title: "Apply PlanWeave Canvas Lane Layout",
-    description: "Generate and save a desktop lane layout for the selected canvas from task dependency depth. Returns a lightweight node count and bounds summary by default.",
+    description:
+      "Generate and save a desktop lane layout for the selected canvas from task dependency depth. Returns a lightweight node count and bounds summary by default.",
     inputSchema: {
       ...projectCanvasInput,
       columnWidth: z.number().positive().optional(),

@@ -13,6 +13,22 @@ import {
   sanitizeValidationIssues
 } from "../toolHelpers.js";
 import type { PlanweavePartialToolHandlerRegistry } from "../toolDispatcher.js";
+import type { RuntimeGateway } from "../toolTypes.js";
+
+function summarizeProjectGraph(graph: Awaited<ReturnType<RuntimeGateway["getProjectGraph"]>>) {
+  return {
+    ...graph,
+    contentIncluded: false as const,
+    tasks: graph.tasks.map((task) => {
+      const { promptMarkdown, ...rest } = task;
+      return {
+        ...rest,
+        promptMarkdownAvailable: !task.promptMissing,
+        promptMarkdownBytes: Buffer.byteLength(promptMarkdown, "utf8")
+      };
+    })
+  };
+}
 
 export const graphReadToolHandlers = {
   get_status: async (args, gateway) => {
@@ -55,19 +71,34 @@ export const graphReadToolHandlers = {
   },
   preview_execution_graph: async (args, gateway) => {
     const { projectId, canvasId } = parseProjectCanvasArgs(args);
-    return jsonToolResult({ graph: await gateway.getProjectGraph(projectId, canvasId) });
+    return jsonToolResult({
+      graph: summarizeProjectGraph(await gateway.getProjectGraph(projectId, canvasId))
+    });
   },
   get_project_graph: async (args, gateway) => {
     const { projectId, canvasId } = parseProjectCanvasArgs(args);
-    return jsonToolResult({ graph: await gateway.getProjectGraph(projectId, canvasId) });
+    return jsonToolResult({
+      graph: summarizeProjectGraph(await gateway.getProjectGraph(projectId, canvasId))
+    });
+  },
+  get_project_graph_full_debug: async (args, gateway) => {
+    const { projectId, canvasId } = parseProjectCanvasArgs(args);
+    return jsonToolResult({
+      graph: await gateway.getProjectGraph(projectId, canvasId),
+      heavy: true
+    });
   },
   get_graph_summary: async (args, gateway) => {
     const { projectId, canvasId, limit, cursor } = parseGraphReadArgs(args);
-    return jsonToolResult({ graph: await gateway.inspectGraph(projectId, canvasId, { view: "summary", limit, cursor }) });
+    return jsonToolResult({
+      graph: await gateway.inspectGraph(projectId, canvasId, { view: "summary", limit, cursor })
+    });
   },
   list_tasks: async (args, gateway) => {
     const { projectId, canvasId, limit, cursor } = parseGraphReadArgs(args);
-    return jsonToolResult({ graph: await gateway.inspectGraph(projectId, canvasId, { view: "tasks", limit, cursor }) });
+    return jsonToolResult({
+      graph: await gateway.inspectGraph(projectId, canvasId, { view: "tasks", limit, cursor })
+    });
   },
   get_graph_slice: async (args, gateway) => {
     const record = readObjectArgs(args);
@@ -87,38 +118,64 @@ export const graphReadToolHandlers = {
     const record = readObjectArgs(args);
     const { projectId, canvasId } = parseProjectCanvasArgs(record);
     return jsonToolResult({
-      graphQuality: await gateway.validateGraphQuality(projectId, canvasId, parseGraphQualityOptions(record))
+      graphQuality: await gateway.validateGraphQuality(
+        projectId,
+        canvasId,
+        parseGraphQualityOptions(record)
+      )
     });
   },
   validate_execution_readiness: async (args, gateway) => {
     const { projectId, canvasId } = parseProjectCanvasArgs(args);
-    return jsonToolResult({ readiness: await gateway.validateExecutionReadiness(projectId, canvasId) });
+    return jsonToolResult({
+      readiness: await gateway.validateExecutionReadiness(projectId, canvasId)
+    });
   },
   get_task_detail: async (args, gateway) => {
     const record = readObjectArgs(args);
     const { projectId, canvasId } = parseProjectCanvasArgs(record);
-    return jsonToolResult({ task: await gateway.getTaskDetail(projectId, nonEmptyString(record.taskId, "taskId"), canvasId) });
+    return jsonToolResult({
+      task: await gateway.getTaskDetail(
+        projectId,
+        nonEmptyString(record.taskId, "taskId"),
+        canvasId
+      )
+    });
   },
   get_block_detail: async (args, gateway) => {
     const record = readObjectArgs(args);
     const { projectId, canvasId } = parseProjectCanvasArgs(record);
     const block = await gateway.getBlockDetail(projectId, blockRefFromArgs(record), canvasId);
-    return jsonToolResult({ block: record.view === "summary" ? summarizeBlockDetail(block) : block });
+    return jsonToolResult({
+      block: record.view === "summary" ? summarizeBlockDetail(block) : block
+    });
   },
   get_block_summary: async (args, gateway) => {
     const record = readObjectArgs(args);
     const { projectId, canvasId } = parseProjectCanvasArgs(record);
-    return jsonToolResult({ block: summarizeBlockDetail(await gateway.getBlockDetail(projectId, blockRefFromArgs(record), canvasId)) });
+    return jsonToolResult({
+      block: summarizeBlockDetail(
+        await gateway.getBlockDetail(projectId, blockRefFromArgs(record), canvasId)
+      )
+    });
   },
   get_block_detail_full_debug: async (args, gateway) => {
     const record = readObjectArgs(args);
     const { projectId, canvasId } = parseProjectCanvasArgs(record);
-    return jsonToolResult({ block: await gateway.getBlockDetail(projectId, blockRefFromArgs(record), canvasId) });
+    return jsonToolResult({
+      block: await gateway.getBlockDetail(projectId, blockRefFromArgs(record), canvasId)
+    });
   },
   get_review_pipeline: async (args, gateway) => {
     const record = readObjectArgs(args);
     const { projectId, canvasId } = parseProjectCanvasArgs(record);
-    return jsonToolResult({ reviewPipeline: await gateway.getReviewPipeline(projectId, nonEmptyString(record.taskId, "taskId"), canvasId) });
+    return jsonToolResult({
+      reviewPipeline: await gateway.getReviewPipeline(
+        projectId,
+        nonEmptyString(record.taskId, "taskId"),
+        canvasId
+      )
+    });
   }
 } satisfies PlanweavePartialToolHandlerRegistry;
 
@@ -132,7 +189,12 @@ function parseOptionalPositiveInteger(value: unknown, field: string): number | u
   return value;
 }
 
-function parseGraphReadArgs(args: unknown): { projectId: string; canvasId?: string; limit?: number; cursor?: string } {
+function parseGraphReadArgs(args: unknown): {
+  projectId: string;
+  canvasId?: string;
+  limit?: number;
+  cursor?: string;
+} {
   const record = readObjectArgs(args);
   const { projectId, canvasId } = parseProjectCanvasArgs(record);
   return {
@@ -143,7 +205,11 @@ function parseGraphReadArgs(args: unknown): { projectId: string; canvasId?: stri
   };
 }
 
-function parseEnum<T extends string>(value: unknown, field: string, allowed: readonly T[]): T | undefined {
+function parseEnum<T extends string>(
+  value: unknown,
+  field: string,
+  allowed: readonly T[]
+): T | undefined {
   if (value === undefined || value === null || value === "") {
     return undefined;
   }
@@ -155,7 +221,11 @@ function parseEnum<T extends string>(value: unknown, field: string, allowed: rea
 
 function parseGraphQualityOptions(record: Record<string, unknown>) {
   return {
-    reviewPolicy: parseEnum(record.reviewPolicy, "reviewPolicy", ["none", "risk-based", "required"] as const),
+    reviewPolicy: parseEnum(record.reviewPolicy, "reviewPolicy", [
+      "none",
+      "risk-based",
+      "required"
+    ] as const),
     gatePolicy: parseEnum(record.gatePolicy, "gatePolicy", ["none", "required"] as const),
     heuristics: parseEnum(record.heuristics, "heuristics", ["on", "off"] as const),
     strict: record.strict === true
