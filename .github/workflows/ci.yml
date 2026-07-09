@@ -29,11 +29,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint and typecheck
-        run: pnpm lint
-
+      # cli/desktop/mcp resolve @planweave-ai/runtime (and desktop also mcp) from
+      # package exports that point at dist/. Build once before typecheck; do not
+      # embed build inside the typecheck script.
       - name: Build packages
         run: pnpm -r build
+
+      - name: Lint and typecheck
+        run: pnpm lint
 
       - name: Run tests
         run: pnpm test

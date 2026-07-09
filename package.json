@@ -10,7 +10,7 @@
     "check:dom-boundaries": "node scripts/check-renderer-dom-boundaries.mjs",
     "check:versions": "node scripts/sync-version-metadata.mjs --check",
     "lint": "pnpm check:versions && pnpm check:dom-boundaries && pnpm typecheck",
-    "typecheck": "pnpm --filter @planweave-ai/runtime typecheck && pnpm --filter @planweave-ai/runtime build && pnpm --filter @planweave-ai/mcp typecheck && pnpm --filter @planweave-ai/mcp build && pnpm --filter @planweave-ai/cli typecheck && pnpm --filter @planweave-ai/desktop typecheck",
+    "typecheck": "pnpm --filter @planweave-ai/runtime typecheck && pnpm --filter @planweave-ai/mcp typecheck && pnpm --filter @planweave-ai/cli typecheck && pnpm --filter @planweave-ai/desktop typecheck",
     "desktop:build": "pnpm --dir packages/desktop build",
     "desktop:dist:all": "pnpm --dir packages/desktop dist:all",
     "desktop:dist:linux": "pnpm --dir packages/desktop dist:linux",
@@ -30,7 +30,7 @@
     "prepare": "husky",
     "publish:npm": "pnpm -r --filter @planweave-ai/runtime --filter @planweave-ai/mcp --filter @planweave-ai/cli publish --access public",
     "sync:versions": "node scripts/sync-version-metadata.mjs",
-    "test": "pnpm check:versions && pnpm check:dom-boundaries && vitest run"
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
