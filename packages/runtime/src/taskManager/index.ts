@@ -7,6 +7,21 @@ export type { PromptSourceKind, PromptSourceSummary, PromptSurface } from "./pro
 export { submitBlockResult } from "./blockSubmission.js";
 export { submitReviewResult } from "./reviewSubmission.js";
 export { submitFeedback } from "./feedbackSubmission.js";
-export { markBlockBlocked, markBlockDiverged, resolveBlockDivergence, unblockBlock } from "./blockStatusMutations.js";
+export {
+  markBlockBlocked,
+  markBlockDiverged,
+  releaseInProgressBlock,
+  resolveBlockDivergence,
+  unblockBlock
+} from "./blockStatusMutations.js";
 export { resetMaxCycleReviewsForRetry, retryReview } from "./reviewRetry.js";
 export { getExecutionStatus } from "./executionStatus.js";
+export {
+  commandFingerprint,
+  isCommandTrusted,
+  listTrustedCommands,
+  trustCommand,
+  trustedCommandsPath,
+  trustedCommandsSchema
+} from "./hookTrustStore.js";
+export type { TrustedCommand, TrustedCommandsFile } from "./hookTrustStore.js";

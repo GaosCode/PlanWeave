@@ -80,6 +80,30 @@ export async function unblockBlock(options: { projectRoot: PackageWorkspaceRef; 
   });
 }
 
+/** Return an unstarted parallel-batch sibling from in_progress to a claimable status. */
+export async function releaseInProgressBlock(options: {
+  projectRoot: PackageWorkspaceRef;
+  ref: string;
+  session?: ExecutionGraphSession;
+}) {
+  return withLockedRuntime(options, async (context) => {
+    const { workspace, manifest, graph } = context;
+    getBlock(graph, options.ref);
+    const current = context.state.blocks[options.ref];
+    if (current?.status !== "in_progress") {
+      throw new Error(`Block '${options.ref}' is not in_progress.`);
+    }
+    context.state.blocks[options.ref] = {
+      ...current,
+      status: blockDependenciesCompleted(graph, context.state, options.ref) ? "ready" : "planned",
+      blockedReason: null
+    };
+    context.state.currentRefs = context.state.currentRefs.filter((ref) => ref !== options.ref);
+    await writeState(workspace.stateFile, refreshDerivedState(manifest, context.state));
+    return { ref: options.ref, status: context.state.blocks[options.ref].status };
+  });
+}
+
 export async function resolveBlockDivergence(options: { projectRoot: PackageWorkspaceRef; ref: string; reason: string; session?: ExecutionGraphSession }) {
   return withLockedRuntime(options, async (context) => {
     const { workspace, manifest, graph } = context;

@@ -22,7 +22,16 @@ import type {
   ValidationIssue
 } from "../types.js";
 import type { PackageWorkspaceRef } from "../types.js";
-import { claimNext, getExecutionStatus, markBlockBlocked, renderPrompt, submitBlockResult, submitFeedback, submitReviewResult } from "./index.js";
+import {
+  claimNext,
+  getExecutionStatus,
+  markBlockBlocked,
+  releaseInProgressBlock,
+  renderPrompt,
+  submitBlockResult,
+  submitFeedback,
+  submitReviewResult
+} from "./index.js";
 import { effectiveFeedbackExecutor } from "./selectors.js";
 
 type BlockClaim = Extract<ClaimResult, { kind: "block" }>;
@@ -514,6 +523,7 @@ export async function runAutoRunStep(options: {
         runtime: { tmuxEnabled: options.tmuxEnabled, tmuxOwnerRunId: options.tmuxOwnerRunId }
       });
     const steps: SubmittedOrManualStep[] = [];
+    const executedRefs = new Set<string>();
     for (const ref of claim.refs) {
       const blockClaim = await claimForBatchRef({ projectRoot: options.projectRoot, ref, session: options.session });
       const step = await executeBlockClaim({
@@ -523,8 +533,17 @@ export async function runAutoRunStep(options: {
         session: options.session
       });
       if (step.kind === "blocked") {
+        const remainingRefs = claim.refs.filter((batchRef) => batchRef !== ref && !executedRefs.has(batchRef));
+        for (const remainingRef of remainingRefs) {
+          await releaseInProgressBlock({
+            projectRoot: options.projectRoot,
+            ref: remainingRef,
+            session: options.session
+          });
+        }
         return step;
       }
+      executedRefs.add(ref);
       steps.push(step);
     }
     return { kind: "batch_submitted", claim, steps };
