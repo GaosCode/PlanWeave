@@ -17,7 +17,7 @@ const reviewHookSchema = z
 
 const blockParallelPolicySchema = z
   .object({
-    safe: z.boolean(),
+    safe: z.boolean().optional(),
     locks: z.array(z.string())
   })
   .strict();
@@ -57,7 +57,10 @@ const reviewBlockSchema = z
   })
   .strict();
 
-const manifestBlockSchema = z.discriminatedUnion("type", [implementationBlockSchema, reviewBlockSchema]);
+const manifestBlockSchema = z.discriminatedUnion("type", [
+  implementationBlockSchema,
+  reviewBlockSchema
+]);
 
 const manifestTaskNodeSchema = z
   .object({
@@ -140,7 +143,9 @@ const desktopLayoutSchema = z
 
 const activeCanvasSelectionSchema = z
   .object({
-    activeCanvasId: z.string().refine((value) => value.trim().length > 0, "Active canvas id is required.")
+    activeCanvasId: z
+      .string()
+      .refine((value) => value.trim().length > 0, "Active canvas id is required.")
   })
   .strict();
 
@@ -153,7 +158,9 @@ const updateLayoutCommandSchema = z
   })
   .strict()
   .superRefine((command, context) => {
-    const result = (command.layoutScope === "desktop" ? desktopLayoutSchema : activeCanvasSelectionSchema).safeParse(command.layout);
+    const result = (
+      command.layoutScope === "desktop" ? desktopLayoutSchema : activeCanvasSelectionSchema
+    ).safeParse(command.layout);
     if (result.success) {
       return;
     }
@@ -166,8 +173,22 @@ const updateLayoutCommandSchema = z
   });
 
 const planGraphCommandSchemaOptions = [
-  z.object({ ...baseCommandShape, type: z.literal("addTaskDependency"), fromTaskId: z.string(), toTaskId: z.string() }).strict(),
-  z.object({ ...baseCommandShape, type: z.literal("removeTaskDependency"), fromTaskId: z.string(), toTaskId: z.string() }).strict(),
+  z
+    .object({
+      ...baseCommandShape,
+      type: z.literal("addTaskDependency"),
+      fromTaskId: z.string(),
+      toTaskId: z.string()
+    })
+    .strict(),
+  z
+    .object({
+      ...baseCommandShape,
+      type: z.literal("removeTaskDependency"),
+      fromTaskId: z.string(),
+      toTaskId: z.string()
+    })
+    .strict(),
   z
     .object({
       ...baseCommandShape,
@@ -224,6 +245,7 @@ const planGraphCommandSchemaOptions = [
           executor: z.string().nullable().optional(),
           dependsOn: z.array(z.string()).optional(),
           parallelSafe: z.boolean().optional(),
+          exclusive: z.boolean().optional(),
           parallelLocks: z.array(z.string()).optional(),
           reviewRequired: z.boolean().optional(),
           maxFeedbackCycles: z.number().int().nonnegative().optional(),
@@ -233,45 +255,129 @@ const planGraphCommandSchemaOptions = [
         .strict()
     })
     .strict(),
-  z.object({ ...baseCommandShape, type: z.literal("addTask"), snapshot: taskComponentSnapshotSchema }).strict(),
-  z.object({ ...baseCommandShape, type: z.literal("removeTask"), taskId: z.string(), layoutNode: layoutNodeSchema.nullable().optional() }).strict(),
-  z.object({ ...baseCommandShape, type: z.literal("restoreTask"), snapshot: taskComponentSnapshotSchema }).strict(),
-  z.object({ ...baseCommandShape, type: z.literal("addBlock"), snapshot: blockComponentSnapshotSchema }).strict(),
+  z
+    .object({
+      ...baseCommandShape,
+      type: z.literal("addTask"),
+      snapshot: taskComponentSnapshotSchema
+    })
+    .strict(),
+  z
+    .object({
+      ...baseCommandShape,
+      type: z.literal("removeTask"),
+      taskId: z.string(),
+      layoutNode: layoutNodeSchema.nullable().optional()
+    })
+    .strict(),
+  z
+    .object({
+      ...baseCommandShape,
+      type: z.literal("restoreTask"),
+      snapshot: taskComponentSnapshotSchema
+    })
+    .strict(),
+  z
+    .object({
+      ...baseCommandShape,
+      type: z.literal("addBlock"),
+      snapshot: blockComponentSnapshotSchema
+    })
+    .strict(),
   z.object({ ...baseCommandShape, type: z.literal("removeBlock"), blockRef: z.string() }).strict(),
-  z.object({ ...baseCommandShape, type: z.literal("restoreBlock"), snapshot: blockComponentSnapshotSchema }).strict(),
+  z
+    .object({
+      ...baseCommandShape,
+      type: z.literal("restoreBlock"),
+      snapshot: blockComponentSnapshotSchema
+    })
+    .strict(),
   z
     .object({
       ...baseCommandShape,
       type: z.literal("updateReviewPipeline"),
       taskId: z.string(),
-      packageDefaults: z.object({ maxFeedbackCycles: z.number().int().nonnegative(), completionPolicy: z.literal("strict") }).strict(),
+      packageDefaults: z
+        .object({
+          maxFeedbackCycles: z.number().int().nonnegative(),
+          completionPolicy: z.literal("strict")
+        })
+        .strict(),
       reviewBlocks: z.array(reviewBlockSchema),
-      promptMarkdownByBlockId: z.array(z.object({ blockId: z.string(), markdown: z.string() }).strict())
+      promptMarkdownByBlockId: z.array(
+        z.object({ blockId: z.string(), markdown: z.string() }).strict()
+      )
     })
     .strict(),
   updateLayoutCommandSchema,
-  z.object({ ...baseCommandShape, type: z.literal("addCanvasDependency"), fromCanvasId: z.string(), toCanvasId: z.string() }).strict(),
-  z.object({ ...baseCommandShape, type: z.literal("removeCanvasDependency"), fromCanvasId: z.string(), toCanvasId: z.string() }).strict(),
-  z.object({ ...baseCommandShape, type: z.literal("addCrossTaskDependency"), from: projectTaskRefSchema, to: projectTaskRefSchema }).strict(),
-  z.object({ ...baseCommandShape, type: z.literal("removeCrossTaskDependency"), from: projectTaskRefSchema, to: projectTaskRefSchema }).strict()
+  z
+    .object({
+      ...baseCommandShape,
+      type: z.literal("addCanvasDependency"),
+      fromCanvasId: z.string(),
+      toCanvasId: z.string()
+    })
+    .strict(),
+  z
+    .object({
+      ...baseCommandShape,
+      type: z.literal("removeCanvasDependency"),
+      fromCanvasId: z.string(),
+      toCanvasId: z.string()
+    })
+    .strict(),
+  z
+    .object({
+      ...baseCommandShape,
+      type: z.literal("addCrossTaskDependency"),
+      from: projectTaskRefSchema,
+      to: projectTaskRefSchema
+    })
+    .strict(),
+  z
+    .object({
+      ...baseCommandShape,
+      type: z.literal("removeCrossTaskDependency"),
+      from: projectTaskRefSchema,
+      to: projectTaskRefSchema
+    })
+    .strict()
 ] as const;
 
 type PlanGraphCommandSchemaType = z.output<(typeof planGraphCommandSchemaOptions)[number]>["type"];
-type MissingPlanGraphCommandSchemaType = Exclude<PlanGraphCommand["type"], PlanGraphCommandSchemaType>;
-type ExtraPlanGraphCommandSchemaType = Exclude<PlanGraphCommandSchemaType, PlanGraphCommand["type"]>;
-const planGraphCommandSchemaTypeCoverage: Record<MissingPlanGraphCommandSchemaType | ExtraPlanGraphCommandSchemaType, never> = {};
+type MissingPlanGraphCommandSchemaType = Exclude<
+  PlanGraphCommand["type"],
+  PlanGraphCommandSchemaType
+>;
+type ExtraPlanGraphCommandSchemaType = Exclude<
+  PlanGraphCommandSchemaType,
+  PlanGraphCommand["type"]
+>;
+const planGraphCommandSchemaTypeCoverage: Record<
+  MissingPlanGraphCommandSchemaType | ExtraPlanGraphCommandSchemaType,
+  never
+> = {};
 
 export const planGraphCommandSchema = z.discriminatedUnion("type", planGraphCommandSchemaOptions);
 
-const planGraphCommandArrayOrSingleSchema = z.union([planGraphCommandSchema, z.array(planGraphCommandSchema).min(1)]);
+const planGraphCommandArrayOrSingleSchema = z.union([
+  planGraphCommandSchema,
+  z.array(planGraphCommandSchema).min(1)
+]);
 
 export class PlanGraphOperationLogParseError extends Error {
   readonly operationId: number;
   readonly fieldName: "command_json" | "inverse_json";
   readonly issueSummary: string;
 
-  constructor(options: { operationId: number; fieldName: "command_json" | "inverse_json"; issueSummary: string }) {
-    super(`Invalid operation_log ${options.fieldName} for operation ${options.operationId}: ${options.issueSummary}`);
+  constructor(options: {
+    operationId: number;
+    fieldName: "command_json" | "inverse_json";
+    issueSummary: string;
+  }) {
+    super(
+      `Invalid operation_log ${options.fieldName} for operation ${options.operationId}: ${options.issueSummary}`
+    );
     this.name = "PlanGraphOperationLogParseError";
     this.operationId = options.operationId;
     this.fieldName = options.fieldName;
@@ -283,11 +389,16 @@ export function parsePlanGraphCommand(value: unknown): PlanGraphCommand {
   return planGraphCommandSchema.parse(value);
 }
 
-export function parsePlanGraphCommandArrayOrSingle(value: unknown): PlanGraphCommand | PlanGraphCommand[] {
+export function parsePlanGraphCommandArrayOrSingle(
+  value: unknown
+): PlanGraphCommand | PlanGraphCommand[] {
   return planGraphCommandArrayOrSingleSchema.parse(value);
 }
 
-export function planGraphCommandParseDiagnostic(error: unknown, path: string): PlanGraphCommandDiagnostic {
+export function planGraphCommandParseDiagnostic(
+  error: unknown,
+  path: string
+): PlanGraphCommandDiagnostic {
   return {
     code: "history_command_invalid",
     message: `Invalid PlanGraph command history at ${path}: ${planGraphCommandIssueSummary(error)}.`,
@@ -299,7 +410,9 @@ export function planGraphCommandIssueSummary(error: unknown): string {
   if (error instanceof z.ZodError) {
     return error.issues
       .slice(0, 3)
-      .map((issue) => `${issue.path.length > 0 ? issue.path.join(".") : "<root>"}: ${issue.message}`)
+      .map(
+        (issue) => `${issue.path.length > 0 ? issue.path.join(".") : "<root>"}: ${issue.message}`
+      )
       .join("; ");
   }
   return error instanceof Error ? error.message : "Unknown parse error";

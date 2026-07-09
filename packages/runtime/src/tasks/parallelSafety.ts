@@ -1,5 +1,6 @@
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import type { CompiledExecutionGraph, PlanPackageManifest } from "../types.js";
+import { refsConflict } from "../taskManager/selectors.js";
 
 export function canShareParallelBatch(
   manifest: PlanPackageManifest,
@@ -7,20 +8,8 @@ export function canShareParallelBatch(
   candidateRef: string,
   graph: CompiledExecutionGraph = compileTaskGraph(manifest)
 ): boolean {
-  if (!graph.parallelSafeByBlockRef.get(candidateRef)) {
+  if (graph.blocksByRef.get(candidateRef)?.type !== "implementation") {
     return false;
   }
-  const candidateTask = graph.blockTaskByRef.get(candidateRef);
-  const candidateLocks = new Set(graph.locksByBlockRef.get(candidateRef) ?? []);
-  return selected.every((selectedRef) => {
-    const selectedTask = graph.blockTaskByRef.get(selectedRef);
-    if (
-      candidateTask &&
-      selectedTask &&
-      (graph.taskReachable(candidateTask, selectedTask) || graph.taskReachable(selectedTask, candidateTask))
-    ) {
-      return false;
-    }
-    return !(graph.locksByBlockRef.get(selectedRef) ?? []).some((lock) => candidateLocks.has(lock));
-  });
+  return selected.every((selectedRef) => !refsConflict(graph, candidateRef, selectedRef));
 }

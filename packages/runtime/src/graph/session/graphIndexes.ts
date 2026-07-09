@@ -7,6 +7,11 @@ import type {
   PlanPackageManifest,
   ValidationIssue
 } from "../../types.js";
+import {
+  blockUsesDeprecatedParallelSafe,
+  deprecatedParallelSafeWarning,
+  effectiveLocksForBlock
+} from "../parallelLocks.js";
 
 export function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
@@ -35,27 +40,34 @@ function reachable(adjacency: Map<string, string[]>, from: string, to: string): 
 
 export function refreshReachability(graph: CompiledExecutionGraph): void {
   graph.taskReachable = (from, to) => reachable(graph.taskDependenciesByTask, from, to);
-  graph.blockReachable = (fromRef, toRef) => reachable(graph.blockDependenciesByRef, fromRef, toRef);
+  graph.blockReachable = (fromRef, toRef) =>
+    reachable(graph.blockDependenciesByRef, fromRef, toRef);
 }
 
-function addBlockIndexes(graph: CompiledExecutionGraph, taskId: string, block: ManifestBlock): void {
+function addBlockIndexes(
+  graph: CompiledExecutionGraph,
+  taskId: string,
+  block: ManifestBlock
+): void {
   const ref = blockRef(taskId, block.id);
   graph.blockRefsInManifestOrder.push(ref);
   graph.blocksByRef.set(ref, block);
   graph.blockTaskByRef.set(ref, taskId);
   graph.blocksByTask.get(taskId)?.push(ref);
-  graph.blockDependenciesByRef.set(ref, block.depends_on.map((dependencyId) => blockRef(taskId, dependencyId)));
+  graph.blockDependenciesByRef.set(
+    ref,
+    block.depends_on.map((dependencyId) => blockRef(taskId, dependencyId))
+  );
   graph.blockDependentsByRef.set(ref, []);
   for (const dependencyRef of graph.blockDependenciesByRef.get(ref) ?? []) {
     graph.blockDependentsByRef.get(dependencyRef)?.push(ref);
   }
   if (block.type === "review") {
     graph.reviewBlocksByTask.get(taskId)?.push(ref);
-    graph.locksByBlockRef.set(ref, []);
-    graph.parallelSafeByBlockRef.set(ref, false);
-  } else {
-    graph.locksByBlockRef.set(ref, block.parallel.locks);
-    graph.parallelSafeByBlockRef.set(ref, block.parallel.safe);
+  }
+  graph.locksByBlockRef.set(ref, effectiveLocksForBlock(block));
+  if (blockUsesDeprecatedParallelSafe(block)) {
+    graph.diagnostics.warnings.push(deprecatedParallelSafeWarning(ref));
   }
 }
 
@@ -67,7 +79,6 @@ export function removeTaskIndexes(graph: CompiledExecutionGraph, taskId: string)
     graph.blockDependenciesByRef.delete(ref);
     graph.blockDependentsByRef.delete(ref);
     graph.locksByBlockRef.delete(ref);
-    graph.parallelSafeByBlockRef.delete(ref);
   }
   for (const dependents of graph.blockDependentsByRef.values()) {
     for (let index = dependents.length - 1; index >= 0; index -= 1) {
@@ -76,7 +87,11 @@ export function removeTaskIndexes(graph: CompiledExecutionGraph, taskId: string)
       }
     }
   }
-  graph.blockRefsInManifestOrder.splice(0, graph.blockRefsInManifestOrder.length, ...graph.blockRefsInManifestOrder.filter((ref) => !removedRefs.includes(ref)));
+  graph.blockRefsInManifestOrder.splice(
+    0,
+    graph.blockRefsInManifestOrder.length,
+    ...graph.blockRefsInManifestOrder.filter((ref) => !removedRefs.includes(ref))
+  );
   graph.nodesById.delete(taskId);
   graph.tasksById.delete(taskId);
   graph.taskNodesInManifestOrder.splice(
@@ -112,7 +127,13 @@ export function validateTaskBlocks(task: ManifestTaskNode): ValidationIssue[] {
   const adjacency = new Map<string, string[]>();
   for (const block of task.blocks) {
     if (blockIds.has(block.id)) {
-      diagnostics.push(issue("block_id_duplicate", `Block id '${block.id}' is duplicated in task '${task.id}'.`, `nodes.${task.id}.blocks`));
+      diagnostics.push(
+        issue(
+          "block_id_duplicate",
+          `Block id '${block.id}' is duplicated in task '${task.id}'.`,
+          `nodes.${task.id}.blocks`
+        )
+      );
     }
     blockIds.add(block.id);
     adjacency.set(block.id, []);
@@ -121,12 +142,22 @@ export function validateTaskBlocks(task: ManifestTaskNode): ValidationIssue[] {
     for (const dependencyId of block.depends_on) {
       if (!blockIds.has(dependencyId)) {
         diagnostics.push(
-          issue("block_dependency_missing", `Block '${task.id}#${block.id}' depends on missing block '${dependencyId}' in the same task node.`, blockRef(task.id, block.id))
+          issue(
+            "block_dependency_missing",
+            `Block '${task.id}#${block.id}' depends on missing block '${dependencyId}' in the same task node.`,
+            blockRef(task.id, block.id)
+          )
         );
         continue;
       }
       if (dependencyId === block.id || reachable(adjacency, dependencyId, block.id)) {
-        diagnostics.push(issue("block_depends_on_cycle", `Block dependency cycle detected in task '${task.id}'.`, `nodes.${task.id}.blocks`));
+        diagnostics.push(
+          issue(
+            "block_depends_on_cycle",
+            `Block dependency cycle detected in task '${task.id}'.`,
+            `nodes.${task.id}.blocks`
+          )
+        );
         continue;
       }
       adjacency.get(block.id)?.push(dependencyId);
@@ -139,11 +170,16 @@ export function sameEdge(left: ManifestEdge, right: ManifestEdge): boolean {
   return left.from === right.from && left.to === right.to && left.type === right.type;
 }
 
-export function alignGraphOrder(graph: CompiledExecutionGraph, manifest: PlanPackageManifest): void {
+export function alignGraphOrder(
+  graph: CompiledExecutionGraph,
+  manifest: PlanPackageManifest
+): void {
   graph.taskNodesInManifestOrder.splice(
     0,
     graph.taskNodesInManifestOrder.length,
-    ...manifest.nodes.filter((node): node is ManifestTaskNode => node.type === "task").map((node) => node.id)
+    ...manifest.nodes
+      .filter((node): node is ManifestTaskNode => node.type === "task")
+      .map((node) => node.id)
   );
   graph.blockRefsInManifestOrder.splice(
     0,
@@ -158,7 +194,9 @@ export function validateEdge(graph: CompiledExecutionGraph, edge: ManifestEdge):
   const from = graph.nodesById.get(edge.from);
   const to = graph.nodesById.get(edge.to);
   if (!from) {
-    return [issue("edge_from_missing", `Edge references missing from node '${edge.from}'.`, "edges")];
+    return [
+      issue("edge_from_missing", `Edge references missing from node '${edge.from}'.`, "edges")
+    ];
   }
   if (!to) {
     return [issue("edge_to_missing", `Edge references missing to node '${edge.to}'.`, "edges")];
@@ -166,8 +204,17 @@ export function validateEdge(graph: CompiledExecutionGraph, edge: ManifestEdge):
   if (edge.type === "depends_on" && (from.type !== "task" || to.type !== "task")) {
     return [issue("depends_on_non_task", "depends_on edges must connect task nodes.", "edges")];
   }
-  if (edge.type === "depends_on" && (edge.from === edge.to || graph.taskReachable(edge.to, edge.from))) {
-    return [issue("depends_on_cycle", `Task dependency cycle detected by edge '${edge.from}' -> '${edge.to}'.`, "edges")];
+  if (
+    edge.type === "depends_on" &&
+    (edge.from === edge.to || graph.taskReachable(edge.to, edge.from))
+  ) {
+    return [
+      issue(
+        "depends_on_cycle",
+        `Task dependency cycle detected by edge '${edge.from}' -> '${edge.to}'.`,
+        "edges"
+      )
+    ];
   }
   return [];
 }
@@ -191,7 +238,10 @@ export function removeEdgeIndexes(graph: CompiledExecutionGraph, edge: ManifestE
   remove(graph.taskDependentsByTask.get(edge.to), edge.from);
 }
 
-export function rebuildEdgeIndexes(graph: CompiledExecutionGraph, manifest: PlanPackageManifest): void {
+export function rebuildEdgeIndexes(
+  graph: CompiledExecutionGraph,
+  manifest: PlanPackageManifest
+): void {
   for (const taskId of graph.taskNodesInManifestOrder) {
     graph.taskDependenciesByTask.set(taskId, []);
     graph.taskDependentsByTask.set(taskId, []);

@@ -12,7 +12,10 @@ const refreshPromptMockState = vi.hoisted(() => ({
 vi.mock("../prompt/refreshPrompt.js", () => ({
   refreshPrompt: async (options: { ref: string }) => {
     refreshPromptMockState.active += 1;
-    refreshPromptMockState.maxActive = Math.max(refreshPromptMockState.maxActive, refreshPromptMockState.active);
+    refreshPromptMockState.maxActive = Math.max(
+      refreshPromptMockState.maxActive,
+      refreshPromptMockState.active
+    );
     refreshPromptMockState.calls.push(options.ref);
     await new Promise((resolve) => setTimeout(resolve, 5));
     refreshPromptMockState.active -= 1;
@@ -31,12 +34,20 @@ import {
 } from "../package/fileChanges.js";
 import type { PromptRefreshStats } from "../package/fileChanges.js";
 import { affectedTasksForPackageFileChange } from "../graph/editGraph.js";
-import { createExecutionGraphSession, createExecutionGraphSessionFromSnapshot, drainGraphReadQueue, enqueueGraphEditOperations } from "../graph/session.js";
+import {
+  createExecutionGraphSession,
+  createExecutionGraphSessionFromSnapshot,
+  drainGraphReadQueue,
+  enqueueGraphEditOperations
+} from "../graph/session.js";
 import { writeJsonFile } from "../json.js";
 import { createTaskCanvas, selectTaskCanvas } from "../desktop/index.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 
-function expectRefreshStats(stats: PromptRefreshStats, expected: Omit<PromptRefreshStats, "elapsedMs">): void {
+function expectRefreshStats(
+  stats: PromptRefreshStats,
+  expected: Omit<PromptRefreshStats, "elapsedMs">
+): void {
   expect(stats).toMatchObject(expected);
   expect(stats.elapsedMs).toBeGreaterThanOrEqual(0);
 }
@@ -52,7 +63,11 @@ describe("package file changes", () => {
   it("detects block prompt changes and refreshes rendered prompt surfaces", async () => {
     const { root, init } = await createTestWorkspace();
     const before = await createPackageFileSnapshot(root);
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"), "updated block prompt\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"),
+      "updated block prompt\n",
+      "utf8"
+    );
 
     const detected = await detectPackageFileChanges(root, before);
     const refreshed = await refreshChangedPackagePrompts(root, before);
@@ -74,9 +89,15 @@ describe("package file changes", () => {
   it("refreshes a changed block prompt path incrementally", async () => {
     const { root, init } = await createTestWorkspace();
     const before = await createPackageFileSnapshot(root);
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"), "updated block prompt\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"),
+      "updated block prompt\n",
+      "utf8"
+    );
 
-    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["package/nodes/T-001/blocks/B-001.prompt.md"]);
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, [
+      "package/nodes/T-001/blocks/B-001.prompt.md"
+    ]);
 
     expect(refreshed.incremental).toBe(true);
     expect(refreshed.changedPackagePaths).toEqual(["nodes/T-001/blocks/B-001.prompt.md"]);
@@ -100,9 +121,15 @@ describe("package file changes", () => {
   it("refreshes a changed task prompt path incrementally", async () => {
     const { root, init } = await createTestWorkspace();
     const before = await createPackageFileSnapshot(root);
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), "updated task prompt\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"),
+      "updated task prompt\n",
+      "utf8"
+    );
 
-    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["nodes/T-001/prompt.md"]);
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, [
+      "nodes/T-001/prompt.md"
+    ]);
 
     expect(refreshed.incremental).toBe(true);
     expect(refreshed.changedPackagePaths).toEqual(["nodes/T-001/prompt.md"]);
@@ -126,8 +153,16 @@ describe("package file changes", () => {
   it("dedupes refresh refs for batched task and block prompt changed paths", async () => {
     const { root, init } = await createTestWorkspace();
     const before = await createPackageFileSnapshot(root);
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), "updated task prompt\n", "utf8");
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"), "updated block prompt\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"),
+      "updated task prompt\n",
+      "utf8"
+    );
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"),
+      "updated block prompt\n",
+      "utf8"
+    );
 
     const refreshed = await refreshChangedPackagePromptsForPaths(root, before, [
       "package/nodes/T-001/blocks/B-001.prompt.md",
@@ -136,7 +171,10 @@ describe("package file changes", () => {
     ]);
 
     expect(refreshed.incremental).toBe(true);
-    expect(refreshed.changedPackagePaths).toEqual(["nodes/T-001/blocks/B-001.prompt.md", "nodes/T-001/prompt.md"]);
+    expect(refreshed.changedPackagePaths).toEqual([
+      "nodes/T-001/blocks/B-001.prompt.md",
+      "nodes/T-001/prompt.md"
+    ]);
     expect(refreshPromptMockState.calls).toEqual(["T-001#B-001", "T-001#R-001"]);
     expect(refreshed.refreshed.map((prompt) => prompt.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
     expectRefreshStats(refreshed.refreshStats, {
@@ -163,16 +201,29 @@ describe("package file changes", () => {
         title: `Implement ${id}`,
         prompt: `nodes/T-001/blocks/${id}.prompt.md`,
         depends_on: [],
-        parallel: { safe: true, locks: [id] }
+        parallel: { locks: [id] }
       };
     });
     const { root, init } = await createTestWorkspace(manifest);
     const before = await createPackageFileSnapshot(root);
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), "updated task prompt\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"),
+      "updated task prompt\n",
+      "utf8"
+    );
 
-    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["nodes/T-001/prompt.md"]);
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, [
+      "nodes/T-001/prompt.md"
+    ]);
 
-    const expectedRefs = ["T-001#B-001", "T-001#B-002", "T-001#B-003", "T-001#B-004", "T-001#B-005", "T-001#B-006"];
+    const expectedRefs = [
+      "T-001#B-001",
+      "T-001#B-002",
+      "T-001#B-003",
+      "T-001#B-004",
+      "T-001#B-005",
+      "T-001#B-006"
+    ];
     expect(refreshPromptMockState.maxActive).toBeLessThanOrEqual(4);
     expect(refreshPromptMockState.calls).toEqual(expectedRefs);
     expect(refreshed.refreshed.map((prompt) => prompt.ref)).toEqual(expectedRefs);
@@ -189,9 +240,18 @@ describe("package file changes", () => {
   it("normalizes custom prompt refresh concurrency to at least one", async () => {
     const { root, init } = await createTestWorkspace();
     const before = await createPackageFileSnapshot(root);
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), "updated task prompt\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"),
+      "updated task prompt\n",
+      "utf8"
+    );
 
-    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["nodes/T-001/prompt.md"], { refreshConcurrency: 0 });
+    const refreshed = await refreshChangedPackagePromptsForPaths(
+      root,
+      before,
+      ["nodes/T-001/prompt.md"],
+      { refreshConcurrency: 0 }
+    );
 
     expect(refreshPromptMockState.maxActive).toBe(1);
     expectRefreshStats(refreshed.refreshStats, {
@@ -207,10 +267,16 @@ describe("package file changes", () => {
   it("falls back to a full refresh when an incremental prompt refresh fails", async () => {
     const { root, init } = await createTestWorkspace();
     const before = await createPackageFileSnapshot(root);
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"), "updated block prompt\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"),
+      "updated block prompt\n",
+      "utf8"
+    );
     refreshPromptMockState.failRefs.add("T-001#B-001");
 
-    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["package/nodes/T-001/blocks/B-001.prompt.md"]);
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, [
+      "package/nodes/T-001/blocks/B-001.prompt.md"
+    ]);
 
     expect(refreshed.incremental).toBe(false);
     expect(refreshed.refreshed.map((prompt) => prompt.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
@@ -222,14 +288,18 @@ describe("package file changes", () => {
       refreshedRefs: 2,
       mode: "full"
     });
-    expect(refreshed.impact.diagnostics.map((diagnostic) => diagnostic.code)).toContain("package_change_incremental_refresh_failed");
+    expect(refreshed.impact.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "package_change_incremental_refresh_failed"
+    );
   });
 
   it("falls back to a full refresh for manifest, unknown, empty, and coarse watcher paths", async () => {
     const { root } = await createTestWorkspace();
     const before = await createPackageFileSnapshot(root);
 
-    await expect(refreshChangedPackagePromptsForPaths(root, before, ["package/manifest.json"])).resolves.toMatchObject({
+    await expect(
+      refreshChangedPackagePromptsForPaths(root, before, ["package/manifest.json"])
+    ).resolves.toMatchObject({
       incremental: false,
       changedPackagePaths: ["manifest.json"],
       refreshStats: expect.objectContaining({
@@ -238,10 +308,14 @@ describe("package file changes", () => {
       }),
       impact: {
         ok: true,
-        diagnostics: [expect.objectContaining({ code: "package_change_manifest_requires_full_refresh" })]
+        diagnostics: [
+          expect.objectContaining({ code: "package_change_manifest_requires_full_refresh" })
+        ]
       }
     });
-    await expect(refreshChangedPackagePromptsForPaths(root, before, ["package/nodes/T-001"])).resolves.toMatchObject({
+    await expect(
+      refreshChangedPackagePromptsForPaths(root, before, ["package/nodes/T-001"])
+    ).resolves.toMatchObject({
       incremental: false,
       changedPackagePaths: ["nodes/T-001"],
       refreshStats: expect.objectContaining({
@@ -250,15 +324,21 @@ describe("package file changes", () => {
       }),
       impact: {
         ok: true,
-        diagnostics: [expect.objectContaining({ code: "package_change_coarse_path_requires_full_refresh" })]
+        diagnostics: [
+          expect.objectContaining({ code: "package_change_coarse_path_requires_full_refresh" })
+        ]
       }
     });
-    await expect(refreshChangedPackagePromptsForPaths(root, before, ["package/results/report.md"])).resolves.toMatchObject({
+    await expect(
+      refreshChangedPackagePromptsForPaths(root, before, ["package/results/report.md"])
+    ).resolves.toMatchObject({
       incremental: false,
       changedPackagePaths: ["results/report.md"],
       impact: {
         ok: true,
-        diagnostics: [expect.objectContaining({ code: "package_change_unknown_path_requires_full_refresh" })]
+        diagnostics: [
+          expect.objectContaining({ code: "package_change_unknown_path_requires_full_refresh" })
+        ]
       }
     });
     await expect(refreshChangedPackagePromptsForPaths(root, before, [])).resolves.toMatchObject({
@@ -279,11 +359,15 @@ describe("package file changes", () => {
     const { root } = await createTestWorkspace();
     const before = await createPackageFileSnapshot(root);
 
-    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["policy/project-prompt.md"]);
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, [
+      "policy/project-prompt.md"
+    ]);
 
     expect(refreshed.incremental).toBe(false);
     expect(refreshed.changedPackagePaths).toEqual(["policy/project-prompt.md"]);
-    expect(refreshed.impact.diagnostics.map((diagnostic) => diagnostic.code)).toContain("package_change_non_package_prompt");
+    expect(refreshed.impact.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "package_change_non_package_prompt"
+    );
     expect(refreshed.snapshot?.promptFiles).toEqual(before.promptFiles);
   });
 
@@ -300,12 +384,20 @@ describe("package file changes", () => {
     const { root, init } = await createTestWorkspace();
     const before = await createPackageFileSnapshot(root);
     await mkdir(join(init.workspace.packageDir, "nodes", "T-001", "blocks"), { recursive: true });
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-002.prompt.md"), "new prompt\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-002.prompt.md"),
+      "new prompt\n",
+      "utf8"
+    );
 
-    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["package/nodes/T-001/blocks/B-002.prompt.md"]);
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, [
+      "package/nodes/T-001/blocks/B-002.prompt.md"
+    ]);
 
     expect(refreshed.incremental).toBe(false);
-    expect(refreshed.impact.diagnostics.map((diagnostic) => diagnostic.code)).toContain("package_change_prompt_not_in_graph");
+    expect(refreshed.impact.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "package_change_prompt_not_in_graph"
+    );
   });
 
   it("reports incremental refresh failure and falls back when a referenced prompt file is deleted", async () => {
@@ -313,7 +405,9 @@ describe("package file changes", () => {
     const before = await createPackageFileSnapshot(root);
     await rm(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"));
 
-    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, ["package/nodes/T-001/blocks/B-001.prompt.md"]);
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, [
+      "package/nodes/T-001/blocks/B-001.prompt.md"
+    ]);
 
     expect(refreshed.incremental).toBe(false);
     expect(refreshed.snapshot).toBeNull();
@@ -325,7 +419,13 @@ describe("package file changes", () => {
   });
 
   it("normalizes watcher path prefixes and trailing separators for package prompt files", () => {
-    expect(normalizePackageChangedPaths(["./package/nodes/T-001/prompt.md///", "nodes\\T-001\\blocks\\B-001.prompt.md\\", "nodes/T-001/prompt.md"])).toEqual({
+    expect(
+      normalizePackageChangedPaths([
+        "./package/nodes/T-001/prompt.md///",
+        "nodes\\T-001\\blocks\\B-001.prompt.md\\",
+        "nodes/T-001/prompt.md"
+      ])
+    ).toEqual({
       changedPackagePaths: ["nodes/T-001/prompt.md", "nodes/T-001/blocks/B-001.prompt.md"],
       diagnostics: [],
       incremental: true
@@ -361,7 +461,10 @@ describe("package file changes", () => {
     expect(session.fileSnapshot).toBe(snapshot);
     expect(session.fileSnapshot.graph).toBe(session.graph);
     expect(session.fileSnapshot.manifest).toBe(snapshot.manifest);
-    expect(session.diagnostics).toEqual([...snapshot.graph.diagnostics.errors, ...snapshot.graph.diagnostics.warnings]);
+    expect(session.diagnostics).toEqual([
+      ...snapshot.graph.diagnostics.errors,
+      ...snapshot.graph.diagnostics.warnings
+    ]);
     expect(loadedSession.fileSnapshot.graph).toBe(loadedSession.graph);
     expect(loadedSession.diagnostics).toEqual([]);
   });
@@ -373,9 +476,13 @@ describe("package file changes", () => {
     const secondCanvas = await createTaskCanvas(root, { name: "Second plan" });
     await selectTaskCanvas(root, secondCanvas.canvasId);
 
-    enqueueGraphEditOperations(session, [{ type: "add_edge", edge: { from: "T-002", to: "T-001", type: "depends_on" } }]);
+    enqueueGraphEditOperations(session, [
+      { type: "add_edge", edge: { from: "T-002", to: "T-001", type: "depends_on" } }
+    ]);
     await drainGraphReadQueue(session);
-    enqueueGraphEditOperations(session, [{ type: "add_edge", edge: { from: "T-001", to: "T-002", type: "depends_on" } }]);
+    enqueueGraphEditOperations(session, [
+      { type: "add_edge", edge: { from: "T-001", to: "T-002", type: "depends_on" } }
+    ]);
     const result = await drainGraphReadQueue(session);
 
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("depends_on_cycle");
@@ -389,7 +496,9 @@ describe("package file changes", () => {
     const session = await createExecutionGraphSession(root);
     const graph = session.graph;
 
-    enqueueGraphEditOperations(session, [{ type: "add_edge", edge: { from: "T-002", to: "T-001", type: "depends_on" } }]);
+    enqueueGraphEditOperations(session, [
+      { type: "add_edge", edge: { from: "T-002", to: "T-001", type: "depends_on" } }
+    ]);
     const first = await drainGraphReadQueue(session);
 
     expect(first.diagnostics).toEqual([]);
@@ -397,7 +506,9 @@ describe("package file changes", () => {
     expect(session.graph.taskDependenciesByTask.get("T-002")).toEqual(["T-001"]);
     expect(session.graph.taskReachable("T-002", "T-001")).toBe(true);
 
-    enqueueGraphEditOperations(session, [{ type: "add_edge", edge: { from: "T-001", to: "T-002", type: "depends_on" } }]);
+    enqueueGraphEditOperations(session, [
+      { type: "add_edge", edge: { from: "T-001", to: "T-002", type: "depends_on" } }
+    ]);
     const second = await drainGraphReadQueue(session);
 
     expect(second.diagnostics.map((diagnostic) => diagnostic.code)).toContain("depends_on_cycle");
@@ -426,7 +537,10 @@ describe("package file changes", () => {
     expect(session.graph.nodesById.get("T-001")).toMatchObject({ title: "Updated task title" });
     expect(session.graph.tasksById.get("T-001")).toMatchObject({ title: "Updated task title" });
     expect(session.graph.taskNodesInManifestOrder).toEqual(["T-001", "T-002"]);
-    expect(session.graph.blockRefsInManifestOrder.slice(0, 2)).toEqual(["T-001#B-001", "T-001#R-001"]);
+    expect(session.graph.blockRefsInManifestOrder.slice(0, 2)).toEqual([
+      "T-001#B-001",
+      "T-001#R-001"
+    ]);
     expect(session.graph.blocksByTask.get("T-001")).toEqual(["T-001#B-001", "T-001#R-001"]);
   });
 
@@ -448,13 +562,17 @@ describe("package file changes", () => {
     const { root } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
     const session = await createExecutionGraphSession(root);
 
-    enqueueGraphEditOperations(session, [{ type: "add_edge", edge: { from: "MISSING", to: "T-001", type: "depends_on" } }]);
+    enqueueGraphEditOperations(session, [
+      { type: "add_edge", edge: { from: "MISSING", to: "T-001", type: "depends_on" } }
+    ]);
     const failed = await drainGraphReadQueue(session);
 
     expect(failed.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["edge_from_missing"]);
     expect(session.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["edge_from_missing"]);
 
-    enqueueGraphEditOperations(session, [{ type: "add_edge", edge: { from: "T-002", to: "T-001", type: "depends_on" } }]);
+    enqueueGraphEditOperations(session, [
+      { type: "add_edge", edge: { from: "T-002", to: "T-001", type: "depends_on" } }
+    ]);
     const succeeded = await drainGraphReadQueue(session);
 
     expect(succeeded.diagnostics).toEqual([]);
@@ -473,7 +591,11 @@ describe("package file changes", () => {
     const drained = await drainGraphReadQueue(session);
 
     expect(drained.diagnostics.map((diagnostic) => diagnostic.code)).toContain("edge_from_missing");
-    expect(session.fileSnapshot.manifest.edges).not.toContainEqual({ from: "T-002", to: "T-001", type: "depends_on" });
+    expect(session.fileSnapshot.manifest.edges).not.toContainEqual({
+      from: "T-002",
+      to: "T-001",
+      type: "depends_on"
+    });
     expect(session.graph.taskDependenciesByTask.get("T-002")).toEqual([]);
   });
 
@@ -509,6 +631,10 @@ describe("package file changes", () => {
     expect(session.graph).toBe(graph);
     expect(session.graph.taskDependenciesByTask.get("T-002")).toEqual(["T-001"]);
     expect(session.graph.taskReachable("T-002", "T-001")).toBe(true);
-    expect(session.fileSnapshot.manifest.edges).toContainEqual({ from: "T-002", to: "T-001", type: "depends_on" });
+    expect(session.fileSnapshot.manifest.edges).toContainEqual({
+      from: "T-002",
+      to: "T-001",
+      type: "depends_on"
+    });
   });
 });

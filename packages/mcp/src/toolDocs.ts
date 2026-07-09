@@ -9,7 +9,7 @@ export const authoringRules = [
   "After importing a large DAG, use apply_canvas_lane_layout to materialize the recommended canvas lane layout.",
   "Create and update graph structure through create_task, create_block, add_task_dependency, remove_task_dependency, set_task_dependencies, and related semantic write tools.",
   "Use update_task_acceptance, set_block_dependencies, update_block_planning, set_review_pipeline, and project graph dependency tools for plan metadata that is not prompt text.",
-  "Use update_canvas_execution_policy for canvas-level execution.defaultExecutor and execution.parallel settings; use update_block_planning for per-block parallel safety and locks.",
+  "Use update_canvas_execution_policy for canvas-level execution.defaultExecutor and execution.parallel settings; use update_block_planning for per-block exclusive lock / locks.",
   "Keep the graph acyclic. Use get_graph_summary, get_graph_slice, and validate_graph_quality before and after large dependency changes.",
   "Write task and block prompt markdown through write_prompt_source, update_task, or update_block, then run refresh_prompts_summary, validate_project, and validate_graph_quality.",
   "Use implementation blocks for work and review blocks for review gates; review blocks should depend on the implementation blocks they inspect.",
@@ -43,7 +43,7 @@ export const planweaveGuide = {
     {
       name: "Parallel execution policy",
       description:
-        "A DAG branch only describes dependency shape. Actual parallel eligibility also requires the canvas manifest execution.parallel.enabled/maxConcurrent policy plus per-implementation-block parallel.safe and non-conflicting locks."
+        "Dependency edges answer when a block can start; locks answer which ready blocks can run at the same time. Parallel eligibility = canvas execution.parallel policy + non-conflicting locks. Reserved lock exclusive conflicts with everything. parallel.safe is deprecated."
     },
     {
       name: "Prompt surfaces",
@@ -72,7 +72,7 @@ export const planweaveGuide = {
     "Use create_canvas when the plan should live in a new isolated canvas.",
     "For large plans, write a package-shaped draft root outside the active project, then use validate_package_draft, validate_graph_quality, preview_package_import, import_package_draft with apply: true, and apply_canvas_lane_layout.",
     "Use create_task, create_block, update_task_acceptance, set_block_dependencies, update_canvas_execution_policy, update_block_planning, set_review_pipeline, add_task_dependency, set_task_dependencies, and project graph dependency tools for direct edits.",
-    "For parallel plans, first set the selected canvas execution.parallel policy with update_canvas_execution_policy, then mark only truly independent implementation blocks with update_block_planning parallelSafe/parallelLocks.",
+    "For parallel plans, first set the selected canvas execution.parallel policy with update_canvas_execution_policy, then set non-conflicting locks (or exclusive) via update_block_planning exclusive/parallelLocks. Isolated blocks with no locks are parallel-eligible by default.",
     "Use write_prompt_source, update_task, and update_block to update promptMarkdown, titles, or executors.",
     "Run refresh_prompts_summary, validate_project, validate_graph_quality, and validate_execution_readiness after meaningful authoring changes."
   ],
@@ -84,13 +84,28 @@ export const planweaveGuide = {
     { need: "Inspect one canvas DAG", tool: "get_graph_summary or get_graph_slice" },
     { need: "Read task/block/project prompt markdown", tool: "read_prompt_source" },
     { need: "Read a rendered execution prompt", tool: "get_rendered_prompt" },
-    { need: "Create or update plan structure", tool: "create_task/create_block/semantic dependency tools" },
+    {
+      need: "Create or update plan structure",
+      tool: "create_task/create_block/semantic dependency tools"
+    },
     { need: "Validate a package draft before import", tool: "validate_package_draft" },
-    { need: "Preview and apply a package draft", tool: "preview_package_import then import_package_draft" },
+    {
+      need: "Preview and apply a package draft",
+      tool: "preview_package_import then import_package_draft"
+    },
     { need: "Lay out an imported DAG into dependency lanes", tool: "apply_canvas_lane_layout" },
-    { need: "Enable or tune canvas-level parallel execution", tool: "update_canvas_execution_policy" },
-    { need: "Mark individual implementation blocks as parallel-safe or set locks", tool: "update_block_planning" },
-    { need: "Validate authored plans", tool: "validate_project, validate_graph_quality, validate_execution_readiness, or explain_validation_errors" }
+    {
+      need: "Enable or tune canvas-level parallel execution",
+      tool: "update_canvas_execution_policy"
+    },
+    {
+      need: "Set exclusive lock or resource locks on implementation blocks",
+      tool: "update_block_planning"
+    },
+    {
+      need: "Validate authored plans",
+      tool: "validate_project, validate_graph_quality, validate_execution_readiness, or explain_validation_errors"
+    }
   ],
   nonGoals: [
     "MCP tools do not infer the currently selected PlanWeave Desktop project.",
@@ -109,7 +124,8 @@ export const exampleTemplates = [
   {
     template: "large_dag_with_review_loop",
     title: "Large DAG with review loop",
-    description: "Six task nodes with branching dependencies, review gates, and parallel-safe implementation blocks.",
+    description:
+      "Six task nodes with branching dependencies, review gates, and parallel-safe implementation blocks.",
     fileCount: 19
   }
 ] as const;
@@ -127,7 +143,10 @@ const basicExampleFiles = [
     content: JSON.stringify(
       {
         version: "plan-package/v1",
-        project: { title: "Example PlanWeave Project", description: "A minimal PlanWeave package example." },
+        project: {
+          title: "Example PlanWeave Project",
+          description: "A minimal PlanWeave package example."
+        },
         execution: { parallel: { enabled: false, maxConcurrent: 1 } },
         review: { maxFeedbackCycles: 2, completionPolicy: "strict" },
         nodes: [
@@ -144,7 +163,7 @@ const basicExampleFiles = [
                 title: "Implement feature",
                 prompt: "nodes/T-001/blocks/B-001.prompt.md",
                 depends_on: [],
-                parallel: { safe: false, locks: [] }
+                parallel: { locks: [] }
               },
               {
                 id: "R-001",
@@ -181,12 +200,36 @@ const basicExampleFiles = [
 ] as const satisfies readonly PackageExampleFile[];
 
 const largeDagTasks = [
-  ["T-001", "Define target architecture", "Document the desired architecture, boundaries, and acceptance criteria."],
-  ["T-002", "Implement runtime contracts", "Implement runtime behavior and tests for the shared contract."],
-  ["T-003", "Implement MCP contract", "Expose the runtime behavior through MCP tools and contract tests."],
-  ["T-004", "Implement CLI contract", "Expose the runtime behavior through CLI commands and contract tests."],
-  ["T-005", "Connect desktop diagnostics", "Render the shared diagnostics in the desktop bridge and UI."],
-  ["T-006", "Finalize docs and verification", "Update user-facing docs and run the verification suite."]
+  [
+    "T-001",
+    "Define target architecture",
+    "Document the desired architecture, boundaries, and acceptance criteria."
+  ],
+  [
+    "T-002",
+    "Implement runtime contracts",
+    "Implement runtime behavior and tests for the shared contract."
+  ],
+  [
+    "T-003",
+    "Implement MCP contract",
+    "Expose the runtime behavior through MCP tools and contract tests."
+  ],
+  [
+    "T-004",
+    "Implement CLI contract",
+    "Expose the runtime behavior through CLI commands and contract tests."
+  ],
+  [
+    "T-005",
+    "Connect desktop diagnostics",
+    "Render the shared diagnostics in the desktop bridge and UI."
+  ],
+  [
+    "T-006",
+    "Finalize docs and verification",
+    "Update user-facing docs and run the verification suite."
+  ]
 ] as const;
 
 const largeDagEdges = [
@@ -205,7 +248,8 @@ function largeDagManifest(): string {
       version: "plan-package/v1",
       project: {
         title: "Large PlanWeave DAG Example",
-        description: "A package-shaped draft for large plans with review loops and parallel execution hints."
+        description:
+          "A package-shaped draft for large plans with review loops and parallel execution hints."
       },
       execution: {
         defaultExecutor: "codex-auto",
@@ -225,7 +269,10 @@ function largeDagManifest(): string {
             title: `Implement ${title.toLowerCase()}`,
             prompt: `nodes/${id}/blocks/B-001.prompt.md`,
             depends_on: [],
-            parallel: { safe: id !== "T-001", locks: id === "T-005" ? ["desktop-ui"] : [] }
+            parallel: {
+              locks:
+                id === "T-001" ? ["exclusive"] : id === "T-005" ? ["desktop-ui"] : []
+            }
           },
           {
             id: "R-001",
@@ -271,7 +318,9 @@ const largeDagExampleFiles = [
 
 export const exampleFiles = basicExampleFiles;
 
-export function getPackageExampleFiles(template: string): readonly PackageExampleFile[] | undefined {
+export function getPackageExampleFiles(
+  template: string
+): readonly PackageExampleFile[] | undefined {
   if (template === "basic") {
     return basicExampleFiles;
   }

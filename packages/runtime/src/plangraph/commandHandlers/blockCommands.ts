@@ -18,11 +18,26 @@ import type {
   UpdateBlockPromptCommand
 } from "../commands.js";
 import type { LoadedPlanGraphPackage } from "../packageRepository.js";
-import { blockFromManifest, diagnostic, promptMarkdown, snapshotOrDiagnostic, taskFromManifest, type PlanGraphCommandHandler } from "./types.js";
+import {
+  blockFromManifest,
+  diagnostic,
+  promptMarkdown,
+  snapshotOrDiagnostic,
+  taskFromManifest,
+  type PlanGraphCommandHandler
+} from "./types.js";
 
-type BlockCommand = UpdateBlockPromptCommand | UpdateBlockFieldsCommand | AddBlockCommand | RemoveBlockCommand | RestoreBlockCommand;
+type BlockCommand =
+  | UpdateBlockPromptCommand
+  | UpdateBlockFieldsCommand
+  | AddBlockCommand
+  | RemoveBlockCommand
+  | RestoreBlockCommand;
 
-function readBlockSnapshot(loaded: LoadedPlanGraphPackage, blockRef: string): BlockComponentSnapshot | PlanGraphCommandDiagnostic {
+function readBlockSnapshot(
+  loaded: LoadedPlanGraphPackage,
+  blockRef: string
+): BlockComponentSnapshot | PlanGraphCommandDiagnostic {
   const current = blockFromManifest(loaded.manifest, blockRef);
   if (!current) {
     return diagnostic("block_missing", `Block '${blockRef}' does not exist.`, blockRef);
@@ -31,7 +46,11 @@ function readBlockSnapshot(loaded: LoadedPlanGraphPackage, blockRef: string): Bl
   const insertIndex = current.task.blocks.findIndex((candidate) => candidate.id === blockId);
   const markdown = promptMarkdown(loaded, current.block.prompt);
   if (markdown === undefined) {
-    return diagnostic("prompt_missing", `Prompt '${current.block.prompt}' is not indexed.`, current.block.prompt);
+    return diagnostic(
+      "prompt_missing",
+      `Prompt '${current.block.prompt}' is not indexed.`,
+      current.block.prompt
+    );
   }
   return {
     taskId: current.task.id,
@@ -47,7 +66,11 @@ function readBlockSnapshot(loaded: LoadedPlanGraphPackage, blockRef: string): Bl
   };
 }
 
-function blockSnapshotMutation(loaded: LoadedPlanGraphPackage, task: ManifestTaskNode, snapshot: BlockComponentSnapshot): PlanPackageGraphMutation {
+function blockSnapshotMutation(
+  loaded: LoadedPlanGraphPackage,
+  task: ManifestTaskNode,
+  snapshot: BlockComponentSnapshot
+): PlanPackageGraphMutation {
   const insertIndex =
     snapshot.insertIndex === null
       ? task.blocks.length
@@ -69,23 +92,39 @@ function blockSnapshotMutation(loaded: LoadedPlanGraphPackage, task: ManifestTas
     loaded.manifest,
     {
       ...loaded.manifest,
-      nodes: loaded.manifest.nodes.map((node) => (node.type === "task" && node.id === task.id ? nextTask : node))
+      nodes: loaded.manifest.nodes.map((node) =>
+        node.type === "task" && node.id === task.id ? nextTask : node
+      )
     },
-    { affectedTasks: [task.id], sideEffects: writePromptSideEffects(snapshot.block.prompt, snapshot.promptMarkdown) }
+    {
+      affectedTasks: [task.id],
+      sideEffects: writePromptSideEffects(snapshot.block.prompt, snapshot.promptMarkdown)
+    }
   );
 }
 
 export const blockCommandHandler: PlanGraphCommandHandler<BlockCommand> = {
   family: "block",
-  commandTypes: ["updateBlockPrompt", "updateBlockFields", "addBlock", "removeBlock", "restoreBlock"],
+  commandTypes: [
+    "updateBlockPrompt",
+    "updateBlockFields",
+    "addBlock",
+    "removeBlock",
+    "restoreBlock"
+  ],
   handles(command: PlanGraphCommand): command is BlockCommand {
-    return command.type === "updateBlockPrompt"
-      || command.type === "updateBlockFields"
-      || command.type === "addBlock"
-      || command.type === "removeBlock"
-      || command.type === "restoreBlock";
+    return (
+      command.type === "updateBlockPrompt" ||
+      command.type === "updateBlockFields" ||
+      command.type === "addBlock" ||
+      command.type === "removeBlock" ||
+      command.type === "restoreBlock"
+    );
   },
-  mutation(loaded: LoadedPlanGraphPackage, command: BlockCommand): PlanPackageGraphMutation | PlanGraphCommandDiagnostic {
+  mutation(
+    loaded: LoadedPlanGraphPackage,
+    command: BlockCommand
+  ): PlanPackageGraphMutation | PlanGraphCommandDiagnostic {
     if (command.type === "updateBlockPrompt") {
       return buildPlanPackageBlockFieldEditMutation(loaded.manifest, {
         blockRef: command.blockRef,
@@ -100,6 +139,7 @@ export const blockCommandHandler: PlanGraphCommandHandler<BlockCommand> = {
         executor: command.fields.executor,
         dependsOn: command.fields.dependsOn,
         parallelSafe: command.fields.parallelSafe,
+        exclusive: command.fields.exclusive,
         parallelLocks: command.fields.parallelLocks,
         reviewRequired: command.fields.reviewRequired,
         maxFeedbackCycles: command.fields.maxFeedbackCycles,
@@ -109,24 +149,46 @@ export const blockCommandHandler: PlanGraphCommandHandler<BlockCommand> = {
     if (command.type === "addBlock" || command.type === "restoreBlock") {
       const task = taskFromManifest(loaded.manifest, command.snapshot.taskId);
       if (!task) {
-        return diagnostic("task_missing", `Task '${command.snapshot.taskId}' does not exist.`, command.snapshot.taskId);
+        return diagnostic(
+          "task_missing",
+          `Task '${command.snapshot.taskId}' does not exist.`,
+          command.snapshot.taskId
+        );
       }
       if (task.blocks.some((block) => block.id === command.snapshot.block.id)) {
-        return diagnostic("block_duplicate", `Block '${command.snapshot.taskId}#${command.snapshot.block.id}' already exists.`, command.snapshot.block.id);
+        return diagnostic(
+          "block_duplicate",
+          `Block '${command.snapshot.taskId}#${command.snapshot.block.id}' already exists.`,
+          command.snapshot.block.id
+        );
       }
       return blockSnapshotMutation(loaded, task, command.snapshot);
     }
     if (!blockFromManifest(loaded.manifest, command.blockRef)) {
-      return diagnostic("block_missing", `Block '${command.blockRef}' does not exist.`, command.blockRef);
+      return diagnostic(
+        "block_missing",
+        `Block '${command.blockRef}' does not exist.`,
+        command.blockRef
+      );
     }
-    return buildPlanPackageGraphMutation(loaded.manifest, { kind: "removeBlock", blockRef: command.blockRef });
+    return buildPlanPackageGraphMutation(loaded.manifest, {
+      kind: "removeBlock",
+      blockRef: command.blockRef
+    });
   },
-  inverse(loaded: LoadedPlanGraphPackage, command: BlockCommand): PlanGraphCommand | PlanGraphCommandDiagnostic {
+  inverse(
+    loaded: LoadedPlanGraphPackage,
+    command: BlockCommand
+  ): PlanGraphCommand | PlanGraphCommandDiagnostic {
     if (command.type === "updateBlockPrompt") {
       const current = blockFromManifest(loaded.manifest, command.blockRef);
       const markdown = current ? promptMarkdown(loaded, current.block.prompt) : undefined;
       return markdown === undefined
-        ? diagnostic("prompt_missing", `Prompt for block '${command.blockRef}' is not indexed.`, command.blockRef)
+        ? diagnostic(
+            "prompt_missing",
+            `Prompt for block '${command.blockRef}' is not indexed.`,
+            command.blockRef
+          )
         : {
             type: "updateBlockPrompt",
             blockRef: command.blockRef,
@@ -136,7 +198,11 @@ export const blockCommandHandler: PlanGraphCommandHandler<BlockCommand> = {
     if (command.type === "updateBlockFields") {
       const current = blockFromManifest(loaded.manifest, command.blockRef);
       if (!current) {
-        return diagnostic("block_missing", `Block '${command.blockRef}' does not exist.`, command.blockRef);
+        return diagnostic(
+          "block_missing",
+          `Block '${command.blockRef}' does not exist.`,
+          command.blockRef
+        );
       }
       const fields: UpdateBlockFieldsCommand["fields"] = {};
       if (command.fields.title !== undefined) {
@@ -145,7 +211,11 @@ export const blockCommandHandler: PlanGraphCommandHandler<BlockCommand> = {
       if (command.fields.promptMarkdown !== undefined) {
         const markdown = promptMarkdown(loaded, current.block.prompt);
         if (markdown === undefined) {
-          return diagnostic("prompt_missing", `Prompt for block '${command.blockRef}' is not indexed.`, command.blockRef);
+          return diagnostic(
+            "prompt_missing",
+            `Prompt for block '${command.blockRef}' is not indexed.`,
+            command.blockRef
+          );
         }
         fields.promptMarkdown = markdown;
       }
@@ -158,6 +228,9 @@ export const blockCommandHandler: PlanGraphCommandHandler<BlockCommand> = {
       if (current.block.type === "implementation") {
         if (command.fields.parallelSafe !== undefined) {
           fields.parallelSafe = current.block.parallel.safe;
+        }
+        if (command.fields.exclusive !== undefined) {
+          fields.exclusive = (current.block.parallel.locks ?? []).includes("exclusive");
         }
         if (command.fields.parallelLocks !== undefined) {
           fields.parallelLocks = [...current.block.parallel.locks];
@@ -176,23 +249,40 @@ export const blockCommandHandler: PlanGraphCommandHandler<BlockCommand> = {
       return { type: "updateBlockFields", blockRef: command.blockRef, fields };
     }
     if (command.type === "addBlock" || command.type === "restoreBlock") {
-      return { type: "removeBlock", blockRef: `${command.snapshot.taskId}#${command.snapshot.block.id}` };
+      return {
+        type: "removeBlock",
+        blockRef: `${command.snapshot.taskId}#${command.snapshot.block.id}`
+      };
     }
-    return snapshotOrDiagnostic(readBlockSnapshot(loaded, command.blockRef), (snapshot) => ({ type: "restoreBlock", snapshot }));
+    return snapshotOrDiagnostic(readBlockSnapshot(loaded, command.blockRef), (snapshot) => ({
+      type: "restoreBlock",
+      snapshot
+    }));
   },
-  touchedRefs(command: BlockCommand, loaded: LoadedPlanGraphPackage): { tasks: string[]; blocks: string[] } {
+  touchedRefs(
+    command: BlockCommand,
+    loaded: LoadedPlanGraphPackage
+  ): { tasks: string[]; blocks: string[] } {
     if (command.type === "addBlock" || command.type === "restoreBlock") {
       return {
         tasks: [command.snapshot.taskId],
-        blocks: [`${command.snapshot.taskId}#${command.snapshot.block.id}`, ...command.snapshot.affectedDependsOn.map((item) => item.blockRef)]
+        blocks: [
+          `${command.snapshot.taskId}#${command.snapshot.block.id}`,
+          ...command.snapshot.affectedDependsOn.map((item) => item.blockRef)
+        ]
       };
     }
-    if (command.type === "updateBlockPrompt" || command.type === "updateBlockFields" || command.type === "removeBlock") {
+    if (
+      command.type === "updateBlockPrompt" ||
+      command.type === "updateBlockFields" ||
+      command.type === "removeBlock"
+    ) {
       const { taskId, blockId } = parseBlockRef(command.blockRef);
       const task = taskFromManifest(loaded.manifest, taskId);
-      const dependentBlocks = task?.blocks
-        .filter((block) => block.depends_on.includes(blockId))
-        .map((block) => `${taskId}#${block.id}`) ?? [];
+      const dependentBlocks =
+        task?.blocks
+          .filter((block) => block.depends_on.includes(blockId))
+          .map((block) => `${taskId}#${block.id}`) ?? [];
       return { tasks: [taskId], blocks: [command.blockRef, ...dependentBlocks] };
     }
     return { tasks: [], blocks: [] };

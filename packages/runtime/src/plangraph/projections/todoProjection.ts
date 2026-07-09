@@ -1,9 +1,15 @@
 import type { ExecutionStatus } from "../../taskManager/executionStatus.js";
 import type { RuntimeContext } from "../../taskManager/runtimeContext.js";
-import type { DesktopProjectExecutionPhase, DesktopProjectExecutionPlan, DesktopTodoGroups, DesktopTodoItem } from "../../desktop/types.js";
+import type {
+  DesktopProjectExecutionPhase,
+  DesktopProjectExecutionPlan,
+  DesktopTodoGroups,
+  DesktopTodoItem
+} from "../../desktop/types.js";
 import type { ValidationIssue } from "../../types.js";
 import type { ProjectCanvasAggregationContext } from "../../desktop/graph/projectCanvasAggregation.js";
 import { getBlock } from "../../desktop/graph/graphHelpers.js";
+import { deriveParallelSafe } from "../../graph/parallelLocks.js";
 import type { PlanGraph } from "../domain/types.js";
 
 export type CanvasTodoRuntimeContext = RuntimeContext & {
@@ -66,12 +72,18 @@ export function buildTodoProjection(input: TodoProjectionInput): TodoProjection 
 
   for (const blockStatus of status.blocks) {
     const claimHint = claimHintByRef.get(blockStatus.ref);
-    const dependencyBlockers = claimHint ? [...claimHint.blockedByTasks, ...claimHint.blockedByBlocks, ...claimHint.blockedByProject] : [];
+    const dependencyBlockers = claimHint
+      ? [...claimHint.blockedByTasks, ...claimHint.blockedByBlocks, ...claimHint.blockedByProject]
+      : [];
     if (blockStatus.status === "ready" && (claimHint?.blockedByProject.length ?? 0) > 0) {
       projectBlockedReadyCount += 1;
     }
-    const displayStatus = blockStatus.status === "ready" && dependencyBlockers.length > 0 ? "planned" : blockStatus.status;
-    const groupName: keyof DesktopTodoGroups = taskStatusById.get(blockStatus.taskId) === "implemented" ? "implemented" : displayStatus;
+    const displayStatus =
+      blockStatus.status === "ready" && dependencyBlockers.length > 0
+        ? "planned"
+        : blockStatus.status;
+    const groupName: keyof DesktopTodoGroups =
+      taskStatusById.get(blockStatus.taskId) === "implemented" ? "implemented" : displayStatus;
     const item: DesktopTodoItem = {
       canvasId: input.canvasMeta?.canvasId,
       canvasName: input.canvasMeta?.canvasName,
@@ -81,7 +93,7 @@ export function buildTodoProjection(input: TodoProjectionInput): TodoProjection 
       title: blockTitle(input, blockStatus.ref),
       status: displayStatus,
       dependencyBlockers,
-      parallelSafe: runtime.graph.parallelSafeByBlockRef.get(blockStatus.ref) ?? false,
+      parallelSafe: deriveParallelSafe(runtime.graph.locksByBlockRef.get(blockStatus.ref) ?? []),
       locks: runtime.graph.locksByBlockRef.get(blockStatus.ref) ?? [],
       reviewGate: claimHint?.reviewGate ?? null
     };
@@ -103,7 +115,9 @@ export function buildTodoGroupsFromContext(context: ProjectTodoContext): Desktop
     if (!snapshot) {
       continue;
     }
-    for (const [groupName, items] of Object.entries(snapshot.groups) as Array<[keyof DesktopTodoGroups, DesktopTodoItem[]]>) {
+    for (const [groupName, items] of Object.entries(snapshot.groups) as Array<
+      [keyof DesktopTodoGroups, DesktopTodoItem[]]
+    >) {
       groups[groupName].push(...items);
     }
   }
@@ -127,13 +141,19 @@ function executionPhaseFromGroups(
     readyQueue,
     parallelReadyQueue: readyQueue.filter((item) => item.parallelSafe),
     sequentialReadyQueue: readyQueue.filter((item) => !item.parallelSafe),
-    blockedCount: groups.blocked.length + groups.diverged.length + groups.needs_changes.length + projectBlockedReadyCount,
+    blockedCount:
+      groups.blocked.length +
+      groups.diverged.length +
+      groups.needs_changes.length +
+      projectBlockedReadyCount,
     inProgressCount: groups.in_progress.length,
     completedCount: groups.completed.length + groups.implemented.length
   };
 }
 
-export function buildProjectExecutionPlanProjection(context: ProjectTodoContext): DesktopProjectExecutionPlan {
+export function buildProjectExecutionPlanProjection(
+  context: ProjectTodoContext
+): DesktopProjectExecutionPlan {
   const { aggregation, snapshotsByCanvas } = context;
   const phases = aggregation.orderedCanvasIds.flatMap((canvasId, index) => {
     const canvas = aggregation.canvasesById.get(canvasId);
@@ -141,7 +161,16 @@ export function buildProjectExecutionPlanProjection(context: ProjectTodoContext)
     if (!canvas || !snapshot) {
       return [];
     }
-    return [executionPhaseFromGroups(index + 1, canvasId, canvas.canvasName, snapshot.taskCount, snapshot.groups, snapshot.projectBlockedReadyCount)];
+    return [
+      executionPhaseFromGroups(
+        index + 1,
+        canvasId,
+        canvas.canvasName,
+        snapshot.taskCount,
+        snapshot.groups,
+        snapshot.projectBlockedReadyCount
+      )
+    ];
   });
   return {
     phases,

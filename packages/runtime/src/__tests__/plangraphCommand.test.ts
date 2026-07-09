@@ -17,7 +17,10 @@ import type { PlanGraphCommand, ProjectGraphCommand } from "../plangraph/index.j
 import type { ManifestBlock, PlanPackageManifest } from "../types.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 
-type OrdinaryPackageCommandType = Exclude<PlanGraphCommand["type"], ProjectGraphCommand["type"] | "updateLayout">;
+type OrdinaryPackageCommandType = Exclude<
+  PlanGraphCommand["type"],
+  ProjectGraphCommand["type"] | "updateLayout"
+>;
 
 const ordinaryPackageCommandTypes = [
   "addTaskDependency",
@@ -36,7 +39,12 @@ const ordinaryPackageCommandTypes = [
   "updateReviewPipeline"
 ] as const satisfies readonly OrdinaryPackageCommandType[];
 
-const ordinaryPackageCommandTypeCoverage: Exclude<OrdinaryPackageCommandType, (typeof ordinaryPackageCommandTypes)[number]> extends never ? true : never = true;
+const ordinaryPackageCommandTypeCoverage: Exclude<
+  OrdinaryPackageCommandType,
+  (typeof ordinaryPackageCommandTypes)[number]
+> extends never
+  ? true
+  : never = true;
 
 describe("PlanGraph SQLite index and commands", () => {
   it("covers package commands with one registry handler and keeps special command paths explicit", () => {
@@ -44,9 +52,13 @@ describe("PlanGraph SQLite index and commands", () => {
     const registeredTypes = planGraphCommandHandlers.flatMap((handler) => handler.commandTypes);
 
     for (const commandType of ordinaryPackageCommandTypes) {
-      expect(registeredTypes.filter((registeredType) => registeredType === commandType)).toHaveLength(1);
+      expect(
+        registeredTypes.filter((registeredType) => registeredType === commandType)
+      ).toHaveLength(1);
     }
-    expect(registeredTypes.filter((registeredType) => registeredType === "updateLayout")).toHaveLength(1);
+    expect(
+      registeredTypes.filter((registeredType) => registeredType === "updateLayout")
+    ).toHaveLength(1);
 
     const projectGraphCommandTypes = [
       "addCanvasDependency",
@@ -80,7 +92,7 @@ describe("PlanGraph SQLite index and commands", () => {
         title: "Implement",
         prompt: "nodes/T-001/blocks/B-002.prompt.md",
         depends_on: [],
-        parallel: { safe: true, locks: [] }
+        parallel: { locks: [] }
       } satisfies ManifestBlock,
       promptMarkdown: "# Block\n",
       insertIndex: 1,
@@ -97,7 +109,13 @@ describe("PlanGraph SQLite index and commands", () => {
     const commands = [
       { type: "addTaskDependency", fromTaskId: "T-002", toTaskId: "T-001" },
       { type: "removeTaskDependency", fromTaskId: "T-002", toTaskId: "T-001" },
-      { type: "reconnectTaskDependency", fromTaskId: "T-002", oldToTaskId: "T-001", newFromTaskId: "T-003", newToTaskId: "T-001" },
+      {
+        type: "reconnectTaskDependency",
+        fromTaskId: "T-002",
+        oldToTaskId: "T-001",
+        newFromTaskId: "T-003",
+        newToTaskId: "T-001"
+      },
       { type: "updateTaskPrompt", taskId: "T-001", promptMarkdown: "# Task\n" },
       { type: "updateBlockPrompt", blockRef: "T-001#B-001", promptMarkdown: "# Block\n" },
       { type: "updateTaskFields", taskId: "T-001", fields: { title: "Task" } },
@@ -123,11 +141,19 @@ describe("PlanGraph SQLite index and commands", () => {
       expect(handlerForCommand(command)).toBe(matches[0]);
     }
 
-    const projectGraphCommand: PlanGraphCommand = { type: "addCanvasDependency", fromCanvasId: "default", toCanvasId: "second" };
+    const projectGraphCommand: PlanGraphCommand = {
+      type: "addCanvasDependency",
+      fromCanvasId: "default",
+      toCanvasId: "second"
+    };
     expect(isProjectGraphCommand(projectGraphCommand)).toBe(true);
     expect(handlerForCommand(projectGraphCommand)).toBeUndefined();
 
-    const layoutCommand: PlanGraphCommand = { type: "updateLayout", layoutScope: "canvas", layout: { activeCanvasId: "default" } };
+    const layoutCommand: PlanGraphCommand = {
+      type: "updateLayout",
+      layoutScope: "canvas",
+      layout: { activeCanvasId: "default" }
+    };
     expect(handlerForCommand(layoutCommand)?.family).toBe("layout");
   });
 
@@ -189,7 +215,7 @@ describe("PlanGraph SQLite index and commands", () => {
           title: "Implement third task",
           prompt: "nodes/T-003/blocks/B-001.prompt.md",
           depends_on: [],
-          parallel: { safe: true, locks: ["third"] }
+          parallel: { locks: ["third"] }
         }
       ]
     });
@@ -254,30 +280,43 @@ describe("PlanGraph SQLite index and commands", () => {
     await expect(
       executePlanGraphCommand({
         projectRoot: root,
-        command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "First redo title" } }
+        command: {
+          type: "updateTaskFields",
+          taskId: "T-001",
+          fields: { title: "First redo title" }
+        }
       })
     ).resolves.toMatchObject({ ok: true });
     await expect(
       executePlanGraphCommand({
         projectRoot: root,
-        command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "Second redo title" } }
+        command: {
+          type: "updateTaskFields",
+          taskId: "T-001",
+          fields: { title: "Second redo title" }
+        }
       })
     ).resolves.toMatchObject({ ok: true });
 
     await expect(undoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({ ok: true });
     await expect(undoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({ ok: true });
     let written = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    expect(written.nodes[0]?.type === "task" ? written.nodes[0].title : null).toBe("Implement test task");
+    expect(written.nodes[0]?.type === "task" ? written.nodes[0].title : null).toBe(
+      "Implement test task"
+    );
 
     await expect(redoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({ ok: true });
     written = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    expect(written.nodes[0]?.type === "task" ? written.nodes[0].title : null).toBe("First redo title");
+    expect(written.nodes[0]?.type === "task" ? written.nodes[0].title : null).toBe(
+      "First redo title"
+    );
 
     await expect(redoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({ ok: true });
     written = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    expect(written.nodes[0]?.type === "task" ? written.nodes[0].title : null).toBe("Second redo title");
+    expect(written.nodes[0]?.type === "task" ? written.nodes[0].title : null).toBe(
+      "Second redo title"
+    );
   });
-
 
   it("undoes and redoes a remove block command through the command path", async () => {
     const { root, init } = await createTestWorkspace();
@@ -288,20 +327,26 @@ describe("PlanGraph SQLite index and commands", () => {
     });
     expect(removeResult.ok).toBe(true);
     let manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    expect(manifest.nodes[0]?.type === "task" ? manifest.nodes[0].blocks.map((block) => block.id) : []).toEqual(["B-001"]);
+    expect(
+      manifest.nodes[0]?.type === "task" ? manifest.nodes[0].blocks.map((block) => block.id) : []
+    ).toEqual(["B-001"]);
 
     const undoResult = await undoPlanGraphCommand({ projectRoot: root });
     expect(undoResult.ok).toBe(true);
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    expect(manifest.nodes[0]?.type === "task" ? manifest.nodes[0].blocks.map((block) => block.id) : []).toEqual(["B-001", "R-001"]);
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/blocks/R-001.prompt.md"), "utf8")).resolves.toContain(
-      "# T-001#R-001 review prompt"
-    );
+    expect(
+      manifest.nodes[0]?.type === "task" ? manifest.nodes[0].blocks.map((block) => block.id) : []
+    ).toEqual(["B-001", "R-001"]);
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/blocks/R-001.prompt.md"), "utf8")
+    ).resolves.toContain("# T-001#R-001 review prompt");
 
     const redoResult = await redoPlanGraphCommand({ projectRoot: root });
     expect(redoResult.ok).toBe(true);
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    expect(manifest.nodes[0]?.type === "task" ? manifest.nodes[0].blocks.map((block) => block.id) : []).toEqual(["B-001"]);
+    expect(
+      manifest.nodes[0]?.type === "task" ? manifest.nodes[0].blocks.map((block) => block.id) : []
+    ).toEqual(["B-001"]);
   });
 
   it("restores dependent block edges when undoing a removed block", async () => {
@@ -316,7 +361,7 @@ describe("PlanGraph SQLite index and commands", () => {
       title: "Follow-up implementation",
       prompt: "nodes/T-001/blocks/B-002.prompt.md",
       depends_on: ["B-001"],
-      parallel: { safe: true, locks: ["shared"] }
+      parallel: { locks: ["shared"] }
     });
     task.blocks[2].depends_on = ["B-002"];
     const { root, init } = await createTestWorkspace(manifest);
@@ -387,7 +432,9 @@ describe("PlanGraph SQLite index and commands", () => {
 
     expect(result.ok).toBe(true);
     expect(result.graphVersion).not.toBe(base.graph.graphVersion);
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")).resolves.toBe("# Updated PlanGraph prompt\n");
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")
+    ).resolves.toBe("# Updated PlanGraph prompt\n");
   });
 
   it("updates prompt-only commands through the incremental SQLite index path", async () => {
@@ -519,7 +566,7 @@ describe("PlanGraph SQLite index and commands", () => {
       prompt: "nodes/T-001/blocks/B-002.prompt.md",
       depends_on: ["B-001"],
       executor: "manual",
-      parallel: { safe: true, locks: ["shared"] }
+      parallel: { locks: ["shared"] }
     });
     task.blocks[2].depends_on = ["B-002"];
     const { root, init } = await createTestWorkspace(manifest);
@@ -548,7 +595,7 @@ describe("PlanGraph SQLite index and commands", () => {
     expect(writtenTask.blocks[1]).toMatchObject({
       title: "Updated implementation block",
       depends_on: [],
-      parallel: { safe: false, locks: ["api", "db"] }
+      parallel: { locks: ["api", "db", "exclusive"] }
     });
     expect(writtenTask.blocks[1]).not.toHaveProperty("executor");
 
@@ -562,7 +609,7 @@ describe("PlanGraph SQLite index and commands", () => {
       title: "Follow-up implementation",
       depends_on: ["B-001"],
       executor: "manual",
-      parallel: { safe: true, locks: ["shared"] }
+      parallel: { locks: ["shared"] }
     });
 
     await expect(
@@ -653,7 +700,9 @@ describe("PlanGraph SQLite index and commands", () => {
     const undoResult = await undoPlanGraphCommand({ projectRoot: root });
 
     expect(undoResult.ok).toBe(true);
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")).resolves.toBe("# T-001 task prompt\n");
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")
+    ).resolves.toBe("# T-001 task prompt\n");
   });
 
   it("coalesces consecutive prompt autosave entries for the same target", async () => {
@@ -695,11 +744,17 @@ describe("PlanGraph SQLite index and commands", () => {
     ).resolves.toMatchObject({ ok: true, operationId: 1 });
 
     await expect(undoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({ ok: true });
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")).resolves.toBe("# T-001 task prompt\n");
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")
+    ).resolves.toBe("# T-001 task prompt\n");
     await expect(redoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({ ok: true });
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")).resolves.toBe("# Autosave final\n");
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")
+    ).resolves.toBe("# Autosave final\n");
     await expect(undoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({ ok: true });
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")).resolves.toBe("# T-001 task prompt\n");
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")
+    ).resolves.toBe("# T-001 task prompt\n");
     await expect(undoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({
       ok: false,
       diagnostics: [expect.objectContaining({ code: "history_empty" })]
@@ -713,7 +768,11 @@ describe("PlanGraph SQLite index and commands", () => {
     if (!task) {
       throw new Error("Missing task fixture.");
     }
-    await writeFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "# External edit\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes/T-001/prompt.md"),
+      "# External edit\n",
+      "utf8"
+    );
 
     const result = await executePlanGraphCommand({
       projectRoot: root,
@@ -728,7 +787,9 @@ describe("PlanGraph SQLite index and commands", () => {
 
     expect(result.ok).toBe(false);
     expect(result.diagnostics.map((item) => item.code)).toContain("graph_version_conflict");
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")).resolves.toBe("# External edit\n");
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")
+    ).resolves.toBe("# External edit\n");
   });
 
   it("does not apply stale undo over an external prompt edit", async () => {
@@ -743,13 +804,19 @@ describe("PlanGraph SQLite index and commands", () => {
       }
     });
     expect(result.ok).toBe(true);
-    await writeFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "# External edit\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes/T-001/prompt.md"),
+      "# External edit\n",
+      "utf8"
+    );
 
     const undoResult = await undoPlanGraphCommand({ projectRoot: root });
 
     expect(undoResult.ok).toBe(false);
     expect(undoResult.diagnostics.map((item) => item.code)).toContain("graph_version_conflict");
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")).resolves.toBe("# External edit\n");
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")
+    ).resolves.toBe("# External edit\n");
   });
 
   it("clears the redo chain after a new normal command", async () => {
@@ -778,7 +845,11 @@ describe("PlanGraph SQLite index and commands", () => {
   it("rejects structural commands with stale base graph versions", async () => {
     const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
     const base = await loadPlanGraphPackage(root);
-    await writeFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "# External edit\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes/T-001/prompt.md"),
+      "# External edit\n",
+      "utf8"
+    );
 
     const result = await executePlanGraphCommand({
       projectRoot: root,

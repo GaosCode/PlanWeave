@@ -1,7 +1,13 @@
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { executePlanGraphCommand, type PlanGraphCommandResult } from "../plangraph/index.js";
-import type { EditBlockInput, EditBlockResult, EditTaskInput, EditTaskResult, PlanPackageManifest } from "../types.js";
+import type {
+  EditBlockInput,
+  EditBlockResult,
+  EditTaskInput,
+  EditTaskResult,
+  PlanPackageManifest
+} from "../types.js";
 import { loadPackage } from "./loadPackage.js";
 
 function taskUpdatedFields(options: EditTaskInput): string[] {
@@ -45,7 +51,11 @@ function blockUpdatedFields(manifest: PlanPackageManifest, options: EditBlockInp
     if (options.parallelSafe !== undefined) {
       fields.push("parallel.safe");
     }
-    if (options.parallelLocks !== undefined) {
+    if (
+      options.exclusive !== undefined ||
+      options.parallelSafe !== undefined ||
+      options.parallelLocks !== undefined
+    ) {
       fields.push("parallel.locks");
     }
   } else {
@@ -62,7 +72,10 @@ function blockUpdatedFields(manifest: PlanPackageManifest, options: EditBlockInp
   return fields;
 }
 
-async function graphEditResult(projectRoot: EditTaskInput["projectRoot"], commandResult: PlanGraphCommandResult) {
+async function graphEditResult(
+  projectRoot: EditTaskInput["projectRoot"],
+  commandResult: PlanGraphCommandResult
+) {
   const { manifest } = await loadPackage(projectRoot);
   const graph = compileTaskGraph(manifest);
   return {
@@ -88,7 +101,11 @@ export async function editTask(options: EditTaskInput): Promise<EditTaskResult> 
       }
     }
   });
-  return { ...(await graphEditResult(options.projectRoot, commandResult)), taskId: options.taskId, updatedFields };
+  return {
+    ...(await graphEditResult(options.projectRoot, commandResult)),
+    taskId: options.taskId,
+    updatedFields
+  };
 }
 
 export async function editBlock(options: EditBlockInput): Promise<EditBlockResult> {
@@ -111,6 +128,7 @@ export async function editBlock(options: EditBlockInput): Promise<EditBlockResul
         executor: options.executor,
         dependsOn: options.dependsOn,
         parallelSafe: options.parallelSafe,
+        exclusive: options.exclusive,
         parallelLocks: options.parallelLocks,
         reviewRequired: options.reviewRequired,
         maxFeedbackCycles: options.maxFeedbackCycles,

@@ -47,7 +47,9 @@ describe("manifest edit commands", () => {
       acceptance: ["Updated acceptance one.", "Updated acceptance two."]
     });
     expect(taskById(manifest, "T-002").title).toBe("Second task");
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")).resolves.toBe("# Updated task prompt\n");
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")
+    ).resolves.toBe("# Updated task prompt\n");
   });
 
   it("edits only the review block addressed by the full block ref", async () => {
@@ -76,7 +78,13 @@ describe("manifest edit commands", () => {
       ok: true,
       ref: "T-001#R-001",
       blockType: "review",
-      updatedFields: ["title", "prompt", "review.required", "review.maxFeedbackCycles", "review.hook"]
+      updatedFields: [
+        "title",
+        "prompt",
+        "review.required",
+        "review.maxFeedbackCycles",
+        "review.hook"
+      ]
     });
     expect(edited).toMatchObject({
       title: "Updated review",
@@ -95,9 +103,9 @@ describe("manifest edit commands", () => {
         required: true
       }
     });
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/blocks/R-001.prompt.md"), "utf8")).resolves.toBe(
-      "# Updated review prompt\n"
-    );
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/blocks/R-001.prompt.md"), "utf8")
+    ).resolves.toBe("# Updated review prompt\n");
   });
 
   it("edits implementation parallel policy without accepting review-only fields", async () => {
@@ -136,7 +144,10 @@ describe("manifest edit commands", () => {
     });
     expect(blockById(manifest, "T-001", "B-001")).toMatchObject({
       depends_on: [],
-      parallel: { safe: false, locks: ["db", "api"] }
+      parallel: { locks: ["db", "api", "exclusive"] }
     });
+    expect(
+      (blockById(manifest, "T-001", "B-001") as { parallel: { safe?: boolean } }).parallel.safe
+    ).toBeUndefined();
   });
 });

@@ -7,7 +7,9 @@ import { runContractAutoRunStep } from "./autoRunTestBuilders.js";
 
 describe("Auto Run parallel execution", () => {
   it("dispatches and submits every block in a parallel batch", async () => {
-    const { root } = await createTestWorkspace(basicManifest({ parallel: true, maxConcurrent: 2, includeSecondTask: true }));
+    const { root } = await createTestWorkspace(
+      basicManifest({ parallel: true, maxConcurrent: 2, includeSecondTask: true })
+    );
     const step = await runContractAutoRunStep({
       projectRoot: root,
       parallel: true,
@@ -37,7 +39,9 @@ describe("Auto Run parallel execution", () => {
   });
 
   it("releases unstarted siblings when a parallel batch block fails", async () => {
-    const { root } = await createTestWorkspace(basicManifest({ parallel: true, maxConcurrent: 2, includeSecondTask: true }));
+    const { root } = await createTestWorkspace(
+      basicManifest({ parallel: true, maxConcurrent: 2, includeSecondTask: true })
+    );
     let firstRef: string | null = null;
     const executor = {
       async runBlock({ claim }) {
@@ -72,16 +76,29 @@ describe("Auto Run parallel execution", () => {
       steps: [{ kind: "submitted", submitResult: { ref: siblingRef, status: "completed" } }]
     });
     const afterRecovery = await getExecutionStatus({ projectRoot: root });
-    expect(afterRecovery.blocks.find((block) => block.ref === siblingRef)?.status).toBe("completed");
+    expect(afterRecovery.blocks.find((block) => block.ref === siblingRef)?.status).toBe(
+      "completed"
+    );
   });
 
   it("falls back to sequential claims for reviews when parallel batches are exhausted", async () => {
-    const { root } = await createTestWorkspace(basicManifest({ parallel: true, maxConcurrent: 2, includeSecondTask: true }));
+    const { root } = await createTestWorkspace(
+      basicManifest({ parallel: true, maxConcurrent: 2, includeSecondTask: true })
+    );
     const executor = {
       async runBlock({ claim }) {
         if (claim.blockType === "review") {
           const resultPath = join(root, `${claim.taskId}-${claim.blockId}.json`);
-          await writeFile(resultPath, JSON.stringify({ reviewBlockRef: claim.ref, taskId: claim.taskId, verdict: "passed", content: "ok" }), "utf8");
+          await writeFile(
+            resultPath,
+            JSON.stringify({
+              reviewBlockRef: claim.ref,
+              taskId: claim.taskId,
+              verdict: "passed",
+              content: "ok"
+            }),
+            "utf8"
+          );
           return { kind: "review" as const, resultPath };
         }
         const reportPath = join(root, `${claim.taskId}-${claim.blockId}.md`);
@@ -93,11 +110,15 @@ describe("Auto Run parallel execution", () => {
       }
     };
 
-    await expect(runContractAutoRunStep({ projectRoot: root, parallel: true, executor })).resolves.toMatchObject({
+    await expect(
+      runContractAutoRunStep({ projectRoot: root, parallel: true, executor })
+    ).resolves.toMatchObject({
       kind: "batch_submitted",
       claim: { refs: ["T-001#B-001", "T-002#B-001"] }
     });
-    await expect(runContractAutoRunStep({ projectRoot: root, parallel: true, executor })).resolves.toMatchObject({
+    await expect(
+      runContractAutoRunStep({ projectRoot: root, parallel: true, executor })
+    ).resolves.toMatchObject({
       kind: "submitted",
       claim: { kind: "block", ref: "T-001#R-001", blockType: "review" },
       submitResult: { verdict: "passed", status: "completed" }

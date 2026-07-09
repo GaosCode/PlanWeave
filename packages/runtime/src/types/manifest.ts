@@ -25,7 +25,8 @@ export type ReviewHookDefinition = {
 export type ReviewTriggerCondition = (typeof reviewTriggerConditions)[number];
 
 export type BlockParallelPolicy = {
-  safe: boolean;
+  /** @deprecated Use locks including "exclusive" instead of safe: false. */
+  safe?: boolean;
   locks: string[];
 };
 

@@ -1,8 +1,24 @@
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
-import type { BlockState, ClaimHint, CompiledExecutionGraph, ManifestBlock, RuntimeState } from "../types.js";
+import { deriveParallelSafe } from "../graph/parallelLocks.js";
+import type {
+  BlockState,
+  ClaimHint,
+  CompiledExecutionGraph,
+  ManifestBlock,
+  RuntimeState
+} from "../types.js";
 import type { ProjectGraphClaimGuard } from "./projectGraphClaimGuard.js";
-import { blockReadyWithoutProjectBlockers, projectBlockerReason, projectBlockers } from "./claimReadinessRules.js";
-import { canDispatchImplementationBlock, effectiveBlockExecutor, requiredImplementationRefs } from "./selectors.js";
+import {
+  blockReadyWithoutProjectBlockers,
+  projectBlockerReason,
+  projectBlockers
+} from "./claimReadinessRules.js";
+import {
+  canDispatchImplementationBlock,
+  effectiveBlockExecutor,
+  lockHolderBlockerReason,
+  requiredImplementationRefs
+} from "./selectors.js";
 
 function statusReasonForBlock(blockState: BlockState | undefined): string | null {
   if (blockState?.status === "blocked") {
@@ -14,22 +30,44 @@ function statusReasonForBlock(blockState: BlockState | undefined): string | null
   return blockState?.blockedReason ?? blockState?.divergenceReason ?? null;
 }
 
-function reviewGateUnlocksTasks(taskId: string, downstreamTasks: string[], state: RuntimeState, graph: CompiledExecutionGraph): string[] {
+function reviewGateUnlocksTasks(
+  taskId: string,
+  downstreamTasks: string[],
+  state: RuntimeState,
+  graph: CompiledExecutionGraph
+): string[] {
   return downstreamTasks.filter((downstreamTaskId) =>
-    (graph.taskDependenciesByTask.get(downstreamTaskId) ?? []).every((dependency) => dependency === taskId || state.tasks[dependency]?.status === "implemented")
+    (graph.taskDependenciesByTask.get(downstreamTaskId) ?? []).every(
+      (dependency) => dependency === taskId || state.tasks[dependency]?.status === "implemented"
+    )
   );
 }
 
-function dependencyBlockers(graph: CompiledExecutionGraph, state: RuntimeState, ref: string, block: ManifestBlock | undefined, taskId: string | undefined) {
+function dependencyBlockers(
+  graph: CompiledExecutionGraph,
+  state: RuntimeState,
+  ref: string,
+  block: ManifestBlock | undefined,
+  taskId: string | undefined
+) {
   const blockedByTasks = taskId
-    ? (graph.taskDependenciesByTask.get(taskId) ?? []).filter((dependency) => state.tasks[dependency]?.status !== "implemented")
+    ? (graph.taskDependenciesByTask.get(taskId) ?? []).filter(
+        (dependency) => state.tasks[dependency]?.status !== "implemented"
+      )
     : [];
-  const directBlockBlockers = (graph.blockDependenciesByRef.get(ref) ?? []).filter((dependency) => state.blocks[dependency]?.status !== "completed");
+  const directBlockBlockers = (graph.blockDependenciesByRef.get(ref) ?? []).filter(
+    (dependency) => state.blocks[dependency]?.status !== "completed"
+  );
   const reviewWorkBlockers =
     taskId && block?.type === "review"
-      ? requiredImplementationRefs(graph, taskId).filter((dependency) => state.blocks[dependency]?.status !== "completed")
+      ? requiredImplementationRefs(graph, taskId).filter(
+          (dependency) => state.blocks[dependency]?.status !== "completed"
+        )
       : [];
-  return { blockedByTasks, blockedByBlocks: Array.from(new Set([...directBlockBlockers, ...reviewWorkBlockers])) };
+  return {
+    blockedByTasks,
+    blockedByBlocks: Array.from(new Set([...directBlockBlockers, ...reviewWorkBlockers]))
+  };
 }
 
 export function buildClaimHints(
@@ -49,9 +87,17 @@ export function buildClaimHints(
     const projectBlocker = projectBlockerReason(projectGuard, taskId);
     const blockedByProject = projectBlockers(projectGuard, taskId);
     const ready = baseReady && defaultClaimLockReason === null && projectBlocker === null;
-    const parallelSafe = block?.type !== "review" && !!graph.parallelSafeByBlockRef.get(ref);
-    const dispatchable = projectBlocker === null && canDispatchImplementationBlock(graph, state, ref);
-    const downstreamTasks = taskId && block?.type === "review" ? (graph.taskDependentsByTask.get(taskId) ?? []) : [];
+    const locks = graph.locksByBlockRef.get(ref) ?? [];
+    // Compat field: true when the block is not exclusive (can co-run with non-conflicting peers).
+    const parallelSafe = block?.type === "implementation" && deriveParallelSafe(locks);
+    const dispatchable =
+      projectBlocker === null && canDispatchImplementationBlock(graph, state, ref);
+    const lockBlocker =
+      baseReady && projectBlocker === null && block?.type === "implementation" && !dispatchable
+        ? lockHolderBlockerReason(graph, state, ref)
+        : null;
+    const downstreamTasks =
+      taskId && block?.type === "review" ? (graph.taskDependentsByTask.get(taskId) ?? []) : [];
     const reviewGate =
       taskId && block?.type === "review"
         ? {
@@ -70,14 +116,17 @@ export function buildClaimHints(
       ? block?.type === "review"
         ? "Review gate is ready after required implementation blocks completed."
         : parallelSafe
-          ? "Block is ready and parallel-safe."
-          : "Block is ready for sequential claim."
+          ? "Block is ready and parallel-eligible (locks-only mutex)."
+          : "Block is ready; reserved exclusive lock means it must run alone."
       : null;
     const explicitStatusReason = statusReasonForBlock(blockState);
+    // Prefer lock-holder detail over the generic sequential current-block lock reason so
+    // explain/status can name the lock and holder when parallel dispatch is blocked by mutex.
     const statusReason =
       explicitStatusReason ??
-      (baseReady && defaultClaimLockReason ? defaultClaimLockReason : null) ??
       (baseReady && projectBlocker ? projectBlocker : null) ??
+      lockBlocker ??
+      (baseReady && defaultClaimLockReason ? defaultClaimLockReason : null) ??
       (block?.type === "review" && !block.review.required
         ? "Optional review gate is not required and is not claimable; task can complete without it."
         : null);
@@ -95,7 +144,7 @@ export function buildClaimHints(
       blockedByTasks: blockers.blockedByTasks,
       blockedByProject,
       parallelSafe,
-      sequentialOnly: block?.type === "review" || !parallelSafe,
+      sequentialOnly: block?.type === "review",
       recommendedCommand: ready ? `planweave claim ${ref}` : null,
       dispatchable,
       dispatchCommand: dispatchable ? `planweave claim ${ref} --dispatch` : null,

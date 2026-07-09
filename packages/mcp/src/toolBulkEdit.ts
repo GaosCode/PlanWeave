@@ -18,7 +18,9 @@ import {
 } from "./toolParsers.js";
 import type { RuntimeGateway } from "./toolTypes.js";
 
-export function parseTaskDependencyEdges(value: unknown): Array<{ dependentTaskId: string; dependsOnTaskId: string }> {
+export function parseTaskDependencyEdges(
+  value: unknown
+): Array<{ dependentTaskId: string; dependsOnTaskId: string }> {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error("edges must contain at least one dependency.");
   }
@@ -34,7 +36,9 @@ export function parseTaskDependencyEdges(value: unknown): Array<{ dependentTaskI
   });
 }
 
-export function parseTaskDependencyUpdates(value: unknown): Array<{ taskId: string; dependsOn: string[] }> {
+export function parseTaskDependencyUpdates(
+  value: unknown
+): Array<{ taskId: string; dependsOn: string[] }> {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error("updates must contain at least one task dependency update.");
   }
@@ -55,19 +59,28 @@ export function parseBulkCreateTasks(
   projectId: string,
   canvasId: string | undefined
 ): Parameters<RuntimeGateway["bulkCreateTasks"]>[2] {
-  return requiredObjectArray(record.tasks, "tasks").map((item) => parseCreateTaskToolArgs({ ...item, projectId, canvasId }).input);
+  return requiredObjectArray(record.tasks, "tasks").map(
+    (item) => parseCreateTaskToolArgs({ ...item, projectId, canvasId }).input
+  );
 }
 
-export function parseBulkCreateBlocks(record: Record<string, unknown>): Parameters<RuntimeGateway["bulkCreateBlocks"]>[2] {
+export function parseBulkCreateBlocks(
+  record: Record<string, unknown>
+): Parameters<RuntimeGateway["bulkCreateBlocks"]>[2] {
   return requiredObjectArray(record.blocks, "blocks").map(parseCreateBlockInput);
 }
 
-export function parseBulkUpdateTasks(record: Record<string, unknown>): Parameters<RuntimeGateway["bulkUpdateTasks"]>[2] {
+export function parseBulkUpdateTasks(
+  record: Record<string, unknown>
+): Parameters<RuntimeGateway["bulkUpdateTasks"]>[2] {
   return requiredObjectArray(record.updates, "updates").map((item) => {
     const input = {
       title: optionalNonEmptyString(item.title, "title"),
       promptMarkdown: optionalMarkdownValue(item.promptMarkdown, "promptMarkdown"),
-      executor: item.executor === undefined || item.executor === null ? item.executor : nonEmptyString(item.executor, "executor"),
+      executor:
+        item.executor === undefined || item.executor === null
+          ? item.executor
+          : nonEmptyString(item.executor, "executor"),
       acceptance: optionalStringArray(item.acceptance, "acceptance")
     };
     if (Object.values(input).every((value) => value === undefined)) {
@@ -77,16 +90,29 @@ export function parseBulkUpdateTasks(record: Record<string, unknown>): Parameter
   });
 }
 
-export function parseBulkUpdateBlocks(record: Record<string, unknown>): Parameters<RuntimeGateway["bulkUpdateBlocks"]>[2] {
+export function parseBulkUpdateBlocks(
+  record: Record<string, unknown>
+): Parameters<RuntimeGateway["bulkUpdateBlocks"]>[2] {
   return requiredObjectArray(record.updates, "updates").map((item) => {
-    const planning: Partial<ReturnType<typeof parseBlockPlanningInput>> = ["parallelSafe", "parallelLocks", "reviewRequired", "maxFeedbackCycles", "reviewHook"].some((field) => item[field] !== undefined)
+    const planning: Partial<ReturnType<typeof parseBlockPlanningInput>> = [
+      "exclusive",
+      "parallelSafe",
+      "parallelLocks",
+      "reviewRequired",
+      "maxFeedbackCycles",
+      "reviewHook"
+    ].some((field) => item[field] !== undefined)
       ? parseBlockPlanningInput(item)
       : {};
     const input = {
       title: optionalNonEmptyString(item.title, "title"),
       promptMarkdown: optionalMarkdownValue(item.promptMarkdown, "promptMarkdown"),
-      executor: item.executor === undefined || item.executor === null ? item.executor : nonEmptyString(item.executor, "executor"),
+      executor:
+        item.executor === undefined || item.executor === null
+          ? item.executor
+          : nonEmptyString(item.executor, "executor"),
       dependsOn: parseOptionalBlockDependencies(item.dependsOn, "dependsOn"),
+      exclusive: planning.exclusive,
       parallelSafe: planning.parallelSafe,
       parallelLocks: planning.parallelLocks,
       reviewRequired: planning.reviewRequired,
@@ -100,7 +126,9 @@ export function parseBulkUpdateBlocks(record: Record<string, unknown>): Paramete
   });
 }
 
-export function parseBulkRemoveGraphItems(record: Record<string, unknown>): Parameters<RuntimeGateway["bulkRemoveGraphItems"]>[2] {
+export function parseBulkRemoveGraphItems(
+  record: Record<string, unknown>
+): Parameters<RuntimeGateway["bulkRemoveGraphItems"]>[2] {
   const input = {
     tasks: optionalStringArray(record.tasks, "tasks") ?? [],
     blocks: parseBulkRemoveBlocks(record.blocks),
@@ -118,7 +146,9 @@ export function parseBulkRemoveGraphItems(record: Record<string, unknown>): Para
   return input;
 }
 
-export function parseBlockDependencyUpdates(value: unknown): Array<{ blockRef: string; dependsOn: string[] }> {
+export function parseBlockDependencyUpdates(
+  value: unknown
+): Array<{ blockRef: string; dependsOn: string[] }> {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error("updates must contain at least one block dependency update.");
   }
@@ -147,7 +177,11 @@ export function parseBulkReviewPipelineUpdates(
     if (!item || typeof item !== "object" || Array.isArray(item)) {
       throw new Error(`updates[${index}] must be an object.`);
     }
-    const parsed = parseUpdateReviewPipelineToolArgs({ projectId, canvasId, ...(item as Record<string, unknown>) });
+    const parsed = parseUpdateReviewPipelineToolArgs({
+      projectId,
+      canvasId,
+      ...(item as Record<string, unknown>)
+    });
     if (seenTaskIds.has(parsed.taskId)) {
       throw new Error(`updates must not contain duplicate taskId: ${parsed.taskId}`);
     }
@@ -160,7 +194,10 @@ export function parseBulkParallelPolicyInput(record: Record<string, unknown>): {
   canvasPolicy: Parameters<RuntimeGateway["updateCanvasExecutionPolicy"]>[2] | undefined;
   blocks: Parameters<RuntimeGateway["bulkUpdateParallelPolicy"]>[2]["blocks"];
 } {
-  const canvasPolicy = record.canvasPolicy === undefined ? undefined : parseCanvasExecutionPolicyInput(readObjectArgs(record.canvasPolicy));
+  const canvasPolicy =
+    record.canvasPolicy === undefined
+      ? undefined
+      : parseCanvasExecutionPolicyInput(readObjectArgs(record.canvasPolicy));
   const rawBlocks = record.blocks === undefined ? [] : record.blocks;
   if (!Array.isArray(rawBlocks)) {
     throw new Error("blocks must be an array when provided.");
@@ -174,13 +211,16 @@ export function parseBulkParallelPolicyInput(record: Record<string, unknown>): {
     return {
       blockRef: blockRefFromArgs(blockRecord),
       input: {
+        exclusive: blockPlanning.exclusive,
         parallelSafe: blockPlanning.parallelSafe,
         parallelLocks: blockPlanning.parallelLocks
       }
     };
   });
   if (!canvasPolicy && blocks.length === 0) {
-    throw new Error("bulk_update_parallel_policy requires canvasPolicy or at least one block update.");
+    throw new Error(
+      "bulk_update_parallel_policy requires canvasPolicy or at least one block update."
+    );
   }
   return { canvasPolicy, blocks };
 }
@@ -193,7 +233,10 @@ export function affectedBlockRefsForTasks(result: GraphEditResult, taskIds: stri
   return taskIds.flatMap((taskId) => graph.blocksByTask?.get(taskId) ?? []);
 }
 
-export function createdBlockRefsForInputs(result: GraphEditResult, inputs: Parameters<RuntimeGateway["bulkCreateBlocks"]>[2]): string[] {
+export function createdBlockRefsForInputs(
+  result: GraphEditResult,
+  inputs: Parameters<RuntimeGateway["bulkCreateBlocks"]>[2]
+): string[] {
   if (!result.ok || !result.graph) {
     return [];
   }
@@ -233,7 +276,10 @@ export function reviewBlockRefsForPipelineUpdates(
   return refs;
 }
 
-export function bulkGraphEditResult(result: GraphEditResult, options: { affectedBlocks?: string[] } = {}): CallToolResult {
+export function bulkGraphEditResult(
+  result: GraphEditResult,
+  options: { affectedBlocks?: string[] } = {}
+): CallToolResult {
   const edit = summarizeGraphEdit(result);
   const affectedBlocks = options.affectedBlocks ?? [];
   return jsonToolResult({
@@ -314,7 +360,9 @@ function parseBulkRemoveBlocks(value: unknown): string[] {
   });
 }
 
-function parseOptionalTaskDependencyEdges(value: unknown): Array<{ dependentTaskId: string; dependsOnTaskId: string }> {
+function parseOptionalTaskDependencyEdges(
+  value: unknown
+): Array<{ dependentTaskId: string; dependsOnTaskId: string }> {
   if (value === undefined || value === null) {
     return [];
   }
@@ -324,7 +372,9 @@ function parseOptionalTaskDependencyEdges(value: unknown): Array<{ dependentTask
   return parseTaskDependencyEdges(value);
 }
 
-function parseBlockDependencyRefs(value: unknown): Array<{ blockRef: string; dependsOnBlockId: string }> {
+function parseBlockDependencyRefs(
+  value: unknown
+): Array<{ blockRef: string; dependsOnBlockId: string }> {
   if (value === undefined || value === null) {
     return [];
   }
@@ -333,6 +383,9 @@ function parseBlockDependencyRefs(value: unknown): Array<{ blockRef: string; dep
   }
   return requiredObjectArray(value, "blockDependencyRefs").map((item, index) => ({
     blockRef: blockRefFromArgs(item),
-    dependsOnBlockId: nonEmptyString(item.dependsOnBlockId, `blockDependencyRefs[${index}].dependsOnBlockId`)
+    dependsOnBlockId: nonEmptyString(
+      item.dependsOnBlockId,
+      `blockDependencyRefs[${index}].dependsOnBlockId`
+    )
   }));
 }

@@ -10,7 +10,14 @@ export const blockTypeSchema = z.enum(["implementation", "review"]);
 export const graphReviewPolicySchema = z.enum(["none", "risk-based", "required"]);
 export const graphGatePolicySchema = z.enum(["none", "required"]);
 export const graphHeuristicsSchema = z.enum(["on", "off"]);
-export const searchResultKindSchema = z.enum(["task", "block", "prompt", "run_record", "review_attempt", "feedback"]);
+export const searchResultKindSchema = z.enum([
+  "task",
+  "block",
+  "prompt",
+  "run_record",
+  "review_attempt",
+  "feedback"
+]);
 
 export const reviewHookSchema = z.object({
   id: z.string().min(1),
@@ -105,6 +112,7 @@ export const bulkUpdateBlockSchema = z.object({
   promptMarkdown: z.string().optional(),
   executor: z.string().min(1).nullable().optional(),
   dependsOn: z.array(z.string().min(1)).optional(),
+  exclusive: z.boolean().optional(),
   parallelSafe: z.boolean().optional(),
   parallelLocks: z.array(z.string().min(1)).optional(),
   reviewRequired: z.boolean().optional(),
@@ -134,6 +142,7 @@ export const parallelBlockPolicySchema = z.object({
   blockRef: z.string().min(1).optional(),
   taskId: z.string().min(1).optional(),
   blockId: z.string().min(1).optional(),
+  exclusive: z.boolean().optional(),
   parallelSafe: z.boolean().optional(),
   parallelLocks: z.array(z.string().min(1)).optional()
 });
@@ -166,4 +175,9 @@ export const promptSourceWriteInput = {
   markdown: z.string()
 };
 
-export { createTaskInputShape, updateBlockInputShape, updateReviewPipelineInputShape, updateTaskInputShape };
+export {
+  createTaskInputShape,
+  updateBlockInputShape,
+  updateReviewPipelineInputShape,
+  updateTaskInputShape
+};

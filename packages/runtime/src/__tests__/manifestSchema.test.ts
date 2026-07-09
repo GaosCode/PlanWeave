@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { compileTaskGraph } from "../graph/compileTaskGraph.js";
+import { EXCLUSIVE_LOCK, PARALLEL_SAFE_DEPRECATION_MESSAGE } from "../schema/manifest.js";
 import { manifestSchema } from "../schema/manifest.js";
 import { basicManifest } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
@@ -147,7 +149,9 @@ describe("plan-package/v1 manifest schema", () => {
     const result = manifestSchema.safeParse(manifest);
 
     expect(result.success).toBe(false);
-    expect(result.error?.issues.map((issue) => issue.message)).toContain("manifest.global_prompt is not supported in plan-package/v1.");
+    expect(result.error?.issues.map((issue) => issue.message)).toContain(
+      "manifest.global_prompt is not supported in plan-package/v1."
+    );
   });
 
   it("rejects feedback as a block type", () => {
@@ -167,5 +171,89 @@ describe("plan-package/v1 manifest schema", () => {
     const result = manifestSchema.safeParse(manifest);
 
     expect(result.success).toBe(false);
+  });
+
+  it("defaults absent parallel to locks-only empty policy", () => {
+    const manifest = basicManifest();
+    const task = manifest.nodes.find((node) => node.type === "task");
+    if (task?.type !== "task") {
+      throw new Error("missing task");
+    }
+    const block = task.blocks.find((item) => item.id === "B-001");
+    if (block?.type !== "implementation") {
+      throw new Error("missing block");
+    }
+    delete (block as { parallel?: unknown }).parallel;
+
+    const result = manifestSchema.safeParse(manifest);
+    expect(result.success).toBe(true);
+    const parsed = result.data?.nodes
+      .find((node) => node.type === "task")
+      ?.blocks.find((item) => item.id === "B-001");
+    expect(parsed?.type === "implementation" ? parsed.parallel : null).toEqual({ locks: [] });
+  });
+
+  it("accepts locks including reserved exclusive", () => {
+    const manifest = basicManifest();
+    const task = manifest.nodes.find((node) => node.type === "task");
+    if (task?.type !== "task") {
+      throw new Error("missing task");
+    }
+    const block = task.blocks.find((item) => item.id === "B-001");
+    if (block?.type !== "implementation") {
+      throw new Error("missing block");
+    }
+    block.parallel = { locks: ["exclusive"] };
+
+    const result = manifestSchema.safeParse(manifest);
+    expect(result.success).toBe(true);
+  });
+
+  it("keeps plan-package/v1 version literal", () => {
+    const result = manifestSchema.safeParse(basicManifest());
+    expect(result.success).toBe(true);
+    expect(result.data?.version).toBe("plan-package/v1");
+  });
+
+  it("emits deprecation warning and maps safe:false to exclusive at compile time", () => {
+    const manifest = basicManifest();
+    const task = manifest.nodes.find((node) => node.type === "task");
+    if (task?.type !== "task") {
+      throw new Error("missing task");
+    }
+    const block = task.blocks.find((item) => item.id === "B-001");
+    if (block?.type !== "implementation") {
+      throw new Error("missing block");
+    }
+    block.parallel = { safe: false, locks: ["db"] };
+
+    const graph = compileTaskGraph(manifestSchema.parse(manifest));
+    expect(graph.locksByBlockRef.get("T-001#B-001")).toEqual(["db", EXCLUSIVE_LOCK]);
+    expect(
+      graph.diagnostics.warnings.some(
+        (warning) =>
+          warning.code === "parallel_safe_deprecated" &&
+          warning.message === PARALLEL_SAFE_DEPRECATION_MESSAGE
+      )
+    ).toBe(true);
+  });
+
+  it("treats safe:true as no-op with deprecation warning", () => {
+    const manifest = basicManifest();
+    const task = manifest.nodes.find((node) => node.type === "task");
+    if (task?.type !== "task") {
+      throw new Error("missing task");
+    }
+    const block = task.blocks.find((item) => item.id === "B-001");
+    if (block?.type !== "implementation") {
+      throw new Error("missing block");
+    }
+    block.parallel = { safe: true, locks: ["api"] };
+
+    const graph = compileTaskGraph(manifestSchema.parse(manifest));
+    expect(graph.locksByBlockRef.get("T-001#B-001")).toEqual(["api"]);
+    expect(
+      graph.diagnostics.warnings.some((warning) => warning.code === "parallel_safe_deprecated")
+    ).toBe(true);
   });
 });

@@ -5,42 +5,84 @@ import { createGateway } from "./toolTestHelpers.js";
 import { planweaveToolOutputSchemas } from "../toolSchemas.js";
 import { handlePlanweaveTool } from "../tools.js";
 
-function readToolBody(result: Awaited<ReturnType<typeof handlePlanweaveTool>>): Record<string, unknown> {
-  return JSON.parse(result.content[0]?.type === "text" ? result.content[0].text : "{}") as Record<string, unknown>;
+function readToolBody(
+  result: Awaited<ReturnType<typeof handlePlanweaveTool>>
+): Record<string, unknown> {
+  return JSON.parse(result.content[0]?.type === "text" ? result.content[0].text : "{}") as Record<
+    string,
+    unknown
+  >;
 }
 
 describe("dependency MCP tools", () => {
   it("dispatches Phase 7 bulk graph item tools through dedicated gateway methods", async () => {
     const gateway = createGateway();
 
-    const createTasksResult = await handlePlanweaveTool("bulk_create_tasks", {
-      projectId: "project-1",
-      canvasId: "default",
-      tasks: [{ title: "Implement bulk", promptMarkdown: "# Implement bulk", acceptance: ["Done"], blockTypes: ["implementation"], executor: "codex" }]
-    }, gateway);
-    const createBlocksResult = await handlePlanweaveTool("bulk_create_blocks", {
-      projectId: "project-1",
-      canvasId: "default",
-      blocks: [{ taskId: "T-001", type: "implementation", title: "Wire bulk", promptMarkdown: "# Wire bulk", executor: null, dependsOn: [] }]
-    }, gateway);
-    const updateTasksResult = await handlePlanweaveTool("bulk_update_tasks", {
-      projectId: "project-1",
-      canvasId: "default",
-      updates: [{ taskId: "T-001", title: "Updated task" }]
-    }, gateway);
-    const updateBlocksResult = await handlePlanweaveTool("bulk_update_blocks", {
-      projectId: "project-1",
-      canvasId: "default",
-      updates: [{ blockRef: "T-001#B-001", promptMarkdown: "# Updated block" }]
-    }, gateway);
-    const removeItemsResult = await handlePlanweaveTool("bulk_remove_graph_items", {
-      projectId: "project-1",
-      canvasId: "default",
-      tasks: ["T-003"],
-      blocks: ["T-001#B-002"],
-      taskDependencyEdges: [{ dependentTaskId: "T-002", dependsOnTaskId: "T-001" }],
-      blockDependencyRefs: [{ blockRef: "T-001#B-002", dependsOnBlockId: "B-001" }]
-    }, gateway);
+    const createTasksResult = await handlePlanweaveTool(
+      "bulk_create_tasks",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        tasks: [
+          {
+            title: "Implement bulk",
+            promptMarkdown: "# Implement bulk",
+            acceptance: ["Done"],
+            blockTypes: ["implementation"],
+            executor: "codex"
+          }
+        ]
+      },
+      gateway
+    );
+    const createBlocksResult = await handlePlanweaveTool(
+      "bulk_create_blocks",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        blocks: [
+          {
+            taskId: "T-001",
+            type: "implementation",
+            title: "Wire bulk",
+            promptMarkdown: "# Wire bulk",
+            executor: null,
+            dependsOn: []
+          }
+        ]
+      },
+      gateway
+    );
+    const updateTasksResult = await handlePlanweaveTool(
+      "bulk_update_tasks",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        updates: [{ taskId: "T-001", title: "Updated task" }]
+      },
+      gateway
+    );
+    const updateBlocksResult = await handlePlanweaveTool(
+      "bulk_update_blocks",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        updates: [{ blockRef: "T-001#B-001", promptMarkdown: "# Updated block" }]
+      },
+      gateway
+    );
+    const removeItemsResult = await handlePlanweaveTool(
+      "bulk_remove_graph_items",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        tasks: ["T-003"],
+        blocks: ["T-001#B-002"],
+        taskDependencyEdges: [{ dependentTaskId: "T-002", dependsOnTaskId: "T-001" }],
+        blockDependencyRefs: [{ blockRef: "T-001#B-002", dependsOnBlockId: "B-001" }]
+      },
+      gateway
+    );
 
     for (const [toolName, result] of [
       ["bulk_create_tasks", createTasksResult],
@@ -63,13 +105,34 @@ describe("dependency MCP tools", () => {
       bulkEdit: { affectedBlocks: ["T-001#B-002"], counts: { affectedBlockCount: 1 } }
     });
     expect(gateway.bulkCreateTasks).toHaveBeenCalledWith("project-1", "default", [
-      { title: "Implement bulk", promptMarkdown: "# Implement bulk", acceptance: ["Done"], blockTypes: ["implementation"], executor: "codex" }
+      {
+        title: "Implement bulk",
+        promptMarkdown: "# Implement bulk",
+        acceptance: ["Done"],
+        blockTypes: ["implementation"],
+        executor: "codex"
+      }
     ]);
     expect(gateway.bulkCreateBlocks).toHaveBeenCalledWith("project-1", "default", [
-      { taskId: "T-001", type: "implementation", title: "Wire bulk", promptMarkdown: "# Wire bulk", executor: null, dependsOn: [] }
+      {
+        taskId: "T-001",
+        type: "implementation",
+        title: "Wire bulk",
+        promptMarkdown: "# Wire bulk",
+        executor: null,
+        dependsOn: []
+      }
     ]);
     expect(gateway.bulkUpdateTasks).toHaveBeenCalledWith("project-1", "default", [
-      { taskId: "T-001", input: { title: "Updated task", promptMarkdown: undefined, executor: undefined, acceptance: undefined } }
+      {
+        taskId: "T-001",
+        input: {
+          title: "Updated task",
+          promptMarkdown: undefined,
+          executor: undefined,
+          acceptance: undefined
+        }
+      }
     ]);
     expect(gateway.bulkUpdateBlocks).toHaveBeenCalledWith("project-1", "default", [
       {
@@ -106,39 +169,63 @@ describe("dependency MCP tools", () => {
   it("dispatches semantic task dependency and bulk dependency tools transactionally through gateway methods", async () => {
     const gateway = createGateway();
 
-    await handlePlanweaveTool("add_task_dependency", {
-      projectId: "project-1",
-      canvasId: "default",
-      dependentTaskId: "T-002",
-      dependsOnTaskId: "T-001"
-    }, gateway);
-    await handlePlanweaveTool("remove_task_dependency", {
-      projectId: "project-1",
-      canvasId: "default",
-      dependentTaskId: "T-002",
-      dependsOnTaskId: "T-001"
-    }, gateway);
-    await handlePlanweaveTool("set_task_dependencies", {
-      projectId: "project-1",
-      canvasId: "default",
-      taskId: "T-002",
-      dependsOn: []
-    }, gateway);
-    const bulkAddResult = await handlePlanweaveTool("bulk_add_task_dependencies", {
-      projectId: "project-1",
-      canvasId: "default",
-      edges: [{ dependentTaskId: "T-002", dependsOnTaskId: "T-001" }]
-    }, gateway);
-    const bulkSetTaskResult = await handlePlanweaveTool("bulk_set_task_dependencies", {
-      projectId: "project-1",
-      canvasId: "default",
-      updates: [{ taskId: "T-002", dependsOn: [] }]
-    }, gateway);
-    const bulkSetBlockResult = await handlePlanweaveTool("bulk_set_block_dependencies", {
-      projectId: "project-1",
-      canvasId: "default",
-      updates: [{ blockRef: "T-001#R-001", dependsOn: [] }]
-    }, gateway);
+    await handlePlanweaveTool(
+      "add_task_dependency",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        dependentTaskId: "T-002",
+        dependsOnTaskId: "T-001"
+      },
+      gateway
+    );
+    await handlePlanweaveTool(
+      "remove_task_dependency",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        dependentTaskId: "T-002",
+        dependsOnTaskId: "T-001"
+      },
+      gateway
+    );
+    await handlePlanweaveTool(
+      "set_task_dependencies",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        taskId: "T-002",
+        dependsOn: []
+      },
+      gateway
+    );
+    const bulkAddResult = await handlePlanweaveTool(
+      "bulk_add_task_dependencies",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        edges: [{ dependentTaskId: "T-002", dependsOnTaskId: "T-001" }]
+      },
+      gateway
+    );
+    const bulkSetTaskResult = await handlePlanweaveTool(
+      "bulk_set_task_dependencies",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        updates: [{ taskId: "T-002", dependsOn: [] }]
+      },
+      gateway
+    );
+    const bulkSetBlockResult = await handlePlanweaveTool(
+      "bulk_set_block_dependencies",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        updates: [{ blockRef: "T-001#R-001", dependsOn: [] }]
+      },
+      gateway
+    );
 
     for (const [toolName, result] of [
       ["bulk_add_task_dependencies", bulkAddResult],
@@ -147,7 +234,9 @@ describe("dependency MCP tools", () => {
     ] as const) {
       const body = readToolBody(result);
       expect(z.object(planweaveToolOutputSchemas[toolName]).safeParse(body).success).toBe(true);
-      expect(body).toMatchObject({ bulkEdit: { ok: true, counts: { affectedTaskCount: 1, diagnosticCount: 0 } } });
+      expect(body).toMatchObject({
+        bulkEdit: { ok: true, counts: { affectedTaskCount: 1, diagnosticCount: 0 } }
+      });
       expect(body).not.toHaveProperty("edit");
       expect(body).not.toHaveProperty("graph");
       expect(body).not.toHaveProperty("promptMarkdown");
@@ -159,58 +248,81 @@ describe("dependency MCP tools", () => {
     expect(gateway.addDependency).toHaveBeenCalledWith("project-1", "default", "T-002", "T-001");
     expect(gateway.removeDependency).toHaveBeenCalledWith("project-1", "default", "T-002", "T-001");
     expect(gateway.setTaskDependencies).toHaveBeenCalledWith("project-1", "default", "T-002", []);
-    expect(gateway.bulkAddTaskDependencies).toHaveBeenCalledWith("project-1", "default", [{ dependentTaskId: "T-002", dependsOnTaskId: "T-001" }]);
-    expect(gateway.bulkSetTaskDependencies).toHaveBeenCalledWith("project-1", "default", [{ taskId: "T-002", dependsOn: [] }]);
-    expect(gateway.bulkSetBlockDependencies).toHaveBeenCalledWith("project-1", "default", [{ blockRef: "T-001#R-001", dependsOn: [] }]);
+    expect(gateway.bulkAddTaskDependencies).toHaveBeenCalledWith("project-1", "default", [
+      { dependentTaskId: "T-002", dependsOnTaskId: "T-001" }
+    ]);
+    expect(gateway.bulkSetTaskDependencies).toHaveBeenCalledWith("project-1", "default", [
+      { taskId: "T-002", dependsOn: [] }
+    ]);
+    expect(gateway.bulkSetBlockDependencies).toHaveBeenCalledWith("project-1", "default", [
+      { blockRef: "T-001#R-001", dependsOn: [] }
+    ]);
   });
 
   it("allows set_block_dependencies to clear dependencies by block ref", async () => {
     const gateway = createGateway();
 
-    await handlePlanweaveTool("set_block_dependencies", {
-      projectId: "project-1",
-      canvasId: "default",
-      blockRef: "T-001#R-001",
-      dependsOn: []
-    }, gateway);
+    await handlePlanweaveTool(
+      "set_block_dependencies",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        blockRef: "T-001#R-001",
+        dependsOn: []
+      },
+      gateway
+    );
 
-    expect(gateway.updateBlockDependencies).toHaveBeenCalledWith("project-1", "default", "T-001#R-001", []);
+    expect(gateway.updateBlockDependencies).toHaveBeenCalledWith(
+      "project-1",
+      "default",
+      "T-001#R-001",
+      []
+    );
   });
 
   it("dispatches priority bulk review and parallel policy tools after validating all inputs", async () => {
     const gateway = createGateway();
 
-    const reviewResult = await handlePlanweaveTool("bulk_apply_review_pipeline", {
-      projectId: "project-1",
-      canvasId: "default",
-      updates: [
-        {
-          taskId: "T-001",
-          packageDefaults: { maxFeedbackCycles: 2, completionPolicy: "strict" },
-          steps: [
-            {
-              blockRef: "T-001#R-001",
-              title: "Review feature",
-              enabled: true,
-              preset: "manual",
-              triggerCondition: "after_required_work_completed",
-              inputContext: "Implementation report",
-              passCriteria: "No blocking defects",
-              feedbackFormat: "Actionable findings",
-              maxFeedbackCycles: 2,
-              hook: null,
-              promptMarkdown: "# Review\n"
-            }
-          ]
-        }
-      ]
-    }, gateway);
-    const parallelResult = await handlePlanweaveTool("bulk_update_parallel_policy", {
-      projectId: "project-1",
-      canvasId: "default",
-      canvasPolicy: { parallelEnabled: true, maxConcurrent: 3 },
-      blocks: [{ blockRef: "T-001#B-001", parallelSafe: true, parallelLocks: ["api"] }]
-    }, gateway);
+    const reviewResult = await handlePlanweaveTool(
+      "bulk_apply_review_pipeline",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        updates: [
+          {
+            taskId: "T-001",
+            packageDefaults: { maxFeedbackCycles: 2, completionPolicy: "strict" },
+            steps: [
+              {
+                blockRef: "T-001#R-001",
+                title: "Review feature",
+                enabled: true,
+                preset: "manual",
+                triggerCondition: "after_required_work_completed",
+                inputContext: "Implementation report",
+                passCriteria: "No blocking defects",
+                feedbackFormat: "Actionable findings",
+                maxFeedbackCycles: 2,
+                hook: null,
+                promptMarkdown: "# Review\n"
+              }
+            ]
+          }
+        ]
+      },
+      gateway
+    );
+    const parallelResult = await handlePlanweaveTool(
+      "bulk_update_parallel_policy",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        canvasPolicy: { parallelEnabled: true, maxConcurrent: 3 },
+        blocks: [{ blockRef: "T-001#B-001", parallelSafe: true, parallelLocks: ["api"] }]
+      },
+      gateway
+    );
 
     for (const [toolName, result] of [
       ["bulk_apply_review_pipeline", reviewResult],
@@ -218,7 +330,12 @@ describe("dependency MCP tools", () => {
     ] as const) {
       const body = readToolBody(result);
       expect(z.object(planweaveToolOutputSchemas[toolName]).safeParse(body).success).toBe(true);
-      expect(body).toMatchObject({ bulkEdit: { ok: true, counts: { affectedTaskCount: 1, affectedBlockCount: 1, diagnosticCount: 0 } } });
+      expect(body).toMatchObject({
+        bulkEdit: {
+          ok: true,
+          counts: { affectedTaskCount: 1, affectedBlockCount: 1, diagnosticCount: 0 }
+        }
+      });
       expect(body).not.toHaveProperty("edit");
       expect(body).not.toHaveProperty("graph");
       expect(body).not.toHaveProperty("promptMarkdown");
@@ -239,7 +356,12 @@ describe("dependency MCP tools", () => {
     ]);
     expect(gateway.bulkUpdateParallelPolicy).toHaveBeenCalledWith("project-1", "default", {
       canvasPolicy: { defaultExecutor: undefined, parallelEnabled: true, maxConcurrent: 3 },
-      blocks: [{ blockRef: "T-001#B-001", input: { parallelSafe: true, parallelLocks: ["api"] } }]
+      blocks: [
+        {
+          blockRef: "T-001#B-001",
+          input: { exclusive: false, parallelSafe: true, parallelLocks: ["api"] }
+        }
+      ]
     });
     expect(gateway.updateReviewPipeline).not.toHaveBeenCalled();
     expect(gateway.updateCanvasExecutionPolicy).not.toHaveBeenCalled();
@@ -257,32 +379,38 @@ describe("dependency MCP tools", () => {
       } as GraphEditResult["graph"]
     });
 
-    const result = await handlePlanweaveTool("bulk_apply_review_pipeline", {
-      projectId: "project-1",
-      canvasId: "default",
-      updates: [
-        {
-          taskId: "T-001",
-          steps: [
-            {
-              title: "Generated review",
-              enabled: true,
-              preset: "manual",
-              triggerCondition: "after_required_work_completed",
-              inputContext: "Implementation report",
-              passCriteria: "No blocking defects",
-              feedbackFormat: "Actionable findings",
-              maxFeedbackCycles: 1,
-              hook: null,
-              promptMarkdown: "# Generated review\n"
-            }
-          ]
-        }
-      ]
-    }, gateway);
+    const result = await handlePlanweaveTool(
+      "bulk_apply_review_pipeline",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        updates: [
+          {
+            taskId: "T-001",
+            steps: [
+              {
+                title: "Generated review",
+                enabled: true,
+                preset: "manual",
+                triggerCondition: "after_required_work_completed",
+                inputContext: "Implementation report",
+                passCriteria: "No blocking defects",
+                feedbackFormat: "Actionable findings",
+                maxFeedbackCycles: 1,
+                hook: null,
+                promptMarkdown: "# Generated review\n"
+              }
+            ]
+          }
+        ]
+      },
+      gateway
+    );
 
     const body = readToolBody(result);
-    expect(z.object(planweaveToolOutputSchemas.bulk_apply_review_pipeline).safeParse(body).success).toBe(true);
+    expect(
+      z.object(planweaveToolOutputSchemas.bulk_apply_review_pipeline).safeParse(body).success
+    ).toBe(true);
     expect(body).not.toHaveProperty("graph");
     expect(body).not.toHaveProperty("promptMarkdown");
     expect(body).not.toHaveProperty("edit");
@@ -318,11 +446,17 @@ describe("dependency MCP tools", () => {
       ]
     };
 
-    await expect(handlePlanweaveTool("bulk_apply_review_pipeline", {
-      projectId: "project-1",
-      canvasId: "default",
-      updates: [update, update]
-    }, gateway)).rejects.toThrow("updates must not contain duplicate taskId: T-001");
+    await expect(
+      handlePlanweaveTool(
+        "bulk_apply_review_pipeline",
+        {
+          projectId: "project-1",
+          canvasId: "default",
+          updates: [update, update]
+        },
+        gateway
+      )
+    ).rejects.toThrow("updates must not contain duplicate taskId: T-001");
 
     expect(gateway.bulkApplyReviewPipeline).not.toHaveBeenCalled();
   });
@@ -330,11 +464,17 @@ describe("dependency MCP tools", () => {
   it("does not dispatch bulk writes when validation fails before execution", async () => {
     const gateway = createGateway();
 
-    await expect(handlePlanweaveTool("bulk_update_parallel_policy", {
-      projectId: "project-1",
-      canvasId: "default",
-      blocks: [{ blockRef: "T-001#B-001" }]
-    }, gateway)).rejects.toThrow("At least one block planning field must be provided.");
+    await expect(
+      handlePlanweaveTool(
+        "bulk_update_parallel_policy",
+        {
+          projectId: "project-1",
+          canvasId: "default",
+          blocks: [{ blockRef: "T-001#B-001" }]
+        },
+        gateway
+      )
+    ).rejects.toThrow("At least one block planning field must be provided.");
 
     expect(gateway.bulkUpdateParallelPolicy).not.toHaveBeenCalled();
   });
@@ -342,17 +482,23 @@ describe("dependency MCP tools", () => {
   it("applies canvas lane layout through the runtime gateway", async () => {
     const gateway = createGateway();
 
-    const result = await handlePlanweaveTool("apply_canvas_lane_layout", {
-      projectId: "project-1",
-      canvasId: "default",
-      columnWidth: 400,
-      rowHeight: 200,
-      startX: 40,
-      startY: 60
-    }, gateway);
+    const result = await handlePlanweaveTool(
+      "apply_canvas_lane_layout",
+      {
+        projectId: "project-1",
+        canvasId: "default",
+        columnWidth: 400,
+        rowHeight: 200,
+        startX: 40,
+        startY: 60
+      },
+      gateway
+    );
 
     const body = JSON.parse(result.content[0]?.type === "text" ? result.content[0].text : "{}");
-    expect(z.object(planweaveToolOutputSchemas.apply_canvas_lane_layout).safeParse(body).success).toBe(true);
+    expect(
+      z.object(planweaveToolOutputSchemas.apply_canvas_lane_layout).safeParse(body).success
+    ).toBe(true);
     expect(body).toMatchObject({
       nodeCount: 1,
       bounds: { minX: 80, minY: 80, maxX: 80, maxY: 80, width: 0, height: 0 },

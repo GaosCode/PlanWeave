@@ -37,7 +37,11 @@ import {
 } from "../desktop/index.js";
 import { createSqlitePlanGraphStore } from "../plangraph/index.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
-import { canonicalProjectCanvasNode, loadProjectGraph, writeProjectGraph } from "../projectGraph/index.js";
+import {
+  canonicalProjectCanvasNode,
+  loadProjectGraph,
+  writeProjectGraph
+} from "../projectGraph/index.js";
 import type { PlanPackageManifest } from "../types.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 
@@ -49,11 +53,13 @@ describe("desktop graph edit API", () => {
   it("updates canvas execution policy through the manifest without writing invalid policies", async () => {
     const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
 
-    await expect(updateCanvasExecutionPolicy(root, {
-      defaultExecutor: "codex-auto",
-      parallelEnabled: true,
-      maxConcurrent: 3
-    })).resolves.toMatchObject({
+    await expect(
+      updateCanvasExecutionPolicy(root, {
+        defaultExecutor: "codex-auto",
+        parallelEnabled: true,
+        maxConcurrent: 3
+      })
+    ).resolves.toMatchObject({
       ok: true,
       affectedTasks: ["T-001", "T-002"]
     });
@@ -67,7 +73,9 @@ describe("desktop graph edit API", () => {
       }
     });
 
-    await expect(updateCanvasExecutionPolicy(root, { defaultExecutor: null })).resolves.toMatchObject({ ok: true });
+    await expect(
+      updateCanvasExecutionPolicy(root, { defaultExecutor: null })
+    ).resolves.toMatchObject({ ok: true });
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     expect(manifest.execution).toEqual({
       parallel: {
@@ -76,7 +84,9 @@ describe("desktop graph edit API", () => {
       }
     });
 
-    const invalid = await updateCanvasExecutionPolicy(root, { defaultExecutor: "missing-executor" });
+    const invalid = await updateCanvasExecutionPolicy(root, {
+      defaultExecutor: "missing-executor"
+    });
     expect(invalid.ok).toBe(false);
     expect(invalid.diagnostics).toEqual([
       expect.objectContaining({
@@ -96,12 +106,25 @@ describe("desktop graph edit API", () => {
   it("writes task/block titles, executor overrides, and task dependency edges through the manifest", async () => {
     const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
 
-    await expect(updateTaskTitle(root, "T-001", "Updated task title")).resolves.toMatchObject({ ok: true });
-    await expect(updateBlockExecutor(root, "T-001#R-001", "manual")).resolves.toMatchObject({ ok: true });
-    await expect(updateTaskExecutor(root, "T-001", "codex-auto")).resolves.toMatchObject({ ok: true });
-    await expect(updateBlockTitle(root, "T-001#B-001", "Updated block title")).resolves.toMatchObject({ ok: true });
-    await expect(updateBlockExecutor(root, "T-001#B-001", "manual")).resolves.toMatchObject({ ok: true });
-    await expect(addDependencyEdge(root, "T-001", "T-002")).resolves.toMatchObject({ ok: true, affectedTasks: ["T-001"] });
+    await expect(updateTaskTitle(root, "T-001", "Updated task title")).resolves.toMatchObject({
+      ok: true
+    });
+    await expect(updateBlockExecutor(root, "T-001#R-001", "manual")).resolves.toMatchObject({
+      ok: true
+    });
+    await expect(updateTaskExecutor(root, "T-001", "codex-auto")).resolves.toMatchObject({
+      ok: true
+    });
+    await expect(
+      updateBlockTitle(root, "T-001#B-001", "Updated block title")
+    ).resolves.toMatchObject({ ok: true });
+    await expect(updateBlockExecutor(root, "T-001#B-001", "manual")).resolves.toMatchObject({
+      ok: true
+    });
+    await expect(addDependencyEdge(root, "T-001", "T-002")).resolves.toMatchObject({
+      ok: true,
+      affectedTasks: ["T-001"]
+    });
 
     let manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
@@ -123,7 +146,9 @@ describe("desktop graph edit API", () => {
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     expect(manifest.edges).not.toContainEqual({ from: "T-002", to: "T-001", type: "depends_on" });
 
-    await expect(updateBlockExecutor(root, "T-001#B-001", null)).resolves.toMatchObject({ ok: true });
+    await expect(updateBlockExecutor(root, "T-001#B-001", null)).resolves.toMatchObject({
+      ok: true
+    });
     await expect(removeDependencyEdge(root, "T-001", "T-002")).resolves.toMatchObject({ ok: true });
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     const updatedTask = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
@@ -135,9 +160,16 @@ describe("desktop graph edit API", () => {
   });
 
   it("applies a desktop lane layout from task dependency depth", async () => {
-    const { root } = await createTestWorkspace(basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] }));
+    const { root } = await createTestWorkspace(
+      basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] })
+    );
 
-    const layout = await applyCanvasLaneLayout(root, { columnWidth: 400, rowHeight: 200, startX: 40, startY: 60 });
+    const layout = await applyCanvasLaneLayout(root, {
+      columnWidth: 400,
+      rowHeight: 200,
+      startX: 40,
+      startY: 60
+    });
 
     expect(layout.nodes).toContainEqual({ nodeId: "T-002", x: 40, y: 60 });
     expect(layout.nodes).toContainEqual({ nodeId: "T-001", x: 440, y: 60 });
@@ -148,33 +180,35 @@ describe("desktop graph edit API", () => {
     const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
     const manifestBefore = await readFile(init.workspace.manifestFile, "utf8");
 
-    await expect(bulkApplyReviewPipeline(root, [
-      {
-        taskId: "T-001",
-        input: {
-          packageDefaults: { maxFeedbackCycles: 3, completionPolicy: "strict" },
-          steps: [
-            {
-              blockId: "R-001",
-              title: "Updated review",
-              enabled: true,
-              preset: "manual",
-              triggerCondition: "after_required_work_completed",
-              inputContext: "Implementation report",
-              passCriteria: "No blocking issues",
-              feedbackFormat: "Actionable findings",
-              maxFeedbackCycles: 3,
-              hook: null,
-              promptMarkdown: "# Updated review\n"
-            }
-          ]
+    await expect(
+      bulkApplyReviewPipeline(root, [
+        {
+          taskId: "T-001",
+          input: {
+            packageDefaults: { maxFeedbackCycles: 3, completionPolicy: "strict" },
+            steps: [
+              {
+                blockId: "R-001",
+                title: "Updated review",
+                enabled: true,
+                preset: "manual",
+                triggerCondition: "after_required_work_completed",
+                inputContext: "Implementation report",
+                passCriteria: "No blocking issues",
+                feedbackFormat: "Actionable findings",
+                maxFeedbackCycles: 3,
+                hook: null,
+                promptMarkdown: "# Updated review\n"
+              }
+            ]
+          }
+        },
+        {
+          taskId: "T-MISSING",
+          input: { steps: [] }
         }
-      },
-      {
-        taskId: "T-MISSING",
-        input: { steps: [] }
-      }
-    ])).rejects.toThrow("Task 'T-MISSING' does not exist.");
+      ])
+    ).rejects.toThrow("Task 'T-MISSING' does not exist.");
 
     await expect(readFile(init.workspace.manifestFile, "utf8")).resolves.toBe(manifestBefore);
   });
@@ -182,48 +216,91 @@ describe("desktop graph edit API", () => {
   it("applies Phase 7 bulk create update and remove graph item mutations transactionally", async () => {
     const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
 
-    await expect(bulkCreateTasks(root, [
-      {
-        title: "Bulk alpha",
-        promptMarkdown: "# Bulk alpha\n",
-        acceptance: ["Alpha accepted."],
-        blockTypes: ["implementation", "review"]
-      },
-      {
-        title: "Bulk beta",
-        promptMarkdown: "# Bulk beta\n",
-        blockTypes: ["implementation"]
-      }
-    ])).resolves.toMatchObject({ ok: true });
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-BULK-ALPHA/prompt.md"), "utf8")).resolves.toBe("# Bulk alpha\n");
+    await expect(
+      bulkCreateTasks(root, [
+        {
+          title: "Bulk alpha",
+          promptMarkdown: "# Bulk alpha\n",
+          acceptance: ["Alpha accepted."],
+          blockTypes: ["implementation", "review"]
+        },
+        {
+          title: "Bulk beta",
+          promptMarkdown: "# Bulk beta\n",
+          blockTypes: ["implementation"]
+        }
+      ])
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-BULK-ALPHA/prompt.md"), "utf8")
+    ).resolves.toBe("# Bulk alpha\n");
 
-    await expect(bulkCreateBlocks(root, [
-      { taskId: "T-001", type: "implementation", title: "Bulk implementation", promptMarkdown: "# Bulk block\n" },
-      { taskId: "T-002", type: "review", title: "Bulk review", promptMarkdown: "# Bulk review block\n" }
-    ])).resolves.toMatchObject({ ok: true });
+    await expect(
+      bulkCreateBlocks(root, [
+        {
+          taskId: "T-001",
+          type: "implementation",
+          title: "Bulk implementation",
+          promptMarkdown: "# Bulk block\n"
+        },
+        {
+          taskId: "T-002",
+          type: "review",
+          title: "Bulk review",
+          promptMarkdown: "# Bulk review block\n"
+        }
+      ])
+    ).resolves.toMatchObject({ ok: true });
 
-    await expect(bulkUpdateTasks(root, [
-      { taskId: "T-BULK-ALPHA", fields: { title: "Bulk alpha updated", acceptance: ["Updated alpha accepted."] } },
-      { taskId: "T-BULK-BETA", fields: { executor: "manual", promptMarkdown: "# Bulk beta updated\n" } }
-    ])).resolves.toMatchObject({ ok: true });
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-BULK-BETA/prompt.md"), "utf8")).resolves.toBe("# Bulk beta updated\n");
+    await expect(
+      bulkUpdateTasks(root, [
+        {
+          taskId: "T-BULK-ALPHA",
+          fields: { title: "Bulk alpha updated", acceptance: ["Updated alpha accepted."] }
+        },
+        {
+          taskId: "T-BULK-BETA",
+          fields: { executor: "manual", promptMarkdown: "# Bulk beta updated\n" }
+        }
+      ])
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-BULK-BETA/prompt.md"), "utf8")
+    ).resolves.toBe("# Bulk beta updated\n");
 
-    await expect(bulkUpdateBlocks(root, [
-      { blockRef: "T-BULK-ALPHA#B-001", fields: { title: "Bulk alpha implementation updated", parallelSafe: true } },
-      { blockRef: "T-BULK-ALPHA#R-001", fields: { maxFeedbackCycles: 4, promptMarkdown: "# Updated alpha review\n" } }
-    ])).resolves.toMatchObject({ ok: true });
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-BULK-ALPHA/blocks/R-001.prompt.md"), "utf8")).resolves.toBe("# Updated alpha review\n");
+    await expect(
+      bulkUpdateBlocks(root, [
+        {
+          blockRef: "T-BULK-ALPHA#B-001",
+          fields: { title: "Bulk alpha implementation updated", parallelSafe: true }
+        },
+        {
+          blockRef: "T-BULK-ALPHA#R-001",
+          fields: { maxFeedbackCycles: 4, promptMarkdown: "# Updated alpha review\n" }
+        }
+      ])
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-BULK-ALPHA/blocks/R-001.prompt.md"), "utf8")
+    ).resolves.toBe("# Updated alpha review\n");
 
-    await expect(bulkRemoveGraphItems(root, {
-      blockDependencyEdges: [{ blockRef: "T-BULK-ALPHA#R-001", dependsOnBlockId: "B-001" }],
-      blockRefs: ["T-BULK-BETA#B-001"],
-      taskIds: ["T-BULK-BETA"]
-    })).resolves.toMatchObject({ ok: true });
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-BULK-BETA/prompt.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      bulkRemoveGraphItems(root, {
+        blockDependencyEdges: [{ blockRef: "T-BULK-ALPHA#R-001", dependsOnBlockId: "B-001" }],
+        blockRefs: ["T-BULK-BETA#B-001"],
+        taskIds: ["T-BULK-BETA"]
+      })
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-BULK-BETA/prompt.md"), "utf8")
+    ).rejects.toMatchObject({ code: "ENOENT" });
 
     const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     const alpha = manifest.nodes.find((node) => node.type === "task" && node.id === "T-BULK-ALPHA");
-    expect(alpha).toMatchObject({ title: "Bulk alpha updated", acceptance: ["Updated alpha accepted."] });
+    expect(alpha).toMatchObject({
+      title: "Bulk alpha updated",
+      acceptance: ["Updated alpha accepted."]
+    });
     expect(manifest.nodes.some((node) => node.id === "T-BULK-BETA")).toBe(false);
   });
 
@@ -237,47 +314,49 @@ describe("desktop graph edit API", () => {
     const originalMode = (await stat(secondBlocksDirectory)).mode;
     await chmod(secondBlocksDirectory, 0o555);
     try {
-      await expect(bulkApplyReviewPipeline(root, [
-        {
-          taskId: "T-001",
-          input: {
-            steps: [
-              {
-                blockId: "R-001",
-                title: "Updated first review",
-                enabled: true,
-                preset: "manual",
-                triggerCondition: "after_required_work_completed",
-                inputContext: "Implementation report",
-                passCriteria: "No blocking issues",
-                feedbackFormat: "Actionable findings",
-                maxFeedbackCycles: 2,
-                hook: null,
-                promptMarkdown: "# Updated first review\n"
-              }
-            ]
+      await expect(
+        bulkApplyReviewPipeline(root, [
+          {
+            taskId: "T-001",
+            input: {
+              steps: [
+                {
+                  blockId: "R-001",
+                  title: "Updated first review",
+                  enabled: true,
+                  preset: "manual",
+                  triggerCondition: "after_required_work_completed",
+                  inputContext: "Implementation report",
+                  passCriteria: "No blocking issues",
+                  feedbackFormat: "Actionable findings",
+                  maxFeedbackCycles: 2,
+                  hook: null,
+                  promptMarkdown: "# Updated first review\n"
+                }
+              ]
+            }
+          },
+          {
+            taskId: "T-002",
+            input: {
+              steps: [
+                {
+                  title: "New second review",
+                  enabled: true,
+                  preset: "manual",
+                  triggerCondition: "after_required_work_completed",
+                  inputContext: "Implementation report",
+                  passCriteria: "No blocking issues",
+                  feedbackFormat: "Actionable findings",
+                  maxFeedbackCycles: 2,
+                  hook: null,
+                  promptMarkdown: "# New second review\n"
+                }
+              ]
+            }
           }
-        },
-        {
-          taskId: "T-002",
-          input: {
-            steps: [
-              {
-                title: "New second review",
-                enabled: true,
-                preset: "manual",
-                triggerCondition: "after_required_work_completed",
-                inputContext: "Implementation report",
-                passCriteria: "No blocking issues",
-                feedbackFormat: "Actionable findings",
-                maxFeedbackCycles: 2,
-                hook: null,
-                promptMarkdown: "# New second review\n"
-              }
-            ]
-          }
-        }
-      ])).rejects.toThrow();
+        ])
+      ).rejects.toThrow();
     } finally {
       await chmod(secondBlocksDirectory, originalMode & 0o777);
     }
@@ -294,18 +373,20 @@ describe("desktop graph edit API", () => {
     const blockedSecondTaskPath = join(init.workspace.packageDir, "nodes/T-SECOND-BULK");
     await writeFile(blockedSecondTaskPath, "not a directory", "utf8");
 
-    await expect(bulkCreateTasks(root, [
-      {
-        title: "First bulk",
-        promptMarkdown: "# First bulk\n",
-        blockTypes: ["implementation"]
-      },
-      {
-        title: "Second bulk",
-        promptMarkdown: "# Second bulk\n",
-        blockTypes: ["implementation"]
-      }
-    ])).rejects.toThrow();
+    await expect(
+      bulkCreateTasks(root, [
+        {
+          title: "First bulk",
+          promptMarkdown: "# First bulk\n",
+          blockTypes: ["implementation"]
+        },
+        {
+          title: "Second bulk",
+          promptMarkdown: "# Second bulk\n",
+          blockTypes: ["implementation"]
+        }
+      ])
+    ).rejects.toThrow();
 
     await expect(readFile(init.workspace.manifestFile, "utf8")).resolves.toBe(manifestBefore);
     await expect(readFile(firstTaskPromptPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
@@ -330,10 +411,12 @@ describe("desktop graph edit API", () => {
     const firstPromptPath = join(init.workspace.packageDir, "nodes/T-001/prompt.md");
     const firstPromptBefore = await readFile(firstPromptPath, "utf8");
 
-    await expect(bulkUpdateTasks(root, [
-      { taskId: "T-001", fields: { promptMarkdown: "# Updated first task prompt\n" } },
-      { taskId: "T-002", fields: { promptMarkdown: "# Updated second task prompt\n" } }
-    ])).rejects.toThrow();
+    await expect(
+      bulkUpdateTasks(root, [
+        { taskId: "T-001", fields: { promptMarkdown: "# Updated first task prompt\n" } },
+        { taskId: "T-002", fields: { promptMarkdown: "# Updated second task prompt\n" } }
+      ])
+    ).rejects.toThrow();
 
     await expect(readFile(init.workspace.manifestFile, "utf8")).resolves.toBe(manifestBefore);
     await expect(readFile(firstPromptPath, "utf8")).resolves.toBe(firstPromptBefore);
@@ -351,7 +434,9 @@ describe("desktop graph edit API", () => {
           ? {
               ...node,
               blocks: node.blocks.map((block) =>
-                block.id === "R-001" ? { ...block, prompt: "nodes/T-002-blocked/R-001.prompt.md" } : block
+                block.id === "R-001"
+                  ? { ...block, prompt: "nodes/T-002-blocked/R-001.prompt.md" }
+                  : block
               )
             }
           : node
@@ -360,12 +445,17 @@ describe("desktop graph edit API", () => {
     await writeJsonFile(init.workspace.manifestFile, manifestWithBlockedBlockPrompt);
     await writeFile(blockedPath, "not a directory", "utf8");
     const manifestBefore = await readFile(init.workspace.manifestFile, "utf8");
-    const firstBlockPromptPath = join(init.workspace.packageDir, "nodes/T-001/blocks/R-001.prompt.md");
+    const firstBlockPromptPath = join(
+      init.workspace.packageDir,
+      "nodes/T-001/blocks/R-001.prompt.md"
+    );
     const firstBlockPromptBefore = await readFile(firstBlockPromptPath, "utf8");
 
-    await expect(bulkRemoveGraphItems(root, {
-      blockRefs: ["T-001#R-001", "T-002#R-001"]
-    })).rejects.toThrow();
+    await expect(
+      bulkRemoveGraphItems(root, {
+        blockRefs: ["T-001#R-001", "T-002#R-001"]
+      })
+    ).rejects.toThrow();
 
     await expect(readFile(init.workspace.manifestFile, "utf8")).resolves.toBe(manifestBefore);
     await expect(readFile(firstBlockPromptPath, "utf8")).resolves.toBe(firstBlockPromptBefore);
@@ -376,13 +466,15 @@ describe("desktop graph edit API", () => {
     const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
     const manifestBefore = await readFile(init.workspace.manifestFile, "utf8");
 
-    await expect(bulkUpdateParallelPolicy(root, {
-      canvasPolicy: { parallelEnabled: true, maxConcurrent: 3 },
-      blocks: [
-        { blockRef: "T-001#B-001", input: { parallelSafe: false, parallelLocks: ["api"] } },
-        { blockRef: "T-002#MISSING", input: { parallelSafe: true } }
-      ]
-    })).rejects.toThrow("Block 'T-002#MISSING' does not exist.");
+    await expect(
+      bulkUpdateParallelPolicy(root, {
+        canvasPolicy: { parallelEnabled: true, maxConcurrent: 3 },
+        blocks: [
+          { blockRef: "T-001#B-001", input: { parallelSafe: false, parallelLocks: ["api"] } },
+          { blockRef: "T-002#MISSING", input: { parallelSafe: true } }
+        ]
+      })
+    ).rejects.toThrow("Block 'T-002#MISSING' does not exist.");
 
     await expect(readFile(init.workspace.manifestFile, "utf8")).resolves.toBe(manifestBefore);
   });
@@ -404,7 +496,9 @@ describe("desktop graph edit API", () => {
     }
     expect(task).toMatchObject({ title: "Updated task fields", executor: "codex-auto" });
     expect(task.blocks.find((block) => block.id === "B-001")).not.toHaveProperty("executor");
-    expect(await readFile(join(init.workspace.packageDir, task.prompt), "utf8")).toBe("# Updated task prompt\n");
+    expect(await readFile(join(init.workspace.packageDir, task.prompt), "utf8")).toBe(
+      "# Updated task prompt\n"
+    );
 
     await expect(undoDesktopPlanGraphCommand(root)).resolves.toMatchObject({ ok: true });
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
@@ -414,7 +508,9 @@ describe("desktop graph edit API", () => {
     }
     expect(task.title).toBe("Implement test task");
     expect(task).not.toHaveProperty("executor");
-    expect(await readFile(join(init.workspace.packageDir, task.prompt), "utf8")).toBe("# T-001 task prompt\n");
+    expect(await readFile(join(init.workspace.packageDir, task.prompt), "utf8")).toBe(
+      "# T-001 task prompt\n"
+    );
     await expect(undoDesktopPlanGraphCommand(root)).resolves.toMatchObject({
       ok: false,
       diagnostics: [expect.objectContaining({ code: "history_empty" })]
@@ -438,7 +534,9 @@ describe("desktop graph edit API", () => {
     }
     let block = task.blocks.find((candidate) => candidate.id === "B-001");
     expect(block).toMatchObject({ title: "Updated block fields", executor: "manual" });
-    expect(await readFile(join(init.workspace.packageDir, block?.prompt ?? ""), "utf8")).toBe("# Updated block prompt\n");
+    expect(await readFile(join(init.workspace.packageDir, block?.prompt ?? ""), "utf8")).toBe(
+      "# Updated block prompt\n"
+    );
 
     await expect(undoDesktopPlanGraphCommand(root)).resolves.toMatchObject({ ok: true });
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
@@ -449,7 +547,9 @@ describe("desktop graph edit API", () => {
     block = task.blocks.find((candidate) => candidate.id === "B-001");
     expect(block?.title).toBe("Implement task");
     expect(block).not.toHaveProperty("executor");
-    expect(await readFile(join(init.workspace.packageDir, block?.prompt ?? ""), "utf8")).toBe("# T-001#B-001 implementation prompt\n");
+    expect(await readFile(join(init.workspace.packageDir, block?.prompt ?? ""), "utf8")).toBe(
+      "# T-001#B-001 implementation prompt\n"
+    );
     await expect(undoDesktopPlanGraphCommand(root)).resolves.toMatchObject({
       ok: false,
       diagnostics: [expect.objectContaining({ code: "history_empty" })]
@@ -477,7 +577,13 @@ describe("desktop graph edit API", () => {
   it("does not write block prompt or manifest fields when block field validation fails", async () => {
     const { root, init } = await createTestWorkspace();
     const manifestBefore = await readFile(init.workspace.manifestFile, "utf8");
-    const promptPath = join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md");
+    const promptPath = join(
+      init.workspace.packageDir,
+      "nodes",
+      "T-001",
+      "blocks",
+      "B-001.prompt.md"
+    );
     const promptBefore = await readFile(promptPath, "utf8");
 
     await expect(
@@ -493,7 +599,9 @@ describe("desktop graph edit API", () => {
   });
 
   it("validates graph edits without writing the manifest", async () => {
-    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] }));
+    const { root, init } = await createTestWorkspace(
+      basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] })
+    );
 
     const invalid = await validateGraphEdit(root, {
       kind: "addDependencyEdge",
@@ -521,7 +629,9 @@ describe("desktop graph edit API", () => {
   });
 
   it("persists dependency edge layout snapshots without adding a separate undo step", async () => {
-    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] }));
+    const { root, init } = await createTestWorkspace(
+      basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] })
+    );
     const layoutSnapshot = {
       version: "desktop-layout/v1" as const,
       projectId: init.workspace.id,
@@ -532,7 +642,9 @@ describe("desktop graph edit API", () => {
       updatedAt: new Date(0).toISOString()
     };
 
-    await expect(removeDependencyEdge(root, "T-001", "T-002", undefined, layoutSnapshot)).resolves.toMatchObject({ ok: true });
+    await expect(
+      removeDependencyEdge(root, "T-001", "T-002", undefined, layoutSnapshot)
+    ).resolves.toMatchObject({ ok: true });
     expect((await getDesktopLayout(root)).nodes).toEqual(layoutSnapshot.nodes);
     let manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     expect(manifest.edges).not.toContainEqual({ from: "T-001", to: "T-002", type: "depends_on" });
@@ -557,7 +669,9 @@ describe("desktop graph edit API", () => {
       })
     ).resolves.toMatchObject({ ok: true });
     let manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    expect(manifest.nodes.some((node) => node.type === "task" && node.id === "T-EDGE-SLUG")).toBe(true);
+    expect(manifest.nodes.some((node) => node.type === "task" && node.id === "T-EDGE-SLUG")).toBe(
+      true
+    );
 
     await expect(
       addTaskNode(root, {
@@ -566,21 +680,41 @@ describe("desktop graph edit API", () => {
         layoutPosition: { x: 480, y: 240 }
       })
     ).resolves.toMatchObject({ ok: true });
-    expect((await getDesktopLayout(root)).nodes).toContainEqual({ nodeId: "T-DROPPED-TASK", x: 480, y: 240 });
+    expect((await getDesktopLayout(root)).nodes).toContainEqual({
+      nodeId: "T-DROPPED-TASK",
+      x: 480,
+      y: 240
+    });
 
     await expect(undoDesktopPlanGraphCommand(root)).resolves.toMatchObject({ ok: true });
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    expect(manifest.nodes.some((node) => node.type === "task" && node.id === "T-DROPPED-TASK")).toBe(false);
-    expect((await getDesktopLayout(root)).nodes).not.toContainEqual({ nodeId: "T-DROPPED-TASK", x: 480, y: 240 });
+    expect(
+      manifest.nodes.some((node) => node.type === "task" && node.id === "T-DROPPED-TASK")
+    ).toBe(false);
+    expect((await getDesktopLayout(root)).nodes).not.toContainEqual({
+      nodeId: "T-DROPPED-TASK",
+      x: 480,
+      y: 240
+    });
     const defaultWorkspace = await resolveTaskCanvasWorkspace(root, "default");
-    await expect(readJsonFile<{ nodes: Array<{ nodeId: string }> }>(join(defaultWorkspace.workspaceRoot, "desktop/layout.json"))).resolves.toMatchObject({
+    await expect(
+      readJsonFile<{ nodes: Array<{ nodeId: string }> }>(
+        join(defaultWorkspace.workspaceRoot, "desktop/layout.json")
+      )
+    ).resolves.toMatchObject({
       nodes: expect.not.arrayContaining([expect.objectContaining({ nodeId: "T-DROPPED-TASK" })])
     });
 
     await expect(redoDesktopPlanGraphCommand(root)).resolves.toMatchObject({ ok: true });
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    expect(manifest.nodes.some((node) => node.type === "task" && node.id === "T-DROPPED-TASK")).toBe(true);
-    expect((await getDesktopLayout(root)).nodes).toContainEqual({ nodeId: "T-DROPPED-TASK", x: 480, y: 240 });
+    expect(
+      manifest.nodes.some((node) => node.type === "task" && node.id === "T-DROPPED-TASK")
+    ).toBe(true);
+    expect((await getDesktopLayout(root)).nodes).toContainEqual({
+      nodeId: "T-DROPPED-TASK",
+      x: 480,
+      y: 240
+    });
   });
 
   it("removes task/block package surfaces through graph APIs", async () => {
@@ -592,20 +726,30 @@ describe("desktop graph edit API", () => {
       updatedAt: new Date(0).toISOString()
     });
 
-    await expect(removeBlock(root, "T-001#R-001")).resolves.toMatchObject({ ok: true, affectedTasks: ["T-001"] });
+    await expect(removeBlock(root, "T-001#R-001")).resolves.toMatchObject({
+      ok: true,
+      affectedTasks: ["T-001"]
+    });
     let manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     const firstTask = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
     if (firstTask?.type !== "task") {
       throw new Error("Fixture task missing.");
     }
     expect(firstTask.blocks.map((block) => block.id)).toEqual(["B-001"]);
-    await expect(readFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "R-001.prompt.md"), "utf8")).rejects.toThrow();
+    await expect(
+      readFile(
+        join(init.workspace.packageDir, "nodes", "T-001", "blocks", "R-001.prompt.md"),
+        "utf8"
+      )
+    ).rejects.toThrow();
 
     await expect(removeTaskNode(root, "T-002")).resolves.toMatchObject({ ok: true });
     manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     expect(manifest.nodes.some((node) => node.id === "T-002")).toBe(false);
     expect(manifest.edges.some((edge) => edge.from === "T-002" || edge.to === "T-002")).toBe(false);
-    await expect(readFile(join(init.workspace.packageDir, "nodes", "T-002", "prompt.md"), "utf8")).rejects.toThrow();
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes", "T-002", "prompt.md"), "utf8")
+    ).rejects.toThrow();
 
     await expect(undoDesktopPlanGraphCommand(root)).resolves.toMatchObject({ ok: true });
     const restoredLayout = await getDesktopLayout(root);
@@ -645,7 +789,9 @@ describe("desktop graph edit API", () => {
     const result = await removeTaskNode(secondWorkspace, "T-001");
 
     expect(result.ok).toBe(false);
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("project_cross_task_edge_blocks_task_delete");
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "project_cross_task_edge_blocks_task_delete"
+    );
     const written = await readJsonFile<PlanPackageManifest>(secondWorkspace.manifestFile);
     expect(written.nodes.some((node) => node.id === "T-001")).toBe(true);
     expect((await loadProjectGraph(root)).manifest.crossTaskEdges).toHaveLength(1);
@@ -663,12 +809,14 @@ describe("desktop graph edit API", () => {
       title: "Follow-up implementation",
       prompt: "nodes/T-001/blocks/B-002.prompt.md",
       depends_on: ["B-001"],
-      parallel: { safe: true, locks: ["shared"] }
+      parallel: { locks: ["shared"] }
     });
     task.blocks[2].depends_on = ["B-002"];
     const { root, init } = await createTestWorkspace(manifest);
 
-    await expect(updateTaskAcceptance(root, "T-001", ["Desktop acceptance."])).resolves.toMatchObject({ ok: true });
+    await expect(
+      updateTaskAcceptance(root, "T-001", ["Desktop acceptance."])
+    ).resolves.toMatchObject({ ok: true });
     await expect(undoDesktopPlanGraphCommand(root)).resolves.toMatchObject({ ok: true });
     let written = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     let writtenTask = written.nodes[0];
@@ -677,7 +825,9 @@ describe("desktop graph edit API", () => {
     }
     expect(writtenTask.acceptance).toEqual(["Implementation is complete.", "Review passes."]);
 
-    await expect(updateBlockDependencies(root, "T-001#B-002", [])).resolves.toMatchObject({ ok: true });
+    await expect(updateBlockDependencies(root, "T-001#B-002", [])).resolves.toMatchObject({
+      ok: true
+    });
     await expect(undoDesktopPlanGraphCommand(root)).resolves.toMatchObject({ ok: true });
     written = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     writtenTask = written.nodes[0];
@@ -686,7 +836,9 @@ describe("desktop graph edit API", () => {
     }
     expect(writtenTask.blocks.find((block) => block.id === "B-002")?.depends_on).toEqual(["B-001"]);
 
-    await expect(updateBlockPlanning(root, "T-001#B-002", { parallelSafe: false, parallelLocks: ["api"] })).resolves.toMatchObject({
+    await expect(
+      updateBlockPlanning(root, "T-001#B-002", { parallelSafe: false, parallelLocks: ["api"] })
+    ).resolves.toMatchObject({
       ok: true
     });
     await expect(undoDesktopPlanGraphCommand(root)).resolves.toMatchObject({ ok: true });
@@ -696,8 +848,15 @@ describe("desktop graph edit API", () => {
       throw new Error("Fixture task missing.");
     }
     expect(writtenTask.blocks.find((block) => block.id === "B-002")).toMatchObject({
-      parallel: { safe: true, locks: ["shared"] }
+      parallel: { locks: ["shared"] }
     });
+    expect(
+      (
+        writtenTask.blocks.find((block) => block.id === "B-002") as {
+          parallel: { locks: string[] };
+        }
+      ).parallel.locks
+    ).not.toContain("exclusive");
   });
 
   it("records desktop layout saves as undoable PlanGraph history", async () => {
@@ -733,7 +892,9 @@ describe("desktop graph edit API", () => {
 
     const defaultStore = await createSqlitePlanGraphStore({ projectRoot: init.workspace });
     await defaultStore.rebuild();
-    await expect(updateTaskTitle(secondWorkspace, "T-001", "Second canvas title")).resolves.toMatchObject({ ok: true });
+    await expect(
+      updateTaskTitle(secondWorkspace, "T-001", "Second canvas title")
+    ).resolves.toMatchObject({ ok: true });
     const secondStore = await createSqlitePlanGraphStore({ projectRoot: secondWorkspace });
     expect(secondStore.indexPath).toBe(defaultStore.indexPath);
     expect((await defaultStore.load())?.tasks.get("T-001")?.title).toBe("Implement test task");
@@ -741,7 +902,9 @@ describe("desktop graph edit API", () => {
 
     await expect(undoDesktopPlanGraphCommand(init.workspace)).resolves.toMatchObject({ ok: true });
     const secondManifest = await readJsonFile<PlanPackageManifest>(secondWorkspace.manifestFile);
-    const secondTask = secondManifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    const secondTask = secondManifest.nodes.find(
+      (node) => node.type === "task" && node.id === "T-001"
+    );
     expect(secondTask?.title).toBe("Implement test task");
   });
 
@@ -759,12 +922,22 @@ describe("desktop graph edit API", () => {
         layoutPosition: { x: 480, y: 240 }
       })
     ).resolves.toMatchObject({ ok: true });
-    expect((await getDesktopLayout(secondWorkspace)).nodes).toContainEqual({ nodeId: "T-DROPPED-TASK", x: 480, y: 240 });
+    expect((await getDesktopLayout(secondWorkspace)).nodes).toContainEqual({
+      nodeId: "T-DROPPED-TASK",
+      x: 480,
+      y: 240
+    });
 
     await expect(undoDesktopPlanGraphCommand(root)).resolves.toMatchObject({ ok: true });
     const secondManifest = await readJsonFile<PlanPackageManifest>(secondWorkspace.manifestFile);
-    expect(secondManifest.nodes.some((node) => node.type === "task" && node.id === "T-DROPPED-TASK")).toBe(false);
-    await expect(readJsonFile<{ nodes: Array<{ nodeId: string }> }>(join(secondWorkspace.workspaceRoot, "desktop/layout.json"))).resolves.toMatchObject({
+    expect(
+      secondManifest.nodes.some((node) => node.type === "task" && node.id === "T-DROPPED-TASK")
+    ).toBe(false);
+    await expect(
+      readJsonFile<{ nodes: Array<{ nodeId: string }> }>(
+        join(secondWorkspace.workspaceRoot, "desktop/layout.json")
+      )
+    ).resolves.toMatchObject({
       nodes: expect.not.arrayContaining([expect.objectContaining({ nodeId: "T-DROPPED-TASK" })])
     });
   });
@@ -773,13 +946,19 @@ describe("desktop graph edit API", () => {
     const { root } = await createTestWorkspace();
     const secondCanvas = await createTaskCanvas(root, { name: "Second plan" });
 
-    await expect(selectTaskCanvas(root, secondCanvas.canvasId)).resolves.toBe(secondCanvas.canvasId);
-    await expect(getProjectOverview(root)).resolves.toMatchObject({ activeCanvasId: secondCanvas.canvasId });
+    await expect(selectTaskCanvas(root, secondCanvas.canvasId)).resolves.toBe(
+      secondCanvas.canvasId
+    );
+    await expect(getProjectOverview(root)).resolves.toMatchObject({
+      activeCanvasId: secondCanvas.canvasId
+    });
 
     await expect(undoDesktopPlanGraphCommand(root)).resolves.toMatchObject({ ok: true });
     await expect(getProjectOverview(root)).resolves.toMatchObject({ activeCanvasId: "default" });
 
     await expect(redoDesktopPlanGraphCommand(root)).resolves.toMatchObject({ ok: true });
-    await expect(getProjectOverview(root)).resolves.toMatchObject({ activeCanvasId: secondCanvas.canvasId });
+    await expect(getProjectOverview(root)).resolves.toMatchObject({
+      activeCanvasId: secondCanvas.canvasId
+    });
   });
 });

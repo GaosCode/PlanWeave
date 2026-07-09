@@ -1,5 +1,12 @@
 import type { ProjectTaskRef } from "../projectGraph/types.js";
-import type { ManifestBlock, ManifestEdge, ManifestReviewBlock, ManifestTaskNode, PackageWorkspaceRef, ReviewHookDefinition } from "../types.js";
+import type {
+  ManifestBlock,
+  ManifestEdge,
+  ManifestReviewBlock,
+  ManifestTaskNode,
+  PackageWorkspaceRef,
+  ReviewHookDefinition
+} from "../types.js";
 
 export type PlanGraphCommandBase = {
   baseGraphVersion?: string;
@@ -59,7 +66,9 @@ export type UpdateBlockFieldsCommand = PlanGraphCommandBase & {
     promptMarkdown?: string;
     executor?: string | null;
     dependsOn?: string[];
+    /** @deprecated Prefer exclusive; maps to reserved exclusive lock. */
     parallelSafe?: boolean;
+    exclusive?: boolean;
     parallelLocks?: string[];
     reviewRequired?: boolean;
     maxFeedbackCycles?: number;

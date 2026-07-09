@@ -6,7 +6,10 @@ import type {
   PackageWorkspaceRef
 } from "../types.js";
 import { buildClaimReadiness } from "./claimReadiness.js";
-import { createProjectGraphClaimGuard, type ProjectGraphClaimGuard } from "./projectGraphClaimGuard.js";
+import {
+  createProjectGraphClaimGuard,
+  type ProjectGraphClaimGuard
+} from "./projectGraphClaimGuard.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "./runtimeContext.js";
 import { effectiveBlockExecutor, getBlock, isActiveFeedbackStatus } from "./selectors.js";
 
@@ -25,17 +28,17 @@ export async function buildExecutionStatus(
   options: { claimGuard?: ProjectGraphClaimGuard } = {}
 ) {
   const { workspace, manifest, graph, state } = context;
-  const taskCounts = Object.fromEntries(["planned", "ready", "in_progress", "implemented"].map((status) => [status, 0])) as Record<
-    "planned" | "ready" | "in_progress" | "implemented",
-    number
-  >;
+  const taskCounts = Object.fromEntries(
+    ["planned", "ready", "in_progress", "implemented"].map((status) => [status, 0])
+  ) as Record<"planned" | "ready" | "in_progress" | "implemented", number>;
   const blockCounts = Object.fromEntries(
-    ["planned", "ready", "in_progress", "completed", "needs_changes", "blocked", "diverged"].map((status) => [status, 0])
+    ["planned", "ready", "in_progress", "completed", "needs_changes", "blocked", "diverged"].map(
+      (status) => [status, 0]
+    )
   ) as Record<BlockStatus, number>;
-  const feedbackCounts = Object.fromEntries(["open", "in_progress", "resolved", "dismissed"].map((status) => [status, 0])) as Record<
-    "open" | "in_progress" | "resolved" | "dismissed",
-    number
-  >;
+  const feedbackCounts = Object.fromEntries(
+    ["open", "in_progress", "resolved", "dismissed"].map((status) => [status, 0])
+  ) as Record<"open" | "in_progress" | "resolved" | "dismissed", number>;
   for (const task of Object.values(state.tasks)) {
     taskCounts[task.status] += 1;
   }
@@ -46,8 +49,16 @@ export async function buildExecutionStatus(
     feedbackCounts[feedback.status] += 1;
   }
   const currentFeedbackId =
-    state.currentFeedbackId && isActiveFeedbackStatus(state.feedback[state.currentFeedbackId]?.status) ? state.currentFeedbackId : null;
-  const readiness = buildClaimReadiness({ graph, manifest, state, projectGuard: options.claimGuard ?? await createProjectGraphClaimGuard(context) });
+    state.currentFeedbackId &&
+    isActiveFeedbackStatus(state.feedback[state.currentFeedbackId]?.status)
+      ? state.currentFeedbackId
+      : null;
+  const readiness = buildClaimReadiness({
+    graph,
+    manifest,
+    state,
+    projectGuard: options.claimGuard ?? (await createProjectGraphClaimGuard(context))
+  });
   return {
     projectId: workspace.id,
     projectRoot: workspace.rootPath,
@@ -104,6 +115,9 @@ export async function buildExecutionStatus(
 
 export type ExecutionStatus = Awaited<ReturnType<typeof buildExecutionStatus>>;
 
-export async function getExecutionStatus(options: { projectRoot: PackageWorkspaceRef; session?: ExecutionGraphSession }): Promise<ExecutionStatus> {
+export async function getExecutionStatus(options: {
+  projectRoot: PackageWorkspaceRef;
+  session?: ExecutionGraphSession;
+}): Promise<ExecutionStatus> {
   return buildExecutionStatus(await loadRuntimeReadonly(options));
 }

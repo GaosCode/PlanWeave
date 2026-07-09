@@ -13,6 +13,11 @@ import type {
   PlanPackageManifest,
   ValidationIssue
 } from "../types.js";
+import {
+  blockUsesDeprecatedParallelSafe,
+  deprecatedParallelSafeWarning,
+  effectiveLocksForBlock
+} from "./parallelLocks.js";
 
 function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
@@ -28,13 +33,23 @@ function nodeFileErrorSummary(error: unknown): string {
   return error instanceof Error && error.message ? error.message : "unknown error";
 }
 
-async function listMarkdownFiles(packageDir: string, root: string, errors: ValidationIssue[]): Promise<string[]> {
+async function listMarkdownFiles(
+  packageDir: string,
+  root: string,
+  errors: ValidationIssue[]
+): Promise<string[]> {
   const promptPath = relative(packageDir, root) || ".";
   let entries;
   try {
     entries = await optionalReaddir(root, { withFileTypes: true });
   } catch (error) {
-    errors.push(issue("prompt_directory_read_failed", `Prompt directory '${promptPath}' could not be read: ${nodeFileErrorSummary(error)}.`, promptPath));
+    errors.push(
+      issue(
+        "prompt_directory_read_failed",
+        `Prompt directory '${promptPath}' could not be read: ${nodeFileErrorSummary(error)}.`,
+        promptPath
+      )
+    );
     return [];
   }
   if (!entries) {
@@ -94,7 +109,10 @@ function findCycle(adjacency: Map<string, string[]>): string[] | null {
       }
       if (visiting.has(next)) {
         const cycleStart = stack.findIndex((item) => item.id === next);
-        return stack.slice(cycleStart).map((item) => item.id).concat(next);
+        return stack
+          .slice(cycleStart)
+          .map((item) => item.id)
+          .concat(next);
       }
       if (!visited.has(next)) {
         visiting.add(next);
@@ -125,7 +143,11 @@ function reachable(adjacency: Map<string, string[]>, from: string, to: string): 
   return false;
 }
 
-function validateEdgeEndpointTypes(edge: ManifestEdge, from: ManifestNode, to: ManifestNode): ValidationIssue[] {
+function validateEdgeEndpointTypes(
+  edge: ManifestEdge,
+  from: ManifestNode,
+  to: ManifestNode
+): ValidationIssue[] {
   if (edge.type === "depends_on") {
     return from.type === "task" && to.type === "task"
       ? []
@@ -167,7 +189,6 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
   const blockDependentsByRef = new Map<string, string[]>();
   const reviewBlocksByTask = new Map<string, string[]>();
   const locksByBlockRef = new Map<string, string[]>();
-  const parallelSafeByBlockRef = new Map<string, boolean>();
 
   for (const taskId of taskNodesInManifestOrder) {
     taskDependenciesByTask.set(taskId, []);
@@ -181,7 +202,13 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
     for (const block of task?.blocks ?? []) {
       const ref = blockRef(taskId, block.id);
       if (blockIds.has(block.id)) {
-        errors.push(issue("block_id_duplicate", `Block id '${block.id}' is duplicated in task '${taskId}'.`, `nodes.${taskId}.blocks`));
+        errors.push(
+          issue(
+            "block_id_duplicate",
+            `Block id '${block.id}' is duplicated in task '${taskId}'.`,
+            `nodes.${taskId}.blocks`
+          )
+        );
       }
       blockIds.add(block.id);
       blockRefsInManifestOrder.push(ref);
@@ -193,18 +220,17 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
       if (block.type === "review") {
         reviewBlocksByTask.get(taskId)?.push(ref);
       }
-      if (block.type === "implementation") {
-        locksByBlockRef.set(ref, block.parallel.locks);
-        parallelSafeByBlockRef.set(ref, block.parallel.safe);
-      } else {
-        locksByBlockRef.set(ref, []);
-        parallelSafeByBlockRef.set(ref, false);
+      locksByBlockRef.set(ref, effectiveLocksForBlock(block));
+      if (blockUsesDeprecatedParallelSafe(block)) {
+        warnings.push(deprecatedParallelSafeWarning(ref));
       }
     }
   }
 
   for (const taskId of taskNodesInManifestOrder) {
-    const knownBlockIds = new Set((blocksByTask.get(taskId) ?? []).map((ref) => parseBlockRef(ref).blockId));
+    const knownBlockIds = new Set(
+      (blocksByTask.get(taskId) ?? []).map((ref) => parseBlockRef(ref).blockId)
+    );
     for (const block of tasksById.get(taskId)?.blocks ?? []) {
       const ref = blockRef(taskId, block.id);
       for (const dependencyBlockId of block.depends_on) {
@@ -239,17 +265,27 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
   for (const edge of manifest.edges) {
     const key = edgeKey(edge);
     if (seenEdges.has(key)) {
-      errors.push(issue("edge_duplicate", `Edge '${edge.from} --${edge.type}--> ${edge.to}' is duplicated.`, "edges"));
+      errors.push(
+        issue(
+          "edge_duplicate",
+          `Edge '${edge.from} --${edge.type}--> ${edge.to}' is duplicated.`,
+          "edges"
+        )
+      );
     }
     seenEdges.add(key);
     edgesByType.get(edge.type)?.push(edge);
     const from = nodesById.get(edge.from);
     const to = nodesById.get(edge.to);
     if (!from) {
-      errors.push(issue("edge_from_missing", `Edge references missing from node '${edge.from}'.`, "edges"));
+      errors.push(
+        issue("edge_from_missing", `Edge references missing from node '${edge.from}'.`, "edges")
+      );
     }
     if (!to) {
-      errors.push(issue("edge_to_missing", `Edge references missing to node '${edge.to}'.`, "edges"));
+      errors.push(
+        issue("edge_to_missing", `Edge references missing to node '${edge.to}'.`, "edges")
+      );
     }
     if (!from || !to) {
       continue;
@@ -268,17 +304,35 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
 
   const taskCycle = findCycle(taskAdjacency);
   if (taskCycle) {
-    errors.push(issue("depends_on_cycle", `Task dependency cycle detected: ${taskCycle.join(" -> ")}.`, "edges"));
+    errors.push(
+      issue(
+        "depends_on_cycle",
+        `Task dependency cycle detected: ${taskCycle.join(" -> ")}.`,
+        "edges"
+      )
+    );
   }
   const blockCycle = findCycle(blockDependenciesByRef);
   if (blockCycle) {
-    errors.push(issue("block_depends_on_cycle", `Block dependency cycle detected: ${blockCycle.join(" -> ")}.`, "blocks"));
+    errors.push(
+      issue(
+        "block_depends_on_cycle",
+        `Block dependency cycle detected: ${blockCycle.join(" -> ")}.`,
+        "blocks"
+      )
+    );
   }
 
   for (const taskId of taskNodesInManifestOrder) {
     const blocks = blocksByTask.get(taskId) ?? [];
     if (!blocks.some((ref) => blocksByRef.get(ref)?.type === "implementation")) {
-      errors.push(issue("task_without_implementation_block", `Task '${taskId}' must contain an implementation block.`, taskId));
+      errors.push(
+        issue(
+          "task_without_implementation_block",
+          `Task '${taskId}' must contain an implementation block.`,
+          taskId
+        )
+      );
     }
   }
 
@@ -296,14 +350,17 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
     blockDependentsByRef,
     reviewBlocksByTask,
     locksByBlockRef,
-    parallelSafeByBlockRef,
     diagnostics: { errors, warnings },
     taskReachable: (from, to) => reachable(taskAdjacency, from, to),
     blockReachable: (fromRef, toRef) => reachable(blockDependenciesByRef, fromRef, toRef)
   };
 }
 
-async function validatePromptReference(packageDir: string, prompt: string, errors: ValidationIssue[]): Promise<void> {
+async function validatePromptReference(
+  packageDir: string,
+  prompt: string,
+  errors: ValidationIssue[]
+): Promise<void> {
   try {
     const promptPath = await resolvePackagePath(packageDir, prompt);
     const promptMetadata = await optionalStat(promptPath);
@@ -314,7 +371,13 @@ async function validatePromptReference(packageDir: string, prompt: string, error
     if (error instanceof PackagePathError) {
       errors.push(issue(error.code, error.message, prompt));
     } else {
-      errors.push(issue("prompt_access_failed", `Prompt file '${prompt}' could not be checked: ${nodeFileErrorSummary(error)}.`, prompt));
+      errors.push(
+        issue(
+          "prompt_access_failed",
+          `Prompt file '${prompt}' could not be checked: ${nodeFileErrorSummary(error)}.`,
+          prompt
+        )
+      );
     }
   }
 }
@@ -341,10 +404,16 @@ export async function compilePackageGraph(
     }
   }
 
-  for (const file of await listMarkdownFiles(packageDir, join(packageDir, "nodes"), graph.diagnostics.errors)) {
+  for (const file of await listMarkdownFiles(
+    packageDir,
+    join(packageDir, "nodes"),
+    graph.diagnostics.errors
+  )) {
     const promptPath = relative(packageDir, file);
     if (!referencedPrompts.has(promptPath)) {
-      graph.diagnostics.warnings.push(issue("stale_prompt_reference", `Prompt '${promptPath}' is not referenced.`, promptPath));
+      graph.diagnostics.warnings.push(
+        issue("stale_prompt_reference", `Prompt '${promptPath}' is not referenced.`, promptPath)
+      );
       continue;
     }
     if (!validatePromptContents) {
@@ -353,7 +422,13 @@ export async function compilePackageGraph(
     try {
       await readFile(file, "utf8");
     } catch (error) {
-      graph.diagnostics.errors.push(issue("prompt_read_failed", `Prompt '${promptPath}' could not be read: ${nodeFileErrorSummary(error)}.`, promptPath));
+      graph.diagnostics.errors.push(
+        issue(
+          "prompt_read_failed",
+          `Prompt '${promptPath}' could not be read: ${nodeFileErrorSummary(error)}.`,
+          promptPath
+        )
+      );
     }
   }
 

@@ -45,7 +45,7 @@ function multiReadyManifest(taskCount: number): PlanPackageManifest {
             title: `Implement ${taskId}`,
             prompt: `nodes/${taskId}/blocks/B-001.prompt.md`,
             depends_on: [],
-            parallel: { safe: true, locks: [taskId] }
+            parallel: { locks: [taskId] }
           }
         ]
       };
@@ -57,21 +57,32 @@ function multiReadyManifest(taskCount: number): PlanPackageManifest {
 describe("state concurrency", () => {
   it("serializes concurrent claimNext so only one new claim wins", async () => {
     const { root } = await createTestWorkspace(multiReadyManifest(5));
-    const results = await Promise.all(Array.from({ length: 8 }, () => claimNext({ projectRoot: root })));
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => claimNext({ projectRoot: root }))
+    );
     const blocks = results.filter((result) => result.kind === "block");
     expect(blocks).toHaveLength(8);
-    const newlyClaimed = blocks.filter((result) => result.kind === "block" && result.reason === "claimed");
+    const newlyClaimed = blocks.filter(
+      (result) => result.kind === "block" && result.reason === "claimed"
+    );
     expect(newlyClaimed).toHaveLength(1);
     const claimedRef = newlyClaimed[0]?.kind === "block" ? newlyClaimed[0].ref : null;
     expect(claimedRef).toBeTruthy();
-    expect(blocks.every((result) => result.kind === "block" && result.ref === claimedRef)).toBe(true);
+    expect(blocks.every((result) => result.kind === "block" && result.ref === claimedRef)).toBe(
+      true
+    );
   });
 
   it("does not double-claim under concurrent dispatch claims", async () => {
     const readyCount = 5;
     const { root } = await createTestWorkspace(multiReadyManifest(readyCount));
-    const refs = Array.from({ length: readyCount }, (_, index) => `T-${String(index + 1).padStart(3, "0")}#B-001`);
-    const results = await Promise.all(refs.map((ref) => claimBlock({ projectRoot: root, ref, dispatch: true })));
+    const refs = Array.from(
+      { length: readyCount },
+      (_, index) => `T-${String(index + 1).padStart(3, "0")}#B-001`
+    );
+    const results = await Promise.all(
+      refs.map((ref) => claimBlock({ projectRoot: root, ref, dispatch: true }))
+    );
     const claimed = results.map((result) => {
       expect(result).toMatchObject({ kind: "block", reason: "dispatched" });
       if (result.kind !== "block") {
@@ -80,7 +91,9 @@ describe("state concurrency", () => {
       return result.ref;
     });
     expect(new Set(claimed).size).toBe(readyCount);
-    const secondWave = await Promise.all(refs.map((ref) => claimBlock({ projectRoot: root, ref, dispatch: true })));
+    const secondWave = await Promise.all(
+      refs.map((ref) => claimBlock({ projectRoot: root, ref, dispatch: true }))
+    );
     expect(secondWave.every((result) => result.kind === "blocked")).toBe(true);
   });
 

@@ -6,16 +6,23 @@ import { writeJsonFile } from "../json.js";
 import { canonicalProjectCanvasNode, writeProjectGraph } from "../projectGraph/index.js";
 import { listExecutorProfiles } from "../autoRun/executors.js";
 import { trustCommand } from "../taskManager/hookTrustStore.js";
-import type { InitWorkspaceResult, PlanPackageManifest, ReviewHookDefinition, ReviewVerdict } from "../types.js";
+import type {
+  InitWorkspaceResult,
+  PlanPackageManifest,
+  ReviewHookDefinition,
+  ReviewVerdict
+} from "../types.js";
 
-export function basicManifest(options: {
-  parallel?: boolean;
-  maxConcurrent?: number;
-  reviewHook?: ReviewHookDefinition | null;
-  reviewMaxFeedbackCycles?: number;
-  taskDependsOn?: string[];
-  includeSecondTask?: boolean;
-} = {}): PlanPackageManifest {
+export function basicManifest(
+  options: {
+    parallel?: boolean;
+    maxConcurrent?: number;
+    reviewHook?: ReviewHookDefinition | null;
+    reviewMaxFeedbackCycles?: number;
+    taskDependsOn?: string[];
+    includeSecondTask?: boolean;
+  } = {}
+): PlanPackageManifest {
   const secondTask = options.includeSecondTask
     ? [
         {
@@ -31,7 +38,7 @@ export function basicManifest(options: {
               title: "Implement second task",
               prompt: "nodes/T-002/blocks/B-001.prompt.md",
               depends_on: [],
-              parallel: { safe: true, locks: ["second"] }
+              parallel: { locks: ["second"] }
             },
             {
               id: "R-001",
@@ -50,7 +57,12 @@ export function basicManifest(options: {
       ]
     : [];
 
-  const edges = options.taskDependsOn?.map((dependency) => ({ from: "T-001", to: dependency, type: "depends_on" as const })) ?? [];
+  const edges =
+    options.taskDependsOn?.map((dependency) => ({
+      from: "T-001",
+      to: dependency,
+      type: "depends_on" as const
+    })) ?? [];
 
   return {
     version: "plan-package/v1",
@@ -82,7 +94,7 @@ export function basicManifest(options: {
             title: "Implement task",
             prompt: "nodes/T-001/blocks/B-001.prompt.md",
             depends_on: [],
-            parallel: { safe: true, locks: ["shared"] }
+            parallel: { locks: ["shared"] }
           },
           {
             id: "R-001",
@@ -136,7 +148,10 @@ export async function createTestWorkspace(
   return { home, root, init };
 }
 
-export async function writePromptFiles(packageDir: string, manifest: PlanPackageManifest): Promise<void> {
+export async function writePromptFiles(
+  packageDir: string,
+  manifest: PlanPackageManifest
+): Promise<void> {
   for (const node of manifest.nodes) {
     if (node.type !== "task") {
       continue;
@@ -144,12 +159,20 @@ export async function writePromptFiles(packageDir: string, manifest: PlanPackage
     await mkdir(join(packageDir, "nodes", node.id, "blocks"), { recursive: true });
     await writeFile(join(packageDir, node.prompt), `# ${node.id} task prompt\n`, "utf8");
     for (const block of node.blocks) {
-      await writeFile(join(packageDir, block.prompt), `# ${node.id}#${block.id} ${block.type} prompt\n`, "utf8");
+      await writeFile(
+        join(packageDir, block.prompt),
+        `# ${node.id}#${block.id} ${block.type} prompt\n`,
+        "utf8"
+      );
     }
   }
 }
 
-export async function writeReport(root: string, name: string, content = "report\n"): Promise<string> {
+export async function writeReport(
+  root: string,
+  name: string,
+  content = "report\n"
+): Promise<string> {
   const path = join(root, name);
   await writeFile(path, content, "utf8");
   return path;

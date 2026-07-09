@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createProgram } from "../index.js";
-import { commandOptionLongs, nestedSubcommandOptionLongs, programOptionLongs, subcommandOptionLongs } from "./cliCommandTestHelpers.js";
+import {
+  commandOptionLongs,
+  nestedSubcommandOptionLongs,
+  programOptionLongs,
+  subcommandOptionLongs
+} from "./cliCommandTestHelpers.js";
 
 describe("planweave CLI command registration", () => {
   it("registers agent workflow commands", () => {
@@ -50,18 +55,34 @@ describe("planweave CLI command registration", () => {
       expect.arrayContaining(["hook", "executor", "list"])
     );
     expect(subcommandOptionLongs("trust", "list")).toContain("--json");
-    expect(subcommandOptionLongs("trust", "hook")).toEqual(expect.arrayContaining(["--json", "--canvas"]));
-    expect(subcommandOptionLongs("trust", "executor")).toEqual(expect.arrayContaining(["--json", "--canvas"]));
+    expect(subcommandOptionLongs("trust", "hook")).toEqual(
+      expect.arrayContaining(["--json", "--canvas"])
+    );
+    expect(subcommandOptionLongs("trust", "executor")).toEqual(
+      expect.arrayContaining(["--json", "--canvas"])
+    );
   });
 
   it("registers MCP tunnel commands", () => {
     const mcp = createProgram().commands.find((command) => command.name() === "mcp");
-    expect(mcp?.commands.map((command) => command.name())).toEqual(expect.arrayContaining(["serve", "tunnel"]));
+    expect(mcp?.commands.map((command) => command.name())).toEqual(
+      expect.arrayContaining(["serve", "tunnel"])
+    );
     const tunnel = mcp?.commands.find((command) => command.name() === "tunnel");
     expect(tunnel?.commands.map((command) => command.name())).toEqual(
-      expect.arrayContaining(["download", "set-binary", "configure", "status", "doctor", "run", "print-systemd"])
+      expect.arrayContaining([
+        "download",
+        "set-binary",
+        "configure",
+        "status",
+        "doctor",
+        "run",
+        "print-systemd"
+      ])
     );
-    expect(subcommandOptionLongs("mcp", "serve")).toEqual(expect.arrayContaining(["--host", "--port", "--token", "--oauth", "--json"]));
+    expect(subcommandOptionLongs("mcp", "serve")).toEqual(
+      expect.arrayContaining(["--host", "--port", "--token", "--oauth", "--json"])
+    );
     expect(nestedSubcommandOptionLongs("mcp", "tunnel", "status")).toContain("--json");
     expect(nestedSubcommandOptionLongs("mcp", "tunnel", "doctor")).toContain("--json");
   });
@@ -87,7 +108,9 @@ describe("planweave CLI command registration", () => {
     );
     expect(commandOptionLongs("status")).toContain("--json");
     expect(commandOptionLongs("status")).toContain("--canvas");
-    expect(commandOptionLongs("use")).toEqual(expect.arrayContaining(["--source-root", "--clear", "--json"]));
+    expect(commandOptionLongs("use")).toEqual(
+      expect.arrayContaining(["--source-root", "--clear", "--json"])
+    );
     expect(commandOptionLongs("claim")).toContain("--type");
     expect(commandOptionLongs("claim")).toContain("--dispatch");
     expect(commandOptionLongs("claim")).toContain("--canvas");
@@ -103,12 +126,15 @@ describe("planweave CLI command registration", () => {
     expect(commandOptionLongs("doctor")).toContain("--project");
     expect(commandOptionLongs("retry-review")).toContain("--max-feedback-cycles");
     expect(commandOptionLongs("retry-review")).toContain("--canvas");
-    expect(commandOptionLongs("edit-task")).toEqual(expect.arrayContaining(["--title", "--prompt-file", "--executor", "--clear-executor"]));
+    expect(commandOptionLongs("edit-task")).toEqual(
+      expect.arrayContaining(["--title", "--prompt-file", "--executor", "--clear-executor"])
+    );
     expect(commandOptionLongs("edit-task")).toContain("--canvas");
     expect(commandOptionLongs("edit-block")).toEqual(
       expect.arrayContaining([
         "--title",
         "--prompt-file",
+        "--exclusive",
         "--parallel-safe",
         "--parallel-locks",
         "--review-required",
@@ -122,12 +148,28 @@ describe("planweave CLI command registration", () => {
     expect(commandOptionLongs("resolve-divergence")).toContain("--canvas");
     expect(commandOptionLongs("unblock")).toContain("--reason");
     expect(commandOptionLongs("unblock")).toContain("--canvas");
-    expect(commandOptionLongs("reset")).toEqual(expect.arrayContaining(["--canvas", "--force", "--reason", "--json"]));
+    expect(commandOptionLongs("reset")).toEqual(
+      expect.arrayContaining(["--canvas", "--force", "--reason", "--json"])
+    );
     expect(commandOptionLongs("run")).toEqual(
-      expect.arrayContaining(["--once", "--parallel", "--executor", "--scope", "--task", "--block", "--reset", "--force", "--reason", "--step-limit", "--json"])
+      expect.arrayContaining([
+        "--once",
+        "--parallel",
+        "--executor",
+        "--scope",
+        "--task",
+        "--block",
+        "--reset",
+        "--force",
+        "--reason",
+        "--step-limit",
+        "--json"
+      ])
     );
     expect(commandOptionLongs("run")).toContain("--canvas");
-    expect(commandOptionLongs("run-sessions")).toEqual(expect.arrayContaining(["--canvas", "--json"]));
+    expect(commandOptionLongs("run-sessions")).toEqual(
+      expect.arrayContaining(["--canvas", "--json"])
+    );
     expect(subcommandOptionLongs("run-sessions", "prune")).toEqual(
       expect.arrayContaining([
         "--older-than",
@@ -139,7 +181,9 @@ describe("planweave CLI command registration", () => {
         "--canvas"
       ])
     );
-    expect(commandOptionLongs("run-session")).toEqual(expect.arrayContaining(["--canvas", "--json"]));
+    expect(commandOptionLongs("run-session")).toEqual(
+      expect.arrayContaining(["--canvas", "--json"])
+    );
     expect(commandOptionLongs("run-status")).toContain("--json");
     expect(commandOptionLongs("run-status")).toContain("--follow");
     expect(commandOptionLongs("run-status")).toContain("--canvas");
@@ -160,9 +204,15 @@ describe("planweave CLI command registration", () => {
         "--min-task-count-for-sparse-check"
       ])
     );
-    expect(subcommandOptionLongs("package-draft", "validate")).toEqual(expect.arrayContaining(["--draft-root", "--json"]));
-    expect(subcommandOptionLongs("package-draft", "quality")).toEqual(expect.arrayContaining(["--draft-root", "--json"]));
-    expect(subcommandOptionLongs("package", "import")).toEqual(expect.arrayContaining(["--from", "--dry-run", "--apply", "--json", "--canvas"]));
+    expect(subcommandOptionLongs("package-draft", "validate")).toEqual(
+      expect.arrayContaining(["--draft-root", "--json"])
+    );
+    expect(subcommandOptionLongs("package-draft", "quality")).toEqual(
+      expect.arrayContaining(["--draft-root", "--json"])
+    );
+    expect(subcommandOptionLongs("package", "import")).toEqual(
+      expect.arrayContaining(["--from", "--dry-run", "--apply", "--json", "--canvas"])
+    );
     expect(subcommandOptionLongs("package", "export")).toEqual(
       expect.arrayContaining(["--target", "--force", "--json", "--canvas"])
     );
@@ -195,9 +245,9 @@ describe("planweave CLI command registration", () => {
     program.exitOverride();
     program.configureOutput({ writeOut: () => undefined, writeErr: () => undefined });
 
-    await expect(program.parseAsync(["doctor", "--project", "--canvas", "runtime"], { from: "user" })).rejects.toThrow(
-      "doctor --project cannot be combined with --canvas."
-    );
+    await expect(
+      program.parseAsync(["doctor", "--project", "--canvas", "runtime"], { from: "user" })
+    ).rejects.toThrow("doctor --project cannot be combined with --canvas.");
   });
 
   it("rejects invalid graph option values before calling runtime", async () => {
@@ -205,13 +255,17 @@ describe("planweave CLI command registration", () => {
     program.exitOverride();
     program.configureOutput({ writeOut: () => undefined, writeErr: () => undefined });
 
-    await expect(program.parseAsync(["graph", "inspect", "--view", "wide"], { from: "user" })).rejects.toThrow(
-      "Invalid --view 'wide'. Expected one of: summary, tasks, slice."
-    );
-    await expect(program.parseAsync(["graph", "quality", "--heuristics", "maybe"], { from: "user" })).rejects.toThrow(
-      "Invalid --heuristics 'maybe'. Expected one of: on, off."
-    );
-    await expect(program.parseAsync(["graph", "quality", "--min-task-count-for-sparse-check", "0"], { from: "user" })).rejects.toThrow(
+    await expect(
+      program.parseAsync(["graph", "inspect", "--view", "wide"], { from: "user" })
+    ).rejects.toThrow("Invalid --view 'wide'. Expected one of: summary, tasks, slice.");
+    await expect(
+      program.parseAsync(["graph", "quality", "--heuristics", "maybe"], { from: "user" })
+    ).rejects.toThrow("Invalid --heuristics 'maybe'. Expected one of: on, off.");
+    await expect(
+      program.parseAsync(["graph", "quality", "--min-task-count-for-sparse-check", "0"], {
+        from: "user"
+      })
+    ).rejects.toThrow(
       "Invalid --min-task-count-for-sparse-check '0'. Expected a positive integer."
     );
   });

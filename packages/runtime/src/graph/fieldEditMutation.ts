@@ -1,4 +1,5 @@
 import { parseBlockRef } from "./compileTaskGraph.js";
+import { withExclusiveLock } from "./parallelLocks.js";
 import {
   buildPlanPackageManifestChangeMutation,
   writePromptSideEffects,
@@ -33,7 +34,9 @@ export type PlanPackageBlockFieldEditInput = {
   promptMarkdown?: string;
   executor?: string | null;
   dependsOn?: string[];
+  /** @deprecated Prefer exclusive; maps to reserved exclusive lock. */
   parallelSafe?: boolean;
+  exclusive?: boolean;
   parallelLocks?: string[];
   reviewRequired?: boolean;
   maxFeedbackCycles?: number;
@@ -99,19 +102,52 @@ function replaceTask(manifest: PlanPackageManifest, task: ManifestTaskNode): Pla
 
 function editImplementationBlock(
   block: ManifestImplementationBlock,
-  input: Pick<PlanPackageBlockFieldEditInput, "parallelSafe" | "parallelLocks">
+  input: Pick<PlanPackageBlockFieldEditInput, "parallelSafe" | "exclusive" | "parallelLocks">
 ): { block: ManifestImplementationBlock; fields: string[] } {
   const fields: string[] = [];
   let next = block;
-  if (input.parallelSafe !== undefined) {
-    next = { ...next, parallel: { ...next.parallel, safe: input.parallelSafe } };
-    fields.push("parallel.safe");
-  }
+  let locks = [...next.parallel.locks];
+  let locksTouched = false;
   if (input.parallelLocks !== undefined) {
-    next = { ...next, parallel: { ...next.parallel, locks: input.parallelLocks.map((lock) => nonEmpty(lock, "parallel lock")) } };
+    locks = input.parallelLocks.map((lock) => nonEmpty(lock, "parallel lock"));
+    locksTouched = true;
     fields.push("parallel.locks");
   }
-  return { block: next, fields };
+  // exclusive takes precedence over deprecated parallelSafe when both are set.
+  const exclusive =
+    input.exclusive !== undefined
+      ? input.exclusive
+      : input.parallelSafe !== undefined
+        ? !input.parallelSafe
+        : undefined;
+  if (exclusive !== undefined) {
+    locks = withExclusiveLock(locks, exclusive);
+    locksTouched = true;
+    if (input.parallelSafe !== undefined && input.exclusive === undefined) {
+      fields.push("parallel.safe");
+    }
+    fields.push("parallel.locks");
+  }
+  if (locksTouched) {
+    const { safe: _deprecatedSafe, ...restParallel } = next.parallel;
+    next = {
+      ...next,
+      parallel: {
+        ...restParallel,
+        locks
+      }
+    };
+  }
+  // Stable unique order: parallel.safe then parallel.locks.
+  const ordered: string[] = [];
+  if (fields.includes("parallel.safe")) {
+    ordered.push("parallel.safe");
+  }
+  if (fields.includes("parallel.locks")) {
+    ordered.push("parallel.locks");
+  }
+  const other = fields.filter((field) => field !== "parallel.safe" && field !== "parallel.locks");
+  return { block: next, fields: [...other, ...ordered] };
 }
 
 function editReviewBlock(
@@ -125,7 +161,13 @@ function editReviewBlock(
     fields.push("review.required");
   }
   if (input.maxFeedbackCycles !== undefined) {
-    next = { ...next, review: { ...next.review, maxFeedbackCycles: normalizeMaxFeedbackCycles(input.maxFeedbackCycles) } };
+    next = {
+      ...next,
+      review: {
+        ...next.review,
+        maxFeedbackCycles: normalizeMaxFeedbackCycles(input.maxFeedbackCycles)
+      }
+    };
     fields.push("review.maxFeedbackCycles");
   }
   if (input.reviewHook !== undefined) {
@@ -135,13 +177,23 @@ function editReviewBlock(
   return { block: next, fields };
 }
 
-function ensureBlockFieldCompatibility(block: ManifestBlock, input: PlanPackageBlockFieldEditInput): void {
-  if (block.type !== "implementation" && (input.parallelSafe !== undefined || input.parallelLocks !== undefined)) {
+function ensureBlockFieldCompatibility(
+  block: ManifestBlock,
+  input: PlanPackageBlockFieldEditInput
+): void {
+  if (
+    block.type !== "implementation" &&
+    (input.parallelSafe !== undefined ||
+      input.exclusive !== undefined ||
+      input.parallelLocks !== undefined)
+  ) {
     throw new Error("parallel fields can only be edited on implementation blocks.");
   }
   if (
     block.type !== "review" &&
-    (input.reviewRequired !== undefined || input.maxFeedbackCycles !== undefined || input.reviewHook !== undefined)
+    (input.reviewRequired !== undefined ||
+      input.maxFeedbackCycles !== undefined ||
+      input.reviewHook !== undefined)
   ) {
     throw new Error("review fields can only be edited on review blocks.");
   }
@@ -210,7 +262,8 @@ export function buildPlanPackageBlockFieldEditMutation(
   }
   if (input.executor !== undefined) {
     const executor = optionalText(input.executor);
-    nextBlock = executor === undefined ? { ...nextBlock, executor: undefined } : { ...nextBlock, executor };
+    nextBlock =
+      executor === undefined ? { ...nextBlock, executor: undefined } : { ...nextBlock, executor };
     updatedFields.push("executor");
   }
   if (input.dependsOn !== undefined) {

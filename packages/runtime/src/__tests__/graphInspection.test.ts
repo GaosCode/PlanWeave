@@ -12,7 +12,11 @@ function completedState(): RuntimeState {
     tasks: {},
     blocks: {
       "T-001#B-001": { status: "completed", lastRunId: "RUN-001" },
-      "T-001#R-001": { status: "completed", latestReviewAttemptId: "REV-001", completionReason: "passed" }
+      "T-001#R-001": {
+        status: "completed",
+        latestReviewAttemptId: "REV-001",
+        completionReason: "passed"
+      }
     },
     feedback: {}
   };
@@ -33,7 +37,7 @@ function threeTaskManifest(): PlanPackageManifest {
         title: "Implement third task",
         prompt: "nodes/T-003/blocks/B-001.prompt.md",
         depends_on: [],
-        parallel: { safe: true, locks: ["third"] }
+        parallel: { locks: ["third"] }
       },
       {
         id: "R-001",
@@ -67,7 +71,7 @@ function taskWithImplementationBlocks(id: string, title: string, blockCount = 1)
         title: `Implement ${title} ${index + 1}`,
         prompt: `nodes/${id}/blocks/${blockId}.prompt.md`,
         depends_on: [],
-        parallel: { safe: true, locks: [`${id}-${blockId}`] }
+        parallel: { locks: [`${id}-${blockId}`] }
       };
     })
   };
@@ -83,7 +87,11 @@ function wideSliceManifest(dependencyCount: number, centerBlockCount: number): P
   return {
     ...basicManifest(),
     nodes: [center, ...dependencyTasks],
-    edges: dependencyTasks.map((task) => ({ from: center.id, to: task.id, type: "depends_on" as const }))
+    edges: dependencyTasks.map((task) => ({
+      from: center.id,
+      to: task.id,
+      type: "depends_on" as const
+    }))
   };
 }
 
@@ -113,7 +121,12 @@ describe("inspectGraph", () => {
     const { root } = await createTestWorkspace(threeTaskManifest());
 
     const first = await inspectGraph({ projectRoot: root, view: "tasks", limit: 1 });
-    const second = await inspectGraph({ projectRoot: root, view: "tasks", limit: 1, cursor: first.page.nextCursor ?? undefined });
+    const second = await inspectGraph({
+      projectRoot: root,
+      view: "tasks",
+      limit: 1,
+      cursor: first.page.nextCursor ?? undefined
+    });
 
     expect(first.tasks.map((task) => task.taskId)).toEqual(["T-001"]);
     expect(first.page.nextCursor).toBe("next:1");
@@ -147,17 +160,38 @@ describe("inspectGraph", () => {
     expect(result.dependents.items).toEqual([]);
     expect(result.edges.items).toEqual([{ from: "T-001", to: "T-002", type: "depends_on" }]);
     expect(result.blocks.items).toEqual([
-      expect.objectContaining({ ref: "T-001#B-001", blockId: "B-001", type: "implementation", status: "planned", dependsOn: [] }),
-      expect.objectContaining({ ref: "T-001#R-001", blockId: "R-001", type: "review", status: "planned", dependsOn: ["T-001#B-001"] })
+      expect.objectContaining({
+        ref: "T-001#B-001",
+        blockId: "B-001",
+        type: "implementation",
+        status: "planned",
+        dependsOn: []
+      }),
+      expect.objectContaining({
+        ref: "T-001#R-001",
+        blockId: "R-001",
+        type: "review",
+        status: "planned",
+        dependsOn: ["T-001#B-001"]
+      })
     ]);
   });
 
   it("bounds slice adjacent tasks, edges, and blocks without cursor pagination", async () => {
     const { root } = await createTestWorkspace(wideSliceManifest(6, 5));
 
-    const first = await inspectGraph({ projectRoot: root, view: "slice", taskId: "T-001", limit: 3 });
+    const first = await inspectGraph({
+      projectRoot: root,
+      view: "slice",
+      taskId: "T-001",
+      limit: 3
+    });
 
-    expect(first.dependencies.items.map((task) => task.taskId)).toEqual(["T-002", "T-003", "T-004"]);
+    expect(first.dependencies.items.map((task) => task.taskId)).toEqual([
+      "T-002",
+      "T-003",
+      "T-004"
+    ]);
     expect(first.dependencies).toMatchObject({ limit: 3, total: 6, truncated: true });
     expect(first.edges.items).toHaveLength(3);
     expect(first.edges).toMatchObject({ limit: 3, total: 3, truncated: false });
@@ -171,7 +205,12 @@ describe("inspectGraph", () => {
     manifest.edges.unshift({ from: "T-005", to: "T-006", type: "depends_on" });
     const { root } = await createTestWorkspace(manifest);
 
-    const result = await inspectGraph({ projectRoot: root, view: "slice", taskId: "T-001", limit: 2 });
+    const result = await inspectGraph({
+      projectRoot: root,
+      view: "slice",
+      taskId: "T-001",
+      limit: 2
+    });
     const visibleTaskIds = new Set([
       result.center.taskId,
       ...result.dependencies.items.map((task) => task.taskId),
@@ -179,15 +218,29 @@ describe("inspectGraph", () => {
     ]);
 
     expect(result.dependencies.items.map((task) => task.taskId)).toEqual(["T-002", "T-003"]);
-    expect(result.edges.items).not.toContainEqual({ from: "T-005", to: "T-006", type: "depends_on" });
-    expect(result.edges.items.every((edge) => visibleTaskIds.has(edge.from) && visibleTaskIds.has(edge.to))).toBe(true);
+    expect(result.edges.items).not.toContainEqual({
+      from: "T-005",
+      to: "T-006",
+      type: "depends_on"
+    });
+    expect(
+      result.edges.items.every(
+        (edge) => visibleTaskIds.has(edge.from) && visibleTaskIds.has(edge.to)
+      )
+    ).toBe(true);
   });
 
   it("rejects cursor pagination for slice views", async () => {
     const { root } = await createTestWorkspace(wideSliceManifest(6, 5));
 
-    await expect(inspectGraph({ projectRoot: root, view: "slice", taskId: "T-001", limit: 3, cursor: "next:3" })).rejects.toThrow(
-      "Graph inspection slice view does not support cursor pagination."
-    );
+    await expect(
+      inspectGraph({
+        projectRoot: root,
+        view: "slice",
+        taskId: "T-001",
+        limit: 3,
+        cursor: "next:3"
+      })
+    ).rejects.toThrow("Graph inspection slice view does not support cursor pagination.");
   });
 });

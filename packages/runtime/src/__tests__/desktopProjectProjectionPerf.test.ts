@@ -92,7 +92,7 @@ function createRegressionManifest(canvasId: string): PlanPackageManifest {
           title: `${canvasId} implementation ${taskIndex + 1}`,
           prompt: `nodes/${id}/blocks/${implementationId}.prompt.md`,
           depends_on: [],
-          parallel: { safe: true, locks: [canvasId] }
+          parallel: { locks: [canvasId] }
         },
         {
           id: reviewId,
@@ -131,14 +131,21 @@ function createRegressionManifest(canvasId: string): PlanPackageManifest {
   };
 }
 
-async function writeRegressionPackage(workspace: ProjectWorkspace, canvasId: string): Promise<string[]> {
+async function writeRegressionPackage(
+  workspace: ProjectWorkspace,
+  canvasId: string
+): Promise<string[]> {
   const manifest = createRegressionManifest(canvasId);
   const promptPaths: string[] = [];
   await writeJsonFile(workspace.manifestFile, manifest);
   for (const node of manifest.nodes) {
     await mkdir(join(workspace.packageDir, "nodes", node.id, "blocks"), { recursive: true });
     const taskPromptPath = join(workspace.packageDir, node.prompt);
-    await writeFile(taskPromptPath, `# ${canvasId} ${node.id}\n\n${canvasId} ${node.id} task prompt body needle\n`, "utf8");
+    await writeFile(
+      taskPromptPath,
+      `# ${canvasId} ${node.id}\n\n${canvasId} ${node.id} task prompt body needle\n`,
+      "utf8"
+    );
     promptPaths.push(taskPromptPath);
     for (const block of node.blocks) {
       const blockPromptPath = join(workspace.packageDir, block.prompt);
@@ -153,12 +160,22 @@ async function writeRegressionPackage(workspace: ProjectWorkspace, canvasId: str
   return promptPaths;
 }
 
-async function writeRegressionResults(workspace: ProjectWorkspace, canvasId: string): Promise<string[]> {
+async function writeRegressionResults(
+  workspace: ProjectWorkspace,
+  canvasId: string
+): Promise<string[]> {
   const resultPaths: string[] = [];
   for (let taskIndex = 1; taskIndex <= TASKS_PER_CANVAS; taskIndex += 1) {
     const id = taskId(taskIndex);
     for (let resultIndex = 1; resultIndex <= RESULT_FILES_PER_TASK; resultIndex += 1) {
-      const runDir = join(workspace.resultsDir, id, "blocks", implementationBlockId(1), "runs", `RUN-${resultIndex}`);
+      const runDir = join(
+        workspace.resultsDir,
+        id,
+        "blocks",
+        implementationBlockId(1),
+        "runs",
+        `RUN-${resultIndex}`
+      );
       const reportPath = join(runDir, "report.md");
       await mkdir(runDir, { recursive: true });
       await writeFile(reportPath, `${canvasId} ${id} result ${resultIndex} body needle\n`, "utf8");
@@ -182,7 +199,11 @@ async function createProjectionRegressionFixture(): Promise<ProjectionRegression
   ];
 
   for (const canvasId of REGRESSION_CANVAS_IDS.slice(1)) {
-    await createCanvasWorkspace({ cwd: root, id: canvasId, title: `${canvasId} projection regression` });
+    await createCanvasWorkspace({
+      cwd: root,
+      id: canvasId,
+      title: `${canvasId} projection regression`
+    });
     const workspace = await resolveTaskCanvasWorkspace(root, canvasId);
     const promptPaths = await writeRegressionPackage(workspace, canvasId);
     const resultPaths = await writeRegressionResults(workspace, canvasId);
@@ -253,19 +274,29 @@ describe("desktop project projection cache regression budget", () => {
     const coldStatistics = await readDesktopProjectStatisticsProjection(fixture.root);
     const coldSummaryCounts = countBodyReads(fixture);
 
-    expect(coldProjection.todoContext.aggregation.orderedCanvasIds).toEqual([...REGRESSION_CANVAS_IDS]);
+    expect(coldProjection.todoContext.aggregation.orderedCanvasIds).toEqual([
+      ...REGRESSION_CANVAS_IDS
+    ]);
     expect(coldSummarySearch.documents.length).toBeGreaterThan(0);
-    expect(coldStatistics.statistics.taskTotal).toBe(REGRESSION_CANVAS_IDS.length * TASKS_PER_CANVAS);
+    expect(coldStatistics.statistics.taskTotal).toBe(
+      REGRESSION_CANVAS_IDS.length * TASKS_PER_CANVAS
+    );
     expect(coldSummaryCounts.promptTotal).toBe(0);
     expect(coldSummaryCounts.resultTotal).toBe(0);
 
     vi.mocked(fsPromises.readFile).mockClear();
-    const coldBodySearch = await readDesktopProjectSearchIndex(fixture.root, { includeBodies: true });
+    const coldBodySearch = await readDesktopProjectSearchIndex(fixture.root, {
+      includeBodies: true
+    });
     const coldBodyCounts = countBodyReads(fixture);
 
     expect(coldBodyCounts.promptTotal).toBe(TOTAL_PROMPT_BODY_FILES);
     expect(coldBodyCounts.resultTotal).toBe(TOTAL_RESULT_BODY_FILES);
-    expect(searchDesktopSearchIndex(coldBodySearch, "cache-alpha T-001 task prompt body needle", { kinds: ["prompt"] })).toEqual([
+    expect(
+      searchDesktopSearchIndex(coldBodySearch, "cache-alpha T-001 task prompt body needle", {
+        kinds: ["prompt"]
+      })
+    ).toEqual([
       expect.objectContaining({ canvasId: "cache-alpha", ref: "T-001", targetRef: "T-001" })
     ]);
 
@@ -284,68 +315,114 @@ describe("desktop project projection cache regression budget", () => {
     await utimes(changedReportPath, new Date(10_000), new Date(10_000));
 
     vi.mocked(fsPromises.readFile).mockClear();
-    const resultInvalidationSearch = await readDesktopProjectSearchIndex(fixture.root, { includeBodies: true });
+    const resultInvalidationSearch = await readDesktopProjectSearchIndex(fixture.root, {
+      includeBodies: true
+    });
     const resultInvalidationStatistics = await readDesktopProjectStatisticsProjection(fixture.root);
     const resultInvalidationCounts = countBodyReads(fixture);
 
     expectNoUnrelatedCanvasBodyReads(resultInvalidationCounts, changedCanvas.canvasId);
-    expect(resultInvalidationCounts.promptsByCanvas.get(changedCanvas.canvasId)).toBeLessThanOrEqual(MAX_SINGLE_CANVAS_PROMPT_BODY_READS);
-    expect(resultInvalidationCounts.resultsByCanvas.get(changedCanvas.canvasId)).toBeLessThanOrEqual(MAX_SINGLE_RESULT_INVALIDATION_RESULT_BODY_READS);
-    expect(searchDesktopSearchIndex(resultInvalidationSearch, "cache-alpha T-001 result 1 body needle updated", { kinds: ["run_record"] })).toEqual([
-      expect.objectContaining({ canvasId: changedCanvas.canvasId, ref: "T-001/blocks/B-001/runs/RUN-1/report.md" })
+    expect(
+      resultInvalidationCounts.promptsByCanvas.get(changedCanvas.canvasId)
+    ).toBeLessThanOrEqual(MAX_SINGLE_CANVAS_PROMPT_BODY_READS);
+    expect(
+      resultInvalidationCounts.resultsByCanvas.get(changedCanvas.canvasId)
+    ).toBeLessThanOrEqual(MAX_SINGLE_RESULT_INVALIDATION_RESULT_BODY_READS);
+    expect(
+      searchDesktopSearchIndex(
+        resultInvalidationSearch,
+        "cache-alpha T-001 result 1 body needle updated",
+        { kinds: ["run_record"] }
+      )
+    ).toEqual([
+      expect.objectContaining({
+        canvasId: changedCanvas.canvasId,
+        ref: "T-001/blocks/B-001/runs/RUN-1/report.md"
+      })
     ]);
 
     invalidateDesktopProjectProjection(fixture.root);
-    const resultFullRebuildSearch = await readDesktopProjectSearchIndex(fixture.root, { includeBodies: true });
+    const resultFullRebuildSearch = await readDesktopProjectSearchIndex(fixture.root, {
+      includeBodies: true
+    });
     const resultFullRebuildStatistics = await readDesktopProjectStatisticsProjection(fixture.root);
     expect(resultInvalidationSearch.documents).toEqual(resultFullRebuildSearch.documents);
     expect(resultInvalidationStatistics.statistics).toEqual(resultFullRebuildStatistics.statistics);
 
     const changedPromptPath = changedCanvas.promptPaths[0];
-    await writeFile(changedPromptPath, "# cache-alpha T-001\n\ncache-alpha prompt body needle updated\n", "utf8");
+    await writeFile(
+      changedPromptPath,
+      "# cache-alpha T-001\n\ncache-alpha prompt body needle updated\n",
+      "utf8"
+    );
     await utimes(changedPromptPath, new Date(20_000), new Date(20_000));
 
     vi.mocked(fsPromises.readFile).mockClear();
-    const promptInvalidationSearch = await readDesktopProjectSearchIndex(fixture.root, { includeBodies: true });
+    const promptInvalidationSearch = await readDesktopProjectSearchIndex(fixture.root, {
+      includeBodies: true
+    });
     const promptInvalidationCounts = countBodyReads(fixture);
 
     expectNoUnrelatedCanvasBodyReads(promptInvalidationCounts, changedCanvas.canvasId);
-    expect(promptInvalidationCounts.promptsByCanvas.get(changedCanvas.canvasId)).toBeLessThanOrEqual(MAX_SINGLE_CANVAS_PROMPT_BODY_READS);
+    expect(
+      promptInvalidationCounts.promptsByCanvas.get(changedCanvas.canvasId)
+    ).toBeLessThanOrEqual(MAX_SINGLE_CANVAS_PROMPT_BODY_READS);
     expect(promptInvalidationCounts.resultsByCanvas.get(changedCanvas.canvasId)).toBe(0);
-    expect(searchDesktopSearchIndex(promptInvalidationSearch, "cache-alpha prompt body needle updated", { kinds: ["prompt"] })).toEqual([
-      expect.objectContaining({ canvasId: changedCanvas.canvasId, ref: "T-001", targetRef: "T-001" })
+    expect(
+      searchDesktopSearchIndex(promptInvalidationSearch, "cache-alpha prompt body needle updated", {
+        kinds: ["prompt"]
+      })
+    ).toEqual([
+      expect.objectContaining({
+        canvasId: changedCanvas.canvasId,
+        ref: "T-001",
+        targetRef: "T-001"
+      })
     ]);
 
     invalidateDesktopProjectProjection(fixture.root);
-    const promptFullRebuildSearch = await readDesktopProjectSearchIndex(fixture.root, { includeBodies: true });
+    const promptFullRebuildSearch = await readDesktopProjectSearchIndex(fixture.root, {
+      includeBodies: true
+    });
     expect(promptInvalidationSearch.documents).toEqual(promptFullRebuildSearch.documents);
 
     const statisticsBeforeStateChange = await readDesktopProjectStatisticsProjection(fixture.root);
     const runtimeBeforeStateChange = await loadRuntime({ projectRoot: changedCanvas.workspace });
-    await writeState(changedCanvas.workspace.stateFile, refreshDerivedState(runtimeBeforeStateChange.manifest, {
-      ...runtimeBeforeStateChange.state,
-      blocks: {
-        ...runtimeBeforeStateChange.state.blocks,
-        "T-001#B-001": {
-          ...runtimeBeforeStateChange.state.blocks["T-001#B-001"],
-          status: "completed",
-          lastRunId: "RUN-STATE-ONLY"
+    await writeState(
+      changedCanvas.workspace.stateFile,
+      refreshDerivedState(runtimeBeforeStateChange.manifest, {
+        ...runtimeBeforeStateChange.state,
+        blocks: {
+          ...runtimeBeforeStateChange.state.blocks,
+          "T-001#B-001": {
+            ...runtimeBeforeStateChange.state.blocks["T-001#B-001"],
+            status: "completed",
+            lastRunId: "RUN-STATE-ONLY"
+          }
         }
-      }
-    }));
+      })
+    );
 
     vi.mocked(fsPromises.readFile).mockClear();
-    const stateInvalidationSearch = await readDesktopProjectSearchIndex(fixture.root, { includeBodies: true });
+    const stateInvalidationSearch = await readDesktopProjectSearchIndex(fixture.root, {
+      includeBodies: true
+    });
     const stateInvalidationStatistics = await readDesktopProjectStatisticsProjection(fixture.root);
     const stateInvalidationCounts = countBodyReads(fixture);
 
     expectNoUnrelatedCanvasBodyReads(stateInvalidationCounts, changedCanvas.canvasId);
-    expect(stateInvalidationCounts.promptsByCanvas.get(changedCanvas.canvasId)).toBeLessThanOrEqual(MAX_SINGLE_CANVAS_PROMPT_BODY_READS);
+    expect(stateInvalidationCounts.promptsByCanvas.get(changedCanvas.canvasId)).toBeLessThanOrEqual(
+      MAX_SINGLE_CANVAS_PROMPT_BODY_READS
+    );
     expect(stateInvalidationCounts.resultsByCanvas.get(changedCanvas.canvasId)).toBe(0);
-    expect(stateInvalidationStatistics.statistics).not.toEqual(statisticsBeforeStateChange.statistics);
+    expect(stateInvalidationStatistics.statistics).not.toEqual(
+      statisticsBeforeStateChange.statistics
+    );
 
     invalidateDesktopProjectProjection(fixture.root);
-    const stateFullRebuildSearch = await readDesktopProjectSearchIndex(fixture.root, { includeBodies: true });
+    const stateFullRebuildSearch = await readDesktopProjectSearchIndex(fixture.root, {
+      includeBodies: true
+    });
     const stateFullRebuildStatistics = await readDesktopProjectStatisticsProjection(fixture.root);
     expect(stateInvalidationSearch.documents).toEqual(stateFullRebuildSearch.documents);
     expect(stateInvalidationStatistics.statistics).toEqual(stateFullRebuildStatistics.statistics);

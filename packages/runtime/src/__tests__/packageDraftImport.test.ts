@@ -25,7 +25,9 @@ async function createDraft(manifest: PlanPackageManifest): Promise<string> {
 }
 
 async function readManifestTitle(packageDir: string): Promise<string> {
-  const manifest = JSON.parse(await readFile(join(packageDir, "manifest.json"), "utf8")) as PlanPackageManifest;
+  const manifest = JSON.parse(
+    await readFile(join(packageDir, "manifest.json"), "utf8")
+  ) as PlanPackageManifest;
   return manifest.project.title;
 }
 
@@ -33,7 +35,10 @@ async function packageImportRecoveryEntries(workspaceRoot: string): Promise<stri
   try {
     return await readdir(join(workspaceRoot, "desktop", "recovery", "package-import"));
   } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : null;
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? (error as { code?: unknown }).code
+        : null;
     if (code === "ENOENT" || code === "ENOTDIR") {
       return [];
     }
@@ -41,7 +46,9 @@ async function packageImportRecoveryEntries(workspaceRoot: string): Promise<stri
   }
 }
 
-async function createProjectDraft(options: { canvasIds?: string[]; extraUnreadableFile?: boolean } = {}): Promise<string> {
+async function createProjectDraft(
+  options: { canvasIds?: string[]; extraUnreadableFile?: boolean } = {}
+): Promise<string> {
   const draftRoot = await mkdtemp(join(tmpdir(), "planweave-project-draft-"));
   const canvasIds = options.canvasIds ?? ["default"];
   for (const canvasId of canvasIds) {
@@ -59,13 +66,13 @@ async function createProjectDraft(options: { canvasIds?: string[]; extraUnreadab
   await writeJsonFile(join(draftRoot, "project-graph.json"), {
     version: "plan-project/v1",
     canvases: canvasIds.map((canvasId) => ({
-        id: canvasId,
-        type: "canvas",
-        title: `Draft ${canvasId}`,
-        packageDir: `canvases/${canvasId}/package`,
-        stateFile: `canvases/${canvasId}/state.json`,
-        resultsDir: `canvases/${canvasId}/results`
-      })),
+      id: canvasId,
+      type: "canvas",
+      title: `Draft ${canvasId}`,
+      packageDir: `canvases/${canvasId}/package`,
+      stateFile: `canvases/${canvasId}/state.json`,
+      resultsDir: `canvases/${canvasId}/results`
+    })),
     edges: [],
     crossTaskEdges: []
   });
@@ -132,7 +139,7 @@ function hundredTaskManifest(): PlanPackageManifest {
           title: `Implement import acceptance task ${number}`,
           prompt: `nodes/${id}/blocks/B-001.prompt.md`,
           depends_on: [],
-          parallel: { safe: true, locks: [`acceptance-${id}`] }
+          parallel: { locks: [`acceptance-${id}`] }
         }
       ]
     };
@@ -201,7 +208,9 @@ describe("package draft import", () => {
     expect(result.mode).toBe("single-canvas");
     expect(result.validation.errors.map((issue) => issue.code)).toContain("edge_to_missing");
     expect(result.canvases[0]?.graphQuality?.ok).toBe(false);
-    expect(result.canvases[0]?.graphQuality?.diagnostics.map((diagnostic) => diagnostic.code)).toContain("edge_to_missing");
+    expect(
+      result.canvases[0]?.graphQuality?.diagnostics.map((diagnostic) => diagnostic.code)
+    ).toContain("edge_to_missing");
   });
 
   it("previews imports without writing target files", async () => {
@@ -303,16 +312,27 @@ describe("package draft import", () => {
 
   it("previews and applies project-shaped imports without stale workspace diff drift", async () => {
     const { root, init } = await createTestWorkspace();
-    const { stalePackageDir, staleStateFile, staleResultsDir } = await addStaleCanvas(init.workspace);
+    const { stalePackageDir, staleStateFile, staleResultsDir } = await addStaleCanvas(
+      init.workspace
+    );
     const draftRoot = await createProjectDraft();
 
     const preview = await previewPackageDraftImport({ draftRoot, projectRoot: root });
     const applied = await applyPackageDraftImport({ draftRoot, projectRoot: root });
 
     expect(preview.fileDiffs.map((diff) => diff.path)).not.toContain("project.json");
-    expect(preview.fileDiffs).toContainEqual({ path: "canvases/stale/package/manifest.json", type: "removed" });
-    expect(preview.fileDiffs).toContainEqual({ path: "canvases/stale/state.json", type: "removed" });
-    expect(preview.fileDiffs).toContainEqual({ path: "canvases/stale/results/old.txt", type: "removed" });
+    expect(preview.fileDiffs).toContainEqual({
+      path: "canvases/stale/package/manifest.json",
+      type: "removed"
+    });
+    expect(preview.fileDiffs).toContainEqual({
+      path: "canvases/stale/state.json",
+      type: "removed"
+    });
+    expect(preview.fileDiffs).toContainEqual({
+      path: "canvases/stale/results/old.txt",
+      type: "removed"
+    });
     expect(preview.effects).toContainEqual({ type: "remove_canvas", path: "stale" });
     expect(applied.applied).toBe(true);
     await expect(access(stalePackageDir)).rejects.toThrow();
@@ -323,11 +343,19 @@ describe("package draft import", () => {
 
   it("restores stale canvas removal when a later canvas write fails", async () => {
     const { root, init } = await createTestWorkspace();
-    const { stalePackageDir, staleStateFile, staleResultsDir } = await addStaleCanvas(init.workspace);
+    const { stalePackageDir, staleStateFile, staleResultsDir } = await addStaleCanvas(
+      init.workspace
+    );
     const draftRoot = await createProjectDraft({ canvasIds: ["default", "blocked"] });
-    await writeFile(join(init.workspace.workspaceRoot, "canvases", "blocked"), "not a directory\n", "utf8");
+    await writeFile(
+      join(init.workspace.workspaceRoot, "canvases", "blocked"),
+      "not a directory\n",
+      "utf8"
+    );
 
-    await expect(applyPackageDraftImport({ draftRoot, projectRoot: root })).rejects.toThrow("Package draft import apply failed");
+    await expect(applyPackageDraftImport({ draftRoot, projectRoot: root })).rejects.toThrow(
+      "Package draft import apply failed"
+    );
 
     const projectGraph = JSON.parse(await readFile(projectGraphPath(init.workspace), "utf8")) as {
       canvases: Array<{ id: string }>;
@@ -342,8 +370,14 @@ describe("package draft import", () => {
   it("reports import and rollback failures", async () => {
     const { root, init } = await createTestWorkspace();
     const draftRoot = await createProjectDraft({ canvasIds: ["default", "blocked"] });
-    await writeFile(join(init.workspace.workspaceRoot, "canvases", "blocked"), "not a directory\n", "utf8");
-    const rollbackSpy = vi.spyOn(ImportTransaction.prototype, "rollback").mockRejectedValueOnce(new Error("rollback failed"));
+    await writeFile(
+      join(init.workspace.workspaceRoot, "canvases", "blocked"),
+      "not a directory\n",
+      "utf8"
+    );
+    const rollbackSpy = vi
+      .spyOn(ImportTransaction.prototype, "rollback")
+      .mockRejectedValueOnce(new Error("rollback failed"));
 
     try {
       await expect(applyPackageDraftImport({ draftRoot, projectRoot: root })).rejects.toThrow(
@@ -355,7 +389,18 @@ describe("package draft import", () => {
 
     const entries = await packageImportRecoveryEntries(init.workspace.workspaceRoot);
     expect(entries).toHaveLength(1);
-    await expect(access(join(init.workspace.workspaceRoot, "desktop", "recovery", "package-import", entries[0] ?? "", "recovery.json"))).resolves.toBeUndefined();
+    await expect(
+      access(
+        join(
+          init.workspace.workspaceRoot,
+          "desktop",
+          "recovery",
+          "package-import",
+          entries[0] ?? "",
+          "recovery.json"
+        )
+      )
+    ).resolves.toBeUndefined();
   });
 
   it("applies bulk review pipeline coverage to a 100-task implementation-only draft", async () => {
@@ -396,12 +441,16 @@ describe("package draft import", () => {
       ])
     );
     expect(await readManifestTitle(init.workspace.packageDir)).toBe("Test Plan");
-    await expect(access(join(init.workspace.packageDir, "nodes", taskId(100), "prompt.md"))).rejects.toThrow();
+    await expect(
+      access(join(init.workspace.packageDir, "nodes", taskId(100), "prompt.md"))
+    ).rejects.toThrow();
 
     const applied = await applyPackageDraftImport({ draftRoot, projectRoot: root });
     expect(applied).toMatchObject({ ok: true, applied: true, target: { canvasId: "default" } });
 
-    const draftTasks = draftManifest.nodes.filter((node): node is ManifestTaskNode => node.type === "task");
+    const draftTasks = draftManifest.nodes.filter(
+      (node): node is ManifestTaskNode => node.type === "task"
+    );
     const reviewUpdates = draftTasks.map((node) => reviewPipelineUpdate(node));
     await expect(bulkApplyReviewPipeline(root, reviewUpdates)).resolves.toMatchObject({
       ok: true,
@@ -412,7 +461,12 @@ describe("package draft import", () => {
     const validation = await validatePackage({ projectRoot: root });
     const quality = await validateGraphQuality({ projectRoot: root });
     const summary = await inspectGraph({ projectRoot: root, view: "summary", limit: 5 });
-    const finalTaskSlice = await inspectGraph({ projectRoot: root, view: "slice", taskId: taskId(100), limit: 5 });
+    const finalTaskSlice = await inspectGraph({
+      projectRoot: root,
+      view: "slice",
+      taskId: taskId(100),
+      limit: 5
+    });
 
     expect(validation.ok).toBe(true);
     expect(quality.ok).toBe(true);
@@ -434,19 +488,37 @@ describe("package draft import", () => {
     expect(summary.page).toMatchObject({ total: 100, nextCursor: "next:5", truncated: true });
     expect(JSON.stringify(summary)).not.toContain("writes a verifiable runtime result");
     expect(finalTaskSlice.center.dependsOn).toEqual([taskId(99)]);
-    expect(finalTaskSlice.edges.items).toEqual([{ from: taskId(100), to: taskId(99), type: "depends_on" }]);
+    expect(finalTaskSlice.edges.items).toEqual([
+      { from: taskId(100), to: taskId(99), type: "depends_on" }
+    ]);
     expect(finalTaskSlice.blocks.items).toEqual([
-      expect.objectContaining({ ref: `${taskId(100)}#B-001`, type: "implementation", dependsOn: [] }),
+      expect.objectContaining({
+        ref: `${taskId(100)}#B-001`,
+        type: "implementation",
+        dependsOn: []
+      }),
       expect.objectContaining({ type: "review", dependsOn: [`${taskId(100)}#B-001`] })
     ]);
 
-    const appliedManifest = JSON.parse(await readFile(join(init.workspace.packageDir, "manifest.json"), "utf8")) as PlanPackageManifest;
-    const tasks = appliedManifest.nodes.filter((node): node is ManifestTaskNode => node.type === "task");
+    const appliedManifest = JSON.parse(
+      await readFile(join(init.workspace.packageDir, "manifest.json"), "utf8")
+    ) as PlanPackageManifest;
+    const tasks = appliedManifest.nodes.filter(
+      (node): node is ManifestTaskNode => node.type === "task"
+    );
 
     expect(tasks).toHaveLength(100);
     expect(appliedManifest.edges).toHaveLength(99);
-    expect(appliedManifest.edges).toContainEqual({ from: taskId(2), to: taskId(1), type: "depends_on" });
-    expect(appliedManifest.edges).toContainEqual({ from: taskId(100), to: taskId(99), type: "depends_on" });
+    expect(appliedManifest.edges).toContainEqual({
+      from: taskId(2),
+      to: taskId(1),
+      type: "depends_on"
+    });
+    expect(appliedManifest.edges).toContainEqual({
+      from: taskId(100),
+      to: taskId(99),
+      type: "depends_on"
+    });
     for (const task of tasks) {
       const implementations = task.blocks.filter((block) => block.type === "implementation");
       const reviews = task.blocks.filter((block) => block.type === "review");

@@ -34,7 +34,9 @@ function reviewWithoutDependency(manifest: PlanPackageManifest): PlanPackageMani
     ...manifest,
     nodes: manifest.nodes.map((task) => ({
       ...task,
-      blocks: task.blocks.map((block) => (block.type === "review" ? { ...block, depends_on: [] } : block))
+      blocks: task.blocks.map((block) =>
+        block.type === "review" ? { ...block, depends_on: [] } : block
+      )
     }))
   };
 }
@@ -54,7 +56,7 @@ function taskFromTemplate(index: number): ManifestTaskNode {
         title: `Implement task ${index}`,
         prompt: `nodes/${id}/blocks/B-001.prompt.md`,
         depends_on: [],
-        parallel: { safe: true, locks: [`task-${index}`] }
+        parallel: { locks: [`task-${index}`] }
       },
       {
         id: "R-001",
@@ -86,7 +88,7 @@ function gateTask(): ManifestTaskNode {
         title: "Run quality gate",
         prompt: "nodes/QUALITY-GATE/blocks/B-001.prompt.md",
         depends_on: [],
-        parallel: { safe: true, locks: ["quality-gate"] }
+        parallel: { locks: ["quality-gate"] }
       },
       {
         id: "R-001",
@@ -124,7 +126,11 @@ function manifestWithGate(gateDependencies: string[]): PlanPackageManifest {
   return {
     ...manifest,
     nodes: [...manifest.nodes, gateTask()],
-    edges: gateDependencies.map((taskId) => ({ from: "QUALITY-GATE", to: taskId, type: "depends_on" as const }))
+    edges: gateDependencies.map((taskId) => ({
+      from: "QUALITY-GATE",
+      to: taskId,
+      type: "depends_on" as const
+    }))
   };
 }
 
@@ -170,9 +176,17 @@ describe("validateGraphQuality", () => {
   it("reports compile graph warnings without failing quality", async () => {
     const { init, root } = await createTestWorkspace();
     await mkdir(join(init.workspace.packageDir, "nodes", "T-STALE"), { recursive: true });
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-STALE", "prompt.md"), "# stale prompt\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-STALE", "prompt.md"),
+      "# stale prompt\n",
+      "utf8"
+    );
 
-    const result = await validateGraphQuality({ projectRoot: root, reviewPolicy: "none", heuristics: "off" });
+    const result = await validateGraphQuality({
+      projectRoot: root,
+      reviewPolicy: "none",
+      heuristics: "off"
+    });
 
     expect(result.ok).toBe(true);
     expect(result.summary.warningCount).toBeGreaterThan(0);
@@ -194,7 +208,9 @@ describe("validateGraphQuality", () => {
       affectedIds: ["T-001#R-001"]
     });
     expect(strict.ok).toBe(false);
-    expect(findDiagnostic(strict, "review_missing_implementation_dependency")).toMatchObject({ severity: "error" });
+    expect(findDiagnostic(strict, "review_missing_implementation_dependency")).toMatchObject({
+      severity: "error"
+    });
   });
 
   it("reports orphaned tasks only for multi-task graphs", async () => {
@@ -217,13 +233,23 @@ describe("validateGraphQuality", () => {
     const none = await validateGraphQuality({ projectRoot: root, reviewPolicy: "none" });
     const riskBased = await validateGraphQuality({ projectRoot: root, reviewPolicy: "risk-based" });
     const required = await validateGraphQuality({ projectRoot: root, reviewPolicy: "required" });
-    const requiredStrict = await validateGraphQuality({ projectRoot: root, reviewPolicy: "required", strict: true });
+    const requiredStrict = await validateGraphQuality({
+      projectRoot: root,
+      reviewPolicy: "required",
+      strict: true
+    });
 
     expect(findDiagnostic(none, "task_missing_review_block")).toBeUndefined();
-    expect(findDiagnostic(riskBased, "task_missing_review_block")).toMatchObject({ severity: "info" });
-    expect(findDiagnostic(required, "task_missing_review_block")).toMatchObject({ severity: "warning" });
+    expect(findDiagnostic(riskBased, "task_missing_review_block")).toMatchObject({
+      severity: "info"
+    });
+    expect(findDiagnostic(required, "task_missing_review_block")).toMatchObject({
+      severity: "warning"
+    });
     expect(requiredStrict.ok).toBe(false);
-    expect(findDiagnostic(requiredStrict, "task_missing_review_block")).toMatchObject({ severity: "error" });
+    expect(findDiagnostic(requiredStrict, "task_missing_review_block")).toMatchObject({
+      severity: "error"
+    });
   });
 
   it("reports sparse dependency heuristics only above the configured threshold", async () => {
@@ -231,7 +257,10 @@ describe("validateGraphQuality", () => {
     const small = await createTestWorkspace(sparseManifest(3));
 
     const largeResult = await validateGraphQuality({ projectRoot: large.init.workspace });
-    const disabledResult = await validateGraphQuality({ projectRoot: large.init.workspace, heuristics: "off" });
+    const disabledResult = await validateGraphQuality({
+      projectRoot: large.init.workspace,
+      heuristics: "off"
+    });
     const smallResult = await validateGraphQuality({ projectRoot: small.init.workspace });
 
     expect(findDiagnostic(largeResult, "graph_sparse_dependencies")).toMatchObject({
@@ -246,8 +275,18 @@ describe("validateGraphQuality", () => {
   it("reports a missing canvas gate only when gate policy requires one", async () => {
     const { root } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
 
-    const policyNone = await validateGraphQuality({ projectRoot: root, gatePolicy: "none", reviewPolicy: "none", heuristics: "off" });
-    const required = await validateGraphQuality({ projectRoot: root, gatePolicy: "required", reviewPolicy: "none", heuristics: "off" });
+    const policyNone = await validateGraphQuality({
+      projectRoot: root,
+      gatePolicy: "none",
+      reviewPolicy: "none",
+      heuristics: "off"
+    });
+    const required = await validateGraphQuality({
+      projectRoot: root,
+      gatePolicy: "required",
+      reviewPolicy: "none",
+      heuristics: "off"
+    });
     const requiredStrict = await validateGraphQuality({
       projectRoot: root,
       gatePolicy: "required",
@@ -264,13 +303,20 @@ describe("validateGraphQuality", () => {
       affectedIds: ["canvas"]
     });
     expect(requiredStrict.ok).toBe(false);
-    expect(findDiagnostic(requiredStrict, "canvas_gate_missing")).toMatchObject({ severity: "error" });
+    expect(findDiagnostic(requiredStrict, "canvas_gate_missing")).toMatchObject({
+      severity: "error"
+    });
   });
 
   it("reports gate tasks that do not directly depend on every non-gate task", async () => {
     const { root } = await createTestWorkspace(manifestWithGate(["T-001"]));
 
-    const loose = await validateGraphQuality({ projectRoot: root, gatePolicy: "none", reviewPolicy: "none", heuristics: "off" });
+    const loose = await validateGraphQuality({
+      projectRoot: root,
+      gatePolicy: "none",
+      reviewPolicy: "none",
+      heuristics: "off"
+    });
     const strict = await validateGraphQuality({
       projectRoot: root,
       gatePolicy: "none",
@@ -286,7 +332,9 @@ describe("validateGraphQuality", () => {
       affectedIds: ["QUALITY-GATE->T-002"]
     });
     expect(strict.ok).toBe(false);
-    expect(findDiagnostic(strict, "canvas_gate_incomplete_dependencies")).toMatchObject({ severity: "error" });
+    expect(findDiagnostic(strict, "canvas_gate_incomplete_dependencies")).toMatchObject({
+      severity: "error"
+    });
   });
 
   it("does not treat INVESTIGATE as a gate task", async () => {
@@ -297,7 +345,12 @@ describe("validateGraphQuality", () => {
       edges: []
     });
 
-    const result = await validateGraphQuality({ projectRoot: root, gatePolicy: "none", reviewPolicy: "none", heuristics: "off" });
+    const result = await validateGraphQuality({
+      projectRoot: root,
+      gatePolicy: "none",
+      reviewPolicy: "none",
+      heuristics: "off"
+    });
 
     expect(findDiagnostic(result, "canvas_gate_incomplete_dependencies")).toBeUndefined();
   });
@@ -305,7 +358,12 @@ describe("validateGraphQuality", () => {
   it("accepts a gate task with complete non-gate dependencies", async () => {
     const { root } = await createTestWorkspace(manifestWithGate(["T-001", "T-002"]));
 
-    const result = await validateGraphQuality({ projectRoot: root, gatePolicy: "required", reviewPolicy: "none", heuristics: "off" });
+    const result = await validateGraphQuality({
+      projectRoot: root,
+      gatePolicy: "required",
+      reviewPolicy: "none",
+      heuristics: "off"
+    });
 
     expect(findDiagnostic(result, "canvas_gate_missing")).toBeUndefined();
     expect(findDiagnostic(result, "canvas_gate_incomplete_dependencies")).toBeUndefined();
@@ -315,7 +373,11 @@ describe("validateGraphQuality", () => {
     const { root } = await createTestWorkspace(basicManifest({ reviewMaxFeedbackCycles: 0 }));
 
     const loose = await validateGraphQuality({ projectRoot: root, reviewPolicy: "required" });
-    const strict = await validateGraphQuality({ projectRoot: root, reviewPolicy: "required", strict: true });
+    const strict = await validateGraphQuality({
+      projectRoot: root,
+      reviewPolicy: "required",
+      strict: true
+    });
 
     expect(loose.ok).toBe(true);
     expect(findDiagnostic(loose, "review_loop_cycles_missing")).toMatchObject({
@@ -324,7 +386,9 @@ describe("validateGraphQuality", () => {
       fixId: "enable_review_feedback_cycles"
     });
     expect(strict.ok).toBe(false);
-    expect(findDiagnostic(strict, "review_loop_cycles_missing")).toMatchObject({ severity: "error" });
+    expect(findDiagnostic(strict, "review_loop_cycles_missing")).toMatchObject({
+      severity: "error"
+    });
   });
 
   it("reports large flat layouts, weak acceptance criteria, and duplicate block prompts as heuristics", async () => {
@@ -332,9 +396,21 @@ describe("validateGraphQuality", () => {
     manifest.nodes[0].acceptance = ["done"];
     const { init, root } = await createTestWorkspace(manifest);
     const duplicatePrompt = "# Shared prompt\n";
-    await writeFile(join(init.workspace.packageDir, "nodes/T-001/blocks/B-001.prompt.md"), duplicatePrompt, "utf8");
-    await writeFile(join(init.workspace.packageDir, "nodes/T-002/blocks/B-001.prompt.md"), duplicatePrompt, "utf8");
-    await writeFile(join(init.workspace.packageDir, "nodes/T-003/blocks/B-001.prompt.md"), duplicatePrompt, "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes/T-001/blocks/B-001.prompt.md"),
+      duplicatePrompt,
+      "utf8"
+    );
+    await writeFile(
+      join(init.workspace.packageDir, "nodes/T-002/blocks/B-001.prompt.md"),
+      duplicatePrompt,
+      "utf8"
+    );
+    await writeFile(
+      join(init.workspace.packageDir, "nodes/T-003/blocks/B-001.prompt.md"),
+      duplicatePrompt,
+      "utf8"
+    );
 
     const result = await validateGraphQuality({ projectRoot: root });
 

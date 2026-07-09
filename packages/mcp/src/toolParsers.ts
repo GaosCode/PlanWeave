@@ -16,7 +16,12 @@ import {
 } from "./toolInputSchemas.js";
 import type { RuntimeGateway } from "./toolTypes.js";
 
-export { parseCreateTaskToolArgs, parseUpdateBlockToolArgs, parseUpdateReviewPipelineToolArgs, parseUpdateTaskToolArgs };
+export {
+  parseCreateTaskToolArgs,
+  parseUpdateBlockToolArgs,
+  parseUpdateReviewPipelineToolArgs,
+  parseUpdateTaskToolArgs
+};
 
 export function parseCreateBlockInput(record: Record<string, unknown>) {
   return {
@@ -42,14 +47,28 @@ export function parseBlockDependenciesInput(record: Record<string, unknown>): st
 }
 
 export function parseBlockPlanningInput(record: Record<string, unknown>) {
+  const parallelSafe = optionalBoolean(record.parallelSafe, "parallelSafe");
+  const exclusiveDirect = optionalBoolean(record.exclusive, "exclusive");
+  // Deprecated parallelSafe maps to exclusive (false ⇒ exclusive true).
+  const exclusive =
+    exclusiveDirect !== undefined
+      ? exclusiveDirect
+      : parallelSafe !== undefined
+        ? !parallelSafe
+        : undefined;
   const input = {
-    parallelSafe: optionalBoolean(record.parallelSafe, "parallelSafe"),
-    parallelLocks: record.parallelLocks === undefined ? undefined : requiredStringArray(record.parallelLocks, "parallelLocks"),
+    exclusive,
+    parallelSafe,
+    parallelLocks:
+      record.parallelLocks === undefined
+        ? undefined
+        : requiredStringArray(record.parallelLocks, "parallelLocks"),
     reviewRequired: optionalBoolean(record.reviewRequired, "reviewRequired"),
     maxFeedbackCycles: optionalNonNegativeInteger(record.maxFeedbackCycles, "maxFeedbackCycles"),
     reviewHook: parseOptionalReviewHook(record.reviewHook, "reviewHook")
   };
   if (
+    input.exclusive === undefined &&
     input.parallelSafe === undefined &&
     input.parallelLocks === undefined &&
     input.reviewRequired === undefined &&
@@ -67,13 +86,20 @@ export function parseCanvasExecutionPolicyInput(record: Record<string, unknown>)
     parallelEnabled: optionalBoolean(record.parallelEnabled, "parallelEnabled"),
     maxConcurrent: optionalPositiveInteger(record.maxConcurrent, "maxConcurrent")
   };
-  if (input.defaultExecutor === undefined && input.parallelEnabled === undefined && input.maxConcurrent === undefined) {
+  if (
+    input.defaultExecutor === undefined &&
+    input.parallelEnabled === undefined &&
+    input.maxConcurrent === undefined
+  ) {
     throw new Error("At least one execution policy field must be provided.");
   }
   return input;
 }
 
-export function parseProjectTaskRefs(record: Record<string, unknown>): { from: ProjectTaskRef; to: ProjectTaskRef } {
+export function parseProjectTaskRefs(record: Record<string, unknown>): {
+  from: ProjectTaskRef;
+  to: ProjectTaskRef;
+} {
   return {
     from: {
       canvasId: nonEmptyString(record.fromCanvasId, "fromCanvasId"),
@@ -101,8 +127,17 @@ export async function readPrompt(args: unknown, gateway: RuntimeGateway) {
     return jsonToolResult({ target, markdown: await gateway.readProjectPrompt(projectId) });
   }
   if (target === "task") {
-    const task = await gateway.getTaskDetail(projectId, nonEmptyString(record.taskId, "taskId"), canvasId);
-    return jsonToolResult({ target, taskId: task.taskId, markdown: task.promptMarkdown, promptMissing: task.promptMissing });
+    const task = await gateway.getTaskDetail(
+      projectId,
+      nonEmptyString(record.taskId, "taskId"),
+      canvasId
+    );
+    return jsonToolResult({
+      target,
+      taskId: task.taskId,
+      markdown: task.promptMarkdown,
+      promptMissing: task.promptMissing
+    });
   }
   if (target === "block") {
     const block = await gateway.getBlockDetail(projectId, blockRefFromArgs(record), canvasId);
@@ -187,7 +222,10 @@ function parseReviewHook(value: unknown, field: string): ReviewHookDefinition {
   return { ...hook, type: "executable", executionPolicy: "trusted-local" };
 }
 
-function parseOptionalReviewHook(value: unknown, field: string): ReviewHookDefinition | null | undefined {
+function parseOptionalReviewHook(
+  value: unknown,
+  field: string
+): ReviewHookDefinition | null | undefined {
   if (value === undefined) {
     return undefined;
   }

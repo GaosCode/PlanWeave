@@ -23,7 +23,10 @@ import {
   updateBlockPrompt,
   updateTaskPrompt
 } from "../desktop/index.js";
-import { buildDesktopGraphViewModelContext, buildGraphViewModel } from "../desktop/graph/readModel.js";
+import {
+  buildDesktopGraphViewModelContext,
+  buildGraphViewModel
+} from "../desktop/graph/readModel.js";
 import { ImportTransaction } from "../package/importTransaction.js";
 import { buildExecutionStatus } from "../taskManager/executionStatus.js";
 import { loadRuntime } from "../taskManager/runtimeContext.js";
@@ -43,7 +46,19 @@ describe("desktop graph read API", () => {
 
     expect(graph.projectId).toBe(init.workspace.id);
     expect(graph.projectTitle).toBe("Test Plan");
-    expect(graph.executorOptions).toEqual(expect.arrayContaining(["default", "manual", "codex", "codex-auto", "opencode", "claude-code", "claude-code-auto", "pi", "pi-auto"]));
+    expect(graph.executorOptions).toEqual(
+      expect.arrayContaining([
+        "default",
+        "manual",
+        "codex",
+        "codex-auto",
+        "opencode",
+        "claude-code",
+        "claude-code-auto",
+        "pi",
+        "pi-auto"
+      ])
+    );
     expect(graph.edges).toEqual([]);
     expect(graph.tasks[0]).toMatchObject({
       taskId: "T-001",
@@ -55,7 +70,10 @@ describe("desktop graph read API", () => {
     });
     expect(graph.tasks[0].promptPreview).toContain("T-001 task prompt");
     expect(graph.tasks[0].blocks.map((block) => block.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
-    expect(graph.tasks[0].blockPreview.map((block) => block.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
+    expect(graph.tasks[0].blockPreview.map((block) => block.ref)).toEqual([
+      "T-001#B-001",
+      "T-001#R-001"
+    ]);
   });
 
   it("includes manifest custom executors in graph executor options", async () => {
@@ -85,28 +103,45 @@ describe("desktop graph read API", () => {
     if (firstTask?.type !== "task" || secondTask?.type !== "task") {
       throw new Error("Fixture tasks missing.");
     }
-    firstTask.blocks = firstTask.blocks.map((block) => (block.id === "B-001" ? { ...block, executor: "codex" } : block));
-    secondTask.blocks = secondTask.blocks.map((block) => (block.id === "B-001" ? { ...block, executor: "opencode" } : block));
+    firstTask.blocks = firstTask.blocks.map((block) =>
+      block.id === "B-001" ? { ...block, executor: "codex" } : block
+    );
+    secondTask.blocks = secondTask.blocks.map((block) =>
+      block.id === "B-001" ? { ...block, executor: "opencode" } : block
+    );
     await writeJsonFile(init.workspace.manifestFile, manifest);
 
     const graph = await getGraphViewModel(root);
 
-    expect(graph.executorOptions).toEqual(expect.arrayContaining(["default", "manual", "codex", "opencode"]));
+    expect(graph.executorOptions).toEqual(
+      expect.arrayContaining(["default", "manual", "codex", "opencode"])
+    );
     expect(graph.autoRunPreflightExecutorHint).toBe("codex");
   });
 
   it("resolves Auto Run preflight hint from the parallel review fallback before serial implementation fallback", async () => {
-    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true, parallel: true }));
+    const { root, init } = await createTestWorkspace(
+      basicManifest({ includeSecondTask: true, parallel: true })
+    );
     const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     const firstTask = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
     const secondTask = manifest.nodes.find((node) => node.type === "task" && node.id === "T-002");
     if (firstTask?.type !== "task" || secondTask?.type !== "task") {
       throw new Error("Fixture tasks missing.");
     }
-    firstTask.blocks = firstTask.blocks.map((block) => (block.id === "R-001" ? { ...block, executor: "codex" } : block));
-    secondTask.blocks = secondTask.blocks.map((block) =>
-      block.id === "B-001" ? { ...block, executor: "opencode", parallel: { safe: false, locks: [] } } : block
+    firstTask.blocks = firstTask.blocks.map((block) =>
+      block.id === "R-001" ? { ...block, executor: "codex" } : block
     );
+    // T-002 waits on T-001 becoming implemented, so it is not parallel-batchable yet.
+    // Under locks-only eligibility every ready implementation is batch-eligible; task deps
+    // are how we keep a serial-only peer out of the parallel batch while review is ready.
+    secondTask.blocks = secondTask.blocks.map((block) =>
+      block.id === "B-001" ? { ...block, executor: "opencode", parallel: { locks: [] } } : block
+    );
+    manifest.edges = [
+      ...(manifest.edges ?? []),
+      { from: "T-002", to: "T-001", type: "depends_on" }
+    ];
     await writeJsonFile(init.workspace.manifestFile, manifest);
     await writeJsonFile(init.workspace.stateFile, {
       currentRefs: [],
@@ -131,8 +166,11 @@ describe("desktop graph read API", () => {
     if (task?.type !== "task") {
       throw new Error("Fixture task missing.");
     }
+    // Exclusive (formerly safe:false) still yields a single-ref parallel batch with codex.
     task.blocks = task.blocks.map((block) =>
-      block.id === "B-001" ? { ...block, executor: "codex", parallel: { safe: false, locks: [] } } : block
+      block.id === "B-001"
+        ? { ...block, executor: "codex", parallel: { locks: ["exclusive"] } }
+        : block
     );
     await writeJsonFile(init.workspace.manifestFile, manifest);
 
@@ -149,17 +187,23 @@ describe("desktop graph read API", () => {
       throw new Error("Fixture task missing.");
     }
     task.blocks = task.blocks.map((block) =>
-      block.id === "B-001" ? { ...block, executor: "codex", parallel: { safe: false, locks: [] } } : block
+      block.id === "B-001"
+        ? { ...block, executor: "codex", parallel: { locks: ["exclusive"] } }
+        : block
     );
     await writeJsonFile(init.workspace.manifestFile, manifest);
     const runtime = await loadRuntime({ projectRoot: root });
     const claimGuard = {
-      blockersForTask: (taskId: string) => (taskId === "T-001" ? ["Project dependency is incomplete."] : []),
-      blockerReasonForTask: (taskId: string) => (taskId === "T-001" ? "Project dependency is incomplete." : null)
+      blockersForTask: (taskId: string) =>
+        taskId === "T-001" ? ["Project dependency is incomplete."] : [],
+      blockerReasonForTask: (taskId: string) =>
+        taskId === "T-001" ? "Project dependency is incomplete." : null
     };
     const status = await buildExecutionStatus(runtime, { claimGuard });
 
-    const graph = await buildGraphViewModel(buildDesktopGraphViewModelContext(runtime, status, { claimGuard }));
+    const graph = await buildGraphViewModel(
+      buildDesktopGraphViewModelContext(runtime, status, { claimGuard })
+    );
 
     expect(graph.autoRunPreflightExecutorHint).toBeNull();
   });
@@ -183,11 +227,17 @@ describe("desktop graph read API", () => {
   it("exposes dirty prompt refs from desktop file sync in graph view models", async () => {
     const { root, init } = await createTestWorkspace();
     const snapshot = await createDesktopPackageFileSnapshot(root);
-    await writeFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"), "# external block prompt edit\n", "utf8");
+    await writeFile(
+      join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"),
+      "# external block prompt edit\n",
+      "utf8"
+    );
 
-    await expect(detectDesktopPackageFileChanges(root, snapshot.snapshotId)).resolves.toMatchObject({
-      dirtyPromptRefs: ["T-001#B-001"]
-    });
+    await expect(detectDesktopPackageFileChanges(root, snapshot.snapshotId)).resolves.toMatchObject(
+      {
+        dirtyPromptRefs: ["T-001#B-001"]
+      }
+    );
 
     await expect(getGraphViewModel(root)).resolves.toMatchObject({
       dirtyPromptRefs: ["T-001#B-001"]
@@ -237,8 +287,15 @@ describe("desktop graph read API", () => {
     }
     expect(task.title).toBe("Implement test task");
     expect(task.blocks.find((block) => block.id === "B-001")?.title).toBe("Implement task");
-    expect(await readFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), "utf8")).toBe(longTaskPrompt);
-    expect(await readFile(join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"), "utf8")).toBe("# Updated block prompt\n");
+    expect(
+      await readFile(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"), "utf8")
+    ).toBe(longTaskPrompt);
+    expect(
+      await readFile(
+        join(init.workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"),
+        "utf8"
+      )
+    ).toBe("# Updated block prompt\n");
 
     await expect(getTaskDetail(root, "T-001")).resolves.toMatchObject({
       title: "Implement test task",
@@ -255,7 +312,11 @@ describe("desktop graph read API", () => {
 
   it("exposes the rendered prompt surface with visible prompt source provenance", async () => {
     const { home, root, init } = await createTestWorkspace();
-    await writeFile(join(home, "config", "global-prompt.md"), "Global policy from parent flow.\n", "utf8");
+    await writeFile(
+      join(home, "config", "global-prompt.md"),
+      "Global policy from parent flow.\n",
+      "utf8"
+    );
     await writeFile(init.workspace.projectPromptFile, "Project canvas policy.\n", "utf8");
 
     const inheritedDetail = await getBlockDetail(root, "T-001#B-001");
@@ -268,8 +329,17 @@ describe("desktop graph read API", () => {
     expect(inheritedDetail.promptSurfaceMarkdown).toContain("# T-001#B-001 implementation prompt");
     expect(inheritedDetail.promptSources).toEqual([
       expect.objectContaining({ kind: "global", label: "PlanWeave Global Prompt", included: true }),
-      expect.objectContaining({ kind: "projectCanvas", label: "Project/Canvas Prompt", included: true }),
-      expect.objectContaining({ kind: "projectGraph", label: "Project Canvas Context", included: true, missing: false }),
+      expect.objectContaining({
+        kind: "projectCanvas",
+        label: "Project/Canvas Prompt",
+        included: true
+      }),
+      expect.objectContaining({
+        kind: "projectGraph",
+        label: "Project Canvas Context",
+        included: true,
+        missing: false
+      }),
       expect.objectContaining({ kind: "taskNode", label: "Task Node Prompt", included: true }),
       expect.objectContaining({ kind: "block", label: "Block Prompt", included: true })
     ]);
@@ -277,9 +347,13 @@ describe("desktop graph read API", () => {
     await updateProjectPromptPolicy(root, { includeGlobalPrompt: false });
     const projectScopedDetail = await getBlockDetail(root, "T-001#B-001");
 
-    expect(projectScopedDetail.promptSurfaceMarkdown).not.toContain("Global policy from parent flow.");
+    expect(projectScopedDetail.promptSurfaceMarkdown).not.toContain(
+      "Global policy from parent flow."
+    );
     expect(projectScopedDetail.promptSurfaceMarkdown).toContain("Project canvas policy.");
-    expect(projectScopedDetail.promptSources.find((source) => source.kind === "global")).toMatchObject({
+    expect(
+      projectScopedDetail.promptSources.find((source) => source.kind === "global")
+    ).toMatchObject({
       included: false,
       disabledReason: "Disabled for this project."
     });
@@ -291,7 +365,9 @@ describe("desktop graph read API", () => {
     await expect(readProjectPrompt(root)).resolves.toContain("# Project Prompt");
     await updateProjectPrompt(root, "Project/Canvas prompt visible in settings.\n");
 
-    await expect(readProjectPrompt(root)).resolves.toBe("Project/Canvas prompt visible in settings.\n");
+    await expect(readProjectPrompt(root)).resolves.toBe(
+      "Project/Canvas prompt visible in settings.\n"
+    );
     await expect(getBlockDetail(root, "T-001#B-001")).resolves.toMatchObject({
       promptSurfaceMarkdown: expect.stringContaining("Project/Canvas prompt visible in settings.")
     });
@@ -309,7 +385,10 @@ describe("desktop graph read API", () => {
     expect(graph.diagnostics).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: "prompt_missing", path: "nodes/T-001/prompt.md" }),
-        expect.objectContaining({ code: "prompt_missing", path: "nodes/T-001/blocks/B-001.prompt.md" })
+        expect.objectContaining({
+          code: "prompt_missing",
+          path: "nodes/T-001/blocks/B-001.prompt.md"
+        })
       ])
     );
     expect(graph.tasks[0]).toMatchObject({ promptMarkdown: "", promptMissing: true });
@@ -330,7 +409,11 @@ describe("desktop graph read API", () => {
       }
     });
     const todo = await getTodoGroups(root);
-    expect(Object.values(todo).flat().find((item) => item.ref === "T-001#R-001")).toMatchObject({
+    expect(
+      Object.values(todo)
+        .flat()
+        .find((item) => item.ref === "T-001#R-001")
+    ).toMatchObject({
       reviewGate: {
         required: true,
         executorRole: "reviewer",
@@ -355,7 +438,9 @@ describe("desktop graph read API", () => {
     await expect(getTodoGroups(root)).resolves.toEqual(snapshot.todoGroups);
     await expect(getProjectExecutionPlan(root)).resolves.toEqual(snapshot.executionPlan);
     await expect(getStatistics(root)).resolves.toEqual(snapshot.statistics);
-    await expect(listPendingImportRecoveries(root)).resolves.toEqual(snapshot.pendingImportRecoveries);
+    await expect(listPendingImportRecoveries(root)).resolves.toEqual(
+      snapshot.pendingImportRecoveries
+    );
   });
 
   it("includes pending import recoveries in desktop project snapshots", async () => {
@@ -379,7 +464,13 @@ describe("desktop graph read API", () => {
     expect(snapshot.pendingImportRecoveries).toMatchObject([
       {
         transactionId,
-        recoveryRoot: join(init.workspace.workspaceRoot, "desktop", "recovery", "package-import", transactionId),
+        recoveryRoot: join(
+          init.workspace.workspaceRoot,
+          "desktop",
+          "recovery",
+          "package-import",
+          transactionId
+        ),
         operationCount: 1,
         phases: ["installed"]
       }
@@ -389,17 +480,22 @@ describe("desktop graph read API", () => {
   it("reports pending import recovery read failures as snapshot diagnostics", async () => {
     const { root, init } = await createTestWorkspace();
     await mkdir(join(init.workspace.workspaceRoot, "desktop", "recovery"), { recursive: true });
-    await writeFile(join(init.workspace.workspaceRoot, "desktop", "recovery", "package-import"), "not a directory", "utf8");
+    await writeFile(
+      join(init.workspace.workspaceRoot, "desktop", "recovery", "package-import"),
+      "not a directory",
+      "utf8"
+    );
 
     const snapshot = await getDesktopProjectSnapshot({ projectRoot: root, canvasId: null });
 
     expect(snapshot.pendingImportRecoveries).toEqual([]);
     expect(snapshot.diagnostics).toEqual([
-      expect.objectContaining({ code: "desktop_snapshot_part_failed", path: "pendingImportRecoveries" })
+      expect.objectContaining({
+        code: "desktop_snapshot_part_failed",
+        path: "pendingImportRecoveries"
+      })
     ]);
-    expect(snapshot.errors).toEqual([
-      expect.stringContaining("pendingImportRecoveries:")
-    ]);
+    expect(snapshot.errors).toEqual([expect.stringContaining("pendingImportRecoveries:")]);
   });
 
   it("keeps snapshot fields when one first-screen part fails", async () => {
@@ -420,16 +516,16 @@ describe("desktop graph read API", () => {
     expect(snapshot.diagnostics).toEqual([
       expect.objectContaining({ code: "desktop_snapshot_part_failed", path: "layout" })
     ]);
-    expect(snapshot.errors).toEqual([
-      expect.stringContaining("layout:")
-    ]);
+    expect(snapshot.errors).toEqual([expect.stringContaining("layout:")]);
   });
 
   it("reports statistics errors when a canvas execution snapshot fails", async () => {
     const { root } = await createTestWorkspace();
     const brokenCanvas = await createTaskCanvas(root, { name: "Broken imported canvas" });
     const brokenWorkspace = await resolveTaskCanvasWorkspace(root, brokenCanvas.canvasId);
-    const invalidManifest = basicManifest() as unknown as { nodes: Array<{ blocks: Array<Record<string, unknown>> }> };
+    const invalidManifest = basicManifest() as unknown as {
+      nodes: Array<{ blocks: Array<Record<string, unknown>> }>;
+    };
     invalidManifest.nodes[0].blocks[0].type = "check";
     await writeJsonFile(brokenWorkspace.manifestFile, invalidManifest);
 
@@ -437,17 +533,32 @@ describe("desktop graph read API", () => {
 
     expect(snapshot.graph?.tasks.map((task) => task.taskId)).toEqual(["T-001"]);
     expect(snapshot.todoGroups?.ready.map((item) => item.ref)).toEqual([]);
-    expect(snapshot.todoGroups?.planned.map((item) => item.ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
+    expect(snapshot.todoGroups?.planned.map((item) => item.ref)).toEqual([
+      "T-001#B-001",
+      "T-001#R-001"
+    ]);
     expect(snapshot.todoGroups?.planned[0]?.dependencyBlockers).toEqual([
       expect.stringContaining("Project graph is invalid; no task canvas work can be claimed.")
     ]);
-    expect(snapshot.executionPlan?.phases.map((phase) => phase.canvasId)).toEqual(["default", brokenCanvas.canvasId]);
+    expect(snapshot.executionPlan?.phases.map((phase) => phase.canvasId)).toEqual([
+      "default",
+      brokenCanvas.canvasId
+    ]);
     expect(snapshot.statistics).toMatchObject({ taskTotal: 1, blockTotal: 2 });
-    expect(snapshot.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: "desktop_canvas_execution_snapshot_failed", path: brokenCanvas.canvasId })
-    ]));
-    expect(snapshot.errors).toEqual(expect.arrayContaining([
-      expect.stringContaining(`${brokenCanvas.canvasId}: Canvas '${brokenCanvas.canvasId}' execution snapshot failed`)
-    ]));
+    expect(snapshot.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "desktop_canvas_execution_snapshot_failed",
+          path: brokenCanvas.canvasId
+        })
+      ])
+    );
+    expect(snapshot.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          `${brokenCanvas.canvasId}: Canvas '${brokenCanvas.canvasId}' execution snapshot failed`
+        )
+      ])
+    );
   });
 });

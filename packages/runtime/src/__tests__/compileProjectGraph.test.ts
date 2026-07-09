@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/index.js";
 import { writeJsonFile } from "../json.js";
-import { canonicalProjectCanvasNode, compileProjectGraph, parseProjectTaskRefKey, projectTaskRefKey } from "../projectGraph/index.js";
+import {
+  canonicalProjectCanvasNode,
+  compileProjectGraph,
+  parseProjectTaskRefKey,
+  projectTaskRefKey
+} from "../projectGraph/index.js";
 import { loadProjectGraph, writeProjectGraph } from "../projectGraph/loadProjectGraph.js";
 import type { PlanPackageManifest } from "../types.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
@@ -10,7 +15,11 @@ afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
 });
 
-async function createSecondCanvas(root: string, name = "Second plan", manifest: PlanPackageManifest = basicManifest()) {
+async function createSecondCanvas(
+  root: string,
+  name = "Second plan",
+  manifest: PlanPackageManifest = basicManifest()
+) {
   const canvas = await createTaskCanvas(root, { name });
   const workspace = await resolveTaskCanvasWorkspace(root, canvas.canvasId);
   await writeJsonFile(workspace.manifestFile, manifest);
@@ -37,7 +46,7 @@ function manyTaskManifest(count: number): PlanPackageManifest {
             title: `Implement ${taskId}`,
             prompt: `nodes/${taskId}/blocks/B-001.prompt.md`,
             depends_on: [],
-            parallel: { safe: true, locks: [taskId] }
+            parallel: { locks: [taskId] }
           }
         ]
       };
@@ -48,7 +57,10 @@ function manyTaskManifest(count: number): PlanPackageManifest {
 
 describe("compileProjectGraph", () => {
   it("parses project task ref keys and rejects incomplete refs", () => {
-    expect(parseProjectTaskRefKey("default::T-001")).toEqual({ canvasId: "default", taskId: "T-001" });
+    expect(parseProjectTaskRefKey("default::T-001")).toEqual({
+      canvasId: "default",
+      taskId: "T-001"
+    });
     expect(() => parseProjectTaskRefKey("default")).toThrow("Expected '<canvas-id>::<task-id>'.");
     expect(() => parseProjectTaskRefKey("::T-001")).toThrow("Expected '<canvas-id>::<task-id>'.");
     expect(() => parseProjectTaskRefKey("default::")).toThrow("Expected '<canvas-id>::<task-id>'.");
@@ -85,10 +97,17 @@ describe("compileProjectGraph", () => {
     expect(graph.diagnostics.errors).toEqual([]);
     expect(graph.canvasDependenciesByCanvas.get(second.canvas.canvasId)).toEqual(["default"]);
     expect(graph.canvasReachable(second.canvas.canvasId, "default")).toBe(true);
-    expect(graph.crossTaskDependenciesByTaskRef.get(projectTaskRefKey({ canvasId: second.canvas.canvasId, taskId: "T-001" }))).toEqual([
-      projectTaskRefKey({ canvasId: "default", taskId: "T-001" })
-    ]);
-    expect(graph.taskReachable({ canvasId: second.canvas.canvasId, taskId: "T-001" }, { canvasId: "default", taskId: "T-001" })).toBe(true);
+    expect(
+      graph.crossTaskDependenciesByTaskRef.get(
+        projectTaskRefKey({ canvasId: second.canvas.canvasId, taskId: "T-001" })
+      )
+    ).toEqual([projectTaskRefKey({ canvasId: "default", taskId: "T-001" })]);
+    expect(
+      graph.taskReachable(
+        { canvasId: second.canvas.canvasId, taskId: "T-001" },
+        { canvasId: "default", taskId: "T-001" }
+      )
+    ).toBe(true);
   });
 
   it("does not expand canvas dependencies into task dependency edges", async () => {
@@ -116,9 +135,16 @@ describe("compileProjectGraph", () => {
     expect(graph.diagnostics.errors).toEqual([]);
     expect(graph.canvasDependenciesByCanvas.get(second.canvas.canvasId)).toEqual(["default"]);
     expect(graph.canvasReachable(second.canvas.canvasId, "default")).toBe(true);
-    expect(graph.taskDependencies({ canvasId: second.canvas.canvasId, taskId: "T-001" })).toEqual([]);
+    expect(graph.taskDependencies({ canvasId: second.canvas.canvasId, taskId: "T-001" })).toEqual(
+      []
+    );
     expect(graph.taskDependents({ canvasId: "default", taskId: "T-001" })).toEqual([]);
-    expect(graph.taskReachable({ canvasId: second.canvas.canvasId, taskId: "T-001" }, { canvasId: "default", taskId: "T-001" })).toBe(false);
+    expect(
+      graph.taskReachable(
+        { canvasId: second.canvas.canvasId, taskId: "T-001" },
+        { canvasId: "default", taskId: "T-001" }
+      )
+    ).toBe(false);
   });
 
   it("keeps large canvas dependency graphs from materializing cartesian task edges", async () => {
@@ -143,7 +169,10 @@ describe("compileProjectGraph", () => {
     });
 
     const graph = await compileProjectGraph(await loadProjectGraph(root));
-    const dependencyCount = Array.from(graph.taskDependenciesByTaskRef.values()).reduce((total, dependencies) => total + dependencies.length, 0);
+    const dependencyCount = Array.from(graph.taskDependenciesByTaskRef.values()).reduce(
+      (total, dependencies) => total + dependencies.length,
+      0
+    );
 
     expect(graph.diagnostics.errors).toEqual([]);
     expect(graph.taskRefsInProjectOrder).toHaveLength(200);

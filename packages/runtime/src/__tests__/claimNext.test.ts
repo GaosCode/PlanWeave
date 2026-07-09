@@ -10,7 +10,12 @@ import {
   submitReviewResult,
   submitFeedback
 } from "../taskManager/index.js";
-import { basicManifest, createTestWorkspace, writeReport, writeReviewResult } from "./promptTestHelpers.js";
+import {
+  basicManifest,
+  createTestWorkspace,
+  writeReport,
+  writeReviewResult
+} from "./promptTestHelpers.js";
 
 describe("claimNext", () => {
   it("reports effective executor inheritance on claims", async () => {
@@ -33,7 +38,11 @@ describe("claimNext", () => {
       ref: "T-001#B-001",
       effectiveExecutor: "manual"
     });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
 
     expect(await claimNext({ projectRoot: root })).toMatchObject({
       kind: "block",
@@ -72,7 +81,11 @@ describe("claimNext", () => {
   it("continues the same review block after feedback is resolved", async () => {
     const { root } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
     await claimNext({ projectRoot: root });
     await submitReviewResult({
       projectRoot: root,
@@ -88,12 +101,19 @@ describe("claimNext", () => {
       content: "Please update tests.",
       effectiveExecutor: "default"
     });
-    await submitFeedback({ projectRoot: root, reportPath: await writeReport(root, "feedback.md", "Tests updated.\n") });
+    await submitFeedback({
+      projectRoot: root,
+      reportPath: await writeReport(root, "feedback.md", "Tests updated.\n")
+    });
 
     const reviewClaim = await claimNext({ projectRoot: root });
     const prompt = await renderPrompt({ projectRoot: root, ref: "T-001#R-001" });
 
-    expect(reviewClaim).toMatchObject({ kind: "block", ref: "T-001#R-001", reason: "feedback_resolved" });
+    expect(reviewClaim).toMatchObject({
+      kind: "block",
+      ref: "T-001#R-001",
+      reason: "feedback_resolved"
+    });
     expect(prompt).toContain("Focused Re-review Context");
     expect(prompt).toContain("Please update tests.");
     expect(prompt).toContain("Tests updated.");
@@ -102,7 +122,11 @@ describe("claimNext", () => {
   it("reports blocked claims before returning none", async () => {
     const { root } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
     await claimNext({ projectRoot: root });
 
     const status = await getExecutionStatus({ projectRoot: root });
@@ -120,12 +144,21 @@ describe("claimNext", () => {
 
     const { root } = await createTestWorkspace(manifest);
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
 
-    expect(await claimNext({ projectRoot: root })).toEqual({ kind: "none", reason: "no_claimable_blocks" });
+    expect(await claimNext({ projectRoot: root })).toEqual({
+      kind: "none",
+      reason: "no_claimable_blocks"
+    });
 
     const status = await getExecutionStatus({ projectRoot: root });
-    expect(status.tasks.find((taskStatus) => taskStatus.taskId === "T-001")?.status).toBe("implemented");
+    expect(status.tasks.find((taskStatus) => taskStatus.taskId === "T-001")?.status).toBe(
+      "implemented"
+    );
     expect(status.blocks.find((block) => block.ref === "T-001#R-001")?.status).toBe("ready");
     expect(status.nextClaimable).not.toContain("T-001#R-001");
   });
@@ -133,7 +166,11 @@ describe("claimNext", () => {
   it("falls back to a sequential review claim when no parallel implementation block is available", async () => {
     const { root } = await createTestWorkspace(basicManifest({ parallel: true }));
     await claimNext({ projectRoot: root, parallel: true });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
 
     const status = await getExecutionStatus({ projectRoot: root });
     expect(status.nextClaimable).toEqual(["T-001#R-001"]);
@@ -161,25 +198,29 @@ describe("claimNext", () => {
     });
   });
 
-  it("reports sequential-only work when a parallel claim has no safe blocks", async () => {
+  it("claims exclusive blocks alone under parallel mode", async () => {
     const manifest = basicManifest({ parallel: true });
     const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
-    const implementationBlock = task?.type === "task" ? task.blocks.find((block) => block.id === "B-001") : null;
+    const implementationBlock =
+      task?.type === "task" ? task.blocks.find((block) => block.id === "B-001") : null;
     if (implementationBlock?.type !== "implementation") {
       throw new Error("missing implementation block");
     }
-    implementationBlock.parallel.safe = false;
+    implementationBlock.parallel = { locks: ["exclusive"] };
 
     const { root } = await createTestWorkspace(manifest);
     const status = await getExecutionStatus({ projectRoot: root });
 
     expect(status.nextClaimable).toEqual(["T-001#B-001"]);
-    expect(status.nextParallelClaimable).toEqual([]);
-    expect(status.nextSequentialClaimable).toEqual(["T-001#B-001"]);
-    expect(await claimNext({ projectRoot: root, parallel: true })).toEqual({
-      kind: "none",
-      reason: "no_parallel_blocks",
-      nextSequentialClaimable: ["T-001#B-001"]
+    expect(status.nextParallelClaimable).toEqual(["T-001#B-001"]);
+    expect(status.nextSequentialClaimable).toEqual([]);
+    expect(status.claimHints.find((hint) => hint.ref === "T-001#B-001")).toMatchObject({
+      parallelSafe: false,
+      sequentialOnly: false
+    });
+    expect(await claimNext({ projectRoot: root, parallel: true })).toMatchObject({
+      kind: "batch",
+      refs: ["T-001#B-001"]
     });
   });
 
@@ -194,9 +235,15 @@ describe("claimNext", () => {
   });
 
   it("dispatches a parallel-safe implementation block without replacing the current review claim", async () => {
-    const { root } = await createTestWorkspace(basicManifest({ includeSecondTask: true, parallel: true, maxConcurrent: 2 }));
+    const { root } = await createTestWorkspace(
+      basicManifest({ includeSecondTask: true, parallel: true, maxConcurrent: 2 })
+    );
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
     await claimBlock({ projectRoot: root, ref: "T-001#R-001" });
 
     const dispatch = await claimBlock({ projectRoot: root, ref: "T-002#B-001", dispatch: true });
@@ -224,7 +271,11 @@ describe("claimNext", () => {
   it("claims an explicit review type without selecting implementation blocks", async () => {
     const { root } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
 
     expect(await claimBlockType({ projectRoot: root, blockType: "review" })).toMatchObject({
       kind: "block",
@@ -244,12 +295,21 @@ describe("claimNext", () => {
 
     const { root } = await createTestWorkspace(manifest);
     await claimNext({ projectRoot: root });
-    await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath: await writeReport(root, "b.md") });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "b.md")
+    });
 
-    expect(await claimNext({ projectRoot: root })).toEqual({ kind: "none", reason: "no_claimable_blocks" });
+    expect(await claimNext({ projectRoot: root })).toEqual({
+      kind: "none",
+      reason: "no_claimable_blocks"
+    });
 
     const status = await getExecutionStatus({ projectRoot: root });
-    expect(status.tasks.find((taskStatus) => taskStatus.taskId === "T-001")?.status).toBe("implemented");
+    expect(status.tasks.find((taskStatus) => taskStatus.taskId === "T-001")?.status).toBe(
+      "implemented"
+    );
     expect(status.blocks.map((block) => block.ref)).toEqual(["T-001#B-001"]);
     expect(status.nextClaimable).toEqual([]);
   });

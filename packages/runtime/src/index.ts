@@ -1,12 +1,29 @@
 export { PlanWeaveWorkspaceNotInitializedError } from "./errors.js";
 export { readProjectPaths, resolvePlanweaveHome } from "./paths.js";
 export { createManagedProjectId, createProjectId } from "./projectId.js";
-export { normalizeProjectMetadata, projectWorkspacePaths, readProject, requireInitializedProjectWorkspace, resolveProjectWorkspace } from "./project.js";
-export { readProjectPrompt, readProjectPromptPolicy, updateProjectPrompt, updateProjectPromptPolicy } from "./projectPromptPolicy.js";
+export {
+  normalizeProjectMetadata,
+  projectWorkspacePaths,
+  readProject,
+  requireInitializedProjectWorkspace,
+  resolveProjectWorkspace
+} from "./project.js";
+export {
+  readProjectPrompt,
+  readProjectPromptPolicy,
+  updateProjectPrompt,
+  updateProjectPromptPolicy
+} from "./projectPromptPolicy.js";
 export type { ProjectPromptPolicy } from "./projectPromptPolicy.js";
 export { initManagedWorkspace, initWorkspace } from "./initWorkspace.js";
 export { linkProjectSourceRoot, unlinkProjectSourceRoot } from "./desktop/projectApi.js";
-export { manifestNodeSchema, manifestSchema, manifestSchemaTopLevelFields } from "./schema/manifest.js";
+export {
+  EXCLUSIVE_LOCK,
+  PARALLEL_SAFE_DEPRECATION_MESSAGE,
+  manifestNodeSchema,
+  manifestSchema,
+  manifestSchemaTopLevelFields
+} from "./schema/manifest.js";
 export {
   manifestSchemaDocument,
   layoutSchemaDocument,
@@ -28,7 +45,12 @@ export {
   toArchivePath
 } from "./package/packageFiles.js";
 export type { PackageFileEntry } from "./package/packageFiles.js";
-export { parsePromptSections, getPromptSection, hasUserSection, replacePromptSection } from "./prompt/sections.js";
+export {
+  parsePromptSections,
+  getPromptSection,
+  hasUserSection,
+  replacePromptSection
+} from "./prompt/sections.js";
 export { renderManagedSections } from "./prompt/renderManagedSections.js";
 export { refreshPrompt } from "./prompt/refreshPrompt.js";
 export { refreshPrompts } from "./prompt/refreshPrompts.js";
@@ -91,7 +113,10 @@ export {
   resolveProjectCanvasWorkspace,
   writeProjectGraph
 } from "./projectGraph/index.js";
-export type { CreateCanvasWorkspaceOptions, CreateCanvasWorkspaceResult } from "./projectGraph/index.js";
+export type {
+  CreateCanvasWorkspaceOptions,
+  CreateCanvasWorkspaceResult
+} from "./projectGraph/index.js";
 export {
   addEdge,
   addNode,
@@ -313,8 +338,17 @@ export {
   bulkApplyReviewPipeline,
   validateGraphEdit
 } from "./desktop/index.js";
-export { edgeTypes, executorAdapters, reviewTriggerConditions, runSubmitStatuses, reviewStatuses } from "./types.js";
-export type { SourceDefaultProjectCandidate, SourceDefaultProjectEntry } from "./desktop/sourceDefaultProject.js";
+export {
+  edgeTypes,
+  executorAdapters,
+  reviewTriggerConditions,
+  runSubmitStatuses,
+  reviewStatuses
+} from "./types.js";
+export type {
+  SourceDefaultProjectCandidate,
+  SourceDefaultProjectEntry
+} from "./desktop/sourceDefaultProject.js";
 export type { AutoRunEventTailItem, TailAutoRunEventsOptions } from "./desktop/runEventTail.js";
 export {
   projectGraphCanvasNodeTypes,

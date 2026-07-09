@@ -95,9 +95,17 @@ function expectNoBareOperationLogScan(details: string[]): void {
   expect(details.some((detail) => detail === "SCAN operation_log")).toBe(false);
 }
 
-function setOperationLogField(indexPath: string, operationId: number, fieldName: "command_json" | "inverse_json" | "affected_json", value: unknown): void {
+function setOperationLogField(
+  indexPath: string,
+  operationId: number,
+  fieldName: "command_json" | "inverse_json" | "affected_json",
+  value: unknown
+): void {
   withSqlite(indexPath, (db) => {
-    db.prepare(`UPDATE operation_log SET ${fieldName} = ? WHERE id = ?`).run(JSON.stringify(value), operationId);
+    db.prepare(`UPDATE operation_log SET ${fieldName} = ? WHERE id = ?`).run(
+      JSON.stringify(value),
+      operationId
+    );
   });
 }
 
@@ -113,7 +121,9 @@ function operationUndoneAt(indexPath: string, operationId: number): string | nul
 
 describe("PlanGraph command history schema", () => {
   it("creates SQLite indexes and uses them for history and graph queries", async () => {
-    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] }));
+    const { root, init } = await createTestWorkspace(
+      basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] })
+    );
     const store = await createSqlitePlanGraphStore({ projectRoot: root });
     await store.rebuild();
     const indexPath = store.indexPath;
@@ -122,11 +132,19 @@ describe("PlanGraph command history schema", () => {
 
     const firstResult = await executePlanGraphCommand({
       projectRoot: root,
-      command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "History index first" } }
+      command: {
+        type: "updateTaskFields",
+        taskId: "T-001",
+        fields: { title: "History index first" }
+      }
     });
     const secondResult = await executePlanGraphCommand({
       projectRoot: root,
-      command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "History index second" } }
+      command: {
+        type: "updateTaskFields",
+        taskId: "T-001",
+        fields: { title: "History index second" }
+      }
     });
     if (!firstResult.ok || !secondResult.ok) {
       throw new Error("Expected history seed commands to succeed.");
@@ -134,16 +152,26 @@ describe("PlanGraph command history schema", () => {
     await expect(undoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({ ok: true });
 
     const indexes = sqliteIndexNames(indexPath);
-    expect(indexes).toEqual(expect.arrayContaining(["idx_edges_project_order", "idx_operation_log_undo_redo"]));
+    expect(indexes).toEqual(
+      expect.arrayContaining(["idx_edges_project_order", "idx_operation_log_undo_redo"])
+    );
     expect(indexes).not.toContain("idx_prompt_index_project_owner");
 
-    const undoPlan = queryPlanDetails(indexPath, "SELECT * FROM operation_log WHERE project_root = ? AND undone_at IS NULL ORDER BY id DESC LIMIT 1", historyKey);
+    const undoPlan = queryPlanDetails(
+      indexPath,
+      "SELECT * FROM operation_log WHERE project_root = ? AND undone_at IS NULL ORDER BY id DESC LIMIT 1",
+      historyKey
+    );
     const redoPlan = queryPlanDetails(
       indexPath,
       "SELECT * FROM operation_log WHERE project_root = ? AND undone_at IS NOT NULL ORDER BY undone_at DESC, id ASC LIMIT 1",
       historyKey
     );
-    const cleanupPlan = queryPlanDetails(indexPath, "DELETE FROM operation_log WHERE project_root = ? AND undone_at IS NOT NULL", historyKey);
+    const cleanupPlan = queryPlanDetails(
+      indexPath,
+      "DELETE FROM operation_log WHERE project_root = ? AND undone_at IS NOT NULL",
+      historyKey
+    );
     expectPlanUsesIndex(undoPlan, "idx_operation_log_undo_redo");
     expectPlanUsesIndex(redoPlan, "idx_operation_log_undo_redo");
     expectPlanUsesIndex(cleanupPlan, "idx_operation_log_undo_redo");
@@ -151,18 +179,53 @@ describe("PlanGraph command history schema", () => {
     expectNoBareOperationLogScan(redoPlan);
     expectNoBareOperationLogScan(cleanupPlan);
 
-    expectPlanUsesIndex(queryPlanDetails(indexPath, "SELECT * FROM edges WHERE project_root = ? ORDER BY edge_type, from_ref, to_ref", graphKey), "idx_edges_project_order");
-    expectPlanUsesIndex(queryPlanDetails(indexPath, "SELECT * FROM prompt_index WHERE project_root = ? ORDER BY owner_ref", graphKey), "sqlite_autoindex_prompt_index");
     expectPlanUsesIndex(
-      queryPlanDetails(indexPath, "DELETE FROM prompt_index WHERE project_root = ? AND owner_ref = ?", graphKey, "T-001"),
+      queryPlanDetails(
+        indexPath,
+        "SELECT * FROM edges WHERE project_root = ? ORDER BY edge_type, from_ref, to_ref",
+        graphKey
+      ),
+      "idx_edges_project_order"
+    );
+    expectPlanUsesIndex(
+      queryPlanDetails(
+        indexPath,
+        "SELECT * FROM prompt_index WHERE project_root = ? ORDER BY owner_ref",
+        graphKey
+      ),
       "sqlite_autoindex_prompt_index"
     );
-    expectPlanUsesIndex(queryPlanDetails(indexPath, "SELECT * FROM tasks WHERE project_root = ? ORDER BY task_id", graphKey), "sqlite_autoindex_tasks");
-    expectPlanUsesIndex(queryPlanDetails(indexPath, "SELECT * FROM blocks WHERE project_root = ? ORDER BY block_ref", graphKey), "sqlite_autoindex_blocks");
+    expectPlanUsesIndex(
+      queryPlanDetails(
+        indexPath,
+        "DELETE FROM prompt_index WHERE project_root = ? AND owner_ref = ?",
+        graphKey,
+        "T-001"
+      ),
+      "sqlite_autoindex_prompt_index"
+    );
+    expectPlanUsesIndex(
+      queryPlanDetails(
+        indexPath,
+        "SELECT * FROM tasks WHERE project_root = ? ORDER BY task_id",
+        graphKey
+      ),
+      "sqlite_autoindex_tasks"
+    );
+    expectPlanUsesIndex(
+      queryPlanDetails(
+        indexPath,
+        "SELECT * FROM blocks WHERE project_root = ? ORDER BY block_ref",
+        graphKey
+      ),
+      "sqlite_autoindex_blocks"
+    );
 
     await expect(redoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({ ok: true });
     const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    expect(manifest.nodes[0]?.type === "task" ? manifest.nodes[0].title : null).toBe("History index second");
+    expect(manifest.nodes[0]?.type === "task" ? manifest.nodes[0].title : null).toBe(
+      "History index second"
+    );
   });
 
   it("recreates explicit SQLite indexes when an existing database is reopened", async () => {
@@ -179,7 +242,9 @@ describe("PlanGraph command history schema", () => {
 
     await store.load();
 
-    expect(sqliteIndexNames(store.indexPath)).toEqual(expect.arrayContaining(["idx_edges_project_order", "idx_operation_log_undo_redo"]));
+    expect(sqliteIndexNames(store.indexPath)).toEqual(
+      expect.arrayContaining(["idx_edges_project_order", "idx_operation_log_undo_redo"])
+    );
   });
 
   it("parses persisted command variants through the runtime command schema", () => {
@@ -197,7 +262,7 @@ describe("PlanGraph command history schema", () => {
             title: "Implement",
             prompt: "nodes/T-002/blocks/B-001.prompt.md",
             depends_on: [],
-            parallel: { safe: true, locks: [] }
+            parallel: { locks: [] }
           }
         ]
       },
@@ -224,10 +289,30 @@ describe("PlanGraph command history schema", () => {
     const commands = [
       { type: "addTaskDependency", fromTaskId: "T-002", toTaskId: "T-001", baseGraphVersion: "v1" },
       { type: "removeTaskDependency", fromTaskId: "T-002", toTaskId: "T-001" },
-      { type: "reconnectTaskDependency", fromTaskId: "T-002", oldToTaskId: "T-001", newFromTaskId: "T-003", newToTaskId: "T-001" },
-      { type: "updateTaskPrompt", taskId: "T-001", promptMarkdown: "# Task\n", basePromptHash: "hash" },
-      { type: "updateBlockPrompt", blockRef: "T-001#B-001", promptMarkdown: "# Block\n", basePromptHash: "hash" },
-      { type: "updateTaskFields", taskId: "T-001", fields: { title: "Task", executor: null, acceptance: ["Done."], basePromptHash: "hash" } },
+      {
+        type: "reconnectTaskDependency",
+        fromTaskId: "T-002",
+        oldToTaskId: "T-001",
+        newFromTaskId: "T-003",
+        newToTaskId: "T-001"
+      },
+      {
+        type: "updateTaskPrompt",
+        taskId: "T-001",
+        promptMarkdown: "# Task\n",
+        basePromptHash: "hash"
+      },
+      {
+        type: "updateBlockPrompt",
+        blockRef: "T-001#B-001",
+        promptMarkdown: "# Block\n",
+        basePromptHash: "hash"
+      },
+      {
+        type: "updateTaskFields",
+        taskId: "T-001",
+        fields: { title: "Task", executor: null, acceptance: ["Done."], basePromptHash: "hash" }
+      },
       {
         type: "updateBlockFields",
         blockRef: "T-001#R-001",
@@ -239,7 +324,13 @@ describe("PlanGraph command history schema", () => {
           parallelLocks: ["shared"],
           reviewRequired: true,
           maxFeedbackCycles: 2,
-          reviewHook: { id: "review", type: "executable", command: "node", args: ["review.js"], executionPolicy: "trusted-local" },
+          reviewHook: {
+            id: "review",
+            type: "executable",
+            command: "node",
+            args: ["review.js"],
+            executionPolicy: "trusted-local"
+          },
           basePromptHash: "hash"
         }
       },
@@ -259,28 +350,60 @@ describe("PlanGraph command history schema", () => {
       {
         type: "updateLayout",
         layoutScope: "desktop",
-        layout: { version: "desktop-layout/v1", projectId: "test-project", nodes: [{ nodeId: "T-001", x: 10, y: 20 }], updatedAt: "2026-05-23T00:00:00.000Z" }
+        layout: {
+          version: "desktop-layout/v1",
+          projectId: "test-project",
+          nodes: [{ nodeId: "T-001", x: 10, y: 20 }],
+          updatedAt: "2026-05-23T00:00:00.000Z"
+        }
       },
       { type: "updateLayout", layoutScope: "canvas", layout: { activeCanvasId: "default" } },
       { type: "addCanvasDependency", fromCanvasId: "default", toCanvasId: "second" },
       { type: "removeCanvasDependency", fromCanvasId: "default", toCanvasId: "second" },
-      { type: "addCrossTaskDependency", from: { canvasId: "default", taskId: "T-001" }, to: { canvasId: "second", taskId: "T-002" } },
-      { type: "removeCrossTaskDependency", from: { canvasId: "default", taskId: "T-001" }, to: { canvasId: "second", taskId: "T-002" } }
+      {
+        type: "addCrossTaskDependency",
+        from: { canvasId: "default", taskId: "T-001" },
+        to: { canvasId: "second", taskId: "T-002" }
+      },
+      {
+        type: "removeCrossTaskDependency",
+        from: { canvasId: "default", taskId: "T-001" },
+        to: { canvasId: "second", taskId: "T-002" }
+      }
     ];
 
-    expect(commands.map((command) => parsePlanGraphCommand(command).type)).toEqual(commands.map((command) => command.type));
+    expect(commands.map((command) => parsePlanGraphCommand(command).type)).toEqual(
+      commands.map((command) => command.type)
+    );
   });
 
   it("rejects polluted persisted command objects and empty inverse arrays", () => {
-    expect(() => parsePlanGraphCommand({ type: "updateLayout", layoutScope: "desktop", layout: null, polluted: true })).toThrow();
+    expect(() =>
+      parsePlanGraphCommand({
+        type: "updateLayout",
+        layoutScope: "desktop",
+        layout: null,
+        polluted: true
+      })
+    ).toThrow();
     expect(() => parsePlanGraphCommand({ type: "unknownCommand" })).toThrow();
     expect(() => parsePlanGraphCommandArrayOrSingle([])).toThrow();
   });
 
   it("rejects updateLayout commands with invalid scoped layout payloads", () => {
-    expect(() => parsePlanGraphCommand({ type: "updateLayout", layoutScope: "desktop", layout: { nodes: [] } })).toThrow();
-    expect(() => parsePlanGraphCommand({ type: "updateLayout", layoutScope: "canvas", layout: { nodes: [] } })).toThrow();
-    expect(() => parsePlanGraphCommand({ type: "updateLayout", layoutScope: "canvas", layout: { activeCanvasId: "   " } })).toThrow();
+    expect(() =>
+      parsePlanGraphCommand({ type: "updateLayout", layoutScope: "desktop", layout: { nodes: [] } })
+    ).toThrow();
+    expect(() =>
+      parsePlanGraphCommand({ type: "updateLayout", layoutScope: "canvas", layout: { nodes: [] } })
+    ).toThrow();
+    expect(() =>
+      parsePlanGraphCommand({
+        type: "updateLayout",
+        layoutScope: "canvas",
+        layout: { activeCanvasId: "   " }
+      })
+    ).toThrow();
   });
 
   it("coalesces prompt autosave without parsing the latest history inverse_json", async () => {
@@ -305,7 +428,10 @@ describe("PlanGraph command history schema", () => {
       throw new Error("Expected prompt operation id.");
     }
     const indexPath = defaultPlanGraphIndexPath(init.workspace);
-    setOperationLogField(indexPath, firstResult.operationId, "inverse_json", { type: "oldVersionCommand", taskId: "T-001" });
+    setOperationLogField(indexPath, firstResult.operationId, "inverse_json", {
+      type: "oldVersionCommand",
+      taskId: "T-001"
+    });
 
     const afterFirst = await loadPlanGraphPackage(root);
     const afterFirstTask = afterFirst.graph.tasks.get("T-001");
@@ -324,7 +450,9 @@ describe("PlanGraph command history schema", () => {
     });
 
     expect(secondResult).toMatchObject({ ok: true, operationId: firstResult.operationId });
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")).resolves.toBe("# Autosave after inverse pollution\n");
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")
+    ).resolves.toBe("# Autosave after inverse pollution\n");
 
     const undoResult = await undoPlanGraphCommand({ projectRoot: root });
     expect(undoResult.ok).toBe(false);
@@ -360,7 +488,10 @@ describe("PlanGraph command history schema", () => {
       throw new Error("Expected prompt operation id.");
     }
     const indexPath = defaultPlanGraphIndexPath(init.workspace);
-    setOperationLogField(indexPath, firstResult.operationId, "command_json", { type: "oldVersionCommand", taskId: "T-001" });
+    setOperationLogField(indexPath, firstResult.operationId, "command_json", {
+      type: "oldVersionCommand",
+      taskId: "T-001"
+    });
 
     const afterFirst = await loadPlanGraphPackage(root);
     const afterFirstTask = afterFirst.graph.tasks.get("T-001");
@@ -380,11 +511,15 @@ describe("PlanGraph command history schema", () => {
 
     expect(secondResult).toMatchObject({ ok: true });
     expect(secondResult.operationId).not.toBe(firstResult.operationId);
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")).resolves.toBe("# Autosave after command pollution\n");
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")
+    ).resolves.toBe("# Autosave after command pollution\n");
 
     const undoSecondResult = await undoPlanGraphCommand({ projectRoot: root });
     expect(undoSecondResult).toMatchObject({ ok: true });
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")).resolves.toBe(firstPrompt);
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")
+    ).resolves.toBe(firstPrompt);
 
     const undoPollutedResult = await undoPlanGraphCommand({ projectRoot: root });
     expect(undoPollutedResult.ok).toBe(false);
@@ -440,11 +575,15 @@ describe("PlanGraph command history schema", () => {
 
     expect(secondResult).toMatchObject({ ok: true });
     expect(secondResult.operationId).not.toBe(firstResult.operationId);
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")).resolves.toBe("# Autosave after affected pollution\n");
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")
+    ).resolves.toBe("# Autosave after affected pollution\n");
 
     const undoSecondResult = await undoPlanGraphCommand({ projectRoot: root });
     expect(undoSecondResult).toMatchObject({ ok: true });
-    await expect(readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")).resolves.toBe(firstPrompt);
+    await expect(
+      readFile(join(init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")
+    ).resolves.toBe(firstPrompt);
 
     await expect(undoPlanGraphCommand({ projectRoot: root })).rejects.toThrow("affected_json");
     expect(operationUndoneAt(indexPath, firstResult.operationId)).toBeNull();
@@ -454,13 +593,20 @@ describe("PlanGraph command history schema", () => {
     const { root, init } = await createTestWorkspace();
     const result = await executePlanGraphCommand({
       projectRoot: root,
-      command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "Invalid command history" } }
+      command: {
+        type: "updateTaskFields",
+        taskId: "T-001",
+        fields: { title: "Invalid command history" }
+      }
     });
     if (!result.ok || result.operationId === undefined) {
       throw new Error("Expected command operation id.");
     }
     const indexPath = defaultPlanGraphIndexPath(init.workspace);
-    setOperationLogField(indexPath, result.operationId, "command_json", { type: "oldVersionCommand", taskId: "T-001" });
+    setOperationLogField(indexPath, result.operationId, "command_json", {
+      type: "oldVersionCommand",
+      taskId: "T-001"
+    });
 
     const undoResult = await undoPlanGraphCommand({ projectRoot: root });
 
@@ -476,7 +622,9 @@ describe("PlanGraph command history schema", () => {
     expect(undoResult.diagnostics[0]?.message).not.toContain("oldVersionCommand");
     expect(operationUndoneAt(indexPath, result.operationId)).toBeNull();
     const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    expect(manifest.nodes[0]?.type === "task" ? manifest.nodes[0].title : null).toBe("Invalid command history");
+    expect(manifest.nodes[0]?.type === "task" ? manifest.nodes[0].title : null).toBe(
+      "Invalid command history"
+    );
   });
 
   it("rejects invalid updateLayout command_json before undo execution and keeps history untouched", async () => {
@@ -495,7 +643,11 @@ describe("PlanGraph command history schema", () => {
       throw new Error("Expected layout operation id.");
     }
     const indexPath = defaultPlanGraphIndexPath(init.workspace);
-    setOperationLogField(indexPath, result.operationId, "command_json", { type: "updateLayout", layoutScope: "desktop", layout: { nodes: [] } });
+    setOperationLogField(indexPath, result.operationId, "command_json", {
+      type: "updateLayout",
+      layoutScope: "desktop",
+      layout: { nodes: [] }
+    });
 
     const undoResult = await undoPlanGraphCommand({ projectRoot: root });
 
@@ -516,13 +668,20 @@ describe("PlanGraph command history schema", () => {
     const { root, init } = await createTestWorkspace();
     const result = await executePlanGraphCommand({
       projectRoot: root,
-      command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "Invalid inverse history" } }
+      command: {
+        type: "updateTaskFields",
+        taskId: "T-001",
+        fields: { title: "Invalid inverse history" }
+      }
     });
     if (!result.ok || result.operationId === undefined) {
       throw new Error("Expected command operation id.");
     }
     const indexPath = defaultPlanGraphIndexPath(init.workspace);
-    setOperationLogField(indexPath, result.operationId, "inverse_json", { type: "oldVersionCommand", taskId: "T-001" });
+    setOperationLogField(indexPath, result.operationId, "inverse_json", {
+      type: "oldVersionCommand",
+      taskId: "T-001"
+    });
 
     const undoResult = await undoPlanGraphCommand({ projectRoot: root });
 
@@ -537,14 +696,20 @@ describe("PlanGraph command history schema", () => {
     expect(undoResult.diagnostics[0]?.message).not.toContain("oldVersionCommand");
     expect(operationUndoneAt(indexPath, result.operationId)).toBeNull();
     const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    expect(manifest.nodes[0]?.type === "task" ? manifest.nodes[0].title : null).toBe("Invalid inverse history");
+    expect(manifest.nodes[0]?.type === "task" ? manifest.nodes[0].title : null).toBe(
+      "Invalid inverse history"
+    );
   });
 
   it("treats empty inverse_json arrays as invalid history instead of empty history", async () => {
     const { root, init } = await createTestWorkspace();
     const result = await executePlanGraphCommand({
       projectRoot: root,
-      command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "Empty inverse history" } }
+      command: {
+        type: "updateTaskFields",
+        taskId: "T-001",
+        fields: { title: "Empty inverse history" }
+      }
     });
     if (!result.ok || result.operationId === undefined) {
       throw new Error("Expected command operation id.");
@@ -569,14 +734,21 @@ describe("PlanGraph command history schema", () => {
     const { root, init } = await createTestWorkspace();
     const result = await executePlanGraphCommand({
       projectRoot: root,
-      command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "Invalid redo history" } }
+      command: {
+        type: "updateTaskFields",
+        taskId: "T-001",
+        fields: { title: "Invalid redo history" }
+      }
     });
     if (!result.ok || result.operationId === undefined) {
       throw new Error("Expected command operation id.");
     }
     const indexPath = defaultPlanGraphIndexPath(init.workspace);
     await expect(undoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({ ok: true });
-    setOperationLogField(indexPath, result.operationId, "command_json", { type: "oldVersionCommand", taskId: "T-001" });
+    setOperationLogField(indexPath, result.operationId, "command_json", {
+      type: "oldVersionCommand",
+      taskId: "T-001"
+    });
 
     const redoResult = await redoPlanGraphCommand({ projectRoot: root });
 
@@ -589,6 +761,8 @@ describe("PlanGraph command history schema", () => {
     ]);
     expect(operationUndoneAt(indexPath, result.operationId)).toEqual(expect.any(String));
     const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
-    expect(manifest.nodes[0]?.type === "task" ? manifest.nodes[0].title : null).toBe("Implement test task");
+    expect(manifest.nodes[0]?.type === "task" ? manifest.nodes[0].title : null).toBe(
+      "Implement test task"
+    );
   });
 });

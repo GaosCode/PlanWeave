@@ -1,9 +1,21 @@
 import { z } from "zod";
-import { edgeTypes, executorAdapter, reviewTriggerConditions, supportedManifestVersion } from "../types.js";
+import {
+  edgeTypes,
+  executorAdapter,
+  reviewTriggerConditions,
+  supportedManifestVersion
+} from "../types.js";
+
+/** Reserved lock name: mutually exclusive with every other in-progress block. */
+export const EXCLUSIVE_LOCK = "exclusive" as const;
+
+export const PARALLEL_SAFE_DEPRECATION_MESSAGE =
+  '`parallel.safe` is deprecated; use `locks: ["exclusive"]` for mutual exclusion. Absent `parallel` means parallel-eligible with no locks.';
 
 const blockParallelPolicySchema = z
   .object({
-    safe: z.boolean().default(false),
+    /** @deprecated Use locks: ["exclusive"] instead of safe: false. */
+    safe: z.boolean().optional(),
     locks: z.array(z.string().min(1)).default([])
   })
   .strict();
@@ -84,7 +96,7 @@ const implementationBlockSchema = z
     prompt: z.string().min(1),
     depends_on: z.array(z.string().min(1)).default([]),
     executor: z.string().min(1).optional(),
-    parallel: blockParallelPolicySchema.default({ safe: false, locks: [] })
+    parallel: blockParallelPolicySchema.default({ locks: [] })
   })
   .strict();
 
@@ -111,7 +123,10 @@ const reviewBlockSchema = z
   })
   .strict();
 
-export const manifestBlockSchema = z.discriminatedUnion("type", [implementationBlockSchema, reviewBlockSchema]);
+export const manifestBlockSchema = z.discriminatedUnion("type", [
+  implementationBlockSchema,
+  reviewBlockSchema
+]);
 
 const taskNodeSchema = z
   .object({
@@ -178,7 +193,10 @@ export const manifestSchema = z
       }
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: key === "global_prompt" ? "manifest.global_prompt is not supported in plan-package/v1." : `Unrecognized key: "${key}"`,
+        message:
+          key === "global_prompt"
+            ? "manifest.global_prompt is not supported in plan-package/v1."
+            : `Unrecognized key: "${key}"`,
         path: [key]
       });
     }
@@ -194,7 +212,10 @@ export const manifestSchema = z
       "pi-auto",
       ...Object.keys(manifest.executors ?? {})
     ]);
-    if (manifest.execution.defaultExecutor && !knownExecutors.has(manifest.execution.defaultExecutor)) {
+    if (
+      manifest.execution.defaultExecutor &&
+      !knownExecutors.has(manifest.execution.defaultExecutor)
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: `defaultExecutor '${manifest.execution.defaultExecutor}' does not reference a known executor profile.`,

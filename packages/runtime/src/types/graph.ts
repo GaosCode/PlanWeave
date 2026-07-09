@@ -1,4 +1,11 @@
-import type { BlockType, ManifestBlock, ManifestEdge, ManifestNode, ManifestTaskNode, ReviewHookDefinition } from "./manifest.js";
+import type {
+  BlockType,
+  ManifestBlock,
+  ManifestEdge,
+  ManifestNode,
+  ManifestTaskNode,
+  ReviewHookDefinition
+} from "./manifest.js";
 import type { PackageFileChange, PackageFileSnapshot } from "./packageFiles.js";
 import type { PackageWorkspaceRef } from "./workspace.js";
 import type { ValidationIssue } from "./validation.js";
@@ -17,7 +24,6 @@ export type CompiledExecutionGraph = {
   blockDependentsByRef: Map<string, string[]>;
   reviewBlocksByTask: Map<string, string[]>;
   locksByBlockRef: Map<string, string[]>;
-  parallelSafeByBlockRef: Map<string, boolean>;
   diagnostics: {
     errors: ValidationIssue[];
     warnings: ValidationIssue[];
@@ -98,7 +104,9 @@ export type EditBlockInput = {
   promptMarkdown?: string;
   executor?: string | null;
   dependsOn?: string[];
+  /** @deprecated Prefer exclusive; maps to reserved exclusive lock. */
   parallelSafe?: boolean;
+  exclusive?: boolean;
   parallelLocks?: string[];
   reviewRequired?: boolean;
   maxFeedbackCycles?: number;
