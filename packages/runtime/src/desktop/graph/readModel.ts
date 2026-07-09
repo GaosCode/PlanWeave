@@ -5,12 +5,20 @@ import { resolvePackagePath } from "../../package/resolvePackagePath.js";
 import { getExecutionStatus, renderPromptSurface } from "../../taskManager/index.js";
 import { buildExecutionStatus, type ExecutionStatus } from "../../taskManager/executionStatus.js";
 import { buildClaimReadiness, type ClaimReadiness } from "../../taskManager/claimReadiness.js";
-import { createProjectGraphClaimGuard, type ProjectGraphClaimGuard } from "../../taskManager/projectGraphClaimGuard.js";
+import {
+  createProjectGraphClaimGuard,
+  type ProjectGraphClaimGuard
+} from "../../taskManager/projectGraphClaimGuard.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "../../taskManager/runtimeContext.js";
 import { listExecutorProfilesForManifest } from "../../autoRun/executors.js";
 import { buildPlanGraphViewProjection, loadPlanGraphPackage } from "../../plangraph/index.js";
-import type { ClaimResult, PackageWorkspaceRef, ValidationIssue } from "../../types.js";
-import type { DesktopBlockDetail, DesktopGraphViewModel, DesktopTaskDetail, DesktopTaskExecutionOrder } from "../types.js";
+import type { ClaimResult, PackageWorkspaceRef } from "../../types.js";
+import type {
+  DesktopBlockDetail,
+  DesktopGraphViewModel,
+  DesktopTaskDetail,
+  DesktopTaskExecutionOrder
+} from "../types.js";
 import { getDirtyPromptRefs } from "../fileSyncApi.js";
 import { getBlock, getTask, readOptionalFile, sortBlockRefsForTask } from "./graphHelpers.js";
 
@@ -20,20 +28,16 @@ export type DesktopGraphViewModelContext = RuntimeContext & {
   claimReadiness: ClaimReadiness;
 };
 
-function appendDiagnostic(diagnostics: ValidationIssue[], diagnostic: ValidationIssue | null): void {
-  if (!diagnostic) {
-    return;
-  }
-  if (diagnostics.some((item) => item.code === diagnostic.code && item.path === diagnostic.path && item.message === diagnostic.message)) {
-    return;
-  }
-  diagnostics.push(diagnostic);
-}
-
-export async function loadDesktopGraphViewModelContext(projectRoot: PackageWorkspaceRef): Promise<DesktopGraphViewModelContext> {
+export async function loadDesktopGraphViewModelContext(
+  projectRoot: PackageWorkspaceRef
+): Promise<DesktopGraphViewModelContext> {
   const runtime = await loadRuntimeReadonly({ projectRoot });
   const claimGuard = await createProjectGraphClaimGuard(runtime);
-  return buildDesktopGraphViewModelContext(runtime, await buildExecutionStatus(runtime, { claimGuard }), { claimGuard });
+  return buildDesktopGraphViewModelContext(
+    runtime,
+    await buildExecutionStatus(runtime, { claimGuard }),
+    { claimGuard }
+  );
 }
 
 export function buildDesktopGraphViewModelContext(
@@ -44,7 +48,9 @@ export function buildDesktopGraphViewModelContext(
   return {
     ...runtime,
     status,
-    executorOptions: listExecutorProfilesForManifest(runtime.manifest).map((profile) => profile.name),
+    executorOptions: listExecutorProfilesForManifest(runtime.manifest).map(
+      (profile) => profile.name
+    ),
     claimReadiness: buildClaimReadiness({
       graph: runtime.graph,
       manifest: runtime.manifest,
@@ -54,14 +60,20 @@ export function buildDesktopGraphViewModelContext(
   };
 }
 
-function resolveAutoRunExecutorForBlock(context: DesktopGraphViewModelContext, ref: string): string {
+function resolveAutoRunExecutorForBlock(
+  context: DesktopGraphViewModelContext,
+  ref: string
+): string {
   const { taskId } = parseBlockRef(ref);
   const task = getTask(context.graph, taskId);
   const block = getBlock(context.graph, ref);
   return block.executor ?? task.executor ?? context.manifest.execution.defaultExecutor ?? "default";
 }
 
-function resolveAutoRunExecutorsForRefs(context: DesktopGraphViewModelContext, refs: string[]): Record<string, string> {
+function resolveAutoRunExecutorsForRefs(
+  context: DesktopGraphViewModelContext,
+  refs: string[]
+): Record<string, string> {
   return Object.fromEntries(refs.map((ref) => [ref, resolveAutoRunExecutorForBlock(context, ref)]));
 }
 
@@ -81,9 +93,15 @@ function resolveAutoRunPreflightExecutorHint(context: DesktopGraphViewModelConte
   return [...executorNames][0] ?? null;
 }
 
-function resolveAutoRunPreflightClaim(context: DesktopGraphViewModelContext): Extract<ClaimResult, { kind: "batch" | "block" | "feedback" }> | null {
+function resolveAutoRunPreflightClaim(
+  context: DesktopGraphViewModelContext
+): Extract<ClaimResult, { kind: "batch" | "block" | "feedback" }> | null {
   const { claimReadiness, manifest } = context;
-  if (claimReadiness.claimOrder.kind === "feedback" || claimReadiness.claimOrder.kind === "currentBlock" || claimReadiness.claimOrder.kind === "currentReview") {
+  if (
+    claimReadiness.claimOrder.kind === "feedback" ||
+    claimReadiness.claimOrder.kind === "currentBlock" ||
+    claimReadiness.claimOrder.kind === "currentReview"
+  ) {
     return claimReadiness.claimOrder.result;
   }
   if (claimReadiness.claimOrder.kind === "blocked") {
@@ -94,7 +112,10 @@ function resolveAutoRunPreflightClaim(context: DesktopGraphViewModelContext): Ex
       return {
         kind: "batch",
         refs: claimReadiness.parallelBatchRefs,
-        effectiveExecutors: resolveAutoRunExecutorsForRefs(context, claimReadiness.parallelBatchRefs)
+        effectiveExecutors: resolveAutoRunExecutorsForRefs(
+          context,
+          claimReadiness.parallelBatchRefs
+        )
       };
     }
     if (claimReadiness.sequentialReviewCandidates[0]) {
@@ -105,27 +126,28 @@ function resolveAutoRunPreflightClaim(context: DesktopGraphViewModelContext): Ex
     }
     return claimReadiness.sequentialImplementationCandidates[0]?.result ?? null;
   }
-  return claimReadiness.sequentialImplementationCandidates[0]?.result ?? claimReadiness.sequentialReviewCandidates[0]?.result ?? null;
+  return (
+    claimReadiness.sequentialImplementationCandidates[0]?.result ??
+    claimReadiness.sequentialReviewCandidates[0]?.result ??
+    null
+  );
 }
 
-export async function buildGraphViewModel(context: DesktopGraphViewModelContext): Promise<DesktopGraphViewModel> {
+export async function buildGraphViewModel(
+  context: DesktopGraphViewModelContext
+): Promise<DesktopGraphViewModel> {
   const { workspace, status, executorOptions } = context;
+  // Prompt bodies and missing/read diagnostics already come from the PlanGraph
+  // index built by loadPlanGraphPackage (promptMarkdownByPath + graph.diagnostics).
+  // Do not re-read every task/block prompt file on each view-model build.
   const planGraphPackage = await loadPlanGraphPackage(workspace);
   const dirtyPromptRefs = await getDirtyPromptRefs(workspace);
-  const diagnostics = [...planGraphPackage.graph.diagnostics];
   const taskPromptMarkdownById = new Map<string, string>();
   for (const task of planGraphPackage.graph.tasks.values()) {
-    const taskPrompt = await readOptionalFile(await resolvePackagePath(workspace.packageDir, task.promptRef.path), task.promptRef.path);
-    appendDiagnostic(diagnostics, taskPrompt.diagnostic);
-    taskPromptMarkdownById.set(task.taskId, taskPrompt.markdown);
-    for (const blockRef of task.blockRefs) {
-      const block = planGraphPackage.graph.blocks.get(blockRef);
-      if (!block) {
-        continue;
-      }
-      const blockPrompt = await readOptionalFile(await resolvePackagePath(workspace.packageDir, block.promptRef.path), block.promptRef.path);
-      appendDiagnostic(diagnostics, blockPrompt.diagnostic);
-    }
+    taskPromptMarkdownById.set(
+      task.taskId,
+      planGraphPackage.promptMarkdownByPath.get(task.promptRef.path) ?? ""
+    );
   }
   const projection = buildPlanGraphViewProjection({
     graph: planGraphPackage.graph,
@@ -143,22 +165,30 @@ export async function buildGraphViewModel(context: DesktopGraphViewModelContext)
     autoRunPreflightExecutorHint: resolveAutoRunPreflightExecutorHint(context),
     tasks: projection.tasks,
     edges: projection.edges,
-    diagnostics,
+    diagnostics: [...planGraphPackage.graph.diagnostics],
     dirtyPromptRefs
   };
 }
 
-export async function getGraphViewModel(projectRoot: PackageWorkspaceRef): Promise<DesktopGraphViewModel> {
+export async function getGraphViewModel(
+  projectRoot: PackageWorkspaceRef
+): Promise<DesktopGraphViewModel> {
   return buildGraphViewModel(await loadDesktopGraphViewModelContext(projectRoot));
 }
 
-export async function getTaskDetail(projectRoot: PackageWorkspaceRef, taskId: string): Promise<DesktopTaskDetail> {
+export async function getTaskDetail(
+  projectRoot: PackageWorkspaceRef,
+  taskId: string
+): Promise<DesktopTaskDetail> {
   const { workspace, manifest } = await loadPackage(projectRoot);
   const graph = compileTaskGraph(manifest);
   const planGraphPackage = await loadPlanGraphPackage(workspace);
   const task = getTask(graph, taskId);
   const status = await getExecutionStatus({ projectRoot });
-  const prompt = await readOptionalFile(await resolvePackagePath(workspace.packageDir, task.prompt), task.prompt);
+  const prompt = await readOptionalFile(
+    await resolvePackagePath(workspace.packageDir, task.prompt),
+    task.prompt
+  );
   return {
     taskId,
     graphVersion: planGraphPackage.graph.graphVersion,
@@ -173,7 +203,10 @@ export async function getTaskDetail(projectRoot: PackageWorkspaceRef, taskId: st
   };
 }
 
-export async function getTaskExecutionOrder(projectRoot: PackageWorkspaceRef, taskId: string): Promise<DesktopTaskExecutionOrder> {
+export async function getTaskExecutionOrder(
+  projectRoot: PackageWorkspaceRef,
+  taskId: string
+): Promise<DesktopTaskExecutionOrder> {
   const { manifest } = await loadPackage(projectRoot);
   const graph = compileTaskGraph(manifest);
   getTask(graph, taskId);
@@ -183,7 +216,10 @@ export async function getTaskExecutionOrder(projectRoot: PackageWorkspaceRef, ta
   };
 }
 
-export async function getBlockDetail(projectRoot: PackageWorkspaceRef, ref: string): Promise<DesktopBlockDetail> {
+export async function getBlockDetail(
+  projectRoot: PackageWorkspaceRef,
+  ref: string
+): Promise<DesktopBlockDetail> {
   const { workspace, manifest } = await loadPackage(projectRoot);
   const graph = compileTaskGraph(manifest);
   const planGraphPackage = await loadPlanGraphPackage(workspace);
@@ -193,7 +229,10 @@ export async function getBlockDetail(projectRoot: PackageWorkspaceRef, ref: stri
   const status = await getExecutionStatus({ projectRoot });
   const blockStatus = status.blocks.find((item) => item.ref === ref);
   const claimHint = status.claimHints.find((item) => item.ref === ref);
-  const prompt = await readOptionalFile(await resolvePackagePath(workspace.packageDir, block.prompt), block.prompt);
+  const prompt = await readOptionalFile(
+    await resolvePackagePath(workspace.packageDir, block.prompt),
+    block.prompt
+  );
   const promptSurface = await renderPromptSurface({
     projectRoot,
     ref,
@@ -208,7 +247,8 @@ export async function getBlockDetail(projectRoot: PackageWorkspaceRef, ref: stri
     title: block.title,
     status: blockStatus?.status ?? "planned",
     executor: block.executor ?? null,
-    effectiveExecutor: block.executor ?? task.executor ?? manifest.execution.defaultExecutor ?? null,
+    effectiveExecutor:
+      block.executor ?? task.executor ?? manifest.execution.defaultExecutor ?? null,
     promptMarkdown: prompt.markdown,
     promptHash: planGraphPackage.graph.blocks.get(ref)?.promptRef.contentHash ?? "",
     promptMissing: prompt.missing,
