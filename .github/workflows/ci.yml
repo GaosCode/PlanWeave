@@ -29,6 +29,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Blocking on high/critical: pnpm audit currently reports no known issues.
+      # If a new advisory appears, either fix/override with rationale in DEVELOPMENT.md
+      # or temporarily set continue-on-error after documenting the exception.
+      - name: Audit dependencies (high/critical)
+        run: pnpm audit --audit-level=high
+
       # cli/desktop/mcp resolve @planweave-ai/runtime (and desktop also mcp) from
       # package exports that point at dist/. Build once before typecheck; do not
       # embed build inside the typecheck script.
