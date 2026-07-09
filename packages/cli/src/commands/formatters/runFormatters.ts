@@ -1,6 +1,9 @@
 import type {
+  AutoRunEventTailItem,
   AutoRunStatus,
   AutoRunStepResult,
+  DesktopAutoRunEventLog,
+  DesktopAutoRunLogEvent,
   ListRunSessionsResult,
   ResetRuntimeStateResult,
   RunSessionDetail,
@@ -18,7 +21,31 @@ export type FormattableResetResult = ResetRuntimeStateResult & {
   session: RunSessionState;
 };
 
-export function formatRunStatusHuman(status: AutoRunStatus, context: { defaultStartCommand: string }): string {
+function formatHeartbeatAge(heartbeatUpdatedAt: string | null): string {
+  if (!heartbeatUpdatedAt) {
+    return "none";
+  }
+  const updatedMs = Date.parse(heartbeatUpdatedAt);
+  if (!Number.isFinite(updatedMs)) {
+    return "unknown";
+  }
+  const ageMs = Math.max(0, Date.now() - updatedMs);
+  if (ageMs < 1000) {
+    return `${ageMs}ms`;
+  }
+  if (ageMs < 60_000) {
+    return `${Math.round(ageMs / 1000)}s`;
+  }
+  if (ageMs < 3_600_000) {
+    return `${Math.round(ageMs / 60_000)}m`;
+  }
+  return `${Math.round(ageMs / 3_600_000)}h`;
+}
+
+export function formatRunStatusHuman(
+  status: AutoRunStatus,
+  context: { defaultStartCommand: string }
+): string {
   const lines = [
     `current: ${status.current.refs.join(", ") || "none"}`,
     `feedback: ${status.current.feedbackId ?? "none"}`,
@@ -27,13 +54,20 @@ export function formatRunStatusHuman(status: AutoRunStatus, context: { defaultSt
     `latest record: ${status.explanation.latestRecordId ?? "none"}${status.explanation.latestRecordPath ? ` (${status.explanation.latestRecordPath})` : ""}`,
     `next action: ${status.explanation.nextAction.message}`
   ];
-  const nextCommand = status.explanation.nextAction.command ?? (status.explanation.nextAction.kind === "start" ? context.defaultStartCommand : null);
+  const nextCommand =
+    status.explanation.nextAction.command ??
+    (status.explanation.nextAction.kind === "start" ? context.defaultStartCommand : null);
   if (nextCommand) {
     lines.push(`next command: ${nextCommand}`);
   }
   lines.push("latest runs:");
   for (const run of status.latestRuns) {
-    lines.push(`- ${run.ref} ${run.runId} ${run.status} ${run.executor ?? "unknown"} ${run.adapter ?? "unknown"}`);
+    lines.push(
+      `- ${run.ref} ${run.runId} ${run.status} ${run.executor ?? "unknown"} ${run.adapter ?? "unknown"}`
+    );
+    lines.push(
+      `  liveness: status=${run.heartbeatStatus ?? "none"} age=${formatHeartbeatAge(run.heartbeatUpdatedAt)} pid=${run.heartbeatPid ?? "none"} lastActivity=${run.lastActivityAt ?? "none"}`
+    );
     if (run.stdoutSummary) {
       lines.push(`  stdout: ${run.stdoutSummary}`);
     }
@@ -42,6 +76,44 @@ export function formatRunStatusHuman(status: AutoRunStatus, context: { defaultSt
     }
     if (run.failureReason) {
       lines.push(`  failure: ${run.failureReason}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+export function formatAutoRunLogEventHuman(event: DesktopAutoRunLogEvent): string {
+  const timestamp = event.timestamp ?? "?";
+  const type = event.type ?? "?";
+  const ref = event.currentRef ?? "-";
+  const message =
+    typeof event.data.message === "string"
+      ? event.data.message
+      : Object.keys(event.data).length > 0
+        ? JSON.stringify(event.data)
+        : "";
+  return [timestamp, type, ref, message].filter((part) => part.length > 0).join(" ");
+}
+
+export function formatAutoRunEventTailItem(
+  item: Exclude<AutoRunEventTailItem, { kind: "terminal" }>
+): string {
+  if (item.kind === "parse_error") {
+    return `parse_error line=${item.line}: ${item.message}`;
+  }
+  return formatAutoRunLogEventHuman(item.event);
+}
+
+export function formatAutoRunEventLogHuman(log: DesktopAutoRunEventLog): string {
+  const lines = [`run: ${log.runId}`, `events: ${log.events.length}`];
+  for (const event of log.events) {
+    lines.push(`- ${formatAutoRunLogEventHuman(event)}`);
+  }
+  if (log.diagnostics.length > 0) {
+    lines.push("diagnostics:");
+    for (const diagnostic of log.diagnostics) {
+      lines.push(
+        `- ${diagnostic.code}${diagnostic.line !== undefined ? ` line=${diagnostic.line}` : ""}: ${diagnostic.message}`
+      );
     }
   }
   return lines.join("\n");
@@ -73,10 +145,17 @@ export function formatResetResult(result: FormattableResetResult): string {
 }
 
 export function formatRunSessions(result: ListRunSessionsResult): string {
-  const lines = result.sessions.length === 0 ? ["run sessions: none"] : ["run sessions:", ...result.sessions.map(formatRunSessionSummary)];
+  const lines =
+    result.sessions.length === 0
+      ? ["run sessions: none"]
+      : ["run sessions:", ...result.sessions.map(formatRunSessionSummary)];
   if (result.diagnostics.length > 0) {
     lines.push("diagnostics:");
-    lines.push(...result.diagnostics.map((diagnostic) => `- ${diagnostic.sessionId} ${diagnostic.code}: ${diagnostic.message}`));
+    lines.push(
+      ...result.diagnostics.map(
+        (diagnostic) => `- ${diagnostic.sessionId} ${diagnostic.code}: ${diagnostic.message}`
+      )
+    );
   }
   return lines.join("\n");
 }
@@ -97,7 +176,9 @@ export function formatRunSessionDetail(detail: RunSessionDetail): string {
   lines.push(...detail.events.map((event) => `- ${event.timestamp} ${event.type} ${event.phase}`));
   if (detail.diagnostics.length > 0) {
     lines.push("diagnostics:");
-    lines.push(...detail.diagnostics.map((diagnostic) => `- ${diagnostic.code}: ${diagnostic.message}`));
+    lines.push(
+      ...detail.diagnostics.map((diagnostic) => `- ${diagnostic.code}: ${diagnostic.message}`)
+    );
   }
   return lines.join("\n");
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { type AutoRunStatus, type AutoRunStepResult, type RunSessionState } from "@planweave-ai/runtime";
+import {
+  type AutoRunStatus,
+  type AutoRunStepResult,
+  type RunSessionState
+} from "@planweave-ai/runtime";
 import {
   formatResetResult,
   formatRunResult,
@@ -86,7 +90,14 @@ describe("planweave CLI run command output", () => {
     expect(
       formatRunSessionDetail({
         session,
-        events: [{ timestamp: "2026-06-25T00:00:00.000Z", sessionId: "SESSION-0001", type: "session_created", phase: "running" }],
+        events: [
+          {
+            timestamp: "2026-06-25T00:00:00.000Z",
+            sessionId: "SESSION-0001",
+            type: "session_created",
+            phase: "running"
+          }
+        ],
         diagnostics: []
       })
     ).toContain("events:\n- 2026-06-25T00:00:00.000Z session_created running");
@@ -172,7 +183,14 @@ describe("planweave CLI run command output", () => {
       steps: [
         {
           kind: "manual",
-          claim: { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation", effectiveExecutor: "manual" },
+          claim: {
+            kind: "block",
+            ref: "T-001#B-001",
+            taskId: "T-001",
+            blockId: "B-001",
+            blockType: "implementation",
+            effectiveExecutor: "manual"
+          },
           adapterResult: {
             kind: "manual",
             executor: "manual",
@@ -185,7 +203,14 @@ describe("planweave CLI run command output", () => {
         },
         {
           kind: "manual",
-          claim: { kind: "block", ref: "T-002#B-001", taskId: "T-002", blockId: "B-001", blockType: "implementation", effectiveExecutor: "manual" },
+          claim: {
+            kind: "block",
+            ref: "T-002#B-001",
+            taskId: "T-002",
+            blockId: "B-001",
+            blockType: "implementation",
+            effectiveExecutor: "manual"
+          },
           adapterResult: {
             kind: "manual",
             executor: "manual",
@@ -255,6 +280,16 @@ describe("planweave CLI run command output", () => {
           promptPath: "/tmp/project/package/nodes/T-001/blocks/B-001.prompt.md",
           reportPath: "/tmp/project/results/T-001/blocks/B-001/report.md",
           metadataPath: "/tmp/project/results/T-001/blocks/B-001/runs/RUN-001/metadata.json",
+          stdoutUpdatedAt: "2026-06-25T00:00:01.000Z",
+          stderrUpdatedAt: null,
+          metadataUpdatedAt: "2026-06-25T00:00:01.000Z",
+          heartbeatPath: "/tmp/project/results/T-001/blocks/B-001/runs/RUN-001/heartbeat.json",
+          heartbeatUpdatedAt: "2026-06-25T00:00:01.000Z",
+          heartbeatStatus: "running",
+          heartbeatPid: 1234,
+          lastHeartbeatAt: "2026-06-25T00:00:01.000Z",
+          lastActivityAt: "2026-06-25T00:00:01.000Z",
+          lastOutputAt: "2026-06-25T00:00:01.000Z",
           tmuxSessionName: null,
           tmuxAttachCommand: null,
           tmuxReadOnlyAttachCommand: null
@@ -279,8 +314,12 @@ describe("planweave CLI run command output", () => {
       warnings: []
     };
 
-    expect(formatRunStatusHuman(status, { defaultStartCommand: "planweave run --canvas default" })).toContain(
-      "next command: planweave run --canvas default"
-    );
+    const text = formatRunStatusHuman(status, {
+      defaultStartCommand: "planweave run --canvas default"
+    });
+    expect(text).toContain("next command: planweave run --canvas default");
+    expect(text).toContain("liveness: status=running");
+    expect(text).toContain("pid=1234");
+    expect(text).toContain("lastActivity=2026-06-25T00:00:01.000Z");
   });
 });

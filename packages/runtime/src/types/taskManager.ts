@@ -27,6 +27,8 @@ export type ClaimResult =
       kind: "batch";
       refs: string[];
       effectiveExecutors: Record<string, string>;
+      /** Present when maxConcurrent is already filled by live in_progress work. */
+      reason?: "at_capacity";
     }
   | {
       kind: "none";
@@ -196,20 +198,32 @@ export type CurrentWork = {
 };
 
 export type DoctorIssue = {
-  code: "stale_current_ref" | "orphan_result" | "index_state_mismatch";
+  code:
+    | "stale_current_ref"
+    | "orphan_result"
+    | "index_state_mismatch"
+    | "retention_threshold_exceeded";
   message: string;
+  /** Defaults to error. Warnings do not fail doctor `ok`. */
+  severity?: "error" | "warning";
   repaired?: boolean;
   ref?: string;
   taskId?: string;
   path?: string;
   stateRunId?: string | null;
   indexRunId?: string | null;
+  count?: number;
+  threshold?: number;
 };
 
 export type DoctorReport = {
   ok: boolean;
   issues: DoctorIssue[];
 };
+
+export function isDoctorErrorIssue(issue: DoctorIssue): boolean {
+  return (issue.severity ?? "error") !== "warning";
+}
 
 export type ProjectDoctorIssueSource = "project_graph" | "canvas_package" | "canvas_doctor";
 

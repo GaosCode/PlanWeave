@@ -4,7 +4,7 @@ import { createAutoRunExplanation, runAutoRunStep } from "../taskManager/autoRun
 import { resetMaxCycleReviewsForRetry } from "../taskManager/reviewRetry.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
-import type { ProjectWorkspace } from "../types.js";
+import type { PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
 import type {
   DesktopAutoRunEventLog,
   DesktopAutoRunEventListener,
@@ -18,12 +18,41 @@ import type {
   DesktopRuntimeResetOptions,
   DesktopRuntimeResetResult
 } from "./types.js";
-import { appendAutoRunEvent, autoRunRoot, cloneAutoRunState, createAutoRunEvent, now } from "./runStateStore.js";
-import { nextPersistedAutoRunId, readLatestPersistedAutoRunState, readPersistedAutoRunEventLog, writePersistedAutoRunState } from "./runStateRepository.js";
-import { claimRef, claimRefs, claimScope, completedRefs, executorName, latestStatus, outputSummary, phaseAfterStep, reviewAttemptId, reviewVerdict, terminalPatch } from "./runStepState.js";
+import {
+  appendAutoRunEvent,
+  autoRunRoot,
+  cloneAutoRunState,
+  createAutoRunEvent,
+  now
+} from "./runStateStore.js";
+import {
+  nextPersistedAutoRunId,
+  readLatestPersistedAutoRunState,
+  readPersistedAutoRunEventLog,
+  writePersistedAutoRunState
+} from "./runStateRepository.js";
+import {
+  claimRef,
+  claimRefs,
+  claimScope,
+  completedRefs,
+  executorName,
+  latestStatus,
+  outputSummary,
+  phaseAfterStep,
+  reviewAttemptId,
+  reviewVerdict,
+  terminalPatch
+} from "./runStepState.js";
 import { invalidateDesktopProjectProjection } from "./graph/projectProjectionModel.js";
 import { formatDesktopDiagnostic } from "./graph/desktopDiagnostics.js";
-import { appendRunSessionEvent, createRunSession, getRunSession, resetRuntimeState, updateRunSession } from "../runSessions/index.js";
+import {
+  appendRunSessionEvent,
+  createRunSession,
+  getRunSession,
+  resetRuntimeState,
+  updateRunSession
+} from "../runSessions/index.js";
 import type { RunSessionAutoRunSummary, RunSessionPhase } from "../runSessions/index.js";
 
 const runs = new Map<string, DesktopAutoRunState>();
@@ -31,7 +60,13 @@ const runWorkspaces = new Map<string, ProjectWorkspace>();
 const stopOperations = new Map<string, Promise<DesktopAutoRunState>>();
 const activeLoops = new Set<string>();
 const autoRunEventListeners = new Set<DesktopAutoRunEventListener>();
-const finalRunSessionEventTypes = new Set(["session_completed", "session_manual", "session_blocked", "session_failed", "session_stopped"]);
+const finalRunSessionEventTypes = new Set([
+  "session_completed",
+  "session_manual",
+  "session_blocked",
+  "session_failed",
+  "session_stopped"
+]);
 
 type DesktopRunSessionStopReason = RunSessionAutoRunSummary["stopReason"];
 
@@ -41,7 +76,12 @@ function normalizeAutoRunOptions(options?: DesktopAutoRunOptions): Required<Desk
   };
 }
 
-async function setState(runId: string, patch: Partial<DesktopAutoRunState>, eventType?: string, data: Record<string, unknown> = {}): Promise<DesktopAutoRunState> {
+async function setState(
+  runId: string,
+  patch: Partial<DesktopAutoRunState>,
+  eventType?: string,
+  data: Record<string, unknown> = {}
+): Promise<DesktopAutoRunState> {
   const current = runs.get(runId);
   if (!current) {
     throw new Error(`Auto Run '${runId}' does not exist.`);
@@ -56,7 +96,11 @@ async function setState(runId: string, patch: Partial<DesktopAutoRunState>, even
   let changedEventType: string | null = null;
   if (eventType || previousPhase !== next.phase) {
     const resolvedEventType = eventType ?? "phase_change";
-    await appendAutoRunEvent(next, resolvedEventType, { previousPhase, nextPhase: next.phase, ...data });
+    await appendAutoRunEvent(next, resolvedEventType, {
+      previousPhase,
+      nextPhase: next.phase,
+      ...data
+    });
     changedEventType = resolvedEventType;
   }
   if (!immediateVisibility) {
@@ -75,11 +119,19 @@ async function setState(runId: string, patch: Partial<DesktopAutoRunState>, even
 }
 
 async function workspaceForAutoRunState(state: DesktopAutoRunState): Promise<ProjectWorkspace> {
-  return runWorkspaces.get(state.runId) ?? resolveTaskCanvasWorkspace(state.projectRoot, state.canvasId);
+  return (
+    runWorkspaces.get(state.runId) ?? resolveTaskCanvasWorkspace(state.projectRoot, state.canvasId)
+  );
 }
 
 function runSessionPhaseForAutoRunPhase(phase: DesktopAutoRunPhase): RunSessionPhase {
-  if (phase === "completed" || phase === "manual" || phase === "blocked" || phase === "failed" || phase === "stopped") {
+  if (
+    phase === "completed" ||
+    phase === "manual" ||
+    phase === "blocked" ||
+    phase === "failed" ||
+    phase === "stopped"
+  ) {
     return phase;
   }
   return "running";
@@ -105,7 +157,11 @@ function finalRunSessionEventType(phase: RunSessionPhase): string | null {
   return null;
 }
 
-async function autoRunSessionSummary(workspace: ProjectWorkspace, state: DesktopAutoRunState, stopReason: DesktopRunSessionStopReason): Promise<RunSessionAutoRunSummary> {
+async function autoRunSessionSummary(
+  workspace: ProjectWorkspace,
+  state: DesktopAutoRunState,
+  stopReason: DesktopRunSessionStopReason
+): Promise<RunSessionAutoRunSummary> {
   const { manifest } = await loadPackage(workspace);
   return {
     desktopRunId: state.runId,
@@ -120,7 +176,11 @@ function stopReasonForAutoRunEvent(eventType: string): DesktopRunSessionStopReas
   return eventType === "step_limit_reached" ? "step_limit" : null;
 }
 
-async function appendDesktopRunSessionEvent(state: DesktopAutoRunState, eventType: string, data: Record<string, unknown> = {}): Promise<void> {
+async function appendDesktopRunSessionEvent(
+  state: DesktopAutoRunState,
+  eventType: string,
+  data: Record<string, unknown> = {}
+): Promise<void> {
   if (!state.runSessionId) {
     return;
   }
@@ -134,7 +194,11 @@ async function appendDesktopRunSessionEvent(state: DesktopAutoRunState, eventTyp
   });
 }
 
-async function syncRunSessionForAutoRunState(state: DesktopAutoRunState, eventType: string, data: Record<string, unknown> = {}): Promise<void> {
+async function syncRunSessionForAutoRunState(
+  state: DesktopAutoRunState,
+  eventType: string,
+  data: Record<string, unknown> = {}
+): Promise<void> {
   if (!state.runSessionId) {
     return;
   }
@@ -174,7 +238,11 @@ async function syncRunSessionForAutoRunState(state: DesktopAutoRunState, eventTy
   }
 }
 
-function withExplanation(state: Omit<DesktopAutoRunState, "explanation"> & { explanation?: DesktopAutoRunState["explanation"] }): DesktopAutoRunState {
+function withExplanation(
+  state: Omit<DesktopAutoRunState, "explanation"> & {
+    explanation?: DesktopAutoRunState["explanation"];
+  }
+): DesktopAutoRunState {
   return {
     ...state,
     explanation: createAutoRunExplanation({
@@ -223,11 +291,17 @@ async function runLoop(runId: string): Promise<void> {
         return;
       }
       if (current.stepCount >= current.stepLimit) {
-        await setState(runId, { phase: "paused", error: "Step limit reached." }, "step_limit_reached");
+        await setState(
+          runId,
+          { phase: "paused", error: "Step limit reached." },
+          "step_limit_reached"
+        );
         return;
       }
       try {
-        const workspace = runWorkspaces.get(runId) ?? (await resolveTaskCanvasWorkspace(current.projectRoot, current.canvasId));
+        const workspace =
+          runWorkspaces.get(runId) ??
+          (await resolveTaskCanvasWorkspace(current.projectRoot, current.canvasId));
         const { manifest } = await loadPackage(workspace);
         await appendAutoRunEvent(current, "step_start", { scope: current.scope });
         await appendDesktopRunSessionEvent(current, "step_start", { scope: current.scope });
@@ -244,8 +318,14 @@ async function runLoop(runId: string): Promise<void> {
         const afterStep = runs.get(runId);
         if (!afterStep || afterStep.phase === "stopped") {
           if (afterStep?.phase === "stopped") {
-            await appendAutoRunEvent(afterStep, "stopped_step_ignored", { stepKind: step.kind, stoppedPhase: afterStep.phase });
-            await appendDesktopRunSessionEvent(afterStep, "stopped_step_ignored", { stepKind: step.kind, stoppedPhase: afterStep.phase });
+            await appendAutoRunEvent(afterStep, "stopped_step_ignored", {
+              stepKind: step.kind,
+              stoppedPhase: afterStep.phase
+            });
+            await appendDesktopRunSessionEvent(afterStep, "stopped_step_ignored", {
+              stepKind: step.kind,
+              stoppedPhase: afterStep.phase
+            });
           }
           return;
         }
@@ -305,21 +385,41 @@ function canRehydratePersistedRun(state: DesktopAutoRunState): boolean {
 }
 
 function isRunIdConflictProtected(state: DesktopAutoRunState): boolean {
-  return state.phase === "running" || state.phase === "pausing" || state.phase === "paused" || state.phase === "manual";
+  return (
+    state.phase === "running" ||
+    state.phase === "pausing" ||
+    state.phase === "paused" ||
+    state.phase === "manual"
+  );
 }
 
-function sameAutoRunTarget(state: DesktopAutoRunState, projectRoot: string, canvasId: string | null): boolean {
+function sameAutoRunTarget(
+  state: DesktopAutoRunState,
+  projectRoot: string,
+  canvasId: string | null
+): boolean {
   return state.projectRoot === projectRoot && state.canvasId === canvasId;
 }
 
-async function stopResetTargetAutoRuns(projectRoot: string, canvasId: string | null): Promise<string[]> {
+async function stopResetTargetAutoRuns(
+  projectRoot: string,
+  canvasId: string | null
+): Promise<string[]> {
   const latest = await getLatestAutoRunSummary(projectRoot, canvasId);
   const runIds = new Set(
     [...runs.values()]
-      .filter((run) => sameAutoRunTarget(run, projectRoot, canvasId) && (run.phase === "paused" || run.phase === "manual"))
+      .filter(
+        (run) =>
+          sameAutoRunTarget(run, projectRoot, canvasId) &&
+          (run.phase === "paused" || run.phase === "manual")
+      )
       .map((run) => run.runId)
   );
-  if (latest && sameAutoRunTarget(latest, projectRoot, canvasId) && (latest.phase === "paused" || latest.phase === "manual")) {
+  if (
+    latest &&
+    sameAutoRunTarget(latest, projectRoot, canvasId) &&
+    (latest.phase === "paused" || latest.phase === "manual")
+  ) {
     runIds.add(latest.runId);
   }
 
@@ -337,7 +437,11 @@ async function stopResetTargetAutoRuns(projectRoot: string, canvasId: string | n
 
 function activeResetTargetAutoRunIds(projectRoot: string, canvasId: string | null): string[] {
   return [...runs.values()]
-    .filter((run) => sameAutoRunTarget(run, projectRoot, canvasId) && (run.phase === "running" || run.phase === "pausing" || activeLoops.has(run.runId)))
+    .filter(
+      (run) =>
+        sameAutoRunTarget(run, projectRoot, canvasId) &&
+        (run.phase === "running" || run.phase === "pausing" || activeLoops.has(run.runId))
+    )
     .map((run) => run.runId)
     .sort();
 }
@@ -355,7 +459,11 @@ function releaseRunResources(runId: string, state = runs.get(runId)): void {
 
 function assertRunIdMatchesExistingTarget(state: DesktopAutoRunState): void {
   const existing = runs.get(state.runId);
-  if (!existing || !isRunIdConflictProtected(existing) || (existing.projectRoot === state.projectRoot && existing.canvasId === state.canvasId)) {
+  if (
+    !existing ||
+    !isRunIdConflictProtected(existing) ||
+    (existing.projectRoot === state.projectRoot && existing.canvasId === state.canvasId)
+  ) {
     return;
   }
   throw new Error(
@@ -363,7 +471,10 @@ function assertRunIdMatchesExistingTarget(state: DesktopAutoRunState): void {
   );
 }
 
-function rehydratePersistedRun(state: DesktopAutoRunState, workspace: ProjectWorkspace): DesktopAutoRunState {
+function rehydratePersistedRun(
+  state: DesktopAutoRunState,
+  workspace: ProjectWorkspace
+): DesktopAutoRunState {
   const rehydrated = state.phase === "paused" ? withExplanation(state) : state;
   assertRunIdMatchesExistingTarget(rehydrated);
   runs.set(rehydrated.runId, rehydrated);
@@ -380,11 +491,16 @@ export async function startAutoRun(
 ): Promise<DesktopAutoRunState> {
   const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
   const { manifest } = await loadPackage(workspace);
-  const resetReviews = await resetMaxCycleReviewsForRetry({ projectRoot: workspace, scope: claimScope(scope) });
+  const resetReviews = await resetMaxCycleReviewsForRetry({
+    projectRoot: workspace,
+    scope: claimScope(scope)
+  });
   const runId = await nextPersistedAutoRunId(workspace, {
     isReserved: (candidateRunId) => {
       const existing = runs.get(candidateRunId);
-      return activeLoops.has(candidateRunId) || (existing ? isRunIdConflictProtected(existing) : false);
+      return (
+        activeLoops.has(candidateRunId) || (existing ? isRunIdConflictProtected(existing) : false)
+      );
     }
   });
   const root = autoRunRoot(workspace, runId);
@@ -420,7 +536,10 @@ export async function startAutoRun(
   runs.set(runId, state);
   runWorkspaces.set(runId, workspace);
   await writePersistedAutoRunState(state);
-  await appendAutoRunEvent(state, "run_started", { scope, resetMaxCycleReviewRefs: resetReviews.refs });
+  await appendAutoRunEvent(state, "run_started", {
+    scope,
+    resetMaxCycleReviewRefs: resetReviews.refs
+  });
   await updateRunSession(workspace, session.sessionId, {
     phase: "running",
     autoRun: {
@@ -487,7 +606,10 @@ export async function stopAutoRun(runId: string): Promise<DesktopAutoRunState> {
     if (latest.phase === "stopped") {
       return latest;
     }
-    const killed = latest.phase === "running" || latest.phase === "pausing" ? await killTmuxSessionsForRun(runId) : [];
+    const killed =
+      latest.phase === "running" || latest.phase === "pausing"
+        ? await killTmuxSessionsForRun(runId)
+        : [];
     return setState(runId, { phase: "stopped" }, "run_stopped", { killedTmuxSessions: killed });
   })();
   stopOperations.set(runId, stopOperation);
@@ -507,13 +629,20 @@ export async function resetDesktopRuntimeState(
 ): Promise<DesktopRuntimeResetResult> {
   const normalizedCanvasId = canvasId ?? null;
   const workspace = await resolveTaskCanvasWorkspace(projectRoot, normalizedCanvasId);
-  const session = await createRunSession({ projectRoot: workspace, kind: "reset", trigger: "desktop", phase: "resetting" });
+  const session = await createRunSession({
+    projectRoot: workspace,
+    kind: "reset",
+    trigger: "desktop",
+    phase: "resetting"
+  });
   let stoppedAutoRunIds: string[] = [];
 
   try {
     const activeRunIds = activeResetTargetAutoRunIds(projectRoot, normalizedCanvasId);
     if (activeRunIds.length > 0) {
-      throw new Error(`Cannot reset runtime state while Auto Run is active (${activeRunIds.join(", ")}). Stop Auto Run and wait for the current step to settle first.`);
+      throw new Error(
+        `Cannot reset runtime state while Auto Run is active (${activeRunIds.join(", ")}). Stop Auto Run and wait for the current step to settle first.`
+      );
     }
     if (options.force === true) {
       stoppedAutoRunIds = await stopResetTargetAutoRuns(projectRoot, normalizedCanvasId);
@@ -566,7 +695,10 @@ export async function getAutoRunState(runId: string): Promise<DesktopAutoRunStat
   return cloneAutoRunState(state);
 }
 
-export async function getLatestAutoRunSummaryWithDiagnostics(projectRoot: string, canvasId?: string | null): Promise<DesktopLatestAutoRunSummary> {
+export async function getLatestAutoRunSummaryWithDiagnostics(
+  projectRoot: string,
+  canvasId?: string | null
+): Promise<DesktopLatestAutoRunSummary> {
   const normalizedCanvasId = canvasId ?? null;
   const workspace = await resolveTaskCanvasWorkspace(projectRoot, normalizedCanvasId);
   const latest = [...runs.values()]
@@ -575,7 +707,9 @@ export async function getLatestAutoRunSummaryWithDiagnostics(projectRoot: string
     .at(-1);
   const { state: persistedLatest, diagnostics } = await readLatestPersistedAutoRunState(workspace, {
     hasActiveLoop: (runId) => activeLoops.has(runId),
-    matches: (run) => (run.projectRoot === projectRoot || run.projectRoot === workspace.rootPath) && run.canvasId === normalizedCanvasId
+    matches: (run) =>
+      (run.projectRoot === projectRoot || run.projectRoot === workspace.rootPath) &&
+      run.canvasId === normalizedCanvasId
   });
   if (latest) {
     return { state: cloneAutoRunState(latest), diagnostics };
@@ -589,11 +723,16 @@ export async function getLatestAutoRunSummaryWithDiagnostics(projectRoot: string
   return { state: cloneAutoRunState(state), diagnostics };
 }
 
-export async function getLatestAutoRunSummary(projectRoot: string, canvasId?: string | null): Promise<DesktopAutoRunState | null> {
+export async function getLatestAutoRunSummary(
+  projectRoot: string,
+  canvasId?: string | null
+): Promise<DesktopAutoRunState | null> {
   return (await getLatestAutoRunSummaryWithDiagnostics(projectRoot, canvasId)).state;
 }
 
-export async function getDesktopRuntimeRefresh(ref: DesktopCanvasReference): Promise<DesktopRuntimeRefreshSnapshot> {
+export async function getDesktopRuntimeRefresh(
+  ref: DesktopCanvasReference
+): Promise<DesktopRuntimeRefreshSnapshot> {
   const summary = await getLatestAutoRunSummaryWithDiagnostics(ref.projectRoot, ref.canvasId);
   return {
     latestAutoRun: summary.state,
@@ -602,7 +741,14 @@ export async function getDesktopRuntimeRefresh(ref: DesktopCanvasReference): Pro
   };
 }
 
-export async function listAutoRunEvents(projectRoot: string, canvasId: string | null | undefined, runId: string): Promise<DesktopAutoRunEventLog> {
-  const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
+export async function listAutoRunEvents(
+  projectRoot: PackageWorkspaceRef,
+  canvasId: string | null | undefined,
+  runId: string
+): Promise<DesktopAutoRunEventLog> {
+  const workspace =
+    typeof projectRoot === "string"
+      ? await resolveTaskCanvasWorkspace(projectRoot, canvasId)
+      : projectRoot;
   return readPersistedAutoRunEventLog(workspace, runId);
 }

@@ -16,7 +16,10 @@ export {
   resolveSourceDefaultProjectRoot,
   setSourceDefaultProject
 } from "./sourceDefaultProject.js";
-export type { SourceDefaultProjectCandidate, SourceDefaultProjectEntry } from "./sourceDefaultProject.js";
+export type {
+  SourceDefaultProjectCandidate,
+  SourceDefaultProjectEntry
+} from "./sourceDefaultProject.js";
 export {
   archiveTaskCanvas,
   createProjectFromTaskCanvas,
@@ -86,11 +89,21 @@ export {
 } from "./projectGraphEditApi.js";
 export type { ProjectGraphEditResult } from "./projectGraphEditApi.js";
 export type { CanvasExecutionPolicyInput } from "./graph/editModel.js";
-export { readProjectPrompt, readProjectPromptPolicy, updateProjectPrompt, updateProjectPromptPolicy } from "../projectPromptPolicy.js";
+export {
+  readProjectPrompt,
+  readProjectPromptPolicy,
+  updateProjectPrompt,
+  updateProjectPromptPolicy
+} from "../projectPromptPolicy.js";
 export type { ProjectPromptPolicy } from "../projectPromptPolicy.js";
 export { getDesktopGraphDiagnostics } from "./diagnosticsApi.js";
 export { listPendingImportRecoveries, rollbackPendingImportRecovery } from "./importRecoveryApi.js";
-export { applyCanvasLaneLayout, getDesktopLayout, resetDesktopLayout, saveDesktopLayout } from "./layoutApi.js";
+export {
+  applyCanvasLaneLayout,
+  getDesktopLayout,
+  resetDesktopLayout,
+  saveDesktopLayout
+} from "./layoutApi.js";
 export type { ApplyCanvasLaneLayoutOptions } from "./layoutApi.js";
 export {
   createDesktopPackageFileSnapshot,
@@ -116,6 +129,18 @@ export {
   stopAutoRun,
   subscribeAutoRunEvents
 } from "./runApi.js";
+export {
+  isFailedAutoRunTerminalPhase,
+  isTerminalAutoRunPhase,
+  tailAutoRunEvents,
+  type AutoRunEventTailItem,
+  type TailAutoRunEventsOptions
+} from "./runEventTail.js";
+export {
+  autoRunNdjsonEventSchema,
+  desktopAutoRunPhaseSchema,
+  parseAutoRunNdjsonLine
+} from "./autoRunEventSchema.js";
 export {
   getFeedbackRecords,
   getReviewAttempts,

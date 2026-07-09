@@ -128,9 +128,24 @@ describe("planweave CLI command registration", () => {
     );
     expect(commandOptionLongs("run")).toContain("--canvas");
     expect(commandOptionLongs("run-sessions")).toEqual(expect.arrayContaining(["--canvas", "--json"]));
+    expect(subcommandOptionLongs("run-sessions", "prune")).toEqual(
+      expect.arrayContaining([
+        "--older-than",
+        "--keep-last",
+        "--dry-run",
+        "--force",
+        "--reason",
+        "--json",
+        "--canvas"
+      ])
+    );
     expect(commandOptionLongs("run-session")).toEqual(expect.arrayContaining(["--canvas", "--json"]));
     expect(commandOptionLongs("run-status")).toContain("--json");
+    expect(commandOptionLongs("run-status")).toContain("--follow");
     expect(commandOptionLongs("run-status")).toContain("--canvas");
+    expect(subcommandOptionLongs("run-sessions", "events")).toEqual(
+      expect.arrayContaining(["--follow", "--json", "--canvas"])
+    );
     expect(subcommandOptionLongs("graph", "inspect")).toEqual(
       expect.arrayContaining(["--view", "--task", "--limit", "--cursor", "--json", "--canvas"])
     );
@@ -148,6 +163,9 @@ describe("planweave CLI command registration", () => {
     expect(subcommandOptionLongs("package-draft", "validate")).toEqual(expect.arrayContaining(["--draft-root", "--json"]));
     expect(subcommandOptionLongs("package-draft", "quality")).toEqual(expect.arrayContaining(["--draft-root", "--json"]));
     expect(subcommandOptionLongs("package", "import")).toEqual(expect.arrayContaining(["--from", "--dry-run", "--apply", "--json", "--canvas"]));
+    expect(subcommandOptionLongs("package", "export")).toEqual(
+      expect.arrayContaining(["--target", "--force", "--json", "--canvas"])
+    );
     expect(subcommandOptionLongs("import-recovery", "list")).toContain("--json");
     expect(subcommandOptionLongs("import-recovery", "rollback")).toContain("--json");
     expect(subcommandOptionLongs("executors", "list")).toContain("--json");

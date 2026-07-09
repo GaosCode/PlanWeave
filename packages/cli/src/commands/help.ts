@@ -11,7 +11,12 @@ export const planweaveHelpTopics: HelpTopic[] = [
   {
     name: "setup",
     summary: "Initialize or locate the PlanWeave workspace.",
-    commands: ["paths --json", "init --project-graph --json", "project-graph migrate --json", "validate --json"],
+    commands: [
+      "paths --json",
+      "init --project-graph --json",
+      "project-graph migrate --json",
+      "validate --json"
+    ],
     notes: [
       "Use the CLI-returned packageDir, statePath, and resultsDir as the writable canvas package, state, and results locations.",
       "Use project-graph migrate to materialize a formal multi-canvas graph from legacy/default canvas sources.",
@@ -21,7 +26,14 @@ export const planweaveHelpTopics: HelpTopic[] = [
   {
     name: "schema",
     summary: "Navigate PlanWeave project graph, manifest, state, and desktop layout schemas.",
-    commands: ["schema", "schema project", "schema manifest", "schema state", "schema layout", "schema all"],
+    commands: [
+      "schema",
+      "schema project",
+      "schema manifest",
+      "schema state",
+      "schema layout",
+      "schema all"
+    ],
     notes: [
       "help schema is a short navigation topic; use planweave schema <topic> for the full schema.",
       "Use schema project before writing formal multi-canvas project-graph.json.",
@@ -89,7 +101,10 @@ export const planweaveHelpTopics: HelpTopic[] = [
     name: "explain",
     summary: "Explain scheduling and claimability.",
     commands: ["explain <ref>", "why-not <ref>", "status --json"],
-    notes: ["Use explain/why-not before editing state by hand.", "Compare nextClaimable, nextParallelClaimable, and nextSequentialClaimable in status output."]
+    notes: [
+      "Use explain/why-not before editing state by hand.",
+      "Compare nextClaimable, nextParallelClaimable, and nextSequentialClaimable in status output."
+    ]
   },
   {
     name: "recovery",
@@ -122,6 +137,8 @@ export const planweaveHelpTopics: HelpTopic[] = [
       "run --reset --force --reason <reason> --json",
       "reset --force --reason <reason> --json",
       "run-sessions --json",
+      "run-sessions prune --older-than 30d --dry-run --json",
+      "run-sessions prune --keep-last 3 --force --reason <text> --json",
       "run-session <session-id> --json",
       "run-status --json"
     ],
@@ -129,6 +146,7 @@ export const planweaveHelpTopics: HelpTopic[] = [
       "Use --canvas for canvas-scoped Auto Run; without it, Auto Run targets the current or first canvas.",
       "Use run --reset to clear runtime state before a run session; use reset when you only want to clear runtime state.",
       "init --reset-package resets package source files during workspace initialization; it is separate from runtime reset.",
+      "run-sessions prune is dry-run by default; real deletion requires --force --reason.",
       "Use --once for controlled agent loops.",
       "The manual executor claims work and writes prompt paths without auto-submitting results."
     ]
@@ -136,7 +154,15 @@ export const planweaveHelpTopics: HelpTopic[] = [
 ];
 
 function formatTopic(topic: HelpTopic): string {
-  return [`${topic.name}: ${topic.summary}`, "", "Commands:", ...topic.commands.map((command) => `- planweave ${command}`), "", "Notes:", ...topic.notes.map((note) => `- ${note}`)].join("\n");
+  return [
+    `${topic.name}: ${topic.summary}`,
+    "",
+    "Commands:",
+    ...topic.commands.map((command) => `- planweave ${command}`),
+    "",
+    "Notes:",
+    ...topic.notes.map((note) => `- ${note}`)
+  ].join("\n");
 }
 
 export function formatCliHelp(topicName?: string): string {
@@ -144,11 +170,24 @@ export function formatCliHelp(topicName?: string): string {
   if (topic) {
     return formatTopic(topic);
   }
-  const lines = ["PlanWeave CLI help", "", "Use `planweave help <topic>` for focused command groups.", "", "Topics:"];
+  const lines = [
+    "PlanWeave CLI help",
+    "",
+    "Use `planweave help <topic>` for focused command groups.",
+    "",
+    "Topics:"
+  ];
   for (const item of planweaveHelpTopics) {
     lines.push(`- ${item.name}: ${item.summary}`);
   }
-  lines.push("", "Common agent loop:", "- planweave current", "- planweave claim-next --dry-run", "- planweave prompt <block-ref>", "- planweave submit-result <block-ref> --report <report.md>");
+  lines.push(
+    "",
+    "Common agent loop:",
+    "- planweave current",
+    "- planweave claim-next --dry-run",
+    "- planweave prompt <block-ref>",
+    "- planweave submit-result <block-ref> --report <report.md>"
+  );
   if (topicName) {
     lines.push("", `Unknown topic: ${topicName}`);
   }
@@ -162,7 +201,9 @@ export function registerHelpCommand(program: Command): void {
     .option("--json", "print machine-readable output")
     .action((topicName: string | undefined, options: { json?: boolean }) => {
       if (options.json) {
-        console.log(JSON.stringify({ topics: planweaveHelpTopics, selected: topicName ?? null }, null, 2));
+        console.log(
+          JSON.stringify({ topics: planweaveHelpTopics, selected: topicName ?? null }, null, 2)
+        );
         return;
       }
       const command = topicName ? program.commands.find((item) => item.name() === topicName) : null;

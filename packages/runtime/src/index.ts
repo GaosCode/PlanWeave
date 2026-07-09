@@ -19,6 +19,15 @@ export { loadPackage } from "./package/loadPackage.js";
 export { editBlock, editTask } from "./package/manifestEdit.js";
 export { readMarkdown } from "./package/readMarkdown.js";
 export { resolvePackagePath, PackagePathError } from "./package/resolvePackagePath.js";
+export {
+  exportCanvasPackageFiles,
+  packageFileEntrySchema,
+  readPackageFiles,
+  replacePackageFiles,
+  safePackageFilePath,
+  toArchivePath
+} from "./package/packageFiles.js";
+export type { PackageFileEntry } from "./package/packageFiles.js";
 export { parsePromptSections, getPromptSection, hasUserSection, replacePromptSection } from "./prompt/sections.js";
 export { renderManagedSections } from "./prompt/renderManagedSections.js";
 export { refreshPrompt } from "./prompt/refreshPrompt.js";
@@ -171,7 +180,28 @@ export {
 export type { TrustedCommand, TrustedCommandsFile } from "./taskManager/index.js";
 export { getAutoRunStatus, runAutoRunStep } from "./taskManager/autoRun.js";
 export type { PromptSourceSummary } from "./taskManager/promptRenderer.js";
-export { appendRunSessionEvent, createRunSession, getRunSession, listRunSessions, resetRuntimeState, runWithSession, updateRunSession } from "./runSessions/index.js";
+export {
+  RETENTION_DOCTOR_THRESHOLD,
+  appendRunSessionEvent,
+  applyPrunePlan,
+  computePrunePlan,
+  countRetentionArtifacts,
+  createRunSession,
+  getRunSession,
+  isPathInsideResultsDir,
+  isPrunableArtifactPath,
+  listRunSessions,
+  resetRuntimeState,
+  runWithSession,
+  updateRunSession
+} from "./runSessions/index.js";
+export type {
+  ApplyPrunePlanResult,
+  ComputePrunePlanOptions,
+  PrunePlan,
+  PrunePlanItem,
+  PrunePlanItemKind
+} from "./runSessions/index.js";
 export { isTmuxAvailable } from "./autoRun/tmuxExecutor.js";
 export {
   addBlock,
@@ -214,6 +244,12 @@ export {
   getLatestAutoRunSummary,
   getLatestAutoRunSummaryWithDiagnostics,
   listAutoRunEvents,
+  tailAutoRunEvents,
+  isFailedAutoRunTerminalPhase,
+  isTerminalAutoRunPhase,
+  parseAutoRunNdjsonLine,
+  autoRunNdjsonEventSchema,
+  desktopAutoRunPhaseSchema,
   archiveTaskCanvas,
   getActiveTaskCanvasId,
   initManagedProject,
@@ -279,6 +315,7 @@ export {
 } from "./desktop/index.js";
 export { edgeTypes, executorAdapters, reviewTriggerConditions, runSubmitStatuses, reviewStatuses } from "./types.js";
 export type { SourceDefaultProjectCandidate, SourceDefaultProjectEntry } from "./desktop/sourceDefaultProject.js";
+export type { AutoRunEventTailItem, TailAutoRunEventsOptions } from "./desktop/runEventTail.js";
 export {
   projectGraphCanvasNodeTypes,
   projectGraphEdgeTypes,

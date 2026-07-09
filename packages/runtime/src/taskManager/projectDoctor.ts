@@ -1,6 +1,10 @@
 import { ZodError } from "zod";
 import { relative } from "node:path";
-import { compileProjectGraph, loadProjectGraph, projectCanvasWorkspace } from "../projectGraph/index.js";
+import {
+  compileProjectGraph,
+  loadProjectGraph,
+  projectCanvasWorkspace
+} from "../projectGraph/index.js";
 import type { ProjectGraphSource } from "../projectGraph/index.js";
 import {
   canvasRecoveryPathExists,
@@ -9,7 +13,13 @@ import {
   removeCanvasStagingWorkspace,
   type CanvasWorkspaceDirectory
 } from "../projectGraph/canvasWorkspaceRecovery.js";
-import type { ProjectDoctorCanvasReport, ProjectDoctorIssue, ProjectDoctorReport, ProjectWorkspace, ValidationIssue } from "../types.js";
+import type {
+  ProjectDoctorCanvasReport,
+  ProjectDoctorIssue,
+  ProjectDoctorReport,
+  ProjectWorkspace,
+  ValidationIssue
+} from "../types.js";
 import { runDoctor } from "./doctor.js";
 import {
   canvasDoctorIssue,
@@ -67,7 +77,9 @@ function projectWorkspaceRelative(workspace: ProjectWorkspace, path: string): st
 
 function canvasEntryPath(source: ProjectGraphSource, canvasIndex: number): string {
   if (source === "legacy_registry") {
-    return canvasIndex >= 0 ? `desktop/canvases.json:canvases.${canvasIndex}` : "desktop/canvases.json:canvases";
+    return canvasIndex >= 0
+      ? `desktop/canvases.json:canvases.${canvasIndex}`
+      : "desktop/canvases.json:canvases";
   }
   return canvasIndexPath(canvasIndex);
 }
@@ -80,7 +92,10 @@ function canvasEntryMissingWorkspaceIssue(
   canvasWorkspace: ProjectWorkspace
 ): ProjectDoctorIssue {
   return {
-    code: source === "legacy_registry" ? "canvas_registry_entry_missing_workspace" : "canvas_graph_entry_missing_workspace",
+    code:
+      source === "legacy_registry"
+        ? "canvas_registry_entry_missing_workspace"
+        : "canvas_graph_entry_missing_workspace",
     message: `Canvas '${canvasId}' is registered, but its workspace directory '${projectWorkspaceRelative(projectWorkspace, canvasWorkspace.workspaceRoot)}' does not exist.`,
     canvasId,
     path: canvasEntryPath(source, canvasIndex),
@@ -105,9 +120,15 @@ function canvasWorkspaceAnomalyIssue(
   };
 }
 
-async function repairOrphanCanvasDirectory(projectWorkspace: ProjectWorkspace, directory: CanvasWorkspaceDirectory): Promise<ProjectDoctorIssue> {
+async function repairOrphanCanvasDirectory(
+  projectWorkspace: ProjectWorkspace,
+  directory: CanvasWorkspaceDirectory
+): Promise<ProjectDoctorIssue> {
   try {
-    await quarantineCanvasWorkspace(projectWorkspace, { canvasId: directory.name, workspaceRoot: directory.path });
+    await quarantineCanvasWorkspace(projectWorkspace, {
+      canvasId: directory.name,
+      workspaceRoot: directory.path
+    });
     return canvasWorkspaceAnomalyIssue(
       "orphan_canvas_directory",
       "Unregistered canvas workspace directory was moved to canvas quarantine.",
@@ -125,7 +146,10 @@ async function repairOrphanCanvasDirectory(projectWorkspace: ProjectWorkspace, d
   }
 }
 
-async function repairStaleCanvasStagingDirectory(projectWorkspace: ProjectWorkspace, directory: CanvasWorkspaceDirectory): Promise<ProjectDoctorIssue> {
+async function repairStaleCanvasStagingDirectory(
+  projectWorkspace: ProjectWorkspace,
+  directory: CanvasWorkspaceDirectory
+): Promise<ProjectDoctorIssue> {
   try {
     await removeCanvasStagingWorkspace(projectWorkspace, directory.path);
     return canvasWorkspaceAnomalyIssue(
@@ -150,7 +174,10 @@ async function canvasWorkspaceRecoveryIssues(options: {
   registeredCanvasWorkspaces: ProjectWorkspace[];
   repair?: boolean;
 }): Promise<{ errors: ProjectDoctorIssue[]; warnings: ProjectDoctorIssue[] }> {
-  const anomalies = await listCanvasWorkspaceAnomalies(options.projectWorkspace, options.registeredCanvasWorkspaces);
+  const anomalies = await listCanvasWorkspaceAnomalies(
+    options.projectWorkspace,
+    options.registeredCanvasWorkspaces
+  );
   const errors: ProjectDoctorIssue[] = [];
   const warnings: ProjectDoctorIssue[] = [];
 
@@ -158,7 +185,12 @@ async function canvasWorkspaceRecoveryIssues(options: {
     errors.push(
       options.repair === true
         ? await repairOrphanCanvasDirectory(options.projectWorkspace, directory)
-        : canvasWorkspaceAnomalyIssue("orphan_canvas_directory", "Unregistered canvas workspace directory exists.", options.projectWorkspace, directory)
+        : canvasWorkspaceAnomalyIssue(
+            "orphan_canvas_directory",
+            "Unregistered canvas workspace directory exists.",
+            options.projectWorkspace,
+            directory
+          )
     );
   }
   for (const directory of anomalies.unrecognizedOrphanDirectories) {
@@ -175,29 +207,52 @@ async function canvasWorkspaceRecoveryIssues(options: {
     errors.push(
       options.repair === true
         ? await repairStaleCanvasStagingDirectory(options.projectWorkspace, directory)
-        : canvasWorkspaceAnomalyIssue("stale_canvas_staging_directory", "Stale canvas staging directory exists.", options.projectWorkspace, directory)
+        : canvasWorkspaceAnomalyIssue(
+            "stale_canvas_staging_directory",
+            "Stale canvas staging directory exists.",
+            options.projectWorkspace,
+            directory
+          )
     );
   }
   for (const directory of anomalies.quarantineDirectories) {
     warnings.push(
-      canvasWorkspaceAnomalyIssue("stale_canvas_quarantine_directory", "Canvas quarantine directory exists and may contain recoverable data.", options.projectWorkspace, directory)
+      canvasWorkspaceAnomalyIssue(
+        "stale_canvas_quarantine_directory",
+        "Canvas quarantine directory exists and may contain recoverable data.",
+        options.projectWorkspace,
+        directory
+      )
     );
   }
 
   return { errors, warnings };
 }
 
-export async function runProjectDoctor(options: { projectRoot: string; repair?: boolean }): Promise<ProjectDoctorReport> {
+export async function runProjectDoctor(options: {
+  projectRoot: string;
+  repair?: boolean;
+}): Promise<ProjectDoctorReport> {
   let loaded: Awaited<ReturnType<typeof loadProjectGraph>>;
   try {
     loaded = await loadProjectGraph(options.projectRoot);
   } catch (error) {
-    return { ok: false, repaired: false, errors: projectGraphReadErrors(error), warnings: [], canvasReports: [] };
+    return {
+      ok: false,
+      repaired: false,
+      errors: projectGraphReadErrors(error),
+      warnings: [],
+      canvasReports: []
+    };
   }
 
   const graph = await compileProjectGraph(loaded);
-  let projectErrors = uniqueProjectDoctorIssues(graph.diagnostics.errors.map(projectGraphDoctorIssue));
-  let projectWarnings = uniqueProjectDoctorIssues(graph.diagnostics.warnings.map(projectGraphDoctorIssue));
+  let projectErrors = uniqueProjectDoctorIssues(
+    graph.diagnostics.errors.map(projectGraphDoctorIssue)
+  );
+  let projectWarnings = uniqueProjectDoctorIssues(
+    graph.diagnostics.warnings.map(projectGraphDoctorIssue)
+  );
   const canvasReports: ProjectDoctorCanvasReport[] = [];
   const registeredCanvasWorkspaces: ProjectWorkspace[] = [];
 
@@ -217,17 +272,28 @@ export async function runProjectDoctor(options: { projectRoot: string; repair?: 
     }
     registeredCanvasWorkspaces.push(workspace);
     if (!(await canvasRecoveryPathExists(workspace.workspaceRoot))) {
-      const issue = canvasEntryMissingWorkspaceIssue(graph.source, canvasId, canvasIndex, loaded.workspace, workspace);
+      const issue = canvasEntryMissingWorkspaceIssue(
+        graph.source,
+        canvasId,
+        canvasIndex,
+        loaded.workspace,
+        workspace
+      );
       canvasReports.push({ canvasId, ok: false, repaired: false, errors: [issue], warnings: [] });
       continue;
     }
 
     const validation = await validateCanvasPackageForDoctor({ canvasId, workspace });
     let doctorErrors: ProjectDoctorIssue[] = [];
+    let doctorWarnings: ProjectDoctorIssue[] = [];
     if (validation.manifest) {
       try {
         const report = await runDoctor({ projectRoot: workspace, repair: options.repair });
-        doctorErrors = report.issues.map((item) => canvasDoctorIssue(canvasId, workspace, validation.manifest, item));
+        const mapped = report.issues.map((item) =>
+          canvasDoctorIssue(canvasId, workspace, validation.manifest, item)
+        );
+        doctorErrors = mapped.filter((item) => item.code !== "retention_threshold_exceeded");
+        doctorWarnings = mapped.filter((item) => item.code === "retention_threshold_exceeded");
       } catch (error) {
         doctorErrors = [
           {
@@ -240,7 +306,7 @@ export async function runProjectDoctor(options: { projectRoot: string; repair?: 
       }
     }
     const errors = uniqueProjectDoctorIssues([...validation.errors, ...doctorErrors]);
-    const warnings = uniqueProjectDoctorIssues(validation.warnings);
+    const warnings = uniqueProjectDoctorIssues([...validation.warnings, ...doctorWarnings]);
     canvasReports.push({
       canvasId,
       ok: reportOk(errors),
@@ -256,13 +322,25 @@ export async function runProjectDoctor(options: { projectRoot: string; repair?: 
     repair: options.repair
   });
   projectErrors = uniqueProjectDoctorIssues([...projectErrors, ...workspaceRecoveryIssues.errors]);
-  projectWarnings = uniqueProjectDoctorIssues([...projectWarnings, ...workspaceRecoveryIssues.warnings]);
+  projectWarnings = uniqueProjectDoctorIssues([
+    ...projectWarnings,
+    ...workspaceRecoveryIssues.warnings
+  ]);
 
-  const errors = uniqueProjectDoctorIssues([...projectErrors, ...canvasReports.flatMap((report) => report.errors)]);
-  const warnings = uniqueProjectDoctorIssues([...projectWarnings, ...canvasReports.flatMap((report) => report.warnings)]);
+  const errors = uniqueProjectDoctorIssues([
+    ...projectErrors,
+    ...canvasReports.flatMap((report) => report.errors)
+  ]);
+  const warnings = uniqueProjectDoctorIssues([
+    ...projectWarnings,
+    ...canvasReports.flatMap((report) => report.warnings)
+  ]);
   return {
     ok: reportOk(errors),
-    repaired: errors.some((item) => item.repaired === true) || warnings.some((item) => item.repaired === true) || canvasReports.some((report) => report.repaired),
+    repaired:
+      errors.some((item) => item.repaired === true) ||
+      warnings.some((item) => item.repaired === true) ||
+      canvasReports.some((report) => report.repaired),
     errors,
     warnings,
     canvasReports

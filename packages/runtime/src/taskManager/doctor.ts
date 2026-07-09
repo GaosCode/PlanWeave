@@ -5,6 +5,7 @@ import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { readJsonFile } from "../json.js";
 import { findOrphanResults } from "../package/orphans.js";
 import { loadPackage } from "../package/loadPackage.js";
+import { RETENTION_DOCTOR_THRESHOLD, countRetentionArtifacts } from "../runSessions/retention.js";
 import { ensureStateForManifest, readState, writeState } from "../state.js";
 import type {
   DoctorIssue,
@@ -13,13 +14,19 @@ import type {
   ProjectWorkspace,
   RuntimeState
 } from "../types.js";
+import { isDoctorErrorIssue } from "../types.js";
 import { readTaskIndex, updateTaskIndex } from "./resultIndex.js";
 
 async function exists(path: string): Promise<boolean> {
   return (await optionalStat(path)) !== null;
 }
 
-async function resultRunMatchesIndex(workspace: ProjectWorkspace, ref: string, taskId: string, runId: string): Promise<boolean> {
+async function resultRunMatchesIndex(
+  workspace: ProjectWorkspace,
+  ref: string,
+  taskId: string,
+  runId: string
+): Promise<boolean> {
   const blockId = ref.split("#")[1];
   if (!blockId) {
     return false;
@@ -30,7 +37,12 @@ async function resultRunMatchesIndex(workspace: ProjectWorkspace, ref: string, t
     return false;
   }
   const metadata = await readJsonFile<Record<string, unknown>>(metadataPath);
-  return metadata.ref === ref && metadata.taskId === taskId && metadata.blockId === blockId && metadata.runId === runId;
+  return (
+    metadata.ref === ref &&
+    metadata.taskId === taskId &&
+    metadata.blockId === blockId &&
+    metadata.runId === runId
+  );
 }
 
 function repairStaleCurrentRef(state: RuntimeState, ref: string): boolean {
@@ -49,7 +61,14 @@ async function repairStateRunMismatch(options: {
   taskId: string;
   indexRunId: string;
 }): Promise<boolean> {
-  if (!(await resultRunMatchesIndex(options.workspace, options.ref, options.taskId, options.indexRunId))) {
+  if (
+    !(await resultRunMatchesIndex(
+      options.workspace,
+      options.ref,
+      options.taskId,
+      options.indexRunId
+    ))
+  ) {
     return false;
   }
   options.state.blocks[options.ref] = {
@@ -61,8 +80,20 @@ async function repairStateRunMismatch(options: {
   return true;
 }
 
-async function repairIndexRunMismatch(options: { workspace: ProjectWorkspace; ref: string; taskId: string; stateRunId: string }): Promise<boolean> {
-  if (!(await resultRunMatchesIndex(options.workspace, options.ref, options.taskId, options.stateRunId))) {
+async function repairIndexRunMismatch(options: {
+  workspace: ProjectWorkspace;
+  ref: string;
+  taskId: string;
+  stateRunId: string;
+}): Promise<boolean> {
+  if (
+    !(await resultRunMatchesIndex(
+      options.workspace,
+      options.ref,
+      options.taskId,
+      options.stateRunId
+    ))
+  ) {
     return false;
   }
   await updateTaskIndex(options.workspace, options.taskId, (index) => ({
@@ -75,7 +106,10 @@ async function repairIndexRunMismatch(options: { workspace: ProjectWorkspace; re
   return true;
 }
 
-export async function runDoctor(options: { projectRoot: PackageWorkspaceRef; repair?: boolean }): Promise<DoctorReport> {
+export async function runDoctor(options: {
+  projectRoot: PackageWorkspaceRef;
+  repair?: boolean;
+}): Promise<DoctorReport> {
   const { workspace, manifest } = await loadPackage(options.projectRoot);
   const graph = compileTaskGraph(manifest);
 
@@ -137,7 +171,9 @@ export async function runDoctor(options: { projectRoot: PackageWorkspaceRef; rep
         if (!stateRunId) {
           continue;
         }
-        const repaired = options.repair ? await repairIndexRunMismatch({ workspace, ref, taskId, stateRunId }) : false;
+        const repaired = options.repair
+          ? await repairIndexRunMismatch({ workspace, ref, taskId, stateRunId })
+          : false;
         issues.push({
           code: "index_state_mismatch",
           ref,
@@ -156,7 +192,24 @@ export async function runDoctor(options: { projectRoot: PackageWorkspaceRef; rep
       await writeState(workspace.stateFile, state);
     }
 
-    return { ok: issues.every((issue) => issue.repaired === true), issues };
+    const retention = await countRetentionArtifacts(workspace);
+    if (retention.total > RETENTION_DOCTOR_THRESHOLD) {
+      issues.push({
+        code: "retention_threshold_exceeded",
+        severity: "warning",
+        path: workspace.resultsDir,
+        count: retention.total,
+        threshold: RETENTION_DOCTOR_THRESHOLD,
+        message:
+          `Results/run-session artifact count is ${retention.total} (threshold ${RETENTION_DOCTOR_THRESHOLD}). ` +
+          `Preview with \`planweave run-sessions prune --older-than 30d --dry-run\` then delete with \`--force --reason <text>\`.`
+      });
+    }
+
+    return {
+      ok: issues.every((issue) => !isDoctorErrorIssue(issue) || issue.repaired === true),
+      issues
+    };
   };
 
   // Repair mutates state.json (and may nest updateTaskIndex); hold the canvas lock for the full RMW.
