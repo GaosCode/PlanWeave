@@ -1,4 +1,4 @@
-import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -624,6 +624,24 @@ exit 1
     await expect(exists(mcpTunnelConfigPath())).resolves.toBe(true);
     await expect(exists(mcpTunnelLegacyConfigPath(userDataDir))).resolves.toBe(false);
     expect(mcpTunnelConfigPath()).toBe(join(planweaveHome, "desktop", "mcp-tunnel", "config.json"));
+  });
+
+  it("writes tunnel client config with 0o600 permissions on POSIX", async () => {
+    await useTempPlanweaveHome();
+    await writeTunnelClientConfig({
+      tunnelClientPath: "/tmp/tunnel-client",
+      verification: null,
+      tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+      encryptedRuntimeApiKey: "encrypted-runtime-key",
+      autoStart: false
+    });
+
+    if (process.platform === "win32") {
+      return;
+    }
+
+    const written = await stat(mcpTunnelConfigPath());
+    expect(written.mode & 0o777).toBe(0o600);
   });
 
   it("migrates legacy userData tunnel config to PlanWeave Home while keeping the legacy file", async () => {

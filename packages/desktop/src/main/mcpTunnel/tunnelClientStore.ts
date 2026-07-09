@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { desktopHomePaths } from "../planweaveHomePaths.js";
 import type { TunnelClientBinaryVerification } from "./tunnelClientBinary.js";
@@ -123,7 +123,18 @@ export async function readTunnelClientConfig(paths: TunnelClientConfigStorePaths
 }
 
 export async function writeTunnelClientConfig(config: TunnelClientConfig, paths: Pick<TunnelClientConfigStorePaths, "configPath"> = mcpTunnelConfigStorePaths()): Promise<void> {
-  await mkdir(dirname(paths.configPath), { recursive: true });
-  await writeFile(`${paths.configPath}.tmp`, `${JSON.stringify(config, null, 2)}\n`);
-  await rename(`${paths.configPath}.tmp`, paths.configPath);
+  const dir = dirname(paths.configPath);
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await chmod(dir, 0o700).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code !== "EPERM") {
+      throw error;
+    }
+  });
+  const tmp = `${paths.configPath}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  await rename(tmp, paths.configPath);
+  const written = await stat(paths.configPath);
+  if ((written.mode & 0o777) !== 0o600) {
+    await chmod(paths.configPath, 0o600);
+  }
 }

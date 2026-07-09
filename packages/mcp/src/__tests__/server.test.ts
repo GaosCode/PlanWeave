@@ -1,7 +1,8 @@
 import { createRequire } from "node:module";
 import type { AddressInfo } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Server } from "node:http";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createPlanweaveMcpHttpServer } from "../server.js";
 import { defaultPlanweaveToolNames, planweaveToolNames } from "../tools.js";
 import type { McpConfig } from "../config.js";
@@ -109,6 +110,89 @@ describe("PlanWeave MCP HTTP server", () => {
 
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({ error: "unauthorized" });
+  });
+
+  it("rejects bearer tokens with a different length", async () => {
+    const baseUrl = await startServer("secret-token");
+
+    const response = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      headers: {
+        authorization: "Bearer short",
+        "content-type": "application/json"
+      }
+    });
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "unauthorized" });
+  });
+
+  it("accepts the configured bearer token", async () => {
+    const baseUrl = await startServer("secret-token");
+
+    const response = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: "Bearer secret-token",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: {
+            name: "planweave-mcp-test",
+            version: "0.0.0"
+          }
+        }
+      })
+    });
+
+    expect(response.status).toBe(200);
+    await expect(readMcpResponse(response)).resolves.toMatchObject({
+      result: {
+        serverInfo: {
+          name: "planweave-mcp",
+          version: mcpPackage.version
+        }
+      }
+    });
+  });
+
+  it("returns a generic MCP 500 without leaking error.message", async () => {
+    const connectSpy = vi.spyOn(McpServer.prototype, "connect").mockRejectedValue(new Error("/secret/path leaked"));
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const baseUrl = await startServer(undefined);
+      const response = await fetch(`${baseUrl}/mcp`, {
+        method: "POST",
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+        headers: {
+          "content-type": "application/json"
+        }
+      });
+      const body = (await response.json()) as {
+        error: { code: number; message: string; data?: { requestId?: string } };
+      };
+
+      expect(response.status).toBe(500);
+      expect(body.error).toMatchObject({
+        code: -32603,
+        message: "internal_server_error"
+      });
+      expect(body.error.data?.requestId).toEqual(expect.any(String));
+      expect(JSON.stringify(body)).not.toContain("/secret/path");
+      expect(JSON.stringify(body)).not.toContain("leaked");
+      expect(consoleErrorSpy).toHaveBeenCalled();
+    } finally {
+      connectSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
   });
 
   it("rejects MCP requests above the configured request body limit", async () => {

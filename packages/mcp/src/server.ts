@@ -1,3 +1,4 @@
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -7,6 +8,7 @@ import type { McpConfig } from "./config.js";
 import { createHealthPayload } from "./health.js";
 import { createFileOAuthClientStore } from "./oauthClientStore.js";
 import { createOAuthProvider, type OAuthProvider } from "./oauth.js";
+import { bearerToken } from "./oauthSecurity.js";
 import { createFileOAuthTokenStore } from "./oauthTokenStore.js";
 import { mcpPackageVersion } from "./packageInfo.js";
 import { registerPlanweaveTools } from "./toolRegistry.js";
@@ -20,8 +22,19 @@ function isAuthorized(req: IncomingMessage, token: string | undefined): boolean 
   if (!token) {
     return true;
   }
-  const authorization = req.headers.authorization;
-  return authorization === `Bearer ${token}`;
+  const presented = bearerToken(req);
+  if (presented === null) {
+    return false;
+  }
+  const a = Buffer.from(presented);
+  const b = Buffer.from(token);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function logAndSanitizeInternalError(error: unknown): { message: "internal_server_error"; requestId: string } {
+  const requestId = randomUUID();
+  console.error(`[planweave-mcp] internal_server_error requestId=${requestId}`, error);
+  return { message: "internal_server_error", requestId };
 }
 
 function requestBodySizeStatus(req: IncomingMessage, maxRequestBodyBytes: number): { ok: true } | { ok: false; statusCode: number; error: string } {
@@ -93,11 +106,13 @@ async function handleMcpRequest(req: IncomingMessage, res: ServerResponse, confi
   } catch (error) {
     await Promise.allSettled([transport.close(), mcpServer.close()]);
     if (!res.headersSent) {
+      const sanitized = logAndSanitizeInternalError(error);
       writeJson(res, 500, {
         jsonrpc: "2.0",
         error: {
           code: -32603,
-          message: error instanceof Error ? error.message : "Internal server error"
+          message: sanitized.message,
+          data: { requestId: sanitized.requestId }
         },
         id: null
       });
@@ -135,7 +150,8 @@ export function createPlanweaveMcpHttpServer(config: McpConfig): Server {
           writeJson(res, 404, { error: "not_found" });
         } catch (error) {
           if (!res.headersSent) {
-            writeJson(res, 500, { error: error instanceof Error ? error.message : "internal_server_error" });
+            const sanitized = logAndSanitizeInternalError(error);
+            writeJson(res, 500, { error: sanitized.message, requestId: sanitized.requestId });
           }
         }
       })();
