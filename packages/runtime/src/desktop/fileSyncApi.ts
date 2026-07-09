@@ -1,3 +1,5 @@
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   createPackageFileSnapshot as createRuntimePackageFileSnapshot,
   detectPackageFileChanges as detectRuntimePackageFileChanges,
@@ -5,16 +7,22 @@ import {
   refreshChangedPackagePromptsForPaths as refreshRuntimeChangedPackagePromptsForPaths
 } from "../package/fileChanges.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
+import { createSqlitePlanGraphStore } from "../plangraph/index.js";
 import type {
   CompiledExecutionGraph,
   FileFingerprint,
+  PackageFileSnapshot,
   PackageWorkspaceRef,
-  PackageFileSnapshot
+  ProjectWorkspace
 } from "../types.js";
 import type { PromptRefreshStats } from "../package/fileChanges.js";
+import { listTaskCanvasWorkspaces } from "./canvasApi.js";
+import {
+  invalidateDesktopCanvasProjection,
+  invalidateDesktopProjectProjection,
+  invalidateDesktopProjectProjectionDerived
+} from "./graph/projectProjectionModel.js";
 import type { DesktopPackageFileRefreshOptions, DesktopPackageFileSnapshotRef, DesktopPackageFileSyncResult } from "./types.js";
-import { invalidateDesktopProjectProjection } from "./graph/projectProjectionModel.js";
-import { createSqlitePlanGraphStore } from "../plangraph/index.js";
 
 const MAX_SNAPSHOT_IDS_PER_PROJECT = 5;
 
@@ -69,6 +77,70 @@ function changedPackagePaths(previous: PackageFileSnapshot, next: PackageFileSna
 
 async function snapshotKey(projectRoot: PackageWorkspaceRef): Promise<string> {
   return (await resolvePackageWorkspace(projectRoot)).workspaceRoot;
+}
+
+function normalizeWatcherPath(path: string): string {
+  let normalized = path.split("\\").join("/").replace(/^\.\/+/, "");
+  while (normalized.startsWith("//")) {
+    normalized = normalized.slice(1);
+  }
+  let end = normalized.length;
+  while (end > 0 && normalized[end - 1] === "/") {
+    end -= 1;
+  }
+  return normalized.slice(0, end);
+}
+
+/** Prompt-only package paths: under nodes/, markdown files (not manifest/policy/results/coarse dirs). */
+function isPromptOnlyChangedPath(path: string): boolean {
+  const normalized = normalizeWatcherPath(path);
+  if (
+    normalized === "manifest.json"
+    || normalized === "package/manifest.json"
+    || normalized === "policy/project-prompt.md"
+    || normalized.startsWith("policy/")
+  ) {
+    return false;
+  }
+  const packagePath = normalized.startsWith("package/") ? normalized.slice("package/".length) : normalized;
+  return packagePath.startsWith("nodes/") && packagePath.endsWith(".md");
+}
+
+function isPromptOnlyPackageRefresh(changedPaths: string[] | undefined): boolean {
+  return Array.isArray(changedPaths) && changedPaths.length > 0 && changedPaths.every(isPromptOnlyChangedPath);
+}
+
+function stableResolvedPath(path: string): string {
+  const resolved = resolve(path);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
+async function resolveCanvasIdForPackageWorkspace(workspace: ProjectWorkspace): Promise<string | null> {
+  const packageDir = stableResolvedPath(workspace.packageDir);
+  const canvases = await listTaskCanvasWorkspaces(workspace.rootPath);
+  const match = canvases.find((canvas) => stableResolvedPath(canvas.workspace.packageDir) === packageDir);
+  return match?.canvasId ?? null;
+}
+
+async function invalidateProjectionForPackageRefresh(
+  projectRoot: PackageWorkspaceRef,
+  options: DesktopPackageFileRefreshOptions
+): Promise<void> {
+  if (!isPromptOnlyPackageRefresh(options.changedPaths)) {
+    invalidateDesktopProjectProjection(projectRoot);
+    return;
+  }
+  const workspace = await resolvePackageWorkspace(projectRoot);
+  const canvasId = await resolveCanvasIdForPackageWorkspace(workspace);
+  if (!canvasId) {
+    invalidateDesktopProjectProjectionDerived(projectRoot);
+    return;
+  }
+  invalidateDesktopCanvasProjection(projectRoot, canvasId);
 }
 
 function displayProjectRoot(projectRoot: PackageWorkspaceRef): string {
@@ -274,7 +346,7 @@ export async function refreshPackageFileChanges(
   projectRoot: PackageWorkspaceRef,
   options: DesktopPackageFileRefreshOptions = {}
 ): Promise<DesktopPackageFileSyncResult> {
-  invalidateDesktopProjectProjection(projectRoot);
+  await invalidateProjectionForPackageRefresh(projectRoot, options);
   const projectKey = await snapshotKey(projectRoot);
   const previous = snapshots.get(projectKey);
   if (!previous) {

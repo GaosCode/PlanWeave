@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { join, resolve } from "node:path";
 import { isNodeFileNotFoundError, optionalStat } from "../../fs/optionalFile.js";
@@ -5,7 +6,7 @@ import { createPackageFileMetadataSnapshot } from "../../package/fileChanges.js"
 import { createExecutionGraphSessionFromSnapshot } from "../../graph/session.js";
 import { resolveProjectWorkspace } from "../../project.js";
 import { projectGraphPath } from "../../projectGraph/index.js";
-import { loadRuntime, type RuntimeContext } from "../../taskManager/runtimeContext.js";
+import { loadRuntimeReadonly, type RuntimeContext } from "../../taskManager/runtimeContext.js";
 import type { FileFingerprint, PackageFileSnapshot, PackageWorkspaceRef, ProjectWorkspace, ValidationIssue } from "../../types.js";
 import { appendDesktopDiagnostic, desktopDiagnostic, errorMessage } from "./desktopDiagnostics.js";
 import {
@@ -125,8 +126,17 @@ type CanvasProjectionFingerprint = CanvasRuntimeInputFingerprint & {
   blockers: CanvasBlockerFingerprint;
 };
 
+function stableResolvedPath(path: string): string {
+  const resolved = resolve(path);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
 function projectProjectionKey(projectRoot: PackageWorkspaceRef): string {
-  return resolve(typeof projectRoot === "string" ? projectRoot : projectRoot.rootPath);
+  return stableResolvedPath(typeof projectRoot === "string" ? projectRoot : projectRoot.rootPath);
 }
 
 export function invalidateDesktopProjectProjection(projectRoot?: PackageWorkspaceRef): void {
@@ -143,6 +153,47 @@ export function invalidateDesktopProjectProjection(projectRoot?: PackageWorkspac
     }
   }
   projectProjectionCache.delete(key);
+}
+
+/**
+ * Drop one canvas's derived projection entry while keeping sibling canvases and
+ * results-index caches. Prompt-only edits do not change results fingerprints.
+ */
+export function invalidateDesktopCanvasProjection(projectRoot: PackageWorkspaceRef, canvasId: string): void {
+  const key = projectProjectionKey(projectRoot);
+  const cached = projectProjectionCache.get(key);
+  if (!cached || !cached.canvases.has(canvasId)) {
+    return;
+  }
+  cached.canvases.delete(canvasId);
+  cached.searchIndex = null;
+  cached.bodySearchIndex = null;
+  cached.statisticsProjection = null;
+}
+
+/**
+ * Clear every canvas's derived projection for a project without touching
+ * results-index caches. Used when a change is prompt-only but cannot be
+ * attributed to a specific canvas.
+ */
+export function invalidateDesktopProjectProjectionDerived(projectRoot: PackageWorkspaceRef): void {
+  const key = projectProjectionKey(projectRoot);
+  const cached = projectProjectionCache.get(key);
+  if (!cached) {
+    return;
+  }
+  cached.canvases.clear();
+  cached.searchIndex = null;
+  cached.bodySearchIndex = null;
+  cached.statisticsProjection = null;
+}
+
+/** Test helper: return the cached canvas projection entry object for identity assertions. */
+export function peekDesktopCanvasProjectionCacheEntryForTests(
+  projectRoot: PackageWorkspaceRef,
+  canvasId: string
+): object | undefined {
+  return projectProjectionCache.get(projectProjectionKey(projectRoot))?.canvases.get(canvasId);
 }
 
 async function optionalFileStatFingerprint(path: string): Promise<FileStatFingerprint | null> {
@@ -411,7 +462,7 @@ async function loadCanvasRuntimeSnapshot(
   const session = currentInput
     ? createExecutionGraphSessionFromSnapshot({ projectRoot: workspace, workspace, snapshot: currentInput.snapshot })
     : undefined;
-  const runtime = session ? await loadRuntime({ projectRoot: workspace, session }) : await loadRuntime({ projectRoot: workspace });
+  const runtime = session ? await loadRuntimeReadonly({ projectRoot: workspace, session }) : await loadRuntimeReadonly({ projectRoot: workspace });
   runtimesByCanvas.set(canvasId, runtime);
   if (session) {
     await cacheCanvasRuntimeInputFromSnapshot(workspace, canvasId, session.fileSnapshot, diagnostics, runtimeInputsByCanvas);
