@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { initWorkspace } from "../initWorkspace.js";
 import { writeJsonFile } from "../json.js";
 import { canonicalProjectCanvasNode, writeProjectGraph } from "../projectGraph/index.js";
+import { listExecutorProfiles } from "../autoRun/executors.js";
+import { trustCommand } from "../taskManager/hookTrustStore.js";
 import type { InitWorkspaceResult, PlanPackageManifest, ReviewHookDefinition, ReviewVerdict } from "../types.js";
 
 export function basicManifest(options: {
@@ -102,7 +104,10 @@ export function basicManifest(options: {
   };
 }
 
-export async function createTestWorkspace(manifest: PlanPackageManifest = basicManifest()): Promise<{
+export async function createTestWorkspace(
+  manifest: PlanPackageManifest = basicManifest(),
+  options: { trustPackageExecutors?: boolean } = {}
+): Promise<{
   home: string;
   root: string;
   init: InitWorkspaceResult;
@@ -119,6 +124,15 @@ export async function createTestWorkspace(manifest: PlanPackageManifest = basicM
     edges: [],
     crossTaskEdges: []
   });
+  if (options.trustPackageExecutors !== false) {
+    const profiles = await listExecutorProfiles({ projectRoot: root });
+    for (const profile of profiles) {
+      if (profile.source !== "package" || profile.adapter === "manual" || !("command" in profile)) {
+        continue;
+      }
+      await trustCommand(root, profile.command, profile.args);
+    }
+  }
   return { home, root, init };
 }
 

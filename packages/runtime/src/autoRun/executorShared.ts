@@ -7,6 +7,7 @@ import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
+import { isCommandTrusted, untrustedExecutorCommandError } from "../taskManager/hookTrustStore.js";
 import type { ClaimResult, ExecutorProfile, PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
 import { runCommandInTmux, type TmuxSessionInfo } from "./tmuxExecutor.js";
 
@@ -69,6 +70,23 @@ export function executorRuntimeLimits(profile: Pick<ExecutorProfile, "adapter"> 
     maxStdoutBytes: profile.maxStdoutBytes ?? DEFAULT_EXECUTOR_MAX_STDOUT_BYTES,
     maxStderrBytes: profile.maxStderrBytes ?? DEFAULT_EXECUTOR_MAX_STDERR_BYTES
   };
+}
+
+/** Gate package-authored executor commands; builtin adapter profiles stay ungated. */
+export async function assertPackageExecutorCommandTrusted(options: {
+  projectRoot: PackageWorkspaceRef;
+  executorName: string;
+  profile: ExecutorProfile & { source?: "builtin" | "package" };
+}): Promise<void> {
+  if (options.profile.source !== "package") {
+    return;
+  }
+  if (options.profile.adapter === "manual" || !("command" in options.profile)) {
+    return;
+  }
+  if (!(await isCommandTrusted(options.projectRoot, options.profile.command, options.profile.args))) {
+    throw untrustedExecutorCommandError(options.profile.command, options.executorName);
+  }
 }
 
 export function executorLimitFailureMessage(input: { executorName: string; limitExceeded: ExecutorOutputLimitExceeded }): string {

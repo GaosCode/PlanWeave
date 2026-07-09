@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { z } from "zod";
 import type { ManifestReviewBlock, ManifestTaskNode, ReviewHookOutput, ReviewResult } from "../types.js";
+import { isCommandTrusted, untrustedHookCommandError } from "./hookTrustStore.js";
 
 export const REVIEW_HOOK_TIMEOUT_MS = 60_000;
 export const REVIEW_HOOK_STDOUT_LIMIT_BYTES = 1_048_576;
@@ -156,6 +157,9 @@ export async function executeReviewHook(options: {
   const hook = options.reviewBlock.review.hook;
   if (!hook) {
     return { action: "use_feedback", feedbackPrompt: options.reviewResult.content };
+  }
+  if (!(await isCommandTrusted(options.projectRoot, hook.command, hook.args))) {
+    throw untrustedHookCommandError(hook.command, options.reviewBlockRef);
   }
   const input = JSON.stringify({
     reviewResult: options.reviewResult,

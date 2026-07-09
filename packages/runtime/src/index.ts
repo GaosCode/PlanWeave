@@ -162,8 +162,13 @@ export {
   retryReview,
   unblockBlock,
   resolveBlockDivergence,
-  getExecutionStatus
+  getExecutionStatus,
+  commandFingerprint,
+  isCommandTrusted,
+  listTrustedCommands,
+  trustCommand
 } from "./taskManager/index.js";
+export type { TrustedCommand, TrustedCommandsFile } from "./taskManager/index.js";
 export { getAutoRunStatus, runAutoRunStep } from "./taskManager/autoRun.js";
 export type { PromptSourceSummary } from "./taskManager/promptRenderer.js";
 export { appendRunSessionEvent, createRunSession, getRunSession, listRunSessions, resetRuntimeState, runWithSession, updateRunSession } from "./runSessions/index.js";

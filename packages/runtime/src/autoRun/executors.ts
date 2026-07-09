@@ -12,7 +12,14 @@ import type {
 import { claudeCodeIntegration } from "./claudeCodeIntegration.js";
 import { codexIntegration } from "./codexIntegration.js";
 import { applyDesktopAgentSettingsToBuiltinProfiles } from "./desktopAgentSettings.js";
-import { execWithStdin, executorLimitFailureMessage, executorRuntimeLimits, workspaceExecutionCwd, type BlockClaim } from "./executorShared.js";
+import {
+  assertPackageExecutorCommandTrusted,
+  execWithStdin,
+  executorLimitFailureMessage,
+  executorRuntimeLimits,
+  workspaceExecutionCwd,
+  type BlockClaim
+} from "./executorShared.js";
 import type { ExecutorIntegration, ExecutorRuntimeOptions } from "./executorIntegration.js";
 import { localReviewIntegration } from "./localReviewIntegration.js";
 import { manualIntegration } from "./manualExecutor.js";
@@ -67,18 +74,22 @@ function profilesByName(manifest: PlanPackageManifest): Record<string, ExecutorP
   };
 }
 
+function profileSource(manifest: PlanPackageManifest, name: string): "builtin" | "package" {
+  return manifest.executors?.[name] ? "package" : "builtin";
+}
+
 async function resolveProfileForClaim(options: {
   projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
   executorName?: string;
-}): Promise<{ name: string; profile: ExecutorProfile }> {
+}): Promise<{ name: string; profile: ExecutorProfile; source: "builtin" | "package" }> {
   const { manifest } = await loadPackage(options.projectRoot);
   const name = resolveBlockExecutorName(manifest, options.claim, options.executorName);
   const profile = profilesByName(manifest)[name];
   if (!profile) {
     throw new Error(`Executor profile '${name}' does not exist.`);
   }
-  return { name, profile };
+  return { name, profile, source: profileSource(manifest, name) };
 }
 
 function createProfiledAdapter(options: {
@@ -89,7 +100,7 @@ function createProfiledAdapter(options: {
 }): ExecutorAdapter {
   return {
     async runBlock({ claim, prompt }) {
-      const { name, profile } = await resolveProfileForClaim({
+      const { name, profile, source } = await resolveProfileForClaim({
         projectRoot: options.projectRoot,
         claim,
         executorName: options.executorName
@@ -97,6 +108,11 @@ function createProfiledAdapter(options: {
       if (options.expectedAdapter && profile.adapter !== options.expectedAdapter) {
         throw new Error(`Executor profile '${name}' is '${profile.adapter}', not '${options.expectedAdapter}'.`);
       }
+      await assertPackageExecutorCommandTrusted({
+        projectRoot: options.projectRoot,
+        executorName: name,
+        profile: { ...profile, source }
+      });
       return integrationForAdapter(profile.adapter).runBlock({
         projectRoot: options.projectRoot,
         claim,
@@ -116,6 +132,11 @@ function createProfiledAdapter(options: {
       if (options.expectedAdapter && profile.adapter !== options.expectedAdapter) {
         throw new Error(`Executor profile '${name}' is '${profile.adapter}', not '${options.expectedAdapter}'.`);
       }
+      await assertPackageExecutorCommandTrusted({
+        projectRoot: options.projectRoot,
+        executorName: name,
+        profile: { ...profile, source: profileSource(manifest, name) }
+      });
       return integrationForAdapter(profile.adapter).runFeedback({
         projectRoot: options.projectRoot,
         workspace,
@@ -310,6 +331,32 @@ export async function testExecutorProfile(options: {
   const versionTimeoutMs = options.versionTimeoutMs ?? executorPreflightVersionTimeoutMs;
   const limits = executorRuntimeLimits({ ...profile, timeoutMs: versionTimeoutMs });
   const executionCwd = workspaceExecutionCwd(workspace);
+  try {
+    await assertPackageExecutorCommandTrusted({
+      projectRoot: workspace,
+      executorName: profile.name,
+      profile
+    });
+  } catch (error) {
+    return finalizePreflightResult({
+      name: profile.name,
+      adapter: profile.adapter,
+      successMessage: "executor preflight passed",
+      checks: [
+        profileCheck,
+        adapterCheck,
+        cwdCheck,
+        {
+          check: "command_started",
+          status: "failed",
+          message: errorMessage(error),
+          command: profile.command,
+          cwd: executionCwd
+        },
+        skippedCheck("command_version", "Executor command is not trusted on this machine.")
+      ]
+    });
+  }
   try {
     result = await execWithStdin({
       command: profile.command,

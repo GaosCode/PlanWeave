@@ -14,6 +14,7 @@ import {
   submitFeedback,
   submitBlockResult,
   submitReviewResult,
+  trustCommand,
   validatePackage
 } from "../index.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
@@ -196,6 +197,7 @@ describe("STEP-1 block runtime", () => {
       executionPolicy: "trusted-local"
     };
     await writeJsonFile(manifestPath, manifest);
+    await trustCommand(root, review.review.hook.command, review.review.hook.args);
 
     await claimNext({ projectRoot: root });
     const implementationReport = join(home, "implementation-1.md");
@@ -237,6 +239,7 @@ describe("STEP-1 block runtime", () => {
       executionPolicy: "trusted-local"
     };
     await writeJsonFile(brokenManifestPath, brokenManifest);
+    await trustCommand(brokenRoot, brokenReview.review.hook.command, brokenReview.review.hook.args);
     await claimNext({ projectRoot: brokenRoot });
     const brokenReport = join(brokenHome, "implementation-1.md");
     await writeFile(brokenReport, "First implementation.\n", "utf8");
@@ -291,14 +294,19 @@ describe("STEP-1 block runtime", () => {
     const manifestPath = join(packageDir, "manifest.json");
     const manifest = await readJsonFile<PlanPackageManifest>(manifestPath);
     manifest.execution.defaultExecutor = "fake-codex";
+    const fakeCodexArgs = [
+      "-e",
+      "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => process.stdout.write('Auto report for ' + input.split('\\n')[0] + '\\n'));"
+    ];
     manifest.executors = {
       "fake-codex": {
         adapter: "codex-exec",
         command: process.execPath,
-        args: ["-e", "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => process.stdout.write('Auto report for ' + input.split('\\n')[0] + '\\n'));"]
+        args: fakeCodexArgs
       }
     };
     await writeJsonFile(manifestPath, manifest);
+    await trustCommand(root, process.execPath, fakeCodexArgs);
 
     const step = await runAutoRunStep({ projectRoot: root });
 

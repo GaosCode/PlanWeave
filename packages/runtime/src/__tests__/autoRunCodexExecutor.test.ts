@@ -2,7 +2,7 @@ import { chmod, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { getAutoRunStatus, getExecutionStatus, initManagedWorkspace, linkProjectSourceRoot } from "../index.js";
+import { getAutoRunStatus, getExecutionStatus, initManagedWorkspace, linkProjectSourceRoot, trustCommand } from "../index.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
@@ -62,23 +62,24 @@ describe("Auto Run codex executor", () => {
   });
 
   it("codex-exec adapter runs managed projects in the bound source root", async () => {
+    const fakeCodexArgs = [
+      "-e",
+      [
+        "const fs = require('node:fs');",
+        "const path = require('node:path');",
+        "let input='';",
+        "process.stdin.on('data', c => input += c);",
+        "process.stdin.on('end', () => {",
+        "  fs.writeFileSync(path.join(process.cwd(), 'executor-cwd.txt'), process.cwd());",
+        "  console.log('report:' + input.includes('Implement task'));",
+        "});"
+      ].join("")
+    ];
     const manifest = manifestTestBuilder()
       .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: process.execPath,
-        args: [
-          "-e",
-          [
-            "const fs = require('node:fs');",
-            "const path = require('node:path');",
-            "let input='';",
-            "process.stdin.on('data', c => input += c);",
-            "process.stdin.on('end', () => {",
-            "  fs.writeFileSync(path.join(process.cwd(), 'executor-cwd.txt'), process.cwd());",
-            "  console.log('report:' + input.includes('Implement task'));",
-            "});"
-          ].join("")
-        ]
+        args: fakeCodexArgs
       })
       .withDefaultExecutor("fake-codex")
       .build();
@@ -91,6 +92,7 @@ describe("Auto Run codex executor", () => {
     await linkProjectSourceRoot(init.workspace.id, sourceRoot);
     await writeJsonFile(init.workspace.manifestFile, manifest);
     await writePromptFiles(init.workspace.packageDir, manifest);
+    await trustCommand(init.workspace.rootPath, process.execPath, fakeCodexArgs);
 
     const step = await runContractAutoRunStep({
       projectRoot: init.workspace.rootPath,
@@ -248,15 +250,17 @@ describe("Auto Run codex executor", () => {
       "utf8"
     );
     await chmod(fakeCodex, 0o755);
+    const fakeCodexArgs = ["exec", "-"];
     const manifest = manifestTestBuilder()
       .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: fakeCodex,
-        args: ["exec", "-"]
+        args: fakeCodexArgs
       })
       .withDefaultExecutor("fake-codex")
       .build();
     await writeFile(init.workspace.manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    await trustCommand(root, fakeCodex, fakeCodexArgs);
 
     const step = await runContractAutoRunStep({
       projectRoot: root,

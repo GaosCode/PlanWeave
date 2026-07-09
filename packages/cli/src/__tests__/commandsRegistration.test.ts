@@ -38,9 +38,20 @@ describe("planweave CLI command registration", () => {
         "import-recovery",
         "schema",
         "mcp",
+        "trust",
         "help"
       ])
     );
+  });
+
+  it("registers trust subcommands", () => {
+    const trust = createProgram().commands.find((command) => command.name() === "trust");
+    expect(trust?.commands.map((command) => command.name())).toEqual(
+      expect.arrayContaining(["hook", "executor", "list"])
+    );
+    expect(subcommandOptionLongs("trust", "list")).toContain("--json");
+    expect(subcommandOptionLongs("trust", "hook")).toEqual(expect.arrayContaining(["--json", "--canvas"]));
+    expect(subcommandOptionLongs("trust", "executor")).toEqual(expect.arrayContaining(["--json", "--canvas"]));
   });
 
   it("registers MCP tunnel commands", () => {

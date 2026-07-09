@@ -41,6 +41,7 @@ import { registerRunStatusCommand } from "./commands/runStatus.js";
 import { registerHelpCommand } from "./commands/help.js";
 import { registerSchemaCommand } from "./commands/schema.js";
 import { registerMcpCommand } from "./commands/mcp.js";
+import { registerTrustCommand } from "./commands/trust.js";
 import { formatCliError } from "./errors.js";
 import { addProjectRootOption } from "./projectRoot.js";
 
@@ -93,6 +94,7 @@ export function createProgram(): Command {
   registerRunStatusCommand(program);
   registerSchemaCommand(program);
   registerMcpCommand(program);
+  registerTrustCommand(program);
   registerHelpCommand(program);
 
   return program;

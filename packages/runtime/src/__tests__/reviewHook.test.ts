@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { claimNext, getExecutionStatus, submitBlockResult, submitReviewResult } from "../index.js";
-import { runReviewHookProcess } from "../taskManager/reviewHook.js";
+import { claimNext, getExecutionStatus, submitBlockResult, submitReviewResult, trustCommand } from "../index.js";
+import { executeReviewHook, runReviewHookProcess } from "../taskManager/reviewHook.js";
 import type { ReviewHookDefinition } from "../types.js";
 import { basicManifest, createTestWorkspace, writeReport, writeReviewResult } from "./promptTestHelpers.js";
 
@@ -16,8 +16,14 @@ function executableHook(script: string): ReviewHookDefinition {
   };
 }
 
-async function submitNeedsChangesWithHook(hook: ReviewHookDefinition): Promise<{ blockedReason: string | null; feedbackContent: string | null }> {
+async function submitNeedsChangesWithHook(
+  hook: ReviewHookDefinition,
+  options: { trust?: boolean } = {}
+): Promise<{ blockedReason: string | null; feedbackContent: string | null }> {
   const { root } = await createTestWorkspace(basicManifest({ reviewHook: hook }));
+  if (options.trust !== false) {
+    await trustCommand(root, hook.command, hook.args);
+  }
   await claimNext({ projectRoot: root });
   const reportPath = await writeReport(root, "implementation.md", "Implementation report.\n");
   await submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath });
@@ -41,6 +47,86 @@ afterEach(() => {
 });
 
 describe("review hook execution boundary", () => {
+  it("refuses an untrusted hook and surfaces blocked status with an actionable reason", async () => {
+    const hook = executableHook(
+      "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { const parsed = JSON.parse(input); process.stdout.write(JSON.stringify({ action: 'use_feedback', feedbackPrompt: 'Hooked ' + parsed.reviewBlockRef })); });"
+    );
+
+    await expect(submitNeedsChangesWithHook(hook, { trust: false })).resolves.toMatchObject({
+      blockedReason: expect.stringContaining(
+        `Review hook failed: Review hook command is not trusted on this machine: "${process.execPath}". Approve it with: planweave trust hook ${reviewRef}`
+      ),
+      feedbackContent: null
+    });
+  });
+
+  it("runs a previously refused hook after trustCommand", async () => {
+    const hook = executableHook(
+      "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { const parsed = JSON.parse(input); process.stdout.write(JSON.stringify({ action: 'use_feedback', feedbackPrompt: 'Trusted ' + parsed.reviewBlockRef })); });"
+    );
+    const { root } = await createTestWorkspace(basicManifest({ reviewHook: hook }));
+    await expect(
+      executeReviewHook({
+        projectRoot: root,
+        reviewBlock: {
+          id: "R-001",
+          type: "review",
+          title: "Review task",
+          prompt: "nodes/T-001/blocks/R-001.prompt.md",
+          depends_on: ["B-001"],
+          review: { required: true, maxFeedbackCycles: 1, hook }
+        },
+        reviewResult: {
+          reviewBlockRef: reviewRef,
+          taskId: "T-001",
+          verdict: "needs_changes",
+          content: "Original feedback."
+        },
+        task: {
+          id: "T-001",
+          type: "task",
+          title: "Implement test task",
+          prompt: "nodes/T-001/prompt.md",
+          acceptance: [],
+          blocks: []
+        },
+        reviewBlockRef: reviewRef,
+        feedbackCycleCount: 0
+      })
+    ).rejects.toThrow(`Review hook command is not trusted on this machine: "${process.execPath}"`);
+
+    await trustCommand(root, hook.command, hook.args);
+    await expect(
+      executeReviewHook({
+        projectRoot: root,
+        reviewBlock: {
+          id: "R-001",
+          type: "review",
+          title: "Review task",
+          prompt: "nodes/T-001/blocks/R-001.prompt.md",
+          depends_on: ["B-001"],
+          review: { required: true, maxFeedbackCycles: 1, hook }
+        },
+        reviewResult: {
+          reviewBlockRef: reviewRef,
+          taskId: "T-001",
+          verdict: "needs_changes",
+          content: "Original feedback."
+        },
+        task: {
+          id: "T-001",
+          type: "task",
+          title: "Implement test task",
+          prompt: "nodes/T-001/prompt.md",
+          acceptance: [],
+          blocks: []
+        },
+        reviewBlockRef: reviewRef,
+        feedbackCycleCount: 0
+      })
+    ).resolves.toEqual({ action: "use_feedback", feedbackPrompt: "Trusted T-001#R-001" });
+  });
+
   it("uses valid hook JSON as rewritten feedback", async () => {
     const hook = executableHook(
       "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { const parsed = JSON.parse(input); process.stdout.write(JSON.stringify({ action: 'use_feedback', feedbackPrompt: 'Hooked ' + parsed.reviewBlockRef })); });"
