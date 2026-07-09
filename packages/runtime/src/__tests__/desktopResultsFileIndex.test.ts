@@ -7,10 +7,13 @@ import { searchProject, searchProjectWithDiagnostics } from "../desktop/index.js
 import {
   buildResultsFileIndexFromFingerprintSnapshot,
   clearResultsFileIndexCache,
+  getResultsFingerprintFullScanCount,
   hydrateResultsFileIndexBodies,
   maxCachedResultsDirectories,
   maxIndexedResultFileCount,
   maxIndexedResultTotalBodyBytes,
+  resetResultsFingerprintFullScanCount,
+  resultsDirSignature,
   selectIndexedResultFingerprints,
   snapshotResultsFileFingerprints,
   type ResultFileFingerprint,
@@ -33,6 +36,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 afterEach(() => {
   vi.clearAllMocks();
   clearResultsFileIndexCache();
+  resetResultsFingerprintFullScanCount();
   delete process.env.PLANWEAVE_HOME;
 });
 
@@ -554,5 +558,108 @@ describe("desktop results file index", () => {
       })
     ]));
     expect(resultReadPaths(init.workspace.resultsDir)).not.toContain(badMetadataPath);
+  });
+
+  it("skips repeated full results scans when the results dir signature is unchanged", async () => {
+    const { init } = await createTestWorkspace();
+    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-SIG-CACHE");
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "report.md"), "signature cache warm path\n", "utf8");
+    await writeJsonFile(join(runDir, "metadata.json"), {
+      runId: "RUN-SIG-CACHE",
+      finishedAt: null
+    });
+
+    resetResultsFingerprintFullScanCount();
+    const first = await snapshotResultsFileFingerprints(init.workspace);
+    const second = await snapshotResultsFileFingerprints(init.workspace);
+    const third = await snapshotResultsFileFingerprints(init.workspace);
+
+    expect(getResultsFingerprintFullScanCount()).toBe(1);
+    expect(second).toEqual(first);
+    expect(third).toEqual(first);
+    expect(await resultsDirSignature(init.workspace.resultsDir)).toEqual(expect.any(String));
+  });
+
+  it("rescans when a new result file appears under results/", async () => {
+    const { init } = await createTestWorkspace();
+    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-NEW-FILE");
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "report.md"), "first result file\n", "utf8");
+
+    resetResultsFingerprintFullScanCount();
+    const first = await snapshotResultsFileFingerprints(init.workspace);
+    expect(first.files.map((file) => file.path)).toEqual([
+      "T-001/blocks/B-001/runs/RUN-NEW-FILE/report.md"
+    ]);
+    expect(getResultsFingerprintFullScanCount()).toBe(1);
+
+    await writeFile(join(runDir, "stdout.md"), "new stdout artifact\n", "utf8");
+    const second = await snapshotResultsFileFingerprints(init.workspace);
+
+    expect(getResultsFingerprintFullScanCount()).toBe(2);
+    expect(second.files.map((file) => file.path).sort()).toEqual([
+      "T-001/blocks/B-001/runs/RUN-NEW-FILE/report.md",
+      "T-001/blocks/B-001/runs/RUN-NEW-FILE/stdout.md"
+    ].sort());
+  });
+
+  it("rescans when an existing metadata.json is rewritten in place", async () => {
+    const { init } = await createTestWorkspace();
+    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-META-REWRITE");
+    const metadataPath = join(runDir, "metadata.json");
+    await mkdir(runDir, { recursive: true });
+    await writeJsonFile(metadataPath, {
+      runId: "RUN-META-REWRITE",
+      finishedAt: null,
+      exitCode: null
+    });
+
+    resetResultsFingerprintFullScanCount();
+    const firstSnapshot = await snapshotResultsFileFingerprints(init.workspace);
+    const firstIndex = await buildResultsFileIndexFromFingerprintSnapshot(init.workspace, firstSnapshot);
+    expect(firstIndex.entries.find((entry) => entry.relativePath.endsWith("metadata.json"))?.metadata).toMatchObject({
+      finishedAt: null,
+      exitCode: null
+    });
+    expect(getResultsFingerprintFullScanCount()).toBe(1);
+
+    // Simulate finishRunMetadata: rewrite the same path with updated finalization fields.
+    await delay(5);
+    await writeJsonFile(metadataPath, {
+      runId: "RUN-META-REWRITE",
+      finishedAt: "2026-07-09T12:00:00.000Z",
+      exitCode: 0
+    });
+
+    const secondSnapshot = await snapshotResultsFileFingerprints(init.workspace);
+    const secondIndex = await buildResultsFileIndexFromFingerprintSnapshot(init.workspace, secondSnapshot);
+
+    expect(getResultsFingerprintFullScanCount()).toBe(2);
+    expect(secondSnapshot.files).not.toEqual(firstSnapshot.files);
+    expect(secondIndex.entries.find((entry) => entry.relativePath.endsWith("metadata.json"))?.metadata).toMatchObject({
+      finishedAt: "2026-07-09T12:00:00.000Z",
+      exitCode: 0
+    });
+  });
+
+  it("forces a full rescan after clearResultsFileIndexCache even when files are unchanged", async () => {
+    const { init } = await createTestWorkspace();
+    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-CLEAR-SIG");
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "report.md"), "clear signature cache\n", "utf8");
+
+    resetResultsFingerprintFullScanCount();
+    await snapshotResultsFileFingerprints(init.workspace);
+    await snapshotResultsFileFingerprints(init.workspace);
+    expect(getResultsFingerprintFullScanCount()).toBe(1);
+
+    clearResultsFileIndexCache({ resultsDir: init.workspace.resultsDir });
+    await snapshotResultsFileFingerprints(init.workspace);
+    expect(getResultsFingerprintFullScanCount()).toBe(2);
+
+    clearResultsFileIndexCache();
+    await snapshotResultsFileFingerprints(init.workspace);
+    expect(getResultsFingerprintFullScanCount()).toBe(3);
   });
 });

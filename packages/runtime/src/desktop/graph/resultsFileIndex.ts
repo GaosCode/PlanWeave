@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { optionalStat } from "../../fs/optionalFile.js";
 import type { ProjectWorkspace, ValidationIssue } from "../../types.js";
 import { appendDesktopDiagnostic, desktopDiagnostic, errorMessage } from "./desktopDiagnostics.js";
 import { maxCachedResultsDirectories, ResultsFileIndexCache, type ResultsFileIndexCacheScope } from "./resultsFileIndexCache.js";
@@ -86,12 +87,30 @@ type CollectedResultDirectory = {
   diagnostics: ValidationIssue[];
 };
 
+type CachedResultsFingerprintSnapshot = {
+  signature: string;
+  snapshot: ResultsFileFingerprintSnapshot;
+};
+
 const resultsFileIndexCacheByResultsDir = new ResultsFileIndexCache<CachedResultsFileIndex>(maxCachedResultsDirectories);
+const resultsFingerprintSnapshotCache = new ResultsFileIndexCache<CachedResultsFingerprintSnapshot>(maxCachedResultsDirectories);
+
+/** Counts full fingerprint rebuilds that walk the results tree via collectResultFiles. */
+let resultsFingerprintFullScanCount = 0;
 
 export { maxCachedResultsDirectories };
 
+export function getResultsFingerprintFullScanCount(): number {
+  return resultsFingerprintFullScanCount;
+}
+
+export function resetResultsFingerprintFullScanCount(): void {
+  resultsFingerprintFullScanCount = 0;
+}
+
 export function clearResultsFileIndexCache(scope?: ResultsFileIndexCacheScope): void {
   resultsFileIndexCacheByResultsDir.clear(scope);
+  resultsFingerprintSnapshotCache.clear(scope);
 }
 
 function toPosixPath(path: string): string {
@@ -156,7 +175,7 @@ async function readResultDirectory(resultsDir: string, root: string): Promise<Co
   }
 }
 
-async function collectResultFiles(resultsDir: string, root: string, diagnostics: ValidationIssue[], files: string[]): Promise<void> {
+async function walkResultFiles(resultsDir: string, root: string, diagnostics: ValidationIssue[], files: string[]): Promise<void> {
   let directories = [root];
   while (directories.length > 0) {
     const collectedDirectories = await runBounded(
@@ -174,6 +193,48 @@ async function collectResultFiles(resultsDir: string, root: string, diagnostics:
     }
     directories = nextDirectories;
   }
+}
+
+async function collectResultFiles(resultsDir: string, root: string, diagnostics: ValidationIssue[], files: string[]): Promise<void> {
+  resultsFingerprintFullScanCount += 1;
+  await walkResultFiles(resultsDir, root, diagnostics, files);
+}
+
+/**
+ * Conservative change detector for the results tree.
+ * Includes every indexed result file's relative path plus ctimeMs/mtimeMs/size so in-place
+ * rewrites (including same-size body edits that preserve mtime via utimes) are visible without
+ * relying on parent-directory mtime. Matches ResultFileFingerprint identity fields.
+ * This walk intentionally does not go through collectResultFiles (full fingerprint scan counter).
+ */
+export async function resultsDirSignature(resultsDir: string): Promise<string | null> {
+  const top = await optionalStat(resultsDir);
+  if (!top) {
+    return null;
+  }
+
+  const diagnostics: ValidationIssue[] = [];
+  const files: string[] = [];
+  await walkResultFiles(resultsDir, resultsDir, diagnostics, files);
+
+  const parts = new Array<string>(files.length);
+  await runBounded(files, resultsIndexConcurrency.fileStats, async (absolutePath, index) => {
+    const relativePath = toPosixPath(relative(resultsDir, absolutePath));
+    try {
+      const metadata = await stat(absolutePath);
+      parts[index] = `${relativePath}\t${metadata.ctimeMs}\t${metadata.mtimeMs}\t${metadata.size}`;
+    } catch {
+      parts[index] = `${relativePath}\tmissing`;
+    }
+  });
+  parts.sort((left, right) => left.localeCompare(right));
+  // Directory list failures still affect the next full fingerprint snapshot diagnostics;
+  // include a stable marker so a previously readable subtree becoming unreadable changes the signature.
+  const diagnosticMarker = diagnostics
+    .map((diagnostic) => `${diagnostic.code}\t${diagnostic.path ?? ""}\t${diagnostic.message}`)
+    .sort((left, right) => left.localeCompare(right))
+    .join("\n");
+  return diagnosticMarker ? `${parts.join("\n")}\n#diagnostics\n${diagnosticMarker}` : parts.join("\n");
 }
 
 async function readResultBody(path: string, size: number, resultsDir: string): Promise<{ body: string; diagnostics: ValidationIssue[] }> {
@@ -376,7 +437,20 @@ async function fingerprintResultFiles(resultsDir: string): Promise<ResultsFileFi
 }
 
 export async function snapshotResultsFileFingerprints(workspace: ProjectWorkspace): Promise<ResultsFileFingerprintSnapshot> {
-  return fingerprintResultFiles(workspace.resultsDir);
+  const resultsDir = workspace.resultsDir;
+  const signature = await resultsDirSignature(resultsDir);
+  if (signature !== null) {
+    const cached = resultsFingerprintSnapshotCache.get(resultsDir);
+    if (cached && cached.signature === signature) {
+      return cached.snapshot;
+    }
+  }
+
+  const snapshot = await fingerprintResultFiles(resultsDir);
+  if (signature !== null) {
+    resultsFingerprintSnapshotCache.set(resultsDir, { signature, snapshot });
+  }
+  return snapshot;
 }
 
 function sameDiagnostic(left: ValidationIssue, right: ValidationIssue): boolean {
@@ -575,7 +649,7 @@ export async function hydrateResultsFileIndexBodies(index: ResultsFileIndex): Pr
 }
 
 export async function buildResultsFileIndexWithFingerprint(workspace: ProjectWorkspace): Promise<ResultsFileIndexWithFingerprint> {
-  const fingerprint = await fingerprintResultFiles(workspace.resultsDir);
+  const fingerprint = await snapshotResultsFileFingerprints(workspace);
   return {
     index: await buildResultsFileIndexFromFingerprintSnapshot(workspace, fingerprint),
     fingerprint
