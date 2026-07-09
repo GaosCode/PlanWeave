@@ -48,7 +48,7 @@ async function startOAuthServer(options: { clientStorePath?: string; tokenStoreP
       clientStorePath: storePath,
       tokenStorePath: tokenStorePath ?? (await createTempStorePath())
     },
-    port: 8787,
+    port: 0,
     planweaveHomeFromEnv: true
   });
   await new Promise<void>((resolve, reject) => {

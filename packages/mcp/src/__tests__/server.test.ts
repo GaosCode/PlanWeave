@@ -32,7 +32,8 @@ async function startServer(token?: string, overrides: Partial<McpConfig> = {}): 
   server = createPlanweaveMcpHttpServer({
     host: "127.0.0.1",
     maxRequestBodyBytes: 1_048_576,
-    port: 8787,
+    // Ephemeral port: listen(0) below; config.port is only for health payload.
+    port: 0,
     token,
     planweaveHomeFromEnv: true,
     ...overrides
@@ -74,7 +75,7 @@ describe("PlanWeave MCP HTTP server", () => {
     expect(body).toEqual({
       status: "ok",
       host: "127.0.0.1",
-      port: 8787,
+      port: 0,
       tokenAuthEnabled: true,
       planweaveHomeFromEnv: true
     });
@@ -199,7 +200,7 @@ describe("PlanWeave MCP HTTP server", () => {
     server = createPlanweaveMcpHttpServer({
       host: "127.0.0.1",
       maxRequestBodyBytes: 8,
-      port: 8787,
+      port: 0,
       planweaveHomeFromEnv: true
     });
     await new Promise<void>((resolve, reject) => {
