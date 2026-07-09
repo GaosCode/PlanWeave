@@ -6,7 +6,10 @@ import { runSmokeCheck } from "./smoke.js";
 import { applyLiquidGlassToWindow, windowBackgroundColor } from "./windowAppearance.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const allowedExternalUrls = new Set(["https://github.com/openai/tunnel-client/releases/latest"]);
+const allowedExternalUrls = new Set([
+  "https://github.com/openai/tunnel-client/releases/latest",
+  "https://github.com/GaosCode/PlanWeave/releases/latest"
+]);
 
 function rendererDir(): string {
   return resolve(__dirname, "..", "renderer");

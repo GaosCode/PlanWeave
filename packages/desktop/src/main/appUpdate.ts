@@ -1,7 +1,12 @@
-import { BrowserWindow, app, ipcMain } from "electron";
+import { BrowserWindow, app, ipcMain, shell } from "electron";
 import electronUpdater, { type AppUpdater } from "electron-updater";
 import type { AppUpdateInfo, AppUpdateProgress, AppUpdateState } from "../shared/appUpdate.js";
-import { appUpdateChangedChannel, appUpdateInvokeChannels } from "../shared/appUpdate.js";
+import {
+  PLANWEAVE_DESKTOP_RELEASES_URL,
+  appUpdateChangedChannel,
+  appUpdateInvokeChannels,
+  resolveAppUpdateDelivery
+} from "../shared/appUpdate.js";
 
 type UpdaterUpdateInfo = {
   version: string;
@@ -25,11 +30,19 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function currentDelivery() {
+  return resolveAppUpdateDelivery({
+    platform: process.platform,
+    codeSigned: process.env.PLANWEAVE_DESKTOP_CODE_SIGNED === "1"
+  });
+}
+
 function createBaseState(status: "idle" | "checking" | "not-available"): AppUpdateState {
   return {
     status,
     checkedAt: null,
     currentVersion: app.getVersion(),
+    delivery: currentDelivery(),
     error: null,
     progress: null,
     update: null,
@@ -64,9 +77,10 @@ function publish(nextState: AppUpdateState): AppUpdateState {
   return state;
 }
 
-function setState(next: Omit<AppUpdateState, "currentVersion" | "updatedAt">): AppUpdateState {
+function setState(next: Omit<AppUpdateState, "currentVersion" | "updatedAt" | "delivery">): AppUpdateState {
   return publish({
     ...next,
+    delivery: currentDelivery(),
     currentVersion: app.getVersion(),
     updatedAt: nowIso()
   } as AppUpdateState);
@@ -137,6 +151,29 @@ export async function downloadAppUpdate(): Promise<AppUpdateState> {
   if (!ensurePackaged()) {
     return unsupportedState();
   }
+  if (currentDelivery() === "github-releases") {
+    if (!latestUpdateInfo || state.status !== "available") {
+      return setState({
+        status: "error",
+        checkedAt: state.checkedAt,
+        error: "No available update has been found yet.",
+        progress: null,
+        update: latestUpdateInfo
+      });
+    }
+    try {
+      await shell.openExternal(PLANWEAVE_DESKTOP_RELEASES_URL);
+      return state;
+    } catch (error) {
+      return setState({
+        status: "error",
+        checkedAt: state.checkedAt,
+        error: errorMessage(error),
+        progress: null,
+        update: latestUpdateInfo
+      });
+    }
+  }
   if (state.status === "downloading" || state.status === "downloaded") {
     return state;
   }
@@ -178,6 +215,15 @@ export async function downloadAppUpdate(): Promise<AppUpdateState> {
 export async function installAppUpdate(): Promise<AppUpdateState> {
   if (!ensurePackaged()) {
     return unsupportedState();
+  }
+  if (currentDelivery() === "github-releases") {
+    return setState({
+      status: "error",
+      checkedAt: state.checkedAt,
+      error: "In-app install is not available for unsigned macOS builds. Download from GitHub Releases.",
+      progress: null,
+      update: latestUpdateInfo
+    });
   }
   if (state.status !== "downloaded") {
     return setState({
@@ -238,6 +284,10 @@ export function registerAppUpdateHandlers(): void {
     if (!latestUpdateInfo) {
       return;
     }
+    // Unsigned macOS never starts an in-app download; ignore stray progress events.
+    if (currentDelivery() === "github-releases") {
+      return;
+    }
     setState({
       status: "downloading",
       checkedAt: state.checkedAt,
@@ -247,6 +297,10 @@ export function registerAppUpdateHandlers(): void {
     });
   });
   autoUpdater.on("update-downloaded", (info: UpdaterUpdateInfo) => {
+    // Unsigned macOS never starts an in-app download; ignore stray download events.
+    if (currentDelivery() === "github-releases") {
+      return;
+    }
     latestUpdateInfo = normalizeUpdateInfo(info);
     setState({
       status: "downloaded",

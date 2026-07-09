@@ -461,6 +461,8 @@ export const zhCnCatalog = {
     checkForAppUpdate: "检查更新",
     checkingForAppUpdate: "检查中",
     downloadAppUpdate: "开始下载更新",
+    downloadAppUpdateFromReleases: "从 GitHub Releases 下载",
+    appUpdateManualDownloadHint: "未签名的 macOS 构建无法自动安装。请从 GitHub Releases 下载新版本。",
     restartToInstallUpdate: "重启安装",
     languageSettingHint: "选择界面显示语言。",
     useSimplifiedChinese: "简体中文",

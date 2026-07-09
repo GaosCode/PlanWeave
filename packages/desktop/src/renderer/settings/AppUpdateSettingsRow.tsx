@@ -13,6 +13,9 @@ function appUpdateDescription(state: AppUpdateState, t: ReturnType<typeof create
     case "unsupported":
       return t("appUpdateUnsupported");
     case "available":
+      if (state.delivery === "github-releases") {
+        return `${t("appUpdateAvailable")} · ${state.update.version} · ${t("appUpdateManualDownloadHint")}`;
+      }
       return `${t("appUpdateAvailable")} · ${state.update.version}`;
     case "downloading":
       return `${t("appUpdateDownloading")} · ${Math.round(state.progress.percent)}%`;

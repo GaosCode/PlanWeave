@@ -6,6 +6,7 @@ function idleState(): AppUpdateState {
     status: "idle",
     checkedAt: null,
     currentVersion: "",
+    delivery: "in-app",
     error: null,
     progress: null,
     update: null,

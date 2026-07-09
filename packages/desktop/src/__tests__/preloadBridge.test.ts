@@ -266,6 +266,7 @@ describe("preload bridge invocation", () => {
       status: "available",
       checkedAt: "2026-06-19T00:00:00.000Z",
       currentVersion: "0.1.1",
+      delivery: "in-app",
       error: null,
       progress: null,
       update: { version: "0.1.2", releaseDate: null, releaseName: null },

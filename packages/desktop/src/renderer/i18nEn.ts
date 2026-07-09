@@ -459,6 +459,9 @@ export const enCatalog = {
     checkForAppUpdate: "Check for updates",
     checkingForAppUpdate: "Checking",
     downloadAppUpdate: "Start download",
+    downloadAppUpdateFromReleases: "Download from GitHub Releases",
+    appUpdateManualDownloadHint:
+      "Unsigned macOS builds cannot auto-install. Download the new build from GitHub Releases.",
     restartToInstallUpdate: "Restart to install",
     languageSettingHint: "Choose the interface display language.",
     useSimplifiedChinese: "Simplified Chinese",

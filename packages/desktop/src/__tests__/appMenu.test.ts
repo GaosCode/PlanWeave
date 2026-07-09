@@ -44,6 +44,7 @@ describe("application menu", () => {
       status: "available",
       checkedAt: "2026-06-19T00:00:00.000Z",
       currentVersion: "0.1.2",
+      delivery: "in-app",
       error: null,
       progress: null,
       update: { version: "0.1.3", releaseDate: null, releaseName: null },

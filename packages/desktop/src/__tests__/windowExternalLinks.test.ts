@@ -31,6 +31,17 @@ describe("desktop external link handling", () => {
     expect(electronMock.shell.openExternal).toHaveBeenCalledWith("https://github.com/openai/tunnel-client/releases/latest");
   });
 
+  it("opens the PlanWeave desktop releases page in the system browser", async () => {
+    const { configureExternalLinkHandling } = await import("../main/window");
+    const setWindowOpenHandler = vi.fn();
+
+    configureExternalLinkHandling({ webContents: { setWindowOpenHandler } } as never);
+    const handler = setWindowOpenHandler.mock.calls[0]?.[0] as (details: { url: string }) => { action: "deny" };
+
+    expect(handler({ url: "https://github.com/GaosCode/PlanWeave/releases/latest" })).toEqual({ action: "deny" });
+    expect(electronMock.shell.openExternal).toHaveBeenCalledWith("https://github.com/GaosCode/PlanWeave/releases/latest");
+  });
+
   it("denies unlisted external links without opening them", async () => {
     const { configureExternalLinkHandling } = await import("../main/window");
     const setWindowOpenHandler = vi.fn();

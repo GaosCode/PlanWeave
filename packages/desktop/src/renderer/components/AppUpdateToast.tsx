@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { DownloadIcon, RefreshCwIcon, RotateCwIcon, XIcon } from "lucide-react";
+import { DownloadIcon, ExternalLinkIcon, RefreshCwIcon, RotateCwIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AppUpdateState } from "../../shared/appUpdate";
 import type { createTranslator } from "../i18n";
@@ -15,7 +15,7 @@ type AppUpdateToastProps = {
 
 function toastKey(state: AppUpdateState): string | null {
   if (state.status === "available" || state.status === "downloaded") {
-    return `${state.status}:${state.update.version}`;
+    return `${state.status}:${state.delivery}:${state.update.version}`;
   }
   if (state.status === "downloading") {
     return `downloading:${state.update.version}`;
@@ -27,6 +27,12 @@ function toastKey(state: AppUpdateState): string | null {
 }
 
 function updateLabel(state: AppUpdateState, t: ReturnType<typeof createTranslator>): string {
+  if (state.status === "available" && state.delivery === "github-releases") {
+    const version = state.update?.version
+      ? `${t("appUpdateVersion")} ${state.update.version}`
+      : t("appUpdateUnknownVersion");
+    return `${version}\n${t("appUpdateManualDownloadHint")}`;
+  }
   if (state.update?.version) {
     return `${t("appUpdateVersion")} ${state.update.version}`;
   }
@@ -62,6 +68,8 @@ export function AppUpdateToast({ onCheck, onDismiss, onDownload, onInstall, stat
     onDismiss?.();
   };
 
+  const manualReleases = state.status === "available" && state.delivery === "github-releases";
+
   return (
     <aside
       aria-live="polite"
@@ -88,13 +96,19 @@ export function AppUpdateToast({ onCheck, onDismiss, onDownload, onInstall, stat
         </div>
       ) : null}
       <div className="flex justify-end gap-2">
-        {state.status === "available" ? (
+        {manualReleases ? (
+          <Button size="sm" onClick={() => void onDownload()}>
+            <ExternalLinkIcon data-icon="inline-start" />
+            {t("downloadAppUpdateFromReleases")}
+          </Button>
+        ) : null}
+        {state.status === "available" && !manualReleases ? (
           <Button size="sm" onClick={() => void onDownload()}>
             <DownloadIcon data-icon="inline-start" />
             {t("downloadAppUpdate")}
           </Button>
         ) : null}
-        {state.status === "downloaded" ? (
+        {state.status === "downloaded" && state.delivery === "in-app" ? (
           <Button size="sm" onClick={() => void onInstall()}>
             <RotateCwIcon data-icon="inline-start" />
             {t("restartToInstallUpdate")}
