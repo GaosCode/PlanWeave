@@ -1,3 +1,5 @@
+import { dirname } from "node:path";
+import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { createEmptyState, ensureStateForManifest, readState, writeState } from "../state.js";
 import type { BlockState, RuntimeState } from "../types.js";
@@ -44,54 +46,58 @@ export async function resetRuntimeState(options: ResetRuntimeStateOptions): Prom
   if (sessionId) {
     assertValidRunSessionId(sessionId);
   }
-  const previousState = await readState(workspace.stateFile);
-  const summary: RunSessionResetSummary = {
-    performed: true,
-    statePath: workspace.stateFile,
-    reason: normalizeResetReason(options.reason),
-    previousCurrentRefs: stringArray(previousState.currentRefs),
-    previousCurrentFeedbackId: nullableString(previousState.currentFeedbackId),
-    previousCurrentReviewBlockRef: nullableString(previousState.currentReviewBlockRef),
-    previousInProgressRefs: inProgressRefs(runtimeBlocks(previousState)),
-    forced: options.force === true
-  };
-  const hasActiveWork =
-    summary.previousCurrentRefs.length > 0 ||
-    summary.previousCurrentFeedbackId !== null ||
-    summary.previousCurrentReviewBlockRef !== null ||
-    summary.previousInProgressRefs.length > 0;
 
-  if (sessionId) {
-    await appendRunSessionEvent(workspace, sessionId, "reset_started", {
-      phase: "resetting",
-      force: summary.forced,
-      reason: summary.reason
-    });
-    await updateRunSession(workspace, sessionId, { phase: "resetting" });
-  }
+  // Serialize active-work check + wipe against concurrent claim/submit on the same canvas.
+  return withCanvasLock(dirname(workspace.stateFile), async () => {
+    const previousState = await readState(workspace.stateFile);
+    const summary: RunSessionResetSummary = {
+      performed: true,
+      statePath: workspace.stateFile,
+      reason: normalizeResetReason(options.reason),
+      previousCurrentRefs: stringArray(previousState.currentRefs),
+      previousCurrentFeedbackId: nullableString(previousState.currentFeedbackId),
+      previousCurrentReviewBlockRef: nullableString(previousState.currentReviewBlockRef),
+      previousInProgressRefs: inProgressRefs(runtimeBlocks(previousState)),
+      forced: options.force === true
+    };
+    const hasActiveWork =
+      summary.previousCurrentRefs.length > 0 ||
+      summary.previousCurrentFeedbackId !== null ||
+      summary.previousCurrentReviewBlockRef !== null ||
+      summary.previousInProgressRefs.length > 0;
 
-  if (hasActiveWork && !summary.forced) {
-    throw new Error(activeWorkMessage(summary));
-  }
+    if (sessionId) {
+      await appendRunSessionEvent(workspace, sessionId, "reset_started", {
+        phase: "resetting",
+        force: summary.forced,
+        reason: summary.reason
+      });
+      await updateRunSession(workspace, sessionId, { phase: "resetting" });
+    }
 
-  await writeState(workspace.stateFile, ensureStateForManifest(manifest, createEmptyState()));
+    if (hasActiveWork && !summary.forced) {
+      throw new Error(activeWorkMessage(summary));
+    }
 
-  if (sessionId) {
-    await appendRunSessionEvent(workspace, sessionId, "reset_completed", {
-      phase: "resetting",
-      reset: summary
-    });
-    await updateRunSession(workspace, sessionId, { phase: "resetting", reset: summary });
-  }
+    await writeState(workspace.stateFile, ensureStateForManifest(manifest, createEmptyState()));
 
-  return {
-    statePath: workspace.stateFile,
-    reason: summary.reason,
-    forced: summary.forced,
-    previousCurrentRefs: summary.previousCurrentRefs,
-    previousCurrentFeedbackId: summary.previousCurrentFeedbackId,
-    previousCurrentReviewBlockRef: summary.previousCurrentReviewBlockRef,
-    previousInProgressRefs: summary.previousInProgressRefs,
-    sessionId
-  };
+    if (sessionId) {
+      await appendRunSessionEvent(workspace, sessionId, "reset_completed", {
+        phase: "resetting",
+        reset: summary
+      });
+      await updateRunSession(workspace, sessionId, { phase: "resetting", reset: summary });
+    }
+
+    return {
+      statePath: workspace.stateFile,
+      reason: summary.reason,
+      forced: summary.forced,
+      previousCurrentRefs: summary.previousCurrentRefs,
+      previousCurrentFeedbackId: summary.previousCurrentFeedbackId,
+      previousCurrentReviewBlockRef: summary.previousCurrentReviewBlockRef,
+      previousInProgressRefs: summary.previousInProgressRefs,
+      sessionId
+    };
+  });
 }
