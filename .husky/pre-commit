@@ -3,3 +3,6 @@ set -e
 
 pnpm check:versions
 pnpm check:dom-boundaries
+# typecheck is --noEmit only; runtime/mcp dist must already exist (from a prior
+# build or CI's single build step). Fail loudly if exports cannot resolve.
+pnpm typecheck
