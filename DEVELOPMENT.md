@@ -96,6 +96,23 @@ planweave package import --from <draft> --dry-run --json
 planweave package import --from <draft> --apply --json
 ```
 
+## Dependency override rationale
+
+`pnpm-workspace.yaml` pins several transitive packages under `overrides`. These were introduced in `88972b61` (`fix(deps): resolve dependabot npm advisories`) to clear Dependabot/npm security advisories without waiting for every direct dependency to bump.
+
+| Override | Version | Rationale |
+|----------|---------|-----------|
+| `@babel/core` | `7.29.6` | Security pin from Dependabot advisories (transitive). |
+| `form-data` | `4.0.6` | Security pin from Dependabot advisories (transitive). |
+| `hono` | `4.12.25` | Security pin from Dependabot advisories (transitive). |
+| `js-yaml` | `4.2.0` | Security pin from Dependabot advisories (transitive). |
+| `tar` | `7.5.16` | Security pin from Dependabot advisories (transitive). |
+| `tmp` | `0.2.7` | Security pin from Dependabot advisories (transitive). |
+| `undici@^6.25.0` | `6.27.0` | Security pin for the undici 6.x range (transitive). |
+| `undici@^7.25.0` | `7.28.0` | Security pin for the undici 7.x range (transitive). |
+
+CI runs `pnpm audit --audit-level=high` on every PR/push so these pins cannot silently go stale. Prefer removing an override once upstream direct dependencies absorb the fixed version. Review this table quarterly (or whenever audit fails) and mark any unclear pin as **verify** rather than inventing a reason.
+
 ## Verification
 
 Run the full test suite:
