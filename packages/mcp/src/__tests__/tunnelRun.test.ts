@@ -270,7 +270,14 @@ describe("MCP tunnel runner", () => {
       path: () => join(dir, "config.json")
     };
     const signals = new EventEmitter();
-    let startInput: { host?: string | null; port?: number | null; token?: string | null } | undefined;
+    let startInput:
+      | {
+          host?: string | null;
+          port?: number | null;
+          token?: string | null;
+          oauth?: { enabled: boolean } | null;
+        }
+      | undefined;
 
     const running = runMcpTunnel(
       {
@@ -307,5 +314,77 @@ describe("MCP tunnel runner", () => {
       clearInterval(interval);
     }
     expect(startInput?.token).toBe("mcp-serve-token");
+    expect(startInput?.oauth).toBeNull();
+  });
+
+  it("passes oauth.enabled when serving with PLANWEAVE_MCP_OAUTH_ENABLED only", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "planweave-mcp-run-with-oauth-"));
+    const binaryPath = join(dir, "tunnel-client");
+    await writeFile(binaryPath, "#!/bin/sh\nexit 0\n", "utf8");
+    await chmod(binaryPath, 0o700);
+    const config: TunnelConfig = {
+      version: "mcp-tunnel/v1",
+      tunnelClientPath: binaryPath,
+      verification: null,
+      tunnelId: "tunnel_test",
+      mcpUrl: "http://127.0.0.1:8787/mcp"
+    };
+    const store: TunnelConfigStore = {
+      read: async () => config,
+      write: async () => undefined,
+      path: () => join(dir, "config.json")
+    };
+    const signals = new EventEmitter();
+    let startInput:
+      | {
+          host?: string | null;
+          port?: number | null;
+          token?: string | null;
+          oauth?: { enabled: boolean; clientStorePath?: string; tokenStorePath?: string } | null;
+        }
+      | undefined;
+
+    const running = runMcpTunnel(
+      {
+        store,
+        serve: true,
+        env: {
+          OPENAI_RUNTIME_API_KEY: "runtime-key",
+          PLANWEAVE_MCP_OAUTH_ENABLED: "true",
+          PLANWEAVE_MCP_OAUTH_CLIENT_STORE: "/tmp/planweave-oauth-clients.json",
+          PLANWEAVE_MCP_OAUTH_TOKEN_STORE: "/tmp/planweave-oauth-tokens.json"
+        }
+      },
+      {
+        localMcp: {
+          start: async (input) => {
+            startInput = input;
+            return localStatus("running");
+          },
+          stop: async () => localStatus("stopped")
+        },
+        tunnelClient: {
+          start: async () => tunnelStatus("running"),
+          stop: async () => tunnelStatus("stopped"),
+          getStatus: () => tunnelStatus("running")
+        },
+        signals,
+        exit: (code: number): never => {
+          throw new ExitSignal(code);
+        }
+      }
+    );
+    const interval = setInterval(() => signals.emit("SIGTERM"), 5);
+    try {
+      await expect(running).rejects.toMatchObject({ code: 0 });
+    } finally {
+      clearInterval(interval);
+    }
+    expect(startInput?.token).toBeNull();
+    expect(startInput?.oauth).toEqual({
+      enabled: true,
+      clientStorePath: "/tmp/planweave-oauth-clients.json",
+      tokenStorePath: "/tmp/planweave-oauth-tokens.json"
+    });
   });
 });

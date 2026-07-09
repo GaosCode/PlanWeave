@@ -1,3 +1,4 @@
+import type { McpOAuthConfig } from "../config.js";
 import { LocalMcpServerManager } from "./localMcpServer.js";
 import { TunnelClientProcessManager } from "./process.js";
 import { resolveTunnelClientBinaryStartTarget } from "./binary.js";
@@ -15,6 +16,7 @@ type RunLocalMcpManager = {
     host?: string | null;
     port?: number | null;
     token?: string | null;
+    oauth?: McpOAuthConfig | null;
   }): Promise<LocalMcpServerStatus>;
   stop(): Promise<LocalMcpServerStatus>;
 };
@@ -43,12 +45,27 @@ function serverPortFromUrl(url: URL): number {
   return 80;
 }
 
+function servedMcpOAuthEnabled(env: NodeJS.ProcessEnv): boolean {
+  return ["1", "true", "yes", "on"].includes((env.PLANWEAVE_MCP_OAUTH_ENABLED ?? "").trim().toLowerCase());
+}
+
 function servedMcpAuthConfigured(env: NodeJS.ProcessEnv): boolean {
   const token = env.PLANWEAVE_MCP_TOKEN?.trim();
-  const oauthEnabled = ["1", "true", "yes", "on"].includes(
-    (env.PLANWEAVE_MCP_OAUTH_ENABLED ?? "").trim().toLowerCase()
-  );
-  return Boolean(token) || oauthEnabled;
+  return Boolean(token) || servedMcpOAuthEnabled(env);
+}
+
+/** Mirror config.ts oauthEnabled branch so tunnel --serve actually enables OAuth. */
+function servedMcpOAuthConfig(env: NodeJS.ProcessEnv): McpOAuthConfig | undefined {
+  if (!servedMcpOAuthEnabled(env)) {
+    return undefined;
+  }
+  const clientStorePath = env.PLANWEAVE_MCP_OAUTH_CLIENT_STORE?.trim();
+  const tokenStorePath = env.PLANWEAVE_MCP_OAUTH_TOKEN_STORE?.trim();
+  return {
+    enabled: true,
+    ...(clientStorePath ? { clientStorePath } : {}),
+    ...(tokenStorePath ? { tokenStorePath } : {})
+  };
 }
 
 async function stopManagers(localMcp: RunLocalMcpManager | null, tunnelClient: RunTunnelClientManager): Promise<void> {
@@ -101,7 +118,8 @@ export async function runMcpTunnel(
     const localStatus: LocalMcpServerStatus = await localMcp.start({
       host: serverHostFromUrl(mcpUrl),
       port: serverPortFromUrl(mcpUrl),
-      token: env.PLANWEAVE_MCP_TOKEN?.trim() || null
+      token: env.PLANWEAVE_MCP_TOKEN?.trim() || null,
+      oauth: servedMcpOAuthConfig(env) ?? null
     });
     if (localStatus.phase !== "running") {
       throw new Error(localStatus.error ?? "Failed to start local MCP server.");
