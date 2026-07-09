@@ -1,5 +1,5 @@
 import { BrowserWindow, shell } from "electron";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Event as ElectronEvent, WebContentsConsoleMessageEventParams } from "electron";
 import { runSmokeCheck } from "./smoke.js";
@@ -8,8 +8,38 @@ import { applyLiquidGlassToWindow, windowBackgroundColor } from "./windowAppeara
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const allowedExternalUrls = new Set(["https://github.com/openai/tunnel-client/releases/latest"]);
 
+function rendererDir(): string {
+  return resolve(__dirname, "..", "renderer");
+}
+
 function rendererEntry(): string {
-  return join(__dirname, "..", "renderer", "index.html");
+  return join(rendererDir(), "index.html");
+}
+
+export function isAllowedNavigation(url: string, options: { isDev: boolean }): boolean {
+  if (options.isDev) {
+    const devServerUrl = process.env.PLANWEAVE_DESKTOP_DEV_SERVER_URL;
+    if (!devServerUrl) {
+      return false;
+    }
+    try {
+      return new URL(url).origin === new URL(devServerUrl).origin;
+    } catch {
+      return false;
+    }
+  }
+
+  try {
+    const target = new URL(url);
+    if (target.protocol !== "file:") {
+      return false;
+    }
+    const filePath = resolve(fileURLToPath(target));
+    const allowedRoot = rendererDir();
+    return filePath === allowedRoot || filePath.startsWith(`${allowedRoot}${sep}`);
+  } catch {
+    return false;
+  }
 }
 
 export function configureExternalLinkHandling(window: Pick<BrowserWindow, "webContents">): void {
@@ -18,6 +48,17 @@ export function configureExternalLinkHandling(window: Pick<BrowserWindow, "webCo
       void shell.openExternal(url);
     }
     return { action: "deny" };
+  });
+}
+
+export function configureNavigationHandling(
+  window: Pick<BrowserWindow, "webContents">,
+  options: { isDev: boolean }
+): void {
+  window.webContents.on("will-navigate", (event, url) => {
+    if (!isAllowedNavigation(url, options)) {
+      event.preventDefault();
+    }
   });
 }
 
@@ -40,7 +81,7 @@ export async function createWindow(options: { isDev: boolean; isSmoke: boolean; 
       preload: join(__dirname, "..", "preload", "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   });
 
@@ -50,6 +91,7 @@ export async function createWindow(options: { isDev: boolean; isSmoke: boolean; 
   }
 
   configureExternalLinkHandling(window);
+  configureNavigationHandling(window, { isDev: options.isDev });
 
   await applyLiquidGlassToWindow(window);
 

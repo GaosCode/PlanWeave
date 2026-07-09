@@ -1,3 +1,5 @@
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const electronMock = vi.hoisted(() => ({
@@ -14,6 +16,7 @@ vi.mock("electron", () => ({
 
 afterEach(() => {
   electronMock.shell.openExternal.mockClear();
+  delete process.env.PLANWEAVE_DESKTOP_DEV_SERVER_URL;
 });
 
 describe("desktop external link handling", () => {
@@ -37,5 +40,42 @@ describe("desktop external link handling", () => {
 
     expect(handler({ url: "https://example.com/" })).toEqual({ action: "deny" });
     expect(electronMock.shell.openExternal).not.toHaveBeenCalled();
+  });
+});
+
+describe("desktop navigation handling", () => {
+  it("allows only the configured dev-server origin while developing", async () => {
+    process.env.PLANWEAVE_DESKTOP_DEV_SERVER_URL = "http://127.0.0.1:5173/";
+    const { isAllowedNavigation } = await import("../main/window");
+
+    expect(isAllowedNavigation("http://127.0.0.1:5173/index.html", { isDev: true })).toBe(true);
+    expect(isAllowedNavigation("https://example.com/", { isDev: true })).toBe(false);
+  });
+
+  it("allows only file URLs inside the packaged renderer directory in production", async () => {
+    const { isAllowedNavigation } = await import("../main/window");
+    // window.ts resolves renderer as ../renderer from the window module directory.
+    const windowModuleDir = join(dirname(fileURLToPath(import.meta.url)), "..", "main");
+    const allowedEntry = pathToFileURL(join(windowModuleDir, "..", "renderer", "index.html")).href;
+    const outsideEntry = pathToFileURL(join(windowModuleDir, "..", "..", "package.json")).href;
+
+    expect(isAllowedNavigation(allowedEntry, { isDev: false })).toBe(true);
+    expect(isAllowedNavigation(outsideEntry, { isDev: false })).toBe(false);
+    expect(isAllowedNavigation("https://example.com/", { isDev: false })).toBe(false);
+  });
+
+  it("prevents will-navigate for disallowed URLs", async () => {
+    const { configureNavigationHandling } = await import("../main/window");
+    const on = vi.fn();
+    const preventDefault = vi.fn();
+
+    configureNavigationHandling({ webContents: { on } } as never, { isDev: false });
+    const handler = on.mock.calls.find((call) => call[0] === "will-navigate")?.[1] as (
+      event: { preventDefault: () => void },
+      url: string
+    ) => void;
+
+    handler({ preventDefault }, "https://example.com/");
+    expect(preventDefault).toHaveBeenCalledOnce();
   });
 });
