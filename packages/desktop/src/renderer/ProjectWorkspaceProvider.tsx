@@ -65,6 +65,7 @@ import { useGraphWorkspaceController } from "./controllers/GraphWorkspaceControl
 import { useNotificationController } from "./controllers/NotificationController";
 import { useSearchController } from "./controllers/SearchController";
 import { writeAgentScopePromptToClipboard } from "./agentPrompt";
+import { taskNodeDirectory } from "./pathUtils";
 import { uniqueDesktopDiagnostics } from "./diagnostics";
 import type {
   WorkspaceTabsAutoRunProps,
@@ -175,7 +176,9 @@ export function ProjectWorkspaceProvider({
   } = shellInput;
 
   const [, setBlockInspectorOpen] = useState(false);
-  const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<AppFlowNode, Edge> | null>(null);
+  const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<AppFlowNode, Edge> | null>(
+    null
+  );
   const [nodes, setNodes, onNodesChange] = useNodesState<AppFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const lerpedNodeDrag = useLerpedNodeDrag({
@@ -220,8 +223,14 @@ export function ProjectWorkspaceProvider({
     updateProjectPromptPolicy
   } = desktopProject;
 
-  const pinnedProjectIds = useMemo(() => new Set(settings.pinnedProjectIds), [settings.pinnedProjectIds]);
-  const orderedProjects = useMemo(() => orderProjectsByPinnedIds(projects, settings.pinnedProjectIds), [projects, settings.pinnedProjectIds]);
+  const pinnedProjectIds = useMemo(
+    () => new Set(settings.pinnedProjectIds),
+    [settings.pinnedProjectIds]
+  );
+  const orderedProjects = useMemo(
+    () => orderProjectsByPinnedIds(projects, settings.pinnedProjectIds),
+    [projects, settings.pinnedProjectIds]
+  );
   const handleTogglePinnedProject = useCallback(
     (projectId: string) => {
       updateSettings((current) => {
@@ -320,7 +329,13 @@ export function ProjectWorkspaceProvider({
     setNewTaskText,
     setTaskDraft,
     taskDraft
-  } = useTaskDraft({ loadProject: openProjectInSession, selectedCanvasId, selectedProject, setActiveView, setError });
+  } = useTaskDraft({
+    loadProject: openProjectInSession,
+    selectedCanvasId,
+    selectedProject,
+    setActiveView,
+    setError
+  });
 
   const searchController = useSearchController({
     handleBlockSelect: handleOpenBlockInspector,
@@ -332,8 +347,21 @@ export function ProjectWorkspaceProvider({
     setError
   });
   const visibleProjectDiagnostics = useMemo(
-    () => uniqueDesktopDiagnostics([...projectDiagnostics, ...graphDiagnostics, ...runtimeDiagnostics, ...searchController.diagnostics, ...autoRunDiagnostics]),
-    [autoRunDiagnostics, graphDiagnostics, projectDiagnostics, runtimeDiagnostics, searchController.diagnostics]
+    () =>
+      uniqueDesktopDiagnostics([
+        ...projectDiagnostics,
+        ...graphDiagnostics,
+        ...runtimeDiagnostics,
+        ...searchController.diagnostics,
+        ...autoRunDiagnostics
+      ]),
+    [
+      autoRunDiagnostics,
+      graphDiagnostics,
+      projectDiagnostics,
+      runtimeDiagnostics,
+      searchController.diagnostics
+    ]
   );
 
   const {
@@ -349,7 +377,14 @@ export function ProjectWorkspaceProvider({
     setReviewDefaultCyclesDraft,
     setReviewTaskId,
     updateReviewStep
-  } = useReviewPipeline({ graph, reloadCurrentCanvas, selectedCanvasId, selectedProject, setError, t });
+  } = useReviewPipeline({
+    graph,
+    reloadCurrentCanvas,
+    selectedCanvasId,
+    selectedProject,
+    setError,
+    t
+  });
 
   const { handleDeleteBlock, handleDeleteTaskNode } = useGraphDeleteActions({
     clearReviewTaskSelection,
@@ -420,7 +455,11 @@ export function ProjectWorkspaceProvider({
       if (updated.projectId !== project.projectId) {
         updateSettings((current) => ({
           pinnedProjectIds: Array.from(
-            new Set(current.pinnedProjectIds.map((pinnedProjectId) => (pinnedProjectId === project.projectId ? updated.projectId : pinnedProjectId)))
+            new Set(
+              current.pinnedProjectIds.map((pinnedProjectId) =>
+                pinnedProjectId === project.projectId ? updated.projectId : pinnedProjectId
+              )
+            )
           )
         }));
       }
@@ -461,9 +500,36 @@ export function ProjectWorkspaceProvider({
         taskId
       })
         .then(() => setSuccessMessage(t("agentPromptCopied")))
-        .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+        .catch((caught: unknown) =>
+          setError(caught instanceof Error ? caught.message : String(caught))
+        );
     },
     [selectedCanvasId, selectedProject, setError, setSuccessMessage, t]
+  );
+  const handleRevealTaskInFinder = useCallback(
+    (taskId: string) => {
+      if (!selectedProject) {
+        return;
+      }
+      const canvasId = selectedCanvasId ?? selectedProject.activeCanvasId ?? "default";
+      const packageDir = canvasPackageDir(selectedProject, canvasId);
+      if (!packageDir) {
+        setError(unavailablePackageDirMessage(canvasId));
+        return;
+      }
+      void handleRevealPathInFinder(taskNodeDirectory(selectedProject, packageDir, taskId));
+    },
+    [handleRevealPathInFinder, selectedCanvasId, selectedProject, setError]
+  );
+  const handleRevealTaskNode = useCallback(
+    (project: DesktopProjectSummary, canvas: TaskCanvasSummary, taskId: string) => {
+      if (!canvas.packageDir) {
+        setError(unavailablePackageDirMessage(canvas.canvasId));
+        return;
+      }
+      void handleRevealPathInFinder(taskNodeDirectory(project, canvas.packageDir, taskId));
+    },
+    [handleRevealPathInFinder, setError]
   );
   const handleCopyCanvasAgentPrompt = useCallback(
     (project: DesktopProjectSummary, canvas: TaskCanvasSummary) => {
@@ -477,7 +543,9 @@ export function ProjectWorkspaceProvider({
         packageDir: canvas.packageDir
       })
         .then(() => setSuccessMessage(t("agentPromptCopied")))
-        .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+        .catch((caught: unknown) =>
+          setError(caught instanceof Error ? caught.message : String(caught))
+        );
     },
     [setError, setSuccessMessage, t]
   );
@@ -515,6 +583,7 @@ export function ProjectWorkspaceProvider({
       handleDeleteBlock,
       handleDeleteTaskNode,
       handleCopyAgentPrompt,
+      handleRevealTaskInFinder,
       handleOpenBlockInspector,
       handleOpenRunRecord,
       handleOpenTaskInspector,
@@ -612,6 +681,8 @@ export function ProjectWorkspaceProvider({
       activeView,
       handleOpenProject,
       handleRevealPathInFinder,
+      handleRevealTaskCanvas,
+      handleRenameTaskCanvas,
       loadProject: openProjectInSession,
       projectLoading,
       selectedCanvasId,
@@ -625,6 +696,8 @@ export function ProjectWorkspaceProvider({
       activeView,
       handleOpenProject,
       handleRevealPathInFinder,
+      handleRevealTaskCanvas,
+      handleRenameTaskCanvas,
       openProjectInSession,
       projectLoading,
       selectedCanvasId,
@@ -723,19 +796,13 @@ export function ProjectWorkspaceProvider({
     [statistics, todoGroups]
   );
 
-  const {
-    startAutoRunWithScope: _startAutoRunWithScope,
-    ...autoRun
-  } = autoRunController;
+  const { startAutoRunWithScope: _startAutoRunWithScope, ...autoRun } = autoRunController;
   const {
     fileSyncDiagnostics: _fileSyncDiagnostics,
     lastFileChange: _lastFileChange,
     ...fileSync
   } = fileSyncController;
-  const {
-    diagnostics: _searchDiagnostics,
-    ...search
-  } = searchController;
+  const { diagnostics: _searchDiagnostics, ...search } = searchController;
 
   const projectSidebar = useMemo(
     () => ({
@@ -757,6 +824,7 @@ export function ProjectWorkspaceProvider({
       handleRevealProject,
       handleRevealSourceRoot,
       handleRevealTaskCanvas,
+      handleRevealTaskNode,
       handleRenameProject,
       handleRenameTaskCanvas,
       handleUnlinkSourceRoot,
@@ -794,6 +862,7 @@ export function ProjectWorkspaceProvider({
       handleRevealProject,
       handleRevealSourceRoot,
       handleRevealTaskCanvas,
+      handleRevealTaskNode,
       handleTaskPanelSelect,
       handleTogglePinnedProject,
       handleUnlinkSourceRoot,
@@ -847,5 +916,7 @@ export function ProjectWorkspaceProvider({
     ]
   );
 
-  return <ProjectWorkspaceContext.Provider value={value}>{children}</ProjectWorkspaceContext.Provider>;
+  return (
+    <ProjectWorkspaceContext.Provider value={value}>{children}</ProjectWorkspaceContext.Provider>
+  );
 }

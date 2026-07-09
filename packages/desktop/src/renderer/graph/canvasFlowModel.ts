@@ -7,7 +7,11 @@ import type {
 } from "@planweave-ai/runtime";
 import type { CanvasFlowNode, CanvasNodeData } from "../types";
 import { CanvasNodeCard } from "./CanvasNodeCard";
-import { dependencyEdgeColorForSource, dependencyEdgeDefaultOpacity, dependencyEdgeSourceColors } from "./dependencyEdgeVisual";
+import {
+  dependencyEdgeColorForSource,
+  dependencyEdgeDefaultOpacity,
+  dependencyEdgeSourceColors
+} from "./dependencyEdgeVisual";
 
 export const canvasNodeTypes = {
   canvas: CanvasNodeCard
@@ -29,6 +33,8 @@ export function canvasMapNodes(
   selectedCanvasId: string | null,
   onCanvasOpen: (canvasId: string) => void,
   onAgentPromptCopy: CanvasNodeData["onAgentPromptCopy"],
+  onCanvasReveal: CanvasNodeData["onRevealInFinder"],
+  onCanvasRename: CanvasNodeData["onRename"],
   onCanvasSelect: (canvasId: string) => void
 ): CanvasFlowNode[] {
   const layoutByCanvas = new Map(layout?.nodes.map((node) => [node.canvasId, node]) ?? []);
@@ -38,7 +44,9 @@ export function canvasMapNodes(
     return {
       id: canvas.canvasId,
       type: "canvas",
-      position: saved ? { x: saved.x, y: saved.y } : { x: 80 + (index % 3) * 380, y: 80 + Math.floor(index / 3) * 220 },
+      position: saved
+        ? { x: saved.x, y: saved.y }
+        : { x: 80 + (index % 3) * 380, y: 80 + Math.floor(index / 3) * 220 },
       data: {
         canvas,
         health: healthByCanvas.get(canvas.canvasId) ?? null,
@@ -46,6 +54,8 @@ export function canvasMapNodes(
         selected: selectedCanvasId === canvas.canvasId,
         onOpen: onCanvasOpen,
         onAgentPromptCopy,
+        onRevealInFinder: onCanvasReveal,
+        onRename: onCanvasRename,
         onSelect: onCanvasSelect
       }
     };
@@ -54,8 +64,12 @@ export function canvasMapNodes(
 
 export function canvasMapEdges(graph: DesktopCanvasGraphViewModel): Edge[] {
   const canvasIds = new Set(graph.canvases.map((canvas) => canvas.canvasId));
-  const healthByEdge = new Map(graph.health.edges.map((edge) => [`${edge.from}:${edge.type}:${edge.to}`, edge]));
-  const visibleEdges = graph.edges.filter((edge) => canvasIds.has(edge.from) && canvasIds.has(edge.to));
+  const healthByEdge = new Map(
+    graph.health.edges.map((edge) => [`${edge.from}:${edge.type}:${edge.to}`, edge])
+  );
+  const visibleEdges = graph.edges.filter(
+    (edge) => canvasIds.has(edge.from) && canvasIds.has(edge.to)
+  );
   const sourceColors = dependencyEdgeSourceColors(
     graph.canvases.map((canvas) => canvas.canvasId),
     visibleEdges.map((edge) => ({ source: edge.to, target: edge.from }))

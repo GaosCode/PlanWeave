@@ -43,6 +43,7 @@ type GraphFlowTaskActions = {
   handleOpenRunRecord: TaskNodeData["onOpenRunRecord"];
   handleOpenTaskInspector: TaskNodeData["onTaskOpen"];
   handleCopyAgentPrompt: TaskNodeData["onAgentPromptCopy"];
+  handleRevealTaskInFinder: TaskNodeData["onRevealTaskInFinder"];
   handlePromptChange: TaskNodeData["onPromptChange"];
   handlePromptHistoryRedo: TaskNodeData["onPromptHistoryRedo"];
   handlePromptHistoryUndo: TaskNodeData["onPromptHistoryUndo"];
@@ -92,6 +93,7 @@ export function useGraphFlowModel({
     handleOpenRunRecord,
     handleOpenTaskInspector,
     handleCopyAgentPrompt,
+    handleRevealTaskInFinder,
     handlePromptChange,
     handlePromptHistoryRedo,
     handlePromptHistoryUndo,
@@ -101,7 +103,8 @@ export function useGraphFlowModel({
     handleTitleSave,
     startAutoRunWithScope
   } = taskActions;
-  const { saveSelectedBlockExecutor, saveSelectedBlockPrompt, saveSelectedBlockTitle } = blockActions;
+  const { saveSelectedBlockExecutor, saveSelectedBlockPrompt, saveSelectedBlockTitle } =
+    blockActions;
   const { setEdges, setNodes, setSelectedBlock } = flowState;
 
   useEffect(() => {
@@ -135,6 +138,7 @@ export function useGraphFlowModel({
         handleOpenBlockInspector,
         handleOpenTaskInspector,
         handleCopyAgentPrompt,
+        handleRevealTaskInFinder,
         startAutoRunWithScope,
         handleDeleteTaskNode,
         handleDeleteBlock,
@@ -157,6 +161,7 @@ export function useGraphFlowModel({
     handleDeleteTaskNode,
     handleOpenBlockInspector,
     handleCopyAgentPrompt,
+    handleRevealTaskInFinder,
     handleOpenRunRecord,
     handleOpenTaskInspector,
     handlePromptChange,

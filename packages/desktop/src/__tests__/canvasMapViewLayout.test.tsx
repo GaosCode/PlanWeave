@@ -42,8 +42,10 @@ vi.mock("@xyflow/react", async () => {
   };
 });
 
-const longProjectRoot = "/Users/mrbrain/.planweave/projects/ecco-the-dolphin-opencode-with-a-very-long-unbroken-folder-name";
-const longSourceRoot = "/Users/mrbrain/code/test/ecco-the-dolphin-opencode-with-a-very-long-unbroken-folder-name";
+const longProjectRoot =
+  "/workspace/.planweave/projects/ecco-the-dolphin-opencode-with-a-very-long-unbroken-folder-name";
+const longSourceRoot =
+  "/workspace/source/ecco-the-dolphin-opencode-with-a-very-long-unbroken-folder-name";
 
 const project: DesktopProjectSummary = {
   activeCanvasId: "default",
@@ -85,6 +87,8 @@ function renderCanvasMapView(patch: Partial<Parameters<typeof CanvasMapView>[0]>
     <CanvasMapView
       handleOpenBlockInspector={vi.fn().mockResolvedValue(undefined)}
       handleOpenProject={vi.fn().mockResolvedValue(undefined)}
+      handleRevealTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+      handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
       loadProject={vi.fn().mockResolvedValue(undefined)}
       onAgentPromptCopied={vi.fn()}
       onTaskPanelSelect={vi.fn()}
@@ -122,6 +126,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 
@@ -133,7 +138,9 @@ describe("CanvasMapView agent scope layout", () => {
       expect(element).toHaveStyle({ overflowWrap: "anywhere" });
     }
     expect(screen.getByText(longSourceRoot)).toHaveStyle({ overflowWrap: "anywhere" });
-    expect(screen.getAllByText("canvases/default/package")[0]).toHaveStyle({ overflowWrap: "anywhere" });
+    expect(screen.getAllByText("canvases/default/package")[0]).toHaveStyle({
+      overflowWrap: "anywhere"
+    });
   });
 
   it("announces when the agent scope prompt is copied", async () => {
@@ -143,7 +150,51 @@ describe("CanvasMapView agent scope layout", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy agent prompt" }));
 
     await waitFor(() => expect(onAgentPromptCopied).toHaveBeenCalledTimes(1));
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining(`packageDir: ${longProjectRoot}/canvases/default/package`));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      expect.stringContaining(`packageDir: ${longProjectRoot}/canvases/default/package`)
+    );
+  });
+
+  it("wires canvas map node rename and Finder actions to the project handlers", async () => {
+    const handleRevealTaskCanvas = vi.fn().mockResolvedValue(undefined);
+    const handleRenameTaskCanvas = vi.fn().mockResolvedValue(undefined);
+    const loadCanvasMap = vi.fn().mockResolvedValue(undefined);
+    const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
+    useCanvasMapMock.mockReturnValue({
+      canvasGraph,
+      canvasMapLayout: null,
+      loadCanvasMap,
+      resetCanvasMapLayout: vi.fn().mockResolvedValue(undefined),
+      saveCanvasMapLayoutFromNodes: vi.fn().mockResolvedValue(undefined),
+      selectedCanvas: canvasGraph.canvases[0],
+      selectedMapCanvasId: "default",
+      setSelectedMapCanvasId: vi.fn()
+    });
+    vi.spyOn(window, "prompt").mockReturnValue("Renamed canvas");
+
+    renderCanvasMapView({
+      handleRevealTaskCanvas,
+      handleRenameTaskCanvas,
+      refreshProjectDerivedState
+    });
+
+    await waitFor(() => expect(reactFlowRenderNodes.at(-1)?.length).toBe(1));
+    const node = reactFlowRenderNodes.at(-1)?.[0] as {
+      data: {
+        canvas: DesktopCanvasGraphViewModel["canvases"][number];
+        onRevealInFinder: (canvasId: string) => void;
+        onRename: (canvas: DesktopCanvasGraphViewModel["canvases"][number]) => void;
+      };
+    };
+    node.data.onRevealInFinder("default");
+    node.data.onRename(node.data.canvas);
+
+    expect(handleRevealTaskCanvas).toHaveBeenCalledWith(project, "default");
+    await waitFor(() =>
+      expect(handleRenameTaskCanvas).toHaveBeenCalledWith(project, "default", "Renamed canvas")
+    );
+    await waitFor(() => expect(loadCanvasMap).toHaveBeenCalledTimes(1));
+    expect(refreshProjectDerivedState).toHaveBeenCalledTimes(1);
   });
 
   it("saves execution policy through the bridge and refreshes derived state", async () => {
@@ -163,13 +214,17 @@ describe("CanvasMapView agent scope layout", () => {
     renderCanvasMapView({ refreshProjectDerivedState });
 
     fireEvent.click(screen.getByRole("switch", { name: "Parallel execution" }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Max concurrent blocks" }), { target: { value: "3" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Max concurrent blocks" }), {
+      target: { value: "3" }
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
-    await waitFor(() => expect(bridgeMock.updateCanvasExecutionPolicy).toHaveBeenCalledWith(
-      { projectRoot: longProjectRoot, canvasId: "default" },
-      { parallelEnabled: true, maxConcurrent: 3 }
-    ));
+    await waitFor(() =>
+      expect(bridgeMock.updateCanvasExecutionPolicy).toHaveBeenCalledWith(
+        { projectRoot: longProjectRoot, canvasId: "default" },
+        { parallelEnabled: true, maxConcurrent: 3 }
+      )
+    );
     await waitFor(() => expect(loadCanvasMap).toHaveBeenCalledTimes(1));
     expect(refreshProjectDerivedState).toHaveBeenCalledTimes(1);
   });
@@ -206,6 +261,8 @@ describe("CanvasMapView agent scope layout", () => {
       <CanvasMapView
         handleOpenBlockInspector={vi.fn().mockResolvedValue(undefined)}
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
+        handleRevealTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
         loadProject={vi.fn().mockResolvedValue(undefined)}
         onAgentPromptCopied={vi.fn()}
         onTaskPanelSelect={vi.fn()}
@@ -217,7 +274,9 @@ describe("CanvasMapView agent scope layout", () => {
         t={firstTranslator}
       />
     );
-    await waitFor(() => expect(reactFlowRenderNodes.some((nodes) => nodes?.length === 1)).toBe(true));
+    await waitFor(() =>
+      expect(reactFlowRenderNodes.some((nodes) => nodes?.length === 1)).toBe(true)
+    );
 
     reactFlowRenderNodes.length = 0;
     const nextTranslator = (key: Parameters<typeof firstTranslator>[0]) => firstTranslator(key);
@@ -225,6 +284,8 @@ describe("CanvasMapView agent scope layout", () => {
       <CanvasMapView
         handleOpenBlockInspector={vi.fn().mockResolvedValue(undefined)}
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
+        handleRevealTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
         loadProject={vi.fn().mockResolvedValue(undefined)}
         onAgentPromptCopied={vi.fn()}
         onTaskPanelSelect={vi.fn()}

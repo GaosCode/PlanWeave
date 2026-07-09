@@ -10,7 +10,11 @@ import type {
   DesktopReviewAttemptSummary,
   DesktopTaskNodeViewModel
 } from "@planweave-ai/runtime";
-import type { DesktopSettingsPatch, DesktopUiSettings, FloatingControlPosition } from "../shared/desktopSettings";
+import type {
+  DesktopSettingsPatch,
+  DesktopUiSettings,
+  FloatingControlPosition
+} from "../shared/desktopSettings";
 export type {
   AppearanceMode,
   DesktopSettingsPatch,
@@ -20,7 +24,9 @@ export type {
   PaletteComponentKey
 } from "../shared/desktopSettings";
 
-export type DesktopSettingsUpdate = DesktopSettingsPatch | ((current: DesktopUiSettings) => DesktopSettingsPatch);
+export type DesktopSettingsUpdate =
+  | DesktopSettingsPatch
+  | ((current: DesktopUiSettings) => DesktopSettingsPatch);
 
 export type TaskNodeLabels = {
   blockStack: string;
@@ -46,6 +52,7 @@ export type TaskNodeLabels = {
   deleteTask: string;
   deleteBlock: string;
   copyAgentPrompt: string;
+  openTaskInFileManager: string;
   runTask: string;
   runBlock: string;
   deleteTaskConfirm: string;
@@ -76,6 +83,7 @@ export type TaskNodeData = {
   onTaskDelete: (taskId: string) => void;
   onTaskOpen: (taskId: string) => void;
   onAgentPromptCopy: (taskId: string) => void;
+  onRevealTaskInFinder: (taskId: string) => void;
   onAutoRunScopeStart: (scope: DesktopAutoRunScope) => Promise<void>;
   onBlockDelete: (ref: string) => void;
   onSelectedBlockChange: (block: DesktopBlockDetail) => void;
@@ -91,7 +99,9 @@ export type CanvasNodeLabels = {
   copyAgentPrompt: string;
   dependency: string;
   error: string;
+  openInFileManager: string;
   open: string;
+  rename: string;
   warning: string;
 };
 
@@ -102,13 +112,24 @@ export type CanvasNodeData = {
   selected: boolean;
   onOpen: (canvasId: string) => void;
   onAgentPromptCopy: (canvas: DesktopCanvasNodeViewModel) => void;
+  onRevealInFinder: (canvasId: string) => void;
+  onRename: (canvas: DesktopCanvasNodeViewModel) => void;
   onSelect: (canvasId: string) => void;
 };
 
 export type CanvasFlowNode = Node<CanvasNodeData, "canvas">;
 
 export type AppFlowNode = TaskFlowNode;
-export type AppView = "new-task" | "graph" | "canvas-map" | "review-pipeline" | "todo" | "statistics" | "search" | "notifications" | "settings";
+export type AppView =
+  | "new-task"
+  | "graph"
+  | "canvas-map"
+  | "review-pipeline"
+  | "todo"
+  | "statistics"
+  | "search"
+  | "notifications"
+  | "settings";
 export type AutoRunScopeMode = "project" | "selectedTask" | "selectedBlock";
 export type PaletteDropComponent = "task" | import("@planweave-ai/runtime").BlockType;
 export type PaletteDropPosition = { x: number; y: number };

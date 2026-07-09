@@ -12,13 +12,9 @@ import type { AppFlowNode, TaskFlowNode, TaskNodeData } from "../types";
 import { TaskNodeCard } from "./TaskNodeCard";
 import { TaskDependencyEdge } from "./TaskDependencyEdge";
 import {
-  dependencyEdgeColor,
   dependencyEdgeColorForSource,
   dependencyEdgeDefaultOpacity,
-  dependencyEdgeDimmedOpacity,
-  dependencyEdgeHighlightedOpacity,
-  dependencyEdgeSourceColors,
-  markerEndWithColor
+  dependencyEdgeSourceColors
 } from "./dependencyEdgeVisual";
 import { displayEdgeManifestData, executionFlowEndpoints } from "./dependencyEdges";
 
@@ -44,11 +40,6 @@ type FlowPosition = {
   y: number;
 };
 
-export type GraphEdgeInteraction = {
-  hoveredEdgeId?: string | null;
-  hoveredNodeId?: string | null;
-};
-
 type GraphEdgeData = ReturnType<typeof displayEdgeManifestData> & {
   sourceTaskId: string;
   targetTaskId: string;
@@ -66,7 +57,11 @@ export function defaultTaskNodePositions(graph: DesktopGraphViewModel): Map<stri
 
   for (const edge of graph.edges) {
     const endpoints = executionFlowEndpoints(edge);
-    if (!taskIdsSet.has(endpoints.source) || !taskIdsSet.has(endpoints.target) || endpoints.source === endpoints.target) {
+    if (
+      !taskIdsSet.has(endpoints.source) ||
+      !taskIdsSet.has(endpoints.target) ||
+      endpoints.source === endpoints.target
+    ) {
       continue;
     }
     const edgeKey = `${endpoints.source}\u0000${endpoints.target}`;
@@ -174,6 +169,7 @@ export function graphNodes(
   onOverflowBlockSelect: TaskNodeData["onOverflowBlockSelect"],
   onTaskOpen: TaskNodeData["onTaskOpen"],
   onAgentPromptCopy: TaskNodeData["onAgentPromptCopy"],
+  onRevealTaskInFinder: TaskNodeData["onRevealTaskInFinder"],
   onAutoRunScopeStart: TaskNodeData["onAutoRunScopeStart"],
   onTaskDelete: TaskNodeData["onTaskDelete"],
   onBlockDelete: TaskNodeData["onBlockDelete"],
@@ -218,6 +214,7 @@ export function graphNodes(
         onOverflowBlockSelect,
         onTaskOpen,
         onAgentPromptCopy,
+        onRevealTaskInFinder,
         onAutoRunScopeStart,
         onTaskDelete,
         onBlockDelete,
@@ -234,15 +231,21 @@ export function graphNodes(
 
 export function graphEdges(graph: DesktopGraphViewModel): Edge[] {
   const nodeIds = new Set(graph.tasks.map((task) => task.taskId));
-  const dependencyLinks = graph.edges.map(executionFlowEndpoints).filter((link) => nodeIds.has(link.source) && nodeIds.has(link.target));
-  const sourceColors = dependencyEdgeSourceColors(graph.tasks.map((task) => task.taskId), dependencyLinks);
+  const dependencyLinks = graph.edges
+    .map(executionFlowEndpoints)
+    .filter((link) => nodeIds.has(link.source) && nodeIds.has(link.target));
+  const sourceColors = dependencyEdgeSourceColors(
+    graph.tasks.map((task) => task.taskId),
+    dependencyLinks
+  );
   return graph.edges
     .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to))
     .map((edge) => {
       const isTaskDependency = edge.type === "depends_on";
       const endpoints = executionFlowEndpoints(edge);
       const edgeId = `${edge.from}-${edge.type}-${edge.to}`;
-      const color = sourceColors.get(endpoints.source) ?? dependencyEdgeColorForSource(endpoints.source);
+      const color =
+        sourceColors.get(endpoints.source) ?? dependencyEdgeColorForSource(endpoints.source);
       return {
         id: edgeId,
         source: endpoints.source,
@@ -269,34 +272,4 @@ export function graphEdges(graph: DesktopGraphViewModel): Edge[] {
         }
       } satisfies Edge;
     });
-}
-
-export function styleGraphEdgesForInteraction(edges: Edge[], interaction: GraphEdgeInteraction): Edge[] {
-  const hoveredNodeId = interaction.hoveredNodeId ?? null;
-  const hoveredEdgeId = interaction.hoveredEdgeId ?? null;
-  const selectedEdgeIds = new Set(edges.filter((edge) => edge.selected).map((edge) => edge.id));
-  const hasHoveredNode = hoveredNodeId !== null && edges.some((edge) => edge.source === hoveredNodeId || edge.target === hoveredNodeId);
-  const hasSelectedEdge = selectedEdgeIds.size > 0;
-  const hasHoveredEdge = !hasSelectedEdge && hoveredEdgeId !== null && edges.some((edge) => edge.id === hoveredEdgeId);
-  const hasInteraction = hasHoveredNode || hasHoveredEdge || hasSelectedEdge;
-  return edges.map((edge) => {
-    const relatedToSelection = selectedEdgeIds.has(edge.id);
-    const lockedBySelection = hasSelectedEdge && !relatedToSelection;
-    const relatedToNode = !hasSelectedEdge && hasHoveredNode && (edge.source === hoveredNodeId || edge.target === hoveredNodeId);
-    const relatedToEdge = hasHoveredEdge && edge.id === hoveredEdgeId;
-    const related = !hasInteraction || relatedToNode || relatedToEdge || relatedToSelection;
-    const highlighted = relatedToNode || relatedToEdge || relatedToSelection;
-    const color = dependencyEdgeColor(edge);
-    return {
-      ...edge,
-      ...(lockedBySelection ? { interactionWidth: 1, reconnectable: false, selectable: false } : {}),
-      markerEnd: markerEndWithColor(edge.markerEnd, color),
-      style: {
-        ...edge.style,
-        stroke: color,
-        strokeWidth: highlighted ? 3.2 : related ? edge.style?.strokeWidth ?? 2 : 1.4,
-        opacity: highlighted ? dependencyEdgeHighlightedOpacity : related ? edge.style?.opacity ?? dependencyEdgeDefaultOpacity : dependencyEdgeDimmedOpacity
-      }
-    };
-  });
 }

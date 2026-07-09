@@ -9,15 +9,26 @@ import {
   useEdgesState,
   useNodesState
 } from "@xyflow/react";
-import type { DesktopCanvasExecutionPolicy, DesktopCanvasNodeViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
+import type {
+  DesktopCanvasExecutionPolicy,
+  DesktopCanvasNodeViewModel,
+  DesktopProjectSummary
+} from "@planweave-ai/runtime";
 import { ClipboardIcon, FolderOpenIcon, GitBranchIcon, RotateCcwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { bridge } from "../bridge";
 import { writeAgentScopePromptToClipboard } from "../agentPrompt";
+import { fileManagerLabel } from "../fileManagerLabels";
 import type { createTranslator } from "../i18n";
-import { canvasMapEdges, canvasMapNodes, canvasNodeTypes, type DisplayCanvasEdgeData } from "../graph/canvasFlowModel";
+import {
+  canvasMapEdges,
+  canvasMapNodes,
+  canvasNodeTypes,
+  type DisplayCanvasEdgeData
+} from "../graph/canvasFlowModel";
+import { styleDependencyEdgesForInteraction } from "../graph/dependencyEdgeVisual";
 import { useCanvasMap } from "../hooks/useCanvasMap";
 import type { AppView, CanvasFlowNode } from "../types";
 import { CanvasMapInspector } from "./CanvasMapInspector";
@@ -25,6 +36,12 @@ import { CanvasMapInspector } from "./CanvasMapInspector";
 type CanvasMapViewProps = {
   handleOpenProject: () => Promise<void>;
   handleOpenBlockInspector: (ref: string, canvasId?: string | null) => Promise<void>;
+  handleRevealTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
+  handleRenameTaskCanvas: (
+    project: DesktopProjectSummary,
+    canvasId: string,
+    name: string
+  ) => Promise<void>;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
   onAgentPromptCopied: () => void;
   onTaskPanelSelect: (taskId: string | null) => void;
@@ -78,9 +95,11 @@ function AgentScopeCard({
         </CardAction>
       </CardHeader>
       <CardContent className="flex min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm">
+        <ScopeField label={t("projectName")} value={selectedProject.name} />
         <ScopeField label={t("projectId")} value={selectedProject.projectId} />
         <ScopeField label={t("projectRoot")} value={selectedProject.rootPath} />
         <ScopeField label={t("workspaceRoot")} value={selectedProject.workspaceRoot} />
+        <ScopeField label={t("canvasName")} value={canvas.title} />
         <ScopeField label={t("canvasId")} value={canvas.canvasId} />
         <ScopeField label={t("packageDir")} value={canvas.packageDir} />
         <ScopeField label={t("sourceRoot")} value={sourceRoot} />
@@ -107,6 +126,8 @@ function ScopeField({ label, value }: { label: string; value: string }) {
 export function CanvasMapView({
   handleOpenProject,
   handleOpenBlockInspector,
+  handleRevealTaskCanvas,
+  handleRenameTaskCanvas,
   loadProject,
   onAgentPromptCopied,
   onTaskPanelSelect,
@@ -130,18 +151,35 @@ export function CanvasMapView({
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const dependencyLabel = t("canvasDependency");
   const copyAgentPromptLabel = t("copyAgentPrompt");
   const errorLabel = t("error");
   const enterCanvasLabel = t("enterCanvas");
+  const openInFileManagerLabel = fileManagerLabel(t, "open");
+  const renameTaskCanvasLabel = t("renameTaskCanvas");
   const warningLabel = t("warning");
-  const canvasNodeLabels = useMemo(() => ({
-    copyAgentPrompt: copyAgentPromptLabel,
-    dependency: dependencyLabel,
-    error: errorLabel,
-    open: enterCanvasLabel,
-    warning: warningLabel
-  }), [copyAgentPromptLabel, dependencyLabel, enterCanvasLabel, errorLabel, warningLabel]);
+  const canvasNodeLabels = useMemo(
+    () => ({
+      copyAgentPrompt: copyAgentPromptLabel,
+      dependency: dependencyLabel,
+      error: errorLabel,
+      openInFileManager: openInFileManagerLabel,
+      open: enterCanvasLabel,
+      rename: renameTaskCanvasLabel,
+      warning: warningLabel
+    }),
+    [
+      copyAgentPromptLabel,
+      dependencyLabel,
+      enterCanvasLabel,
+      errorLabel,
+      openInFileManagerLabel,
+      renameTaskCanvasLabel,
+      warningLabel
+    ]
+  );
 
   const openCanvas = useCallback(
     (canvasId: string) => {
@@ -150,7 +188,9 @@ export function CanvasMapView({
       }
       void loadProject(selectedProject, canvasId)
         .then(() => setActiveView("graph"))
-        .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+        .catch((caught: unknown) =>
+          setError(caught instanceof Error ? caught.message : String(caught))
+        );
     },
     [loadProject, selectedProject, setActiveView, setError]
   );
@@ -161,7 +201,9 @@ export function CanvasMapView({
       }
       void loadProject(selectedProject, canvasId)
         .then(() => onTaskPanelSelect(taskId))
-        .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+        .catch((caught: unknown) =>
+          setError(caught instanceof Error ? caught.message : String(caught))
+        );
     },
     [loadProject, onTaskPanelSelect, selectedProject, setError]
   );
@@ -172,7 +214,9 @@ export function CanvasMapView({
       }
       void loadProject(selectedProject, canvasId)
         .then(() => handleOpenBlockInspector(blockRef, canvasId))
-        .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+        .catch((caught: unknown) =>
+          setError(caught instanceof Error ? caught.message : String(caught))
+        );
     },
     [handleOpenBlockInspector, loadProject, selectedProject, setError]
   );
@@ -187,23 +231,69 @@ export function CanvasMapView({
         packageDir: canvas.packageDir
       })
         .then(onAgentPromptCopied)
-        .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)));
+        .catch((caught: unknown) =>
+          setError(caught instanceof Error ? caught.message : String(caught))
+        );
     },
     [onAgentPromptCopied, selectedProject, setError]
   );
+  const revealCanvasInFinder = useCallback(
+    (canvasId: string) => {
+      if (!selectedProject) {
+        return;
+      }
+      void handleRevealTaskCanvas(selectedProject, canvasId);
+    },
+    [handleRevealTaskCanvas, selectedProject]
+  );
+  const renameCanvas = useCallback(
+    (canvas: DesktopCanvasNodeViewModel) => {
+      if (!selectedProject) {
+        return;
+      }
+      const nextName = window.prompt(t("renameTaskCanvasPrompt"), canvas.title)?.trim();
+      if (!nextName || nextName === canvas.title.trim()) {
+        return;
+      }
+      void handleRenameTaskCanvas(selectedProject, canvas.canvasId, nextName)
+        .then(() => loadCanvasMap())
+        .then(refreshProjectDerivedState)
+        .catch((caught: unknown) =>
+          setError(caught instanceof Error ? caught.message : String(caught))
+        );
+    },
+    [
+      handleRenameTaskCanvas,
+      loadCanvasMap,
+      refreshProjectDerivedState,
+      selectedProject,
+      setError,
+      t
+    ]
+  );
   const openCanvasRef = useRef(openCanvas);
   const copyAgentPromptRef = useRef(copyAgentPrompt);
+  const revealCanvasInFinderRef = useRef(revealCanvasInFinder);
+  const renameCanvasRef = useRef(renameCanvas);
 
   useEffect(() => {
     openCanvasRef.current = openCanvas;
     copyAgentPromptRef.current = copyAgentPrompt;
-  }, [copyAgentPrompt, openCanvas]);
+    revealCanvasInFinderRef.current = revealCanvasInFinder;
+    renameCanvasRef.current = renameCanvas;
+  }, [copyAgentPrompt, openCanvas, renameCanvas, revealCanvasInFinder]);
 
   const handleCanvasOpen = useCallback((canvasId: string) => {
     openCanvasRef.current(canvasId);
   }, []);
   const handleAgentPromptCopy = useCallback((canvas: DesktopCanvasNodeViewModel) => {
     copyAgentPromptRef.current(canvas);
+  }, []);
+  const handleCanvasReveal = useCallback((canvasId: string) => {
+    revealCanvasInFinderRef.current(canvasId);
+  }, []);
+  const handleCanvasRename = useCallback((canvas: DesktopCanvasNodeViewModel) => {
+    renameCanvasRef.current(canvas);
   }, []);
   const saveExecutionPolicy = useCallback(
     async (canvasId: string, input: DesktopCanvasExecutionPolicy) => {
@@ -212,7 +302,10 @@ export function CanvasMapView({
         return;
       }
       try {
-        await bridge.updateCanvasExecutionPolicy({ projectRoot: selectedProject.rootPath, canvasId }, input);
+        await bridge.updateCanvasExecutionPolicy(
+          { projectRoot: selectedProject.rootPath, canvasId },
+          input
+        );
         await loadCanvasMap();
         await refreshProjectDerivedState();
       } catch (caught: unknown) {
@@ -236,24 +329,55 @@ export function CanvasMapView({
         selectedMapCanvasId,
         handleCanvasOpen,
         handleAgentPromptCopy,
+        handleCanvasReveal,
+        handleCanvasRename,
         setSelectedMapCanvasId
       )
     );
     setEdges(canvasMapEdges(canvasGraph));
-  }, [canvasGraph, canvasMapLayout, canvasNodeLabels, handleAgentPromptCopy, handleCanvasOpen, selectedMapCanvasId, setEdges, setNodes, setSelectedMapCanvasId]);
+  }, [
+    canvasGraph,
+    canvasMapLayout,
+    canvasNodeLabels,
+    handleAgentPromptCopy,
+    handleCanvasOpen,
+    handleCanvasRename,
+    handleCanvasReveal,
+    selectedMapCanvasId,
+    setEdges,
+    setNodes,
+    setSelectedMapCanvasId
+  ]);
 
   const selectedEdgeData = canvasEdgeData(edges.find((edge) => edge.id === selectedEdgeId) ?? null);
-  const agentScopeCanvasId = selectedMapCanvasId ?? selectedCanvasId ?? selectedProject?.activeCanvasId ?? canvasGraph?.canvases[0]?.canvasId ?? null;
-  const agentScopeCanvas = canvasGraph?.canvases.find((canvas) => canvas.canvasId === agentScopeCanvasId) ?? canvasGraph?.canvases[0] ?? null;
+  const styledEdges = useMemo(
+    () => styleDependencyEdgesForInteraction(edges, { hoveredEdgeId, hoveredNodeId }),
+    [edges, hoveredEdgeId, hoveredNodeId]
+  );
+  const agentScopeCanvasId =
+    selectedMapCanvasId ??
+    selectedCanvasId ??
+    selectedProject?.activeCanvasId ??
+    canvasGraph?.canvases[0]?.canvasId ??
+    null;
+  const agentScopeCanvas =
+    canvasGraph?.canvases.find((canvas) => canvas.canvasId === agentScopeCanvasId) ??
+    canvasGraph?.canvases[0] ??
+    null;
   const selectedManifestEdge = selectedEdgeData
-    ? canvasGraph?.edges.find(
-      (edge) => edge.from === selectedEdgeData.manifestFrom && edge.to === selectedEdgeData.manifestTo && edge.type === selectedEdgeData.manifestEdgeType
-    ) ?? null
+    ? (canvasGraph?.edges.find(
+        (edge) =>
+          edge.from === selectedEdgeData.manifestFrom &&
+          edge.to === selectedEdgeData.manifestTo &&
+          edge.type === selectedEdgeData.manifestEdgeType
+      ) ?? null)
     : null;
 
   const handleNodeDragStop = useCallback(
     (_event: MouseEvent, node: Node) => {
-      const nextNodes = nodes.map((current) => (current.id === node.id ? { ...current, position: node.position } : current));
+      const nextNodes = nodes.map((current) =>
+        current.id === node.id ? { ...current, position: node.position } : current
+      );
       void saveCanvasMapLayoutFromNodes(nextNodes);
     },
     [nodes, saveCanvasMapLayoutFromNodes]
@@ -286,7 +410,7 @@ export function CanvasMapView({
       <div className="relative min-h-0">
         <ReactFlow
           nodes={nodes}
-          edges={edges}
+          edges={styledEdges}
           nodeTypes={canvasNodeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
@@ -296,11 +420,23 @@ export function CanvasMapView({
           }}
           onNodeDoubleClick={(_event, node) => openCanvas(node.id)}
           onNodeDragStop={handleNodeDragStop}
+          onNodeMouseEnter={(_event, node) => setHoveredNodeId(node.id)}
+          onNodeMouseLeave={(_event, node) =>
+            setHoveredNodeId((current) => (current === node.id ? null : current))
+          }
           onEdgeClick={(_event, edge) => {
             setSelectedEdgeId(edge.id);
             setSelectedMapCanvasId(null);
           }}
+          onEdgeMouseEnter={(_event, edge) => setHoveredEdgeId(edge.id)}
+          onEdgeMouseLeave={(_event, edge) =>
+            setHoveredEdgeId((current) => (current === edge.id ? null : current))
+          }
           onPaneClick={closeInspector}
+          onPaneMouseEnter={() => {
+            setHoveredEdgeId(null);
+            setHoveredNodeId(null);
+          }}
           proOptions={{ hideAttribution: true }}
           minZoom={0.1}
           fitView
@@ -317,11 +453,19 @@ export function CanvasMapView({
             <GitBranchIcon className="size-4 shrink-0" aria-hidden="true" />
             <span className="truncate">{t("canvasMap")}</span>
           </div>
-          <Button size="icon-sm" variant="ghost" aria-label={t("resetCanvasMapLayout")} onClick={() => void resetCanvasMapLayout()}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t("resetCanvasMapLayout")}
+            onClick={() => void resetCanvasMapLayout()}
+          >
             <RotateCcwIcon data-icon="inline-start" />
           </Button>
         </div>
-        <ScrollArea className="min-h-0 flex-1 overflow-x-hidden" viewportClassName="[&>div]:!block [&>div]:!min-w-0 [&>div]:!w-full">
+        <ScrollArea
+          className="min-h-0 flex-1 overflow-x-hidden"
+          viewportClassName="[&>div]:!block [&>div]:!min-w-0 [&>div]:!w-full"
+        >
           <div className="flex min-w-0 max-w-full flex-col gap-3 overflow-hidden p-3 pr-4">
             {agentScopeCanvas ? (
               <AgentScopeCard

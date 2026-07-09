@@ -13,7 +13,11 @@ import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironmen
 
 afterEach(cleanupRendererTestEnvironment);
 
-function replaceNavigatorForTest(value: { language?: string; platform?: string; userAgent?: string }): () => void {
+function replaceNavigatorForTest(value: {
+  language?: string;
+  platform?: string;
+  userAgent?: string;
+}): () => void {
   const originalNavigator = globalThis.navigator;
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
@@ -133,7 +137,10 @@ describe("desktop renderer component interactions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "收起任务画布" }));
 
-    expect(screen.getByRole("button", { name: "展开任务画布" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "展开任务画布" })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
     expect(screen.queryByRole("button", { name: /新\s*T-TASK/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /新 Task\s*T-002/ })).not.toBeInTheDocument();
     expect(container.querySelector('[aria-hidden="true"][inert]')).toBeInTheDocument();
@@ -147,13 +154,19 @@ describe("desktop renderer component interactions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "展开任务画布" }));
 
-    expect(screen.getByRole("button", { name: "收起任务画布" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "收起任务画布" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
     expect(screen.getByRole("button", { name: /新\s*T-TASK/ })).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "收起项目" }));
 
     expect(screen.getByRole("button", { name: "frontend-example" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "展开项目" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "展开项目" })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
     expect(screen.queryByRole("button", { name: /frontend-example\s*2/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /新\s*T-TASK/ })).not.toBeInTheDocument();
     expect(screen.getByText("T-TASK")).toBeInTheDocument();
@@ -253,7 +266,10 @@ describe("desktop renderer component interactions", () => {
       removeEventListener: vi.fn(),
       removeListener: vi.fn()
     };
-    vi.stubGlobal("matchMedia", vi.fn(() => reducedMotionMediaQuery));
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => reducedMotionMediaQuery)
+    );
 
     const { rerender } = render(
       <AnimatedTreeRegion expanded unmountOnExit className="flex flex-col">
@@ -472,6 +488,112 @@ describe("desktop renderer component interactions", () => {
     }
   });
 
+  it("reveals a task node directory from the sidebar task context menu", async () => {
+    const restoreNavigator = replaceNavigatorForTest({
+      language: "zh-CN",
+      platform: "MacIntel",
+      userAgent: "Mac OS X"
+    });
+    const canvas: DesktopProjectSummary["taskCanvases"][number] = {
+      canvasId: "canvas-main",
+      name: "Main canvas",
+      packageDir: "canvases/main/package",
+      executionPolicy: null,
+      taskCount: 1,
+      missingPromptCount: 0,
+      diagnostics: [],
+      createdAt: "2026-05-22T00:00:00.000Z",
+      updatedAt: "2026-05-22T00:00:00.000Z"
+    };
+    const project: DesktopProjectSummary = {
+      projectId: "P-TASK-OPEN",
+      name: "task-open-example",
+      kind: "managed",
+      rootPath: "/tmp/task-open-example",
+      sourceRoot: "/tmp/source",
+      workspaceRoot: "/tmp/task-open-example",
+      activeCanvasId: "canvas-main",
+      taskCanvases: [canvas]
+    };
+    const graph: DesktopGraphViewModel = {
+      projectId: project.projectId,
+      projectTitle: project.name,
+      graphVersion: "pgv-test",
+      packageFingerprint: "pkg-test",
+      executorOptions: [],
+      tasks: [
+        {
+          taskId: "T-001",
+          title: "Mock task",
+          status: "ready",
+          executor: null,
+          executorLabel: "manual",
+          promptMarkdown: "# Mock task",
+          promptPreview: "Mock task",
+          blocks: [],
+          blockPreview: [],
+          hiddenBlockRefs: [],
+          overflowBlockCount: 0,
+          exceptions: []
+        }
+      ],
+      edges: [],
+      diagnostics: [],
+      dirtyPromptRefs: []
+    };
+    const handleRevealTaskNode = vi.fn();
+
+    try {
+      render(
+        <ProjectSidebar
+          activeView="graph"
+          collapsed={false}
+          expandedProjectId={project.projectId}
+          graph={graph}
+          handleBindSourceRoot={vi.fn().mockResolvedValue(undefined)}
+          handleCopyCanvasToNewProject={vi.fn().mockResolvedValue(null)}
+          handleDeleteProject={vi.fn().mockResolvedValue(undefined)}
+          handleDeleteTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+          handleDuplicateTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+          handleDeleteTaskNode={vi.fn().mockResolvedValue(undefined)}
+          handleDropSourceRoot={vi.fn().mockResolvedValue(undefined)}
+          handleOpenProject={vi.fn().mockResolvedValue(undefined)}
+          handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
+          handleRefreshProjects={vi.fn().mockResolvedValue(undefined)}
+          handleRenameProject={vi.fn().mockResolvedValue(undefined)}
+          handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+          handleRevealPlanWorkspace={vi.fn().mockResolvedValue(undefined)}
+          handleRevealProject={vi.fn().mockResolvedValue(undefined)}
+          handleRevealSourceRoot={vi.fn().mockResolvedValue(undefined)}
+          handleRevealTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+          handleRevealTaskNode={handleRevealTaskNode}
+          handleUnlinkSourceRoot={vi.fn().mockResolvedValue(undefined)}
+          handleTaskPanelSelect={vi.fn()}
+          loadProject={vi.fn().mockResolvedValue(undefined)}
+          notificationItems={[]}
+          onToggleSidebar={vi.fn()}
+          onTogglePinnedProject={vi.fn()}
+          pinnedProjectIds={new Set()}
+          projectRefreshing={false}
+          projects={[project]}
+          resetLayout={vi.fn().mockResolvedValue(undefined)}
+          selectedProject={project}
+          selectedCanvasId="canvas-main"
+          selectedTaskPanelId={null}
+          setActiveView={vi.fn()}
+          t={createTranslator("zh-CN")}
+        />
+      );
+
+      fireEvent.contextMenu(screen.getByRole("button", { name: /Mock task/ }));
+      await userEvent.click(await screen.findByText("在 Finder 中打开任务"));
+
+      expect(handleRevealTaskNode).toHaveBeenCalledWith(project, canvas, "T-001");
+    } finally {
+      restoreNavigator();
+    }
+  });
+
   it("orders pinned projects before unpinned projects without changing unpinned order", () => {
     const projects = [
       { projectId: "P-1", name: "first" },
@@ -479,6 +601,8 @@ describe("desktop renderer component interactions", () => {
       { projectId: "P-3", name: "third" }
     ];
 
-    expect(orderProjectsByPinnedIds(projects, ["P-3", "P-1"]).map((project) => project.projectId)).toEqual(["P-3", "P-1", "P-2"]);
+    expect(
+      orderProjectsByPinnedIds(projects, ["P-3", "P-1"]).map((project) => project.projectId)
+    ).toEqual(["P-3", "P-1", "P-2"]);
   });
 });

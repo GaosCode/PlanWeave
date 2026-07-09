@@ -20,7 +20,10 @@ type ProjectTreeProps = {
   handleDeleteTaskNode: (taskId: string) => Promise<void>;
   handleDuplicateTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleCopyCanvasAgentPrompt?: (project: DesktopProjectSummary, canvas: TaskCanvasSummary) => void;
-  handleDropSourceRoot: (project: DesktopProjectSummary, sourceRoot: string | null) => Promise<void>;
+  handleDropSourceRoot: (
+    project: DesktopProjectSummary,
+    sourceRoot: string | null
+  ) => Promise<void>;
   handleOpenProject: () => Promise<void>;
   handleProjectNewGraph: (project: DesktopProjectSummary) => Promise<void>;
   handleRefreshProjects: () => Promise<unknown>;
@@ -28,12 +31,25 @@ type ProjectTreeProps = {
   handleRevealProject: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
+  handleRevealTaskNode: (
+    project: DesktopProjectSummary,
+    canvas: TaskCanvasSummary,
+    taskId: string
+  ) => void;
   handleRenameProject: (project: DesktopProjectSummary, name: string) => Promise<void>;
-  handleRenameTaskCanvas: (project: DesktopProjectSummary, canvasId: string, currentName: string) => Promise<void>;
+  handleRenameTaskCanvas: (
+    project: DesktopProjectSummary,
+    canvasId: string,
+    currentName: string
+  ) => Promise<void>;
   handleUnlinkSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
   onCanvasSelect: (project: DesktopProjectSummary, canvasId: string) => void;
-  onCanvasToggle: (project: DesktopProjectSummary, canvasId: string, isGraphCanvas: boolean) => void;
+  onCanvasToggle: (
+    project: DesktopProjectSummary,
+    canvasId: string,
+    isGraphCanvas: boolean
+  ) => void;
   onProjectSelect: (project: DesktopProjectSummary) => void;
   onProjectToggle: (project: DesktopProjectSummary, isSelectedProject: boolean) => void;
   onTogglePinnedProject: (projectId: string) => void;
@@ -68,6 +84,7 @@ export function ProjectTree({
   handleRevealProject,
   handleRevealSourceRoot,
   handleRevealTaskCanvas,
+  handleRevealTaskNode,
   handleRenameProject,
   handleRenameTaskCanvas,
   handleUnlinkSourceRoot,
@@ -90,22 +107,50 @@ export function ProjectTree({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-xs font-semibold uppercase tracking-[0.08em] text-text-faint">{t("projects")}</div>
+        <div className="text-xs font-semibold uppercase tracking-[0.08em] text-text-faint">
+          {t("projects")}
+        </div>
         <div className="flex items-center gap-1">
-          <Button className="text-text-muted hover:bg-surface-muted hover:text-text-strong" size="icon-sm" variant="ghost" onClick={() => void handleRefreshProjects()} aria-label={t("refreshProjects")} disabled={projectRefreshing}>
-            <RefreshCwIcon className={projectRefreshing ? "animate-spin" : undefined} data-icon="inline-start" />
+          <Button
+            className="text-text-muted hover:bg-surface-muted hover:text-text-strong"
+            size="icon-sm"
+            variant="ghost"
+            onClick={() => void handleRefreshProjects()}
+            aria-label={t("refreshProjects")}
+            disabled={projectRefreshing}
+          >
+            <RefreshCwIcon
+              className={projectRefreshing ? "animate-spin" : undefined}
+              data-icon="inline-start"
+            />
           </Button>
-          <Button className="text-text-muted hover:bg-surface-muted hover:text-text-strong" size="icon-sm" variant="ghost" onClick={handleOpenProject} aria-label={t("chooseProjectFolder")}>
+          <Button
+            className="text-text-muted hover:bg-surface-muted hover:text-text-strong"
+            size="icon-sm"
+            variant="ghost"
+            onClick={handleOpenProject}
+            aria-label={t("chooseProjectFolder")}
+          >
             <FolderOpenIcon data-icon="inline-start" />
           </Button>
         </div>
       </div>
-      <ScrollArea className="min-h-0 flex-1 overflow-x-hidden" viewportClassName="[&>div]:!block [&>div]:!min-w-0 [&>div]:!w-full">
+      <ScrollArea
+        className="min-h-0 flex-1 overflow-x-hidden"
+        viewportClassName="[&>div]:!block [&>div]:!min-w-0 [&>div]:!w-full"
+      >
         <div className="flex w-full min-w-0 max-w-full flex-col gap-1 overflow-x-hidden pr-2">
-          {projects.length === 0 ? <div className="rounded-md border border-border/70 bg-surface-muted/70 px-3 py-2 text-sm text-text-muted">{t("projectMissing")}</div> : null}
+          {projects.length === 0 ? (
+            <div className="rounded-md border border-border/70 bg-surface-muted/70 px-3 py-2 text-sm text-text-muted">
+              {t("projectMissing")}
+            </div>
+          ) : null}
           {projects.map((project) => {
             const isSelectedProject = selectedProject?.projectId === project.projectId;
-            const isExpandedProject = expandedProjectId === project.projectId && isSelectedProject && !collapsedProjectIds.has(project.projectId);
+            const isExpandedProject =
+              expandedProjectId === project.projectId &&
+              isSelectedProject &&
+              !collapsedProjectIds.has(project.projectId);
             return (
               <ProjectTreeItem
                 collapsedCanvasIds={collapsedCanvasIds}
@@ -123,6 +168,7 @@ export function ProjectTree({
                 handleRevealProject={handleRevealProject}
                 handleRevealSourceRoot={handleRevealSourceRoot}
                 handleRevealTaskCanvas={handleRevealTaskCanvas}
+                handleRevealTaskNode={handleRevealTaskNode}
                 handleRenameProject={handleRenameProject}
                 handleRenameTaskCanvas={handleRenameTaskCanvas}
                 handleUnlinkSourceRoot={handleUnlinkSourceRoot}

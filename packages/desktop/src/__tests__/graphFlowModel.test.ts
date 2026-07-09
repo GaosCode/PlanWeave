@@ -24,12 +24,19 @@ describe("desktop graph flow model", () => {
 
     expect(positions.get("T-003")?.y).toBeLessThan(positions.get("T-001")?.y ?? 0);
     expect(positions.get("T-001")?.y).toBeLessThan(positions.get("T-002")?.y ?? 0);
-    expect((positions.get("T-001")?.y ?? 0) - (positions.get("T-003")?.y ?? 0)).toBeGreaterThanOrEqual(360);
-    expect((positions.get("T-002")?.y ?? 0) - (positions.get("T-001")?.y ?? 0)).toBeGreaterThanOrEqual(360);
+    expect(
+      (positions.get("T-001")?.y ?? 0) - (positions.get("T-003")?.y ?? 0)
+    ).toBeGreaterThanOrEqual(360);
+    expect(
+      (positions.get("T-002")?.y ?? 0) - (positions.get("T-001")?.y ?? 0)
+    ).toBeGreaterThanOrEqual(360);
   });
 
   it("prefers saved desktop layout positions over default dependency positions", () => {
-    const graph = graphView(["T-001", "T-002"], [{ from: "T-002", to: "T-001", type: "depends_on" }]);
+    const graph = graphView(
+      ["T-001", "T-002"],
+      [{ from: "T-002", to: "T-001", type: "depends_on" }]
+    );
     const layout: DesktopLayout = {
       version: "desktop-layout/v1",
       projectId: "P-001",
@@ -50,6 +57,7 @@ describe("desktop graph flow model", () => {
       [],
       [],
       [],
+      vi.fn(),
       vi.fn(),
       vi.fn(),
       vi.fn(),
@@ -93,6 +101,7 @@ const labels: TaskNodeLabels = {
   latestRun: "Latest run",
   more: "More",
   noBlockRecords: "No block records",
+  openTaskInFileManager: "Open task in Finder",
   openRecord: "Open record",
   runBlock: "Run block",
   runTask: "Run task",
@@ -106,7 +115,10 @@ const labels: TaskNodeLabels = {
   unavailable: "Unavailable"
 };
 
-function graphView(taskIds: string[], edges: DesktopGraphViewModel["edges"]): DesktopGraphViewModel {
+function graphView(
+  taskIds: string[],
+  edges: DesktopGraphViewModel["edges"]
+): DesktopGraphViewModel {
   return {
     projectId: "P-001",
     projectTitle: "Project",

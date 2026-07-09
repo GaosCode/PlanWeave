@@ -1,15 +1,50 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
-import { MessageSquareWarningIcon } from "lucide-react";
+import {
+  ClipboardIcon,
+  FolderOpenIcon,
+  MessageSquareWarningIcon,
+  PlayIcon,
+  Trash2Icon
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from "@/components/ui/card";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger
+} from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { buildExecutorOptionViews, canonicalExecutorName } from "../executors/executorOptionViewModel";
+import {
+  buildExecutorOptionViews,
+  canonicalExecutorName
+} from "../executors/executorOptionViewModel";
 import type { TaskFlowNode } from "../types";
 import { BlockPreviewButton } from "./BlockPreviewButton";
 import { taskNodeStatusVisual, TaskNodeStatusMarker } from "./taskNodeStatus";
@@ -44,21 +79,27 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
     onBlockSelect,
     onTaskOpen,
     onAgentPromptCopy,
+    onRevealTaskInFinder,
     onAutoRunScopeStart,
     onTaskDelete,
     onBlockDelete
   } = data;
   const hasException = task.exceptions.length > 0;
-  const selectedExecutor = task.executorLabel === "Mixed" ? "__custom" : canonicalExecutorName(task.executorLabel);
+  const selectedExecutor =
+    task.executorLabel === "Mixed" ? "__custom" : canonicalExecutorName(task.executorLabel);
   const taskExecutorOptions = buildExecutorOptionViews({
     agentDetections,
-    currentExecutorNames: selectedExecutor !== "__custom" && selectedExecutor ? [selectedExecutor] : [],
+    currentExecutorNames:
+      selectedExecutor !== "__custom" && selectedExecutor ? [selectedExecutor] : [],
     executorOptions
   });
   const statusVisual = taskNodeStatusVisual(task.status, hasException);
   const handleTaskDoubleClick = (event: MouseEvent) => {
     const target = event.target;
-    if (target instanceof HTMLElement && target.closest("button, [role='combobox'], [role='menuitem']")) {
+    if (
+      target instanceof HTMLElement &&
+      target.closest("button, [role='combobox'], [role='menuitem']")
+    ) {
       return;
     }
     onTaskOpen(task.taskId);
@@ -66,7 +107,9 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const key = event.key.toLowerCase();
     const isUndo = (event.metaKey || event.ctrlKey) && !event.shiftKey && key === "z";
-    const isRedo = ((event.metaKey || event.ctrlKey) && event.shiftKey && key === "z") || (event.ctrlKey && !event.metaKey && key === "y");
+    const isRedo =
+      ((event.metaKey || event.ctrlKey) && event.shiftKey && key === "z") ||
+      (event.ctrlKey && !event.metaKey && key === "y");
     if (!isUndo && !isRedo) {
       return;
     }
@@ -104,10 +147,17 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
                 onChange={(event) => onTitleChange(task.taskId, event.target.value)}
                 onBlur={() => onTitleSave(task.taskId)}
               />
-              <TaskNodeStatusMarker hasException={hasException} label={hasException ? labels.exception : task.status} status={task.status} />
+              <TaskNodeStatusMarker
+                hasException={hasException}
+                label={hasException ? labels.exception : task.status}
+                status={task.status}
+              />
             </CardTitle>
             <CardDescription className="flex items-center gap-2">
-              <Select value={selectedExecutor} onValueChange={(value) => onExecutorChange(task.taskId, value)}>
+              <Select
+                value={selectedExecutor}
+                onValueChange={(value) => onExecutorChange(task.taskId, value)}
+              >
                 <SelectTrigger className="h-7 w-28 border-border/80 bg-surface-base text-xs text-text shadow-none">
                   <SelectValue />
                 </SelectTrigger>
@@ -119,10 +169,18 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
                       </SelectItem>
                     ) : null}
                     {taskExecutorOptions.map((executor) => (
-                      <SelectItem disabled={executor.disabled} value={executor.name} key={executor.name}>
+                      <SelectItem
+                        disabled={executor.disabled}
+                        value={executor.name}
+                        key={executor.name}
+                      >
                         <span className="flex min-w-0 items-center gap-2">
                           <span>{executor.label}</span>
-                          {executor.disabled ? <span className="text-xs text-muted-foreground">{labels.unavailable}</span> : null}
+                          {executor.disabled ? (
+                            <span className="text-xs text-muted-foreground">
+                              {labels.unavailable}
+                            </span>
+                          ) : null}
                         </span>
                       </SelectItem>
                     ))}
@@ -145,8 +203,13 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
                     </PopoverHeader>
                     <div className="flex flex-col gap-2">
                       {task.exceptions.map((exception) => (
-                        <div className="rounded-md border border-state-failed/35 bg-state-failed-surface p-2" key={`${exception.ref}-${exception.source}`}>
-                          <div className="text-sm font-medium text-text-strong">{exception.ref}</div>
+                        <div
+                          className="rounded-md border border-state-failed/35 bg-state-failed-surface p-2"
+                          key={`${exception.ref}-${exception.source}`}
+                        >
+                          <div className="text-sm font-medium text-text-strong">
+                            {exception.ref}
+                          </div>
                           <div className="text-xs text-text-muted">{exception.reason}</div>
                         </div>
                       ))}
@@ -198,12 +261,21 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onSelect={() => onAgentPromptCopy(task.taskId)}>
+          <ClipboardIcon data-icon="inline-start" />
           {labels.copyAgentPrompt}
         </ContextMenuItem>
-        <ContextMenuItem onSelect={() => void onAutoRunScopeStart({ kind: "task", taskId: task.taskId })}>
+        <ContextMenuItem onSelect={() => onRevealTaskInFinder(task.taskId)}>
+          <FolderOpenIcon data-icon="inline-start" />
+          {labels.openTaskInFileManager}
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => void onAutoRunScopeStart({ kind: "task", taskId: task.taskId })}
+        >
+          <PlayIcon data-icon="inline-start" />
           {labels.runTask}
         </ContextMenuItem>
         <ContextMenuItem variant="destructive" onSelect={() => onTaskDelete(task.taskId)}>
+          <Trash2Icon data-icon="inline-start" />
           {labels.deleteTask}
         </ContextMenuItem>
       </ContextMenuContent>

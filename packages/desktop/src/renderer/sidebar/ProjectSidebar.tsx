@@ -1,8 +1,10 @@
-import { useState, type Dispatch, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
 import {
-  PanelLeftCloseIcon,
-  RotateCcwIcon
-} from "lucide-react";
+  useState,
+  type Dispatch,
+  type PointerEvent as ReactPointerEvent,
+  type SetStateAction
+} from "react";
+import { PanelLeftCloseIcon, RotateCcwIcon } from "lucide-react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -20,13 +22,19 @@ type ProjectSidebarProps = {
   expandedProjectId: string | null;
   graph: DesktopGraphViewModel | null;
   handleBindSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
-  handleCopyCanvasToNewProject: (project: DesktopProjectSummary, canvasId: string) => Promise<DesktopProjectSummary | null>;
+  handleCopyCanvasToNewProject: (
+    project: DesktopProjectSummary,
+    canvasId: string
+  ) => Promise<DesktopProjectSummary | null>;
   handleDeleteProject: (project: DesktopProjectSummary) => Promise<void>;
   handleDeleteTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleDeleteTaskNode: (taskId: string) => Promise<void>;
   handleDuplicateTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleCopyCanvasAgentPrompt?: (project: DesktopProjectSummary, canvas: TaskCanvasSummary) => void;
-  handleDropSourceRoot: (project: DesktopProjectSummary, sourceRoot: string | null) => Promise<void>;
+  handleDropSourceRoot: (
+    project: DesktopProjectSummary,
+    sourceRoot: string | null
+  ) => Promise<void>;
   handleOpenProject: () => Promise<void>;
   handleProjectNewGraph: (project: DesktopProjectSummary) => Promise<void>;
   handleRefreshProjects: () => Promise<unknown>;
@@ -34,8 +42,17 @@ type ProjectSidebarProps = {
   handleRevealProject: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
+  handleRevealTaskNode: (
+    project: DesktopProjectSummary,
+    canvas: TaskCanvasSummary,
+    taskId: string
+  ) => void;
   handleRenameProject: (project: DesktopProjectSummary, name: string) => Promise<void>;
-  handleRenameTaskCanvas: (project: DesktopProjectSummary, canvasId: string, currentName: string) => Promise<void>;
+  handleRenameTaskCanvas: (
+    project: DesktopProjectSummary,
+    canvasId: string,
+    currentName: string
+  ) => Promise<void>;
   handleUnlinkSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
@@ -75,6 +92,7 @@ export function ProjectSidebar({
   handleRevealProject,
   handleRevealSourceRoot,
   handleRevealTaskCanvas,
+  handleRevealTaskNode,
   handleRenameProject,
   handleRenameTaskCanvas,
   handleUnlinkSourceRoot,
@@ -163,7 +181,11 @@ export function ProjectSidebar({
     toggleProject(project.projectId);
   };
 
-  const handleCanvasToggle = (project: DesktopProjectSummary, canvasId: string, isGraphCanvas: boolean) => {
+  const handleCanvasToggle = (
+    project: DesktopProjectSummary,
+    canvasId: string,
+    isGraphCanvas: boolean
+  ) => {
     if (!isGraphCanvas) {
       expandCanvas(canvasId);
       void loadProject(project, canvasId);
@@ -184,7 +206,12 @@ export function ProjectSidebar({
     <aside className="relative flex shrink-0 flex-col overflow-hidden text-text" style={{ width }}>
       <div className="app-drag-region flex h-11 shrink-0 items-center border-b border-border/80 px-3 pl-[124px]">
         <div className="app-no-drag flex items-center gap-1">
-          <Button size="icon-sm" variant="ghost" aria-label={t("collapseSidebar")} onClick={onToggleSidebar}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t("collapseSidebar")}
+            onClick={onToggleSidebar}
+          >
             <PanelLeftCloseIcon data-icon="inline-start" />
           </Button>
           <HistoryNavigationButtons t={t} />
@@ -217,6 +244,7 @@ export function ProjectSidebar({
         handleRevealProject={handleRevealProject}
         handleRevealSourceRoot={handleRevealSourceRoot}
         handleRevealTaskCanvas={handleRevealTaskCanvas}
+        handleRevealTaskNode={handleRevealTaskNode}
         handleRenameProject={handleRenameProject}
         handleRenameTaskCanvas={handleRenameTaskCanvas}
         handleUnlinkSourceRoot={handleUnlinkSourceRoot}
@@ -238,7 +266,11 @@ export function ProjectSidebar({
       />
       <Separator className="bg-border/80" />
       <div className="flex items-center gap-2 p-3">
-        <Button className="h-8 flex-1 justify-start px-2 text-text-muted hover:bg-surface-muted hover:text-text-strong" variant="ghost" onClick={() => void resetLayout()}>
+        <Button
+          className="h-8 flex-1 justify-start px-2 text-text-muted hover:bg-surface-muted hover:text-text-strong"
+          variant="ghost"
+          onClick={() => void resetLayout()}
+        >
           <RotateCcwIcon data-icon="inline-start" />
           {t("resetLayout")}
         </Button>

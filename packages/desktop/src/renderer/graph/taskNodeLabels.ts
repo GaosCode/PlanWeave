@@ -1,5 +1,6 @@
 import type { createTranslator } from "../i18n";
 import type { TaskNodeLabels } from "../types";
+import { fileManagerLabel } from "../fileManagerLabels";
 
 export function taskNodeLabels(t: ReturnType<typeof createTranslator>): TaskNodeLabels {
   return {
@@ -26,6 +27,7 @@ export function taskNodeLabels(t: ReturnType<typeof createTranslator>): TaskNode
     deleteTask: t("deleteTask"),
     deleteBlock: t("deleteBlock"),
     copyAgentPrompt: t("copyAgentPrompt"),
+    openTaskInFileManager: fileManagerLabel(t, "task"),
     runTask: t("runTask"),
     runBlock: t("runBlock"),
     deleteTaskConfirm: t("deleteTaskConfirm"),

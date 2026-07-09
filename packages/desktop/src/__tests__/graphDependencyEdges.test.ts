@@ -6,7 +6,8 @@ import {
   displayEdgeManifestData,
   executionFlowEndpoints
 } from "../renderer/graph/dependencyEdges";
-import { graphEdges, styleGraphEdgesForInteraction, taskDependencyEdgeType } from "../renderer/graph/flowModel";
+import { styleDependencyEdgesForInteraction } from "../renderer/graph/dependencyEdgeVisual";
+import { graphEdges, taskDependencyEdgeType } from "../renderer/graph/flowModel";
 
 describe("desktop graph dependency edge direction", () => {
   it("renders depends_on arrows as execution flow from prerequisite to dependent", () => {
@@ -16,7 +17,14 @@ describe("desktop graph dependency edge direction", () => {
   });
 
   it("keeps user-created execution arrows stored as manifest dependencies", () => {
-    expect(dependencyConnectionToManifestEndpoints({ source: "T-002", target: "T-001", sourceHandle: null, targetHandle: null })).toEqual({
+    expect(
+      dependencyConnectionToManifestEndpoints({
+        source: "T-002",
+        target: "T-001",
+        sourceHandle: null,
+        targetHandle: null
+      })
+    ).toEqual({
       from: "T-001",
       to: "T-002"
     });
@@ -106,7 +114,13 @@ describe("desktop graph dependency edge direction", () => {
       dirtyPromptRefs: []
     };
 
-    expect(graphEdges(graph).map((edge) => [edge.id, edge.data?.sourceLaneOffset, edge.data?.targetLaneOffset])).toEqual([
+    expect(
+      graphEdges(graph).map((edge) => [
+        edge.id,
+        edge.data?.sourceLaneOffset,
+        edge.data?.targetLaneOffset
+      ])
+    ).toEqual([
       ["T-002-depends_on-T-001", undefined, undefined],
       ["T-003-depends_on-T-001", undefined, undefined],
       ["T-004-depends_on-T-001", undefined, undefined]
@@ -135,7 +149,13 @@ describe("desktop graph dependency edge direction", () => {
       dirtyPromptRefs: []
     };
 
-    expect(graphEdges(graph).map((edge) => [edge.id, edge.data?.sourceLaneOffset, edge.data?.targetLaneOffset])).toEqual([
+    expect(
+      graphEdges(graph).map((edge) => [
+        edge.id,
+        edge.data?.sourceLaneOffset,
+        edge.data?.targetLaneOffset
+      ])
+    ).toEqual([
       ["T-001-depends_on-T-002", undefined, undefined],
       ["T-001-depends_on-T-003", undefined, undefined],
       ["T-001-depends_on-T-004", undefined, undefined]
@@ -162,7 +182,9 @@ describe("desktop graph dependency edge direction", () => {
       dirtyPromptRefs: []
     };
 
-    const styled = styleGraphEdgesForInteraction(graphEdges(graph), { hoveredNodeId: "T-002" });
+    const styled = styleDependencyEdgesForInteraction(graphEdges(graph), {
+      hoveredNodeId: "T-002"
+    });
     const related = styled.find((edge) => edge.source === "T-002" || edge.target === "T-002");
     const unrelated = styled.find((edge) => edge.source !== "T-002" && edge.target !== "T-002");
 
@@ -193,11 +215,15 @@ describe("desktop graph dependency edge direction", () => {
     };
 
     const edges = graphEdges(graph);
-    const idleEdges = styleGraphEdgesForInteraction(edges, {});
-    const hoveredEdges = styleGraphEdgesForInteraction(edges, { hoveredEdgeId: "T-002-depends_on-T-001" });
+    const idleEdges = styleDependencyEdgesForInteraction(edges, {});
+    const hoveredEdges = styleDependencyEdgesForInteraction(edges, {
+      hoveredEdgeId: "T-002-depends_on-T-001"
+    });
 
     expect(hoveredEdges.map((edge) => edge.data)).toEqual(idleEdges.map((edge) => edge.data));
-    expect(hoveredEdges[0]?.style?.strokeWidth).toBeGreaterThan(idleEdges[0]?.style?.strokeWidth as number);
+    expect(hoveredEdges[0]?.style?.strokeWidth).toBeGreaterThan(
+      idleEdges[0]?.style?.strokeWidth as number
+    );
   });
 
   it("highlights a selected dependency edge without requiring hover", () => {
@@ -224,7 +250,7 @@ describe("desktop graph dependency edge direction", () => {
       ...edge,
       selected: edge.id === "T-002-depends_on-T-001"
     }));
-    const styled = styleGraphEdgesForInteraction(edges, {});
+    const styled = styleDependencyEdgesForInteraction(edges, {});
 
     expect(styled.map((edge) => [edge.id, edge.style?.opacity])).toEqual([
       ["T-002-depends_on-T-001", expect.any(Number)],
@@ -260,12 +286,16 @@ describe("desktop graph dependency edge direction", () => {
       selected: edge.id === selectedEdgeId
     }));
 
-    const styled = styleGraphEdgesForInteraction(edges, { hoveredEdgeId: hoveredOtherEdgeId });
+    const styled = styleDependencyEdgesForInteraction(edges, { hoveredEdgeId: hoveredOtherEdgeId });
     const selectedEdge = styled.find((edge) => edge.id === selectedEdgeId);
     const hoveredOtherEdge = styled.find((edge) => edge.id === hoveredOtherEdgeId);
 
-    expect(selectedEdge?.style?.opacity).toBeGreaterThan(hoveredOtherEdge?.style?.opacity as number);
-    expect(selectedEdge?.style?.strokeWidth).toBeGreaterThan(hoveredOtherEdge?.style?.strokeWidth as number);
+    expect(selectedEdge?.style?.opacity).toBeGreaterThan(
+      hoveredOtherEdge?.style?.opacity as number
+    );
+    expect(selectedEdge?.style?.strokeWidth).toBeGreaterThan(
+      hoveredOtherEdge?.style?.strokeWidth as number
+    );
     expect(selectedEdge?.selectable).toBeUndefined();
     expect(selectedEdge?.reconnectable).toBeUndefined();
     expect(selectedEdge?.interactionWidth).toBeUndefined();
@@ -275,7 +305,11 @@ describe("desktop graph dependency edge direction", () => {
   });
 });
 
-function task(taskId: string, title: string, status: "planned" | "ready"): DesktopGraphViewModel["tasks"][number] {
+function task(
+  taskId: string,
+  title: string,
+  status: "planned" | "ready"
+): DesktopGraphViewModel["tasks"][number] {
   return {
     taskId,
     title,

@@ -1,4 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type DragEvent, type MouseEvent, type PointerEvent, type Ref, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type DragEvent,
+  type MouseEvent,
+  type PointerEvent,
+  type Ref,
+  type SetStateAction
+} from "react";
 import {
   Background,
   type Connection,
@@ -22,7 +35,8 @@ import type {
 } from "@planweave-ai/runtime";
 import { ChevronRightIcon, NetworkIcon, Redo2Icon, Undo2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { styleGraphEdgesForInteraction, type AppEdgeTypes, type AppNodeTypes } from "../graph/flowModel";
+import { styleDependencyEdgesForInteraction } from "../graph/dependencyEdgeVisual";
+import type { AppEdgeTypes, AppNodeTypes } from "../graph/flowModel";
 import { useEdgeReconnect } from "../hooks/useEdgeReconnect";
 import type { AppView } from "../types";
 import type { createTranslator } from "../i18n";
@@ -141,19 +155,28 @@ export function GraphView({
   visibleTasks
 }: GraphViewProps) {
   const fittedGraphScopeId = useRef<string | null>(null);
-  const [localFlowInstance, setLocalFlowInstance] = useState<ReactFlowInstance<AppFlowNode, Edge> | null>(null);
+  const [localFlowInstance, setLocalFlowInstance] = useState<ReactFlowInstance<
+    AppFlowNode,
+    Edge
+  > | null>(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const dirtyPromptRefs = graph?.dirtyPromptRefs ?? [];
   const dirtyPromptCount = dirtyPromptRefs.length;
-  const visibleNodes = visibleTasks ? nodes.filter((node) => node.type !== "task" || visibleTaskIds.has(node.id)) : nodes;
+  const visibleNodes = visibleTasks
+    ? nodes.filter((node) => node.type !== "task" || visibleTaskIds.has(node.id))
+    : nodes;
   const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
-  const visibleEdges = visibleTasks ? edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)) : edges;
+  const visibleEdges = visibleTasks
+    ? edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target))
+    : edges;
   const styledVisibleEdges = useMemo(
-    () => styleGraphEdgesForInteraction(visibleEdges, { hoveredEdgeId, hoveredNodeId }),
+    () => styleDependencyEdgesForInteraction(visibleEdges, { hoveredEdgeId, hoveredNodeId }),
     [hoveredEdgeId, hoveredNodeId, visibleEdges]
   );
-  const currentCanvasName = selectedProject?.taskCanvases.find((canvas) => canvas.canvasId === selectedCanvasId)?.name ?? t("taskCanvas");
+  const currentCanvasName =
+    selectedProject?.taskCanvases.find((canvas) => canvas.canvasId === selectedCanvasId)?.name ??
+    t("taskCanvas");
   const graphScopeId = useMemo(() => {
     if (!graph || !selectedProject) {
       return null;
@@ -191,11 +214,15 @@ export function GraphView({
       const target = event.target;
       if (
         target instanceof HTMLElement &&
-        (target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement)
+        (target.isContentEditable ||
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement)
       ) {
         return;
       }
-      const isUndo = (event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "z";
+      const isUndo =
+        (event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "z";
       const isRedo =
         ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "z") ||
         (event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "y");
@@ -227,10 +254,19 @@ export function GraphView({
   }, [graphScopeId, localFlowInstance, selectedTaskPanelId, visibleNodes.length]);
 
   return (
-    <div className="relative h-full min-h-0 bg-app-canvas text-text" data-graph-surface onDragOver={handleGraphDragOver} onDrop={handleGraphDrop}>
+    <div
+      className="relative h-full min-h-0 bg-app-canvas text-text"
+      data-graph-surface
+      onDragOver={handleGraphDragOver}
+      onDrop={handleGraphDrop}
+    >
       {!graph ? (
         <div className="flex h-full items-center justify-center p-6">
-          <GraphEmptyState handleOpenProject={handleOpenProject} projectLoading={projectLoading} t={t} />
+          <GraphEmptyState
+            handleOpenProject={handleOpenProject}
+            projectLoading={projectLoading}
+            t={t}
+          />
         </div>
       ) : (
         <ReactFlow
@@ -252,9 +288,13 @@ export function GraphView({
             }
           }}
           onNodeMouseEnter={(_event, node) => setHoveredNodeId(node.id)}
-          onNodeMouseLeave={(_event, node) => setHoveredNodeId((current) => (current === node.id ? null : current))}
+          onNodeMouseLeave={(_event, node) =>
+            setHoveredNodeId((current) => (current === node.id ? null : current))
+          }
           onEdgeMouseEnter={(_event, edge) => setHoveredEdgeId(edge.id)}
-          onEdgeMouseLeave={(_event, edge) => setHoveredEdgeId((current) => (current === edge.id ? null : current))}
+          onEdgeMouseLeave={(_event, edge) =>
+            setHoveredEdgeId((current) => (current === edge.id ? null : current))
+          }
           onPaneMouseEnter={() => {
             setHoveredEdgeId(null);
             setHoveredNodeId(null);
@@ -280,7 +320,9 @@ export function GraphView({
             {t("canvasMap")}
           </Button>
           <ChevronRightIcon className="size-4 text-text-faint" aria-hidden="true" />
-          <span className="max-w-[220px] truncate border-l border-border/70 px-2 text-xs font-medium text-text-strong">{currentCanvasName}</span>
+          <span className="max-w-[220px] truncate border-l border-border/70 px-2 text-xs font-medium text-text-strong">
+            {currentCanvasName}
+          </span>
           <div className="flex h-full border-l border-border/70">
             <Button
               aria-label={t("undoGraphCommand")}

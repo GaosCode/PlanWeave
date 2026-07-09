@@ -7,7 +7,14 @@ import {
   SquarePenIcon,
   Trash2Icon
 } from "lucide-react";
-import { useEffect, useRef, useState, type Dispatch, type DragEvent, type SetStateAction } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type DragEvent,
+  type SetStateAction
+} from "react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -36,21 +43,37 @@ type ProjectTreeItemProps = {
   handleDeleteTaskNode: (taskId: string) => Promise<void>;
   handleDuplicateTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleCopyCanvasAgentPrompt?: (project: DesktopProjectSummary, canvas: TaskCanvasSummary) => void;
-  handleDropSourceRoot: (project: DesktopProjectSummary, sourceRoot: string | null) => Promise<void>;
+  handleDropSourceRoot: (
+    project: DesktopProjectSummary,
+    sourceRoot: string | null
+  ) => Promise<void>;
   handleProjectNewGraph: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealPlanWorkspace: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealProject: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
+  handleRevealTaskNode: (
+    project: DesktopProjectSummary,
+    canvas: TaskCanvasSummary,
+    taskId: string
+  ) => void;
   handleRenameProject: (project: DesktopProjectSummary, name: string) => Promise<void>;
-  handleRenameTaskCanvas: (project: DesktopProjectSummary, canvasId: string, currentName: string) => Promise<void>;
+  handleRenameTaskCanvas: (
+    project: DesktopProjectSummary,
+    canvasId: string,
+    currentName: string
+  ) => Promise<void>;
   handleUnlinkSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
   isExpandedProject: boolean;
   isPinnedProject: boolean;
   isSelectedProject: boolean;
   onCanvasSelect: (project: DesktopProjectSummary, canvasId: string) => void;
-  onCanvasToggle: (project: DesktopProjectSummary, canvasId: string, isGraphCanvas: boolean) => void;
+  onCanvasToggle: (
+    project: DesktopProjectSummary,
+    canvasId: string,
+    isGraphCanvas: boolean
+  ) => void;
   onProjectSelect: (project: DesktopProjectSummary) => void;
   onProjectToggle: (project: DesktopProjectSummary, isSelectedProject: boolean) => void;
   onTogglePinnedProject: (projectId: string) => void;
@@ -78,6 +101,7 @@ export function ProjectTreeItem({
   handleRevealProject,
   handleRevealSourceRoot,
   handleRevealTaskCanvas,
+  handleRevealTaskNode,
   handleRenameProject,
   handleRenameTaskCanvas,
   handleUnlinkSourceRoot,
@@ -157,7 +181,12 @@ export function ProjectTreeItem({
             onProjectToggle(project, isSelectedProject);
           }}
         >
-          <ChevronRightIcon className={cn("size-4 transition-transform duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)]", isExpandedProject ? "rotate-90" : "rotate-0")} />
+          <ChevronRightIcon
+            className={cn(
+              "size-4 transition-transform duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)]",
+              isExpandedProject ? "rotate-90" : "rotate-0"
+            )}
+          />
         </Button>
         {isRenamingProject ? (
           <form
@@ -264,7 +293,10 @@ export function ProjectTreeItem({
                 {t("renameProject")}
               </ContextMenuItem>
               <ContextMenuSeparator />
-              <ContextMenuItem variant="destructive" onSelect={() => void handleDeleteProject(project)}>
+              <ContextMenuItem
+                variant="destructive"
+                onSelect={() => void handleDeleteProject(project)}
+              >
                 <Trash2Icon data-icon="inline-start" />
                 {t("deleteProject")}
               </ContextMenuItem>
@@ -272,10 +304,16 @@ export function ProjectTreeItem({
           </ContextMenu>
         )}
       </div>
-      <AnimatedTreeRegion expanded={isExpandedProject} unmountOnExit className="ml-3 flex w-[calc(100%-0.75rem)] min-w-0 max-w-full flex-col gap-1 overflow-hidden border-l border-border/60 pt-1 pl-4">
+      <AnimatedTreeRegion
+        expanded={isExpandedProject}
+        unmountOnExit
+        className="ml-3 flex w-[calc(100%-0.75rem)] min-w-0 max-w-full flex-col gap-1 overflow-hidden border-l border-border/60 pt-1 pl-4"
+      >
         {project.taskCanvases.map((canvas) => {
           const isSelectedCanvas = selectedCanvasId === canvas.canvasId;
-          const isGraphCanvas = isSelectedCanvas || (selectedCanvasId === null && isSelectedProject && project.taskCanvases.length === 1);
+          const isGraphCanvas =
+            isSelectedCanvas ||
+            (selectedCanvasId === null && isSelectedProject && project.taskCanvases.length === 1);
           const isExpandedCanvas = isGraphCanvas && !collapsedCanvasIds.has(canvas.canvasId);
           return (
             <CanvasTreeItem
@@ -288,6 +326,7 @@ export function ProjectTreeItem({
               handleCopyCanvasToNewProject={handleCopyCanvasToNewProject}
               handleProjectNewGraph={handleProjectNewGraph}
               handleRevealTaskCanvas={handleRevealTaskCanvas}
+              handleRevealTaskNode={handleRevealTaskNode}
               handleRenameTaskCanvas={handleRenameTaskCanvas}
               handleTaskPanelSelect={handleTaskPanelSelect}
               isExpandedCanvas={isExpandedCanvas}

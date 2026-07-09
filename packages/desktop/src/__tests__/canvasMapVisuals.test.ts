@@ -1,17 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { DesktopCanvasGraphViewModel } from "@planweave-ai/runtime";
 import { canvasMapEdges } from "../renderer/graph/canvasFlowModel";
-import { dependencyEdgeDefaultOpacity, dependencyEdgeSourceColors } from "../renderer/graph/dependencyEdgeVisual";
+import {
+  dependencyEdgeDefaultOpacity,
+  dependencyEdgeSourceColors,
+  styleDependencyEdgesForInteraction
+} from "../renderer/graph/dependencyEdgeVisual";
 
 describe("canvas map visuals", () => {
   it("renders canvas dependencies with the shared dependency edge palette and no warning animation", () => {
     const graph: DesktopCanvasGraphViewModel = {
       projectId: "P-001",
       projectTitle: "Canvas map",
-      canvases: [
-        canvas("downstream"),
-        canvas("upstream")
-      ],
+      canvases: [canvas("downstream"), canvas("upstream")],
       edges: [{ from: "downstream", to: "upstream", type: "depends_on" }],
       crossTaskEdges: [],
       diagnostics: [],
@@ -21,7 +22,16 @@ describe("canvas map visuals", () => {
           { canvasId: "downstream", severity: "warning", blockerCount: 1, diagnosticCount: 0 },
           { canvasId: "upstream", severity: "ok", blockerCount: 0, diagnosticCount: 0 }
         ],
-        edges: [{ from: "downstream", to: "upstream", type: "depends_on", severity: "warning", blockerCount: 1, diagnosticCount: 0 }],
+        edges: [
+          {
+            from: "downstream",
+            to: "upstream",
+            type: "depends_on",
+            severity: "warning",
+            blockerCount: 1,
+            diagnosticCount: 0
+          }
+        ],
         blockedBlocks: [],
         diagnostics: []
       }
@@ -46,6 +56,65 @@ describe("canvas map visuals", () => {
         })
       })
     ]);
+  });
+
+  it("highlights canvas dependency edges connected to the hovered canvas", () => {
+    const graph: DesktopCanvasGraphViewModel = {
+      projectId: "P-001",
+      projectTitle: "Canvas map",
+      canvases: [
+        canvas("downstream"),
+        canvas("upstream"),
+        canvas("unrelated-source"),
+        canvas("unrelated-target")
+      ],
+      edges: [
+        { from: "downstream", to: "upstream", type: "depends_on" },
+        { from: "unrelated-target", to: "unrelated-source", type: "depends_on" }
+      ],
+      crossTaskEdges: [],
+      diagnostics: [],
+      health: {
+        severity: "ok",
+        canvases: [
+          { canvasId: "downstream", severity: "ok", blockerCount: 0, diagnosticCount: 0 },
+          { canvasId: "upstream", severity: "ok", blockerCount: 0, diagnosticCount: 0 },
+          { canvasId: "unrelated-source", severity: "ok", blockerCount: 0, diagnosticCount: 0 },
+          { canvasId: "unrelated-target", severity: "ok", blockerCount: 0, diagnosticCount: 0 }
+        ],
+        edges: [
+          {
+            from: "downstream",
+            to: "upstream",
+            type: "depends_on",
+            severity: "ok",
+            blockerCount: 0,
+            diagnosticCount: 0
+          },
+          {
+            from: "unrelated-target",
+            to: "unrelated-source",
+            type: "depends_on",
+            severity: "ok",
+            blockerCount: 0,
+            diagnosticCount: 0
+          }
+        ],
+        blockedBlocks: [],
+        diagnostics: []
+      }
+    };
+
+    const styled = styleDependencyEdgesForInteraction(canvasMapEdges(graph), {
+      hoveredNodeId: "upstream"
+    });
+    const related = styled.find((edge) => edge.source === "upstream" || edge.target === "upstream");
+    const unrelated = styled.find(
+      (edge) => edge.source !== "upstream" && edge.target !== "upstream"
+    );
+
+    expect(related?.style?.opacity).toBeGreaterThan(unrelated?.style?.opacity as number);
+    expect(related?.style?.strokeWidth).toBeGreaterThan(unrelated?.style?.strokeWidth as number);
   });
 });
 

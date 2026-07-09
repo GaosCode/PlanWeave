@@ -1,4 +1,12 @@
-import type { CSSProperties, Dispatch, DragEvent, MouseEvent, PointerEvent, Ref, SetStateAction } from "react";
+import type {
+  CSSProperties,
+  Dispatch,
+  DragEvent,
+  MouseEvent,
+  PointerEvent,
+  Ref,
+  SetStateAction
+} from "react";
 import type {
   Connection,
   Edge,
@@ -44,6 +52,12 @@ export type WorkspaceTabsShellProps = {
   activeView: AppView;
   handleOpenProject: () => Promise<void>;
   handleRevealPathInFinder: (path: string | null | undefined) => Promise<void>;
+  handleRevealTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
+  handleRenameTaskCanvas: (
+    project: DesktopProjectSummary,
+    canvasId: string,
+    currentName: string
+  ) => Promise<void>;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
   projectLoading: boolean;
   selectedCanvasId: string | null;
@@ -64,7 +78,10 @@ export type WorkspaceTabsGraphWorkspaceProps = {
   handleGraphDragOver: (event: DragEvent) => void;
   handleGraphDrop: (event: DragEvent) => void;
   handleOpenBlockInspector: (ref: string, canvasId?: string | null) => Promise<void>;
-  handleOpenRunRecord: (recordId: string | null | undefined, canvasId?: string | null) => Promise<void>;
+  handleOpenRunRecord: (
+    recordId: string | null | undefined,
+    canvasId?: string | null
+  ) => Promise<void>;
   handleReconnectEdge: (oldEdge: Edge, connection: Connection) => Promise<void>;
   handleRedoGraph: () => Promise<void>;
   handleUndoGraph: () => Promise<void>;
@@ -212,7 +229,14 @@ function TodoRoute() {
 
 function StatisticsRoute() {
   const { planning, shell } = useProjectWorkspace();
-  return <StatisticsView handleOpenProject={shell.handleOpenProject} selectedProject={shell.selectedProject} statistics={planning.statistics} t={shell.t} />;
+  return (
+    <StatisticsView
+      handleOpenProject={shell.handleOpenProject}
+      selectedProject={shell.selectedProject}
+      statistics={planning.statistics}
+      t={shell.t}
+    />
+  );
 }
 
 function NewTaskRoute() {
@@ -253,6 +277,8 @@ function CanvasMapRoute() {
     <CanvasMapView
       handleOpenBlockInspector={graphWorkspace.handleOpenBlockInspector}
       handleOpenProject={shell.handleOpenProject}
+      handleRevealTaskCanvas={shell.handleRevealTaskCanvas}
+      handleRenameTaskCanvas={shell.handleRenameTaskCanvas}
       loadProject={shell.loadProject}
       onAgentPromptCopied={graphWorkspace.onAgentPromptCopied}
       onTaskPanelSelect={graphWorkspace.onTaskPanelSelect}
@@ -294,10 +320,10 @@ export function WorkspaceTabs() {
   return (
     <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-l-xl bg-app-shell text-text">
       <div className="app-drag-region h-11 shrink-0 border-b border-border/80 bg-app-topbar" />
-      <div className={`min-h-0 flex-1 bg-app-canvas ${activeView === "graph" || activeView === "canvas-map" ? "" : "p-4"}`}>
-        <div className="h-full min-h-0">
-          {content}
-        </div>
+      <div
+        className={`min-h-0 flex-1 bg-app-canvas ${activeView === "graph" || activeView === "canvas-map" ? "" : "p-4"}`}
+      >
+        <div className="h-full min-h-0">{content}</div>
       </div>
     </section>
   );

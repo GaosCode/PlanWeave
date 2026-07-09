@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
 import type { CSSProperties } from "react";
@@ -23,7 +23,12 @@ vi.mock("@xyflow/react", () => ({
     style?: CSSProperties;
     type?: string;
   }) => (
-    <div className={className} data-testid={`handle-${type ?? "unknown"}`} data-position={position} style={style} />
+    <div
+      className={className}
+      data-testid={`handle-${type ?? "unknown"}`}
+      data-position={position}
+      style={style}
+    />
   ),
   Position: {
     Left: "left",
@@ -36,10 +41,22 @@ afterEach(() => {
 });
 
 function stubSelectLayoutApis() {
-  Object.defineProperty(window.HTMLElement.prototype, "hasPointerCapture", { configurable: true, value: vi.fn(() => false) });
-  Object.defineProperty(window.HTMLElement.prototype, "setPointerCapture", { configurable: true, value: vi.fn() });
-  Object.defineProperty(window.HTMLElement.prototype, "releasePointerCapture", { configurable: true, value: vi.fn() });
-  Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+  Object.defineProperty(window.HTMLElement.prototype, "hasPointerCapture", {
+    configurable: true,
+    value: vi.fn(() => false)
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "setPointerCapture", {
+    configurable: true,
+    value: vi.fn()
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "releasePointerCapture", {
+    configurable: true,
+    value: vi.fn()
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: vi.fn()
+  });
 }
 
 function task(promptMarkdown: string): DesktopGraphViewModel["tasks"][number] {
@@ -83,6 +100,7 @@ function nodeData(patch: Partial<TaskNodeData> = {}): TaskNodeData {
     onOverflowBlockSelect: vi.fn(),
     onTaskOpen: vi.fn(),
     onAgentPromptCopy: vi.fn(),
+    onRevealTaskInFinder: vi.fn(),
     onAutoRunScopeStart: vi.fn().mockResolvedValue(undefined),
     onTaskDelete: vi.fn(),
     onBlockDelete: vi.fn(),
@@ -104,7 +122,10 @@ describe("TaskNodeCard prompt history shortcuts", () => {
     const onPromptHistoryUndo = vi.fn().mockResolvedValue(undefined);
     renderTaskNode(nodeData({ onPromptHistoryUndo }));
 
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "T-001 prompt" }), { key: "z", metaKey: true });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "T-001 prompt" }), {
+      key: "z",
+      metaKey: true
+    });
 
     expect(onPromptHistoryUndo).toHaveBeenCalledTimes(1);
   });
@@ -113,7 +134,10 @@ describe("TaskNodeCard prompt history shortcuts", () => {
     const onPromptHistoryUndo = vi.fn().mockResolvedValue(undefined);
     renderTaskNode(nodeData({ promptDraft: "# Unsaved prompt", onPromptHistoryUndo }));
 
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "T-001 prompt" }), { key: "z", metaKey: true });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "T-001 prompt" }), {
+      key: "z",
+      metaKey: true
+    });
 
     expect(onPromptHistoryUndo).not.toHaveBeenCalled();
   });
@@ -152,8 +176,28 @@ describe("TaskNodeCard executor options", () => {
 
     await userEvent.click(screen.getByRole("combobox"));
 
-    expect(await screen.findByRole("option", { name: /pi/i })).toHaveAttribute("aria-disabled", "true");
+    expect(await screen.findByRole("option", { name: /pi/i })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
     expect(screen.queryByRole("option", { name: "pi-auto" })).not.toBeInTheDocument();
+  });
+});
+
+describe("TaskNodeCard context menu", () => {
+  it("reveals the task node directory from the context menu", async () => {
+    const onRevealTaskInFinder = vi.fn();
+    renderTaskNode(nodeData({ onRevealTaskInFinder }));
+
+    fireEvent.contextMenu(screen.getByRole("textbox", { name: "T-001 title" }));
+    const menuItems = await screen.findAllByRole("menuitem");
+    expect(menuItems).toHaveLength(4);
+    for (const menuItem of menuItems) {
+      expect(menuItem.querySelector("[data-icon='inline-start']")).toBeInTheDocument();
+    }
+    await userEvent.click(within(menuItems[1]).getByText(/Open task in/));
+
+    expect(onRevealTaskInFinder).toHaveBeenCalledWith("T-001");
   });
 });
 

@@ -1,9 +1,21 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { AlertTriangleIcon, ArrowRightIcon, NetworkIcon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  ArrowRightIcon,
+  ClipboardIcon,
+  FolderOpenIcon,
+  NetworkIcon,
+  PencilIcon
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger
+} from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import type { CanvasFlowNode } from "../types";
 
@@ -22,9 +34,15 @@ export function CanvasNodeCard({ data }: NodeProps<CanvasFlowNode>) {
         <Card
           className={cn(
             "w-[280px] border bg-surface-raised text-text shadow-sm transition-[border-color,box-shadow] duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-standard)]",
-            data.selected ? "border-state-selected shadow-md ring-2 ring-state-selected/25" : "border-border/80",
-            hasDiagnostics || hasErrorHealth ? "border-state-failed/70 bg-state-failed-surface" : null,
-            !hasDiagnostics && hasWarningDiagnostics ? "border-state-warning/75 bg-state-warning-surface" : null
+            data.selected
+              ? "border-state-selected shadow-md ring-2 ring-state-selected/25"
+              : "border-border/80",
+            hasDiagnostics || hasErrorHealth
+              ? "border-state-failed/70 bg-state-failed-surface"
+              : null,
+            !hasDiagnostics && hasWarningDiagnostics
+              ? "border-state-warning/75 bg-state-warning-surface"
+              : null
           )}
           size="sm"
           onClick={() => data.onSelect(data.canvas.canvasId)}
@@ -60,7 +78,9 @@ export function CanvasNodeCard({ data }: NodeProps<CanvasFlowNode>) {
           <CardContent className="flex min-w-0 items-center justify-between gap-3">
             <div className="min-w-0 text-xs text-text-muted">
               <div className="truncate">{data.canvas.canvasId}</div>
-              <div className="truncate" title={data.canvas.packageDir}>{data.canvas.packageDir}</div>
+              <div className="truncate" title={data.canvas.packageDir}>
+                {data.canvas.packageDir}
+              </div>
             </div>
             <Button
               className="border-border/80 bg-surface-base text-text-muted hover:bg-surface-muted hover:text-text-strong"
@@ -77,7 +97,16 @@ export function CanvasNodeCard({ data }: NodeProps<CanvasFlowNode>) {
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onSelect={() => data.onAgentPromptCopy(data.canvas)}>
+          <ClipboardIcon data-icon="inline-start" />
           {data.labels.copyAgentPrompt}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => data.onRevealInFinder(data.canvas.canvasId)}>
+          <FolderOpenIcon data-icon="inline-start" />
+          {data.labels.openInFileManager}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => data.onRename(data.canvas)}>
+          <PencilIcon data-icon="inline-start" />
+          {data.labels.rename}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

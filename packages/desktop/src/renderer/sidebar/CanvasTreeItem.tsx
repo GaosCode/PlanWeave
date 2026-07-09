@@ -40,12 +40,25 @@ type CanvasTreeItemProps = {
   handleCopyCanvasToNewProject: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   handleProjectNewGraph: (project: DesktopProjectSummary) => Promise<void>;
   handleRevealTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
-  handleRenameTaskCanvas: (project: DesktopProjectSummary, canvasId: string, name: string) => Promise<void>;
+  handleRevealTaskNode: (
+    project: DesktopProjectSummary,
+    canvas: TaskCanvasSummary,
+    taskId: string
+  ) => void;
+  handleRenameTaskCanvas: (
+    project: DesktopProjectSummary,
+    canvasId: string,
+    name: string
+  ) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
   isExpandedCanvas: boolean;
   isGraphCanvas: boolean;
   onCanvasSelect: (project: DesktopProjectSummary, canvasId: string) => void;
-  onCanvasToggle: (project: DesktopProjectSummary, canvasId: string, isGraphCanvas: boolean) => void;
+  onCanvasToggle: (
+    project: DesktopProjectSummary,
+    canvasId: string,
+    isGraphCanvas: boolean
+  ) => void;
   project: DesktopProjectSummary;
   selectedTaskPanelId: string | null;
   t: ReturnType<typeof createTranslator>;
@@ -61,6 +74,7 @@ export function CanvasTreeItem({
   handleCopyCanvasToNewProject,
   handleProjectNewGraph,
   handleRevealTaskCanvas,
+  handleRevealTaskNode,
   handleRenameTaskCanvas,
   handleTaskPanelSelect,
   isExpandedCanvas,
@@ -75,6 +89,7 @@ export function CanvasTreeItem({
   const canvasLabel = canvas.name || t("taskCanvas");
   const displayedTaskCount = graph?.tasks.length ?? canvas.taskCount;
   const openTaskCanvasLabel = fileManagerLabel(t, "taskCanvas");
+  const openTaskLabel = fileManagerLabel(t, "task");
   const resetOnlyCanvas = canvas.canvasId === "default" || project.taskCanvases.length === 1;
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState(canvasLabel);
@@ -147,7 +162,11 @@ export function CanvasTreeItem({
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <Button
-                aria-label={firstDiagnostic ? `${canvasLabel} ${t("error")}: ${firstDiagnostic.message}` : undefined}
+                aria-label={
+                  firstDiagnostic
+                    ? `${canvasLabel} ${t("error")}: ${firstDiagnostic.message}`
+                    : undefined
+                }
                 aria-current={isGraphCanvas ? "page" : undefined}
                 className="h-8 w-full min-w-0 max-w-full flex-1 justify-between gap-2 overflow-hidden rounded-md px-2 text-xs text-text-muted hover:bg-surface-muted hover:text-text-strong data-[variant=secondary]:border-state-selected/25 data-[variant=secondary]:bg-state-selected-surface data-[variant=secondary]:text-text-strong data-[variant=secondary]:shadow-sm [&_svg]:size-4"
                 title={firstDiagnostic ? firstDiagnostic.message : undefined}
@@ -172,7 +191,9 @@ export function CanvasTreeItem({
             </ContextMenuTrigger>
             <ContextMenuContent className="w-52">
               <ContextMenuLabel>{canvas.name || t("taskCanvas")}</ContextMenuLabel>
-              <ContextMenuItem onSelect={() => void handleRevealTaskCanvas(project, canvas.canvasId)}>
+              <ContextMenuItem
+                onSelect={() => void handleRevealTaskCanvas(project, canvas.canvasId)}
+              >
                 <FolderOpenIcon data-icon="inline-start" />
                 {openTaskCanvasLabel}
               </ContextMenuItem>
@@ -186,11 +207,15 @@ export function CanvasTreeItem({
                   {t("copyAgentPrompt")}
                 </ContextMenuItem>
               ) : null}
-              <ContextMenuItem onSelect={() => void handleDuplicateTaskCanvas(project, canvas.canvasId)}>
+              <ContextMenuItem
+                onSelect={() => void handleDuplicateTaskCanvas(project, canvas.canvasId)}
+              >
                 <CopyIcon data-icon="inline-start" />
                 {t("duplicateTaskCanvas")}
               </ContextMenuItem>
-              <ContextMenuItem onSelect={() => void handleCopyCanvasToNewProject(project, canvas.canvasId)}>
+              <ContextMenuItem
+                onSelect={() => void handleCopyCanvasToNewProject(project, canvas.canvasId)}
+              >
                 <FolderPlusIcon data-icon="inline-start" />
                 {t("copyCanvasToNewProject")}
               </ContextMenuItem>
@@ -199,7 +224,10 @@ export function CanvasTreeItem({
                 {t("renameTaskCanvas")}
               </ContextMenuItem>
               <ContextMenuSeparator />
-              <ContextMenuItem variant="destructive" onSelect={() => void handleDeleteTaskCanvas(project, canvas.canvasId)}>
+              <ContextMenuItem
+                variant="destructive"
+                onSelect={() => void handleDeleteTaskCanvas(project, canvas.canvasId)}
+              >
                 <Trash2Icon data-icon="inline-start" />
                 {resetOnlyCanvas ? t("resetTaskCanvas") : t("deleteTaskCanvas")}
               </ContextMenuItem>
@@ -218,34 +246,59 @@ export function CanvasTreeItem({
             onCanvasToggle(project, canvas.canvasId, isGraphCanvas);
           }}
         >
-          <ChevronRightIcon className={cn("size-4 transition-transform duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)]", isExpandedCanvas ? "rotate-90" : "rotate-0")} />
+          <ChevronRightIcon
+            className={cn(
+              "size-4 transition-transform duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)]",
+              isExpandedCanvas ? "rotate-90" : "rotate-0"
+            )}
+          />
         </Button>
       </div>
-      <AnimatedTreeRegion expanded={isExpandedCanvas && graph !== null} unmountOnExit className="ml-3 flex w-[calc(100%-0.75rem)] min-w-0 max-w-full flex-col gap-1 overflow-hidden border-l border-border/60 pt-1 pl-3">
+      <AnimatedTreeRegion
+        expanded={isExpandedCanvas && graph !== null}
+        unmountOnExit
+        className="ml-3 flex w-[calc(100%-0.75rem)] min-w-0 max-w-full flex-col gap-1 overflow-hidden border-l border-border/60 pt-1 pl-3"
+      >
         {graph
           ? graph.tasks.map((task) => (
-            <ContextMenu key={task.taskId}>
-              <ContextMenuTrigger asChild>
-                <Button
-                  className="h-8 w-full min-w-0 max-w-full shrink justify-start gap-2 overflow-hidden rounded-md bg-surface-muted/60 px-2 text-xs text-text hover:bg-surface-muted hover:text-text-strong data-[variant=secondary]:border-state-selected/25 data-[variant=secondary]:bg-state-selected-surface data-[variant=secondary]:text-text-strong data-[variant=secondary]:shadow-sm"
-                  variant={selectedTaskPanelId === task.taskId ? "secondary" : "ghost"}
-                  onClick={() => handleTaskPanelSelect(task.taskId)}
-                >
-                  <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">{task.title}</span>
-                  <Badge className="ml-auto shrink-0 border-border/80 bg-surface-raised text-xs text-text" variant={task.exceptions.length > 0 ? "destructive" : statusVariant[task.status]}>
-                    {task.taskId}
-                  </Badge>
-                </Button>
-              </ContextMenuTrigger>
-              <ContextMenuContent className="w-48">
-                <ContextMenuLabel>{task.title}</ContextMenuLabel>
-                <ContextMenuItem variant="destructive" onSelect={() => void handleDeleteTaskNode(task.taskId)}>
-                  <Trash2Icon data-icon="inline-start" />
-                  {t("deleteTask")}
-                </ContextMenuItem>
-              </ContextMenuContent>
-            </ContextMenu>
-          ))
+              <ContextMenu key={task.taskId}>
+                <ContextMenuTrigger asChild>
+                  <Button
+                    className="h-8 w-full min-w-0 max-w-full shrink justify-start gap-2 overflow-hidden rounded-md bg-surface-muted/60 px-2 text-xs text-text hover:bg-surface-muted hover:text-text-strong data-[variant=secondary]:border-state-selected/25 data-[variant=secondary]:bg-state-selected-surface data-[variant=secondary]:text-text-strong data-[variant=secondary]:shadow-sm"
+                    variant={selectedTaskPanelId === task.taskId ? "secondary" : "ghost"}
+                    onClick={() => handleTaskPanelSelect(task.taskId)}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
+                      {task.title}
+                    </span>
+                    <Badge
+                      className="ml-auto shrink-0 border-border/80 bg-surface-raised text-xs text-text"
+                      variant={
+                        task.exceptions.length > 0 ? "destructive" : statusVariant[task.status]
+                      }
+                    >
+                      {task.taskId}
+                    </Badge>
+                  </Button>
+                </ContextMenuTrigger>
+                <ContextMenuContent className="w-48">
+                  <ContextMenuLabel>{task.title}</ContextMenuLabel>
+                  <ContextMenuItem
+                    onSelect={() => handleRevealTaskNode(project, canvas, task.taskId)}
+                  >
+                    <FolderOpenIcon data-icon="inline-start" />
+                    {openTaskLabel}
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    variant="destructive"
+                    onSelect={() => void handleDeleteTaskNode(task.taskId)}
+                  >
+                    <Trash2Icon data-icon="inline-start" />
+                    {t("deleteTask")}
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
+            ))
           : null}
       </AnimatedTreeRegion>
     </div>

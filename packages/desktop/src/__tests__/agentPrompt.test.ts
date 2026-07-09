@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildAgentScopePrompt, writeAgentScopePromptToClipboard } from "../renderer/agentPrompt";
+import { taskNodeDirectory } from "../renderer/pathUtils";
 
 const project = {
   projectId: "P-001",
@@ -21,13 +22,24 @@ describe("agent scope prompt", () => {
   });
 
   it("builds canvas scope without skill or status summary", () => {
-    expect(buildAgentScopePrompt({ project, canvasId: "default", packageDir: "canvases/default/package" })).toBe(
+    expect(
+      buildAgentScopePrompt({
+        project,
+        canvasId: "default",
+        packageDir: "canvases/default/package"
+      })
+    ).toBe(
       "projectId: P-001\nprojectRoot: /tmp/plan-project\nworkspaceRoot: /tmp/plan-project\ncanvasId: default\npackageDir: /tmp/plan-project/canvases/default/package\nsourceRoot: /tmp/source-root"
     );
   });
 
   it("adds task_id only when task scope is present", () => {
-    const prompt = buildAgentScopePrompt({ project, canvasId: "default", packageDir: "/tmp/absolute-package", taskId: "T-001" });
+    const prompt = buildAgentScopePrompt({
+      project,
+      canvasId: "default",
+      packageDir: "/tmp/absolute-package",
+      taskId: "T-001"
+    });
 
     expect(prompt).toBe(
       "projectId: P-001\nprojectRoot: /tmp/plan-project\nworkspaceRoot: /tmp/plan-project\ncanvasId: default\npackageDir: /tmp/absolute-package\nsourceRoot: /tmp/source-root\ntask_id: T-001"
@@ -44,8 +56,23 @@ describe("agent scope prompt", () => {
       workspaceRoot: "/tmp/.planweave/P-EXT"
     };
 
-    expect(buildAgentScopePrompt({ project: externalProject, canvasId: "default", packageDir: "canvases/default/package" })).toContain(
+    expect(
+      buildAgentScopePrompt({
+        project: externalProject,
+        canvasId: "default",
+        packageDir: "canvases/default/package"
+      })
+    ).toContain(
       "workspaceRoot: /tmp/.planweave/P-EXT\ncanvasId: default\npackageDir: /tmp/.planweave/P-EXT/canvases/default/package"
+    );
+  });
+
+  it("builds task node directories from the same workspace package path rule", () => {
+    expect(taskNodeDirectory(project, "canvases/default/package", "T-001")).toBe(
+      "/tmp/plan-project/canvases/default/package/nodes/T-001"
+    );
+    expect(taskNodeDirectory(project, "/tmp/absolute-package", "T-001")).toBe(
+      "/tmp/absolute-package/nodes/T-001"
     );
   });
 
@@ -54,9 +81,9 @@ describe("agent scope prompt", () => {
       "Cannot build agent prompt because packageDir is unavailable."
     );
 
-    await expect(writeAgentScopePromptToClipboard({ project, canvasId: "default", packageDir: "" })).rejects.toThrow(
-      "Cannot build agent prompt because packageDir is unavailable."
-    );
+    await expect(
+      writeAgentScopePromptToClipboard({ project, canvasId: "default", packageDir: "" })
+    ).rejects.toThrow("Cannot build agent prompt because packageDir is unavailable.");
     expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
   });
 });
