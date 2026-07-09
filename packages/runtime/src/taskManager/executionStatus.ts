@@ -7,7 +7,7 @@ import type {
 } from "../types.js";
 import { buildClaimReadiness } from "./claimReadiness.js";
 import { createProjectGraphClaimGuard, type ProjectGraphClaimGuard } from "./projectGraphClaimGuard.js";
-import { loadRuntime, type RuntimeContext } from "./runtimeContext.js";
+import { loadRuntimeReadonly, type RuntimeContext } from "./runtimeContext.js";
 import { effectiveBlockExecutor, getBlock, isActiveFeedbackStatus } from "./selectors.js";
 
 function statusReasonForBlock(blockState: BlockState | undefined): string | null {
@@ -105,5 +105,5 @@ export async function buildExecutionStatus(
 export type ExecutionStatus = Awaited<ReturnType<typeof buildExecutionStatus>>;
 
 export async function getExecutionStatus(options: { projectRoot: PackageWorkspaceRef; session?: ExecutionGraphSession }): Promise<ExecutionStatus> {
-  return buildExecutionStatus(await loadRuntime(options));
+  return buildExecutionStatus(await loadRuntimeReadonly(options));
 }

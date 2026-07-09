@@ -1,6 +1,6 @@
 import { buildExecutionStatus, type ExecutionStatus } from "../../taskManager/executionStatus.js";
 import { createProjectGraphClaimGuardFromAggregation } from "../../taskManager/projectGraphClaimGuard.js";
-import { loadRuntime, type RuntimeContext } from "../../taskManager/runtimeContext.js";
+import { loadRuntimeReadonly, type RuntimeContext } from "../../taskManager/runtimeContext.js";
 import type { ValidationIssue } from "../../types.js";
 import { appendDesktopDiagnostic, desktopDiagnostic, errorMessage } from "./desktopDiagnostics.js";
 import {
@@ -47,7 +47,7 @@ export async function buildCanvasExecutionSnapshot(
   let status: ExecutionStatus;
   try {
     const loadedPlanGraph = await loadPlanGraphPackageMetadata(canvas.workspace);
-    canvasRuntime = runtime ?? await loadRuntime({ projectRoot: canvas.workspace });
+    canvasRuntime = runtime ?? await loadRuntimeReadonly({ projectRoot: canvas.workspace });
     status = await buildExecutionStatus(canvasRuntime, {
       claimGuard: createProjectGraphClaimGuardFromAggregation(canvasRuntime, aggregation)
     });
@@ -80,7 +80,7 @@ export async function loadProjectTodoContext(projectRoot: string): Promise<Proje
   const diagnostics: ValidationIssue[] = [];
   const aggregation = await loadProjectCanvasAggregation(projectRoot, {
     loadRuntimeSnapshot: async (workspace, canvasId) => {
-      const runtime = await loadRuntime({ projectRoot: workspace });
+      const runtime = await loadRuntimeReadonly({ projectRoot: workspace });
       runtimesByCanvas.set(canvasId, runtime);
       return runtimeSnapshotFromGraphState(runtime.graph, runtime.state);
     }

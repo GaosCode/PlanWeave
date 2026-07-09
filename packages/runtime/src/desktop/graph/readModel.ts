@@ -6,7 +6,7 @@ import { getExecutionStatus, renderPromptSurface } from "../../taskManager/index
 import { buildExecutionStatus, type ExecutionStatus } from "../../taskManager/executionStatus.js";
 import { buildClaimReadiness, type ClaimReadiness } from "../../taskManager/claimReadiness.js";
 import { createProjectGraphClaimGuard, type ProjectGraphClaimGuard } from "../../taskManager/projectGraphClaimGuard.js";
-import { loadRuntime, type RuntimeContext } from "../../taskManager/runtimeContext.js";
+import { loadRuntimeReadonly, type RuntimeContext } from "../../taskManager/runtimeContext.js";
 import { listExecutorProfilesForManifest } from "../../autoRun/executors.js";
 import { buildPlanGraphViewProjection, loadPlanGraphPackage } from "../../plangraph/index.js";
 import type { ClaimResult, PackageWorkspaceRef, ValidationIssue } from "../../types.js";
@@ -31,7 +31,7 @@ function appendDiagnostic(diagnostics: ValidationIssue[], diagnostic: Validation
 }
 
 export async function loadDesktopGraphViewModelContext(projectRoot: PackageWorkspaceRef): Promise<DesktopGraphViewModelContext> {
-  const runtime = await loadRuntime({ projectRoot });
+  const runtime = await loadRuntimeReadonly({ projectRoot });
   const claimGuard = await createProjectGraphClaimGuard(runtime);
   return buildDesktopGraphViewModelContext(runtime, await buildExecutionStatus(runtime, { claimGuard }), { claimGuard });
 }

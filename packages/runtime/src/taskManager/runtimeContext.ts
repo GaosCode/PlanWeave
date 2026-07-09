@@ -24,15 +24,40 @@ export async function readOptionalFile(path: string): Promise<string> {
   return (await optionalReadFile(path, "utf8")) ?? "";
 }
 
-export async function loadRuntime(options: RuntimeOptions): Promise<RuntimeContext> {
+async function loadRuntimeContext(options: RuntimeOptions): Promise<{
+  context: RuntimeContext;
+  rawState: RuntimeState;
+  derivedState: RuntimeState;
+}> {
   const { workspace, manifest: packageManifest } = await loadPackage(options.projectRoot);
   const session = options.session ?? (await createExecutionGraphSession(options.projectRoot));
   await drainGraphReadQueue(session);
   const manifest = options.session ? session.fileSnapshot.manifest : packageManifest;
   const graph = session.graph;
-  const state = ensureStateForManifest(manifest, await readState(workspace.stateFile));
-  await writeState(workspace.stateFile, state);
-  return { workspace, manifest, graph, state };
+  const rawState = await readState(workspace.stateFile);
+  const derivedState = ensureStateForManifest(manifest, rawState);
+  return {
+    context: { workspace, manifest, graph, state: derivedState },
+    rawState,
+    derivedState
+  };
+}
+
+/** Read-only load: never persists `state.json`. */
+export async function loadRuntimeReadonly(options: RuntimeOptions): Promise<RuntimeContext> {
+  const { context } = await loadRuntimeContext(options);
+  return context;
+}
+
+/**
+ * Mutating load: persists `state.json` only when `ensureStateForManifest` changed content.
+ */
+export async function loadRuntime(options: RuntimeOptions): Promise<RuntimeContext> {
+  const { context, rawState, derivedState } = await loadRuntimeContext(options);
+  if (JSON.stringify(rawState) !== JSON.stringify(derivedState)) {
+    await writeState(context.workspace.stateFile, derivedState);
+  }
+  return context;
 }
 
 export function refreshDerivedState(manifest: PlanPackageManifest, state: RuntimeState): RuntimeState {

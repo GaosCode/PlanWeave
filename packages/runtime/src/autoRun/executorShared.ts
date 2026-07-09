@@ -190,10 +190,29 @@ export async function pathExists(path: string): Promise<boolean> {
   return (await optionalStat(path)) !== null;
 }
 
+/** @deprecated Prefer `allocateRunId` — kept as a thin alias for callers/tests. */
 export async function nextRunId(runRoot: string): Promise<string> {
-  const entries = await optionalReaddir(runRoot, { withFileTypes: true });
-  const count = entries?.filter((entry) => entry.isDirectory() && /^RUN-\d+$/.test(entry.name)).length ?? 0;
-  return `RUN-${String(count + 1).padStart(3, "0")}`;
+  return allocateRunId(runRoot);
+}
+
+/** Reserve a RUN-* directory atomically via exclusive mkdir. */
+export async function allocateRunId(runRoot: string): Promise<string> {
+  await mkdir(runRoot, { recursive: true });
+  for (let attempt = 1; attempt <= 1000; attempt++) {
+    const existing = await optionalReaddir(runRoot, { withFileTypes: true });
+    const count = existing?.filter((entry) => entry.isDirectory() && /^RUN-\d+$/.test(entry.name)).length ?? 0;
+    const candidate = `RUN-${String(count + attempt).padStart(3, "0")}`;
+    try {
+      await mkdir(join(runRoot, candidate), { recursive: false });
+      return candidate;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST") {
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error(`Unable to allocate a run id under ${runRoot}`);
 }
 
 export async function prepareBlockRun(options: {
@@ -206,12 +225,11 @@ export async function prepareBlockRun(options: {
   const { workspace } = await loadPackage(options.projectRoot);
   const { taskId, blockId } = parseBlockRef(options.claim.ref);
   const runRoot = join(workspace.resultsDir, taskId, "blocks", blockId, "runs");
-  const runId = await nextRunId(runRoot);
+  const runId = await allocateRunId(runRoot);
   const runDir = join(runRoot, runId);
   const promptPath = join(runDir, "prompt.md");
   const metadataPath = join(runDir, "metadata.json");
   const startedAt = new Date().toISOString();
-  await mkdir(runDir, { recursive: true });
   await writeFile(promptPath, options.prompt, "utf8");
   await writeJsonFile(metadataPath, {
     runId,

@@ -1,10 +1,10 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import { canvasCommandFlagForWorkspace } from "../taskManager/canvasCommandScope.js";
 import { writeJsonFile } from "../json.js";
 import type { ExecutorAdapterResult } from "../types.js";
-import { nextRunId, prepareBlockRun, workspaceExecutionCwd } from "./executorShared.js";
+import { allocateRunId, prepareBlockRun, workspaceExecutionCwd } from "./executorShared.js";
 import { adapterProfileMismatch, type ExecutorBlockInput, type ExecutorFeedbackInput, type ExecutorIntegration } from "./executorIntegration.js";
 
 async function runManualBlock(input: ExecutorBlockInput): Promise<ExecutorAdapterResult> {
@@ -40,9 +40,8 @@ async function runManualFeedback(input: ExecutorFeedbackInput): Promise<Executor
   }
   const canvasFlag = await canvasCommandFlagForWorkspace(input.workspace);
   const feedbackRoot = join(input.workspace.resultsDir, "feedback-runs");
-  const runId = await nextRunId(feedbackRoot);
+  const runId = await allocateRunId(feedbackRoot);
   const runDir = join(feedbackRoot, runId);
-  await mkdir(runDir, { recursive: true });
   const promptPath = join(runDir, "feedback.md");
   const metadataPath = join(runDir, "metadata.json");
   const startedAt = new Date().toISOString();

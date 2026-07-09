@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { isNodeFileNotFoundError, optionalReaddir } from "../fs/optionalFile.js";
+import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
+import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
 import type {
   ExecutionGraphSession,
@@ -19,7 +21,14 @@ import type {
 import { writeFeedbackArtifact, type FeedbackArtifact } from "./feedbackArtifacts.js";
 import { executeReviewHook } from "./reviewHook.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
-import { incrementTaskIndexCount, listDirCount, nextId, recordReviewCompletionReason, updateTaskIndex } from "./resultIndex.js";
+import {
+  allocatePrefixedId,
+  incrementTaskIndexCount,
+  listDirCount,
+  nextId,
+  recordReviewCompletionReason,
+  updateTaskIndex
+} from "./resultIndex.js";
 import { computeWorkRevision, getBlock, getTask, isActiveFeedbackStatus } from "./selectors.js";
 
 const reviewResultSchema = z
@@ -87,9 +96,8 @@ async function writeReviewAttempt(options: {
 }): Promise<string> {
   const { taskId, blockId } = parseBlockRef(options.reviewBlockRef);
   const attemptRoot = join(options.workspace.resultsDir, taskId, "reviews", blockId, "attempts");
-  const attemptId = nextId("REV", await listDirCount(attemptRoot));
+  const attemptId = await allocatePrefixedId(attemptRoot, "REV");
   const attemptDir = join(attemptRoot, attemptId);
-  await mkdir(attemptDir, { recursive: true });
   await writeJsonFile(join(attemptDir, "review-result.json"), options.reviewResult);
   await writeJsonFile(join(attemptDir, "metadata.json"), {
     reviewBlockRef: options.reviewBlockRef,
@@ -238,16 +246,25 @@ async function reviewCompletionReasonForAttempt(options: {
 }
 
 async function nextFeedbackId(options: { workspace: ProjectWorkspace; taskId: string; state: { feedback: Record<string, unknown> } }): Promise<string> {
-  let count = Math.max(
-    Object.keys(options.state.feedback).length,
-    await listDirCount(join(options.workspace.resultsDir, options.taskId, "feedback"))
-  );
-  let feedbackId = nextId("FE", count);
-  while (options.state.feedback[feedbackId]) {
-    count += 1;
-    feedbackId = nextId("FE", count);
+  const feedbackRoot = join(options.workspace.resultsDir, options.taskId, "feedback");
+  await mkdir(feedbackRoot, { recursive: true });
+  let count = Math.max(Object.keys(options.state.feedback).length, await listDirCount(feedbackRoot));
+  for (let attempt = 0; attempt < 1000; attempt++) {
+    const feedbackId = nextId("FE", count + attempt);
+    if (options.state.feedback[feedbackId]) {
+      continue;
+    }
+    try {
+      await mkdir(join(feedbackRoot, feedbackId), { recursive: false });
+      return feedbackId;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST") {
+        continue;
+      }
+      throw error;
+    }
   }
-  return feedbackId;
+  throw new Error(`Unable to allocate a feedback id under ${feedbackRoot}`);
 }
 
 function maxFeedbackCyclesReached(previousFeedbackCount: number, maxFeedbackCycles: number): boolean {
@@ -265,6 +282,22 @@ export async function submitReviewResult(options: {
   resultPath: string;
   session?: ExecutionGraphSession;
 }): Promise<SubmitReviewResult> {
+  const parsed = reviewResultSchema.parse(await readJsonFile<unknown>(options.resultPath));
+  const resultHash = reviewResultHash(parsed);
+  const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
+  return withCanvasLock(dirname(lockWorkspace.stateFile), async () => submitReviewResultLocked(options, parsed, resultHash));
+}
+
+async function submitReviewResultLocked(
+  options: {
+    projectRoot: PackageWorkspaceRef;
+    ref: string;
+    resultPath: string;
+    session?: ExecutionGraphSession;
+  },
+  parsed: ReviewResult,
+  resultHash: string
+): Promise<SubmitReviewResult> {
   const context = await loadRuntime(options);
   const { workspace, manifest, graph } = context;
   let { state } = context;
@@ -273,8 +306,6 @@ export async function submitReviewResult(options: {
   if (block.type !== "review") {
     throw new Error("submit-review only accepts review blocks.");
   }
-  const parsed = reviewResultSchema.parse(await readJsonFile<unknown>(options.resultPath));
-  const resultHash = reviewResultHash(parsed);
   if (parsed.reviewBlockRef !== options.ref || parsed.taskId !== taskId) {
     throw new Error("review-result.json does not match the submitted review block ref.");
   }

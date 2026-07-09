@@ -1,13 +1,15 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { copyFile, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { isNodeFileNotFoundError, optionalReaddir } from "../fs/optionalFile.js";
+import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
+import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
 import type { ExecutionGraphSession, PackageWorkspaceRef, ProjectWorkspace, SubmitFeedbackResult } from "../types.js";
 import { patchFeedbackArtifact } from "./feedbackArtifacts.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
-import { incrementTaskIndexCount, listDirCount, nextId, updateTaskIndex } from "./resultIndex.js";
+import { allocatePrefixedId, incrementTaskIndexCount, updateTaskIndex } from "./resultIndex.js";
 
 function withCurrentRef(currentRefs: string[], ref: string): string[] {
   return currentRefs.includes(ref) ? currentRefs : [...currentRefs, ref];
@@ -103,66 +105,68 @@ export async function submitFeedback(options: {
   reportPath: string;
   session?: ExecutionGraphSession;
 }): Promise<SubmitFeedbackResult> {
-  const context = await loadRuntime(options);
-  const { workspace, manifest, graph } = context;
-  let { state } = context;
-  const feedbackId = state.currentFeedbackId;
-  if (!feedbackId || !state.feedback[feedbackId]) {
-    throw new Error("submit-feedback requires an active feedback event.");
-  }
-  const feedback = state.feedback[feedbackId];
-  const taskId = graph.blockTaskByRef.get(feedback.sourceReviewBlockRef);
-  if (!taskId) {
-    throw new Error(`Feedback '${feedbackId}' points to an unknown review block.`);
-  }
-  const submissionRoot = join(workspace.resultsDir, taskId, "feedback", feedbackId, "submissions");
   const reportHash = await fileHash(options.reportPath);
-  const persistedSubmissionId = await findPersistedFeedbackSubmission({
-    submissionRoot,
-    feedbackId,
-    sourceReviewBlockRef: feedback.sourceReviewBlockRef,
-    reportHash
-  });
-  const submissionId = persistedSubmissionId ?? nextId("FS", await listDirCount(submissionRoot));
-  if (!persistedSubmissionId) {
-    const submissionDir = join(submissionRoot, submissionId);
-    await mkdir(submissionDir, { recursive: true });
-    await copyFile(options.reportPath, join(submissionDir, "report.md"));
-    await writeJsonFile(join(submissionDir, "metadata.json"), {
+  const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
+  return withCanvasLock(dirname(lockWorkspace.stateFile), async () => {
+    const context = await loadRuntime(options);
+    const { workspace, manifest, graph } = context;
+    let { state } = context;
+    const feedbackId = state.currentFeedbackId;
+    if (!feedbackId || !state.feedback[feedbackId]) {
+      throw new Error("submit-feedback requires an active feedback event.");
+    }
+    const feedback = state.feedback[feedbackId];
+    const taskId = graph.blockTaskByRef.get(feedback.sourceReviewBlockRef);
+    if (!taskId) {
+      throw new Error(`Feedback '${feedbackId}' points to an unknown review block.`);
+    }
+    const submissionRoot = join(workspace.resultsDir, taskId, "feedback", feedbackId, "submissions");
+    const persistedSubmissionId = await findPersistedFeedbackSubmission({
+      submissionRoot,
       feedbackId,
-      submissionId,
       sourceReviewBlockRef: feedback.sourceReviewBlockRef,
-      reportHash,
-      submittedAt: new Date().toISOString()
+      reportHash
     });
-  }
-  await recordFeedbackSubmissionIndexes({ workspace, taskId, feedbackId, submissionId, incrementCount: !persistedSubmissionId });
-  await patchFeedbackArtifact(workspace, taskId, feedbackId, {
-    status: "resolved",
-    latestSubmissionId: submissionId,
-    resolvedAt: new Date().toISOString()
+    const submissionId = persistedSubmissionId ?? (await allocatePrefixedId(submissionRoot, "FS"));
+    if (!persistedSubmissionId) {
+      const submissionDir = join(submissionRoot, submissionId);
+      await copyFile(options.reportPath, join(submissionDir, "report.md"));
+      await writeJsonFile(join(submissionDir, "metadata.json"), {
+        feedbackId,
+        submissionId,
+        sourceReviewBlockRef: feedback.sourceReviewBlockRef,
+        reportHash,
+        submittedAt: new Date().toISOString()
+      });
+    }
+    await recordFeedbackSubmissionIndexes({ workspace, taskId, feedbackId, submissionId, incrementCount: !persistedSubmissionId });
+    await patchFeedbackArtifact(workspace, taskId, feedbackId, {
+      status: "resolved",
+      latestSubmissionId: submissionId,
+      resolvedAt: new Date().toISOString()
+    });
+    state.feedback[feedbackId] = {
+      ...feedback,
+      status: "resolved",
+      latestSubmissionId: submissionId
+    };
+    state.blocks[feedback.sourceReviewBlockRef] = {
+      ...state.blocks[feedback.sourceReviewBlockRef],
+      status: "in_progress",
+      activeFeedbackId: null,
+      pendingFeedbackId: feedbackId
+    };
+    state.currentFeedbackId = null;
+    state.currentReviewBlockRef = feedback.sourceReviewBlockRef;
+    state.currentRefs = withCurrentRef(state.currentRefs, feedback.sourceReviewBlockRef);
+    state = refreshDerivedState(manifest, state);
+    await writeState(workspace.stateFile, state);
+    return {
+      status: "accepted",
+      nextCommand: "planweave claim-next",
+      message: "Feedback submitted. Run `planweave claim-next` to continue the review loop.",
+      feedbackId,
+      submissionId
+    };
   });
-  state.feedback[feedbackId] = {
-    ...feedback,
-    status: "resolved",
-    latestSubmissionId: submissionId
-  };
-  state.blocks[feedback.sourceReviewBlockRef] = {
-    ...state.blocks[feedback.sourceReviewBlockRef],
-    status: "in_progress",
-    activeFeedbackId: null,
-    pendingFeedbackId: feedbackId
-  };
-  state.currentFeedbackId = null;
-  state.currentReviewBlockRef = feedback.sourceReviewBlockRef;
-  state.currentRefs = withCurrentRef(state.currentRefs, feedback.sourceReviewBlockRef);
-  state = refreshDerivedState(manifest, state);
-  await writeState(workspace.stateFile, state);
-  return {
-    status: "accepted",
-    nextCommand: "planweave claim-next",
-    message: "Feedback submitted. Run `planweave claim-next` to continue the review loop.",
-    feedbackId,
-    submissionId
-  };
 }

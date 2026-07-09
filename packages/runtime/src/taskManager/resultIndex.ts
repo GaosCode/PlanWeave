@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
+import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import type { ProjectWorkspace, TaskResultIndex, ValidationIssue } from "../types.js";
 
@@ -11,6 +12,27 @@ export function nextId(prefix: string, count: number): string {
 export async function listDirCount(path: string): Promise<number> {
   const entries = await optionalReaddir(path, { withFileTypes: true });
   return entries?.filter((entry) => entry.isDirectory()).length ?? 0;
+}
+
+/** Reserve a `<prefix>-NNN` directory atomically via exclusive mkdir. */
+export async function allocatePrefixedId(root: string, prefix: string): Promise<string> {
+  await mkdir(root, { recursive: true });
+  const pattern = new RegExp(`^${prefix}-\\d+$`);
+  for (let attempt = 1; attempt <= 1000; attempt++) {
+    const existing = await optionalReaddir(root, { withFileTypes: true });
+    const count = existing?.filter((entry) => entry.isDirectory() && pattern.test(entry.name)).length ?? 0;
+    const candidate = nextId(prefix, count + attempt - 1);
+    try {
+      await mkdir(join(root, candidate), { recursive: false });
+      return candidate;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST") {
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error(`Unable to allocate a ${prefix} id under ${root}`);
 }
 
 function taskIndexPath(workspace: ProjectWorkspace, taskId: string): string {
@@ -32,9 +54,11 @@ export async function updateTaskIndex(
   taskId: string,
   update: (index: TaskResultIndex) => TaskResultIndex
 ): Promise<TaskResultIndex> {
-  const next = update(await readTaskIndex(workspace, taskId));
-  await writeTaskIndex(workspace, taskId, next);
-  return next;
+  return withCanvasLock(dirname(workspace.stateFile), async () => {
+    const next = update(await readTaskIndex(workspace, taskId));
+    await writeTaskIndex(workspace, taskId, next);
+    return next;
+  });
 }
 
 export async function clearReviewCompletionReason(workspace: ProjectWorkspace, taskId: string, reviewBlockRef: string): Promise<void> {

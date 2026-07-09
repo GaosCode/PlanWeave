@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
@@ -7,7 +7,7 @@ import {
   executorLimitFailureMessage,
   executorRuntimeLimits,
   finishRunMetadata,
-  nextRunId,
+  allocateRunId,
   prepareBlockRun,
   workspaceExecutionCwd,
   workspaceExecutorEnv,
@@ -207,11 +207,10 @@ export async function runOpencodeFeedback(options: {
   tmuxOwnerRunId?: string;
 }): Promise<ExecutorAdapterResult> {
   const runRoot = join(options.workspaceResultsDir, "feedback-runs");
-  const runId = await nextRunId(runRoot);
+  const runId = await allocateRunId(runRoot);
   const runDir = join(runRoot, runId);
   const metadataPath = join(runDir, "metadata.json");
   const startedAt = new Date().toISOString();
-  await mkdir(runDir, { recursive: true });
   await writeFile(join(runDir, "prompt.md"), options.claim.content, "utf8");
   const invocation = opencodeInvocation(options.profile, options.claim.content, options.executionCwd);
   const limits = executorRuntimeLimits(options.profile);

@@ -1,3 +1,6 @@
+import { dirname } from "node:path";
+import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
 import type { BlockType, ClaimResult, ClaimScope, CompiledExecutionGraph, ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
 import { claimDispatchedBlock } from "./claimBlockDispatch.js";
@@ -26,6 +29,23 @@ function effectiveExecutorsForRefs(refs: string[], graph: CompiledExecutionGraph
 }
 
 export async function claimNext(options: {
+  projectRoot: PackageWorkspaceRef;
+  parallel?: boolean;
+  blockType?: BlockType;
+  dryRun?: boolean;
+  scope?: ClaimScope;
+  session?: ExecutionGraphSession;
+}): Promise<ClaimResult> {
+  if (options.dryRun === true) {
+    return claimNextUnlocked({ ...options, dryRun: true });
+  }
+
+  // Resolve workspace path for the lock without writing; the locked body reloads state.
+  const { workspace } = await loadPackage(options.projectRoot);
+  return withCanvasLock(dirname(workspace.stateFile), async () => claimNextUnlocked({ ...options, dryRun: false }));
+}
+
+async function claimNextUnlocked(options: {
   projectRoot: PackageWorkspaceRef;
   parallel?: boolean;
   blockType?: BlockType;

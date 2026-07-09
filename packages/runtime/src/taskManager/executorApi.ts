@@ -3,7 +3,7 @@ import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import type { BlockExplanation, CurrentWork, CurrentWorkItem, ManifestBlock, PackageWorkspaceRef } from "../types.js";
 import { canvasCommandFlag, commandCanvasIdForWorkspace } from "./canvasCommandScope.js";
 import { getExecutionStatus } from "./executionStatus.js";
-import { loadRuntime } from "./runtimeContext.js";
+import { loadRuntimeReadonly } from "./runtimeContext.js";
 import { effectiveBlockExecutor, effectiveFeedbackExecutor, getBlock, isActiveFeedbackStatus } from "./selectors.js";
 
 function submitCommand(ref: string, block: ManifestBlock, canvasId: string | null = null): string {
@@ -36,7 +36,7 @@ function currentItem(ref: string, block: ManifestBlock, packageDir: string, canv
 }
 
 export async function explainBlock(options: { projectRoot: PackageWorkspaceRef; ref: string }): Promise<BlockExplanation> {
-  const context = await loadRuntime(options);
+  const context = await loadRuntimeReadonly(options);
   const block = getBlock(context.graph, options.ref);
   const status = await getExecutionStatus(options);
   const hint = status.claimHints.find((candidate) => candidate.ref === options.ref);
@@ -51,7 +51,7 @@ export async function explainBlock(options: { projectRoot: PackageWorkspaceRef; 
 }
 
 export async function getCurrentWork(options: { projectRoot: PackageWorkspaceRef }): Promise<CurrentWork> {
-  const context = await loadRuntime(options);
+  const context = await loadRuntimeReadonly(options);
   const canvasId = await commandCanvasIdForWorkspace(context.workspace);
   const defaultExecutor = context.manifest.execution.defaultExecutor;
   const items = context.state.currentRefs.map((ref) =>

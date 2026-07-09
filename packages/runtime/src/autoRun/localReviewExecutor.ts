@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
@@ -9,7 +9,7 @@ import {
   executorLimitFailureMessage,
   executorRuntimeLimits,
   finishRunMetadata,
-  nextRunId,
+  allocateRunId,
   prepareBlockRun,
   workspaceExecutionCwd,
   workspaceExecutorEnv,
@@ -116,14 +116,13 @@ export async function runLocalReviewFeedback(options: {
   tmuxOwnerRunId?: string;
 }): Promise<ExecutorAdapterResult> {
   const runRoot = join(options.workspaceResultsDir, "feedback-runs");
-  const runId = await nextRunId(runRoot);
+  const runId = await allocateRunId(runRoot);
   const runDir = join(runRoot, runId);
   const metadataPath = join(runDir, "metadata.json");
   const stdoutPath = join(runDir, "stdout.md");
   const stderrPath = join(runDir, "stderr.log");
   const limits = executorRuntimeLimits(options.profile);
   const startedAt = new Date().toISOString();
-  await mkdir(runDir, { recursive: true });
   await writeFile(join(runDir, "prompt.md"), options.claim.content, "utf8");
   const tmux = await createTmuxSessionInfo({ runDir, runId, tmuxOwnerRunId: options.tmuxOwnerRunId, kind: "feedback", enabled: options.tmuxEnabled });
   await writeJsonFile(metadataPath, {

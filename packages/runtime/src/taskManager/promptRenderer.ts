@@ -11,7 +11,7 @@ import type { ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
 import { canvasCommandFlagForWorkspace } from "./canvasCommandScope.js";
 import { buildExecutionStatus } from "./executionStatus.js";
 import { renderProjectCanvasContext } from "./projectCanvasContext.js";
-import { loadRuntime, type RuntimeContext } from "./runtimeContext.js";
+import { loadRuntimeReadonly, type RuntimeContext } from "./runtimeContext.js";
 import { getBlock, getTask, requiredImplementationRefs } from "./selectors.js";
 
 export type PromptSourceKind = "global" | "projectCanvas" | "projectGraph" | "taskNode" | "block";
@@ -145,7 +145,7 @@ export async function renderPromptSurface(options: {
   includeSubmissionInstructions?: boolean;
   allowMissingPromptSources?: boolean;
 }): Promise<PromptSurface> {
-  const context = await loadRuntime(options);
+  const context = await loadRuntimeReadonly(options);
   const { workspace, graph, manifest, state } = context;
   const { taskId } = parseBlockRef(options.ref);
   const task = getTask(graph, taskId);
