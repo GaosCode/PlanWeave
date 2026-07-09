@@ -11,7 +11,11 @@ type SignalSource = {
 };
 
 type RunLocalMcpManager = {
-  start(input?: { host?: string | null; port?: number | null }): Promise<LocalMcpServerStatus>;
+  start(input?: {
+    host?: string | null;
+    port?: number | null;
+    token?: string | null;
+  }): Promise<LocalMcpServerStatus>;
   stop(): Promise<LocalMcpServerStatus>;
 };
 
@@ -37,6 +41,14 @@ function serverPortFromUrl(url: URL): number {
     return Number(url.port);
   }
   return 80;
+}
+
+function servedMcpAuthConfigured(env: NodeJS.ProcessEnv): boolean {
+  const token = env.PLANWEAVE_MCP_TOKEN?.trim();
+  const oauthEnabled = ["1", "true", "yes", "on"].includes(
+    (env.PLANWEAVE_MCP_OAUTH_ENABLED ?? "").trim().toLowerCase()
+  );
+  return Boolean(token) || oauthEnabled;
 }
 
 async function stopManagers(localMcp: RunLocalMcpManager | null, tunnelClient: RunTunnelClientManager): Promise<void> {
@@ -78,11 +90,18 @@ export async function runMcpTunnel(
         }
       }
     });
+  if (input.serve === true && !servedMcpAuthConfigured(input.env ?? process.env)) {
+    throw new Error(
+      "Serving MCP through a tunnel requires authentication. Set PLANWEAVE_MCP_TOKEN or PLANWEAVE_MCP_OAUTH_ENABLED=true before running with --serve."
+    );
+  }
+  const env = input.env ?? process.env;
   const localMcp = input.serve === true ? dependencies.localMcp ?? new LocalMcpServerManager() : null;
   if (localMcp) {
     const localStatus: LocalMcpServerStatus = await localMcp.start({
       host: serverHostFromUrl(mcpUrl),
-      port: serverPortFromUrl(mcpUrl)
+      port: serverPortFromUrl(mcpUrl),
+      token: env.PLANWEAVE_MCP_TOKEN?.trim() || null
     });
     if (localStatus.phase !== "running") {
       throw new Error(localStatus.error ?? "Failed to start local MCP server.");

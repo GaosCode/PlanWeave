@@ -64,7 +64,7 @@ describe("MCP tunnel runner", () => {
       {
         store,
         serve: true,
-        env: { OPENAI_RUNTIME_API_KEY: "runtime-key" }
+        env: { OPENAI_RUNTIME_API_KEY: "runtime-key", PLANWEAVE_MCP_TOKEN: "mcp-token" }
       },
       {
         localMcp: {
@@ -143,7 +143,7 @@ describe("MCP tunnel runner", () => {
         {
           store,
           serve: true,
-          env: { OPENAI_RUNTIME_API_KEY: "runtime-key" }
+          env: { OPENAI_RUNTIME_API_KEY: "runtime-key", PLANWEAVE_MCP_TOKEN: "mcp-token" }
         },
         {
           localMcp: {
@@ -184,7 +184,7 @@ describe("MCP tunnel runner", () => {
         {
           store,
           serve: true,
-          env: { OPENAI_RUNTIME_API_KEY: "runtime-key" }
+          env: { OPENAI_RUNTIME_API_KEY: "runtime-key", PLANWEAVE_MCP_TOKEN: "mcp-token" }
         },
         {
           localMcp: {
@@ -210,5 +210,102 @@ describe("MCP tunnel runner", () => {
     ).rejects.toThrow("tunnel-client exited before wait registration.");
     expect(localStopped).toBe(true);
     expect(tunnelStopped).toBe(true);
+  });
+
+  it("refuses to serve MCP through a tunnel without authentication", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "planweave-mcp-run-no-auth-"));
+    const binaryPath = join(dir, "tunnel-client");
+    await writeFile(binaryPath, "#!/bin/sh\nexit 0\n", "utf8");
+    await chmod(binaryPath, 0o700);
+    const config: TunnelConfig = {
+      version: "mcp-tunnel/v1",
+      tunnelClientPath: binaryPath,
+      verification: null,
+      tunnelId: "tunnel_test",
+      mcpUrl: "http://127.0.0.1:8787/mcp"
+    };
+    const store: TunnelConfigStore = {
+      read: async () => config,
+      write: async () => undefined,
+      path: () => join(dir, "config.json")
+    };
+    let localStarted = false;
+
+    await expect(
+      runMcpTunnel(
+        {
+          store,
+          serve: true,
+          env: { OPENAI_RUNTIME_API_KEY: "runtime-key" }
+        },
+        {
+          localMcp: {
+            start: async () => {
+              localStarted = true;
+              return localStatus("running");
+            },
+            stop: async () => localStatus("stopped")
+          }
+        }
+      )
+    ).rejects.toThrow(/requires authentication/);
+    expect(localStarted).toBe(false);
+  });
+
+  it("passes PLANWEAVE_MCP_TOKEN into the local MCP server when serving", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "planweave-mcp-run-with-token-"));
+    const binaryPath = join(dir, "tunnel-client");
+    await writeFile(binaryPath, "#!/bin/sh\nexit 0\n", "utf8");
+    await chmod(binaryPath, 0o700);
+    const config: TunnelConfig = {
+      version: "mcp-tunnel/v1",
+      tunnelClientPath: binaryPath,
+      verification: null,
+      tunnelId: "tunnel_test",
+      mcpUrl: "http://127.0.0.1:8787/mcp"
+    };
+    const store: TunnelConfigStore = {
+      read: async () => config,
+      write: async () => undefined,
+      path: () => join(dir, "config.json")
+    };
+    const signals = new EventEmitter();
+    let startInput: { host?: string | null; port?: number | null; token?: string | null } | undefined;
+
+    const running = runMcpTunnel(
+      {
+        store,
+        serve: true,
+        env: {
+          OPENAI_RUNTIME_API_KEY: "runtime-key",
+          PLANWEAVE_MCP_TOKEN: "mcp-serve-token"
+        }
+      },
+      {
+        localMcp: {
+          start: async (input) => {
+            startInput = input;
+            return localStatus("running");
+          },
+          stop: async () => localStatus("stopped")
+        },
+        tunnelClient: {
+          start: async () => tunnelStatus("running"),
+          stop: async () => tunnelStatus("stopped"),
+          getStatus: () => tunnelStatus("running")
+        },
+        signals,
+        exit: (code: number): never => {
+          throw new ExitSignal(code);
+        }
+      }
+    );
+    const interval = setInterval(() => signals.emit("SIGTERM"), 5);
+    try {
+      await expect(running).rejects.toMatchObject({ code: 0 });
+    } finally {
+      clearInterval(interval);
+    }
+    expect(startInput?.token).toBe("mcp-serve-token");
   });
 });
