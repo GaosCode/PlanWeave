@@ -30,6 +30,7 @@ import type { DesktopSearchCanvasScope, DesktopSearchStatus } from "../hooks/use
 import type { AppEdgeTypes, AppNodeTypes } from "../graph/flowModel";
 import type { AutoRunNextActionDescriptor } from "../run/autoRunNextActions";
 import type { AppFlowNode, AppView, AutoRunScopeMode, NotificationItem } from "../types";
+import { useProjectWorkspace } from "../ProjectWorkspaceProvider";
 import { CanvasMapView } from "./CanvasMapView";
 import { GraphView } from "./GraphView";
 import { NewTaskView } from "./NewTaskView";
@@ -165,24 +166,8 @@ export type WorkspaceTabsPlanningProps = {
   todoGroups: DesktopTodoGroups | null;
 };
 
-export type WorkspaceTabsProps = {
-  shell: WorkspaceTabsShellProps;
-  graphWorkspace: WorkspaceTabsGraphWorkspaceProps;
-  autoRun: WorkspaceTabsAutoRunProps;
-  fileSync: WorkspaceTabsFileSyncProps;
-  search: WorkspaceTabsSearchProps;
-  review: WorkspaceTabsReviewProps;
-  newTask: WorkspaceTabsNewTaskProps;
-  notifications: WorkspaceTabsNotificationsProps;
-  planning: WorkspaceTabsPlanningProps;
-};
-
-function GraphWorkspaceRoute({
-  autoRun,
-  fileSync,
-  graphWorkspace,
-  shell
-}: Pick<WorkspaceTabsProps, "autoRun" | "fileSync" | "graphWorkspace" | "shell">) {
+function GraphWorkspaceRoute() {
+  const { autoRun, fileSync, graphWorkspace, shell } = useProjectWorkspace();
   return (
     <GraphView
       {...graphWorkspace}
@@ -200,7 +185,8 @@ function GraphWorkspaceRoute({
   );
 }
 
-function SearchRoute({ search, shell }: Pick<WorkspaceTabsProps, "search" | "shell">) {
+function SearchRoute() {
+  const { search, shell } = useProjectWorkspace();
   return (
     <SearchView
       {...search}
@@ -212,7 +198,8 @@ function SearchRoute({ search, shell }: Pick<WorkspaceTabsProps, "search" | "she
   );
 }
 
-function TodoRoute({ graphWorkspace, planning, shell }: Pick<WorkspaceTabsProps, "graphWorkspace" | "planning" | "shell">) {
+function TodoRoute() {
+  const { graphWorkspace, planning, shell } = useProjectWorkspace();
   return (
     <TodoView
       executionPlan={graphWorkspace.executionPlan}
@@ -223,11 +210,13 @@ function TodoRoute({ graphWorkspace, planning, shell }: Pick<WorkspaceTabsProps,
   );
 }
 
-function StatisticsRoute({ planning, shell }: Pick<WorkspaceTabsProps, "planning" | "shell">) {
+function StatisticsRoute() {
+  const { planning, shell } = useProjectWorkspace();
   return <StatisticsView handleOpenProject={shell.handleOpenProject} selectedProject={shell.selectedProject} statistics={planning.statistics} t={shell.t} />;
 }
 
-function NewTaskRoute({ graphWorkspace, newTask, shell }: Pick<WorkspaceTabsProps, "graphWorkspace" | "newTask" | "shell">) {
+function NewTaskRoute() {
+  const { graphWorkspace, newTask, shell } = useProjectWorkspace();
   return (
     <NewTaskView
       {...newTask}
@@ -241,11 +230,13 @@ function NewTaskRoute({ graphWorkspace, newTask, shell }: Pick<WorkspaceTabsProp
   );
 }
 
-function ReviewPipelineRoute({ graphWorkspace, review, shell }: Pick<WorkspaceTabsProps, "graphWorkspace" | "review" | "shell">) {
+function ReviewPipelineRoute() {
+  const { graphWorkspace, review, shell } = useProjectWorkspace();
   return <ReviewPipelineView {...review} graph={graphWorkspace.graph} t={shell.t} />;
 }
 
-function NotificationsRoute({ fileSync, notifications, shell }: Pick<WorkspaceTabsProps, "fileSync" | "notifications" | "shell">) {
+function NotificationsRoute() {
+  const { fileSync, notifications, shell } = useProjectWorkspace();
   return (
     <NotificationsView
       {...notifications}
@@ -256,7 +247,8 @@ function NotificationsRoute({ fileSync, notifications, shell }: Pick<WorkspaceTa
   );
 }
 
-function CanvasMapRoute({ fileSync, graphWorkspace, shell }: Pick<WorkspaceTabsProps, "fileSync" | "graphWorkspace" | "shell">) {
+function CanvasMapRoute() {
+  const { fileSync, graphWorkspace, shell } = useProjectWorkspace();
   return (
     <CanvasMapView
       handleOpenBlockInspector={graphWorkspace.handleOpenBlockInspector}
@@ -274,34 +266,28 @@ function CanvasMapRoute({ fileSync, graphWorkspace, shell }: Pick<WorkspaceTabsP
   );
 }
 
-export function WorkspaceTabs(props: WorkspaceTabsProps) {
-  const activeView = props.shell.activeView;
+export function WorkspaceTabs() {
+  const { shell } = useProjectWorkspace();
+  const activeView = shell.activeView;
   const content = (() => {
     switch (activeView) {
       case "new-task":
-        return <NewTaskRoute graphWorkspace={props.graphWorkspace} newTask={props.newTask} shell={props.shell} />;
+        return <NewTaskRoute />;
       case "review-pipeline":
-        return <ReviewPipelineRoute graphWorkspace={props.graphWorkspace} review={props.review} shell={props.shell} />;
+        return <ReviewPipelineRoute />;
       case "todo":
-        return <TodoRoute graphWorkspace={props.graphWorkspace} planning={props.planning} shell={props.shell} />;
+        return <TodoRoute />;
       case "statistics":
-        return <StatisticsRoute planning={props.planning} shell={props.shell} />;
+        return <StatisticsRoute />;
       case "search":
-        return <SearchRoute search={props.search} shell={props.shell} />;
+        return <SearchRoute />;
       case "notifications":
-        return <NotificationsRoute fileSync={props.fileSync} notifications={props.notifications} shell={props.shell} />;
+        return <NotificationsRoute />;
       case "canvas-map":
-        return <CanvasMapRoute fileSync={props.fileSync} graphWorkspace={props.graphWorkspace} shell={props.shell} />;
+        return <CanvasMapRoute />;
       case "graph":
       default:
-        return (
-          <GraphWorkspaceRoute
-            autoRun={props.autoRun}
-            fileSync={props.fileSync}
-            graphWorkspace={props.graphWorkspace}
-            shell={props.shell}
-          />
-        );
+        return <GraphWorkspaceRoute />;
     }
   })();
 
