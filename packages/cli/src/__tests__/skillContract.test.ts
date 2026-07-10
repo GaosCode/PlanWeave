@@ -40,6 +40,8 @@ describe("agent skill contract docs", () => {
     expect(skill).toContain("100+ tasks/nodes");
     expect(skill).toContain("formal `project-graph.json` plus one `manifest.json` per canvas");
     expect(skill).toContain("explicit `crossTaskEdges`");
+    expect(skill).toContain("Default imported multi-canvas plans to `crossTaskEdges: []`");
+    expect(skill).toContain("canvas-boundary defect");
     expect(skill).toContain("Do not add review blocks for simple docs");
     expect(skill).toContain("Do not split for the sake of splitting.");
   });
@@ -48,6 +50,8 @@ describe("agent skill contract docs", () => {
     const skill = await readFile(join(repoRoot, "skills/plan-importer/SKILL.md"), "utf8");
 
     expect(skill).toContain("Run the Plan Quality Gate below before writing.");
+    expect(skill).toContain("Default imported multi-canvas plans to `crossTaskEdges: []`");
+    expect(skill).toContain("canvas-boundary defect");
     expect(skill).toContain("Identify core objects and trace create");
     expect(skill).toContain(
       "Keep schema, types, APIs, CLI flags, events, files, and prompt inputs/outputs consistent"
@@ -77,6 +81,8 @@ describe("agent skill contract docs", () => {
     expect(skill).toContain("Do not import other projects' skills");
     expect(skill).toContain("model orchestration as a formal project graph");
     expect(skill).toContain("## Project Graph");
+    expect(skill).toContain("Default multi-canvas drafts to `crossTaskEdges: []`");
+    expect(skill).toContain("canvas-boundary defect");
     expect(skill).toContain("formal graph dependencies must not exist only in prose");
     expect(skill).toContain("complex blocks must include architecture boundaries");
     expect(skill).toContain("## Task Graph");
@@ -233,6 +239,8 @@ describe("agent skill contract docs", () => {
     expect(skill).toContain("schema without runtime use");
     expect(skill).toContain("Read `project-graph.json` when present");
     expect(skill).toContain("cross-canvas task blockers must be explicit `crossTaskEdges`");
+    expect(skill).toContain("Treat dense or repeated `crossTaskEdges`");
+    expect(skill).toContain("canvas-boundary defect");
     expect(skill).toContain(
       "Compare suspicious project graph, manifest, state, and layout structure against `planweave schema project`"
     );

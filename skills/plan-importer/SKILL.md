@@ -71,7 +71,10 @@ Use the CLI for command discovery, workspace/path resolution, and validation in 
 - Keep schema, types, APIs, CLI flags, events, files, and prompt inputs/outputs consistent across producers and consumers.
 - Contract-changing tasks must cover callers, tests, fixtures, docs, and migrations when relevant; do not hide missing contracts with fallback, default values, `any`, or mock-only paths.
 - Model the real execution order: parallel tasks must be independent, sequential gates must be explicit, and each canvas must map to a stage, capability area, subsystem, workflow, or parallel work group.
-- For multi-canvas imports, canvas-level order must be encoded as formal project graph edges, and cross-canvas task blockers must be encoded as explicit `crossTaskEdges`.
+- Default imported multi-canvas plans to `crossTaskEdges: []`.
+- For multi-canvas imports, canvas-level order must be encoded as formal project graph edges. Before adding a cross-task edge, first move tightly coupled tasks into the same canvas or promote stage-wide ordering to a canvas dependency edge.
+- Use explicit `crossTaskEdges` only for sparse, irreducible task blockers between otherwise cohesive and independently executable canvases, and record why task relocation or a canvas edge would be incorrect.
+- Treat dense or repeated cross-task edges between the same canvases, stage-wide ordering expressed as task edges, and task edges redundant with canvas order as a canvas-boundary defect; repartition the tasks or promote the dependency before writing.
 - Do not rely on project/global prompt prose as the only source of canvas order or cross-canvas blockers.
 - Reject fake completion such as schema with no runtime use, API with no caller, UI with no behavior, config never read, provider abstraction without live client, queue without consumer, file path without file, dry-run without live path, or fixture-only testing.
 - Cover errors, retry, cancellation, timeout, permission failure, partial success, external outage, failed human review, and recovery when the domain needs reliable execution.
@@ -103,7 +106,7 @@ Use the CLI for command discovery, workspace/path resolution, and validation in 
 - Keep each canvas scannable, usually 10-30 tasks when the source plan allows it.
 - Materialize large or multi-stage imports as a formal `project-graph.json` plus one `manifest.json` per canvas.
 - Use project graph canvas dependency edges for canvas-level order.
-- Use explicit `crossTaskEdges` for task-to-task blockers across canvases.
+- Keep `crossTaskEdges` empty unless a sparse, irreducible blocker passes the Plan Quality Gate.
 - Keep single-canvas `manifest.json` semantics unchanged; do not place cross-canvas edges inside a canvas manifest.
 - The project/global prompt may explain strategy, but it is not the authority for dependency enforcement.
 - Different canvases are not automatically parallel; run them in parallel only when project graph edges, `crossTaskEdges`, and locks make that safe.
@@ -115,7 +118,7 @@ When writing a formal multi-canvas plan, include:
 - `project-graph.json` at the PlanWeave project/workspace root.
 - `canvases` entries with stable ids, titles, package directories, state/results paths when required by the schema, and no invisible legacy-only canvas records.
 - canvas dependency edges for stage, capability, subsystem, or workflow order.
-- explicit `crossTaskEdges` for blockers from one canvas task to another canvas task.
+- explicit `crossTaskEdges` only for documented sparse exceptions that cannot be represented by task placement or canvas dependency edges.
 - no context nodes, feedback nodes, runtime state, or layout-only graph mirrors.
 
 After writing, validate with `<pw> validate --json`; project graph schema/read/compile diagnostics such as missing canvas refs, missing cross-task refs, and cycles must be fixed before reporting success.

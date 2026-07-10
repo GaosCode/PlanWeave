@@ -67,6 +67,8 @@ For every cell, cite exact PlanWeave task/block ids, prompts, reference files, a
 - Parallel tasks must be independent in data flow, locks, and contract timing.
 - Different canvases are not automatically parallel; cross-canvas dependencies must be explicit in `project-graph.json` when a formal project graph exists.
 - Canvas-level dependencies must be project graph canvas edges; cross-canvas task blockers must be explicit `crossTaskEdges`.
+- Treat dense or repeated `crossTaskEdges`, stage-wide ordering expressed as task edges, and task edges redundant with canvas order as a canvas-boundary defect.
+- Require tightly coupled tasks to move into the same canvas and stage-wide dependencies to become canvas edges. Accept cross-task edges only as sparse, irreducible blockers with a concrete reason that task relocation or a canvas edge would be incorrect.
 - Flag plans that express canvas order only in project/global prompt prose, README text, or agent instructions.
 - Sequential gates must be explicit.
 - Flag tasks split only for count, and tasks that cross too many boundaries.

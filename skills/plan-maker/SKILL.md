@@ -87,7 +87,10 @@ For multi-canvas drafts include a `Project Graph` section with:
 
 - canvas ids, titles, package directories, and why each canvas exists.
 - canvas-level dependency edges for stage, capability, subsystem, or workflow order.
-- explicit `crossTaskEdges` for task-to-task blockers across canvases.
+- Default multi-canvas drafts to `crossTaskEdges: []`.
+- Before adding a cross-task edge, first move tightly coupled tasks into the same canvas or use a canvas dependency edge when the relation orders a whole stage, capability, subsystem, or workflow.
+- Use explicit `crossTaskEdges` only for sparse, irreducible task blockers between otherwise cohesive and independently executable canvases, and record why task relocation or a canvas edge would be incorrect.
+- Treat dense or repeated cross-task edges between the same canvases, stage-wide ordering expressed as task edges, and task edges redundant with canvas order as a canvas-boundary defect; repartition the tasks or promote the dependency.
 - which canvases can run in parallel and why their data, locks, contracts, and upstream blockers are independent.
 - any manual graph-editing assumption; formal graph dependencies must not exist only in prose.
 
