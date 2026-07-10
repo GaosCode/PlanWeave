@@ -18,6 +18,7 @@ export const desktopBlockWaitingOnSchema = z.object({
 export const desktopLockGroupSchema = z.object({
   name: z.string().min(1),
   memberTaskIds: z.array(z.string().min(1)),
+  memberBlockRefs: z.array(z.string().min(1)),
   holderRef: z.string().min(1).nullable()
 });
 
@@ -96,26 +97,37 @@ export function buildLockGroups(
   graph: CompiledExecutionGraph,
   state: RuntimeState
 ): DesktopLockGroup[] {
-  const membersByLock = new Map<string, Set<string>>();
+  const memberBlockRefsByLock = new Map<string, Set<string>>();
   for (const [ref, locks] of graph.locksByBlockRef.entries()) {
     const taskId = graph.blockTaskByRef.get(ref);
     if (!taskId || locks.length === 0) {
       continue;
     }
     for (const lock of locks) {
-      const members = membersByLock.get(lock) ?? new Set<string>();
-      members.add(taskId);
-      membersByLock.set(lock, members);
+      const memberBlockRefs = memberBlockRefsByLock.get(lock) ?? new Set<string>();
+      memberBlockRefs.add(ref);
+      memberBlockRefsByLock.set(lock, memberBlockRefs);
     }
   }
-  const names = [...membersByLock.keys()].sort((left, right) => left.localeCompare(right));
-  return names.map((name) => ({
-    name,
-    memberTaskIds: [...(membersByLock.get(name) ?? [])].sort((left, right) =>
+  const names = [...memberBlockRefsByLock.keys()].sort((left, right) => left.localeCompare(right));
+  return names.map((name) => {
+    const memberBlockRefs = [...(memberBlockRefsByLock.get(name) ?? [])].sort((left, right) =>
       left.localeCompare(right)
-    ),
-    holderRef: resolveLockHolderRef(graph, state, name)
-  }));
+    );
+    const memberTaskIds = new Set<string>();
+    for (const ref of memberBlockRefs) {
+      const taskId = graph.blockTaskByRef.get(ref);
+      if (taskId) {
+        memberTaskIds.add(taskId);
+      }
+    }
+    return {
+      name,
+      memberTaskIds: [...memberTaskIds].sort((left, right) => left.localeCompare(right)),
+      memberBlockRefs,
+      holderRef: resolveLockHolderRef(graph, state, name)
+    };
+  });
 }
 
 function enrichBlockPreview(
@@ -136,10 +148,7 @@ function enrichBlockPreview(
   };
 }
 
-function taskLocks(
-  graph: CompiledExecutionGraph,
-  task: DesktopTaskNodeViewModel
-): string[] {
+function taskLocks(graph: CompiledExecutionGraph, task: DesktopTaskNodeViewModel): string[] {
   const locks = new Set<string>();
   for (const block of task.blocks) {
     for (const lock of graph.locksByBlockRef.get(block.ref) ?? []) {

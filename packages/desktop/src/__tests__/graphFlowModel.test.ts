@@ -275,7 +275,14 @@ function sharedLockGraph(): DesktopGraphViewModel {
       }
     ],
     edges: [],
-    lockGroups: [{ name: "db", memberTaskIds: ["T-A", "T-B"], holderRef: "T-A#B-001" }],
+    lockGroups: [
+      {
+        name: "db",
+        memberTaskIds: ["T-A", "T-B"],
+        memberBlockRefs: ["T-A#B-001", "T-B#B-001"],
+        holderRef: "T-A#B-001"
+      }
+    ],
     diagnostics: [],
     dirtyPromptRefs: []
   };

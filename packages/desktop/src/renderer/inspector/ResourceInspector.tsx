@@ -36,10 +36,6 @@ type MemberRow = {
   exceptionReason: string | null;
 };
 
-function taskIdFromRef(ref: string): string {
-  return ref.includes("#") ? ref.slice(0, ref.indexOf("#")) : ref;
-}
-
 function buildMemberRows(graph: DesktopGraphViewModel, lockGroup: DesktopLockGroup): MemberRow[] {
   const rows: MemberRow[] = [];
   for (const taskId of lockGroup.memberTaskIds) {
@@ -47,18 +43,16 @@ function buildMemberRows(graph: DesktopGraphViewModel, lockGroup: DesktopLockGro
     if (!task) {
       continue;
     }
-    const blocks = task.blocks.filter(
-      (block) =>
-        block.type === "implementation" &&
-        (task.locks.includes(lockGroup.name) ||
-          block.waitingOn?.lock === lockGroup.name ||
-          (lockGroup.holderRef != null && taskIdFromRef(lockGroup.holderRef) === taskId))
-    );
+    const blocks = lockGroup.memberBlockRefs.flatMap((ref) => {
+      const block = task.blocks.find((item) => item.ref === ref && item.type === "implementation");
+      return block ? [block] : [];
+    });
     const block =
       blocks.find((item) => item.ref === lockGroup.holderRef) ??
       blocks.find((item) => item.waitingOn?.lock === lockGroup.name) ??
+      blocks.find((item) => item.dispatchable) ??
+      blocks.find((item) => item.status === "blocked") ??
       blocks[0] ??
-      task.blocks.find((item) => item.type === "implementation") ??
       null;
     if (!block) {
       continue;
@@ -213,9 +207,7 @@ export function ResourceInspector({
                     void runAction(row.blockRef, async () => {
                       const result = await bridge!.dispatchBlock(canvasRef!, row.blockRef);
                       if (result.kind === "blocked" || result.kind === "none") {
-                        throw new Error(
-                          result.reason ?? `Dispatch refused for ${row.blockRef}`
-                        );
+                        throw new Error(result.reason ?? `Dispatch refused for ${row.blockRef}`);
                       }
                     })
                   }

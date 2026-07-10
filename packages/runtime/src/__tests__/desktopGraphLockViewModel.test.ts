@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { getGraphViewModel } from "../desktop/index.js";
+import { desktopLockGroupSchema } from "../desktop/graph/lockViewModel.js";
 import { markBlockBlocked } from "../taskManager/blockStatusMutations.js";
 import { claimBlock } from "../taskManager/claimScheduler.js";
 import { writeJsonFile } from "../json.js";
@@ -59,6 +60,14 @@ function sharedLockManifest(): PlanPackageManifest {
             prompt: "nodes/T-B/blocks/B-001.prompt.md",
             depends_on: [],
             parallel: { locks: ["db"] }
+          },
+          {
+            id: "B-002",
+            type: "implementation",
+            title: "Continue without db",
+            prompt: "nodes/T-B/blocks/B-002.prompt.md",
+            depends_on: ["B-001"],
+            parallel: { locks: [] }
           }
         ]
       }
@@ -85,6 +94,7 @@ describe("desktop graph lock view model", () => {
     expect(dbGroup).toEqual({
       name: "db",
       memberTaskIds: ["T-A", "T-B"],
+      memberBlockRefs: ["T-A#B-001", "T-B#B-001"],
       holderRef: "T-A#B-001"
     });
 
@@ -118,5 +128,23 @@ describe("desktop graph lock view model", () => {
       ?.blocks.find((block) => block.ref === "T-B#B-001");
     expect(blockB?.dispatchable).toBe(true);
     expect(blockB?.waitingOn).toBeNull();
+  });
+
+  it("requires exact block membership in the lock-group DTO", () => {
+    expect(
+      desktopLockGroupSchema.safeParse({
+        name: "db",
+        memberTaskIds: ["T-A"],
+        holderRef: null
+      }).success
+    ).toBe(false);
+    expect(
+      desktopLockGroupSchema.safeParse({
+        name: "db",
+        memberTaskIds: ["T-A"],
+        memberBlockRefs: ["T-A#B-001"],
+        holderRef: null
+      }).success
+    ).toBe(true);
   });
 });

@@ -60,6 +60,18 @@ function holderGraph(): DesktopGraphViewModel {
         locks: ["db"],
         blocks: [
           {
+            ref: "T-A#B-000",
+            blockId: "B-000",
+            type: "implementation",
+            title: "Unrelated holder task block",
+            status: "completed",
+            executor: null,
+            promptMissing: false,
+            exceptionReason: null,
+            dispatchable: false,
+            waitingOn: null
+          },
+          {
             ref: "T-A#B-001",
             blockId: "B-001",
             type: "implementation",
@@ -89,6 +101,18 @@ function holderGraph(): DesktopGraphViewModel {
         locks: ["db"],
         blocks: [
           {
+            ref: "T-B#B-000",
+            blockId: "B-000",
+            type: "implementation",
+            title: "Unrelated waiter task block",
+            status: "completed",
+            executor: null,
+            promptMissing: false,
+            exceptionReason: null,
+            dispatchable: false,
+            waitingOn: null
+          },
+          {
             ref: "T-B#B-001",
             blockId: "B-001",
             type: "implementation",
@@ -108,7 +132,14 @@ function holderGraph(): DesktopGraphViewModel {
       }
     ],
     edges: [],
-    lockGroups: [{ name: "db", memberTaskIds: ["T-A", "T-B"], holderRef: "T-A#B-001" }],
+    lockGroups: [
+      {
+        name: "db",
+        memberTaskIds: ["T-A", "T-B"],
+        memberBlockRefs: ["T-A#B-001", "T-B#B-001"],
+        holderRef: "T-A#B-001"
+      }
+    ],
     diagnostics: [],
     dirtyPromptRefs: []
   };
@@ -118,17 +149,29 @@ function releasedGraph(): DesktopGraphViewModel {
   const graph = holderGraph();
   return {
     ...graph,
-    lockGroups: [{ name: "db", memberTaskIds: ["T-A", "T-B"], holderRef: null }],
+    lockGroups: [
+      {
+        name: "db",
+        memberTaskIds: ["T-A", "T-B"],
+        memberBlockRefs: ["T-A#B-001", "T-B#B-001"],
+        holderRef: null
+      }
+    ],
     tasks: graph.tasks.map((task) => {
       if (task.taskId === "T-A") {
         return {
           ...task,
           status: "blocked",
-          blocks: task.blocks.map((block) => ({
-            ...block,
-            status: "blocked",
-            exceptionReason: "paused for transfer"
-          })),
+          blocks: task.blocks.map((block) => {
+            if (block.ref !== "T-A#B-001") {
+              return block;
+            }
+            return {
+              ...block,
+              status: "blocked" as const,
+              exceptionReason: "paused for transfer"
+            };
+          }),
           exceptions: [
             { ref: "T-A#B-001", source: "blocked" as const, reason: "paused for transfer" }
           ]
@@ -136,11 +179,16 @@ function releasedGraph(): DesktopGraphViewModel {
       }
       return {
         ...task,
-        blocks: task.blocks.map((block) => ({
-          ...block,
-          dispatchable: true,
-          waitingOn: null
-        }))
+        blocks: task.blocks.map((block) => {
+          if (block.ref !== "T-B#B-001") {
+            return block;
+          }
+          return {
+            ...block,
+            dispatchable: true,
+            waitingOn: null
+          };
+        })
       };
     })
   };
@@ -173,11 +221,7 @@ describe("ResourceInspector pause-and-transfer", () => {
     await user.click(screen.getByTestId("resource-inspector-mark-blocked"));
 
     await waitFor(() => {
-      expect(markBlockedBlock).toHaveBeenCalledWith(
-        canvasRef,
-        "T-A#B-001",
-        "paused for transfer"
-      );
+      expect(markBlockedBlock).toHaveBeenCalledWith(canvasRef, "T-A#B-001", "paused for transfer");
     });
     expect(onRefresh).toHaveBeenCalled();
 
@@ -196,6 +240,14 @@ describe("ResourceInspector pause-and-transfer", () => {
 
     const dispatchButton = screen.getByTestId("resource-inspector-dispatch");
     expect(dispatchButton).not.toBeDisabled();
+    await user.click(screen.getByTestId("resource-inspector-unblock"));
+    await waitFor(() => {
+      expect(unblockBlock).toHaveBeenCalledWith(
+        canvasRef,
+        "T-A#B-001",
+        "Unblocked from resource inspector"
+      );
+    });
     await user.click(dispatchButton);
     await waitFor(() => {
       expect(dispatchBlock).toHaveBeenCalledWith(canvasRef, "T-B#B-001");

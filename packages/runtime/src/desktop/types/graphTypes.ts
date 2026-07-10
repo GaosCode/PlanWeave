@@ -42,6 +42,8 @@ export type DesktopBlockPreview = {
 export type DesktopLockGroup = {
   name: string;
   memberTaskIds: string[];
+  /** Implementation block refs whose effective locks include this lock. */
+  memberBlockRefs: string[];
   /** In-progress implementation block ref that holds this lock, or null when free. */
   holderRef: string | null;
 };
