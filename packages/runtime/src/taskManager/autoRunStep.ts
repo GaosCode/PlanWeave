@@ -24,14 +24,52 @@ import {
   submitReviewResult
 } from "./index.js";
 import { updateTaskIndex } from "./resultIndex.js";
-import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
+import { loadRuntime, loadRuntimeReadonly, refreshDerivedState } from "./runtimeContext.js";
 
 type BlockClaim = Extract<ClaimResult, { kind: "block" }>;
 type SubmittedOrManualStep = Extract<AutoRunStepResult, { kind: "submitted" | "manual" }>;
 type BlockedStep = { kind: "blocked"; claim: ClaimResult };
+type BlockPipelineStage =
+  | "Prompt rendering"
+  | "Executor"
+  | "Executor result validation"
+  | "Implementation submission"
+  | "Review submission"
+  | "Batch claim preparation";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function markBlockPipelineFailure(options: {
+  projectRoot: PackageWorkspaceRef;
+  ref: string;
+  stage: BlockPipelineStage;
+  error: unknown;
+  session?: ExecutionGraphSession;
+}): Promise<BlockedStep> {
+  const reason = `${options.stage} failed for ${options.ref}: ${errorMessage(options.error)}`;
+  try {
+    const blocked = await markBlockBlocked({
+      projectRoot: options.projectRoot,
+      ref: options.ref,
+      reason,
+      session: options.session
+    });
+    return {
+      kind: "blocked",
+      claim: {
+        kind: "blocked",
+        ref: blocked.ref,
+        reason: blocked.reason
+      }
+    };
+  } catch (cleanupError) {
+    throw new AggregateError(
+      [options.error, cleanupError],
+      `${reason}; failed to mark the block blocked: ${errorMessage(cleanupError)}`
+    );
+  }
 }
 
 async function claimForBatchRef(options: {
@@ -114,58 +152,97 @@ async function executeBlockClaim(options: {
   executor: ExecutorAdapter;
   session?: ExecutionGraphSession;
 }): Promise<SubmittedOrManualStep | BlockedStep> {
-  const prompt = await renderPrompt({
-    projectRoot: options.projectRoot,
-    ref: options.claim.ref,
-    session: options.session,
-    includeSubmissionInstructions: false
-  });
-  let adapterResult: Awaited<ReturnType<ExecutorAdapter["runBlock"]>>;
+  let stage: BlockPipelineStage = "Prompt rendering";
   try {
-    adapterResult = await options.executor.runBlock({ claim: options.claim, prompt });
-  } catch (error) {
-    const reason = `Executor failed for ${options.claim.ref}: ${errorMessage(error)}`;
-    const blocked = await markBlockBlocked({
+    const prompt = await renderPrompt({
       projectRoot: options.projectRoot,
       ref: options.claim.ref,
-      reason,
-      session: options.session
+      session: options.session,
+      includeSubmissionInstructions: false
     });
-    return {
-      kind: "blocked",
-      claim: {
-        kind: "blocked",
-        ref: blocked.ref,
-        reason: blocked.reason
-      }
-    };
-  }
-  if (adapterResult.kind === "manual") {
-    return { kind: "manual", claim: options.claim, adapterResult };
-  }
-  if (options.claim.blockType === "review") {
-    if (adapterResult.kind !== "review") {
-      throw new Error("Executor adapter must return a review result for review block claims.");
+    stage = "Executor";
+    const adapterResult = await options.executor.runBlock({ claim: options.claim, prompt });
+    if (adapterResult.kind === "manual") {
+      return { kind: "manual", claim: options.claim, adapterResult };
     }
-    const submitResult = await submitReviewResult({
+    stage = "Executor result validation";
+    if (options.claim.blockType === "review") {
+      if (adapterResult.kind !== "review") {
+        throw new Error("Executor adapter must return a review result for review block claims.");
+      }
+      stage = "Review submission";
+      const submitResult = await submitReviewResult({
+        projectRoot: options.projectRoot,
+        ref: options.claim.ref,
+        resultPath: adapterResult.resultPath,
+        session: options.session
+      });
+      return { kind: "submitted", claim: options.claim, adapterResult, submitResult };
+    }
+    if (adapterResult.kind !== "block") {
+      throw new Error(
+        "Executor adapter must return a block report for implementation block claims."
+      );
+    }
+    stage = "Implementation submission";
+    const submitResult = await submitBlockResult({
       projectRoot: options.projectRoot,
       ref: options.claim.ref,
-      resultPath: adapterResult.resultPath,
+      reportPath: adapterResult.reportPath,
+      runId: adapterResult.runId,
       session: options.session
     });
     return { kind: "submitted", claim: options.claim, adapterResult, submitResult };
+  } catch (error) {
+    return markBlockPipelineFailure({
+      projectRoot: options.projectRoot,
+      ref: options.claim.ref,
+      stage,
+      error,
+      session: options.session
+    });
   }
-  if (adapterResult.kind !== "block") {
-    throw new Error("Executor adapter must return a block report for implementation block claims.");
+}
+
+async function executeBatchRef(options: {
+  projectRoot: PackageWorkspaceRef;
+  ref: string;
+  executor: ExecutorAdapter;
+  session?: ExecutionGraphSession;
+}): Promise<SubmittedOrManualStep | BlockedStep> {
+  let claim: BlockClaim;
+  try {
+    claim = await claimForBatchRef(options);
+  } catch (error) {
+    return markBlockPipelineFailure({
+      projectRoot: options.projectRoot,
+      ref: options.ref,
+      stage: "Batch claim preparation",
+      error,
+      session: options.session
+    });
   }
-  const submitResult = await submitBlockResult({
+  return executeBlockClaim({
     projectRoot: options.projectRoot,
-    ref: options.claim.ref,
-    reportPath: adapterResult.reportPath,
-    runId: adapterResult.runId,
+    claim,
+    executor: options.executor,
     session: options.session
   });
-  return { kind: "submitted", claim: options.claim, adapterResult, submitResult };
+}
+
+async function releaseBatchRefIfInProgress(options: {
+  projectRoot: PackageWorkspaceRef;
+  ref: string;
+  session?: ExecutionGraphSession;
+}): Promise<void> {
+  const context = await loadRuntimeReadonly({
+    projectRoot: options.projectRoot,
+    session: options.session
+  });
+  if (context.state.blocks[options.ref]?.status !== "in_progress") {
+    return;
+  }
+  await releaseInProgressBlock(options);
 }
 
 export async function runAutoRunStep(options: {
@@ -209,37 +286,51 @@ export async function runAutoRunStep(options: {
         executorName: options.executorName,
         runtime: { tmuxEnabled: options.tmuxEnabled, tmuxOwnerRunId: options.tmuxOwnerRunId }
       });
+    const settled = await Promise.allSettled(
+      claim.refs.map((ref) =>
+        executeBatchRef({
+          projectRoot: options.projectRoot,
+          ref,
+          executor,
+          session: options.session
+        })
+      )
+    );
     const steps: SubmittedOrManualStep[] = [];
-    const executedRefs = new Set<string>();
-    for (const ref of claim.refs) {
-      const blockClaim = await claimForBatchRef({
-        projectRoot: options.projectRoot,
-        ref,
-        session: options.session
-      });
-      const step = await executeBlockClaim({
-        projectRoot: options.projectRoot,
-        claim: blockClaim,
-        executor,
-        session: options.session
-      });
-      if (step.kind === "blocked") {
-        const remainingRefs = claim.refs.filter(
-          (batchRef) => batchRef !== ref && !executedRefs.has(batchRef)
-        );
-        for (const remainingRef of remainingRefs) {
-          await releaseInProgressBlock({
-            projectRoot: options.projectRoot,
-            ref: remainingRef,
-            session: options.session
-          });
-        }
-        return step;
+    const blockedSteps: BlockedStep[] = [];
+    const executionErrors: unknown[] = [];
+    for (const result of settled) {
+      if (result.status === "rejected") {
+        executionErrors.push(result.reason);
+      } else if (result.value.kind === "blocked") {
+        blockedSteps.push(result.value);
+      } else {
+        steps.push(result.value);
       }
-      executedRefs.add(ref);
-      steps.push(step);
     }
-    return { kind: "batch_submitted", claim, steps };
+    if (blockedSteps.length === 0 && executionErrors.length === 0) {
+      return { kind: "batch_submitted", claim, steps };
+    }
+    const cleanupResults = await Promise.allSettled(
+      claim.refs.map((ref) =>
+        releaseBatchRefIfInProgress({
+          projectRoot: options.projectRoot,
+          ref,
+          session: options.session
+        })
+      )
+    );
+    const cleanupErrors = cleanupResults.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : []
+    );
+    if (executionErrors.length > 0 || cleanupErrors.length > 0) {
+      const errors = [...executionErrors, ...cleanupErrors];
+      throw new AggregateError(
+        errors,
+        `Parallel Auto Run batch failed to settle cleanly: ${errors.map(errorMessage).join("; ")}`
+      );
+    }
+    return blockedSteps[0];
   }
 
   const executor =
