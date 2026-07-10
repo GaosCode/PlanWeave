@@ -1,4 +1,4 @@
-import { mkdtemp, stat } from "node:fs/promises";
+import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import { allocateRunId } from "../autoRun/executorShared.js";
 import { claimBlock, claimNext, getExecutionStatus } from "../taskManager/index.js";
 import { loadRuntime } from "../taskManager/runtimeContext.js";
 import { updateTaskIndex } from "../taskManager/resultIndex.js";
+import { readState, writeState } from "../state.js";
 import type { PlanPackageManifest } from "../types.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 
@@ -130,5 +131,22 @@ describe("state concurrency", () => {
     await getExecutionStatus({ projectRoot: root });
     const after = await stat(init.workspace.stateFile);
     expect(after.mtimeMs).toBe(before.mtimeMs);
+  });
+
+  it("does not persist derived state during a dry-run claim", async () => {
+    const { root, init } = await createTestWorkspace();
+    const { state } = await loadRuntime({ projectRoot: root });
+    delete state.blocks["T-001#B-001"];
+    await writeState(init.workspace.stateFile, state);
+    expect((await readState(init.workspace.stateFile)).blocks["T-001#B-001"]).toBeUndefined();
+    const before = await readFile(init.workspace.stateFile, "utf8");
+
+    await expect(claimNext({ projectRoot: root, dryRun: true })).resolves.toMatchObject({
+      kind: "block",
+      ref: "T-001#B-001"
+    });
+
+    expect(await readFile(init.workspace.stateFile, "utf8")).toBe(before);
+    expect((await readState(init.workspace.stateFile)).blocks["T-001#B-001"]).toBeUndefined();
   });
 });

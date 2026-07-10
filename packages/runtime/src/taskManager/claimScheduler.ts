@@ -15,7 +15,7 @@ import { buildClaimReadiness, type ClaimCandidate } from "./claimReadiness.js";
 import { patchFeedbackArtifact } from "./feedbackArtifacts.js";
 import { createProjectGraphClaimGuard } from "./projectGraphClaimGuard.js";
 import { updateTaskIndex } from "./resultIndex.js";
-import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
+import { loadRuntime, loadRuntimeReadonly, refreshDerivedState } from "./runtimeContext.js";
 import {
   markClaimed,
   effectiveBlockExecutor,
@@ -69,12 +69,17 @@ async function claimNextUnlocked(options: {
   scope?: ClaimScope;
   session?: ExecutionGraphSession;
 }): Promise<ClaimResult> {
-  const context = await loadRuntime(options);
+  const dryRun = options.dryRun === true;
+  let context: Awaited<ReturnType<typeof loadRuntime>>;
+  if (dryRun) {
+    context = await loadRuntimeReadonly(options);
+  } else {
+    context = await loadRuntime(options);
+  }
   let { state } = context;
   const { graph, manifest, workspace } = context;
   const scope = normalizeClaimScope(options.scope);
   const blockType = options.blockType;
-  const dryRun = options.dryRun === true;
   const invalidScope = validateClaimScope(scope, graph);
   if (invalidScope) {
     return invalidScope;

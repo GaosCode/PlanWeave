@@ -10,7 +10,7 @@ import type {
   PlanPackageManifest,
   RetryReviewResult
 } from "../types.js";
-import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
+import { loadRuntime, loadRuntimeReadonly, refreshDerivedState } from "./runtimeContext.js";
 import { clearReviewCompletionReason } from "./resultIndex.js";
 import { blockDependenciesCompleted, blockInScope } from "./selectors.js";
 
@@ -121,7 +121,7 @@ export async function retryReview(options: {
   maxFeedbackCycles: number;
 }): Promise<RetryReviewResult> {
   const maxFeedbackCycles = requireMaxFeedbackCycles(options.maxFeedbackCycles);
-  const context = await loadRuntime({ projectRoot: options.projectRoot });
+  const context = await loadRuntimeReadonly({ projectRoot: options.projectRoot });
   const { workspace, manifest, graph } = context;
   const block = graph.blocksByRef.get(options.ref);
   if (!block) {
@@ -139,7 +139,7 @@ export async function retryReview(options: {
     projectRoot: workspace,
     scope: { kind: "block", blockRef: options.ref }
   });
-  const updated = await loadRuntime({ projectRoot: workspace });
+  const updated = await loadRuntimeReadonly({ projectRoot: workspace });
   const status = updated.state.blocks[options.ref]?.status ?? "planned";
   return {
     ref: options.ref,

@@ -1,6 +1,6 @@
-import { access, utimes, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { access, mkdir, rm, utimes, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
 import {
   claimNext,
   getExecutionStatus,
@@ -10,13 +10,15 @@ import {
   submitReviewResult
 } from "../taskManager/index.js";
 import { loadPackage } from "../package/loadPackage.js";
-import { readJsonFile } from "../json.js";
-import type { TaskResultIndex } from "../types.js";
+import { readJsonFile, writeJsonFile } from "../json.js";
+import { readState } from "../state.js";
+import type { PlanPackageManifest, TaskResultIndex } from "../types.js";
 import {
   basicManifest,
   createTestWorkspace,
   writeReport,
-  writeReviewResult
+  writeReviewResult,
+  writePromptFiles
 } from "./promptTestHelpers.js";
 
 async function completeImplementation(root: string): Promise<void> {
@@ -152,6 +154,61 @@ describe("submitReviewResult max feedback cycles", () => {
     await expect(claimNext({ projectRoot: root })).resolves.toMatchObject({
       kind: "block",
       ref: "T-001#R-001"
+    });
+  });
+
+  it("does not persist derived state before retry-review acquires the canvas lock", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ reviewMaxFeedbackCycles: 0 }));
+    await completeImplementation(root);
+    await submitReviewResult({
+      projectRoot: root,
+      ref: "T-001#R-001",
+      resultPath: await writeReviewResult(root, "needs_changes", "No cycles allowed.")
+    });
+
+    const expandedManifest = basicManifest({
+      reviewMaxFeedbackCycles: 0,
+      includeSecondTask: true
+    });
+    await writeJsonFile(init.workspace.manifestFile, expandedManifest);
+    await writePromptFiles(init.workspace.packageDir, expandedManifest);
+    expect((await readState(init.workspace.stateFile)).blocks["T-002#B-001"]).toBeUndefined();
+
+    const lockPath = join(dirname(init.workspace.stateFile), ".planweave.lock");
+    await mkdir(lockPath);
+    const retry = retryReview({
+      projectRoot: root,
+      ref: "T-001#R-001",
+      maxFeedbackCycles: 3
+    });
+    try {
+      await vi.waitFor(async () => {
+        const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+        const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+        let reviewMaxFeedbackCycles: number | null = null;
+        if (task?.type === "task") {
+          const review = task.blocks.find((block) => block.id === "R-001");
+          if (review?.type === "review") {
+            reviewMaxFeedbackCycles = review.review.maxFeedbackCycles;
+          }
+        }
+        expect(reviewMaxFeedbackCycles).toBe(3);
+      });
+
+      const stateWhileLocked = await readState(init.workspace.stateFile);
+      expect(stateWhileLocked.blocks["T-002#B-001"]).toBeUndefined();
+    } finally {
+      await rm(lockPath, { recursive: true, force: true });
+    }
+
+    await expect(retry).resolves.toMatchObject({
+      ref: "T-001#R-001",
+      status: "ready",
+      maxFeedbackCycles: 3,
+      reset: true
+    });
+    expect((await readState(init.workspace.stateFile)).blocks["T-002#B-001"]).toMatchObject({
+      status: "ready"
     });
   });
 });
