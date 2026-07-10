@@ -58,6 +58,7 @@ import { useTaskExecutorActions } from "./hooks/useTaskExecutorActions";
 import { useDesktopProjectActions } from "./hooks/useDesktopProjectActions";
 import { useGraphFlowModel } from "./hooks/useGraphFlowModel";
 import { useGraphHistoryActions } from "./hooks/useGraphHistoryActions";
+import { useLockHighlight } from "./hooks/useLockHighlight";
 import { useLerpedNodeDrag } from "./hooks/useLerpedNodeDrag";
 import { buildAppSettingsRouteProps } from "./AppSettingsRouteProps";
 import { useAutoRunController, useFileSyncController } from "./controllers/AutoRunController";
@@ -418,6 +419,45 @@ export function ProjectWorkspaceProvider({
     titleDrafts
   } = usePromptDrafts({ graph, refreshGraph, selectedCanvasId, selectedProject, setError });
 
+  const {
+    activeLock,
+    pinnedLock,
+    releaseEpochByLock,
+    onLockHover,
+    onLockPin,
+    clearPin: clearPinnedLock,
+    setPinnedLock
+  } = useLockHighlight(graph);
+
+  const handleJumpToTask = useCallback(
+    (taskId: string) => {
+      handleTaskPanelSelect(taskId);
+      if (flowInstance) {
+        void flowInstance.fitView({
+          nodes: [{ id: taskId }],
+          maxZoom: 1.2,
+          duration: 200
+        });
+      }
+    },
+    [flowInstance, handleTaskPanelSelect]
+  );
+
+  const handleLockOverflow = useCallback(
+    (_taskId: string) => {
+      // Overflow opens the resource panel for the first lock of the task (or active pin).
+      if (pinnedLock) {
+        return;
+      }
+      const task = graph?.tasks.find((item) => item.taskId === _taskId);
+      const firstLock = task?.locks[0];
+      if (firstLock) {
+        setPinnedLock(firstLock);
+      }
+    },
+    [graph, pinnedLock, setPinnedLock]
+  );
+
   const { handleTaskExecutorChange } = useTaskExecutorActions({
     refreshGraph,
     selectedCanvasId,
@@ -550,6 +590,25 @@ export function ProjectWorkspaceProvider({
     [setError, setSuccessMessage, t]
   );
 
+  const lockUi = useMemo(
+    () => ({
+      activeLock,
+      releaseEpochByLock,
+      onLockHover,
+      onLockPin,
+      onLockOverflow: handleLockOverflow,
+      onJumpToTask: handleJumpToTask
+    }),
+    [
+      activeLock,
+      releaseEpochByLock,
+      onLockHover,
+      onLockPin,
+      handleLockOverflow,
+      handleJumpToTask
+    ]
+  );
+
   useGraphFlowModel({
     blockActions: {
       saveSelectedBlockExecutor,
@@ -577,7 +636,8 @@ export function ProjectWorkspaceProvider({
       graph,
       layout,
       selectedBlock,
-      t
+      t,
+      lockUi
     },
     taskActions: {
       handleDeleteBlock,
@@ -732,7 +792,12 @@ export function ProjectWorkspaceProvider({
     selectedBlock,
     setSuccessMessage,
     setFlowInstance,
-    t
+    t,
+    pinnedLock,
+    onLockHover,
+    onLockPin,
+    clearPinnedLock,
+    refreshGraphLocks: refreshGraph
   });
   const review = useMemo<WorkspaceTabsReviewProps>(
     () => ({

@@ -57,7 +57,21 @@ export type TaskNodeLabels = {
   runBlock: string;
   deleteTaskConfirm: string;
   deleteBlockConfirm: string;
+  exclusiveLock: string;
+  heldBy: string;
+  waitingForResource: string;
+  moreLocks: (count: number) => string;
 };
+
+export type TaskLockState =
+  | { kind: "free" }
+  | { kind: "heldByThis" }
+  | { kind: "heldElsewhere"; holderRef: string; holderTaskId: string };
+
+export type TaskDispatchState =
+  | { kind: "none" }
+  | { kind: "dispatchable" }
+  | { kind: "waiting"; lock: string; holderRef: string; holderTaskId: string };
 
 export type TaskNodeData = {
   task: DesktopTaskNodeViewModel;
@@ -71,6 +85,16 @@ export type TaskNodeData = {
   blockRunRecords: DesktopBlockRunRecordSummary[];
   blockReviewAttempts: DesktopReviewAttemptSummary[];
   blockFeedbackRecords: DesktopFeedbackRecord[];
+  /** Effective locks from runtime DTO (not recomputed). */
+  locks: string[];
+  lockStates: Record<string, TaskLockState>;
+  dispatchState: TaskDispatchState;
+  highlightedLock: string | null;
+  /** True when this node is a member of the active lock highlight group. */
+  lockHighlighted: boolean;
+  /** True when some other lock group is highlighted and this node is not a member. */
+  dimmed: boolean;
+  releaseEpochByLock: Record<string, number>;
   onTitleChange: (taskId: string, value: string) => void;
   onTitleSave: (taskId: string) => void;
   onExecutorChange: (taskId: string, executorName: string | null) => void;
@@ -91,6 +115,10 @@ export type TaskNodeData = {
   onBlockExecutorChange: (executorName: string | null) => void;
   onBlockPromptSave: () => void;
   onOpenRunRecord: (recordId: string | null | undefined) => void;
+  onLockHover: (name: string | null) => void;
+  onLockPin: (name: string | null) => void;
+  onLockOverflow: (taskId: string) => void;
+  onJumpToTask: (taskId: string) => void;
 };
 
 export type TaskFlowNode = Node<TaskNodeData, "task">;

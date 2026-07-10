@@ -17,9 +17,20 @@ import {
   dependencyEdgeSourceColors
 } from "./dependencyEdgeVisual";
 import { displayEdgeManifestData, executionFlowEndpoints } from "./dependencyEdges";
+import { buildTaskDispatchState, buildTaskLockStates } from "./taskLockViewModel";
+import { lockColor } from "./lockColors";
 
 export const nodeTypes = {
   task: TaskNodeCard
+};
+
+export type GraphLockUiState = {
+  activeLock: string | null;
+  releaseEpochByLock: Record<string, number>;
+  onLockHover: TaskNodeData["onLockHover"];
+  onLockPin: TaskNodeData["onLockPin"];
+  onLockOverflow: TaskNodeData["onLockOverflow"];
+  onJumpToTask: TaskNodeData["onJumpToTask"];
 };
 
 export type AppNodeTypes = typeof nodeTypes;
@@ -177,16 +188,32 @@ export function graphNodes(
   onBlockTitleSave: TaskNodeData["onBlockTitleSave"],
   onBlockExecutorChange: TaskNodeData["onBlockExecutorChange"],
   onBlockPromptSave: TaskNodeData["onBlockPromptSave"],
-  onOpenRunRecord: TaskNodeData["onOpenRunRecord"]
+  onOpenRunRecord: TaskNodeData["onOpenRunRecord"],
+  lockUi: GraphLockUiState = {
+    activeLock: null,
+    releaseEpochByLock: {},
+    onLockHover: () => undefined,
+    onLockPin: () => undefined,
+    onLockOverflow: () => undefined,
+    onJumpToTask: () => undefined
+  }
 ): AppFlowNode[] {
   const layoutByNode = new Map(layout?.nodes.map((node) => [node.nodeId, node]) ?? []);
   const defaultPositions = defaultTaskNodePositions(graph);
+  const lockGroups = graph.lockGroups ?? [];
+  const activeGroup = lockUi.activeLock
+    ? lockGroups.find((group) => group.name === lockUi.activeLock)
+    : null;
+  const activeMembers = new Set(activeGroup?.memberTaskIds ?? []);
   const taskNodes: TaskFlowNode[] = graph.tasks.map((task, index) => {
     const saved = layoutByNode.get(task.taskId);
     const defaultPosition = defaultPositions.get(task.taskId) ?? {
       x: defaultLayoutOrigin.x + (index % 3) * defaultLayoutColumnGap,
       y: defaultLayoutOrigin.y + Math.floor(index / 3) * defaultLayoutRowGap
     };
+    const locks = task.locks ?? [];
+    const lockHighlighted = lockUi.activeLock != null && activeMembers.has(task.taskId);
+    const dimmed = lockUi.activeLock != null && !activeMembers.has(task.taskId);
     return {
       id: task.taskId,
       type: "task",
@@ -203,6 +230,13 @@ export function graphNodes(
         blockRunRecords,
         blockReviewAttempts,
         blockFeedbackRecords,
+        locks,
+        lockStates: buildTaskLockStates(task, lockGroups),
+        dispatchState: buildTaskDispatchState(task),
+        highlightedLock: lockUi.activeLock,
+        lockHighlighted,
+        dimmed,
+        releaseEpochByLock: lockUi.releaseEpochByLock,
         onTitleChange,
         onTitleSave,
         onExecutorChange,
@@ -222,14 +256,21 @@ export function graphNodes(
         onBlockTitleSave,
         onBlockExecutorChange,
         onBlockPromptSave,
-        onOpenRunRecord
+        onOpenRunRecord,
+        onLockHover: lockUi.onLockHover,
+        onLockPin: lockUi.onLockPin,
+        onLockOverflow: lockUi.onLockOverflow,
+        onJumpToTask: lockUi.onJumpToTask
       }
     };
   });
   return taskNodes;
 }
 
-export function graphEdges(graph: DesktopGraphViewModel): Edge[] {
+export function graphEdges(
+  graph: DesktopGraphViewModel,
+  options: { activeLock?: string | null } = {}
+): Edge[] {
   const nodeIds = new Set(graph.tasks.map((task) => task.taskId));
   const dependencyLinks = graph.edges
     .map(executionFlowEndpoints)
@@ -238,6 +279,12 @@ export function graphEdges(graph: DesktopGraphViewModel): Edge[] {
     graph.tasks.map((task) => task.taskId),
     dependencyLinks
   );
+  const lockGroups = graph.lockGroups ?? [];
+  const activeGroup = options.activeLock
+    ? lockGroups.find((group) => group.name === options.activeLock)
+    : null;
+  const activeMembers = new Set(activeGroup?.memberTaskIds ?? []);
+  const dimEdges = options.activeLock != null;
   return graph.edges
     .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to))
     .map((edge) => {
@@ -246,6 +293,9 @@ export function graphEdges(graph: DesktopGraphViewModel): Edge[] {
       const edgeId = `${edge.from}-${edge.type}-${edge.to}`;
       const color =
         sourceColors.get(endpoints.source) ?? dependencyEdgeColorForSource(endpoints.source);
+      const edgeTouchesGroup =
+        activeMembers.has(endpoints.source) && activeMembers.has(endpoints.target);
+      const opacity = dimEdges && !edgeTouchesGroup ? 0.4 : dependencyEdgeDefaultOpacity;
       return {
         id: edgeId,
         source: endpoints.source,
@@ -254,8 +304,9 @@ export function graphEdges(graph: DesktopGraphViewModel): Edge[] {
           ...displayEdgeManifestData(edge),
           sourceTaskId: endpoints.source,
           targetTaskId: endpoints.target,
-          sourceColor: color
-        } satisfies GraphEdgeData,
+          sourceColor: color,
+          dimmed: dimEdges && !edgeTouchesGroup
+        } satisfies GraphEdgeData & { dimmed: boolean },
         animated: false,
         type: isTaskDependency ? taskDependencyEdgeType : "default",
         markerEnd: {
@@ -267,9 +318,13 @@ export function graphEdges(graph: DesktopGraphViewModel): Edge[] {
         style: {
           stroke: color,
           strokeWidth: isTaskDependency ? 2.2 : 1.9,
-          opacity: dependencyEdgeDefaultOpacity,
+          opacity,
           transition: "opacity 120ms ease, stroke-width 120ms ease"
         }
       } satisfies Edge;
     });
+}
+
+export function activeLockHighlightColor(lockName: string | null): string | null {
+  return lockName ? lockColor(lockName).dot : null;
 }

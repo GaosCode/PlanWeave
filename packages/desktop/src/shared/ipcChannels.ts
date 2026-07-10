@@ -105,6 +105,8 @@ export const desktopBridgeInvokeChannels = {
   stopAutoRun: "planweave:stopAutoRun",
   testExecutorProfile: "planweave:testExecutorProfile",
   unblockBlock: "planweave:unblockBlock",
+  markBlockedBlock: "planweave:markBlockedBlock",
+  dispatchBlock: "planweave:dispatchBlock",
   unlinkProjectSourceRoot: "planweave:unlinkProjectSourceRoot",
   unwatchPackageFiles: "planweave:unwatchPackageFiles",
   unwatchRuntimeState: "planweave:unwatchRuntimeState",

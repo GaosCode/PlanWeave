@@ -10,7 +10,7 @@ import type {
   DesktopLayout,
   DesktopReviewAttemptSummary
 } from "@planweave-ai/runtime";
-import { graphEdges, graphNodes } from "../graph/flowModel";
+import { graphEdges, graphNodes, type GraphLockUiState } from "../graph/flowModel";
 import { taskNodeLabels } from "../graph/taskNodeLabels";
 import type { createTranslator } from "../i18n";
 import type { AppFlowNode, TaskNodeData } from "../types";
@@ -22,6 +22,7 @@ type GraphFlowSource = {
   layout: DesktopLayout | null;
   selectedBlock: DesktopBlockDetail | null;
   t: ReturnType<typeof createTranslator>;
+  lockUi?: GraphLockUiState;
 };
 
 type GraphFlowDrafts = {
@@ -83,8 +84,14 @@ export function useGraphFlowModel({
   source,
   taskActions
 }: UseGraphFlowModelArgs) {
-  const { agentDetections, executorOptions, graph, layout, selectedBlock, t } = source;
+  const { agentDetections, executorOptions, graph, layout, selectedBlock, t, lockUi } = source;
   const { promptDrafts, saveStates, titleDrafts } = drafts;
+  const activeLock = lockUi?.activeLock ?? null;
+  const releaseEpochByLock = lockUi?.releaseEpochByLock;
+  const onLockHover = lockUi?.onLockHover;
+  const onLockPin = lockUi?.onLockPin;
+  const onLockOverflow = lockUi?.onLockOverflow;
+  const onJumpToTask = lockUi?.onJumpToTask;
   const { blockFeedbackRecords, blockReviewAttempts, blockRunRecords } = records;
   const {
     handleDeleteBlock,
@@ -113,6 +120,14 @@ export function useGraphFlowModel({
       setEdges([]);
       return;
     }
+    const resolvedLockUi: GraphLockUiState = {
+      activeLock,
+      releaseEpochByLock: releaseEpochByLock ?? {},
+      onLockHover: onLockHover ?? (() => undefined),
+      onLockPin: onLockPin ?? (() => undefined),
+      onLockOverflow: onLockOverflow ?? (() => undefined),
+      onJumpToTask: onJumpToTask ?? (() => undefined)
+    };
     setNodes(
       graphNodes(
         graph,
@@ -146,11 +161,18 @@ export function useGraphFlowModel({
         saveSelectedBlockTitle,
         saveSelectedBlockExecutor,
         saveSelectedBlockPrompt,
-        handleOpenRunRecord
+        handleOpenRunRecord,
+        resolvedLockUi
       )
     );
-    setEdges(graphEdges(graph));
+    setEdges(graphEdges(graph, { activeLock }));
   }, [
+    activeLock,
+    releaseEpochByLock,
+    onLockHover,
+    onLockPin,
+    onLockOverflow,
+    onJumpToTask,
     blockFeedbackRecords,
     blockReviewAttempts,
     blockRunRecords,

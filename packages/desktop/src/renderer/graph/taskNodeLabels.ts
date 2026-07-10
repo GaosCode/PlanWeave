@@ -31,6 +31,10 @@ export function taskNodeLabels(t: ReturnType<typeof createTranslator>): TaskNode
     runTask: t("runTask"),
     runBlock: t("runBlock"),
     deleteTaskConfirm: t("deleteTaskConfirm"),
-    deleteBlockConfirm: t("deleteBlockConfirm")
+    deleteBlockConfirm: t("deleteBlockConfirm"),
+    exclusiveLock: t("exclusiveLock"),
+    heldBy: t("heldBy"),
+    waitingForResource: t("waitingForResource"),
+    moreLocks: (count: number) => t("moreLocks").replace("{count}", String(count))
   };
 }

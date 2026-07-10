@@ -586,5 +586,18 @@ export const zhCnCatalog = {
   openProjectBridgeUnavailable:
     "项目文件夹选择只能在桌面应用中使用。请打开 PlanWeave Desktop 并选择项目根目录。",
   openProjectFailedHint: "无法打开项目。请确认选择的是源码项目根目录后重试。",
-  dismissError: "关闭错误提示"
+  dismissError: "关闭错误提示",
+  resources: "资源",
+  waitingForResource: "等待资源",
+  heldBy: "持有者",
+  exclusiveLock: "独占",
+  markBlockedRelease: "标记受阻并释放",
+  dispatchNow: "立即派发",
+  unblock: "解除受阻",
+  blockedReasonRequired: "必须填写非空原因。",
+  moreLocks: "+{count}",
+  unpinResource: "取消固定",
+  resourceMembers: "成员",
+  lockHeld: "占用中",
+  lockFree: "空闲"
 } satisfies Record<TranslationKey, string>;

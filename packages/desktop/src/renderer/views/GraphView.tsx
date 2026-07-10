@@ -35,15 +35,24 @@ import type {
 } from "@planweave-ai/runtime";
 import { ChevronRightIcon, NetworkIcon, Redo2Icon, Undo2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
 import { styleDependencyEdgesForInteraction } from "../graph/dependencyEdgeVisual";
 import type { AppEdgeTypes, AppNodeTypes } from "../graph/flowModel";
+import { lockColor } from "../graph/lockColors";
 import { useEdgeReconnect } from "../hooks/useEdgeReconnect";
+import { ResourceInspector } from "../inspector/ResourceInspector";
 import type { AppView } from "../types";
 import type { createTranslator } from "../i18n";
 import { GraphEmptyState } from "./GraphEmptyState";
 import { FloatingAutoRunControl } from "../run/FloatingAutoRunControl";
 import type { AutoRunNextActionDescriptor } from "../run/autoRunNextActions";
 import type { AppFlowNode, AutoRunScopeMode } from "../types";
+import { desktopCanvasReference } from "../bridge";
 
 type GraphViewProps = {
   autoRunControlStyle: CSSProperties;
@@ -98,6 +107,11 @@ type GraphViewProps = {
   visibleTaskIds: Set<string>;
   visibleTasks: DesktopGraphViewModel["tasks"] | undefined;
   onNodeDragStop: (event: MouseEvent, node: Node) => Promise<void>;
+  pinnedLock: string | null;
+  onLockHover: (name: string | null) => void;
+  onLockPin: (name: string | null) => void;
+  clearPinnedLock: () => void;
+  refreshGraphLocks: () => Promise<void>;
 };
 
 export function GraphView({
@@ -152,7 +166,12 @@ export function GraphView({
   stopAutoRunControlDrag,
   t,
   visibleTaskIds,
-  visibleTasks
+  visibleTasks,
+  pinnedLock,
+  onLockHover,
+  onLockPin,
+  clearPinnedLock,
+  refreshGraphLocks
 }: GraphViewProps) {
   const fittedGraphScopeId = useRef<string | null>(null);
   const [localFlowInstance, setLocalFlowInstance] = useState<ReactFlowInstance<
@@ -299,6 +318,9 @@ export function GraphView({
             setHoveredEdgeId(null);
             setHoveredNodeId(null);
           }}
+          onPaneClick={() => {
+            clearPinnedLock();
+          }}
           onNodeDragStop={(event, node) => void onNodeDragStop(event, node)}
           onInit={handleFlowInit}
           proOptions={{ hideAttribution: true }}
@@ -343,8 +365,72 @@ export function GraphView({
               <Redo2Icon />
             </Button>
           </div>
+          {(graph.lockGroups ?? []).length > 0 ? (
+            <div className="flex h-full border-l border-border/70">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    className="pointer-events-auto h-full rounded-none border-0 px-2.5 text-xs text-text-muted shadow-none hover:bg-surface-muted hover:text-text-strong"
+                    data-testid="graph-resources-legend"
+                    variant="ghost"
+                  >
+                    {t("resources")}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-[220px]">
+                  {(graph.lockGroups ?? []).map((group) => {
+                    const color = lockColor(group.name);
+                    return (
+                      <DropdownMenuItem
+                        key={group.name}
+                        data-testid="graph-resources-legend-item"
+                        data-lock-name={group.name}
+                        onMouseEnter={() => onLockHover(group.name)}
+                        onMouseLeave={() => onLockHover(null)}
+                        onSelect={() => onLockPin(group.name)}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="mr-2 inline-block size-2.5 rounded-full"
+                          style={{ backgroundColor: color.dot }}
+                        />
+                        <span className="flex-1 truncate">
+                          {group.name === "exclusive" ? t("exclusiveLock") : group.name}
+                        </span>
+                        <span className="ml-2 text-xs text-text-faint">
+                          {group.memberTaskIds.length}
+                          {group.holderRef ? ` · ${t("lockHeld")}` : ` · ${t("lockFree")}`}
+                        </span>
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ) : null}
         </div>
       ) : null}
+      {graph && pinnedLock
+        ? (() => {
+            const lockGroup = (graph.lockGroups ?? []).find((group) => group.name === pinnedLock);
+            if (!lockGroup || !selectedProject) {
+              return null;
+            }
+            return (
+              <div className="pointer-events-none absolute right-3 top-14 z-20">
+                <ResourceInspector
+                  canvasRef={desktopCanvasReference(selectedProject, selectedCanvasId)}
+                  graph={graph}
+                  lockGroup={lockGroup}
+                  onClose={clearPinnedLock}
+                  onJumpToTask={(taskId) => onTaskPanelSelect(taskId)}
+                  onRefresh={refreshGraphLocks}
+                  t={t}
+                />
+              </div>
+            );
+          })()
+        : null}
       <FloatingAutoRunControl
         autoRunScopeMode={autoRunScopeMode}
         autoRunNextAction={autoRunNextAction}

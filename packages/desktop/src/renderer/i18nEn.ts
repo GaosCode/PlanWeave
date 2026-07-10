@@ -612,7 +612,20 @@ export const enCatalog = {
     "Project folder selection is only available in the desktop app. Please open PlanWeave Desktop and choose a project root.",
   openProjectFailedHint:
     "Could not open the project. Please choose the source project root and try again.",
-  dismissError: "Dismiss error"
+  dismissError: "Dismiss error",
+  resources: "Resources",
+  waitingForResource: "Waiting for resource",
+  heldBy: "Held by",
+  exclusiveLock: "Exclusive",
+  markBlockedRelease: "Mark blocked & release",
+  dispatchNow: "Dispatch now",
+  unblock: "Unblock",
+  blockedReasonRequired: "A non-empty reason is required.",
+  moreLocks: "+{count}",
+  unpinResource: "Unpin",
+  resourceMembers: "Members",
+  lockHeld: "Held",
+  lockFree: "Free"
 } as const;
 
 export type TranslationKey = keyof typeof enCatalog;

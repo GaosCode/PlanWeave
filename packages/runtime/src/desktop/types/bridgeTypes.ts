@@ -53,6 +53,7 @@ import type {
   DesktopRuntimeResetResult
 } from "./runTypes.js";
 import type { ExecutorPreflightResult } from "../../autoRun/executorPreflightTypes.js";
+import type { ClaimResult } from "../../types.js";
 import type { CanvasExecutionPolicyInput } from "../graph/editModelTypes.js";
 
 export type DesktopAgentKind = "codex" | "claude-code" | "opencode" | "pi";
@@ -369,6 +370,15 @@ export type DesktopBridgeApi = {
     options?: DesktopRuntimeResetOptions
   ): Promise<DesktopRuntimeResetResult>;
   unblockBlock(ref: DesktopCanvasReference, blockRef: string, reason: string): Promise<void>;
+  /**
+   * Mark an in-progress block blocked (releases locks via currentRefs) with a non-empty reason.
+   */
+  markBlockedBlock(ref: DesktopCanvasReference, blockRef: string, reason: string): Promise<void>;
+  /**
+   * Dispatch-claim a ready implementation block when locks allow.
+   * Returns ClaimResult so the UI can surface refused dispatch reasons.
+   */
+  dispatchBlock(ref: DesktopCanvasReference, blockRef: string): Promise<ClaimResult>;
   pauseAutoRun(runId: string): Promise<DesktopAutoRunState>;
   resumeAutoRun(runId: string): Promise<DesktopAutoRunState>;
   stopAutoRun(runId: string): Promise<DesktopAutoRunState>;

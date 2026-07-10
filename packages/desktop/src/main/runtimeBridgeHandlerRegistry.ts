@@ -72,9 +72,11 @@ import {
   searchProject,
   searchProjectWithDiagnostics,
   selectTaskCanvas,
+  claimBlock,
   startAutoRun,
   stopAutoRun,
   testExecutorProfile,
+  markBlockBlocked,
   unblockBlock,
   unlinkProjectSourceRoot,
   updateBlockExecutor,
@@ -512,6 +514,19 @@ export const runtimeBridgeHandlers = {
       reason
     });
   },
+  markBlockedBlock: async (_event, ref, blockRef, reason) => {
+    await markBlockBlocked({
+      projectRoot: await resolveDesktopCanvasReference(ref),
+      ref: blockRef,
+      reason
+    });
+  },
+  dispatchBlock: async (_event, ref, blockRef) =>
+    claimBlock({
+      projectRoot: await resolveDesktopCanvasReference(ref),
+      ref: blockRef,
+      dispatch: true
+    }),
   pauseAutoRun: (_event, runId) => pauseAutoRun(runId),
   resumeAutoRun: (_event, runId) => resumeAutoRun(runId),
   stopAutoRun: (_event, runId) => stopAutoRun(runId),
