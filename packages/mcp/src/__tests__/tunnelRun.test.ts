@@ -281,6 +281,7 @@ describe("MCP tunnel runner", () => {
           port?: number | null;
           token?: string | null;
           oauth?: { enabled: boolean } | null;
+          trustForwardedHeaders?: boolean;
         }
       | undefined;
 
@@ -320,6 +321,7 @@ describe("MCP tunnel runner", () => {
     }
     expect(startInput?.token).toBe("mcp-serve-token");
     expect(startInput?.oauth).toBeNull();
+    expect(startInput?.trustForwardedHeaders).toBe(true);
   });
 
   it("passes oauth.enabled when serving with PLANWEAVE_MCP_OAUTH_ENABLED only", async () => {
@@ -345,7 +347,13 @@ describe("MCP tunnel runner", () => {
           host?: string | null;
           port?: number | null;
           token?: string | null;
-          oauth?: { enabled: boolean; clientStorePath?: string; tokenStorePath?: string } | null;
+          oauth?: {
+            enabled: boolean;
+            clientStorePath?: string;
+            tokenStorePath?: string;
+            redirectUriPrefixes?: string[];
+          } | null;
+          trustForwardedHeaders?: boolean;
         }
       | undefined;
 
@@ -357,7 +365,9 @@ describe("MCP tunnel runner", () => {
           OPENAI_RUNTIME_API_KEY: "runtime-key",
           PLANWEAVE_MCP_OAUTH_ENABLED: "true",
           PLANWEAVE_MCP_OAUTH_CLIENT_STORE: "/tmp/planweave-oauth-clients.json",
-          PLANWEAVE_MCP_OAUTH_TOKEN_STORE: "/tmp/planweave-oauth-tokens.json"
+          PLANWEAVE_MCP_OAUTH_TOKEN_STORE: "/tmp/planweave-oauth-tokens.json",
+          PLANWEAVE_MCP_OAUTH_REDIRECT_URI_PREFIXES:
+            " https://chat.openai.com/, ,https://chatgpt.com/ "
         }
       },
       {
@@ -386,10 +396,12 @@ describe("MCP tunnel runner", () => {
       clearInterval(interval);
     }
     expect(startInput?.token).toBeNull();
+    expect(startInput?.trustForwardedHeaders).toBe(true);
     expect(startInput?.oauth).toEqual({
       enabled: true,
       clientStorePath: "/tmp/planweave-oauth-clients.json",
-      tokenStorePath: "/tmp/planweave-oauth-tokens.json"
+      tokenStorePath: "/tmp/planweave-oauth-tokens.json",
+      redirectUriPrefixes: ["https://chat.openai.com/", "https://chatgpt.com/"]
     });
   });
 });

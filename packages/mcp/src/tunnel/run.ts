@@ -1,4 +1,4 @@
-import type { McpOAuthConfig } from "../config.js";
+import { parseMcpOAuthRedirectUriPrefixes, type McpOAuthConfig } from "../config.js";
 import { LocalMcpServerManager } from "./localMcpServer.js";
 import { TunnelClientProcessManager } from "./process.js";
 import { resolveTunnelClientBinaryStartTarget } from "./binary.js";
@@ -17,6 +17,7 @@ type RunLocalMcpManager = {
     port?: number | null;
     token?: string | null;
     oauth?: McpOAuthConfig | null;
+    trustForwardedHeaders?: boolean;
   }): Promise<LocalMcpServerStatus>;
   stop(): Promise<LocalMcpServerStatus>;
 };
@@ -63,10 +64,14 @@ function servedMcpOAuthConfig(env: NodeJS.ProcessEnv): McpOAuthConfig | undefine
   }
   const clientStorePath = env.PLANWEAVE_MCP_OAUTH_CLIENT_STORE?.trim();
   const tokenStorePath = env.PLANWEAVE_MCP_OAUTH_TOKEN_STORE?.trim();
+  const redirectUriPrefixes = parseMcpOAuthRedirectUriPrefixes(
+    env.PLANWEAVE_MCP_OAUTH_REDIRECT_URI_PREFIXES
+  );
   return {
     enabled: true,
     ...(clientStorePath ? { clientStorePath } : {}),
-    ...(tokenStorePath ? { tokenStorePath } : {})
+    ...(tokenStorePath ? { tokenStorePath } : {}),
+    ...(redirectUriPrefixes ? { redirectUriPrefixes } : {})
   };
 }
 
@@ -129,7 +134,8 @@ export async function runMcpTunnel(
       host: serverHostFromUrl(mcpUrl),
       port: serverPortFromUrl(mcpUrl),
       token: env.PLANWEAVE_MCP_TOKEN?.trim() || null,
-      oauth: servedMcpOAuthConfig(env) ?? null
+      oauth: servedMcpOAuthConfig(env) ?? null,
+      trustForwardedHeaders: true
     });
     if (localStatus.phase !== "running") {
       throw new Error(localStatus.error ?? "Failed to start local MCP server.");

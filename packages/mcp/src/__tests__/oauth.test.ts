@@ -38,9 +38,13 @@ async function createTempStorePath(): Promise<string> {
 }
 
 async function startOAuthServer(
-  options: { clientStorePath?: string; tokenStorePath?: string } = {}
+  options: {
+    clientStorePath?: string;
+    tokenStorePath?: string;
+    trustForwardedHeaders?: boolean;
+  } = {}
 ): Promise<string> {
-  const { clientStorePath, tokenStorePath } = options;
+  const { clientStorePath, tokenStorePath, trustForwardedHeaders = false } = options;
   const storePath = clientStorePath ?? (await createTempStorePath());
   server = createPlanweaveMcpHttpServer({
     host: "127.0.0.1",
@@ -51,7 +55,8 @@ async function startOAuthServer(
       tokenStorePath: tokenStorePath ?? (await createTempStorePath())
     },
     port: 0,
-    planweaveHomeFromEnv: true
+    planweaveHomeFromEnv: true,
+    trustForwardedHeaders
   });
   await new Promise<void>((resolve, reject) => {
     server?.once("error", reject);
@@ -89,6 +94,46 @@ function extractCsrfNonce(html: string): string {
     throw new Error("consent page did not include csrf_nonce");
   }
   return match[1];
+}
+
+async function beginTunnelConsent(
+  baseUrl: string,
+  publicOrigin: string
+): Promise<{ authorizeParams: Record<string, string>; csrfNonce: string }> {
+  const publicUrl = new URL(publicOrigin);
+  const forwardedHeaders = {
+    "x-forwarded-host": publicUrl.host,
+    "x-forwarded-proto": publicUrl.protocol.slice(0, -1)
+  };
+  const registerResponse = await fetch(`${baseUrl}/oauth/register`, {
+    method: "POST",
+    body: JSON.stringify({
+      redirect_uris: ["https://chat.openai.com/aip/oauth/callback"]
+    }),
+    headers: {
+      "content-type": "application/json",
+      ...forwardedHeaders
+    }
+  });
+  expect(registerResponse.status).toBe(201);
+  const registration = (await registerResponse.json()) as { client_id: string };
+  const authorizeParams = {
+    response_type: "code",
+    client_id: registration.client_id,
+    redirect_uri: "https://chat.openai.com/aip/oauth/callback",
+    resource: `${publicOrigin}/mcp`,
+    code_challenge: pkceChallenge("tunnel-verifier-for-planweave-oauth"),
+    code_challenge_method: "S256",
+    state: "tunnel-state"
+  };
+  const authorizeResponse = await fetch(
+    `${baseUrl}/oauth/authorize?${new URLSearchParams(authorizeParams)}`,
+    { headers: forwardedHeaders }
+  );
+  expect(authorizeResponse.status).toBe(200);
+  const authorizeHtml = await authorizeResponse.text();
+  expect(authorizeHtml).toContain("Authorize PlanWeave MCP");
+  return { authorizeParams, csrfNonce: extractCsrfNonce(authorizeHtml) };
 }
 
 async function createOAuthAccessToken(
@@ -175,7 +220,7 @@ async function createOAuthAccessToken(
 
 describe("PlanWeave MCP OAuth server", () => {
   it("serves protected resource and authorization server metadata", async () => {
-    const baseUrl = await startOAuthServer();
+    const baseUrl = await startOAuthServer({ trustForwardedHeaders: true });
 
     const resourceResponse = await fetch(`${baseUrl}/.well-known/oauth-protected-resource`, {
       headers: {
@@ -206,6 +251,63 @@ describe("PlanWeave MCP OAuth server", () => {
       registration_endpoint: "https://example.test/oauth/register",
       code_challenge_methods_supported: ["S256"]
     });
+  });
+
+  it("uses one trusted forwarded origin across register, authorize, and consent confirm", async () => {
+    const baseUrl = await startOAuthServer({ trustForwardedHeaders: true });
+    const publicOrigin = "https://tunnel.example";
+    const { authorizeParams, csrfNonce } = await beginTunnelConsent(baseUrl, publicOrigin);
+
+    const confirmResponse = await fetch(`${baseUrl}/oauth/authorize/confirm`, {
+      method: "POST",
+      redirect: "manual",
+      body: new URLSearchParams({ ...authorizeParams, csrf_nonce: csrfNonce }),
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: publicOrigin,
+        "x-forwarded-host": "tunnel.example",
+        "x-forwarded-proto": "https"
+      }
+    });
+
+    expect(confirmResponse.status).toBe(302);
+    expect(confirmResponse.headers.get("location")).toMatch(
+      /^https:\/\/chat\.openai\.com\/aip\/oauth\/callback\?/
+    );
+  });
+
+  it("rejects forwarded OAuth routes when the local server does not trust proxy headers", async () => {
+    const baseUrl = await startOAuthServer();
+    const response = await fetch(`${baseUrl}/oauth/authorize`, {
+      headers: {
+        "x-forwarded-host": "tunnel.example",
+        "x-forwarded-proto": "https"
+      }
+    });
+
+    expect(response.status).toBe(421);
+    await expect(response.json()).resolves.toEqual({ error: "invalid_host" });
+  });
+
+  it("rejects a cross-origin consent POST against the trusted forwarded origin", async () => {
+    const baseUrl = await startOAuthServer({ trustForwardedHeaders: true });
+    const publicOrigin = "https://tunnel.example";
+    const { authorizeParams, csrfNonce } = await beginTunnelConsent(baseUrl, publicOrigin);
+
+    const response = await fetch(`${baseUrl}/oauth/authorize/confirm`, {
+      method: "POST",
+      redirect: "manual",
+      body: new URLSearchParams({ ...authorizeParams, csrf_nonce: csrfNonce }),
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: "https://evil.example",
+        "x-forwarded-host": "tunnel.example",
+        "x-forwarded-proto": "https"
+      }
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "invalid_origin" });
   });
 
   it("requires OAuth bearer tokens on /mcp and advertises resource metadata", async () => {

@@ -1,6 +1,12 @@
 import type { IncomingMessage } from "node:http";
 import { isLoopbackHost, type McpConfig } from "./config.js";
 
+type RequestOriginConfig = Pick<McpConfig, "host" | "port" | "trustForwardedHeaders">;
+
+export type EffectiveRequestOriginResult =
+  | { ok: true; origin: string }
+  | { ok: false; error: "invalid_host" | "invalid_origin" };
+
 function formatHostPort(hostname: string, port: number): string {
   if (hostname.includes(":") && !hostname.startsWith("[")) {
     return `[${hostname}]:${port}`;
@@ -30,48 +36,153 @@ export function expectedRequestHosts(
   return hosts;
 }
 
-function requestHostHeader(req: IncomingMessage): string | undefined {
-  const host = req.headers.host;
-  return Array.isArray(host) ? host[0] : host;
+function requestProtocol(req: IncomingMessage): "http:" | "https:" {
+  if ("encrypted" in req.socket && req.socket.encrypted === true) {
+    return "https:";
+  }
+  return "http:";
 }
 
-function requestOriginHeader(req: IncomingMessage): string | undefined {
-  const origin = req.headers.origin;
-  return Array.isArray(origin) ? origin[0] : origin;
+function authorityOrigin(authority: string, protocol: "http:" | "https:"): string | null {
+  if (!authority || authority.includes(",")) {
+    return null;
+  }
+  try {
+    const url = new URL(`${protocol}//${authority}`);
+    if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function singleHeader(value: string | string[] | undefined): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (Array.isArray(value) || value.includes(",")) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function isLoopbackPeer(remoteAddress: string | undefined): boolean {
+  if (!remoteAddress) {
+    return false;
+  }
+  const normalized = remoteAddress.toLowerCase();
+  return (
+    normalized === "::1" ||
+    /^127(?:\.\d{1,3}){3}$/.test(normalized) ||
+    /^::ffff:127(?:\.\d{1,3}){3}$/.test(normalized)
+  );
+}
+
+function directRequestOrigin(
+  req: IncomingMessage,
+  config: Pick<McpConfig, "host" | "port">
+): string | null {
+  const protocol = requestProtocol(req);
+  const host = singleHeader(req.headers.host);
+  if (!host) {
+    return null;
+  }
+  const origin = authorityOrigin(host, protocol);
+  if (!origin) {
+    return null;
+  }
+  const port = resolveRequestPort(req, config);
+  const allowedOrigins = new Set(
+    [...expectedRequestHosts(config, port)]
+      .map((allowedHost) => authorityOrigin(allowedHost, protocol))
+      .filter((allowedOrigin): allowedOrigin is string => allowedOrigin !== null)
+  );
+  return allowedOrigins.has(origin) ? origin : null;
+}
+
+function forwardedRequestOrigin(
+  req: IncomingMessage,
+  config: RequestOriginConfig
+): { present: false } | { present: true; origin: string | null } {
+  const forwardedHost = singleHeader(req.headers["x-forwarded-host"]);
+  const forwardedProto = singleHeader(req.headers["x-forwarded-proto"]);
+  if (forwardedHost === undefined && forwardedProto === undefined) {
+    return { present: false };
+  }
+  if (
+    !config.trustForwardedHeaders ||
+    !isLoopbackHost(config.host) ||
+    !isLoopbackPeer(req.socket.remoteAddress) ||
+    !forwardedHost ||
+    !forwardedProto ||
+    (forwardedProto !== "http" && forwardedProto !== "https")
+  ) {
+    return { present: true, origin: null };
+  }
+  return {
+    present: true,
+    origin: authorityOrigin(forwardedHost, `${forwardedProto}:`)
+  };
+}
+
+function originHeaderMatches(req: IncomingMessage, effectiveOrigin: string): boolean {
+  const origin = singleHeader(req.headers.origin);
+  if (origin === undefined) {
+    return true;
+  }
+  if (!origin) {
+    return false;
+  }
+  try {
+    const url = new URL(origin);
+    return (
+      !url.username &&
+      !url.password &&
+      url.pathname === "/" &&
+      !url.search &&
+      !url.hash &&
+      url.origin === effectiveOrigin
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Validates Host (always) and Origin (when present) against the expected loopback/bind set.
- * Absent Origin is allowed so non-browser MCP clients keep working.
+ * Resolves the request origin after validating the direct Host against the actual listening socket.
+ * Forwarded headers are accepted only from an explicitly trusted loopback proxy boundary.
  */
-export function isRequestOriginAllowed(
+export function resolveEffectiveRequestOrigin(
   req: IncomingMessage,
-  config: Pick<McpConfig, "host" | "port">
-): { ok: true } | { ok: false; error: "invalid_host" | "invalid_origin" } {
-  const port = resolveRequestPort(req, config);
-  const allowedHosts = expectedRequestHosts(config, port);
-  const host = requestHostHeader(req);
-  if (!host || !allowedHosts.has(host)) {
+  config: RequestOriginConfig
+): EffectiveRequestOriginResult {
+  const directOrigin = directRequestOrigin(req, config);
+  if (!directOrigin) {
     return { ok: false, error: "invalid_host" };
   }
 
-  const origin = requestOriginHeader(req);
-  if (!origin) {
-    return { ok: true };
+  const forwarded = forwardedRequestOrigin(req, config);
+  const effectiveOrigin = forwarded.present ? forwarded.origin : directOrigin;
+  if (!effectiveOrigin) {
+    return { ok: false, error: "invalid_host" };
   }
-  try {
-    const originUrl = new URL(origin);
-    const originPort = originUrl.port
-      ? Number(originUrl.port)
-      : originUrl.protocol === "https:"
-        ? 443
-        : 80;
-    const originHost = formatHostPort(originUrl.hostname, originPort);
-    if (!allowedHosts.has(originHost)) {
-      return { ok: false, error: "invalid_origin" };
-    }
-    return { ok: true };
-  } catch {
+  if (!originHeaderMatches(req, effectiveOrigin)) {
     return { ok: false, error: "invalid_origin" };
   }
+  return { ok: true, origin: effectiveOrigin };
+}
+
+/**
+ * Validates Host (always) and Origin (when present). Absent Origin remains valid for non-browser
+ * MCP clients.
+ */
+export function isRequestOriginAllowed(
+  req: IncomingMessage,
+  config: RequestOriginConfig
+): { ok: true } | { ok: false; error: "invalid_host" | "invalid_origin" } {
+  const result = resolveEffectiveRequestOrigin(req, config);
+  return result.ok ? { ok: true } : result;
 }

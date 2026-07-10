@@ -8,13 +8,18 @@ import type { McpConfig } from "./config.js";
 import { createHealthPayload } from "./health.js";
 import { createFileOAuthClientStore } from "./oauthClientStore.js";
 import { createOAuthProvider, type OAuthProvider } from "./oauth.js";
+import { requestContext } from "./oauthHttp.js";
 import { bearerToken } from "./oauthSecurity.js";
 import { createFileOAuthTokenStore } from "./oauthTokenStore.js";
 import { mcpPackageVersion } from "./packageInfo.js";
-import { isRequestOriginAllowed } from "./requestGuards.js";
+import { resolveEffectiveRequestOrigin } from "./requestGuards.js";
 import { registerPlanweaveTools } from "./toolRegistry.js";
 
-export { expectedRequestHosts, isRequestOriginAllowed } from "./requestGuards.js";
+export {
+  expectedRequestHosts,
+  isRequestOriginAllowed,
+  resolveEffectiveRequestOrigin
+} from "./requestGuards.js";
 
 function writeJson(res: ServerResponse, statusCode: number, body: unknown): void {
   res.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
@@ -87,13 +92,16 @@ async function handleMcpRequest(
   config: McpConfig,
   oauth: OAuthProvider | null
 ): Promise<void> {
-  const originCheck = isRequestOriginAllowed(req, config);
-  if (!originCheck.ok) {
-    writeJson(res, originCheck.error === "invalid_host" ? 421 : 403, { error: originCheck.error });
+  const originResult = resolveEffectiveRequestOrigin(req, config);
+  if (!originResult.ok) {
+    writeJson(res, originResult.error === "invalid_host" ? 421 : 403, {
+      error: originResult.error
+    });
     return;
   }
-  if (oauth && !(await oauth.isAuthorized(req))) {
-    oauth.writeUnauthorized(req, res);
+  const context = requestContext(originResult.origin);
+  if (oauth && !(await oauth.isAuthorized(req, context))) {
+    oauth.writeUnauthorized(res, context);
     return;
   }
   if (req.method !== "POST") {
@@ -156,14 +164,12 @@ export function createPlanweaveMcpHttpServer(config: McpConfig): Server {
           maxRequestBodyBytes: config.maxRequestBodyBytes,
           host: config.host,
           port: config.port,
+          trustForwardedHeaders: config.trustForwardedHeaders,
           redirectUriPrefixes: config.oauth.redirectUriPrefixes
         })
       : null;
   return createServer((req, res) => {
-    const path = new URL(
-      req.url ?? "/",
-      `http://${req.headers.host ?? `${config.host}:${config.port}`}`
-    ).pathname;
+    const path = new URL(req.url ?? "/", "http://localhost").pathname;
     if (oauth) {
       void (async () => {
         try {

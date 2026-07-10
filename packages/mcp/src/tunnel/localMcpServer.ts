@@ -56,6 +56,7 @@ export class LocalMcpServerManager {
       port?: number | null;
       oauth?: McpOAuthConfig | null;
       token?: string | null;
+      trustForwardedHeaders?: boolean;
     } = {}
   ): Promise<LocalMcpServerStatus> {
     if (this.server && this.status.phase === "running") {
@@ -82,7 +83,8 @@ export class LocalMcpServerManager {
         oauth: input.oauth ?? this.resolveOAuth(planweaveHome),
         port,
         token: input.token?.trim() || undefined,
-        planweaveHomeFromEnv: Boolean(process.env.PLANWEAVE_HOME)
+        planweaveHomeFromEnv: Boolean(process.env.PLANWEAVE_HOME),
+        trustForwardedHeaders: input.trustForwardedHeaders ?? false
       };
       const { listenPlanweaveMcpServer } = await import("../server.js");
       this.server = await listenPlanweaveMcpServer(config);

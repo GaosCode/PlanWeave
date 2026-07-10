@@ -8,20 +8,14 @@ export type OAuthRequestContext = {
   resource: string;
 };
 
-export function requestContext(req: IncomingMessage): OAuthRequestContext {
-  const encrypted = "encrypted" in req.socket && req.socket.encrypted === true;
-  const proto = firstHeader(req.headers["x-forwarded-proto"]) ?? (encrypted ? "https" : "http");
-  const host =
-    firstHeader(req.headers["x-forwarded-host"]) ?? firstHeader(req.headers.host) ?? "127.0.0.1";
-  const authorizationServer = `${proto}://${host}`;
+export function requestContext(authorizationServer: string): OAuthRequestContext {
   return {
     authorizationServer,
     resource: `${authorizationServer}/mcp`
   };
 }
 
-export function requestUrl(req: IncomingMessage): URL {
-  const context = requestContext(req);
+export function requestUrl(req: IncomingMessage, context: OAuthRequestContext): URL {
   return new URL(req.url ?? "/", context.authorizationServer);
 }
 

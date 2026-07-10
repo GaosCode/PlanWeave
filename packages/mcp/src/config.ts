@@ -15,6 +15,7 @@ export type McpConfig = {
   token?: string;
   oauth?: McpOAuthConfig;
   planweaveHomeFromEnv: boolean;
+  trustForwardedHeaders: boolean;
   toolDiscoveryMode?: "default" | "compat";
 };
 
@@ -103,7 +104,7 @@ function parseToolDiscoveryMode(value: string | undefined): "default" | "compat"
   throw new Error("PLANWEAVE_MCP_TOOL_DISCOVERY must be 'default' or 'compat'.");
 }
 
-function parseRedirectUriPrefixes(value: string | undefined): string[] | undefined {
+export function parseMcpOAuthRedirectUriPrefixes(value: string | undefined): string[] | undefined {
   const trimmed = readOptionalString(value);
   if (!trimmed) {
     return undefined;
@@ -121,7 +122,7 @@ export function readMcpConfig(env: McpConfigEnv = process.env): McpConfig {
   const oauthEnabled = parseBooleanFlag(env.PLANWEAVE_MCP_OAUTH_ENABLED);
   const oauthClientStorePath = readOptionalString(env.PLANWEAVE_MCP_OAUTH_CLIENT_STORE);
   const oauthTokenStorePath = readOptionalString(env.PLANWEAVE_MCP_OAUTH_TOKEN_STORE);
-  const oauthRedirectUriPrefixes = parseRedirectUriPrefixes(
+  const oauthRedirectUriPrefixes = parseMcpOAuthRedirectUriPrefixes(
     env.PLANWEAVE_MCP_OAUTH_REDIRECT_URI_PREFIXES
   );
   const toolDiscoveryMode = parseToolDiscoveryMode(env.PLANWEAVE_MCP_TOOL_DISCOVERY);
@@ -145,6 +146,7 @@ export function readMcpConfig(env: McpConfigEnv = process.env): McpConfig {
     port: parsePort(env.PLANWEAVE_MCP_PORT),
     token,
     planweaveHomeFromEnv: Boolean(readOptionalString(env.PLANWEAVE_HOME)),
+    trustForwardedHeaders: false,
     ...(toolDiscoveryMode ? { toolDiscoveryMode } : {})
   };
 }

@@ -12,7 +12,14 @@ import {
   type AuthorizeParams
 } from "./oauthAuthorization.js";
 import { consentPage, errorPage } from "./oauthConsent.js";
-import { readFormBody, readJsonBody, requestContext, writeHtml, writeJson } from "./oauthHttp.js";
+import {
+  readFormBody,
+  readJsonBody,
+  requestContext,
+  type OAuthRequestContext,
+  writeHtml,
+  writeJson
+} from "./oauthHttp.js";
 import {
   authorizationServerMetadata,
   defaultOAuthScope,
@@ -26,7 +33,7 @@ import {
   scopeIncludesDefault,
   stringArray
 } from "./oauthValidation.js";
-import { isRequestOriginAllowed } from "./requestGuards.js";
+import { resolveEffectiveRequestOrigin } from "./requestGuards.js";
 
 const defaultAccessTokenTtlMs = 60 * 60 * 1000;
 const defaultAuthorizationCodeTtlMs = 5 * 60 * 1000;
@@ -53,6 +60,7 @@ type OAuthProviderOptions = Pick<
   maxRequestBodyBytes: number;
   host: string;
   port: number;
+  trustForwardedHeaders: boolean;
 };
 
 export type OAuthProvider = ReturnType<typeof createOAuthProvider>;
@@ -64,20 +72,35 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
   const consentSessions = new Map<string, ConsentSession>();
   const accessTokenTtlMs = options.accessTokenTtlMs ?? defaultAccessTokenTtlMs;
   const authorizationCodeTtlMs = options.authorizationCodeTtlMs ?? defaultAuthorizationCodeTtlMs;
-  const hostPortConfig = { host: options.host, port: options.port };
+  const requestOriginConfig = {
+    host: options.host,
+    port: options.port,
+    trustForwardedHeaders: options.trustForwardedHeaders
+  };
 
   return {
     async handleRequest(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
+      if (!isOAuthRoute(req.method, path)) {
+        return false;
+      }
+      const originResult = resolveEffectiveRequestOrigin(req, requestOriginConfig);
+      if (!originResult.ok) {
+        writeJson(res, originResult.error === "invalid_host" ? 421 : 403, {
+          error: originResult.error
+        });
+        return true;
+      }
+      const context = requestContext(originResult.origin);
       if (
         req.method === "GET" &&
         (path === "/.well-known/oauth-protected-resource" ||
           path === "/.well-known/oauth-protected-resource/mcp")
       ) {
-        writeJson(res, 200, protectedResourceMetadata(requestContext(req)));
+        writeJson(res, 200, protectedResourceMetadata(context));
         return true;
       }
       if (req.method === "GET" && path === "/.well-known/oauth-authorization-server") {
-        writeJson(res, 200, authorizationServerMetadata(requestContext(req)));
+        writeJson(res, 200, authorizationServerMetadata(context));
         return true;
       }
       if (req.method === "POST" && path === "/oauth/register") {
@@ -97,6 +120,7 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
           clientStore,
           consentSessions,
           authorizationCodeTtlMs,
+          context,
           options.redirectUriPrefixes
         );
         return true;
@@ -110,7 +134,7 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
           authorizationCodes,
           consentSessions,
           authorizationCodeTtlMs,
-          hostPortConfig,
+          context,
           options.redirectUriPrefixes
         );
         return true;
@@ -122,14 +146,15 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
           options.maxRequestBodyBytes,
           authorizationCodes,
           tokenStore,
-          accessTokenTtlMs
+          accessTokenTtlMs,
+          context
         );
         return true;
       }
       return false;
     },
 
-    async isAuthorized(req: IncomingMessage): Promise<boolean> {
+    async isAuthorized(req: IncomingMessage, context: OAuthRequestContext): Promise<boolean> {
       const token = bearerToken(req);
       if (!token) {
         return false;
@@ -144,13 +169,12 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
         return false;
       }
       return (
-        isAllowedOAuthResource(stored.resource, requestContext(req).resource) &&
+        isAllowedOAuthResource(stored.resource, context.resource) &&
         scopeIncludesDefault(stored.scope)
       );
     },
 
-    writeUnauthorized(req: IncomingMessage, res: ServerResponse): void {
-      const context = requestContext(req);
+    writeUnauthorized(res: ServerResponse, context: OAuthRequestContext): void {
       res.writeHead(401, {
         "content-type": "application/json; charset=utf-8",
         "www-authenticate": `Bearer realm="planweave-mcp", scope="${defaultOAuthScope}", resource_metadata="${context.authorizationServer}/.well-known/oauth-protected-resource"`
@@ -158,6 +182,20 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
       res.end(JSON.stringify({ error: "unauthorized" }));
     }
   };
+}
+
+function isOAuthRoute(method: string | undefined, path: string): boolean {
+  return (
+    (method === "GET" &&
+      (path === "/.well-known/oauth-protected-resource" ||
+        path === "/.well-known/oauth-protected-resource/mcp" ||
+        path === "/.well-known/oauth-authorization-server" ||
+        path === "/oauth/authorize")) ||
+    (method === "POST" &&
+      (path === "/oauth/register" ||
+        path === "/oauth/authorize/confirm" ||
+        path === "/oauth/token"))
+  );
 }
 
 async function handleRegister(
@@ -207,9 +245,10 @@ async function handleAuthorizePage(
   clientStore: OAuthClientStore,
   consentSessions: Map<string, ConsentSession>,
   authorizationCodeTtlMs: number,
+  context: OAuthRequestContext,
   redirectUriPrefixes: string[] | undefined
 ): Promise<void> {
-  const params = await validateAuthorizeParams(req, clientStore, redirectUriPrefixes);
+  const params = await validateAuthorizeParams(req, context, clientStore, redirectUriPrefixes);
   if (!params.ok) {
     writeHtml(res, 400, errorPage(params.error));
     return;
@@ -232,15 +271,9 @@ async function handleAuthorizeConfirm(
   authorizationCodes: Map<string, AuthorizationCode>,
   consentSessions: Map<string, ConsentSession>,
   authorizationCodeTtlMs: number,
-  hostPortConfig: { host: string; port: number },
+  context: OAuthRequestContext,
   redirectUriPrefixes: string[] | undefined
 ): Promise<void> {
-  const originCheck = isRequestOriginAllowed(req, hostPortConfig);
-  if (!originCheck.ok) {
-    writeJson(res, originCheck.error === "invalid_host" ? 421 : 403, { error: originCheck.error });
-    return;
-  }
-
   const body = await readFormBody(req, maxRequestBodyBytes);
   if (!body.ok) {
     writeJson(res, body.statusCode, { error: body.error });
@@ -291,7 +324,7 @@ async function handleAuthorizeConfirm(
       ...(session.state ? { state: session.state } : {})
     }),
     clientStore,
-    requestContext(req).resource,
+    context.resource,
     {
       persistRecoveredClient: true,
       redirectUriPrefixes
@@ -327,7 +360,8 @@ async function handleToken(
   maxRequestBodyBytes: number,
   authorizationCodes: Map<string, AuthorizationCode>,
   tokenStore: OAuthTokenStore,
-  accessTokenTtlMs: number
+  accessTokenTtlMs: number,
+  context: OAuthRequestContext
 ): Promise<void> {
   const body = await readFormBody(req, maxRequestBodyBytes);
   if (!body.ok) {
@@ -354,6 +388,7 @@ async function handleToken(
     stored.clientId !== clientId ||
     stored.redirectUri !== redirectUri ||
     stored.resource !== resource ||
+    !isAllowedOAuthResource(stored.resource, context.resource) ||
     !verifyPkce(codeVerifier, stored.codeChallenge)
   ) {
     writeJson(res, 400, { error: "invalid_grant" });

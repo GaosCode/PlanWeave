@@ -1,6 +1,6 @@
 import type { IncomingMessage } from "node:http";
 import type { OAuthClientStore, RegisteredClient } from "./oauthClientStore.js";
-import { requestContext, requestUrl } from "./oauthHttp.js";
+import { requestUrl, type OAuthRequestContext } from "./oauthHttp.js";
 import { isAllowedOAuthResource, isAllowedRedirectUri, normalizeScope } from "./oauthValidation.js";
 
 export type AuthorizeParams = {
@@ -14,19 +14,15 @@ export type AuthorizeParams = {
 
 export async function validateAuthorizeParams(
   req: IncomingMessage,
+  context: OAuthRequestContext,
   clientStore: OAuthClientStore,
   redirectUriPrefixes?: string[]
 ): Promise<{ ok: true; value: AuthorizeParams } | { ok: false; error: string }> {
-  const url = requestUrl(req);
-  return validateAuthorizeSearchParams(
-    url.searchParams,
-    clientStore,
-    requestContext(req).resource,
-    {
-      persistRecoveredClient: false,
-      redirectUriPrefixes
-    }
-  );
+  const url = requestUrl(req, context);
+  return validateAuthorizeSearchParams(url.searchParams, clientStore, context.resource, {
+    persistRecoveredClient: false,
+    redirectUriPrefixes
+  });
 }
 
 export async function validateAuthorizeSearchParams(

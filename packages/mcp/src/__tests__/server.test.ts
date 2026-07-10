@@ -36,6 +36,7 @@ async function startServer(token?: string, overrides: Partial<McpConfig> = {}): 
     port: 0,
     token,
     planweaveHomeFromEnv: true,
+    trustForwardedHeaders: false,
     ...overrides
   });
   await new Promise<void>((resolve, reject) => {
@@ -203,7 +204,8 @@ describe("PlanWeave MCP HTTP server", () => {
       host: "127.0.0.1",
       maxRequestBodyBytes: 8,
       port: 0,
-      planweaveHomeFromEnv: true
+      planweaveHomeFromEnv: true,
+      trustForwardedHeaders: false
     });
     await new Promise<void>((resolve, reject) => {
       server?.once("error", reject);

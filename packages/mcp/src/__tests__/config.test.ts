@@ -9,7 +9,8 @@ describe("readMcpConfig", () => {
       oauth: undefined,
       port: 8787,
       token: undefined,
-      planweaveHomeFromEnv: false
+      planweaveHomeFromEnv: false,
+      trustForwardedHeaders: false
     });
   });
 
@@ -31,7 +32,8 @@ describe("readMcpConfig", () => {
       },
       port: 9001,
       token: "secret-token",
-      planweaveHomeFromEnv: true
+      planweaveHomeFromEnv: true,
+      trustForwardedHeaders: false
     });
   });
 
@@ -95,7 +97,8 @@ describe("readMcpConfig", () => {
     expect(
       readMcpConfig({
         PLANWEAVE_MCP_OAUTH_ENABLED: "true",
-        PLANWEAVE_MCP_OAUTH_REDIRECT_URI_PREFIXES: " https://chat.openai.com/,https://chatgpt.com/ "
+        PLANWEAVE_MCP_OAUTH_REDIRECT_URI_PREFIXES:
+          " https://chat.openai.com/, ,https://chatgpt.com/ "
       }).oauth
     ).toEqual({
       enabled: true,
