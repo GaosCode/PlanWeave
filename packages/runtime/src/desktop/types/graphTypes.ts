@@ -19,6 +19,11 @@ export type DesktopTaskException = {
   source: "blocked" | "diverged" | "feedback" | "needs_changes";
 };
 
+export type DesktopBlockWaitingOn = {
+  lock: string;
+  holderRef: string;
+};
+
 export type DesktopBlockPreview = {
   ref: string;
   blockId: string;
@@ -28,6 +33,17 @@ export type DesktopBlockPreview = {
   executor: string | null;
   promptMissing: boolean;
   exceptionReason: string | null;
+  /** True when claim/dispatch can start this block now (locks free, capacity available). */
+  dispatchable: boolean;
+  /** Set when the block is ready but waiting on a held lock. */
+  waitingOn: DesktopBlockWaitingOn | null;
+};
+
+export type DesktopLockGroup = {
+  name: string;
+  memberTaskIds: string[];
+  /** In-progress implementation block ref that holds this lock, or null when free. */
+  holderRef: string | null;
 };
 
 export type DesktopTaskNodeViewModel = {
@@ -40,6 +56,8 @@ export type DesktopTaskNodeViewModel = {
   promptHash?: string;
   promptMissing: boolean;
   promptPreview: string;
+  /** Union of effective locks on this task's implementation blocks (includes "exclusive"). */
+  locks: string[];
   blocks: DesktopBlockPreview[];
   blockPreview: DesktopBlockPreview[];
   hiddenBlockRefs: string[];
@@ -62,6 +80,8 @@ export type DesktopGraphViewModel = {
   autoRunPreflightExecutorHint: string | null;
   tasks: DesktopTaskNodeViewModel[];
   edges: DesktopGraphEdgeViewModel[];
+  /** Per-lock membership and current holder for mutex-group highlights. */
+  lockGroups: DesktopLockGroup[];
   diagnostics: ValidationIssue[];
   dirtyPromptRefs: string[];
 };

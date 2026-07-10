@@ -128,7 +128,10 @@ function blockPreview(
     status: currentStatus.status,
     executor: effectiveExecutor(task, block, runtime),
     promptMissing: block.promptRef.contentHash.length === 0,
-    exceptionReason: currentStatus.reason
+    exceptionReason: currentStatus.reason,
+    // Filled by desktop/graph lock enrichment from claim readiness.
+    dispatchable: false,
+    waitingOn: null
   };
 }
 
@@ -166,6 +169,8 @@ export function buildPlanGraphViewProjection(options: {
       promptHash: task.promptRef.contentHash,
       promptMissing: task.promptRef.contentHash.length === 0,
       promptPreview: task.promptRef.preview,
+      // Filled by desktop/graph lock enrichment from effective locks.
+      locks: [],
       blocks,
       blockPreview: visibleBlocks,
       hiddenBlockRefs: orderedRefs.slice(visibleBlocks.length),

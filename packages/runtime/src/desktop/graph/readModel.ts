@@ -21,6 +21,7 @@ import type {
 } from "../types.js";
 import { getDirtyPromptRefs } from "../fileSyncApi.js";
 import { getBlock, getTask, readOptionalFile, sortBlockRefsForTask } from "./graphHelpers.js";
+import { enrichGraphViewModelLocks } from "./lockViewModel.js";
 
 export type DesktopGraphViewModelContext = RuntimeContext & {
   status: ExecutionStatus;
@@ -156,18 +157,25 @@ export async function buildGraphViewModel(
     taskPromptMarkdownById
   });
 
-  return {
-    projectId: workspace.id,
-    projectTitle: planGraphPackage.graph.project.title,
-    graphVersion: planGraphPackage.graph.graphVersion,
-    packageFingerprint: planGraphPackage.graph.packageFingerprint,
-    executorOptions,
-    autoRunPreflightExecutorHint: resolveAutoRunPreflightExecutorHint(context),
-    tasks: projection.tasks,
-    edges: projection.edges,
-    diagnostics: [...planGraphPackage.graph.diagnostics],
-    dirtyPromptRefs
-  };
+  return enrichGraphViewModelLocks(
+    {
+      projectId: workspace.id,
+      projectTitle: planGraphPackage.graph.project.title,
+      graphVersion: planGraphPackage.graph.graphVersion,
+      packageFingerprint: planGraphPackage.graph.packageFingerprint,
+      executorOptions,
+      autoRunPreflightExecutorHint: resolveAutoRunPreflightExecutorHint(context),
+      tasks: projection.tasks,
+      edges: projection.edges,
+      diagnostics: [...planGraphPackage.graph.diagnostics],
+      dirtyPromptRefs
+    },
+    {
+      graph: context.graph,
+      state: context.state,
+      claimHints: context.claimReadiness.claimHints
+    }
+  );
 }
 
 export async function getGraphViewModel(
