@@ -46,6 +46,7 @@ const graph: DesktopGraphViewModel = {
       executorLabel: "inherit",
       promptMarkdown: "# Alpha",
       promptPreview: "Alpha",
+      locks: [],
       blocks: [],
       blockPreview: [],
       hiddenBlockRefs: [],
@@ -60,6 +61,7 @@ const graph: DesktopGraphViewModel = {
       executorLabel: "inherit",
       promptMarkdown: "# Beta",
       promptPreview: "Beta",
+      locks: [],
       blocks: [],
       blockPreview: [],
       hiddenBlockRefs: [],
@@ -68,6 +70,7 @@ const graph: DesktopGraphViewModel = {
     }
   ],
   edges: [],
+  lockGroups: [],
   diagnostics: [],
   dirtyPromptRefs: []
 };

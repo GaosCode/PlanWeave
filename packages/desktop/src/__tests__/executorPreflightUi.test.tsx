@@ -45,6 +45,7 @@ const graph: DesktopGraphViewModel = {
   autoRunPreflightExecutorHint: "codex",
   tasks: [],
   edges: [],
+  lockGroups: [],
   diagnostics: [],
   dirtyPromptRefs: []
 };

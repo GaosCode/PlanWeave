@@ -82,6 +82,73 @@ describe("desktop graph flow model", () => {
     expect(nodes.find((node) => node.id === "T-002")?.position).toEqual({ x: 999, y: 888 });
     expect(nodes.find((node) => node.id === "T-001")?.position.x).toBeLessThan(999);
   });
+
+  it("threads lockStates and dispatchState from DTO only", () => {
+    const graph = sharedLockGraph();
+    const onLockHover = vi.fn();
+    const noop = vi.fn();
+    const nodes = graphNodes(
+      graph,
+      null,
+      [],
+      [],
+      {},
+      {},
+      {},
+      labels,
+      null,
+      [],
+      [],
+      [],
+      // 20 task/block callbacks (onTitleChange … onOpenRunRecord)
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      noop,
+      {
+        activeLock: "db",
+        releaseEpochByLock: {},
+        onLockHover,
+        onLockPin: vi.fn(),
+        onLockOverflow: vi.fn(),
+        onJumpToTask: vi.fn()
+      }
+    );
+
+    const nodeA = nodes.find((node) => node.id === "T-A");
+    const nodeB = nodes.find((node) => node.id === "T-B");
+    expect(nodeA?.data.locks).toEqual(["db"]);
+    expect(nodeB?.data.locks).toEqual(["db"]);
+    expect(nodeA?.data.lockStates.db).toEqual({ kind: "heldByThis" });
+    expect(nodeB?.data.lockStates.db).toMatchObject({
+      kind: "heldElsewhere",
+      holderRef: "T-A#B-001"
+    });
+    expect(nodeB?.data.dispatchState).toEqual({
+      kind: "waiting",
+      lock: "db",
+      holderRef: "T-A#B-001",
+      holderTaskId: "T-A"
+    });
+    expect(nodeA?.data.lockHighlighted).toBe(true);
+    expect(nodeB?.data.lockHighlighted).toBe(true);
+  });
 });
 
 const labels: TaskNodeLabels = {
@@ -112,7 +179,11 @@ const labels: TaskNodeLabels = {
   taskException: "Task exception",
   taskPrompt: "Task Prompt",
   title: "Title",
-  unavailable: "Unavailable"
+  unavailable: "Unavailable",
+  exclusiveLock: "Exclusive",
+  heldBy: "Held by",
+  waitingForResource: "Waiting for resource",
+  moreLocks: (count: number) => `+${count}`
 };
 
 function graphView(
@@ -125,8 +196,10 @@ function graphView(
     graphVersion: "pgv-test",
     packageFingerprint: "pkg-test",
     executorOptions: [],
+    autoRunPreflightExecutorHint: null,
     tasks: taskIds.map((taskId) => task(taskId)),
     edges,
+    lockGroups: [],
     diagnostics: [],
     dirtyPromptRefs: []
   };
@@ -142,10 +215,68 @@ function task(taskId: string): DesktopGraphViewModel["tasks"][number] {
     promptMarkdown: "",
     promptMissing: false,
     promptPreview: "",
+    locks: [],
     blocks: [],
     blockPreview: [],
     hiddenBlockRefs: [],
     overflowBlockCount: 0,
     exceptions: []
+  };
+}
+
+function sharedLockGraph(): DesktopGraphViewModel {
+  return {
+    projectId: "P-001",
+    projectTitle: "Project",
+    graphVersion: "pgv-test",
+    packageFingerprint: "pkg-test",
+    executorOptions: [],
+    autoRunPreflightExecutorHint: null,
+    tasks: [
+      {
+        ...task("T-A"),
+        status: "in_progress",
+        locks: ["db"],
+        blocks: [
+          {
+            ref: "T-A#B-001",
+            blockId: "B-001",
+            type: "implementation",
+            title: "Hold",
+            status: "in_progress",
+            executor: null,
+            promptMissing: false,
+            exceptionReason: null,
+            dispatchable: false,
+            waitingOn: null
+          }
+        ],
+        blockPreview: []
+      },
+      {
+        ...task("T-B"),
+        status: "ready",
+        locks: ["db"],
+        blocks: [
+          {
+            ref: "T-B#B-001",
+            blockId: "B-001",
+            type: "implementation",
+            title: "Wait",
+            status: "ready",
+            executor: null,
+            promptMissing: false,
+            exceptionReason: null,
+            dispatchable: false,
+            waitingOn: { lock: "db", holderRef: "T-A#B-001" }
+          }
+        ],
+        blockPreview: []
+      }
+    ],
+    edges: [],
+    lockGroups: [{ name: "db", memberTaskIds: ["T-A", "T-B"], holderRef: "T-A#B-001" }],
+    diagnostics: [],
+    dirtyPromptRefs: []
   };
 }

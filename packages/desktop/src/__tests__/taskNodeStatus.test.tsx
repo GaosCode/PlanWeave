@@ -56,4 +56,27 @@ describe("task node status visuals", () => {
     expect(className).toContain("ring-state-failed/15");
     expect(className).toContain("outline-state-selected");
   });
+
+  it("maps ready-but-waiting tasks to the waiting tone with hourglass icon", () => {
+    expect(taskNodeStatusVisual("ready", false, { waiting: true })).toMatchObject({
+      tone: "waiting",
+      iconName: "hourglass"
+    });
+    // problem and running outrank waiting
+    expect(taskNodeStatusVisual("ready", true, { waiting: true }).tone).toBe("problem");
+    expect(taskNodeStatusVisual("in_progress", false, { waiting: true }).tone).toBe("running");
+
+    render(
+      <TaskNodeStatusMarker
+        hasException={false}
+        label="Waiting for resource"
+        status="ready"
+        waiting
+      />
+    );
+    expect(screen.getByTestId("task-node-status-marker")).toHaveAttribute(
+      "data-status-tone",
+      "waiting"
+    );
+  });
 });

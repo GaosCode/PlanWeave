@@ -66,6 +66,7 @@ describe("desktop graph dependency edge direction", () => {
         task("T-002", "Prerequisite task", "ready")
       ],
       edges: [{ from: "T-001", to: "T-002", type: "depends_on" }],
+      lockGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -110,6 +111,7 @@ describe("desktop graph dependency edge direction", () => {
         { from: "T-003", to: "T-001", type: "depends_on" },
         { from: "T-004", to: "T-001", type: "depends_on" }
       ],
+      lockGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -145,6 +147,7 @@ describe("desktop graph dependency edge direction", () => {
         { from: "T-001", to: "T-003", type: "depends_on" },
         { from: "T-001", to: "T-004", type: "depends_on" }
       ],
+      lockGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -178,6 +181,7 @@ describe("desktop graph dependency edge direction", () => {
         { from: "T-001", to: "T-002", type: "depends_on" },
         { from: "T-003", to: "T-001", type: "depends_on" }
       ],
+      lockGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -210,6 +214,7 @@ describe("desktop graph dependency edge direction", () => {
         { from: "T-003", to: "T-001", type: "depends_on" },
         { from: "T-004", to: "T-001", type: "depends_on" }
       ],
+      lockGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -242,6 +247,7 @@ describe("desktop graph dependency edge direction", () => {
         { from: "T-002", to: "T-001", type: "depends_on" },
         { from: "T-003", to: "T-001", type: "depends_on" }
       ],
+      lockGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -276,6 +282,7 @@ describe("desktop graph dependency edge direction", () => {
         { from: "T-002", to: "T-001", type: "depends_on" },
         { from: "T-003", to: "T-001", type: "depends_on" }
       ],
+      lockGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -318,6 +325,7 @@ function task(
     executorLabel: "inherit",
     promptMarkdown: "",
     promptPreview: "",
+    locks: [],
     blocks: [],
     blockPreview: [],
     hiddenBlockRefs: [],

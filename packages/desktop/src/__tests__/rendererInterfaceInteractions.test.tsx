@@ -123,6 +123,7 @@ const graph: DesktopGraphViewModel = {
       executorLabel: "inherit",
       promptMarkdown: "# Bridge",
       promptPreview: "Bridge",
+      locks: [],
       blocks: [],
       blockPreview: [],
       hiddenBlockRefs: [],
@@ -145,6 +146,7 @@ const graph: DesktopGraphViewModel = {
     }
   ],
   edges: [],
+  lockGroups: [],
   diagnostics: [],
   dirtyPromptRefs: []
 };

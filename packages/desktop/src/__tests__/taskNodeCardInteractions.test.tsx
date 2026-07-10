@@ -68,6 +68,7 @@ function task(promptMarkdown: string): DesktopGraphViewModel["tasks"][number] {
     executorLabel: "manual",
     promptMarkdown,
     promptPreview: "Prompt",
+    locks: [],
     blocks: [],
     blockPreview: [],
     hiddenBlockRefs: [],

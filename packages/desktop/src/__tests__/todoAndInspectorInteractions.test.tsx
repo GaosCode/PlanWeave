@@ -433,6 +433,7 @@ describe("desktop renderer component interactions", () => {
           executorLabel: "legacy-executor",
           promptMarkdown: "# Task",
           promptPreview: "Task",
+          locks: [],
           blocks: [],
           blockPreview: [],
           hiddenBlockRefs: [],
@@ -441,6 +442,7 @@ describe("desktop renderer component interactions", () => {
         }
       ],
       edges: [],
+      lockGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -492,6 +494,7 @@ describe("desktop renderer component interactions", () => {
           executorLabel: "pi-auto",
           promptMarkdown: "# Task",
           promptPreview: "Task",
+          locks: [],
           blocks: [],
           blockPreview: [],
           hiddenBlockRefs: [],
@@ -500,6 +503,7 @@ describe("desktop renderer component interactions", () => {
         }
       ],
       edges: [],
+      lockGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -566,6 +570,7 @@ describe("desktop renderer component interactions", () => {
           executorLabel: "codex",
           promptMarkdown: "# Task",
           promptPreview: "Task",
+          locks: [],
           blocks: [
             {
               ref: "T-001#B-001",
@@ -574,8 +579,10 @@ describe("desktop renderer component interactions", () => {
               title: "Create README and sample note",
               status: "ready",
               executor: "codex",
-              executorLabel: "codex",
-              dependencies: []
+              promptMissing: false,
+              exceptionReason: null,
+              dispatchable: false,
+              waitingOn: null
             }
           ],
           blockPreview: [],
@@ -585,6 +592,7 @@ describe("desktop renderer component interactions", () => {
         }
       ],
       edges: [],
+      lockGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };

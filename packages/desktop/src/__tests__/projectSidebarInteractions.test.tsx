@@ -70,6 +70,7 @@ describe("desktop renderer component interactions", () => {
           executorLabel: "inherit",
           promptMarkdown: "# 新 Task",
           promptPreview: "新 Task",
+          locks: [],
           blocks: [],
           blockPreview: [],
           hiddenBlockRefs: [],
@@ -84,6 +85,7 @@ describe("desktop renderer component interactions", () => {
           executorLabel: "inherit",
           promptMarkdown: "# 新 Task",
           promptPreview: "新 Task",
+          locks: [],
           blocks: [],
           blockPreview: [],
           hiddenBlockRefs: [],
@@ -92,6 +94,7 @@ describe("desktop renderer component interactions", () => {
         }
       ],
       edges: [],
+      lockGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -209,6 +212,7 @@ describe("desktop renderer component interactions", () => {
         executorLabel: "inherit",
         promptMarkdown: "",
         promptPreview: "",
+        locks: [],
         blocks: [],
         blockPreview: [],
         hiddenBlockRefs: [],
@@ -216,6 +220,7 @@ describe("desktop renderer component interactions", () => {
         exceptions: []
       })),
       edges: [],
+      lockGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -530,6 +535,7 @@ describe("desktop renderer component interactions", () => {
           executorLabel: "manual",
           promptMarkdown: "# Mock task",
           promptPreview: "Mock task",
+          locks: [],
           blocks: [],
           blockPreview: [],
           hiddenBlockRefs: [],
@@ -538,6 +544,7 @@ describe("desktop renderer component interactions", () => {
         }
       ],
       edges: [],
+      lockGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };

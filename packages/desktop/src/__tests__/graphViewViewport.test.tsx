@@ -77,6 +77,7 @@ function graph(promptMarkdown = "# Prompt"): DesktopGraphViewModel {
         executorLabel: "inherit",
         promptMarkdown,
         promptPreview: "Prompt",
+        locks: [],
         blocks: [],
         blockPreview: [],
         hiddenBlockRefs: [],
@@ -85,6 +86,7 @@ function graph(promptMarkdown = "# Prompt"): DesktopGraphViewModel {
       }
     ],
     edges: [],
+    lockGroups: [],
     diagnostics: [],
     dirtyPromptRefs: []
   };
