@@ -33,6 +33,7 @@ export {
   getBlockDetail,
   getGraphViewModel,
   getTaskDetail,
+  getTaskFileManagerPath,
   getTaskExecutionOrder
 } from "./graph/readModel.js";
 export { getDesktopProjectSnapshot } from "./graph/projectSnapshotModel.js";

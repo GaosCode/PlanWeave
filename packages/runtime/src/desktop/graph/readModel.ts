@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import { parseBlockRef } from "../../graph/compileTaskGraph.js";
 import { compileTaskGraph } from "../../graph/compileTaskGraph.js";
 import { loadPackage } from "../../package/loadPackage.js";
@@ -209,6 +210,19 @@ export async function getTaskDetail(
     acceptance: task.acceptance,
     blockOrder: sortBlockRefsForTask(graph, taskId)
   };
+}
+
+export async function getTaskFileManagerPath(
+  projectRoot: PackageWorkspaceRef,
+  taskId: string
+): Promise<string> {
+  const { workspace, manifest } = await loadPackage(projectRoot);
+  const task = getTask(compileTaskGraph(manifest), taskId);
+  const promptPath = await resolvePackagePath(workspace.packageDir, task.prompt);
+  const canonicalTaskPrompt = `nodes/${taskId}/prompt.md`;
+  return task.prompt.replaceAll("\\", "/") === canonicalTaskPrompt
+    ? dirname(promptPath)
+    : promptPath;
 }
 
 export async function getTaskExecutionOrder(

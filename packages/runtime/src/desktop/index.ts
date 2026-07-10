@@ -56,6 +56,7 @@ export {
   getStatistics,
   getStatisticsProjection,
   getTaskDetail,
+  getTaskFileManagerPath,
   getTaskExecutionOrder,
   getTodoGroups,
   removeBlock,

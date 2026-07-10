@@ -10,6 +10,7 @@ import {
   getProjectExecutionPlan,
   getStatistics,
   getTaskDetail,
+  getTaskFileManagerPath,
   getTaskExecutionOrder,
   getTodoGroups,
   listPendingImportRecoveries,
@@ -251,6 +252,30 @@ describe("desktop graph read API", () => {
       taskId: "T-001",
       blockRefs: ["T-001#B-001", "T-001#R-001"]
     });
+  });
+
+  it("resolves shared task prompt files from the manifest path", async () => {
+    const { root, init } = await createTestWorkspace();
+    await expect(getTaskFileManagerPath(root, "T-001")).resolves.toBe(
+      join(init.workspace.packageDir, "nodes", "T-001")
+    );
+    const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
+    if (task?.type !== "task") {
+      throw new Error("Fixture task missing.");
+    }
+    task.prompt = "shared/P00.md";
+    await mkdir(join(init.workspace.packageDir, "shared"), { recursive: true });
+    await writeFile(
+      join(init.workspace.packageDir, "shared", "P00.md"),
+      "# Shared prompt\n",
+      "utf8"
+    );
+    await writeJsonFile(init.workspace.manifestFile, manifest);
+
+    await expect(getTaskFileManagerPath(root, "T-001")).resolves.toBe(
+      join(init.workspace.packageDir, "shared", "P00.md")
+    );
   });
 
   it("labels task executors from effective block executors", async () => {

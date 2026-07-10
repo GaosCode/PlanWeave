@@ -260,6 +260,7 @@ export {
   getRunRecord,
   getStatistics,
   getTaskDetail,
+  getTaskFileManagerPath,
   getTaskExecutionOrder,
   getTodoGroups,
   getAutoRunRetrospective,
