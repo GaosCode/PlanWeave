@@ -8,6 +8,83 @@ import {
 } from "../renderer/graph/dependencyEdgeVisual";
 
 describe("canvas map visuals", () => {
+  it("renders one canvas edge for cross-task dependencies between the same canvases", () => {
+    const graph: DesktopCanvasGraphViewModel = {
+      projectId: "P-001",
+      projectTitle: "Canvas map",
+      canvases: [canvas("downstream"), canvas("upstream")],
+      edges: [],
+      crossTaskEdges: [
+        {
+          from: { canvasId: "downstream", taskId: "T-001" },
+          to: { canvasId: "upstream", taskId: "T-001" },
+          type: "depends_on"
+        },
+        {
+          from: { canvasId: "downstream", taskId: "T-002" },
+          to: { canvasId: "upstream", taskId: "T-002" },
+          type: "depends_on"
+        }
+      ],
+      diagnostics: [],
+      health: {
+        severity: "warning",
+        canvases: [],
+        edges: [],
+        blockedBlocks: [],
+        diagnostics: []
+      }
+    };
+
+    const [edge] = canvasMapEdges(graph);
+
+    expect(edge).toEqual(
+      expect.objectContaining({
+        source: "upstream",
+        target: "downstream",
+        animated: false,
+        selectable: false
+      })
+    );
+    expect(edge?.style).not.toHaveProperty("strokeDasharray");
+  });
+
+  it("prefers one explicit canvas edge over cross-task dependencies for the same pair", () => {
+    const graph: DesktopCanvasGraphViewModel = {
+      projectId: "P-001",
+      projectTitle: "Canvas map",
+      canvases: [canvas("downstream"), canvas("upstream")],
+      edges: [{ from: "downstream", to: "upstream", type: "depends_on" }],
+      crossTaskEdges: [
+        {
+          from: { canvasId: "downstream", taskId: "T-001" },
+          to: { canvasId: "upstream", taskId: "T-001" },
+          type: "depends_on"
+        }
+      ],
+      diagnostics: [],
+      health: {
+        severity: "ok",
+        canvases: [],
+        edges: [],
+        blockedBlocks: [],
+        diagnostics: []
+      }
+    };
+
+    const [edge] = canvasMapEdges(graph);
+
+    expect(edge).toEqual(
+      expect.objectContaining({
+        id: "downstream-depends_on-upstream",
+        source: "upstream",
+        target: "downstream",
+        selectable: true
+      })
+    );
+    expect(edge?.style).not.toHaveProperty("strokeDasharray");
+  });
+
   it("renders canvas dependencies with the shared dependency edge palette and no warning animation", () => {
     const graph: DesktopCanvasGraphViewModel = {
       projectId: "P-001",

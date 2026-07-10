@@ -13,6 +13,41 @@ import {
   dependencyEdgeSourceColors
 } from "./dependencyEdgeVisual";
 
+type DisplayCanvasDependency = DesktopCanvasGraphEdgeViewModel & {
+  origin: "canvas" | "cross_task";
+};
+
+function canvasDependencyKey(edge: DesktopCanvasGraphEdgeViewModel): string {
+  return `${edge.from}:${edge.type}:${edge.to}`;
+}
+
+function visibleCanvasDependencies(
+  graph: DesktopCanvasGraphViewModel,
+  canvasIds: Set<string>
+): DisplayCanvasDependency[] {
+  const canvasEdges = graph.edges
+    .filter((edge) => canvasIds.has(edge.from) && canvasIds.has(edge.to))
+    .map((edge) => ({ ...edge, origin: "canvas" as const }));
+  const seen = new Set(canvasEdges.map(canvasDependencyKey));
+  const crossTaskEdges: DisplayCanvasDependency[] = [];
+
+  for (const edge of graph.crossTaskEdges) {
+    const canvasEdge = {
+      from: edge.from.canvasId,
+      to: edge.to.canvasId,
+      type: edge.type
+    } satisfies DesktopCanvasGraphEdgeViewModel;
+    const key = canvasDependencyKey(canvasEdge);
+    const belongsToCanvasMap = canvasIds.has(canvasEdge.from) && canvasIds.has(canvasEdge.to);
+    if (belongsToCanvasMap && !seen.has(key)) {
+      seen.add(key);
+      crossTaskEdges.push({ ...canvasEdge, origin: "cross_task" });
+    }
+  }
+
+  return [...canvasEdges, ...crossTaskEdges];
+}
+
 export const canvasNodeTypes = {
   canvas: CanvasNodeCard
 };
@@ -67,9 +102,7 @@ export function canvasMapEdges(graph: DesktopCanvasGraphViewModel): Edge[] {
   const healthByEdge = new Map(
     graph.health.edges.map((edge) => [`${edge.from}:${edge.type}:${edge.to}`, edge])
   );
-  const visibleEdges = graph.edges.filter(
-    (edge) => canvasIds.has(edge.from) && canvasIds.has(edge.to)
-  );
+  const visibleEdges = visibleCanvasDependencies(graph, canvasIds);
   const sourceColors = dependencyEdgeSourceColors(
     graph.canvases.map((canvas) => canvas.canvasId),
     visibleEdges.map((edge) => ({ source: edge.to, target: edge.from }))
@@ -77,8 +110,13 @@ export function canvasMapEdges(graph: DesktopCanvasGraphViewModel): Edge[] {
   return visibleEdges.map((edge) => {
     const health = healthByEdge.get(`${edge.from}:${edge.type}:${edge.to}`) ?? null;
     const sourceColor = sourceColors.get(edge.to) ?? dependencyEdgeColorForSource(edge.to);
+    const isCanvasEdge = edge.origin === "canvas";
+    let edgeId = `${edge.from}-${edge.type}-${edge.to}`;
+    if (!isCanvasEdge) {
+      edgeId = `cross-task-${edgeId}`;
+    }
     return {
-      id: `${edge.from}-${edge.type}-${edge.to}`,
+      id: edgeId,
       source: edge.to,
       target: edge.from,
       data: {
@@ -88,6 +126,7 @@ export function canvasMapEdges(graph: DesktopCanvasGraphViewModel): Edge[] {
         manifestTo: edge.to
       } satisfies DisplayCanvasEdgeData,
       animated: false,
+      selectable: isCanvasEdge,
       type: "smoothstep",
       markerEnd: {
         type: MarkerType.ArrowClosed,
