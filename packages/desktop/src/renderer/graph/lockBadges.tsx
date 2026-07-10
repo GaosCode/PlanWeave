@@ -37,13 +37,7 @@ function parseTaskIdFromRef(ref: string): string {
   return ref.includes("#") ? ref.slice(0, ref.indexOf("#")) : ref;
 }
 
-function LockDot({
-  name,
-  state
-}: {
-  name: string;
-  state: TaskLockState;
-}) {
+function LockDot({ name, state }: { name: string; state: TaskLockState }) {
   const color = lockColor(name);
   const free = state.kind === "free";
   const heldByThis = state.kind === "heldByThis";
@@ -84,7 +78,9 @@ export function LockBadges({
   }
 
   const exclusive = locks.includes("exclusive");
-  const visibleLocks = exclusive ? (["exclusive"] as string[]) : locks.slice(0, LOCK_OVERFLOW_LIMIT);
+  const visibleLocks = exclusive
+    ? (["exclusive"] as string[])
+    : locks.slice(0, LOCK_OVERFLOW_LIMIT);
   const overflowCount = exclusive ? 0 : Math.max(0, locks.length - LOCK_OVERFLOW_LIMIT);
 
   return (
@@ -178,10 +174,13 @@ export function LockBadges({
           variant="outline"
           data-testid="task-node-lock-overflow"
         >
-          <button type="button" onClick={(event) => {
-            event.stopPropagation();
-            onOverflowOpen();
-          }}>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOverflowOpen();
+            }}
+          >
             {labels.moreLocks(overflowCount)}
           </button>
         </Badge>

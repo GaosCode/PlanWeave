@@ -599,14 +599,7 @@ export function ProjectWorkspaceProvider({
       onLockOverflow: handleLockOverflow,
       onJumpToTask: handleJumpToTask
     }),
-    [
-      activeLock,
-      releaseEpochByLock,
-      onLockHover,
-      onLockPin,
-      handleLockOverflow,
-      handleJumpToTask
-    ]
+    [activeLock, releaseEpochByLock, onLockHover, onLockPin, handleLockOverflow, handleJumpToTask]
   );
 
   useGraphFlowModel({

@@ -1,7 +1,4 @@
-import {
-  EXCLUSIVE_LOCK,
-  PARALLEL_SAFE_DEPRECATION_MESSAGE
-} from "../schema/manifest.js";
+import { EXCLUSIVE_LOCK, PARALLEL_SAFE_DEPRECATION_MESSAGE } from "../schema/manifest.js";
 import type { ManifestBlock, ValidationIssue } from "../types.js";
 
 export { EXCLUSIVE_LOCK, PARALLEL_SAFE_DEPRECATION_MESSAGE };

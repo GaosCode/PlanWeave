@@ -86,7 +86,7 @@ const graph: DesktopGraphViewModel = {
           promptMissing: false,
           exceptionReason: null,
           dispatchable: false,
-          waitingOn: null,
+          waitingOn: null
         }
       ],
       blockPreview: [],

@@ -270,8 +270,7 @@ function largeDagManifest(): string {
             prompt: `nodes/${id}/blocks/B-001.prompt.md`,
             depends_on: [],
             parallel: {
-              locks:
-                id === "T-001" ? ["exclusive"] : id === "T-005" ? ["desktop-ui"] : []
+              locks: id === "T-001" ? ["exclusive"] : id === "T-005" ? ["desktop-ui"] : []
             }
           },
           {

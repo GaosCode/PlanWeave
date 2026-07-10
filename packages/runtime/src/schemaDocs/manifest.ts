@@ -98,7 +98,7 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
             parallel: {
               locks:
                 'string[], default: []; reserved name "exclusive" is mutually exclusive with every other block',
-              safe: "boolean, optional, deprecated — use locks:[\"exclusive\"] instead of safe:false; presence emits a deprecation warning"
+              safe: 'boolean, optional, deprecated — use locks:["exclusive"] instead of safe:false; presence emits a deprecation warning'
             }
           },
           {

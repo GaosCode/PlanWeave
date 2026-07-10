@@ -108,8 +108,7 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
     executorOptions
   });
   const statusVisual = taskNodeStatusVisual(task.status, hasException, { waiting });
-  const highlightColor =
-    lockHighlighted && highlightedLock ? lockColor(highlightedLock).dot : null;
+  const highlightColor = lockHighlighted && highlightedLock ? lockColor(highlightedLock).dot : null;
   const statusLabel = hasException
     ? labels.exception
     : waiting

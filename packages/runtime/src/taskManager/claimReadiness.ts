@@ -144,8 +144,12 @@ function selectedParallelBatchRefs(
     ) {
       continue;
     }
-    const conflictsWithRunning = retained.some((currentRef) => refsConflict(graph, ref, currentRef));
-    const conflictsWithSelected = selected.some((selectedRef) => refsConflict(graph, ref, selectedRef));
+    const conflictsWithRunning = retained.some((currentRef) =>
+      refsConflict(graph, ref, currentRef)
+    );
+    const conflictsWithSelected = selected.some((selectedRef) =>
+      refsConflict(graph, ref, selectedRef)
+    );
     if (!conflictsWithRunning && !conflictsWithSelected) {
       selected.push(ref);
     }
