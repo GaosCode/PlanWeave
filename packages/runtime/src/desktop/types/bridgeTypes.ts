@@ -155,6 +155,7 @@ export type DesktopBridgeApi = {
   revealProjectInFinder(rootPath: string): Promise<void>;
   revealPathInFinder(path: string): Promise<void>;
   revealTaskCanvasInFinder(projectRoot: string, canvasId: string): Promise<void>;
+  revealTaskInFinder(ref: DesktopCanvasReference, taskId: string): Promise<void>;
   detectAgentTools(): Promise<DesktopAgentDetection[]>;
   detectRuntimeTools(): Promise<DesktopRuntimeToolAvailability>;
   detectTerminalApps(): Promise<DesktopTerminalAppDetection[]>;

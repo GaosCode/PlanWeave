@@ -34,7 +34,7 @@ import type {
   DesktopProjectSummary,
   DesktopRuntimeToolAvailability
 } from "@planweave-ai/runtime";
-import { bridge } from "./bridge";
+import { bridge, desktopCanvasReference } from "./bridge";
 import { edgeTypes, nodeTypes } from "./graph/flowModel";
 import type { createTranslator } from "./i18n";
 import { orderProjectsByPinnedIds } from "./settings";
@@ -66,7 +66,6 @@ import { useGraphWorkspaceController } from "./controllers/GraphWorkspaceControl
 import { useNotificationController } from "./controllers/NotificationController";
 import { useSearchController } from "./controllers/SearchController";
 import { writeAgentScopePromptToClipboard } from "./agentPrompt";
-import { taskNodeDirectory } from "./pathUtils";
 import { uniqueDesktopDiagnostics } from "./diagnostics";
 import type {
   WorkspaceTabsAutoRunProps,
@@ -548,28 +547,30 @@ export function ProjectWorkspaceProvider({
   );
   const handleRevealTaskInFinder = useCallback(
     (taskId: string) => {
-      if (!selectedProject) {
+      if (!bridge || !selectedProject) {
         return;
       }
       const canvasId = selectedCanvasId ?? selectedProject.activeCanvasId ?? "default";
-      const packageDir = canvasPackageDir(selectedProject, canvasId);
-      if (!packageDir) {
-        setError(unavailablePackageDirMessage(canvasId));
-        return;
-      }
-      void handleRevealPathInFinder(taskNodeDirectory(selectedProject, packageDir, taskId));
+      void bridge
+        .revealTaskInFinder(desktopCanvasReference(selectedProject, canvasId), taskId)
+        .catch((caught: unknown) =>
+          setError(caught instanceof Error ? caught.message : String(caught))
+        );
     },
-    [handleRevealPathInFinder, selectedCanvasId, selectedProject, setError]
+    [selectedCanvasId, selectedProject, setError]
   );
   const handleRevealTaskNode = useCallback(
     (project: DesktopProjectSummary, canvas: TaskCanvasSummary, taskId: string) => {
-      if (!canvas.packageDir) {
-        setError(unavailablePackageDirMessage(canvas.canvasId));
+      if (!bridge) {
         return;
       }
-      void handleRevealPathInFinder(taskNodeDirectory(project, canvas.packageDir, taskId));
+      void bridge
+        .revealTaskInFinder(desktopCanvasReference(project, canvas.canvasId), taskId)
+        .catch((caught: unknown) =>
+          setError(caught instanceof Error ? caught.message : String(caught))
+        );
     },
-    [handleRevealPathInFinder, setError]
+    [setError]
   );
   const handleCopyCanvasAgentPrompt = useCallback(
     (project: DesktopProjectSummary, canvas: TaskCanvasSummary) => {

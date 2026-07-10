@@ -233,10 +233,16 @@ describe("runtime bridge handlers: graph and project", () => {
       "/tmp/project",
       "canvas-a"
     );
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.revealTaskInFinder)?.(
+      null,
+      { projectRoot: "/tmp/project", canvasId: "canvas-a" },
+      "T-001"
+    );
 
     expect(electronMock.shell.openPath).not.toHaveBeenCalled();
     expect(electronMock.shell.showItemInFolder).not.toHaveBeenCalled();
     expect(runtimeMock.resolveTaskCanvasWorkspace).not.toHaveBeenCalled();
+    expect(runtimeMock.getTaskFileManagerPath).not.toHaveBeenCalled();
   });
 
   it("opens resolved task canvas workspace directories in Finder", async () => {
@@ -258,5 +264,28 @@ describe("runtime bridge handlers: graph and project", () => {
     expect(runtimeMock.resolveTaskCanvasWorkspace).toHaveBeenCalledWith("/tmp/project", "canvas-a");
     expect(electronMock.shell.openPath).toHaveBeenCalledWith("/tmp/project/canvases/canvas-a");
     expect(electronMock.shell.showItemInFolder).not.toHaveBeenCalled();
+  });
+
+  it("reveals the task prompt path resolved by runtime instead of assuming a node directory", async () => {
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    runtimeMock.getTaskFileManagerPath.mockResolvedValueOnce(
+      "/tmp/project/canvases/canvas-a/package/shared/P00.md"
+    );
+    registerRuntimeBridgeHandlers();
+
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.revealTaskInFinder)?.(
+      null,
+      { projectRoot: "/tmp/project", canvasId: "canvas-a" },
+      "T-001"
+    );
+
+    expect(runtimeMock.resolveTaskCanvasWorkspace).toHaveBeenCalledWith("/tmp/project", "canvas-a");
+    expect(runtimeMock.getTaskFileManagerPath).toHaveBeenCalledWith(
+      { projectRoot: "/tmp/project", canvasId: "canvas-a", source: "task" },
+      "T-001"
+    );
+    expect(electronMock.shell.showItemInFolder).toHaveBeenCalledWith(
+      "/tmp/project/canvases/canvas-a/package/shared/P00.md"
+    );
   });
 });

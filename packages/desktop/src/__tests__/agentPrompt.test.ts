@@ -2,7 +2,6 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildAgentScopePrompt, writeAgentScopePromptToClipboard } from "../renderer/agentPrompt";
-import { taskNodeDirectory } from "../renderer/pathUtils";
 
 const project = {
   projectId: "P-001",
@@ -64,15 +63,6 @@ describe("agent scope prompt", () => {
       })
     ).toContain(
       "workspaceRoot: /tmp/.planweave/P-EXT\ncanvasId: default\npackageDir: /tmp/.planweave/P-EXT/canvases/default/package"
-    );
-  });
-
-  it("builds task node directories from the same workspace package path rule", () => {
-    expect(taskNodeDirectory(project, "canvases/default/package", "T-001")).toBe(
-      "/tmp/plan-project/canvases/default/package/nodes/T-001"
-    );
-    expect(taskNodeDirectory(project, "/tmp/absolute-package", "T-001")).toBe(
-      "/tmp/absolute-package/nodes/T-001"
     );
   });
 

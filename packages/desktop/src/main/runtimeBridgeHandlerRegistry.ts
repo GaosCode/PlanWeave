@@ -39,6 +39,7 @@ import {
   getRunRecord,
   getStatistics,
   getTaskDetail,
+  getTaskFileManagerPath,
   getTaskExecutionOrder,
   getTodoGroups,
   initOrOpenProject,
@@ -299,6 +300,13 @@ export const runtimeBridgeHandlers = {
     }
     const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
     await shell.openPath(workspace.workspaceRoot);
+  },
+  revealTaskInFinder: async (_event, ref, taskId) => {
+    if (process.env.PLANWEAVE_DESKTOP_SMOKE === "1") {
+      return;
+    }
+    const workspace = await resolveDesktopCanvasReference(ref);
+    shell.showItemInFolder(await getTaskFileManagerPath(workspace, taskId));
   },
   detectAgentTools: () => detectAgentTools(),
   detectRuntimeTools: () => detectRuntimeTools(),

@@ -95,6 +95,7 @@ export const desktopBridgeInvokeChannels = {
   revealPathInFinder: "planweave:revealPathInFinder",
   revealProjectInFinder: "planweave:revealProjectInFinder",
   revealTaskCanvasInFinder: "planweave:revealTaskCanvasInFinder",
+  revealTaskInFinder: "planweave:revealTaskInFinder",
   rollbackPendingImportRecovery: "planweave:rollbackPendingImportRecovery",
   saveCanvasMapLayout: "planweave:saveCanvasMapLayout",
   saveDesktopLayout: "planweave:saveDesktopLayout",
