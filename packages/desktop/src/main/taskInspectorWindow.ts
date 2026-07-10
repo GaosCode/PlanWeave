@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DesktopCanvasReference } from "@planweave-ai/runtime";
 import { createNativeTranslator } from "../shared/nativeI18n.js";
+import { configureExternalLinkHandling, configureNavigationHandling } from "./window.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const taskInspectorWindows = new Map<string, BrowserWindow>();
@@ -33,9 +34,9 @@ function taskWindowQuery(input: OpenTaskInspectorWindowInput): Record<string, st
 
 async function loadTaskWindow(
   window: BrowserWindow,
-  input: OpenTaskInspectorWindowInput
+  input: OpenTaskInspectorWindowInput,
+  devServerUrl: string | undefined
 ): Promise<void> {
-  const devServerUrl = process.env.PLANWEAVE_DESKTOP_DEV_SERVER_URL;
   if (devServerUrl) {
     const url = new URL(devServerUrl);
     for (const [key, value] of Object.entries(taskWindowQuery(input))) {
@@ -55,6 +56,7 @@ export async function openTaskInspectorWindow(input: OpenTaskInspectorWindowInpu
     return;
   }
 
+  const devServerUrl = process.env.PLANWEAVE_DESKTOP_DEV_SERVER_URL;
   const window = new BrowserWindow({
     width: 760,
     height: 780,
@@ -67,12 +69,17 @@ export async function openTaskInspectorWindow(input: OpenTaskInspectorWindowInpu
       preload: join(__dirname, "..", "preload", "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
+  });
+
+  configureExternalLinkHandling(window);
+  configureNavigationHandling(window, {
+    isDev: Boolean(devServerUrl)
   });
 
   taskInspectorWindows.set(key, window);
   window.on("closed", () => taskInspectorWindows.delete(key));
-  await loadTaskWindow(window, input);
+  await loadTaskWindow(window, input, devServerUrl);
   window.show();
 }
