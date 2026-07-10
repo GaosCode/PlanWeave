@@ -16,6 +16,7 @@ export const project: DesktopProjectSummary = {
       canvasId: "canvas-main",
       name: "Main canvas",
       taskCount: 2,
+      diagnostics: [],
       createdAt: "2026-05-23T00:00:00.000Z",
       updatedAt: "2026-05-23T00:00:00.000Z"
     }

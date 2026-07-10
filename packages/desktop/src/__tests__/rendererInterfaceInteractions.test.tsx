@@ -668,9 +668,16 @@ describe("desktop renderer interface interactions", () => {
           missingPromptCount: 0,
           diagnostics: [
             {
+              code: "parallel_safe_deprecated",
+              message: "parallel.safe is deprecated",
+              path: "nodes.0.blocks.0.parallel.safe",
+              severity: "warning"
+            },
+            {
               code: "project_graph_schema",
               message: "Expected array, received string",
-              path: "project-graph.json:canvases"
+              path: "project-graph.json:canvases",
+              severity: "error"
             }
           ],
           createdAt: "2026-05-23T00:00:00.000Z",

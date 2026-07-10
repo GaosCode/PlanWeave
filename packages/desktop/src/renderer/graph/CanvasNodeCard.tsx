@@ -20,13 +20,22 @@ import { cn } from "@/lib/utils";
 import type { CanvasFlowNode } from "../types";
 
 export function CanvasNodeCard({ data }: NodeProps<CanvasFlowNode>) {
-  const hasDiagnostics = data.canvas.diagnostics.length > 0;
+  const hasErrorDiagnostics = data.canvas.diagnostics.some(
+    (diagnostic) => diagnostic.severity === "error"
+  );
+  const hasWarningDiagnostics = data.canvas.diagnostics.some(
+    (diagnostic) => diagnostic.severity === "warning"
+  );
   const healthSeverity = data.health?.severity ?? "ok";
   const diagnosticCount = data.health?.diagnosticCount ?? 0;
-  const blockerCount = data.health?.blockerCount ?? 0;
-  const hasErrorHealth = healthSeverity === "error";
-  const hasWarningDiagnostics = healthSeverity === "warning" && diagnosticCount > 0;
-  const hasDependencyWait = blockerCount > 0;
+  const hasErrorHealth = !hasErrorDiagnostics && healthSeverity === "error";
+  const hasWarningHealth =
+    !hasErrorDiagnostics &&
+    !hasWarningDiagnostics &&
+    healthSeverity === "warning" &&
+    diagnosticCount > 0;
+  const hasDependencyWait = (data.health?.blockerCount ?? 0) > 0;
+  const showWarning = hasWarningDiagnostics || hasWarningHealth;
 
   return (
     <ContextMenu>
@@ -37,10 +46,10 @@ export function CanvasNodeCard({ data }: NodeProps<CanvasFlowNode>) {
             data.selected
               ? "border-state-selected shadow-md ring-2 ring-state-selected/25"
               : "border-border/80",
-            hasDiagnostics || hasErrorHealth
+            hasErrorDiagnostics || hasErrorHealth
               ? "border-state-failed/70 bg-state-failed-surface"
               : null,
-            !hasDiagnostics && hasWarningDiagnostics
+            !hasErrorDiagnostics && !hasErrorHealth && showWarning
               ? "border-state-warning/75 bg-state-warning-surface"
               : null
           )}
@@ -53,18 +62,16 @@ export function CanvasNodeCard({ data }: NodeProps<CanvasFlowNode>) {
             <CardTitle className="flex min-w-0 items-center gap-2 text-sm">
               <NetworkIcon className="size-4 shrink-0 text-text-muted" aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate">{data.canvas.title}</span>
-              {hasDiagnostics ? (
+              {hasErrorDiagnostics || hasErrorHealth ? (
                 <Badge className="shrink-0 gap-1" variant="destructive">
                   <AlertTriangleIcon className="size-3" aria-hidden="true" />
                   {data.labels.error}
                 </Badge>
-              ) : hasErrorHealth ? (
-                <Badge className="shrink-0 gap-1" variant="destructive">
-                  <AlertTriangleIcon className="size-3" aria-hidden="true" />
-                  {data.labels.error}
-                </Badge>
-              ) : hasWarningDiagnostics ? (
-                <Badge className="shrink-0 gap-1" variant="secondary">
+              ) : showWarning ? (
+                <Badge
+                  className="shrink-0 gap-1 border-state-warning/60 bg-state-warning-surface text-text-strong"
+                  variant="secondary"
+                >
                   <AlertTriangleIcon className="size-3" aria-hidden="true" />
                   {data.labels.warning}
                 </Badge>

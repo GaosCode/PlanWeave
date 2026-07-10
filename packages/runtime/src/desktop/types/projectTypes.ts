@@ -1,5 +1,4 @@
-import type { ValidationIssue } from "../../types.js";
-import type { DesktopCanvasExecutionPolicy } from "./graphTypes.js";
+import type { DesktopCanvasDiagnosticIssue, DesktopCanvasExecutionPolicy } from "./graphTypes.js";
 
 export type DesktopTaskCanvasSummary = {
   canvasId: string;
@@ -8,7 +7,7 @@ export type DesktopTaskCanvasSummary = {
   executionPolicy: DesktopCanvasExecutionPolicy | null;
   taskCount: number;
   missingPromptCount: number;
-  diagnostics: ValidationIssue[];
+  diagnostics: DesktopCanvasDiagnosticIssue[];
   createdAt: string;
   updatedAt: string;
 };

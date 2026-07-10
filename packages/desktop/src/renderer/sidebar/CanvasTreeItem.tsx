@@ -85,7 +85,8 @@ export function CanvasTreeItem({
   selectedTaskPanelId,
   t
 }: CanvasTreeItemProps) {
-  const firstDiagnostic = canvas.diagnostics?.[0] ?? null;
+  const firstError =
+    canvas.diagnostics.find((diagnostic) => diagnostic.severity === "error") ?? null;
   const canvasLabel = canvas.name || t("taskCanvas");
   const displayedTaskCount = graph?.tasks.length ?? canvas.taskCount;
   const openTaskCanvasLabel = fileManagerLabel(t, "taskCanvas");
@@ -163,13 +164,11 @@ export function CanvasTreeItem({
             <ContextMenuTrigger asChild>
               <Button
                 aria-label={
-                  firstDiagnostic
-                    ? `${canvasLabel} ${t("error")}: ${firstDiagnostic.message}`
-                    : undefined
+                  firstError ? `${canvasLabel} ${t("error")}: ${firstError.message}` : undefined
                 }
                 aria-current={isGraphCanvas ? "page" : undefined}
                 className="h-8 w-full min-w-0 max-w-full flex-1 justify-between gap-2 overflow-hidden rounded-md px-2 text-xs text-text-muted hover:bg-surface-muted hover:text-text-strong data-[variant=secondary]:border-state-selected/25 data-[variant=secondary]:bg-state-selected-surface data-[variant=secondary]:text-text-strong data-[variant=secondary]:shadow-sm [&_svg]:size-4"
-                title={firstDiagnostic ? firstDiagnostic.message : undefined}
+                title={firstError ? firstError.message : undefined}
                 variant={isGraphCanvas ? "secondary" : "ghost"}
                 onClick={() => onCanvasSelect(project, canvas.canvasId)}
               >
@@ -177,7 +176,7 @@ export function CanvasTreeItem({
                   <WorkflowIcon className="shrink-0" data-icon="inline-start" />
                   <span className="truncate">{canvasLabel}</span>
                 </span>
-                {firstDiagnostic ? (
+                {firstError ? (
                   <Badge className="shrink-0 gap-1" variant="destructive">
                     <AlertTriangleIcon className="size-3" aria-hidden="true" />
                     {t("error")}

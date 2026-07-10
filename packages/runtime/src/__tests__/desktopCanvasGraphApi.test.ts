@@ -155,6 +155,27 @@ describe("desktop canvas graph API", () => {
     });
   });
 
+  it("projects deprecated package fields as canvas warnings", async () => {
+    const manifest = basicManifest();
+    const task = manifest.nodes.find((node) => node.type === "task");
+    const block =
+      task?.type === "task" ? task.blocks.find((item) => item.type === "implementation") : null;
+    if (!block || block.type !== "implementation") {
+      throw new Error("Expected an implementation block fixture.");
+    }
+    block.parallel = { safe: true, locks: ["shared"] };
+    const { root } = await createTestWorkspace(manifest);
+
+    const graph = await getCanvasGraphViewModel(root);
+    const canvas = graph.canvases.find((item) => item.canvasId === "default");
+    const health = graph.health.canvases.find((item) => item.canvasId === "default");
+
+    expect(canvas?.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "parallel_safe_deprecated", severity: "warning" })
+    );
+    expect(health).toMatchObject({ severity: "warning", diagnosticCount: 1 });
+  });
+
   it("refreshes the cached canvas graph when project graph changes externally", async () => {
     const { root, init } = await createTestWorkspace();
     const secondCanvas = await createTaskCanvas(root, { name: "Externally added canvas" });

@@ -105,12 +105,16 @@ export type DesktopGraphDiagnostics = {
   diagnostics: DesktopGraphDiagnosticIssue[];
 };
 
+export type DesktopCanvasDiagnosticIssue = ValidationIssue & {
+  severity: "error" | "warning";
+};
+
 export type DesktopCanvasNodeViewModel = {
   canvasId: string;
   title: string;
   packageDir: string;
   executionPolicy: DesktopCanvasExecutionPolicy | null;
-  diagnostics: ValidationIssue[];
+  diagnostics: DesktopCanvasDiagnosticIssue[];
 };
 
 export type DesktopCanvasExecutionPolicy = {

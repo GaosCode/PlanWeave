@@ -19,6 +19,46 @@ afterEach(() => {
 });
 
 describe("desktop canvas summary model", () => {
+  it("preserves graph warning severity without promoting it to an error", async () => {
+    const manifest = basicManifest();
+    const task = manifest.nodes.find((node) => node.type === "task");
+    const block =
+      task?.type === "task" ? task.blocks.find((item) => item.type === "implementation") : null;
+    if (!block || block.type !== "implementation") {
+      throw new Error("Expected an implementation block fixture.");
+    }
+    block.parallel = { safe: true, locks: ["shared"] };
+    const { root } = await createTestWorkspace(manifest);
+
+    const summaries = await listTaskCanvases(root);
+    const warning = summaries[0]?.diagnostics.find(
+      (diagnostic) => diagnostic.code === "parallel_safe_deprecated"
+    );
+
+    expect(warning).toMatchObject({ severity: "warning" });
+    expect(summaries[0]?.diagnostics.some((diagnostic) => diagnostic.severity === "error")).toBe(
+      false
+    );
+  });
+
+  it("marks manifest schema diagnostics as errors", async () => {
+    const { root, init } = await createTestWorkspace();
+    await writeJsonFile(init.workspace.manifestFile, {
+      version: "plan-package/v1",
+      project: { title: "Broken", description: "Broken manifest" },
+      execution: { parallel: { enabled: false, maxConcurrent: 1 } },
+      review: { maxFeedbackCycles: 1, completionPolicy: "strict" },
+      nodes: "not-an-array",
+      edges: []
+    });
+
+    const summaries = await listTaskCanvases(root);
+
+    expect(summaries[0]?.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "manifest_schema", severity: "error" })
+    );
+  });
+
   it("reads each canvas manifest once when listing many project graph canvas summaries", async () => {
     const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
     vi.mocked(readFile).mockImplementation((path, options) => actualFs.readFile(path, options));

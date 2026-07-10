@@ -13,7 +13,11 @@ import {
   populateDuplicatedCanvasWorkspace
 } from "./projectCanvasStore.js";
 import type { DesktopTaskCanvasWorkspace } from "./projectCanvasStore.js";
-import type { DesktopProjectSummary, DesktopTaskCanvasSummary } from "./types.js";
+import type {
+  DesktopCanvasDiagnosticIssue,
+  DesktopProjectSummary,
+  DesktopTaskCanvasSummary
+} from "./types.js";
 
 export type { DesktopTaskCanvasWorkspace } from "./projectCanvasStore.js";
 
@@ -52,7 +56,9 @@ function projectGraphDiagnosticCanvas(diagnostics: ValidationIssue[]): DesktopTa
     executionPolicy: null,
     taskCount: 0,
     missingPromptCount: 0,
-    diagnostics,
+    diagnostics: diagnostics.map(
+      (diagnostic): DesktopCanvasDiagnosticIssue => ({ ...diagnostic, severity: "error" })
+    ),
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString()
   };

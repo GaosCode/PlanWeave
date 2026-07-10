@@ -50,6 +50,7 @@ describe("desktop renderer component interactions", () => {
           canvasId: "default",
           name: "frontend-example",
           taskCount: 2,
+          diagnostics: [],
           createdAt: "2026-05-22T00:00:00.000Z",
           updatedAt: "2026-05-22T00:00:00.000Z"
         }
@@ -193,6 +194,7 @@ describe("desktop renderer component interactions", () => {
           canvasId: "canvas-main",
           name: "Main canvas",
           taskCount: 3,
+          diagnostics: [],
           createdAt: "2026-05-22T00:00:00.000Z",
           updatedAt: "2026-05-22T00:00:00.000Z"
         }
@@ -305,6 +307,7 @@ describe("desktop renderer component interactions", () => {
           canvasId: "default",
           name: "refresh-example",
           taskCount: 0,
+          diagnostics: [],
           createdAt: "2026-05-22T00:00:00.000Z",
           updatedAt: "2026-05-22T00:00:00.000Z"
         }
@@ -368,6 +371,7 @@ describe("desktop renderer component interactions", () => {
           canvasId: "default",
           name: "windows-example",
           taskCount: 0,
+          diagnostics: [],
           createdAt: "2026-05-22T00:00:00.000Z",
           updatedAt: "2026-05-22T00:00:00.000Z"
         }
@@ -441,6 +445,7 @@ describe("desktop renderer component interactions", () => {
           canvasId: "canvas-main",
           name: "Main canvas",
           taskCount: 0,
+          diagnostics: [],
           createdAt: "2026-05-22T00:00:00.000Z",
           updatedAt: "2026-05-22T00:00:00.000Z"
         }

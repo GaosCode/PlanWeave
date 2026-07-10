@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 import type { createTranslator } from "../i18n";
 import { CanvasMapBlockedBlocksList, CanvasMapHealthDiagnostics } from "./CanvasMapHealthDetails";
 
@@ -238,6 +239,13 @@ export function CanvasMapInspector({
       item.blocked.canvasId === selectedCanvasId ||
       item.blockers.some((blocker) => blocker.canvasId === selectedCanvasId)
   );
+  const selectedCanvasDiagnosticSeverity = selectedCanvas?.diagnostics.some(
+    (diagnostic) => diagnostic.severity === "error"
+  )
+    ? "error"
+    : selectedCanvas?.diagnostics.some((diagnostic) => diagnostic.severity === "warning")
+      ? "warning"
+      : null;
 
   if (selectedEdge) {
     return (
@@ -279,10 +287,19 @@ export function CanvasMapInspector({
         <CardTitle className="flex min-w-0 items-center justify-between gap-2 text-sm">
           <span className="truncate">{selectedCanvas.title}</span>
           <span className="flex shrink-0 items-center gap-1">
-            {selectedCanvas.diagnostics.length > 0 ? (
-              <Badge variant="destructive">{t("error")}</Badge>
+            {selectedCanvasDiagnosticSeverity ? (
+              <Badge
+                className={
+                  selectedCanvasDiagnosticSeverity === "warning"
+                    ? "border-state-warning/60 bg-state-warning-surface text-text-strong"
+                    : undefined
+                }
+                variant={selectedCanvasDiagnosticSeverity === "error" ? "destructive" : "secondary"}
+              >
+                {t(selectedCanvasDiagnosticSeverity)}
+              </Badge>
             ) : null}
-            {selectedCanvasHealth && selectedCanvasHealth.severity !== "ok" ? (
+            {selectedCanvasHealth && selectedCanvasHealth.blockerCount > 0 ? (
               <Badge variant="secondary">{t("dependencyHealth")}</Badge>
             ) : null}
             <Button size="icon-sm" variant="ghost" aria-label={t("close")} onClick={onClose}>
@@ -359,7 +376,12 @@ export function CanvasMapInspector({
             <div className="text-xs text-muted-foreground">{t("diagnostics")}</div>
             {selectedCanvas.diagnostics.map((diagnostic) => (
               <div
-                className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs"
+                className={cn(
+                  "rounded-md border p-2 text-xs",
+                  diagnostic.severity === "error"
+                    ? "border-destructive/30 bg-destructive/10"
+                    : "border-state-warning/60 bg-state-warning-surface"
+                )}
                 style={{ overflowWrap: "anywhere" }}
                 key={`${diagnostic.code}-${diagnostic.path ?? ""}-${diagnostic.message}`}
               >

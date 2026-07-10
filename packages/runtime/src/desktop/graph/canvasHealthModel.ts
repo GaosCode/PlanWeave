@@ -170,15 +170,19 @@ function canvasSummaries(
   blocked: DesktopCanvasHealthBlockedBlock[]
 ): DesktopCanvasHealthCanvasSummary[] {
   return context.aggregation.graph.canvasIdsInOrder.map((canvasId) => {
+    const canvasDiagnostics =
+      context.aggregation.canvasesById.get(canvasId)?.canvas.diagnostics ?? [];
     const diagnosticCount =
-      (context.aggregation.canvasesById.get(canvasId)?.canvas.diagnostics.length ?? 0) +
+      canvasDiagnostics.length +
       diagnostics.filter((diagnostic) => diagnosticMentionsCanvas(diagnostic, canvasId)).length;
     const blockerCount = blocked.filter((item) => item.blocked.canvasId === canvasId).length;
-    const hasError = diagnostics.some(
-      (diagnostic) =>
-        diagnosticMentionsCanvas(diagnostic, canvasId) &&
-        diagnosticLevel(diagnostic, errorKeys) === "error"
-    );
+    const hasError =
+      canvasDiagnostics.some((diagnostic) => diagnostic.severity === "error") ||
+      diagnostics.some(
+        (diagnostic) =>
+          diagnosticMentionsCanvas(diagnostic, canvasId) &&
+          diagnosticLevel(diagnostic, errorKeys) === "error"
+      );
     return {
       canvasId,
       severity: hasError ? "error" : diagnosticCount > 0 || blockerCount > 0 ? "warning" : "ok",

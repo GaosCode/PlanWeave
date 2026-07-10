@@ -1,4 +1,7 @@
-import type { DesktopCanvasGraphViewModel } from "../../desktop/types.js";
+import type {
+  DesktopCanvasDiagnosticIssue,
+  DesktopCanvasGraphViewModel
+} from "../../desktop/types.js";
 import { buildCanvasHealth } from "../../desktop/graph/canvasHealthModel.js";
 import type { ValidationIssue } from "../../types.js";
 import type { ProjectTodoContext } from "./todoProjection.js";
@@ -21,6 +24,13 @@ function diagnosticsForCanvas(canvasId: string, diagnostics: ValidationIssue[]):
   });
 }
 
+function withSeverity(
+  diagnostics: ValidationIssue[],
+  severity: DesktopCanvasDiagnosticIssue["severity"]
+): DesktopCanvasDiagnosticIssue[] {
+  return diagnostics.map((diagnostic) => ({ ...diagnostic, severity }));
+}
+
 export function buildCanvasMapProjection(options: {
   graphVersion: string;
   context: ProjectTodoContext;
@@ -41,7 +51,11 @@ export function buildCanvasMapProjection(options: {
       executionPolicy: canvas.canvas.executionPolicy,
       diagnostics: [
         ...canvas.canvas.diagnostics,
-        ...diagnosticsForCanvas(canvas.canvasId, diagnostics)
+        ...withSeverity(diagnosticsForCanvas(canvas.canvasId, graph.diagnostics.errors), "error"),
+        ...withSeverity(
+          diagnosticsForCanvas(canvas.canvasId, graph.diagnostics.warnings),
+          "warning"
+        )
       ]
     };
   });
