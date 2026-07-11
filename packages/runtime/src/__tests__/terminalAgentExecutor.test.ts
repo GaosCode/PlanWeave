@@ -3,6 +3,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createClaudeCodeExecAdapter, createPiExecAdapter, runAutoRunStep } from "../index.js";
 import { readJsonFile } from "../json.js";
+import { claudeCodeAgentDefinition } from "../autoRun/claudeCodeIntegration.js";
+import { cliRunner, createCliRunner } from "../autoRun/cliRunner.js";
+import { ExecutorCancelledError } from "../autoRun/executorShared.js";
+import { piAgentDefinition } from "../autoRun/piIntegration.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
@@ -23,7 +27,115 @@ const terminalAgents = [
   }
 ] as const;
 
+const terminalFeedbackAgents = [
+  {
+    name: "fake-claude-feedback",
+    adapter: "claude-code-exec",
+    definition: claudeCodeAgentDefinition,
+    profile: {
+      adapter: "agent",
+      agent: "claude-code",
+      runner: { transport: "cli" },
+      command: process.execPath,
+      args: ["-e", "console.log('claude feedback report')"]
+    }
+  },
+  {
+    name: "fake-pi-feedback",
+    adapter: "pi-exec",
+    definition: piAgentDefinition,
+    profile: {
+      adapter: "agent",
+      agent: "pi",
+      runner: { transport: "cli" },
+      command: process.execPath,
+      args: ["-e", "console.log('pi feedback report')"]
+    }
+  }
+] as const;
+
 describe("terminal agent executors", () => {
+  it("finalizes block and feedback metadata when terminal-agent execution is cancelled", async () => {
+    const runner = createCliRunner({
+      executeProcess: () => Promise.reject(new ExecutorCancelledError())
+    });
+    const profile = {
+      adapter: "agent" as const,
+      agent: "claude-code" as const,
+      runner: { transport: "cli" as const },
+      command: process.execPath,
+      args: ["-e", "setTimeout(() => {}, 60_000)"]
+    };
+    const blockWorkspace = await createTestWorkspace();
+    const feedbackWorkspace = await createTestWorkspace();
+
+    await expect(
+      runner.runBlock(
+        {
+          projectRoot: blockWorkspace.init.workspace,
+          claim: {
+            kind: "block",
+            ref: "T-001#B-001",
+            taskId: "T-001",
+            blockId: "B-001",
+            blockType: "implementation",
+            effectiveExecutor: "cancelled-terminal"
+          },
+          prompt: "Implement task",
+          executorName: "cancelled-terminal",
+          profile,
+          runtime: { tmuxEnabled: false }
+        },
+        claudeCodeAgentDefinition
+      )
+    ).rejects.toBeInstanceOf(ExecutorCancelledError);
+    await expect(
+      runner.runFeedback(
+        {
+          projectRoot: feedbackWorkspace.init.workspace,
+          workspace: feedbackWorkspace.init.workspace,
+          claim: {
+            kind: "feedback",
+            feedbackId: "FE-001",
+            sourceReviewBlockRef: "T-001#R-001",
+            taskId: "T-001",
+            content: "Address review feedback.",
+            effectiveExecutor: "cancelled-terminal"
+          },
+          executorName: "cancelled-terminal",
+          profile,
+          runtime: { tmuxEnabled: false }
+        },
+        claudeCodeAgentDefinition
+      )
+    ).rejects.toBeInstanceOf(ExecutorCancelledError);
+
+    const paths = [
+      join(
+        blockWorkspace.init.workspace.resultsDir,
+        "T-001",
+        "blocks",
+        "B-001",
+        "runs",
+        "RUN-001",
+        "metadata.json"
+      ),
+      join(feedbackWorkspace.init.workspace.resultsDir, "feedback-runs", "RUN-001", "metadata.json")
+    ];
+    await Promise.all(
+      paths.map((path) =>
+        expect(readJsonFile(path)).resolves.toMatchObject({
+          finishedAt: expect.any(String),
+          exitCode: 130,
+          outcome: "cancelled",
+          cancelled: true,
+          stopped: true,
+          failureReason: "Executor cancelled."
+        })
+      )
+    );
+  });
+
   it.each(
     terminalAgents
   )("runs $adapter in the project directory and submits stdout as the block report", async ({
@@ -172,6 +284,78 @@ describe("terminal agent executors", () => {
     ).resolves.toMatchObject({
       verdict: "passed",
       content: "review file passed"
+    });
+  });
+
+  it("fails closed when an executable adapter omits persisted artifact metadata", async () => {
+    const { root } = await createTestWorkspace();
+    const reportPath = join(root, "unverified-report.md");
+    await writeFile(reportPath, "unverified\n");
+
+    await expect(
+      runAutoRunStep({
+        projectRoot: root,
+        executor: {
+          runBlock: async () => ({
+            kind: "block",
+            reportPath,
+            adapter: "codex-exec"
+          }),
+          runFeedback: async () => {
+            throw new Error("feedback should not run");
+          }
+        }
+      })
+    ).resolves.toMatchObject({
+      kind: "blocked",
+      claim: { kind: "blocked", ref: "T-001#B-001" }
+    });
+  });
+
+  it.each(
+    terminalFeedbackAgents
+  )("preserves $adapter identity through the live feedback route", async ({
+    name,
+    adapter,
+    definition,
+    profile
+  }) => {
+    const { init } = await createTestWorkspace();
+    if (!definition.cli) {
+      throw new Error(`Expected CLI dialect for '${definition.agent}'.`);
+    }
+
+    const result = await cliRunner.runFeedback(
+      {
+        projectRoot: init.workspace,
+        workspace: init.workspace,
+        claim: {
+          kind: "feedback",
+          feedbackId: "FE-001",
+          sourceReviewBlockRef: "T-001#R-001",
+          taskId: "T-001",
+          content: "Address review feedback.",
+          effectiveExecutor: name
+        },
+        executorName: name,
+        profile,
+        runtime: { tmuxEnabled: false }
+      },
+      definition
+    );
+
+    expect(result).toMatchObject({
+      kind: "feedback",
+      adapter,
+      executor: name,
+      reportPath: expect.stringContaining("report.md")
+    });
+    await expect(
+      readJsonFile(join(init.workspace.resultsDir, "feedback-runs", "RUN-001", "metadata.json"))
+    ).resolves.toMatchObject({
+      feedbackId: "FE-001",
+      executor: name,
+      adapter
     });
   });
 });

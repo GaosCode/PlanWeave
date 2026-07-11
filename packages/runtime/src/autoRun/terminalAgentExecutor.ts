@@ -1,17 +1,19 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { writeJsonFile } from "../json.js";
+import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type {
-  ClaudeCodeExecExecutorProfile,
+  AgentCliExecutorProfile,
   ExecutorAdapterResult,
-  ExecutorProfile,
-  PackageWorkspaceRef,
-  PiExecExecutorProfile
+  ExecutorIntegrationName,
+  PackageWorkspaceRef
 } from "../types.js";
+import type { CliProcessExecutor } from "./cliProcess.js";
 import {
   executorLimitFailureMessage,
   executorRuntimeLimits,
+  finalizeExecutorAttemptMetadata,
+  finalizeExecutorCancellationOnError,
   finishRunMetadata,
   allocateRunId,
   prepareBlockRun,
@@ -27,10 +29,13 @@ import {
   reviewResultEnvironment
 } from "./reviewResultContract.js";
 import {
-  runStreamingCommandWithSessionCapture,
-  type StreamedCommandResult
-} from "./streamingExecutor.js";
-import { createTmuxSessionInfo, tmuxMetadataPatch } from "./tmuxExecutor.js";
+  materializeFeedbackArtifact,
+  materializeImplementationArtifact,
+  materializeReviewArtifact
+} from "./runnerArtifactMaterialization.js";
+import type { StreamedCommandResult } from "./streamingExecutor.js";
+import { tmuxMetadataPatch } from "./tmuxExecutor.js";
+import type { ArtifactReference } from "./runnerContractSchemas.js";
 
 /** Command line produced by a protocol adapter for one agent process. */
 export type TerminalAgentInvocation = {
@@ -52,11 +57,7 @@ export type ProtocolInterpretation = {
   reportContent?: string;
 };
 
-type ProfileWithCommand = {
-  adapter: string;
-  command: string;
-  args: string[];
-};
+type ProfileWithCommand = AgentCliExecutorProfile;
 
 /**
  * Per-executor protocol differences. Shared lifecycle (run dir, tmux, streaming,
@@ -64,7 +65,7 @@ type ProfileWithCommand = {
  */
 export type ProtocolAdapter<TProfile extends ProfileWithCommand> = {
   /** Adapter id written into metadata and ExecutorAdapterResult. */
-  adapter: TProfile["adapter"];
+  adapter: ExecutorIntegrationName;
   /**
    * Protocol-specific session metadata field mirrored next to agentSessionId
    * (e.g. codexSessionId / opencodeSessionId).
@@ -72,7 +73,7 @@ export type ProtocolAdapter<TProfile extends ProfileWithCommand> = {
   sessionMetadataKey?: "codexSessionId" | "opencodeSessionId";
   /**
    * How review results are obtained.
-   * - result-file: agent writes PLANWEAVE_REVIEW_RESULT_PATH (claude/pi/opencode)
+   * - result-file: agent writes PLANWEAVE_REVIEW_RESULT_PATH
    * - stdout-json: agent prints JSON on stdout; template writes review-result.json (codex)
    */
   reviewResultMode: "result-file" | "stdout-json";
@@ -174,46 +175,18 @@ function sessionResultFields(
   return { agentSessionId, [sessionMetadataKey]: agentSessionId };
 }
 
-async function streamCommand(options: {
-  invocation: TerminalAgentInvocation;
-  cwd: string;
-  env?: NodeJS.ProcessEnv;
-  timeoutMs: number;
-  maxStdoutBytes: number;
-  maxStderrBytes: number;
-  stdoutPath: string;
-  stderrPath: string;
-  tmux: Awaited<ReturnType<typeof createTmuxSessionInfo>>;
-  sessionIdFromOutput?: (output: string) => string | null;
-  onSessionId: (sessionId: string) => Promise<void>;
-}): Promise<StreamedCommandResult> {
-  return runStreamingCommandWithSessionCapture({
-    command: options.invocation.command,
-    args: options.invocation.args,
-    cwd: options.cwd,
-    stdin: options.invocation.stdin,
-    env: options.env,
-    timeoutMs: options.timeoutMs,
-    maxStdoutBytes: options.maxStdoutBytes,
-    maxStderrBytes: options.maxStderrBytes,
-    stdoutPath: options.stdoutPath,
-    stderrPath: options.stderrPath,
-    tmux: options.tmux,
-    sessionIdFromOutput: options.sessionIdFromOutput ?? (() => null),
-    onSessionId: options.onSessionId
-  });
-}
-
 type SharedRunOptions<TProfile extends ProfileWithCommand> = {
   executorName: string;
   profile: TProfile;
   protocol: ProtocolAdapter<TProfile>;
   tmuxEnabled?: boolean;
   tmuxOwnerRunId?: string;
+  signal?: AbortSignal;
+  executeProcess: CliProcessExecutor;
 };
 
 /**
- * Shared block lifecycle for terminal-agent executors (codex / opencode / claude / pi).
+ * Shared block lifecycle for terminal-agent executors.
  * Protocol-specific argv, session parsing, review shape, and report formatting live on `protocol`.
  */
 export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWithCommand>(
@@ -224,11 +197,13 @@ export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWith
   }
 ): Promise<ExecutorAdapterResult> {
   const protocol = options.protocol;
+  const executeProcess = options.executeProcess;
   const run = await prepareBlockRun({
     projectRoot: options.projectRoot,
     claim: options.claim,
     executorName: options.executorName,
-    profile: options.profile as ExecutorProfile,
+    adapter: protocol.adapter,
+    profile: options.profile,
     prompt: options.prompt
   });
   const workspace = await resolvePackageWorkspace(options.projectRoot);
@@ -252,17 +227,7 @@ export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWith
         }
       : null;
   const invocation = protocol.buildInvocation({ profile: options.profile, prompt, executionCwd });
-  const limits = executorRuntimeLimits(options.profile as ExecutorProfile);
-  const tmux = await createTmuxSessionInfo({
-    runDir: run.runDir,
-    runId: run.runId,
-    tmuxOwnerRunId: options.tmuxOwnerRunId,
-    ref: options.claim.ref,
-    kind: "block",
-    enabled: options.tmuxEnabled
-  });
-  await finishRunMetadata(run.metadataPath, tmuxMetadataPatch(tmux));
-
+  const limits = executorRuntimeLimits(options.profile);
   let agentSessionId: string | null = null;
   const onSessionId = async (sessionId: string): Promise<void> => {
     if (agentSessionId) {
@@ -282,18 +247,40 @@ export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWith
     workspace,
     reviewContract ? reviewResultEnvironment(reviewContract) : undefined
   );
-  const result = await streamCommand({
-    invocation,
-    cwd: executionCwd,
-    env,
-    timeoutMs: limits.timeoutMs,
-    maxStdoutBytes: limits.maxStdoutBytes,
-    maxStderrBytes: limits.maxStderrBytes,
-    stdoutPath: join(run.runDir, "stdout.md"),
-    stderrPath: join(run.runDir, "stderr.log"),
-    tmux,
-    sessionIdFromOutput: protocol.sessionIdFromOutput,
-    onSessionId
+  const { tmux: _tmux, ...result } = await finalizeExecutorCancellationOnError({
+    path: run.metadataPath,
+    patch: {
+      command: invocation.command,
+      args: invocation.args,
+      projectRoot: workspace.rootPath,
+      executionCwd,
+      timeoutMs: limits.timeoutMs,
+      maxStdoutBytes: limits.maxStdoutBytes,
+      maxStderrBytes: limits.maxStderrBytes
+    },
+    run: () =>
+      executeProcess({
+        command: invocation.command,
+        args: invocation.args,
+        cwd: executionCwd,
+        stdin: invocation.stdin,
+        env,
+        limits,
+        stdoutPath: join(run.runDir, "stdout.md"),
+        stderrPath: join(run.runDir, "stderr.log"),
+        tmux: {
+          runDir: run.runDir,
+          runId: run.runId,
+          ownerRunId: options.tmuxOwnerRunId,
+          ref: options.claim.ref,
+          kind: "block",
+          enabled: options.tmuxEnabled
+        },
+        sessionIdFromOutput: protocol.sessionIdFromOutput,
+        onSessionId,
+        onTmuxReady: async (tmux) => finishRunMetadata(run.metadataPath, tmuxMetadataPatch(tmux)),
+        signal: options.signal
+      })
   });
 
   let finalResult = result;
@@ -314,26 +301,40 @@ export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWith
       sessionId: agentSessionId,
       executionCwd
     });
-    const resumeTmux = await createTmuxSessionInfo({
-      runDir: join(run.runDir, "resume"),
-      runId: `${run.runId}-resume`,
-      tmuxOwnerRunId: options.tmuxOwnerRunId,
-      ref: options.claim.ref,
-      kind: "block",
-      enabled: options.tmuxEnabled
-    });
-    const resumeResult = await streamCommand({
-      invocation: resumeInvocation,
-      cwd: executionCwd,
-      env,
-      timeoutMs: limits.timeoutMs,
-      maxStdoutBytes: limits.maxStdoutBytes,
-      maxStderrBytes: limits.maxStderrBytes,
-      stdoutPath: join(run.runDir, "resume-stdout.md"),
-      stderrPath: join(run.runDir, "resume-stderr.log"),
-      tmux: resumeTmux,
-      sessionIdFromOutput: protocol.sessionIdFromOutput,
-      onSessionId
+    const { tmux: _resumeTmux, ...resumeResult } = await finalizeExecutorCancellationOnError({
+      path: run.metadataPath,
+      patch: {
+        command: resumeInvocation.command,
+        args: resumeInvocation.args,
+        projectRoot: workspace.rootPath,
+        executionCwd,
+        timeoutMs: limits.timeoutMs,
+        maxStdoutBytes: limits.maxStdoutBytes,
+        maxStderrBytes: limits.maxStderrBytes,
+        resumed: true
+      },
+      run: () =>
+        executeProcess({
+          command: resumeInvocation.command,
+          args: resumeInvocation.args,
+          cwd: executionCwd,
+          stdin: resumeInvocation.stdin,
+          env,
+          limits,
+          stdoutPath: join(run.runDir, "resume-stdout.md"),
+          stderrPath: join(run.runDir, "resume-stderr.log"),
+          tmux: {
+            runDir: join(run.runDir, "resume"),
+            runId: `${run.runId}-resume`,
+            ownerRunId: options.tmuxOwnerRunId,
+            ref: options.claim.ref,
+            kind: "block",
+            enabled: options.tmuxEnabled
+          },
+          sessionIdFromOutput: protocol.sessionIdFromOutput,
+          onSessionId,
+          signal: options.signal
+        })
     });
     finalResult = {
       stdout: [result.stdout.trim(), "--- resume stdout ---", resumeResult.stdout.trim()]
@@ -381,9 +382,7 @@ export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWith
       : null;
   const failureReason = exitFailure ?? interpretation.successFailureReason ?? null;
 
-  await finishRunMetadata(run.metadataPath, {
-    finishedAt: new Date().toISOString(),
-    exitCode: finalResult.exitCode,
+  const metadataPatch = {
     command: invocation.command,
     args: invocation.args,
     projectRoot: workspace.rootPath,
@@ -391,7 +390,6 @@ export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWith
     timeoutMs: limits.timeoutMs,
     maxStdoutBytes: limits.maxStdoutBytes,
     maxStderrBytes: limits.maxStderrBytes,
-    timedOut: finalResult.timedOut,
     ...sessionResultFields(protocol.sessionMetadataKey, agentSessionId),
     ...(protocol.finishMetadata?.({
       kind: "block",
@@ -401,46 +399,127 @@ export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWith
       resumed,
       failureReason
     }) ?? {})
-  });
+  };
 
   if (failureReason) {
+    await finalizeExecutorAttemptMetadata({
+      path: run.metadataPath,
+      outcome: "failed",
+      exitCode: finalResult.exitCode,
+      timedOut: finalResult.timedOut,
+      failureReason,
+      patch: metadataPatch
+    });
     throw new Error(failureReason);
   }
 
   const sessionFields = sessionResultFields(protocol.sessionMetadataKey, agentSessionId);
-  const adapter = protocol.adapter as ExecutorProfile["adapter"];
+  const adapter = protocol.adapter;
   if (options.claim.blockType === "review") {
     if (!reviewResultPath) {
-      throw new Error(`Executor '${options.executorName}' did not prepare a review result path.`);
-    }
-    if (protocol.reviewResultMode === "stdout-json") {
-      const parsed = JSON.parse(finalResult.stdout.trim());
-      await writeJsonFile(reviewResultPath, parsed);
-    } else {
-      await assertReviewResultJsonReadable({
-        executorName: options.executorName,
-        resultPath: reviewResultPath
+      const reason = `Executor '${options.executorName}' did not prepare a review result path.`;
+      await finalizeExecutorAttemptMetadata({
+        path: run.metadataPath,
+        outcome: "failed",
+        exitCode: finalResult.exitCode,
+        timedOut: finalResult.timedOut,
+        failureReason: reason,
+        patch: metadataPatch
       });
+      throw new Error(reason);
     }
+    let artifactReference: ArtifactReference;
+    try {
+      let raw: unknown;
+      if (protocol.reviewResultMode === "stdout-json") {
+        raw = JSON.parse(finalResult.stdout.trim());
+      } else {
+        await assertReviewResultJsonReadable({
+          executorName: options.executorName,
+          resultPath: reviewResultPath
+        });
+        raw = await readJsonFile<unknown>(reviewResultPath);
+      }
+      artifactReference = await materializeReviewArtifact({
+        ref: options.claim.ref,
+        taskId: options.claim.taskId,
+        reviewResult: raw,
+        path: reviewResultPath
+      });
+    } catch (error) {
+      const reason = `Executor '${options.executorName}' produced an invalid review artifact: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+      await finalizeExecutorAttemptMetadata({
+        path: run.metadataPath,
+        outcome: "failed",
+        exitCode: finalResult.exitCode,
+        timedOut: finalResult.timedOut,
+        failureReason: reason,
+        patch: metadataPatch
+      });
+      throw new Error(reason);
+    }
+    await finalizeExecutorAttemptMetadata({
+      path: run.metadataPath,
+      outcome: "succeeded",
+      exitCode: finalResult.exitCode,
+      timedOut: finalResult.timedOut,
+      failureReason: null,
+      patch: { ...metadataPatch, artifactReference }
+    });
     return {
       kind: "review",
       resultPath: reviewResultPath,
       runId: run.runId,
       executor: options.executorName,
       adapter,
+      agentId: options.profile.agent,
+      runnerKind: options.profile.runner.transport,
       ...sessionFields,
       ...finalResult
     };
   }
 
   const reportPath = join(run.runDir, "report.md");
-  await writeFile(reportPath, interpretation.reportContent ?? finalResult.stdout, "utf8");
+  let artifactReference: ArtifactReference;
+  try {
+    artifactReference = await materializeImplementationArtifact({
+      ref: options.claim.ref,
+      taskId: options.claim.taskId,
+      reportMarkdown: interpretation.reportContent ?? finalResult.stdout,
+      path: reportPath
+    });
+  } catch (error) {
+    const reason = `Executor '${options.executorName}' produced an invalid implementation artifact: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    await finalizeExecutorAttemptMetadata({
+      path: run.metadataPath,
+      outcome: "failed",
+      exitCode: finalResult.exitCode,
+      timedOut: finalResult.timedOut,
+      failureReason: reason,
+      patch: metadataPatch
+    });
+    throw new Error(reason);
+  }
+  await finalizeExecutorAttemptMetadata({
+    path: run.metadataPath,
+    outcome: "succeeded",
+    exitCode: finalResult.exitCode,
+    timedOut: finalResult.timedOut,
+    failureReason: null,
+    patch: { ...metadataPatch, artifactReference }
+  });
   return {
     kind: "block",
     reportPath,
     runId: run.runId,
     executor: options.executorName,
     adapter,
+    agentId: options.profile.agent,
+    runnerKind: options.profile.runner.transport,
     ...sessionFields,
     ...finalResult
   };
@@ -448,7 +527,7 @@ export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWith
 
 /**
  * Shared feedback lifecycle for terminal-agent executors.
- * Resume is intentionally not applied (matches prior codex/opencode/claude/pi behavior).
+ * Resume is intentionally not applied to feedback runs.
  */
 export async function runTerminalAgentProtocolFeedback<TProfile extends ProfileWithCommand>(
   options: SharedRunOptions<TProfile> & {
@@ -460,6 +539,7 @@ export async function runTerminalAgentProtocolFeedback<TProfile extends ProfileW
   }
 ): Promise<ExecutorAdapterResult> {
   const protocol = options.protocol;
+  const executeProcess = options.executeProcess;
   const runRoot = join(options.workspaceResultsDir, "feedback-runs");
   const runId = await allocateRunId(runRoot);
   const runDir = join(runRoot, runId);
@@ -471,14 +551,7 @@ export async function runTerminalAgentProtocolFeedback<TProfile extends ProfileW
     prompt: options.claim.content,
     executionCwd: options.executionCwd
   });
-  const limits = executorRuntimeLimits(options.profile as ExecutorProfile);
-  const tmux = await createTmuxSessionInfo({
-    runDir,
-    runId,
-    tmuxOwnerRunId: options.tmuxOwnerRunId,
-    kind: "feedback",
-    enabled: options.tmuxEnabled
-  });
+  const limits = executorRuntimeLimits(options.profile);
   await writeJsonFile(metadataPath, {
     runId,
     feedbackId: options.claim.feedbackId,
@@ -486,6 +559,8 @@ export async function runTerminalAgentProtocolFeedback<TProfile extends ProfileW
     taskId: options.claim.taskId,
     executor: options.executorName,
     adapter: protocol.adapter,
+    agentId: options.profile.agent,
+    runnerKind: options.profile.runner.transport,
     projectRoot: options.projectRoot,
     executionCwd: options.executionCwd,
     startedAt,
@@ -497,8 +572,7 @@ export async function runTerminalAgentProtocolFeedback<TProfile extends ProfileW
     maxStdoutBytes: limits.maxStdoutBytes,
     maxStderrBytes: limits.maxStderrBytes,
     timedOut: false,
-    ...sessionResultFields(protocol.sessionMetadataKey, null),
-    ...tmuxMetadataPatch(tmux)
+    ...sessionResultFields(protocol.sessionMetadataKey, null)
   });
 
   let agentSessionId: string | null = null;
@@ -516,18 +590,37 @@ export async function runTerminalAgentProtocolFeedback<TProfile extends ProfileW
     await onSessionId(invocation.sessionId);
   }
 
-  const result = await streamCommand({
-    invocation,
-    cwd: options.executionCwd,
-    env: workspaceExecutorEnv({ planweaveHome: options.planweaveHome }),
-    timeoutMs: limits.timeoutMs,
-    maxStdoutBytes: limits.maxStdoutBytes,
-    maxStderrBytes: limits.maxStderrBytes,
-    stdoutPath: join(runDir, "stdout.md"),
-    stderrPath: join(runDir, "stderr.log"),
-    tmux,
-    sessionIdFromOutput: protocol.sessionIdFromOutput,
-    onSessionId
+  const { tmux: _tmux, ...result } = await finalizeExecutorCancellationOnError({
+    path: metadataPath,
+    patch: {
+      command: invocation.command,
+      args: invocation.args,
+      timeoutMs: limits.timeoutMs,
+      maxStdoutBytes: limits.maxStdoutBytes,
+      maxStderrBytes: limits.maxStderrBytes
+    },
+    run: () =>
+      executeProcess({
+        command: invocation.command,
+        args: invocation.args,
+        cwd: options.executionCwd,
+        stdin: invocation.stdin,
+        env: workspaceExecutorEnv({ planweaveHome: options.planweaveHome }),
+        limits,
+        stdoutPath: join(runDir, "stdout.md"),
+        stderrPath: join(runDir, "stderr.log"),
+        tmux: {
+          runDir,
+          runId,
+          ownerRunId: options.tmuxOwnerRunId,
+          kind: "feedback",
+          enabled: options.tmuxEnabled
+        },
+        sessionIdFromOutput: protocol.sessionIdFromOutput,
+        onSessionId,
+        onTmuxReady: async (tmux) => finishRunMetadata(metadataPath, tmuxMetadataPatch(tmux)),
+        signal: options.signal
+      })
   });
 
   if (protocol.sessionIdFromOutput) {
@@ -556,15 +649,12 @@ export async function runTerminalAgentProtocolFeedback<TProfile extends ProfileW
       : null;
   const failureReason = exitFailure ?? interpretation.successFailureReason ?? null;
 
-  await finishRunMetadata(metadataPath, {
-    finishedAt: new Date().toISOString(),
-    exitCode: result.exitCode,
+  const metadataPatch = {
     command: invocation.command,
     args: invocation.args,
     timeoutMs: limits.timeoutMs,
     maxStdoutBytes: limits.maxStdoutBytes,
     maxStderrBytes: limits.maxStderrBytes,
-    timedOut: result.timedOut,
     ...sessionResultFields(protocol.sessionMetadataKey, agentSessionId),
     ...(protocol.finishMetadata?.({
       kind: "feedback",
@@ -574,70 +664,61 @@ export async function runTerminalAgentProtocolFeedback<TProfile extends ProfileW
       resumed: false,
       failureReason
     }) ?? {})
-  });
+  };
 
   if (failureReason) {
+    await finalizeExecutorAttemptMetadata({
+      path: metadataPath,
+      outcome: "failed",
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      failureReason,
+      patch: metadataPatch
+    });
     throw new Error(failureReason);
   }
 
-  const reportPath = join(runDir, "report.md");
-  await writeFile(reportPath, interpretation.reportContent ?? result.stdout, "utf8");
+  const reportPath = join(runDir, "feedback-report.md");
+  let artifactReference: ArtifactReference;
+  try {
+    artifactReference = await materializeFeedbackArtifact({
+      feedbackId: options.claim.feedbackId,
+      sourceReviewBlockRef: options.claim.sourceReviewBlockRef,
+      taskId: options.claim.taskId,
+      reportMarkdown: interpretation.reportContent ?? result.stdout,
+      path: reportPath
+    });
+  } catch (error) {
+    const reason = `Executor '${options.executorName}' produced an invalid feedback artifact: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    await finalizeExecutorAttemptMetadata({
+      path: metadataPath,
+      outcome: "failed",
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      failureReason: reason,
+      patch: metadataPatch
+    });
+    throw new Error(reason);
+  }
+  await finalizeExecutorAttemptMetadata({
+    path: metadataPath,
+    outcome: "succeeded",
+    exitCode: result.exitCode,
+    timedOut: result.timedOut,
+    failureReason: null,
+    patch: { ...metadataPatch, artifactReference }
+  });
   return {
     kind: "feedback",
     reportPath,
     runId,
     executor: options.executorName,
-    adapter: protocol.adapter as ExecutorProfile["adapter"],
+    adapter: protocol.adapter,
+    agentId: options.profile.agent,
+    runnerKind: options.profile.runner.transport,
     ...sessionResultFields(protocol.sessionMetadataKey, agentSessionId),
     ...result
   };
-}
-
-type SimpleTerminalProfile = ClaudeCodeExecExecutorProfile | PiExecExecutorProfile;
-
-/** Protocol for claude-code / pi: profile argv as-is, review result file, no session capture. */
-export function simpleTerminalProtocol(
-  adapter: SimpleTerminalProfile["adapter"]
-): ProtocolAdapter<SimpleTerminalProfile> {
-  return {
-    adapter,
-    reviewResultMode: "result-file",
-    buildInvocation({ profile, prompt }) {
-      return { command: profile.command, args: profile.args, stdin: prompt };
-    }
-  };
-}
-
-/** Convenience wrapper for claude-code / pi integrations. */
-export async function runTerminalAgentBlock(options: {
-  projectRoot: PackageWorkspaceRef;
-  claim: BlockClaim;
-  prompt: string;
-  executorName: string;
-  profile: SimpleTerminalProfile;
-  tmuxEnabled?: boolean;
-  tmuxOwnerRunId?: string;
-}): Promise<ExecutorAdapterResult> {
-  return runTerminalAgentProtocolBlock({
-    ...options,
-    protocol: simpleTerminalProtocol(options.profile.adapter)
-  });
-}
-
-/** Convenience wrapper for claude-code / pi integrations. */
-export async function runTerminalAgentFeedback(options: {
-  projectRoot: string;
-  executionCwd: string;
-  planweaveHome: string;
-  workspaceResultsDir: string;
-  claim: FeedbackClaim;
-  executorName: string;
-  profile: SimpleTerminalProfile;
-  tmuxEnabled?: boolean;
-  tmuxOwnerRunId?: string;
-}): Promise<ExecutorAdapterResult> {
-  return runTerminalAgentProtocolFeedback({
-    ...options,
-    protocol: simpleTerminalProtocol(options.profile.adapter)
-  });
 }
