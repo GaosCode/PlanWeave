@@ -57,13 +57,14 @@ async function subscribe(
   const destroyed = (): void => releaseSender(sender);
   subscriptions.set(subscriptionKey, { sender, runtime: null, destroyed });
   sender.once("destroyed", destroyed);
+  let updateSequence = 0;
   try {
     const workspace = await resolveTaskCanvasWorkspace(input.ref.projectRoot, input.ref.canvasId);
     const consumer = await subscribeRunRecord(
       workspace,
       input.recordId,
       input.cursor,
-      (runnerEvent) => {
+      (snapshot) => {
         if (!subscriptions.has(subscriptionKey)) return;
         if (sender.isDestroyed()) {
           release(sender, input.subscriptionId);
@@ -73,7 +74,8 @@ async function subscribe(
           runnerRecordEventChannel,
           desktopRunnerRecordSubscriptionPushSchema.parse({
             subscriptionId: input.subscriptionId,
-            event: runnerEvent
+            updateSequence: ++updateSequence,
+            snapshot
           })
         );
       }
@@ -86,7 +88,11 @@ async function subscribe(
     owned.runtime = consumer.subscription;
     if (!consumer.subscription) release(sender, input.subscriptionId);
     else void consumer.subscription.closed.then(() => release(sender, input.subscriptionId));
-    return { subscriptionId: input.subscriptionId, snapshot: consumer.snapshot };
+    return {
+      subscriptionId: input.subscriptionId,
+      updateSequence: 0 as const,
+      snapshot: consumer.snapshot
+    };
   } catch (error) {
     release(sender, input.subscriptionId);
     throw error;

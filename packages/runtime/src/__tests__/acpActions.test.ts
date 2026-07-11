@@ -5,6 +5,12 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { ActiveAgentRunRegistry, type ActiveAgentRunHandle } from "../autoRun/activeAgentRunRegistry.js";
 import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
+import { acpEventReadModels } from "../autoRun/acpEventReadModel.js";
+import {
+  consumeRunnerRecordReadModel,
+  readRunnerRecordReadModel,
+  type RunnerRecordReadModel
+} from "../autoRun/runnerRecordReadModel.js";
 import {
   cleanupRunnerLiveControl,
   createLiveOwnership,
@@ -98,6 +104,87 @@ function fixture(options: { closeSupported?: boolean; order?: string[] } = {}) {
 }
 
 describe("ACP live actions", () => {
+  it("uses one canonical producer identity for live permission and elicitation state", async () => {
+    for (const scenario of ["permission-deny", "elicitation-secret"] as const) {
+      const root = await mkdtemp(join(tmpdir(), `planweave-acp-canonical-${scenario}-`));
+      const controller = new AcpSessionController();
+      let activeSnapshot: RunnerRecordReadModel | null = null;
+      let inactiveSnapshot: RunnerRecordReadModel | null = null;
+      let resolveInactive!: (snapshot: RunnerRecordReadModel) => void;
+      const inactive = new Promise<RunnerRecordReadModel>((resolve) => {
+        resolveInactive = resolve;
+      });
+      try {
+        await expect(controller.execute(controllerRun(root, scenario), {
+          timeoutMs: 1_000,
+          interactionBroker: {
+            mode: "interactive",
+            requestAvailable: async (request) => {
+              const consumer = await consumeRunnerRecordReadModel({
+                runDir: root,
+                metadata: {
+                  runnerKind: "acp",
+                  runId: "RUN-001",
+                  ref: "T-001#B-001",
+                  taskId: "T-001",
+                  blockId: "B-001",
+                  executorRunId: "RUN-001",
+                  desktopRunId: "AUTO-RUN-001",
+                  runSessionId: "SESSION-001",
+                  sessionId: "mock-session-1"
+                },
+                subscriber: (snapshot) => {
+                  if (!snapshot.interaction.active) resolveInactive(snapshot);
+                }
+              });
+              activeSnapshot = consumer.snapshot;
+              const persisted = consumer.snapshot?.events.find(
+                (event) => event.body.kind === "interaction"
+              );
+              expect(persisted?.body.kind).toBe("interaction");
+              if (persisted?.body.kind === "interaction") {
+                expect(persisted.body.interaction.requestId).toBe(request.requestId);
+                expect(persisted.body.interaction.requestedAt).toBe(request.requestedAt);
+              }
+              expect(consumer.snapshot?.interaction.activeRequests).toMatchObject([
+                { requestId: request.requestId, kind: request.kind }
+              ]);
+              if (request.kind === "permission") await request.respond("deny");
+              else await request.reject("test resolution");
+              inactiveSnapshot = await inactive;
+              consumer.subscription?.unsubscribe();
+            }
+          }
+        })).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+        expect(activeSnapshot?.interaction.active).toBe(true);
+        expect(inactiveSnapshot?.interaction.active).toBe(false);
+
+        const reopened = await readRunnerRecordReadModel({
+          runDir: root,
+          metadata: {
+            runnerKind: "acp",
+            runId: "RUN-001",
+            ref: "T-001#B-001",
+            taskId: "T-001",
+            blockId: "B-001",
+            executorRunId: "RUN-001",
+            desktopRunId: "AUTO-RUN-001",
+            runSessionId: "SESSION-001",
+            sessionId: "mock-session-1"
+          }
+        });
+        expect(reopened?.interaction).toMatchObject({
+          persisted: true,
+          active: false,
+          stale: true,
+          activeRequests: []
+        });
+      } finally {
+        acpEventReadModels.release(root);
+      }
+    }
+  });
+
   it("sends a Desktop broker deny exactly once and clears the pending request", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-deny-"));
     const registry = new ActiveAgentRunRegistry();

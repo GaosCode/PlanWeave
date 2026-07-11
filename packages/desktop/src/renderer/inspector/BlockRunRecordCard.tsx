@@ -20,6 +20,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { createTranslator } from "../i18n";
 import { TerminalOpenButton } from "./TerminalOpenButton";
+import { RunnerRecordMonitor } from "./RunnerRecordMonitor";
 
 type BlockRunRecordCardProps = {
   canvasRef?: DesktopCanvasReference | null;
@@ -53,6 +54,7 @@ export function BlockRunRecordCard({
   const stderrIsFailure =
     typeof selectedRunRecord.exitCode === "number" && selectedRunRecord.exitCode !== 0;
   const displayMarkdown = selectedRunRecord.displayMarkdown || selectedRunRecord.reportMarkdown;
+  const isAcpRun = selectedRunRecord.runnerReadModel != null;
 
   return (
     <Card className="min-h-0 flex-1 border-0 shadow-none ring-0" size="sm">
@@ -60,7 +62,7 @@ export function BlockRunRecordCard({
         <CardTitle className="text-sm">{selectedRunRecord.ref}</CardTitle>
         <CardDescription>{selectedRunRecord.runId}</CardDescription>
         <CardAction className="flex items-center gap-1">
-          <TerminalOpenButton
+          {!isAcpRun ? <TerminalOpenButton
             canvasRef={canvasRef}
             defaultTerminalAppId={defaultTerminalAppId}
             missingSessionReason={t("tmuxTerminalNoSession")}
@@ -72,7 +74,7 @@ export function BlockRunRecordCard({
             terminalApps={terminalApps}
             tmuxAvailable={tmuxAvailable}
             t={t}
-          />
+          /> : null}
           <Button
             size="icon-sm"
             variant="ghost"
@@ -94,13 +96,13 @@ export function BlockRunRecordCard({
             <span className="font-mono">{selectedRunRecord.agentSessionId}</span>
           </div>
         ) : null}
-        {selectedRunRecord.tmuxSessionId ? (
+        {!isAcpRun && selectedRunRecord.tmuxSessionId ? (
           <div className="rounded-md border bg-muted/40 px-2 py-1 text-xs">
             <span className="font-medium">{t("tmuxSession")}:</span>{" "}
             <span className="font-mono">{selectedRunRecord.tmuxSessionId}</span>
           </div>
         ) : null}
-        {selectedRunRecord.tmuxAttachCommand ? (
+        {!isAcpRun && selectedRunRecord.tmuxAttachCommand ? (
           <div className="rounded-md border bg-muted/40 px-2 py-1 text-xs">
             <span className="font-medium">{t("tmuxAttach")}:</span>{" "}
             <span className="break-all font-mono">{selectedRunRecord.tmuxAttachCommand}</span>
@@ -112,12 +114,12 @@ export function BlockRunRecordCard({
             <span className="break-all font-mono">{selectedRunRecord.executionCwd}</span>
           </div>
         ) : null}
-        {selectedRunRecord.stdoutSummary ? (
+        {!isAcpRun && selectedRunRecord.stdoutSummary ? (
           <div className="text-xs text-muted-foreground">
             {t("latestOutput")}: {selectedRunRecord.stdoutSummary}
           </div>
         ) : null}
-        {selectedRunRecord.stderrSummary ? (
+        {!isAcpRun && selectedRunRecord.stderrSummary ? (
           <div
             className={
               stderrIsFailure ? "text-xs text-destructive" : "text-xs text-muted-foreground"
@@ -125,6 +127,14 @@ export function BlockRunRecordCard({
           >
             {stderrIsFailure ? t("stderr") : t("terminalOutput")}: {selectedRunRecord.stderrSummary}
           </div>
+        ) : null}
+        {isAcpRun ? (
+          <RunnerRecordMonitor
+            canvasRef={canvasRef}
+            initialModel={selectedRunRecord.runnerReadModel!}
+            recordId={selectedRunRecord.recordId}
+            t={t}
+          />
         ) : null}
         <div className="text-xs font-medium text-muted-foreground">{t("runReport")}</div>
         {displayMarkdown ? (

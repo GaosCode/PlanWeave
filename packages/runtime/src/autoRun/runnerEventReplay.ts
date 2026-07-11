@@ -34,27 +34,31 @@ export const runnerEventCursorSchema = z
   });
 export type RunnerEventCursor = z.infer<typeof runnerEventCursorSchema>;
 
-export type RunnerEventReplayDiagnostic = {
-  code:
-    | "corrupt_line"
-    | "partial_line"
-    | "duplicate_sequence"
-    | "out_of_order_sequence"
-    | "initial_sequence_gap"
-    | "sequence_gap"
-    | "retention_boundary"
-    | "identity_mismatch"
-    | "line_limit_exceeded"
-    | "secret_detected"
-    | "retention_limit_reached"
-    | "missing_log"
-    | "oversized_log"
-    | "retention_truncation"
-    | "subscriber_backpressure"
-    | "subscriber_callback_failed";
-  line: number | null;
-  message: string;
-};
+export const runnerEventReplayDiagnosticSchema = z
+  .object({
+    code: z.enum([
+      "corrupt_line",
+      "partial_line",
+      "duplicate_sequence",
+      "out_of_order_sequence",
+      "initial_sequence_gap",
+      "sequence_gap",
+      "retention_boundary",
+      "identity_mismatch",
+      "line_limit_exceeded",
+      "secret_detected",
+      "retention_limit_reached",
+      "missing_log",
+      "oversized_log",
+      "retention_truncation",
+      "subscriber_backpressure",
+      "subscriber_callback_failed"
+    ]),
+    line: z.number().int().positive().nullable(),
+    message: z.string().min(1)
+  })
+  .strict();
+export type RunnerEventReplayDiagnostic = z.infer<typeof runnerEventReplayDiagnosticSchema>;
 
 export type RunnerEventReplay = {
   events: NormalizedRunnerEvent[];

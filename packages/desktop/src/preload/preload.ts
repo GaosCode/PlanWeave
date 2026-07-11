@@ -66,8 +66,8 @@ const api: DesktopBridgeApi = {
     let active = true;
     const listener = (_event: IpcRendererEvent, payload: DesktopRunnerRecordSubscriptionPush) => {
       if (!active || payload.subscriptionId !== subscriptionId) return;
-      callback(payload.event);
-      if (payload.event.body.kind === "terminal") {
+      callback({ updateSequence: payload.updateSequence, snapshot: payload.snapshot });
+      if (payload.snapshot.terminal) {
         active = false;
         ipcRenderer.off(runnerRecordEventChannel, listener);
       }

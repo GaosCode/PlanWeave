@@ -66,6 +66,7 @@ import {
   resetCanvasMapLayout,
   resetDesktopLayout,
   resetDesktopRuntimeState,
+  resolveRunRecordArtifactPath,
   resolveTaskCanvasWorkspace,
   resumeAutoRun,
   respondToDesktopAgentRequest,
@@ -299,6 +300,14 @@ export const runtimeBridgeHandlers = {
       return;
     }
     shell.showItemInFolder(path);
+  },
+  revealRunnerRecordArtifact: async (_event, ref, recordId, artifact) => {
+    const path = await resolveRunRecordArtifactPath(
+      await resolveDesktopCanvasReference(ref),
+      recordId,
+      artifact
+    );
+    if (process.env.PLANWEAVE_DESKTOP_SMOKE !== "1") shell.showItemInFolder(path);
   },
   revealTaskCanvasInFinder: async (_event, projectRoot, canvasId) => {
     if (process.env.PLANWEAVE_DESKTOP_SMOKE === "1") {

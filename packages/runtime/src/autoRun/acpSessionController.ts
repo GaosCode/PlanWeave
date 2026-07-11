@@ -32,6 +32,7 @@ import {
   type RunnerInteractionBroker
 } from "./liveControl.js";
 import {
+  createAcpInteractionRequestId,
   normalizeAcpElicitationHistory,
   normalizeAcpPermissionHistory,
   normalizeAcpSessionNotification,
@@ -134,7 +135,6 @@ export class AcpSessionController {
     }) : null;
     const eventStore = eventModel?.store ?? null;
     if (eventStore) await eventStore.append({ kind: "lifecycle", state: "created", message: "ACP run created." });
-    let elicitationOrdinal = 0;
     let interactionOrdinal = 0;
     const pendingRequests = new Map<string, LivePendingRequestHandle>();
     const releasePendingRequest = (requestId: string): void => {
@@ -142,6 +142,7 @@ export class AcpSessionController {
       if (pendingRequests.size === 0 && handle?.lifecycleState === "waiting_interaction") {
         this.registry.transition(handle, "running");
       }
+      if (handle) this.registry.notifyInteractionChanged(handle);
     };
     let protocolObserverError: unknown;
     const terminalOutputHandler = run.terminalOutputHandler;
@@ -217,12 +218,16 @@ export class AcpSessionController {
         defaultTimeoutMs: options?.timeoutMs,
         onSessionUpdate: eventSink,
         onPermissionRequest: async (request) => {
+          const requestId = createAcpInteractionRequestId(
+            "permission",
+            ++interactionOrdinal
+          );
+          const requestedAt = new Date().toISOString();
           if (eventStore) await eventStore.append(
-            normalizeAcpPermissionHistory(request),
+            normalizeAcpPermissionHistory(request, requestId, requestedAt),
             acpCorrelationSchema.parse({ sessionId: request.sessionId })
           );
           if (!options?.interactionBroker) return { outcome: { outcome: "cancelled" } };
-          const requestId = `permission-${++interactionOrdinal}`;
           return new Promise<RequestPermissionResponse>((resolve, reject) => {
             let settled = false;
             const finish = (response: { outcome: { outcome: "cancelled" } } | { outcome: { outcome: "selected"; optionId: string } }): void => {
@@ -235,7 +240,7 @@ export class AcpSessionController {
               requestId,
               interactionId: requestId,
               kind: "permission",
-              requestedAt: new Date().toISOString(),
+              requestedAt,
               summary: JSON.stringify(redactRunnerEventPayload(request.options)),
               respond: async (value: JsonRpcValue) => {
                 if (typeof value !== "string" || !request.options.some((option) => option.optionId === value)) {
@@ -247,6 +252,7 @@ export class AcpSessionController {
             };
             pendingRequests.set(requestId, pending);
             if (handle?.lifecycleState === "running") this.registry.transition(handle, "waiting_interaction");
+            if (handle) this.registry.notifyInteractionChanged(handle);
             Promise.resolve(options.interactionBroker?.requestAvailable(pending)).catch((error) => {
               releasePendingRequest(requestId);
               reject(error);
@@ -254,16 +260,19 @@ export class AcpSessionController {
           });
         },
         onElicitationRequest: async (request) => {
-          elicitationOrdinal += 1;
+          const requestId = createAcpInteractionRequestId(
+            "elicitation",
+            ++interactionOrdinal
+          );
+          const requestedAt = new Date().toISOString();
           const sessionId = "sessionId" in request && typeof request.sessionId === "string"
             ? request.sessionId
             : null;
           if (eventStore) await eventStore.append(
-            normalizeAcpElicitationHistory(request, elicitationOrdinal),
+            normalizeAcpElicitationHistory(request, requestId, requestedAt),
             sessionId ? acpCorrelationSchema.parse({ sessionId }) : undefined
           );
           if (!options?.interactionBroker || request.mode !== "form") return { action: "cancel" };
-          const requestId = `elicitation-${++interactionOrdinal}`;
           return new Promise<CreateElicitationResponse>((resolve, reject) => {
             let settled = false;
             const finish = (response: { action: string; [key: string]: unknown }): void => {
@@ -276,7 +285,7 @@ export class AcpSessionController {
               requestId,
               interactionId: requestId,
               kind: "elicitation",
-              requestedAt: new Date().toISOString(),
+              requestedAt,
               summary: JSON.stringify(redactRunnerEventPayload(request)),
               respond: async (value: JsonRpcValue) => {
                 if (typeof value !== "object" || value === null || Array.isArray(value) || typeof value.action !== "string") {
@@ -288,6 +297,7 @@ export class AcpSessionController {
             };
             pendingRequests.set(requestId, pending);
             if (handle?.lifecycleState === "running") this.registry.transition(handle, "waiting_interaction");
+            if (handle) this.registry.notifyInteractionChanged(handle);
             Promise.resolve(options.interactionBroker?.requestAvailable(pending)).catch((error) => {
               releasePendingRequest(requestId);
               reject(error);
@@ -393,6 +403,10 @@ export class AcpSessionController {
         relativePath: artifactRelative
       });
       validatedArtifactReference = artifactReference;
+      if (eventStore) {
+        await eventStore.append({ kind: "artifact", artifact: artifactReference });
+        await eventStore.drain();
+      }
       cleanupAttempted = true;
       await this.registry.remove(
         handle,

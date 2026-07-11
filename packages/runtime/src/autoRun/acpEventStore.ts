@@ -12,7 +12,7 @@ import {
   type CanonicalRunnerEventIdentity,
   type RunnerEventReplayDiagnostic
 } from "./runnerEventReplay.js";
-import { writeAcpConversationProjection } from "./acpConversationProjection.js";
+import { writeAcpConversationProjection } from "./acpConversationPersistence.js";
 import { AcpEventPublisher } from "./acpEventPublisher.js";
 
 export type AcpEventStoreOptions = {

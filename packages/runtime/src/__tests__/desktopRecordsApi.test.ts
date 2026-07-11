@@ -1,14 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { join } from "node:path";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { writeJsonFile } from "../json.js";
 import {
   getFeedbackRecords,
   getReviewAttempts,
   getRunRecord,
   listBlockRunRecords,
+  resolveRunRecordArtifactPath,
   searchProject
 } from "../desktop/index.js";
+import { createArtifactReference } from "../autoRun/artifactReferenceContract.js";
 import { readRunnerRecordReadModelForArtifact } from "../autoRun/runnerRecordReadModel.js";
 import { normalizedRunnerEventSchema } from "../autoRun/normalizedEventContract.js";
 import {
@@ -387,5 +389,41 @@ describe("desktop records API", () => {
     expect(cli?.conversation).toEqual([
       expect.objectContaining({ content: "shared projection" })
     ]);
+  });
+
+  it("resolves only verified in-record artifacts and rejects traversal or missing files", async () => {
+    const { root, init } = await createTestWorkspace();
+    const runDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-001"
+    );
+    await mkdir(runDir, { recursive: true });
+    const reportPath = join(runDir, "report.md");
+    await writeFile(reportPath, "verified artifact\n", "utf8");
+    const reference = await createArtifactReference({
+      rootDir: runDir,
+      relativePath: "report.md",
+      kind: "implementation"
+    });
+
+    await expect(
+      resolveRunRecordArtifactPath(root, "T-001#B-001::RUN-001", reference)
+    ).resolves.toBe(reportPath);
+    await expect(
+      resolveRunRecordArtifactPath(root, "T-001#B-001::RUN-001", {
+        ...reference,
+        // @ts-expect-error Exercises runtime validation of untrusted IPC input.
+        relativePath: "../outside.md"
+      })
+    ).rejects.toThrow("Artifact path");
+
+    await unlink(reportPath);
+    await expect(
+      resolveRunRecordArtifactPath(root, "T-001#B-001::RUN-001", reference)
+    ).rejects.toThrow();
   });
 });

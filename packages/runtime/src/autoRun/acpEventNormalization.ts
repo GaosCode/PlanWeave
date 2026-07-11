@@ -6,20 +6,30 @@ import type {
   TerminalOutputResponse
 } from "@agentclientprotocol/sdk";
 import { normalizedRedactedContent, type NormalizedRunnerEvent } from "./normalizedEventContract.js";
-import { persistedPendingInteractionSchema } from "./runnerContractSchemas.js";
+import {
+  acpRequestIdSchema,
+  persistedPendingInteractionSchema,
+  type PersistedPendingInteraction
+} from "./runnerContractSchemas.js";
 
 export type AcpNormalizedEventBody = NormalizedRunnerEvent["body"];
 
-function requestKey(prefix: string, value: string): string {
-  return `${prefix}:${value}`.slice(0, 256);
+export function createAcpInteractionRequestId(
+  kind: PersistedPendingInteraction["kind"],
+  ordinal: number
+) {
+  if (!Number.isSafeInteger(ordinal) || ordinal < 1) {
+    throw new Error("ACP interaction request ordinal must be a positive safe integer.");
+  }
+  return acpRequestIdSchema.parse(`${kind}:${ordinal}`);
 }
 
 export function normalizeAcpPermissionHistory(
   request: RequestPermissionRequest,
+  requestId: string,
   requestedAt = new Date().toISOString()
 ): AcpNormalizedEventBody {
   const summary = normalizedRedactedContent(request.toolCall.title ?? `Permission requested for ${request.toolCall.toolCallId}.`);
-  const requestId = requestKey("permission", request.toolCall.toolCallId);
   return {
     kind: "interaction",
     interaction: persistedPendingInteractionSchema.parse({
@@ -32,11 +42,10 @@ export function normalizeAcpPermissionHistory(
 
 export function normalizeAcpElicitationHistory(
   request: CreateElicitationRequest,
-  ordinal: number,
+  requestId: string,
   requestedAt = new Date().toISOString()
 ): AcpNormalizedEventBody {
   const summary = normalizedRedactedContent(request.message);
-  const requestId = requestKey("elicitation", String(ordinal));
   return {
     kind: "interaction",
     interaction: persistedPendingInteractionSchema.parse({

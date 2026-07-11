@@ -7,10 +7,14 @@ import { finalArtifactRelativePath } from "../autoRun/finalArtifactContract.js";
 import {
   consumeRunnerRecordReadModel,
   readRunnerRecordReadModel,
-  type RunnerRecordReadConsumer
+  type RunnerRecordReadConsumer,
+  type RunnerRecordReadSubscriber
 } from "../autoRun/runnerRecordReadModel.js";
-import type { AcpEventSubscriber } from "../autoRun/acpEventPublisher.js";
 import type { RunnerEventCursor } from "../autoRun/runnerEventReplay.js";
+import {
+  artifactReferenceSchema,
+  type ArtifactReference
+} from "../autoRun/runnerContractSchemas.js";
 import { optionalReadFile, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile } from "../json.js";
@@ -457,7 +461,7 @@ export async function subscribeRunRecord(
   projectRoot: PackageWorkspaceRef,
   recordId: string,
   cursor: RunnerEventCursor | undefined,
-  subscriber: AcpEventSubscriber
+  subscriber: RunnerRecordReadSubscriber
 ): Promise<RunnerRecordReadConsumer> {
   const parsed = parseRunRecordId(recordId);
   const { workspace } = await loadPackage(projectRoot);
@@ -470,6 +474,22 @@ export async function subscribeRunRecord(
     ? await readJsonFile<Record<string, unknown>>(metadataPath)
     : {};
   return consumeRunnerRecordReadModel({ runDir, metadata, cursor, subscriber });
+}
+
+export async function resolveRunRecordArtifactPath(
+  projectRoot: PackageWorkspaceRef,
+  recordId: string,
+  value: ArtifactReference
+): Promise<string> {
+  const reference = artifactReferenceSchema.parse(value);
+  const parsed = parseRunRecordId(recordId);
+  const { workspace } = await loadPackage(projectRoot);
+  const runDir =
+    parsed.kind === "block"
+      ? join(blockRunRoot(workspace.resultsDir, parsed.blockRef), parsed.runId)
+      : join(feedbackRunRoot(workspace.resultsDir), parsed.runId);
+  const verified = await readVerifiedArtifactReference({ rootDir: runDir, value: reference });
+  return join(runDir, verified.reference.relativePath);
 }
 
 export async function getReviewAttempts(

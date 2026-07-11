@@ -630,7 +630,25 @@ export const enCatalog = {
   sharedResourceOverlap:
     "Multiple tasks are currently using this resource. Coordinate when their changes overlap.",
   lockHeld: "Held",
-  lockFree: "Free"
+  lockFree: "Free",
+  acpMonitor: "ACP run monitor",
+  acpLive: "Live",
+  acpTerminal: "Finished",
+  acpInteractionLive: "Action required",
+  acpInteractionStale: "Persisted request (not actionable)",
+  acpSubscriptionError: "Live updates unavailable",
+  acpDiagnostics: "Diagnostics",
+  acpConversation: "Conversation and tools",
+  acpConversationEmpty: "No ACP conversation events yet.",
+  acpRunDetails: "Run details",
+  acpUsage: "Usage",
+  acpUsedTokens: "Used tokens",
+  acpContextWindow: "Context window",
+  acpCost: "Cost",
+  acpArtifact: "Artifact",
+  acpRevealArtifact: "Show in file manager",
+  acpArtifactOpenError: "Artifact could not be opened",
+  acpLifecycle: "Lifecycle"
 } as const;
 
 export type TranslationKey = keyof typeof enCatalog;

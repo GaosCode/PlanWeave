@@ -60,9 +60,10 @@ import type {
   DesktopAgentActionValue,
   DesktopPendingAgentRequest,
   DesktopRunnerRecordSubscriptionInput,
-  DesktopRunnerRecordSubscriptionStart
+  DesktopRunnerRecordSubscriptionStart,
+  DesktopRunnerRecordSubscriptionUpdate
 } from "./acpBridgeTypes.js";
-import type { NormalizedRunnerEvent } from "../../autoRun/normalizedEventContract.js";
+import type { ArtifactReference } from "../../autoRun/runnerContractSchemas.js";
 
 export type DesktopAgentKind = "codex" | "claude-code" | "opencode" | "pi";
 
@@ -370,8 +371,13 @@ export type DesktopBridgeApi = {
   onAutoRunChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;
   subscribeRunnerRecord(
     input: Omit<DesktopRunnerRecordSubscriptionInput, "subscriptionId">,
-    callback: (event: NormalizedRunnerEvent) => void
+    callback: (update: DesktopRunnerRecordSubscriptionUpdate) => void
   ): Promise<DesktopRunnerRecordSubscriptionStart & { unsubscribe(): Promise<void> }>;
+  revealRunnerRecordArtifact(
+    ref: DesktopCanvasReference,
+    recordId: string,
+    artifact: ArtifactReference
+  ): Promise<void>;
   listPendingAgentRequests(
     identity: DesktopAgentActionIdentity
   ): Promise<DesktopPendingAgentRequest[]>;

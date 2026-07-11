@@ -3,11 +3,18 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 import { activeAgentRunRegistry } from "./activeAgentRunRegistry.js";
 import { acpEventReadModels } from "./acpEventReadModel.js";
-import type { AcpEventSubscriber, AcpEventSubscription } from "./acpEventPublisher.js";
-import { projectAcpConversation, type AcpConversationItem } from "./acpConversationProjection.js";
-import type { NormalizedRunnerEvent } from "./normalizedEventContract.js";
+import type { AcpEventSubscription } from "./acpEventPublisher.js";
+import type { AcpEventReadModel } from "./acpEventReadModel.js";
+import {
+  acpConversationItemSchema,
+  projectAcpConversation
+} from "./acpConversationProjection.js";
+import { normalizedRunnerEventSchema, type NormalizedRunnerEvent } from "./normalizedEventContract.js";
+import { safeRunnerEventTextSchema } from "./runnerEventRedaction.js";
 import {
   replayNormalizedRunnerEvents,
+  runnerEventCursorSchema,
+  runnerEventReplayDiagnosticSchema,
   type RunnerEventCursor,
   type RunnerEventReplayDiagnostic
 } from "./runnerEventReplay.js";
@@ -19,28 +26,52 @@ import {
   desktopRunIdSchema,
   executorRunIdSchema,
   projectIdSchema,
+  pendingInteractionKindSchema,
   runnerRunIdSchema,
   runSessionIdSchema,
   taskIdSchema
 } from "./runnerContractSchemas.js";
 
-export type RunnerRecordReadModel = {
-  events: NormalizedRunnerEvent[];
-  conversation: AcpConversationItem[];
-  diagnostics: RunnerEventReplayDiagnostic[];
-  cursor: RunnerEventCursor;
-  terminal: boolean;
-  interaction: {
-    persisted: boolean;
-    active: boolean;
-    stale: boolean;
-  };
-};
+const runnerRecordActiveInteractionSchema = z
+  .object({
+    requestId: z.string().min(1).max(256),
+    interactionId: z.string().min(1).max(256),
+    kind: pendingInteractionKindSchema,
+    requestedAt: z.string().datetime(),
+    summary: safeRunnerEventTextSchema(4_096, "Active interaction summary").refine(
+      (value) => value.length > 0,
+      "Active interaction summary must not be empty."
+    )
+  })
+  .strict();
+
+export const runnerRecordReadModelSchema = z
+  .object({
+    events: z.array(normalizedRunnerEventSchema),
+    conversation: z.array(acpConversationItemSchema),
+    diagnostics: z.array(runnerEventReplayDiagnosticSchema),
+    cursor: runnerEventCursorSchema,
+    terminal: z.boolean(),
+    interaction: z
+      .object({
+        persisted: z.boolean(),
+        active: z.boolean(),
+        stale: z.boolean(),
+        activeRequests: z.array(runnerRecordActiveInteractionSchema)
+      })
+      .strict()
+  })
+  .strict();
+export type RunnerRecordReadModel = z.infer<typeof runnerRecordReadModelSchema>;
 
 export type RunnerRecordReadConsumer = {
   snapshot: RunnerRecordReadModel | null;
   subscription: AcpEventSubscription | null;
 };
+
+export type RunnerRecordReadSubscriber = (
+  snapshot: RunnerRecordReadModel
+) => void | Promise<void>;
 
 function diagnostic(code: RunnerEventReplayDiagnostic["code"], message: string): RunnerEventReplayDiagnostic {
   return { code, line: null, message };
@@ -164,25 +195,33 @@ function failedIdentitySnapshot(options: {
         terminal: false
       },
       terminal: options.terminal ?? false,
-      interaction: { persisted: false, active: false, stale: false }
+      interaction: { persisted: false, active: false, stale: false, activeRequests: [] }
     },
     subscription: null
   };
 }
 
-function activeInteraction(
+function interactionState(
   runDir: string,
   selected: SelectedRecordIdentity,
   cursor: RunnerEventCursor,
   events: readonly NormalizedRunnerEvent[]
-): boolean {
+): RunnerRecordReadModel["interaction"] {
+  const persistedRequestIds = new Set<string>(
+    events.flatMap((event) => event.body.kind === "interaction"
+      ? [event.body.interaction.requestId]
+      : [])
+  );
+  const persisted = persistedRequestIds.size > 0;
   const canonical = cursor.canonicalIdentity?.identity;
-  if (!canonical?.executorRunId) return false;
+  if (!canonical?.executorRunId) {
+    return { persisted, active: false, stale: persisted, activeRequests: [] };
+  }
   const sessionIds = new Set(
     events.flatMap((event) => event.correlation?.sessionId ? [event.correlation.sessionId] : [])
   );
   const sessionId = selected.sessionId ?? (sessionIds.size === 1 ? [...sessionIds][0] : undefined);
-  if (!sessionId) return false;
+  if (!sessionId) return { persisted, active: false, stale: persisted, activeRequests: [] };
   try {
     const registered = activeAgentRunRegistry.lookupExact({
       scope: runDir,
@@ -192,31 +231,99 @@ function activeInteraction(
       ...(canonical.runSessionId ? { runSessionId: canonical.runSessionId } : {}),
       sessionId
     });
-    if (!registered) return false;
+    if (!registered) return { persisted, active: false, stale: persisted, activeRequests: [] };
     if (
       (registered.identity.runSessionId ?? null) !== canonical.runSessionId ||
       (registered.identity.desktopRunId ?? null) !== canonical.desktopRunId
     ) {
-      return false;
+      return { persisted, active: false, stale: persisted, activeRequests: [] };
     }
-    const persistedRequestIds = new Set<string>(
-      events.flatMap((event) => event.body.kind === "interaction"
-        ? [event.body.interaction.requestId]
-        : [])
-    );
-    return [...registered.control.pendingRequests.keys()].some((requestId) =>
-      persistedRequestIds.has(requestId)
-    );
+    const activeRequests = [...registered.control.pendingRequests.values()]
+      .filter((request) => persistedRequestIds.has(request.requestId))
+      .map((request) => ({
+        requestId: request.requestId,
+        interactionId: request.interactionId,
+        kind: request.kind,
+        requestedAt: request.requestedAt,
+        summary: request.summary
+      }));
+    return {
+      persisted,
+      active: activeRequests.length > 0,
+      stale: persisted && activeRequests.length === 0,
+      activeRequests
+    };
   } catch {
-    return false;
+    return { persisted, active: false, stale: persisted, activeRequests: [] };
   }
+}
+
+function activeSnapshot(options: {
+  model: AcpEventReadModel;
+  runDir: string;
+  selected: SelectedRecordIdentity;
+  cursor?: RunnerEventCursor;
+}): RunnerRecordReadModel {
+  const replay = options.model.replay(options.cursor ?? 0);
+  const completeReplay = options.cursor ? options.model.replay(0) : replay;
+  const mismatch = identityMismatch(completeReplay.events, options.selected, completeReplay.cursor);
+  if (mismatch || completeReplay.diagnostics.some((item) => item.code === "identity_mismatch")) {
+    throw new Error(mismatch?.message ?? "Runner event stream contains inconsistent identities.");
+  }
+  return runnerRecordReadModelSchema.parse({
+    ...replay,
+    interaction: interactionState(
+      options.runDir,
+      options.selected,
+      completeReplay.cursor,
+      completeReplay.events
+    )
+  });
+}
+
+function subscribeActiveModel(options: {
+  model: AcpEventReadModel;
+  runDir: string;
+  selected: SelectedRecordIdentity;
+  cursor?: RunnerEventCursor;
+  afterSequence: number;
+  subscriber: RunnerRecordReadSubscriber;
+}): AcpEventSubscription {
+  let updateChain = Promise.resolve();
+  const emit = (): Promise<void> => {
+    updateChain = updateChain.then(() =>
+      options.subscriber(activeSnapshot(options))
+    );
+    return updateChain;
+  };
+  const eventSubscription = options.model.subscribe(options.afterSequence, emit);
+  const unsubscribeInteraction = activeAgentRunRegistry.subscribeInteractionChanges((handle) => {
+    if (
+      handle.identity.scope !== options.runDir ||
+      handle.identity.executorRunId !== options.selected.runId ||
+      handle.identity.claimRef !== options.selected.claimRef
+    ) {
+      return;
+    }
+    void emit().catch(() => eventSubscription.unsubscribe());
+  });
+  return {
+    unsubscribe: () => {
+      unsubscribeInteraction();
+      eventSubscription.unsubscribe();
+    },
+    closed: eventSubscription.closed.then(async () => {
+      unsubscribeInteraction();
+      await updateChain.catch(() => undefined);
+    })
+  };
 }
 
 export async function consumeRunnerRecordReadModel(options: {
   runDir: string;
   metadata: Record<string, unknown>;
   cursor?: RunnerEventCursor;
-  subscriber?: AcpEventSubscriber;
+  subscriber?: RunnerRecordReadSubscriber;
 }): Promise<RunnerRecordReadConsumer> {
   if (options.metadata.runnerKind !== "acp") {
     return { snapshot: null, subscription: null };
@@ -232,36 +339,51 @@ export async function consumeRunnerRecordReadModel(options: {
 
   const activeModel = acpEventReadModels.get(options.runDir);
   if (activeModel) {
-    let replay: ReturnType<typeof activeModel.replay>;
+    let snapshot: RunnerRecordReadModel;
     try {
-      replay = activeModel.replay(options.cursor ?? 0);
+      snapshot = activeSnapshot({
+        model: activeModel,
+        runDir: options.runDir,
+        selected,
+        ...(options.cursor ? { cursor: options.cursor } : {})
+      });
     } catch {
       return failedIdentitySnapshot({
         cursor: typeof options.cursor === "object" ? options.cursor : undefined,
         message: "Runner event cursor identity does not match the active record."
       });
     }
-    const mismatch = identityMismatch(replay.events, selected, replay.cursor);
-    if (mismatch || replay.diagnostics.some((item) => item.code === "identity_mismatch")) {
+    if (!options.subscriber || snapshot.terminal) {
+      return { snapshot, subscription: null };
+    }
+    const subscription = subscribeActiveModel({
+      model: activeModel,
+      runDir: options.runDir,
+      selected,
+      ...(options.cursor ? { cursor: options.cursor } : {}),
+      afterSequence: snapshot.cursor.afterSequence,
+      subscriber: options.subscriber
+    });
+    let authoritativeSnapshot: RunnerRecordReadModel;
+    try {
+      authoritativeSnapshot = activeSnapshot({
+        model: activeModel,
+        runDir: options.runDir,
+        selected,
+        ...(options.cursor ? { cursor: options.cursor } : {})
+      });
+    } catch {
+      subscription.unsubscribe();
       return failedIdentitySnapshot({
-        diagnostics: replay.diagnostics,
-        cursor: replay.cursor,
-        terminal: replay.terminal,
-        message: mismatch?.message ?? "Runner event stream contains inconsistent identities."
+        cursor: snapshot.cursor,
+        message: "Runner event identity changed during subscription registration."
       });
     }
-    const persisted = replay.events.some((event) => event.body.kind === "interaction");
-    const active = activeInteraction(options.runDir, selected, replay.cursor, replay.events);
-    return {
-      snapshot: {
-        ...replay,
-        interaction: { persisted, active, stale: persisted && !active }
-      },
-      subscription:
-        options.subscriber && !replay.terminal
-          ? activeModel.subscribe(replay.cursor.afterSequence, options.subscriber)
-          : null
-    };
+    if (authoritativeSnapshot.terminal) {
+      subscription.unsubscribe();
+      return { snapshot: authoritativeSnapshot, subscription: null };
+    }
+    return { snapshot: authoritativeSnapshot, subscription };
   }
 
   let content = "";
@@ -289,17 +411,23 @@ export async function consumeRunnerRecordReadModel(options: {
       message: mismatch?.message ?? "Runner event stream contains inconsistent identities."
     });
   }
-  const persisted = replay.events.some((event) => event.body.kind === "interaction");
-  const active = activeInteraction(options.runDir, selected, replay.nextCursor, replay.events);
+  const completeReplay = options.cursor
+    ? replayNormalizedRunnerEvents({ content, runId: selected.runId })
+    : replay;
   return {
-    snapshot: {
+    snapshot: runnerRecordReadModelSchema.parse({
       events: replay.events,
       conversation: projectAcpConversation(replay.events),
       diagnostics: [...boundaryDiagnostics, ...replay.diagnostics],
       cursor: replay.nextCursor,
       terminal: replay.terminal,
-      interaction: { persisted, active, stale: persisted && !active }
-    },
+      interaction: interactionState(
+        options.runDir,
+        selected,
+        completeReplay.nextCursor,
+        completeReplay.events
+      )
+    }),
     subscription: null
   };
 }

@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { normalizedRunnerEventSchema } from "../../autoRun/normalizedEventContract.js";
 import { runnerEventCursorSchema } from "../../autoRun/runnerEventReplay.js";
+import { runnerRecordReadModelSchema } from "../../autoRun/runnerRecordReadModel.js";
 import {
   acpRequestIdSchema,
   acpSessionIdSchema,
@@ -33,7 +33,8 @@ export type DesktopRunnerRecordSubscriptionInput = z.infer<
 export const desktopRunnerRecordSubscriptionPushSchema = z
   .object({
     subscriptionId: nonEmptyStringSchema.max(256),
-    event: normalizedRunnerEventSchema
+    updateSequence: z.number().int().positive(),
+    snapshot: runnerRecordReadModelSchema
   })
   .strict();
 export type DesktopRunnerRecordSubscriptionPush = z.infer<
@@ -42,8 +43,14 @@ export type DesktopRunnerRecordSubscriptionPush = z.infer<
 
 export type DesktopRunnerRecordSubscriptionStart = {
   subscriptionId: string;
+  updateSequence: 0;
   snapshot: RunnerRecordReadModel | null;
 };
+
+export type DesktopRunnerRecordSubscriptionUpdate = Omit<
+  DesktopRunnerRecordSubscriptionPush,
+  "subscriptionId"
+>;
 
 export const desktopAgentActionIdentitySchema = z
   .object({

@@ -65,4 +65,116 @@ describe("ACP event controller durability and producers", () => {
     expect(events).toContain('"kind":"terminal_output"');
     expect(events).toContain("terminal bytes");
   });
+
+  it("publishes the verified artifact before terminal in the real controller stream", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-artifact-event-"));
+    const readModels = new AcpEventReadModelRegistry();
+    const controller = new AcpSessionController(
+      new ActiveAgentRunRegistry(),
+      createAcpConnection,
+      readModels
+    );
+
+    await expect(
+      controller.execute(run(root, "artifact-implementation"), { timeoutMs: 1_000 })
+    ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+    const snapshot = readModels.get(root)?.replay(0);
+    const kinds = snapshot?.events.map((event) => event.body.kind) ?? [];
+    expect(kinds).toContain("artifact");
+    expect(kinds.indexOf("artifact")).toBeLessThan(kinds.indexOf("terminal"));
+    expect(
+      snapshot?.events.find((event) => event.body.kind === "artifact")
+    ).toMatchObject({
+      body: {
+        kind: "artifact",
+        artifact: { kind: "implementation", relativePath: "report.md" }
+      }
+    });
+  });
+
+  it("keeps a verified artifact event when later cleanup fails and marks partial success", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-artifact-cleanup-"));
+    const readModels = new AcpEventReadModelRegistry();
+    const registry = new ActiveAgentRunRegistry();
+    const controller = new AcpSessionController(
+      registry,
+      (options) => {
+        const connection = createAcpConnection(options);
+        return new Proxy(connection, {
+          get(target, property) {
+            if (property === "dispose") {
+              return async () => {
+                await target.dispose();
+                throw new Error("cleanup failed after artifact verification");
+              };
+            }
+            const value = Reflect.get(target, property);
+            return typeof value === "function" ? value.bind(target) : value;
+          }
+        });
+      },
+      readModels
+    );
+
+    await expect(
+      controller.execute(run(root, "artifact-implementation"), { timeoutMs: 1_000 })
+    ).rejects.toThrow("Runner terminal cleanup did not complete cleanly");
+    const events = readModels.get(root)?.replay(0).events ?? [];
+    expect(events.map((event) => event.body.kind)).toEqual(
+      expect.arrayContaining(["artifact", "diagnostic", "terminal"])
+    );
+    const artifactIndex = events.findIndex((event) => event.body.kind === "artifact");
+    const terminalIndex = events.findIndex((event) => event.body.kind === "terminal");
+    expect(artifactIndex).toBeGreaterThanOrEqual(0);
+    expect(artifactIndex).toBeLessThan(terminalIndex);
+    const metadata = await readFile(join(root, "metadata.json"), "utf8");
+    expect(metadata).toContain('"status": "failed"');
+    expect(metadata).toContain('"executionOutcome": "succeeded"');
+    expect(metadata).toContain('"artifactReference"');
+    expect(metadata).toContain("cleanup failed after artifact verification");
+    expect(registry.size).toBe(0);
+  });
+
+  it("does not publish artifacts when execution fails before validation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-no-artifact-"));
+    const readModels = new AcpEventReadModelRegistry();
+    const controller = new AcpSessionController(
+      new ActiveAgentRunRegistry(),
+      createAcpConnection,
+      readModels
+    );
+
+    await expect(
+      controller.execute(run(root, "protocol-error"), { timeoutMs: 1_000 })
+    ).rejects.toThrow();
+    expect(readModels.get(root)?.replay(0).events.some(
+      (event) => event.body.kind === "artifact"
+    )).toBe(false);
+    const metadata = await readFile(join(root, "metadata.json"), "utf8");
+    expect(metadata).not.toContain('"executionOutcome": "succeeded"');
+  });
+
+  it("does not publish artifacts when execution is cancelled before validation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-cancel-no-artifact-"));
+    const readModels = new AcpEventReadModelRegistry();
+    const controller = new AcpSessionController(
+      new ActiveAgentRunRegistry(),
+      createAcpConnection,
+      readModels
+    );
+    const abort = new AbortController();
+    const execution = controller.execute(run(root, "long-prompt"), {
+      timeoutMs: 1_000,
+      signal: abort.signal
+    });
+    setTimeout(() => abort.abort(new Error("cancel before artifact validation")), 25);
+
+    await expect(execution).rejects.toThrow("cancel before artifact validation");
+    expect(readModels.get(root)?.replay(0).events.some(
+      (event) => event.body.kind === "artifact"
+    )).toBe(false);
+    const metadata = await readFile(join(root, "metadata.json"), "utf8");
+    expect(metadata).toContain('"status": "cancelled"');
+    expect(metadata).not.toContain('"executionOutcome": "succeeded"');
+  });
 });

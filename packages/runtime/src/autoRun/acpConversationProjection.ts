@@ -1,14 +1,23 @@
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { z } from "zod";
 import type { NormalizedRunnerEvent } from "./normalizedEventContract.js";
 
-export type AcpConversationItem = {
-  sequence: number;
-  timestamp: string;
-  kind: NormalizedRunnerEvent["body"]["kind"];
-  role?: "assistant" | "user";
-  content: string;
-};
+export const acpConversationItemSchema = z
+  .object({
+    sequence: z.number().int().positive(),
+    timestamp: z.string().datetime(),
+    kind: z.enum([
+      "message",
+      "tool_call",
+      "tool_update",
+      "plan_update",
+      "terminal_output",
+      "output"
+    ]),
+    role: z.enum(["assistant", "user"]).optional(),
+    content: z.string()
+  })
+  .strict();
+export type AcpConversationItem = z.infer<typeof acpConversationItemSchema>;
 
 function projectionItem(event: NormalizedRunnerEvent): AcpConversationItem | null {
   const body = event.body;
@@ -21,13 +30,4 @@ function projectionItem(event: NormalizedRunnerEvent): AcpConversationItem | nul
 
 export function projectAcpConversation(events: readonly NormalizedRunnerEvent[]): AcpConversationItem[] {
   return events.map(projectionItem).filter((item): item is AcpConversationItem => item !== null);
-}
-
-export async function writeAcpConversationProjection(runDir: string, events: readonly NormalizedRunnerEvent[]): Promise<void> {
-  const items = projectAcpConversation(events);
-  const markdown = items.map((item) => `## ${item.role ?? item.kind} · ${item.sequence}\n\n${item.content}`).join("\n\n");
-  await Promise.all([
-    writeFile(join(runDir, "conversation.json"), `${JSON.stringify({ version: "planweave.conversation/v1", items }, null, 2)}\n`, "utf8"),
-    writeFile(join(runDir, "conversation.md"), markdown ? `${markdown}\n` : "", "utf8")
-  ]);
 }

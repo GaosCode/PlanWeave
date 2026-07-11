@@ -283,7 +283,11 @@ describe("preload bridge invocation", () => {
     electronMock.ipcRenderer.invoke.mockImplementation(async (channel: string, payload?: unknown) => {
       if (channel === runnerRecordSubscribeChannel) {
         const subscriptionId = (payload as { subscriptionId: string }).subscriptionId;
-        return { subscriptionId, snapshot: { terminal: false, events: [] } };
+        return {
+          subscriptionId,
+          updateSequence: 0,
+          snapshot: { terminal: false, events: [] }
+        };
       }
       return undefined;
     });
@@ -308,16 +312,15 @@ describe("preload bridge invocation", () => {
     };
     const start = await startPromise;
     const listener = electronMock.ipcRenderer.on.mock.calls[0]?.[1] as IpcRendererListener;
-    const event = {
-      version: "planweave.runner-event/v1",
-      sequence: 2,
-      body: { kind: "message" }
+    const update = {
+      updateSequence: 1,
+      snapshot: { terminal: false, events: [{ sequence: 2 }] }
     };
-    listener({}, { subscriptionId: request.subscriptionId, event });
-    listener({}, { subscriptionId: "foreign", event });
+    listener({}, { subscriptionId: request.subscriptionId, ...update });
+    listener({}, { subscriptionId: "foreign", ...update });
 
     expect(callback).toHaveBeenCalledTimes(1);
-    expect(callback).toHaveBeenCalledWith(event);
+    expect(callback).toHaveBeenCalledWith(update);
     await start.unsubscribe();
     await start.unsubscribe();
     expect(electronMock.ipcRenderer.off).toHaveBeenCalledTimes(1);

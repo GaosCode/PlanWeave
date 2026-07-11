@@ -162,6 +162,7 @@ export {
   getReviewAttempts,
   getRunRecord,
   listBlockRunRecords,
+  resolveRunRecordArtifactPath,
   subscribeRunRecord
 } from "./recordsApi.js";
 export {

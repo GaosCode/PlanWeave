@@ -55,6 +55,17 @@ export class ActiveAgentRunRegistry {
     identityKinds.map((kind) => [kind, new Map()])
   );
   private readonly removals = new WeakMap<ActiveAgentRunHandle, Promise<boolean>>();
+  private readonly interactionSubscribers = new Set<(handle: ActiveAgentRunHandle) => void>();
+
+  subscribeInteractionChanges(subscriber: (handle: ActiveAgentRunHandle) => void): () => void {
+    this.interactionSubscribers.add(subscriber);
+    return () => this.interactionSubscribers.delete(subscriber);
+  }
+
+  notifyInteractionChanged(handle: ActiveAgentRunHandle): void {
+    if (!this.handles.has(handle)) return;
+    for (const subscriber of this.interactionSubscribers) subscriber(handle);
+  }
 
   register(handle: ActiveAgentRunHandle): void {
     if (this.handles.has(handle)) throw new Error("Active ACP run is already registered.");

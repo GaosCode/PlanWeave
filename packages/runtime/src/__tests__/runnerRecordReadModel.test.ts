@@ -190,7 +190,12 @@ describe("runner record read model", () => {
 
     expect(result?.events).toEqual([]);
     expect(result?.conversation).toEqual([]);
-    expect(result?.interaction).toEqual({ persisted: false, active: false, stale: false });
+    expect(result?.interaction).toEqual({
+      persisted: false,
+      active: false,
+      stale: false,
+      activeRequests: []
+    });
     expect(result?.diagnostics.map((item) => item.code)).toContain("identity_mismatch");
   });
 
@@ -220,7 +225,12 @@ describe("runner record read model", () => {
 
     expect(result?.events).toEqual([]);
     expect(result?.conversation).toEqual([]);
-    expect(result?.interaction).toEqual({ persisted: false, active: false, stale: false });
+    expect(result?.interaction).toEqual({
+      persisted: false,
+      active: false,
+      stale: false,
+      activeRequests: []
+    });
     expect(result?.diagnostics.map((item) => item.code)).toContain("identity_mismatch");
   });
 
@@ -237,7 +247,7 @@ describe("runner record read model", () => {
       const consumer = await consumeRunnerRecordReadModel({
         runDir,
         metadata,
-        subscriber: (item) => { live.push(item.sequence); }
+        subscriber: (snapshot) => { live.push(snapshot.cursor.afterSequence); }
       });
       expect(consumer.snapshot?.events.map((item) => item.sequence)).toEqual([1]);
       expect(consumer.subscription).not.toBeNull();
@@ -249,6 +259,82 @@ describe("runner record read model", () => {
       expect(live).toEqual([2, 3]);
       expect(model.store.publisher.subscriberCount).toBe(0);
     } finally {
+      acpEventReadModels.release(runDir);
+    }
+  });
+
+  it("pushes authoritative interaction appearance and resolution without inferring from events", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-live-interaction-"));
+    const model = await acpEventReadModels.create({
+      runDir,
+      identity: runnerRunIdentitySchema.parse(event(1, "interaction").identity),
+      runner: runnerIdentitySchema.parse(event(1, "interaction").runner)
+    });
+    const handle = activeHandle(runDir);
+    activeAgentRunRegistry.register(handle);
+    try {
+      await model.store.append(event(1, "interaction").body);
+      const updates: Array<{ active: boolean; terminal: boolean }> = [];
+      const consumer = await consumeRunnerRecordReadModel({
+        runDir,
+        metadata,
+        subscriber: (snapshot) => {
+          updates.push({ active: snapshot.interaction.active, terminal: snapshot.terminal });
+        }
+      });
+      expect(consumer.snapshot?.interaction.activeRequests).toMatchObject([
+        { requestId: "permission-1", kind: "permission" }
+      ]);
+
+      handle.control.pendingRequests.clear();
+      activeAgentRunRegistry.notifyInteractionChanged(handle);
+      await vi.waitFor(() => expect(updates).toContainEqual({ active: false, terminal: false }));
+
+      await model.store.append(event(2, "terminal").body);
+      await consumer.subscription?.closed;
+      expect(updates.at(-1)).toEqual({ active: false, terminal: true });
+    } finally {
+      await activeAgentRunRegistry.remove(handle, "test complete");
+      acpEventReadModels.release(runDir);
+    }
+  });
+
+  it("resnapshots after listener registration when removal occurs in the initial gap", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-registration-gap-"));
+    const model = await acpEventReadModels.create({
+      runDir,
+      identity: runnerRunIdentitySchema.parse(event(1, "interaction").identity),
+      runner: runnerIdentitySchema.parse(event(1, "interaction").runner)
+    });
+    const handle = activeHandle(runDir);
+    activeAgentRunRegistry.register(handle);
+    const subscribeInteractionChanges =
+      activeAgentRunRegistry.subscribeInteractionChanges.bind(activeAgentRunRegistry);
+    const registration = vi
+      .spyOn(activeAgentRunRegistry, "subscribeInteractionChanges")
+      .mockImplementation((subscriber) => {
+        handle.control.pendingRequests.clear();
+        activeAgentRunRegistry.notifyInteractionChanged(handle);
+        return subscribeInteractionChanges(subscriber);
+      });
+    try {
+      await model.store.append(event(1, "interaction").body);
+      const consumer = await consumeRunnerRecordReadModel({
+        runDir,
+        metadata,
+        subscriber: vi.fn()
+      });
+
+      expect(consumer.snapshot?.interaction).toEqual({
+        persisted: true,
+        active: false,
+        stale: true,
+        activeRequests: []
+      });
+      consumer.subscription?.unsubscribe();
+    } finally {
+      registration.mockRestore();
+      await activeAgentRunRegistry.remove(handle, "test complete");
       acpEventReadModels.release(runDir);
     }
   });
@@ -296,7 +382,12 @@ describe("runner record read model", () => {
     activeAgentRunRegistry.register(handle);
     try {
       const owned = await readRunnerRecordReadModel({ runDir, metadata });
-      expect(owned?.interaction).toEqual({ persisted: true, active: true, stale: false });
+      expect(owned?.interaction).toMatchObject({
+        persisted: true,
+        active: true,
+        stale: false,
+        activeRequests: [{ requestId: "permission-1", kind: "permission" }]
+      });
       const foreign = await readRunnerRecordReadModel({
           runDir,
           metadata: { ...metadata, ref: "T-002#B-001" }
@@ -323,7 +414,12 @@ describe("runner record read model", () => {
     activeAgentRunRegistry.register(handle);
     try {
       const foreignOwner = await readRunnerRecordReadModel({ runDir, metadata });
-      expect(foreignOwner?.interaction).toEqual({ persisted: true, active: false, stale: true });
+      expect(foreignOwner?.interaction).toEqual({
+        persisted: true,
+        active: false,
+        stale: true,
+        activeRequests: []
+      });
     } finally {
       await activeAgentRunRegistry.remove(handle, "test complete");
     }
@@ -347,7 +443,12 @@ describe("runner record read model", () => {
     activeAgentRunRegistry.register(requestHandle);
     try {
       const wrongRequest = await readRunnerRecordReadModel({ runDir: requestRunDir, metadata });
-      expect(wrongRequest?.interaction).toEqual({ persisted: true, active: false, stale: true });
+      expect(wrongRequest?.interaction).toEqual({
+        persisted: true,
+        active: false,
+        stale: true,
+        activeRequests: []
+      });
     } finally {
       await activeAgentRunRegistry.remove(requestHandle, "test complete");
     }
@@ -369,7 +470,12 @@ describe("runner record read model", () => {
       const result = await readRunnerRecordReadModel({ runDir, metadata });
 
       expect(result?.events).toHaveLength(1);
-      expect(result?.interaction).toEqual({ persisted: true, active: false, stale: true });
+      expect(result?.interaction).toEqual({
+        persisted: true,
+        active: false,
+        stale: true,
+        activeRequests: []
+      });
     } finally {
       await activeAgentRunRegistry.remove(handle, "test complete");
     }

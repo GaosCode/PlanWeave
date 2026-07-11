@@ -296,11 +296,13 @@ export type * from "./autoRun/acpEventReadModel.js";
 export {
   consumeRunnerRecordReadModel,
   readRunnerRecordReadModel,
-  readRunnerRecordReadModelForArtifact
+  readRunnerRecordReadModelForArtifact,
+  runnerRecordReadModelSchema
 } from "./autoRun/runnerRecordReadModel.js";
 export type * from "./autoRun/runnerRecordReadModel.js";
-export { projectAcpConversation, writeAcpConversationProjection } from "./autoRun/acpConversationProjection.js";
+export { projectAcpConversation } from "./autoRun/acpConversationProjection.js";
 export type * from "./autoRun/acpConversationProjection.js";
+export { writeAcpConversationProjection } from "./autoRun/acpConversationPersistence.js";
 export {
   ArtifactReferenceVerificationError,
   RUNNER_ARTIFACT_MAX_CONTENT_BYTES,
@@ -412,6 +414,7 @@ export {
   rollbackPendingImportRecovery,
   resetCanvasMapLayout,
   resetDesktopLayout,
+  resolveRunRecordArtifactPath,
   resolveSourceDefaultProjectRoot,
   saveCanvasMapLayout,
   saveDesktopLayout,

@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { normalizedRunnerEventSchema } from "@planweave-ai/runtime";
+import {
+  normalizedRunnerEventSchema,
+  projectAcpConversation,
+  runnerRecordReadModelSchema,
+  type NormalizedRunnerEvent
+} from "@planweave-ai/runtime";
 import {
   desktopBridgeInvokeChannels,
   runnerRecordEventChannel,
@@ -57,6 +62,29 @@ function runnerEvent(sequence: number, kind: "message" | "terminal" = "message")
   });
 }
 
+function readModel(events: NormalizedRunnerEvent[]) {
+  const last = events.at(-1);
+  return runnerRecordReadModelSchema.parse({
+    events,
+    conversation: projectAcpConversation(events),
+    diagnostics: [],
+    cursor: {
+      version: "planweave.runner-event-cursor/v1",
+      runId: "RUN-001",
+      afterSequence: last?.sequence ?? 0,
+      canonicalIdentity: last ? { identity: last.identity, runner: last.runner } : null,
+      terminal: last?.body.kind === "terminal"
+    },
+    terminal: last?.body.kind === "terminal",
+    interaction: {
+      persisted: false,
+      active: false,
+      stale: false,
+      activeRequests: []
+    }
+  });
+}
+
 function sender(id: number) {
   let destroyed = false;
   let destroyListener: (() => void) | null = null;
@@ -92,9 +120,45 @@ describe("runner record desktop bridge", () => {
 
   afterEach(async () => restoreRuntimeBridgeEnv());
 
+  it("reveals artifacts only after runtime record-boundary verification", async () => {
+    const handler = electronMock.handlers.get(
+      desktopBridgeInvokeChannels.revealRunnerRecordArtifact
+    );
+    const reference = {
+      version: "planweave.runner/v1",
+      kind: "implementation",
+      relativePath: "report.md",
+      sha256: "a".repeat(64),
+      sizeBytes: 42,
+      mediaType: "text/markdown"
+    };
+    await handler?.(
+      {},
+      { projectRoot: "/tmp/project", canvasId: "canvas-a" },
+      "T-001#B-001::RUN-001",
+      reference
+    );
+    expect(runtimeMock.resolveRunRecordArtifactPath).toHaveBeenCalled();
+    expect(electronMock.shell.showItemInFolder).toHaveBeenCalledWith("/tmp/project/report.md");
+
+    electronMock.shell.showItemInFolder.mockClear();
+    runtimeMock.resolveRunRecordArtifactPath.mockRejectedValueOnce(
+      new Error("Artifact path is outside the selected record.")
+    );
+    await expect(
+      handler?.(
+        {},
+        { projectRoot: "/tmp/project", canvasId: "canvas-a" },
+        "T-001#B-001::RUN-001",
+        { ...reference, relativePath: "../outside.md" }
+      )
+    ).rejects.toThrow("outside");
+    expect(electronMock.shell.showItemInFolder).not.toHaveBeenCalled();
+  });
+
   it("returns replay before forwarding ordered live events and releases on terminal", async () => {
     const webContents = sender(1);
-    let receive: ((event: unknown) => void) | null = null;
+    let receive: ((snapshot: ReturnType<typeof readModel>) => void) | null = null;
     const unsubscribe = vi.fn();
     let close!: () => void;
     const closed = new Promise<void>((resolve) => {
@@ -104,7 +168,7 @@ describe("runner record desktop bridge", () => {
       async (_workspace, _recordId, _cursor, listener) => {
         receive = listener;
         return {
-          snapshot: { events: [runnerEvent(1)], terminal: false },
+          snapshot: readModel([runnerEvent(1)]),
           subscription: { unsubscribe, closed }
         };
       }
@@ -114,11 +178,12 @@ describe("runner record desktop bridge", () => {
     const start = (await handler?.({ sender: webContents }, input)) as {
       snapshot: { events: Array<{ sequence: number }> };
     };
-    receive?.(runnerEvent(2));
-    receive?.(runnerEvent(3, "terminal"));
+    receive?.(readModel([runnerEvent(2)]));
+    receive?.(readModel([runnerEvent(3, "terminal")]));
 
     expect(start.snapshot.events.map((event) => event.sequence)).toEqual([1]);
-    expect(webContents.send.mock.calls.map((call) => call[1].event.sequence)).toEqual([2, 3]);
+    expect(webContents.send.mock.calls.map((call) => call[1].snapshot.cursor.afterSequence)).toEqual([2, 3]);
+    expect(webContents.send.mock.calls.map((call) => call[1].updateSequence)).toEqual([1, 2]);
     expect(webContents.send).toHaveBeenCalledWith(
       runnerRecordEventChannel,
       expect.objectContaining({ subscriptionId: "subscription-1" })
@@ -130,7 +195,7 @@ describe("runner record desktop bridge", () => {
   it("unsubscribes deterministically and tears down on window destruction", async () => {
     const unsubscribeFirst = vi.fn();
     const unsubscribeSecond = vi.fn();
-    const listeners: Array<(event: unknown) => void> = [];
+    const listeners: Array<(snapshot: ReturnType<typeof readModel>) => void> = [];
     runtimeMock.subscribeRunRecord
       .mockImplementationOnce(async (_workspace, _recordId, _cursor, listener) => {
         listeners.push(listener);
@@ -161,8 +226,8 @@ describe("runner record desktop bridge", () => {
 
     await unsubscribeHandler?.({ sender: first }, "subscription-1");
     second.destroy();
-    listeners[0]?.(runnerEvent(2, "terminal"));
-    listeners[1]?.(runnerEvent(2));
+    listeners[0]?.(readModel([runnerEvent(2, "terminal")]));
+    listeners[1]?.(readModel([runnerEvent(2)]));
 
     expect(unsubscribeFirst).toHaveBeenCalledTimes(1);
     expect(first.removeListener).toHaveBeenCalledTimes(1);
@@ -172,7 +237,7 @@ describe("runner record desktop bridge", () => {
   });
 
   it("isolates concurrent renderer subscriptions and rejects destroyed or mismatched requests", async () => {
-    const listeners: Array<(event: unknown) => void> = [];
+    const listeners: Array<(snapshot: ReturnType<typeof readModel>) => void> = [];
     runtimeMock.subscribeRunRecord.mockImplementation(
       async (_workspace, _recordId, _cursor, listener) => {
         listeners.push(listener);
@@ -188,8 +253,8 @@ describe("runner record desktop bridge", () => {
     await handler?.({ sender: first }, input);
     await handler?.({ sender: second }, { ...input, subscriptionId: "subscription-2" });
 
-    listeners[0]?.(runnerEvent(2));
-    listeners[1]?.(runnerEvent(2));
+    listeners[0]?.(readModel([runnerEvent(2)]));
+    listeners[1]?.(readModel([runnerEvent(2)]));
     expect(first.send).toHaveBeenCalledTimes(1);
     expect(second.send).toHaveBeenCalledTimes(1);
 

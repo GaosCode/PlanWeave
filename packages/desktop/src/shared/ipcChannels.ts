@@ -95,6 +95,7 @@ export const desktopBridgeInvokeChannels = {
   resetRuntimeState: "planweave:resetRuntimeState",
   resumeAutoRun: "planweave:resumeAutoRun",
   revealPathInFinder: "planweave:revealPathInFinder",
+  revealRunnerRecordArtifact: "planweave:revealRunnerRecordArtifact",
   revealProjectInFinder: "planweave:revealProjectInFinder",
   revealTaskCanvasInFinder: "planweave:revealTaskCanvasInFinder",
   revealTaskInFinder: "planweave:revealTaskInFinder",

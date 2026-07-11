@@ -159,7 +159,8 @@ const runtimeMock = vi.hoisted(() => {
     ) => ({
       snapshot: null,
       subscription: null
-    }))
+    })),
+    resolveRunRecordArtifactPath: vi.fn(async () => "/tmp/project/report.md")
   };
 });
 
@@ -197,6 +198,7 @@ vi.mock("@planweave-ai/runtime", async () => {
     resetDesktopRuntimeState: runtimeMock.resetDesktopRuntimeState,
     resolveProjectCanvasWorkspace: runtimeMock.resolveProjectCanvasWorkspace,
     resolveTaskCanvasWorkspace: runtimeMock.resolveTaskCanvasWorkspace,
+    resolveRunRecordArtifactPath: runtimeMock.resolveRunRecordArtifactPath,
     rollbackPendingImportRecovery: runtimeMock.rollbackPendingImportRecovery,
     testExecutorProfile: runtimeMock.testExecutorProfile,
     updateCanvasExecutionPolicy: runtimeMock.updateCanvasExecutionPolicy,
@@ -254,6 +256,7 @@ export async function resetRuntimeBridgeMocks(): Promise<void> {
   runtimeMock.resetDesktopRuntimeState.mockClear();
   runtimeMock.resolveProjectCanvasWorkspace.mockClear();
   runtimeMock.resolveTaskCanvasWorkspace.mockClear();
+  runtimeMock.resolveRunRecordArtifactPath.mockClear();
   runtimeMock.rollbackPendingImportRecovery.mockClear();
   runtimeMock.testExecutorProfile.mockClear();
   runtimeMock.updateCanvasExecutionPolicy.mockClear();
