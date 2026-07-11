@@ -10,6 +10,7 @@ import {
   type BlockClaim,
   type FeedbackClaim
 } from "./executorShared.js";
+import type { CliProcessExecutor } from "./cliProcess.js";
 import { opencodeInvocation } from "./opencodeInvocation.js";
 import {
   extractOpencodeSessionId,
@@ -90,6 +91,8 @@ export async function runOpencodeBlock(options: {
   profile: OpencodeExecExecutorProfile;
   tmuxEnabled?: boolean;
   tmuxOwnerRunId?: string;
+  signal?: AbortSignal;
+  executeProcess: CliProcessExecutor;
 }): Promise<ExecutorAdapterResult> {
   return runTerminalAgentProtocolBlock({ ...options, protocol: opencodeProtocol });
 }
@@ -104,6 +107,8 @@ export async function runOpencodeFeedback(options: {
   profile: OpencodeExecExecutorProfile;
   tmuxEnabled?: boolean;
   tmuxOwnerRunId?: string;
+  signal?: AbortSignal;
+  executeProcess: CliProcessExecutor;
 }): Promise<ExecutorAdapterResult> {
   return runTerminalAgentProtocolFeedback({ ...options, protocol: opencodeProtocol });
 }

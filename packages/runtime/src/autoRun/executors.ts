@@ -1,16 +1,26 @@
 import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
-import type { ExecutorPreflightCheck, ExecutorPreflightResult } from "./executorPreflightTypes.js";
 import type {
+  ExecutorPreflightCheck,
+  ProducedExecutorPreflightResult
+} from "./executorPreflightTypes.js";
+import { executorSpawnFailureCode } from "./executorPreflightTypes.js";
+import type {
+  AutoRunRunnerEvidence,
   ExecutorAdapter,
+  ExecutorIntegrationName,
   ExecutorProfile,
+  ExecutorProfileAdapter,
   ExecutorProfileSummary,
   ManifestTaskNode,
   PackageWorkspaceRef,
   PlanPackageManifest,
   ProjectWorkspace
 } from "../types.js";
-import { claudeCodeIntegration } from "./claudeCodeIntegration.js";
-import { codexIntegration } from "./codexIntegration.js";
+import {
+  executorIntegrationForProfile,
+  requireExecutorIntegration,
+  resolveAgentDefinition
+} from "./agentRegistry.js";
 import { applyDesktopAgentSettingsToBuiltinProfiles } from "./desktopAgentSettings.js";
 import {
   assertPackageExecutorCommandTrusted,
@@ -20,38 +30,17 @@ import {
   workspaceExecutionCwd,
   type BlockClaim
 } from "./executorShared.js";
-import type { ExecutorIntegration, ExecutorRuntimeOptions } from "./executorIntegration.js";
-import { localReviewIntegration } from "./localReviewIntegration.js";
-import { manualIntegration } from "./manualExecutor.js";
-import { opencodeIntegration } from "./opencodeIntegration.js";
-import { piIntegration } from "./piIntegration.js";
+import type { ExecutorRuntimeOptions } from "./executorIntegration.js";
+import {
+  builtinExecutorProfiles,
+  isSupportedExecutionIntegration,
+  runProfileBlock,
+  runProfileFeedback
+} from "./profileExecutor.js";
+import { resolveAgentRunner } from "./runnerRegistry.js";
+import { assertAcpLaunchTrusted } from "./acpLaunch.js";
 
-const executorIntegrations: ExecutorIntegration[] = [
-  manualIntegration,
-  codexIntegration,
-  opencodeIntegration,
-  claudeCodeIntegration,
-  piIntegration,
-  localReviewIntegration
-];
-
-const builtinExecutors: Record<string, ExecutorProfile> = Object.assign(
-  {},
-  ...executorIntegrations.map((integration) => integration.builtinProfiles)
-);
 export const executorPreflightVersionTimeoutMs = 5_000;
-
-function integrationForAdapter(adapter: ExecutorProfile["adapter"]): ExecutorIntegration {
-  const integration = executorIntegrations.find((item) => item.adapter === adapter);
-  if (!integration) {
-    throw new Error(`Executor adapter '${adapter}' is not supported.`);
-  }
-  return integration;
-}
-
-function isSupportedAdapter(adapter: ExecutorProfile["adapter"]): boolean {
-  return executorIntegrations.some((item) => item.adapter === adapter);
-}
 
 function taskNodeForClaim(manifest: PlanPackageManifest, claim: BlockClaim): ManifestTaskNode {
   const node = manifest.nodes.find((item) => item.type === "task" && item.id === claim.taskId);
@@ -78,7 +67,7 @@ function resolveBlockExecutorName(
 
 function profilesByName(manifest: PlanPackageManifest): Record<string, ExecutorProfile> {
   return {
-    ...applyDesktopAgentSettingsToBuiltinProfiles(builtinExecutors),
+    ...applyDesktopAgentSettingsToBuiltinProfiles(builtinExecutorProfiles),
     ...(manifest.executors ?? {})
   };
 }
@@ -105,7 +94,7 @@ function createProfiledAdapter(options: {
   projectRoot: PackageWorkspaceRef;
   executorName?: string;
   runtime?: ExecutorRuntimeOptions;
-  expectedAdapter?: ExecutorProfile["adapter"];
+  expectedIntegration?: ExecutorIntegrationName;
 }): ExecutorAdapter {
   return {
     async runBlock({ claim, prompt }) {
@@ -114,9 +103,10 @@ function createProfiledAdapter(options: {
         claim,
         executorName: options.executorName
       });
-      if (options.expectedAdapter && profile.adapter !== options.expectedAdapter) {
+      const integration = executorIntegrationForProfile(profile);
+      if (options.expectedIntegration && integration !== options.expectedIntegration) {
         throw new Error(
-          `Executor profile '${name}' is '${profile.adapter}', not '${options.expectedAdapter}'.`
+          `Executor profile '${name}' uses integration '${integration}', not '${options.expectedIntegration}'.`
         );
       }
       await assertPackageExecutorCommandTrusted({
@@ -124,7 +114,7 @@ function createProfiledAdapter(options: {
         executorName: name,
         profile: { ...profile, source }
       });
-      return integrationForAdapter(profile.adapter).runBlock({
+      return runProfileBlock({
         projectRoot: options.projectRoot,
         claim,
         prompt,
@@ -140,9 +130,10 @@ function createProfiledAdapter(options: {
       if (!profile) {
         throw new Error(`Executor profile '${name}' does not exist.`);
       }
-      if (options.expectedAdapter && profile.adapter !== options.expectedAdapter) {
+      const integration = executorIntegrationForProfile(profile);
+      if (options.expectedIntegration && integration !== options.expectedIntegration) {
         throw new Error(
-          `Executor profile '${name}' is '${profile.adapter}', not '${options.expectedAdapter}'.`
+          `Executor profile '${name}' uses integration '${integration}', not '${options.expectedIntegration}'.`
         );
       }
       await assertPackageExecutorCommandTrusted({
@@ -150,7 +141,7 @@ function createProfiledAdapter(options: {
         executorName: name,
         profile: { ...profile, source: profileSource(manifest, name) }
       });
-      return integrationForAdapter(profile.adapter).runFeedback({
+      return runProfileFeedback({
         projectRoot: options.projectRoot,
         workspace,
         claim,
@@ -167,7 +158,7 @@ export function createManualExecutorAdapter(options: {
   executorName?: string;
   runtime?: ExecutorRuntimeOptions;
 }): ExecutorAdapter {
-  return createProfiledAdapter({ ...options, expectedAdapter: "manual" });
+  return createProfiledAdapter({ ...options, expectedIntegration: "manual" });
 }
 
 export function createCodexExecAdapter(options: {
@@ -175,7 +166,7 @@ export function createCodexExecAdapter(options: {
   executorName?: string;
   runtime?: ExecutorRuntimeOptions;
 }): ExecutorAdapter {
-  return createProfiledAdapter({ ...options, expectedAdapter: "codex-exec" });
+  return createProfiledAdapter({ ...options, expectedIntegration: "codex-exec" });
 }
 
 export function createOpencodeExecAdapter(options: {
@@ -183,7 +174,7 @@ export function createOpencodeExecAdapter(options: {
   executorName?: string;
   runtime?: ExecutorRuntimeOptions;
 }): ExecutorAdapter {
-  return createProfiledAdapter({ ...options, expectedAdapter: "opencode-exec" });
+  return createProfiledAdapter({ ...options, expectedIntegration: "opencode-exec" });
 }
 
 export function createClaudeCodeExecAdapter(options: {
@@ -191,7 +182,7 @@ export function createClaudeCodeExecAdapter(options: {
   executorName?: string;
   runtime?: ExecutorRuntimeOptions;
 }): ExecutorAdapter {
-  return createProfiledAdapter({ ...options, expectedAdapter: "claude-code-exec" });
+  return createProfiledAdapter({ ...options, expectedIntegration: "claude-code-exec" });
 }
 
 export function createPiExecAdapter(options: {
@@ -199,7 +190,7 @@ export function createPiExecAdapter(options: {
   executorName?: string;
   runtime?: ExecutorRuntimeOptions;
 }): ExecutorAdapter {
-  return createProfiledAdapter({ ...options, expectedAdapter: "pi-exec" });
+  return createProfiledAdapter({ ...options, expectedIntegration: "pi-exec" });
 }
 
 export function createLocalReviewAdapter(options: {
@@ -207,7 +198,7 @@ export function createLocalReviewAdapter(options: {
   executorName?: string;
   runtime?: ExecutorRuntimeOptions;
 }): ExecutorAdapter {
-  return createProfiledAdapter({ ...options, expectedAdapter: "local-review" });
+  return createProfiledAdapter({ ...options, expectedIntegration: "local-review" });
 }
 
 export function createExecutorAdapter(options: {
@@ -220,18 +211,14 @@ export function createExecutorAdapter(options: {
 
 export function listExecutorProfilesForManifest(
   manifest: PlanPackageManifest
-): ExecutorProfileSummary[] {
+): ProducedExecutorProfileSummary[] {
   const packageProfiles = manifest.executors ?? {};
-  const summaries: ExecutorProfileSummary[] = Object.entries(
-    applyDesktopAgentSettingsToBuiltinProfiles(builtinExecutors)
-  ).map(([name, profile]) => ({
-    name,
-    source: "builtin",
-    ...profile
-  }));
+  const summaries: ProducedExecutorProfileSummary[] = Object.entries(
+    applyDesktopAgentSettingsToBuiltinProfiles(builtinExecutorProfiles)
+  ).map(([name, profile]) => summarizeExecutorProfile(name, "builtin", profile));
   for (const [name, profile] of Object.entries(packageProfiles)) {
     const existing = summaries.findIndex((summary) => summary.name === name);
-    const summary: ExecutorProfileSummary = { name, source: "package", ...profile };
+    const summary = summarizeExecutorProfile(name, "package", profile);
     if (existing >= 0) {
       summaries[existing] = summary;
     } else {
@@ -241,11 +228,86 @@ export function listExecutorProfilesForManifest(
   return summaries;
 }
 
+function summarizeExecutorProfile(
+  name: string,
+  source: "builtin" | "package",
+  profile: ExecutorProfile
+): ProducedExecutorProfileSummary {
+  const executionIntegration = executorIntegrationForProfile(profile);
+  if (profile.adapter === "manual") {
+    return {
+      ...profile,
+      name,
+      source,
+      adapter: "manual",
+      profileAdapter: "manual",
+      executionIntegration,
+      agentId: null,
+      runnerKind: null
+    };
+  }
+  if (profile.adapter === "local-review") {
+    return {
+      ...profile,
+      name,
+      source,
+      adapter: "local-review",
+      profileAdapter: "local-review",
+      executionIntegration,
+      agentId: null,
+      runnerKind: null
+    };
+  }
+  return {
+    ...profile,
+    name,
+    source,
+    adapter: executionIntegration ?? "agent",
+    profileAdapter: "agent",
+    executionIntegration,
+    agentId: profile.agent,
+    runnerKind: profile.runner.transport,
+    ...(profile.runner.transport === "acp"
+      ? {
+          acpLaunch: resolveAgentDefinition(profile.agent).acp.launch,
+          staticCapabilities: resolveAgentDefinition(profile.agent).acp.capabilities,
+          optionalCapabilities: resolveAgentDefinition(profile.agent).acp.optionalCapabilities,
+          limitations: resolveAgentDefinition(profile.agent).acp.limitations
+        }
+      : {})
+  };
+}
+
+type ProducedExecutorProfileSummary = ExecutorProfileSummary & {
+  profileAdapter: ExecutorProfileAdapter;
+  executionIntegration: ExecutorIntegrationName | null;
+};
+
 export async function listExecutorProfiles(options: {
   projectRoot: PackageWorkspaceRef;
-}): Promise<ExecutorProfileSummary[]> {
+}): Promise<ProducedExecutorProfileSummary[]> {
   const { manifest } = await loadPackage(options.projectRoot);
   return listExecutorProfilesForManifest(manifest);
+}
+
+export async function resolveExecutorRunnerEvidence(options: {
+  projectRoot: PackageWorkspaceRef;
+  executorName: string;
+}): Promise<AutoRunRunnerEvidence> {
+  const { manifest } = await loadPackage(options.projectRoot);
+  return executorRunnerEvidenceForManifest(manifest, options.executorName);
+}
+
+export function executorRunnerEvidenceForManifest(
+  manifest: PlanPackageManifest,
+  executorName: string
+): AutoRunRunnerEvidence {
+  const profile = profilesByName(manifest)[executorName];
+  return {
+    effectiveExecutor: executorName,
+    agentId: profile?.adapter === "agent" ? profile.agent : null,
+    runnerKind: profile?.adapter === "agent" ? profile.runner.transport : null
+  };
 }
 
 function errorMessage(error: unknown): string {
@@ -261,25 +323,38 @@ function skippedCheck(
 
 function finalizePreflightResult(options: {
   name: string;
-  adapter: ExecutorProfile["adapter"] | null;
+  profileAdapter: ExecutorProfileAdapter | null;
+  executionIntegration: ExecutorIntegrationName | null;
   checks: ExecutorPreflightCheck[];
   successMessage: string;
-}): ExecutorPreflightResult {
+  agentId?: ExecutorPreflightResultIdentity["agentId"];
+  runnerKind?: ExecutorPreflightResultIdentity["runnerKind"];
+}): ProducedExecutorPreflightResult {
   const failed = options.checks.find((check) => check.status === "failed");
   return {
     name: options.name,
-    adapter: options.adapter,
+    adapter: options.executionIntegration ?? options.profileAdapter,
+    profileAdapter: options.profileAdapter,
+    executionIntegration: options.executionIntegration,
+    agentId: options.agentId ?? null,
+    runnerKind: options.runnerKind ?? null,
+    failureCode: failed?.failureCode ?? null,
     ok: failed === undefined,
     message: failed?.message ?? options.successMessage,
     checks: options.checks
   };
 }
 
+type ExecutorPreflightResultIdentity = Pick<
+  ProducedExecutorPreflightResult,
+  "agentId" | "runnerKind"
+>;
+
 export async function testExecutorProfile(options: {
   projectRoot: PackageWorkspaceRef;
   executorName: string;
   versionTimeoutMs?: number;
-}): Promise<ExecutorPreflightResult> {
+}): Promise<ProducedExecutorPreflightResult> {
   let workspace: ProjectWorkspace;
   let cwdCheck: ExecutorPreflightCheck;
   try {
@@ -294,7 +369,8 @@ export async function testExecutorProfile(options: {
   } catch (error) {
     return finalizePreflightResult({
       name: options.executorName,
-      adapter: null,
+      profileAdapter: null,
+      executionIntegration: null,
       successMessage: "executor preflight passed",
       checks: [
         skippedCheck(
@@ -303,7 +379,7 @@ export async function testExecutorProfile(options: {
         ),
         skippedCheck(
           "adapter_supported",
-          "Project cwd could not be resolved before checking the adapter."
+          "Project cwd could not be resolved before checking the execution integration."
         ),
         {
           check: "cwd_resolved",
@@ -323,17 +399,18 @@ export async function testExecutorProfile(options: {
   }
 
   const { manifest } = await loadPackage(workspace);
-  const profiles = listExecutorProfilesForManifest(manifest);
-  const profile = profiles.find((item) => item.name === options.executorName);
+  const profile = profilesByName(manifest)[options.executorName];
   if (!profile) {
     return finalizePreflightResult({
       name: options.executorName,
-      adapter: null,
+      profileAdapter: null,
+      executionIntegration: null,
       successMessage: "executor preflight passed",
       checks: [
         {
           check: "profile_exists",
           status: "failed",
+          failureCode: "invalid_profile",
           message: `Executor profile '${options.executorName}' does not exist.`
         },
         skippedCheck("adapter_supported", "Executor profile does not exist."),
@@ -347,41 +424,144 @@ export async function testExecutorProfile(options: {
   const profileCheck: ExecutorPreflightCheck = {
     check: "profile_exists",
     status: "passed",
-    message: `Executor profile '${profile.name}' exists.`
+    message: `Executor profile '${options.executorName}' exists.`
   };
-  const adapterCheck: ExecutorPreflightCheck = isSupportedAdapter(profile.adapter)
-    ? {
-        check: "adapter_supported",
-        status: "passed",
-        message: `Executor adapter '${profile.adapter}' is supported.`
+  let executionIntegration: ExecutorIntegrationName;
+  let integrationCheck: ExecutorPreflightCheck;
+  if (profile.adapter === "agent") {
+    const runner = resolveAgentRunner(profile);
+    const definition = resolveAgentDefinition(profile.agent);
+    const availability = runner.availability(definition);
+    const versionTimeoutMs = options.versionTimeoutMs ?? executorPreflightVersionTimeoutMs;
+    if ("command" in profile) {
+      try {
+        await assertPackageExecutorCommandTrusted({
+          projectRoot: workspace,
+          executorName: options.executorName,
+          profile
+        });
+      } catch (error) {
+        return finalizePreflightResult({
+          name: options.executorName,
+          profileAdapter: profile.adapter,
+          executionIntegration: availability.integration,
+          agentId: profile.agent,
+          runnerKind: profile.runner.transport,
+          successMessage: "executor preflight passed",
+          checks: [
+            profileCheck,
+            {
+              check: "adapter_supported",
+              status: availability.supported ? "passed" : "failed",
+              message: availability.message
+            },
+            cwdCheck,
+            {
+              check: "command_started",
+              status: "failed",
+              message: errorMessage(error),
+              command: profile.command,
+              cwd: workspaceExecutionCwd(workspace)
+            },
+            skippedCheck("command_version", "Executor command is not trusted on this machine.")
+          ]
+        });
       }
-    : {
-        check: "adapter_supported",
-        status: "failed",
-        message: `Executor adapter '${profile.adapter}' is not supported.`
-      };
-  if (adapterCheck.status === "failed") {
+    } else if (definition.acp.launch) {
+      const launch = definition.acp.launch;
+      try {
+        await assertAcpLaunchTrusted({
+          projectRoot: workspace,
+          executorName: options.executorName,
+          definition
+        });
+      } catch (error) {
+        return finalizePreflightResult({
+          name: options.executorName,
+          profileAdapter: profile.adapter,
+          executionIntegration: availability.integration,
+          agentId: profile.agent,
+          runnerKind: profile.runner.transport,
+          successMessage: "executor preflight passed",
+          checks: [
+            profileCheck,
+            { check: "adapter_supported", status: "passed", message: availability.message },
+            cwdCheck,
+            {
+              check: "command_started",
+              status: "failed",
+              message: errorMessage(error),
+              command: launch.command,
+              cwd: workspaceExecutionCwd(workspace)
+            },
+            skippedCheck("command_version", "Executor command is not trusted on this machine.")
+          ]
+        });
+      }
+    }
+    const runnerResult = await runner.preflight({
+      profile,
+      definition,
+      cwd: workspaceExecutionCwd(workspace),
+      timeoutMs: versionTimeoutMs
+    });
     return finalizePreflightResult({
-      name: profile.name,
-      adapter: profile.adapter,
+      name: options.executorName,
+      profileAdapter: profile.adapter,
+      executionIntegration: runnerResult.executionIntegration,
+      agentId: profile.agent,
+      runnerKind: profile.runner.transport,
+      successMessage: `${profile.runner.transport.toUpperCase()} runner preflight passed.`,
+      checks: [
+        profileCheck,
+        {
+          check: "adapter_supported",
+          status: availability.supported ? "passed" : "failed",
+          message: availability.message,
+          ...(availability.supported ? {} : { failureCode: "initialization_failed" as const })
+        },
+        cwdCheck,
+        ...runnerResult.checks
+      ]
+    });
+  } else {
+    executionIntegration = requireExecutorIntegration(profile);
+    integrationCheck = isSupportedExecutionIntegration(executionIntegration)
+      ? {
+          check: "adapter_supported",
+          status: "passed",
+          message: `Executor integration '${executionIntegration}' is supported.`
+        }
+      : {
+          check: "adapter_supported",
+          status: "failed",
+          message: `Executor integration '${executionIntegration}' is not supported.`
+        };
+  }
+  if (integrationCheck.status === "failed") {
+    return finalizePreflightResult({
+      name: options.executorName,
+      profileAdapter: profile.adapter,
+      executionIntegration,
       successMessage: "executor preflight passed",
       checks: [
         profileCheck,
-        adapterCheck,
+        integrationCheck,
         cwdCheck,
-        skippedCheck("command_started", "Executor adapter is not supported."),
-        skippedCheck("command_version", "Executor adapter is not supported.")
+        skippedCheck("command_started", "Executor integration is not supported."),
+        skippedCheck("command_version", "Executor integration is not supported.")
       ]
     });
   }
   if (profile.adapter === "manual") {
     return finalizePreflightResult({
-      name: profile.name,
-      adapter: profile.adapter,
+      name: options.executorName,
+      profileAdapter: profile.adapter,
+      executionIntegration,
       successMessage: "manual executor does not require a command",
       checks: [
         profileCheck,
-        adapterCheck,
+        integrationCheck,
         cwdCheck,
         skippedCheck("command_started", "Manual executor does not require a command."),
         skippedCheck("command_version", "Manual executor does not require a command.")
@@ -396,17 +576,18 @@ export async function testExecutorProfile(options: {
   try {
     await assertPackageExecutorCommandTrusted({
       projectRoot: workspace,
-      executorName: profile.name,
+      executorName: options.executorName,
       profile
     });
   } catch (error) {
     return finalizePreflightResult({
-      name: profile.name,
-      adapter: profile.adapter,
+      name: options.executorName,
+      profileAdapter: profile.adapter,
+      executionIntegration,
       successMessage: "executor preflight passed",
       checks: [
         profileCheck,
-        adapterCheck,
+        integrationCheck,
         cwdCheck,
         {
           check: "command_started",
@@ -431,16 +612,18 @@ export async function testExecutorProfile(options: {
     });
   } catch (error) {
     return finalizePreflightResult({
-      name: profile.name,
-      adapter: profile.adapter,
+      name: options.executorName,
+      profileAdapter: profile.adapter,
+      executionIntegration,
       successMessage: "executor preflight passed",
       checks: [
         profileCheck,
-        adapterCheck,
+        integrationCheck,
         cwdCheck,
         {
           check: "command_started",
           status: "failed",
+          failureCode: executorSpawnFailureCode(error),
           message: `Command '${profile.command}' could not be started: ${errorMessage(error)}`,
           command: profile.command,
           cwd: executionCwd
@@ -455,8 +638,9 @@ export async function testExecutorProfile(options: {
     ? {
         check: "command_version",
         status: "failed",
+        failureCode: "initialization_failed",
         message: executorLimitFailureMessage({
-          executorName: profile.name,
+          executorName: options.executorName,
           limitExceeded: result.limitExceeded
         }),
         command: profile.command,
@@ -469,6 +653,7 @@ export async function testExecutorProfile(options: {
       ? {
           check: "command_version",
           status: "failed",
+          failureCode: "timeout",
           message: `Command version check timed out after ${versionTimeoutMs}ms.`,
           command: profile.command,
           cwd: executionCwd,
@@ -490,6 +675,7 @@ export async function testExecutorProfile(options: {
         : {
             check: "command_version",
             status: "failed",
+            failureCode: "initialization_failed",
             message: output || `Command version check exited with code ${result.exitCode}.`,
             command: profile.command,
             cwd: executionCwd,
@@ -497,14 +683,14 @@ export async function testExecutorProfile(options: {
             exitCode: result.exitCode,
             timedOut: result.timedOut
           };
-  return {
-    name: profile.name,
-    adapter: profile.adapter,
-    ok: versionCheck.status === "passed",
-    message: versionCheck.message,
+  return finalizePreflightResult({
+    name: options.executorName,
+    profileAdapter: profile.adapter,
+    executionIntegration,
+    successMessage: versionCheck.message,
     checks: [
       profileCheck,
-      adapterCheck,
+      integrationCheck,
       cwdCheck,
       {
         check: "command_started",
@@ -515,5 +701,5 @@ export async function testExecutorProfile(options: {
       },
       versionCheck
     ]
-  };
+  });
 }

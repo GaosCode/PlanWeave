@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { getAutoRunStatus, claimNext } from "../index.js";
@@ -25,6 +25,36 @@ function adapter(): AutoRunExecutorAdapter {
 }
 
 describe("Auto Run record selection", () => {
+  it("recognizes only the canonical feedback execution basename", async () => {
+    const { root, init } = await createTestWorkspace();
+    const runDir = join(init.workspace.resultsDir, "feedback-runs", "RUN-001");
+    await mkdir(runDir, { recursive: true });
+    await writeJsonFile(join(runDir, "metadata.json"), {
+      runId: "RUN-001",
+      feedbackId: "FE-001",
+      sourceReviewBlockRef: "T-001#R-001",
+      taskId: "T-001"
+    });
+    await writeFile(join(runDir, "report.md"), "obsolete feedback artifact\n", "utf8");
+
+    await expect(getAutoRunStatus({ projectRoot: root })).resolves.toMatchObject({
+      latestRuns: expect.arrayContaining([
+        expect.objectContaining({ kind: "feedback", status: "in_progress", reportPath: null })
+      ])
+    });
+
+    await writeFile(join(runDir, "feedback-report.md"), "canonical feedback artifact\n", "utf8");
+    await expect(getAutoRunStatus({ projectRoot: root })).resolves.toMatchObject({
+      latestRuns: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "feedback",
+          status: "resolved",
+          reportPath: expect.stringContaining("feedback-report.md")
+        })
+      ])
+    });
+  });
+
   it("derives a block ref for failed nextAction from the latest record id when current ref is absent", () => {
     const explanation = createAutoRunExplanation({
       phase: "failed",

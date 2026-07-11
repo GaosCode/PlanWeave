@@ -32,6 +32,7 @@ type RunInTmuxOptions = {
   tmux: TmuxSessionInfo;
   onStdout?: (chunk: string) => void | Promise<void>;
   onStderr?: (chunk: string) => void | Promise<void>;
+  signal?: AbortSignal;
 };
 
 type TmuxDone = {
@@ -426,6 +427,15 @@ exit "$runner_exit"
   let observedLimitExceeded: TmuxOutputLimitExceeded | undefined;
   try {
     while (!(await tmuxPathExists(donePath))) {
+      if (options.signal?.aborted) {
+        await terminateTmuxSession(options.tmux.sessionName);
+        return {
+          stdoutPath: options.stdoutPath,
+          stderrPath: options.stderrPath,
+          exitCode: 130,
+          timedOut: false
+        };
+      }
       await sleep(100);
       const stdoutTail = await flushTail({
         path: options.stdoutPath,

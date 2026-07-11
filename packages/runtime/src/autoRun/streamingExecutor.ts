@@ -43,6 +43,7 @@ export async function runStreamingCommandWithSessionCapture(options: {
   tmux?: TmuxSessionInfo | null;
   sessionIdFromOutput: (output: string) => string | null;
   onSessionId: (sessionId: string) => Promise<void>;
+  signal?: AbortSignal;
 }): Promise<StreamedCommandResult> {
   let scanBuffer = "";
   let capturedSessionId: string | null = null;
@@ -72,7 +73,8 @@ export async function runStreamingCommandWithSessionCapture(options: {
     maxStderrBytes: options.maxStderrBytes,
     tmux: options.tmux,
     onStdout: captureSessionId,
-    onStderr: captureSessionId
+    onStderr: captureSessionId,
+    signal: options.signal
   });
   return readStreamedCommandResult(result);
 }

@@ -5,6 +5,7 @@ import type {
 } from "../types.js";
 import { codexExecArgs, codexResumeArgs, extractCodexSessionId } from "./codexProtocol.js";
 import type { BlockClaim, FeedbackClaim } from "./executorShared.js";
+import type { CliProcessExecutor } from "./cliProcess.js";
 import {
   runTerminalAgentProtocolBlock,
   runTerminalAgentProtocolFeedback,
@@ -59,6 +60,8 @@ export async function runCodexBlock(options: {
   profile: CodexExecExecutorProfile;
   tmuxEnabled?: boolean;
   tmuxOwnerRunId?: string;
+  signal?: AbortSignal;
+  executeProcess: CliProcessExecutor;
 }): Promise<ExecutorAdapterResult> {
   return runTerminalAgentProtocolBlock({ ...options, protocol: codexProtocol });
 }
@@ -73,6 +76,8 @@ export async function runCodexFeedback(options: {
   profile: CodexExecExecutorProfile;
   tmuxEnabled?: boolean;
   tmuxOwnerRunId?: string;
+  signal?: AbortSignal;
+  executeProcess: CliProcessExecutor;
 }): Promise<ExecutorAdapterResult> {
   return runTerminalAgentProtocolFeedback({ ...options, protocol: codexProtocol });
 }

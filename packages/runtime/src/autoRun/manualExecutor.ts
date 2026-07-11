@@ -6,20 +6,21 @@ import { writeJsonFile } from "../json.js";
 import type { ExecutorAdapterResult } from "../types.js";
 import { allocateRunId, prepareBlockRun, workspaceExecutionCwd } from "./executorShared.js";
 import {
-  adapterProfileMismatch,
+  executorProfileMismatch,
+  type DirectExecutor,
   type ExecutorBlockInput,
-  type ExecutorFeedbackInput,
-  type ExecutorIntegration
+  type ExecutorFeedbackInput
 } from "./executorIntegration.js";
 
 async function runManualBlock(input: ExecutorBlockInput): Promise<ExecutorAdapterResult> {
   if (input.profile.adapter !== "manual") {
-    throw adapterProfileMismatch("manual", input.profile);
+    throw executorProfileMismatch("manual", input.profile);
   }
   const run = await prepareBlockRun({
     projectRoot: input.projectRoot,
     claim: input.claim,
     executorName: input.executorName,
+    adapter: "manual",
     profile: input.profile,
     prompt: input.prompt
   });
@@ -29,6 +30,8 @@ async function runManualBlock(input: ExecutorBlockInput): Promise<ExecutorAdapte
     kind: "manual",
     executor: input.executorName,
     adapter: "manual",
+    agentId: null,
+    runnerKind: null,
     promptPath: run.promptPath,
     runDir: run.runDir,
     runId: run.runId,
@@ -41,7 +44,7 @@ async function runManualBlock(input: ExecutorBlockInput): Promise<ExecutorAdapte
 
 async function runManualFeedback(input: ExecutorFeedbackInput): Promise<ExecutorAdapterResult> {
   if (input.profile.adapter !== "manual") {
-    throw adapterProfileMismatch("manual", input.profile);
+    throw executorProfileMismatch("manual", input.profile);
   }
   const canvasFlag = await canvasCommandFlagForWorkspace(input.workspace);
   const feedbackRoot = join(input.workspace.resultsDir, "feedback-runs");
@@ -50,7 +53,7 @@ async function runManualFeedback(input: ExecutorFeedbackInput): Promise<Executor
   const promptPath = join(runDir, "feedback.md");
   const metadataPath = join(runDir, "metadata.json");
   const startedAt = new Date().toISOString();
-  const nextCommand = `planweave submit-feedback${canvasFlag} --report <report.md>`;
+  const nextCommand = `planweave submit-feedback${canvasFlag} --report <feedback-report.md>`;
   const executionCwd = workspaceExecutionCwd(input.workspace);
   await writeFile(promptPath, input.claim.content, "utf8");
   await writeJsonFile(metadataPath, {
@@ -60,6 +63,8 @@ async function runManualFeedback(input: ExecutorFeedbackInput): Promise<Executor
     taskId: input.claim.taskId,
     executor: input.executorName,
     adapter: "manual",
+    agentId: null,
+    runnerKind: null,
     projectRoot: input.workspace.rootPath,
     executionCwd,
     startedAt,
@@ -71,6 +76,8 @@ async function runManualFeedback(input: ExecutorFeedbackInput): Promise<Executor
     kind: "manual",
     executor: input.executorName,
     adapter: "manual",
+    agentId: null,
+    runnerKind: null,
     promptPath,
     runDir,
     runId,
@@ -78,7 +85,7 @@ async function runManualFeedback(input: ExecutorFeedbackInput): Promise<Executor
   };
 }
 
-export const manualIntegration: ExecutorIntegration = {
+export const manualExecutor: DirectExecutor = {
   adapter: "manual",
   builtinProfiles: {
     default: { adapter: "manual" },

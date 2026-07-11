@@ -184,7 +184,8 @@ describe("Auto Run manual executor", () => {
     expect(feedbackStep).toMatchObject({
       kind: "manual",
       adapterResult: {
-        nextCommand: "planweave submit-feedback --canvas manual-canvas --report <report.md>"
+        nextCommand:
+          "planweave submit-feedback --canvas manual-canvas --report <feedback-report.md>"
       }
     });
     await expect(getAutoRunStatus({ projectRoot: workspace })).resolves.toMatchObject({
@@ -202,10 +203,11 @@ describe("Auto Run manual executor", () => {
           join("feedback-runs", "RUN-001", "metadata.json")
         ),
         latestOutputSummary:
-          "planweave submit-feedback --canvas manual-canvas --report <report.md>",
+          "planweave submit-feedback --canvas manual-canvas --report <feedback-report.md>",
         nextAction: {
           kind: "submit_manual_result",
-          command: "planweave submit-feedback --canvas manual-canvas --report <report.md>",
+          command:
+            "planweave submit-feedback --canvas manual-canvas --report <feedback-report.md>",
           ref: "FE-001"
         }
       },
