@@ -1,0 +1,111 @@
+import type {
+  CreateElicitationRequest,
+  RequestPermissionRequest,
+  SessionNotification,
+  TerminalOutputRequest,
+  TerminalOutputResponse
+} from "@agentclientprotocol/sdk";
+import { normalizedRedactedContent, type NormalizedRunnerEvent } from "./normalizedEventContract.js";
+import { persistedPendingInteractionSchema } from "./runnerContractSchemas.js";
+
+export type AcpNormalizedEventBody = NormalizedRunnerEvent["body"];
+
+function requestKey(prefix: string, value: string): string {
+  return `${prefix}:${value}`.slice(0, 256);
+}
+
+export function normalizeAcpPermissionHistory(
+  request: RequestPermissionRequest,
+  requestedAt = new Date().toISOString()
+): AcpNormalizedEventBody {
+  const summary = normalizedRedactedContent(request.toolCall.title ?? `Permission requested for ${request.toolCall.toolCallId}.`);
+  const requestId = requestKey("permission", request.toolCall.toolCallId);
+  return {
+    kind: "interaction",
+    interaction: persistedPendingInteractionSchema.parse({
+      version: "planweave.runner/v1", interactionId: requestId, requestId,
+      kind: "permission", requestedAt, summary: summary.content, status: "cancelled",
+      actionable: false, nonActionableReason: "persisted_history"
+    })
+  };
+}
+
+export function normalizeAcpElicitationHistory(
+  request: CreateElicitationRequest,
+  ordinal: number,
+  requestedAt = new Date().toISOString()
+): AcpNormalizedEventBody {
+  const summary = normalizedRedactedContent(request.message);
+  const requestId = requestKey("elicitation", String(ordinal));
+  return {
+    kind: "interaction",
+    interaction: persistedPendingInteractionSchema.parse({
+      version: "planweave.runner/v1", interactionId: requestId, requestId,
+      kind: "elicitation", requestedAt, summary: summary.content, status: "cancelled",
+      actionable: false, nonActionableReason: "persisted_history"
+    })
+  };
+}
+
+export function normalizeAcpTerminalOutput(
+  request: TerminalOutputRequest,
+  response: TerminalOutputResponse
+): AcpNormalizedEventBody {
+  const content = normalizedRedactedContent(response.output);
+  return { kind: "terminal_output", terminalId: request.terminalId, ...content };
+}
+
+function serialized(value: unknown): ReturnType<typeof normalizedRedactedContent> {
+  return normalizedRedactedContent(typeof value === "string" ? value : JSON.stringify(value));
+}
+
+function textContent(value: unknown): ReturnType<typeof normalizedRedactedContent> {
+  if (typeof value === "object" && value !== null && "type" in value && value.type === "text" && "text" in value) {
+    return normalizedRedactedContent(String(value.text));
+  }
+  return serialized(value);
+}
+
+function toolStatus(value: unknown): "pending" | "in_progress" | "completed" | "failed" | "cancelled" | null {
+  return value === "pending" || value === "in_progress" || value === "completed" || value === "failed" || value === "cancelled" ? value : null;
+}
+
+export function normalizeAcpSessionNotification(notification: SessionNotification): AcpNormalizedEventBody {
+  const update = notification.update;
+  switch (update.sessionUpdate) {
+    case "agent_message_chunk":
+    case "user_message_chunk": {
+      const content = textContent(update.content);
+      return {
+        kind: "message", role: update.sessionUpdate === "agent_message_chunk" ? "assistant" : "user",
+        messageId: update.messageId ?? null, chunk: true, ...content
+      };
+    }
+    case "tool_call": {
+      const title = normalizedRedactedContent(update.title);
+      return {
+        kind: "tool_call", callId: update.toolCallId, status: toolStatus(update.status),
+        title: title.content, content: update.content ? serialized(update.content) : null
+      };
+    }
+    case "tool_call_update":
+      return {
+        kind: "tool_update", callId: update.toolCallId, status: toolStatus(update.status),
+        content: update.content ? serialized(update.content) : null
+      };
+    case "plan":
+    case "plan_update": {
+      const content = serialized(update.sessionUpdate === "plan" ? update : update.plan);
+      return { kind: "plan_update", ...content };
+    }
+    case "usage_update":
+      return {
+        kind: "usage_update", usedTokens: update.used, contextWindowTokens: update.size,
+        cost: update.cost ? { amount: update.cost.amount, currency: update.cost.currency } : null
+      };
+    default: {
+      const content = serialized(update);
+      return { kind: "diagnostic", code: "corrupt_line", message: `Unsupported ACP session update: ${content.content}` };
+    }
+  }
+}

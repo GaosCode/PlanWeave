@@ -1,0 +1,331 @@
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { normalizeAcpSessionNotification } from "../autoRun/acpEventNormalization.js";
+import { AcpEventPublisher } from "../autoRun/acpEventPublisher.js";
+import { AcpEventStore, AcpEventStoreLimitError, AcpEventStoreOpenError } from "../autoRun/acpEventStore.js";
+import { AcpEventReadModelRegistry } from "../autoRun/acpEventReadModel.js";
+import { encodeNormalizedRunnerEvent, normalizedRunnerEventSchema, type NormalizedRunnerEvent } from "../autoRun/normalizedEventContract.js";
+import { replayNormalizedRunnerEvents, runnerEventCursorSchema } from "../autoRun/runnerEventReplay.js";
+import { runnerIdentitySchema, runnerRunIdentitySchema } from "../autoRun/runnerContractSchemas.js";
+
+function identity(runId = "RUN-001") {
+  return runnerRunIdentitySchema.parse({
+    projectId: "project-1", canvasId: "default", taskId: "T-004", blockId: "B-001",
+    claimRef: "T-004#B-001", runId, runOwner: "executor", runSessionId: null,
+    desktopRunId: null, executorRunId: runId
+  });
+}
+
+function event(sequence: number, runId = "RUN-001"): NormalizedRunnerEvent {
+  return normalizedRunnerEventSchema.parse({
+    version: "planweave.runner-event/v1", sequence, timestamp: "2026-07-11T00:00:00.000Z",
+    identity: identity(runId), runner: { version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" },
+    correlation: { sessionId: "session-1" },
+    body: { kind: "lifecycle", state: "running", message: `event ${sequence}` }
+  });
+}
+
+describe("ACP event normalization", () => {
+  it("preserves message, tool, plan, and usage semantics while redacting", () => {
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "agent_message_chunk", messageId: "message-1",
+      content: { type: "text", text: "Authorization: Bearer abc.def.ghi" }
+    } })).toMatchObject({ kind: "message", role: "assistant", messageId: "message-1", content: "[REDACTED:CREDENTIAL]" });
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "tool_call", toolCallId: "tool-1", title: "Read", status: "in_progress"
+    } })).toMatchObject({ kind: "tool_call", callId: "tool-1", status: "in_progress" });
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "usage_update", used: 10, size: 100
+    } })).toMatchObject({ kind: "usage_update", usedTokens: 10, contextWindowTokens: 100 });
+  });
+});
+
+describe("ACP event store and projection", () => {
+  it("separates redacted protocol and normalized logs and rebuilds conversation", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-events-"));
+    const store = new AcpEventStore({
+      runDir, identity: identity(),
+      runner: runnerIdentitySchema.parse({ version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" })
+    });
+    expect(await store.open()).toEqual([expect.objectContaining({ code: "missing_log" })]);
+    await store.appendProtocol("agent_to_client", { token: "raw-secret-value" });
+    await store.append({ kind: "message", role: "assistant", messageId: "message-1", chunk: true, content: "hello", redaction: { classes: [], replaced: 0 } }, { sessionId: "session-1" });
+    const protocol = await readFile(join(runDir, "protocol.ndjson"), "utf8");
+    const normalized = await readFile(join(runDir, "events.ndjson"), "utf8");
+    const conversation = JSON.parse(await readFile(join(runDir, "conversation.json"), "utf8")) as { items: Array<{ content: string }> };
+    expect(protocol).toContain("[REDACTED:CREDENTIAL]");
+    expect(protocol).not.toContain("raw-secret-value");
+    expect(normalized).toContain('"kind":"message"');
+    expect(conversation.items).toEqual([expect.objectContaining({ content: "hello" })]);
+  });
+
+  it("fails closed with structured retention diagnostics for raw and normalized limits", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-limits-"));
+    const store = new AcpEventStore({
+      runDir, identity: identity(), maxProtocolBytes: 8, maxEventBytes: 8,
+      runner: runnerIdentitySchema.parse({ version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" })
+    });
+    await store.open();
+    await expect(store.appendProtocol("agent_to_client", { value: "too large" })).rejects.toMatchObject({
+      diagnostic: { code: "retention_truncation" }
+    });
+    await expect(store.append(event(1).body)).rejects.toBeInstanceOf(AcpEventStoreLimitError);
+  });
+
+  it.each([
+    ["partial", (line: string) => `${line}{\"partial\"`],
+    ["corrupt", (line: string) => `${line}not-json\n`],
+    ["identity drift", (line: string) => `${line}${encodeNormalizedRunnerEvent(event(2, "RUN-002"))}`],
+    ["sequence gap", (line: string) => `${line}${encodeNormalizedRunnerEvent(event(3))}`]
+  ])("fails closed before append when reopening a %s log", async (_name, corrupt) => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-reopen-"));
+    const path = join(runDir, "events.ndjson");
+    await writeFile(path, corrupt(encodeNormalizedRunnerEvent(event(1))), "utf8");
+    const store = new AcpEventStore({
+      runDir, identity: identity(),
+      runner: runnerIdentitySchema.parse({ version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" })
+    });
+    await expect(store.open()).rejects.toBeInstanceOf(AcpEventStoreOpenError);
+    await expect(store.append(event(2).body)).rejects.toThrow("must be opened");
+    expect(await readFile(path, "utf8")).toBe(corrupt(encodeNormalizedRunnerEvent(event(1))));
+  });
+});
+
+describe("ACP replay diagnostics", () => {
+  it("reports corrupt, partial, oversized, gaps, and duplicates without fallback success", () => {
+    const first = encodeNormalizedRunnerEvent(event(1)).trimEnd();
+    const third = encodeNormalizedRunnerEvent(event(3)).trimEnd();
+    const duplicate = encodeNormalizedRunnerEvent(event(3)).trimEnd();
+    const oversized = "x".repeat(256 * 1_024 + 1);
+    const replay = replayNormalizedRunnerEvents({
+      runId: "RUN-001",
+      content: `${first}\nnot-json\n${third}\n${duplicate}\n${oversized}\n{\"partial\"`
+    });
+    expect(replay.events.map((item) => item.sequence)).toEqual([1, 3]);
+    expect(replay.diagnostics.map((item) => item.code)).toEqual(expect.arrayContaining([
+      "corrupt_line", "sequence_gap", "duplicate_sequence", "line_limit_exceeded", "partial_line"
+    ]));
+  });
+});
+
+describe("ACP event publisher", () => {
+  it("atomically replays then delivers live events once and tears down at terminal", async () => {
+    const publisher = new AcpEventPublisher();
+    publisher.seed([event(1)]);
+    const received: number[] = [];
+    const subscription = publisher.subscribe(0, async (item) => { received.push(item.sequence); });
+    publisher.publish(event(1));
+    publisher.publish(event(2));
+    publisher.publish(normalizedRunnerEventSchema.parse({ ...event(3), body: { kind: "terminal", outcome: {
+      version: "planweave.runner/v1", state: "succeeded", exitCode: 0,
+      finishedAt: "2026-07-11T00:00:01.000Z", diagnostic: null, artifactValidated: true
+    } } }));
+    await subscription.closed;
+    expect(received).toEqual([1, 2, 3]);
+    expect(publisher.subscriberCount).toBe(0);
+  });
+
+  it("isolates concurrent runs and unsubscribes bounded slow subscribers", async () => {
+    const diagnostics: string[] = [];
+    const first = new AcpEventPublisher(1, (code) => diagnostics.push(code));
+    const second = new AcpEventPublisher();
+    let release = (): void => undefined;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const subscription = first.subscribe(0, () => blocked);
+    const other: string[] = [];
+    second.subscribe(0, (item) => { other.push(item.identity.runId); });
+    first.publish(event(1));
+    first.publish(event(2));
+    second.publish(event(1, "RUN-002"));
+    release();
+    await subscription.closed;
+    expect(first.subscriberCount).toBe(0);
+    expect(other).toEqual(["RUN-002"]);
+    expect(diagnostics).toEqual(["subscriber_backpressure"]);
+  });
+
+  it("supports explicit unsubscribe", async () => {
+    const publisher = new AcpEventPublisher();
+    const subscription = publisher.subscribe(0, () => undefined);
+    subscription.unsubscribe();
+    await subscription.closed;
+    expect(publisher.subscriberCount).toBe(0);
+  });
+
+  it("replays a seeded terminal and closes without retaining the subscriber", async () => {
+    const terminal = normalizedRunnerEventSchema.parse({ ...event(2), body: { kind: "terminal", outcome: {
+      version: "planweave.runner/v1", state: "succeeded", exitCode: 0,
+      finishedAt: "2026-07-11T00:00:01.000Z", diagnostic: null, artifactValidated: true
+    } } });
+    const publisher = new AcpEventPublisher();
+    publisher.seed([event(1), terminal]);
+    const received: number[] = [];
+    const subscription = publisher.subscribe(0, (item) => { received.push(item.sequence); });
+    await subscription.closed;
+    expect(received).toEqual([1, 2]);
+    expect(publisher.subscriberCount).toBe(0);
+  });
+
+  it("captures subscriber rejection, closes it, and avoids an unhandled chain", async () => {
+    const diagnostics: string[] = [];
+    const publisher = new AcpEventPublisher(10, (code) => { diagnostics.push(code); });
+    const subscription = publisher.subscribe(0, async () => { throw new Error("consumer failed"); });
+    publisher.publish(event(1));
+    await subscription.closed;
+    await publisher.drainDiagnostics();
+    expect(diagnostics).toEqual(["subscriber_callback_failed"]);
+    expect(publisher.subscriberCount).toBe(0);
+  });
+
+  it("persists backpressure diagnostics through the store sink", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-backpressure-"));
+    const publisher = new AcpEventPublisher(1);
+    const store = new AcpEventStore({
+      runDir, identity: identity(), publisher,
+      runner: runnerIdentitySchema.parse({ version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" })
+    });
+    await store.open();
+    let release = (): void => undefined;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const subscription = publisher.subscribe(0, () => blocked);
+    await store.append(event(1).body);
+    await store.append(event(2).body);
+    release();
+    await subscription.closed;
+    await store.drain();
+    expect(await readFile(store.eventsPath, "utf8")).toContain("subscriber_backpressure");
+  });
+});
+
+describe("ACP production read model", () => {
+  async function createReadModel() {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-cursor-"));
+    const registry = new AcpEventReadModelRegistry();
+    const model = await registry.create({
+      runDir, identity: identity(),
+      runner: runnerIdentitySchema.parse({ version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" })
+    });
+    return { model, registry, runDir };
+  }
+
+  it("gives runtime consumers replay, projection, diagnostics, and live events without ACP parsing", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-read-model-"));
+    const registry = new AcpEventReadModelRegistry();
+    const model = await registry.create({
+      runDir, identity: identity(),
+      runner: runnerIdentitySchema.parse({ version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" })
+    });
+    await model.store.append({ kind: "message", role: "assistant", messageId: "m-1", chunk: true, content: "replayed", redaction: { classes: [], replaced: 0 } });
+    const replay = model.replay();
+    expect(replay).toMatchObject({
+      events: [expect.objectContaining({ sequence: 1 })],
+      conversation: [expect.objectContaining({ content: "replayed" })],
+      diagnostics: [expect.objectContaining({ code: "missing_log" })]
+    });
+    expect(model.replay(replay.cursor).events).toEqual([]);
+    const live: number[] = [];
+    const subscription = model.subscribe(1, (item) => { live.push(item.sequence); });
+    await model.store.append(event(2).body);
+    subscription.unsubscribe();
+    await subscription.closed;
+    expect(live).toEqual([2]);
+    expect(registry.get(runDir)).toBe(model);
+  });
+
+  it("rejects a cursor with foreign canonical identity", async () => {
+    const { model } = await createReadModel();
+    await model.store.append(event(1).body);
+    const cursor = model.replay().cursor;
+    if (!cursor.canonicalIdentity) throw new Error("Expected a canonical cursor identity.");
+    const foreign = runnerEventCursorSchema.parse({
+      ...cursor,
+      canonicalIdentity: {
+        ...cursor.canonicalIdentity,
+        identity: { ...cursor.canonicalIdentity.identity, projectId: "foreign-project" }
+      }
+    });
+    expect(() => model.replay(foreign)).toThrow("canonical identity does not match");
+  });
+
+  it("rejects a foreign canonical cursor before the first event", async () => {
+    const { model } = await createReadModel();
+    const cursor = model.replay().cursor;
+    if (!cursor.canonicalIdentity) throw new Error("Expected the store canonical identity on an empty replay.");
+    const foreign = runnerEventCursorSchema.parse({
+      ...cursor,
+      canonicalIdentity: {
+        ...cursor.canonicalIdentity,
+        runner: { ...cursor.canonicalIdentity.runner, agentId: "claude-code" }
+      }
+    });
+    expect(() => model.replay(foreign)).toThrow("canonical identity does not match");
+  });
+
+  it("keeps an empty-store matching future cursor stable", async () => {
+    const { model } = await createReadModel();
+    const initial = model.replay();
+    expect(initial.events).toEqual([]);
+    expect(initial.cursor).toMatchObject({ afterSequence: 0, terminal: false });
+    expect(initial.cursor.canonicalIdentity).toEqual(model.store.canonicalIdentity());
+    const future = runnerEventCursorSchema.parse({ ...initial.cursor, afterSequence: 999 });
+    const replay = model.replay(future);
+    expect(replay.events).toEqual([]);
+    expect(replay.cursor).toEqual(future);
+  });
+
+  it("keeps an empty-store matching terminal cursor stable", async () => {
+    const { model } = await createReadModel();
+    const initial = model.replay().cursor;
+    const terminal = runnerEventCursorSchema.parse({ ...initial, afterSequence: 7, terminal: true });
+    const first = model.replay(terminal);
+    const second = model.replay(first.cursor);
+    expect(first.events).toEqual([]);
+    expect(first.cursor).toEqual(terminal);
+    expect(second.events).toEqual([]);
+    expect(second.cursor).toEqual(terminal);
+  });
+
+  it("preserves a future cursor high-water mark", async () => {
+    const { model } = await createReadModel();
+    await model.store.append(event(1).body);
+    const current = model.replay().cursor;
+    const future = { ...current, afterSequence: 999 };
+    const replay = model.replay(future);
+    expect(replay.events).toEqual([]);
+    expect(replay.cursor.afterSequence).toBe(999);
+  });
+
+  it("keeps terminal cursors stable and monotonic", async () => {
+    const { model } = await createReadModel();
+    await model.store.append(event(1).body);
+    await model.store.append({
+      kind: "terminal",
+      outcome: {
+        version: "planweave.runner/v1", state: "succeeded", exitCode: 0,
+        finishedAt: "2026-07-11T00:00:01.000Z", diagnostic: null, artifactValidated: true
+      }
+    });
+    const terminal = model.replay();
+    expect(terminal.cursor).toMatchObject({ afterSequence: 2, terminal: true });
+    const next = model.replay(terminal.cursor);
+    expect(next.events).toEqual([]);
+    expect(next.cursor).toEqual(terminal.cursor);
+    const future = model.replay({ ...terminal.cursor, afterSequence: 999 });
+    expect(future.cursor).toMatchObject({ afterSequence: 999, terminal: true });
+  });
+
+  it("delivers continuous cursor replays monotonically without duplicates", async () => {
+    const { model } = await createReadModel();
+    await model.store.append(event(1).body);
+    const first = model.replay();
+    await model.store.append(event(2).body);
+    const second = model.replay(first.cursor);
+    const third = model.replay(second.cursor);
+    expect(first.events.map((item) => item.sequence)).toEqual([1]);
+    expect(second.events.map((item) => item.sequence)).toEqual([2]);
+    expect(third.events).toEqual([]);
+    expect([first.cursor.afterSequence, second.cursor.afterSequence, third.cursor.afterSequence]).toEqual([1, 2, 2]);
+  });
+});
