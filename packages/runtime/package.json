@@ -39,11 +39,11 @@
   "sideEffects": false,
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.contracts.json",
     "prepack": "pnpm build"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "1.2.1",
     "zod": "^4.1.12"
-  },
-  "devDependencies": {}
+  }
 }
