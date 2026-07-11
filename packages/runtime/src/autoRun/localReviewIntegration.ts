@@ -1,18 +1,19 @@
 import {
-  adapterProfileMismatch,
+  executorProfileMismatch,
+  type DirectExecutor,
   type ExecutorBlockInput,
-  type ExecutorFeedbackInput,
-  type ExecutorIntegration
+  type ExecutorFeedbackInput
 } from "./executorIntegration.js";
+import { executeCliProcess } from "./cliProcess.js";
 import { workspaceExecutionCwd } from "./executorShared.js";
 import { runLocalReviewBlock, runLocalReviewFeedback } from "./localReviewExecutor.js";
 
-export const localReviewIntegration: ExecutorIntegration = {
+export const localReviewExecutor: DirectExecutor = {
   adapter: "local-review",
   builtinProfiles: {},
   runBlock(input: ExecutorBlockInput) {
     if (input.profile.adapter !== "local-review") {
-      throw adapterProfileMismatch("local-review", input.profile);
+      throw executorProfileMismatch("local-review", input.profile);
     }
     return runLocalReviewBlock({
       projectRoot: input.projectRoot,
@@ -21,12 +22,14 @@ export const localReviewIntegration: ExecutorIntegration = {
       executorName: input.executorName,
       profile: input.profile,
       tmuxEnabled: input.runtime?.tmuxEnabled,
-      tmuxOwnerRunId: input.runtime?.tmuxOwnerRunId
+      tmuxOwnerRunId: input.runtime?.tmuxOwnerRunId,
+      signal: input.runtime?.signal,
+      executeProcess: executeCliProcess
     });
   },
   runFeedback(input: ExecutorFeedbackInput) {
     if (input.profile.adapter !== "local-review") {
-      throw adapterProfileMismatch("local-review", input.profile);
+      throw executorProfileMismatch("local-review", input.profile);
     }
     return runLocalReviewFeedback({
       projectRoot: input.workspace.rootPath,
@@ -37,7 +40,9 @@ export const localReviewIntegration: ExecutorIntegration = {
       executorName: input.executorName,
       profile: input.profile,
       tmuxEnabled: input.runtime?.tmuxEnabled,
-      tmuxOwnerRunId: input.runtime?.tmuxOwnerRunId
+      tmuxOwnerRunId: input.runtime?.tmuxOwnerRunId,
+      signal: input.runtime?.signal,
+      executeProcess: executeCliProcess
     });
   }
 };

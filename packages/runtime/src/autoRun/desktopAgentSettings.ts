@@ -92,7 +92,11 @@ export function applyDesktopAgentSettingsToBuiltinProfiles(
   if (fullAccessEnabled(settings, "codex")) {
     for (const name of desktopAgentNames.codex) {
       const profile = next[name];
-      if (profile?.adapter === "codex-exec") {
+      if (
+        profile?.adapter === "agent" &&
+        profile.agent === "codex" &&
+        "command" in profile
+      ) {
         next[name] = { ...profile, sandbox: "danger-full-access" };
       }
     }
@@ -100,7 +104,11 @@ export function applyDesktopAgentSettingsToBuiltinProfiles(
   if (fullAccessEnabled(settings, "opencode")) {
     for (const name of desktopAgentNames.opencode) {
       const profile = next[name];
-      if (profile?.adapter === "opencode-exec") {
+      if (
+        profile?.adapter === "agent" &&
+        profile.agent === "opencode" &&
+        "command" in profile
+      ) {
         next[name] = { ...profile, sandbox: "danger-full-access" };
       }
     }
@@ -108,7 +116,11 @@ export function applyDesktopAgentSettingsToBuiltinProfiles(
   if (fullAccessEnabled(settings, "claude-code")) {
     for (const name of desktopAgentNames["claude-code"]) {
       const profile = next[name];
-      if (profile?.adapter === "claude-code-exec") {
+      if (
+        profile?.adapter === "agent" &&
+        profile.agent === "claude-code" &&
+        "command" in profile
+      ) {
         next[name] = {
           ...profile,
           args: addArgOnce(profile.args, "--dangerously-skip-permissions")

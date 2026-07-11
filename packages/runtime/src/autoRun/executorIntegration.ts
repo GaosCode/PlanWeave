@@ -1,14 +1,21 @@
 import type {
   ExecutorAdapterResult,
+  ExecutorIntegrationName,
   ExecutorProfile,
   PackageWorkspaceRef,
   ProjectWorkspace
 } from "../types.js";
 import type { BlockClaim, FeedbackClaim } from "./executorShared.js";
+import type { RunnerInteractionBroker } from "./liveControl.js";
 
 export type ExecutorRuntimeOptions = {
   tmuxEnabled?: boolean;
   tmuxOwnerRunId?: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  desktopRunId?: string;
+  runSessionId?: string;
+  interactionBroker?: RunnerInteractionBroker;
 };
 
 export type ExecutorBlockInput = {
@@ -29,15 +36,15 @@ export type ExecutorFeedbackInput = {
   runtime?: ExecutorRuntimeOptions;
 };
 
-export type ExecutorIntegration = {
-  adapter: ExecutorProfile["adapter"];
+export type DirectExecutor = {
+  adapter: Extract<ExecutorIntegrationName, "manual" | "local-review">;
   builtinProfiles: Record<string, ExecutorProfile>;
   runBlock(input: ExecutorBlockInput): Promise<ExecutorAdapterResult>;
   runFeedback(input: ExecutorFeedbackInput): Promise<ExecutorAdapterResult>;
 };
 
-export function adapterProfileMismatch(
-  adapter: ExecutorProfile["adapter"],
+export function executorProfileMismatch(
+  adapter: ExecutorIntegrationName,
   profile: ExecutorProfile
 ): Error {
   return new Error(

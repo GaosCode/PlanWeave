@@ -10,6 +10,7 @@ import { loadPackage } from "../package/loadPackage.js";
 import { isCommandTrusted, untrustedExecutorCommandError } from "../taskManager/hookTrustStore.js";
 import type {
   ClaimResult,
+  ExecutorIntegrationName,
   ExecutorProfile,
   PackageWorkspaceRef,
   ProjectWorkspace
@@ -24,6 +25,17 @@ export const DEFAULT_EXECUTOR_MAX_STDOUT_BYTES = 10 * 1024 * 1024;
 export const DEFAULT_EXECUTOR_MAX_STDERR_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_EXECUTOR_HEARTBEAT_INTERVAL_MS = 5 * 1000;
 export const EXECUTOR_FORCE_KILL_GRACE_MS = 500;
+
+export class ExecutorCancelledError extends Error {
+  constructor(message = "Executor cancelled.") {
+    super(message);
+    this.name = "AbortError";
+  }
+}
+
+export function isExecutorCancelledError(error: unknown): error is ExecutorCancelledError {
+  return error instanceof ExecutorCancelledError;
+}
 
 export type ExecutorRuntimeLimits = {
   timeoutMs: number;
@@ -277,6 +289,7 @@ export async function prepareBlockRun(options: {
   projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
   executorName: string;
+  adapter: ExecutorIntegrationName;
   profile: ExecutorProfile;
   prompt: string;
 }): Promise<{
@@ -298,8 +311,12 @@ export async function prepareBlockRun(options: {
   await writeJsonFile(metadataPath, {
     runId,
     ref: options.claim.ref,
+    taskId,
+    blockId,
     executor: options.executorName,
-    adapter: options.profile.adapter,
+    adapter: options.adapter,
+    agentId: options.profile.adapter === "agent" ? options.profile.agent : null,
+    runnerKind: options.profile.adapter === "agent" ? options.profile.runner.transport : null,
     projectRoot: workspace.rootPath,
     executionCwd: workspaceExecutionCwd(workspace),
     startedAt,
@@ -320,6 +337,51 @@ export async function finishRunMetadata(
     previous = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
   }
   await writeJsonFile(path, { ...previous, ...patch });
+}
+
+export type ExecutorAttemptOutcome = "succeeded" | "failed" | "cancelled";
+
+export async function finalizeExecutorAttemptMetadata(options: {
+  path: string;
+  outcome: ExecutorAttemptOutcome;
+  exitCode: number;
+  timedOut: boolean;
+  failureReason: string | null;
+  patch?: Record<string, unknown>;
+}): Promise<void> {
+  const cancelled = options.outcome === "cancelled";
+  await finishRunMetadata(options.path, {
+    ...options.patch,
+    finishedAt: new Date().toISOString(),
+    exitCode: options.exitCode,
+    outcome: options.outcome,
+    cancelled,
+    stopped: cancelled,
+    timedOut: options.timedOut,
+    failureReason: options.failureReason
+  });
+}
+
+export async function finalizeExecutorCancellationOnError<T>(options: {
+  path: string;
+  run: () => Promise<T>;
+  patch?: Record<string, unknown>;
+}): Promise<T> {
+  try {
+    return await options.run();
+  } catch (error) {
+    if (isExecutorCancelledError(error)) {
+      await finalizeExecutorAttemptMetadata({
+        path: options.path,
+        outcome: "cancelled",
+        exitCode: 130,
+        timedOut: false,
+        failureReason: error.message,
+        patch: options.patch
+      });
+    }
+    throw error;
+  }
 }
 
 export async function execWithStdin(options: {
@@ -465,7 +527,11 @@ export async function execWithStreaming(options: {
   tmux?: TmuxSessionInfo | null;
   onStdout?: (chunk: string) => void | Promise<void>;
   onStderr?: (chunk: string) => void | Promise<void>;
+  signal?: AbortSignal;
 }): Promise<StreamingCommandResult> {
+  if (options.signal?.aborted) {
+    throw new ExecutorCancelledError();
+  }
   const timeoutMs = options.timeoutMs ?? DEFAULT_EXECUTOR_TIMEOUT_MS;
   const maxStdoutBytes = options.maxStdoutBytes ?? DEFAULT_EXECUTOR_MAX_STDOUT_BYTES;
   const maxStderrBytes = options.maxStderrBytes ?? DEFAULT_EXECUTOR_MAX_STDERR_BYTES;
@@ -484,8 +550,12 @@ export async function execWithStreaming(options: {
       heartbeatIntervalMs: options.heartbeatIntervalMs,
       tmux: options.tmux,
       onStdout: options.onStdout,
-      onStderr: options.onStderr
+      onStderr: options.onStderr,
+      signal: options.signal
     });
+    if (options.signal?.aborted) {
+      throw new ExecutorCancelledError();
+    }
     const [stdout, stderr] = await Promise.all([
       readBoundedTextFile(result.stdoutPath, maxStdoutBytes),
       readBoundedTextFile(result.stderrPath, maxStderrBytes)
@@ -535,7 +605,6 @@ export async function execWithStreaming(options: {
     let callbackError: unknown;
     let limitExceeded: ExecutorOutputLimitExceeded | undefined;
     let callbackChain = Promise.resolve();
-
     const closeStreams = (): void => {
       if (streamsClosed) {
         return;
@@ -548,6 +617,12 @@ export async function execWithStreaming(options: {
     const terminateChild = (): void => {
       terminateChildWithFallback(child, forceKillTimeout);
     };
+
+    const onAbort = (): void => {
+      terminateChild();
+    };
+
+    options.signal?.addEventListener("abort", onAbort, { once: true });
 
     const settleReject = (error: unknown): void => {
       if (settled) {
@@ -648,6 +723,7 @@ export async function execWithStreaming(options: {
         clearTimeout(timeout);
       }
       clearTimer(forceKillTimeout);
+      options.signal?.removeEventListener("abort", onAbort);
       if (settled) {
         return;
       }
@@ -665,6 +741,10 @@ export async function execWithStreaming(options: {
         .then(() => {
           if (callbackError) {
             reject(callbackError);
+            return;
+          }
+          if (options.signal?.aborted) {
+            reject(new ExecutorCancelledError());
             return;
           }
           resolve({
