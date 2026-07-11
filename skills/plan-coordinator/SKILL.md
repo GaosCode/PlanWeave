@@ -35,15 +35,15 @@ Use this skill as the main agent/controller for a PlanWeave package. The coordin
 - Treat PlanWeave executor assignment as the routing authority for every implementation block, review block, and feedback claim. Use `<pw> claim-next --dry-run --json` only for automatic preview; exact `claim <ref>` has no dry-run option. After `claim-next --json`, `claim-next --dry-run --json`, or `claim <ref>`, read the claim's `effectiveExecutor`; for parallel batch claims, read `effectiveExecutors` per ref.
 - Before routing `manual` or current-agent work, discover the current agent's native subagent mechanism. In Codex, search for the multi-agent/subagent tool and spawn a bounded worker with the subagent packet.
 - If `effectiveExecutor` is `manual`, route the item through the current agent's native subagent workflow instead of `planweave run --executor manual`.
-- If `effectiveExecutor` names the current agent, route the item through the current agent's native subagent workflow instead of invoking that same agent through PlanWeave's CLI executor.
-- If `effectiveExecutor` names a different agent, run that ref through PlanWeave runtime so the configured CLI executor owns the work: `<pw> run --once --scope block --block <ref>`. Do not add `--executor <name>` unless deliberately overriding the Plan Package assignment.
+- If `effectiveExecutor` names the current agent, route the item through the current agent's native subagent workflow instead of invoking that same agent through PlanWeave's configured runner.
+- If `effectiveExecutor` names a different agent, run that ref through PlanWeave runtime so the configured runner (CLI or ACP) owns the work: `<pw> run --once --scope block --block <ref>`. Do not add `--executor <name>` unless deliberately overriding the Plan Package assignment.
 - For feedback claims, apply the same rule to the feedback claim's `effectiveExecutor`; if it is `manual` or the current agent, route through a current-agent worker subagent, otherwise use PlanWeave runtime.
 - If PlanWeave runtime delegation to a non-current executor fails, do not complete or submit that same ref with the current agent unless the user explicitly authorizes an executor override or fallback. Preserve the blocker, inspect run-status/latest record/logs, and route to `plan-recovery` or fix executor configuration before retrying.
 - Assign `plan-runner` to a worker subagent for one implementation block only when that block's `effectiveExecutor` is `manual` or the current agent.
 - Assign `plan-reviewer` to a worker subagent for one review gate only when that review block's `effectiveExecutor` is `manual` or the current agent. If a review block inherits `opencode`, `claude-code`, `pi`, or another non-current executor from its task or package default, route it through PlanWeave runtime instead of reviewing it locally.
 - Assign `plan-recovery` to a worker subagent or run recovery commands yourself only for doctor findings, stale current refs, orphan results, state/index drift, blocked/diverged work, or submit retry confusion. Recovery must not include implementation or review work.
 - If no native subagent tool is available for `manual` or current-agent work, stop and report `NEEDS_COORDINATOR`; do not run `plan-runner` or `plan-reviewer` directly in the coordinator thread.
-- Do not send review gates to current-agent implementation subagents. This does not override PlanWeave executor assignment: if the Plan Package assigns a review gate to a non-current CLI executor, the runtime should dispatch that executor.
+- Do not send review gates to current-agent implementation subagents. This does not override PlanWeave executor assignment: if the Plan Package assigns a review gate to a non-current runner profile, the runtime should dispatch that profile.
 - Do not send recovery work to normal implementation agents.
 
 ## Coordinator Loop
@@ -93,7 +93,11 @@ The coordinator may submit an artifact after a worker returns it, but must not a
 
 ## Executor Run Monitoring
 
-- After delegating to a non-current agent with `<pw> run --once --scope block --block <ref>`, inspect `<pw> run-status --json` and the latest record path before deciding whether to continue.
+- CLI and ACP are alternative runner transports behind the same `effectiveExecutor` route. ACP is conversation/session integration rather than terminal attachment; tmux monitoring below applies only to CLI runners.
+- After delegating to a non-current agent with `<pw> run --once --scope block --block <ref>`, inspect `<pw> run-status --json` and `<pw> run-session <session-id> --json`; verify the effective executor, agent id, runner kind, terminal phase, and latest record path before deciding whether to continue.
+- Never substitute CLI for ACP or ACP for CLI after preflight or execution failure. In headless execution, do not auto-approve permission/authentication requests or unsupported elicitation; preserve the fail-closed diagnostic.
+- The selected agent owns login, subscription, provider configuration, quota, and optional API-key mode. PlanWeave does not collect or store those credentials.
+- Near-headless execution is bounded to the selected profile and declared runner capabilities: never auto-approve requests, never fall back to another runner transport, and stop at the first authentication, quota, provider, permission, or elicitation boundary.
 - Runtime run records use `metadata.json`, `stdout.md`, and `stderr.log`; `run-status` provides summaries, not a streaming terminal.
 - If `run-status --json` or `metadata.json` contains `tmuxSessionName`, prefer non-interactive inspection with `tmux capture-pane -p -e -S -5000 -t <session>` while the session is alive. Repeat capture-pane for low-risk live monitoring.
 - Treat `tmuxAttachCommand` as a human interactive terminal entrypoint, not the coordinator's default observation path. After the session exits, read `stdout.md` and `stderr.log`.
