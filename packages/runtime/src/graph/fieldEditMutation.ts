@@ -38,6 +38,7 @@ export type PlanPackageBlockFieldEditInput = {
   parallelSafe?: boolean;
   exclusive?: boolean;
   parallelLocks?: string[];
+  sharedResources?: string[];
   reviewRequired?: boolean;
   maxFeedbackCycles?: number;
   reviewHook?: ReviewHookDefinition | null;
@@ -102,7 +103,10 @@ function replaceTask(manifest: PlanPackageManifest, task: ManifestTaskNode): Pla
 
 function editImplementationBlock(
   block: ManifestImplementationBlock,
-  input: Pick<PlanPackageBlockFieldEditInput, "parallelSafe" | "exclusive" | "parallelLocks">
+  input: Pick<
+    PlanPackageBlockFieldEditInput,
+    "parallelSafe" | "exclusive" | "parallelLocks" | "sharedResources"
+  >
 ): { block: ManifestImplementationBlock; fields: string[] } {
   const fields: string[] = [];
   let next = block;
@@ -137,6 +141,18 @@ function editImplementationBlock(
         locks
       }
     };
+  }
+  if (input.sharedResources !== undefined) {
+    next = {
+      ...next,
+      parallel: {
+        ...next.parallel,
+        sharedResources: [
+          ...new Set(input.sharedResources.map((resource) => nonEmpty(resource, "shared resource")))
+        ]
+      }
+    };
+    fields.push("parallel.sharedResources");
   }
   // Stable unique order: parallel.safe then parallel.locks.
   const ordered: string[] = [];
@@ -185,7 +201,8 @@ function ensureBlockFieldCompatibility(
     block.type !== "implementation" &&
     (input.parallelSafe !== undefined ||
       input.exclusive !== undefined ||
-      input.parallelLocks !== undefined)
+      input.parallelLocks !== undefined ||
+      input.sharedResources !== undefined)
   ) {
     throw new Error("parallel fields can only be edited on implementation blocks.");
   }

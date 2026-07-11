@@ -16,7 +16,9 @@ const blockParallelPolicySchema = z
   .object({
     /** @deprecated Use locks: ["exclusive"] instead of safe: false. */
     safe: z.boolean().optional(),
-    locks: z.array(z.string().min(1)).default([])
+    locks: z.array(z.string().min(1)).default([]),
+    /** Soft hints only; these never affect readiness or claimability. */
+    sharedResources: z.array(z.string().min(1)).optional()
   })
   .strict();
 

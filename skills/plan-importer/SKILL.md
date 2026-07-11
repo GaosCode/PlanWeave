@@ -109,7 +109,9 @@ Use the CLI for command discovery, workspace/path resolution, and validation in 
 - Keep `crossTaskEdges` empty unless a sparse, irreducible blocker passes the Plan Quality Gate.
 - Keep single-canvas `manifest.json` semantics unchanged; do not place cross-canvas edges inside a canvas manifest.
 - The project/global prompt may explain strategy, but it is not the authority for dependency enforcement.
-- Different canvases are not automatically parallel; run them in parallel only when project graph edges, `crossTaskEdges`, and locks make that safe.
+- Different canvases are not automatically parallel; derive mandatory order from project graph edges
+  and `crossTaskEdges`. Record possible overlap with `parallel.sharedResources`; it is advisory and
+  must not be presented as preventing execution.
 
 ## Project Graph Shape
 
@@ -125,7 +127,10 @@ After writing, validate with `<pw> validate --json`; project graph schema/read/c
 
 ## Block Shape
 
-Each block needs `id`, `type`, `title`, `prompt`, `depends_on`, parallel safety/locks, done criteria, validation, and report expectations. If review is justified, add `R-001` after implementation blocks with `review.required: true` and a clear review prompt.
+Each block needs `id`, `type`, `title`, `prompt`, `depends_on`, optional
+`parallel.sharedResources` hints, done criteria, validation, and report expectations. If review is
+justified, add `R-001` after implementation blocks with `review.required: true` and a clear review
+prompt.
 
 ## Rules
 

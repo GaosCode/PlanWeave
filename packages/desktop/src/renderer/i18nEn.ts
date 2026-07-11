@@ -624,6 +624,11 @@ export const enCatalog = {
   moreLocks: "+{count}",
   unpinResource: "Unpin",
   resourceMembers: "Members",
+  sharedResourceHint: "Shared resource",
+  sharedResourceNonBlocking:
+    "These tasks reference the same resource. Coordinate when their changes overlap.",
+  sharedResourceOverlap:
+    "Multiple tasks are currently using this resource. Coordinate when their changes overlap.",
   lockHeld: "Held",
   lockFree: "Free"
 } as const;

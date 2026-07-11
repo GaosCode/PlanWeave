@@ -1,45 +1,53 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import { ResourceInspector } from "../renderer/inspector/ResourceInspector";
 
-const markBlockedBlock = vi.fn().mockResolvedValue(undefined);
-const dispatchBlock = vi.fn().mockResolvedValue({
-  kind: "block",
-  ref: "T-B#B-001",
-  taskId: "T-B",
-  blockId: "B-001",
-  blockType: "implementation",
-  effectiveExecutor: "manual",
-  reason: "dispatched"
-});
-const unblockBlock = vi.fn().mockResolvedValue(undefined);
+afterEach(cleanup);
 
-vi.mock("../renderer/bridge", () => ({
-  bridge: {
-    markBlockedBlock: (...args: unknown[]) => markBlockedBlock(...args),
-    dispatchBlock: (...args: unknown[]) => dispatchBlock(...args),
-    unblockBlock: (...args: unknown[]) => unblockBlock(...args)
-  },
-  desktopCanvasReference: (project: { rootPath: string }, canvasId?: string | null) => ({
-    projectRoot: project.rootPath,
-    canvasId
-  })
-}));
+const overlapMessagePattern = /multiple tasks are currently using this resource/i;
+const desktopTaskButtonPattern = /T-B · Desktop work/;
 
-afterEach(() => {
-  cleanup();
-  markBlockedBlock.mockClear();
-  dispatchBlock.mockClear();
-  unblockBlock.mockClear();
-});
-
-function holderGraph(): DesktopGraphViewModel {
+function sharedResourceGraph(): DesktopGraphViewModel {
+  const titleByTaskId: Record<string, string> = {
+    "T-A": "Runtime work",
+    "T-B": "Desktop work"
+  };
+  const task = (taskId: string, status: "in_progress" | "ready") => ({
+    taskId,
+    title: titleByTaskId[taskId] ?? `${taskId} work`,
+    status,
+    executor: null,
+    executorLabel: "manual",
+    promptMarkdown: "",
+    promptMissing: false,
+    promptPreview: "",
+    locks: [],
+    sharedResources: ["packages/runtime"],
+    blocks: [
+      {
+        ref: `${taskId}#B-001`,
+        blockId: "B-001",
+        type: "implementation" as const,
+        title: "Implementation",
+        status,
+        executor: null,
+        promptMissing: false,
+        exceptionReason: null,
+        dispatchable: status === "ready",
+        waitingOn: null
+      }
+    ],
+    blockPreview: [],
+    hiddenBlockRefs: [],
+    overflowBlockCount: 0,
+    exceptions: []
+  });
   return {
     projectId: "P-001",
     projectTitle: "Project",
@@ -47,97 +55,15 @@ function holderGraph(): DesktopGraphViewModel {
     packageFingerprint: "pkg",
     executorOptions: [],
     autoRunPreflightExecutorHint: null,
-    tasks: [
-      {
-        taskId: "T-A",
-        title: "Holder",
-        status: "in_progress",
-        executor: null,
-        executorLabel: "manual",
-        promptMarkdown: "",
-        promptMissing: false,
-        promptPreview: "",
-        locks: ["db"],
-        blocks: [
-          {
-            ref: "T-A#B-000",
-            blockId: "B-000",
-            type: "implementation",
-            title: "Unrelated holder task block",
-            status: "completed",
-            executor: null,
-            promptMissing: false,
-            exceptionReason: null,
-            dispatchable: false,
-            waitingOn: null
-          },
-          {
-            ref: "T-A#B-001",
-            blockId: "B-001",
-            type: "implementation",
-            title: "Hold db",
-            status: "in_progress",
-            executor: null,
-            promptMissing: false,
-            exceptionReason: null,
-            dispatchable: false,
-            waitingOn: null
-          }
-        ],
-        blockPreview: [],
-        hiddenBlockRefs: [],
-        overflowBlockCount: 0,
-        exceptions: []
-      },
-      {
-        taskId: "T-B",
-        title: "Waiter",
-        status: "ready",
-        executor: null,
-        executorLabel: "manual",
-        promptMarkdown: "",
-        promptMissing: false,
-        promptPreview: "",
-        locks: ["db"],
-        blocks: [
-          {
-            ref: "T-B#B-000",
-            blockId: "B-000",
-            type: "implementation",
-            title: "Unrelated waiter task block",
-            status: "completed",
-            executor: null,
-            promptMissing: false,
-            exceptionReason: null,
-            dispatchable: false,
-            waitingOn: null
-          },
-          {
-            ref: "T-B#B-001",
-            blockId: "B-001",
-            type: "implementation",
-            title: "Wait db",
-            status: "ready",
-            executor: null,
-            promptMissing: false,
-            exceptionReason: null,
-            dispatchable: false,
-            waitingOn: { lock: "db", holderRef: "T-A#B-001" }
-          }
-        ],
-        blockPreview: [],
-        hiddenBlockRefs: [],
-        overflowBlockCount: 0,
-        exceptions: []
-      }
-    ],
+    tasks: [task("T-A", "in_progress"), task("T-B", "ready")],
     edges: [],
-    lockGroups: [
+    lockGroups: [],
+    sharedResourceGroups: [
       {
-        name: "db",
+        name: "packages/runtime",
         memberTaskIds: ["T-A", "T-B"],
         memberBlockRefs: ["T-A#B-001", "T-B#B-001"],
-        holderRef: "T-A#B-001"
+        activeBlockRefs: ["T-A#B-001", "T-B#B-001"]
       }
     ],
     diagnostics: [],
@@ -145,112 +71,32 @@ function holderGraph(): DesktopGraphViewModel {
   };
 }
 
-function releasedGraph(): DesktopGraphViewModel {
-  const graph = holderGraph();
-  return {
-    ...graph,
-    lockGroups: [
-      {
-        name: "db",
-        memberTaskIds: ["T-A", "T-B"],
-        memberBlockRefs: ["T-A#B-001", "T-B#B-001"],
-        holderRef: null
-      }
-    ],
-    tasks: graph.tasks.map((task) => {
-      if (task.taskId === "T-A") {
-        return {
-          ...task,
-          status: "blocked",
-          blocks: task.blocks.map((block) => {
-            if (block.ref !== "T-A#B-001") {
-              return block;
-            }
-            return {
-              ...block,
-              status: "blocked" as const,
-              exceptionReason: "paused for transfer"
-            };
-          }),
-          exceptions: [
-            { ref: "T-A#B-001", source: "blocked" as const, reason: "paused for transfer" }
-          ]
-        };
-      }
-      return {
-        ...task,
-        blocks: task.blocks.map((block) => {
-          if (block.ref !== "T-B#B-001") {
-            return block;
-          }
-          return {
-            ...block,
-            dispatchable: true,
-            waitingOn: null
-          };
-        })
-      };
-    })
-  };
-}
-
-describe("ResourceInspector pause-and-transfer", () => {
-  it("marks holder blocked then enables dispatch on the waiter", async () => {
-    const user = userEvent.setup();
-    let graph = holderGraph();
-    const onRefresh = vi.fn(async () => {
-      graph = releasedGraph();
-    });
-    const canvasRef = { projectRoot: "/tmp/project", canvasId: "default" };
-
-    const { rerender } = render(
+describe("ResourceInspector shared-resource hints", () => {
+  it("shows overlap as non-blocking information without lock actions", async () => {
+    const graph = sharedResourceGraph();
+    const group = graph.sharedResourceGroups?.[0];
+    if (!group) {
+      throw new Error("Missing shared resource group fixture.");
+    }
+    const onJumpToTask = vi.fn();
+    render(
       <ResourceInspector
-        canvasRef={canvasRef}
+        canvasRef={{ projectRoot: "/tmp/project", canvasId: "default" }}
         graph={graph}
-        lockGroup={graph.lockGroups[0]!}
+        lockGroup={group}
         onClose={vi.fn()}
-        onJumpToTask={vi.fn()}
-        onRefresh={onRefresh}
+        onJumpToTask={onJumpToTask}
+        onRefresh={vi.fn()}
         t={createTranslator("en")}
       />
     );
 
-    expect(screen.getByTestId("resource-inspector-dispatch")).toBeDisabled();
+    expect(screen.getByText("Shared resource")).toBeInTheDocument();
+    expect(screen.getByText(overlapMessagePattern)).toBeInTheDocument();
+    expect(screen.queryByTestId("resource-inspector-dispatch")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("resource-inspector-mark-blocked")).not.toBeInTheDocument();
 
-    await user.type(screen.getByTestId("resource-inspector-reason"), "paused for transfer");
-    await user.click(screen.getByTestId("resource-inspector-mark-blocked"));
-
-    await waitFor(() => {
-      expect(markBlockedBlock).toHaveBeenCalledWith(canvasRef, "T-A#B-001", "paused for transfer");
-    });
-    expect(onRefresh).toHaveBeenCalled();
-
-    graph = releasedGraph();
-    rerender(
-      <ResourceInspector
-        canvasRef={canvasRef}
-        graph={graph}
-        lockGroup={graph.lockGroups[0]!}
-        onClose={vi.fn()}
-        onJumpToTask={vi.fn()}
-        onRefresh={onRefresh}
-        t={createTranslator("en")}
-      />
-    );
-
-    const dispatchButton = screen.getByTestId("resource-inspector-dispatch");
-    expect(dispatchButton).not.toBeDisabled();
-    await user.click(screen.getByTestId("resource-inspector-unblock"));
-    await waitFor(() => {
-      expect(unblockBlock).toHaveBeenCalledWith(
-        canvasRef,
-        "T-A#B-001",
-        "Unblocked from resource inspector"
-      );
-    });
-    await user.click(dispatchButton);
-    await waitFor(() => {
-      expect(dispatchBlock).toHaveBeenCalledWith(canvasRef, "T-B#B-001");
-    });
+    await userEvent.click(screen.getByRole("button", { name: desktopTaskButtonPattern }));
+    expect(onJumpToTask).toHaveBeenCalledWith("T-B");
   });
 });

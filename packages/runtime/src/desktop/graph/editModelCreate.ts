@@ -95,7 +95,11 @@ function createBlock(options: {
       review: { required: true, maxFeedbackCycles: options.maxFeedbackCycles, hook: null }
     };
   }
-  return { ...common, type: options.type, parallel: { locks: [] } };
+  return {
+    ...common,
+    type: options.type,
+    parallel: { locks: [], sharedResources: [] }
+  };
 }
 
 function planNewBlockPlacement(

@@ -1,4 +1,3 @@
-import { LockIcon } from "lucide-react";
 import type { CSSProperties, MouseEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -77,11 +76,8 @@ export function LockBadges({
     return null;
   }
 
-  const exclusive = locks.includes("exclusive");
-  const visibleLocks = exclusive
-    ? (["exclusive"] as string[])
-    : locks.slice(0, LOCK_OVERFLOW_LIMIT);
-  const overflowCount = exclusive ? 0 : Math.max(0, locks.length - LOCK_OVERFLOW_LIMIT);
+  const visibleLocks = locks.slice(0, LOCK_OVERFLOW_LIMIT);
+  const overflowCount = Math.max(0, locks.length - LOCK_OVERFLOW_LIMIT);
 
   return (
     <div
@@ -91,7 +87,6 @@ export function LockBadges({
       {visibleLocks.map((name) => {
         const state = lockStates[name] ?? { kind: "free" as const };
         const color = lockColor(name);
-        const isExclusive = name === "exclusive";
         const releaseEpoch = releaseEpochByLock[name] ?? 0;
         const chipRing = state.kind === "heldElsewhere" ? "ring-1 ring-border" : null;
         const highlighted = highlightedLock === name;
@@ -124,19 +119,15 @@ export function LockBadges({
                   onLockPin(name);
                 }}
               >
-                {isExclusive ? (
-                  <LockIcon className="size-3" aria-hidden="true" />
-                ) : (
-                  <LockDot name={name} state={state} />
-                )}
-                <span className="truncate">{isExclusive ? labels.exclusiveLock : name}</span>
+                <LockDot name={name} state={state} />
+                <span className="truncate">{name}</span>
               </button>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-64" onClick={(e) => e.stopPropagation()}>
               <PopoverHeader>
                 <PopoverTitle className="flex items-center gap-2">
                   <LockDot name={name} state={state} />
-                  {isExclusive ? labels.exclusiveLock : name}
+                  {name}
                 </PopoverTitle>
                 <PopoverDescription>
                   {state.kind === "heldByThis"

@@ -48,6 +48,14 @@ export type DesktopLockGroup = {
   holderRef: string | null;
 };
 
+export type DesktopSharedResourceGroup = {
+  name: string;
+  memberTaskIds: string[];
+  memberBlockRefs: string[];
+  /** Members currently executing. Multiple members may be active because this is not a lock. */
+  activeBlockRefs: string[];
+};
+
 export type DesktopTaskNodeViewModel = {
   taskId: string;
   title: string;
@@ -60,6 +68,8 @@ export type DesktopTaskNodeViewModel = {
   promptPreview: string;
   /** Union of effective locks on this task's implementation blocks (includes "exclusive"). */
   locks: string[];
+  /** Union of non-blocking shared-resource hints on implementation blocks. */
+  sharedResources?: string[];
   blocks: DesktopBlockPreview[];
   blockPreview: DesktopBlockPreview[];
   hiddenBlockRefs: string[];
@@ -84,6 +94,8 @@ export type DesktopGraphViewModel = {
   edges: DesktopGraphEdgeViewModel[];
   /** Per-lock membership and current holder for mutex-group highlights. */
   lockGroups: DesktopLockGroup[];
+  /** Soft coordination groups; unlike lockGroups, these never gate dispatch. */
+  sharedResourceGroups?: DesktopSharedResourceGroup[];
   diagnostics: ValidationIssue[];
   dirtyPromptRefs: string[];
 };

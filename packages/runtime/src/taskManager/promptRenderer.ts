@@ -246,6 +246,10 @@ export async function renderPromptSurface(options: {
   const dependencyLines = (graph.blockDependenciesByRef.get(options.ref) ?? []).map(
     (dependency) => `${dependency}: ${state.blocks[dependency]?.status ?? "planned"}`
   );
+  const sharedResourceLines = (graph.sharedResourcesByBlockRef.get(options.ref) ?? []).map(
+    (resource) =>
+      `${resource} (coordination hint only; it does not reserve the resource or block parallel work)`
+  );
   const latestImplementationReports = await renderLatestImplementationReports(context, taskId);
   const focusedReviewLines =
     block.type === "review" ? await renderFocusedReviewLines(context, options.ref) : [];
@@ -306,6 +310,7 @@ export async function renderPromptSurface(options: {
       `Completion policy: ${manifest.review.completionPolicy}`
     ]),
     renderNodeList("Dependency / Block Status", dependencyLines),
+    renderNodeList("Shared Resource Hints", sharedResourceLines),
     renderNodeList("Latest Implementation / Feedback Summary", latestImplementationReports),
     focusedReviewLines.length > 0
       ? renderNodeList("Focused Re-review Context", focusedReviewLines)

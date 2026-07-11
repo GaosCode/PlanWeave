@@ -20,6 +20,14 @@ export function effectiveLocksForBlock(block: ManifestBlock): string[] {
   return locks;
 }
 
+/** Normalize soft shared-resource hints without granting them scheduling semantics. */
+export function sharedResourcesForBlock(block: ManifestBlock): string[] {
+  if (block.type !== "implementation") {
+    return [];
+  }
+  return [...new Set(block.parallel.sharedResources ?? [])];
+}
+
 export function blockUsesDeprecatedParallelSafe(block: ManifestBlock): boolean {
   return block.type === "implementation" && block.parallel.safe !== undefined;
 }

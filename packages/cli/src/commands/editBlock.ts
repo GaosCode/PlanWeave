@@ -88,6 +88,10 @@ export function registerEditBlockCommand(program: Command): void {
         "--parallel-locks <locks>",
         "set implementation parallel locks as a comma-separated list"
       )
+      .option(
+        "--shared-resources <resources>",
+        "set non-blocking shared resource hints as a comma-separated list"
+      )
       .option("--review-required <true|false>", "set whether a review block is required")
       .option("--max-feedback-cycles <count>", "set review max feedback cycles")
       .option("--review-hook-json <path>", "read review hook JSON from a file")
@@ -104,6 +108,7 @@ export function registerEditBlockCommand(program: Command): void {
         exclusive?: string;
         parallelSafe?: string;
         parallelLocks?: string;
+        sharedResources?: string;
         reviewRequired?: string;
         maxFeedbackCycles?: string;
         reviewHookJson?: string;
@@ -138,6 +143,8 @@ export function registerEditBlockCommand(program: Command): void {
         parallelSafe,
         parallelLocks:
           options.parallelLocks === undefined ? undefined : parseLocks(options.parallelLocks),
+        sharedResources:
+          options.sharedResources === undefined ? undefined : parseLocks(options.sharedResources),
         reviewRequired:
           options.reviewRequired === undefined
             ? undefined

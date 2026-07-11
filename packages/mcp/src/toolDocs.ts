@@ -163,7 +163,7 @@ const basicExampleFiles = [
                 title: "Implement feature",
                 prompt: "nodes/T-001/blocks/B-001.prompt.md",
                 depends_on: [],
-                parallel: { locks: [] }
+                parallel: { locks: [], sharedResources: [] }
               },
               {
                 id: "R-001",
@@ -270,7 +270,8 @@ function largeDagManifest(): string {
             prompt: `nodes/${id}/blocks/B-001.prompt.md`,
             depends_on: [],
             parallel: {
-              locks: id === "T-001" ? ["exclusive"] : id === "T-005" ? ["desktop-ui"] : []
+              locks: [],
+              sharedResources: id === "T-005" ? ["desktop-ui"] : []
             }
           },
           {

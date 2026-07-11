@@ -18,7 +18,8 @@ const reviewHookSchema = z
 const blockParallelPolicySchema = z
   .object({
     safe: z.boolean().optional(),
-    locks: z.array(z.string())
+    locks: z.array(z.string()),
+    sharedResources: z.array(z.string()).optional()
   })
   .strict();
 
@@ -247,6 +248,7 @@ const planGraphCommandSchemaOptions = [
           parallelSafe: z.boolean().optional(),
           exclusive: z.boolean().optional(),
           parallelLocks: z.array(z.string()).optional(),
+          sharedResources: z.array(z.string()).optional(),
           reviewRequired: z.boolean().optional(),
           maxFeedbackCycles: z.number().int().nonnegative().optional(),
           reviewHook: reviewHookSchema.nullable().optional(),

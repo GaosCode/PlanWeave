@@ -83,7 +83,7 @@ describe("desktop graph flow model", () => {
     expect(nodes.find((node) => node.id === "T-001")?.position.x).toBeLessThan(999);
   });
 
-  it("threads lockStates and dispatchState from DTO only", () => {
+  it("threads shared-resource hints without creating lock wait state", () => {
     const graph = sharedLockGraph();
     const onLockHover = vi.fn();
     const noop = vi.fn();
@@ -135,17 +135,9 @@ describe("desktop graph flow model", () => {
     const nodeB = nodes.find((node) => node.id === "T-B");
     expect(nodeA?.data.locks).toEqual(["db"]);
     expect(nodeB?.data.locks).toEqual(["db"]);
-    expect(nodeA?.data.lockStates.db).toEqual({ kind: "heldByThis" });
-    expect(nodeB?.data.lockStates.db).toMatchObject({
-      kind: "heldElsewhere",
-      holderRef: "T-A#B-001"
-    });
-    expect(nodeB?.data.dispatchState).toEqual({
-      kind: "waiting",
-      lock: "db",
-      holderRef: "T-A#B-001",
-      holderTaskId: "T-A"
-    });
+    expect(nodeA?.data.lockStates.db).toEqual({ kind: "free" });
+    expect(nodeB?.data.lockStates.db).toEqual({ kind: "free" });
+    expect(nodeB?.data.dispatchState).toEqual({ kind: "dispatchable" });
     expect(nodeA?.data.lockHighlighted).toBe(true);
     expect(nodeB?.data.lockHighlighted).toBe(true);
   });
@@ -236,7 +228,8 @@ function sharedLockGraph(): DesktopGraphViewModel {
       {
         ...task("T-A"),
         status: "in_progress",
-        locks: ["db"],
+        locks: [],
+        sharedResources: ["db"],
         blocks: [
           {
             ref: "T-A#B-001",
@@ -256,7 +249,8 @@ function sharedLockGraph(): DesktopGraphViewModel {
       {
         ...task("T-B"),
         status: "ready",
-        locks: ["db"],
+        locks: [],
+        sharedResources: ["db"],
         blocks: [
           {
             ref: "T-B#B-001",
@@ -267,8 +261,8 @@ function sharedLockGraph(): DesktopGraphViewModel {
             executor: null,
             promptMissing: false,
             exceptionReason: null,
-            dispatchable: false,
-            waitingOn: { lock: "db", holderRef: "T-A#B-001" }
+            dispatchable: true,
+            waitingOn: null
           }
         ],
         blockPreview: []
@@ -281,6 +275,14 @@ function sharedLockGraph(): DesktopGraphViewModel {
         memberTaskIds: ["T-A", "T-B"],
         memberBlockRefs: ["T-A#B-001", "T-B#B-001"],
         holderRef: "T-A#B-001"
+      }
+    ],
+    sharedResourceGroups: [
+      {
+        name: "db",
+        memberTaskIds: ["T-A", "T-B"],
+        memberBlockRefs: ["T-A#B-001", "T-B#B-001"],
+        activeBlockRefs: ["T-A#B-001"]
       }
     ],
     diagnostics: [],

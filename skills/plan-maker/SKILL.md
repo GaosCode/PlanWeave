@@ -31,7 +31,9 @@ Use this skill to design a PlanWeave package-shaped plan draft from incomplete i
 - Split tasks by data flow, contract boundary, ownership, risk, or independently verifiable acceptance.
 - Do not split only to create more nodes; merge tiny tasks that cannot be claimed, tested, or reported independently.
 - Model real execution order with explicit dependencies and gates.
-- Parallel tasks must be genuinely independent in data, locks, and contract timing.
+- Parallel tasks must be genuinely independent in data and contract timing. Record possible overlap
+  with `parallel.sharedResources` so agents and the canvas can surface coordination context.
+- Express mandatory order with graph dependencies.
 - For multi-canvas plans, model orchestration as a formal project graph, not as prose-only canvas order.
 - Do not schedule broad UI/package polish before foundation contracts and runtime behavior are stable.
 - Do not import other projects' skills, bootstrap rules, or prompt conventions unless this target repository explicitly requires them.
@@ -79,7 +81,7 @@ The human-readable explanation should use these sections:
 For each task include:
 
 - task id, title, owner canvas, objective, acceptance, dependencies, and likely files.
-- blocks with type, purpose, parallel safety, done criteria, validation, and report expectations.
+- blocks with type, purpose, shared resources, done criteria, validation, and report expectations.
 - review only when risk justifies it.
 - complex blocks must include architecture boundaries, test location, config/env handling, README or `.env.example` updates when applicable, and real provider vs mock/dry-run expectations.
 
@@ -91,7 +93,8 @@ For multi-canvas drafts include a `Project Graph` section with:
 - Before adding a cross-task edge, first move tightly coupled tasks into the same canvas or use a canvas dependency edge when the relation orders a whole stage, capability, subsystem, or workflow.
 - Use explicit `crossTaskEdges` only for sparse, irreducible task blockers between otherwise cohesive and independently executable canvases, and record why task relocation or a canvas edge would be incorrect.
 - Treat dense or repeated cross-task edges between the same canvases, stage-wide ordering expressed as task edges, and task edges redundant with canvas order as a canvas-boundary defect; repartition the tasks or promote the dependency.
-- which canvases can run in parallel and why their data, locks, contracts, and upstream blockers are independent.
+- which canvases can run in parallel and why their data, contracts, and upstream blockers are independent;
+  list possible shared-resource overlap separately without claiming it prevents execution.
 - any manual graph-editing assumption; formal graph dependencies must not exist only in prose.
 
 Small plans may stay single-canvas and omit `project-graph.json` materialization, but large plans, multi-stage plans, or plans split by subsystem should be drafted as a formal project graph.

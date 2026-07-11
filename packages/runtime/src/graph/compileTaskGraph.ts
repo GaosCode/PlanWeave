@@ -16,7 +16,8 @@ import type {
 import {
   blockUsesDeprecatedParallelSafe,
   deprecatedParallelSafeWarning,
-  effectiveLocksForBlock
+  effectiveLocksForBlock,
+  sharedResourcesForBlock
 } from "./parallelLocks.js";
 
 function issue(code: string, message: string, path?: string): ValidationIssue {
@@ -189,6 +190,7 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
   const blockDependentsByRef = new Map<string, string[]>();
   const reviewBlocksByTask = new Map<string, string[]>();
   const locksByBlockRef = new Map<string, string[]>();
+  const sharedResourcesByBlockRef = new Map<string, string[]>();
 
   for (const taskId of taskNodesInManifestOrder) {
     taskDependenciesByTask.set(taskId, []);
@@ -221,6 +223,7 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
         reviewBlocksByTask.get(taskId)?.push(ref);
       }
       locksByBlockRef.set(ref, effectiveLocksForBlock(block));
+      sharedResourcesByBlockRef.set(ref, sharedResourcesForBlock(block));
       if (blockUsesDeprecatedParallelSafe(block)) {
         warnings.push(deprecatedParallelSafeWarning(ref));
       }
@@ -350,6 +353,7 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
     blockDependentsByRef,
     reviewBlocksByTask,
     locksByBlockRef,
+    sharedResourcesByBlockRef,
     diagnostics: { errors, warnings },
     taskReachable: (from, to) => reachable(taskAdjacency, from, to),
     blockReachable: (fromRef, toRef) => reachable(blockDependenciesByRef, fromRef, toRef)

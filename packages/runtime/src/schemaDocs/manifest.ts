@@ -112,6 +112,8 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
             parallel: {
               locks:
                 'string[], default: []; reserved name "exclusive" is mutually exclusive with every other block',
+              sharedResources:
+                "string[], default: []; non-blocking coordination hints that never affect ready, claim, or scheduling",
               safe: 'boolean, optional, deprecated — use locks:["exclusive"] instead of safe:false; presence emits a deprecation warning'
             }
           },

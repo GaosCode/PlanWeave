@@ -7,6 +7,7 @@ import type {
   DesktopBlockWaitingOn,
   DesktopGraphViewModel,
   DesktopLockGroup,
+  DesktopSharedResourceGroup,
   DesktopTaskNodeViewModel
 } from "../types/graphTypes.js";
 
@@ -22,8 +23,16 @@ export const desktopLockGroupSchema = z.object({
   holderRef: z.string().min(1).nullable()
 });
 
+export const desktopSharedResourceGroupSchema = z.object({
+  name: z.string().min(1),
+  memberTaskIds: z.array(z.string().min(1)),
+  memberBlockRefs: z.array(z.string().min(1)),
+  activeBlockRefs: z.array(z.string().min(1))
+});
+
 export type DesktopBlockWaitingOnDto = z.infer<typeof desktopBlockWaitingOnSchema>;
 export type DesktopLockGroupDto = z.infer<typeof desktopLockGroupSchema>;
+export type DesktopSharedResourceGroupDto = z.infer<typeof desktopSharedResourceGroupSchema>;
 
 function inProgressImplementationRefs(
   graph: CompiledExecutionGraph,
@@ -130,6 +139,41 @@ export function buildLockGroups(
   });
 }
 
+export function buildSharedResourceGroups(
+  graph: CompiledExecutionGraph,
+  state: RuntimeState
+): DesktopSharedResourceGroup[] {
+  const memberBlockRefsByResource = new Map<string, Set<string>>();
+  for (const [ref, resources] of graph.sharedResourcesByBlockRef.entries()) {
+    for (const resource of resources) {
+      const members = memberBlockRefsByResource.get(resource) ?? new Set<string>();
+      members.add(ref);
+      memberBlockRefsByResource.set(resource, members);
+    }
+  }
+  return [...memberBlockRefsByResource.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, members]) => {
+      const memberBlockRefs = [...members].sort((left, right) => left.localeCompare(right));
+      const memberTaskIds = [
+        ...new Set(
+          memberBlockRefs.flatMap((ref) => {
+            const taskId = graph.blockTaskByRef.get(ref);
+            return taskId ? [taskId] : [];
+          })
+        )
+      ].sort((left, right) => left.localeCompare(right));
+      return {
+        name,
+        memberTaskIds,
+        memberBlockRefs,
+        activeBlockRefs: memberBlockRefs.filter(
+          (ref) => state.blocks[ref]?.status === "in_progress"
+        )
+      };
+    });
+}
+
 function enrichBlockPreview(
   block: DesktopBlockPreview,
   graph: CompiledExecutionGraph,
@@ -158,6 +202,19 @@ function taskLocks(graph: CompiledExecutionGraph, task: DesktopTaskNodeViewModel
   return [...locks].sort((left, right) => left.localeCompare(right));
 }
 
+function taskSharedResources(
+  graph: CompiledExecutionGraph,
+  task: DesktopTaskNodeViewModel
+): string[] {
+  const resources = new Set<string>();
+  for (const block of task.blocks) {
+    for (const resource of graph.sharedResourcesByBlockRef.get(block.ref) ?? []) {
+      resources.add(resource);
+    }
+  }
+  return [...resources].sort((left, right) => left.localeCompare(right));
+}
+
 /**
  * Attach locks, per-block dispatchability/waitingOn, and canvas lock groups.
  * Derives from claim hints + graph indexes (single authority; renderer must not recompute).
@@ -179,14 +236,17 @@ export function enrichGraphViewModelLocks(
     return {
       ...task,
       locks: taskLocks(options.graph, { ...task, blocks }),
+      sharedResources: taskSharedResources(options.graph, { ...task, blocks }),
       blocks,
       blockPreview: blocks.slice(0, visibleCount)
     };
   });
   const lockGroups = buildLockGroups(options.graph, options.state);
+  const sharedResourceGroups = buildSharedResourceGroups(options.graph, options.state);
   return {
     ...graphView,
     tasks,
-    lockGroups
+    lockGroups,
+    sharedResourceGroups
   };
 }

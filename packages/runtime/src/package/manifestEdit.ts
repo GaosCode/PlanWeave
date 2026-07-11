@@ -58,6 +58,9 @@ function blockUpdatedFields(manifest: PlanPackageManifest, options: EditBlockInp
     ) {
       fields.push("parallel.locks");
     }
+    if (options.sharedResources !== undefined) {
+      fields.push("parallel.sharedResources");
+    }
   } else {
     if (options.reviewRequired !== undefined) {
       fields.push("review.required");
@@ -130,6 +133,7 @@ export async function editBlock(options: EditBlockInput): Promise<EditBlockResul
         parallelSafe: options.parallelSafe,
         exclusive: options.exclusive,
         parallelLocks: options.parallelLocks,
+        sharedResources: options.sharedResources,
         reviewRequired: options.reviewRequired,
         maxFeedbackCycles: options.maxFeedbackCycles,
         reviewHook: options.reviewHook

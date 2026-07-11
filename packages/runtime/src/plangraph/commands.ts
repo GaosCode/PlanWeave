@@ -70,6 +70,7 @@ export type UpdateBlockFieldsCommand = PlanGraphCommandBase & {
     parallelSafe?: boolean;
     exclusive?: boolean;
     parallelLocks?: string[];
+    sharedResources?: string[];
     reviewRequired?: boolean;
     maxFeedbackCycles?: number;
     reviewHook?: ReviewHookDefinition | null;

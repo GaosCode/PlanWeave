@@ -76,7 +76,7 @@ describe("lock colors and badges", () => {
     expect(screen.getByTestId("task-node-lock-overflow")).toHaveTextContent("+1");
   });
 
-  it("replaces other chips with exclusive lock chip", () => {
+  it("treats every shared-resource name as an ordinary chip", () => {
     render(
       <LockBadges
         locks={["db", "exclusive", "api"]}
@@ -96,8 +96,8 @@ describe("lock colors and badges", () => {
       />
     );
     const chips = screen.getAllByTestId("task-node-lock-chip");
-    expect(chips).toHaveLength(1);
-    expect(chips[0]).toHaveAttribute("data-lock-name", "exclusive");
-    expect(chips[0]).toHaveTextContent("Exclusive");
+    expect(chips).toHaveLength(3);
+    expect(chips[1]).toHaveAttribute("data-lock-name", "exclusive");
+    expect(chips[1]).toHaveTextContent("exclusive");
   });
 });

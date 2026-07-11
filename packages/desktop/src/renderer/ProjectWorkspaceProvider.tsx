@@ -444,12 +444,12 @@ export function ProjectWorkspaceProvider({
 
   const handleLockOverflow = useCallback(
     (_taskId: string) => {
-      // Overflow opens the resource panel for the first lock of the task (or active pin).
+      // Overflow opens the resource panel for the first shared-resource hint (or active pin).
       if (pinnedLock) {
         return;
       }
       const task = graph?.tasks.find((item) => item.taskId === _taskId);
-      const firstLock = task?.locks[0];
+      const firstLock = task?.sharedResources?.[0];
       if (firstLock) {
         setPinnedLock(firstLock);
       }

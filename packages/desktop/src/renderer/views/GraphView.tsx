@@ -365,7 +365,7 @@ export function GraphView({
               <Redo2Icon />
             </Button>
           </div>
-          {(graph.lockGroups ?? []).length > 0 ? (
+          {(graph.sharedResourceGroups ?? []).length > 0 ? (
             <div className="flex h-full border-l border-border/70">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -378,7 +378,7 @@ export function GraphView({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="min-w-[220px]">
-                  {(graph.lockGroups ?? []).map((group) => {
+                  {(graph.sharedResourceGroups ?? []).map((group) => {
                     const color = lockColor(group.name);
                     return (
                       <DropdownMenuItem
@@ -395,11 +395,13 @@ export function GraphView({
                           style={{ backgroundColor: color.dot }}
                         />
                         <span className="flex-1 truncate">
-                          {group.name === "exclusive" ? t("exclusiveLock") : group.name}
+                          {group.name}
                         </span>
                         <span className="ml-2 text-xs text-text-faint">
                           {group.memberTaskIds.length}
-                          {group.holderRef ? ` · ${t("lockHeld")}` : ` · ${t("lockFree")}`}
+                          {group.activeBlockRefs.length > 0
+                            ? ` · ${group.activeBlockRefs.length} ${t("inProgress")}`
+                            : ""}
                         </span>
                       </DropdownMenuItem>
                     );
@@ -412,7 +414,9 @@ export function GraphView({
       ) : null}
       {graph && pinnedLock
         ? (() => {
-            const lockGroup = (graph.lockGroups ?? []).find((group) => group.name === pinnedLock);
+            const lockGroup = (graph.sharedResourceGroups ?? []).find(
+              (group) => group.name === pinnedLock
+            );
             if (!lockGroup || !selectedProject) {
               return null;
             }

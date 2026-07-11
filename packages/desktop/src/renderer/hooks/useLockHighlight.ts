@@ -4,7 +4,7 @@ import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
 const HOVER_LEAVE_DELAY_MS = 150;
 
 /**
- * Canvas lock highlight/pin state for mutex-group overlays.
+ * Canvas shared-resource highlight/pin state.
  * Esc clears pin via a dedicated window keydown listener (browser-capability hook).
  */
 export function useLockHighlight(graph: DesktopGraphViewModel | null) {
@@ -84,12 +84,13 @@ export function useLockHighlight(graph: DesktopGraphViewModel | null) {
       return;
     }
     const released: string[] = [];
-    for (const group of graph.lockGroups ?? []) {
+    for (const group of graph.sharedResourceGroups ?? []) {
       const previous = previousHoldersRef.current.get(group.name);
-      if (previous != null && group.holderRef == null) {
+      const activeKey = group.activeBlockRefs.join("\u0000") || null;
+      if (previous != null && activeKey == null) {
         released.push(group.name);
       }
-      previousHoldersRef.current.set(group.name, group.holderRef);
+      previousHoldersRef.current.set(group.name, activeKey);
     }
     if (released.length === 0) {
       return;
@@ -104,8 +105,11 @@ export function useLockHighlight(graph: DesktopGraphViewModel | null) {
   }, [graph]);
 
   const lockGroupByName = useMemo(() => {
-    const map = new Map<string, NonNullable<DesktopGraphViewModel["lockGroups"]>[number]>();
-    for (const group of graph?.lockGroups ?? []) {
+    const map = new Map<
+      string,
+      NonNullable<DesktopGraphViewModel["sharedResourceGroups"]>[number]
+    >();
+    for (const group of graph?.sharedResourceGroups ?? []) {
       map.set(group.name, group);
     }
     return map;

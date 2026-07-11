@@ -598,6 +598,9 @@ export const zhCnCatalog = {
   moreLocks: "+{count}",
   unpinResource: "取消固定",
   resourceMembers: "成员",
+  sharedResourceHint: "共享资源",
+  sharedResourceNonBlocking: "这些任务关联同一资源，改动范围重叠时需要协调。",
+  sharedResourceOverlap: "多个任务正在使用该资源，改动范围重叠时需要协调。",
   lockHeld: "占用中",
   lockFree: "空闲"
 } satisfies Record<TranslationKey, string>;

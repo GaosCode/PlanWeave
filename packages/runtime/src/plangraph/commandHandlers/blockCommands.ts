@@ -141,6 +141,7 @@ export const blockCommandHandler: PlanGraphCommandHandler<BlockCommand> = {
         parallelSafe: command.fields.parallelSafe,
         exclusive: command.fields.exclusive,
         parallelLocks: command.fields.parallelLocks,
+        sharedResources: command.fields.sharedResources,
         reviewRequired: command.fields.reviewRequired,
         maxFeedbackCycles: command.fields.maxFeedbackCycles,
         reviewHook: command.fields.reviewHook
@@ -234,6 +235,9 @@ export const blockCommandHandler: PlanGraphCommandHandler<BlockCommand> = {
         }
         if (command.fields.parallelLocks !== undefined) {
           fields.parallelLocks = [...current.block.parallel.locks];
+        }
+        if (command.fields.sharedResources !== undefined) {
+          fields.sharedResources = [...(current.block.parallel.sharedResources ?? [])];
         }
       } else {
         if (command.fields.reviewRequired !== undefined) {

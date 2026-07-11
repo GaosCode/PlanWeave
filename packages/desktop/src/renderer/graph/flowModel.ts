@@ -17,7 +17,7 @@ import {
   dependencyEdgeSourceColors
 } from "./dependencyEdgeVisual";
 import { displayEdgeManifestData, executionFlowEndpoints } from "./dependencyEdges";
-import { buildTaskDispatchState, buildTaskLockStates } from "./taskLockViewModel";
+import { buildTaskDispatchState } from "./taskLockViewModel";
 import { lockColor } from "./lockColors";
 
 export const nodeTypes = {
@@ -200,7 +200,7 @@ export function graphNodes(
 ): AppFlowNode[] {
   const layoutByNode = new Map(layout?.nodes.map((node) => [node.nodeId, node]) ?? []);
   const defaultPositions = defaultTaskNodePositions(graph);
-  const lockGroups = graph.lockGroups ?? [];
+  const lockGroups = graph.sharedResourceGroups ?? [];
   const activeGroup = lockUi.activeLock
     ? lockGroups.find((group) => group.name === lockUi.activeLock)
     : null;
@@ -211,7 +211,7 @@ export function graphNodes(
       x: defaultLayoutOrigin.x + (index % 3) * defaultLayoutColumnGap,
       y: defaultLayoutOrigin.y + Math.floor(index / 3) * defaultLayoutRowGap
     };
-    const locks = task.locks ?? [];
+    const locks = task.sharedResources ?? [];
     const lockHighlighted = lockUi.activeLock != null && activeMembers.has(task.taskId);
     const dimmed = lockUi.activeLock != null && !activeMembers.has(task.taskId);
     return {
@@ -231,7 +231,7 @@ export function graphNodes(
         blockReviewAttempts,
         blockFeedbackRecords,
         locks,
-        lockStates: buildTaskLockStates(task, lockGroups),
+        lockStates: Object.fromEntries(locks.map((name) => [name, { kind: "free" as const }])),
         dispatchState: buildTaskDispatchState(task),
         highlightedLock: lockUi.activeLock,
         lockHighlighted,
@@ -279,7 +279,7 @@ export function graphEdges(
     graph.tasks.map((task) => task.taskId),
     dependencyLinks
   );
-  const lockGroups = graph.lockGroups ?? [];
+  const lockGroups = graph.sharedResourceGroups ?? [];
   const activeGroup = options.activeLock
     ? lockGroups.find((group) => group.name === options.activeLock)
     : null;
