@@ -131,6 +131,8 @@ const runtimeMock = vi.hoisted(() => {
     testExecutorProfile: vi.fn(async (options: unknown) => ({
       name: "codex",
       adapter: "codex-exec",
+      profileAdapter: "agent",
+      executionIntegration: "codex-exec",
       ok: true,
       message: "executor preflight passed",
       checks: [],

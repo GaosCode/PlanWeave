@@ -63,7 +63,7 @@ export function formatRunStatusHuman(
   lines.push("latest runs:");
   for (const run of status.latestRuns) {
     lines.push(
-      `- ${run.ref} ${run.runId} ${run.status} ${run.executor ?? "unknown"} ${run.adapter ?? "unknown"}`
+      `- ${run.ref} ${run.runId} ${run.status} executor=${run.executor ?? "unknown"} agent=${run.agentId ?? "none"} runner=${run.runnerKind ?? "none"} integration=${run.adapter ?? "unknown"}`
     );
     lines.push(
       `  liveness: status=${run.heartbeatStatus ?? "none"} age=${formatHeartbeatAge(run.heartbeatUpdatedAt)} pid=${run.heartbeatPid ?? "none"} lastActivity=${run.lastActivityAt ?? "none"}`
@@ -169,6 +169,9 @@ export function formatRunSessionDetail(detail: RunSessionDetail): string {
     `started: ${detail.session.startedAt}`,
     `finished: ${detail.session.finishedAt ?? "none"}`,
     `stop reason: ${detail.session.autoRun?.stopReason ?? "none"}`,
+    `effective executor: ${detail.session.autoRun?.effectiveExecutor ?? "none"}`,
+    `agent: ${detail.session.autoRun?.agentId ?? "none"}`,
+    `runner: ${detail.session.autoRun?.runnerKind ?? "none"}`,
     `latest record: ${detail.session.latestRecordId ?? "none"}${detail.session.latestRecordPath ? ` (${detail.session.latestRecordPath})` : ""}`,
     `error: ${detail.session.error ?? "none"}`,
     "events:"
@@ -192,7 +195,7 @@ function formatTerminalReason(reason: RunWithSessionResult["terminalReason"]): s
 
 function formatRunStep(step: AutoRunStepResult): string {
   if (step.kind === "submitted") {
-    return `submitted ${formatStepClaim(step.claim)}`;
+    return `submitted ${formatStepClaim(step.claim)} agent=${step.adapterResult.agentId ?? "none"} runner=${step.adapterResult.runnerKind ?? "none"}`;
   }
   if (step.kind === "batch_submitted") {
     const manualCount = step.steps.filter((item) => item.kind === "manual").length;

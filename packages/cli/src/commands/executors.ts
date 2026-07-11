@@ -38,9 +38,9 @@ export function registerExecutorsCommand(program: Command): void {
       });
       if (options.json) {
         console.log(formatExecutorTestJson(result));
-        return;
+      } else {
+        console.log(formatExecutorTestHuman(result));
       }
-      console.log(formatExecutorTestHuman(result));
       if (!result.ok) {
         process.exitCode = 1;
       }

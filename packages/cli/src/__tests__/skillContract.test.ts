@@ -114,6 +114,25 @@ describe("agent skill contract docs", () => {
       "Use `<pw> claim-next --dry-run --json` only for automatic preview; exact `claim <ref>` has no dry-run option."
     );
     expect(coordinator).toContain("claim-next --parallel --dry-run --json");
+    expect(coordinator).toContain(
+      "configured runner (CLI or ACP) owns the work: `<pw> run --once --scope block --block <ref>`"
+    );
+    expect(coordinator).toContain(
+      "CLI and ACP are alternative runner transports behind the same `effectiveExecutor` route."
+    );
+    expect(coordinator).toContain(
+      "inspect `<pw> run-status --json` and `<pw> run-session <session-id> --json`"
+    );
+    expect(coordinator).toContain("Never substitute CLI for ACP or ACP for CLI");
+    expect(coordinator).toContain(
+      "The selected agent owns login, subscription, provider configuration, quota, and optional API-key mode."
+    );
+    expect(coordinator).toContain("PlanWeave does not collect or store those credentials.");
+    expect(coordinator).toContain(
+      "Near-headless execution is bounded to the selected profile and declared runner capabilities"
+    );
+    expect(coordinator).toContain("never auto-approve requests");
+    expect(coordinator).toContain("never fall back to another runner transport");
     expect(coordinator).toContain("Use skill: plan-runner");
     expect(coordinator).toContain(
       "Assign `plan-runner` to a worker subagent for one implementation block"

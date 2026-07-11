@@ -82,6 +82,11 @@ describe("planweave CLI help and schema output", () => {
     expect(formatSchemaHelp("manifest")).toContain(
       "Only implementation and review block types are supported."
     );
+    expect(formatSchemaHelp("manifest")).toContain(
+      "Agent identity and runner transport are separate."
+    );
+    expect(formatSchemaHelp("manifest")).toContain("does not require a PlanWeave API key");
+    expect(formatSchemaHelp("manifest")).toContain("explicit *-acp names select ACP");
     expect(formatSchemaHelp("state")).toContain('"planned"');
     expect(formatSchemaHelp("state")).toContain('"implemented"');
     expect(formatSchemaHelp("layout")).toContain('"desktop-layout/v1"');

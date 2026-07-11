@@ -5,6 +5,8 @@ import {
   loadPackage,
   parseBlockRef,
   trustCommand,
+  type AgentFamily,
+  type RunnerTransport,
   type TrustedCommand
 } from "@planweave-ai/runtime";
 import {
@@ -32,6 +34,15 @@ function formatHuman(value: unknown): string {
         return `${item.id.slice(0, 12)}…  ${item.command} ${item.args.join(" ")}`.trimEnd();
       })
       .join("\n");
+  }
+  if (value && typeof value === "object" && "entry" in value) {
+    const trusted = value as {
+      entry: TrustedCommand;
+      executorName: string;
+      agentId: AgentFamily | null;
+      runnerKind: RunnerTransport | null;
+    };
+    return `Trusted: ${trusted.entry.command} ${trusted.entry.args.join(" ")} (executor=${trusted.executorName}, agent=${trusted.agentId ?? "none"}, runner=${trusted.runnerKind ?? "none"})`.trimEnd();
   }
   const entry = value as TrustedCommand;
   return `Trusted: ${entry.command} ${entry.args.join(" ")}`.trimEnd();
@@ -62,17 +73,31 @@ async function trustReviewHook(options: TrustJsonOptions, ref: string): Promise<
 async function trustExecutorProfile(
   options: TrustJsonOptions,
   executorName: string
-): Promise<TrustedCommand> {
+): Promise<{
+  entry: TrustedCommand;
+  executorName: string;
+  agentId: AgentFamily | null;
+  runnerKind: RunnerTransport | null;
+}> {
   const projectRoot = await resolveCliPackageWorkspace(options);
   const profiles = await listExecutorProfiles({ projectRoot });
   const profile = profiles.find((item) => item.name === executorName);
   if (!profile) {
     throw new Error(`Executor profile '${executorName}' does not exist.`);
   }
-  if (profile.adapter === "manual" || !("command" in profile)) {
+  if (profile.adapter === "manual") {
     throw new Error(`Executor profile '${executorName}' does not define a command to trust.`);
   }
-  return trustCommand(projectRoot, profile.command, profile.args);
+  const launch = "command" in profile ? profile : profile.acpLaunch;
+  if (!launch) {
+    throw new Error(`Executor profile '${executorName}' does not define a command to trust.`);
+  }
+  return {
+    entry: await trustCommand(projectRoot, launch.command, [...launch.args]),
+    executorName,
+    agentId: profile.agentId ?? null,
+    runnerKind: profile.runnerKind ?? null
+  };
 }
 
 export function registerTrustCommand(program: Command): void {

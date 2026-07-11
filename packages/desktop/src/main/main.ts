@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from "electron";
+import { shutdownActiveAgentRuns } from "@planweave-ai/runtime";
 import { registerApplicationMenu } from "./appMenu.js";
 import { checkForAppUpdate, registerAppUpdateHandlers } from "./appUpdate.js";
 import {
@@ -78,7 +79,16 @@ app.on("before-quit", (event) => {
     return;
   }
   event.preventDefault();
-  void stopMcpTunnelProcesses().finally(() => {
+  void Promise.allSettled([
+    stopMcpTunnelProcesses(),
+    shutdownActiveAgentRuns("PlanWeave Desktop is quitting.")
+  ]).then((results) => {
+    for (const result of results) {
+      if (result.status === "rejected") {
+        console.error(result.reason instanceof Error ? result.reason.message : String(result.reason));
+      }
+    }
+  }).finally(() => {
     mcpTunnelCleanupComplete = true;
     app.quit();
   });

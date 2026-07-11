@@ -40,6 +40,9 @@ export function registerRunCommand(program: Command): void {
       } & CanvasCommandOptions
     ) => {
       const projectRoot = await resolveCliPackageWorkspace(options);
+      const abort = new AbortController();
+      const onSigInt = (): void => abort.abort();
+      process.once("SIGINT", onSigInt);
       const result = await runWithSession({
         projectRoot,
         reset: options.reset,
@@ -49,8 +52,9 @@ export function registerRunCommand(program: Command): void {
         executorName: options.executor,
         parallel: options.parallel,
         scope: parseRunScope(options),
-        stepLimit: parseStepLimit(options.stepLimit)
-      });
+        stepLimit: parseStepLimit(options.stepLimit),
+        signal: abort.signal
+      }).finally(() => process.off("SIGINT", onSigInt));
 
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));

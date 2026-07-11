@@ -74,6 +74,8 @@ function deferred<T>() {
 const preflightResult: ExecutorPreflightResult = {
   name: "codex",
   adapter: "codex-exec",
+  profileAdapter: "agent",
+  executionIntegration: "codex-exec",
   ok: false,
   message: "Command 'codex' could not be started: missing",
   checks: [

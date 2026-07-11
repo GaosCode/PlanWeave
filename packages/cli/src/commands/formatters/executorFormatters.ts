@@ -6,11 +6,14 @@ export function formatExecutorTestJson(result: ExecutorPreflightResult): string 
 
 export function formatExecutorTestHuman(result: ExecutorPreflightResult): string {
   const failedCheck = result.checks.find((check) => check.status === "failed");
-  return `${result.ok ? "ok" : "failed"} ${result.name}: ${failedCheck?.message ?? result.message}`;
+  return `${result.ok ? "ok" : "failed"} ${result.name} agent=${result.agentId ?? "none"} runner=${result.runnerKind ?? "none"}: ${failedCheck?.message ?? result.message}`;
 }
 
 export function formatExecutorProfilesHuman(result: ExecutorProfileSummary[]): string {
   return result
-    .map((profile) => `${profile.name}\t${profile.adapter}\t${profile.source}`)
+    .map(
+      (profile) =>
+        `${profile.name}\t${profile.adapter}\t${profile.agentId ?? "none"}\t${profile.runnerKind ?? "none"}\t${profile.source}`
+    )
     .join("\n");
 }

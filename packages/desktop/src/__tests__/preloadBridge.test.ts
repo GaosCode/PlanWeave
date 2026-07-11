@@ -131,6 +131,8 @@ describe("preload bridge invocation", () => {
     const invoke = vi.fn<Parameters<typeof createDesktopBridgeInvokeApi>[0]>(async () => ({
       name: "codex",
       adapter: "codex-exec",
+      profileAdapter: "agent",
+      executionIntegration: "codex-exec",
       ok: true,
       message: "executor preflight passed",
       checks: []

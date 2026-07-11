@@ -265,7 +265,8 @@ export function SettingsAgentsSection({
                     {selectedExecutorLabel}: {preflight.result.message}
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {t("adapter")}: {preflight.result.adapter ?? t("none")}
+                    {t("adapter")}: {preflight.result.profileAdapter ?? t("none")} /{" "}
+                    {preflight.result.executionIntegration ?? t("none")}
                   </div>
                 </div>
                 <ExecutorPreflightCheckList result={preflight.result} t={t} />

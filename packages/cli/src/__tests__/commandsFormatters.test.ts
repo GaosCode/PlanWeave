@@ -20,6 +20,8 @@ describe("planweave CLI command formatters", () => {
       formatExecutorTestJson({
         name: "node-version",
         adapter: "codex-exec",
+        profileAdapter: "agent",
+        executionIntegration: "codex-exec",
         ok: true,
         message: "v26.3.0",
         checks: [
@@ -63,6 +65,8 @@ describe("planweave CLI command formatters", () => {
     expect(result).toMatchObject({
       name: "node-version",
       adapter: "codex-exec",
+      profileAdapter: "agent",
+      executionIntegration: "codex-exec",
       ok: true,
       checks: [
         { check: "profile_exists", status: "passed" },
@@ -79,6 +83,8 @@ describe("planweave CLI command formatters", () => {
       formatExecutorTestHuman({
         name: "missing-profile",
         adapter: null,
+        profileAdapter: null,
+        executionIntegration: null,
         ok: false,
         message: "Executor profile 'missing-profile' does not exist.",
         checks: [
@@ -110,7 +116,9 @@ describe("planweave CLI command formatters", () => {
           }
         ]
       })
-    ).toBe("failed missing-profile: Executor profile 'missing-profile' does not exist.");
+    ).toBe(
+      "failed missing-profile agent=none runner=none: Executor profile 'missing-profile' does not exist."
+    );
   });
 
   it("prints executor profile lists in human output", () => {
@@ -119,10 +127,12 @@ describe("planweave CLI command formatters", () => {
         {
           name: "manual",
           adapter: "manual",
+          profileAdapter: "manual",
+          executionIntegration: "manual",
           source: "builtin"
         }
       ])
-    ).toBe("manual\tmanual\tbuiltin");
+    ).toBe("manual\tmanual\tnone\tnone\tbuiltin");
   });
 
   it("prints claim hint status reasons", () => {
