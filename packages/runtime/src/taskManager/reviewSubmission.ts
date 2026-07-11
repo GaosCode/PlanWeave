@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { z } from "zod";
 import { isNodeFileNotFoundError, optionalReaddir } from "../fs/optionalFile.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
@@ -20,6 +19,7 @@ import type {
 } from "../types.js";
 import { writeFeedbackArtifact, type FeedbackArtifact } from "./feedbackArtifacts.js";
 import { executeReviewHook } from "./reviewHook.js";
+import { reviewResultSchema } from "./reviewResultContract.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import {
   allocatePrefixedId,
@@ -30,15 +30,6 @@ import {
   updateTaskIndex
 } from "./resultIndex.js";
 import { computeWorkRevision, getBlock, getTask, isActiveFeedbackStatus } from "./selectors.js";
-
-const reviewResultSchema = z
-  .object({
-    reviewBlockRef: z.string().min(1),
-    taskId: z.string().min(1),
-    verdict: z.enum(["passed", "needs_changes"]),
-    content: z.string()
-  })
-  .strict();
 
 function reviewResultHash(result: ReviewResult): string {
   return createHash("sha256").update(JSON.stringify(result)).digest("hex");
@@ -321,6 +312,19 @@ export async function submitReviewResult(options: {
   session?: ExecutionGraphSession;
 }): Promise<SubmitReviewResult> {
   const parsed = reviewResultSchema.parse(await readJsonFile<unknown>(options.resultPath));
+  return submitReviewResultValue(options, parsed);
+}
+
+export async function submitReviewResultValue(
+  options: {
+    projectRoot: PackageWorkspaceRef;
+    ref: string;
+    resultPath: string;
+    session?: ExecutionGraphSession;
+  },
+  value: unknown
+): Promise<SubmitReviewResult> {
+  const parsed = reviewResultSchema.parse(value);
   const resultHash = reviewResultHash(parsed);
   const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
   return withCanvasLock(dirname(lockWorkspace.stateFile), async () =>

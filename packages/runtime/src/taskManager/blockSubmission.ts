@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import {
+  materializeArtifactBytes,
+  readVerifiedArtifactReference,
+  type ArtifactMaterializationHooks
+} from "../autoRun/artifactReferenceContract.js";
+import type { ArtifactReference } from "../autoRun/runnerContractSchemas.js";
 import { allocateRunId } from "../autoRun/executorShared.js";
 import { optionalReaddir } from "../fs/optionalFile.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
@@ -18,34 +24,53 @@ import { exists, loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { getBlock } from "./selectors.js";
 import { incrementTaskIndexCount, readTaskIndex, updateTaskIndex } from "./resultIndex.js";
 
-async function fileHash(path: string): Promise<string> {
-  return createHash("sha256")
-    .update(await readFile(path))
-    .digest("hex");
-}
+type BlockSubmissionArtifact =
+  | { mode: "legacy"; bytes: Buffer }
+  | { mode: "verified"; reference: ArtifactReference; bytes: Buffer };
 
 async function runHasSubmittedResult(
   runDir: string,
   ref: string,
   runId: string,
-  reportHash?: string
+  artifact: BlockSubmissionArtifact
 ): Promise<boolean> {
   const metadataPath = join(runDir, "metadata.json");
   const reportPath = join(runDir, "report.md");
-  if (!(await exists(metadataPath)) || !(await exists(reportPath))) {
+  if (!((await exists(metadataPath)) && (await exists(reportPath)))) {
     return false;
   }
   const metadata = await readJsonFile<Record<string, unknown>>(metadataPath);
   if (metadata.ref !== ref || metadata.runId !== runId) {
     return false;
   }
-  if (!reportHash) {
-    return true;
+  const reportHash = createHash("sha256").update(artifact.bytes).digest("hex");
+  if (metadata.reportHash !== reportHash) {
+    return false;
   }
-  if (metadata.reportHash === reportHash) {
-    return true;
+  let persistedBytes: Buffer;
+  if (artifact.mode === "verified") {
+    const persisted = await readVerifiedArtifactReference({
+      rootDir: runDir,
+      value: metadata.artifactReference
+    });
+    if (
+      persisted.reference.version !== artifact.reference.version ||
+      persisted.reference.kind !== artifact.reference.kind ||
+      persisted.reference.relativePath !== artifact.reference.relativePath ||
+      persisted.reference.sha256 !== artifact.reference.sha256 ||
+      persisted.reference.sizeBytes !== artifact.reference.sizeBytes ||
+      persisted.reference.mediaType !== artifact.reference.mediaType
+    ) {
+      throw new Error(`Persisted artifact reference for run '${runId}' does not match submission.`);
+    }
+    persistedBytes = persisted.bytes;
+  } else {
+    persistedBytes = await readFile(reportPath);
   }
-  return (await fileHash(reportPath)) === reportHash;
+  if (!persistedBytes.equals(artifact.bytes)) {
+    throw new Error(`Persisted report for run '${runId}' does not match its submitted hash.`);
+  }
+  return true;
 }
 
 async function findPersistedRun(
@@ -53,14 +78,14 @@ async function findPersistedRun(
   taskId: string,
   blockId: string,
   ref: string,
-  reportHash?: string
+  artifact: BlockSubmissionArtifact
 ): Promise<string | null> {
   const runRoot = join(workspace.resultsDir, taskId, "blocks", blockId, "runs");
   const index = await readTaskIndex(workspace, taskId);
   const indexedRunId = index.latestRunByBlock?.[ref];
   if (
     indexedRunId &&
-    (await runHasSubmittedResult(join(runRoot, indexedRunId), ref, indexedRunId, reportHash))
+    (await runHasSubmittedResult(join(runRoot, indexedRunId), ref, indexedRunId, artifact))
   ) {
     return indexedRunId;
   }
@@ -74,7 +99,7 @@ async function findPersistedRun(
     .sort()
     .reverse();
   for (const runId of runIds) {
-    if (await runHasSubmittedResult(join(runRoot, runId), ref, runId, reportHash)) {
+    if (await runHasSubmittedResult(join(runRoot, runId), ref, runId, artifact)) {
       return runId;
     }
   }
@@ -88,7 +113,61 @@ export async function submitBlockResult(options: {
   runId?: string;
   session?: ExecutionGraphSession;
 }): Promise<SubmitResult> {
-  const reportHash = await fileHash(options.reportPath);
+  return submitBlockResultFromBytes(options, await readFile(options.reportPath));
+}
+
+export async function submitBlockResultFromBytes(
+  options: {
+    projectRoot: PackageWorkspaceRef;
+    ref: string;
+    reportPath: string;
+    runId?: string;
+    session?: ExecutionGraphSession;
+  },
+  reportBytes: Buffer
+): Promise<SubmitResult> {
+  return submitBlockResultArtifact(options, { mode: "legacy", bytes: reportBytes });
+}
+
+export async function submitVerifiedBlockResult(
+  options: {
+    projectRoot: PackageWorkspaceRef;
+    ref: string;
+    reportPath: string;
+    runId?: string;
+    session?: ExecutionGraphSession;
+  },
+  artifact: { reference: ArtifactReference; bytes: Buffer },
+  hooks: ArtifactMaterializationHooks = {}
+): Promise<SubmitResult> {
+  return submitBlockResultArtifact(
+    options,
+    { mode: "verified", reference: artifact.reference, bytes: artifact.bytes },
+    hooks
+  );
+}
+
+async function submitBlockResultArtifact(
+  options: {
+    projectRoot: PackageWorkspaceRef;
+    ref: string;
+    reportPath: string;
+    runId?: string;
+    session?: ExecutionGraphSession;
+  },
+  artifact: BlockSubmissionArtifact,
+  hooks: ArtifactMaterializationHooks = {}
+): Promise<SubmitResult> {
+  const reportHash = createHash("sha256").update(artifact.bytes).digest("hex");
+  if (
+    artifact.mode === "verified" &&
+    (artifact.reference.kind !== "implementation" ||
+      artifact.reference.relativePath !== "report.md" ||
+      artifact.reference.sha256 !== reportHash ||
+      artifact.reference.sizeBytes !== artifact.bytes.byteLength)
+  ) {
+    throw new Error("Verified implementation artifact reference does not match its bytes.");
+  }
   const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
   return withCanvasLock(dirname(lockWorkspace.stateFile), async () => {
     const context = await loadRuntime(options);
@@ -100,9 +179,13 @@ export async function submitBlockResult(options: {
       throw new Error("submit-result only accepts implementation blocks.");
     }
     const inProgress = state.blocks[options.ref]?.status === "in_progress";
-    const persistedRunId =
-      (await findPersistedRun(workspace, taskId, blockId, options.ref, reportHash)) ??
-      (inProgress ? await findPersistedRun(workspace, taskId, blockId, options.ref) : null);
+    const persistedRunId = await findPersistedRun(
+      workspace,
+      taskId,
+      blockId,
+      options.ref,
+      artifact
+    );
     if (persistedRunId) {
       await updateTaskIndex(workspace, taskId, (index) => ({
         ...index,
@@ -135,8 +218,20 @@ export async function submitBlockResult(options: {
     const runDir = join(runRoot, runId);
     const reportDestination = join(runDir, "report.md");
     const metadataPath = join(runDir, "metadata.json");
-    if (options.reportPath !== reportDestination) {
-      await copyFile(options.reportPath, reportDestination);
+    const artifactReference =
+      artifact.mode === "verified"
+        ? await materializeArtifactBytes(
+            {
+              rootDir: runDir,
+              relativePath: "report.md",
+              kind: "implementation",
+              content: artifact.bytes
+            },
+            hooks
+          )
+        : null;
+    if (artifact.mode === "legacy") {
+      await writeFile(reportDestination, artifact.bytes);
     }
     const previousMetadata = (await exists(metadataPath))
       ? await readJsonFile<Record<string, unknown>>(metadataPath)
@@ -149,6 +244,7 @@ export async function submitBlockResult(options: {
       runId,
       submittedAt: new Date().toISOString(),
       reportHash,
+      ...(artifactReference ? { artifactReference } : {}),
       sourceReportPath: options.reportPath
     });
     await updateTaskIndex(workspace, taskId, (index) => ({

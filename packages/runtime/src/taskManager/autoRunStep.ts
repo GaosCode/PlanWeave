@@ -1,19 +1,31 @@
-import { dirname } from "node:path";
-import { createExecutorAdapter } from "../autoRun/executors.js";
+import { dirname, join, resolve } from "node:path";
+import { readVerifiedArtifactReference } from "../autoRun/artifactReferenceContract.js";
+import { finalArtifactRelativePath } from "../autoRun/finalArtifactContract.js";
+import {
+  createExecutorAdapter,
+  executorRunnerEvidenceForManifest,
+  resolveExecutorRunnerEvidence
+} from "../autoRun/executors.js";
+import { ExecutorCancelledError, isExecutorCancelledError } from "../autoRun/executorShared.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
+import { readJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
 import type {
   AutoRunStepResult,
+  AutoRunRunnerEvidence,
   ClaimScope,
   ClaimResult,
   ExecutionGraphSession,
   ExecutorAdapter,
+  ExecutorAdapterResult,
   PlanPackageManifest
 } from "../types.js";
 import type { PackageWorkspaceRef } from "../types.js";
 import { patchFeedbackArtifact } from "./feedbackArtifacts.js";
+import { submitFeedbackFromBytes } from "./feedbackSubmission.js";
+import { submitVerifiedBlockResult } from "./blockSubmission.js";
 import {
   claimNext,
   markBlockBlocked,
@@ -24,11 +36,13 @@ import {
   submitReviewResult
 } from "./index.js";
 import { updateTaskIndex } from "./resultIndex.js";
+import { reviewResultSchema } from "./reviewResultContract.js";
+import { submitReviewResultValue } from "./reviewSubmission.js";
 import { loadRuntime, loadRuntimeReadonly, refreshDerivedState } from "./runtimeContext.js";
 
 type BlockClaim = Extract<ClaimResult, { kind: "block" }>;
 type SubmittedOrManualStep = Extract<AutoRunStepResult, { kind: "submitted" | "manual" }>;
-type BlockedStep = { kind: "blocked"; claim: ClaimResult };
+type BlockedStep = Extract<AutoRunStepResult, { kind: "blocked" }>;
 type BlockPipelineStage =
   | "Prompt rendering"
   | "Executor"
@@ -37,8 +51,129 @@ type BlockPipelineStage =
   | "Review submission"
   | "Batch claim preparation";
 
+type VerifiedSubmissionArtifact = {
+  reference: Awaited<ReturnType<typeof readVerifiedArtifactReference>>["reference"];
+  bytes: Buffer;
+  reviewResult?: unknown;
+};
+
+type ExpectedArtifactIdentity =
+  | { ref: string; taskId: string; blockId: string }
+  | {
+      feedbackId: string;
+      sourceReviewBlockRef: string;
+      taskId: string;
+    };
+
+function assertAcpMetadataIdentity(
+  metadata: Record<string, unknown>,
+  expected: ExpectedArtifactIdentity
+): void {
+  if ("ref" in expected) {
+    if (
+      metadata.ref !== expected.ref ||
+      metadata.claimRef !== expected.ref ||
+      metadata.taskId !== expected.taskId ||
+      metadata.blockId !== expected.blockId
+    ) {
+      throw new Error("ACP artifact metadata does not identify the active block claim.");
+    }
+    return;
+  }
+  if (
+    metadata.ref !== expected.sourceReviewBlockRef ||
+    metadata.claimRef !== expected.sourceReviewBlockRef ||
+    metadata.sourceReviewBlockRef !== expected.sourceReviewBlockRef ||
+    metadata.feedbackId !== expected.feedbackId ||
+    metadata.taskId !== expected.taskId
+  ) {
+    throw new Error("ACP artifact metadata does not identify the active feedback claim.");
+  }
+}
+
+async function readExecutorSubmissionArtifact(options: {
+  adapter: ExecutorAdapterResult["adapter"];
+  runnerKind: ExecutorAdapterResult["runnerKind"];
+  agentId: ExecutorAdapterResult["agentId"];
+  artifactPath: string;
+  runId: string | undefined;
+  expectedKind: "implementation" | "review" | "feedback";
+  expectedIdentity: ExpectedArtifactIdentity;
+}): Promise<VerifiedSubmissionArtifact | null> {
+  const isAcp = options.runnerKind === "acp";
+  if (!isAcp && (options.adapter === undefined || options.adapter === "manual")) {
+    return null;
+  }
+  const metadata = await readJsonFile<Record<string, unknown>>(
+    join(dirname(options.artifactPath), "metadata.json")
+  );
+  if (
+    (!isAcp && metadata.adapter !== options.adapter) ||
+    (isAcp &&
+      (options.adapter !== undefined ||
+        options.agentId === undefined ||
+        options.agentId === null ||
+        metadata.runnerKind !== "acp" ||
+        metadata.agentId !== options.agentId)) ||
+    metadata.outcome !== "succeeded" ||
+    typeof options.runId !== "string" ||
+    metadata.runId !== options.runId
+  ) {
+    throw new Error("Executor artifact metadata does not identify the successful adapter result.");
+  }
+  if (isAcp) {
+    assertAcpMetadataIdentity(metadata, options.expectedIdentity);
+  } else if ("ref" in options.expectedIdentity) {
+    if (
+      metadata.ref !== options.expectedIdentity.ref ||
+      metadata.taskId !== options.expectedIdentity.taskId ||
+      metadata.blockId !== options.expectedIdentity.blockId
+    ) {
+      throw new Error("Executor artifact metadata does not identify the active block claim.");
+    }
+  } else if (
+    metadata.feedbackId !== options.expectedIdentity.feedbackId ||
+    metadata.sourceReviewBlockRef !== options.expectedIdentity.sourceReviewBlockRef ||
+    metadata.taskId !== options.expectedIdentity.taskId
+  ) {
+    throw new Error("Executor artifact metadata does not identify the active feedback claim.");
+  }
+  const verified = await readVerifiedArtifactReference({
+    rootDir: dirname(options.artifactPath),
+    value: metadata.artifactReference
+  });
+  const expectedPath = finalArtifactRelativePath(options.expectedKind);
+  if (
+    verified.reference.kind !== options.expectedKind ||
+    verified.reference.relativePath !== expectedPath ||
+    resolve(dirname(options.artifactPath), verified.reference.relativePath) !==
+      resolve(options.artifactPath)
+  ) {
+    throw new Error(
+      `Executor artifact reference does not identify the expected ${options.expectedKind} artifact.`
+    );
+  }
+  return options.expectedKind === "review"
+    ? {
+        reference: verified.reference,
+        bytes: verified.bytes,
+        reviewResult: reviewResultSchema.parse(JSON.parse(verified.bytes.toString("utf8")))
+      }
+    : { reference: verified.reference, bytes: verified.bytes };
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function runnerEvidence(options: {
+  projectRoot: PackageWorkspaceRef;
+  executorName: string;
+  session?: ExecutionGraphSession;
+}): Promise<AutoRunRunnerEvidence> {
+  return options.session
+    ? executorRunnerEvidenceForManifest(options.session.fileSnapshot.manifest, options.executorName)
+    : resolveExecutorRunnerEvidence(options);
 }
 
 async function markBlockPipelineFailure(options: {
@@ -46,6 +181,7 @@ async function markBlockPipelineFailure(options: {
   ref: string;
   stage: BlockPipelineStage;
   error: unknown;
+  runnerEvidence?: AutoRunRunnerEvidence;
   session?: ExecutionGraphSession;
 }): Promise<BlockedStep> {
   const reason = `${options.stage} failed for ${options.ref}: ${errorMessage(options.error)}`;
@@ -62,7 +198,8 @@ async function markBlockPipelineFailure(options: {
         kind: "blocked",
         ref: blocked.ref,
         reason: blocked.reason
-      }
+      },
+      ...(options.runnerEvidence ? { runnerEvidence: options.runnerEvidence } : {})
     };
   } catch (cleanupError) {
     throw new AggregateError(
@@ -150,7 +287,9 @@ async function executeBlockClaim(options: {
   projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
   executor: ExecutorAdapter;
+  runnerEvidence: AutoRunRunnerEvidence;
   session?: ExecutionGraphSession;
+  signal?: AbortSignal;
 }): Promise<SubmittedOrManualStep | BlockedStep> {
   let stage: BlockPipelineStage = "Prompt rendering";
   try {
@@ -165,18 +304,37 @@ async function executeBlockClaim(options: {
     if (adapterResult.kind === "manual") {
       return { kind: "manual", claim: options.claim, adapterResult };
     }
+    if (options.signal?.aborted && adapterResult.runnerKind === "acp") {
+      throw new ExecutorCancelledError("Executor result was cancelled before submission.");
+    }
     stage = "Executor result validation";
     if (options.claim.blockType === "review") {
       if (adapterResult.kind !== "review") {
         throw new Error("Executor adapter must return a review result for review block claims.");
       }
       stage = "Review submission";
-      const submitResult = await submitReviewResult({
+      const artifact = await readExecutorSubmissionArtifact({
+        adapter: adapterResult.adapter,
+        runnerKind: adapterResult.runnerKind,
+        agentId: adapterResult.agentId,
+        artifactPath: adapterResult.resultPath,
+        runId: adapterResult.runId,
+        expectedKind: "review",
+        expectedIdentity: {
+          ref: options.claim.ref,
+          taskId: options.claim.taskId,
+          blockId: options.claim.blockId
+        }
+      });
+      const submissionOptions = {
         projectRoot: options.projectRoot,
         ref: options.claim.ref,
         resultPath: adapterResult.resultPath,
         session: options.session
-      });
+      };
+      const submitResult = artifact
+        ? await submitReviewResultValue(submissionOptions, artifact.reviewResult)
+        : await submitReviewResult(submissionOptions);
       return { kind: "submitted", claim: options.claim, adapterResult, submitResult };
     }
     if (adapterResult.kind !== "block") {
@@ -185,20 +343,45 @@ async function executeBlockClaim(options: {
       );
     }
     stage = "Implementation submission";
-    const submitResult = await submitBlockResult({
+    const artifact = await readExecutorSubmissionArtifact({
+      adapter: adapterResult.adapter,
+      runnerKind: adapterResult.runnerKind,
+      agentId: adapterResult.agentId,
+      artifactPath: adapterResult.reportPath,
+      runId: adapterResult.runId,
+      expectedKind: "implementation",
+      expectedIdentity: {
+        ref: options.claim.ref,
+        taskId: options.claim.taskId,
+        blockId: options.claim.blockId
+      }
+    });
+    const submissionOptions = {
       projectRoot: options.projectRoot,
       ref: options.claim.ref,
       reportPath: adapterResult.reportPath,
       runId: adapterResult.runId,
       session: options.session
-    });
+    };
+    const submitResult = artifact
+      ? await submitVerifiedBlockResult(submissionOptions, artifact)
+      : await submitBlockResult(submissionOptions);
     return { kind: "submitted", claim: options.claim, adapterResult, submitResult };
   } catch (error) {
+    if (isExecutorCancelledError(error)) {
+      await releaseInProgressBlock({
+        projectRoot: options.projectRoot,
+        ref: options.claim.ref,
+        session: options.session
+      });
+      throw error;
+    }
     return markBlockPipelineFailure({
       projectRoot: options.projectRoot,
       ref: options.claim.ref,
       stage,
       error,
+      runnerEvidence: options.runnerEvidence,
       session: options.session
     });
   }
@@ -208,7 +391,9 @@ async function executeBatchRef(options: {
   projectRoot: PackageWorkspaceRef;
   ref: string;
   executor: ExecutorAdapter;
+  executorName?: string;
   session?: ExecutionGraphSession;
+  signal?: AbortSignal;
 }): Promise<SubmittedOrManualStep | BlockedStep> {
   let claim: BlockClaim;
   try {
@@ -226,7 +411,13 @@ async function executeBatchRef(options: {
     projectRoot: options.projectRoot,
     claim,
     executor: options.executor,
-    session: options.session
+    runnerEvidence: await runnerEvidence({
+      projectRoot: options.projectRoot,
+      executorName: options.executorName ?? claim.effectiveExecutor,
+      session: options.session
+    }),
+    session: options.session,
+    signal: options.signal
   });
 }
 
@@ -251,6 +442,11 @@ export async function runAutoRunStep(options: {
   executorName?: string;
   tmuxEnabled?: boolean;
   tmuxOwnerRunId?: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  desktopRunId?: string;
+  runSessionId?: string;
+  interactionBroker?: import("../autoRun/liveControl.js").RunnerInteractionBroker;
   parallel?: boolean;
   scope?: ClaimScope;
   session?: ExecutionGraphSession;
@@ -284,7 +480,15 @@ export async function runAutoRunStep(options: {
       createExecutorAdapter({
         projectRoot: options.projectRoot,
         executorName: options.executorName,
-        runtime: { tmuxEnabled: options.tmuxEnabled, tmuxOwnerRunId: options.tmuxOwnerRunId }
+        runtime: {
+          tmuxEnabled: options.tmuxEnabled,
+          tmuxOwnerRunId: options.tmuxOwnerRunId,
+          signal: options.signal,
+          timeoutMs: options.timeoutMs,
+          desktopRunId: options.desktopRunId,
+          runSessionId: options.runSessionId,
+          interactionBroker: options.interactionBroker
+        }
       });
     const settled = await Promise.allSettled(
       claim.refs.map((ref) =>
@@ -292,7 +496,9 @@ export async function runAutoRunStep(options: {
           projectRoot: options.projectRoot,
           ref,
           executor,
-          session: options.session
+          executorName: options.executorName,
+          session: options.session,
+          signal: options.signal
         })
       )
     );
@@ -338,13 +544,65 @@ export async function runAutoRunStep(options: {
     createExecutorAdapter({
       projectRoot: options.projectRoot,
       executorName: options.executorName,
-      runtime: { tmuxEnabled: options.tmuxEnabled, tmuxOwnerRunId: options.tmuxOwnerRunId }
+      runtime: {
+        tmuxEnabled: options.tmuxEnabled,
+        tmuxOwnerRunId: options.tmuxOwnerRunId,
+        signal: options.signal,
+        timeoutMs: options.timeoutMs,
+        desktopRunId: options.desktopRunId,
+        runSessionId: options.runSessionId,
+        interactionBroker: options.interactionBroker
+      }
     });
   if (claim.kind === "feedback") {
-    let adapterResult: Awaited<ReturnType<ExecutorAdapter["runFeedback"]>>;
+    const selectedRunnerEvidence = await runnerEvidence({
+      projectRoot: options.projectRoot,
+      executorName: options.executorName ?? claim.effectiveExecutor,
+      session: options.session
+    });
     try {
-      adapterResult = await executor.runFeedback({ claim });
+      const adapterResult = await executor.runFeedback({ claim });
+      if (adapterResult.kind === "manual") {
+        return { kind: "manual", claim, adapterResult };
+      }
+      if (adapterResult.kind !== "feedback") {
+        throw new Error("Executor adapter must return a feedback report for feedback claims.");
+      }
+      if (options.signal?.aborted && adapterResult.runnerKind === "acp") {
+        throw new ExecutorCancelledError("Executor result was cancelled before submission.");
+      }
+      const artifact = await readExecutorSubmissionArtifact({
+        adapter: adapterResult.adapter,
+        runnerKind: adapterResult.runnerKind,
+        agentId: adapterResult.agentId,
+        artifactPath: adapterResult.reportPath,
+        runId: adapterResult.runId,
+        expectedKind: "feedback",
+        expectedIdentity: {
+          feedbackId: claim.feedbackId,
+          sourceReviewBlockRef: claim.sourceReviewBlockRef,
+          taskId: claim.taskId
+        }
+      });
+      const submissionOptions = {
+        projectRoot: options.projectRoot,
+        reportPath: adapterResult.reportPath,
+        session: options.session
+      };
+      const submitResult = artifact
+        ? await submitFeedbackFromBytes(submissionOptions, artifact.bytes)
+        : await submitFeedback(submissionOptions);
+      return { kind: "submitted", claim, adapterResult, submitResult };
     } catch (error) {
+      if (isExecutorCancelledError(error)) {
+        await releaseFeedbackAfterFailure({
+          projectRoot: options.projectRoot,
+          feedbackId: claim.feedbackId,
+          taskId: claim.taskId,
+          session: options.session
+        });
+        throw error;
+      }
       const reason = `Executor failed for feedback: ${errorMessage(error)}`;
       await releaseFeedbackAfterFailure({
         projectRoot: options.projectRoot,
@@ -357,27 +615,22 @@ export async function runAutoRunStep(options: {
         claim: {
           kind: "blocked",
           reason
-        }
+        },
+        runnerEvidence: selectedRunnerEvidence
       };
     }
-    if (adapterResult.kind === "manual") {
-      return { kind: "manual", claim, adapterResult };
-    }
-    if (adapterResult.kind !== "feedback") {
-      throw new Error("Executor adapter must return a feedback report for feedback claims.");
-    }
-    const submitResult = await submitFeedback({
-      projectRoot: options.projectRoot,
-      reportPath: adapterResult.reportPath,
-      session: options.session
-    });
-    return { kind: "submitted", claim, adapterResult, submitResult };
   }
 
   return executeBlockClaim({
     projectRoot: options.projectRoot,
     claim,
     executor,
-    session: options.session
+    runnerEvidence: await runnerEvidence({
+      projectRoot: options.projectRoot,
+      executorName: options.executorName ?? claim.effectiveExecutor,
+      session: options.session
+    }),
+    session: options.session,
+    signal: options.signal
   });
 }

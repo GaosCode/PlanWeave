@@ -1,10 +1,14 @@
 import { join } from "node:path";
+import { finalArtifactRelativePath } from "../autoRun/finalArtifactContract.js";
 import { optionalReadFile, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { compileTaskGraph, parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { readState } from "../state.js";
 import type {
+  ExecutorIntegrationName,
+  AgentFamily,
+  RunnerTransport,
   AutoRunExplanation,
   AutoRunExplanationPhase,
   AutoRunLatestRunSummary,
@@ -94,7 +98,7 @@ async function runFileUpdateTimes(
   };
 }
 
-function isExecutorAdapter(value: unknown): value is ExecutorProfile["adapter"] {
+function isExecutorIntegration(value: unknown): value is ExecutorIntegrationName {
   return (
     value === "manual" ||
     value === "codex-exec" ||
@@ -103,6 +107,29 @@ function isExecutorAdapter(value: unknown): value is ExecutorProfile["adapter"] 
     value === "pi-exec" ||
     value === "local-review"
   );
+}
+
+function runnerIdentity(metadata: Record<string, unknown>): {
+  agentId: AgentFamily | null;
+  runnerKind: RunnerTransport | null;
+} {
+  const agentId = metadata.agentId;
+  const runnerKind = metadata.runnerKind;
+  if (
+    (agentId === "codex" ||
+      agentId === "opencode" ||
+      agentId === "claude-code" ||
+      agentId === "pi") &&
+    (runnerKind === "cli" || runnerKind === "acp")
+  ) {
+    return { agentId, runnerKind };
+  }
+  const adapter = metadata.adapter;
+  if (adapter === "codex-exec") return { agentId: "codex", runnerKind: "cli" };
+  if (adapter === "opencode-exec") return { agentId: "opencode", runnerKind: "cli" };
+  if (adapter === "claude-code-exec") return { agentId: "claude-code", runnerKind: "cli" };
+  if (adapter === "pi-exec") return { agentId: "pi", runnerKind: "cli" };
+  return { agentId: null, runnerKind: null };
 }
 
 export function createAutoRunExplanation(facts: AutoRunExplanationFacts): AutoRunExplanation {
@@ -433,7 +460,7 @@ async function latestFeedbackRunSummary(options: {
   const taskId =
     stringField(metadata.taskId) ??
     (sourceReviewBlockRef ? parseBlockRef(sourceReviewBlockRef).taskId : null);
-  const reportPath = join(runDir, "report.md");
+  const reportPath = join(runDir, finalArtifactRelativePath("feedback"));
   const promptPath = join(runDir, "prompt.md");
   const feedbackPromptPath = join(runDir, "feedback.md");
   const hasPrompt = await exists(promptPath);
@@ -443,6 +470,7 @@ async function latestFeedbackRunSummary(options: {
   const stderrSummary = await readSummary(join(runDir, "stderr.log"));
   const metadataFailureReason = stringField(metadata.failureReason);
   const updateTimes = await runFileUpdateTimes(runDir, metadataPath);
+  const identity = runnerIdentity(metadata);
   return {
     kind: "feedback",
     ref: feedbackId ?? "feedback",
@@ -451,11 +479,12 @@ async function latestFeedbackRunSummary(options: {
     taskId,
     runId,
     executor: stringField(metadata.executor) ?? (hasManualPrompt ? "manual" : null),
-    adapter: isExecutorAdapter(metadata.adapter)
+    adapter: isExecutorIntegration(metadata.adapter)
       ? metadata.adapter
       : hasManualPrompt
         ? "manual"
         : null,
+    ...identity,
     status: feedbackStatusForRun({
       feedbackId,
       state: options.state,
@@ -507,6 +536,7 @@ export async function getAutoRunStatus(options: {
     const stderrSummary = await readSummary(join(runDir, "stderr.log"));
     const metadataFailureReason = stringField(metadata.failureReason);
     const updateTimes = await runFileUpdateTimes(runDir, metadataPath);
+    const identity = runnerIdentity(metadata);
     latestRuns.push({
       kind: "block",
       ref: block.ref,
@@ -514,7 +544,8 @@ export async function getAutoRunStatus(options: {
       blockId: block.blockId,
       runId,
       executor: typeof metadata.executor === "string" ? metadata.executor : null,
-      adapter: isExecutorAdapter(metadata.adapter) ? metadata.adapter : null,
+      adapter: isExecutorIntegration(metadata.adapter) ? metadata.adapter : null,
+      ...identity,
       status: block.status,
       startedAt: typeof metadata.startedAt === "string" ? metadata.startedAt : null,
       finishedAt: typeof metadata.finishedAt === "string" ? metadata.finishedAt : null,
@@ -526,7 +557,9 @@ export async function getAutoRunStatus(options: {
           ? ((stderrSummary || block.reason) ?? null)
           : (block.reason ?? null)),
       promptPath: join(runDir, "prompt.md"),
-      reportPath: (await exists(join(runDir, "report.md"))) ? join(runDir, "report.md") : null,
+      reportPath: (await exists(join(runDir, finalArtifactRelativePath("implementation"))))
+        ? join(runDir, finalArtifactRelativePath("implementation"))
+        : null,
       metadataPath,
       ...updateTimes,
       tmuxSessionName: stringField(metadata.tmuxSessionName),

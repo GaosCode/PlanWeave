@@ -30,6 +30,30 @@ async function readWorkRevision(root: string, reviewBlockRef = "T-001#R-001"): P
 }
 
 describe("submitReviewResult", () => {
+  it.each(["passed", "needs_changes"] as const)(
+    "rejects blank %s review content before advancing state",
+    async (verdict) => {
+      const { root } = await createTestWorkspace();
+      await completeImplementation(root);
+      const resultPath = join(root, `blank-${verdict}.json`);
+      await writeJsonFile(resultPath, {
+        reviewBlockRef: "T-001#R-001",
+        taskId: "T-001",
+        verdict,
+        content: " \n\t "
+      });
+
+      await expect(
+        submitReviewResult({ projectRoot: root, ref: "T-001#R-001", resultPath })
+      ).rejects.toThrow("blank");
+      await expect(getExecutionStatus({ projectRoot: root })).resolves.toMatchObject({
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ ref: "T-001#R-001", status: "in_progress" })
+        ])
+      });
+    }
+  );
+
   it("passes a review block and aggregates the task as implemented", async () => {
     const { root, init } = await createTestWorkspace();
     await completeImplementation(root);

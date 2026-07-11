@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFile, readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isNodeFileNotFoundError, optionalReaddir } from "../fs/optionalFile.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
@@ -118,7 +118,18 @@ export async function submitFeedback(options: {
   reportPath: string;
   session?: ExecutionGraphSession;
 }): Promise<SubmitFeedbackResult> {
-  const reportHash = await fileHash(options.reportPath);
+  return submitFeedbackFromBytes(options, await readFile(options.reportPath));
+}
+
+export async function submitFeedbackFromBytes(
+  options: {
+    projectRoot: PackageWorkspaceRef;
+    reportPath: string;
+    session?: ExecutionGraphSession;
+  },
+  reportBytes: Buffer
+): Promise<SubmitFeedbackResult> {
+  const reportHash = createHash("sha256").update(reportBytes).digest("hex");
   const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
   return withCanvasLock(dirname(lockWorkspace.stateFile), async () => {
     const context = await loadRuntime(options);
@@ -149,7 +160,7 @@ export async function submitFeedback(options: {
     const submissionId = persistedSubmissionId ?? (await allocatePrefixedId(submissionRoot, "FS"));
     if (!persistedSubmissionId) {
       const submissionDir = join(submissionRoot, submissionId);
-      await copyFile(options.reportPath, join(submissionDir, "report.md"));
+      await writeFile(join(submissionDir, "report.md"), reportBytes);
       await writeJsonFile(join(submissionDir, "metadata.json"), {
         feedbackId,
         submissionId,
