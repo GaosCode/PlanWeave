@@ -1,0 +1,261 @@
+import { z } from "zod";
+import { agentFamilySchema, runnerTransportSchema } from "../types/executor.js";
+import { safeRunnerEventTextSchema, utf8ByteLength } from "./runnerEventRedaction.js";
+
+export const runnerContractVersionSchema = z.literal("planweave.runner/v1");
+export type RunnerContractVersion = z.infer<typeof runnerContractVersionSchema>;
+
+const identifierSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+
+export const projectIdSchema = identifierSchema.brand("ProjectId");
+export const canvasIdSchema = identifierSchema.brand("CanvasId");
+export const taskIdSchema = z.string().min(1).max(256).brand("TaskId");
+export const blockIdSchema = z.string().min(1).max(256).brand("BlockId");
+export const claimRefSchema = z
+  .string()
+  .min(3)
+  .max(513)
+  .regex(/^[^#\s]+#[^#\s]+$/)
+  .brand("ClaimRef");
+export const runnerRunIdSchema = identifierSchema.brand("RunnerRunId");
+export const runSessionIdSchema = identifierSchema.brand("RunSessionId");
+export const desktopRunIdSchema = identifierSchema.brand("DesktopRunId");
+export const executorRunIdSchema = identifierSchema.brand("ExecutorRunId");
+export const acpSessionIdSchema = identifierSchema.brand("AcpSessionId");
+export const acpRequestIdSchema = identifierSchema.brand("AcpRequestId");
+export const jsonRpcCorrelationIdSchema = z
+  .union([z.string().min(1).max(256), z.number().int().safe()])
+  .brand("JsonRpcCorrelationId");
+
+export const runnerIdentitySchema = z
+  .object({
+    version: runnerContractVersionSchema,
+    runnerKind: runnerTransportSchema,
+    agentId: agentFamilySchema
+  })
+  .strict();
+export type RunnerIdentity = z.infer<typeof runnerIdentitySchema>;
+
+export const runnerRunIdentitySchema = z
+  .object({
+    projectId: projectIdSchema,
+    canvasId: canvasIdSchema,
+    taskId: taskIdSchema,
+    blockId: blockIdSchema,
+    claimRef: claimRefSchema,
+    runId: runnerRunIdSchema,
+    runOwner: z.enum(["executor", "desktop", "run-session"]),
+    runSessionId: runSessionIdSchema.nullable(),
+    desktopRunId: desktopRunIdSchema.nullable(),
+    executorRunId: executorRunIdSchema.nullable()
+  })
+  .strict()
+  .superRefine((identity, context) => {
+    if (identity.claimRef !== `${identity.taskId}#${identity.blockId}`) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["claimRef"],
+        message: "claimRef must equal taskId#blockId."
+      });
+    }
+    const ownerId =
+      identity.runOwner === "executor"
+        ? identity.executorRunId
+        : identity.runOwner === "desktop"
+          ? identity.desktopRunId
+          : identity.runSessionId;
+    if (ownerId === null || String(identity.runId) !== String(ownerId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["runId"],
+        message: `runId must equal the non-null ${identity.runOwner} owner id.`
+      });
+    }
+  });
+export type RunnerRunIdentity = z.infer<typeof runnerRunIdentitySchema>;
+
+export const acpCorrelationSchema = z
+  .object({
+    sessionId: acpSessionIdSchema,
+    requestId: acpRequestIdSchema.optional(),
+    jsonRpcId: jsonRpcCorrelationIdSchema.optional()
+  })
+  .strict();
+export type AcpCorrelation = z.infer<typeof acpCorrelationSchema>;
+
+export const runnerCapabilitySchema = z.enum([
+  "session",
+  "prompt",
+  "cancel",
+  "permission",
+  "authentication",
+  "elicitation",
+  "event-replay",
+  "streaming",
+  "tool-updates",
+  "image",
+  "embedded-context",
+  "session-close",
+  "history-load"
+]);
+export type RunnerCapability = z.infer<typeof runnerCapabilitySchema>;
+
+export const negotiatedCapabilitiesSchema = z
+  .object({
+    version: runnerContractVersionSchema,
+    required: z.array(runnerCapabilitySchema).max(32),
+    available: z.array(runnerCapabilitySchema).max(32),
+    negotiated: z.array(runnerCapabilitySchema).max(32)
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const available = new Set(value.available);
+    const negotiated = new Set(value.negotiated);
+    for (const capability of value.required) {
+      if (!negotiated.has(capability)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["negotiated"],
+          message: `Required capability '${capability}' was not negotiated.`
+        });
+      }
+    }
+    for (const capability of value.negotiated) {
+      if (!available.has(capability)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["negotiated"],
+          message: `Negotiated capability '${capability}' is not available.`
+        });
+      }
+    }
+    for (const [field, capabilities] of Object.entries({
+      required: value.required,
+      available: value.available,
+      negotiated: value.negotiated
+    })) {
+      if (new Set(capabilities).size !== capabilities.length) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: `${field} capabilities must be unique.`
+        });
+      }
+    }
+  });
+export type NegotiatedCapabilities = z.infer<typeof negotiatedCapabilitiesSchema>;
+
+export const runnerNonterminalStateSchema = z.enum([
+  "created",
+  "initializing",
+  "ready",
+  "running",
+  "waiting_interaction",
+  "cancelling"
+]);
+export const runnerTerminalStateSchema = z.enum(["succeeded", "failed", "cancelled"]);
+export const runnerLifecycleStateSchema = z.union([
+  runnerNonterminalStateSchema,
+  runnerTerminalStateSchema
+]);
+export type RunnerLifecycleState = z.infer<typeof runnerLifecycleStateSchema>;
+export type RunnerTerminalState = z.infer<typeof runnerTerminalStateSchema>;
+
+export const pendingInteractionKindSchema = z.enum(["permission", "authentication", "elicitation"]);
+export const persistedPendingInteractionSchema = z
+  .object({
+    version: runnerContractVersionSchema,
+    interactionId: identifierSchema,
+    requestId: acpRequestIdSchema,
+    kind: pendingInteractionKindSchema,
+    requestedAt: z.string().datetime(),
+    summary: safeRunnerEventTextSchema(4_096, "Persisted interaction summary").refine(
+      (value) => value.length > 0,
+      "Persisted interaction summary must not be empty."
+    ),
+    status: z.enum(["pending", "approved", "denied", "cancelled", "expired"]),
+    actionable: z.literal(false),
+    nonActionableReason: z.enum(["persisted_history", "ownership_lost", "terminal_cleanup"])
+  })
+  .strict();
+export type PersistedPendingInteraction = z.infer<typeof persistedPendingInteractionSchema>;
+
+export const terminalOutcomeSchema = z
+  .object({
+    version: runnerContractVersionSchema,
+    state: runnerTerminalStateSchema,
+    exitCode: z.number().int().nullable(),
+    finishedAt: z.string().datetime(),
+    diagnostic: safeRunnerEventTextSchema(8_192, "Terminal diagnostic").nullable(),
+    artifactValidated: z.boolean()
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.state === "succeeded" && !value.artifactValidated) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["artifactValidated"],
+        message: "A succeeded outcome requires a validated artifact."
+      });
+    }
+  });
+export type TerminalOutcome = z.infer<typeof terminalOutcomeSchema>;
+
+export const artifactRelativePathSchema = z
+  .string()
+  .min(1)
+  .superRefine((value, context) => {
+    if (utf8ByteLength(value) > 1_024) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Artifact relative path exceeds 1024 UTF-8 bytes."
+      });
+    }
+    if (
+      value.startsWith("/") ||
+      value.includes("/") ||
+      value.includes("\\") ||
+      /^[A-Za-z]:/.test(value) ||
+      value.split("/").some((segment) => !segment || segment === "." || segment === "..")
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Artifact path must be one normalized file name inside its materialization root."
+      });
+    }
+  });
+export const artifactKindSchema = z.enum(["implementation", "review", "feedback"]);
+const artifactReferenceBase = {
+  version: runnerContractVersionSchema,
+  relativePath: artifactRelativePathSchema,
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  sizeBytes: z.number().int().nonnegative()
+};
+export const artifactReferenceSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      ...artifactReferenceBase,
+      kind: z.literal("implementation"),
+      mediaType: z.literal("text/markdown")
+    })
+    .strict(),
+  z
+    .object({
+      ...artifactReferenceBase,
+      kind: z.literal("review"),
+      mediaType: z.literal("application/json")
+    })
+    .strict(),
+  z
+    .object({
+      ...artifactReferenceBase,
+      kind: z.literal("feedback"),
+      mediaType: z.literal("text/markdown")
+    })
+    .strict()
+]);
+export type ArtifactReference = z.infer<typeof artifactReferenceSchema>;
