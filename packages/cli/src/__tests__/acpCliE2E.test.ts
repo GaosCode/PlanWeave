@@ -64,6 +64,22 @@ async function runBlock(env: NodeJS.ProcessEnv, ref: string) {
   ) as Record<string, unknown>;
 }
 
+function followedRunSessionIds(stdout: string): string[] {
+  return stdout
+    .trim()
+    .split("\n")
+    .filter((line) => line.startsWith('{"kind":"runner_event"'))
+    .map((line) => JSON.parse(line) as {
+      kind: string;
+      event?: { identity?: { runSessionId?: string | null } };
+    })
+    .flatMap((item) =>
+      item.kind === "runner_event" && item.event?.identity?.runSessionId
+        ? [item.event.identity.runSessionId]
+        : []
+    );
+}
+
 async function waitForFileText(path: string, pattern: RegExp): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     try {
@@ -111,6 +127,11 @@ describe("ACP CLI end-to-end", () => {
       expect(review).toMatchObject({
         steps: [{ kind: "submitted", submitResult: { verdict: "needs_changes" } }]
       });
+      const reviewSessionId = (review.session as { sessionId: string }).sessionId;
+      const reviewFollow = await runCli(["run-status", "--follow", "--json"], baseEnv);
+      expect(new Set(followedRunSessionIds(reviewFollow.stdout))).toEqual(
+        new Set([reviewSessionId])
+      );
 
       const feedback = await runBlock(
         { ...baseEnv, PLANWEAVE_ACP_SCENARIO: "artifact-feedback" },
@@ -144,6 +165,8 @@ describe("ACP CLI end-to-end", () => {
       );
       const followed = await runCli(["run-status", "--follow", "--json"], baseEnv);
       expect(followed.stdout).toContain('"kind":"runner_event"');
+      expect(new Set(followedRunSessionIds(followed.stdout))).toEqual(new Set([sessionId]));
+      expect(sessionId).not.toBe(reviewSessionId);
       expect(init.workspace.resultsDir).toEqual(expect.any(String));
     },
     cliWorkflowTimeoutMs

@@ -6,6 +6,7 @@ import {
   readRunnerRecordReadModelForArtifact,
   tailAutoRunEvents,
   type AutoRunEventTailItem,
+  type RunnerRecordReadModel,
   type PackageWorkspaceRef
 } from "@planweave-ai/runtime";
 import {
@@ -59,32 +60,27 @@ async function followLatestRunnerRecord(
   asJson: boolean,
   signal: AbortSignal
 ): Promise<void> {
-  const seen = new Set<number>();
+  const deduplicator = new RunnerFollowDeduplicator();
   while (!signal.aborted) {
     const model = await readRunnerRecordReadModelForArtifact(metadataPath);
     if (!model) return;
-    for (const event of model.events) {
-      if (seen.has(event.sequence)) continue;
-      seen.add(event.sequence);
+    const fresh = deduplicator.take(model);
+    for (const event of fresh.events) {
       console.log(
         asJson
           ? JSON.stringify({ kind: "runner_event", event })
           : `${event.timestamp} runner_event sequence=${event.sequence} kind=${event.body.kind}`
       );
     }
-    for (const diagnostic of model.diagnostics) {
+    for (const diagnostic of fresh.diagnostics) {
       console.log(
         asJson
           ? JSON.stringify({ kind: "runner_diagnostic", diagnostic })
           : `runner_diagnostic ${diagnostic.code}: ${diagnostic.message}`
       );
     }
-    if (model.interaction.persisted) {
-      const interaction = {
-        persisted: model.interaction.persisted,
-        active: model.interaction.active,
-        stale: model.interaction.stale
-      };
+    if (fresh.interaction) {
+      const interaction = fresh.interaction;
       console.log(
         asJson
           ? JSON.stringify({ kind: "runner_interaction", interaction })
@@ -94,6 +90,90 @@ async function followLatestRunnerRecord(
     if (model.terminal) return;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+}
+
+export class RunnerFollowDeduplicator {
+  readonly #events = new Set<number>();
+  readonly #diagnostics = new Set<string>();
+  #lastInteraction: string | null = null;
+
+  take(model: Pick<RunnerRecordReadModel, "events" | "diagnostics" | "interaction">) {
+    const events = model.events.filter((event) => {
+      if (this.#events.has(event.sequence)) return false;
+      this.#events.add(event.sequence);
+      return true;
+    });
+    const diagnostics = model.diagnostics.filter((diagnostic) => {
+      const identity = JSON.stringify([diagnostic.code, diagnostic.line, diagnostic.message]);
+      if (this.#diagnostics.has(identity)) return false;
+      this.#diagnostics.add(identity);
+      return true;
+    });
+    const interaction = model.interaction.persisted ? { ...model.interaction } : null;
+    if (!interaction) {
+      this.#lastInteraction = null;
+      return { events, diagnostics, interaction };
+    }
+    const identity = JSON.stringify(interaction);
+    if (this.#lastInteraction === identity) return { events, diagnostics, interaction: null };
+    this.#lastInteraction = identity;
+    return { events, diagnostics, interaction };
+  }
+}
+
+type FollowSelection =
+  | { kind: "runner_record"; metadataPath: string; timestamp: number; identity: string }
+  | { kind: "desktop_run"; runId: string; timestamp: number; identity: string }
+  | null;
+
+function timestamp(value: string | null | undefined): number {
+  const parsed = Date.parse(value ?? "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function selectRunStatusFollowTarget(
+  status: {
+    explanation: { latestRecordId: string | null; latestRecordPath: string | null };
+    latestRuns: Array<{
+      metadataPath: string | null;
+      runnerKind: string | null;
+      startedAt: string | null;
+      finishedAt: string | null;
+    }>;
+  },
+  desktop: {
+    runId: string;
+    updatedAt: string;
+    latestRecordId: string | null;
+  } | null
+): FollowSelection {
+  const exactPath = status.explanation.latestRecordPath;
+  const exactRun = exactPath
+    ? status.latestRuns.find((run) => run.metadataPath === exactPath)
+    : undefined;
+  const runnerCandidate =
+    exactPath && exactRun?.runnerKind === "acp"
+      ? {
+          kind: "runner_record" as const,
+          metadataPath: exactPath,
+          timestamp: timestamp(exactRun.finishedAt ?? exactRun.startedAt),
+          identity: status.explanation.latestRecordId ?? exactPath
+        }
+      : null;
+  const desktopCandidate = desktop
+    ? {
+        kind: "desktop_run" as const,
+        runId: desktop.runId,
+        timestamp: timestamp(desktop.updatedAt),
+        identity: desktop.latestRecordId ?? desktop.runId
+      }
+    : null;
+  if (!runnerCandidate) return desktopCandidate;
+  if (!desktopCandidate) return runnerCandidate;
+  if (runnerCandidate.identity === desktopCandidate.identity) return runnerCandidate;
+  return runnerCandidate.timestamp >= desktopCandidate.timestamp
+    ? runnerCandidate
+    : desktopCandidate;
 }
 
 export function registerRunStatusCommand(program: Command): void {
@@ -122,25 +202,23 @@ export function registerRunStatusCommand(program: Command): void {
     const rootPath = packageRootPath(workspace);
     const canvasId = desktopCanvasId(workspace, options);
     const latest = await getLatestAutoRunSummary(rootPath, canvasId);
-    if (!latest) {
-      const latestRunner = status.latestRuns.find(
-        (run) => run.runnerKind === "acp" && run.metadataPath !== null
-      );
-      if (latestRunner?.metadataPath) {
-        const abort = new AbortController();
-        const onSigInt = (): void => abort.abort();
-        process.on("SIGINT", onSigInt);
-        try {
-          await followLatestRunnerRecord(
-            latestRunner.metadataPath,
-            options.json === true,
-            abort.signal
-          );
-        } finally {
-          process.off("SIGINT", onSigInt);
-        }
-        return;
+    const followTarget = selectRunStatusFollowTarget(status, latest);
+    if (followTarget?.kind === "runner_record") {
+      const abort = new AbortController();
+      const onSigInt = (): void => abort.abort();
+      process.on("SIGINT", onSigInt);
+      try {
+        await followLatestRunnerRecord(
+          followTarget.metadataPath,
+          options.json === true,
+          abort.signal
+        );
+      } finally {
+        process.off("SIGINT", onSigInt);
       }
+      return;
+    }
+    if (!followTarget) {
       if (!options.json) {
         console.log("events: none (no Auto Run session found)");
       }
@@ -154,7 +232,7 @@ export function registerRunStatusCommand(program: Command): void {
     process.on("SIGINT", onSigInt);
     try {
       let terminalPhase: string | null = null;
-      for await (const item of tailAutoRunEvents(workspace, canvasId, latest.runId, {
+      for await (const item of tailAutoRunEvents(workspace, canvasId, followTarget.runId, {
         signal: abort.signal
       })) {
         printTailItem(item, options.json === true);
