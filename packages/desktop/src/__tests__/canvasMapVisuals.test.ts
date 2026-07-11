@@ -199,6 +199,7 @@ function canvas(canvasId: string): DesktopCanvasGraphViewModel["canvases"][numbe
   return {
     canvasId,
     title: canvasId,
+    status: "ready",
     packageDir: `canvases/${canvasId}/package`,
     executionPolicy: null,
     diagnostics: []

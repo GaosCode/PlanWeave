@@ -16,7 +16,7 @@ import type { PendingImportTransaction } from "../../package/importRecovery.js";
 export type DesktopTaskException = {
   ref: string;
   reason: string;
-  source: "blocked" | "diverged" | "feedback" | "needs_changes";
+  source: "blocked" | "diverged" | "needs_changes";
 };
 
 export type DesktopBlockWaitingOn = {
@@ -112,6 +112,7 @@ export type DesktopCanvasDiagnosticIssue = ValidationIssue & {
 export type DesktopCanvasNodeViewModel = {
   canvasId: string;
   title: string;
+  status: TaskStatus | null;
   packageDir: string;
   executionPolicy: DesktopCanvasExecutionPolicy | null;
   diagnostics: DesktopCanvasDiagnosticIssue[];

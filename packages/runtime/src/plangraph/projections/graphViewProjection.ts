@@ -152,13 +152,6 @@ export function buildPlanGraphViewProjection(options: {
     const exceptions = blocks
       .map((block) => exceptionForBlock(block.ref, block.status, block.exceptionReason))
       .filter((item): item is DesktopTaskException => item !== null);
-    if ((options.runtime.state.tasks[task.taskId]?.openFeedbackCount ?? 0) > 0) {
-      exceptions.push({
-        ref: task.taskId,
-        source: "feedback",
-        reason: `${options.runtime.state.tasks[task.taskId].openFeedbackCount} unresolved feedback item(s).`
-      });
-    }
     tasks.push({
       taskId: task.taskId,
       title: task.title,

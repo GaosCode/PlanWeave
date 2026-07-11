@@ -58,6 +58,7 @@ const warningCanvasGraph: DesktopCanvasGraphViewModel = {
     {
       canvasId: warningCanvas.canvasId,
       title: warningCanvas.name,
+      status: "ready",
       packageDir: warningCanvas.packageDir,
       executionPolicy: warningCanvas.executionPolicy,
       diagnostics: warningCanvas.diagnostics
@@ -150,6 +151,90 @@ describe("canvas diagnostic severity in the canvas map node", () => {
     expect(card).toHaveClass("border-state-warning/75");
     expect(card).toHaveClass("bg-state-warning-surface");
     expect(card).not.toHaveClass("border-state-failed/70");
+  });
+});
+
+describe("canvas execution status in the canvas map node", () => {
+  it("uses the shared running status visual even when the canvas has warnings", () => {
+    const runningCanvas = {
+      ...warningCanvasGraph.canvases[0],
+      status: "in_progress" as const
+    };
+
+    render(
+      <CanvasNodeCard
+        {...({
+          data: {
+            canvas: runningCanvas,
+            health: warningCanvasGraph.health.canvases[0],
+            labels: {
+              copyAgentPrompt: "Copy agent prompt",
+              dependency: "Dependency",
+              error: "Error",
+              open: "Open",
+              openInFileManager: "Open in Finder",
+              rename: "Rename",
+              warning: "Warning"
+            },
+            onAgentPromptCopy: vi.fn(),
+            onOpen: vi.fn(),
+            onRename: vi.fn(),
+            onRevealInFinder: vi.fn(),
+            onSelect: vi.fn(),
+            selected: false
+          }
+        } as Parameters<typeof CanvasNodeCard>[0])}
+      />
+    );
+
+    const marker = screen.getByTestId("task-node-status-marker");
+    const card = document.querySelector('[data-slot="context-menu-trigger"]');
+
+    expect(marker).toHaveAttribute("data-status-tone", "running");
+    expect(marker).toHaveTextContent("in_progress");
+    expect(card).toHaveClass("border-state-running/55");
+    expect(card).toHaveClass("bg-state-running-surface");
+    expect(card).not.toHaveClass("bg-state-warning-surface");
+  });
+
+  it.each([
+    "planned",
+    "ready"
+  ] as const)("keeps %s canvases neutral while they wait for dependencies", (status) => {
+    render(
+      <CanvasNodeCard
+        {...({
+          data: {
+            canvas: { ...warningCanvasGraph.canvases[0], diagnostics: [], status },
+            health: {
+              ...warningCanvasGraph.health.canvases[0],
+              blockerCount: 1,
+              diagnosticCount: 0
+            },
+            labels: {
+              copyAgentPrompt: "Copy agent prompt",
+              dependency: "Dependency",
+              error: "Error",
+              open: "Open",
+              openInFileManager: "Open in Finder",
+              rename: "Rename",
+              warning: "Warning"
+            },
+            onAgentPromptCopy: vi.fn(),
+            onOpen: vi.fn(),
+            onRename: vi.fn(),
+            onRevealInFinder: vi.fn(),
+            onSelect: vi.fn(),
+            selected: false
+          }
+        } as Parameters<typeof CanvasNodeCard>[0])}
+      />
+    );
+
+    const card = document.querySelector('[data-slot="context-menu-trigger"]');
+    expect(card).toHaveClass("bg-surface-raised");
+    expect(card).not.toHaveClass("bg-state-warning-surface");
+    expect(screen.getByText("Dependency")).toBeVisible();
   });
 });
 

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAgentClaimMarkdown,
   buildCanvasMapProjection,
+  buildPlanGraphViewProjection,
   buildReviewProjection,
   buildStatisticsProjection,
   buildTodoProjection,
@@ -14,7 +15,7 @@ import { loadPlanGraphPackageMetadata } from "../plangraph/packageRepository.js"
 import { loadProjectTodoContext } from "../desktop/graph/todoModel.js";
 import { buildResultsFileIndex } from "../desktop/graph/resultsFileIndex.js";
 import { buildExecutionStatus } from "../taskManager/executionStatus.js";
-import { renderPrompt } from "../taskManager/index.js";
+import { claimBlock, renderPrompt } from "../taskManager/index.js";
 import { loadRuntime } from "../taskManager/runtimeContext.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 
@@ -88,6 +89,45 @@ describe("PlanGraph projections", () => {
     expect(canvasMap.viewModel.health.canvases.map((canvas) => canvas.canvasId)).toEqual([
       "default"
     ]);
+  });
+
+  it("projects an in-progress task as an in-progress canvas", async () => {
+    const { root } = await createTestWorkspace();
+    await claimBlock({ projectRoot: root, ref: "T-001#B-001" });
+    const todoContext = await loadProjectTodoContext(root);
+    const graphVersion = todoContext.snapshotsByCanvas.get("default")?.graphVersion;
+    if (!graphVersion) {
+      throw new Error("Default canvas graph version missing.");
+    }
+
+    const canvasMap = buildCanvasMapProjection({
+      graphVersion,
+      context: todoContext,
+      projectId: todoContext.aggregation.loaded.workspace.id,
+      projectTitle: "Projection test"
+    });
+
+    expect(canvasMap.viewModel.canvases[0]).toMatchObject({ status: "in_progress" });
+  });
+
+  it("keeps open review feedback in progress instead of projecting an exception", async () => {
+    const { root } = await createTestWorkspace();
+    const runtime = await loadRuntime({ projectRoot: root });
+    const taskState = runtime.state.tasks["T-001"];
+    const reviewState = runtime.state.blocks["T-001#R-001"];
+    if (!(taskState && reviewState)) {
+      throw new Error("Expected task and review state fixtures.");
+    }
+    taskState.status = "in_progress";
+    taskState.openFeedbackCount = 1;
+    reviewState.status = "in_progress";
+    const status = await buildExecutionStatus(runtime);
+    const { graph } = await loadPlanGraphPackage(root);
+
+    const projection = buildPlanGraphViewProjection({ graph, runtime, status });
+    const task = projection.tasks.find((item) => item.taskId === "T-001");
+
+    expect(task).toMatchObject({ status: "in_progress", exceptions: [] });
   });
 
   it("stores projection version metadata and invalidates it on index rebuild", async () => {

@@ -3,8 +3,8 @@ import type {
   DesktopCanvasGraphViewModel
 } from "../../desktop/types.js";
 import { buildCanvasHealth } from "../../desktop/graph/canvasHealthModel.js";
-import type { ValidationIssue } from "../../types.js";
-import type { ProjectTodoContext } from "./todoProjection.js";
+import type { TaskStatus, ValidationIssue } from "../../types.js";
+import type { CanvasExecutionSnapshot, ProjectTodoContext } from "./todoProjection.js";
 
 export type CanvasMapProjection = {
   graphVersion: string;
@@ -31,6 +31,23 @@ function withSeverity(
   return diagnostics.map((diagnostic) => ({ ...diagnostic, severity }));
 }
 
+function canvasExecutionStatus(snapshot: CanvasExecutionSnapshot): TaskStatus | null {
+  if (!snapshot.status) {
+    return null;
+  }
+  const statuses = snapshot.status.tasks.map((task) => task.status);
+  if (statuses.includes("in_progress")) {
+    return "in_progress";
+  }
+  if (statuses.length > 0 && statuses.every((status) => status === "implemented")) {
+    return "implemented";
+  }
+  if (statuses.includes("ready")) {
+    return "ready";
+  }
+  return "planned";
+}
+
 export function buildCanvasMapProjection(options: {
   graphVersion: string;
   context: ProjectTodoContext;
@@ -41,12 +58,17 @@ export function buildCanvasMapProjection(options: {
   const diagnostics = [...graph.diagnostics.errors, ...graph.diagnostics.warnings];
   const canvases = graph.canvasIdsInOrder.map((canvasId) => {
     const canvas = canvasesById.get(canvasId);
+    const snapshot = options.context.snapshotsByCanvas.get(canvasId);
     if (!canvas) {
       throw new Error(`Project canvas '${canvasId}' does not exist.`);
+    }
+    if (!snapshot) {
+      throw new Error(`Project canvas '${canvasId}' execution snapshot does not exist.`);
     }
     return {
       canvasId: canvas.canvasId,
       title: canvas.canvasName,
+      status: canvasExecutionStatus(snapshot),
       packageDir: canvas.projectCanvas.packageDir,
       executionPolicy: canvas.canvas.executionPolicy,
       diagnostics: [
