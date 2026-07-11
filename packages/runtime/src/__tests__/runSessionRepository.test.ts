@@ -152,7 +152,13 @@ describe("run session repository", () => {
             previousInProgressRefs: [],
             forced: false
           },
-          autoRun: null,
+          autoRun: {
+            desktopRunId: null,
+            stepCount: 1,
+            parallel: false,
+            executorOverride: null,
+            stopReason: "once"
+          },
           latestRecordId: null,
           latestRecordPath: null,
           error: null
@@ -171,6 +177,40 @@ describe("run session repository", () => {
     expect(listed.sessions[0].reset?.reason).toBeNull();
     expect(detail.diagnostics).toEqual([]);
     expect(detail.session.reset?.reason).toBeNull();
+    expect(detail.session.autoRun).toMatchObject({
+      effectiveExecutor: null,
+      agentId: null,
+      runnerKind: null
+    });
+  });
+
+  it("diagnoses corrupt runner evidence instead of accepting it", async () => {
+    const { root, init } = await createTestWorkspace();
+    const session = await createRunSession({ projectRoot: root, kind: "run" });
+    const path = join(init.workspace.resultsDir, "run-sessions", session.sessionId, "session.json");
+    const stored = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    stored.autoRun = {
+      desktopRunId: null,
+      stepCount: 0,
+      parallel: false,
+      executorOverride: null,
+      effectiveExecutor: "codex-acp",
+      agentId: "unknown-agent",
+      runnerKind: "terminal",
+      stopReason: null
+    };
+    await writeFile(path, `${JSON.stringify(stored, null, 2)}\n`, "utf8");
+
+    const result = await listRunSessions(root);
+
+    expect(result.sessions).toEqual([]);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "run_session_invalid",
+        sessionId: session.sessionId,
+        message: "Run session summary has an invalid autoRun summary."
+      })
+    ]);
   });
 
   it("skips corrupt sessions with diagnostics when listing", async () => {

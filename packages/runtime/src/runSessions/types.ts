@@ -1,8 +1,10 @@
 import type {
+  AgentFamily,
   AutoRunStatus,
   AutoRunStepResult,
   ClaimScope,
-  PackageWorkspaceRef
+  PackageWorkspaceRef,
+  RunnerTransport
 } from "../types.js";
 
 export type RunSessionKind = "run" | "reset";
@@ -38,7 +40,10 @@ export type RunSessionAutoRunSummary = {
   stepCount: number;
   parallel: boolean;
   executorOverride: string | null;
-  stopReason: "none" | "once" | "step_limit" | "no_steps" | null;
+  effectiveExecutor: string | null;
+  agentId: AgentFamily | null;
+  runnerKind: RunnerTransport | null;
+  stopReason: "none" | "once" | "step_limit" | "no_steps" | "cancelled" | null;
 };
 
 export type RunSessionState = {
@@ -134,6 +139,7 @@ export type RunWithSessionOptions = {
   tmuxEnabled?: boolean;
   scope?: ClaimScope;
   stepLimit?: number;
+  signal?: AbortSignal;
 };
 
 export type RunWithSessionResult = {
@@ -141,5 +147,11 @@ export type RunWithSessionResult = {
   steps: AutoRunStepResult[];
   status: AutoRunStatus;
   ok: boolean;
-  terminalReason: "completed" | "step_limit_reached" | "manual" | "blocked" | "failed";
+  terminalReason:
+    | "completed"
+    | "step_limit_reached"
+    | "manual"
+    | "blocked"
+    | "cancelled"
+    | "failed";
 };

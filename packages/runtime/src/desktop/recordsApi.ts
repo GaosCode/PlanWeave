@@ -1,10 +1,16 @@
 import { join } from "node:path";
+import {
+  ArtifactReferenceVerificationError,
+  readVerifiedArtifactReference
+} from "../autoRun/artifactReferenceContract.js";
+import { finalArtifactRelativePath } from "../autoRun/finalArtifactContract.js";
 import { optionalReadFile, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { readState } from "../state.js";
-import type { ExecutorProfile, PackageWorkspaceRef, ReviewVerdict } from "../types.js";
+import { reviewResultSchema } from "../taskManager/reviewResultContract.js";
+import type { ExecutorIntegrationName, PackageWorkspaceRef, ReviewVerdict } from "../types.js";
 import {
   cleanOutputSummary,
   displayMarkdownForRecord,
@@ -23,6 +29,37 @@ async function exists(path: string): Promise<boolean> {
 
 async function readOptionalFile(path: string): Promise<string> {
   return (await optionalReadFile(path, "utf8")) ?? "";
+}
+
+async function verifyRunArtifactMetadata(
+  runDir: string,
+  metadata: Record<string, unknown>,
+  expectedKinds: ReadonlyArray<"implementation" | "review" | "feedback">
+): Promise<{ kind: "legacy" } | { kind: "verified"; bytes: Buffer }> {
+  if (metadata.artifactReference === undefined) {
+    return { kind: "legacy" };
+  }
+  let verified: Awaited<ReturnType<typeof readVerifiedArtifactReference>>;
+  try {
+    verified = await readVerifiedArtifactReference({
+      rootDir: runDir,
+      value: metadata.artifactReference
+    });
+  } catch {
+    throw new ArtifactReferenceVerificationError(
+      "Persisted runner artifact is corrupt or no longer matches its verified bytes."
+    );
+  }
+  const expectedPath = finalArtifactRelativePath(verified.reference.kind);
+  if (
+    !expectedKinds.includes(verified.reference.kind) ||
+    verified.reference.relativePath !== expectedPath
+  ) {
+    throw new ArtifactReferenceVerificationError(
+      "Persisted runner artifact is corrupt or no longer matches its verified bytes."
+    );
+  }
+  return { kind: "verified", bytes: verified.bytes };
 }
 
 async function listDirectories(path: string): Promise<string[]> {
@@ -155,7 +192,7 @@ async function runFileUpdateTimes(
   };
 }
 
-function adapterField(metadata: Record<string, unknown>): ExecutorProfile["adapter"] | null {
+function adapterField(metadata: Record<string, unknown>): ExecutorIntegrationName | null {
   const value = metadata.adapter;
   return value === "manual" ||
     value === "codex-exec" ||
@@ -210,7 +247,7 @@ async function runRecordSummary(options: {
   const stdout = await readOptionalFile(join(runDir, "stdout.md"));
   const stderr = await readOptionalFile(join(runDir, "stderr.log"));
   const promptPath = join(runDir, "prompt.md");
-  const reportPath = join(runDir, "report.md");
+  const reportPath = join(runDir, finalArtifactRelativePath("implementation"));
   const updateTimes = await runFileUpdateTimes(runDir, metadataPath);
   return {
     recordId: runRecordId(options.blockRef, options.runId),
@@ -275,7 +312,7 @@ async function feedbackRunRecordSummary(options: {
   const promptPath = (await exists(join(runDir, "prompt.md")))
     ? join(runDir, "prompt.md")
     : join(runDir, "feedback.md");
-  const reportPath = join(runDir, "report.md");
+  const reportPath = join(runDir, finalArtifactRelativePath("feedback"));
   const updateTimes = await runFileUpdateTimes(runDir, metadataPath);
   return {
     recordId: feedbackRunRecordId(feedbackId, options.runId),
@@ -374,12 +411,27 @@ export async function getRunRecord(
   const metadata = (await exists(summary.metadataPath))
     ? await readJsonFile<Record<string, unknown>>(summary.metadataPath)
     : {};
-  const reportMarkdown = await readOptionalFile(join(runDir, "report.md"));
+  const artifact = await verifyRunArtifactMetadata(
+    runDir,
+    metadata,
+    parsed.kind === "feedback" ? ["feedback"] : ["implementation", "review"]
+  );
+  const reportMarkdown =
+    artifact.kind === "verified"
+      ? artifact.bytes.toString("utf8")
+      : await readOptionalFile(
+          join(
+            runDir,
+            finalArtifactRelativePath(
+              parsed.kind === "feedback" ? "feedback" : "implementation"
+            )
+          )
+        );
   const stdout = await readOptionalFile(join(runDir, "stdout.md"));
   const stderr = await readOptionalFile(join(runDir, "stderr.log"));
   const promptMarkdown = summary.promptPath ? await readOptionalFile(summary.promptPath) : "";
   const display = displayMarkdownForRecord({
-    adapter: summary.adapter as ExecutorProfile["adapter"] | null,
+    adapter: adapterField({ adapter: summary.adapter }),
     reportMarkdown,
     stdout,
     stderr
@@ -407,9 +459,24 @@ export async function getReviewAttempts(
       const attemptDir = join(reviewAttemptRoot(workspace.resultsDir, blockRef), attemptId);
       const resultPath = join(attemptDir, "review-result.json");
       const metadataPath = join(attemptDir, "metadata.json");
-      const result = (await exists(resultPath))
-        ? await readJsonFile<Record<string, unknown>>(resultPath)
+      const metadata = (await exists(metadataPath))
+        ? await readJsonFile<Record<string, unknown>>(metadataPath)
         : {};
+      const artifact = await verifyRunArtifactMetadata(attemptDir, metadata, ["review"]);
+      let result: Record<string, unknown>;
+      if (artifact.kind === "verified") {
+        try {
+          result = reviewResultSchema.parse(JSON.parse(artifact.bytes.toString("utf8")));
+        } catch {
+          throw new ArtifactReferenceVerificationError(
+            "Persisted runner artifact is corrupt or no longer matches its verified bytes."
+          );
+        }
+      } else {
+        result = (await exists(resultPath))
+          ? await readJsonFile<Record<string, unknown>>(resultPath)
+          : {};
+      }
       const content = typeof result.content === "string" ? result.content : "";
       return {
         ref: blockRef,

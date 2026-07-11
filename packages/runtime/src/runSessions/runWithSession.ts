@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { getAutoRunStatus, runAutoRunStep } from "../taskManager/autoRun.js";
+import { ExecutorCancelledError, isExecutorCancelledError } from "../autoRun/executorShared.js";
 import type { AutoRunStatus, AutoRunStepResult, ClaimScope, ReviewVerdict } from "../types.js";
 import { appendRunSessionEvent, createRunSession, updateRunSession } from "./repository.js";
 import { resetRuntimeState } from "./reset.js";
@@ -175,6 +176,9 @@ function executorName(step: AutoRunStepResult): string | null {
   if (step.kind === "batch_submitted") {
     return step.steps.find((item) => item.adapterResult.executor)?.adapterResult.executor ?? null;
   }
+  if (step.kind === "blocked") {
+    return step.runnerEvidence?.effectiveExecutor ?? null;
+  }
   return null;
 }
 
@@ -229,12 +233,41 @@ function autoRunSummary(options: {
   parallel: boolean;
   executorName: string | undefined;
   stopReason: RunStopReason | null;
+  latestStep: AutoRunStepResult | undefined;
+  status: AutoRunStatus;
+  latestRecord: StepRecordLink | null;
 }): RunSessionAutoRunSummary {
+  const submitted =
+    options.latestStep?.kind === "submitted" || options.latestStep?.kind === "manual"
+      ? options.latestStep
+      : options.latestStep?.kind === "batch_submitted"
+        ? options.latestStep.steps.at(-1)
+        : undefined;
+  const latestRun = options.status.latestRuns.find(
+    (run) =>
+      (options.latestRecord?.recordPath !== null &&
+        run.metadataPath === options.latestRecord?.recordPath) ||
+      `${run.ref}::${run.runId}` === options.latestRecord?.recordId
+  );
+  const blockedEvidence =
+    options.latestStep?.kind === "blocked" ? options.latestStep.runnerEvidence : undefined;
   return {
     desktopRunId: null,
     stepCount: options.stepCount,
     parallel: options.parallel,
     executorOverride: options.executorName ?? null,
+    effectiveExecutor:
+      submitted?.adapterResult.executor ??
+      blockedEvidence?.effectiveExecutor ??
+      latestRun?.executor ??
+      null,
+    agentId:
+      submitted?.adapterResult.agentId ?? blockedEvidence?.agentId ?? latestRun?.agentId ?? null,
+    runnerKind:
+      submitted?.adapterResult.runnerKind ??
+      blockedEvidence?.runnerKind ??
+      latestRun?.runnerKind ??
+      null,
     stopReason: options.stopReason
   };
 }
@@ -267,6 +300,9 @@ function terminalReasonForPhase(
   if (phase === "blocked") {
     return "blocked";
   }
+  if (phase === "stopped") {
+    return "cancelled";
+  }
   return "completed";
 }
 
@@ -280,6 +316,7 @@ async function updateSessionAutoRunSummary(options: {
   stopReason: RunStopReason | null;
   status: AutoRunStatus;
   latestRecord: StepRecordLink | null;
+  latestStep: AutoRunStepResult | undefined;
   finishedAt?: string;
   error?: string | null;
 }) {
@@ -289,7 +326,7 @@ async function updateSessionAutoRunSummary(options: {
     autoRun: summary,
     latestRecordId: options.latestRecord?.recordId ?? null,
     latestRecordPath: options.latestRecord?.recordPath ?? null,
-    error: options.error ?? options.status.explanation.error
+    error: options.error !== undefined ? options.error : options.status.explanation.error
   };
   if (options.finishedAt !== undefined) {
     patch.finishedAt = options.finishedAt;
@@ -312,6 +349,9 @@ export async function runWithSession(
   let latestSessionRecord: StepRecordLink | null = null;
 
   try {
+    if (options.signal?.aborted) {
+      throw new ExecutorCancelledError("Run cancelled.");
+    }
     if (options.reset === true) {
       await resetRuntimeState({
         projectRoot: options.projectRoot,
@@ -331,7 +371,8 @@ export async function runWithSession(
       executorName: options.executorName,
       stopReason: null,
       status,
-      latestRecord: latestSessionRecord
+      latestRecord: latestSessionRecord,
+      latestStep: steps.at(-1)
     });
 
     let finalPhase: RunSessionPhase | null = null;
@@ -362,7 +403,9 @@ export async function runWithSession(
         executorName: options.executorName,
         tmuxEnabled: options.tmuxEnabled,
         parallel,
-        scope: options.scope
+        scope: options.scope,
+        signal: options.signal,
+        runSessionId: session.sessionId
       });
       const stepStartTracker = (async () => {
         while (!stepSettled) {
@@ -395,7 +438,8 @@ export async function runWithSession(
             executorName: options.executorName,
             stopReason: null,
             status: pendingStatus,
-            latestRecord: latestSessionRecord
+            latestRecord: latestSessionRecord,
+            latestStep: steps.at(-1)
           });
         }
       })().catch((error: unknown) => {
@@ -438,7 +482,8 @@ export async function runWithSession(
         executorName: options.executorName,
         stopReason: null,
         status,
-        latestRecord: latestSessionRecord
+        latestRecord: latestSessionRecord,
+        latestStep: steps.at(-1)
       });
       finalPhase = finalPhaseForStep(step, status);
       if (finalPhase === null && options.once === true) {
@@ -462,6 +507,7 @@ export async function runWithSession(
       stopReason,
       status,
       latestRecord: latestSessionRecord,
+      latestStep: steps.at(-1),
       finishedAt
     });
     await appendRunSessionEvent(
@@ -486,6 +532,36 @@ export async function runWithSession(
     status = await getAutoRunStatus({ projectRoot: options.projectRoot });
     const message = errorMessage(error);
     const finishedAt = new Date().toISOString();
+    const cancelled = options.signal?.aborted === true || isExecutorCancelledError(error);
+    if (cancelled) {
+      const stoppedSession = await updateSessionAutoRunSummary({
+        projectRoot: options.projectRoot,
+        sessionId: session.sessionId,
+        phase: "stopped",
+        stepCount: steps.length,
+        parallel,
+        executorName: options.executorName,
+        stopReason: "cancelled",
+        status,
+        latestRecord: latestSessionRecord,
+        latestStep: steps.at(-1),
+        finishedAt,
+        error: null
+      });
+      await appendRunSessionEvent(options.projectRoot, session.sessionId, "session_stopped", {
+        phase: "stopped",
+        finishedAt,
+        stepCount: steps.length,
+        stopReason: "cancelled"
+      });
+      return {
+        session: stoppedSession,
+        steps,
+        status,
+        ok: false,
+        terminalReason: "cancelled"
+      };
+    }
     const failedSession = await updateSessionAutoRunSummary({
       projectRoot: options.projectRoot,
       sessionId: session.sessionId,
@@ -496,6 +572,7 @@ export async function runWithSession(
       stopReason: null,
       status,
       latestRecord: latestSessionRecord,
+      latestStep: steps.at(-1),
       finishedAt,
       error: message
     });

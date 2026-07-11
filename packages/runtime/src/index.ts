@@ -2,6 +2,10 @@ export { PlanWeaveWorkspaceNotInitializedError } from "./errors.js";
 export { readProjectPaths, resolvePlanweaveHome } from "./paths.js";
 export { createManagedProjectId, createProjectId } from "./projectId.js";
 export {
+  shutdownActiveAgentRuns,
+  shutdownDesktopAgentRun
+} from "./autoRun/activeAgentRunRegistry.js";
+export {
   normalizeProjectMetadata,
   projectWorkspacePaths,
   readProject,
@@ -176,8 +180,13 @@ export {
   createOpencodeExecAdapter,
   createPiExecAdapter,
   listExecutorProfiles,
+  resolveExecutorRunnerEvidence,
   testExecutorProfile
 } from "./autoRun/executors.js";
+export {
+  executorIntegrationForProfile,
+  requireExecutorIntegration
+} from "./autoRun/agentRegistry.js";
 export {
   claimNext,
   claimBlock,
@@ -228,6 +237,91 @@ export type {
   PrunePlanItemKind
 } from "./runSessions/index.js";
 export { isTmuxAvailable } from "./autoRun/tmuxExecutor.js";
+export {
+  acpCorrelationSchema,
+  acpRequestIdSchema,
+  acpSessionIdSchema,
+  artifactReferenceSchema,
+  canvasIdSchema,
+  claimRefSchema,
+  desktopRunIdSchema,
+  executorRunIdSchema,
+  jsonRpcCorrelationIdSchema,
+  negotiatedCapabilitiesSchema,
+  pendingInteractionKindSchema,
+  persistedPendingInteractionSchema,
+  projectIdSchema,
+  runnerCapabilitySchema,
+  runnerContractVersionSchema,
+  runnerIdentitySchema,
+  runnerLifecycleStateSchema,
+  runnerNonterminalStateSchema,
+  runnerRunIdSchema,
+  runnerRunIdentitySchema,
+  runnerTerminalStateSchema,
+  runSessionIdSchema,
+  taskIdSchema,
+  blockIdSchema,
+  terminalOutcomeSchema
+} from "./autoRun/runnerContractSchemas.js";
+export type * from "./autoRun/runnerContractSchemas.js";
+export {
+  RUNNER_EVENT_MAX_LINE_BYTES,
+  RUNNER_EVENT_MAX_MESSAGE_BYTES,
+  RUNNER_EVENT_RETENTION_MAX_BYTES,
+  RUNNER_EVENT_RETENTION_MAX_EVENTS,
+  encodeNormalizedRunnerEvent,
+  normalizedDiagnosticBody,
+  normalizedOutputBody,
+  normalizedRedactedContent,
+  normalizedRunnerEventSchema,
+  redactRunnerEventText,
+  redactionClassSchema,
+  runnerDiagnosticCodeSchema
+} from "./autoRun/normalizedEventContract.js";
+export type * from "./autoRun/normalizedEventContract.js";
+export {
+  replayNormalizedRunnerEvents,
+  runnerEventCursorSchema
+} from "./autoRun/runnerEventReplay.js";
+export type * from "./autoRun/runnerEventReplay.js";
+export { normalizeAcpSessionNotification } from "./autoRun/acpEventNormalization.js";
+export type * from "./autoRun/acpEventNormalization.js";
+export { AcpEventPublisher } from "./autoRun/acpEventPublisher.js";
+export type * from "./autoRun/acpEventPublisher.js";
+export { AcpEventStore } from "./autoRun/acpEventStore.js";
+export type * from "./autoRun/acpEventStore.js";
+export { AcpEventReadModel, AcpEventReadModelRegistry, acpEventReadModels } from "./autoRun/acpEventReadModel.js";
+export type * from "./autoRun/acpEventReadModel.js";
+export { projectAcpConversation, writeAcpConversationProjection } from "./autoRun/acpConversationProjection.js";
+export type * from "./autoRun/acpConversationProjection.js";
+export {
+  ArtifactReferenceVerificationError,
+  RUNNER_ARTIFACT_MAX_CONTENT_BYTES,
+  createArtifactReference,
+  verifyArtifactReference
+} from "./autoRun/artifactReferenceContract.js";
+export {
+  executeRunnerLifecycleTransition,
+  transitionRunnerLifecycle
+} from "./autoRun/runnerLifecycle.js";
+export type * from "./autoRun/runnerLifecycle.js";
+export {
+  FINAL_ARTIFACT_MARKER,
+  FINAL_ARTIFACT_MAX_CONTENT_BYTES,
+  FINAL_ARTIFACT_MAX_LINE_BYTES,
+  FinalArtifactContractError,
+  encodeFinalArtifactEnvelope,
+  extractFinalArtifactEnvelope,
+  feedbackArtifactEnvelope,
+  finalArtifactEnvelopeSchema,
+  implementationArtifactEnvelope,
+  materializeFinalArtifact,
+  reviewArtifactEnvelope,
+  validateFinalArtifactEnvelope
+} from "./autoRun/finalArtifactContract.js";
+export type * from "./autoRun/finalArtifactContract.js";
+export { reviewResultSchema } from "./taskManager/reviewResultContract.js";
 export {
   addBlock,
   addDependencyEdge,
@@ -340,9 +434,20 @@ export {
   validateGraphEdit
 } from "./desktop/index.js";
 export {
+  acpRunnerSchema,
+  agentFamilySchema,
+  cliRunnerSchema,
   edgeTypes,
+  executorAdapter,
   executorAdapters,
+  executorIntegration,
+  executorIntegrationSchema,
+  executorIntegrations,
+  executorProfileAdapterSchema,
+  executorProfileSchema,
+  executorRuntimeLimitsSchema,
   reviewTriggerConditions,
+  runnerTransportSchema,
   runSubmitStatuses,
   reviewStatuses
 } from "./types.js";

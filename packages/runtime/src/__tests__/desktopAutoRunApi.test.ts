@@ -178,6 +178,39 @@ async function latestResetSession(projectRoot: string): Promise<RunSessionState>
 }
 
 describe("desktop auto run API", () => {
+  it("preserves ACP profile identity when a Desktop run fails closed before a record", async () => {
+    const manifest = manifestTestBuilder()
+      .withDefaultExecutor("codex-acp")
+      .withBlock("T-001", "B-001", (block) => ({ ...block, executor: "codex-acp" }))
+      .build();
+    const { root } = await createTestWorkspace(manifest);
+
+    const started = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
+    startedRunIds.add(started.runId);
+    const blocked = await waitForLatestRunSummary(
+      root,
+      null,
+      started.runId,
+      (state) => state.phase === "blocked"
+    );
+
+    expect(blocked).toMatchObject({
+      phase: "blocked",
+      currentExecutor: "codex-acp",
+      latestRecordId: null
+    });
+    await expect(getRunSession(root, runSessionIdFor(blocked))).resolves.toMatchObject({
+      session: {
+        phase: "blocked",
+        autoRun: {
+          effectiveExecutor: "codex-acp",
+          agentId: "codex",
+          runnerKind: "acp"
+        }
+      }
+    });
+  });
+
   it("starts, pauses, resumes, stops, and summarizes project-level Auto Run", async () => {
     const manifest = manifestTestBuilder()
       .withExecutor("fake-codex", {
@@ -231,6 +264,15 @@ describe("desktop auto run API", () => {
     );
     await expect(getLatestAutoRunSummary(root, null)).resolves.toMatchObject({
       runId: started.runId
+    });
+    await expect(getRunSession(root, current.runSessionId!)).resolves.toMatchObject({
+      session: {
+        autoRun: {
+          effectiveExecutor: "fake-codex",
+          agentId: "codex",
+          runnerKind: "cli"
+        }
+      }
     });
     await expectAutoRunSessionConsistency(root, current, {
       phase: "paused",
@@ -636,7 +678,7 @@ describe("desktop auto run API", () => {
         ]
       })
       .withExecutor("pass-review", {
-        adapter: "local-review",
+        adapter: "codex-exec",
         command: process.execPath,
         args: [
           "-e",
@@ -673,7 +715,10 @@ describe("desktop auto run API", () => {
         phase: "completed",
         autoRun: {
           desktopRunId: started.runId,
-          stepCount: 3
+          stepCount: 3,
+          effectiveExecutor: "pass-review",
+          agentId: "codex",
+          runnerKind: "cli"
         },
         latestRecordId: "T-001#R-001::RUN-001"
       },

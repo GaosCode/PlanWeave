@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { getRunSession, runWithSession } from "../runSessions/index.js";
 import { getAutoRunStatus, runAutoRunStep } from "../taskManager/autoRun.js";
 import { readJsonFile } from "../json.js";
+import { listBlockRunRecords } from "../desktop/index.js";
+import { isTmuxAvailable, killActiveTmuxSessions } from "../autoRun/tmuxExecutor.js";
 import type { RuntimeState } from "../types.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
@@ -46,7 +48,7 @@ function automaticManifest(reviewVerdict: "passed" | "needs_changes" = "passed")
     .build();
 }
 
-function slowImplementationManifest() {
+function slowImplementationManifest(delayMs = 2_000) {
   return manifestTestBuilder()
     .withExecutor("slow-implementation", {
       adapter: "codex-exec",
@@ -57,7 +59,7 @@ function slowImplementationManifest() {
           "let input = '';",
           "process.stdin.on('data', (chunk) => { input += chunk; });",
           "process.stdin.on('end', () => {",
-          "  setTimeout(() => { console.log('slow implementation complete'); }, 2000);",
+          `  setTimeout(() => { console.log('slow implementation complete'); }, ${delayMs});`,
           "});"
         ].join("")
       ]
@@ -354,7 +356,6 @@ describe("runWithSession", () => {
     const result = await runWithSession({ projectRoot: root, once: true, ...noTmux });
     const state = await readJsonFile<RuntimeState>(init.workspace.stateFile);
     const status = await getAutoRunStatus({ projectRoot: root });
-
     expect(result.session).toMatchObject({
       sessionId: "SESSION-0001",
       phase: "completed",
@@ -381,7 +382,7 @@ describe("runWithSession", () => {
   });
 
   it("links the active run record before a slow step finishes", async () => {
-    const { root } = await createTestWorkspace(slowImplementationManifest());
+    const { root, init } = await createTestWorkspace(slowImplementationManifest());
 
     const running = runWithSession({ projectRoot: root, once: true, ...noTmux });
     await waitForSessionRecord(root, "SESSION-0001", "T-001#B-001::RUN-001");
@@ -407,6 +408,152 @@ describe("runWithSession", () => {
     );
 
     await expect(running).resolves.toMatchObject({ ok: true, terminalReason: "completed" });
+  });
+
+  it("propagates AbortSignal to the selected CLI runner and releases the claim", async () => {
+    const { root, init } = await createTestWorkspace(slowImplementationManifest());
+    const abort = new AbortController();
+
+    const running = runWithSession({
+      projectRoot: root,
+      once: true,
+      signal: abort.signal,
+      ...noTmux
+    });
+    await waitForSessionRecord(root, "SESSION-0001", "T-001#B-001::RUN-001");
+    abort.abort();
+    const result = await running;
+    const detail = await getRunSession(root, result.session.sessionId);
+    const state = await readJsonFile<RuntimeState>(init.workspace.stateFile);
+    const status = await getAutoRunStatus({ projectRoot: root });
+    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
+    const metadata = await readJsonFile<Record<string, unknown>>(join(runDir, "metadata.json"));
+    const heartbeat = await readJsonFile<{ pid: number | null; status: string }>(
+      join(runDir, "heartbeat.json")
+    );
+    const desktopRecords = await listBlockRunRecords(root, "T-001#B-001");
+
+    expect(result).toMatchObject({ ok: false, terminalReason: "cancelled" });
+    expect(result.session).toMatchObject({
+      phase: "stopped",
+      autoRun: expect.objectContaining({
+        stopReason: "cancelled",
+        effectiveExecutor: "slow-implementation",
+        agentId: "codex",
+        runnerKind: "cli"
+      }),
+      error: null
+    });
+    expect(detail.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "session_stopped",
+          phase: "stopped",
+          stopReason: "cancelled"
+        })
+      ])
+    );
+    expect(status.current.refs).toEqual([]);
+    expect(status.explanation.phase).not.toBe("running");
+    expect(status.latestRuns[0]).toMatchObject({
+      finishedAt: expect.any(String),
+      failureReason: "Executor cancelled."
+    });
+    expect(metadata).toMatchObject({
+      finishedAt: expect.any(String),
+      exitCode: 130,
+      outcome: "cancelled",
+      cancelled: true,
+      stopped: true,
+      timedOut: false,
+      failureReason: "Executor cancelled."
+    });
+    expect(heartbeat.status).not.toBe("running");
+    if (heartbeat.pid !== null) {
+      expect(() => process.kill(heartbeat.pid!, 0)).toThrow();
+    }
+    expect(desktopRecords[0]).toMatchObject({
+      recordId: "T-001#B-001::RUN-001",
+      finishedAt: expect.any(String),
+      exitCode: 130
+    });
+    expect(state.blocks["T-001#B-001"]?.status).toBe("ready");
+  });
+
+  it("retains ACP executor identity when fail-closed execution blocks before a run record", async () => {
+    const manifest = manifestTestBuilder()
+      .withDefaultExecutor("codex-acp")
+      .withBlock("T-001", "B-001", (block) => ({ ...block, executor: "codex-acp" }))
+      .build();
+    const { root } = await createTestWorkspace(manifest);
+
+    const result = await runWithSession({ projectRoot: root, once: true, ...noTmux });
+
+    expect(result).toMatchObject({
+      ok: false,
+      terminalReason: "blocked",
+      steps: [
+        {
+          kind: "blocked",
+          runnerEvidence: {
+            effectiveExecutor: "codex-acp",
+            agentId: "codex",
+            runnerKind: "acp"
+          }
+        }
+      ],
+      session: {
+        phase: "blocked",
+        latestRecordId: null,
+        autoRun: {
+          effectiveExecutor: "codex-acp",
+          agentId: "codex",
+          runnerKind: "acp"
+        }
+      }
+    });
+  });
+
+  it("finalizes cancelled tmux run metadata and releases the tmux session", async () => {
+    if (!(await isTmuxAvailable())) {
+      return;
+    }
+    const { root, init } = await createTestWorkspace(slowImplementationManifest(60_000));
+    const abort = new AbortController();
+    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
+    const metadataPath = join(runDir, "metadata.json");
+
+    const running = runWithSession({
+      projectRoot: root,
+      once: true,
+      signal: abort.signal,
+      tmuxEnabled: true
+    });
+    await waitForSessionRecord(root, "SESSION-0001", "T-001#B-001::RUN-001");
+    let inFlightMetadata: Record<string, unknown> = {};
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      inFlightMetadata = await readJsonFile<Record<string, unknown>>(metadataPath);
+      if (typeof inFlightMetadata.tmuxSessionName === "string") {
+        break;
+      }
+      await sleep(25);
+    }
+    expect(inFlightMetadata.tmuxSessionName).toEqual(expect.any(String));
+
+    abort.abort();
+    const result = await running;
+    const metadata = await readJsonFile<Record<string, unknown>>(metadataPath);
+
+    expect(result).toMatchObject({ ok: false, terminalReason: "cancelled" });
+    expect(metadata).toMatchObject({
+      finishedAt: expect.any(String),
+      exitCode: 130,
+      outcome: "cancelled",
+      cancelled: true,
+      stopped: true,
+      failureReason: "Executor cancelled."
+    });
+    await expect(killActiveTmuxSessions()).resolves.toEqual([]);
   });
 
   it("marks step-limit exhaustion as completed with a stop reason instead of stopped", async () => {

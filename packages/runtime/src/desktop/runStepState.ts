@@ -82,6 +82,9 @@ export function executorName(step: AutoRunStepResult): string | null {
   if (step.kind === "batch_submitted") {
     return step.steps.find((item) => item.adapterResult.executor)?.adapterResult.executor ?? null;
   }
+  if (step.kind === "blocked") {
+    return step.runnerEvidence?.effectiveExecutor ?? null;
+  }
   return null;
 }
 

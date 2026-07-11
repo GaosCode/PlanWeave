@@ -30,7 +30,9 @@ const runSessionPhases = new Set([
   "failed",
   "stopped"
 ]);
-const autoRunStopReasons = new Set(["none", "once", "step_limit", "no_steps"]);
+const autoRunStopReasons = new Set(["none", "once", "step_limit", "no_steps", "cancelled"]);
+const agentIds = new Set(["codex", "opencode", "claude-code", "pi"]);
+const runnerKinds = new Set(["cli", "acp"]);
 
 export function assertValidRunSessionId(sessionId: string): void {
   if (!sessionIdPattern.test(sessionId)) {
@@ -165,9 +167,28 @@ function isAutoRunSummary(value: unknown): boolean {
     value.stepCount >= 0 &&
     typeof value.parallel === "boolean" &&
     isNullableString(value.executorOverride) &&
+    (value.effectiveExecutor === undefined || isNullableString(value.effectiveExecutor)) &&
+    (value.agentId === undefined ||
+      value.agentId === null ||
+      agentIds.has(String(value.agentId))) &&
+    (value.runnerKind === undefined ||
+      value.runnerKind === null ||
+      runnerKinds.has(String(value.runnerKind))) &&
     (value.stopReason === null ||
       (typeof value.stopReason === "string" && autoRunStopReasons.has(value.stopReason)))
   );
+}
+
+function normalizeAutoRunSummary(value: RunSessionState["autoRun"] | Record<string, unknown>) {
+  if (value === null) {
+    return null;
+  }
+  return {
+    ...value,
+    effectiveExecutor: value.effectiveExecutor ?? null,
+    agentId: value.agentId ?? null,
+    runnerKind: value.runnerKind ?? null
+  } as NonNullable<RunSessionState["autoRun"]>;
 }
 
 function validateSessionState(
@@ -276,7 +297,10 @@ function validateSessionState(
     return { session: null, diagnostics };
   }
   const session = value as RunSessionState;
-  return { session: { ...session, reset: resetSummary }, diagnostics: [] };
+  return {
+    session: { ...session, reset: resetSummary, autoRun: normalizeAutoRunSummary(session.autoRun) },
+    diagnostics: []
+  };
 }
 
 async function readSessionState(

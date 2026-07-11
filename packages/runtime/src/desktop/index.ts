@@ -122,14 +122,17 @@ export {
   getAutoRunState,
   getLatestAutoRunSummary,
   getLatestAutoRunSummaryWithDiagnostics,
+  listDesktopPendingAgentRequests,
   listAutoRunEvents,
   pauseAutoRun,
   resetDesktopRuntimeState,
+  respondToDesktopAgentRequest,
   resumeAutoRun,
   startAutoRun,
   stopAutoRun,
   subscribeAutoRunEvents
 } from "./runApi.js";
+export type { ActiveAgentRunActionIdentity } from "../autoRun/activeAgentRunRegistry.js";
 export {
   isFailedAutoRunTerminalPhase,
   isTerminalAutoRunPhase,
@@ -142,6 +145,11 @@ export {
   desktopAutoRunPhaseSchema,
   parseAutoRunNdjsonLine
 } from "./autoRunEventSchema.js";
+export { adaptLegacyDesktopRunnerEvents } from "./legacyRunnerEventAdapter.js";
+export type {
+  LegacyDesktopRunnerEventAdaptation,
+  LegacyDesktopRunnerEventContext
+} from "./legacyRunnerEventAdapter.js";
 export {
   getFeedbackRecords,
   getReviewAttempts,

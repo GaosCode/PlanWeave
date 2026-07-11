@@ -1,5 +1,5 @@
 import { opencodeReport, parseOpencodeJsonOutput } from "../autoRun/opencodeOutput.js";
-import type { ExecutorProfile } from "../types.js";
+import type { ExecutorIntegrationName } from "../types.js";
 import type { DesktopRunRecord } from "./types.js";
 
 export function cleanOutputSummary(value: string): string {
@@ -10,7 +10,7 @@ export function cleanOutputSummary(value: string): string {
 }
 
 export function outputSummaryForRecord(
-  adapter: ExecutorProfile["adapter"] | null,
+  adapter: ExecutorIntegrationName | null,
   stdout: string,
   stderr: string
 ): string {
@@ -25,7 +25,7 @@ export function outputSummaryForRecord(
 }
 
 function liveOutputMarkdown(
-  adapter: ExecutorProfile["adapter"] | null,
+  adapter: ExecutorIntegrationName | null,
   stdout: string,
   stderr: string
 ): string {
@@ -36,7 +36,7 @@ function liveOutputMarkdown(
 }
 
 export function displayMarkdownForRecord(options: {
-  adapter: ExecutorProfile["adapter"] | null;
+  adapter: ExecutorIntegrationName | null;
   reportMarkdown: string;
   stdout: string;
   stderr: string;

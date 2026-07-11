@@ -126,7 +126,11 @@ describe("desktop records API", () => {
     await writeFile(join(feedbackRunDir, "prompt.md"), "Fix the review feedback.\n", "utf8");
     await writeFile(join(feedbackRunDir, "stdout.md"), "Applied feedback fix.\n", "utf8");
     await writeFile(join(feedbackRunDir, "stderr.log"), "", "utf8");
-    await writeFile(join(feedbackRunDir, "report.md"), "Feedback resolved.\n", "utf8");
+    await writeFile(
+      join(feedbackRunDir, "feedback-report.md"),
+      "Feedback resolved.\n",
+      "utf8"
+    );
     await writeJsonFile(join(feedbackRunDir, "heartbeat.json"), {
       status: "finished",
       pid: 12345,
@@ -155,7 +159,7 @@ describe("desktop records API", () => {
         heartbeatPid: 12345,
         lastHeartbeatAt: "2026-05-23T02:09:59.000Z",
         lastActivityAt: expect.any(String),
-        reportPath: expect.stringContaining("feedback-runs/RUN-001/report.md")
+        reportPath: expect.stringContaining("feedback-runs/RUN-001/feedback-report.md")
       })
     ]);
     await expect(getRunRecord(root, "FE-001::RUN-001")).resolves.toMatchObject({

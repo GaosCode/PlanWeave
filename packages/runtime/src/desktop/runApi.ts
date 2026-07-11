@@ -1,5 +1,12 @@
 import { join } from "node:path";
 import { killTmuxSessionsForRun } from "../autoRun/tmuxExecutor.js";
+import { listExecutorProfilesForManifest } from "../autoRun/executors.js";
+import {
+  activeAgentRunRegistry,
+  shutdownDesktopAgentRun,
+  type ActiveAgentRunActionIdentity
+} from "../autoRun/activeAgentRunRegistry.js";
+import type { JsonRpcValue, RunnerInteractionBroker } from "../autoRun/liveControl.js";
 import { createAutoRunExplanation, runAutoRunStep } from "../taskManager/autoRun.js";
 import { resetMaxCycleReviewsForRetry } from "../taskManager/reviewRetry.js";
 import { loadPackage } from "../package/loadPackage.js";
@@ -59,6 +66,7 @@ const runs = new Map<string, DesktopAutoRunState>();
 const runWorkspaces = new Map<string, ProjectWorkspace>();
 const stopOperations = new Map<string, Promise<DesktopAutoRunState>>();
 const activeLoops = new Set<string>();
+const runAbortControllers = new Map<string, AbortController>();
 const autoRunEventListeners = new Set<DesktopAutoRunEventListener>();
 const finalRunSessionEventTypes = new Set([
   "session_completed",
@@ -67,6 +75,10 @@ const finalRunSessionEventTypes = new Set([
   "session_failed",
   "session_stopped"
 ]);
+const desktopInteractionBroker: RunnerInteractionBroker = {
+  mode: "interactive",
+  requestAvailable: () => undefined
+};
 
 type DesktopRunSessionStopReason = RunSessionAutoRunSummary["stopReason"];
 
@@ -163,11 +175,19 @@ async function autoRunSessionSummary(
   stopReason: DesktopRunSessionStopReason
 ): Promise<RunSessionAutoRunSummary> {
   const { manifest } = await loadPackage(workspace);
+  const profileEvidence = state.currentExecutor
+    ? listExecutorProfilesForManifest(manifest).find(
+        (profile) => profile.name === state.currentExecutor
+      )
+    : undefined;
   return {
     desktopRunId: state.runId,
     stepCount: state.stepCount,
     parallel: manifest.execution.parallel.enabled,
     executorOverride: null,
+    effectiveExecutor: state.currentExecutor,
+    agentId: profileEvidence?.agentId ?? null,
+    runnerKind: profileEvidence?.runnerKind ?? null,
     stopReason
   };
 }
@@ -310,7 +330,11 @@ async function runLoop(runId: string): Promise<void> {
           parallel: manifest.execution.parallel.enabled,
           scope: claimScope(current.scope),
           tmuxEnabled: current.options.tmuxEnabled,
-          tmuxOwnerRunId: runId
+          tmuxOwnerRunId: runId,
+          desktopRunId: runId,
+          runSessionId: current.runSessionId ?? undefined,
+          signal: runAbortControllers.get(runId)?.signal,
+          interactionBroker: desktopInteractionBroker
         });
         invalidateDesktopProjectProjection(current.projectRoot);
         const { record, warnings } = await latestStatus(workspace);
@@ -335,7 +359,7 @@ async function runLoop(runId: string): Promise<void> {
           {
             stepCount: afterStep.stepCount + 1,
             currentRef: claimRef(step),
-            currentExecutor: executorName(step),
+            currentExecutor: step.kind === "idle" ? afterStep.currentExecutor : executorName(step),
             latestOutputSummary: outputSummary(step),
             latestRecordId: record?.recordId ?? null,
             latestRecordPath: record?.path ?? null,
@@ -374,6 +398,20 @@ async function runLoop(runId: string): Promise<void> {
     activeLoops.delete(runId);
     releaseRunResources(runId);
   }
+}
+
+export function listDesktopPendingAgentRequests(identity: ActiveAgentRunActionIdentity) {
+  return activeAgentRunRegistry.listPending(identity);
+}
+
+export function respondToDesktopAgentRequest(
+  identity: ActiveAgentRunActionIdentity,
+  value: JsonRpcValue
+): Promise<void> {
+  if (identity.desktopRunId === undefined) {
+    return Promise.reject(new Error("Desktop interaction requires an exact desktopRunId."));
+  }
+  return activeAgentRunRegistry.respond(identity, value);
 }
 
 function launchRunLoop(runId: string): void {
@@ -451,6 +489,7 @@ function releaseRunResources(runId: string, state = runs.get(runId)): void {
     return;
   }
   runWorkspaces.delete(runId);
+  runAbortControllers.delete(runId);
   if (activeLoops.has(runId)) {
     return;
   }
@@ -534,6 +573,7 @@ export async function startAutoRun(
     updatedAt: timestamp
   });
   runs.set(runId, state);
+  runAbortControllers.set(runId, new AbortController());
   runWorkspaces.set(runId, workspace);
   await writePersistedAutoRunState(state);
   await appendAutoRunEvent(state, "run_started", {
@@ -547,6 +587,9 @@ export async function startAutoRun(
       stepCount: 0,
       parallel: manifest.execution.parallel.enabled,
       executorOverride: null,
+      effectiveExecutor: null,
+      agentId: null,
+      runnerKind: null,
       stopReason: null
     },
     error: null
@@ -606,10 +649,12 @@ export async function stopAutoRun(runId: string): Promise<DesktopAutoRunState> {
     if (latest.phase === "stopped") {
       return latest;
     }
+    runAbortControllers.get(runId)?.abort(new Error("Desktop Auto Run stopped."));
     const killed =
       latest.phase === "running" || latest.phase === "pausing"
         ? await killTmuxSessionsForRun(runId)
         : [];
+    await shutdownDesktopAgentRun(runId, "Desktop Auto Run stopped.");
     return setState(runId, { phase: "stopped" }, "run_stopped", { killedTmuxSessions: killed });
   })();
   stopOperations.set(runId, stopOperation);
