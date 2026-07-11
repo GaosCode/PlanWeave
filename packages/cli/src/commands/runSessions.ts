@@ -6,6 +6,7 @@ import {
   isFailedAutoRunTerminalPhase,
   listAutoRunEvents,
   listRunSessions,
+  readRunnerRecordReadModelForArtifact,
   tailAutoRunEvents,
   type AutoRunEventTailItem,
   type PackageWorkspaceRef,
@@ -218,11 +219,15 @@ export function registerRunSessionsCommands(program: Command): void {
       .option("--json", "print JSON output")
   ).action(async (sessionId: string, options: JsonCommandOptions) => {
     const result = await getRunSession(await resolveCliPackageWorkspace(options), sessionId);
+    const runnerReadModel = await readRunnerRecordReadModelForArtifact(
+      result.session.latestRecordPath
+    );
+    const output = { ...result, runnerReadModel };
     if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
+      console.log(JSON.stringify(output, null, 2));
       return;
     }
-    console.log(formatRunSessionDetail(result));
+    console.log(formatRunSessionDetail(output));
   });
 }
 

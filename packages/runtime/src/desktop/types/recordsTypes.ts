@@ -1,4 +1,5 @@
 import type { FeedbackStatus, ReviewVerdict } from "../../types.js";
+import type { RunnerRecordReadModel } from "../../autoRun/runnerRecordReadModel.js";
 
 export type DesktopBlockRunRecordSummary = {
   recordId: string;
@@ -44,6 +45,7 @@ export type DesktopRunRecord = DesktopBlockRunRecordSummary & {
   displayMarkdown: string;
   displayMarkdownSource: "report" | "live-output" | "none";
   metadata: Record<string, unknown>;
+  runnerReadModel: RunnerRecordReadModel | null;
 };
 
 export type DesktopReviewAttemptSummary = {

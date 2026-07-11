@@ -154,7 +154,8 @@ export {
   getFeedbackRecords,
   getReviewAttempts,
   getRunRecord,
-  listBlockRunRecords
+  listBlockRunRecords,
+  subscribeRunRecord
 } from "./recordsApi.js";
 export {
   bulkApplyReviewPipeline,

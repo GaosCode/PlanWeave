@@ -4,6 +4,13 @@ import {
   readVerifiedArtifactReference
 } from "../autoRun/artifactReferenceContract.js";
 import { finalArtifactRelativePath } from "../autoRun/finalArtifactContract.js";
+import {
+  consumeRunnerRecordReadModel,
+  readRunnerRecordReadModel,
+  type RunnerRecordReadConsumer
+} from "../autoRun/runnerRecordReadModel.js";
+import type { AcpEventSubscriber } from "../autoRun/acpEventPublisher.js";
+import type { RunnerEventCursor } from "../autoRun/runnerEventReplay.js";
 import { optionalReadFile, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile } from "../json.js";
@@ -441,8 +448,28 @@ export async function getRunRecord(
     promptMarkdown,
     reportMarkdown,
     ...display,
-    metadata
+    metadata,
+    runnerReadModel: await readRunnerRecordReadModel({ runDir, metadata })
   };
+}
+
+export async function subscribeRunRecord(
+  projectRoot: PackageWorkspaceRef,
+  recordId: string,
+  cursor: RunnerEventCursor | undefined,
+  subscriber: AcpEventSubscriber
+): Promise<RunnerRecordReadConsumer> {
+  const parsed = parseRunRecordId(recordId);
+  const { workspace } = await loadPackage(projectRoot);
+  const runDir =
+    parsed.kind === "block"
+      ? join(blockRunRoot(workspace.resultsDir, parsed.blockRef), parsed.runId)
+      : join(feedbackRunRoot(workspace.resultsDir), parsed.runId);
+  const metadataPath = join(runDir, "metadata.json");
+  const metadata = (await exists(metadataPath))
+    ? await readJsonFile<Record<string, unknown>>(metadataPath)
+    : {};
+  return consumeRunnerRecordReadModel({ runDir, metadata, cursor, subscriber });
 }
 
 export async function getReviewAttempts(

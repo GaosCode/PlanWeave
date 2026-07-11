@@ -9,6 +9,8 @@ import {
   listBlockRunRecords,
   searchProject
 } from "../desktop/index.js";
+import { readRunnerRecordReadModelForArtifact } from "../autoRun/runnerRecordReadModel.js";
+import { normalizedRunnerEventSchema } from "../autoRun/normalizedEventContract.js";
 import {
   claimNext,
   submitBlockResult,
@@ -335,6 +337,55 @@ describe("desktop records API", () => {
         latestSubmissionId: "FS-001",
         content: "first feedback"
       }
+    ]);
+  });
+
+  it("gives CLI artifact and Desktop record adapters the same ACP model", async () => {
+    const { root, init } = await createTestWorkspace();
+    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
+    await mkdir(runDir, { recursive: true });
+    const reportPath = join(runDir, "report.md");
+    await writeFile(reportPath, "done\n", "utf8");
+    await writeJsonFile(join(runDir, "metadata.json"), {
+      runnerKind: "acp",
+      agentId: "codex",
+      runId: "RUN-001",
+      ref: "T-001#B-001"
+    });
+    const event = normalizedRunnerEventSchema.parse({
+      version: "planweave.runner-event/v1",
+      sequence: 1,
+      timestamp: "2026-07-11T00:00:00.000Z",
+      identity: {
+        projectId: init.workspace.id,
+        canvasId: "default",
+        taskId: "T-001",
+        blockId: "B-001",
+        claimRef: "T-001#B-001",
+        runId: "RUN-001",
+        runOwner: "executor",
+        runSessionId: null,
+        desktopRunId: null,
+        executorRunId: "RUN-001"
+      },
+      runner: { version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" },
+      body: {
+        kind: "message",
+        role: "assistant",
+        messageId: "message-1",
+        chunk: true,
+        content: "shared projection",
+        redaction: { classes: [], replaced: 0 }
+      }
+    });
+    await writeFile(join(runDir, "events.ndjson"), `${JSON.stringify(event)}\n`, "utf8");
+
+    const desktop = await getRunRecord(root, "T-001#B-001::RUN-001");
+    const cli = await readRunnerRecordReadModelForArtifact(reportPath);
+
+    expect(desktop.runnerReadModel).toEqual(cli);
+    expect(cli?.conversation).toEqual([
+      expect.objectContaining({ content: "shared projection" })
     ]);
   });
 });

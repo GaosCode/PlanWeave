@@ -160,7 +160,9 @@ export function formatRunSessions(result: ListRunSessionsResult): string {
   return lines.join("\n");
 }
 
-export function formatRunSessionDetail(detail: RunSessionDetail): string {
+export function formatRunSessionDetail(
+  detail: RunSessionDetail & { runnerReadModel?: import("@planweave-ai/runtime").RunnerRecordReadModel | null }
+): string {
   const lines = [
     `session: ${detail.session.sessionId}`,
     `kind: ${detail.session.kind}`,
@@ -177,6 +179,15 @@ export function formatRunSessionDetail(detail: RunSessionDetail): string {
     "events:"
   ];
   lines.push(...detail.events.map((event) => `- ${event.timestamp} ${event.type} ${event.phase}`));
+  if (detail.runnerReadModel) {
+    lines.push(
+      `runner events: ${detail.runnerReadModel.events.length} terminal=${detail.runnerReadModel.terminal}`,
+      `runner interaction: persisted=${detail.runnerReadModel.interaction.persisted} active=${detail.runnerReadModel.interaction.active} stale=${detail.runnerReadModel.interaction.stale}`
+    );
+    for (const diagnostic of detail.runnerReadModel.diagnostics) {
+      lines.push(`runner diagnostic: ${diagnostic.code}: ${diagnostic.message}`);
+    }
+  }
   if (detail.diagnostics.length > 0) {
     lines.push("diagnostics:");
     lines.push(

@@ -1,0 +1,384 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import {
+  consumeRunnerRecordReadModel,
+  readRunnerRecordReadModel
+} from "../autoRun/runnerRecordReadModel.js";
+import { acpEventReadModels } from "../autoRun/acpEventReadModel.js";
+import { normalizedRunnerEventSchema } from "../autoRun/normalizedEventContract.js";
+import { runnerIdentitySchema, runnerRunIdentitySchema } from "../autoRun/runnerContractSchemas.js";
+import {
+  activeAgentRunRegistry,
+  type ActiveAgentRunHandle
+} from "../autoRun/activeAgentRunRegistry.js";
+import { createLiveOwnership } from "../autoRun/liveControl.js";
+
+const metadata = {
+  runnerKind: "acp",
+  runId: "RUN-001",
+  ref: "T-001#B-001",
+  taskId: "T-001",
+  blockId: "B-001",
+  executorRunId: "RUN-001",
+  sessionId: "session-1"
+};
+
+function activeHandle(
+  runDir: string,
+  ownerIds: { desktopRunId?: string; runSessionId?: string } = {}
+): ActiveAgentRunHandle {
+  const ownership = createLiveOwnership(`${runDir}:RUN-001`, 1);
+  const pendingRequests = new Map([[
+    "permission-1",
+    {
+      requestId: "permission-1",
+      interactionId: "permission-1",
+      kind: "permission" as const,
+      requestedAt: "2026-07-11T00:00:00.000Z",
+      summary: "approval required",
+      respond: vi.fn(async () => undefined),
+      reject: vi.fn(async () => undefined)
+    }
+  ]]);
+  return {
+    identity: {
+      scope: runDir,
+      executorRunId: "RUN-001",
+      claimRef: "T-001#B-001",
+      sessionId: "session-1",
+      ...ownerIds
+    },
+    connection: {
+      processId: null,
+      pendingOperationCount: 0,
+      pendingOperations: new Map(),
+      stderr: [],
+      closed: Promise.resolve(),
+      initialize: vi.fn(),
+      newSession: vi.fn(),
+      prompt: vi.fn(),
+      cancel: vi.fn(async () => undefined),
+      closeSession: vi.fn(),
+      dispose: vi.fn(async () => undefined)
+    },
+    abortController: new AbortController(),
+    eventSink: () => undefined,
+    ownership,
+    lifecycleState: "waiting_interaction",
+    control: {
+      ownership,
+      process: { pid: null, terminate: vi.fn(async () => undefined) },
+      connection: {
+        send: vi.fn(async () => undefined),
+        close: vi.fn(async () => undefined),
+        cancelSession: vi.fn(async () => undefined),
+        closeSession: vi.fn(async () => undefined),
+        supportsSessionClose: false
+      },
+      sessionId: "session-1",
+      pendingRequests,
+      pendingOperations: new Map()
+    }
+  };
+}
+
+function event(
+  sequence: number,
+  kind: "interaction" | "terminal" | "message",
+  claimRef = "T-001#B-001",
+  ownerIds: { desktopRunId?: string | null; runSessionId?: string | null } = {}
+) {
+  const [taskId, blockId] = claimRef.split("#");
+  return normalizedRunnerEventSchema.parse({
+    version: "planweave.runner-event/v1",
+    sequence,
+    timestamp: "2026-07-11T00:00:00.000Z",
+    identity: {
+      projectId: "project-1",
+      canvasId: "default",
+      taskId,
+      blockId,
+      claimRef,
+      runId: "RUN-001",
+      runOwner: "executor",
+      runSessionId: ownerIds.runSessionId ?? null,
+      desktopRunId: ownerIds.desktopRunId ?? null,
+      executorRunId: "RUN-001"
+    },
+    runner: { version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" },
+    correlation: { sessionId: "session-1" },
+    body: kind === "interaction"
+      ? {
+          kind: "interaction",
+          interaction: {
+            version: "planweave.runner/v1",
+            interactionId: "permission-1",
+            requestId: "permission-1",
+            kind: "permission",
+            requestedAt: "2026-07-11T00:00:00.000Z",
+            summary: "approval required",
+            status: "cancelled",
+            actionable: false,
+            nonActionableReason: "terminal_cleanup"
+          }
+        }
+      : kind === "terminal" ? {
+          kind: "terminal",
+          outcome: {
+            version: "planweave.runner/v1",
+            state: "succeeded",
+            exitCode: 0,
+            finishedAt: "2026-07-11T00:00:01.000Z",
+            diagnostic: null,
+            artifactValidated: true
+          }
+        } : {
+          kind: "message",
+          role: "assistant",
+          messageId: `message-${sequence}`,
+          chunk: true,
+          content: `message ${sequence}`,
+          redaction: { classes: [], replaced: 0 }
+        }
+  });
+}
+
+describe("runner record read model", () => {
+  it("keeps persisted interactions stale when no live owner exists", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-"));
+    await writeFile(
+      join(runDir, "events.ndjson"),
+      `${JSON.stringify(event(1, "interaction"))}\n${JSON.stringify(event(2, "terminal"))}\n`,
+      "utf8"
+    );
+
+    const result = await readRunnerRecordReadModel({ runDir, metadata });
+
+    expect(result).toMatchObject({
+      terminal: true,
+      interaction: { persisted: true, active: false, stale: true }
+    });
+    expect(result?.events.map((item) => item.sequence)).toEqual([1, 2]);
+    expect(result?.diagnostics).toEqual([]);
+  });
+
+  it("surfaces missing, corrupt, and partial logs as diagnostics", async () => {
+    const missingDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-"));
+    const missing = await readRunnerRecordReadModel({ runDir: missingDir, metadata });
+    expect(missing?.diagnostics.map((item) => item.code)).toContain("missing_log");
+
+    const damagedDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-"));
+    await writeFile(join(damagedDir, "events.ndjson"), "not-json\n{\"partial\":", "utf8");
+    const damaged = await readRunnerRecordReadModel({ runDir: damagedDir, metadata });
+    expect(damaged?.diagnostics.map((item) => item.code)).toEqual([
+      "corrupt_line",
+      "partial_line"
+    ]);
+  });
+
+  it("fails closed when a same-run log belongs to another claim", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-"));
+    await writeFile(
+      join(runDir, "events.ndjson"),
+      `${JSON.stringify(event(1, "message", "T-002#B-009"))}\n`,
+      "utf8"
+    );
+
+    const result = await readRunnerRecordReadModel({ runDir, metadata });
+
+    expect(result?.events).toEqual([]);
+    expect(result?.conversation).toEqual([]);
+    expect(result?.interaction).toEqual({ persisted: false, active: false, stale: false });
+    expect(result?.diagnostics.map((item) => item.code)).toContain("identity_mismatch");
+  });
+
+  it("fails closed for conflicting metadata identity fields before replay", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-"));
+    await writeFile(join(runDir, "events.ndjson"), `${JSON.stringify(event(1, "message"))}\n`, "utf8");
+
+    const result = await readRunnerRecordReadModel({
+      runDir,
+      metadata: { ...metadata, taskId: "T-999", blockId: "B-999" }
+    });
+
+    expect(result?.events).toEqual([]);
+    expect(result?.conversation).toEqual([]);
+    expect(result?.diagnostics.map((item) => item.code)).toEqual(["identity_mismatch"]);
+  });
+
+  it("fails the whole persisted record closed when a valid event is followed by a foreign identity", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-"));
+    await writeFile(
+      join(runDir, "events.ndjson"),
+      `${JSON.stringify(event(1, "message"))}\n${JSON.stringify(event(2, "message", "T-999#B-999"))}\n`,
+      "utf8"
+    );
+
+    const result = await readRunnerRecordReadModel({ runDir, metadata });
+
+    expect(result?.events).toEqual([]);
+    expect(result?.conversation).toEqual([]);
+    expect(result?.interaction).toEqual({ persisted: false, active: false, stale: false });
+    expect(result?.diagnostics.map((item) => item.code)).toContain("identity_mismatch");
+  });
+
+  it("exposes one atomic replay-to-live consumer authority", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-live-record-"));
+    const model = await acpEventReadModels.create({
+      runDir,
+      identity: runnerRunIdentitySchema.parse(event(1, "message").identity),
+      runner: runnerIdentitySchema.parse(event(1, "message").runner)
+    });
+    try {
+      await model.store.append(event(1, "message").body);
+      const live: number[] = [];
+      const consumer = await consumeRunnerRecordReadModel({
+        runDir,
+        metadata,
+        subscriber: (item) => { live.push(item.sequence); }
+      });
+      expect(consumer.snapshot?.events.map((item) => item.sequence)).toEqual([1]);
+      expect(consumer.subscription).not.toBeNull();
+
+      await model.store.append(event(2, "message").body);
+      await model.store.append(event(3, "terminal").body);
+      await consumer.subscription?.closed;
+
+      expect(live).toEqual([2, 3]);
+      expect(model.store.publisher.subscriberCount).toBe(0);
+    } finally {
+      acpEventReadModels.release(runDir);
+    }
+  });
+
+  it("normalizes a foreign active cursor to a fail-closed diagnostic", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-live-record-"));
+    const model = await acpEventReadModels.create({
+      runDir,
+      identity: runnerRunIdentitySchema.parse(event(1, "message").identity),
+      runner: runnerIdentitySchema.parse(event(1, "message").runner)
+    });
+    try {
+      await model.store.append(event(1, "message").body);
+      const foreignCursor = {
+        version: "planweave.runner-event-cursor/v1" as const,
+        runId: "RUN-001",
+        afterSequence: 0,
+        canonicalIdentity: {
+          identity: event(1, "message", "T-999#B-999").identity,
+          runner: event(1, "message").runner
+        },
+        terminal: false
+      };
+
+      const consumer = await consumeRunnerRecordReadModel({
+        runDir,
+        metadata,
+        cursor: foreignCursor,
+        subscriber: vi.fn()
+      });
+
+      expect(consumer.snapshot?.events).toEqual([]);
+      expect(consumer.snapshot?.conversation).toEqual([]);
+      expect(consumer.snapshot?.diagnostics.map((item) => item.code)).toContain("identity_mismatch");
+      expect(consumer.subscription).toBeNull();
+    } finally {
+      acpEventReadModels.release(runDir);
+    }
+  });
+
+  it("marks interaction active only for exact live registry ownership", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-owned-record-"));
+    await writeFile(join(runDir, "events.ndjson"), `${JSON.stringify(event(1, "interaction"))}\n`, "utf8");
+    const handle = activeHandle(runDir);
+    activeAgentRunRegistry.register(handle);
+    try {
+      const owned = await readRunnerRecordReadModel({ runDir, metadata });
+      expect(owned?.interaction).toEqual({ persisted: true, active: true, stale: false });
+      const foreign = await readRunnerRecordReadModel({
+          runDir,
+          metadata: { ...metadata, ref: "T-002#B-001" }
+        });
+      expect(foreign?.events).toEqual([]);
+      expect(foreign?.diagnostics.map((item) => item.code)).toContain("identity_mismatch");
+      expect(foreign?.interaction.active).toBe(false);
+    } finally {
+      await activeAgentRunRegistry.remove(handle, "test complete");
+    }
+  });
+
+  it("keeps live interaction inactive for foreign owner ids or a nonmatching pending request", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-owned-record-"));
+    const ownedEvent = event(1, "interaction", "T-001#B-001", {
+      desktopRunId: "DESKTOP-good",
+      runSessionId: "SESSION-good"
+    });
+    await writeFile(join(runDir, "events.ndjson"), `${JSON.stringify(ownedEvent)}\n`, "utf8");
+    const handle = activeHandle(runDir, {
+      desktopRunId: "DESKTOP-foreign",
+      runSessionId: "SESSION-foreign"
+    });
+    activeAgentRunRegistry.register(handle);
+    try {
+      const foreignOwner = await readRunnerRecordReadModel({ runDir, metadata });
+      expect(foreignOwner?.interaction).toEqual({ persisted: true, active: false, stale: true });
+    } finally {
+      await activeAgentRunRegistry.remove(handle, "test complete");
+    }
+
+    const requestRunDir = await mkdtemp(join(tmpdir(), "planweave-acp-owned-record-"));
+    await writeFile(join(requestRunDir, "events.ndjson"), `${JSON.stringify(ownedEvent)}\n`, "utf8");
+    const requestHandle = activeHandle(requestRunDir, {
+      desktopRunId: "DESKTOP-good",
+      runSessionId: "SESSION-good"
+    });
+    requestHandle.control.pendingRequests.clear();
+    requestHandle.control.pendingRequests.set("permission-other", {
+      requestId: "permission-other",
+      interactionId: "permission-other",
+      kind: "permission",
+      requestedAt: "2026-07-11T00:00:00.000Z",
+      summary: "other approval",
+      respond: vi.fn(async () => undefined),
+      reject: vi.fn(async () => undefined)
+    });
+    activeAgentRunRegistry.register(requestHandle);
+    try {
+      const wrongRequest = await readRunnerRecordReadModel({ runDir: requestRunDir, metadata });
+      expect(wrongRequest?.interaction).toEqual({ persisted: true, active: false, stale: true });
+    } finally {
+      await activeAgentRunRegistry.remove(requestHandle, "test complete");
+    }
+  });
+
+  it("keeps interaction inactive when canonical null owner ids have live foreign owners", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-owned-record-"));
+    await writeFile(
+      join(runDir, "events.ndjson"),
+      `${JSON.stringify(event(1, "interaction"))}\n`,
+      "utf8"
+    );
+    const handle = activeHandle(runDir, {
+      desktopRunId: "DESKTOP-foreign",
+      runSessionId: "SESSION-foreign"
+    });
+    activeAgentRunRegistry.register(handle);
+    try {
+      const result = await readRunnerRecordReadModel({ runDir, metadata });
+
+      expect(result?.events).toHaveLength(1);
+      expect(result?.interaction).toEqual({ persisted: true, active: false, stale: true });
+    } finally {
+      await activeAgentRunRegistry.remove(handle, "test complete");
+    }
+  });
+
+  it("leaves non-ACP record projections unchanged", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-cli-record-"));
+    await expect(
+      readRunnerRecordReadModel({ runDir, metadata: { runnerKind: "cli", runId: "RUN-001" } })
+    ).resolves.toBeNull();
+  });
+});

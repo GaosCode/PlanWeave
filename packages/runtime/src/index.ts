@@ -293,6 +293,12 @@ export { AcpEventStore } from "./autoRun/acpEventStore.js";
 export type * from "./autoRun/acpEventStore.js";
 export { AcpEventReadModel, AcpEventReadModelRegistry, acpEventReadModels } from "./autoRun/acpEventReadModel.js";
 export type * from "./autoRun/acpEventReadModel.js";
+export {
+  consumeRunnerRecordReadModel,
+  readRunnerRecordReadModel,
+  readRunnerRecordReadModelForArtifact
+} from "./autoRun/runnerRecordReadModel.js";
+export type * from "./autoRun/runnerRecordReadModel.js";
 export { projectAcpConversation, writeAcpConversationProjection } from "./autoRun/acpConversationProjection.js";
 export type * from "./autoRun/acpConversationProjection.js";
 export {
@@ -413,6 +419,7 @@ export {
   setSourceDefaultProject,
   startAutoRun,
   stopAutoRun,
+  subscribeRunRecord,
   subscribeAutoRunEvents,
   updateBlockDependencies,
   updateBlockExecutor,
