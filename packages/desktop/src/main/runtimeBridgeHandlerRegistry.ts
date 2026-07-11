@@ -37,6 +37,7 @@ import {
   getReviewAttempts,
   getReviewPipeline,
   getRunRecord,
+  listDesktopPendingAgentRequests,
   getStatistics,
   getTaskDetail,
   getTaskFileManagerPath,
@@ -67,6 +68,7 @@ import {
   resetDesktopRuntimeState,
   resolveTaskCanvasWorkspace,
   resumeAutoRun,
+  respondToDesktopAgentRequest,
   rollbackPendingImportRecovery,
   saveCanvasMapLayout,
   saveDesktopLayout,
@@ -106,6 +108,10 @@ import type {
   DesktopRunTerminalAvailabilityInput,
   DesktopRuntimeResetOptions,
   GraphEditResult
+} from "@planweave-ai/runtime";
+import {
+  desktopAgentActionIdentitySchema,
+  desktopAgentActionValueSchema
 } from "@planweave-ai/runtime";
 import type { DesktopBridgeMainInvokeMethod } from "../shared/ipcChannels.js";
 import { detectAgentTools } from "./agentTools.js";
@@ -389,6 +395,13 @@ export const runtimeBridgeHandlers = {
     listBlockRunRecords(await resolveDesktopCanvasReference(ref), blockRef),
   getRunRecord: async (_event, ref, recordId) =>
     getRunRecord(await resolveDesktopCanvasReference(ref), recordId),
+  listPendingAgentRequests: (_event, identity) =>
+    listDesktopPendingAgentRequests(desktopAgentActionIdentitySchema.parse(identity)),
+  respondToAgentRequest: (_event, identity, value) =>
+    respondToDesktopAgentRequest(
+      desktopAgentActionIdentitySchema.parse(identity),
+      desktopAgentActionValueSchema.parse(value)
+    ),
   getReviewAttempts: async (_event, ref, blockRef) =>
     getReviewAttempts(await resolveDesktopCanvasReference(ref), blockRef),
   getFeedbackRecords: async (_event, ref, blockRef) =>

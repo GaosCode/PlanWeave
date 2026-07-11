@@ -55,6 +55,14 @@ import type {
 import type { ExecutorPreflightResult } from "../../autoRun/executorPreflightTypes.js";
 import type { ClaimResult } from "../../types.js";
 import type { CanvasExecutionPolicyInput } from "../graph/editModelTypes.js";
+import type {
+  DesktopAgentActionIdentity,
+  DesktopAgentActionValue,
+  DesktopPendingAgentRequest,
+  DesktopRunnerRecordSubscriptionInput,
+  DesktopRunnerRecordSubscriptionStart
+} from "./acpBridgeTypes.js";
+import type { NormalizedRunnerEvent } from "../../autoRun/normalizedEventContract.js";
 
 export type DesktopAgentKind = "codex" | "claude-code" | "opencode" | "pi";
 
@@ -360,6 +368,17 @@ export type DesktopBridgeApi = {
   onPackageFileChanged(callback: (event: DesktopPackageFileChangeEvent) => void): () => void;
   onRuntimeStateChanged(callback: (event: DesktopRuntimeStateChangeEvent) => void): () => void;
   onAutoRunChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;
+  subscribeRunnerRecord(
+    input: Omit<DesktopRunnerRecordSubscriptionInput, "subscriptionId">,
+    callback: (event: NormalizedRunnerEvent) => void
+  ): Promise<DesktopRunnerRecordSubscriptionStart & { unsubscribe(): Promise<void> }>;
+  listPendingAgentRequests(
+    identity: DesktopAgentActionIdentity
+  ): Promise<DesktopPendingAgentRequest[]>;
+  respondToAgentRequest(
+    identity: DesktopAgentActionIdentity,
+    value: DesktopAgentActionValue
+  ): Promise<void>;
   startAutoRun(
     ref: DesktopCanvasReference,
     scope: DesktopAutoRunScope,

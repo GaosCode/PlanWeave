@@ -369,6 +369,7 @@ export {
   getLatestAutoRunRetrospective,
   getLatestAutoRunSummary,
   getLatestAutoRunSummaryWithDiagnostics,
+  listDesktopPendingAgentRequests,
   listAutoRunEvents,
   tailAutoRunEvents,
   isFailedAutoRunTerminalPhase,
@@ -407,6 +408,7 @@ export {
   pauseAutoRun,
   resetDesktopRuntimeState,
   resumeAutoRun,
+  respondToDesktopAgentRequest,
   rollbackPendingImportRecovery,
   resetCanvasMapLayout,
   resetDesktopLayout,
@@ -440,6 +442,12 @@ export {
   bulkApplyReviewPipeline,
   validateGraphEdit
 } from "./desktop/index.js";
+export {
+  desktopAgentActionIdentitySchema,
+  desktopAgentActionValueSchema,
+  desktopRunnerRecordSubscriptionInputSchema,
+  desktopRunnerRecordSubscriptionPushSchema
+} from "./desktop/types/acpBridgeTypes.js";
 export {
   acpRunnerSchema,
   agentFamilySchema,

@@ -4,6 +4,8 @@ import type {
   DesktopAutoRunEvent,
   DesktopBridgeApi,
   DesktopPackageFileChangeEvent,
+  DesktopRunnerRecordSubscriptionInput,
+  DesktopRunnerRecordSubscriptionPush,
   DesktopRuntimeStateChangeEvent
 } from "@planweave-ai/runtime";
 import type { AppUpdateState, PlanWeaveAppUpdateApi } from "../shared/appUpdate.js";
@@ -13,6 +15,9 @@ import { desktopSettingsInvokeChannels } from "../shared/desktopSettings.js";
 import {
   autoRunChangedChannel,
   packageFileChangedChannel,
+  runnerRecordEventChannel,
+  runnerRecordSubscribeChannel,
+  runnerRecordUnsubscribeChannel,
   runtimeStateChangedChannel
 } from "../shared/ipcChannels.js";
 import type { McpTunnelStatus, PlanWeaveMcpTunnelApi } from "../shared/mcpTunnel.js";
@@ -27,6 +32,7 @@ const invokeApi = createDesktopBridgeInvokeApi((channel, ...args) =>
   ipcRenderer.invoke(channel, ...args)
 );
 let lastSmokeRevealPath: string | null = null;
+let runnerRecordSubscriptionSequence = 0;
 
 const api: DesktopBridgeApi = {
   ...invokeApi,
@@ -53,6 +59,44 @@ const api: DesktopBridgeApi = {
     const listener = (_event: IpcRendererEvent, payload: DesktopAutoRunEvent) => callback(payload);
     ipcRenderer.on(autoRunChangedChannel, listener);
     return () => ipcRenderer.off(autoRunChangedChannel, listener);
+  },
+  subscribeRunnerRecord: async (input, callback) => {
+    runnerRecordSubscriptionSequence += 1;
+    const subscriptionId = `renderer-${runnerRecordSubscriptionSequence}`;
+    let active = true;
+    const listener = (_event: IpcRendererEvent, payload: DesktopRunnerRecordSubscriptionPush) => {
+      if (!active || payload.subscriptionId !== subscriptionId) return;
+      callback(payload.event);
+      if (payload.event.body.kind === "terminal") {
+        active = false;
+        ipcRenderer.off(runnerRecordEventChannel, listener);
+      }
+    };
+    ipcRenderer.on(runnerRecordEventChannel, listener);
+    const request: DesktopRunnerRecordSubscriptionInput = {
+      ...input,
+      subscriptionId
+    };
+    try {
+      const start = await ipcRenderer.invoke(runnerRecordSubscribeChannel, request);
+      if (start.snapshot?.terminal) {
+        active = false;
+        ipcRenderer.off(runnerRecordEventChannel, listener);
+      }
+      return {
+        ...start,
+        unsubscribe: async () => {
+          if (!active) return;
+          active = false;
+          ipcRenderer.off(runnerRecordEventChannel, listener);
+          await ipcRenderer.invoke(runnerRecordUnsubscribeChannel, subscriptionId);
+        }
+      };
+    } catch (error) {
+      active = false;
+      ipcRenderer.off(runnerRecordEventChannel, listener);
+      throw error;
+    }
   }
 };
 

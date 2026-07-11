@@ -3,7 +3,12 @@ import {
   resetRuntimeBridgeMocks,
   restoreRuntimeBridgeEnv
 } from "./support/runtimeBridgeTestHarness.js";
-import { autoRunChangedChannel, desktopBridgeInvokeChannels } from "../shared/ipcChannels";
+import {
+  autoRunChangedChannel,
+  desktopBridgeInvokeChannels,
+  runnerRecordSubscribeChannel,
+  runnerRecordUnsubscribeChannel
+} from "../shared/ipcChannels";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { electronMock, runtimeMock } = getRuntimeBridgeMocks();
@@ -179,7 +184,11 @@ describe("runtime bridge handlers: graph and project", () => {
     registerRuntimeStateWatchHandlers();
 
     expect(new Set(electronMock.handlers.keys())).toEqual(
-      new Set(Object.values(desktopBridgeInvokeChannels))
+      new Set([
+        ...Object.values(desktopBridgeInvokeChannels),
+        runnerRecordSubscribeChannel,
+        runnerRecordUnsubscribeChannel
+      ])
     );
     expect(electronMock.handlers.has(desktopBridgeInvokeChannels.watchPackageFiles)).toBe(true);
     expect(electronMock.handlers.has(desktopBridgeInvokeChannels.unwatchPackageFiles)).toBe(true);

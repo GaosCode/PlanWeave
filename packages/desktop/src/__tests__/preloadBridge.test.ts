@@ -1,5 +1,6 @@
 import type {
   DesktopAutoRunEvent,
+  DesktopBridgeApi,
   DesktopPackageFileChangeEvent,
   DesktopProjectSummary,
   DesktopRuntimeStateChangeEvent
@@ -20,6 +21,9 @@ import {
   autoRunChangedChannel,
   desktopBridgeInvokeChannels,
   packageFileChangedChannel,
+  runnerRecordEventChannel,
+  runnerRecordSubscribeChannel,
+  runnerRecordUnsubscribeChannel,
   runtimeStateChangedChannel,
   type DesktopBridgeInvokeMethod
 } from "../shared/ipcChannels";
@@ -273,6 +277,54 @@ describe("preload bridge invocation", () => {
     expect(callback).toHaveBeenCalledWith(event);
     unsubscribe();
     expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(runtimeStateChangedChannel, listener);
+  });
+
+  it("subscribes before replay invoke and tears down runner listeners deterministically", async () => {
+    electronMock.ipcRenderer.invoke.mockImplementation(async (channel: string, payload?: unknown) => {
+      if (channel === runnerRecordSubscribeChannel) {
+        const subscriptionId = (payload as { subscriptionId: string }).subscriptionId;
+        return { subscriptionId, snapshot: { terminal: false, events: [] } };
+      }
+      return undefined;
+    });
+    await import("../preload/preload");
+    const api = electronMock.exposed.get("planweave") as DesktopBridgeApi;
+    const callback = vi.fn();
+
+    const startPromise = api.subscribeRunnerRecord(
+      {
+        ref: { projectRoot: "/tmp/project", canvasId: "canvas-a" },
+        recordId: "T-001#B-001::RUN-001"
+      },
+      callback
+    );
+
+    expect(electronMock.ipcRenderer.on).toHaveBeenCalledWith(
+      runnerRecordEventChannel,
+      expect.any(Function)
+    );
+    const request = electronMock.ipcRenderer.invoke.mock.calls[0]?.[1] as {
+      subscriptionId: string;
+    };
+    const start = await startPromise;
+    const listener = electronMock.ipcRenderer.on.mock.calls[0]?.[1] as IpcRendererListener;
+    const event = {
+      version: "planweave.runner-event/v1",
+      sequence: 2,
+      body: { kind: "message" }
+    };
+    listener({}, { subscriptionId: request.subscriptionId, event });
+    listener({}, { subscriptionId: "foreign", event });
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(callback).toHaveBeenCalledWith(event);
+    await start.unsubscribe();
+    await start.unsubscribe();
+    expect(electronMock.ipcRenderer.off).toHaveBeenCalledTimes(1);
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      runnerRecordUnsubscribeChannel,
+      request.subscriptionId
+    );
   });
 
   it("exposes the window appearance API through a separate preload surface", async () => {

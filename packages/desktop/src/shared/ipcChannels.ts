@@ -3,7 +3,8 @@ import type { DesktopBridgeApi } from "@planweave-ai/runtime";
 export type DesktopBridgeSubscriptionMethod =
   | "onPackageFileChanged"
   | "onRuntimeStateChanged"
-  | "onAutoRunChanged";
+  | "onAutoRunChanged"
+  | "subscribeRunnerRecord";
 export type DesktopBridgeInvokeMethod = Exclude<
   keyof DesktopBridgeApi,
   DesktopBridgeSubscriptionMethod
@@ -59,6 +60,7 @@ export const desktopBridgeInvokeChannels = {
   getReviewAttempts: "planweave:getReviewAttempts",
   getReviewPipeline: "planweave:getReviewPipeline",
   getRunRecord: "planweave:getRunRecord",
+  listPendingAgentRequests: "planweave:listPendingAgentRequests",
   getStatistics: "planweave:getStatistics",
   getTaskDetail: "planweave:getTaskDetail",
   getTaskExecutionOrder: "planweave:getTaskExecutionOrder",
@@ -104,6 +106,7 @@ export const desktopBridgeInvokeChannels = {
   selectTaskCanvas: "planweave:selectTaskCanvas",
   startAutoRun: "planweave:startAutoRun",
   stopAutoRun: "planweave:stopAutoRun",
+  respondToAgentRequest: "planweave:respondToAgentRequest",
   testExecutorProfile: "planweave:testExecutorProfile",
   unblockBlock: "planweave:unblockBlock",
   markBlockedBlock: "planweave:markBlockedBlock",
@@ -131,3 +134,6 @@ export const desktopBridgeInvokeChannels = {
 export const packageFileChangedChannel = "planweave:packageFileChanged";
 export const runtimeStateChangedChannel = "planweave:runtimeStateChanged";
 export const autoRunChangedChannel = "planweave:autoRunChanged";
+export const runnerRecordSubscribeChannel = "planweave:runnerRecordSubscribe";
+export const runnerRecordUnsubscribeChannel = "planweave:runnerRecordUnsubscribe";
+export const runnerRecordEventChannel = "planweave:runnerRecordEvent";

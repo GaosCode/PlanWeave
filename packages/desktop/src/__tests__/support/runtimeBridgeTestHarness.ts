@@ -2,6 +2,7 @@ import { vi } from "vitest";
 
 type RegisteredHandler = (event: unknown, ...args: unknown[]) => unknown;
 type AutoRunEventListener = (event: unknown) => void;
+type RunnerRecordEventListener = (event: unknown) => void;
 type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
 
 export function registeredHandler(channel: string): RegisteredHandler {
@@ -101,6 +102,8 @@ const runtimeMock = vi.hoisted(() => {
         tmuxSessionName: "planweave-T-001-B-001-RUN-001-abcd1234"
       }
     })),
+    listDesktopPendingAgentRequests: vi.fn(async () => []),
+    respondToDesktopAgentRequest: vi.fn(async () => undefined),
     listPendingImportRecoveries: vi.fn(async () => [
       {
         transactionId: "import-tx-1",
@@ -147,7 +150,16 @@ const runtimeMock = vi.hoisted(() => {
     subscribeAutoRunEvents: vi.fn((listener: AutoRunEventListener) => {
       autoRunEventListeners.add(listener);
       return () => autoRunEventListeners.delete(listener);
-    })
+    }),
+    subscribeRunRecord: vi.fn(async (
+      _workspace: unknown,
+      _recordId: string,
+      _cursor: unknown,
+      _listener: RunnerRecordEventListener
+    ) => ({
+      snapshot: null,
+      subscription: null
+    }))
   };
 });
 
@@ -179,6 +191,8 @@ vi.mock("@planweave-ai/runtime", async () => {
     getGraphViewModel: runtimeMock.getGraphViewModel,
     getTaskFileManagerPath: runtimeMock.getTaskFileManagerPath,
     getRunRecord: runtimeMock.getRunRecord,
+    listDesktopPendingAgentRequests: runtimeMock.listDesktopPendingAgentRequests,
+    respondToDesktopAgentRequest: runtimeMock.respondToDesktopAgentRequest,
     listPendingImportRecoveries: runtimeMock.listPendingImportRecoveries,
     resetDesktopRuntimeState: runtimeMock.resetDesktopRuntimeState,
     resolveProjectCanvasWorkspace: runtimeMock.resolveProjectCanvasWorkspace,
@@ -186,7 +200,8 @@ vi.mock("@planweave-ai/runtime", async () => {
     rollbackPendingImportRecovery: runtimeMock.rollbackPendingImportRecovery,
     testExecutorProfile: runtimeMock.testExecutorProfile,
     updateCanvasExecutionPolicy: runtimeMock.updateCanvasExecutionPolicy,
-    subscribeAutoRunEvents: runtimeMock.subscribeAutoRunEvents
+    subscribeAutoRunEvents: runtimeMock.subscribeAutoRunEvents,
+    subscribeRunRecord: runtimeMock.subscribeRunRecord
   };
 });
 
@@ -233,6 +248,8 @@ export async function resetRuntimeBridgeMocks(): Promise<void> {
   runtimeMock.getGraphViewModel.mockClear();
   runtimeMock.getTaskFileManagerPath.mockClear();
   runtimeMock.getRunRecord.mockClear();
+  runtimeMock.listDesktopPendingAgentRequests.mockClear();
+  runtimeMock.respondToDesktopAgentRequest.mockClear();
   runtimeMock.listPendingImportRecoveries.mockClear();
   runtimeMock.resetDesktopRuntimeState.mockClear();
   runtimeMock.resolveProjectCanvasWorkspace.mockClear();
@@ -241,6 +258,11 @@ export async function resetRuntimeBridgeMocks(): Promise<void> {
   runtimeMock.testExecutorProfile.mockClear();
   runtimeMock.updateCanvasExecutionPolicy.mockClear();
   runtimeMock.subscribeAutoRunEvents.mockClear();
+  runtimeMock.subscribeRunRecord.mockReset();
+  runtimeMock.subscribeRunRecord.mockImplementation(async () => ({
+    snapshot: null,
+    subscription: null
+  }));
 }
 
 export async function restoreRuntimeBridgeEnv(): Promise<void> {

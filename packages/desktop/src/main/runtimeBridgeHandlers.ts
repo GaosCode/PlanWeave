@@ -3,6 +3,7 @@ import { subscribeAutoRunEvents } from "@planweave-ai/runtime";
 import type { DesktopBridgeMainInvokeMethod } from "../shared/ipcChannels.js";
 import { autoRunChangedChannel, desktopBridgeInvokeChannels } from "../shared/ipcChannels.js";
 import { runtimeBridgeHandlers } from "./runtimeBridgeHandlerRegistry.js";
+import { registerRunnerRecordBridgeHandlers } from "./runnerRecordBridge.js";
 
 let unsubscribeAutoRunBroadcast: (() => void) | null = null;
 
@@ -25,4 +26,5 @@ export function registerRuntimeBridgeHandlers(): void {
     ipcMain.handle(desktopBridgeInvokeChannels[method], runtimeBridgeHandlers[method]);
   }
   registerAutoRunEventBroadcast();
+  registerRunnerRecordBridgeHandlers();
 }

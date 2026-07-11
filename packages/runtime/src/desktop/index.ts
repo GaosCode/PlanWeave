@@ -134,6 +134,13 @@ export {
 } from "./runApi.js";
 export type { ActiveAgentRunActionIdentity } from "../autoRun/activeAgentRunRegistry.js";
 export {
+  desktopAgentActionIdentitySchema,
+  desktopAgentActionValueSchema,
+  desktopRunnerRecordSubscriptionInputSchema,
+  desktopRunnerRecordSubscriptionPushSchema
+} from "./types/acpBridgeTypes.js";
+export type * from "./types/acpBridgeTypes.js";
+export {
   isFailedAutoRunTerminalPhase,
   isTerminalAutoRunPhase,
   tailAutoRunEvents,
