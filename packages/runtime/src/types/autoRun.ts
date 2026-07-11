@@ -1,4 +1,9 @@
-import type { ExecutorAdapterResult, ExecutorProfile } from "./executor.js";
+import type {
+  AgentFamily,
+  ExecutorAdapterResult,
+  ExecutorIntegrationName,
+  RunnerTransport
+} from "./executor.js";
 import type {
   ClaimResult,
   SubmitFeedbackResult,
@@ -7,6 +12,12 @@ import type {
 } from "./taskManager.js";
 import type { BlockStatus, FeedbackStatus } from "./state.js";
 import type { ValidationIssue } from "./validation.js";
+
+export interface AutoRunRunnerEvidence {
+  effectiveExecutor: string;
+  agentId: AgentFamily | null;
+  runnerKind: RunnerTransport | null;
+}
 
 export type AutoRunStepResult =
   | {
@@ -21,8 +32,13 @@ export type AutoRunStepResult =
       adapterResult: Extract<ExecutorAdapterResult, { kind: "manual" }>;
     }
   | {
-      kind: "idle" | "blocked" | "batch";
+      kind: "idle" | "batch";
       claim: ClaimResult;
+    }
+  | {
+      kind: "blocked";
+      claim: ClaimResult;
+      runnerEvidence?: AutoRunRunnerEvidence;
     }
   | {
       kind: "batch_submitted";
@@ -34,7 +50,9 @@ type AutoRunLatestRunSummaryBase = {
   ref: string;
   runId: string;
   executor: string | null;
-  adapter: ExecutorProfile["adapter"] | null;
+  adapter: ExecutorIntegrationName | null;
+  agentId: AgentFamily | null;
+  runnerKind: RunnerTransport | null;
   startedAt: string | null;
   finishedAt: string | null;
   stdoutSummary: string;

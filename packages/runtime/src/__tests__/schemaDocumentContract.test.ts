@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   edgeTypes,
-  executorAdapters,
+  executorIntegrations,
   reviewTriggerConditions,
   supportedManifestVersion
 } from "../types.js";
+import {
+  executorAdapter,
+  executorAdapters,
+  executorIntegration
+} from "../index.js";
+import type { ExecutorAdapterName } from "../index.js";
 import { manifestSchemaTopLevelFields } from "../schema/manifest.js";
 import { projectGraphEdgeTypes, supportedProjectGraphVersion } from "../projectGraph/types.js";
 import { projectGraphManifestSchemaTopLevelFields } from "../projectGraph/schema.js";
@@ -18,6 +24,14 @@ import {
 } from "../schemaDocs/index.js";
 
 describe("runtime schema documents", () => {
+  it("keeps published executor adapter exports as thin compatibility aliases", () => {
+    const adapterName: ExecutorAdapterName = "codex-exec";
+
+    expect(executorAdapter).toBe(executorIntegration);
+    expect(executorAdapters).toBe(executorIntegrations);
+    expect(executorAdapter.codexExec).toBe(adapterName);
+  });
+
   it("exposes the complete runtime schema topic registry in one order", () => {
     expect(runtimeSchemaTopicOrder).toEqual(["manifest", "project", "state", "layout"]);
     expect(Object.keys(runtimeSchemaDocuments)).toEqual([...runtimeSchemaTopicOrder]);
@@ -40,7 +54,7 @@ describe("runtime schema documents", () => {
     for (const value of [
       supportedManifestVersion,
       ...edgeTypes,
-      ...executorAdapters,
+      ...executorIntegrations,
       ...reviewTriggerConditions
     ]) {
       expect(documentText).toContain(value);

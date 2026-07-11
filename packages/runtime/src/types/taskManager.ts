@@ -1,6 +1,8 @@
 import type { BlockType } from "./manifest.js";
 import type { BlockStatus, FeedbackStatus, ReviewVerdict, TaskStatus } from "./state.js";
 import type { ValidationIssue } from "./validation.js";
+import type { ReviewResult } from "../taskManager/reviewResultContract.js";
+export type { ReviewResult } from "../taskManager/reviewResultContract.js";
 
 export type ClaimResult =
   | {
@@ -47,13 +49,6 @@ export type ClaimScope =
   | { kind: "block"; blockRef: string };
 
 export type ParallelClaimResult = ClaimResult;
-
-export type ReviewResult = {
-  reviewBlockRef: string;
-  taskId: string;
-  verdict: ReviewVerdict;
-  content: string;
-};
 
 export type ReviewHookInput = {
   reviewResult: ReviewResult;

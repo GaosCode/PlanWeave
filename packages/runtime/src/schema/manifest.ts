@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
   edgeTypes,
-  executorAdapter,
+  executorProfileSchema,
   reviewTriggerConditions,
   supportedManifestVersion
 } from "../types.js";
@@ -29,64 +29,6 @@ const reviewHookSchema = z
     executionPolicy: z.literal("trusted-local")
   })
   .strict();
-
-const executorRuntimeLimitsSchema = {
-  timeoutMs: z.number().int().positive().optional(),
-  maxStdoutBytes: z.number().int().positive().optional(),
-  maxStderrBytes: z.number().int().positive().optional()
-};
-
-const executorProfileSchema = z.discriminatedUnion("adapter", [
-  z
-    .object({
-      adapter: z.literal(executorAdapter.manual)
-    })
-    .strict(),
-  z
-    .object({
-      adapter: z.literal(executorAdapter.codexExec),
-      command: z.string().min(1),
-      args: z.array(z.string()).default(["exec", "-"]),
-      sandbox: z.enum(["read-only", "workspace-write", "danger-full-access"]).optional(),
-      role: z.string().min(1).optional(),
-      ...executorRuntimeLimitsSchema
-    })
-    .strict(),
-  z
-    .object({
-      adapter: z.literal(executorAdapter.opencodeExec),
-      command: z.string().min(1),
-      args: z.array(z.string()).default(["run", "-"]),
-      sandbox: z.enum(["read-only", "workspace-write", "danger-full-access"]).optional(),
-      ...executorRuntimeLimitsSchema
-    })
-    .strict(),
-  z
-    .object({
-      adapter: z.literal(executorAdapter.claudeCodeExec),
-      command: z.string().min(1),
-      args: z.array(z.string()).default(["-p"]),
-      ...executorRuntimeLimitsSchema
-    })
-    .strict(),
-  z
-    .object({
-      adapter: z.literal(executorAdapter.piExec),
-      command: z.string().min(1),
-      args: z.array(z.string()).default(["-p"]),
-      ...executorRuntimeLimitsSchema
-    })
-    .strict(),
-  z
-    .object({
-      adapter: z.literal(executorAdapter.localReview),
-      command: z.string().min(1),
-      args: z.array(z.string()).default([]),
-      sandbox: z.enum(["read-only", "workspace-write", "danger-full-access"]).optional(),
-      ...executorRuntimeLimitsSchema
-    })
-    .strict()
-]);
 
 const implementationBlockSchema = z
   .object({
@@ -208,8 +150,12 @@ export const manifestSchema = z
       "opencode",
       "claude-code",
       "claude-code-auto",
+      "codex-acp",
+      "opencode-acp",
+      "claude-code-acp",
       "pi",
       "pi-auto",
+      "pi-acp",
       ...Object.keys(manifest.executors ?? {})
     ]);
     if (

@@ -1,9 +1,8 @@
 import {
   edgeTypes,
-  executorAdapter,
+  executorIntegration,
   reviewTriggerConditions,
   supportedManifestVersion,
-  type ExecutorAdapterName,
   type ReviewTriggerCondition
 } from "../types.js";
 import {
@@ -19,10 +18,25 @@ const runtimeLimitFields = {
   maxStderrBytes: `positive integer bytes, optional; default runtime limit: ${DEFAULT_EXECUTOR_MAX_STDERR_BYTES}`
 };
 
-const executorProfileSchema: Record<ExecutorAdapterName, Record<string, unknown>> = {
-  manual: { adapter: executorAdapter.manual },
+const executorProfileSchema: Record<string, Record<string, unknown>> = {
+  manual: { adapter: "manual" },
+  "agent-cli": {
+    adapter: "agent",
+    agent: '"codex" | "opencode" | "claude-code" | "pi"',
+    runner: { transport: '"cli"', tmuxEnabled: "boolean, optional" },
+    command: "string, non-empty",
+    args: "string[]; agent-specific default",
+    sandbox: '"read-only" | "workspace-write" | "danger-full-access", codex/opencode only',
+    role: "string, optional; codex only",
+    ...runtimeLimitFields
+  },
+  "agent-acp": {
+    adapter: "agent",
+    agent: '"codex" | "opencode" | "claude-code" | "pi"',
+    runner: { transport: '"acp"' }
+  },
   "codex-exec": {
-    adapter: executorAdapter.codexExec,
+    adapter: `${executorIntegration.codexExec} (legacy manifest input)`,
     command: "string, non-empty",
     args: 'string[], default: ["exec", "-"]',
     sandbox: '"read-only" | "workspace-write" | "danger-full-access", optional',
@@ -30,26 +44,26 @@ const executorProfileSchema: Record<ExecutorAdapterName, Record<string, unknown>
     ...runtimeLimitFields
   },
   "opencode-exec": {
-    adapter: executorAdapter.opencodeExec,
+    adapter: `${executorIntegration.opencodeExec} (legacy manifest input)`,
     command: "string, non-empty",
     args: 'string[], default: ["run", "-"]',
     sandbox: '"read-only" | "workspace-write" | "danger-full-access", optional',
     ...runtimeLimitFields
   },
   "claude-code-exec": {
-    adapter: executorAdapter.claudeCodeExec,
+    adapter: `${executorIntegration.claudeCodeExec} (legacy manifest input)`,
     command: "string, non-empty",
     args: 'string[], default: ["-p"]',
     ...runtimeLimitFields
   },
   "pi-exec": {
-    adapter: executorAdapter.piExec,
+    adapter: `${executorIntegration.piExec} (legacy manifest input)`,
     command: "string, non-empty",
     args: 'string[], default: ["-p"]',
     ...runtimeLimitFields
   },
   "local-review": {
-    adapter: executorAdapter.localReview,
+    adapter: "local-review",
     command: "string, non-empty",
     args: "string[], default: []",
     sandbox: '"read-only" | "workspace-write" | "danger-full-access", optional',
@@ -74,7 +88,7 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
     project: { title: "string, non-empty", description: "string" },
     execution: {
       defaultExecutor:
-        "string, optional; must be default/manual/codex/codex-auto/opencode/claude-code/claude-code-auto/pi/pi-auto or a key in executors",
+        "string, optional; must be a built-in CLI/ACP profile name or a key in executors",
       parallel: { enabled: "boolean", maxConcurrent: "positive integer" }
     },
     review: { maxFeedbackCycles: "non-negative integer, default: 1", completionPolicy: "strict" },
@@ -140,6 +154,13 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
     "Dependency edges answer when a block can start; locks answer which ready blocks can run at the same time.",
     "Absent block parallel means parallel-eligible with no locks. Reserved lock exclusive conflicts with everything.",
     "parallel.safe is deprecated: safe:false is normalized to locks including exclusive; safe:true has no effect.",
+    "Agent identity and runner transport are separate. Each agent profile selects exactly one runner: cli or acp.",
+    "Legacy *-exec profiles remain valid and normalize once to the canonical agent plus CLI runner shape.",
+    "CLI and ACP are alternative runner transports. Built-in codex/opencode/claude-code/pi names select CLI; explicit *-acp names select ACP. PlanWeave never falls back between them.",
+    "ACP is conversation/session integration, not terminal attachment. The selected agent owns login, subscription, provider configuration, quota, and optional API-key mode; PlanWeave does not collect those credentials and ACP does not require a PlanWeave API key.",
+    "Existing legacy CLI manifests remain valid without changes and normalize once to the CLI runner contract.",
+    "tmuxEnabled is CLI-only. ACP runner objects are strict and reject CLI command, terminal, and tmux fields.",
+    "Headless runner preflight and execution never auto-approve permission, authentication, or elicitation requests; unsupported interaction fails closed within a bounded timeout.",
     "Keep goals, requirements, constraints, risks, and references in project/global prompts, task acceptance, task prompts, or block prompts.",
     "Prompt paths are source files; rendered prompt output is derived and must not be written back into source prompts."
   ]

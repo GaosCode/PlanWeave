@@ -94,9 +94,21 @@ describe("plan-package/v1 manifest schema", () => {
     expect(result.data?.executors?.["codex-auto"]?.maxStdoutBytes).toBe(4096);
     expect(result.data?.executors?.["codex-auto"]?.maxStderrBytes).toBe(2048);
     expect(result.data?.executors?.["review-agent"]?.role).toBe("reviewer");
-    expect(result.data?.executors?.opencode?.adapter).toBe("opencode-exec");
-    expect(result.data?.executors?.["claude-code"]?.adapter).toBe("claude-code-exec");
-    expect(result.data?.executors?.pi?.adapter).toBe("pi-exec");
+    expect(result.data?.executors?.opencode).toMatchObject({
+      adapter: "agent",
+      agent: "opencode",
+      runner: { transport: "cli" }
+    });
+    expect(result.data?.executors?.["claude-code"]).toMatchObject({
+      adapter: "agent",
+      agent: "claude-code",
+      runner: { transport: "cli" }
+    });
+    expect(result.data?.executors?.pi).toMatchObject({
+      adapter: "agent",
+      agent: "pi",
+      runner: { transport: "cli" }
+    });
     expect(result.data?.executors?.["local-review"]?.adapter).toBe("local-review");
   });
 
