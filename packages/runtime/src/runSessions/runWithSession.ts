@@ -162,6 +162,29 @@ function activeStatusRecord(status: AutoRunStatus): StepRecordLink | null {
     : null;
 }
 
+function completedStatusRecord(
+  status: AutoRunStatus,
+  step: AutoRunStepResult
+): StepRecordLink | null {
+  const refs = new Set(claimRefs(step));
+  const run = status.latestRuns.find(
+    (candidate) =>
+      refs.has(candidate.ref) && candidate.finishedAt !== null && candidate.metadataPath !== null
+  );
+  return run ? { recordId: `${run.ref}::${run.runId}`, recordPath: run.metadataPath } : null;
+}
+
+function scopedStatusRecord(
+  status: AutoRunStatus,
+  scope: ClaimScope | undefined
+): StepRecordLink | null {
+  if (scope?.kind !== "block") return null;
+  const run = status.latestRuns.find(
+    (candidate) => candidate.ref === scope.blockRef && candidate.metadataPath !== null
+  );
+  return run ? { recordId: `${run.ref}::${run.runId}`, recordPath: run.metadataPath } : null;
+}
+
 function currentClaimRefs(status: AutoRunStatus): string[] {
   if (status.current.refs.length > 0) {
     return [...status.current.refs];
@@ -405,6 +428,7 @@ export async function runWithSession(
         parallel,
         scope: options.scope,
         signal: options.signal,
+        timeoutMs: options.timeoutMs,
         runSessionId: session.sessionId
       });
       const stepStartTracker = (async () => {
@@ -456,6 +480,8 @@ export async function runWithSession(
       steps.push(step);
       status = await getAutoRunStatus({ projectRoot: options.projectRoot });
       const recordLinks = await stepRecordLinks(options.projectRoot, step);
+      const recoveredRecord = recordLinks.length === 0 ? completedStatusRecord(status, step) : null;
+      if (recoveredRecord) recordLinks.push(recoveredRecord);
       const latestStepRecord = recordLinks.at(-1) ?? null;
       if (latestStepRecord) {
         latestSessionRecord = latestStepRecord;
@@ -530,6 +556,7 @@ export async function runWithSession(
     };
   } catch (error) {
     status = await getAutoRunStatus({ projectRoot: options.projectRoot });
+    latestSessionRecord ??= scopedStatusRecord(status, options.scope);
     const message = errorMessage(error);
     const finishedAt = new Date().toISOString();
     const cancelled = options.signal?.aborted === true || isExecutorCancelledError(error);

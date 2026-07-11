@@ -22,6 +22,7 @@ export function registerRunCommand(program: Command): void {
       .option("--force", "allow reset while active work exists")
       .option("--reason <text>", "record a reason for reset")
       .option("--step-limit <n>", "maximum auto-run steps to execute")
+      .option("--timeout <ms>", "bound each executor operation in milliseconds")
       .option("--json", "print JSON output")
   ).action(
     async (
@@ -36,6 +37,7 @@ export function registerRunCommand(program: Command): void {
         force?: boolean;
         reason?: string;
         stepLimit?: string;
+        timeout?: string;
         json?: boolean;
       } & CanvasCommandOptions
     ) => {
@@ -53,6 +55,7 @@ export function registerRunCommand(program: Command): void {
         parallel: options.parallel,
         scope: parseRunScope(options),
         stepLimit: parseStepLimit(options.stepLimit),
+        timeoutMs: parsePositiveInteger(options.timeout, "--timeout"),
         signal: abort.signal
       }).finally(() => process.off("SIGINT", onSigInt));
 
@@ -109,6 +112,15 @@ function parseStepLimit(value: string | undefined): number | undefined {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 0 || String(parsed) !== value.trim()) {
     throw new Error(`Invalid --step-limit '${value}'. Expected a non-negative integer.`);
+  }
+  return parsed;
+}
+
+function parsePositiveInteger(value: string | undefined, option: string): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0 || String(parsed) !== value.trim()) {
+    throw new Error(`Invalid ${option} '${value}'. Expected a positive integer.`);
   }
   return parsed;
 }

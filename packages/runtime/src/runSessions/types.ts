@@ -139,6 +139,7 @@ export type RunWithSessionOptions = {
   tmuxEnabled?: boolean;
   scope?: ClaimScope;
   stepLimit?: number;
+  timeoutMs?: number;
   signal?: AbortSignal;
 };
 

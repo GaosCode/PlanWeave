@@ -3,6 +3,7 @@ import {
   getAutoRunStatus,
   getLatestAutoRunSummary,
   isFailedAutoRunTerminalPhase,
+  readRunnerRecordReadModelForArtifact,
   tailAutoRunEvents,
   type AutoRunEventTailItem,
   type PackageWorkspaceRef
@@ -53,6 +54,48 @@ function printTailItem(item: AutoRunEventTailItem, asJson: boolean): void {
   console.log(formatAutoRunEventTailItem(item));
 }
 
+async function followLatestRunnerRecord(
+  metadataPath: string,
+  asJson: boolean,
+  signal: AbortSignal
+): Promise<void> {
+  const seen = new Set<number>();
+  while (!signal.aborted) {
+    const model = await readRunnerRecordReadModelForArtifact(metadataPath);
+    if (!model) return;
+    for (const event of model.events) {
+      if (seen.has(event.sequence)) continue;
+      seen.add(event.sequence);
+      console.log(
+        asJson
+          ? JSON.stringify({ kind: "runner_event", event })
+          : `${event.timestamp} runner_event sequence=${event.sequence} kind=${event.body.kind}`
+      );
+    }
+    for (const diagnostic of model.diagnostics) {
+      console.log(
+        asJson
+          ? JSON.stringify({ kind: "runner_diagnostic", diagnostic })
+          : `runner_diagnostic ${diagnostic.code}: ${diagnostic.message}`
+      );
+    }
+    if (model.interaction.persisted) {
+      const interaction = {
+        persisted: model.interaction.persisted,
+        active: model.interaction.active,
+        stale: model.interaction.stale
+      };
+      console.log(
+        asJson
+          ? JSON.stringify({ kind: "runner_interaction", interaction })
+          : `runner_interaction persisted=${interaction.persisted} active=${interaction.active} stale=${interaction.stale}`
+      );
+    }
+    if (model.terminal) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 export function registerRunStatusCommand(program: Command): void {
   addCanvasOption(
     program
@@ -80,6 +123,24 @@ export function registerRunStatusCommand(program: Command): void {
     const canvasId = desktopCanvasId(workspace, options);
     const latest = await getLatestAutoRunSummary(rootPath, canvasId);
     if (!latest) {
+      const latestRunner = status.latestRuns.find(
+        (run) => run.runnerKind === "acp" && run.metadataPath !== null
+      );
+      if (latestRunner?.metadataPath) {
+        const abort = new AbortController();
+        const onSigInt = (): void => abort.abort();
+        process.on("SIGINT", onSigInt);
+        try {
+          await followLatestRunnerRecord(
+            latestRunner.metadataPath,
+            options.json === true,
+            abort.signal
+          );
+        } finally {
+          process.off("SIGINT", onSigInt);
+        }
+        return;
+      }
       if (!options.json) {
         console.log("events: none (no Auto Run session found)");
       }

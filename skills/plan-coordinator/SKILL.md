@@ -94,10 +94,11 @@ The coordinator may submit an artifact after a worker returns it, but must not a
 ## Executor Run Monitoring
 
 - CLI and ACP are alternative runner transports behind the same `effectiveExecutor` route. ACP is conversation/session integration rather than terminal attachment; tmux monitoring below applies only to CLI runners.
-- After delegating to a non-current agent with `<pw> run --once --scope block --block <ref>`, inspect `<pw> run-status --json` and `<pw> run-session <session-id> --json`; verify the effective executor, agent id, runner kind, terminal phase, and latest record path before deciding whether to continue.
+- After delegating to a non-current agent with `<pw> run --once --scope block --block <ref>`, inspect `<pw> run-status --json` and `<pw> run-session <session-id> --json`; verify the effective executor, agent id, runner kind, ordered runner progress, pending-interaction diagnostics, terminal phase/reason, and latest record path before deciding whether to continue. Use `run-status --follow --json` when live ordered ACP evidence is required; it follows the runner record and does not require tmux.
 - Never substitute CLI for ACP or ACP for CLI after preflight or execution failure. In headless execution, do not auto-approve permission/authentication requests or unsupported elicitation; preserve the fail-closed diagnostic.
 - The selected agent owns login, subscription, provider configuration, quota, and optional API-key mode. PlanWeave does not collect or store those credentials.
 - Near-headless execution is bounded to the selected profile and declared runner capabilities: never auto-approve requests, never fall back to another runner transport, and stop at the first authentication, quota, provider, permission, or elicitation boundary.
+- For bounded unattended execution, pass an explicit positive `--timeout <ms>` to `run`; timeout and Ctrl-C must reach the selected runner cancellation/cleanup chain.
 - Runtime run records use `metadata.json`, `stdout.md`, and `stderr.log`; `run-status` provides summaries, not a streaming terminal.
 - If `run-status --json` or `metadata.json` contains `tmuxSessionName`, prefer non-interactive inspection with `tmux capture-pane -p -e -S -5000 -t <session>` while the session is alive. Repeat capture-pane for low-risk live monitoring.
 - Treat `tmuxAttachCommand` as a human interactive terminal entrypoint, not the coordinator's default observation path. After the session exits, read `stdout.md` and `stderr.log`.
