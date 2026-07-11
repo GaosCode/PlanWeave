@@ -71,6 +71,8 @@ describe("executor API helpers", () => {
     expect(result).toMatchObject({
       name: "manual",
       adapter: "manual",
+      profileAdapter: "manual",
+      executionIntegration: "manual",
       ok: true,
       checks: [
         { check: "profile_exists", status: "passed" },
@@ -97,6 +99,8 @@ describe("executor API helpers", () => {
 
     expect(result.ok).toBe(true);
     expect(result.adapter).toBe("codex-exec");
+    expect(result.profileAdapter).toBe("agent");
+    expect(result.executionIntegration).toBe("codex-exec");
     expect(preflightCheck(result, "command_started")).toMatchObject({
       status: "passed",
       command: process.execPath
@@ -119,6 +123,8 @@ describe("executor API helpers", () => {
     expect(result).toMatchObject({
       name: "missing-profile",
       adapter: null,
+      profileAdapter: null,
+      executionIntegration: null,
       ok: false
     });
     expect(preflightCheck(result, "profile_exists")).toMatchObject({
@@ -144,8 +150,10 @@ describe("executor API helpers", () => {
     const result = await testExecutorProfile({ projectRoot: root, executorName: "missing" });
 
     expect(result.ok).toBe(false);
+    expect(result.failureCode).toBe("missing_command");
     expect(preflightCheck(result, "command_started")).toMatchObject({
       status: "failed",
+      failureCode: "missing_command",
       command: manifest.executors.missing.command
     });
     expect(preflightCheck(result, "command_version")).toMatchObject({
@@ -175,15 +183,46 @@ describe("executor API helpers", () => {
     const result = await testExecutorProfile({ projectRoot, executorName: "bad-version" });
 
     expect(result.ok).toBe(false);
+    expect(result.failureCode).toBe("initialization_failed");
     expect(preflightCheck(result, "command_started")).toMatchObject({
       status: "passed",
       command
     });
     expect(preflightCheck(result, "command_version")).toMatchObject({
       status: "failed",
+      failureCode: "initialization_failed",
       output: "version probe failed",
       exitCode: 7
     });
+  });
+
+  it("classifies executable permission errors as initialization failures", async () => {
+    const { root } = await createTestWorkspace();
+    const command = join(root, "not-executable.js");
+    await writeFile(command, "#!/usr/bin/env node\nconsole.log('never runs');\n", "utf8");
+    await chmod(command, 0o644);
+    const manifest = basicManifest();
+    manifest.executors = {
+      "permission-denied": {
+        adapter: "codex-exec",
+        command,
+        args: ["exec", "-"]
+      }
+    };
+    const { root: projectRoot } = await createTestWorkspace(manifest);
+
+    const result = await testExecutorProfile({
+      projectRoot,
+      executorName: "permission-denied"
+    });
+
+    expect(result).toMatchObject({ ok: false, failureCode: "initialization_failed" });
+    expect(preflightCheck(result, "command_started")).toMatchObject({
+      status: "failed",
+      failureCode: "initialization_failed",
+      command
+    });
+    expect(preflightCheck(result, "command_version")).toMatchObject({ status: "skipped" });
   });
 
   it("fails executor version checks when preflight output exceeds the executor stdout limit", async () => {
