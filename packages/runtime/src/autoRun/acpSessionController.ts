@@ -19,6 +19,7 @@ import { createAcpConnection, type AcpConnection, type CreateAcpConnectionOption
 import { ExecutorCancelledError } from "./executorShared.js";
 import {
   extractFinalArtifactEnvelope,
+  finalArtifactPromptInstruction,
   finalArtifactRelativePath,
   materializeFinalArtifact,
   type ExpectedFinalArtifactIdentity
@@ -495,8 +496,10 @@ export class AcpSessionController {
         agentSessionId: session.sessionId,
         capabilities: initialized.agentCapabilities ?? {}
       });
+      const expected = expectedArtifact(run);
+      const agentPrompt = `${run.prompt}\n\n${finalArtifactPromptInstruction(expected)}`;
       const response = await connection.prompt(
-        { sessionId: session.sessionId, prompt: [{ type: "text", text: run.prompt }] },
+        { sessionId: session.sessionId, prompt: [{ type: "text", text: agentPrompt }] },
         { signal: abortController.signal, timeoutMs: options?.timeoutMs }
       );
       if (response.stopReason === "cancelled" || abortController.signal.aborted) {
@@ -510,7 +513,6 @@ export class AcpSessionController {
       if (protocolObserverError !== undefined) throw protocolObserverError;
       const artifactRelative = finalArtifactRelativePath(run.kind);
       const artifactPath = join(run.runDir, artifactRelative);
-      const expected = expectedArtifact(run);
       const envelope = extractFinalArtifactEnvelope(output, expected);
       const artifactReference = await materializeFinalArtifact({
         envelope,

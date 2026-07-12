@@ -9,6 +9,7 @@ import {
   encodeFinalArtifactEnvelope,
   extractFinalArtifactEnvelope,
   feedbackArtifactEnvelope,
+  finalArtifactPromptInstruction,
   implementationArtifactEnvelope,
   materializeFinalArtifact,
   reviewArtifactEnvelope
@@ -61,6 +62,55 @@ describe("final artifact envelope codec", () => {
     await expect(
       verifyArtifactReference({ rootDir: init.workspace.resultsDir, reference })
     ).resolves.toEqual(reference);
+  });
+
+  it.each([
+    [
+      { kind: "implementation", ref: "T-001#B-001", taskId: "T-001" } as const,
+      { kind: "implementation", ref: "T-001#B-001", taskId: "T-001", reportMarkdown: "" }
+    ],
+    [
+      { kind: "review", ref: "T-002#R-003", taskId: "T-002" } as const,
+      {
+        kind: "review",
+        ref: "T-002#R-003",
+        taskId: "T-002",
+        reviewResult: {
+          reviewBlockRef: "T-002#R-003",
+          taskId: "T-002",
+          verdict: "passed|needs_changes",
+          content: ""
+        }
+      }
+    ],
+    [
+      {
+        kind: "feedback",
+        feedbackId: "FE-004",
+        sourceReviewBlockRef: "T-003#R-002",
+        taskId: "T-003"
+      } as const,
+      {
+        kind: "feedback",
+        feedbackId: "FE-004",
+        sourceReviewBlockRef: "T-003#R-002",
+        taskId: "T-003",
+        reportMarkdown: ""
+      }
+    ]
+  ])("generates a runner-only %s instruction with exact identity", (identity, artifact) => {
+    const instruction = finalArtifactPromptInstruction(identity);
+    const markerLine = instruction
+      .split("\n")
+      .find((line) => line.startsWith("Use this exact envelope and identity: "));
+    expect(instruction).toContain("entire final response MUST be exactly one newline-terminated line");
+    expect(instruction).toContain("Do not use a Markdown fence");
+    expect(markerLine).toBeDefined();
+    const markerIndex = markerLine!.indexOf(FINAL_ARTIFACT_MARKER);
+    expect(JSON.parse(markerLine!.slice(markerIndex + FINAL_ARTIFACT_MARKER.length))).toEqual({
+      version: "planweave.runner-artifact/v1",
+      artifact
+    });
   });
 
   it("keeps descriptor-verified bytes authoritative after the source path changes", async () => {

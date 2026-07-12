@@ -1,6 +1,6 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ActiveAgentRunRegistry, type ActiveAgentRunHandle } from "../autoRun/activeAgentRunRegistry.js";
@@ -152,7 +152,7 @@ describe("AcpSessionController lifecycle", () => {
     return { root, registry, promise };
   }
 
-  it("registers before prompt, writes the artifact, and leaves no live ownership after success", async () => {
+  it("sends the runner-only artifact instruction, writes the artifact, and releases ownership", async () => {
     const run = await execute("artifact-implementation");
     await expect(run.promise).resolves.toMatchObject({
       kind: "block",
@@ -337,6 +337,9 @@ describe("AcpRunner claim routing", () => {
     expect(review).toMatchObject({ kind: "review", agentSessionId: "mock-session-1" });
     expect(feedback).toMatchObject({ kind: "feedback", agentSessionId: "mock-session-1" });
     expect(new Set([implementation.runId, review.runId])).toEqual(new Set(["RUN-001"]));
+    if (implementation.kind !== "block") throw new Error("Expected implementation result.");
+    await expect(readFile(join(dirname(implementation.reportPath), "prompt.md"), "utf8"))
+      .resolves.toBe("implement");
   });
 
   it("propagates cancellation through createExecutorAdapter and restores TaskManager claim state", async () => {

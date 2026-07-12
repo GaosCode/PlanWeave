@@ -83,6 +83,22 @@ const app = agent({ name: "planweave-acp-mock" })
       await ctx.client.request("mock/pending", { sessionId });
     }
 
+    const promptText = ctx.params.prompt.find((part) => part.type === "text")?.text ?? "";
+    const taskPrompt = promptText.split("\n\nPLANWEAVE RUNNER-ONLY FINAL ARTIFACT CONTRACT", 1)[0];
+    const artifactScenario = scenario.startsWith("artifact-") ||
+      scenario === "delayed-artifact-implementation" ||
+      scenario === "terminal-output" ||
+      scenario === "permission-deny" ||
+      scenario === "permission-secret" ||
+      scenario === "elicitation-secret" ||
+      scenario === "elicitation-validation" ||
+      scenario === "multi-interaction";
+    if (artifactScenario &&
+      (!promptText.includes("PLANWEAVE RUNNER-ONLY FINAL ARTIFACT CONTRACT") ||
+        !promptText.includes("PLANWEAVE_FINAL_ARTIFACT "))) {
+      throw RequestError.invalidParams({ reason: "missing runner final-artifact instruction" });
+    }
+
     const artifactText =
       scenario === "artifact-implementation" || scenario === "delayed-artifact-implementation" || scenario === "terminal-output" || scenario === "permission-deny" || scenario === "permission-secret" || scenario === "elicitation-secret" || scenario === "elicitation-validation" || scenario === "multi-interaction"
         ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "implementation", ref: "T-001#B-001", taskId: "T-001", reportMarkdown: "implemented\n" } })}\n`
@@ -162,7 +178,6 @@ const app = agent({ name: "planweave-acp-mock" })
     }
 
     if (scenario === "elicitation-validation") {
-      const promptText = ctx.params.prompt.find((part) => part.type === "text")?.text ?? "";
       const schemas = {
         required: {
           type: "object",
@@ -247,8 +262,8 @@ const app = agent({ name: "planweave-acp-mock" })
       await ctx.client.request(methods.client.elicitation.create, {
         mode: "form",
         sessionId,
-        message: `Validate ${promptText}`,
-        requestedSchema: schemas[promptText] ?? schemas.required
+        message: `Validate ${taskPrompt}`,
+        requestedSchema: schemas[taskPrompt] ?? schemas.required
       });
     }
 
