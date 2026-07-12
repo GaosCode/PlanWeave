@@ -153,6 +153,30 @@ describe("runner identity and capability contracts", () => {
         artifactValidated: false
       }).success
     ).toBe(false);
+    expect(
+      terminalOutcomeSchema.safeParse({
+        version: "planweave.runner/v1",
+        state: "succeeded",
+        reason: "completed",
+        cleanup: { status: "failed" },
+        exitCode: 0,
+        finishedAt: "2026-07-11T00:00:00.000Z",
+        diagnostic: null,
+        artifactValidated: true
+      }).success
+    ).toBe(false);
+    expect(
+      terminalOutcomeSchema.safeParse({
+        version: "planweave.runner/v1",
+        state: "failed",
+        reason: "completed",
+        cleanup: { status: "succeeded" },
+        exitCode: 1,
+        finishedAt: "2026-07-11T00:00:00.000Z",
+        diagnostic: "failed",
+        artifactValidated: false
+      }).success
+    ).toBe(false);
   });
 });
 

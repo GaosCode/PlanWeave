@@ -269,6 +269,7 @@ export class ActiveAgentRunRegistry {
         outcome: {
           version: "planweave.runner/v1",
           state: terminalState,
+          reason: terminalState === "succeeded" ? "completed" : terminalState,
           exitCode: terminalState === "succeeded" ? 0 : null,
           finishedAt: new Date().toISOString(),
           diagnostic: terminalState === "succeeded" ? null : reason,

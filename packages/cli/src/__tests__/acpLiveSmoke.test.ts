@@ -13,57 +13,108 @@ async function executable(path: string, source: string): Promise<void> {
   await chmod(path, 0o755);
 }
 
-describe("ACP live smoke evidence program", () => {
-  it("uses the run session identity, proves every gate check, and tightens evidence permissions", async () => {
-    const root = await mkdtemp(join(tmpdir(), "planweave-acp-live-smoke-"));
-    const agent = join(root, "codex-acp");
-    const planweave = join(root, "planweave-test");
-    const evidencePath = join(root, "evidence.json");
-    await executable(agent, 'console.log("codex-acp test-version");\n');
-    await executable(planweave, `
+async function fixture() {
+  const root = await mkdtemp(join(tmpdir(), "planweave-acp-live-smoke-"));
+  const agent = join(root, "codex-acp");
+  const planweave = join(root, "planweave-test");
+  await executable(agent, 'console.log("codex-acp test-version");\n');
+  await executable(planweave, `
+const { existsSync, writeFileSync } = require("node:fs");
+const { join } = require("node:path");
 const args = process.argv.slice(2);
+const timeout = args[args.indexOf("--timeout") + 1];
+const cancellation = timeout !== "120000";
+const failedScenario = process.env.SMOKE_FAILURE;
 if (args[0] === "--version") console.log("planweave test-version");
 else if (args[0] === "trust") console.log(JSON.stringify({ ok: true }));
 else if (args[0] === "executors" && args[1] === "test") console.log(JSON.stringify({ ok: true }));
-else if (args[0] === "run") console.log(JSON.stringify({
-  session: { sessionId: "SESSION-001" },
-  steps: [{ kind: "submitted" }]
+else if (args[0] === "run" && !cancellation) console.log(JSON.stringify({
+  session: { sessionId: "SESSION-SUCCESS" }, steps: [{ kind: "submitted" }]
 }));
-else if (args[0] === "run-session" && args[1] === "SESSION-001") console.log(JSON.stringify({
-  runnerReadModel: {
-    events: [
-      { body: { kind: "message" } },
-      process.env.SMOKE_INTERACTION === "elicitation"
-        ? { body: { kind: "interaction", interaction: { kind: "elicitation", requestId: "elicitation:1" } } }
-        : { body: { kind: "interaction", interaction: { kind: "permission", requestId: "permission:1" } } },
-      ...(process.env.SMOKE_INTERACTION === "no-result" ? [] : [{ body: {
-        kind: "interaction_result",
-        interactionKind: process.env.SMOKE_INTERACTION === "elicitation" ? "elicitation" : "permission",
-        requestId: process.env.SMOKE_INTERACTION === "elicitation" ? "elicitation:1" : "permission:1",
-        outcome: process.env.SMOKE_INTERACTION === "elicitation" ? "submitted" : "cancelled"
-      } }])
+else if (args[0] === "run") {
+  console.log(JSON.stringify({
+    ok: false,
+    terminalReason: failedScenario === "not-cancelled" ? "completed" : "blocked",
+    session: { sessionId: failedScenario === "same-session" ? "SESSION-SUCCESS" : "SESSION-CANCEL" }
+  }));
+  process.exit(failedScenario === "not-cancelled" ? 0 : 1);
+}
+else if (args[0] === "run-session") {
+  const cancellationSession = args[1] === "SESSION-CANCEL";
+  const expectedSessionId = cancellationSession ? "SESSION-CANCEL" : "SESSION-SUCCESS";
+  const identitySessionId = failedScenario === "stale-identity" && cancellationSession
+    ? "SESSION-STALE"
+    : expectedSessionId;
+  const identity = { runSessionId: identitySessionId };
+  const lifecycle = failedScenario === "preflight-only" ? "initializing" : "running";
+  const terminal = true;
+  const replayMarker = join(process.cwd(), ".replay-read");
+  const replaySequence = failedScenario === "replay" && cancellationSession && existsSync(replayMarker)
+    ? 99
+    : 3;
+  if (failedScenario === "replay" && cancellationSession) writeFileSync(replayMarker, "read");
+  console.log(JSON.stringify({ runnerReadModel: {
+    events: cancellationSession ? [
+      { sequence: 1, identity, body: { kind: "lifecycle", state: lifecycle } },
+      ...(failedScenario === "duplicate-running"
+        ? [{ sequence: 2, identity, body: { kind: "lifecycle", state: "running" } }]
+        : []),
+      { sequence: replaySequence, identity, body: { kind: "terminal", outcome: {
+        state: "failed",
+        reason: failedScenario === "not-cancelled" ? "failed" : "timed_out",
+        cleanup: { status: failedScenario === "cleanup" ? "failed" : "succeeded" }
+      } } },
+      ...(failedScenario === "trailing-event"
+        ? [{ sequence: 4, identity, body: { kind: "message" } }]
+        : [])
+    ] : [
+      { sequence: 1, identity, body: { kind: "message" } },
+      { sequence: 2, identity, body: { kind: "artifact" } },
+      { sequence: 3, identity, body: { kind: "terminal", outcome: {
+        state: "succeeded",
+        reason: "completed",
+        ...(failedScenario === "success-cleanup-missing" ? {} : { cleanup: { status: "succeeded" } })
+      } } }
     ],
-    interaction: { persisted: true },
-    terminal: true,
-    cursor: { terminal: true }
-  }
-}));
+    diagnostics: failedScenario === "diagnostics" ? [{ code: "sequence_gap" }] : [],
+    terminal,
+    cursor: {
+      runId: args[1],
+      afterSequence: replaySequence,
+      terminal,
+      canonicalIdentity: { identity }
+    }
+  } }));
+}
 else process.exit(2);
 `);
+  return { root, planweave };
+}
+
+async function invoke(root: string, planweave: string, evidencePath: string, failure?: string) {
+  return execFileAsync(process.execPath, [
+    smokeScript,
+    "--profile", "codex-acp",
+    "--evidence", evidencePath,
+    "--cancellation-timeout", "25"
+  ], {
+    cwd: root,
+    env: {
+      ...process.env,
+      PATH: `${root}:${process.env.PATH ?? ""}`,
+      PLANWEAVE_BIN: planweave,
+      ...(failure ? { SMOKE_FAILURE: failure } : {})
+    }
+  });
+}
+
+describe("ACP live smoke evidence program", () => {
+  it("proves a strict artifact and an independent runner-level cancellation with replay", async () => {
+    const { root, planweave } = await fixture();
+    const evidencePath = join(root, "evidence.json");
     await writeFile(evidencePath, "stale\n", { encoding: "utf8", mode: 0o644 });
 
-    const result = await execFileAsync(process.execPath, [
-      smokeScript,
-      "--profile", "codex-acp",
-      "--evidence", evidencePath
-    ], {
-      cwd: root,
-      env: {
-        ...process.env,
-        PATH: `${root}:${process.env.PATH ?? ""}`,
-        PLANWEAVE_BIN: planweave
-      }
-    });
+    const result = await invoke(root, planweave, evidencePath);
 
     expect(result.stdout).toContain("ACP-GATE codex-acp: passed");
     const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as {
@@ -71,29 +122,47 @@ else process.exit(2);
       diagnostic: string | null;
       checks: Record<string, boolean>;
     };
-    expect(evidence).toMatchObject({ result: "passed", diagnostic: null });
+    expect(evidence).toMatchObject({
+      result: "passed",
+      diagnostic: null,
+      stages: {
+        artifact: {
+          sessionId: "SESSION-SUCCESS",
+          reason: "completed",
+          cleanupStatus: "succeeded"
+        },
+        cancellation: {
+          sessionId: "SESSION-CANCEL",
+          reason: "timed_out",
+          cleanupStatus: "succeeded"
+        }
+      }
+    });
     expect(Object.values(evidence.checks).every(Boolean)).toBe(true);
     expect((await stat(evidencePath)).mode & 0o777).toBe(0o600);
 
-    for (const scenario of ["elicitation", "no-result"]) {
-      const failedEvidencePath = join(root, `${scenario}.json`);
-      await expect(execFileAsync(process.execPath, [
-        smokeScript,
-        "--profile", "codex-acp",
-        "--evidence", failedEvidencePath
-      ], {
-        cwd: root,
-        env: {
-          ...process.env,
-          PATH: `${root}:${process.env.PATH ?? ""}`,
-          PLANWEAVE_BIN: planweave,
-          SMOKE_INTERACTION: scenario
-        }
-      })).rejects.toMatchObject({ code: 1 });
-      expect(JSON.parse(await readFile(failedEvidencePath, "utf8"))).toMatchObject({
-        result: "failed",
-        checks: { intervention: false }
-      });
-    }
+    expect(evidence).toMatchObject({ version: "planweave.acp-live-smoke/v2" });
+  });
+
+  it.each([
+    ["not-cancelled", "cancellation"],
+    ["preflight-only", "cancellation"],
+    ["cleanup", "cleanup"],
+    ["replay", "replay"],
+    ["diagnostics", "replay"],
+    ["duplicate-running", "cancellation"],
+    ["trailing-event", "cancellation"],
+    ["stale-identity", "session"],
+    ["same-session", "session"],
+    ["success-cleanup-missing", "cleanup"]
+  ])("rejects %s evidence", async (failure, failedCheck) => {
+    const { root, planweave } = await fixture();
+    const evidencePath = join(root, `${failure}.json`);
+
+    await expect(invoke(root, planweave, evidencePath, failure)).rejects.toMatchObject({ code: 1 });
+    expect(JSON.parse(await readFile(evidencePath, "utf8"))).toMatchObject({
+      result: "failed",
+      checks: { [failedCheck]: false }
+    });
   });
 });

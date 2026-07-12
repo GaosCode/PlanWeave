@@ -205,6 +205,8 @@ export const terminalOutcomeSchema = z
   .object({
     version: runnerContractVersionSchema,
     state: runnerTerminalStateSchema,
+    reason: z.enum(["completed", "failed", "cancelled", "timed_out"]).optional(),
+    cleanup: z.object({ status: z.enum(["succeeded", "failed"]) }).strict().optional(),
     exitCode: z.number().int().nullable(),
     finishedAt: z.string().datetime(),
     diagnostic: safeRunnerEventTextSchema(8_192, "Terminal diagnostic").nullable(),
@@ -217,6 +219,37 @@ export const terminalOutcomeSchema = z
         code: z.ZodIssueCode.custom,
         path: ["artifactValidated"],
         message: "A succeeded outcome requires a validated artifact."
+      });
+    }
+    if (value.state === "succeeded" && value.cleanup?.status === "failed") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["cleanup", "status"],
+        message: "A succeeded outcome cannot report failed cleanup."
+      });
+    }
+    if (value.reason !== undefined && value.state === "succeeded" && value.reason !== "completed") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["reason"],
+        message: "A succeeded outcome requires the completed reason."
+      });
+    }
+    if (value.reason !== undefined && value.state === "cancelled" && value.reason !== "cancelled") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["reason"],
+        message: "A cancelled outcome requires the cancelled reason."
+      });
+    }
+    if (
+      value.reason !== undefined && value.state === "failed" &&
+      !["failed", "timed_out"].includes(value.reason)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["reason"],
+        message: "A failed outcome requires the failed or timed_out reason."
       });
     }
   });

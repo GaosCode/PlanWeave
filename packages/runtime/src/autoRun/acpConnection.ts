@@ -26,6 +26,13 @@ import {
 } from "@agentclientprotocol/sdk";
 import type { LivePendingOperationHandle } from "./liveControl.js";
 
+export class AcpOperationTimeoutError extends Error {
+  constructor(operation: string, timeoutMs: number) {
+    super(`ACP ${operation} timed out after ${timeoutMs}ms.`);
+    this.name = "AcpOperationTimeoutError";
+  }
+}
+
 export const ACP_SDK_AUTHORITY = {
   packageName: "@agentclientprotocol/sdk",
   packageVersion: "1.2.1",
@@ -369,7 +376,7 @@ class SubprocessAcpConnection implements AcpConnection {
     };
     options?.signal?.addEventListener("abort", abort, { once: true });
     const timer = setTimeout(() => {
-      const error = new Error(`ACP ${name} timed out after ${timeoutMs}ms.`);
+      const error = new AcpOperationTimeoutError(name, timeoutMs);
       this.terminate(error);
       rejectBoundary?.(error);
     }, timeoutMs);

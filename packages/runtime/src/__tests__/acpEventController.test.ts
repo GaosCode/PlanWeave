@@ -127,12 +127,45 @@ describe("ACP event controller durability and producers", () => {
     const terminalIndex = events.findIndex((event) => event.body.kind === "terminal");
     expect(artifactIndex).toBeGreaterThanOrEqual(0);
     expect(artifactIndex).toBeLessThan(terminalIndex);
+    expect(events[terminalIndex]).toMatchObject({
+      body: {
+        kind: "terminal",
+        outcome: { reason: "failed", cleanup: { status: "failed" } }
+      }
+    });
     const metadata = await readFile(join(root, "metadata.json"), "utf8");
     expect(metadata).toContain('"status": "failed"');
     expect(metadata).toContain('"executionOutcome": "succeeded"');
     expect(metadata).toContain('"artifactReference"');
     expect(metadata).toContain("cleanup failed after artifact verification");
     expect(registry.size).toBe(0);
+  });
+
+  it("persists a structured timeout reason only after the ACP session reaches running", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-timeout-event-"));
+    const readModels = new AcpEventReadModelRegistry();
+    const controller = new AcpSessionController(
+      new ActiveAgentRunRegistry(),
+      createAcpConnection,
+      readModels
+    );
+
+    await expect(
+      controller.execute(run(root, "long-prompt"), { timeoutMs: 200 })
+    ).rejects.toThrow("timed out");
+    const events = readModels.get(root)?.replay(0).events ?? [];
+    const runningIndex = events.findIndex(
+      (event) => event.body.kind === "lifecycle" && event.body.state === "running"
+    );
+    const terminalIndex = events.findIndex((event) => event.body.kind === "terminal");
+    expect(runningIndex).toBeGreaterThanOrEqual(0);
+    expect(runningIndex).toBeLessThan(terminalIndex);
+    expect(events[terminalIndex]).toMatchObject({
+      body: {
+        kind: "terminal",
+        outcome: { reason: "timed_out", cleanup: { status: "succeeded" } }
+      }
+    });
   });
 
   it("does not publish artifacts when execution fails before validation", async () => {

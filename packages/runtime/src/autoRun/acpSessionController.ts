@@ -15,7 +15,12 @@ import {
 } from "@agentclientprotocol/sdk";
 import { writeJsonFile } from "../json.js";
 import type { AgentFamily, ExecutorAdapterResult } from "../types.js";
-import { createAcpConnection, type AcpConnection, type CreateAcpConnectionOptions } from "./acpConnection.js";
+import {
+  AcpOperationTimeoutError,
+  createAcpConnection,
+  type AcpConnection,
+  type CreateAcpConnectionOptions
+} from "./acpConnection.js";
 import { ExecutorCancelledError } from "./executorShared.js";
 import {
   extractFinalArtifactEnvelope,
@@ -122,6 +127,7 @@ export class AcpSessionController {
     let handle: ActiveAgentRunHandle | null = null;
     let handleRegistered = false;
     let cleanupAttempted = false;
+    let cleanupCompleted = false;
     let validatedArtifactReference: Awaited<ReturnType<typeof materializeFinalArtifact>> | null = null;
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     const abortController = new AbortController();
@@ -532,11 +538,16 @@ export class AcpSessionController {
         "succeeded",
         true
       );
+      cleanupCompleted = true;
       if (eventStore) await eventStore.drain();
       if (protocolObserverError !== undefined) throw protocolObserverError;
       if (eventStore) await eventStore.append({
         kind: "terminal",
-        outcome: { version: "planweave.runner/v1", state: "succeeded", exitCode: 0, finishedAt: new Date().toISOString(), diagnostic: null, artifactValidated: true }
+        outcome: {
+          version: "planweave.runner/v1", state: "succeeded", reason: "completed",
+          cleanup: { status: "succeeded" }, exitCode: 0,
+          finishedAt: new Date().toISOString(), diagnostic: null, artifactValidated: true
+        }
       }, acpCorrelationSchema.parse({ sessionId: session.sessionId }));
       if (eventStore) await eventStore.drain();
       clearInterval(heartbeatTimer);
@@ -567,6 +578,9 @@ export class AcpSessionController {
       }
       const cancelledBeforeCleanup =
         error instanceof ExecutorCancelledError || options?.signal?.aborted === true;
+      if (error instanceof AcpOperationTimeoutError && handle) {
+        handle.control.sessionId = null;
+      }
       let cleanupError: unknown;
       if (!cleanupAttempted) {
         cleanupAttempted = true;
@@ -577,8 +591,12 @@ export class AcpSessionController {
               "ACP claim failed and released live ownership.",
               cancelledBeforeCleanup ? "cancelled" : "failed"
             );
+            cleanupCompleted = true;
           } else if (connection) {
             await connection.dispose();
+            cleanupCompleted = true;
+          } else {
+            cleanupCompleted = true;
           }
         } catch (caught) {
           cleanupError = caught;
@@ -595,10 +613,13 @@ export class AcpSessionController {
       const message = cleanupMessage
         ? `Execution: ${executionMessage}; cleanup: ${cleanupMessage}`
         : executionMessage;
-      const timedOut = /timed out/i.test(message);
+      const timedOut = error instanceof AcpOperationTimeoutError;
       const cancelled =
         cancelledBeforeCleanup ||
         handle?.lifecycleState === "cancelled";
+      const cleanupFailed =
+        cleanupError !== undefined ||
+        (cleanupAttempted && !cleanupCompleted);
       const status: TerminalStatus = timedOut ? "timed_out" : cancelled ? "cancelled" : "failed";
       let eventLogError: unknown;
       try {
@@ -609,6 +630,8 @@ export class AcpSessionController {
           kind: "terminal",
           outcome: {
             version: "planweave.runner/v1", state: cancelled ? "cancelled" : "failed",
+            reason: timedOut ? "timed_out" : cancelled ? "cancelled" : "failed",
+            cleanup: { status: cleanupFailed ? "failed" : "succeeded" },
             exitCode: cancelled ? 130 : 1, finishedAt: new Date().toISOString(),
             diagnostic: message, artifactValidated: validatedArtifactReference !== null
           }

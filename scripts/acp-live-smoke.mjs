@@ -29,10 +29,71 @@ function json(text) {
   catch { return null; }
 }
 
+function sessionId(value) {
+  return value?.session?.sessionId ?? value?.sessionId ?? null;
+}
+
+function readSession(planweave, id) {
+  return id
+    ? run(planweave, ["run-session", id, "--json"])
+    : { ok: false, stdout: "", diagnostic: "Run output did not contain a session id." };
+}
+
+function runnerFrom(result) {
+  return json(result.stdout)?.runnerReadModel ?? null;
+}
+
+function events(runner) {
+  return Array.isArray(runner?.events) ? runner.events : [];
+}
+
+function stableReplay(first, second) {
+  if (!first?.cursor?.terminal || !second?.cursor?.terminal) return false;
+  if (first.diagnostics?.length !== 0 || second.diagnostics?.length !== 0) return false;
+  return JSON.stringify(first.cursor) === JSON.stringify(second.cursor) &&
+    JSON.stringify(first.events) === JSON.stringify(second.events) &&
+    events(first).length > 0;
+}
+
+function boundedLifecycle(runner) {
+  const runnerEvents = events(runner);
+  const runningIndexes = runnerEvents.flatMap((event, index) =>
+    event?.body?.kind === "lifecycle" && event.body.state === "running" ? [index] : []
+  );
+  const terminalIndexes = runnerEvents.flatMap((event, index) =>
+    event?.body?.kind === "terminal" ? [index] : []
+  );
+  return runningIndexes.length === 1 && terminalIndexes.length === 1 &&
+    runningIndexes[0] < terminalIndexes[0] && terminalIndexes[0] === runnerEvents.length - 1;
+}
+
+function stageIdentityMatches(runner, sessionId) {
+  if (typeof sessionId !== "string") return false;
+  const runnerEvents = events(runner);
+  return runner?.cursor?.canonicalIdentity?.identity?.runSessionId === sessionId &&
+    runnerEvents.length > 0 &&
+    runnerEvents.every((event) => event?.identity?.runSessionId === sessionId);
+}
+
+function terminalOutcome(runner) {
+  const runnerEvents = events(runner);
+  const terminalEvents = runnerEvents.filter((event) => event?.body?.kind === "terminal");
+  return terminalEvents.length === 1 && runnerEvents.at(-1) === terminalEvents[0]
+    ? terminalEvents[0].body.outcome
+    : null;
+}
+
 const profile = option("--profile");
 const evidencePath = option("--evidence");
-if (!profile || !(profile in profiles) || !evidencePath) {
-  console.error("Usage: node scripts/acp-live-smoke.mjs --profile <explicit-*-acp-name> --evidence <path>");
+const cancellationTimeout = option("--cancellation-timeout") ?? "3000";
+if (
+  !profile || !(profile in profiles) || !evidencePath ||
+  !/^\d+$/.test(cancellationTimeout) || Number(cancellationTimeout) < 1
+) {
+  console.error(
+    "Usage: node scripts/acp-live-smoke.mjs --profile <explicit-*-acp-name> " +
+    "--evidence <path> [--cancellation-timeout <positive-ms>]"
+  );
   process.exit(2);
 }
 
@@ -43,54 +104,90 @@ const agentVersion = run(definition.command, definition.versionArgs);
 const planweaveVersion = run(planweave, ["--version"]);
 const trust = run(planweave, ["trust", "executor", profile, "--json"]);
 const preflight = run(planweave, ["executors", "test", profile, "--json"]);
-const execution = run(planweave, [
+
+const successfulExecution = run(planweave, [
   "run", "--once", "--executor", profile, "--timeout", "120000", "--json"
 ]);
-const executionValue = json(execution.stdout);
-const sessionId = executionValue?.session?.sessionId ?? executionValue?.sessionId ?? null;
-const session = sessionId
-  ? run(planweave, ["run-session", sessionId, "--json"])
-  : { ok: false, stdout: "", diagnostic: "Run output did not contain a session id." };
-const sessionValue = json(session.stdout);
-const runner = sessionValue?.runnerReadModel ?? null;
-const runnerEvents = Array.isArray(runner?.events) ? runner.events : [];
-const permissionRequestIds = new Set(
-  runnerEvents.flatMap((event) =>
-    event?.body?.kind === "interaction" &&
-    event.body.interaction?.kind === "permission" &&
-    typeof event.body.interaction.requestId === "string"
-      ? [event.body.interaction.requestId]
-      : []
-  )
-);
-const permissionBoundary = runnerEvents.some((event) =>
-  event?.body?.kind === "interaction_result" &&
-  event.body.interactionKind === "permission" &&
-  permissionRequestIds.has(event.body.requestId) &&
-  ["approved", "denied", "cancelled"].includes(event.body.outcome)
-);
+const successfulValue = json(successfulExecution.stdout);
+const successfulSessionId = sessionId(successfulValue);
+const successfulSession = readSession(planweave, successfulSessionId);
+const successfulRunner = runnerFrom(successfulSession);
+const successfulEvents = events(successfulRunner);
+const successfulTerminal = terminalOutcome(successfulRunner);
+
+const cancelledExecution = run(planweave, [
+  "run", "--once", "--executor", profile, "--timeout", cancellationTimeout, "--json"
+]);
+const cancelledValue = json(cancelledExecution.stdout);
+const cancelledSessionId = sessionId(cancelledValue);
+const cancelledSession = readSession(planweave, cancelledSessionId);
+const cancelledReplay = readSession(planweave, cancelledSessionId);
+const cancelledRunner = runnerFrom(cancelledSession);
+const replayedCancelledRunner = runnerFrom(cancelledReplay);
+const cancelledEvents = events(cancelledRunner);
+const cancellationTerminal = terminalOutcome(cancelledRunner);
+const cancelledRunTerminal =
+  cancelledValue?.ok === false &&
+  ["blocked", "cancelled"].includes(cancelledValue?.terminalReason);
+
 const checks = {
   trusted: trust.ok,
   preflight: preflight.ok && json(preflight.stdout)?.ok === true,
-  session: execution.ok && session.ok,
-  streaming: runnerEvents.some((event) =>
+  session:
+    successfulExecution.ok && successfulSession.ok && cancelledSession.ok &&
+    typeof successfulSessionId === "string" && typeof cancelledSessionId === "string" &&
+    successfulSessionId !== cancelledSessionId &&
+    stageIdentityMatches(successfulRunner, successfulSessionId) &&
+    stageIdentityMatches(cancelledRunner, cancelledSessionId),
+  streaming: successfulEvents.some((event) =>
     event?.body?.kind === "message" || event?.body?.kind === "tool_call"
   ),
-  intervention: permissionBoundary,
-  artifact: executionValue?.steps?.some((step) => step?.kind === "submitted") === true,
-  cleanup: runner?.terminal === true,
-  replay: runner?.cursor?.terminal === true && runnerEvents.length > 0
+  cancellation:
+    !cancelledExecution.ok && cancelledRunTerminal && boundedLifecycle(cancelledRunner) &&
+    ["timed_out", "cancelled"].includes(cancellationTerminal?.reason),
+  artifact:
+    successfulValue?.steps?.some((step) => step?.kind === "submitted") === true &&
+    successfulEvents.some((event) => event?.body?.kind === "artifact") &&
+    successfulTerminal?.state === "succeeded" &&
+    successfulTerminal?.reason === "completed" &&
+    successfulTerminal?.cleanup?.status === "succeeded",
+  cleanup:
+    successfulRunner?.terminal === true && cancelledRunner?.terminal === true &&
+    successfulTerminal?.cleanup?.status === "succeeded" &&
+    cancellationTerminal?.cleanup?.status === "succeeded",
+  replay: cancelledReplay.ok && stableReplay(cancelledRunner, replayedCancelledRunner)
 };
 const passed = agentVersion.ok && planweaveVersion.ok && Object.values(checks).every(Boolean);
-const diagnostic = [agentVersion, planweaveVersion, trust, preflight, execution, session]
-  .find((result) => !result.ok)?.diagnostic ?? (passed ? null : "One or more required ACP-GATE checks did not pass.");
+const diagnostic = [
+  agentVersion,
+  planweaveVersion,
+  trust,
+  preflight,
+  successfulExecution,
+  successfulSession,
+  cancelledSession,
+  cancelledReplay
+].find((result) => !result.ok && result !== cancelledExecution)?.diagnostic ??
+  (passed ? null : "One or more required two-stage ACP-GATE checks did not pass.");
 const evidence = {
-  version: "planweave.acp-live-smoke/v1",
+  version: "planweave.acp-live-smoke/v2",
   profile,
   agentVersion: agentVersion.stdout || "unavailable",
   planweaveVersion: planweaveVersion.stdout || "unavailable",
   startedAt,
   finishedAt: new Date().toISOString(),
+  stages: {
+    artifact: {
+      sessionId: successfulSessionId,
+      reason: successfulTerminal?.reason ?? null,
+      cleanupStatus: successfulTerminal?.cleanup?.status ?? null
+    },
+    cancellation: {
+      sessionId: cancelledSessionId,
+      reason: cancellationTerminal?.reason ?? null,
+      cleanupStatus: cancellationTerminal?.cleanup?.status ?? null
+    }
+  },
   checks,
   result: passed ? "passed" : "failed",
   diagnostic

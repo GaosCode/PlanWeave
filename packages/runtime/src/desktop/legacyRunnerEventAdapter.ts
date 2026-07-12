@@ -35,6 +35,7 @@ function normalizedBody(event: DesktopAutoRunLogEvent): NormalizedRunnerEvent["b
       outcome: {
         version: "planweave.runner/v1",
         state: "succeeded",
+        reason: "completed",
         exitCode: 0,
         finishedAt: event.timestamp ?? new Date(0).toISOString(),
         diagnostic: null,
@@ -48,6 +49,7 @@ function normalizedBody(event: DesktopAutoRunLogEvent): NormalizedRunnerEvent["b
       outcome: {
         version: "planweave.runner/v1",
         state: "failed",
+        reason: "failed",
         exitCode: null,
         finishedAt: event.timestamp ?? new Date(0).toISOString(),
         diagnostic: `Legacy Desktop Auto Run phase '${event.phase}'.`,
@@ -61,6 +63,7 @@ function normalizedBody(event: DesktopAutoRunLogEvent): NormalizedRunnerEvent["b
       outcome: {
         version: "planweave.runner/v1",
         state: "cancelled",
+        reason: "cancelled",
         exitCode: null,
         finishedAt: event.timestamp ?? new Date(0).toISOString(),
         diagnostic: "Legacy Desktop Auto Run was stopped.",
