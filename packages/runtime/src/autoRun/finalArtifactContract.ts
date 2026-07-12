@@ -234,6 +234,30 @@ export function encodeFinalArtifactEnvelope(envelope: FinalArtifactEnvelope): st
   return `${line}\n`;
 }
 
+function containsMarkerOutsideJsonString(value: string): boolean {
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+    if (value.startsWith(FINAL_ARTIFACT_MARKER, index)) return true;
+  }
+  return false;
+}
+
 export function extractFinalArtifactEnvelope(
   output: string,
   expected: ExpectedFinalArtifactIdentity
@@ -242,7 +266,8 @@ export function extractFinalArtifactEnvelope(
   if (markerIndex < 0) {
     throw new FinalArtifactContractError("missing", "Final artifact marker was not found.");
   }
-  if (output.indexOf(FINAL_ARTIFACT_MARKER, markerIndex + FINAL_ARTIFACT_MARKER.length) >= 0) {
+  const afterMarker = output.slice(markerIndex + FINAL_ARTIFACT_MARKER.length);
+  if (containsMarkerOutsideJsonString(afterMarker)) {
     throw new FinalArtifactContractError(
       "multiple",
       "Expected exactly one final artifact marker, received more than one."

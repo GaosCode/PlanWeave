@@ -127,6 +127,18 @@ describe("final artifact envelope codec", () => {
     expect(extractFinalArtifactEnvelope(`provider prefix\n${marker}\n`, expected)).toEqual(envelope);
   });
 
+  it("does not treat the marker name inside report JSON as a second envelope", () => {
+    const envelope = implementationArtifactEnvelope({
+      ref: expected.ref,
+      taskId: expected.taskId,
+      reportMarkdown: `Verified the ${FINAL_ARTIFACT_MARKER.trim()} envelope.`
+    });
+
+    expect(extractFinalArtifactEnvelope(encodeFinalArtifactEnvelope(envelope), expected)).toEqual(
+      envelope
+    );
+  });
+
   it("keeps descriptor-verified bytes authoritative after the source path changes", async () => {
     const { init } = await createTestWorkspace();
     const rootDir = init.workspace.resultsDir;
