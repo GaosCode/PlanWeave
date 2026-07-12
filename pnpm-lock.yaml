@@ -60,6 +60,9 @@ importers:
       '@planweave-ai/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@planweave-ai/server':
+        specifier: workspace:*
+        version: link:../server
       '@xyflow/react':
         specifier: ^12.9.3
         version: 12.10.2(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)

@@ -5,6 +5,7 @@ describe("remote bridge contract", () => {
   it("defines all required invoke channels", () => {
     const channels = remoteCollaborationInvokeChannels
     expect(channels.createRemoteProfile).toBe("planweave-remote:createRemoteProfile")
+    expect(channels.startLocalTeamHost).toBe("planweave-remote:startLocalTeamHost")
     expect(channels.connectProfile).toBe("planweave-remote:connectProfile")
     expect(channels.disconnectProfile).toBe("planweave-remote:disconnectProfile")
     expect(channels.getRemoteProjectSnapshot).toBe("planweave-remote:getRemoteProjectSnapshot")
@@ -15,6 +16,7 @@ describe("remote bridge contract", () => {
   it("defines all remote API surface methods", () => {
     const apiMethods: Array<keyof PlanWeaveRemoteApi> = [
       "createRemoteProfile",
+      "startLocalTeamHost",
       "updateRemoteProfile",
       "deleteRemoteProfile",
       "getRemoteProfile",
@@ -36,6 +38,7 @@ describe("remote bridge contract", () => {
 
     const channelMethodMap: Record<string, string> = {
       createRemoteProfile: remoteCollaborationInvokeChannels.createRemoteProfile,
+      startLocalTeamHost: remoteCollaborationInvokeChannels.startLocalTeamHost,
       updateRemoteProfile: remoteCollaborationInvokeChannels.updateRemoteProfile,
       deleteRemoteProfile: remoteCollaborationInvokeChannels.deleteRemoteProfile,
       getRemoteProfile: remoteCollaborationInvokeChannels.getRemoteProfile,

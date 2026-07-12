@@ -100,6 +100,7 @@ contextBridge.exposeInMainWorld("planweaveMcpTunnel", mcpTunnelApi);
 
 const remoteApi: PlanWeaveRemoteApi = {
   createRemoteProfile: async (input) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.createRemoteProfile, input),
+  startLocalTeamHost: async (input) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.startLocalTeamHost, input),
   updateRemoteProfile: async (id, input) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.updateRemoteProfile, id, input),
   deleteRemoteProfile: async (id) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.deleteRemoteProfile, id),
   getRemoteProfile: async (id) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.getRemoteProfile, id),

@@ -11,6 +11,14 @@ export function TeamModeShell({ onExit }: { onExit: () => void }) {
   const [tasks, setTasks] = useState<RemoteTask[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [roleChoice, setRoleChoice] = useState<"choose" | "host" | "member">("choose");
+  const [projectId, setProjectId] = useState("team-project");
+  const [projectName, setProjectName] = useState("My Team Project");
+  const [userId, setUserId] = useState("owner");
+  const [deviceId, setDeviceId] = useState(`desktop-${Math.random().toString(36).slice(2, 8)}`);
+  const [joinToken, setJoinToken] = useState("planweave-local-team");
+  const [serverUrl, setServerUrl] = useState("");
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
 
   useEffect(() => { void remoteBridge?.listRemoteProfiles().then(setProfiles); }, []);
 
@@ -24,6 +32,27 @@ export function TeamModeShell({ onExit }: { onExit: () => void }) {
       setTasks(await remoteBridge.getRemoteTasks(profile.id, profile.projectId));
       const room = next.planningRooms[0];
       if (room) setMessages(await remoteBridge.getRemoteMessages(profile.id, profile.projectId, room.id));
+    } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
+  }
+
+  async function hostTeam() {
+    if (!remoteBridge) return;
+    setError(null);
+    try {
+      const host = await remoteBridge.startLocalTeamHost({ projectId, projectName, userId, deviceId, joinToken });
+      setProfiles((current) => [...current.filter((profile) => profile.id !== host.profile.id), host.profile]);
+      setInviteUrl(host.inviteUrl);
+      await open(host.profile);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
+  }
+
+  async function joinTeam() {
+    if (!remoteBridge) return;
+    setError(null);
+    try {
+      const profile = await remoteBridge.createRemoteProfile({ name: `${projectName} (member)`, serverUrl, deviceId, apiKey: joinToken, projectId, userId });
+      setProfiles((current) => [...current, profile]);
+      await open(profile);
     } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
   }
 
@@ -48,14 +77,14 @@ export function TeamModeShell({ onExit }: { onExit: () => void }) {
     <div className="flex h-screen bg-app-canvas text-text">
       <aside className="w-64 border-r border-border/80 bg-app-panel p-4">
         <div className="mb-6 flex items-center justify-between"><strong>Team Mode</strong><Button size="sm" variant="ghost" onClick={onExit}>Local</Button></div>
+        <Button className="mb-3 w-full" onClick={() => setRoleChoice("choose")}>New team connection</Button>
         <div className="space-y-2">{profiles.map((profile) => <Button className="w-full justify-start" key={profile.id} variant={active?.id === profile.id ? "secondary" : "ghost"} onClick={() => void open(profile)}>{profile.name}</Button>)}</div>
-        {profiles.length === 0 ? <p className="text-sm text-muted-foreground">Add a Team profile in Settings first.</p> : null}
       </aside>
       <main className="min-w-0 flex-1 p-8">
         {error ? <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
-        {!snapshot ? <div className="mx-auto mt-24 max-w-xl"><h1 className="text-3xl font-semibold">Choose a team project</h1><p className="mt-2 text-muted-foreground">Connect to the shared server to see members, decisions and discussion.</p></div> : (
+        {!snapshot ? <div className="mx-auto mt-24 max-w-xl">{roleChoice === "choose" ? <><h1 className="text-3xl font-semibold">How will this computer join?</h1><p className="mt-2 text-muted-foreground">Choose once for this connection. No command line is needed.</p><div className="mt-6 grid gap-4 sm:grid-cols-2"><button className="rounded-xl border border-border bg-surface-raised p-5 text-left hover:border-primary" onClick={() => setRoleChoice("host")}><div className="font-semibold">Start as server</div><p className="mt-2 text-sm text-muted-foreground">Host the shared team server on this computer and invite others.</p></button><button className="rounded-xl border border-border bg-surface-raised p-5 text-left hover:border-primary" onClick={() => setRoleChoice("member")}><div className="font-semibold">Join as member</div><p className="mt-2 text-sm text-muted-foreground">Connect this computer to a teammate&apos;s server.</p></button></div></> : <div className="rounded-xl border border-border bg-surface-raised p-6"><h1 className="text-2xl font-semibold">{roleChoice === "host" ? "Start a team server" : "Join a team server"}</h1><div className="mt-5 grid gap-3"><input className="h-10 rounded-md border border-input bg-transparent px-3" value={projectId} onChange={(event) => setProjectId(event.target.value)} placeholder="Project ID" /><input className="h-10 rounded-md border border-input bg-transparent px-3" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="Project name" /><input className="h-10 rounded-md border border-input bg-transparent px-3" value={userId} onChange={(event) => setUserId(event.target.value)} placeholder="Your name" /><input className="h-10 rounded-md border border-input bg-transparent px-3" value={deviceId} onChange={(event) => setDeviceId(event.target.value)} placeholder="Device ID" />{roleChoice === "member" ? <input className="h-10 rounded-md border border-input bg-transparent px-3" value={serverUrl} onChange={(event) => setServerUrl(event.target.value)} placeholder="Server URL, e.g. http://192.168.1.10:8788" /> : null}<input className="h-10 rounded-md border border-input bg-transparent px-3" type="password" value={joinToken} onChange={(event) => setJoinToken(event.target.value)} placeholder="Team join token" /></div><div className="mt-5 flex gap-2"><Button variant="outline" onClick={() => setRoleChoice("choose")}>Back</Button><Button disabled={!projectId || !userId || !deviceId || !joinToken || (roleChoice === "member" && !serverUrl)} onClick={() => void (roleChoice === "host" ? hostTeam() : joinTeam())}>{roleChoice === "host" ? "Start server" : "Join team"}</Button></div>{inviteUrl ? <div className="mt-5 rounded-md bg-muted p-3 text-sm">Share this server address with members: <code>{inviteUrl}</code></div> : null}</div>}</div> : (
           <div className="mx-auto flex h-full max-w-5xl flex-col gap-6">
-            <header><div className="text-xs uppercase tracking-widest text-muted-foreground">Team workspace · Connected</div><h1 className="mt-1 text-3xl font-semibold">{snapshot.project.name}</h1><p className="mt-2 text-sm text-muted-foreground">{snapshot.members.length} members · {snapshot.proposals.length} proposals · event {snapshot.lastEventId}</p></header>
+            <header><div className="text-xs uppercase tracking-widest text-muted-foreground">Team workspace · Connected</div><h1 className="mt-1 text-3xl font-semibold">{snapshot.project.name}</h1><p className="mt-2 text-sm text-muted-foreground">{snapshot.members.length} members · {snapshot.proposals.length} proposals · event {snapshot.lastEventId}</p>{inviteUrl ? <div className="mt-3 rounded-md bg-muted px-3 py-2 text-sm">Invite address: <code>{inviteUrl}</code></div> : null}</header>
             <section className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px] gap-6">
               <div className="flex min-h-0 flex-col rounded-xl border border-border/80 bg-surface-raised">
                 <div className="border-b border-border/80 px-5 py-4 font-medium"># {snapshot.planningRooms[0]?.name ?? "general"}</div>

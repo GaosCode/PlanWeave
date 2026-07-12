@@ -14,6 +14,13 @@ export type RemoteProfile = {
 
 export type RemoteConnectionStatus = "disconnected" | "connecting" | "connected" | "reconnecting" | "error"
 
+export type LocalTeamHost = {
+  profile: RemoteProfile
+  localUrl: string
+  inviteUrl: string
+  port: number
+}
+
 export type RemoteProjectInfo = {
   id: string
   name: string
@@ -110,6 +117,7 @@ export type RemoteEventPayload = {
 
 export const remoteCollaborationInvokeChannels = {
   createRemoteProfile: "planweave-remote:createRemoteProfile",
+  startLocalTeamHost: "planweave-remote:startLocalTeamHost",
   updateRemoteProfile: "planweave-remote:updateRemoteProfile",
   deleteRemoteProfile: "planweave-remote:deleteRemoteProfile",
   getRemoteProfile: "planweave-remote:getRemoteProfile",
@@ -134,6 +142,7 @@ export const remoteConnectChannel = "planweave-remote:remoteConnect"
 
 export type PlanWeaveRemoteApi = {
   createRemoteProfile: (input: { name: string; serverUrl: string; deviceId: string; apiKey: string; projectId?: string; userId?: string }) => Promise<RemoteProfile>
+  startLocalTeamHost: (input: { projectId: string; projectName: string; userId: string; deviceId: string; joinToken: string; port?: number }) => Promise<LocalTeamHost>
   updateRemoteProfile: (id: string, input: { name?: string; serverUrl?: string; deviceId?: string; apiKey?: string }) => Promise<RemoteProfile>
   deleteRemoteProfile: (id: string) => Promise<void>
   getRemoteProfile: (id: string) => Promise<RemoteProfile | null>

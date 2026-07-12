@@ -48,6 +48,7 @@
     "@fontsource-variable/geist": "^5.2.9",
     "@planweave-ai/mcp": "workspace:*",
     "@planweave-ai/runtime": "workspace:*",
+    "@planweave-ai/server": "workspace:*",
     "@xyflow/react": "^12.9.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

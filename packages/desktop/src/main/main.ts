@@ -6,6 +6,7 @@ import { registerDesktopSettingsHandlers } from "./desktopSettingsHandlers.js";
 import { applyPersistedPlanweaveHomeSetting } from "./desktopSettingsStore.js";
 import { registerPackageWatchHandlers } from "./packageWatch.js";
 import { registerRemoteBridgeHandlers } from "./remoteBridgeHandlers.js";
+import { stopLocalTeamHost } from "./localTeamHost.js";
 import { registerRuntimeBridgeHandlers } from "./runtimeBridgeHandlers.js";
 import { registerRuntimeStateWatchHandlers } from "./runtimeStateWatch.js";
 import { registerWindowAppearanceHandlers } from "./windowAppearance.js";
@@ -74,7 +75,7 @@ app.on("before-quit", (event) => {
     return;
   }
   event.preventDefault();
-  void stopMcpTunnelProcesses().finally(() => {
+  void Promise.all([stopMcpTunnelProcesses(), stopLocalTeamHost()]).finally(() => {
     mcpTunnelCleanupComplete = true;
     app.quit();
   });

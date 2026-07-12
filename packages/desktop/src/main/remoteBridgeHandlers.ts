@@ -45,6 +45,11 @@ export function registerRemoteBridgeHandlers(): void {
     return createRemoteProfile(input)
   })
 
+  ipcMain.handle(channels.startLocalTeamHost, async (_event, input: Parameters<typeof import("./localTeamHost.js").startLocalTeamHost>[0]) => {
+    const { startLocalTeamHost } = await import("./localTeamHost.js")
+    return startLocalTeamHost(input)
+  })
+
   ipcMain.handle(channels.updateRemoteProfile, async (_event, id: string, input: Parameters<typeof import("./remoteProfiles.js").updateRemoteProfile>[1]) => {
     const { updateRemoteProfile } = await import("./remoteProfiles.js")
     return updateRemoteProfile(id, input)
