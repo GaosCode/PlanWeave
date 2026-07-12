@@ -43,7 +43,7 @@ const app = agent({ name: "planweave-acp-mock" })
         ...(scenario === "close-capable" ? { sessionCapabilities: { close: {} } } : {})
       },
       authMethods:
-        scenario === "auth-required"
+        scenario === "auth-required" || scenario === "authenticated-with-auth-methods"
           ? [{ id: "mock-login", name: "Mock login", description: "Test-only authentication" }]
           : [],
       agentInfo: { name: "planweave-acp-mock", version: "1.0.0" }
@@ -53,6 +53,9 @@ const app = agent({ name: "planweave-acp-mock" })
   .onRequest(methods.agent.session.new, async () => {
     if (scenario === "auth-required") {
       throw RequestError.authRequired();
+    }
+    if (scenario === "generic-server-error") {
+      throw new RequestError(-32000, "Provider request failed");
     }
     if (scenario === "invalid-envelope-pending" || scenario === "invalid-object-envelope-pending") {
       await pause(100);

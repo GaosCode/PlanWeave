@@ -227,8 +227,23 @@ describe("AgentRunner registries", () => {
     ]));
   });
 
+  it("treats advertised authentication methods as capabilities rather than authentication state", async () => {
+    const result = await createAcpRunner().preflight({
+      profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
+      definition: probeDefinition("authenticated-with-auth-methods"),
+      cwd: "/tmp",
+      timeoutMs: 1_000
+    });
+
+    expect(result.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ check: "acp_authenticated", status: "passed" })
+    ]));
+    expect(result.negotiatedCapabilities).not.toBeNull();
+  });
+
   it.each([
     ["auth-required", "auth_required", 1_000],
+    ["generic-server-error", "initialization_failed", 1_000],
     ["delayed", "timeout", 5]
   ] as const)("maps formal default probe scenario %s to %s", async (scenario, code, timeoutMs) => {
     const result = await createAcpRunner().preflight({

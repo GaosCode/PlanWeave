@@ -1,7 +1,7 @@
 import { createAcpConnection } from "./acpConnection.js";
 import type { AcpPreflightProbe } from "./acpRunner.js";
 import type { RunnerCapability } from "./runnerContractSchemas.js";
-import type { InitializeResponse } from "@agentclientprotocol/sdk";
+import { RequestError, type InitializeResponse } from "@agentclientprotocol/sdk";
 
 export function capabilitiesFromInitialize(initialized: InitializeResponse): RunnerCapability[] {
   const capabilities: RunnerCapability[] = [
@@ -22,6 +22,12 @@ export function capabilitiesFromInitialize(initialized: InitializeResponse): Run
   return capabilities;
 }
 
+function isAuthRequiredError(error: unknown): error is RequestError {
+  if (!(error instanceof RequestError) || error.code !== -32000) return false;
+  const message = error.message.trim();
+  return message === "Authentication required" || message.startsWith("Authentication required:");
+}
+
 export const probeInstalledAcpAgent: AcpPreflightProbe = async ({ definition, cwd, signal }) => {
   const launch = definition.acp.launch;
   if (!launch) return { kind: "failed", message: "ACP launch metadata is unavailable." };
@@ -36,11 +42,18 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({ definition, cw
   });
   try {
     const initialized = await connection.initialize({ signal });
-    if ((initialized.authMethods?.length ?? 0) > 0) {
+    let session;
+    try {
+      session = await connection.newSession({ cwd, mcpServers: [] }, { signal });
+    } catch (error) {
+      if (!isAuthRequiredError(error)) throw error;
       return {
         kind: "auth_required",
-        message: "ACP agent requires authentication using an advertised agent-owned method. Authenticate with the agent, then retry."
+        message: "ACP agent requires authentication. Authenticate with the agent, then retry."
       };
+    }
+    if (initialized.agentCapabilities?.sessionCapabilities?.close != null) {
+      await connection.closeSession(session.sessionId, { signal });
     }
     return { kind: "ready", authenticated: true, capabilities: capabilitiesFromInitialize(initialized) };
   } finally {
