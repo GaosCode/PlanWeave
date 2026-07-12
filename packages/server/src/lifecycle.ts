@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
+import { applyAgentsMigrations, agentsSchemaVersion } from "./agents/migrations.js";
 import { applyAttachmentsMigrations } from "./attachments/migrations.js";
 import type { ServerConfig } from "./config.js";
 import { applyEventsMigrations, eventsSchemaVersion } from "./events/migrations.js";
@@ -19,6 +20,7 @@ export type SubsystemVersions = {
   planning: number;
   proposals: number;
   attachments: number;
+  agents: number;
   events: number;
 };
 export type PlanweaveServer = {
@@ -49,6 +51,7 @@ export async function startPlanweaveServer(config: ServerConfig, reconciliationH
   applyPlanningMigrations(database);
   applyProposalsMigrations(database);
   applyAttachmentsMigrations(database);
+  applyAgentsMigrations(database);
   applyEventsMigrations(database);
   for (const hook of reconciliationHooks) await hook(database);
   const backupPath = () => join(config.dataDirectory, "backups");
@@ -66,6 +69,7 @@ export async function startPlanweaveServer(config: ServerConfig, reconciliationH
       planning: central >= 3 ? 1 : 0,
       proposals: central >= 4 ? 1 : 0,
       attachments: central >= 5 ? 1 : 0,
+      agents: agentsSchemaVersion(database),
       events: eventsSchemaVersion(database)
     };
     return { status: "ready" as const, schemaVersion: Math.max(...Object.values(subsystems)), subsystems };
