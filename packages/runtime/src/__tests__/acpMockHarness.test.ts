@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { ACP_PROTOCOL_AUTHORITY, AcpMockHarness } from "./support/acpMockHarness.js";
+import {
+  ACP_MOCK_OPERATION_TIMEOUT_MS,
+  ACP_PROTOCOL_AUTHORITY,
+  AcpMockHarness
+} from "./support/acpMockHarness.js";
 
 const harnesses: AcpMockHarness[] = [];
 const spawnHarness = (scenario: ConstructorParameters<typeof AcpMockHarness>[0]) => {
@@ -109,7 +113,13 @@ describe("ACP mock subprocess harness", () => {
 
     const malformed = spawnHarness("malformed");
     await malformed.initialize();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await expect
+      .poll(() => malformed.malformed, {
+        interval: 10,
+        timeout: ACP_MOCK_OPERATION_TIMEOUT_MS,
+        message: "Expected the mock ACP stdout parser to surface its delayed malformed line"
+      })
+      .toContain("{not-json}");
     expect(malformed.malformed).toEqual(["{not-json}"]);
 
     const stderr = spawnHarness("stderr");
