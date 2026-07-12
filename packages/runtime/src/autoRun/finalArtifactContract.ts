@@ -127,10 +127,10 @@ export function finalArtifactPromptInstruction(
       : "";
   return [
     "PLANWEAVE RUNNER-ONLY FINAL ARTIFACT CONTRACT",
-    "After completing the assigned work, your entire final response MUST be exactly one newline-terminated line beginning with PLANWEAVE_FINAL_ARTIFACT followed by one JSON object.",
+    "After completing the assigned work, your final response MUST contain exactly one PLANWEAVE_FINAL_ARTIFACT marker followed by one JSON object. Put it on a standalone final line when possible; the transport may omit the trailing newline.",
     `Use this exact envelope and identity: ${FINAL_ARTIFACT_MARKER}${JSON.stringify(finalArtifactPromptTemplate(expected))}`,
     `Replace ${contentField} with your agent-authored, non-empty result.${reviewInstruction}`,
-    "Do not use a Markdown fence, do not emit explanatory text, and do not emit more than one PLANWEAVE_FINAL_ARTIFACT marker."
+    "Do not use a Markdown fence, do not emit text after the JSON object, and do not emit more than one PLANWEAVE_FINAL_ARTIFACT marker."
   ].join("\n");
 }
 
@@ -238,29 +238,37 @@ export function extractFinalArtifactEnvelope(
   output: string,
   expected: ExpectedFinalArtifactIdentity
 ): FinalArtifactEnvelope {
-  const complete = output.endsWith("\n");
-  const lines = output.split(/\r?\n/);
-  if (!complete) {
-    const partial = lines.at(-1) ?? "";
-    if (partial.startsWith(FINAL_ARTIFACT_MARKER)) {
-      throw new FinalArtifactContractError(
-        "truncated",
-        "Final artifact marker is on an unterminated line."
-      );
-    }
-  }
-  const framed = lines.filter((line) => line.startsWith(FINAL_ARTIFACT_MARKER));
-  if (framed.length === 0) {
+  const markerIndex = output.indexOf(FINAL_ARTIFACT_MARKER);
+  if (markerIndex < 0) {
     throw new FinalArtifactContractError("missing", "Final artifact marker was not found.");
   }
-  if (framed.length !== 1) {
+  if (output.indexOf(FINAL_ARTIFACT_MARKER, markerIndex + FINAL_ARTIFACT_MARKER.length) >= 0) {
     throw new FinalArtifactContractError(
       "multiple",
-      `Expected exactly one final artifact marker, received ${framed.length}.`
+      "Expected exactly one final artifact marker, received more than one."
     );
   }
-  const line = framed[0];
-  if (Buffer.byteLength(line, "utf8") > FINAL_ARTIFACT_MAX_LINE_BYTES) {
+  const framed = output.slice(markerIndex);
+  const hasTerminalNewline = framed.endsWith("\n");
+  const serialized = hasTerminalNewline
+    ? framed.slice(0, framed.endsWith("\r\n") ? -2 : -1).slice(FINAL_ARTIFACT_MARKER.length)
+    : framed.slice(FINAL_ARTIFACT_MARKER.length);
+  if (serialized.includes("\n") || serialized.includes("\r")) {
+    throw new FinalArtifactContractError(
+      "malformed",
+      "Final artifact JSON must be the final response content after its marker."
+    );
+  }
+  if (serialized.trim() !== serialized) {
+    throw new FinalArtifactContractError(
+      "malformed",
+      "Final artifact JSON cannot have whitespace outside its JSON object."
+    );
+  }
+  if (
+    Buffer.byteLength(`${FINAL_ARTIFACT_MARKER}${serialized}`, "utf8") >
+    FINAL_ARTIFACT_MAX_LINE_BYTES
+  ) {
     throw new FinalArtifactContractError(
       "limit_exceeded",
       `Final artifact line exceeds ${FINAL_ARTIFACT_MAX_LINE_BYTES} bytes.`
@@ -268,10 +276,10 @@ export function extractFinalArtifactEnvelope(
   }
   let raw: unknown;
   try {
-    raw = JSON.parse(line.slice(FINAL_ARTIFACT_MARKER.length));
+    raw = JSON.parse(serialized);
   } catch (error) {
     throw new FinalArtifactContractError(
-      "malformed",
+      hasTerminalNewline ? "malformed" : "truncated",
       `Final artifact JSON is malformed: ${error instanceof Error ? error.message : String(error)}`
     );
   }

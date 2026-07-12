@@ -103,7 +103,8 @@ describe("final artifact envelope codec", () => {
     const markerLine = instruction
       .split("\n")
       .find((line) => line.startsWith("Use this exact envelope and identity: "));
-    expect(instruction).toContain("entire final response MUST be exactly one newline-terminated line");
+    expect(instruction).toContain("final response MUST contain exactly one");
+    expect(instruction).toContain("transport may omit the trailing newline");
     expect(instruction).toContain("Do not use a Markdown fence");
     expect(markerLine).toBeDefined();
     const markerIndex = markerLine!.indexOf(FINAL_ARTIFACT_MARKER);
@@ -111,6 +112,19 @@ describe("final artifact envelope codec", () => {
       version: "planweave.runner-artifact/v1",
       artifact
     });
+  });
+
+  it("accepts a unique complete marker after provider text with or without a trailing newline", () => {
+    const envelope = implementationArtifactEnvelope({
+      ref: expected.ref,
+      taskId: expected.taskId,
+      reportMarkdown: "live provider report"
+    });
+    const marker = encodeFinalArtifactEnvelope(envelope).trimEnd();
+
+    expect(extractFinalArtifactEnvelope(marker, expected)).toEqual(envelope);
+    expect(extractFinalArtifactEnvelope(`provider prefix ${marker}`, expected)).toEqual(envelope);
+    expect(extractFinalArtifactEnvelope(`provider prefix\n${marker}\n`, expected)).toEqual(envelope);
   });
 
   it("keeps descriptor-verified bytes authoritative after the source path changes", async () => {
@@ -140,7 +154,19 @@ describe("final artifact envelope codec", () => {
       `${encodeFinalArtifactEnvelope(implementationArtifactEnvelope({ ref: expected.ref, taskId: expected.taskId, reportMarkdown: "a" }))}${encodeFinalArtifactEnvelope(implementationArtifactEnvelope({ ref: expected.ref, taskId: expected.taskId, reportMarkdown: "b" }))}`
     ],
     ["malformed", `${FINAL_ARTIFACT_MARKER}{bad}\n`],
-    ["truncated", `${FINAL_ARTIFACT_MARKER}{}`]
+    ["truncated", `${FINAL_ARTIFACT_MARKER}{\"version\":`],
+    [
+      "malformed",
+      `${encodeFinalArtifactEnvelope(implementationArtifactEnvelope({ ref: expected.ref, taskId: expected.taskId, reportMarkdown: "valid" })).trimEnd()} trailing text\n`
+    ],
+    [
+      "malformed",
+      `${encodeFinalArtifactEnvelope(implementationArtifactEnvelope({ ref: expected.ref, taskId: expected.taskId, reportMarkdown: "valid" })).trimEnd()} \n`
+    ],
+    [
+      "malformed",
+      `${FINAL_ARTIFACT_MARKER}\t${JSON.stringify(implementationArtifactEnvelope({ ref: expected.ref, taskId: expected.taskId, reportMarkdown: "valid" }))}\r\n`
+    ]
   ])("fails closed on %s framing", (code, output) => {
     expect(() => extractFinalArtifactEnvelope(output, expected)).toThrowError(
       expect.objectContaining<Partial<FinalArtifactContractError>>({ code })
