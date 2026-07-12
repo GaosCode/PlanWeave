@@ -5,7 +5,7 @@ const profiles = {
   "codex-acp": { command: "codex-acp", versionArgs: ["--version"] },
   "claude-code-acp": { command: "claude-agent-acp", versionArgs: ["--version"] },
   "opencode-acp": { command: "opencode", versionArgs: ["--version"] },
-  "pi-acp": { command: "pi-acp", versionArgs: ["--version"] }
+  "pi-acp": { command: "pi-acp", versionArgs: ["-v"] }
 };
 
 function option(name) {
@@ -129,6 +129,8 @@ const cancellationTerminal = terminalOutcome(cancelledRunner);
 const cancelledRunTerminal =
   cancelledValue?.ok === false &&
   ["blocked", "cancelled"].includes(cancelledValue?.terminalReason);
+const hasAgentVersion = agentVersion.ok && agentVersion.stdout.length > 0;
+const hasPlanweaveVersion = planweaveVersion.ok && planweaveVersion.stdout.length > 0;
 
 const checks = {
   trusted: trust.ok,
@@ -157,7 +159,7 @@ const checks = {
     cancellationTerminal?.cleanup?.status === "succeeded",
   replay: cancelledReplay.ok && stableReplay(cancelledRunner, replayedCancelledRunner)
 };
-const passed = agentVersion.ok && planweaveVersion.ok && Object.values(checks).every(Boolean);
+const passed = hasAgentVersion && hasPlanweaveVersion && Object.values(checks).every(Boolean);
 const diagnostic = [
   agentVersion,
   planweaveVersion,
@@ -168,6 +170,8 @@ const diagnostic = [
   cancelledSession,
   cancelledReplay
 ].find((result) => !result.ok && result !== cancelledExecution)?.diagnostic ??
+  (!hasAgentVersion ? `${definition.command} version command returned no output.` : null) ??
+  (!hasPlanweaveVersion ? "PlanWeave version command returned no output." : null) ??
   (passed ? null : "One or more required two-stage ACP-GATE checks did not pass.");
 const evidence = {
   version: "planweave.acp-live-smoke/v2",

@@ -16,8 +16,13 @@ async function executable(path: string, source: string): Promise<void> {
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "planweave-acp-live-smoke-"));
   const agent = join(root, "codex-acp");
+  const piAgent = join(root, "pi-acp");
   const planweave = join(root, "planweave-test");
-  await executable(agent, 'console.log("codex-acp test-version");\n');
+  await executable(
+    agent,
+    'if (process.env.SMOKE_FAILURE !== "silent-agent-version") console.log("codex-acp test-version");\n'
+  );
+  await executable(piAgent, 'if (process.argv[2] === "-v") console.log("0.0.31");\n');
   await executable(planweave, `
 const { existsSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
@@ -25,7 +30,9 @@ const args = process.argv.slice(2);
 const timeout = args[args.indexOf("--timeout") + 1];
 const cancellation = timeout !== "120000";
 const failedScenario = process.env.SMOKE_FAILURE;
-if (args[0] === "--version") console.log("planweave test-version");
+if (args[0] === "--version") {
+  if (failedScenario !== "silent-planweave-version") console.log("planweave test-version");
+}
 else if (args[0] === "trust") console.log(JSON.stringify({ ok: true }));
 else if (args[0] === "executors" && args[1] === "test") console.log(JSON.stringify({ ok: true }));
 else if (args[0] === "run" && !cancellation) console.log(JSON.stringify({
@@ -91,10 +98,16 @@ else process.exit(2);
   return { root, planweave };
 }
 
-async function invoke(root: string, planweave: string, evidencePath: string, failure?: string) {
+async function invoke(
+  root: string,
+  planweave: string,
+  evidencePath: string,
+  failure?: string,
+  profile = "codex-acp"
+) {
   return execFileAsync(process.execPath, [
     smokeScript,
-    "--profile", "codex-acp",
+    "--profile", profile,
     "--evidence", evidencePath,
     "--cancellation-timeout", "25"
   ], {
@@ -142,6 +155,56 @@ describe("ACP live smoke evidence program", () => {
     expect((await stat(evidencePath)).mode & 0o777).toBe(0o600);
 
     expect(evidence).toMatchObject({ version: "planweave.acp-live-smoke/v2" });
+  });
+
+  it("records the Pi ACP version reported by -v", async () => {
+    const { root, planweave } = await fixture();
+    const evidencePath = join(root, "pi-evidence.json");
+
+    const result = await invoke(root, planweave, evidencePath, undefined, "pi-acp");
+
+    expect(result.stdout).toContain("ACP-GATE pi-acp: passed");
+    expect(JSON.parse(await readFile(evidencePath, "utf8"))).toMatchObject({
+      profile: "pi-acp",
+      agentVersion: "0.0.31",
+      result: "passed"
+    });
+  });
+
+  it("fails closed when an agent version command exits successfully without output", async () => {
+    const { root, planweave } = await fixture();
+    const evidencePath = join(root, "silent-agent-version.json");
+
+    await expect(invoke(root, planweave, evidencePath, "silent-agent-version")).rejects.toMatchObject({
+      code: 1
+    });
+    const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as {
+      checks: Record<string, boolean>;
+    };
+    expect(evidence).toMatchObject({
+      agentVersion: "unavailable",
+      result: "failed",
+      diagnostic: "codex-acp version command returned no output."
+    });
+    expect(Object.values(evidence.checks).every(Boolean)).toBe(true);
+  });
+
+  it("fails closed when the PlanWeave version command exits successfully without output", async () => {
+    const { root, planweave } = await fixture();
+    const evidencePath = join(root, "silent-planweave-version.json");
+
+    await expect(
+      invoke(root, planweave, evidencePath, "silent-planweave-version")
+    ).rejects.toMatchObject({ code: 1 });
+    const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as {
+      checks: Record<string, boolean>;
+    };
+    expect(evidence).toMatchObject({
+      planweaveVersion: "unavailable",
+      result: "failed",
+      diagnostic: "PlanWeave version command returned no output."
+    });
+    expect(Object.values(evidence.checks).every(Boolean)).toBe(true);
   });
 
   it.each([
