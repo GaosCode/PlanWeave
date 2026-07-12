@@ -5,7 +5,11 @@ import type {
   ExecutorPreflightCheck,
   ExecutorPreflightResult
 } from "../autoRun/executorPreflightTypes.js";
-import { testExecutorProfile } from "../autoRun/executors.js";
+import {
+  executorPreflightAcpSessionProbeTimeoutMs,
+  executorPreflightVersionTimeoutMs,
+  testExecutorProfile
+} from "../autoRun/executors.js";
 import { resolveTaskCanvasWorkspace } from "../desktop/index.js";
 import { writeJsonFile } from "../json.js";
 import { canonicalProjectCanvasNode, writeProjectGraph } from "../projectGraph/index.js";
@@ -63,6 +67,11 @@ async function createFormalManualCanvasWorkspace() {
 }
 
 describe("executor API helpers", () => {
+  it("keeps the ACP session probe budget bounded and separate from CLI version checks", () => {
+    expect(executorPreflightVersionTimeoutMs).toBe(5_000);
+    expect(executorPreflightAcpSessionProbeTimeoutMs).toBe(30_000);
+  });
+
   it("preflights manual executors without requiring a command", async () => {
     const { root } = await createTestWorkspace();
 

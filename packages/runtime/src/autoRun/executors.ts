@@ -41,6 +41,7 @@ import { resolveAgentRunner } from "./runnerRegistry.js";
 import { assertAcpLaunchTrusted } from "./acpLaunch.js";
 
 export const executorPreflightVersionTimeoutMs = 5_000;
+export const executorPreflightAcpSessionProbeTimeoutMs = 30_000;
 
 function taskNodeForClaim(manifest: PlanPackageManifest, claim: BlockClaim): ManifestTaskNode {
   const node = manifest.nodes.find((item) => item.type === "task" && item.id === claim.taskId);
@@ -432,7 +433,11 @@ export async function testExecutorProfile(options: {
     const runner = resolveAgentRunner(profile);
     const definition = resolveAgentDefinition(profile.agent);
     const availability = runner.availability(definition);
-    const versionTimeoutMs = options.versionTimeoutMs ?? executorPreflightVersionTimeoutMs;
+    const preflightTimeoutMs =
+      options.versionTimeoutMs ??
+      (profile.runner.transport === "acp"
+        ? executorPreflightAcpSessionProbeTimeoutMs
+        : executorPreflightVersionTimeoutMs);
     if ("command" in profile) {
       try {
         await assertPackageExecutorCommandTrusted({
@@ -503,7 +508,7 @@ export async function testExecutorProfile(options: {
       profile,
       definition,
       cwd: workspaceExecutionCwd(workspace),
-      timeoutMs: versionTimeoutMs
+      timeoutMs: preflightTimeoutMs
     });
     return finalizePreflightResult({
       name: options.executorName,
