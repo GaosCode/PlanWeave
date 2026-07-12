@@ -38,6 +38,9 @@ describe("planweave CLI command registration", () => {
         "import-recovery",
         "schema",
         "mcp",
+        "server",
+        "task",
+        "merge-queue",
         "help"
       ])
     );
@@ -53,6 +56,48 @@ describe("planweave CLI command registration", () => {
     expect(subcommandOptionLongs("mcp", "serve")).toEqual(expect.arrayContaining(["--host", "--port", "--token", "--oauth", "--json"]));
     expect(nestedSubcommandOptionLongs("mcp", "tunnel", "status")).toContain("--json");
     expect(nestedSubcommandOptionLongs("mcp", "tunnel", "doctor")).toContain("--json");
+  });
+
+  it("registers remote server subcommands", () => {
+    const server = createProgram().commands.find((command) => command.name() === "server");
+    expect(server?.commands.map((command) => command.name())).toEqual(
+      expect.arrayContaining(["start", "join", "project", "list", "forget"])
+    );
+    expect(subcommandOptionLongs("server", "join")).toEqual(
+      expect.arrayContaining(["--url", "--name", "--project", "--user", "--json"])
+    );
+    expect(subcommandOptionLongs("server", "project")).toEqual(
+      expect.arrayContaining(["--profile", "--id", "--json"])
+    );
+    expect(subcommandOptionLongs("server", "list")).toContain("--json");
+    expect(subcommandOptionLongs("server", "forget")).toEqual(
+      expect.arrayContaining(["--name", "--json"])
+    );
+  });
+
+  it("registers remote task subcommands", () => {
+    const task = createProgram().commands.find((command) => command.name() === "task");
+    expect(task?.commands.map((command) => command.name())).toEqual(
+      expect.arrayContaining(["claim", "heartbeat", "checkout", "submit"])
+    );
+    expect(subcommandOptionLongs("task", "claim")).toEqual(
+      expect.arrayContaining(["--profile", "--task-id", "--branch", "--base-commit", "--lease-seconds", "--json"])
+    );
+    expect(subcommandOptionLongs("task", "heartbeat")).toEqual(
+      expect.arrayContaining(["--profile", "--lease-seconds", "--json"])
+    );
+    expect(subcommandOptionLongs("task", "checkout")).toEqual(
+      expect.arrayContaining(["--profile", "--json"])
+    );
+    expect(subcommandOptionLongs("task", "submit")).toEqual(
+      expect.arrayContaining(["--profile", "--head-commit", "--base-commit", "--json"])
+    );
+  });
+
+  it("registers merge-queue with options", () => {
+    expect(commandOptionLongs("merge-queue")).toEqual(
+      expect.arrayContaining(["--profile", "--json"])
+    );
   });
 
   it("registers global project root selection once", () => {
