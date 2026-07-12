@@ -12,7 +12,7 @@
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "cd ../.. && vitest run packages/server/src/__tests__/*.test.ts"
+    "test": "cd ../.. && vitest run packages/server/src/__tests__/*.test.ts packages/server/src/work/__tests__/*.test.ts"
   },
   "dependencies": { "ws": "^8.21.0" },
   "devDependencies": { "@types/ws": "^8.5.14" }
