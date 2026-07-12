@@ -38,6 +38,8 @@ import { useNotificationController } from "./controllers/NotificationController"
 import { useSearchController } from "./controllers/SearchController";
 import { writeAgentScopePromptToClipboard } from "./agentPrompt";
 import { uniqueDesktopDiagnostics } from "./diagnostics";
+import { TeamModeShell } from "./team/TeamModeShell";
+import { Button } from "@/components/ui/button";
 
 const emptyExecutorOptions: string[] = [];
 type TaskCanvasSummary = DesktopProjectSummary["taskCanvases"][number];
@@ -51,6 +53,7 @@ function unavailablePackageDirMessage(canvasId: string): string {
 }
 
 export function App() {
+  const [teamModeOpen, setTeamModeOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { settings, updateLayoutSettings, updateSettings } = useDesktopSettingsBridge({ setError });
   const language = settings.language;
@@ -582,57 +585,55 @@ export function App() {
     todoGroups
   };
 
-  if (activeView === "settings") {
-    return (
-      <div className="glass-surface relative h-screen min-h-0 overflow-hidden text-foreground">
-        <AppSettingsRoute {...settingsRouteProps} />
-        <AppOverlays error={error} successMessage={successMessage} setError={setError} setSuccessMessage={setSuccessMessage} t={t} />
-      </div>
-    );
+  const isSettings = activeView === "settings";
+
+  if (teamModeOpen) {
+    return <TeamModeShell onExit={() => setTeamModeOpen(false)} />;
   }
 
   return (
     <div className="glass-surface relative h-screen min-h-0 overflow-hidden text-foreground">
-      <main className="relative flex h-full min-h-0 overflow-hidden">
-        <ProjectSidebar
-          activeView={activeView}
-          collapsed={leftSidebarCollapsed}
-          expandedProjectId={expandedProjectId}
-          graph={graph}
-          handleBindSourceRoot={handleBindSourceRoot}
-          handleCopyCanvasToNewProject={handleCopyCanvasToNewProject}
-          handleOpenProject={handleOpenProject}
-          handleProjectNewGraph={handleProjectNewGraph}
-          handleRefreshProjects={refreshProjects}
-          handleCopyCanvasAgentPrompt={handleCopyCanvasAgentPrompt}
-          handleDeleteProject={handleDeleteProject}
-          handleDeleteTaskCanvas={handleDeleteTaskCanvas}
-          handleDuplicateTaskCanvas={handleDuplicateTaskCanvas}
-          handleDeleteTaskNode={handleDeleteTaskNode}
-          handleDropSourceRoot={handleDropSourceRoot}
-          handleRevealPlanWorkspace={handleRevealPlanWorkspace}
-          handleRevealProject={handleRevealProject}
-          handleRevealSourceRoot={handleRevealSourceRoot}
-          handleRevealTaskCanvas={handleRevealTaskCanvas}
-          handleRenameProject={handleRenameProject}
-          handleRenameTaskCanvas={handleRenameTaskCanvas}
-          handleUnlinkSourceRoot={handleUnlinkSourceRoot}
-          handleTaskPanelSelect={handleTaskPanelSelect}
-          loadProject={openProjectInSession}
-          notificationItems={notificationController.notificationItems}
-          onResizeStart={(event) => startSidebarResize(event, "left")}
-          onToggleSidebar={() => setLeftSidebarCollapsedPreference((current) => !current)}
-          onTogglePinnedProject={handleTogglePinnedProject}
-          pinnedProjectIds={pinnedProjectIds}
-          projectRefreshing={projectRefreshing}
-          projects={orderedProjects}
-          resetLayout={resetLayout}
-          selectedProject={selectedProject}
-          selectedCanvasId={selectedCanvasId}
-          selectedTaskPanelId={selectedTaskPanelId}
-          setActiveView={setActiveView}
-          width={leftSidebarWidth}
-          t={t}
+      <div className={`h-full min-h-0 transition-opacity duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)] ${isSettings ? "pointer-events-none opacity-0" : "opacity-100"}`}>
+        <main className="relative flex h-full min-h-0 overflow-hidden">
+          <ProjectSidebar
+            activeView={activeView}
+            collapsed={leftSidebarCollapsed}
+            expandedProjectId={expandedProjectId}
+            graph={graph}
+            handleBindSourceRoot={handleBindSourceRoot}
+            handleCopyCanvasToNewProject={handleCopyCanvasToNewProject}
+            handleOpenProject={handleOpenProject}
+            handleProjectNewGraph={handleProjectNewGraph}
+            handleRefreshProjects={refreshProjects}
+            handleCopyCanvasAgentPrompt={handleCopyCanvasAgentPrompt}
+            handleDeleteProject={handleDeleteProject}
+            handleDeleteTaskCanvas={handleDeleteTaskCanvas}
+            handleDuplicateTaskCanvas={handleDuplicateTaskCanvas}
+            handleDeleteTaskNode={handleDeleteTaskNode}
+            handleDropSourceRoot={handleDropSourceRoot}
+            handleRevealPlanWorkspace={handleRevealPlanWorkspace}
+            handleRevealProject={handleRevealProject}
+            handleRevealSourceRoot={handleRevealSourceRoot}
+            handleRevealTaskCanvas={handleRevealTaskCanvas}
+            handleRenameProject={handleRenameProject}
+            handleRenameTaskCanvas={handleRenameTaskCanvas}
+            handleUnlinkSourceRoot={handleUnlinkSourceRoot}
+            handleTaskPanelSelect={handleTaskPanelSelect}
+            loadProject={openProjectInSession}
+            notificationItems={notificationController.notificationItems}
+            onResizeStart={(event) => startSidebarResize(event, "left")}
+            onToggleSidebar={() => setLeftSidebarCollapsedPreference((current) => !current)}
+            onTogglePinnedProject={handleTogglePinnedProject}
+            pinnedProjectIds={pinnedProjectIds}
+            projectRefreshing={projectRefreshing}
+            projects={orderedProjects}
+            resetLayout={resetLayout}
+            selectedProject={selectedProject}
+            selectedCanvasId={selectedCanvasId}
+            selectedTaskPanelId={selectedTaskPanelId}
+            setActiveView={setActiveView}
+            width={leftSidebarWidth}
+            t={t}
         />
         <WorkspaceTabs
           shell={workspaceShell}
@@ -665,7 +666,12 @@ export function App() {
         setRightSidebarCollapsed={setRightSidebarCollapsedPreference}
         t={t}
       />
-      <AppOverlays error={error} successMessage={successMessage} setError={setError} setSuccessMessage={setSuccessMessage} t={t} />
     </div>
+    <div className={`absolute inset-0 transition-opacity duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)] ${isSettings ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+      <AppSettingsRoute {...settingsRouteProps} />
+    </div>
+    <AppOverlays error={error} successMessage={successMessage} setError={setError} setSuccessMessage={setSuccessMessage} t={t} />
+    {!isSettings ? <Button className="fixed left-5 top-5 z-50" variant="secondary" onClick={() => setTeamModeOpen(true)}>Team Mode</Button> : null}
+  </div>
   );
 }

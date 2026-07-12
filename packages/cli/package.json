@@ -49,6 +49,7 @@
   "dependencies": {
     "@planweave-ai/mcp": "workspace:*",
     "@planweave-ai/runtime": "workspace:*",
+    "@planweave-ai/server": "workspace:*",
     "commander": "^14.0.2"
   },
   "devDependencies": {}

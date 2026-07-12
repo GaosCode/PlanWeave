@@ -19,3 +19,12 @@ export function applyMigrations(database: SqliteDatabase): void {
   const found = Number(database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()?.version ?? 0);
   if (found !== latest) throw new Error(`Unsupported schema version ${found}; expected ${latest}.`);
 }
+
+export function centralSchemaVersion(database: SqliteDatabase): number {
+  try {
+    const row = database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number | null } | undefined;
+    return Number(row?.version ?? 0);
+  } catch {
+    return 0;
+  }
+}

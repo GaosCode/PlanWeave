@@ -11,6 +11,9 @@ import { SettingsMcpSection } from "../settings/SettingsMcpSection";
 import { SettingsReviewSection } from "../settings/SettingsReviewSection";
 import type { createTranslator, Language } from "../i18n";
 import type { AppView, DesktopSettingsUpdate, DesktopUiSettings } from "../types";
+import { RemoteProfilesSection } from "../components/RemoteProfilesSection";
+import { remoteBridge } from "../bridge";
+import type { RemoteProfile } from "../../shared/remoteTypes";
 
 type SettingsViewProps = {
   agentDetectionRefreshing: boolean;
@@ -60,6 +63,7 @@ export function SettingsView({
   const [section, setSection] = useState<SettingsSection>("general");
   const [projectPromptDraft, setProjectPromptDraft] = useState(projectPromptMarkdown ?? "");
   const [projectPromptSaving, setProjectPromptSaving] = useState(false);
+  const [remoteProfiles, setRemoteProfiles] = useState<RemoteProfile[]>([]);
   const projectPromptAvailable = Boolean(selectedProject && updateProjectPrompt);
   const projectPromptPolicyAvailable = Boolean(selectedProject && projectPromptPolicy && updateProjectPromptPolicy);
   const projectSelectorAvailable = projects.length > 0 && Boolean(loadProject);
@@ -68,6 +72,8 @@ export function SettingsView({
   useEffect(() => {
     setProjectPromptDraft(projectPromptMarkdown ?? "");
   }, [projectPromptMarkdown]);
+
+  useEffect(() => { void remoteBridge?.listRemoteProfiles().then(setRemoteProfiles); }, []);
 
   const selectProject = (projectId: string) => {
     const project = projects.find((item) => item.projectId === projectId);
@@ -130,7 +136,7 @@ export function SettingsView({
               updateSettings={updateSettings}
             />
           ) : null}
-          {section === "mcp" ? <SettingsMcpSection setError={setError} t={t} /> : null}
+          {section === "mcp" ? <><SettingsMcpSection setError={setError} t={t} /><RemoteProfilesSection profiles={remoteProfiles} onProfilesChange={setRemoteProfiles} /></> : null}
           </div>
         </ScrollArea>
       </section>

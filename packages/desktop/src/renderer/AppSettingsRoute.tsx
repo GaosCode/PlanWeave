@@ -50,7 +50,7 @@ export function AppSettingsRoute({
   updateSettings
 }: AppSettingsRouteProps) {
   return (
-    <div className="view-enter h-screen min-h-0 overflow-hidden text-foreground">
+    <div className="h-screen min-h-0 overflow-hidden text-foreground">
       <SettingsView
         graph={graph}
         agents={agents}

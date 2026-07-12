@@ -41,6 +41,9 @@ import { registerRunStatusCommand } from "./commands/runStatus.js";
 import { registerHelpCommand } from "./commands/help.js";
 import { registerSchemaCommand } from "./commands/schema.js";
 import { registerMcpCommand } from "./commands/mcp.js";
+import { registerRemoteServerCommand } from "./commands/remoteServer.js";
+import { registerRemoteTaskCommand } from "./commands/remoteTask.js";
+import { registerRemoteMergeQueueCommand } from "./commands/remoteMergeQueue.js";
 import { formatCliError } from "./errors.js";
 import { addProjectRootOption } from "./projectRoot.js";
 
@@ -93,6 +96,9 @@ export function createProgram(): Command {
   registerRunStatusCommand(program);
   registerSchemaCommand(program);
   registerMcpCommand(program);
+  registerRemoteServerCommand(program);
+  registerRemoteTaskCommand(program);
+  registerRemoteMergeQueueCommand(program);
   registerHelpCommand(program);
 
   return program;

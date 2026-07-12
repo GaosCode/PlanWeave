@@ -597,7 +597,7 @@ describe("desktop renderer component interactions", () => {
 
     try {
       expect(screen.queryByRole("button", { name: "保存 Prompt" })).not.toBeInTheDocument();
-      fireEvent.change(screen.getByRole("textbox", { name: "Source Prompt" }), { target: { value: "# Updated block prompt\n" } });
+      fireEvent.change(screen.getByRole("textbox", { name: "源 Prompt" }), { target: { value: "# Updated block prompt\n" } });
       expect(saveSelectedBlockPrompt).not.toHaveBeenCalled();
 
       await act(async () => {
