@@ -46,7 +46,26 @@ const app = agent({ name: "planweave-acp-mock" })
         scenario === "auth-required" || scenario === "authenticated-with-auth-methods"
           ? [{ id: "mock-login", name: "Mock login", description: "Test-only authentication" }]
           : [],
-      agentInfo: { name: "planweave-acp-mock", version: "1.0.0" }
+      ...(scenario === "missing-agent-info"
+        ? {}
+        : {
+            agentInfo: {
+              name: "planweave-acp-mock",
+              version:
+                scenario === "empty-agent-version"
+                  ? ""
+                  : scenario === "invalid-agent-version"
+                    ? 31
+                    : "1.0.0",
+              ...(scenario === "extended-agent-info"
+                ? {
+                    title: null,
+                    _meta: { vendor: "mock-vendor" },
+                    futureExtension: { supported: true }
+                  }
+                : {})
+            }
+          })
     };
   })
   .onRequest(methods.agent.authenticate, () => ({}))

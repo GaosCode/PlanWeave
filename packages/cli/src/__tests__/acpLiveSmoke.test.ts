@@ -22,7 +22,7 @@ async function fixture() {
     agent,
     'if (process.env.SMOKE_FAILURE !== "silent-agent-version") console.log("codex-acp test-version");\n'
   );
-  await executable(piAgent, 'if (process.argv[2] === "-v") console.log("0.0.31");\n');
+  await executable(piAgent, 'process.exit(93);\n');
   await executable(planweave, `
 const { existsSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
@@ -34,7 +34,23 @@ if (args[0] === "--version") {
   if (failedScenario !== "silent-planweave-version") console.log("planweave test-version");
 }
 else if (args[0] === "trust") console.log(JSON.stringify({ ok: true }));
-else if (args[0] === "executors" && args[1] === "test") console.log(JSON.stringify({ ok: true }));
+else if (args[0] === "executors" && args[1] === "test") {
+  const invalidAgentInfo = failedScenario === "missing-preflight-agent-info" ||
+    failedScenario === "empty-preflight-agent-version";
+  console.log(JSON.stringify({
+  ok: !invalidAgentInfo,
+  message: invalidAgentInfo
+    ? "ACP initialize returned invalid agentInfo; name and version must be non-empty strings."
+    : "ACP runner preflight passed.",
+  ...(failedScenario === "missing-preflight-agent-info" ? { agentInfo: null } : {
+    agentInfo: {
+      name: "fixture-acp-agent",
+      version: failedScenario === "empty-preflight-agent-version" ? "" : "0.0.31"
+    }
+  })
+  }));
+  if (invalidAgentInfo) process.exit(1);
+}
 else if (args[0] === "run" && !cancellation) console.log(JSON.stringify({
   session: { sessionId: "SESSION-SUCCESS" }, steps: [{ kind: "submitted" }]
 }));
@@ -157,7 +173,7 @@ describe("ACP live smoke evidence program", () => {
     expect(evidence).toMatchObject({ version: "planweave.acp-live-smoke/v2" });
   });
 
-  it("records the Pi ACP version reported by -v", async () => {
+  it("records the Pi ACP version reported by authoritative preflight agentInfo", async () => {
     const { root, planweave } = await fixture();
     const evidencePath = join(root, "pi-evidence.json");
 
@@ -170,6 +186,25 @@ describe("ACP live smoke evidence program", () => {
       result: "passed"
     });
   });
+
+  it.each(["missing-preflight-agent-info", "empty-preflight-agent-version"])(
+    "fails closed when Pi preflight returns %s",
+    async (failure) => {
+      const { root, planweave } = await fixture();
+      const evidencePath = join(root, `${failure}.json`);
+
+      await expect(invoke(root, planweave, evidencePath, failure, "pi-acp")).rejects.toMatchObject({
+        code: 1
+      });
+      expect(JSON.parse(await readFile(evidencePath, "utf8"))).toMatchObject({
+        profile: "pi-acp",
+        agentVersion: "unavailable",
+        result: "failed",
+        diagnostic:
+          "ACP initialize returned invalid agentInfo; name and version must be non-empty strings."
+      });
+    }
+  );
 
   it("fails closed when an agent version command exits successfully without output", async () => {
     const { root, planweave } = await fixture();

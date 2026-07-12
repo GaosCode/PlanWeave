@@ -1,6 +1,7 @@
-import { mkdtemp } from "node:fs/promises";
+import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { cliWorkflowTimeoutMs, runCli, runCliExpectFailure } from "./support/cliTestHarness.js";
 
@@ -54,4 +55,36 @@ describe("executor CLI preflight exit status", () => {
     },
     cliWorkflowTimeoutMs
   );
+
+  it("emits authoritative ACP agentInfo in JSON without changing human output", async () => {
+    const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
+    const bin = await mkdtemp(join(tmpdir(), "planweave-acp-bin-"));
+    const mockAgent = fileURLToPath(
+      new URL("../../../runtime/src/__tests__/support/acpMockAgent.mjs", import.meta.url)
+    );
+    const command = join(bin, "codex-acp");
+    await writeFile(
+      command,
+      `#!/usr/bin/env node\nprocess.argv[2] = "success";\nawait import(${JSON.stringify(pathToFileURL(mockAgent).href)});\n`,
+      "utf8"
+    );
+    await chmod(command, 0o755);
+    const env = { ...process.env, PLANWEAVE_HOME: home, PATH: `${bin}:${process.env.PATH ?? ""}` };
+    await runCli(["init", "--json"], env);
+    await runCli(["trust", "executor", "codex-acp", "--json"], env);
+
+    const json = JSON.parse(
+      (await runCli(["executors", "test", "codex-acp", "--json"], env)).stdout
+    );
+    expect(json).toMatchObject({
+      name: "codex-acp",
+      ok: true,
+      agentInfo: { name: "planweave-acp-mock", version: "1.0.0" }
+    });
+
+    const human = await runCli(["executors", "test", "codex-acp"], env);
+    expect(human.stdout.trim()).toBe(
+      "ok codex-acp agent=codex runner=acp: ACP runner preflight passed."
+    );
+  }, cliWorkflowTimeoutMs);
 });

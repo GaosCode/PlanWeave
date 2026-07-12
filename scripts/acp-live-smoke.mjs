@@ -2,10 +2,12 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, writeFileSync } from "node:fs";
 
 const profiles = {
-  "codex-acp": { command: "codex-acp", versionArgs: ["--version"] },
-  "claude-code-acp": { command: "claude-agent-acp", versionArgs: ["--version"] },
-  "opencode-acp": { command: "opencode", versionArgs: ["--version"] },
-  "pi-acp": { command: "pi-acp", versionArgs: ["-v"] }
+  "codex-acp": { versionCommand: { command: "codex-acp", args: ["--version"] } },
+  "claude-code-acp": {
+    versionCommand: { command: "claude-agent-acp", args: ["--version"] }
+  },
+  "opencode-acp": { versionCommand: { command: "opencode", args: ["--version"] } },
+  "pi-acp": { versionCommand: null }
 };
 
 function option(name) {
@@ -27,6 +29,28 @@ function run(command, args) {
 function json(text) {
   try { return JSON.parse(text); }
   catch { return null; }
+}
+
+function versionFromPreflight(profile, preflight) {
+  const value = json(preflight.stdout);
+  const name = value?.agentInfo?.name;
+  const version = value?.agentInfo?.version;
+  const preflightMessage =
+    typeof value?.message === "string" && value.message.trim().length > 0
+      ? value.message.trim()
+      : null;
+  const valid = typeof name === "string" && name.trim().length > 0 &&
+    typeof version === "string" && version.trim().length > 0;
+  return {
+    ok: preflight.ok && valid,
+    stdout: valid ? version.trim() : "",
+    diagnostic:
+      !preflight.ok
+        ? preflightMessage ?? preflight.diagnostic
+        : !valid
+          ? `${profile} preflight returned invalid agentInfo; name and version must be non-empty strings.`
+          : null
+  };
 }
 
 function sessionId(value) {
@@ -100,10 +124,12 @@ if (
 const startedAt = new Date().toISOString();
 const planweave = process.env.PLANWEAVE_BIN ?? "planweave";
 const definition = profiles[profile];
-const agentVersion = run(definition.command, definition.versionArgs);
 const planweaveVersion = run(planweave, ["--version"]);
 const trust = run(planweave, ["trust", "executor", profile, "--json"]);
 const preflight = run(planweave, ["executors", "test", profile, "--json"]);
+const agentVersion = definition.versionCommand
+  ? run(definition.versionCommand.command, definition.versionCommand.args)
+  : versionFromPreflight(profile, preflight);
 
 const successfulExecution = run(planweave, [
   "run", "--once", "--executor", profile, "--timeout", "120000", "--json"
@@ -170,7 +196,9 @@ const diagnostic = [
   cancelledSession,
   cancelledReplay
 ].find((result) => !result.ok && result !== cancelledExecution)?.diagnostic ??
-  (!hasAgentVersion ? `${definition.command} version command returned no output.` : null) ??
+  (!hasAgentVersion && definition.versionCommand
+    ? `${definition.versionCommand.command} version command returned no output.`
+    : null) ??
   (!hasPlanweaveVersion ? "PlanWeave version command returned no output." : null) ??
   (passed ? null : "One or more required two-stage ACP-GATE checks did not pass.");
 const evidence = {

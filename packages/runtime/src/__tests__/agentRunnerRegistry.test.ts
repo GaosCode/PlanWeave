@@ -14,6 +14,7 @@ import { createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
 const acpFixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
+const mockAgentInfo = { name: "planweave-acp-mock", version: "1.0.0" } as const;
 
 function probeDefinition(scenario: string, capabilities = ["session", "prompt", "cancel"] as const) {
   const base = resolveAgentDefinition("codex");
@@ -129,7 +130,7 @@ describe("AgentRunner registries", () => {
     },
     {
       label: "rejects unsupported capabilities",
-      probe: { kind: "ready", authenticated: true, capabilities: [] },
+      probe: { kind: "ready", authenticated: true, agentInfo: mockAgentInfo, capabilities: [] },
       failureCode: "unsupported_capability"
     },
     {
@@ -183,6 +184,7 @@ describe("AgentRunner registries", () => {
       probe: async () => ({
         kind: "ready",
         authenticated: true,
+        agentInfo: mockAgentInfo,
         capabilities: ["session", "prompt", "event-replay"]
       })
     });
@@ -203,6 +205,7 @@ describe("AgentRunner registries", () => {
       available: ["session", "prompt", "event-replay"],
       negotiated: ["session", "prompt"]
     });
+    expect(result.agentInfo).toEqual(mockAgentInfo);
   });
 
   it("uses the formal default probe for advertised capabilities and missing capability diagnostics", async () => {
@@ -215,6 +218,7 @@ describe("AgentRunner registries", () => {
     expect(ready.negotiatedCapabilities?.available).toEqual(
       expect.arrayContaining(["streaming", "tool-updates", "session-close"])
     );
+    expect(ready.agentInfo).toEqual(mockAgentInfo);
 
     const missing = await createAcpRunner().preflight({
       profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
@@ -225,6 +229,23 @@ describe("AgentRunner registries", () => {
     expect(missing.checks).toEqual(expect.arrayContaining([
       expect.objectContaining({ failureCode: "unsupported_capability" })
     ]));
+  });
+
+  it("projects open SDK agentInfo extensions into the strict internal identity", async () => {
+    const result = await createAcpRunner().preflight({
+      profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
+      definition: probeDefinition("extended-agent-info"),
+      cwd: "/tmp",
+      timeoutMs: 1_000
+    });
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ check: "acp_initialized", status: "passed" })
+      ])
+    );
+    expect(result.agentInfo).toEqual(mockAgentInfo);
+    expect(Object.keys(result.agentInfo ?? {})).toEqual(["name", "version"]);
   });
 
   it("treats advertised authentication methods as capabilities rather than authentication state", async () => {
@@ -256,6 +277,29 @@ describe("AgentRunner registries", () => {
       expect.objectContaining({ status: "failed", failureCode: code })
     ]));
   });
+
+  it.each(["missing-agent-info", "empty-agent-version", "invalid-agent-version"])(
+    "fails closed with an explicit diagnostic for %s",
+    async (scenario) => {
+      const result = await createAcpRunner().preflight({
+        profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
+        definition: probeDefinition(scenario),
+        cwd: "/tmp",
+        timeoutMs: 1_000
+      });
+
+      expect(result.agentInfo).toBeUndefined();
+      expect(result.checks).toEqual([
+        expect.objectContaining({
+          check: "acp_initialized",
+          status: "failed",
+          failureCode: "initialization_failed",
+          message:
+            "ACP initialize returned invalid agentInfo; name and version must be non-empty strings."
+        })
+      ]);
+    }
+  );
 
   it("refuses an untrusted default run before creating a process or run record", async () => {
     const { init } = await createTestWorkspace();

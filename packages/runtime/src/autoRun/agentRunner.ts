@@ -8,7 +8,7 @@ import type {
   RunnerTransport
 } from "../types.js";
 import type { CliProcessExecutor } from "./cliProcess.js";
-import type { ExecutorPreflightCheck } from "./executorPreflightTypes.js";
+import type { ExecutorAgentInfo, ExecutorPreflightCheck } from "./executorPreflightTypes.js";
 import type {
   ExecutorBlockInput,
   ExecutorFeedbackInput,
@@ -68,6 +68,7 @@ export type RunnerPreflightResult = {
   executionIntegration: ExecutorIntegrationName | null;
   checks: ExecutorPreflightCheck[];
   negotiatedCapabilities: NegotiatedCapabilities | null;
+  agentInfo?: ExecutorAgentInfo | null;
 };
 
 export type AgentDefinition = {

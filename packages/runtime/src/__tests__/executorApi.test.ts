@@ -82,6 +82,7 @@ describe("executor API helpers", () => {
       adapter: "manual",
       profileAdapter: "manual",
       executionIntegration: "manual",
+      agentInfo: null,
       ok: true,
       checks: [
         { check: "profile_exists", status: "passed" },

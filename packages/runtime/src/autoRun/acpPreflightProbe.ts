@@ -2,6 +2,10 @@ import { createAcpConnection } from "./acpConnection.js";
 import type { AcpPreflightProbe } from "./acpRunner.js";
 import type { RunnerCapability } from "./runnerContractSchemas.js";
 import { RequestError, type InitializeResponse } from "@agentclientprotocol/sdk";
+import {
+  executorAgentInfoSchema,
+  invalidExecutorAgentInfoMessage
+} from "./executorPreflightTypes.js";
 
 export function capabilitiesFromInitialize(initialized: InitializeResponse): RunnerCapability[] {
   const capabilities: RunnerCapability[] = [
@@ -42,6 +46,16 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({ definition, cw
   });
   try {
     const initialized = await connection.initialize({ signal });
+    const agentInfo = executorAgentInfoSchema.safeParse({
+      name: initialized.agentInfo?.name,
+      version: initialized.agentInfo?.version
+    });
+    if (!agentInfo.success) {
+      return {
+        kind: "failed",
+        message: invalidExecutorAgentInfoMessage
+      };
+    }
     let session;
     try {
       session = await connection.newSession({ cwd, mcpServers: [] }, { signal });
@@ -55,7 +69,12 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({ definition, cw
     if (initialized.agentCapabilities?.sessionCapabilities?.close != null) {
       await connection.closeSession(session.sessionId, { signal });
     }
-    return { kind: "ready", authenticated: true, capabilities: capabilitiesFromInitialize(initialized) };
+    return {
+      kind: "ready",
+      authenticated: true,
+      agentInfo: agentInfo.data,
+      capabilities: capabilitiesFromInitialize(initialized)
+    };
   } finally {
     await connection.dispose();
   }

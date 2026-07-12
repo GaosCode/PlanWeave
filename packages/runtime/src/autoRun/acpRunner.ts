@@ -1,7 +1,11 @@
 import type { AcpAgentRunner } from "./agentRunner.js";
 import { z } from "zod";
 import { runnerProfileMismatch } from "./agentRunner.js";
-import type { ExecutorPreflightFailureCode } from "./executorPreflightTypes.js";
+import {
+  executorAgentInfoSchema,
+  invalidExecutorAgentInfoMessage,
+  type ExecutorPreflightFailureCode
+} from "./executorPreflightTypes.js";
 import { negotiatedCapabilitiesSchema, runnerCapabilitySchema } from "./runnerContractSchemas.js";
 import { redactRunnerEventText, safeRunnerEventTextSchema } from "./runnerEventRedaction.js";
 import { AcpSessionController } from "./acpSessionController.js";
@@ -28,6 +32,7 @@ export const acpProbeResultSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("ready"),
       authenticated: z.literal(true),
+      agentInfo: executorAgentInfoSchema,
       capabilities: uniqueCapabilitiesSchema
     })
     .strict(),
@@ -144,6 +149,10 @@ export function createAcpRunner(options?: {
       }
       const parsedResult = acpProbeResultSchema.safeParse(rawResult);
       if (!parsedResult.success) {
+        let message = "ACP initialize returned an invalid or unauthenticated probe result.";
+        if (parsedResult.error.issues.some((issue) => issue.path[0] === "agentInfo")) {
+          message = invalidExecutorAgentInfoMessage;
+        }
         return {
           executionIntegration: null,
           negotiatedCapabilities: null,
@@ -151,7 +160,7 @@ export function createAcpRunner(options?: {
             failedCheck(
               "acp_initialized",
               "initialization_failed",
-              "ACP initialize returned an invalid or unauthenticated probe result."
+              message
             )
           ]
         };
@@ -226,6 +235,7 @@ export function createAcpRunner(options?: {
       return {
         executionIntegration: null,
         negotiatedCapabilities: negotiated.data,
+        agentInfo: result.agentInfo,
         checks: [
           initialized,
           {

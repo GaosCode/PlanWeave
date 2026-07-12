@@ -330,6 +330,7 @@ function finalizePreflightResult(options: {
   successMessage: string;
   agentId?: ExecutorPreflightResultIdentity["agentId"];
   runnerKind?: ExecutorPreflightResultIdentity["runnerKind"];
+  agentInfo?: ProducedExecutorPreflightResult["agentInfo"];
 }): ProducedExecutorPreflightResult {
   const failed = options.checks.find((check) => check.status === "failed");
   return {
@@ -340,6 +341,7 @@ function finalizePreflightResult(options: {
     agentId: options.agentId ?? null,
     runnerKind: options.runnerKind ?? null,
     failureCode: failed?.failureCode ?? null,
+    agentInfo: options.agentInfo ?? null,
     ok: failed === undefined,
     message: failed?.message ?? options.successMessage,
     checks: options.checks
@@ -516,6 +518,7 @@ export async function testExecutorProfile(options: {
       executionIntegration: runnerResult.executionIntegration,
       agentId: profile.agent,
       runnerKind: profile.runner.transport,
+      agentInfo: runnerResult.agentInfo ?? null,
       successMessage: `${profile.runner.transport.toUpperCase()} runner preflight passed.`,
       checks: [
         profileCheck,
