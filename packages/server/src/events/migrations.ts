@@ -45,3 +45,12 @@ export function applyEventsMigrations(database: SqliteDatabase): void {
     }
   }
 }
+
+export function eventsSchemaVersion(database: SqliteDatabase): number {
+  try {
+    const row = database.prepare("SELECT MAX(version) AS version FROM events_schema_migrations").get() as { version: number | null } | undefined;
+    return Number(row?.version ?? 0);
+  } catch {
+    return 0;
+  }
+}

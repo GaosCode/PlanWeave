@@ -1,15 +1,14 @@
 /**
  * A2 work-coordination schema migrations.
  *
- * These are A2's v2 schema additions, kept in a separate file so the
- * A1 migration runner stays untouched. The integration step (a follow-up
- * PR after A2/A3/A4) wires this array into `migrations.ts` (option a in
- * the A2 brief) — that PR appends `workMigrations` to the existing
- * `migrations` array. The runner is idempotent (it tracks applied
- * versions in `schema_migrations`), so re-running it picks up v2
- * automatically once the array is merged.
+ * Integration: this file uses its OWN `work_schema_migrations` tracker
+ * (rather than the central `schema_migrations` table) so the work
+ * module can be versioned independently of A3's identity/planning/
+ * proposals/attachments modules. The integration PR calls
+ * `applyWorkMigrations` from `lifecycle.ts` after `applyMigrations` and
+ * the per-module A3 migrations.
  *
- * Tables introduced by v2:
+ * Tables introduced by v1:
  *  - work_tasks                — server bindings for PlanWeave task ids
  *  - work_task_dependencies    — frozen dep snapshot for read-time checks
  *  - work_assignments          — claim/lease rows; one active per task via
@@ -22,7 +21,7 @@
 
 import type { SqliteDatabase } from "../sqlite.js";
 
-const workMigration2 = `
+const workMigration1 = `
 CREATE TABLE work_tasks (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id),
@@ -105,28 +104,39 @@ CREATE TABLE work_reviews (
 CREATE INDEX idx_work_reviews_submission ON work_reviews(submission_id);
 `;
 
-export const workMigrations = [{ version: 2, sql: workMigration2 }] as const;
+export const workMigrations = [{ version: 1, sql: workMigration1 }] as const;
 
 /**
- * Apply the work migrations to a database that has already had
- * `applyMigrations` run (i.e. schema_migrations exists). Mirrors the
- * pattern in `migrations.ts` — idempotent, BEGIN IMMEDIATE, rollback on
- * failure. The integration PR should call this after `applyMigrations`,
- * OR fold `workMigrations` into the main array.
+ * Apply the work migrations. Uses the private `work_schema_migrations`
+ * tracker so it is independent of the central `schema_migrations` table
+ * and of A3's per-module trackers. Idempotent, BEGIN IMMEDIATE, rollback
+ * on failure. The integration PR calls this from `lifecycle.ts` after
+ * `applyMigrations` and the per-module A3 migrations.
  */
 export function applyWorkMigrations(database: SqliteDatabase): void {
-  database.exec("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)");
-  const applied = new Set(database.prepare("SELECT version FROM schema_migrations").all().map((row) => Number(row.version)));
+  database.exec("CREATE TABLE IF NOT EXISTS work_schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)");
+  const applied = new Set(
+    (database.prepare("SELECT version FROM work_schema_migrations").all() as Array<Record<string, unknown>>).map((row) => Number(row.version))
+  );
   for (const migration of workMigrations) {
     if (applied.has(migration.version)) continue;
     database.exec("BEGIN IMMEDIATE");
     try {
       database.exec(migration.sql);
-      database.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)").run(migration.version, new Date().toISOString());
+      database.prepare("INSERT INTO work_schema_migrations(version, applied_at) VALUES (?, ?)").run(migration.version, new Date().toISOString());
       database.exec("COMMIT");
     } catch (error) {
       database.exec("ROLLBACK");
       throw error;
     }
+  }
+}
+
+export function workSchemaVersion(database: SqliteDatabase): number {
+  try {
+    const row = database.prepare("SELECT MAX(version) AS version FROM work_schema_migrations").get() as { version: number | null } | undefined;
+    return Number(row?.version ?? 0);
+  } catch {
+    return 0;
   }
 }

@@ -21,10 +21,22 @@ describe("authoritative server store", () => {
       });
       expect(command()).toEqual({ replayed: false, value: { eventId: "1" } });
       expect(command()).toEqual({ replayed: true, value: { eventId: "1" } });
-      expect(server.database.prepare("SELECT COUNT(*) AS count FROM projects").get()?.count).toBe(1);
+      // After integration: A3's identity migration v2 seeds a `_system` project
+      // row, so the projects table contains both the test's "project-a" and the
+      // seeded "_system" row.
+      expect(server.database.prepare("SELECT COUNT(*) AS count FROM projects").get()?.count).toBe(2);
       expect(server.database.prepare("SELECT COUNT(*) AS count FROM domain_events").get()?.count).toBe(1);
       expect(server.database.prepare("SELECT COUNT(*) AS count FROM audit_log").get()?.count).toBe(1);
-      expect(server.readiness()).toEqual({ status: "ready", schemaVersion: 1 });
+      const readiness = server.readiness();
+      expect(readiness.status).toBe("ready");
+      expect(readiness.schemaVersion).toBeGreaterThan(0);
+      expect(readiness.subsystems.central).toBeGreaterThan(0);
+      expect(readiness.subsystems.work).toBe(1);
+      expect(readiness.subsystems.identity).toBe(1);
+      expect(readiness.subsystems.planning).toBe(1);
+      expect(readiness.subsystems.proposals).toBe(1);
+      expect(readiness.subsystems.attachments).toBe(1);
+      expect(readiness.subsystems.events).toBe(1);
       expect(reconciled).toBe(true);
       await expect(server.createBackup("before-upgrade.sqlite")).resolves.toContain("before-upgrade.sqlite");
     } finally { server.close(); }
