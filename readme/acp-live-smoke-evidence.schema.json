@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://planweave.dev/schemas/acp-live-smoke-evidence.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "profile", "agentVersion", "planweaveVersion", "startedAt", "finishedAt", "checks", "result", "diagnostic"],
+  "properties": {
+    "version": { "const": "planweave.acp-live-smoke/v1" },
+    "profile": { "enum": ["codex-acp", "claude-code-acp", "opencode-acp", "pi-acp"] },
+    "agentVersion": { "type": "string", "minLength": 1 },
+    "planweaveVersion": { "type": "string", "minLength": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trusted", "preflight", "session", "streaming", "intervention", "artifact", "cleanup", "replay"],
+      "properties": {
+        "trusted": { "type": "boolean" }, "preflight": { "type": "boolean" },
+        "session": { "type": "boolean" }, "streaming": { "type": "boolean" },
+        "intervention": { "type": "boolean" }, "artifact": { "type": "boolean" },
+        "cleanup": { "type": "boolean" }, "replay": { "type": "boolean" }
+      }
+    },
+    "result": { "enum": ["passed", "failed"] },
+    "diagnostic": { "type": ["string", "null"] }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "result": { "const": "passed" } }, "required": ["result"] },
+      "then": {
+        "type": "object",
+        "properties": {
+          "checks": {
+            "type": "object",
+            "properties": {
+              "trusted": { "const": true }, "preflight": { "const": true },
+              "session": { "const": true }, "streaming": { "const": true },
+              "intervention": { "const": true }, "artifact": { "const": true },
+              "cleanup": { "const": true }, "replay": { "const": true }
+            }
+          },
+          "diagnostic": { "const": null }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": { "diagnostic": { "type": "string", "minLength": 1 } }
+      }
+    }
+  ]
+}

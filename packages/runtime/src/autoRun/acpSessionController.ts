@@ -234,7 +234,17 @@ export class AcpSessionController {
             normalizeAcpPermissionHistory(request, requestId, requestedAt),
             acpCorrelationSchema.parse({ sessionId: request.sessionId })
           );
-          if (!options?.interactionBroker) return { outcome: { outcome: "cancelled" } };
+          if (!options?.interactionBroker) {
+            if (eventStore) await eventStore.append({
+              kind: "interaction_result",
+              requestId,
+              interactionId: requestId,
+              interactionKind: "permission",
+              outcome: "cancelled",
+              message: "Permission request was cancelled by the headless default-deny policy."
+            }, acpCorrelationSchema.parse({ sessionId: request.sessionId }));
+            return { outcome: { outcome: "cancelled" } };
+          }
           return new Promise<RequestPermissionResponse>((resolve, reject) => {
             const finish = (response: RequestPermissionResponse): void => {
               releasePendingRequest(requestId);
@@ -343,6 +353,16 @@ export class AcpSessionController {
             sessionId ? acpCorrelationSchema.parse({ sessionId }) : undefined
           );
           if (!options?.interactionBroker || !CreateElicitationRequestGuard.isForm(request)) {
+            if (eventStore) await eventStore.append({
+              kind: "interaction_result",
+              requestId,
+              interactionId: requestId,
+              interactionKind: "elicitation",
+              outcome: "cancelled",
+              message: options?.interactionBroker
+                ? "Unsupported elicitation was cancelled."
+                : "Elicitation was cancelled by the headless default-safe policy."
+            }, sessionId ? acpCorrelationSchema.parse({ sessionId }) : undefined);
             return { action: "cancel" };
           }
           return new Promise<CreateElicitationResponse>((resolve, reject) => {

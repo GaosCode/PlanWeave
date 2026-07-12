@@ -10,7 +10,7 @@ import {
   projectAcpConversation
 } from "./acpConversationProjection.js";
 import { normalizedRunnerEventSchema, type NormalizedRunnerEvent } from "./normalizedEventContract.js";
-import { safeRunnerEventTextSchema } from "./runnerEventRedaction.js";
+import { redactRunnerEventText, safeRunnerEventTextSchema } from "./runnerEventRedaction.js";
 import {
   replayNormalizedRunnerEvents,
   runnerEventCursorSchema,
@@ -299,7 +299,7 @@ function interactionState(
           requestId: request.requestId,
           interactionId: request.interactionId,
           requestedAt: request.requestedAt,
-          summary: request.summary,
+          summary: redactRunnerEventText(request.summary).text,
           identity
         };
         if (request.kind === "permission") {

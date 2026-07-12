@@ -211,6 +211,18 @@ describe("ACP live actions", () => {
     expect(events).toContain('"actionable":false');
   });
 
+  it("persists the headless permission cancellation result before continuing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-headless-permission-"));
+    const controller = new AcpSessionController(new ActiveAgentRunRegistry());
+    await expect(controller.execute(controllerRun(root, "permission-secret"), {
+      timeoutMs: 1_000
+    })).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+    const events = await readFile(join(root, "events.ndjson"), "utf8");
+    expect(events).toContain('"interactionKind":"permission"');
+    expect(events).toContain('"outcome":"cancelled"');
+    expect(events).toContain("headless default-deny policy");
+  });
+
   it("advertises preview elicitation only for an explicit interactive broker", async () => {
     for (const [scenario, interactionBroker] of [
       ["expect-headless-capabilities", undefined],

@@ -138,6 +138,8 @@ PlanWeave supports executor profiles, so different blocks can run through differ
 
 Each block run writes durable output under the PlanWeave workspace, including prompt, stdout, stderr, report, metadata, and monitor commands when available.
 
+ACP runner setup, safety boundaries, troubleshooting, and release-time live evidence are documented in [ACP runners](readme/ACP.md).
+
 ## Agent Skills
 
 The repository includes focused agent skills under `skills/`:

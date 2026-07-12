@@ -52,6 +52,11 @@ describe("planweave CLI help and schema output", () => {
     expect(formatCliHelp("autorun")).toContain("planweave reset --force --reason <reason> --json");
     expect(formatCliHelp("autorun")).toContain("planweave run-sessions --json");
     expect(formatCliHelp("autorun")).toContain("planweave run-session <session-id> --json");
+    expect(formatCliHelp("autorun")).toContain("CLI and ACP are alternative transports");
+    expect(formatCliHelp("autorun")).toContain("tmux monitoring is CLI-only");
+    expect(formatCliHelp("autorun")).toContain("does not collect a separate ACP provider API key");
+    expect(formatCliHelp("autorun")).toContain("Headless ACP runs never auto-approve");
+    expect(formatCliHelp("autorun")).toContain("run-status --follow --json");
     expect(formatCliHelp("autorun")).toContain("init --reset-package resets package source files");
     expect(formatCliHelp("recovery")).toContain("planweave doctor --repair");
     expect(formatCliHelp("recovery")).toContain(
