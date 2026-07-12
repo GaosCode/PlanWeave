@@ -5,6 +5,7 @@ import { applyAgentsMigrations, agentsSchemaVersion } from "./agents/migrations.
 import { applyAttachmentsMigrations } from "./attachments/migrations.js";
 import type { ServerConfig } from "./config.js";
 import { applyEventsMigrations, eventsSchemaVersion } from "./events/migrations.js";
+import { applyMergeQueueMigrations, mergeQueueSchemaVersion } from "./git/migrations.js";
 import { applyIdentityMigrations } from "./identity/migrations.js";
 import { applyMigrations, centralSchemaVersion } from "./migrations.js";
 import { applyPlanningMigrations } from "./planning/migrations.js";
@@ -22,6 +23,7 @@ export type SubsystemVersions = {
   attachments: number;
   agents: number;
   events: number;
+  mergeQueue: number;
 };
 export type PlanweaveServer = {
   config: ServerConfig;
@@ -53,6 +55,7 @@ export async function startPlanweaveServer(config: ServerConfig, reconciliationH
   applyAttachmentsMigrations(database);
   applyAgentsMigrations(database);
   applyEventsMigrations(database);
+  applyMergeQueueMigrations(database);
   for (const hook of reconciliationHooks) await hook(database);
   const backupPath = () => join(config.dataDirectory, "backups");
   const computeReadiness = () => {
@@ -70,7 +73,8 @@ export async function startPlanweaveServer(config: ServerConfig, reconciliationH
       proposals: central >= 4 ? 1 : 0,
       attachments: central >= 5 ? 1 : 0,
       agents: agentsSchemaVersion(database),
-      events: eventsSchemaVersion(database)
+      events: eventsSchemaVersion(database),
+      mergeQueue: mergeQueueSchemaVersion(database)
     };
     return { status: "ready" as const, schemaVersion: Math.max(...Object.values(subsystems)), subsystems };
   };

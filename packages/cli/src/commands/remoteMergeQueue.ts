@@ -24,12 +24,32 @@ export function registerRemoteMergeQueueCommand(program: Command): void {
         if (options.json) {
           console.log(JSON.stringify({ kind: "merge_queue", ...status }, null, 2));
         } else {
-          if (status.submissions.length === 0) {
+          const subs = status.submissions;
+          if (subs.length === 0) {
             console.log("Merge queue is empty.");
           } else {
-            console.log("Merge queue:");
-            for (const sub of status.submissions) {
-              console.log(`  ${sub.submissionId} → ${sub.taskId}: ${sub.status} (${sub.headCommit.slice(0, 8)})`);
+            const statusCounts: Record<string, number> = {};
+            for (const sub of subs) {
+              statusCounts[sub.status] = (statusCounts[sub.status] ?? 0) + 1;
+            }
+            const summary = Object.entries(statusCounts)
+              .map(([s, c]) => `${c} ${s}`)
+              .join(", ");
+            console.log(`Merge queue (${subs.length} entries: ${summary}):`);
+            console.log("");
+            for (let i = 0; i < subs.length; i++) {
+              const sub = subs[i];
+              const pos = `#${i + 1}`.padEnd(4);
+              const statusIcon = sub.status === "merged" ? "M" : sub.status === "checking" ? "C" : sub.status === "failed" ? "F" : sub.status === "conflict" ? "!" : sub.status === "reviewing" ? "R" : "P";
+              const shortHead = sub.headCommit.slice(0, 8);
+              const shortBase = sub.baseCommit.slice(0, 8);
+              console.log(`  ${pos} [${statusIcon}] ${sub.submissionId} → ${sub.taskId}`);
+              console.log(`        head: ${shortHead}  base: ${shortBase}  status: ${sub.status}`);
+              if (sub.createdAt) {
+                const age = timeAgo(new Date(sub.createdAt));
+                console.log(`        queued: ${age} ago`);
+              }
+              if (i < subs.length - 1) console.log("");
             }
           }
         }
@@ -49,4 +69,15 @@ export function registerRemoteMergeQueueCommand(program: Command): void {
         }
       }
     });
+}
+
+function timeAgo(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
 }

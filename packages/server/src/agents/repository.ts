@@ -62,7 +62,7 @@ function mapRun(row: AgentRunRow): AgentRun {
 }
 
 function mapArtifact(row: AgentArtifactRow): StructuredArtifact {
-  let citations: Array<{ kind: string; id: string }> = []
+  let citations: Array<{ kind: "message" | "attachment"; id: string }> = []
   try { citations = JSON.parse(row.citations_json) } catch { /* keep empty */ }
   return {
     id: row.id,
