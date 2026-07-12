@@ -1,0 +1,3 @@
+export { applyProposalsMigrations, proposalsMigrations } from "./migrations.js";
+export { APPROVAL_DECISIONS, DEFAULT_APPROVAL_POLICY, PROPOSAL_STATUSES, isApprovalDecision, isCitation, isProposalStatus, type Approval, type ApprovalDecision, type ApprovalPolicy, type Citation, type Proposal, type ProposalRevision, type ProposalStatus } from "./types.js";
+export { appendRevision, createProposal, createProposalService, getProposal, getRevision, listApprovalsForRevision, listRevisions, recordApproval, transitionProposal, type AppendRevisionInput, type CreateProposalInput, type ProposalService, type RecordApprovalInput, type TransitionProposalInput } from "./proposals.js";
