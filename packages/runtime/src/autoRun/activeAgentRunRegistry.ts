@@ -10,7 +10,12 @@ import {
   executeRunnerLifecycleTransition,
   transitionRunnerLifecycle
 } from "./runnerLifecycle.js";
-import type { RunnerLifecycleState, RunnerTerminalState } from "./runnerContractSchemas.js";
+import type {
+  RunnerLifecycleState,
+  RunnerRequestActionIdentity,
+  RunnerSessionActionIdentity,
+  RunnerTerminalState
+} from "./runnerContractSchemas.js";
 
 export type ActiveAgentRunIdentity = {
   scope: string;
@@ -34,15 +39,8 @@ export type ActiveAgentRunHandle = {
 export type IdentityKind = "desktopRunId" | "runSessionId" | "executorRunId" | "claimRef" | "sessionId";
 export type ActiveAgentRunLookup = Pick<ActiveAgentRunIdentity, "scope" | "executorRunId"> &
   Partial<Pick<ActiveAgentRunIdentity, "desktopRunId" | "runSessionId" | "claimRef" | "sessionId">>;
-export type ActiveAgentRunActionIdentity = {
-  scope: string;
-  executorRunId: string;
-  desktopRunId: string;
-  runSessionId: string;
-  claimRef: string;
-  sessionId: string;
-  requestId: string;
-};
+export type ActiveAgentRunSessionActionIdentity = RunnerSessionActionIdentity;
+export type ActiveAgentRunActionIdentity = RunnerRequestActionIdentity;
 const identityKinds: readonly IdentityKind[] = ["desktopRunId", "runSessionId", "executorRunId", "claimRef", "sessionId"];
 
 function key(scope: string, value: string): string {
@@ -132,12 +130,36 @@ export class ActiveAgentRunRegistry {
   async respond(identity: ActiveAgentRunActionIdentity, value: JsonRpcValue): Promise<void> {
     const handle = this.resolveAction(identity);
     if (!handle) throw new Error(`Active ACP executor run '${identity.executorRunId}' does not exist.`);
+    const request = handle.control.pendingRequests.get(identity.requestId);
+    if (!request) throw new Error(`Live runner request '${identity.requestId}' does not exist.`);
+    if (request.kind === "authentication") {
+      throw new Error("Authentication intervention is not supported by the Desktop runner.");
+    }
+    if (request.kind === "permission" && !handle.control.interventionCapabilities.permission) {
+      throw new Error("Permission intervention is not negotiated for this Desktop ACP session.");
+    }
+    if (request.kind === "elicitation" && !handle.control.interventionCapabilities.elicitationPreview) {
+      throw new Error("Preview elicitation is not negotiated for this Desktop ACP session.");
+    }
     await respondToPendingRunnerRequest({
       control: handle.control,
       ownership: handle.ownership,
       requestId: identity.requestId,
       value
     });
+  }
+
+  async cancel(identity: ActiveAgentRunSessionActionIdentity): Promise<void> {
+    const handle = this.resolveSessionAction(identity);
+    if (!handle) throw new Error(`Active ACP executor run '${identity.executorRunId}' does not exist.`);
+    if (handle.lifecycleState !== "running" && handle.lifecycleState !== "waiting_interaction") {
+      throw new Error(`Active ACP session '${identity.sessionId}' is not cancellable in state '${handle.lifecycleState}'.`);
+    }
+    if (!handle.control.interventionCapabilities.cancel) {
+      throw new Error("ACP session cancellation is not negotiated for this Desktop session.");
+    }
+    const removed = await this.remove(handle, "Desktop requested ACP session cancellation.", "cancelled");
+    if (!removed) throw new Error(`Active ACP executor run '${identity.executorRunId}' is no longer available.`);
   }
 
   lookupDesktopRun(desktopRunId: string): ActiveAgentRunHandle | null {
@@ -177,12 +199,24 @@ export class ActiveAgentRunRegistry {
   get size(): number { return this.handles.size; }
 
   private resolveAction(identity: ActiveAgentRunActionIdentity): ActiveAgentRunHandle | null {
-    for (const field of ["scope", "executorRunId", "desktopRunId", "runSessionId", "claimRef", "sessionId", "requestId"] as const) {
+    this.assertActionIdentity(identity, ["scope", "executorRunId", "desktopRunId", "runSessionId", "claimRef", "sessionId", "requestId"]);
+    return this.lookupExact(identity);
+  }
+
+  private resolveSessionAction(identity: ActiveAgentRunSessionActionIdentity): ActiveAgentRunHandle | null {
+    this.assertActionIdentity(identity, ["scope", "executorRunId", "desktopRunId", "runSessionId", "claimRef", "sessionId"]);
+    return this.lookupExact(identity);
+  }
+
+  private assertActionIdentity<T extends Record<string, string>>(
+    identity: T,
+    fields: readonly (keyof T)[]
+  ): void {
+    for (const field of fields) {
       if (typeof identity[field] !== "string" || identity[field].length === 0) {
-        throw new Error(`Active ACP action requires a non-empty ${field}.`);
+        throw new Error(`Active ACP action requires a non-empty ${String(field)}.`);
       }
     }
-    return this.lookupExact(identity);
   }
 
   private assertAvailable(identity: ActiveAgentRunIdentity): void {

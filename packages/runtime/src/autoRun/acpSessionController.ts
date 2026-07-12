@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
 import type {
   AgentCapabilities,
   CreateElicitationResponse,
@@ -7,6 +8,10 @@ import type {
   SessionNotification,
   TerminalOutputRequest,
   TerminalOutputResponse
+} from "@agentclientprotocol/sdk";
+import {
+  CreateElicitationRequest as CreateElicitationRequestGuard,
+  RequestError
 } from "@agentclientprotocol/sdk";
 import { writeJsonFile } from "../json.js";
 import type { AgentFamily, ExecutorAdapterResult } from "../types.js";
@@ -40,6 +45,8 @@ import {
 } from "./acpEventNormalization.js";
 import { acpCorrelationSchema, runnerIdentitySchema, runnerRunIdentitySchema } from "./runnerContractSchemas.js";
 import { acpEventReadModels, type AcpEventReadModelRegistry } from "./acpEventReadModel.js";
+import { createAcpElicitationSettlement } from "./acpElicitationSettlement.js";
+import { createAcpInteractionSettlement } from "./acpInteractionSettlement.js";
 
 export type AcpSessionRunKind = "implementation" | "review" | "feedback";
 export type AcpSessionRun = {
@@ -229,13 +236,69 @@ export class AcpSessionController {
           );
           if (!options?.interactionBroker) return { outcome: { outcome: "cancelled" } };
           return new Promise<RequestPermissionResponse>((resolve, reject) => {
-            let settled = false;
-            const finish = (response: { outcome: { outcome: "cancelled" } } | { outcome: { outcome: "selected"; optionId: string } }): void => {
-              if (settled) throw new Error(`Live runner request '${requestId}' was already answered.`);
-              settled = true;
+            const finish = (response: RequestPermissionResponse): void => {
               releasePendingRequest(requestId);
               resolve(response);
             };
+            type PermissionDecision =
+              | { kind: "select"; optionId: string }
+              | { kind: "cancel" };
+            type PermissionResult = {
+              outcome: "approved" | "denied" | "cancelled";
+              message: string;
+            };
+            const settlement = createAcpInteractionSettlement<
+              PermissionDecision,
+              RequestPermissionResponse,
+              PermissionResult
+            >({
+              requestId,
+              normalize: (decision: PermissionDecision) => {
+                if (decision.kind === "cancel") {
+                  return {
+                    response: { outcome: { outcome: "cancelled" as const } },
+                    result: {
+                      outcome: "cancelled" as const,
+                      message: "Permission request was cancelled."
+                    }
+                  };
+                }
+                const option = request.options.find(
+                  (candidate) => candidate.optionId === decision.optionId
+                );
+                if (!option) {
+                  throw new Error(
+                    `Permission option '${decision.optionId}' is not advertised.`
+                  );
+                }
+                const denied = option.kind.startsWith("reject");
+                return {
+                  response: {
+                    outcome: {
+                      outcome: "selected" as const,
+                      optionId: decision.optionId
+                    }
+                  },
+                  result: {
+                    outcome: denied ? "denied" as const : "approved" as const,
+                    message: denied
+                      ? "Permission request was denied."
+                      : "Permission request was approved."
+                  }
+                };
+              },
+              publishResult: async (result) => {
+                if (eventStore) await eventStore.append({
+                  kind: "interaction_result",
+                  requestId,
+                  interactionId: requestId,
+                  interactionKind: "permission",
+                  outcome: result.outcome,
+                  message: result.message
+                }, acpCorrelationSchema.parse({ sessionId: request.sessionId }));
+              },
+              complete: finish
+            });
             const pending: LivePendingRequestHandle = {
               requestId,
               interactionId: requestId,
@@ -243,12 +306,19 @@ export class AcpSessionController {
               requestedAt,
               summary: JSON.stringify(redactRunnerEventPayload(request.options)),
               respond: async (value: JsonRpcValue) => {
-                if (typeof value !== "string" || !request.options.some((option) => option.optionId === value)) {
+                if (typeof value !== "string") {
                   throw new Error(`Permission response for '${requestId}' must select an advertised option id.`);
                 }
-                finish({ outcome: { outcome: "selected", optionId: value } });
+                await settlement.settle({ kind: "select", optionId: value });
               },
-              reject: async () => finish({ outcome: { outcome: "cancelled" } })
+              reject: async () => {
+                await settlement.settle({ kind: "cancel" });
+              },
+              permissionOptions: request.options.map((option) => ({
+                optionId: option.optionId,
+                label: redactRunnerEventText(option.name).text,
+                decision: option.kind.startsWith("reject") ? "deny" as const : "approve" as const
+              }))
             };
             pendingRequests.set(requestId, pending);
             if (handle?.lifecycleState === "running") this.registry.transition(handle, "waiting_interaction");
@@ -272,28 +342,45 @@ export class AcpSessionController {
             normalizeAcpElicitationHistory(request, requestId, requestedAt),
             sessionId ? acpCorrelationSchema.parse({ sessionId }) : undefined
           );
-          if (!options?.interactionBroker || request.mode !== "form") return { action: "cancel" };
+          if (!options?.interactionBroker || !CreateElicitationRequestGuard.isForm(request)) {
+            return { action: "cancel" };
+          }
           return new Promise<CreateElicitationResponse>((resolve, reject) => {
-            let settled = false;
-            const finish = (response: { action: string; [key: string]: unknown }): void => {
-              if (settled) throw new Error(`Live runner request '${requestId}' was already answered.`);
-              settled = true;
+            const complete = (response: CreateElicitationResponse): void => {
               releasePendingRequest(requestId);
               resolve(response);
             };
+            let settlement: ReturnType<typeof createAcpElicitationSettlement>;
+            try {
+              settlement = createAcpElicitationSettlement({
+                requestId,
+                requestedSchema: request.requestedSchema,
+                complete,
+                publishResult: async (result) => {
+                  if (eventStore) await eventStore.append({
+                    kind: "interaction_result",
+                    requestId,
+                    interactionId: requestId,
+                    interactionKind: "elicitation",
+                    outcome: result.outcome,
+                    message: result.message
+                  }, sessionId ? acpCorrelationSchema.parse({ sessionId }) : undefined);
+                }
+              });
+            } catch (error) {
+              throw RequestError.invalidParams(undefined, diagnostic(error));
+            }
             const pending: LivePendingRequestHandle = {
               requestId,
               interactionId: requestId,
               kind: "elicitation",
               requestedAt,
               summary: JSON.stringify(redactRunnerEventPayload(request)),
-              respond: async (value: JsonRpcValue) => {
-                if (typeof value !== "object" || value === null || Array.isArray(value) || typeof value.action !== "string") {
-                  throw new Error(`Elicitation response for '${requestId}' must contain an ACP action.`);
-                }
-                finish({ ...value, action: value.action });
-              },
-              reject: async () => finish({ action: "cancel" })
+              respond: settlement.respond,
+              reject: settlement.cancel,
+              elicitationSchema: z.json().parse(
+                redactRunnerEventPayload(request.requestedSchema)
+              )
             };
             pendingRequests.set(requestId, pending);
             if (handle?.lifecycleState === "running") this.registry.transition(handle, "waiting_interaction");
@@ -355,6 +442,11 @@ export class AcpSessionController {
             }
           },
           sessionId: null,
+          interventionCapabilities: {
+            cancel: false,
+            permission: false,
+            elicitationPreview: false
+          },
           pendingRequests,
           pendingOperations: connection.pendingOperations
         }
@@ -365,6 +457,10 @@ export class AcpSessionController {
       await writeState("running", { pid: connection.processId });
       const initialized = await connection.initialize({ signal: abortController.signal, timeoutMs: options?.timeoutMs });
       initializedCapabilities = initialized.agentCapabilities;
+      handle.control.interventionCapabilities.cancel = true;
+      handle.control.interventionCapabilities.permission = options?.interactionBroker != null;
+      handle.control.interventionCapabilities.elicitationPreview =
+        options?.interactionBroker != null;
       this.registry.transition(handle, "ready");
       if (eventStore) await eventStore.append({ kind: "lifecycle", state: "ready", message: "ACP runner is ready." });
       const session = await connection.newSession(

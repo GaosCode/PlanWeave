@@ -104,6 +104,7 @@ const runtimeMock = vi.hoisted(() => {
     })),
     listDesktopPendingAgentRequests: vi.fn(async () => []),
     respondToDesktopAgentRequest: vi.fn(async () => undefined),
+    cancelDesktopAgentRun: vi.fn(async () => undefined),
     listPendingImportRecoveries: vi.fn(async () => [
       {
         transactionId: "import-tx-1",
@@ -194,6 +195,7 @@ vi.mock("@planweave-ai/runtime", async () => {
     getRunRecord: runtimeMock.getRunRecord,
     listDesktopPendingAgentRequests: runtimeMock.listDesktopPendingAgentRequests,
     respondToDesktopAgentRequest: runtimeMock.respondToDesktopAgentRequest,
+    cancelDesktopAgentRun: runtimeMock.cancelDesktopAgentRun,
     listPendingImportRecoveries: runtimeMock.listPendingImportRecoveries,
     resetDesktopRuntimeState: runtimeMock.resetDesktopRuntimeState,
     resolveProjectCanvasWorkspace: runtimeMock.resolveProjectCanvasWorkspace,
@@ -252,6 +254,7 @@ export async function resetRuntimeBridgeMocks(): Promise<void> {
   runtimeMock.getRunRecord.mockClear();
   runtimeMock.listDesktopPendingAgentRequests.mockClear();
   runtimeMock.respondToDesktopAgentRequest.mockClear();
+  runtimeMock.cancelDesktopAgentRun.mockClear();
   runtimeMock.listPendingImportRecoveries.mockClear();
   runtimeMock.resetDesktopRuntimeState.mockClear();
   runtimeMock.resolveProjectCanvasWorkspace.mockClear();

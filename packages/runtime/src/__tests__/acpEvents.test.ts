@@ -1,11 +1,11 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { normalizeAcpSessionNotification } from "../autoRun/acpEventNormalization.js";
 import { AcpEventPublisher } from "../autoRun/acpEventPublisher.js";
 import { AcpEventStore, AcpEventStoreLimitError, AcpEventStoreOpenError } from "../autoRun/acpEventStore.js";
-import { AcpEventReadModelRegistry } from "../autoRun/acpEventReadModel.js";
+import { AcpEventReadModel, AcpEventReadModelRegistry } from "../autoRun/acpEventReadModel.js";
 import { encodeNormalizedRunnerEvent, normalizedRunnerEventSchema, type NormalizedRunnerEvent } from "../autoRun/normalizedEventContract.js";
 import { replayNormalizedRunnerEvents, runnerEventCursorSchema } from "../autoRun/runnerEventReplay.js";
 import { runnerIdentitySchema, runnerRunIdentitySchema } from "../autoRun/runnerContractSchemas.js";
@@ -59,6 +59,104 @@ describe("ACP event store and projection", () => {
     expect(protocol).not.toContain("raw-secret-value");
     expect(normalized).toContain('"kind":"message"');
     expect(conversation.items).toEqual([expect.objectContaining({ content: "hello" })]);
+  });
+
+  it("treats the normalized log as committed when conversation projection fails", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-projection-failure-"));
+    let projectionAttempts = 0;
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: runnerIdentitySchema.parse({
+        version: "planweave.runner/v1",
+        runnerKind: "acp",
+        agentId: "codex"
+      }),
+      writeConversationProjection: async () => {
+        projectionAttempts += 1;
+        if (projectionAttempts === 1) throw new Error("scripted projection failure");
+      }
+    });
+    await store.open();
+    await expect(store.append(event(1).body)).resolves.toMatchObject({ sequence: 1 });
+    expect(await readFile(store.eventsPath, "utf8")).toContain('"sequence":1');
+    expect(store.snapshot().diagnostics).toContainEqual(expect.objectContaining({
+      code: "conversation_projection_failed",
+      message: expect.not.stringContaining("scripted projection failure")
+    }));
+    expect(new AcpEventReadModel(store).replay().diagnostics).toContainEqual(
+      expect.objectContaining({ code: "conversation_projection_failed" })
+    );
+    await expect(store.append(event(2).body)).resolves.toMatchObject({ sequence: 3 });
+    expect(projectionAttempts).toBe(2);
+    const reopened = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: runnerIdentitySchema.parse({
+        version: "planweave.runner/v1",
+        runnerKind: "acp",
+        agentId: "codex"
+      })
+    });
+    await reopened.open();
+    expect(reopened.snapshot().events).toContainEqual(expect.objectContaining({
+      body: expect.objectContaining({
+        kind: "diagnostic",
+        code: "conversation_projection_failed"
+      })
+    }));
+  });
+
+  it("reconciles a full normalized append that throws after writing", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-full-write-throw-"));
+    let throwAfterWrite = true;
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: runnerIdentitySchema.parse({
+        version: "planweave.runner/v1",
+        runnerKind: "acp",
+        agentId: "codex"
+      }),
+      appendText: async (...args) => {
+        await appendFile(...args);
+        if (throwAfterWrite) {
+          throwAfterWrite = false;
+          throw new Error("write completed before transport error");
+        }
+      }
+    });
+    await store.open();
+    await expect(store.append(event(1).body)).resolves.toMatchObject({ sequence: 1 });
+    expect(store.snapshot().events).toHaveLength(1);
+    await expect(store.append(event(2).body)).resolves.toMatchObject({ sequence: 2 });
+  });
+
+  it("poisons a partial normalized append and forbids unsafe retry", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-partial-write-"));
+    let partial = true;
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: runnerIdentitySchema.parse({
+        version: "planweave.runner/v1",
+        runnerKind: "acp",
+        agentId: "codex"
+      }),
+      appendText: async (path, data, options) => {
+        if (!partial) return appendFile(path, data, options);
+        partial = false;
+        const text = String(data);
+        await appendFile(path, text.slice(0, Math.floor(text.length / 2)), options);
+        throw new Error("partial append failure");
+      }
+    });
+    await store.open();
+    await expect(store.append(event(1).body)).rejects.toThrow("retry is unsafe");
+    await expect(store.append(event(1).body)).rejects.toThrow("retry is unsafe");
+    expect(store.snapshot().diagnostics).toContainEqual(expect.objectContaining({
+      code: "corrupt_line"
+    }));
   });
 
   it("fails closed with structured retention diagnostics for raw and normalized limits", async () => {
@@ -179,6 +277,53 @@ describe("ACP event publisher", () => {
     expect(publisher.subscriberCount).toBe(0);
   });
 
+  it("isolates a diagnostic sink failure and reports later subscriber failures", async () => {
+    let attempts = 0;
+    const publisher = new AcpEventPublisher(10, async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("diagnostic sink unavailable");
+    });
+    const first = publisher.subscribe(0, async () => {
+      throw new Error("first subscriber failed");
+    });
+    publisher.publish(event(1));
+    await first.closed;
+    await publisher.drainDiagnostics();
+
+    const second = publisher.subscribe(1, async () => {
+      throw new Error("second subscriber failed");
+    });
+    publisher.publish(event(2));
+    await second.closed;
+    await publisher.drainDiagnostics();
+
+    expect(attempts).toBe(2);
+    expect(publisher.diagnostics).toContainEqual(expect.objectContaining({
+      code: "diagnostic_sink_failed"
+    }));
+  });
+
+  it("keeps healthy subscribers and later events flowing after one subscriber fails", async () => {
+    const publisher = new AcpEventPublisher();
+    const failed = publisher.subscribe(0, async () => {
+      throw new Error("subscriber-local failure");
+    });
+    const received: number[] = [];
+    const healthy = publisher.subscribe(0, (item) => {
+      received.push(item.sequence);
+    });
+    publisher.publish(event(1));
+    await failed.closed;
+    publisher.publish(event(2));
+    healthy.unsubscribe();
+    await healthy.closed;
+    await publisher.drainDiagnostics();
+    expect(received).toEqual([1, 2]);
+    expect(publisher.diagnostics).toContainEqual(expect.objectContaining({
+      code: "subscriber_callback_failed"
+    }));
+  });
+
   it("persists backpressure diagnostics through the store sink", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-backpressure-"));
     const publisher = new AcpEventPublisher(1);
@@ -196,6 +341,48 @@ describe("ACP event publisher", () => {
     await subscription.closed;
     await store.drain();
     expect(await readFile(store.eventsPath, "utf8")).toContain("subscriber_backpressure");
+  });
+
+  it("keeps the run healthy when one subscriber diagnostic cannot be persisted", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-diagnostic-sink-failure-"));
+    let failDiagnostic = true;
+    const publisher = new AcpEventPublisher();
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      publisher,
+      runner: runnerIdentitySchema.parse({
+        version: "planweave.runner/v1",
+        runnerKind: "acp",
+        agentId: "codex"
+      }),
+      appendText: async (path, data, options) => {
+        if (failDiagnostic && String(data).includes("subscriber_callback_failed")) {
+          failDiagnostic = false;
+          throw new Error("diagnostic append unavailable");
+        }
+        await appendFile(path, data, options);
+      }
+    });
+    await store.open();
+    const failed = publisher.subscribe(0, async () => {
+      throw new Error("subscriber-local failure");
+    });
+    await store.append(event(1).body);
+    await failed.closed;
+    await expect(store.drain()).resolves.toBeUndefined();
+    expect(store.snapshot().diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "subscriber_callback_failed" }),
+      expect.objectContaining({ code: "publisher_failed" })
+    ]));
+
+    const laterFailure = publisher.subscribe(1, async () => {
+      throw new Error("later subscriber-local failure");
+    });
+    await store.append(event(2).body);
+    await laterFailure.closed;
+    await expect(store.drain()).resolves.toBeUndefined();
+    expect(await readFile(store.eventsPath, "utf8")).toContain("subscriber_callback_failed");
   });
 });
 

@@ -118,6 +118,7 @@ export {
   getLatestAutoRunRetrospective
 } from "./autoRunRetrospectiveApi.js";
 export {
+  cancelDesktopAgentRun,
   getDesktopRuntimeRefresh,
   getAutoRunState,
   getLatestAutoRunSummary,
@@ -132,9 +133,13 @@ export {
   stopAutoRun,
   subscribeAutoRunEvents
 } from "./runApi.js";
-export type { ActiveAgentRunActionIdentity } from "../autoRun/activeAgentRunRegistry.js";
+export type {
+  ActiveAgentRunActionIdentity,
+  ActiveAgentRunSessionActionIdentity
+} from "../autoRun/activeAgentRunRegistry.js";
 export {
   desktopAgentActionIdentitySchema,
+  desktopAgentSessionActionIdentitySchema,
   desktopAgentActionValueSchema,
   desktopRunnerRecordSubscriptionInputSchema,
   desktopRunnerRecordSubscriptionPushSchema

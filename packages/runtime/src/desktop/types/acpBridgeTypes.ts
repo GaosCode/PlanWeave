@@ -2,12 +2,8 @@ import { z } from "zod";
 import { runnerEventCursorSchema } from "../../autoRun/runnerEventReplay.js";
 import { runnerRecordReadModelSchema } from "../../autoRun/runnerRecordReadModel.js";
 import {
-  acpRequestIdSchema,
-  acpSessionIdSchema,
-  claimRefSchema,
-  desktopRunIdSchema,
-  executorRunIdSchema,
-  runSessionIdSchema
+  runnerRequestActionIdentitySchema,
+  runnerSessionActionIdentitySchema
 } from "../../autoRun/runnerContractSchemas.js";
 import type { RunnerRecordReadModel } from "../../autoRun/runnerRecordReadModel.js";
 
@@ -52,17 +48,10 @@ export type DesktopRunnerRecordSubscriptionUpdate = Omit<
   "subscriptionId"
 >;
 
-export const desktopAgentActionIdentitySchema = z
-  .object({
-    scope: nonEmptyStringSchema,
-    executorRunId: executorRunIdSchema,
-    desktopRunId: desktopRunIdSchema,
-    runSessionId: runSessionIdSchema,
-    claimRef: claimRefSchema,
-    sessionId: acpSessionIdSchema,
-    requestId: acpRequestIdSchema
-  })
-  .strict();
+export const desktopAgentSessionActionIdentitySchema = runnerSessionActionIdentitySchema;
+export type DesktopAgentSessionActionIdentity = z.infer<typeof desktopAgentSessionActionIdentitySchema>;
+
+export const desktopAgentActionIdentitySchema = runnerRequestActionIdentitySchema;
 export type DesktopAgentActionIdentity = z.infer<typeof desktopAgentActionIdentitySchema>;
 
 export const desktopAgentActionValueSchema = z.json();

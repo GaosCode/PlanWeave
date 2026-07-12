@@ -81,7 +81,7 @@ const app = agent({ name: "planweave-acp-mock" })
     }
 
     const artifactText =
-      scenario === "artifact-implementation" || scenario === "delayed-artifact-implementation" || scenario === "terminal-output" || scenario === "permission-deny" || scenario === "permission-secret" || scenario === "elicitation-secret" || scenario === "multi-interaction"
+      scenario === "artifact-implementation" || scenario === "delayed-artifact-implementation" || scenario === "terminal-output" || scenario === "permission-deny" || scenario === "permission-secret" || scenario === "elicitation-secret" || scenario === "elicitation-validation" || scenario === "multi-interaction"
         ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "implementation", ref: "T-001#B-001", taskId: "T-001", reportMarkdown: "implemented\n" } })}\n`
         : scenario === "artifact-review" || scenario === "artifact-review-needs-changes"
           ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "review", ref: "T-001#R-001", taskId: "T-001", reviewResult: { reviewBlockRef: "T-001#R-001", taskId: "T-001", verdict: scenario === "artifact-review-needs-changes" ? "needs_changes" : "passed", content: scenario === "artifact-review-needs-changes" ? "fix the implementation" : "passed" } } })}\n`
@@ -155,6 +155,97 @@ const app = agent({ name: "planweave-acp-mock" })
           properties: { value: { type: "string", title: "Value", ...(scenario === "elicitation-secret" ? { default: "api_key=raw-secret" } : {}) } },
           required: ["value"]
         }
+      });
+    }
+
+    if (scenario === "elicitation-validation") {
+      const promptText = ctx.params.prompt.find((part) => part.type === "text")?.text ?? "";
+      const schemas = {
+        required: {
+          type: "object",
+          properties: { value: { type: "string" } },
+          required: ["value"]
+        },
+        enum: {
+          type: "object",
+          properties: { value: { type: "string", enum: ["alpha", "beta"] } },
+          required: ["value"]
+        },
+        oneOf: {
+          type: "object",
+          properties: {
+            value: {
+              type: "string",
+              oneOf: [
+                { const: "alpha", title: "Alpha" },
+                { const: "beta", title: "Beta" }
+              ]
+            }
+          },
+          required: ["value"]
+        },
+        range: {
+          type: "object",
+          properties: { value: { type: "number", minimum: 1, maximum: 5 } },
+          required: ["value"]
+        },
+        integer: {
+          type: "object",
+          properties: { value: { type: "integer", minimum: 1, maximum: 5 } },
+          required: ["value"]
+        },
+        string: {
+          type: "object",
+          properties: {
+            value: {
+              type: "string",
+              minLength: 6,
+              maxLength: 32,
+              pattern: "^[^@]+@[^@]+$",
+              format: "email"
+            }
+          },
+          required: ["value"]
+        },
+        multi: {
+          type: "object",
+          properties: {
+            value: {
+              type: "array",
+              items: { type: "string", enum: ["alpha", "beta", "gamma"] },
+              minItems: 1,
+              maxItems: 2
+            }
+          },
+          required: ["value"]
+        },
+        "multi-titled": {
+          type: "object",
+          properties: {
+            value: {
+              type: "array",
+              items: {
+                anyOf: [
+                  { const: "alpha", title: "Alpha" },
+                  { const: "beta", title: "Beta" }
+                ]
+              },
+              minItems: 1,
+              maxItems: 2
+            }
+          },
+          required: ["value"]
+        },
+        unsupported: {
+          type: "object",
+          properties: { value: { type: "future-preview-type" } }
+        }
+      };
+      await ctx.client.request(methods.client.elicitation.create, {
+        mode: "form",
+        sessionId,
+        message: `Validate ${promptText}`,
+        requestedSchema: schemas[promptText] ?? schemas.required
       });
     }
 

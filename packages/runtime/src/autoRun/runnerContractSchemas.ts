@@ -184,6 +184,23 @@ export const persistedPendingInteractionSchema = z
   .strict();
 export type PersistedPendingInteraction = z.infer<typeof persistedPendingInteractionSchema>;
 
+export const runnerSessionActionIdentitySchema = z
+  .object({
+    scope: z.string().min(1).max(4_096),
+    executorRunId: executorRunIdSchema,
+    desktopRunId: desktopRunIdSchema,
+    runSessionId: runSessionIdSchema,
+    claimRef: claimRefSchema,
+    sessionId: acpSessionIdSchema
+  })
+  .strict();
+export type RunnerSessionActionIdentity = z.infer<typeof runnerSessionActionIdentitySchema>;
+
+export const runnerRequestActionIdentitySchema = runnerSessionActionIdentitySchema
+  .extend({ requestId: acpRequestIdSchema })
+  .strict();
+export type RunnerRequestActionIdentity = z.infer<typeof runnerRequestActionIdentitySchema>;
+
 export const terminalOutcomeSchema = z
   .object({
     version: runnerContractVersionSchema,

@@ -404,6 +404,7 @@ function liveControl(options: {
       closeSession: vi.fn(async () => undefined),
       supportsSessionClose: false
     },
+    interventionCapabilities: { cancel: true, permission: true, elicitationPreview: true },
     pendingRequests: new Map([
       [
         "request-1",
@@ -413,6 +414,7 @@ function liveControl(options: {
           kind: "permission",
           requestedAt: "2026-07-11T00:00:00.000Z",
           summary: "password=secret value",
+          permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" }],
           respond: options.respond ?? vi.fn(async () => undefined),
           reject: options.reject ?? vi.fn(async () => undefined)
         }

@@ -71,6 +71,7 @@ function handle(scope: string, runId: string, sessionId: string, closed: string[
         closeSession: async (boundSessionId) => { await connection.closeSession(boundSessionId); },
         supportsSessionClose: false
       },
+      interventionCapabilities: { cancel: true, permission: true, elicitationPreview: true },
       sessionId,
       pendingRequests: new Map(),
       pendingOperations: connection.pendingOperations

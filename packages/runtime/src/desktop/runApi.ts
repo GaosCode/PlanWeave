@@ -4,7 +4,8 @@ import { listExecutorProfilesForManifest } from "../autoRun/executors.js";
 import {
   activeAgentRunRegistry,
   shutdownDesktopAgentRun,
-  type ActiveAgentRunActionIdentity
+  type ActiveAgentRunActionIdentity,
+  type ActiveAgentRunSessionActionIdentity
 } from "../autoRun/activeAgentRunRegistry.js";
 import type { JsonRpcValue, RunnerInteractionBroker } from "../autoRun/liveControl.js";
 import { createAutoRunExplanation, runAutoRunStep } from "../taskManager/autoRun.js";
@@ -412,6 +413,12 @@ export function respondToDesktopAgentRequest(
     return Promise.reject(new Error("Desktop interaction requires an exact desktopRunId."));
   }
   return activeAgentRunRegistry.respond(identity, value);
+}
+
+export function cancelDesktopAgentRun(
+  identity: ActiveAgentRunSessionActionIdentity
+): Promise<void> {
+  return activeAgentRunRegistry.cancel(identity);
 }
 
 function launchRunLoop(runId: string): void {

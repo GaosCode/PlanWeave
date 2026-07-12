@@ -21,7 +21,7 @@ import {
 
 const acpFixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 
-function controllerRun(root: string, scenario: string): AcpSessionRun {
+function controllerRun(root: string, scenario: string, prompt = scenario): AcpSessionRun {
   return {
     kind: "implementation",
     identity: {
@@ -33,7 +33,7 @@ function controllerRun(root: string, scenario: string): AcpSessionRun {
     },
     runDir: root,
     metadataPath: join(root, "metadata.json"),
-    prompt: scenario,
+    prompt,
     cwd: root,
     launch: { command: process.execPath, args: [acpFixture, scenario] },
     executorName: "mock-acp",
@@ -61,12 +61,14 @@ function fixture(options: { closeSupported?: boolean; order?: string[] } = {}) {
       closeSession: vi.fn(async () => { order.push("close-session"); }),
       supportsSessionClose: options.closeSupported === true
     },
+    interventionCapabilities: { cancel: true, permission: true, elicitationPreview: true },
     pendingRequests: new Map([["permission-1", {
       requestId: "permission-1",
       interactionId: "permission-1",
       kind: "permission",
       requestedAt: "2026-07-11T00:00:00.000Z",
       summary: "Approve command?",
+      permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" }],
       respond,
       reject
     }]]),
@@ -179,6 +181,10 @@ describe("ACP live actions", () => {
           stale: true,
           activeRequests: []
         });
+        expect(reopened?.events.some((event) =>
+          event.body.kind === "interaction_result" &&
+          event.body.outcome === (scenario === "permission-deny" ? "denied" : "cancelled")
+        )).toBe(true);
       } finally {
         acpEventReadModels.release(root);
       }
@@ -347,11 +353,93 @@ describe("ACP live actions", () => {
     expect(item.reject).not.toHaveBeenCalled();
   });
 
+  it("rejects unnegotiated request kinds before invoking the live response", async () => {
+    const registry = new ActiveAgentRunRegistry();
+    const item = fixture();
+    item.control.interventionCapabilities.permission = false;
+    registry.register(item.handle);
+    const identity = { ...item.handle.identity, requestId: "permission-1" };
+    await expect(registry.respond(identity, "allow")).rejects.toThrow(
+      "Permission intervention is not negotiated"
+    );
+    expect(item.respond).not.toHaveBeenCalled();
+    await registry.remove(item.handle, "test complete");
+  });
+
+  it("cancels only the exact live session and rejects mismatch, duplicate, and late cancellation", async () => {
+    const registry = new ActiveAgentRunRegistry();
+    const item = fixture();
+    registry.register(item.handle);
+    const { requestId: _requestId, ...identity } = {
+      ...item.handle.identity,
+      requestId: "permission-1"
+    };
+    await expect(registry.cancel({ ...identity, sessionId: "foreign-session" }))
+      .rejects.toThrow("does not match executor run");
+    await expect(registry.cancel(identity)).resolves.toBeUndefined();
+    expect(item.order).toEqual(["reject-request", "cancel", "connection", "process"]);
+    await expect(registry.cancel(identity)).rejects.toThrow("does not exist");
+    expect(item.order).toEqual(["reject-request", "cancel", "connection", "process"]);
+  });
+
   it("settles pending requests before cancel, optional close, and process teardown", async () => {
     const item = fixture({ closeSupported: true });
     await cleanupRunnerLiveControl(item.control, item.ownership, "Desktop stopped");
     expect(item.order).toEqual(["reject-request", "cancel", "close-session", "connection", "process"]);
     await cleanupRunnerLiveControl(item.control, item.ownership, "duplicate stop");
     expect(item.order).toEqual(["reject-request", "cancel", "close-session", "connection", "process"]);
+  });
+
+  it("waits for an in-flight durable response before terminal teardown", async () => {
+    const item = fixture();
+    let releaseResponse!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const gate = new Promise<void>((resolve) => { releaseResponse = resolve; });
+    item.respond.mockImplementation(async () => {
+      markStarted();
+      await gate;
+      item.order.push("respond");
+    });
+    const responding = respondToPendingRunnerRequest({
+      control: item.control,
+      ownership: item.ownership,
+      requestId: "permission-1",
+      value: "allow"
+    });
+    await started;
+    const cleanup = cleanupRunnerLiveControl(item.control, item.ownership, "terminal race");
+    await Promise.resolve();
+    expect(item.order).toEqual([]);
+    releaseResponse();
+    await Promise.all([responding, cleanup]);
+    expect(item.order).toEqual(["respond", "cancel", "connection", "process"]);
+    expect(item.reject).not.toHaveBeenCalled();
+  });
+
+  it("cancels a permission after its in-flight durable response fails", async () => {
+    const item = fixture();
+    let releaseResponse!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const gate = new Promise<void>((resolve) => { releaseResponse = resolve; });
+    item.respond.mockImplementation(async () => {
+      markStarted();
+      await gate;
+      throw new Error("permission commit failed");
+    });
+    const responding = respondToPendingRunnerRequest({
+      control: item.control,
+      ownership: item.ownership,
+      requestId: "permission-1",
+      value: "allow"
+    });
+    await started;
+    const cleanup = cleanupRunnerLiveControl(item.control, item.ownership, "terminal race");
+    releaseResponse();
+    await expect(responding).rejects.toThrow("permission commit failed");
+    await expect(cleanup).resolves.toMatchObject({ alreadyCleaned: false });
+    expect(item.order).toEqual(["reject-request", "cancel", "connection", "process"]);
+    expect(item.reject).toHaveBeenCalledTimes(1);
   });
 });

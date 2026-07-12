@@ -6,7 +6,7 @@ import {
   encodeNormalizedRunnerEvent, normalizedRunnerEventSchema,
   type NormalizedRunnerEvent
 } from "./normalizedEventContract.js";
-import { redactRunnerEventPayload } from "./runnerEventRedaction.js";
+import { redactRunnerEventPayload, redactRunnerEventText } from "./runnerEventRedaction.js";
 import {
   replayNormalizedRunnerEvents,
   type CanonicalRunnerEventIdentity,
@@ -19,6 +19,7 @@ export type AcpEventStoreOptions = {
   runDir: string; identity: RunnerRunIdentity; runner: RunnerIdentity; publisher?: AcpEventPublisher;
   maxProtocolBytes?: number; maxEventBytes?: number; maxEvents?: number;
   appendText?: typeof appendFile;
+  writeConversationProjection?: typeof writeAcpConversationProjection;
 };
 
 export class AcpEventStoreLimitError extends Error {
@@ -44,16 +45,27 @@ export class AcpEventStore {
   private writeFailure: unknown;
   private opened = false;
   private readonly appendText: typeof appendFile;
+  private readonly writeConversationProjection: typeof writeAcpConversationProjection;
 
   constructor(private readonly options: AcpEventStoreOptions) {
     this.protocolPath = join(options.runDir, "protocol.ndjson");
     this.eventsPath = join(options.runDir, "events.ndjson");
     this.appendText = options.appendText ?? appendFile;
+    this.writeConversationProjection =
+      options.writeConversationProjection ?? writeAcpConversationProjection;
     this.publisher = options.publisher ?? new AcpEventPublisher();
     this.publisher.setDiagnosticSink(async (code, message) => {
       const diagnostic = { code, line: null, message } satisfies RunnerEventReplayDiagnostic;
       this.diagnostics.push(diagnostic);
-      await this.append({ kind: "diagnostic", code, message });
+      try {
+        await this.append({ kind: "diagnostic", code, message });
+      } catch {
+        this.diagnostics.push({
+          code: "publisher_failed",
+          line: null,
+          message: "A subscriber diagnostic could not be persisted; later diagnostics remain enabled."
+        });
+      }
     });
   }
 
@@ -115,12 +127,20 @@ export class AcpEventStore {
       if (this.bytes + Buffer.byteLength(encoded) > (this.options.maxEventBytes ?? RUNNER_EVENT_RETENTION_MAX_BYTES)) {
         throw new AcpEventStoreLimitError({ code: "retention_truncation", line: null, message: "ACP normalized event byte retention limit reached; event was not persisted." });
       }
-      await this.appendText(this.eventsPath, encoded, "utf8");
+      await this.appendNormalizedText(encoded);
       this.sequence = event.sequence;
       this.bytes += Buffer.byteLength(encoded);
       this.events.push(event);
-      this.publisher.publish(event);
-      await writeAcpConversationProjection(this.options.runDir, this.events);
+      try {
+        this.publisher.publish(event);
+      } catch (error) {
+        await this.recordDerivedFailure("publisher_failed", error);
+      }
+      try {
+        await this.writeConversationProjection(this.options.runDir, this.events);
+      } catch (error) {
+        await this.recordDerivedFailure("conversation_projection_failed", error);
+      }
       return event;
     });
   }
@@ -161,8 +181,69 @@ export class AcpEventStore {
       if (this.writeFailure !== undefined) throw this.writeFailure;
       return operation();
     });
-    void result.catch((error: unknown) => { this.writeFailure ??= error; });
     this.writeChain = result.then(() => undefined, () => undefined);
     return result;
+  }
+
+  private async appendNormalizedText(encoded: string): Promise<void> {
+    const expectedBefore = this.normalizedContent();
+    try {
+      await this.appendText(this.eventsPath, encoded, "utf8");
+    } catch (error) {
+      let actual: string;
+      try {
+        actual = await readFile(this.eventsPath, "utf8");
+      } catch (readError) {
+        if ((readError as NodeJS.ErrnoException).code === "ENOENT" && expectedBefore === "") {
+          throw error;
+        }
+        this.poisonNormalizedLog();
+      }
+      if (actual === expectedBefore) throw error;
+      if (actual === `${expectedBefore}${encoded}`) return;
+      this.poisonNormalizedLog();
+    }
+  }
+
+  private poisonNormalizedLog(): never {
+    const error = new Error(
+      "ACP normalized event append failed after changing the durable log; retry is unsafe."
+    );
+    this.writeFailure = error;
+    this.diagnostics.push({
+      code: "corrupt_line",
+      line: null,
+      message: "ACP normalized event log may contain a partial or foreign append."
+    });
+    throw error;
+  }
+
+  private async recordDerivedFailure(
+    code: "conversation_projection_failed" | "publisher_failed",
+    error: unknown
+  ): Promise<void> {
+    void error;
+    const message = redactRunnerEventText(
+      `A durable ACP event committed, but its derived ${code.replaceAll("_", " ")} update failed.`
+    ).text;
+    this.diagnostics.push({ code, line: null, message });
+    const diagnostic = normalizedRunnerEventSchema.parse({
+      version: "planweave.runner-event/v1",
+      sequence: this.sequence + 1,
+      timestamp: new Date().toISOString(),
+      identity: this.options.identity,
+      runner: this.options.runner,
+      body: { kind: "diagnostic", code, message }
+    });
+    const encoded = encodeNormalizedRunnerEvent(diagnostic);
+    try {
+      await this.appendNormalizedText(encoded);
+    } catch {
+      return;
+    }
+    this.sequence = diagnostic.sequence;
+    this.bytes += Buffer.byteLength(encoded);
+    this.events.push(diagnostic);
+    if (code !== "publisher_failed") this.publisher.publish(diagnostic);
   }
 }

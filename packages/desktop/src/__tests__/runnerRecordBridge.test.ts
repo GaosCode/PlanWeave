@@ -76,6 +76,13 @@ function readModel(events: NormalizedRunnerEvent[]) {
       terminal: last?.body.kind === "terminal"
     },
     terminal: last?.body.kind === "terminal",
+    intervention: {
+      cancel: {
+        available: false,
+        reason: "No live owned ACP session is available.",
+        identity: null
+      }
+    },
     interaction: {
       persisted: false,
       active: false,
@@ -265,7 +272,7 @@ describe("runner record desktop bridge", () => {
     await expect(handler?.({ sender: sender(4) }, input)).rejects.toThrow("identity_mismatch");
   });
 
-  it("routes strict pending request list and response calls through runtime", async () => {
+  it("routes strict pending request, response, and cancellation calls through runtime", async () => {
     const identity = {
       scope: "/tmp/run",
       executorRunId: "RUN-001",
@@ -278,14 +285,19 @@ describe("runner record desktop bridge", () => {
     runtimeMock.listDesktopPendingAgentRequests.mockResolvedValue([{ requestId: "permission-1" }]);
     const list = electronMock.handlers.get(desktopBridgeInvokeChannels.listPendingAgentRequests);
     const respond = electronMock.handlers.get(desktopBridgeInvokeChannels.respondToAgentRequest);
+    const cancel = electronMock.handlers.get(desktopBridgeInvokeChannels.cancelAgentRun);
 
     await expect(list?.({}, identity)).resolves.toEqual([{ requestId: "permission-1" }]);
     await respond?.({}, identity, { optionId: "allow" });
+    const { requestId: _requestId, ...sessionIdentity } = identity;
+    await cancel?.({}, sessionIdentity);
 
     expect(runtimeMock.listDesktopPendingAgentRequests).toHaveBeenCalledWith(identity);
     expect(runtimeMock.respondToDesktopAgentRequest).toHaveBeenCalledWith(identity, {
       optionId: "allow"
     });
+    expect(runtimeMock.cancelDesktopAgentRun).toHaveBeenCalledWith(sessionIdentity);
     expect(() => list?.({}, { ...identity, desktopRunId: "" })).toThrow();
+    expect(() => cancel?.({}, { ...sessionIdentity, runSessionId: "" })).toThrow();
   });
 });

@@ -10,6 +10,7 @@ import {
   addDependencyEdge,
   addTaskNode,
   applyCanvasLaneLayout,
+  cancelDesktopAgentRun,
   createDesktopPackageFileSnapshot,
   createProjectFromTaskCanvas,
   createTaskCanvas,
@@ -112,6 +113,7 @@ import type {
 } from "@planweave-ai/runtime";
 import {
   desktopAgentActionIdentitySchema,
+  desktopAgentSessionActionIdentitySchema,
   desktopAgentActionValueSchema
 } from "@planweave-ai/runtime";
 import type { DesktopBridgeMainInvokeMethod } from "../shared/ipcChannels.js";
@@ -411,6 +413,8 @@ export const runtimeBridgeHandlers = {
       desktopAgentActionIdentitySchema.parse(identity),
       desktopAgentActionValueSchema.parse(value)
     ),
+  cancelAgentRun: (_event, identity) =>
+    cancelDesktopAgentRun(desktopAgentSessionActionIdentitySchema.parse(identity)),
   getReviewAttempts: async (_event, ref, blockRef) =>
     getReviewAttempts(await resolveDesktopCanvasReference(ref), blockRef),
   getFeedbackRecords: async (_event, ref, blockRef) =>

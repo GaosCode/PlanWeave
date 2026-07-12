@@ -57,6 +57,7 @@ import type { ClaimResult } from "../../types.js";
 import type { CanvasExecutionPolicyInput } from "../graph/editModelTypes.js";
 import type {
   DesktopAgentActionIdentity,
+  DesktopAgentSessionActionIdentity,
   DesktopAgentActionValue,
   DesktopPendingAgentRequest,
   DesktopRunnerRecordSubscriptionInput,
@@ -385,6 +386,7 @@ export type DesktopBridgeApi = {
     identity: DesktopAgentActionIdentity,
     value: DesktopAgentActionValue
   ): Promise<void>;
+  cancelAgentRun(identity: DesktopAgentSessionActionIdentity): Promise<void>;
   startAutoRun(
     ref: DesktopCanvasReference,
     scope: DesktopAutoRunScope,

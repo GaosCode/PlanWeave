@@ -90,11 +90,31 @@ const noInteraction = {
   stale: false,
   activeRequests: []
 } satisfies RunnerRecordReadModel["interaction"];
+const noIntervention = {
+  cancel: {
+    available: false,
+    reason: "No live owned ACP session is available.",
+    identity: null
+  }
+} satisfies RunnerRecordReadModel["intervention"];
+
+function actionIdentity(requestId: string) {
+  return {
+    scope: "/tmp/project",
+    executorRunId: "RUN-001",
+    desktopRunId: "DESKTOP-001",
+    runSessionId: "SESSION-001",
+    claimRef: "T-001#B-001",
+    sessionId: "session-1",
+    requestId
+  } as RunnerRecordReadModel["interaction"]["activeRequests"][number]["identity"];
+}
 
 function model(
   events: NormalizedRunnerEvent[],
   interaction: RunnerRecordReadModel["interaction"] = noInteraction,
-  diagnostics: RunnerRecordReadModel["diagnostics"] = []
+  diagnostics: RunnerRecordReadModel["diagnostics"] = [],
+  intervention: RunnerRecordReadModel["intervention"] = noIntervention
 ): RunnerRecordReadModel {
   const last = events.at(-1);
   return {
@@ -109,6 +129,7 @@ function model(
       terminal: last?.body.kind === "terminal"
     },
     terminal: last?.body.kind === "terminal",
+    intervention,
     interaction
   };
 }
@@ -120,7 +141,10 @@ function api(options: {
   ) => void;
   unsubscribe?: () => Promise<void>;
   revealRunnerRecordArtifact?: DesktopBridgeApi["revealRunnerRecordArtifact"];
-}): Pick<DesktopBridgeApi, "subscribeRunnerRecord" | "revealRunnerRecordArtifact"> {
+  respondToAgentRequest?: DesktopBridgeApi["respondToAgentRequest"];
+  cancelAgentRun?: DesktopBridgeApi["cancelAgentRun"];
+}): Pick<DesktopBridgeApi, "subscribeRunnerRecord" | "revealRunnerRecordArtifact"> &
+  Partial<Pick<DesktopBridgeApi, "respondToAgentRequest" | "cancelAgentRun">> {
   return {
     subscribeRunnerRecord: vi.fn(async (_input, callback) => {
       options.onSubscribe?.(callback);
@@ -132,7 +156,9 @@ function api(options: {
       };
     }),
     revealRunnerRecordArtifact:
-      options.revealRunnerRecordArtifact ?? vi.fn(async () => undefined)
+      options.revealRunnerRecordArtifact ?? vi.fn(async () => undefined),
+    ...(options.respondToAgentRequest ? { respondToAgentRequest: options.respondToAgentRequest } : {}),
+    ...(options.cancelAgentRun ? { cancelAgentRun: options.cancelAgentRun } : {})
   };
 }
 
@@ -287,7 +313,10 @@ describe("ACP runner record monitor", () => {
             interactionId: "permission-1",
             kind: "permission",
             requestedAt: "2026-07-11T00:00:00.000Z",
-            summary: "approval required"
+            summary: "approval required",
+            identity: actionIdentity("permission-1"),
+            availability: { available: false, reason: "unsupported in test" },
+            permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" }]
           }]
         })}
         recordId="T-001#B-001::RUN-002"
@@ -322,7 +351,10 @@ describe("ACP runner record monitor", () => {
         interactionId: "permission-1",
         kind: "permission",
         requestedAt: "2026-07-11T00:00:00.000Z",
-        summary: "Allow reading the project?"
+        summary: "Allow reading the project?",
+        identity: actionIdentity("permission-1"),
+        availability: { available: true, reason: null },
+        permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" }]
       }]
     };
     const bridgeApi = api({ onSubscribe: (callback) => { push = callback; } });
@@ -337,7 +369,7 @@ describe("ACP runner record monitor", () => {
     );
 
     act(() => push?.({ updateSequence: 1, snapshot: model([interaction], activeInteraction) }));
-    expect(await screen.findByText("Allow reading the project?")).toBeInTheDocument();
+    expect((await screen.findAllByText("Allow reading the project?")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Action required").length).toBeGreaterThan(0);
 
     act(() => push?.({
@@ -455,11 +487,14 @@ describe("ACP runner record monitor", () => {
           interactionId: "elicitation-1",
           kind: "elicitation",
           requestedAt: "2026-07-11T00:00:02.000Z",
-          summary: "Choose a deployment region"
+          summary: "Choose a deployment region",
+          identity: actionIdentity("elicitation-1"),
+          availability: { available: false, reason: "read only test" },
+          elicitationSchema: { type: "object" }
         }]
       })
     }));
-    expect(screen.getByText("Choose a deployment region")).toBeInTheDocument();
+    expect(screen.getAllByText("Choose a deployment region").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /approve|deny|respond/i })).not.toBeInTheDocument();
   });
 
@@ -475,6 +510,103 @@ describe("ACP runner record monitor", () => {
       />
     );
     expect(await screen.findAllByText(/missing sequence/)).toHaveLength(1);
+  });
+
+  it("submits an exact permission response once and waits for an authoritative snapshot", async () => {
+    let resolveResponse!: () => void;
+    const respondToAgentRequest = vi.fn(() => new Promise<void>((resolve) => {
+      resolveResponse = resolve;
+    }));
+    const bridgeApi = api({ respondToAgentRequest });
+    const active: RunnerRecordReadModel["interaction"] = {
+      persisted: true,
+      active: true,
+      stale: false,
+      activeRequests: [{
+        requestId: "permission-1",
+        interactionId: "permission-1",
+        kind: "permission",
+        requestedAt: "2026-07-11T00:00:00.000Z",
+        summary: "Allow command?",
+        identity: actionIdentity("permission-1"),
+        availability: { available: true, reason: null },
+        permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" }]
+      }]
+    };
+    const rendered = render(
+      <RunnerRecordMonitor
+        api={bridgeApi}
+        initialModel={model([], active)}
+        recordId="T-001#B-001::RUN-001"
+        t={createTranslator("en")}
+      />
+    );
+
+    const allow = screen.getByRole("button", { name: "Allow" });
+    fireEvent.click(allow);
+    fireEvent.click(allow);
+    expect(respondToAgentRequest).toHaveBeenCalledTimes(1);
+    expect(respondToAgentRequest).toHaveBeenCalledWith(actionIdentity("permission-1"), "allow");
+    expect(allow).toBeDisabled();
+    await act(async () => resolveResponse());
+    expect(screen.getByRole("button", { name: "Allow" })).toBeDisabled();
+
+    rendered.rerender(
+      <RunnerRecordMonitor
+        api={bridgeApi}
+        initialModel={model([], {
+          persisted: true,
+          active: false,
+          stale: true,
+          activeRequests: []
+        })}
+        recordId="T-001#B-001::RUN-001"
+        t={createTranslator("en")}
+      />
+    );
+    await vi.waitFor(() => expect(screen.queryByRole("button", { name: "Allow" })).not.toBeInTheDocument());
+  });
+
+  it("routes exact cancellation and Preview elicitation through separate controls", () => {
+    const respondToAgentRequest = vi.fn(async () => undefined);
+    const cancelAgentRun = vi.fn(async () => undefined);
+    const requestIdentity = actionIdentity("elicitation-1");
+    const { requestId: _requestId, ...sessionIdentity } = requestIdentity;
+    render(
+      <RunnerRecordMonitor
+        api={api({ respondToAgentRequest, cancelAgentRun })}
+        initialModel={model([], {
+          persisted: true,
+          active: true,
+          stale: false,
+          activeRequests: [{
+            requestId: "elicitation-1",
+            interactionId: "elicitation-1",
+            kind: "elicitation",
+            requestedAt: "2026-07-11T00:00:00.000Z",
+            summary: "Choose values",
+            identity: requestIdentity,
+            availability: { available: true, reason: null },
+            elicitationSchema: { type: "object" }
+          }]
+        }, [], {
+          cancel: { available: true, reason: null, identity: sessionIdentity }
+        })}
+        recordId="T-001#B-001::RUN-001"
+        t={createTranslator("en")}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel run" }));
+    expect(cancelAgentRun).toHaveBeenCalledWith(sessionIdentity);
+    fireEvent.change(screen.getByLabelText("Preview elicitation response (JSON)"), {
+      target: { value: '{"region":"eu"}' }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit response" }));
+    expect(respondToAgentRequest).toHaveBeenCalledWith(requestIdentity, {
+      action: "accept",
+      content: { region: "eu" }
+    });
   });
 
   it("does not subscribe terminal replay and tears down a live subscription on unmount", async () => {

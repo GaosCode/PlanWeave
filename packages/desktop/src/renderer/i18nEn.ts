@@ -648,7 +648,16 @@ export const enCatalog = {
   acpArtifact: "Artifact",
   acpRevealArtifact: "Show in file manager",
   acpArtifactOpenError: "Artifact could not be opened",
-  acpLifecycle: "Lifecycle"
+  acpLifecycle: "Lifecycle",
+  acpActions: "Live interventions",
+  acpCancelRun: "Cancel run",
+  acpActionPending: "Waiting for runtime…",
+  acpActionError: "Intervention failed",
+  acpElicitationResponse: "Preview elicitation response (JSON)",
+  acpElicitationObjectRequired: "The elicitation response must be a JSON object.",
+  acpSubmitElicitation: "Submit response",
+  acpCancelElicitation: "Cancel request",
+  acpInteractionResult: "Interaction result"
 } as const;
 
 export type TranslationKey = keyof typeof enCatalog;

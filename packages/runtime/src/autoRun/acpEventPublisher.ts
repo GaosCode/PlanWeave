@@ -7,13 +7,21 @@ export type AcpEventPublisherDiagnosticSink = (
   message: string
 ) => void | Promise<void>;
 
+type AcpEventPublisherDiagnostic = {
+  code:
+    | "subscriber_backpressure"
+    | "subscriber_callback_failed"
+    | "diagnostic_sink_failed";
+  message: string;
+};
+
 type Subscriber = { after: number; pending: number; closed: boolean; resolve: () => void; chain: Promise<void>; receive: AcpEventSubscriber };
 
 export class AcpEventPublisher {
   private readonly events: NormalizedRunnerEvent[] = [];
   private readonly subscribers = new Set<Subscriber>();
   private terminal = false;
-  readonly diagnostics: Array<{ code: "subscriber_backpressure" | "subscriber_callback_failed"; message: string }> = [];
+  readonly diagnostics: AcpEventPublisherDiagnostic[] = [];
   private diagnosticSink: AcpEventPublisherDiagnosticSink | null;
   private diagnosticChain = Promise.resolve();
   constructor(
@@ -87,7 +95,16 @@ export class AcpEventPublisher {
   private reportDiagnostic(code: "subscriber_backpressure" | "subscriber_callback_failed", message: string): void {
     this.diagnostics.push({ code, message });
     if (!this.diagnosticSink) return;
-    this.diagnosticChain = this.diagnosticChain.then(() => this.diagnosticSink?.(code, message)).then(() => undefined);
+    this.diagnosticChain = this.diagnosticChain.then(async () => {
+      try {
+        await this.diagnosticSink?.(code, message);
+      } catch {
+        this.diagnostics.push({
+          code: "diagnostic_sink_failed",
+          message: "ACP event publisher diagnostic sink failed; later diagnostics remain enabled."
+        });
+      }
+    });
   }
   async drainDiagnostics(): Promise<void> { await this.diagnosticChain; }
   get subscriberCount(): number { return this.subscribers.size; }

@@ -28,6 +28,7 @@ export const desktopBridgeInvokeChannels = {
   addDependencyEdge: "planweave:addDependencyEdge",
   addTaskNode: "planweave:addTaskNode",
   applyCanvasLaneLayout: "planweave:applyCanvasLaneLayout",
+  cancelAgentRun: "planweave:cancelAgentRun",
   chooseProjectFolder: "planweave:chooseProjectFolder",
   chooseSourceRootFolder: "planweave:chooseSourceRootFolder",
   createPackageFileSnapshot: "planweave:createPackageFileSnapshot",

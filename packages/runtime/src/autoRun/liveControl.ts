@@ -20,14 +20,36 @@ export type RunnerConnectionHandle = {
   readonly supportsSessionClose: boolean;
 };
 
-export type LivePendingRequestHandle = {
+type LivePendingRequestBase = {
   readonly requestId: string;
   readonly interactionId: string;
-  readonly kind: "permission" | "authentication" | "elicitation";
   readonly requestedAt: string;
   readonly summary: string;
   respond: (value: JsonRpcValue) => Promise<void>;
   reject: (reason: string) => Promise<void>;
+};
+
+export type LivePermissionOption = {
+  readonly optionId: string;
+  readonly label: string;
+  readonly decision: "approve" | "deny";
+};
+
+export type LivePendingRequestHandle =
+  | (LivePendingRequestBase & {
+      readonly kind: "permission";
+      readonly permissionOptions: readonly LivePermissionOption[];
+    })
+  | (LivePendingRequestBase & {
+      readonly kind: "elicitation";
+      readonly elicitationSchema: JsonRpcValue;
+    })
+  | (LivePendingRequestBase & { readonly kind: "authentication" });
+
+export type RunnerInterventionCapabilities = {
+  cancel: boolean;
+  permission: boolean;
+  elicitationPreview: boolean;
 };
 
 export type LivePendingOperationHandle = {
@@ -49,6 +71,7 @@ export type RunnerLiveControl = {
   readonly process: RunnerProcessHandle;
   readonly connection: RunnerConnectionHandle;
   sessionId: string | null;
+  readonly interventionCapabilities: RunnerInterventionCapabilities;
   readonly pendingRequests: ReadonlyMap<string, LivePendingRequestHandle>;
   readonly pendingOperations: ReadonlyMap<string, LivePendingOperationHandle>;
 };
@@ -75,6 +98,7 @@ export class RunnerCleanupError extends AggregateError {
 
 const cleanupByControl = new WeakMap<RunnerLiveControl, Promise<RunnerCleanupResult>>();
 const respondingRequests = new WeakSet<LivePendingRequestHandle>();
+const respondingRequestPromises = new WeakMap<LivePendingRequestHandle, Promise<void>>();
 const settledRequests = new WeakSet<LivePendingRequestHandle>();
 const settledRequestIds = new WeakMap<RunnerLiveControl, Set<string>>();
 
@@ -165,8 +189,10 @@ export async function respondToPendingRunnerRequest(options: {
     throw new Error(`Live runner request '${options.requestId}' was already answered.`);
   }
   respondingRequests.add(request);
+  const response = Promise.resolve().then(() => request.respond(options.value));
+  respondingRequestPromises.set(request, response);
   try {
-    await request.respond(options.value);
+    await response;
     settledRequests.add(request);
     const ids = settledRequestIds.get(options.control) ?? new Set<string>();
     ids.add(options.requestId);
@@ -174,6 +200,8 @@ export async function respondToPendingRunnerRequest(options: {
   } catch (error) {
     respondingRequests.delete(request);
     throw error;
+  } finally {
+    respondingRequestPromises.delete(request);
   }
 }
 
@@ -195,7 +223,15 @@ async function performRunnerCleanup(
     persistedInteractionHistory(request, "terminal_cleanup")
   );
   const requestResults = await Promise.allSettled(requests.map(async (request) => {
-    if (respondingRequests.has(request) || settledRequests.has(request)) return;
+    const response = respondingRequestPromises.get(request);
+    if (response) {
+      try {
+        await response;
+      } catch {
+        // A failed response remains pending and must still be cancelled by terminal cleanup.
+      }
+    }
+    if (settledRequests.has(request)) return;
     respondingRequests.add(request);
     try {
       await request.reject(reason);

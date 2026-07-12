@@ -52,7 +52,9 @@ export const runnerEventReplayDiagnosticSchema = z
       "oversized_log",
       "retention_truncation",
       "subscriber_backpressure",
-      "subscriber_callback_failed"
+      "subscriber_callback_failed",
+      "conversation_projection_failed",
+      "publisher_failed"
     ]),
     line: z.number().int().positive().nullable(),
     message: z.string().min(1)

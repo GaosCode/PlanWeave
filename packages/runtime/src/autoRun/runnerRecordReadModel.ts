@@ -26,24 +26,51 @@ import {
   desktopRunIdSchema,
   executorRunIdSchema,
   projectIdSchema,
-  pendingInteractionKindSchema,
+  runnerRequestActionIdentitySchema,
   runnerRunIdSchema,
+  runnerSessionActionIdentitySchema,
   runSessionIdSchema,
   taskIdSchema
 } from "./runnerContractSchemas.js";
 
-const runnerRecordActiveInteractionSchema = z
+const runnerActionAvailabilitySchema = z
+  .object({
+    available: z.boolean(),
+    reason: z.string().min(1).max(512).nullable()
+  })
+  .strict();
+
+const runnerRecordActiveInteractionBaseSchema = z
   .object({
     requestId: z.string().min(1).max(256),
     interactionId: z.string().min(1).max(256),
-    kind: pendingInteractionKindSchema,
     requestedAt: z.string().datetime(),
     summary: safeRunnerEventTextSchema(4_096, "Active interaction summary").refine(
       (value) => value.length > 0,
       "Active interaction summary must not be empty."
-    )
+    ),
+    identity: runnerRequestActionIdentitySchema,
+    availability: runnerActionAvailabilitySchema
   })
   .strict();
+
+const runnerRecordActiveInteractionSchema = z.discriminatedUnion("kind", [
+  runnerRecordActiveInteractionBaseSchema.extend({
+    kind: z.literal("permission"),
+    permissionOptions: z.array(z.object({
+      optionId: z.string().min(1).max(256),
+      label: safeRunnerEventTextSchema(512, "Permission option label"),
+      decision: z.enum(["approve", "deny"])
+    }).strict()).min(1)
+  }).strict(),
+  runnerRecordActiveInteractionBaseSchema.extend({
+    kind: z.literal("elicitation"),
+    elicitationSchema: z.json()
+  }).strict(),
+  runnerRecordActiveInteractionBaseSchema.extend({
+    kind: z.literal("authentication")
+  }).strict()
+]);
 
 export const runnerRecordReadModelSchema = z
   .object({
@@ -52,6 +79,11 @@ export const runnerRecordReadModelSchema = z
     diagnostics: z.array(runnerEventReplayDiagnosticSchema),
     cursor: runnerEventCursorSchema,
     terminal: z.boolean(),
+    intervention: z.object({
+      cancel: runnerActionAvailabilitySchema.extend({
+        identity: runnerSessionActionIdentitySchema.nullable()
+      }).strict()
+    }).strict(),
     interaction: z
       .object({
         persisted: z.boolean(),
@@ -195,6 +227,13 @@ function failedIdentitySnapshot(options: {
         terminal: false
       },
       terminal: options.terminal ?? false,
+      intervention: {
+        cancel: {
+          available: false,
+          reason: "Exact live Desktop ACP session identity is unavailable.",
+          identity: null
+        }
+      },
       interaction: { persisted: false, active: false, stale: false, activeRequests: [] }
     },
     subscription: null
@@ -206,7 +245,7 @@ function interactionState(
   selected: SelectedRecordIdentity,
   cursor: RunnerEventCursor,
   events: readonly NormalizedRunnerEvent[]
-): RunnerRecordReadModel["interaction"] {
+): Pick<RunnerRecordReadModel, "interaction" | "intervention"> {
   const persistedRequestIds = new Set<string>(
     events.flatMap((event) => event.body.kind === "interaction"
       ? [event.body.interaction.requestId]
@@ -215,13 +254,13 @@ function interactionState(
   const persisted = persistedRequestIds.size > 0;
   const canonical = cursor.canonicalIdentity?.identity;
   if (!canonical?.executorRunId) {
-    return { persisted, active: false, stale: persisted, activeRequests: [] };
+    return unavailableIntervention(persisted, "Exact runner identity is unavailable.");
   }
   const sessionIds = new Set(
     events.flatMap((event) => event.correlation?.sessionId ? [event.correlation.sessionId] : [])
   );
   const sessionId = selected.sessionId ?? (sessionIds.size === 1 ? [...sessionIds][0] : undefined);
-  if (!sessionId) return { persisted, active: false, stale: persisted, activeRequests: [] };
+  if (!sessionId) return unavailableIntervention(persisted, "Exact ACP session identity is unavailable.");
   try {
     const registered = activeAgentRunRegistry.lookupExact({
       scope: runDir,
@@ -231,31 +270,113 @@ function interactionState(
       ...(canonical.runSessionId ? { runSessionId: canonical.runSessionId } : {}),
       sessionId
     });
-    if (!registered) return { persisted, active: false, stale: persisted, activeRequests: [] };
+    if (!registered) return unavailableIntervention(persisted, "No live owned ACP session is available.");
     if (
       (registered.identity.runSessionId ?? null) !== canonical.runSessionId ||
       (registered.identity.desktopRunId ?? null) !== canonical.desktopRunId
     ) {
-      return { persisted, active: false, stale: persisted, activeRequests: [] };
+      return unavailableIntervention(persisted, "Live ACP session identity does not match the selected record.");
     }
+    if (!canonical.desktopRunId || !canonical.runSessionId) {
+      return unavailableIntervention(persisted, "Exact Desktop run/session identity is unavailable.");
+    }
+    const sessionIdentity = runnerSessionActionIdentitySchema.parse({
+      scope: runDir,
+      executorRunId: canonical.executorRunId,
+      desktopRunId: canonical.desktopRunId,
+      runSessionId: canonical.runSessionId,
+      claimRef: canonical.claimRef,
+      sessionId
+    });
     const activeRequests = [...registered.control.pendingRequests.values()]
       .filter((request) => persistedRequestIds.has(request.requestId))
-      .map((request) => ({
-        requestId: request.requestId,
-        interactionId: request.interactionId,
-        kind: request.kind,
-        requestedAt: request.requestedAt,
-        summary: request.summary
-      }));
+      .map((request) => {
+        const identity = runnerRequestActionIdentitySchema.parse({
+          ...sessionIdentity,
+          requestId: request.requestId
+        });
+        const base = {
+          requestId: request.requestId,
+          interactionId: request.interactionId,
+          requestedAt: request.requestedAt,
+          summary: request.summary,
+          identity
+        };
+        if (request.kind === "permission") {
+          const available = registered.control.interventionCapabilities.permission;
+          return {
+            ...base,
+            kind: request.kind,
+            permissionOptions: [...request.permissionOptions],
+            availability: {
+              available,
+              reason: available ? null : "Permission intervention is not negotiated for this Desktop ACP session."
+            }
+          };
+        }
+        if (request.kind === "elicitation") {
+          const available = registered.control.interventionCapabilities.elicitationPreview;
+          return {
+            ...base,
+            kind: request.kind,
+            elicitationSchema: request.elicitationSchema,
+            availability: {
+              available,
+              reason: available ? null : "Preview elicitation is not negotiated for this Desktop ACP session."
+            }
+          };
+        }
+        return {
+          ...base,
+          kind: request.kind,
+          availability: {
+            available: false,
+            reason: "Authentication intervention is not supported by the Desktop runner."
+          }
+        };
+      });
+    const cancelAvailable =
+      registered.control.interventionCapabilities.cancel &&
+      (registered.lifecycleState === "running" || registered.lifecycleState === "waiting_interaction");
     return {
-      persisted,
-      active: activeRequests.length > 0,
-      stale: persisted && activeRequests.length === 0,
-      activeRequests
+      intervention: {
+        cancel: {
+          available: cancelAvailable,
+          reason: cancelAvailable
+            ? null
+            : registered.control.interventionCapabilities.cancel
+              ? `ACP session is not cancellable in state '${registered.lifecycleState}'.`
+              : "ACP session cancellation is not negotiated for this Desktop session.",
+          identity: sessionIdentity
+        }
+      },
+      interaction: {
+        persisted,
+        active: activeRequests.length > 0,
+        stale: persisted && activeRequests.length === 0,
+        activeRequests
+      }
     };
   } catch {
-    return { persisted, active: false, stale: persisted, activeRequests: [] };
+    return unavailableIntervention(persisted, "Live ACP session identity could not be verified.");
   }
+}
+
+function unavailableIntervention(
+  persisted: boolean,
+  reason: string
+): Pick<RunnerRecordReadModel, "interaction" | "intervention"> {
+  return {
+    intervention: {
+      cancel: { available: false, reason, identity: null }
+    },
+    interaction: {
+      persisted,
+      active: false,
+      stale: persisted,
+      activeRequests: []
+    }
+  };
 }
 
 function activeSnapshot(options: {
@@ -272,7 +393,7 @@ function activeSnapshot(options: {
   }
   return runnerRecordReadModelSchema.parse({
     ...replay,
-    interaction: interactionState(
+    ...interactionState(
       options.runDir,
       options.selected,
       completeReplay.cursor,
@@ -421,7 +542,7 @@ export async function consumeRunnerRecordReadModel(options: {
       diagnostics: [...boundaryDiagnostics, ...replay.diagnostics],
       cursor: replay.nextCursor,
       terminal: replay.terminal,
-      interaction: interactionState(
+      ...interactionState(
         options.runDir,
         selected,
         completeReplay.nextCursor,

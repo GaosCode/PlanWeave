@@ -27,7 +27,10 @@ const metadata = {
 
 function activeHandle(
   runDir: string,
-  ownerIds: { desktopRunId?: string; runSessionId?: string } = {}
+  ownerIds: { desktopRunId?: string; runSessionId?: string } = {
+    desktopRunId: "DESKTOP-001",
+    runSessionId: "SESSION-001"
+  }
 ): ActiveAgentRunHandle {
   const ownership = createLiveOwnership(`${runDir}:RUN-001`, 1);
   const pendingRequests = new Map([[
@@ -38,6 +41,7 @@ function activeHandle(
       kind: "permission" as const,
       requestedAt: "2026-07-11T00:00:00.000Z",
       summary: "approval required",
+      permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" as const }],
       respond: vi.fn(async () => undefined),
       reject: vi.fn(async () => undefined)
     }
@@ -78,6 +82,7 @@ function activeHandle(
         supportsSessionClose: false
       },
       sessionId: "session-1",
+      interventionCapabilities: { cancel: true, permission: true, elicitationPreview: true },
       pendingRequests,
       pendingOperations: new Map()
     }
@@ -103,8 +108,8 @@ function event(
       claimRef,
       runId: "RUN-001",
       runOwner: "executor",
-      runSessionId: ownerIds.runSessionId ?? null,
-      desktopRunId: ownerIds.desktopRunId ?? null,
+      runSessionId: ownerIds.runSessionId === undefined ? "SESSION-001" : ownerIds.runSessionId,
+      desktopRunId: ownerIds.desktopRunId === undefined ? "DESKTOP-001" : ownerIds.desktopRunId,
       executorRunId: "RUN-001"
     },
     runner: { version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" },

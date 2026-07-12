@@ -620,5 +620,14 @@ export const zhCnCatalog = {
   acpArtifact: "产物",
   acpRevealArtifact: "在文件管理器中显示",
   acpArtifactOpenError: "无法打开产物",
-  acpLifecycle: "生命周期"
+  acpLifecycle: "生命周期",
+  acpActions: "实时干预",
+  acpCancelRun: "取消运行",
+  acpActionPending: "等待运行时确认…",
+  acpActionError: "干预操作失败",
+  acpElicitationResponse: "Preview 请求响应（JSON）",
+  acpElicitationObjectRequired: "请求响应必须是 JSON 对象。",
+  acpSubmitElicitation: "提交响应",
+  acpCancelElicitation: "取消请求",
+  acpInteractionResult: "交互结果"
 } satisfies Record<TranslationKey, string>;

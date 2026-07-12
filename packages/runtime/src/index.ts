@@ -258,6 +258,8 @@ export {
   runnerNonterminalStateSchema,
   runnerRunIdSchema,
   runnerRunIdentitySchema,
+  runnerRequestActionIdentitySchema,
+  runnerSessionActionIdentitySchema,
   runnerTerminalStateSchema,
   runSessionIdSchema,
   taskIdSchema,
@@ -396,6 +398,7 @@ export {
   resolveTaskCanvasWorkspace,
   addCanvasDependency,
   addCrossTaskDependency,
+  cancelDesktopAgentRun,
   renameProject,
   renameTaskCanvas,
   removeBlock,
@@ -447,6 +450,7 @@ export {
 } from "./desktop/index.js";
 export {
   desktopAgentActionIdentitySchema,
+  desktopAgentSessionActionIdentitySchema,
   desktopAgentActionValueSchema,
   desktopRunnerRecordSubscriptionInputSchema,
   desktopRunnerRecordSubscriptionPushSchema

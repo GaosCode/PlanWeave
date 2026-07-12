@@ -1,7 +1,9 @@
 import { z } from "zod";
 import {
+  acpRequestIdSchema,
   acpCorrelationSchema,
   artifactReferenceSchema,
+  pendingInteractionKindSchema,
   persistedPendingInteractionSchema,
   runnerIdentitySchema,
   runnerLifecycleStateSchema,
@@ -90,6 +92,16 @@ const terminalOutputEventBodySchema = z
 const interactionEventBodySchema = z
   .object({ kind: z.literal("interaction"), interaction: persistedPendingInteractionSchema })
   .strict();
+const interactionResultEventBodySchema = z
+  .object({
+    kind: z.literal("interaction_result"),
+    requestId: acpRequestIdSchema,
+    interactionId: z.string().min(1).max(256),
+    interactionKind: pendingInteractionKindSchema,
+    outcome: z.enum(["approved", "denied", "submitted", "cancelled"]),
+    message: persistedMessageSchema
+  })
+  .strict();
 const artifactEventBodySchema = z
   .object({ kind: z.literal("artifact"), artifact: artifactReferenceSchema })
   .strict();
@@ -112,6 +124,8 @@ export const runnerDiagnosticCodeSchema = z.enum([
   "retention_truncation",
   "subscriber_backpressure",
   "subscriber_callback_failed",
+  "conversation_projection_failed",
+  "publisher_failed",
   "protocol_error"
 ]);
 const diagnosticEventBodySchema = z
@@ -140,6 +154,7 @@ export const normalizedRunnerEventSchema = z
       usageUpdateEventBodySchema,
       terminalOutputEventBodySchema,
       interactionEventBodySchema,
+      interactionResultEventBodySchema,
       artifactEventBodySchema,
       terminalEventBodySchema,
       diagnosticEventBodySchema

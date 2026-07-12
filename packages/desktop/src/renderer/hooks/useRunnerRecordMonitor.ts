@@ -34,6 +34,7 @@ function mergeModel(
     diagnostics: mergeDiagnostics(current.diagnostics, incoming.diagnostics),
     cursor: { ...cursor, terminal: current.terminal || incoming.terminal || cursor.terminal },
     terminal: current.terminal || incoming.terminal,
+    intervention: authoritativeState ? incoming.intervention : current.intervention,
     interaction: authoritativeState ? incoming.interaction : current.interaction
   };
 }
