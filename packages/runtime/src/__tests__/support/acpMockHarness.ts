@@ -8,6 +8,8 @@ export const ACP_PROTOCOL_AUTHORITY = {
   experimental: ["elicitation/create"]
 } as const;
 
+export const ACP_MOCK_OPERATION_TIMEOUT_MS = 2_000;
+
 export type AcpMockScenario =
   | "success"
   | "streaming"

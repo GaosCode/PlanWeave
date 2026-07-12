@@ -6,6 +6,7 @@ import {
   type AcpConnection,
   type AcpProtocolObservation
 } from "../autoRun/acpConnection.js";
+import { ACP_MOCK_OPERATION_TIMEOUT_MS } from "./support/acpMockHarness.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const environment = Object.fromEntries(
@@ -28,7 +29,7 @@ function connect(
     cwd: process.cwd(),
     env: environment,
     clientInfo: { name: "planweave-test-client", version: "1.0.0" },
-    defaultTimeoutMs: options.timeoutMs ?? 500,
+    defaultTimeoutMs: options.timeoutMs ?? ACP_MOCK_OPERATION_TIMEOUT_MS,
     shutdownGraceMs: options.shutdownGraceMs,
     onSessionUpdate(notification) {
       options.onUpdate?.(JSON.stringify(notification));

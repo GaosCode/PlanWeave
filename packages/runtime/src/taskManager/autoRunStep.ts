@@ -443,6 +443,7 @@ export async function runAutoRunStep(options: {
   tmuxEnabled?: boolean;
   tmuxOwnerRunId?: string;
   signal?: AbortSignal;
+  cliSignal?: AbortSignal;
   timeoutMs?: number;
   desktopRunId?: string;
   runSessionId?: string;
@@ -484,6 +485,7 @@ export async function runAutoRunStep(options: {
           tmuxEnabled: options.tmuxEnabled,
           tmuxOwnerRunId: options.tmuxOwnerRunId,
           signal: options.signal,
+          cliSignal: options.cliSignal,
           timeoutMs: options.timeoutMs,
           desktopRunId: options.desktopRunId,
           runSessionId: options.runSessionId,
@@ -548,6 +550,7 @@ export async function runAutoRunStep(options: {
         tmuxEnabled: options.tmuxEnabled,
         tmuxOwnerRunId: options.tmuxOwnerRunId,
         signal: options.signal,
+        cliSignal: options.cliSignal,
         timeoutMs: options.timeoutMs,
         desktopRunId: options.desktopRunId,
         runSessionId: options.runSessionId,

@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { afterEach, describe, expect, it } from "vitest";
+import { mkdir, readFile, rm } from "node:fs/promises";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getAutoRunState,
   getLatestAutoRunSummary,
@@ -7,6 +7,7 @@ import {
   pauseAutoRun,
   resetDesktopRuntimeState,
   resumeAutoRun,
+  shutdownDesktopAutoRuns,
   startAutoRun,
   stopAutoRun
 } from "../desktop/index.js";
@@ -417,7 +418,7 @@ describe("desktop auto run API", () => {
     });
   });
 
-  it("refuses Desktop reset while a stopped run loop is still settling", async () => {
+  it("refuses reset while a stopped run loop settles, then allows it", async () => {
     const manifest = manifestTestBuilder()
       .withExecutor("slow-codex", {
         adapter: "codex-exec",
@@ -441,25 +442,32 @@ describe("desktop auto run API", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
 
+    await expect(
+      resetDesktopRuntimeState(root, null, { force: true, reason: "in-flight reset" })
+    ).rejects.toThrow("Cannot reset runtime state while Auto Run is active");
     await expect(stopAutoRun(started.runId)).resolves.toMatchObject({ phase: "stopped" });
     await expect(
       resetDesktopRuntimeState(root, null, { force: true, reason: "test reset" })
     ).rejects.toThrow("Cannot reset runtime state while Auto Run is active");
+    await waitForAutoRunEvent(started.eventLogPath, (event) => event.type === "stopped_step_ignored");
+    await expect(
+      resetDesktopRuntimeState(root, null, { force: true, reason: "settled reset" })
+    ).resolves.toMatchObject({ forced: true });
     const resetSession = await latestResetSession(root);
     expect(resetSession).toMatchObject({
       kind: "reset",
       trigger: "desktop",
-      phase: "failed",
-      error: expect.stringContaining("Cannot reset runtime state while Auto Run is active")
+      phase: "completed",
+      error: null
     });
     const resetDetail = await getRunSession(root, resetSession.sessionId);
     expect(resetDetail.diagnostics).toEqual([]);
     expect(resetDetail.events.at(-1)).toMatchObject({
-      type: "session_failed",
-      phase: "failed",
+      type: "session_completed",
+      phase: "completed",
       stoppedAutoRunIds: []
     });
-    expectFinalSessionEvent(resetDetail.events, "session_failed");
+    expectFinalSessionEvent(resetDetail.events, "session_completed");
     const autoRunDetail = await getRunSession(root, started.runSessionId!);
     expect(autoRunDetail.session.phase).toBe("stopped");
     expect(autoRunDetail.events.filter((event) => event.type === "session_completed")).toHaveLength(
@@ -467,6 +475,99 @@ describe("desktop auto run API", () => {
     );
     expectFinalSessionEvent(autoRunDetail.events, "session_stopped");
     await new Promise((resolve) => setTimeout(resolve, 600));
+  });
+
+  it("handles loop persistence failure and lets stop observe the retained loop error", async () => {
+    const manifest = manifestTestBuilder()
+      .withExecutor("slow-codex", {
+        adapter: "codex-exec",
+        command: process.execPath,
+        args: [
+          "-e",
+          "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => setTimeout(() => console.log('loop failure ' + input.split('\\n')[0]), 150));"
+        ]
+      })
+      .withDefaultExecutor("slow-codex")
+      .build();
+    const { root } = await createTestWorkspace(manifest);
+    const started = await startAutoRun(root, null, { kind: "project" }, 2, noTmux);
+    startedRunIds.add(started.runId);
+    await waitForAutoRunEvent(started.eventLogPath, (event) => event.type === "step_start");
+    await rm(started.statePath, { force: true });
+    await mkdir(started.statePath);
+    const unhandled = vi.fn();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    process.on("unhandledRejection", unhandled);
+    try {
+      for (let attempt = 0; attempt < 500 && consoleError.mock.calls.length === 0; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining(`Desktop Auto Run '${started.runId}' loop failed:`)
+      );
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(unhandled).not.toHaveBeenCalled();
+      await expect(stopAutoRun(started.runId)).rejects.toThrow(
+        `Desktop Auto Run '${started.runId}' stop and loop settlement both failed.`
+      );
+    } finally {
+      process.off("unhandledRejection", unhandled);
+      consoleError.mockRestore();
+      await rm(started.statePath, { recursive: true, force: true });
+      await expect(stopAutoRun(started.runId)).resolves.toMatchObject({ phase: "stopped" });
+    }
+  });
+
+  it("shuts down and awaits an in-flight non-tmux CLI loop", async () => {
+    const manifest = manifestTestBuilder()
+      .withExecutor("slow-codex", {
+        adapter: "codex-exec",
+        command: process.execPath,
+        args: [
+          "-e",
+          "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => setTimeout(() => console.log('desktop teardown ' + input.split('\\n')[0]), 5_000));"
+        ]
+      })
+      .withDefaultExecutor("slow-codex")
+      .build();
+    const { root, init } = await createTestWorkspace(manifest);
+    const started = await startAutoRun(root, null, { kind: "project" }, 2, noTmux);
+    startedRunIds.add(started.runId);
+    await waitForAutoRunEvent(started.eventLogPath, (event) => event.type === "step_start");
+
+    await expect(shutdownDesktopAutoRuns("test Desktop teardown")).resolves.toBeUndefined();
+    await expect(getAutoRunState(started.runId)).rejects.toThrow(
+      `Auto Run '${started.runId}' does not exist.`
+    );
+    const state = await readState(init.workspace.stateFile);
+    expect(state.blocks["T-001#B-001"]?.status).toBe("ready");
+    await expect(shutdownDesktopAutoRuns("repeated test Desktop teardown")).resolves.toBeUndefined();
+  });
+
+  it("does not claim CLI work after an immediate pre-claim stop", async () => {
+    const manifest = manifestTestBuilder()
+      .withExecutor("slow-codex", {
+        adapter: "codex-exec",
+        command: process.execPath,
+        args: [
+          "-e",
+          "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => setTimeout(() => console.log('must not run ' + input.split('\\n')[0]), 5_000));"
+        ]
+      })
+      .withDefaultExecutor("slow-codex")
+      .build();
+    const { root, init } = await createTestWorkspace(manifest);
+    const started = await startAutoRun(root, null, { kind: "project" }, 2, noTmux);
+    startedRunIds.add(started.runId);
+
+    await expect(stopAutoRun(started.runId)).resolves.toMatchObject({ phase: "stopped" });
+    const state = await readState(init.workspace.stateFile);
+    expect(state.blocks["T-001#B-001"]?.status).toBe("ready");
+    await expect(listAutoRunEvents(root, null, started.runId)).resolves.toMatchObject({
+      events: expect.not.arrayContaining([
+        expect.objectContaining({ type: "stopped_step_ignored" })
+      ])
+    });
   });
 
   it("can disable tmux monitoring while preserving streaming run records", async () => {
@@ -523,13 +624,14 @@ describe("desktop auto run API", () => {
     startedRunIds.add(started.runId);
     await waitForAutoRunEvent(started.eventLogPath, (event) => event.type === "step_start");
 
-    await expect(stopAutoRun(started.runId)).resolves.toMatchObject({ phase: "stopped" });
-    await expect(stopAutoRun(started.runId)).resolves.toMatchObject({ phase: "stopped" });
+    const firstStop = stopAutoRun(started.runId);
+    const repeatedStop = stopAutoRun(started.runId);
+    await expect(firstStop).resolves.toMatchObject({ phase: "stopped" });
+    await expect(repeatedStop).resolves.toMatchObject({ phase: "stopped" });
     await waitForAutoRunEvent(
       started.eventLogPath,
       (event) => event.type === "stopped_step_ignored"
     );
-
     const stopped = await getLatestAutoRunSummary(root, null);
     if (!stopped) {
       throw new Error("Expected stopped Auto Run summary.");

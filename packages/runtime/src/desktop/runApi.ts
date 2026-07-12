@@ -8,6 +8,7 @@ import {
   type ActiveAgentRunSessionActionIdentity
 } from "../autoRun/activeAgentRunRegistry.js";
 import type { JsonRpcValue, RunnerInteractionBroker } from "../autoRun/liveControl.js";
+import { redactRunnerEventText } from "../autoRun/runnerEventRedaction.js";
 import { createAutoRunExplanation, runAutoRunStep } from "../taskManager/autoRun.js";
 import { resetMaxCycleReviewsForRetry } from "../taskManager/reviewRetry.js";
 import { loadPackage } from "../package/loadPackage.js";
@@ -67,7 +68,15 @@ const runs = new Map<string, DesktopAutoRunState>();
 const runWorkspaces = new Map<string, ProjectWorkspace>();
 const stopOperations = new Map<string, Promise<DesktopAutoRunState>>();
 const activeLoops = new Set<string>();
+type DesktopRunLoopOperation = {
+  result: Promise<void>;
+  handled: Promise<void>;
+  error: unknown | null;
+  inFlight: boolean;
+};
+const runLoopOperations = new Map<string, DesktopRunLoopOperation>();
 const runAbortControllers = new Map<string, AbortController>();
+const runCliAbortControllers = new Map<string, AbortController>();
 const autoRunEventListeners = new Set<DesktopAutoRunEventListener>();
 const finalRunSessionEventTypes = new Set([
   "session_completed",
@@ -326,6 +335,16 @@ async function runLoop(runId: string): Promise<void> {
         const { manifest } = await loadPackage(workspace);
         await appendAutoRunEvent(current, "step_start", { scope: current.scope });
         await appendDesktopRunSessionEvent(current, "step_start", { scope: current.scope });
+        const beforeClaim = runs.get(runId);
+        const operation = runLoopOperations.get(runId);
+        if (
+          !beforeClaim ||
+          beforeClaim.phase === "stopped" ||
+          runAbortControllers.get(runId)?.signal.aborted
+        ) {
+          return;
+        }
+        if (operation) operation.inFlight = true;
         const step = await runAutoRunStep({
           projectRoot: workspace,
           parallel: manifest.execution.parallel.enabled,
@@ -335,8 +354,10 @@ async function runLoop(runId: string): Promise<void> {
           desktopRunId: runId,
           runSessionId: current.runSessionId ?? undefined,
           signal: runAbortControllers.get(runId)?.signal,
+          cliSignal: runCliAbortControllers.get(runId)?.signal,
           interactionBroker: desktopInteractionBroker
         });
+        if (operation) operation.inFlight = false;
         invalidateDesktopProjectProjection(current.projectRoot);
         const { record, warnings } = await latestStatus(workspace);
         const patch = terminalPatch(step, warnings);
@@ -380,6 +401,8 @@ async function runLoop(runId: string): Promise<void> {
           }
         );
       } catch (error) {
+        const operation = runLoopOperations.get(runId);
+        if (operation) operation.inFlight = false;
         const afterError = runs.get(runId);
         if (!afterError || afterError.phase === "stopped") {
           return;
@@ -422,7 +445,29 @@ export function cancelDesktopAgentRun(
 }
 
 function launchRunLoop(runId: string): void {
-  void runLoop(runId);
+  if (runLoopOperations.has(runId)) return;
+  const result = runLoop(runId);
+  const operation: DesktopRunLoopOperation = {
+    result,
+    handled: Promise.resolve(),
+    error: null,
+    inFlight: false
+  };
+  operation.handled = result.then(
+    () => {
+      if (runLoopOperations.get(runId) === operation) {
+        runLoopOperations.delete(runId);
+      }
+    },
+    (error: unknown) => {
+      operation.error = error;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        `Desktop Auto Run '${runId}' loop failed: ${redactRunnerEventText(message).text}`
+      );
+    }
+  );
+  runLoopOperations.set(runId, operation);
 }
 
 function canRehydratePersistedRun(state: DesktopAutoRunState): boolean {
@@ -495,11 +540,12 @@ function releaseRunResources(runId: string, state = runs.get(runId)): void {
   if (!state || isRunIdConflictProtected(state)) {
     return;
   }
-  runWorkspaces.delete(runId);
-  runAbortControllers.delete(runId);
   if (activeLoops.has(runId)) {
     return;
   }
+  runWorkspaces.delete(runId);
+  runAbortControllers.delete(runId);
+  runCliAbortControllers.delete(runId);
   runs.delete(runId);
 }
 
@@ -525,6 +571,8 @@ function rehydratePersistedRun(
   assertRunIdMatchesExistingTarget(rehydrated);
   runs.set(rehydrated.runId, rehydrated);
   runWorkspaces.set(rehydrated.runId, workspace);
+  runAbortControllers.set(rehydrated.runId, new AbortController());
+  runCliAbortControllers.set(rehydrated.runId, new AbortController());
   return rehydrated;
 }
 
@@ -581,6 +629,7 @@ export async function startAutoRun(
   });
   runs.set(runId, state);
   runAbortControllers.set(runId, new AbortController());
+  runCliAbortControllers.set(runId, new AbortController());
   runWorkspaces.set(runId, workspace);
   await writePersistedAutoRunState(state);
   await appendAutoRunEvent(state, "run_started", {
@@ -631,6 +680,12 @@ export async function resumeAutoRun(runId: string): Promise<DesktopAutoRunState>
   if (current.phase !== "paused" && current.phase !== "pausing") {
     return cloneAutoRunState(current);
   }
+  if (!runAbortControllers.has(runId)) {
+    runAbortControllers.set(runId, new AbortController());
+  }
+  if (!runCliAbortControllers.has(runId)) {
+    runCliAbortControllers.set(runId, new AbortController());
+  }
   const state = await setState(runId, { phase: "running", error: null }, "run_resumed");
   launchRunLoop(runId);
   return cloneAutoRunState(state);
@@ -656,13 +711,48 @@ export async function stopAutoRun(runId: string): Promise<DesktopAutoRunState> {
     if (latest.phase === "stopped") {
       return latest;
     }
+    const loopOperation = runLoopOperations.get(runId);
     runAbortControllers.get(runId)?.abort(new Error("Desktop Auto Run stopped."));
     const killed =
       latest.phase === "running" || latest.phase === "pausing"
         ? await killTmuxSessionsForRun(runId)
         : [];
     await shutdownDesktopAgentRun(runId, "Desktop Auto Run stopped.");
-    return setState(runId, { phase: "stopped" }, "run_stopped", { killedTmuxSessions: killed });
+    let stopped: DesktopAutoRunState | undefined;
+    let terminalError: unknown;
+    try {
+      stopped = await setState(
+        runId,
+        { phase: "stopped" },
+        "run_stopped",
+        { killedTmuxSessions: killed }
+      );
+    } catch (error) {
+      terminalError = error;
+    }
+    let loopError: unknown;
+    if (loopOperation && !loopOperation.inFlight) {
+      try {
+        await loopOperation.result;
+      } catch (error) {
+        loopError = loopOperation.error ?? error;
+      } finally {
+        await loopOperation.handled;
+        if (runLoopOperations.get(runId) === loopOperation) {
+          runLoopOperations.delete(runId);
+        }
+      }
+    }
+    if (terminalError !== undefined && loopError !== undefined) {
+      throw new AggregateError(
+        [terminalError, loopError],
+        `Desktop Auto Run '${runId}' stop and loop settlement both failed.`
+      );
+    }
+    if (terminalError !== undefined) throw terminalError;
+    if (loopError !== undefined) throw loopError;
+    if (!stopped) throw new Error(`Desktop Auto Run '${runId}' did not persist its stopped state.`);
+    return stopped;
   })();
   stopOperations.set(runId, stopOperation);
   try {
@@ -671,6 +761,46 @@ export async function stopAutoRun(runId: string): Promise<DesktopAutoRunState> {
     if (stopOperations.get(runId) === stopOperation) {
       stopOperations.delete(runId);
     }
+  }
+}
+
+export async function shutdownDesktopAutoRuns(
+  reason = "PlanWeave Desktop is shutting down."
+): Promise<void> {
+  const runIds = new Set([
+    ...runLoopOperations.keys(),
+    ...[...runs.values()]
+      .filter((run) => isRunIdConflictProtected(run))
+      .map((run) => run.runId)
+  ]);
+  const loopOperations = [...runIds].flatMap((runId) => {
+    const operation = runLoopOperations.get(runId);
+    return operation ? [{ runId, operation }] : [];
+  });
+  for (const runId of runIds) {
+    runAbortControllers.get(runId)?.abort(new Error(reason));
+    runCliAbortControllers.get(runId)?.abort(new Error(reason));
+  }
+  const stopResults = await Promise.allSettled(
+    [...runIds].map((runId) => stopAutoRun(runId))
+  );
+  const loopResults = await Promise.allSettled(
+    loopOperations.map(({ operation }) => operation.result)
+  );
+  await Promise.all(loopOperations.map(({ operation }) => operation.handled));
+  for (const { runId, operation } of loopOperations) {
+    if (runLoopOperations.get(runId) === operation) {
+      runLoopOperations.delete(runId);
+    }
+  }
+  const agentCleanup = await Promise.allSettled([
+    activeAgentRunRegistry.shutdown(reason)
+  ]);
+  const failures = [...stopResults, ...loopResults, ...agentCleanup].flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : []
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(failures, "Desktop Auto Run shutdown did not complete cleanly.");
   }
 }
 

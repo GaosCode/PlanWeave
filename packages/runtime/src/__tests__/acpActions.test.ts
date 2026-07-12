@@ -18,6 +18,7 @@ import {
   type LivePendingRequestHandle,
   type RunnerLiveControl
 } from "../autoRun/liveControl.js";
+import { ACP_MOCK_OPERATION_TIMEOUT_MS } from "./support/acpMockHarness.js";
 
 const acpFixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 
@@ -118,7 +119,7 @@ describe("ACP live actions", () => {
       });
       try {
         await expect(controller.execute(controllerRun(root, scenario), {
-          timeoutMs: 1_000,
+          timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
           interactionBroker: {
             mode: "interactive",
             requestAvailable: async (request) => {
@@ -199,7 +200,7 @@ describe("ACP live actions", () => {
     });
     const controller = new AcpSessionController(registry);
     await expect(controller.execute(controllerRun(root, "permission-deny"), {
-      timeoutMs: 1_000,
+      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
       interactionBroker: { mode: "interactive", requestAvailable: available }
     })).resolves.toMatchObject({ kind: "block", exitCode: 0 });
     expect(available).toHaveBeenCalledTimes(1);
@@ -215,7 +216,7 @@ describe("ACP live actions", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-headless-permission-"));
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
     await expect(controller.execute(controllerRun(root, "permission-secret"), {
-      timeoutMs: 1_000
+      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS
     })).resolves.toMatchObject({ kind: "block", exitCode: 0 });
     const events = await readFile(join(root, "events.ndjson"), "utf8");
     expect(events).toContain('"interactionKind":"permission"');
@@ -231,7 +232,7 @@ describe("ACP live actions", () => {
       const root = await mkdtemp(join(tmpdir(), `planweave-acp-${scenario}-`));
       const controller = new AcpSessionController(new ActiveAgentRunRegistry());
       await expect(controller.execute(controllerRun(root, scenario), {
-        timeoutMs: 1_000,
+        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
         ...(interactionBroker ? { interactionBroker } : {})
       })).rejects.toThrow("Final artifact marker was not found");
     }
@@ -242,7 +243,7 @@ describe("ACP live actions", () => {
     const available = vi.fn();
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
     await expect(controller.execute(controllerRun(root, "unsupported-elicitation"), {
-      timeoutMs: 1_000,
+      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
       interactionBroker: { mode: "interactive", requestAvailable: available }
     })).rejects.toThrow("Final artifact marker was not found");
     expect(available).not.toHaveBeenCalled();
@@ -257,7 +258,7 @@ describe("ACP live actions", () => {
       const root = await mkdtemp(join(tmpdir(), `planweave-acp-${scenario}-`));
       const controller = new AcpSessionController(new ActiveAgentRunRegistry());
       await expect(controller.execute(controllerRun(root, scenario), {
-        timeoutMs: 1_000,
+        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
         interactionBroker: {
           mode: "interactive",
           requestAvailable: async (request) => {
@@ -291,7 +292,7 @@ describe("ACP live actions", () => {
     const pending: LivePendingRequestHandle[] = [];
     const controller = new AcpSessionController(registry);
     await expect(controller.execute(controllerRun(root, "multi-interaction"), {
-      timeoutMs: 1_000,
+      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
       interactionBroker: {
         mode: "interactive",
         requestAvailable: async (request) => {

@@ -18,6 +18,7 @@ import { manifestTestBuilder } from "./manifestTestBuilder.js";
 import { startAutoRun, stopAutoRun } from "../desktop/runApi.js";
 import { activeAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { trustCommand } from "../taskManager/hookTrustStore.js";
+import { ACP_MOCK_OPERATION_TIMEOUT_MS } from "./support/acpMockHarness.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 
@@ -125,7 +126,7 @@ describe("ActiveAgentRunRegistry", () => {
 describe("AcpSessionController lifecycle", () => {
   async function execute(
     scenario: string,
-    timeoutMs = 500,
+    timeoutMs = ACP_MOCK_OPERATION_TIMEOUT_MS,
     signal?: AbortSignal,
     controller?: AcpSessionController
   ) {
@@ -421,13 +422,18 @@ describe("Desktop ACP stop ownership", () => {
     try {
       expect((await getExecutionStatus({ projectRoot: init.workspace })).blocks[0]?.effectiveExecutor).toBe("codex-acp");
       const started = await startAutoRun(root, null, { kind: "project" }, 1, { tmuxEnabled: false });
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        if (activeAgentRunRegistry.lookupDesktopRun(started.runId)?.identity.sessionId) break;
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      }
+      await waitForCondition(async () =>
+        activeAgentRunRegistry.lookupDesktopRun(started.runId)?.identity.sessionId === "mock-session-1"
+      );
       expect(activeAgentRunRegistry.lookupDesktopRun(started.runId)?.identity.sessionId).toBe("mock-session-1");
       await stopAutoRun(started.runId);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await waitForCondition(async () => {
+        const status = await getExecutionStatus({ projectRoot: init.workspace });
+        return (
+          status.blocks.find((block) => block.ref === "T-001#B-001")?.status === "ready" &&
+          activeAgentRunRegistry.lookupDesktopRun(started.runId) === null
+        );
+      });
       const status = await getExecutionStatus({ projectRoot: init.workspace });
       expect(status.blocks.find((block) => block.ref === "T-001#B-001")?.status).toBe("ready");
       expect(activeAgentRunRegistry.lookupDesktopRun(started.runId)).toBeNull();

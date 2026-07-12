@@ -9,6 +9,7 @@ import { AcpEventReadModelRegistry } from "../autoRun/acpEventReadModel.js";
 import { AcpEventStore } from "../autoRun/acpEventStore.js";
 import { createAcpElicitationSettlement } from "../autoRun/acpElicitationSettlement.js";
 import type { LivePendingRequestHandle } from "../autoRun/liveControl.js";
+import { ACP_MOCK_OPERATION_TIMEOUT_MS } from "./support/acpMockHarness.js";
 
 const acpFixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 
@@ -82,7 +83,7 @@ describe("ACP Preview elicitation settlement", () => {
       const root = await mkdtemp(join(tmpdir(), `planweave-acp-elicitation-${decision}-`));
       const controller = new AcpSessionController(new ActiveAgentRunRegistry());
       await expect(controller.execute(controllerRun(root, "required"), {
-        timeoutMs: 1_000,
+        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
         interactionBroker: {
           mode: "interactive",
           requestAvailable: async (request) => {
@@ -103,7 +104,7 @@ describe("ACP Preview elicitation settlement", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-elicitation-one-shot-"));
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
     await expect(controller.execute(controllerRun(root, "required"), {
-      timeoutMs: 1_000,
+      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
       interactionBroker: {
         mode: "interactive",
         requestAvailable: async (request) => {
@@ -136,7 +137,7 @@ describe("ACP Preview elicitation settlement", () => {
     const registry = new ActiveAgentRunRegistry();
     const controller = new AcpSessionController(registry);
     await expect(controller.execute(controllerRun(root, schema), {
-      timeoutMs: 1_000,
+      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
       interactionBroker: {
         mode: "interactive",
         requestAvailable: async (request) => {
@@ -161,7 +162,7 @@ describe("ACP Preview elicitation settlement", () => {
     const available = vi.fn();
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
     await expect(controller.execute(controllerRun(root, "unsupported"), {
-      timeoutMs: 1_000,
+      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
       interactionBroker: { mode: "interactive", requestAvailable: available }
     })).rejects.toThrow(/unsupported property type|Invalid params/i);
     expect(available).not.toHaveBeenCalled();
@@ -186,7 +187,7 @@ describe("ACP Preview elicitation settlement", () => {
     const controller = new AcpSessionController(registry, undefined, eventModels);
     await expect(controller.execute(controllerRun(root, "required"), {
       signal: abort.signal,
-      timeoutMs: 1_000,
+      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
       interactionBroker: {
         mode: "interactive",
         requestAvailable: async (request) => {
@@ -234,7 +235,7 @@ describe("ACP permission settlement", () => {
     const registry = new ActiveAgentRunRegistry();
     const controller = new AcpSessionController(registry, undefined, eventModels);
     await expect(controller.execute(permissionRun(root, scenario), {
-      timeoutMs: 1_000,
+      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
       interactionBroker: {
         mode: "interactive",
         requestAvailable: async (request) => {
@@ -273,7 +274,7 @@ describe("ACP permission settlement", () => {
     const registry = new ActiveAgentRunRegistry();
     const controller = new AcpSessionController(registry, undefined, eventModels);
     await expect(controller.execute(permissionRun(root, "permission-secret"), {
-      timeoutMs: 1_000,
+      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
       interactionBroker: {
         mode: "interactive",
         requestAvailable: async (request) => {

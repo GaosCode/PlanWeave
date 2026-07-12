@@ -46,7 +46,7 @@ export function runProfileBlock(input: ExecutorBlockInput) {
     const definition = resolveAgentDefinition(input.profile.agent);
     if ("command" in input.profile) {
       const runtime = input.runtime?.desktopRunId
-        ? { ...input.runtime, signal: undefined }
+        ? { ...input.runtime, signal: input.runtime.cliSignal }
         : input.runtime;
       return resolveAgentRunner(input.profile).runBlock(
         { ...input, profile: input.profile, runtime },
@@ -73,7 +73,7 @@ export function runProfileFeedback(input: ExecutorFeedbackInput) {
     const definition = resolveAgentDefinition(input.profile.agent);
     if ("command" in input.profile) {
       const runtime = input.runtime?.desktopRunId
-        ? { ...input.runtime, signal: undefined }
+        ? { ...input.runtime, signal: input.runtime.cliSignal }
         : input.runtime;
       return resolveAgentRunner(input.profile).runFeedback(
         { ...input, profile: input.profile, runtime },

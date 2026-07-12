@@ -1,5 +1,5 @@
 import type { PathLike } from "node:fs";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -32,9 +32,11 @@ import {
   listAutoRunEvents,
   resolveTaskCanvasWorkspace,
   resumeAutoRun,
+  shutdownDesktopAutoRuns,
   startAutoRun,
   stopAutoRun
 } from "../desktop/index.js";
+import { readState } from "../state.js";
 import type { DesktopAutoRunState } from "../desktop/index.js";
 import {
   nextPersistedAutoRunId,
@@ -501,7 +503,17 @@ describe("desktop auto run persistence", () => {
   });
 
   it("rehydrates persisted paused Auto Run summaries so they can resume", async () => {
-    const manifest = manifestTestBuilder().build();
+    const manifest = manifestTestBuilder()
+      .withExecutor("slow-codex", {
+        adapter: "codex-exec",
+        command: process.execPath,
+        args: [
+          "-e",
+          "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => setTimeout(() => console.log('rehydrated ' + input.split('\\n')[0]), 5_000));"
+        ]
+      })
+      .withDefaultExecutor("slow-codex")
+      .build();
     const { root, init } = await createTestWorkspace(manifest);
     const paused = persistedAutoRunState(init.workspace, {
       runId: "DESKTOP-RUN-9104",
@@ -527,6 +539,15 @@ describe("desktop auto run persistence", () => {
       runId: paused.runId,
       phase: "running"
     });
+    startedRunIds.add(paused.runId);
+    for (let attempt = 0; attempt < 500; attempt += 1) {
+      const log = await readFile(paused.eventLogPath, "utf8").catch(() => "");
+      if (log.includes('"type":"step_start"')) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await expect(shutdownDesktopAutoRuns("rehydrated run teardown")).resolves.toBeUndefined();
+    const state = await readState(init.workspace.stateFile);
+    expect(state.blocks["T-001#B-001"]?.status).toBe("ready");
   });
 
   it("keeps stopped runs readable from disk after releasing terminal state", async () => {

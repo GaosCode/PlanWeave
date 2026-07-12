@@ -425,6 +425,7 @@ export {
   searchProjectWithDiagnostics,
   selectTaskCanvas,
   setSourceDefaultProject,
+  shutdownDesktopAutoRuns,
   startAutoRun,
   stopAutoRun,
   subscribeRunRecord,

@@ -1147,6 +1147,7 @@ exit 1
     const source = await readFile(join(process.cwd(), "packages/desktop/src/main/main.ts"), "utf8");
 
     expect(source).toContain("stopMcpTunnelProcesses");
+    expect(source).toContain("shutdownDesktopAutoRuns");
     expect(source).toContain('app.on("before-quit"');
   });
 });

@@ -12,6 +12,7 @@ export type ExecutorRuntimeOptions = {
   tmuxEnabled?: boolean;
   tmuxOwnerRunId?: string;
   signal?: AbortSignal;
+  cliSignal?: AbortSignal;
   timeoutMs?: number;
   desktopRunId?: string;
   runSessionId?: string;
