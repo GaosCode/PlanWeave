@@ -114,6 +114,8 @@
     --app-canvas: oklch(0.987 0.003 106);
     --app-panel: oklch(0.99 0.002 106);
     --app-sidebar-material: oklch(0.965 0.004 106 / 36%);
+    --app-sidebar-project: oklch(0.965 0.005 106);
+    --app-sidebar-project-material: oklch(0.965 0.004 106 / 38%);
     /* Glass surface strength knobs. Shared by every .glass-surface region so a
        future contrast/intensity setting can tune all glass from one place. */
     --glass-blur: 20px;
@@ -185,6 +187,8 @@
     --app-canvas: oklch(0.16 0.008 120);
     --app-panel: oklch(0.225 0.006 80);
     --app-sidebar-material: oklch(0.2 0.005 80 / 40%);
+    --app-sidebar-project: oklch(0.215 0.006 80);
+    --app-sidebar-project-material: oklch(0.2 0.005 80 / 42%);
     --surface-base: oklch(0.205 0.006 80);
     --surface-muted: oklch(0.265 0.008 248);
     --surface-raised: oklch(0.245 0.007 80);
@@ -263,6 +267,19 @@ html[data-window-material="true"] #root {
 
 html[data-window-material="true"] .glass-surface {
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+
+.project-sidebar {
+  background-color: var(--app-sidebar-project);
+}
+
+html[data-window-material="true"] .project-sidebar {
+  background-color: var(--app-sidebar-project-material);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+
+html[data-window-material="true"] .project-sidebar[data-resizing="true"] {
+  backdrop-filter: none;
 }
 
 html[data-reduced-motion="true"] *,

@@ -15,6 +15,8 @@ type UseResizableSidebarLayoutArgs = {
 };
 
 type UseResizableSidebarLayoutResult = {
+  isResizingLeft: boolean;
+  isResizingRight: boolean;
   leftSidebarCollapsed: boolean;
   rightSidebarCollapsed: boolean;
   leftSidebarWidth: number;
@@ -37,6 +39,8 @@ export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseR
     rightCollapsed: false,
     rightWidth: false
   });
+  const [isResizingLeft, setIsResizingLeft] = useState(false);
+  const [isResizingRight, setIsResizingRight] = useState(false);
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(() => initialLayout.leftSidebar.collapsed);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(() => initialLayout.rightSidebar.collapsed);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(() => clampSidebarWidth(initialLayout.leftSidebar.width, desktopSidebarWidthBounds.left));
@@ -87,8 +91,10 @@ export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseR
       activeResizeSideRef.current = side;
       if (side === "left") {
         localInteractionRef.current.leftWidth = true;
+        setIsResizingLeft(true);
       } else {
         localInteractionRef.current.rightWidth = true;
+        setIsResizingRight(true);
       }
 
       const startX = event.clientX;
@@ -114,6 +120,11 @@ export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseR
         window.removeEventListener("pointercancel", stopResize);
         window.document.body.style.cursor = previousCursor;
         window.document.body.style.userSelect = previousUserSelect;
+        if (side === "left") {
+          setIsResizingLeft(false);
+        } else {
+          setIsResizingRight(false);
+        }
         if (cleanupResizeRef.current === cleanupResize) {
           cleanupResizeRef.current = null;
           activeResizeSideRef.current = null;
@@ -136,6 +147,8 @@ export function useResizableSidebarLayout({ initialLayout, onLayoutPatch }: UseR
   useEffect(() => () => cleanupResizeRef.current?.(), []);
 
   return {
+    isResizingLeft,
+    isResizingRight,
     leftSidebarCollapsed,
     leftSidebarWidth,
     rightSidebarCollapsed,

@@ -5,7 +5,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingsAgentsSection } from "../settings/SettingsAgentsSection";
 import { SettingsComponentsSection } from "../settings/SettingsComponentsSection";
 import { SettingsGeneralSection } from "../settings/SettingsGeneralSection";
-import { SettingsNav } from "../settings/SettingsNav";
 import type { SettingsSection } from "../settings/SettingsNav";
 import { SettingsMcpSection } from "../settings/SettingsMcpSection";
 import { SettingsReviewSection } from "../settings/SettingsReviewSection";
@@ -26,6 +25,7 @@ type SettingsViewProps = {
   projects?: DesktopProjectSummary[];
   selectedCanvasId?: string | null;
   selectedProject?: DesktopProjectSummary | null;
+  section: SettingsSection;
   loadProject?: (project: DesktopProjectSummary) => Promise<void>;
   setActiveView: Dispatch<SetStateAction<AppView>>;
   setError?: (message: string | null) => void;
@@ -49,6 +49,7 @@ export function SettingsView({
   projects = [],
   selectedCanvasId = null,
   selectedProject,
+  section,
   loadProject,
   setActiveView,
   setError = () => undefined,
@@ -60,7 +61,6 @@ export function SettingsView({
   updateProjectPromptPolicy,
   updateSettings
 }: SettingsViewProps) {
-  const [section, setSection] = useState<SettingsSection>("general");
   const [projectPromptDraft, setProjectPromptDraft] = useState(projectPromptMarkdown ?? "");
   const [projectPromptSaving, setProjectPromptSaving] = useState(false);
   const [remoteProfiles, setRemoteProfiles] = useState<RemoteProfile[]>([]);
@@ -92,14 +92,12 @@ export function SettingsView({
 
   return (
     <main className="flex h-full min-h-0 text-text">
-      <SettingsNav section={section} setSection={setSection} onBackToApp={() => setActiveView("graph")} t={t} />
-      <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-l-xl bg-app-shell text-text">
-        <div className="app-drag-region h-11 shrink-0 border-b border-border/80 bg-app-topbar" />
+      <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-app-shell text-text">
         <ScrollArea
           className="min-h-0 min-w-0 flex-1 bg-app-canvas"
           viewportClassName="h-full [&>div]:!block [&>div]:!min-h-full [&>div]:!w-full"
         >
-          <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-12 py-10 pb-16">
+          <div className="view-enter mx-auto flex w-full max-w-5xl flex-col gap-8 px-8 py-8 pb-16">
           {section === "general" ? (
             <SettingsGeneralSection
               language={language}

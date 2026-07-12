@@ -176,6 +176,7 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[]}
+        section="general"
         setActiveView={vi.fn()}
         settings={settings}
         t={createTranslator("en")}
@@ -403,6 +404,7 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[]}
+        section="general"
         setActiveView={vi.fn()}
         settings={{ ...settings, language: "zh-CN" }}
         t={createTranslator("zh-CN")}
@@ -490,14 +492,13 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[]}
+        section="mcp"
         setActiveView={vi.fn()}
         settings={settings}
         t={createTranslator("en")}
         updateSettings={vi.fn()}
       />
     );
-
-    await userEvent.click(screen.getByTestId("settings-nav-mcp"));
 
     expect(screen.getByTestId("settings-section-mcp")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "MCP Tunnel" })).toBeInTheDocument();
@@ -539,6 +540,7 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[]}
+        section="mcp"
         setActiveView={vi.fn()}
         setError={setError}
         settings={settings}
@@ -546,8 +548,6 @@ describe("desktop renderer settings interactions", () => {
         updateSettings={vi.fn()}
       />
     );
-
-    await userEvent.click(screen.getByTestId("settings-nav-mcp"));
 
     await waitFor(() => expect(setError).toHaveBeenCalledWith("Invalid MCP tunnel config JSON at /tmp/config.json"));
   });
@@ -625,14 +625,13 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[]}
+        section="mcp"
         setActiveView={vi.fn()}
         settings={settings}
         t={createTranslator("en")}
         updateSettings={vi.fn()}
       />
     );
-
-    await userEvent.click(screen.getByTestId("settings-nav-mcp"));
 
     expect(await screen.findByText("Stored only for this PlanWeave process. It will not be saved.")).toBeInTheDocument();
     expect(screen.getByText("Auto-start requires a runtime API key that can be restored from secure storage.")).toBeInTheDocument();
@@ -655,6 +654,7 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[]}
+        section="general"
         setActiveView={vi.fn()}
         settings={settings}
         t={createTranslator("en")}
@@ -677,6 +677,7 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[]}
+        section="general"
         setActiveView={vi.fn()}
         settings={{ ...settings, appearance: "light" }}
         t={createTranslator("en")}
@@ -698,6 +699,7 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[]}
+        section="general"
         setActiveView={vi.fn()}
         settings={{ ...settings, appearance: "dark" }}
         t={createTranslator("en")}
@@ -724,6 +726,7 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[]}
+        section="general"
         setActiveView={vi.fn()}
         settings={settings}
         t={createTranslator("en")}
@@ -761,6 +764,7 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[]}
+        section="general"
         setActiveView={vi.fn()}
         settings={{ ...settings, windowMaterial: { enabled: true } }}
         t={createTranslator("en")}
@@ -789,6 +793,7 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[]}
+        section="general"
         setActiveView={vi.fn()}
         settings={settings}
         t={createTranslator("en")}
@@ -816,6 +821,7 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={refreshRuntimeTools}
         runtimeTools={{ tmux: { available: false, command: "tmux" } }}
         projects={[]}
+        section="general"
         setActiveView={vi.fn()}
         settings={settings}
         t={createTranslator("en")}
@@ -839,6 +845,7 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={refreshRuntimeTools}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[]}
+        section="general"
         setActiveView={vi.fn()}
         settings={{ ...settings, execution: { tmuxMonitoring: false } }}
         t={createTranslator("en")}
@@ -866,6 +873,7 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[]}
+        section="general"
         setActiveView={vi.fn()}
         settings={settings}
         t={createTranslator("en")}
@@ -896,6 +904,7 @@ describe("desktop renderer settings interactions", () => {
         refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
+        section="general"
         setActiveView={vi.fn()}
         settings={settings}
         t={createTranslator("en")}
@@ -927,6 +936,7 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[]}
+        section="general"
         setActiveView={vi.fn()}
         settings={settings}
         t={createTranslator("en")}
@@ -962,6 +972,7 @@ describe("desktop renderer settings interactions", () => {
         refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
         runtimeTools={{ tmux: { available: true, command: "tmux" } }}
         projects={[projectA]}
+        section="general"
         setActiveView={vi.fn()}
         settings={settings}
         t={createTranslator("en")}

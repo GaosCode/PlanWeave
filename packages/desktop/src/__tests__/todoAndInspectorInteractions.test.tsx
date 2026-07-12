@@ -64,7 +64,8 @@ describe("desktop renderer component interactions", () => {
           reviewGate: "Review gate",
           reviewNeedsChangesReturnsTo: "Needs changes returns to",
           reviewRequired: "Required review",
-          reviewUnlocks: "Unlocks"
+          reviewUnlocks: "Unlocks",
+          statusLabel: "Ready"
         }}
         onSelect={onSelect}
         status="ready"

@@ -1,10 +1,11 @@
+import { memo } from "react";
 import { BaseEdge, getSmoothStepPath, type Edge, type EdgeProps } from "@xyflow/react";
 
 export type TaskDependencyEdgeData = Record<string, unknown>;
 
 export type TaskDependencyFlowEdge = Edge<TaskDependencyEdgeData, "taskDependency">;
 
-export function TaskDependencyEdge({
+function TaskDependencyEdgeInner({
   id,
   sourceX,
   sourceY,
@@ -27,3 +28,5 @@ export function TaskDependencyEdge({
 
   return <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} interactionWidth={interactionWidth ?? 32} />;
 }
+
+export const TaskDependencyEdge = memo(TaskDependencyEdgeInner);

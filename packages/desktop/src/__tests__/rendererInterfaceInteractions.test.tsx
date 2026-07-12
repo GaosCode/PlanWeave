@@ -190,33 +190,49 @@ describe("desktop renderer interface interactions", () => {
         collapsed={false}
         expandedProjectId={project.projectId}
         graph={graph}
+        handleBindSourceRoot={vi.fn().mockResolvedValue(undefined)}
+        handleCopyCanvasToNewProject={vi.fn().mockResolvedValue(null)}
         handleDeleteProject={vi.fn().mockResolvedValue(undefined)}
         handleDeleteTaskCanvas={vi.fn().mockResolvedValue(undefined)}
         handleDuplicateTaskCanvas={vi.fn().mockResolvedValue(undefined)}
         handleDeleteTaskNode={vi.fn().mockResolvedValue(undefined)}
+        handleDropSourceRoot={vi.fn().mockResolvedValue(undefined)}
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
         handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
+        handleRefreshProjects={vi.fn().mockResolvedValue(undefined)}
+        handleRevealPlanWorkspace={vi.fn().mockResolvedValue(undefined)}
         handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
         handleRevealProject={vi.fn().mockResolvedValue(undefined)}
+        handleRevealSourceRoot={vi.fn().mockResolvedValue(undefined)}
+        handleRevealTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameProject={vi.fn().mockResolvedValue(undefined)}
+        handleUnlinkSourceRoot={vi.fn().mockResolvedValue(undefined)}
         handleTaskPanelSelect={handleTaskPanelSelect}
         loadProject={loadProject}
+        mode="personal"
         notificationItems={[{ id: "dirty", title: "Dirty", detail: "T-001", tone: "secondary", read: false }]}
+        onModeChange={vi.fn()}
         onToggleSidebar={vi.fn()}
         onTogglePinnedProject={vi.fn()}
         pinnedProjectIds={new Set()}
+        projectRefreshing={false}
         projects={[project]}
         resetLayout={vi.fn().mockResolvedValue(undefined)}
         selectedProject={project}
         selectedCanvasId="canvas-main"
         selectedTaskPanelId={null}
+        settingsSection="general"
+        setSettingsSection={vi.fn()}
         setActiveView={setActiveView}
         t={t}
+        teamConnectionRole={null}
       />
     );
 
     await userEvent.click(screen.getByTestId("sidebar-todo"));
     await userEvent.click(screen.getByTestId("sidebar-canvas-map"));
     await userEvent.click(screen.getByTestId("sidebar-settings"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "General" }));
     await userEvent.click(screen.getByRole("button", { name: "Demo" }));
     await userEvent.click(screen.getByRole("button", { name: /Main canvas\s*2/ }));
     await userEvent.click(screen.getByRole("button", { name: /Write interface tests\s*T-002/ }));

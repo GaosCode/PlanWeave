@@ -110,3 +110,4 @@ Desktop smoke tests run on `macos-latest` in CI and verify both packaged and UI 
 - pnpm overrides pin specific versions of hono, js-yaml, tar, tmp, undici — don't upgrade these casually
 - Electron native dependency `electron-liquid-glass` is excluded from ASAR bundling
 - The root `vitest.config.ts` defines a `@` alias for desktop renderer, shared by all package tests
+- `.octocode/rfc/` stores RFC documents (gitignored); e.g. `lan-multi-user-collaboration`

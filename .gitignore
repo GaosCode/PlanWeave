@@ -4,3 +4,6 @@ packages/*/dist/
 packages/*/release/
 packages/desktop/build/icon.iconset/
 .coverage/
+coverage/
+.worktrees/
+.octocode/rfc/lan-multi-user-collaboration

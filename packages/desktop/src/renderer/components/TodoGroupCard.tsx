@@ -16,6 +16,7 @@ type TodoGroupCardLabels = {
   reviewNeedsChangesReturnsTo: string;
   reviewRequired: string;
   reviewUnlocks: string;
+  statusLabel: string;
 };
 
 const statusVisuals: Record<string, { accent: string; badge: "default" | "secondary" | "destructive" | "outline"; icon: typeof CircleDotIcon }> = {
@@ -73,7 +74,7 @@ export function TodoGroupCard({
           <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/80 bg-surface-base">
             <StatusIcon className={cn("size-4 text-muted-foreground", status === "in_progress" ? "animate-spin" : null)} aria-hidden="true" />
           </div>
-          <span className="truncate font-mono text-sm font-semibold">{status}</span>
+          <span className="truncate font-mono text-sm font-semibold">{labels.statusLabel}</span>
         </div>
         <Badge className="font-mono tabular-nums" variant={visual.badge}>{items.length}</Badge>
       </div>

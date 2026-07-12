@@ -3,6 +3,7 @@ import type { DesktopAgentDetection, DesktopGraphViewModel, DesktopProjectSummar
 import type { createTranslator, Language } from "./i18n";
 import type { AppView, DesktopSettingsUpdate, DesktopUiSettings } from "./types";
 import { SettingsView } from "./views/SettingsView";
+import type { SettingsSection } from "./settings/SettingsNav";
 
 type AppSettingsRouteProps = {
   agentDetectionRefreshing: boolean;
@@ -15,6 +16,7 @@ type AppSettingsRouteProps = {
   projects: DesktopProjectSummary[];
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
+  section: SettingsSection;
   loadProject: (project: DesktopProjectSummary) => Promise<void>;
   setActiveView: Dispatch<SetStateAction<AppView>>;
   setError?: (message: string | null) => void;
@@ -38,6 +40,7 @@ export function AppSettingsRoute({
   projects,
   selectedCanvasId,
   selectedProject,
+  section,
   loadProject,
   setActiveView,
   setError,
@@ -50,7 +53,7 @@ export function AppSettingsRoute({
   updateSettings
 }: AppSettingsRouteProps) {
   return (
-    <div className="h-screen min-h-0 overflow-hidden text-foreground">
+    <div className="h-full min-w-0 flex-1 overflow-hidden text-foreground animate-in fade-in slide-in-from-right-2 duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)]">
       <SettingsView
         graph={graph}
         agents={agents}
@@ -62,6 +65,7 @@ export function AppSettingsRoute({
         projects={projects}
         selectedCanvasId={selectedCanvasId}
         selectedProject={selectedProject}
+        section={section}
         loadProject={loadProject}
         setActiveView={setActiveView}
         setError={setError}

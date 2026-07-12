@@ -75,6 +75,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/ws": "^8.5.14",
     "@vitejs/plugin-react": "^6.0.3",
+    "babel-plugin-react-compiler": "^1.0.0",
     "electron": "^39.2.6",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",

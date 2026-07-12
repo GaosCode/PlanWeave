@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { type Edge, type ReactFlowInstance, useEdgesState, useNodesState } from "@xyflow/react";
 import type { DesktopProjectSummary } from "@planweave-ai/runtime";
 import { bridge } from "./bridge";
@@ -39,7 +39,7 @@ import { useSearchController } from "./controllers/SearchController";
 import { writeAgentScopePromptToClipboard } from "./agentPrompt";
 import { uniqueDesktopDiagnostics } from "./diagnostics";
 import { TeamModeShell } from "./team/TeamModeShell";
-import { Button } from "@/components/ui/button";
+import type { SettingsSection } from "./settings/SettingsNav";
 
 const emptyExecutorOptions: string[] = [];
 type TaskCanvasSummary = DesktopProjectSummary["taskCanvases"][number];
@@ -53,12 +53,18 @@ function unavailablePackageDirMessage(canvasId: string): string {
 }
 
 export function App() {
-  const [teamModeOpen, setTeamModeOpen] = useState(false);
+  const [mode, setMode] = useState<"personal" | "team">("personal");
+  const [teamConnectionRole, setTeamConnectionRole] = useState<"server" | "member" | null>(null);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [error, setError] = useState<string | null>(null);
   const { settings, updateLayoutSettings, updateSettings } = useDesktopSettingsBridge({ setError });
   const language = settings.language;
   const t = useMemo(() => createTranslator(language), [language]);
   const [activeView, setActiveView] = useAppViewHistory("graph");
+  const setMainView = useCallback<Dispatch<SetStateAction<AppView>>>((nextView) => {
+    setMode("personal");
+    setActiveView(nextView);
+  }, [setActiveView]);
   const [, setBlockInspectorOpen] = useState(false);
   const { agentDetectionRefreshing, agentDetections, refreshAgentDetections } = useDetectedAgents();
   const { refreshRuntimeTools, runtimeTools } = useRuntimeTools();
@@ -82,6 +88,8 @@ export function App() {
   useDesktopSettingsEffects(settings);
 
   const {
+    isResizingLeft,
+    isResizingRight,
     leftSidebarCollapsed,
     leftSidebarWidth,
     rightSidebarCollapsed,
@@ -505,6 +513,7 @@ export function App() {
     projects: orderedProjects,
     selectedCanvasId,
     selectedProject,
+    section: settingsSection,
     loadProject: openProjectInSession,
     setActiveView,
     setError,
@@ -585,19 +594,17 @@ export function App() {
     todoGroups
   };
 
-  const isSettings = activeView === "settings";
-
-  if (teamModeOpen) {
-    return <TeamModeShell onExit={() => setTeamModeOpen(false)} />;
-  }
-
   return (
-    <div className="glass-surface relative h-screen min-h-0 overflow-hidden text-foreground">
-      <div className={`h-full min-h-0 transition-opacity duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)] ${isSettings ? "pointer-events-none opacity-0" : "opacity-100"}`}>
-        <main className="relative flex h-full min-h-0 overflow-hidden">
-          <ProjectSidebar
+    <>
+    <div className="relative flex h-screen min-h-0 overflow-hidden text-foreground">
+      <div className="flex" style={{
+        overflow: "hidden",
+        width: leftSidebarCollapsed ? 0 : leftSidebarWidth,
+        transition: isResizingLeft ? "none" : "width var(--motion-duration-panel) var(--motion-ease-emphasized)",
+        willChange: isResizingLeft ? "width" : undefined,
+      }}>
+        <ProjectSidebar
             activeView={activeView}
-            collapsed={leftSidebarCollapsed}
             expandedProjectId={expandedProjectId}
             graph={graph}
             handleBindSourceRoot={handleBindSourceRoot}
@@ -619,10 +626,13 @@ export function App() {
             handleRenameTaskCanvas={handleRenameTaskCanvas}
             handleUnlinkSourceRoot={handleUnlinkSourceRoot}
             handleTaskPanelSelect={handleTaskPanelSelect}
+            isResizing={isResizingLeft}
             loadProject={openProjectInSession}
             notificationItems={notificationController.notificationItems}
+            mode={mode}
+            teamConnectionRole={teamConnectionRole}
+            onModeChange={setMode}
             onResizeStart={(event) => startSidebarResize(event, "left")}
-            onToggleSidebar={() => setLeftSidebarCollapsedPreference((current) => !current)}
             onTogglePinnedProject={handleTogglePinnedProject}
             pinnedProjectIds={pinnedProjectIds}
             projectRefreshing={projectRefreshing}
@@ -631,22 +641,43 @@ export function App() {
             selectedProject={selectedProject}
             selectedCanvasId={selectedCanvasId}
             selectedTaskPanelId={selectedTaskPanelId}
-            setActiveView={setActiveView}
+            settingsSection={settingsSection}
+            setSettingsSection={setSettingsSection}
+            setActiveView={setMainView}
             width={leftSidebarWidth}
             t={t}
         />
-        <WorkspaceTabs
-          shell={workspaceShell}
-          graphWorkspace={graphWorkspaceController}
-          autoRun={autoRunController}
-          fileSync={fileSyncController}
-          search={searchController}
-          review={review}
-          newTask={newTask}
-          notifications={notificationController}
-          planning={planning}
-        />
-        {activeView === "canvas-map" ? null : (
+      </div>
+      <CollapsedSidebarControls
+        leftSidebarCollapsed={leftSidebarCollapsed}
+        setLeftSidebarCollapsed={setLeftSidebarCollapsedPreference}
+        t={t}
+        width={leftSidebarWidth}
+      />
+      <div className="glass-surface relative flex-1 min-w-0 overflow-hidden">
+        <div className="app-drag-region absolute left-0 top-0 z-10 h-5 w-full" />
+        <main className="relative flex h-full min-h-0 overflow-hidden">
+        {mode === "team" ? <TeamModeShell embedded onConnectionRoleChange={setTeamConnectionRole} onExit={() => setMode("personal")} /> : (
+          <>
+            <div style={{ display: activeView === "settings" ? "contents" : "none" }}>
+              <AppSettingsRoute {...settingsRouteProps} />
+            </div>
+            <div style={{ display: activeView === "settings" ? "none" : "contents" }}>
+              <WorkspaceTabs
+                shell={workspaceShell}
+                graphWorkspace={graphWorkspaceController}
+                autoRun={autoRunController}
+                fileSync={fileSyncController}
+                search={searchController}
+                review={review}
+                newTask={newTask}
+                notifications={notificationController}
+                planning={planning}
+              />
+            </div>
+          </>
+        )}
+        {mode !== "team" && activeView === "canvas-map" ? (
           <RightPaletteSidebar
             addPaletteComponent={addPaletteComponent}
             handlePaletteDragStart={handlePaletteDragStart}
@@ -657,21 +688,11 @@ export function App() {
             width={rightSidebarWidth}
             t={t}
           />
-        )}
+        ) : null}
       </main>
-      <CollapsedSidebarControls
-        leftSidebarCollapsed={leftSidebarCollapsed}
-        rightSidebarCollapsed={activeView === "canvas-map" ? false : rightSidebarCollapsed}
-        setLeftSidebarCollapsed={setLeftSidebarCollapsedPreference}
-        setRightSidebarCollapsed={setRightSidebarCollapsedPreference}
-        t={t}
-      />
-    </div>
-    <div className={`absolute inset-0 transition-opacity duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)] ${isSettings ? "opacity-100" : "pointer-events-none opacity-0"}`}>
-      <AppSettingsRoute {...settingsRouteProps} />
+      </div>
     </div>
     <AppOverlays error={error} successMessage={successMessage} setError={setError} setSuccessMessage={setSuccessMessage} t={t} />
-    {!isSettings ? <Button className="fixed left-5 top-5 z-50" variant="secondary" onClick={() => setTeamModeOpen(true)}>Team Mode</Button> : null}
-  </div>
+  </>
   );
 }
