@@ -281,19 +281,47 @@ describe("DesktopSettingsStore", () => {
     const store = testStore(join(home, "config", "desktop-settings.json"));
 
     await expect(store.read()).resolves.toMatchObject({
-      execution: { tmuxMonitoring: true, agentTransport: "cli" }
+      execution: { tmuxMonitoring: true, agentTransport: "acp" }
     });
 
-    const patched = await store.mergePatch({ execution: { agentTransport: "acp" } });
-    expect(patched.execution).toEqual({ tmuxMonitoring: true, agentTransport: "acp" });
+    const patched = await store.mergePatch({ execution: { agentTransport: "cli" } });
+    expect(patched.execution).toEqual({ tmuxMonitoring: true, agentTransport: "cli" });
 
     await writeFile(
       store.settingsFile,
       JSON.stringify({ execution: { tmuxMonitoring: false, agentTransport: "invalid" } })
     );
     await expect(store.read()).resolves.toMatchObject({
-      execution: { tmuxMonitoring: false, agentTransport: "cli" }
+      execution: { tmuxMonitoring: false, agentTransport: "acp" }
     });
+  });
+
+  it("persists typed ACP defaults per agent and option id", async () => {
+    const home = await tempHome();
+    const store = testStore(join(home, "config", "desktop-settings.json"));
+
+    const patched = await store.mergePatch({
+      agents: {
+        codex: {
+          acp: {
+            modeId: "agent-full-access",
+            configOptions: {
+              model: "gpt-5.2-codex",
+              "fast-mode": true
+            }
+          }
+        }
+      }
+    });
+
+    expect(patched.agents.codex.acp).toEqual({
+      modeId: "agent-full-access",
+      configOptions: {
+        model: "gpt-5.2-codex",
+        "fast-mode": true
+      }
+    });
+    await expect(store.read()).resolves.toMatchObject({ agents: { codex: patched.agents.codex } });
   });
 
   it("normalizes and migrates legacy localStorage payloads", async () => {

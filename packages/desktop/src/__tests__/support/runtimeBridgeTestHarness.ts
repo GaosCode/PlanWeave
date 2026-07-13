@@ -132,6 +132,16 @@ const runtimeMock = vi.hoisted(() => {
       source: "task"
     })),
     rollbackPendingImportRecovery: vi.fn(async () => undefined),
+    probeDesktopAgentCapabilities: vi.fn(async (input: unknown) => ({
+      agentKind: "codex",
+      ok: true,
+      message: "ACP capability probe passed.",
+      failureCode: null,
+      agentInfo: null,
+      capabilities: ["session"],
+      sessionConfig: null,
+      input
+    })),
     testExecutorProfile: vi.fn(async (options: unknown) => ({
       name: "codex",
       adapter: "codex-exec",
@@ -152,15 +162,17 @@ const runtimeMock = vi.hoisted(() => {
       autoRunEventListeners.add(listener);
       return () => autoRunEventListeners.delete(listener);
     }),
-    subscribeRunRecord: vi.fn(async (
-      _workspace: unknown,
-      _recordId: string,
-      _cursor: unknown,
-      _listener: RunnerRecordEventListener
-    ) => ({
-      snapshot: null,
-      subscription: null
-    })),
+    subscribeRunRecord: vi.fn(
+      async (
+        _workspace: unknown,
+        _recordId: string,
+        _cursor: unknown,
+        _listener: RunnerRecordEventListener
+      ) => ({
+        snapshot: null,
+        subscription: null
+      })
+    ),
     resolveRunRecordArtifactPath: vi.fn(async () => "/tmp/project/report.md")
   };
 });
@@ -202,6 +214,7 @@ vi.mock("@planweave-ai/runtime", async () => {
     resolveTaskCanvasWorkspace: runtimeMock.resolveTaskCanvasWorkspace,
     resolveRunRecordArtifactPath: runtimeMock.resolveRunRecordArtifactPath,
     rollbackPendingImportRecovery: runtimeMock.rollbackPendingImportRecovery,
+    probeDesktopAgentCapabilities: runtimeMock.probeDesktopAgentCapabilities,
     testExecutorProfile: runtimeMock.testExecutorProfile,
     updateCanvasExecutionPolicy: runtimeMock.updateCanvasExecutionPolicy,
     subscribeAutoRunEvents: runtimeMock.subscribeAutoRunEvents,
@@ -261,6 +274,7 @@ export async function resetRuntimeBridgeMocks(): Promise<void> {
   runtimeMock.resolveTaskCanvasWorkspace.mockClear();
   runtimeMock.resolveRunRecordArtifactPath.mockClear();
   runtimeMock.rollbackPendingImportRecovery.mockClear();
+  runtimeMock.probeDesktopAgentCapabilities.mockClear();
   runtimeMock.testExecutorProfile.mockClear();
   runtimeMock.updateCanvasExecutionPolicy.mockClear();
   runtimeMock.subscribeAutoRunEvents.mockClear();

@@ -51,6 +51,7 @@ import {
   listProjects,
   openProject,
   pauseAutoRun,
+  probeDesktopAgentCapabilities,
   refreshChangedDesktopPackagePrompts,
   refreshPackageFileChanges,
   readProjectPrompt,
@@ -358,6 +359,7 @@ export const runtimeBridgeHandlers = {
   },
   testExecutorProfile: async (_event, ref, executorName) =>
     testExecutorProfile({ projectRoot: await resolveDesktopCanvasReference(ref), executorName }),
+  probeDesktopAgentCapabilities: (_event, input) => probeDesktopAgentCapabilities(input),
   openBlockInspectorWindow: (_event, input) => openBlockInspectorWindow(input),
   openTaskInspectorWindow: (_event, input) => openTaskInspectorWindow(input),
   openProject: (_event, input) => openProject(input),

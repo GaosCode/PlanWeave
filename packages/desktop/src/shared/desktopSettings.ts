@@ -5,6 +5,11 @@ export type DesktopSettingsLanguage = "system" | "en" | "zh-CN";
 export type DesktopAgentTransport = "cli" | "acp";
 export type PaletteComponentKey = "task" | "implementation" | "review";
 export type FloatingControlPosition = { left: number; top: number };
+export type DesktopAcpConfigValue = string | boolean;
+export type DesktopAcpAgentSettings = {
+  modeId: string | null;
+  configOptions: Record<string, DesktopAcpConfigValue>;
+};
 
 export type DesktopUiSettings = {
   runtimePath: string;
@@ -57,6 +62,7 @@ export type DesktopUiSettings = {
     {
       enabled: boolean;
       fullAccess: boolean;
+      acp: DesktopAcpAgentSettings;
     }
   >;
 };
@@ -125,7 +131,7 @@ export const defaultDesktopSettings: DesktopUiSettings = {
   },
   execution: {
     tmuxMonitoring: true,
-    agentTransport: "cli"
+    agentTransport: "acp"
   },
   windowMaterial: {
     enabled: false
@@ -161,19 +167,23 @@ export const defaultDesktopSettings: DesktopUiSettings = {
   agents: {
     codex: {
       enabled: false,
-      fullAccess: false
+      fullAccess: false,
+      acp: { modeId: null, configOptions: {} }
     },
     "claude-code": {
       enabled: false,
-      fullAccess: false
+      fullAccess: false,
+      acp: { modeId: null, configOptions: {} }
     },
     opencode: {
       enabled: false,
-      fullAccess: false
+      fullAccess: false,
+      acp: { modeId: null, configOptions: {} }
     },
     pi: {
       enabled: false,
-      fullAccess: false
+      fullAccess: false,
+      acp: { modeId: null, configOptions: {} }
     }
   }
 };
@@ -230,19 +240,51 @@ export function mergeDesktopSettings(
     agents: {
       codex: {
         ...current.agents.codex,
-        ...patch.agents?.codex
+        ...patch.agents?.codex,
+        acp: {
+          ...current.agents.codex.acp,
+          ...patch.agents?.codex?.acp,
+          configOptions: {
+            ...current.agents.codex.acp.configOptions,
+            ...patch.agents?.codex?.acp?.configOptions
+          }
+        }
       },
       "claude-code": {
         ...current.agents["claude-code"],
-        ...patch.agents?.["claude-code"]
+        ...patch.agents?.["claude-code"],
+        acp: {
+          ...current.agents["claude-code"].acp,
+          ...patch.agents?.["claude-code"]?.acp,
+          configOptions: {
+            ...current.agents["claude-code"].acp.configOptions,
+            ...patch.agents?.["claude-code"]?.acp?.configOptions
+          }
+        }
       },
       opencode: {
         ...current.agents.opencode,
-        ...patch.agents?.opencode
+        ...patch.agents?.opencode,
+        acp: {
+          ...current.agents.opencode.acp,
+          ...patch.agents?.opencode?.acp,
+          configOptions: {
+            ...current.agents.opencode.acp.configOptions,
+            ...patch.agents?.opencode?.acp?.configOptions
+          }
+        }
       },
       pi: {
         ...current.agents.pi,
-        ...patch.agents?.pi
+        ...patch.agents?.pi,
+        acp: {
+          ...current.agents.pi.acp,
+          ...patch.agents?.pi?.acp,
+          configOptions: {
+            ...current.agents.pi.acp.configOptions,
+            ...patch.agents?.pi?.acp?.configOptions
+          }
+        }
       }
     }
   };
@@ -295,6 +337,24 @@ function validPositiveNumber(value: unknown): value is number {
 
 function validNonNegativeNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function normalizeAcpAgentSettings(source: unknown): DesktopAcpAgentSettings | undefined {
+  if (!isRecord(source)) return undefined;
+  const configOptions: Record<string, DesktopAcpConfigValue> = {};
+  if (isRecord(source.configOptions)) {
+    for (const [id, value] of Object.entries(source.configOptions)) {
+      if (id && (typeof value === "string" || typeof value === "boolean")) {
+        configOptions[id] = value;
+      }
+    }
+  }
+  const hasModeId = source.modeId === null || typeof source.modeId === "string";
+  if (!hasModeId && !isRecord(source.configOptions)) return undefined;
+  return {
+    modeId: typeof source.modeId === "string" ? source.modeId : null,
+    configOptions
+  };
 }
 
 function normalizeSidebarLayout(
@@ -442,9 +502,11 @@ export function normalizeDesktopSettingsPatch(value: unknown): DesktopSettingsPa
     for (const kind of Object.keys(defaultDesktopSettings.agents) as Array<
       keyof DesktopUiSettings["agents"]
     >) {
-      const agent = booleanField(defaultDesktopSettings.agents[kind], value.agents[kind]);
-      if (agent) {
-        agents[kind] = agent;
+      const source = value.agents[kind];
+      const agent = booleanField({ enabled: false, fullAccess: false }, source);
+      const acp = isRecord(source) ? normalizeAcpAgentSettings(source.acp) : undefined;
+      if (agent || acp) {
+        agents[kind] = { ...agent, ...(acp ? { acp } : {}) };
         hasValidAgent = true;
       }
     }

@@ -1,9 +1,13 @@
-import { appendFile, mkdtemp, readFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
-import { createAcpConnection } from "../autoRun/acpConnection.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  AcpOperationTimeoutError,
+  createAcpConnection,
+  type AcpConnection
+} from "../autoRun/acpConnection.js";
 import { AcpEventReadModelRegistry } from "../autoRun/acpEventReadModel.js";
 import { AcpEventStore } from "../autoRun/acpEventStore.js";
 import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
@@ -15,27 +19,81 @@ function run(root: string, scenario: string): AcpSessionRun {
   return {
     kind: "implementation",
     identity: { scope: root, executorRunId: "RUN-001", claimRef: "T-001#B-001" },
-    runDir: root, metadataPath: join(root, "metadata.json"), prompt: scenario, cwd: root,
+    runDir: root,
+    metadataPath: join(root, "metadata.json"),
+    prompt: scenario,
+    cwd: root,
     launch: { command: process.execPath, args: [fixture, scenario] },
-    executorName: "mock-acp", agentId: "codex", taskId: "T-001",
-    metadataIdentity: { blockId: "B-001" }, projectId: "project-1", canvasId: "default"
+    executorName: "mock-acp",
+    agentId: "codex",
+    taskId: "T-001",
+    metadataIdentity: { blockId: "B-001" },
+    projectId: "project-1",
+    canvasId: "default"
   };
 }
 
 describe("ACP event controller durability and producers", () => {
+  it("applies explicitly supplied Desktop ACP defaults before the first prompt", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-session-config-"));
+    const controller = new AcpSessionController(
+      new ActiveAgentRunRegistry(),
+      createAcpConnection,
+      new AcpEventReadModelRegistry()
+    );
+
+    await expect(
+      controller.execute(run(root, "artifact-session-config"), {
+        timeoutMs: 1_000,
+        sessionDefaults: {
+          modeId: "agent-full-access",
+          configOptions: { model: "gpt-5.2-codex", "fast-mode": true }
+        }
+      })
+    ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+  });
+
+  it("does not read Desktop settings for a generic controller execution", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-generic-settings-"));
+    const settingsFile = join(root, "desktop-settings.json");
+    await writeFile(settingsFile, "invalid desktop settings");
+    const previous = process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
+    process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = settingsFile;
+    try {
+      const controller = new AcpSessionController(
+        new ActiveAgentRunRegistry(),
+        createAcpConnection,
+        new AcpEventReadModelRegistry()
+      );
+      await expect(
+        controller.execute(run(root, "artifact-implementation"), { timeoutMs: 1_000 })
+      ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+    } finally {
+      if (previous === undefined) delete process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
+      else process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = previous;
+    }
+  });
+
   it("drains delayed raw writes and fails the run before success metadata", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-raw-barrier-"));
-    const readModels = new AcpEventReadModelRegistry((options) => new AcpEventStore({
-      ...options,
-      appendText: async (path, data, encoding) => {
-        if (String(path).endsWith("protocol.ndjson")) {
-          await new Promise((resolve) => setTimeout(resolve, 25));
-          throw new Error("delayed raw persistence failed");
-        }
-        await appendFile(path, data, encoding);
-      }
-    }));
-    const controller = new AcpSessionController(new ActiveAgentRunRegistry(), createAcpConnection, readModels);
+    const readModels = new AcpEventReadModelRegistry(
+      (options) =>
+        new AcpEventStore({
+          ...options,
+          appendText: async (path, data, encoding) => {
+            if (String(path).endsWith("protocol.ndjson")) {
+              await new Promise((resolve) => setTimeout(resolve, 25));
+              throw new Error("delayed raw persistence failed");
+            }
+            await appendFile(path, data, encoding);
+          }
+        })
+    );
+    const controller = new AcpSessionController(
+      new ActiveAgentRunRegistry(),
+      createAcpConnection,
+      readModels
+    );
     const promise = controller.execute(run(root, "artifact-implementation"), { timeoutMs: 500 });
     await expect(promise).rejects.toThrow("delayed raw persistence failed");
     const metadata = await readFile(join(root, "metadata.json"), "utf8");
@@ -46,21 +104,35 @@ describe("ACP event controller durability and producers", () => {
   it("persists permission and preview elicitation history as non-actionable", async () => {
     for (const scenario of ["permission", "elicitation"]) {
       const root = await mkdtemp(join(tmpdir(), `planweave-acp-${scenario}-`));
-      const controller = new AcpSessionController(new ActiveAgentRunRegistry(), createAcpConnection, new AcpEventReadModelRegistry());
-      await expect(controller.execute(run(root, scenario), { timeoutMs: 500 })).rejects.toThrow("Final artifact marker was not found");
+      const controller = new AcpSessionController(
+        new ActiveAgentRunRegistry(),
+        createAcpConnection,
+        new AcpEventReadModelRegistry()
+      );
+      await expect(controller.execute(run(root, scenario), { timeoutMs: 500 })).rejects.toThrow(
+        "Final artifact marker was not found"
+      );
       const events = await readFile(join(root, "events.ndjson"), "utf8");
       expect(events).toContain('"kind":"interaction"');
       expect(events).toContain('"actionable":false');
-      expect(events).toContain(`"kind":"${scenario === "permission" ? "permission" : "elicitation"}"`);
+      expect(events).toContain(
+        `"kind":"${scenario === "permission" ? "permission" : "elicitation"}"`
+      );
     }
   });
 
   it("persists output returned through the official terminalOutput client callback", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-terminal-output-"));
-    const controller = new AcpSessionController(new ActiveAgentRunRegistry(), createAcpConnection, new AcpEventReadModelRegistry());
+    const controller = new AcpSessionController(
+      new ActiveAgentRunRegistry(),
+      createAcpConnection,
+      new AcpEventReadModelRegistry()
+    );
     const input = run(root, "terminal-output");
     input.terminalOutputHandler = () => ({ output: "terminal bytes", truncated: false });
-    await expect(controller.execute(input, { timeoutMs: 500 })).resolves.toMatchObject({ kind: "block" });
+    await expect(controller.execute(input, { timeoutMs: 500 })).resolves.toMatchObject({
+      kind: "block"
+    });
     const events = await readFile(join(root, "events.ndjson"), "utf8");
     expect(events).toContain('"kind":"terminal_output"');
     expect(events).toContain("terminal bytes");
@@ -82,9 +154,7 @@ describe("ACP event controller durability and producers", () => {
     const kinds = snapshot?.events.map((event) => event.body.kind) ?? [];
     expect(kinds).toContain("artifact");
     expect(kinds.indexOf("artifact")).toBeLessThan(kinds.indexOf("terminal"));
-    expect(
-      snapshot?.events.find((event) => event.body.kind === "artifact")
-    ).toMatchObject({
+    expect(snapshot?.events.find((event) => event.body.kind === "artifact")).toMatchObject({
       body: {
         kind: "artifact",
         artifact: { kind: "implementation", relativePath: "report.md" }
@@ -144,15 +214,47 @@ describe("ACP event controller durability and producers", () => {
   it("persists a structured timeout reason only after the ACP session reaches running", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-timeout-event-"));
     const readModels = new AcpEventReadModelRegistry();
+    let markPromptStarted!: () => void;
+    const promptStarted = new Promise<void>((resolve) => { markPromptStarted = resolve; });
+    let rejectPrompt!: (reason: unknown) => void;
+    const blockedPrompt = new Promise<Awaited<ReturnType<AcpConnection["prompt"]>>>((_, reject) => {
+      rejectPrompt = reject;
+    });
+    const connection: AcpConnection = {
+      processId: 42,
+      pendingOperationCount: 0,
+      pendingOperations: new Map(),
+      stderr: [],
+      closed: Promise.resolve(),
+      initialize: vi.fn(async () => ({
+        protocolVersion: 1,
+        agentCapabilities: {},
+        agentInfo: { name: "deterministic-timeout-agent", version: "1.0.0" }
+      })),
+      newSession: vi.fn(async () => ({ sessionId: "timeout-session" })),
+      loadSession: vi.fn(async () => ({})),
+      prompt: vi.fn(() => {
+        markPromptStarted();
+        return blockedPrompt;
+      }),
+      cancel: vi.fn(async () => undefined),
+      closeSession: vi.fn(async () => ({})),
+      setSessionMode: vi.fn(async () => ({})),
+      setSessionConfigOption: vi.fn(async () => ({ configOptions: [] })),
+      dispose: vi.fn(async () => undefined)
+    };
     const controller = new AcpSessionController(
       new ActiveAgentRunRegistry(),
-      createAcpConnection,
+      () => connection,
       readModels
     );
 
-    await expect(
-      controller.execute(run(root, "long-prompt"), { timeoutMs: 200 })
-    ).rejects.toThrow("timed out");
+    const execution = controller.execute(run(root, "long-prompt"), { timeoutMs: 200 });
+    await promptStarted;
+    rejectPrompt(new AcpOperationTimeoutError("prompt", 200));
+    await expect(execution).rejects.toThrow(
+      "timed out"
+    );
     const events = readModels.get(root)?.replay(0).events ?? [];
     const runningIndex = events.findIndex(
       (event) => event.body.kind === "lifecycle" && event.body.state === "running"
@@ -180,9 +282,12 @@ describe("ACP event controller durability and producers", () => {
     await expect(
       controller.execute(run(root, "protocol-error"), { timeoutMs: 1_000 })
     ).rejects.toThrow();
-    expect(readModels.get(root)?.replay(0).events.some(
-      (event) => event.body.kind === "artifact"
-    )).toBe(false);
+    expect(
+      readModels
+        .get(root)
+        ?.replay(0)
+        .events.some((event) => event.body.kind === "artifact")
+    ).toBe(false);
     const metadata = await readFile(join(root, "metadata.json"), "utf8");
     expect(metadata).not.toContain('"executionOutcome": "succeeded"');
   });
@@ -203,9 +308,12 @@ describe("ACP event controller durability and producers", () => {
     setTimeout(() => abort.abort(new Error("cancel before artifact validation")), 25);
 
     await expect(execution).rejects.toThrow("cancel before artifact validation");
-    expect(readModels.get(root)?.replay(0).events.some(
-      (event) => event.body.kind === "artifact"
-    )).toBe(false);
+    expect(
+      readModels
+        .get(root)
+        ?.replay(0)
+        .events.some((event) => event.body.kind === "artifact")
+    ).toBe(false);
     const metadata = await readFile(join(root, "metadata.json"), "utf8");
     expect(metadata).toContain('"status": "cancelled"');
     expect(metadata).not.toContain('"executionOutcome": "succeeded"');

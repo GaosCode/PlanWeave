@@ -461,8 +461,7 @@ export const enCatalog = {
   settingsComponentsHint: "Configure draggable graph components and the default Block Set.",
   settingsReviewHint:
     "Configure the current project's Review Pipeline and default feedback cycles.",
-  settingsAgentsHint:
-    "Choose an agent transport and configure the agents available through it.",
+  settingsAgentsHint: "Choose an agent transport and configure the agents available through it.",
   agentTransport: "Agent transport",
   agentTransportHint: "Use command-line agents directly or connect through ACP.",
   agentTransportCli: "CLI",
@@ -537,6 +536,11 @@ export const enCatalog = {
   agentFullAccess: "Full access permission",
   agentFullAccessDescription:
     "When enabled, task execution uses `{command}` and lets this agent access a wider local scope.",
+  acpModelManaged: "The default model is managed by the agent configuration.",
+  acpPermissionsManaged:
+    "Permission requests are handled individually through ACP interactions while the agent is running.",
+  acpSessionMode: "Session mode",
+  acpNotProbed: "Collapse and reopen this agent to discover its ACP options.",
   executorPreflight: "Executor preflight",
   executorPreflightSettingsHint:
     "Run the runtime executor checks for one graph executor before starting Auto Run.",

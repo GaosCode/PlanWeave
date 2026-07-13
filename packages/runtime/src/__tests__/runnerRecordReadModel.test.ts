@@ -410,6 +410,84 @@ describe("runner record read model", () => {
     }
   });
 
+  it("exposes the existing live owned ACP session as prompt-capable", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-live-prompt-"));
+    const model = await acpEventReadModels.create({
+      runDir,
+      identity: runnerRunIdentitySchema.parse(event(1, "message").identity),
+      runner: runnerIdentitySchema.parse(event(1, "message").runner)
+    });
+    const handle = activeHandle(runDir);
+    handle.lifecycleState = "running";
+    handle.control.pendingRequests.clear();
+    activeAgentRunRegistry.register(handle);
+    try {
+      await model.store.append(event(1, "message").body, { sessionId: "session-1" });
+      const promptIdentity = desktopAgentPromptIdentitySchema.parse({
+        ref: { projectRoot: "/tmp/project", canvasId: "default" },
+        recordId: "T-001#B-001::RUN-001",
+        executorRunId: "RUN-001",
+        claimRef: "T-001#B-001",
+        sessionId: "session-1"
+      });
+
+      const snapshot = await readRunnerRecordReadModel({
+        runDir,
+        metadata,
+        promptIdentity
+      });
+
+      expect(snapshot?.intervention.prompt).toEqual({
+        available: true,
+        reason: null,
+        identity: promptIdentity,
+        inFlight: false
+      });
+    } finally {
+      await activeAgentRunRegistry.remove(handle, "test complete");
+      acpEventReadModels.release(runDir);
+    }
+  });
+
+  it("keeps persisted running metadata prompt-unavailable after live ownership disappears", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-owner-gone-"));
+    const model = await acpEventReadModels.create({
+      runDir,
+      identity: runnerRunIdentitySchema.parse(event(1, "message").identity),
+      runner: runnerIdentitySchema.parse(event(1, "message").runner)
+    });
+    try {
+      await model.store.append(event(1, "message").body, { sessionId: "session-1" });
+      const promptIdentity = desktopAgentPromptIdentitySchema.parse({
+        ref: { projectRoot: "/tmp/project", canvasId: "default" },
+        recordId: "T-001#B-001::RUN-001",
+        executorRunId: "RUN-001",
+        claimRef: "T-001#B-001",
+        sessionId: "session-1"
+      });
+
+      const snapshot = await readRunnerRecordReadModel({
+        runDir,
+        metadata: {
+          ...metadata,
+          status: "running",
+          desktopRunId: "DESKTOP-001",
+          runSessionId: "SESSION-001"
+        },
+        promptIdentity
+      });
+
+      expect(snapshot?.intervention.prompt).toEqual({
+        available: false,
+        reason: "No live owned ACP session is available.",
+        identity: promptIdentity,
+        inFlight: false
+      });
+    } finally {
+      acpEventReadModels.release(runDir);
+    }
+  });
+
   it("pushes authoritative interaction appearance and resolution without inferring from events", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-live-interaction-"));
     const model = await acpEventReadModels.create({

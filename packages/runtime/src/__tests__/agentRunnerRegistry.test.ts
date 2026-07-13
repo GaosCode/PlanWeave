@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { readdir } from "node:fs/promises";
+import { readdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentAcpBlockInput } from "../autoRun/agentRunner.js";
 import { createAcpRunner, type AcpPreflightProbeResult } from "../autoRun/acpRunner.js";
@@ -17,7 +18,10 @@ import { manifestTestBuilder } from "./manifestTestBuilder.js";
 const acpFixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const mockAgentInfo = { name: "planweave-acp-mock", version: "1.0.0" } as const;
 
-function probeDefinition(scenario: string, capabilities = ["session", "prompt", "cancel"] as const) {
+function probeDefinition(
+  scenario: string,
+  capabilities = ["session", "prompt", "cancel"] as const
+) {
   const base = resolveAgentDefinition("codex");
   return {
     ...base,
@@ -62,7 +66,11 @@ describe("AgentRunner registries", () => {
         }
       });
       expect(definition.acp.capabilities).toEqual([
-        "session", "prompt", "cancel", "streaming", "tool-updates"
+        "session",
+        "prompt",
+        "cancel",
+        "streaming",
+        "tool-updates"
       ]);
       expect(Object.values(definition.builtinProfiles)).toEqual(
         expect.arrayContaining([
@@ -209,10 +217,64 @@ describe("AgentRunner registries", () => {
     expect(result.agentInfo).toEqual(mockAgentInfo);
   });
 
+  it("returns the ACP session configuration advertised by the probed session", async () => {
+    const base = resolveAgentDefinition("codex");
+    const definition = {
+      ...base,
+      acp: {
+        launch: { command: "codex-acp", args: [] },
+        capabilities: ["session"] as const
+      }
+    };
+    const sessionConfig = {
+      modes: {
+        currentModeId: "agent",
+        availableModes: [
+          { id: "read-only", name: "Read only", description: null },
+          { id: "agent", name: "Agent", description: null }
+        ]
+      },
+      configOptions: [
+        {
+          id: "model",
+          type: "select" as const,
+          name: "Model",
+          description: null,
+          category: "model",
+          currentValue: "gpt-5",
+          options: [{ value: "gpt-5", name: "GPT-5", description: null, group: null }]
+        }
+      ]
+    };
+    const runner = createAcpRunner({
+      probe: async () => ({
+        kind: "ready",
+        authenticated: true,
+        agentInfo: mockAgentInfo,
+        capabilities: ["session"],
+        sessionConfig
+      })
+    });
+
+    const result = await runner.preflight({
+      profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
+      definition,
+      cwd: "/tmp",
+      timeoutMs: 100
+    });
+
+    expect(result.sessionConfig).toEqual(sessionConfig);
+  });
+
   it("uses the formal default probe for advertised capabilities and missing capability diagnostics", async () => {
     const ready = await createAcpRunner().preflight({
       profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
-      definition: probeDefinition("close-capable", ["session", "prompt", "cancel", "session-close"]),
+      definition: probeDefinition("close-capable", [
+        "session",
+        "prompt",
+        "cancel",
+        "session-close"
+      ]),
       cwd: "/tmp",
       timeoutMs: 1_000
     });
@@ -227,9 +289,9 @@ describe("AgentRunner registries", () => {
       cwd: "/tmp",
       timeoutMs: 1_000
     });
-    expect(missing.checks).toEqual(expect.arrayContaining([
-      expect.objectContaining({ failureCode: "unsupported_capability" })
-    ]));
+    expect(missing.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ failureCode: "unsupported_capability" })])
+    );
   });
 
   it("projects open SDK agentInfo extensions into the strict internal identity", async () => {
@@ -257,9 +319,11 @@ describe("AgentRunner registries", () => {
       timeoutMs: 1_000
     });
 
-    expect(result.checks).toEqual(expect.arrayContaining([
-      expect.objectContaining({ check: "acp_authenticated", status: "passed" })
-    ]));
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ check: "acp_authenticated", status: "passed" })
+      ])
+    );
     expect(result.negotiatedCapabilities).not.toBeNull();
   });
 
@@ -274,44 +338,50 @@ describe("AgentRunner registries", () => {
       cwd: "/tmp",
       timeoutMs
     });
-    expect(result.checks).toEqual(expect.arrayContaining([
-      expect.objectContaining({ status: "failed", failureCode: code })
-    ]));
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ status: "failed", failureCode: code })])
+    );
   });
 
-  it.each(["missing-agent-info", "empty-agent-version", "invalid-agent-version"])(
-    "fails closed with an explicit diagnostic for %s",
-    async (scenario) => {
-      const result = await createAcpRunner().preflight({
-        profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
-        definition: probeDefinition(scenario),
-        cwd: "/tmp",
-        timeoutMs: 1_000
-      });
+  it.each([
+    "missing-agent-info",
+    "empty-agent-version",
+    "invalid-agent-version"
+  ])("fails closed with an explicit diagnostic for %s", async (scenario) => {
+    const result = await createAcpRunner().preflight({
+      profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
+      definition: probeDefinition(scenario),
+      cwd: "/tmp",
+      timeoutMs: 1_000
+    });
 
-      expect(result.agentInfo).toBeUndefined();
-      expect(result.checks).toEqual([
-        expect.objectContaining({
-          check: "acp_initialized",
-          status: "failed",
-          failureCode: "initialization_failed",
-          message:
-            "ACP initialize returned invalid agentInfo; name and version must be non-empty strings."
-        })
-      ]);
-    }
-  );
+    expect(result.agentInfo).toBeUndefined();
+    expect(result.checks).toEqual([
+      expect.objectContaining({
+        check: "acp_initialized",
+        status: "failed",
+        failureCode: "initialization_failed",
+        message:
+          "ACP initialize returned invalid agentInfo; name and version must be non-empty strings."
+      })
+    ]);
+  });
 
   it("refuses an untrusted default run before creating a process or run record", async () => {
     const { init } = await createTestWorkspace();
     const before = await readdir(init.workspace.resultsDir, { recursive: true });
-    await expect(createAcpRunner().runBlock({
-      projectRoot: init.workspace,
-      claim: blockClaim,
-      prompt: "must not spawn",
-      executorName: "codex-acp",
-      profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } }
-    }, probeDefinition("artifact-implementation"))).rejects.toThrow("not trusted");
+    await expect(
+      createAcpRunner().runBlock(
+        {
+          projectRoot: init.workspace,
+          claim: blockClaim,
+          prompt: "must not spawn",
+          executorName: "codex-acp",
+          profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } }
+        },
+        probeDefinition("artifact-implementation")
+      )
+    ).rejects.toThrow("not trusted");
     expect(await readdir(init.workspace.resultsDir, { recursive: true })).toEqual(before);
   });
 
@@ -319,12 +389,73 @@ describe("AgentRunner registries", () => {
     const { init } = await createTestWorkspace();
     const definition = probeDefinition("artifact-implementation");
 
-    await expect(assertAcpLaunchTrusted({
-      projectRoot: init.workspace,
-      executorName: "codex-acp",
-      definition,
-      profileSource: "builtin"
-    })).resolves.toEqual(definition.acp.launch);
+    await expect(
+      assertAcpLaunchTrusted({
+        projectRoot: init.workspace,
+        executorName: "codex-acp",
+        definition,
+        profileSource: "builtin"
+      })
+    ).resolves.toEqual(definition.acp.launch);
+  });
+
+  it("applies Desktop ACP session defaults only when desktopRunId identifies the origin", async () => {
+    const { init } = await createTestWorkspace();
+    const settingsFile = join(init.workspace.rootPath, "desktop-settings.json");
+    await writeFile(settingsFile, JSON.stringify({
+      agents: {
+        codex: {
+          acp: {
+            modeId: "agent-full-access",
+            configOptions: { model: "gpt-5.2-codex", "fast-mode": true }
+          }
+        }
+      }
+    }));
+    const previous = process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
+    process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = settingsFile;
+    try {
+      await expect(createAcpRunner().runBlock({
+        projectRoot: init.workspace,
+        claim: blockClaim,
+        prompt: "desktop ACP execution",
+        executorName: "codex-acp",
+        profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
+        profileSource: "builtin",
+        runtime: { desktopRunId: "DESKTOP-001", timeoutMs: 1_000 }
+      }, probeDefinition("artifact-session-config"))).resolves.toMatchObject({
+        kind: "block",
+        exitCode: 0
+      });
+    } finally {
+      if (previous === undefined) delete process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
+      else process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = previous;
+    }
+  });
+
+  it("does not treat a non-Desktop runSessionId as Desktop settings authority", async () => {
+    const { init } = await createTestWorkspace();
+    const settingsFile = join(init.workspace.rootPath, "desktop-settings-invalid.json");
+    await writeFile(settingsFile, "invalid desktop settings");
+    const previous = process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
+    process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = settingsFile;
+    try {
+      await expect(createAcpRunner().runBlock({
+        projectRoot: init.workspace,
+        claim: blockClaim,
+        prompt: "non-Desktop ACP execution",
+        executorName: "codex-acp",
+        profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
+        profileSource: "builtin",
+        runtime: { runSessionId: "SESSION-CLI-001", timeoutMs: 1_000 }
+      }, probeDefinition("artifact-implementation"))).resolves.toMatchObject({
+        kind: "block",
+        exitCode: 0
+      });
+    } finally {
+      if (previous === undefined) delete process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
+      else process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = previous;
+    }
   });
 
   it.each([
@@ -413,7 +544,12 @@ describe("AgentRunner registries", () => {
       },
       staticCapabilities: ["session", "prompt", "cancel", "streaming", "tool-updates"],
       optionalCapabilities: [
-        "permission", "authentication", "image", "embedded-context", "session-close", "history-load"
+        "permission",
+        "authentication",
+        "image",
+        "embedded-context",
+        "session-close",
+        "history-load"
       ]
     });
   });

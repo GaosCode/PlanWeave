@@ -174,6 +174,27 @@ describe("preload bridge invocation", () => {
     );
   });
 
+  it("forwards dedicated agent capability probes through the invoke bridge", async () => {
+    const invoke = vi.fn<Parameters<typeof createDesktopBridgeInvokeApi>[0]>(async () => ({
+      agentKind: "codex",
+      ok: true,
+      message: "ACP capability probe passed.",
+      failureCode: null,
+      agentInfo: null,
+      capabilities: ["session"],
+      sessionConfig: null
+    }));
+    const api = createDesktopBridgeInvokeApi(invoke);
+    const input = { agentKind: "codex" as const, projectRoot: null };
+
+    await api.probeDesktopAgentCapabilities(input);
+
+    expect(invoke).toHaveBeenCalledWith(
+      desktopBridgeInvokeChannels.probeDesktopAgentCapabilities,
+      input
+    );
+  });
+
   it("exposes package file change subscription with unsubscribe", async () => {
     await import("../preload/preload");
     const api = electronMock.exposed.get("planweave") as {
@@ -301,17 +322,19 @@ describe("preload bridge invocation", () => {
   });
 
   it("subscribes before replay invoke and tears down runner listeners deterministically", async () => {
-    electronMock.ipcRenderer.invoke.mockImplementation(async (channel: string, payload?: unknown) => {
-      if (channel === runnerRecordSubscribeChannel) {
-        const subscriptionId = (payload as { subscriptionId: string }).subscriptionId;
-        return {
-          subscriptionId,
-          updateSequence: 0,
-          snapshot: { terminal: false, events: [] }
-        };
+    electronMock.ipcRenderer.invoke.mockImplementation(
+      async (channel: string, payload?: unknown) => {
+        if (channel === runnerRecordSubscribeChannel) {
+          const subscriptionId = (payload as { subscriptionId: string }).subscriptionId;
+          return {
+            subscriptionId,
+            updateSequence: 0,
+            snapshot: { terminal: false, events: [] }
+          };
+        }
+        return undefined;
       }
-      return undefined;
-    });
+    );
     await import("../preload/preload");
     const api = electronMock.exposed.get("planweave") as DesktopBridgeApi;
     const callback = vi.fn();

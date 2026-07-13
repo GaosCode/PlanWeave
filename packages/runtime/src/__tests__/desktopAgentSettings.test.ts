@@ -48,8 +48,17 @@ describe("desktop agent transport settings", () => {
     expect(profiles["codex-auto"]).toMatchObject({ runner: { transport: "cli" } });
   });
 
-  it("defaults missing and invalid transport settings to CLI", async () => {
+  it("defaults missing and invalid transport settings to ACP", async () => {
     await writeSettings({ execution: { agentTransport: "unsupported" } });
+
+    const profiles = applyDesktopAgentSettingsToBuiltinProfiles(builtinAgentProfiles());
+
+    expect(selectedDesktopAgentTransport()).toBe("acp");
+    expect(profiles.codex).toMatchObject({ runner: { transport: "acp" } });
+  });
+
+  it("preserves an explicit CLI transport selection", async () => {
+    await writeSettings({ execution: { agentTransport: "cli" } });
 
     const profiles = applyDesktopAgentSettingsToBuiltinProfiles(builtinAgentProfiles());
 

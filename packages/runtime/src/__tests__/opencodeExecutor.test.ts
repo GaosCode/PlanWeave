@@ -315,6 +315,9 @@ describe("OpenCode executor", () => {
     await writeFile(
       process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE,
       JSON.stringify({
+        execution: {
+          agentTransport: "cli"
+        },
         agents: {
           opencode: {
             enabled: true,

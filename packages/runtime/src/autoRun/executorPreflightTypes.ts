@@ -18,6 +18,69 @@ export const executorAgentInfoSchema = z
   .strict();
 export type ExecutorAgentInfo = z.infer<typeof executorAgentInfoSchema>;
 
+const acpSessionTextSchema = z.string().max(4_096);
+const acpSessionDescriptionSchema = acpSessionTextSchema.nullable();
+
+export const acpSessionModeStateSchema = z
+  .object({
+    currentModeId: acpSessionTextSchema,
+    availableModes: z
+      .array(
+        z
+          .object({
+            id: acpSessionTextSchema,
+            name: acpSessionTextSchema,
+            description: acpSessionDescriptionSchema
+          })
+          .strict()
+      )
+      .max(256)
+  })
+  .strict();
+
+export const acpSessionConfigOptionSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      id: acpSessionTextSchema,
+      type: z.literal("select"),
+      name: acpSessionTextSchema,
+      description: acpSessionDescriptionSchema,
+      category: acpSessionTextSchema.nullable(),
+      currentValue: acpSessionTextSchema,
+      options: z
+        .array(
+          z
+            .object({
+              value: acpSessionTextSchema,
+              name: acpSessionTextSchema,
+              description: acpSessionDescriptionSchema,
+              group: acpSessionTextSchema.nullable()
+            })
+            .strict()
+        )
+        .max(512)
+    })
+    .strict(),
+  z
+    .object({
+      id: acpSessionTextSchema,
+      type: z.literal("boolean"),
+      name: acpSessionTextSchema,
+      description: acpSessionDescriptionSchema,
+      category: acpSessionTextSchema.nullable(),
+      currentValue: z.boolean()
+    })
+    .strict()
+]);
+
+export const acpSessionConfigurationSchema = z
+  .object({
+    modes: acpSessionModeStateSchema.nullable(),
+    configOptions: z.array(acpSessionConfigOptionSchema).max(256)
+  })
+  .strict();
+export type AcpSessionConfiguration = z.infer<typeof acpSessionConfigurationSchema>;
+
 export type ExecutorPreflightCheckName =
   | "profile_exists"
   | "adapter_supported"
@@ -68,6 +131,7 @@ export type ExecutorPreflightResult = {
   runnerKind?: RunnerTransport | null;
   failureCode?: ExecutorPreflightFailureCode | null;
   agentInfo?: ExecutorAgentInfo | null;
+  sessionConfig?: AcpSessionConfiguration | null;
   ok: boolean;
   message: string;
   checks: ExecutorPreflightCheck[];
@@ -83,4 +147,5 @@ export type ProducedExecutorPreflightResult = Omit<
   runnerKind: RunnerTransport | null;
   failureCode: ExecutorPreflightFailureCode | null;
   agentInfo: ExecutorAgentInfo | null;
+  sessionConfig: AcpSessionConfiguration | null;
 };

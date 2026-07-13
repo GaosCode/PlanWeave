@@ -66,19 +66,23 @@ const settings: DesktopUiSettings = {
   agents: {
     codex: {
       enabled: false,
-      fullAccess: false
+      fullAccess: false,
+      acp: { modeId: null, configOptions: {} }
     },
     "claude-code": {
       enabled: false,
-      fullAccess: false
+      fullAccess: false,
+      acp: { modeId: null, configOptions: {} }
     },
     opencode: {
       enabled: false,
-      fullAccess: false
+      fullAccess: false,
+      acp: { modeId: null, configOptions: {} }
     },
     pi: {
       enabled: false,
-      fullAccess: false
+      fullAccess: false,
+      acp: { modeId: null, configOptions: {} }
     }
   }
 };
@@ -1056,7 +1060,12 @@ describe("desktop renderer settings interactions", () => {
           agentInstallStatus: "Local agent installation status",
           agentMissing: "CLI not detected",
           agentRefresh: "Refresh",
-          agentRefreshing: "Refreshing"
+          agentRefreshing: "Refreshing",
+          acpModelManaged: "Model is managed by the agent configuration.",
+          acpPermissionsManaged: "Permissions are managed by the agent configuration.",
+          acpSessionMode: "Session mode",
+          acpNotProbed: "Run executor preflight to discover ACP options.",
+          acpProbing: "Testing..."
         }}
         refreshAgentDetections={refreshAgentDetections}
         settings={settings}
@@ -1072,7 +1081,7 @@ describe("desktop renderer settings interactions", () => {
     expect(screen.getByRole("switch", { name: "Full access" })).toBeDisabled();
   });
 
-  it("hides CLI-only full access controls for ACP agents", () => {
+  it("expands ACP agents and reports an unavailable desktop bridge inline", async () => {
     render(
       <AgentSettingsPanel
         agentDetectionRefreshing={false}
@@ -1098,7 +1107,12 @@ describe("desktop renderer settings interactions", () => {
           agentInstallStatus: "Agent installation status",
           agentMissing: "Agent not detected",
           agentRefresh: "Refresh",
-          agentRefreshing: "Refreshing"
+          agentRefreshing: "Refreshing",
+          acpModelManaged: "Model is managed by the agent configuration.",
+          acpPermissionsManaged: "Permissions are managed by the agent configuration.",
+          acpSessionMode: "Session mode",
+          acpNotProbed: "Run executor preflight to discover ACP options.",
+          acpProbing: "Testing..."
         }}
         refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
         settings={{ ...settings, execution: { ...settings.execution, agentTransport: "acp" } }}
@@ -1107,7 +1121,8 @@ describe("desktop renderer settings interactions", () => {
     );
 
     expect(screen.getByRole("switch", { name: "Codex" })).toBeEnabled();
-    expect(screen.queryByRole("button", { name: "Codex options" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Codex options" }));
+    expect(screen.getByText("Desktop bridge unavailable.")).toBeInTheDocument();
     expect(screen.queryByText("Full access")).not.toBeInTheDocument();
   });
 });

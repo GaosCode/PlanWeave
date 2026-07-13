@@ -5,6 +5,7 @@ import { delimiter, isAbsolute, join } from "node:path";
 import type { DesktopAgentDetection, DesktopAgentToolProfile } from "@planweave-ai/runtime";
 
 const agentPathEntries = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
+const agentDetectionTimeoutMs = 5_000;
 
 const agentProfiles: DesktopAgentToolProfile[] = [
   {
@@ -106,7 +107,9 @@ function execFileText(
 async function executableAvailable(command: string): Promise<boolean> {
   const candidates = isAbsolute(command)
     ? [command]
-    : agentDetectionPath().split(delimiter).map((entry) => join(entry, command));
+    : agentDetectionPath()
+        .split(delimiter)
+        .map((entry) => join(entry, command));
   for (const candidate of candidates) {
     try {
       await access(candidate, constants.X_OK);
@@ -131,7 +134,7 @@ async function detectAgent(profile: DesktopAgentToolProfile): Promise<DesktopAge
     }
     const { stdout, stderr } = await execFileText(profile.command, profile.versionArgs, {
       env: { ...process.env, PATH: agentDetectionPath() },
-      timeout: 2_000,
+      timeout: agentDetectionTimeoutMs,
       maxBuffer: 64 * 1024
     });
     const version = `${stdout}${stderr}`.trim().split(/\r?\n/)[0] ?? "";

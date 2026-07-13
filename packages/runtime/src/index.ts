@@ -183,6 +183,7 @@ export {
   resolveExecutorRunnerEvidence,
   testExecutorProfile
 } from "./autoRun/executors.js";
+export { probeDesktopAgentCapabilities } from "./desktop/agentCapabilityApi.js";
 export {
   executorIntegrationForProfile,
   requireExecutorIntegration
@@ -293,7 +294,11 @@ export { AcpEventPublisher } from "./autoRun/acpEventPublisher.js";
 export type * from "./autoRun/acpEventPublisher.js";
 export { AcpEventStore } from "./autoRun/acpEventStore.js";
 export type * from "./autoRun/acpEventStore.js";
-export { AcpEventReadModel, AcpEventReadModelRegistry, acpEventReadModels } from "./autoRun/acpEventReadModel.js";
+export {
+  AcpEventReadModel,
+  AcpEventReadModelRegistry,
+  acpEventReadModels
+} from "./autoRun/acpEventReadModel.js";
 export type * from "./autoRun/acpEventReadModel.js";
 export {
   consumeRunnerRecordReadModel,

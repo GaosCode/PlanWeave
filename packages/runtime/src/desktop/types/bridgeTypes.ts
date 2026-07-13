@@ -53,6 +53,12 @@ import type {
   DesktopRuntimeResetResult
 } from "./runTypes.js";
 import type { ExecutorPreflightResult } from "../../autoRun/executorPreflightTypes.js";
+import type {
+  AcpSessionConfiguration,
+  ExecutorAgentInfo,
+  ExecutorPreflightFailureCode
+} from "../../autoRun/executorPreflightTypes.js";
+import type { RunnerCapability } from "../../autoRun/runnerContractSchemas.js";
 import type { ClaimResult } from "../../types.js";
 import type { CanvasExecutionPolicyInput } from "../graph/editModelTypes.js";
 import type {
@@ -88,6 +94,21 @@ export type DesktopAgentDetection = DesktopAgentToolProfile & {
   installed: boolean;
   version: string | null;
   unavailableReason: string | null;
+};
+
+export type DesktopAgentCapabilityProbeInput = {
+  agentKind: DesktopAgentKind;
+  projectRoot?: string | null;
+};
+
+export type DesktopAgentCapabilityProbeResult = {
+  agentKind: DesktopAgentKind;
+  ok: boolean;
+  message: string;
+  failureCode: ExecutorPreflightFailureCode | null;
+  agentInfo: ExecutorAgentInfo | null;
+  capabilities: RunnerCapability[] | null;
+  sessionConfig: AcpSessionConfiguration | null;
 };
 
 export type DesktopRuntimeToolAvailability = {
@@ -189,6 +210,9 @@ export type DesktopBridgeApi = {
     ref: DesktopCanvasReference,
     executorName: string
   ): Promise<ExecutorPreflightResult>;
+  probeDesktopAgentCapabilities(
+    input: DesktopAgentCapabilityProbeInput
+  ): Promise<DesktopAgentCapabilityProbeResult>;
   openBlockInspectorWindow(input: {
     blockRef: string;
     canvas: DesktopCanvasReference;

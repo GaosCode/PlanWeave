@@ -79,6 +79,7 @@ export const desktopBridgeInvokeChannels = {
   openTaskInspectorWindow: "planweave:openTaskInspectorWindow",
   openProject: "planweave:openProject",
   pauseAutoRun: "planweave:pauseAutoRun",
+  probeDesktopAgentCapabilities: "planweave:probeDesktopAgentCapabilities",
   refreshChangedPackagePrompts: "planweave:refreshChangedPackagePrompts",
   refreshPackageFileChanges: "planweave:refreshPackageFileChanges",
   readProjectPrompt: "planweave:readProjectPrompt",

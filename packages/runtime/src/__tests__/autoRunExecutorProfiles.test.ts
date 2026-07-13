@@ -370,9 +370,10 @@ describe("Auto Run executor profiles", () => {
         }),
         expect.objectContaining({
           name: "codex",
-          adapter: "codex-exec",
+          adapter: "agent",
           profileAdapter: "agent",
-          executionIntegration: "codex-exec",
+          executionIntegration: null,
+          runnerKind: "acp",
           source: "builtin"
         }),
         expect.objectContaining({
@@ -384,16 +385,18 @@ describe("Auto Run executor profiles", () => {
         }),
         expect.objectContaining({
           name: "opencode",
-          adapter: "opencode-exec",
+          adapter: "agent",
           profileAdapter: "agent",
-          executionIntegration: "opencode-exec",
+          executionIntegration: null,
+          runnerKind: "acp",
           source: "builtin"
         }),
         expect.objectContaining({
           name: "claude-code",
-          adapter: "claude-code-exec",
+          adapter: "agent",
           profileAdapter: "agent",
-          executionIntegration: "claude-code-exec",
+          executionIntegration: null,
+          runnerKind: "acp",
           source: "builtin"
         }),
         expect.objectContaining({
@@ -405,9 +408,10 @@ describe("Auto Run executor profiles", () => {
         }),
         expect.objectContaining({
           name: "pi",
-          adapter: "pi-exec",
+          adapter: "agent",
           profileAdapter: "agent",
-          executionIntegration: "pi-exec",
+          executionIntegration: null,
+          runnerKind: "acp",
           source: "builtin"
         }),
         expect.objectContaining({

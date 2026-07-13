@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 import { Readable, Writable } from "node:stream";
-import { PROTOCOL_VERSION, agent, methods, ndJsonStream, RequestError } from "@agentclientprotocol/sdk";
+import {
+  PROTOCOL_VERSION,
+  agent,
+  methods,
+  ndJsonStream,
+  RequestError
+} from "@agentclientprotocol/sdk";
 
 const scenario = process.argv[2] ?? "success";
 const sessions = new Map();
@@ -31,15 +37,29 @@ const app = agent({ name: "planweave-acp-mock" })
     if (scenario === "expect-broker-capabilities" && elicitation?.form == null) {
       throw RequestError.invalidParams({ reason: "interactive broker omitted form elicitation" });
     }
-    if (scenario === "delayed" || scenario === "delayed-artifact-implementation" || scenario === "load-capable-delayed") await pause(40);
+    if (
+      scenario === "delayed" ||
+      scenario === "delayed-artifact-implementation" ||
+      scenario === "load-capable-delayed"
+    )
+      await pause(40);
     if (scenario === "duplicate-response" || scenario === "unknown-id") {
       const id = scenario === "duplicate-response" ? ctx.requestId : "unknown-request-id";
-      setTimeout(() => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, result: { duplicate: true } })}\n`), 10);
+      setTimeout(
+        () =>
+          process.stdout.write(
+            `${JSON.stringify({ jsonrpc: "2.0", id, result: { duplicate: true } })}\n`
+          ),
+        10
+      );
     }
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentCapabilities: {
-        loadSession: scenario === "load-capable" || scenario === "load-capable-error" || scenario === "load-capable-delayed",
+        loadSession:
+          scenario === "load-capable" ||
+          scenario === "load-capable-error" ||
+          scenario === "load-capable-delayed",
         ...(scenario === "close-capable" ? { sessionCapabilities: { close: {} } } : {})
       },
       authMethods:
@@ -80,11 +100,54 @@ const app = agent({ name: "planweave-acp-mock" })
       await pause(100);
     }
     const sessionId = `mock-session-${nextSession++}`;
-    sessions.set(sessionId, { cancelled: false });
-    return { sessionId };
+    const currentModeId =
+      scenario === "probe-session-config-current-second" ? "agent-full-access" : "read-only";
+    const currentModel =
+      scenario === "probe-session-config-current-second" ? "gpt-5.2-codex" : "gpt-5";
+    sessions.set(sessionId, {
+      cancelled: false,
+      modeId: currentModeId,
+      config: { model: currentModel, "fast-mode": false }
+    });
+    return scenario === "artifact-session-config" ||
+      scenario === "probe-session-config-current-second"
+      ? {
+          sessionId,
+          modes: {
+            currentModeId,
+            availableModes: [
+              { id: "read-only", name: "Read only" },
+              { id: "agent-full-access", name: "Agent full access" }
+            ]
+          },
+          configOptions: [
+            {
+              id: "model",
+              type: "select",
+              name: "Model",
+              category: "model",
+              currentValue: currentModel,
+              options: [
+                { value: "gpt-5", name: "GPT-5" },
+                { value: "gpt-5.2-codex", name: "GPT-5.2 Codex" }
+              ]
+            },
+            {
+              id: "fast-mode",
+              type: "boolean",
+              name: "Fast mode",
+              currentValue: false
+            }
+          ]
+        }
+      : { sessionId };
   })
   .onRequest(methods.agent.session.load, async (ctx) => {
-    if (scenario !== "load-capable" && scenario !== "load-capable-error" && scenario !== "load-capable-delayed") {
+    if (
+      scenario !== "load-capable" &&
+      scenario !== "load-capable-error" &&
+      scenario !== "load-capable-delayed"
+    ) {
       throw RequestError.invalidParams({ sessionId: ctx.params.sessionId });
     }
     sessions.set(ctx.params.sessionId, { cancelled: false });
@@ -108,36 +171,89 @@ const app = agent({ name: "planweave-acp-mock" })
     }
     return {};
   })
+  .onRequest(methods.agent.session.setMode, (ctx) => {
+    const session = sessions.get(ctx.params.sessionId);
+    if (!session) throw RequestError.invalidParams({ sessionId: ctx.params.sessionId });
+    session.modeId = ctx.params.modeId;
+    return {};
+  })
+  .onRequest(methods.agent.session.setConfigOption, (ctx) => {
+    const session = sessions.get(ctx.params.sessionId);
+    if (!session) throw RequestError.invalidParams({ sessionId: ctx.params.sessionId });
+    session.config[ctx.params.configId] = ctx.params.value;
+    return {
+      configOptions: [
+        {
+          id: "model",
+          type: "select",
+          name: "Model",
+          category: "model",
+          currentValue: session.config.model,
+          options: [
+            { value: "gpt-5", name: "GPT-5" },
+            { value: "gpt-5.2-codex", name: "GPT-5.2 Codex" }
+          ]
+        },
+        {
+          id: "fast-mode",
+          type: "boolean",
+          name: "Fast mode",
+          currentValue: session.config["fast-mode"]
+        }
+      ]
+    };
+  })
   .onRequest(methods.agent.session.prompt, async (ctx) => {
     const { sessionId } = ctx.params;
     const session = sessions.get(sessionId);
     if (!session) throw RequestError.invalidParams({ sessionId });
+    if (
+      scenario === "artifact-session-config" &&
+      (session.modeId !== "agent-full-access" ||
+        session.config.model !== "gpt-5.2-codex" ||
+        session.config["fast-mode"] !== true)
+    ) {
+      throw RequestError.invalidParams({ reason: "ACP session defaults were not applied" });
+    }
     if (scenario === "load-capable-error") {
       throw RequestError.invalidParams({ reason: "scripted continuation error" });
     }
-    if (scenario === "protocol-error") throw RequestError.invalidParams({ reason: "scripted protocol error" });
+    if (scenario === "protocol-error")
+      throw RequestError.invalidParams({ reason: "scripted protocol error" });
     if (scenario === "stubborn-pending") {
       await ctx.client.request("mock/pending", { sessionId });
     }
 
     const promptText = ctx.params.prompt.find((part) => part.type === "text")?.text ?? "";
     const taskPrompt = promptText.split("\n\nPLANWEAVE RUNNER-ONLY FINAL ARTIFACT CONTRACT", 1)[0];
-    const artifactScenario = scenario.startsWith("artifact-") ||
+    const artifactScenario =
+      scenario.startsWith("artifact-") ||
       scenario === "delayed-artifact-implementation" ||
       scenario === "terminal-output" ||
       scenario === "permission-deny" ||
       scenario === "permission-secret" ||
       scenario === "elicitation-secret" ||
       scenario === "elicitation-validation" ||
-      scenario === "multi-interaction";
-    if (artifactScenario &&
+      scenario === "multi-interaction" ||
+      scenario === "artifact-session-config";
+    if (
+      artifactScenario &&
       (!promptText.includes("PLANWEAVE RUNNER-ONLY FINAL ARTIFACT CONTRACT") ||
-        !promptText.includes("PLANWEAVE_FINAL_ARTIFACT "))) {
+        !promptText.includes("PLANWEAVE_FINAL_ARTIFACT "))
+    ) {
       throw RequestError.invalidParams({ reason: "missing runner final-artifact instruction" });
     }
 
     const artifactText =
-      scenario === "artifact-implementation" || scenario === "delayed-artifact-implementation" || scenario === "terminal-output" || scenario === "permission-deny" || scenario === "permission-secret" || scenario === "elicitation-secret" || scenario === "elicitation-validation" || scenario === "multi-interaction"
+      scenario === "artifact-implementation" ||
+      scenario === "artifact-session-config" ||
+      scenario === "delayed-artifact-implementation" ||
+      scenario === "terminal-output" ||
+      scenario === "permission-deny" ||
+      scenario === "permission-secret" ||
+      scenario === "elicitation-secret" ||
+      scenario === "elicitation-validation" ||
+      scenario === "multi-interaction"
         ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "implementation", ref: "T-001#B-001", taskId: "T-001", reportMarkdown: "implemented\n" } })}\n`
         : scenario === "artifact-review" || scenario === "artifact-review-needs-changes"
           ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "review", ref: "T-001#R-001", taskId: "T-001", reviewResult: { reviewBlockRef: "T-001#R-001", taskId: "T-001", verdict: scenario === "artifact-review-needs-changes" ? "needs_changes" : "passed", content: scenario === "artifact-review-needs-changes" ? "fix the implementation" : "passed" } } })}\n`
@@ -152,7 +268,12 @@ const app = agent({ name: "planweave-acp-mock" })
       }
     });
 
-    if (scenario === "streaming" || scenario === "permission" || scenario === "permission-deny" || scenario === "permission-secret") {
+    if (
+      scenario === "streaming" ||
+      scenario === "permission" ||
+      scenario === "permission-deny" ||
+      scenario === "permission-secret"
+    ) {
       await ctx.client.notify(methods.client.session.update, {
         sessionId,
         update: {
@@ -165,15 +286,26 @@ const app = agent({ name: "planweave-acp-mock" })
       });
     }
 
-    if (scenario === "permission" || scenario === "permission-deny" || scenario === "permission-secret") {
+    if (
+      scenario === "permission" ||
+      scenario === "permission-deny" ||
+      scenario === "permission-secret"
+    ) {
       const permission = await ctx.client.request(methods.client.session.requestPermission, {
         sessionId,
         toolCall: { toolCallId: `tool-${sessionId}`, title: "Inspect fixture", kind: "read" },
-        options: scenario === "permission-deny"
-          ? [{ optionId: "deny", name: "Deny", kind: "reject_once" }]
-          : scenario === "permission-secret"
-            ? [{ optionId: "token=opaque-action-id", name: "password=super-secret", kind: "allow_once" }]
-            : [{ optionId: "allow", name: "Allow once", kind: "allow_once" }]
+        options:
+          scenario === "permission-deny"
+            ? [{ optionId: "deny", name: "Deny", kind: "reject_once" }]
+            : scenario === "permission-secret"
+              ? [
+                  {
+                    optionId: "token=opaque-action-id",
+                    name: "password=super-secret",
+                    kind: "allow_once"
+                  }
+                ]
+              : [{ optionId: "allow", name: "Allow once", kind: "allow_once" }]
       });
       if (scenario === "permission-deny" && permission.outcome.optionId !== "deny") {
         throw RequestError.invalidParams({ reason: "expected deny permission outcome" });
@@ -184,7 +316,11 @@ const app = agent({ name: "planweave-acp-mock" })
       await Promise.all([
         ctx.client.request(methods.client.session.requestPermission, {
           sessionId,
-          toolCall: { toolCallId: `tool-${sessionId}`, title: "Concurrent permission", kind: "read" },
+          toolCall: {
+            toolCallId: `tool-${sessionId}`,
+            title: "Concurrent permission",
+            kind: "read"
+          },
           options: [{ optionId: "deny", name: "Deny", kind: "reject_once" }]
         }),
         ctx.client.request(methods.client.elicitation.create, {
@@ -200,15 +336,30 @@ const app = agent({ name: "planweave-acp-mock" })
       ]);
     }
 
-    if (scenario === "elicitation" || scenario === "unsupported-elicitation" || scenario === "elicitation-secret") {
+    if (
+      scenario === "elicitation" ||
+      scenario === "unsupported-elicitation" ||
+      scenario === "elicitation-secret"
+    ) {
       await ctx.client.request(methods.client.elicitation.create, {
         mode: scenario === "unsupported-elicitation" ? "url" : "form",
         sessionId,
-        message: scenario === "elicitation-secret" ? "Authorization: Bearer secret-token" : "Choose a test value",
-        ...(scenario === "unsupported-elicitation" ? { url: "https://example.invalid", elicitationId: "unsupported-1" } : {}),
+        message:
+          scenario === "elicitation-secret"
+            ? "Authorization: Bearer secret-token"
+            : "Choose a test value",
+        ...(scenario === "unsupported-elicitation"
+          ? { url: "https://example.invalid", elicitationId: "unsupported-1" }
+          : {}),
         requestedSchema: {
           type: "object",
-          properties: { value: { type: "string", title: "Value", ...(scenario === "elicitation-secret" ? { default: "api_key=raw-secret" } : {}) } },
+          properties: {
+            value: {
+              type: "string",
+              title: "Value",
+              ...(scenario === "elicitation-secret" ? { default: "api_key=raw-secret" } : {})
+            }
+          },
           required: ["value"]
         }
       });
@@ -317,7 +468,12 @@ const app = agent({ name: "planweave-acp-mock" })
     });
 
     if (scenario === "long-prompt") await pause(500);
-    if (scenario === "delayed" || scenario === "delayed-artifact-implementation" || scenario === "late-update") await pause(40);
+    if (
+      scenario === "delayed" ||
+      scenario === "delayed-artifact-implementation" ||
+      scenario === "late-update"
+    )
+      await pause(40);
     if (scenario === "late-update") {
       await ctx.client.notify(methods.client.session.update, {
         sessionId,
@@ -341,9 +497,7 @@ if (scenario === "invalid-envelope-pending") {
 if (scenario === "invalid-object-envelope-pending") {
   setTimeout(
     () =>
-      process.stdout.write(
-        `${JSON.stringify({ jsonrpc: "2.0", method: 1, id: 7, result: {} })}\n`
-      ),
+      process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", method: 1, id: 7, result: {} })}\n`),
     20
   );
 }

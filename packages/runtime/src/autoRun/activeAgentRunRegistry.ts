@@ -41,6 +41,16 @@ export type ActiveAgentRunLookup = Pick<ActiveAgentRunIdentity, "scope" | "execu
   Partial<Pick<ActiveAgentRunIdentity, "desktopRunId" | "runSessionId" | "claimRef" | "sessionId">>;
 export type ActiveAgentRunSessionActionIdentity = RunnerSessionActionIdentity;
 export type ActiveAgentRunActionIdentity = RunnerRequestActionIdentity;
+type QueuedAgentPrompt = {
+  text: string;
+  resolve: () => void;
+  reject: (error: Error) => void;
+};
+type AgentPromptQueue = {
+  items: QueuedAgentPrompt[];
+  draining: boolean;
+  closed: boolean;
+};
 const identityKinds: readonly IdentityKind[] = ["desktopRunId", "runSessionId", "executorRunId", "claimRef", "sessionId"];
 
 function key(scope: string, value: string): string {
@@ -53,6 +63,7 @@ export class ActiveAgentRunRegistry {
     identityKinds.map((kind) => [kind, new Map()])
   );
   private readonly removals = new WeakMap<ActiveAgentRunHandle, Promise<boolean>>();
+  private readonly promptQueues = new WeakMap<ActiveAgentRunHandle, AgentPromptQueue>();
   private readonly interactionSubscribers = new Set<(handle: ActiveAgentRunHandle) => void>();
 
   subscribeInteractionChanges(subscriber: (handle: ActiveAgentRunHandle) => void): () => void {
@@ -162,6 +173,86 @@ export class ActiveAgentRunRegistry {
     if (!removed) throw new Error(`Active ACP executor run '${identity.executorRunId}' is no longer available.`);
   }
 
+  queuePrompt(identity: ActiveAgentRunSessionActionIdentity, text: string): Promise<void> {
+    const handle = this.resolveSessionAction(identity);
+    if (!handle) {
+      return Promise.reject(
+        new Error(`Active ACP executor run '${identity.executorRunId}' does not exist.`)
+      );
+    }
+    if (handle.lifecycleState === "waiting_interaction" || handle.control.pendingRequests.size > 0) {
+      return Promise.reject(
+        new Error("ACP prompt cannot be queued while a pending permission or elicitation requires a decision.")
+      );
+    }
+    if (handle.lifecycleState !== "running") {
+      return Promise.reject(
+        new Error(`Active ACP session '${identity.sessionId}' is not prompt-capable in state '${handle.lifecycleState}'.`)
+      );
+    }
+    const queue = this.promptQueue(handle);
+    if (queue.closed) {
+      return Promise.reject(
+        new Error("ACP prompt intake has closed because the owned session is finishing.")
+      );
+    }
+    const result = new Promise<void>((resolve, reject) => {
+      queue.items.push({ text, resolve, reject });
+    });
+    this.notifyInteractionChanged(handle);
+    return result;
+  }
+
+  async drainPromptQueue(
+    handle: ActiveAgentRunHandle,
+    send: (text: string) => Promise<void>
+  ): Promise<void> {
+    if (!this.handles.has(handle)) {
+      throw new Error(`Active ACP executor run '${handle.identity.executorRunId}' does not exist.`);
+    }
+    const queue = this.promptQueue(handle);
+    if (queue.draining) {
+      throw new Error("Active ACP prompt queue is already being drained.");
+    }
+    queue.draining = true;
+    this.notifyInteractionChanged(handle);
+    try {
+      while (true) {
+        if (!this.handles.has(handle) || handle.lifecycleState !== "running") {
+          throw new Error("Active ACP prompt ownership ended before the queued turn could run.");
+        }
+        if (handle.control.pendingRequests.size > 0) {
+          throw new Error("ACP prompt cannot run while a pending permission or elicitation requires a decision.");
+        }
+        const item = queue.items.shift();
+        if (!item) {
+          queue.closed = true;
+          break;
+        }
+        try {
+          await send(item.text);
+          item.resolve();
+        } catch (error) {
+          const failure = error instanceof Error ? error : new Error(String(error));
+          item.reject(failure);
+          throw failure;
+        }
+      }
+    } finally {
+      queue.draining = false;
+      this.notifyInteractionChanged(handle);
+    }
+  }
+
+  promptInFlight(handle: ActiveAgentRunHandle): boolean {
+    const queue = this.promptQueues.get(handle);
+    return queue !== undefined && (queue.draining || queue.items.length > 0);
+  }
+
+  promptAccepting(handle: ActiveAgentRunHandle): boolean {
+    return this.promptQueues.get(handle)?.closed !== true;
+  }
+
   lookupDesktopRun(desktopRunId: string): ActiveAgentRunHandle | null {
     return [...this.handles].find(
       (handle) => handle.identity.desktopRunId === desktopRunId
@@ -228,6 +319,14 @@ export class ActiveAgentRunRegistry {
     }
   }
 
+  private promptQueue(handle: ActiveAgentRunHandle): AgentPromptQueue {
+    const existing = this.promptQueues.get(handle);
+    if (existing) return existing;
+    const queue: AgentPromptQueue = { items: [], draining: false, closed: false };
+    this.promptQueues.set(handle, queue);
+    return queue;
+  }
+
   private index(handle: ActiveAgentRunHandle): void {
     for (const kind of identityKinds) {
       const value = handle.identity[kind];
@@ -242,6 +341,11 @@ export class ActiveAgentRunRegistry {
     artifactValidated: boolean
   ): Promise<boolean> {
     if (!this.handles.delete(handle)) return false;
+    const promptQueue = this.promptQueues.get(handle);
+    if (promptQueue) {
+      const failure = new Error(reason);
+      for (const item of promptQueue.items.splice(0)) item.reject(failure);
+    }
     for (const kind of identityKinds) {
       const value = handle.identity[kind];
       const scopedKey = value ? key(handle.identity.scope, value) : null;

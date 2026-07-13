@@ -59,14 +59,17 @@ describe("desktop agent tool detection", () => {
         env: expect.objectContaining({
           PATH: expect.stringContaining("/opt/homebrew/bin")
         }),
-        timeout: 2_000
+        timeout: 5_000
       }),
       expect.any(Function)
     );
     expect(execFileMock).toHaveBeenCalledWith(
       "opencode",
       ["acp", "--help"],
-      expect.any(Object),
+      expect.objectContaining({
+        maxBuffer: 64 * 1024,
+        timeout: 5_000
+      }),
       expect.any(Function)
     );
   });

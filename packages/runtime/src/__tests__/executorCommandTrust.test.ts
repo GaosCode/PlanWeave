@@ -86,7 +86,10 @@ describe("executor command trust gate", () => {
     const profiles = await listExecutorProfiles({ projectRoot: root });
     expect(profiles.find((profile) => profile.name === "codex")).toMatchObject({
       source: "builtin",
-      command: "codex"
+      runnerKind: "acp",
+      acpLaunch: {
+        command: "codex-acp"
+      }
     });
     expect(createExecutorAdapter({ projectRoot: root, executorName: "codex" })).toBeDefined();
   });

@@ -174,6 +174,23 @@ describe("runtime bridge handlers: graph and project", () => {
     });
   });
 
+  it("probes canonical agent capabilities without resolving a canvas or manifest", async () => {
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    const handler = electronMock.handlers.get(
+      desktopBridgeInvokeChannels.probeDesktopAgentCapabilities
+    );
+    expect(handler).toBeDefined();
+    const input = { agentKind: "codex", projectRoot: "/tmp/project" };
+
+    await handler?.(null, input);
+
+    expect(runtimeMock.resolveTaskCanvasWorkspace).not.toHaveBeenCalled();
+    expect(runtimeMock.testExecutorProfile).not.toHaveBeenCalled();
+    expect(runtimeMock.probeDesktopAgentCapabilities).toHaveBeenCalledWith(input);
+  });
+
   it("registers handlers for every desktop bridge invoke channel", async () => {
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     const { registerPackageWatchHandlers } = await import("../main/packageWatch");

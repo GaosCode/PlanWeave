@@ -1,9 +1,11 @@
 import { mkdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { z } from "zod";
 import type {
   AgentCapabilities,
   CreateElicitationResponse,
+  NewSessionResponse,
   RequestPermissionResponse,
   SessionNotification,
   TerminalOutputRequest,
@@ -36,6 +38,7 @@ import {
   type ActiveAgentRunRegistry
 } from "./activeAgentRunRegistry.js";
 import { redactRunnerEventPayload, redactRunnerEventText } from "./runnerEventRedaction.js";
+import { normalizedRedactedContent } from "./normalizedEventContract.js";
 import {
   createLiveOwnership,
   type JsonRpcValue,
@@ -53,6 +56,7 @@ import { acpCorrelationSchema, runnerIdentitySchema, runnerRunIdentitySchema } f
 import { acpEventReadModels, type AcpEventReadModelRegistry } from "./acpEventReadModel.js";
 import { createAcpElicitationSettlement } from "./acpElicitationSettlement.js";
 import { createAcpInteractionSettlement } from "./acpInteractionSettlement.js";
+import type { DesktopAcpSessionDefaults } from "./desktopAgentSettings.js";
 
 export type AcpSessionRunKind = "implementation" | "review" | "feedback";
 export type AcpSessionRun = {
@@ -106,6 +110,65 @@ function expectedArtifact(run: AcpSessionRun): ExpectedFinalArtifactIdentity {
   return { kind: run.kind, ref: run.identity.claimRef, taskId: run.taskId };
 }
 
+export async function applyDesktopAcpSessionDefaults(options: {
+  agentId: AgentFamily;
+  defaults: DesktopAcpSessionDefaults;
+  connection: AcpConnection;
+  session: NewSessionResponse;
+  operation?: { signal?: AbortSignal; timeoutMs?: number };
+}): Promise<void> {
+  const defaults = options.defaults;
+  let advertised = options.session.configOptions ?? [];
+  const configuredEntries = Object.entries(defaults.configOptions);
+  for (const [configId, value] of configuredEntries) {
+    const config = advertised.find((candidate) => candidate.id === configId);
+    if (!config) {
+      throw new Error(`ACP agent '${options.agentId}' did not advertise configured option '${configId}'.`);
+    }
+    if (config.type === "boolean") {
+      if (typeof value !== "boolean") {
+        throw new Error(`ACP option '${configId}' requires a boolean value.`);
+      }
+      const response = await options.connection.setSessionConfigOption(
+        { sessionId: options.session.sessionId, configId, type: "boolean", value },
+        options.operation
+      );
+      advertised = response.configOptions;
+      continue;
+    }
+    if (typeof value !== "string") {
+      throw new Error(`ACP option '${configId}' requires a selected value id.`);
+    }
+    const available = config.options.flatMap((candidate) =>
+      "group" in candidate ? candidate.options : [candidate]
+    );
+    if (!available.some((candidate) => candidate.value === value)) {
+      throw new Error(`ACP option '${configId}' did not advertise configured value '${value}'.`);
+    }
+    const response = await options.connection.setSessionConfigOption(
+      { sessionId: options.session.sessionId, configId, value },
+      options.operation
+    );
+    advertised = response.configOptions;
+  }
+
+  const configuredProtocolMode = advertised.some(
+    (option) => option.category === "mode" && Object.hasOwn(defaults.configOptions, option.id)
+  );
+  if (defaults.modeId && !configuredProtocolMode) {
+    const modes = options.session.modes;
+    if (!modes?.availableModes.some((mode) => mode.id === defaults.modeId)) {
+      throw new Error(
+        `ACP agent '${options.agentId}' did not advertise configured session mode '${defaults.modeId}'.`
+      );
+    }
+    await options.connection.setSessionMode(
+      { sessionId: options.session.sessionId, modeId: defaults.modeId },
+      options.operation
+    );
+  }
+}
+
 export class AcpSessionController {
   constructor(
     private readonly registry: ActiveAgentRunRegistry = activeAgentRunRegistry,
@@ -117,6 +180,7 @@ export class AcpSessionController {
     signal?: AbortSignal;
     timeoutMs?: number;
     interactionBroker?: RunnerInteractionBroker;
+    sessionDefaults?: DesktopAcpSessionDefaults;
   }): Promise<ExecutorAdapterResult> {
     await mkdir(run.runDir, { recursive: true });
     const heartbeatPath = join(run.runDir, "heartbeat.json");
@@ -497,6 +561,15 @@ export class AcpSessionController {
         { cwd: run.cwd, mcpServers: [] },
         { signal: abortController.signal, timeoutMs: options?.timeoutMs }
       );
+      if (options?.sessionDefaults) {
+        await applyDesktopAcpSessionDefaults({
+          agentId: run.agentId,
+          defaults: options.sessionDefaults,
+          connection,
+          session,
+          operation: { signal: abortController.signal, timeoutMs: options.timeoutMs }
+        });
+      }
       this.registry.bindSession(handle, session.sessionId);
       this.registry.transition(handle, "running");
       if (eventStore) await eventStore.append({ kind: "lifecycle", state: "running", message: "ACP session is running." }, acpCorrelationSchema.parse({ sessionId: session.sessionId }));
@@ -507,7 +580,8 @@ export class AcpSessionController {
       });
       const expected = expectedArtifact(run);
       const agentPrompt = `${run.prompt}\n\n${finalArtifactPromptInstruction(expected)}`;
-      const response = await connection.prompt(
+      const activeConnection = connection;
+      const response = await activeConnection.prompt(
         { sessionId: session.sessionId, prompt: [{ type: "text", text: agentPrompt }] },
         { signal: abortController.signal, timeoutMs: options?.timeoutMs }
       );
@@ -518,6 +592,28 @@ export class AcpSessionController {
             : diagnostic(abortController.signal.reason)
         );
       }
+      await this.registry.drainPromptQueue(handle, async (text) => {
+        if (eventStore) {
+          await eventStore.append({
+            kind: "message",
+            role: "user",
+            messageId: `desktop-live-turn-${randomUUID()}`,
+            chunk: false,
+            ...normalizedRedactedContent(text)
+          }, acpCorrelationSchema.parse({ sessionId: session.sessionId }));
+        }
+        const followUp = await activeConnection.prompt(
+          { sessionId: session.sessionId, prompt: [{ type: "text", text }] },
+          { signal: abortController.signal, timeoutMs: options?.timeoutMs }
+        );
+        if (followUp.stopReason === "cancelled" || abortController.signal.aborted) {
+          throw new ExecutorCancelledError(
+            followUp.stopReason === "cancelled"
+              ? "ACP agent cancelled the queued conversation turn."
+              : diagnostic(abortController.signal.reason)
+          );
+        }
+      });
       if (eventStore) await eventStore.drain();
       if (protocolObserverError !== undefined) throw protocolObserverError;
       const artifactRelative = finalArtifactRelativePath(run.kind);

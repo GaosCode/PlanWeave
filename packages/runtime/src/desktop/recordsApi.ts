@@ -33,6 +33,7 @@ import {
   acpPromptReadOptions,
   consumeAcpPromptRunRecord,
   continueAcpPrompt,
+  queueLiveAcpPrompt,
   resolveAcpPromptContext
 } from "./acpPromptApi.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
@@ -590,6 +591,10 @@ export async function sendAgentPrompt(
     expected.sessionId !== identity.sessionId
   ) {
     throw new Error("ACP prompt identity does not match the selected persisted run record.");
+  }
+  if (context.mode === "live") {
+    await queueLiveAcpPrompt({ context, text });
+    return;
   }
   await continueAcpPrompt({ workspace, context, text });
 }

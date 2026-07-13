@@ -2,6 +2,7 @@ import { basename, dirname } from "node:path";
 import { z } from "zod";
 import { acpConversationTurns } from "../autoRun/acpConversationTurn.js";
 import { acpEventReadModels } from "../autoRun/acpEventReadModel.js";
+import { activeAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { builtinAgentProfiles, resolveAgentDefinition } from "../autoRun/agentRegistry.js";
 import { requireAcpLaunch } from "../autoRun/acpLaunch.js";
 import {
@@ -16,9 +17,15 @@ import {
   type RunnerRecordReadSubscriber
 } from "../autoRun/runnerRecordReadModel.js";
 import {
+  acpSessionIdSchema,
   acpCorrelationSchema,
+  claimRefSchema,
+  desktopRunIdSchema,
+  executorRunIdSchema,
+  runSessionIdSchema,
   runnerIdentitySchema,
-  runnerRunIdentitySchema
+  runnerRunIdentitySchema,
+  runnerSessionActionIdentitySchema
 } from "../autoRun/runnerContractSchemas.js";
 import type { RunnerEventCursor } from "../autoRun/runnerEventReplay.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
@@ -30,30 +37,48 @@ import {
   type ProjectWorkspace
 } from "../types.js";
 
-const completedAcpMetadataSchema = z
+const acpPromptMetadataBaseSchema = z
   .object({
     runId: z.string().min(1).max(256),
-    executorRunId: z.string().min(1).max(256),
-    claimRef: z.string().min(3).max(513),
-    sessionId: z.string().min(1).max(256),
+    executorRunId: executorRunIdSchema,
+    claimRef: claimRefSchema,
+    sessionId: acpSessionIdSchema,
     agentId: agentFamilySchema,
     runnerKind: z.literal("acp"),
-    status: z.literal("completed"),
-    outcome: z.literal("succeeded"),
     executor: z.string().min(1).max(256),
-    runSessionId: z.string().min(1).max(256).nullable().optional(),
-    desktopRunId: z.string().min(1).max(256).nullable().optional(),
-    capabilities: z.object({ loadSession: z.literal(true) }).passthrough()
+    runSessionId: runSessionIdSchema.nullable().optional(),
+    desktopRunId: desktopRunIdSchema.nullable().optional()
   })
   .passthrough();
 
+const completedAcpMetadataSchema = acpPromptMetadataBaseSchema.extend({
+  status: z.literal("completed"),
+  outcome: z.literal("succeeded"),
+  capabilities: z.object({ loadSession: z.literal(true) }).passthrough()
+});
+
+const liveAcpMetadataSchema = acpPromptMetadataBaseSchema.extend({
+  status: z.literal("running"),
+  desktopRunId: desktopRunIdSchema,
+  runSessionId: runSessionIdSchema
+});
+
 export type CompletedAcpMetadata = z.infer<typeof completedAcpMetadataSchema>;
+export type LiveAcpMetadata = z.infer<typeof liveAcpMetadataSchema>;
 
 export type AcpPromptContext =
   | {
       available: true;
+      mode: "completed";
       runDir: string;
       metadata: CompletedAcpMetadata;
+      identity: DesktopAgentPromptIdentity;
+    }
+  | {
+      available: true;
+      mode: "live";
+      runDir: string;
+      metadata: LiveAcpMetadata;
       identity: DesktopAgentPromptIdentity;
     }
   | { available: false; reason: string };
@@ -72,14 +97,25 @@ export function resolveAcpPromptContext(options: {
       reason: "ACP conversation turns are only available for block run records."
     };
   }
-  const parsedMetadata = completedAcpMetadataSchema.safeParse(options.metadata);
-  if (!parsedMetadata.success) {
+  const completedMetadata = completedAcpMetadataSchema.safeParse(options.metadata);
+  const liveMetadata = liveAcpMetadataSchema.safeParse(options.metadata);
+  if (!completedMetadata.success && !liveMetadata.success) {
     return {
       available: false,
       reason: "This record is not a completed ACP run with session/load capability."
     };
   }
-  const metadata = parsedMetadata.data;
+  const metadata = completedMetadata.success
+    ? completedMetadata.data
+    : liveMetadata.success
+      ? liveMetadata.data
+      : null;
+  if (!metadata) {
+    return {
+      available: false,
+      reason: "This record is not a completed or live ACP run with prompt capability."
+    };
+  }
   if (
     metadata.runId !== options.runId ||
     metadata.executorRunId !== options.runId ||
@@ -90,11 +126,23 @@ export function resolveAcpPromptContext(options: {
       reason: "ACP record identity does not match its persisted metadata."
     };
   }
-  return {
-    available: true,
-    runDir: options.runDir,
-    metadata,
-    identity: desktopAgentPromptIdentitySchema.parse({
+  if (liveMetadata.success) {
+    const registered = activeAgentRunRegistry.lookupExact({
+      scope: options.runDir,
+      executorRunId: metadata.executorRunId,
+      desktopRunId: liveMetadata.data.desktopRunId,
+      runSessionId: liveMetadata.data.runSessionId,
+      claimRef: metadata.claimRef,
+      sessionId: metadata.sessionId
+    });
+    if (!registered) {
+      return {
+        available: false,
+        reason: "No live owned ACP session is available for this run record."
+      };
+    }
+  }
+  const identity = desktopAgentPromptIdentitySchema.parse({
       ref: {
         projectRoot: options.workspace.rootPath,
         canvasId: basename(dirname(options.workspace.packageDir))
@@ -103,14 +151,24 @@ export function resolveAcpPromptContext(options: {
       executorRunId: metadata.executorRunId,
       claimRef: metadata.claimRef,
       sessionId: metadata.sessionId
-    })
+    });
+  if (liveMetadata.success) {
+    return { available: true, mode: "live", runDir: options.runDir, metadata: liveMetadata.data, identity };
+  }
+  if (completedMetadata.success) {
+    return { available: true, mode: "completed", runDir: options.runDir, metadata: completedMetadata.data, identity };
+  }
+  return {
+    available: false,
+    reason: "This record is not a completed or live ACP run with prompt capability."
   };
 }
 
 export function acpPromptReadOptions(context: AcpPromptContext) {
   return context.available
-    ? {
+      ? {
         promptIdentity: context.identity,
+        promptContinuationAvailable: context.mode === "completed",
         promptInFlight: acpConversationTurns.isInFlight(context.runDir)
       }
     : {};
@@ -310,7 +368,7 @@ export async function consumeAcpPromptRunRecord(options: {
 
 export async function continueAcpPrompt(options: {
   workspace: ProjectWorkspace;
-  context: Extract<AcpPromptContext, { available: true }>;
+  context: Extract<AcpPromptContext, { available: true }> & { mode: "completed" };
   text: string;
 }): Promise<void> {
   const definition = resolveAgentDefinition(options.context.metadata.agentId);
@@ -327,4 +385,22 @@ export async function continueAcpPrompt(options: {
     timeoutMs: profile.timeoutMs ?? DEFAULT_EXECUTOR_TIMEOUT_MS,
     eventStore: async () => verifiedPromptEventStore(options)
   });
+}
+
+export function queueLiveAcpPrompt(options: {
+  context: Extract<AcpPromptContext, { available: true }> & { mode: "live" };
+  text: string;
+}): Promise<void> {
+  const metadata = options.context.metadata;
+  if (!metadata.desktopRunId || !metadata.runSessionId) {
+    return Promise.reject(new Error("Live ACP prompt requires exact Desktop run/session identity."));
+  }
+  return activeAgentRunRegistry.queuePrompt(runnerSessionActionIdentitySchema.parse({
+    scope: options.context.runDir,
+    executorRunId: metadata.executorRunId,
+    desktopRunId: metadata.desktopRunId,
+    runSessionId: metadata.runSessionId,
+    claimRef: metadata.claimRef,
+    sessionId: metadata.sessionId
+  }), options.text);
 }

@@ -21,6 +21,10 @@ import {
   type PromptResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
+  type SetSessionConfigOptionRequest,
+  type SetSessionConfigOptionResponse,
+  type SetSessionModeRequest,
+  type SetSessionModeResponse,
   type SessionNotification,
   type TerminalOutputRequest,
   type TerminalOutputResponse,
@@ -70,11 +74,25 @@ export type AcpConnection = {
   readonly stderr: readonly string[];
   readonly closed: Promise<void>;
   initialize(options?: AcpOperationOptions): Promise<InitializeResponse>;
-  newSession(request: NewSessionRequest, options?: AcpOperationOptions): Promise<NewSessionResponse>;
-  loadSession(request: LoadSessionRequest, options?: AcpOperationOptions): Promise<LoadSessionResponse>;
+  newSession(
+    request: NewSessionRequest,
+    options?: AcpOperationOptions
+  ): Promise<NewSessionResponse>;
+  loadSession(
+    request: LoadSessionRequest,
+    options?: AcpOperationOptions
+  ): Promise<LoadSessionResponse>;
   prompt(request: PromptRequest, options?: AcpOperationOptions): Promise<PromptResponse>;
   cancel(notification: CancelNotification): Promise<void>;
   closeSession(sessionId: string, options?: AcpOperationOptions): Promise<CloseSessionResponse>;
+  setSessionMode(
+    request: SetSessionModeRequest,
+    options?: AcpOperationOptions
+  ): Promise<SetSessionModeResponse>;
+  setSessionConfigOption(
+    request: SetSessionConfigOptionRequest,
+    options?: AcpOperationOptions
+  ): Promise<SetSessionConfigOptionResponse>;
   dispose(): Promise<void>;
 };
 
@@ -122,7 +140,11 @@ function asError(error: unknown, message: string): Error {
   return error instanceof Error ? error : new Error(message, { cause: error });
 }
 
-function observe(observer: AcpProtocolObserver | undefined, direction: AcpProtocolObservation["direction"], payload: unknown): void {
+function observe(
+  observer: AcpProtocolObserver | undefined,
+  direction: AcpProtocolObservation["direction"],
+  payload: unknown
+): void {
   if (!observer) return;
   observer.observe({ direction, payload: observer.redact(payload) });
 }
@@ -145,7 +167,7 @@ function isTransportEnvelope(value: unknown): boolean {
     return !("id" in envelope) || isJsonRpcId(envelope.id);
   }
   if (!("id" in envelope) || !isJsonRpcId(envelope.id)) return false;
-  return ("result" in envelope) !== ("error" in envelope);
+  return "result" in envelope !== "error" in envelope;
 }
 
 function validateTransportLine(line: string): void {
@@ -224,8 +246,10 @@ function createGuardedStream(
             observe(observer, "agent_to_client", value);
             if ("id" in value && !("method" in value)) {
               const key = idKey(value.id);
-              if (completedIds.has(key)) throw new Error(`ACP duplicate response id: ${String(value.id)}`);
-              if (!pendingIds.delete(key)) throw new Error(`ACP unknown response id: ${String(value.id)}`);
+              if (completedIds.has(key))
+                throw new Error(`ACP duplicate response id: ${String(value.id)}`);
+              if (!pendingIds.delete(key))
+                throw new Error(`ACP unknown response id: ${String(value.id)}`);
               completedIds.add(key);
             }
             controller.enqueue(value);
@@ -284,7 +308,9 @@ class SubprocessAcpConnection implements AcpConnection {
       this.stderr.push(chunk);
       observe(options.observer, "agent_stderr", chunk);
     });
-    const stream = createGuardedStream(this.process, options.observer, (error) => this.terminate(error));
+    const stream = createGuardedStream(this.process, options.observer, (error) =>
+      this.terminate(error)
+    );
     const client: Client = {
       requestPermission: (request) => {
         if (!options.onPermissionRequest) {
@@ -294,10 +320,14 @@ class SubprocessAcpConnection implements AcpConnection {
       },
       sessionUpdate: (notification) => options.onSessionUpdate?.(notification),
       ...(options.onTerminalOutput ? { terminalOutput: options.onTerminalOutput } : {}),
-      ...(options.onElicitationRequest ? { unstable_createElicitation: options.onElicitationRequest } : {})
+      ...(options.onElicitationRequest
+        ? { unstable_createElicitation: options.onElicitationRequest }
+        : {})
     };
     this.sdk = new ClientSideConnection(() => client, stream);
-    this.process.once("error", (error) => this.terminate(new Error("ACP process failed to start.", { cause: error })));
+    this.process.once("error", (error) =>
+      this.terminate(new Error("ACP process failed to start.", { cause: error }))
+    );
     this.process.once("exit", (code, signal) => {
       this.terminate(
         new Error(`ACP process exited (code=${String(code)}, signal=${String(signal)}).`)
@@ -328,13 +358,21 @@ class SubprocessAcpConnection implements AcpConnection {
     return response;
   }
 
-  newSession(request: NewSessionRequest, options?: AcpOperationOptions): Promise<NewSessionResponse> {
-    if (!isAbsolute(request.cwd)) return Promise.reject(new Error("ACP session cwd must be absolute."));
+  newSession(
+    request: NewSessionRequest,
+    options?: AcpOperationOptions
+  ): Promise<NewSessionResponse> {
+    if (!isAbsolute(request.cwd))
+      return Promise.reject(new Error("ACP session cwd must be absolute."));
     return this.runOperation("session/new", () => this.sdk.newSession(request), options);
   }
 
-  loadSession(request: LoadSessionRequest, options?: AcpOperationOptions): Promise<LoadSessionResponse> {
-    if (!isAbsolute(request.cwd)) return Promise.reject(new Error("ACP session cwd must be absolute."));
+  loadSession(
+    request: LoadSessionRequest,
+    options?: AcpOperationOptions
+  ): Promise<LoadSessionResponse> {
+    if (!isAbsolute(request.cwd))
+      return Promise.reject(new Error("ACP session cwd must be absolute."));
     return this.runOperation("session/load", () => this.sdk.loadSession(request), options);
   }
 
@@ -350,9 +388,23 @@ class SubprocessAcpConnection implements AcpConnection {
     if (this.capabilities?.sessionCapabilities?.close == null) {
       return Promise.reject(new Error("ACP agent does not advertise session/close capability."));
     }
+    return this.runOperation("session/close", () => this.sdk.closeSession({ sessionId }), options);
+  }
+
+  setSessionMode(
+    request: SetSessionModeRequest,
+    options?: AcpOperationOptions
+  ): Promise<SetSessionModeResponse> {
+    return this.runOperation("session/set_mode", () => this.sdk.setSessionMode(request), options);
+  }
+
+  setSessionConfigOption(
+    request: SetSessionConfigOptionRequest,
+    options?: AcpOperationOptions
+  ): Promise<SetSessionConfigOptionResponse> {
     return this.runOperation(
-      "session/close",
-      () => this.sdk.closeSession({ sessionId }),
+      "session/set_config_option",
+      () => this.sdk.setSessionConfigOption(request),
       options
     );
   }
@@ -416,7 +468,8 @@ class SubprocessAcpConnection implements AcpConnection {
   }
 
   private async disposeProcess(): Promise<void> {
-    if (!this.process.stdin.destroyed && !this.process.stdin.writableEnded) this.process.stdin.end();
+    if (!this.process.stdin.destroyed && !this.process.stdin.writableEnded)
+      this.process.stdin.end();
     if (await this.waitForExit()) return;
     this.process.kill("SIGTERM");
     if (await this.waitForExit()) return;
@@ -427,7 +480,8 @@ class SubprocessAcpConnection implements AcpConnection {
   }
 
   private waitForExit(): Promise<boolean> {
-    if (this.process.exitCode !== null || this.process.signalCode !== null) return Promise.resolve(true);
+    if (this.process.exitCode !== null || this.process.signalCode !== null)
+      return Promise.resolve(true);
     const graceMs = this.options.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS;
     return Promise.race([
       new Promise<true>((resolve) => this.process.once("exit", () => resolve(true))),

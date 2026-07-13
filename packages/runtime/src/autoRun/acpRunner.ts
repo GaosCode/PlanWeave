@@ -2,6 +2,7 @@ import type { AcpAgentRunner } from "./agentRunner.js";
 import { z } from "zod";
 import { runnerProfileMismatch } from "./agentRunner.js";
 import {
+  acpSessionConfigurationSchema,
   executorAgentInfoSchema,
   invalidExecutorAgentInfoMessage,
   type ExecutorPreflightFailureCode
@@ -13,6 +14,7 @@ import { prepareAcpBlockRun, prepareAcpFeedbackRun } from "./acpRunPreparation.j
 import { probeInstalledAcpAgent } from "./acpPreflightProbe.js";
 import { assertAcpLaunchTrusted } from "./acpLaunch.js";
 import { executorRuntimeLimits } from "./executorShared.js";
+import { selectedDesktopAcpSessionDefaults } from "./desktopAgentSettings.js";
 
 function unavailableMessage(agent: string): string {
   return `ACP runner for agent '${agent}' is not implemented; PlanWeave will not fall back to CLI.`;
@@ -34,7 +36,8 @@ export const acpProbeResultSchema = z.discriminatedUnion("kind", [
       kind: z.literal("ready"),
       authenticated: z.literal(true),
       agentInfo: executorAgentInfoSchema,
-      capabilities: uniqueCapabilitiesSchema
+      capabilities: uniqueCapabilitiesSchema,
+      sessionConfig: acpSessionConfigurationSchema.optional()
     })
     .strict(),
   z.object({ kind: z.literal("auth_required"), message: acpProbeMessageSchema }).strict(),
@@ -157,13 +160,7 @@ export function createAcpRunner(options?: {
         return {
           executionIntegration: null,
           negotiatedCapabilities: null,
-          checks: [
-            failedCheck(
-              "acp_initialized",
-              "initialization_failed",
-              message
-            )
-          ]
+          checks: [failedCheck("acp_initialized", "initialization_failed", message)]
         };
       }
       const result = parsedResult.data;
@@ -237,6 +234,7 @@ export function createAcpRunner(options?: {
         executionIntegration: null,
         negotiatedCapabilities: negotiated.data,
         agentInfo: result.agentInfo,
+        sessionConfig: result.sessionConfig ?? null,
         checks: [
           initialized,
           {
@@ -272,31 +270,37 @@ export function createAcpRunner(options?: {
         ref: input.claim.ref,
         prompt: input.prompt
       });
-      return sessionController.execute({
-        kind: input.claim.blockType === "review" ? "review" : "implementation",
-        identity: {
-          scope: prepared.runDir,
-          executorRunId: prepared.runId,
-          claimRef: input.claim.ref,
-          desktopRunId: input.runtime?.desktopRunId,
-          runSessionId: input.runtime?.runSessionId
+      return sessionController.execute(
+        {
+          kind: input.claim.blockType === "review" ? "review" : "implementation",
+          identity: {
+            scope: prepared.runDir,
+            executorRunId: prepared.runId,
+            claimRef: input.claim.ref,
+            desktopRunId: input.runtime?.desktopRunId,
+            runSessionId: input.runtime?.runSessionId
+          },
+          runDir: prepared.runDir,
+          metadataPath: prepared.metadataPath,
+          prompt: input.prompt,
+          cwd: prepared.cwd,
+          launch,
+          executorName: input.executorName,
+          agentId: definition.agent,
+          taskId: input.claim.taskId,
+          metadataIdentity: { blockId: input.claim.blockId },
+          projectId: prepared.projectId,
+          canvasId: prepared.canvasId
         },
-        runDir: prepared.runDir,
-        metadataPath: prepared.metadataPath,
-        prompt: input.prompt,
-        cwd: prepared.cwd,
-        launch,
-        executorName: input.executorName,
-        agentId: definition.agent,
-        taskId: input.claim.taskId,
-        metadataIdentity: { blockId: input.claim.blockId },
-        projectId: prepared.projectId,
-        canvasId: prepared.canvasId
-      }, {
-        signal: input.runtime?.signal,
-        timeoutMs: input.runtime?.timeoutMs ?? executorRuntimeLimits(input.profile).timeoutMs,
-        interactionBroker: input.runtime?.interactionBroker
-      });
+        {
+          signal: input.runtime?.signal,
+          timeoutMs: input.runtime?.timeoutMs ?? executorRuntimeLimits(input.profile).timeoutMs,
+          interactionBroker: input.runtime?.interactionBroker,
+          sessionDefaults: input.runtime?.desktopRunId
+            ? selectedDesktopAcpSessionDefaults(definition.agent)
+            : undefined
+        }
+      );
     },
     async runFeedback(input, definition) {
       if (input.profile.runner.transport !== "acp" || input.profile.agent !== definition.agent) {
@@ -312,34 +316,40 @@ export function createAcpRunner(options?: {
         workspace: input.workspace,
         prompt: input.claim.content
       });
-      return sessionController.execute({
-        kind: "feedback",
-        identity: {
-          scope: prepared.runDir,
-          executorRunId: prepared.runId,
-          claimRef: input.claim.sourceReviewBlockRef,
-          desktopRunId: input.runtime?.desktopRunId,
-          runSessionId: input.runtime?.runSessionId
+      return sessionController.execute(
+        {
+          kind: "feedback",
+          identity: {
+            scope: prepared.runDir,
+            executorRunId: prepared.runId,
+            claimRef: input.claim.sourceReviewBlockRef,
+            desktopRunId: input.runtime?.desktopRunId,
+            runSessionId: input.runtime?.runSessionId
+          },
+          runDir: prepared.runDir,
+          metadataPath: prepared.metadataPath,
+          prompt: input.claim.content,
+          cwd: prepared.cwd,
+          launch,
+          executorName: input.executorName,
+          agentId: definition.agent,
+          taskId: input.claim.taskId,
+          metadataIdentity: {
+            feedbackId: input.claim.feedbackId,
+            sourceReviewBlockRef: input.claim.sourceReviewBlockRef
+          },
+          projectId: prepared.projectId,
+          canvasId: prepared.canvasId
         },
-        runDir: prepared.runDir,
-        metadataPath: prepared.metadataPath,
-        prompt: input.claim.content,
-        cwd: prepared.cwd,
-        launch,
-        executorName: input.executorName,
-        agentId: definition.agent,
-        taskId: input.claim.taskId,
-        metadataIdentity: {
-          feedbackId: input.claim.feedbackId,
-          sourceReviewBlockRef: input.claim.sourceReviewBlockRef
-        },
-        projectId: prepared.projectId,
-        canvasId: prepared.canvasId
-      }, {
-        signal: input.runtime?.signal,
-        timeoutMs: input.runtime?.timeoutMs ?? executorRuntimeLimits(input.profile).timeoutMs,
-        interactionBroker: input.runtime?.interactionBroker
-      });
+        {
+          signal: input.runtime?.signal,
+          timeoutMs: input.runtime?.timeoutMs ?? executorRuntimeLimits(input.profile).timeoutMs,
+          interactionBroker: input.runtime?.interactionBroker,
+          sessionDefaults: input.runtime?.desktopRunId
+            ? selectedDesktopAcpSessionDefaults(definition.agent)
+            : undefined
+        }
+      );
     }
   };
 }

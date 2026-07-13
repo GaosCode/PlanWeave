@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { acpConversationTurns } from "../autoRun/acpConversationTurn.js";
 import { acpEventReadModels } from "../autoRun/acpEventReadModel.js";
+import { AcpSessionController } from "../autoRun/acpSessionController.js";
 import { normalizedRunnerEventSchema } from "../autoRun/normalizedEventContract.js";
 import {
   getRunRecord,
@@ -175,6 +176,62 @@ function identityFor(prepared: Awaited<ReturnType<typeof completedRecord>>) {
 }
 
 describe("Desktop ACP prompt continuation", () => {
+  it("queues a prompt on the existing live owned ACP session before terminal artifacts exist", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest());
+    const runDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-001"
+    );
+    const controller = new AcpSessionController();
+    const execution = controller.execute({
+      kind: "implementation",
+      identity: {
+        scope: runDir,
+        desktopRunId: "DESKTOP-RUN-0001",
+        runSessionId: "SESSION-0001",
+        executorRunId: "RUN-001",
+        claimRef: "T-001#B-001"
+      },
+      runDir,
+      metadataPath: join(runDir, "metadata.json"),
+      prompt: "original live prompt",
+      cwd: root,
+      launch: { command: process.execPath, args: [fixture, "long-prompt"] },
+      executorName: "codex-acp",
+      agentId: "codex",
+      taskId: "T-001",
+      metadataIdentity: { blockId: "B-001" },
+      projectId: init.workspace.id,
+      canvasId: "default"
+    }, { timeoutMs: 2_000 }).then(
+      () => null,
+      (error: unknown) => error
+    );
+    let identity: NonNullable<
+      NonNullable<Awaited<ReturnType<typeof getRunRecord>>["runnerReadModel"]>["intervention"]["prompt"]["identity"]
+    > | null = null;
+    for (let attempt = 0; attempt < 100 && !identity; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const record = await getRunRecord(init.workspace, "T-001#B-001::RUN-001");
+      identity = record.runnerReadModel?.intervention.prompt.available
+        ? record.runnerReadModel.intervention.prompt.identity
+        : null;
+    }
+    if (!identity) throw new Error("Expected a live ACP prompt identity.");
+
+    await sendAgentPrompt(identity, "follow up while live");
+    const executionError = await execution;
+
+    expect(executionError).toBeInstanceOf(Error);
+    expect(await readFile(join(runDir, "events.ndjson"), "utf8"))
+      .toContain("follow up while live");
+    acpEventReadModels.release(runDir);
+  });
+
   it("loads a completed session, appends only the fresh turn, and preserves terminal artifacts", async () => {
     const prepared = await completedRecord();
     const recordId = "T-001#B-001::RUN-001";

@@ -161,7 +161,6 @@ export function SettingsAgentsSection({
     () => selectableExecutorOptions.map((option) => option.name).join("\n"),
     [selectableExecutorOptions]
   );
-
   useEffect(() => {
     if (
       selectedExecutor &&
@@ -216,6 +215,8 @@ export function SettingsAgentsSection({
       <AgentSettingsPanel
         agentDetectionRefreshing={agentDetectionRefreshing}
         agents={transportAgents}
+        bridgeUnavailableMessage={t("bridgeUnavailable")}
+        projectRoot={canvasRef?.projectRoot ?? null}
         labels={{
           agentDetected: t("agentDetected"),
           agentInstallStatus: t("agentInstallStatus"),
@@ -224,7 +225,12 @@ export function SettingsAgentsSection({
           agentMissing: t("agentMissing"),
           agentEnableDescription: t("agentEnableDescription"),
           agentFullAccess: t("agentFullAccess"),
-          agentFullAccessDescription: t("agentFullAccessDescription")
+          agentFullAccessDescription: t("agentFullAccessDescription"),
+          acpModelManaged: t("acpModelManaged"),
+          acpPermissionsManaged: t("acpPermissionsManaged"),
+          acpSessionMode: t("acpSessionMode"),
+          acpNotProbed: t("acpNotProbed"),
+          acpProbing: t("preflightRunning")
         }}
         refreshAgentDetections={refreshAgentDetections}
         settings={settings}

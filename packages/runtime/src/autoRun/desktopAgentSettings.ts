@@ -3,11 +3,17 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExecutorProfile, RunnerTransport } from "../types.js";
 
-type DesktopAgentKind = "codex" | "claude-code" | "opencode" | "pi";
+export type DesktopAgentKind = "codex" | "claude-code" | "opencode" | "pi";
+
+export type DesktopAcpSessionDefaults = {
+  modeId: string | null;
+  configOptions: Record<string, string | boolean>;
+};
 
 type DesktopAgentRuntimeSetting = {
   enabled?: boolean;
   fullAccess?: boolean;
+  acp?: DesktopAcpSessionDefaults;
 };
 
 type DesktopAgentSettings = Partial<Record<DesktopAgentKind, DesktopAgentRuntimeSetting>>;
@@ -75,7 +81,8 @@ function readDesktopAgentSettings(): DesktopAgentRuntimeSettings | null {
       }
       agents[kind] = {
         enabled: typeof value.enabled === "boolean" ? value.enabled : undefined,
-        fullAccess: typeof value.fullAccess === "boolean" ? value.fullAccess : undefined
+        fullAccess: typeof value.fullAccess === "boolean" ? value.fullAccess : undefined,
+        acp: readAcpSessionDefaults(value.acp)
       };
     }
   }
@@ -83,9 +90,29 @@ function readDesktopAgentSettings(): DesktopAgentRuntimeSettings | null {
     ? parsed.execution.agentTransport
     : undefined;
   return {
-    agentTransport: configuredTransport === "acp" ? "acp" : "cli",
+    agentTransport: configuredTransport === "cli" ? "cli" : "acp",
     agents
   };
+}
+
+function readAcpSessionDefaults(value: unknown): DesktopAcpSessionDefaults | undefined {
+  if (!isRecord(value)) return undefined;
+  const modeId = value.modeId === null || typeof value.modeId === "string" ? value.modeId : null;
+  const configOptions: Record<string, string | boolean> = {};
+  if (isRecord(value.configOptions)) {
+    for (const [id, configured] of Object.entries(value.configOptions)) {
+      if (id && (typeof configured === "string" || typeof configured === "boolean")) {
+        configOptions[id] = configured;
+      }
+    }
+  }
+  return { modeId, configOptions };
+}
+
+export function selectedDesktopAcpSessionDefaults(
+  kind: DesktopAgentKind
+): DesktopAcpSessionDefaults {
+  return readDesktopAgentSettings()?.agents[kind]?.acp ?? { modeId: null, configOptions: {} };
 }
 
 function fullAccessEnabled(settings: DesktopAgentSettings | null, kind: DesktopAgentKind): boolean {
@@ -94,7 +121,7 @@ function fullAccessEnabled(settings: DesktopAgentSettings | null, kind: DesktopA
 }
 
 export function selectedDesktopAgentTransport(): RunnerTransport {
-  return readDesktopAgentSettings()?.agentTransport ?? "cli";
+  return readDesktopAgentSettings()?.agentTransport ?? "acp";
 }
 
 function addArgOnce(args: readonly string[], arg: string): string[] {
@@ -107,10 +134,7 @@ function addArgOnce(args: readonly string[], arg: string): string[] {
 export function applyDesktopAgentSettingsToBuiltinProfiles(
   profiles: Record<string, ExecutorProfile>
 ): Record<string, ExecutorProfile> {
-  const settings = readDesktopAgentSettings();
-  if (!settings) {
-    return profiles;
-  }
+  const settings = readDesktopAgentSettings() ?? { agentTransport: "acp", agents: {} };
 
   const next: Record<string, ExecutorProfile> = { ...profiles };
   if (settings.agentTransport === "acp") {
@@ -124,11 +148,7 @@ export function applyDesktopAgentSettingsToBuiltinProfiles(
   if (settings.agentTransport === "cli" && fullAccessEnabled(settings.agents, "codex")) {
     for (const name of desktopAgentNames.codex) {
       const profile = next[name];
-      if (
-        profile?.adapter === "agent" &&
-        profile.agent === "codex" &&
-        "command" in profile
-      ) {
+      if (profile?.adapter === "agent" && profile.agent === "codex" && "command" in profile) {
         next[name] = { ...profile, sandbox: "danger-full-access" };
       }
     }
@@ -136,26 +156,15 @@ export function applyDesktopAgentSettingsToBuiltinProfiles(
   if (settings.agentTransport === "cli" && fullAccessEnabled(settings.agents, "opencode")) {
     for (const name of desktopAgentNames.opencode) {
       const profile = next[name];
-      if (
-        profile?.adapter === "agent" &&
-        profile.agent === "opencode" &&
-        "command" in profile
-      ) {
+      if (profile?.adapter === "agent" && profile.agent === "opencode" && "command" in profile) {
         next[name] = { ...profile, sandbox: "danger-full-access" };
       }
     }
   }
-  if (
-    settings.agentTransport === "cli" &&
-    fullAccessEnabled(settings.agents, "claude-code")
-  ) {
+  if (settings.agentTransport === "cli" && fullAccessEnabled(settings.agents, "claude-code")) {
     for (const name of desktopAgentNames["claude-code"]) {
       const profile = next[name];
-      if (
-        profile?.adapter === "agent" &&
-        profile.agent === "claude-code" &&
-        "command" in profile
-      ) {
+      if (profile?.adapter === "agent" && profile.agent === "claude-code" && "command" in profile) {
         next[name] = {
           ...profile,
           args: addArgOnce(profile.args, "--dangerously-skip-permissions")

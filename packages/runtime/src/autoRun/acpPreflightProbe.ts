@@ -1,11 +1,64 @@
 import { createAcpConnection } from "./acpConnection.js";
 import type { AcpPreflightProbe } from "./acpRunner.js";
 import type { RunnerCapability } from "./runnerContractSchemas.js";
-import { RequestError, type InitializeResponse } from "@agentclientprotocol/sdk";
 import {
+  RequestError,
+  type InitializeResponse,
+  type NewSessionResponse,
+  type SessionConfigSelectOption
+} from "@agentclientprotocol/sdk";
+import {
+  acpSessionConfigurationSchema,
   executorAgentInfoSchema,
-  invalidExecutorAgentInfoMessage
+  invalidExecutorAgentInfoMessage,
+  type AcpSessionConfiguration
 } from "./executorPreflightTypes.js";
+
+export function sessionConfigurationFromNewSession(
+  session: NewSessionResponse
+): AcpSessionConfiguration {
+  return acpSessionConfigurationSchema.parse({
+    modes: session.modes
+      ? {
+          currentModeId: session.modes.currentModeId,
+          availableModes: session.modes.availableModes.map((mode) => ({
+            id: mode.id,
+            name: mode.name,
+            description: mode.description ?? null
+          }))
+        }
+      : null,
+    configOptions: (session.configOptions ?? []).map((option) => {
+      const common = {
+        id: option.id,
+        type: option.type,
+        name: option.name,
+        description: option.description ?? null,
+        category: option.category ?? null,
+        currentValue: option.currentValue
+      };
+      if (option.type === "boolean") return common;
+      const values: Array<SessionConfigSelectOption & { group: string | null }> = [];
+      for (const candidate of option.options) {
+        if ("group" in candidate) {
+          for (const grouped of candidate.options)
+            values.push({ ...grouped, group: candidate.name });
+        } else {
+          values.push({ ...candidate, group: null });
+        }
+      }
+      return {
+        ...common,
+        options: values.map((value) => ({
+          value: value.value,
+          name: value.name,
+          description: value.description ?? null,
+          group: value.group
+        }))
+      };
+    })
+  });
+}
 
 export function capabilitiesFromInitialize(initialized: InitializeResponse): RunnerCapability[] {
   const capabilities: RunnerCapability[] = [
@@ -73,7 +126,8 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({ definition, cw
       kind: "ready",
       authenticated: true,
       agentInfo: agentInfo.data,
-      capabilities: capabilitiesFromInitialize(initialized)
+      capabilities: capabilitiesFromInitialize(initialized),
+      sessionConfig: sessionConfigurationFromNewSession(session)
     };
   } finally {
     await connection.dispose();

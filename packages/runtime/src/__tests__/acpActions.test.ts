@@ -341,6 +341,100 @@ describe("ACP live actions", () => {
     expect(first.respond).not.toHaveBeenCalled();
   });
 
+  it("queues live prompts and drains them serially through the owned session", async () => {
+    const registry = new ActiveAgentRunRegistry();
+    const item = fixture();
+    item.handle.lifecycleState = "running";
+    item.control.pendingRequests.clear();
+    registry.register(item.handle);
+    const identity = {
+      scope: "scope",
+      desktopRunId: "AUTO-RUN-001",
+      runSessionId: "SESSION-001",
+      executorRunId: "RUN-001",
+      claimRef: "T-006#B-001",
+      sessionId: "session-1"
+    };
+    const sent: string[] = [];
+
+    const first = registry.queuePrompt(identity, "first follow-up");
+    const second = registry.queuePrompt(identity, "second follow-up");
+    expect(sent).toEqual([]);
+    expect(registry.promptInFlight(item.handle)).toBe(true);
+
+    await registry.drainPromptQueue(item.handle, async (text) => {
+      sent.push(text);
+    });
+
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).resolves.toBeUndefined();
+    expect(sent).toEqual(["first follow-up", "second follow-up"]);
+    expect(registry.promptInFlight(item.handle)).toBe(false);
+    await registry.remove(item.handle, "test complete");
+  });
+
+  it("accepts a final queued turn while draining and closes intake atomically afterward", async () => {
+    const registry = new ActiveAgentRunRegistry();
+    const item = fixture();
+    item.handle.lifecycleState = "running";
+    item.control.pendingRequests.clear();
+    registry.register(item.handle);
+    const identity = {
+      scope: "scope",
+      desktopRunId: "AUTO-RUN-001",
+      runSessionId: "SESSION-001",
+      executorRunId: "RUN-001",
+      claimRef: "T-006#B-001",
+      sessionId: "session-1"
+    };
+    const sent: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    const firstSend = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const first = registry.queuePrompt(identity, "first follow-up");
+    const draining = registry.drainPromptQueue(item.handle, async (text) => {
+      sent.push(text);
+      if (text === "first follow-up") await firstSend;
+    });
+
+    await vi.waitFor(() => expect(sent).toEqual(["first follow-up"]));
+    const finalTurn = registry.queuePrompt(identity, "queued as the initial round ends");
+    releaseFirst?.();
+    await draining;
+
+    await expect(first).resolves.toBeUndefined();
+    await expect(finalTurn).resolves.toBeUndefined();
+    expect(sent).toEqual(["first follow-up", "queued as the initial round ends"]);
+    expect(registry.promptAccepting(item.handle)).toBe(false);
+    await expect(registry.queuePrompt(identity, "terminal race"))
+      .rejects.toThrow("session is finishing");
+    await registry.remove(item.handle, "test complete");
+  });
+
+  it("fails live prompts closed during permission waits and after ownership removal", async () => {
+    const registry = new ActiveAgentRunRegistry();
+    const waiting = fixture();
+    registry.register(waiting.handle);
+    const identity = {
+      scope: "scope",
+      desktopRunId: "AUTO-RUN-001",
+      runSessionId: "SESSION-001",
+      executorRunId: "RUN-001",
+      claimRef: "T-006#B-001",
+      sessionId: "session-1"
+    };
+    await expect(registry.queuePrompt(identity, "do not bypass permission"))
+      .rejects.toThrow("pending permission");
+
+    waiting.handle.lifecycleState = "running";
+    waiting.control.pendingRequests.clear();
+    const queued = registry.queuePrompt(identity, "late follow-up");
+    const queuedRejection = expect(queued).rejects.toThrow("test complete");
+    await registry.remove(waiting.handle, "test complete");
+    await queuedRejection;
+    await expect(registry.queuePrompt(identity, "after terminal"))
+      .rejects.toThrow("does not exist");
+  });
+
   it("allows a pending response at most once and rejects duplicate and late actions", async () => {
     const item = fixture();
     await respondToPendingRunnerRequest({

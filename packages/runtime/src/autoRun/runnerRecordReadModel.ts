@@ -137,6 +137,7 @@ export async function readRunnerRecordReadModel(options: {
   runDir: string;
   metadata: Record<string, unknown>;
   promptIdentity?: DesktopAgentPromptIdentity;
+  promptContinuationAvailable?: boolean;
   promptInFlight?: boolean;
   promptUnavailableReason?: string;
 }): Promise<RunnerRecordReadModel | null> {
@@ -281,6 +282,7 @@ function interactionState(
   events: readonly NormalizedRunnerEvent[],
   knownSessionIds?: ReadonlySet<string>,
   promptIdentity?: DesktopAgentPromptIdentity,
+  promptContinuationAvailable = false,
   promptInFlight = false,
   promptUnavailableReason?: string
 ): Pick<RunnerRecordReadModel, "interaction" | "intervention"> {
@@ -292,13 +294,13 @@ function interactionState(
   const persisted = persistedRequestIds.size > 0;
   const canonical = cursor.canonicalIdentity?.identity;
   if (!canonical?.executorRunId) {
-    return unavailableIntervention(persisted, "Exact runner identity is unavailable.", promptIdentity, promptInFlight, promptUnavailableReason);
+    return unavailableIntervention(persisted, "Exact runner identity is unavailable.", promptIdentity, promptContinuationAvailable, promptInFlight, promptUnavailableReason);
   }
   const sessionIds = knownSessionIds ?? new Set(
     events.flatMap((event) => event.correlation?.sessionId ? [event.correlation.sessionId] : [])
   );
   const sessionId = selected.sessionId ?? (sessionIds.size === 1 ? [...sessionIds][0] : undefined);
-  if (!sessionId) return unavailableIntervention(persisted, "Exact ACP session identity is unavailable.", promptIdentity, promptInFlight, promptUnavailableReason);
+  if (!sessionId) return unavailableIntervention(persisted, "Exact ACP session identity is unavailable.", promptIdentity, promptContinuationAvailable, promptInFlight, promptUnavailableReason);
   try {
     const registered = activeAgentRunRegistry.lookupExact({
       scope: runDir,
@@ -308,15 +310,15 @@ function interactionState(
       ...(canonical.runSessionId ? { runSessionId: canonical.runSessionId } : {}),
       sessionId
     });
-    if (!registered) return unavailableIntervention(persisted, "No live owned ACP session is available.", promptIdentity, promptInFlight, promptUnavailableReason);
+    if (!registered) return unavailableIntervention(persisted, "No live owned ACP session is available.", promptIdentity, promptContinuationAvailable, promptInFlight, promptUnavailableReason);
     if (
       (registered.identity.runSessionId ?? null) !== canonical.runSessionId ||
       (registered.identity.desktopRunId ?? null) !== canonical.desktopRunId
     ) {
-      return unavailableIntervention(persisted, "Live ACP session identity does not match the selected record.", promptIdentity, promptInFlight, promptUnavailableReason);
+      return unavailableIntervention(persisted, "Live ACP session identity does not match the selected record.", promptIdentity, promptContinuationAvailable, promptInFlight, promptUnavailableReason);
     }
     if (!canonical.desktopRunId || !canonical.runSessionId) {
-      return unavailableIntervention(persisted, "Exact Desktop run/session identity is unavailable.", promptIdentity, promptInFlight, promptUnavailableReason);
+      return unavailableIntervention(persisted, "Exact Desktop run/session identity is unavailable.", promptIdentity, promptContinuationAvailable, promptInFlight, promptUnavailableReason);
     }
     const sessionIdentity = runnerSessionActionIdentitySchema.parse({
       scope: runDir,
@@ -376,11 +378,37 @@ function interactionState(
     const cancelAvailable =
       registered.control.interventionCapabilities.cancel &&
       (registered.lifecycleState === "running" || registered.lifecycleState === "waiting_interaction");
+    const livePromptInFlight = activeAgentRunRegistry.promptInFlight(registered);
+    const livePromptAccepting = activeAgentRunRegistry.promptAccepting(registered);
+    const promptBlockedByInteraction =
+      registered.lifecycleState === "waiting_interaction" || registered.control.pendingRequests.size > 0;
+    const promptAvailable =
+      promptIdentity !== undefined &&
+      registered.lifecycleState === "running" &&
+      livePromptAccepting &&
+      !promptBlockedByInteraction &&
+      !livePromptInFlight;
+    const livePromptReason = promptAvailable
+      ? null
+      : promptIdentity === undefined
+        ? (promptUnavailableReason ?? "Exact Desktop record identity is unavailable.")
+        : !livePromptAccepting
+          ? "The owned ACP session is finishing and no longer accepts conversation turns."
+        : promptBlockedByInteraction
+          ? "Resolve the pending ACP permission or elicitation before sending a prompt."
+          : livePromptInFlight
+            ? "An ACP conversation turn is already queued or in progress."
+            : `ACP session is not prompt-capable in state '${registered.lifecycleState}'.`;
     return {
       intervention: {
         prompt: promptIdentity
-          ? { available: false, reason: "An ACP prompt cannot be sent while the original run is active.", identity: promptIdentity, inFlight: promptInFlight }
-          : { available: false, reason: promptUnavailableReason ?? "Exact Desktop record identity is unavailable.", identity: null, inFlight: false },
+          ? {
+              available: promptAvailable,
+              reason: livePromptReason,
+              identity: promptIdentity,
+              inFlight: livePromptInFlight
+            }
+          : { available: false, reason: livePromptReason, identity: null, inFlight: false },
         cancel: {
           available: cancelAvailable,
           reason: cancelAvailable
@@ -399,7 +427,7 @@ function interactionState(
       }
     };
   } catch {
-    return unavailableIntervention(persisted, "Live ACP session identity could not be verified.", promptIdentity, promptInFlight, promptUnavailableReason);
+    return unavailableIntervention(persisted, "Live ACP session identity could not be verified.", promptIdentity, promptContinuationAvailable, promptInFlight, promptUnavailableReason);
   }
 }
 
@@ -407,14 +435,15 @@ function unavailableIntervention(
   persisted: boolean,
   reason: string,
   promptIdentity?: DesktopAgentPromptIdentity,
+  promptContinuationAvailable = false,
   promptInFlight = false,
   promptUnavailableReason?: string
 ): Pick<RunnerRecordReadModel, "interaction" | "intervention"> {
   return {
     intervention: {
-      prompt: promptIdentity
+      prompt: promptIdentity && promptContinuationAvailable
         ? { available: !promptInFlight, reason: promptInFlight ? "An ACP conversation turn is already in progress." : null, identity: promptIdentity, inFlight: promptInFlight }
-        : { available: false, reason: promptUnavailableReason ?? reason, identity: null, inFlight: false },
+        : { available: false, reason: promptUnavailableReason ?? reason, identity: promptIdentity ?? null, inFlight: false },
       cancel: { available: false, reason, identity: null }
     },
     interaction: {
@@ -432,6 +461,7 @@ function activeSnapshot(options: {
   selected: SelectedRecordIdentity;
   cursor?: RunnerEventCursor;
   promptIdentity?: DesktopAgentPromptIdentity;
+  promptContinuationAvailable?: boolean;
   promptInFlight?: boolean;
   promptUnavailableReason?: string;
 }): RunnerRecordReadModel {
@@ -453,6 +483,7 @@ function activeSnapshot(options: {
       options.model.interactionEventsSnapshot(),
       options.model.knownSessionIds(),
       options.promptIdentity,
+      options.promptContinuationAvailable,
       options.promptInFlight,
       options.promptUnavailableReason
     )
@@ -466,6 +497,7 @@ function subscribeActiveModel(options: {
   selected: SelectedRecordIdentity;
   cursor?: RunnerEventCursor;
   promptIdentity?: DesktopAgentPromptIdentity;
+  promptContinuationAvailable?: boolean;
   promptInFlight?: boolean;
   promptUnavailableReason?: string;
   afterSequence: number;
@@ -509,6 +541,7 @@ export async function consumeRunnerRecordReadModel(options: {
   cursor?: RunnerEventCursor;
   subscriber?: RunnerRecordReadSubscriber;
   promptIdentity?: DesktopAgentPromptIdentity;
+  promptContinuationAvailable?: boolean;
   promptInFlight?: boolean;
   promptUnavailableReason?: string;
 }): Promise<RunnerRecordReadConsumer> {
@@ -534,6 +567,7 @@ export async function consumeRunnerRecordReadModel(options: {
         selected,
         ...(options.cursor ? { cursor: options.cursor } : {}),
         ...(options.promptIdentity ? { promptIdentity: options.promptIdentity } : {}),
+        promptContinuationAvailable: options.promptContinuationAvailable,
         promptInFlight: options.promptInFlight,
         promptUnavailableReason: options.promptUnavailableReason
       });
@@ -554,6 +588,7 @@ export async function consumeRunnerRecordReadModel(options: {
       afterSequence: snapshot.cursor.afterSequence,
       subscriber: options.subscriber,
       ...(options.promptIdentity ? { promptIdentity: options.promptIdentity } : {}),
+      promptContinuationAvailable: options.promptContinuationAvailable,
       promptInFlight: options.promptInFlight,
       promptUnavailableReason: options.promptUnavailableReason
     });
@@ -565,6 +600,7 @@ export async function consumeRunnerRecordReadModel(options: {
         selected,
         ...(options.cursor ? { cursor: options.cursor } : {}),
         ...(options.promptIdentity ? { promptIdentity: options.promptIdentity } : {}),
+        promptContinuationAvailable: options.promptContinuationAvailable,
         promptInFlight: options.promptInFlight,
         promptUnavailableReason: options.promptUnavailableReason
       });
@@ -625,6 +661,7 @@ export async function consumeRunnerRecordReadModel(options: {
         completeReplay.events,
         undefined,
         options.promptIdentity,
+        options.promptContinuationAvailable,
         options.promptInFlight,
         options.promptUnavailableReason
       )

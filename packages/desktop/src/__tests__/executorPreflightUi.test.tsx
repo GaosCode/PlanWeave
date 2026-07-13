@@ -4,6 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type {
+  DesktopAgentDetection,
   DesktopAutoRunState,
   DesktopBlockDetail,
   DesktopGraphViewModel,
@@ -21,6 +22,7 @@ import { FloatingAutoRunControl } from "../renderer/run/FloatingAutoRunControl";
 
 const bridgeMock = vi.hoisted(() => ({
   api: {
+    probeDesktopAgentCapabilities: vi.fn(),
     testExecutorProfile: vi.fn()
   }
 }));
@@ -69,6 +71,43 @@ function deferred<T>() {
     reject = promiseReject;
   });
   return { promise, reject, resolve };
+}
+
+function installSelectDomStubs() {
+  Object.defineProperty(window.HTMLElement.prototype, "hasPointerCapture", {
+    configurable: true,
+    value: vi.fn(() => false)
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "setPointerCapture", {
+    configurable: true,
+    value: vi.fn()
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "releasePointerCapture", {
+    configurable: true,
+    value: vi.fn()
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: vi.fn()
+  });
+}
+
+function acpAgent(
+  kind: DesktopAgentDetection["kind"],
+  name: string
+): DesktopAgentDetection {
+  return {
+    runnerKind: "acp",
+    kind,
+    name,
+    command: `${kind}-acp`,
+    versionArgs: ["--version"],
+    execArgs: [],
+    fullAccessArgs: [],
+    installed: true,
+    version: "1.0.0",
+    unavailableReason: null
+  };
 }
 
 const preflightResult: ExecutorPreflightResult = {
@@ -186,6 +225,7 @@ function autoRunState(): DesktopAutoRunState {
 
 afterEach(() => {
   cleanup();
+  bridgeMock.api.probeDesktopAgentCapabilities.mockReset();
   bridgeMock.api.testExecutorProfile.mockReset();
 });
 
@@ -227,7 +267,13 @@ describe("executor preflight desktop UI", () => {
       updateSettings: vi.fn()
     };
     const { rerender } = render(
-      <SettingsAgentsSection {...props} settings={defaultDesktopSettings} />
+      <SettingsAgentsSection
+        {...props}
+        settings={{
+          ...defaultDesktopSettings,
+          execution: { ...defaultDesktopSettings.execution, agentTransport: "cli" }
+        }}
+      />
     );
 
     expect(screen.getByText("Codex CLI")).toBeInTheDocument();
@@ -245,6 +291,477 @@ describe("executor preflight desktop UI", () => {
 
     expect(screen.getByText("Codex ACP")).toBeInTheDocument();
     expect(screen.queryByText("Codex CLI")).not.toBeInTheDocument();
+  });
+
+  it("renders and persists only ACP options advertised by preflight", async () => {
+    installSelectDomStubs();
+    bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
+      agentKind: "codex",
+      ok: true,
+      message: "ACP capability probe passed.",
+      failureCode: null,
+      agentInfo: { name: "Codex ACP", version: "1.0.0" },
+      capabilities: ["session"],
+      sessionConfig: {
+        modes: null,
+        configOptions: [
+          {
+            id: "model",
+            type: "select",
+            name: "Model",
+            description: null,
+            category: "model",
+            currentValue: "gpt-5",
+            options: [
+              { value: "gpt-5", name: "GPT-5", description: null, group: null },
+              { value: "gpt-5.2-codex", name: "GPT-5.2 Codex", description: null, group: null }
+            ]
+          },
+          {
+            id: "mode",
+            type: "select",
+            name: "Mode",
+            description: null,
+            category: "mode",
+            currentValue: "build",
+            options: [
+              { value: "build", name: "Build", description: null, group: null },
+              { value: "plan", name: "Plan", description: null, group: null }
+            ]
+          }
+        ]
+      }
+    });
+    const updateSettings = vi.fn();
+    render(
+      <SettingsAgentsSection
+        agentDetectionRefreshing={false}
+        agents={[
+          {
+            runnerKind: "acp",
+            kind: "codex",
+            name: "Codex ACP",
+            command: "codex-acp",
+            versionArgs: ["--version"],
+            execArgs: [],
+            fullAccessArgs: [],
+            installed: true,
+            version: "1.0.0",
+            unavailableReason: null
+          }
+        ]}
+        canvasRef={canvasRef}
+        graph={graph}
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        settings={defaultDesktopSettings}
+        t={t}
+        updateSettings={updateSettings}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Codex ACP options" }));
+    expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledWith({
+      agentKind: "codex",
+      projectRoot: canvasRef.projectRoot
+    });
+    await screen.findByRole("combobox", { name: "Model" });
+    await userEvent.click(screen.getByRole("combobox", { name: "Model" }));
+    await userEvent.click(screen.getByRole("option", { name: "GPT-5.2 Codex" }));
+
+    const update = updateSettings.mock.calls.at(-1)?.[0];
+    expect(typeof update).toBe("function");
+    expect(update(defaultDesktopSettings)).toMatchObject({
+      agents: { codex: { acp: { configOptions: { model: "gpt-5.2-codex" } } } }
+    });
+    expect(screen.getByRole("combobox", { name: "Mode" })).toBeInTheDocument();
+    expect(screen.getByText(t("acpPermissionsManaged"))).toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      kind: "codex" as const,
+      agentName: "Codex ACP",
+      optionId: "reasoning_effort",
+      optionName: "Reasoning effort",
+      firstValue: "low",
+      firstLabel: "Low",
+      currentValue: "high",
+      currentLabel: "High"
+    },
+    {
+      kind: "pi" as const,
+      agentName: "Pi ACP",
+      optionId: "thought_level",
+      optionName: "Thought level",
+      firstValue: "minimal",
+      firstLabel: "Minimal",
+      currentValue: "medium",
+      currentLabel: "Medium"
+    },
+    {
+      kind: "opencode" as const,
+      agentName: "OpenCode ACP",
+      optionId: "reasoning",
+      optionName: "Reasoning",
+      firstValue: "fast",
+      firstLabel: "Fast",
+      currentValue: "balanced",
+      currentLabel: "Balanced"
+    }
+  ])(
+    "shows and persists $kind thinking options from advertised values",
+    async ({
+      kind,
+      agentName,
+      optionId,
+      optionName,
+      firstValue,
+      firstLabel,
+      currentValue,
+      currentLabel
+    }) => {
+      installSelectDomStubs();
+      bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
+        agentKind: kind,
+        ok: true,
+        message: "ACP capability probe passed.",
+        failureCode: null,
+        agentInfo: { name: agentName, version: "1.0.0" },
+        capabilities: ["session"],
+        sessionConfig: {
+          modes: null,
+          configOptions: [
+            {
+              id: optionId,
+              type: "select",
+              name: optionName,
+              description: null,
+              category: null,
+              currentValue,
+              options: [
+                { value: firstValue, name: firstLabel, description: null, group: null },
+                { value: currentValue, name: currentLabel, description: null, group: null }
+              ]
+            }
+          ]
+        }
+      });
+      const updateSettings = vi.fn();
+      render(
+        <SettingsAgentsSection
+          agentDetectionRefreshing={false}
+          agents={[acpAgent(kind, agentName)]}
+          canvasRef={canvasRef}
+          graph={graphWithExecutors([kind])}
+          refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+          settings={defaultDesktopSettings}
+          t={t}
+          updateSettings={updateSettings}
+        />
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: `${agentName} options` }));
+      const select = await screen.findByRole("combobox", { name: optionName });
+      expect(select).toHaveTextContent(currentLabel);
+      expect(select).not.toHaveTextContent(firstLabel);
+
+      await userEvent.click(select);
+      await userEvent.click(screen.getByRole("option", { name: firstLabel }));
+
+      const update = updateSettings.mock.calls.at(-1)?.[0];
+      expect(typeof update).toBe("function");
+      expect(update(defaultDesktopSettings)).toMatchObject({
+        agents: { [kind]: { acp: { configOptions: { [optionId]: firstValue } } } }
+      });
+    }
+  );
+
+  it("shows Pi's advertised current session mode and persists an explicit override", async () => {
+    installSelectDomStubs();
+    bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
+      agentKind: "pi",
+      ok: true,
+      message: "ACP capability probe passed.",
+      failureCode: null,
+      agentInfo: { name: "Pi ACP", version: "1.0.0" },
+      capabilities: ["session"],
+      sessionConfig: {
+        modes: {
+          currentModeId: "thinking",
+          availableModes: [
+            { id: "default", name: "Default", description: null },
+            { id: "thinking", name: "Thinking", description: null }
+          ]
+        },
+        configOptions: []
+      }
+    });
+    const updateSettings = vi.fn();
+    render(
+      <SettingsAgentsSection
+        agentDetectionRefreshing={false}
+        agents={[acpAgent("pi", "Pi ACP")]}
+        canvasRef={canvasRef}
+        graph={graphWithExecutors(["pi"])}
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        settings={defaultDesktopSettings}
+        t={t}
+        updateSettings={updateSettings}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Pi ACP options" }));
+    const select = await screen.findByRole("combobox", { name: "Session mode" });
+    expect(select).toHaveTextContent("Thinking");
+    expect(select).not.toHaveTextContent("Default");
+
+    await userEvent.click(select);
+    await userEvent.click(screen.getByRole("option", { name: "Default" }));
+
+    const update = updateSettings.mock.calls.at(-1)?.[0];
+    expect(typeof update).toBe("function");
+    expect(update(defaultDesktopSettings)).toMatchObject({
+      agents: { pi: { acp: { modeId: "default" } } }
+    });
+  });
+
+  it("probes each expanded ACP agent independently and shows an inline failure", async () => {
+    bridgeMock.api.probeDesktopAgentCapabilities.mockImplementation(
+      async ({ agentKind }: { agentKind: string }) => ({
+        agentKind,
+        ok: agentKind === "codex",
+        message:
+          agentKind === "codex" ? "Codex capability probe passed." : "OpenCode ACP unavailable.",
+        failureCode: agentKind === "codex" ? null : "initialization_failed",
+        agentInfo: null,
+        capabilities: agentKind === "codex" ? ["session"] : null,
+        sessionConfig: agentKind === "codex" ? { modes: null, configOptions: [] } : null
+      })
+    );
+
+    render(
+      <SettingsAgentsSection
+        agentDetectionRefreshing={false}
+        agents={[
+          {
+            runnerKind: "acp",
+            kind: "codex",
+            name: "Codex ACP",
+            command: "codex-acp",
+            versionArgs: ["--version"],
+            execArgs: [],
+            fullAccessArgs: [],
+            installed: true,
+            version: "1.0.0",
+            unavailableReason: null
+          },
+          {
+            runnerKind: "acp",
+            kind: "opencode",
+            name: "OpenCode ACP",
+            command: "opencode",
+            versionArgs: ["--version"],
+            execArgs: [],
+            fullAccessArgs: [],
+            installed: true,
+            version: "1.0.0",
+            unavailableReason: null
+          }
+        ]}
+        canvasRef={canvasRef}
+        graph={graphWithExecutors(["codex", "opencode"])}
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        settings={defaultDesktopSettings}
+        t={t}
+        updateSettings={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Codex ACP options" }));
+    await waitFor(() =>
+      expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledWith({
+        agentKind: "codex",
+        projectRoot: canvasRef.projectRoot
+      })
+    );
+    await userEvent.click(screen.getByRole("button", { name: "OpenCode ACP options" }));
+
+    expect(await screen.findByText("OpenCode ACP unavailable.")).toBeInTheDocument();
+    expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledWith({
+      agentKind: "opencode",
+      projectRoot: canvasRef.projectRoot
+    });
+    expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a failed ACP capability probe after collapsing and reopening the agent", async () => {
+    bridgeMock.api.probeDesktopAgentCapabilities
+      .mockResolvedValueOnce({
+        agentKind: "codex",
+        ok: false,
+        message: "Authentication required.",
+        failureCode: "auth_required",
+        agentInfo: null,
+        capabilities: null,
+        sessionConfig: null
+      })
+      .mockResolvedValueOnce({
+        agentKind: "codex",
+        ok: true,
+        message: "ACP capability probe passed.",
+        failureCode: null,
+        agentInfo: { name: "Codex ACP", version: "1.0.0" },
+        capabilities: ["session"],
+        sessionConfig: {
+          modes: null,
+          configOptions: [
+            {
+              id: "model",
+              type: "select",
+              name: "Model",
+              description: null,
+              category: "model",
+              currentValue: "gpt-5",
+              options: [{ value: "gpt-5", name: "GPT-5", description: null, group: null }]
+            }
+          ]
+        }
+      });
+
+    render(
+      <SettingsAgentsSection
+        agentDetectionRefreshing={false}
+        agents={[
+          {
+            runnerKind: "acp",
+            kind: "codex",
+            name: "Codex ACP",
+            command: "codex-acp",
+            versionArgs: ["--version"],
+            execArgs: [],
+            fullAccessArgs: [],
+            installed: true,
+            version: "1.0.0",
+            unavailableReason: null
+          }
+        ]}
+        graph={null}
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        settings={defaultDesktopSettings}
+        t={t}
+        updateSettings={vi.fn()}
+      />
+    );
+
+    const optionsButton = screen.getByRole("button", { name: "Codex ACP options" });
+    await userEvent.click(optionsButton);
+    expect(await screen.findByText("Authentication required.")).toBeInTheDocument();
+    await userEvent.click(optionsButton);
+    await userEvent.click(optionsButton);
+
+    expect(await screen.findByRole("combobox", { name: "Model" })).toBeInTheDocument();
+    expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(2);
+  });
+
+  it("clears successful capability probes after agent detection refresh without probing twice", async () => {
+    bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
+      agentKind: "codex",
+      ok: true,
+      message: "ACP capability probe passed.",
+      failureCode: null,
+      agentInfo: null,
+      capabilities: ["session"],
+      sessionConfig: { modes: null, configOptions: [] }
+    });
+    const refreshAgentDetections = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SettingsAgentsSection
+        agentDetectionRefreshing={false}
+        agents={[
+          {
+            runnerKind: "acp",
+            kind: "codex",
+            name: "Codex ACP",
+            command: "codex-acp",
+            versionArgs: ["--version"],
+            execArgs: [],
+            fullAccessArgs: [],
+            installed: true,
+            version: "1.0.0",
+            unavailableReason: null
+          }
+        ]}
+        graph={null}
+        refreshAgentDetections={refreshAgentDetections}
+        settings={defaultDesktopSettings}
+        t={t}
+        updateSettings={vi.fn()}
+      />
+    );
+
+    const optionsButton = screen.getByRole("button", { name: "Codex ACP options" });
+    await userEvent.click(optionsButton);
+    await screen.findByText(t("acpModelManaged"));
+    await userEvent.click(optionsButton);
+    await userEvent.click(optionsButton);
+    expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole("button", { name: t("agentRefresh") }));
+    await waitFor(() => expect(refreshAgentDetections).toHaveBeenCalledTimes(1));
+    await screen.findByText(t("acpNotProbed"));
+    expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(1);
+    await userEvent.click(optionsButton);
+    await userEvent.click(optionsButton);
+    await waitFor(() =>
+      expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(2)
+    );
+  });
+
+  it("probes ACP capabilities without a graph or canvas", async () => {
+    bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
+      agentKind: "codex",
+      ok: true,
+      message: "ACP capability probe passed.",
+      failureCode: null,
+      agentInfo: { name: "Codex ACP", version: "1.0.0" },
+      capabilities: ["session"],
+      sessionConfig: { modes: null, configOptions: [] }
+    });
+
+    render(
+      <SettingsAgentsSection
+        agentDetectionRefreshing={false}
+        agents={[
+          {
+            runnerKind: "acp",
+            kind: "codex",
+            name: "Codex ACP",
+            command: "codex-acp",
+            versionArgs: ["--version"],
+            execArgs: [],
+            fullAccessArgs: [],
+            installed: true,
+            version: "1.0.0",
+            unavailableReason: null
+          }
+        ]}
+        graph={null}
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        settings={defaultDesktopSettings}
+        t={t}
+        updateSettings={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Codex ACP options" }));
+
+    await waitFor(() =>
+      expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledWith({
+        agentKind: "codex",
+        projectRoot: null
+      })
+    );
+    expect(await screen.findByText(t("acpModelManaged"))).toBeInTheDocument();
   });
 
   it("runs selected graph executor preflight from settings and renders the full check list", async () => {
@@ -288,7 +805,13 @@ describe("executor preflight desktop UI", () => {
       updateSettings: vi.fn()
     };
     const { rerender } = render(
-      <SettingsAgentsSection {...props} settings={defaultDesktopSettings} />
+      <SettingsAgentsSection
+        {...props}
+        settings={{
+          ...defaultDesktopSettings,
+          execution: { ...defaultDesktopSettings.execution, agentTransport: "cli" }
+        }}
+      />
     );
 
     await userEvent.click(screen.getByTestId("settings-run-executor-preflight"));
