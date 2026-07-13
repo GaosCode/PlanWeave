@@ -18,6 +18,10 @@ import {
   utf8ByteLength,
   type RedactionClass
 } from "./runnerEventRedaction.js";
+import {
+  acpSessionConfigOptionSchema,
+  acpSessionConfigurationSchema
+} from "./acpSessionConfiguration.js";
 
 export const RUNNER_EVENT_MAX_LINE_BYTES = 256 * 1_024;
 export const RUNNER_EVENT_MAX_MESSAGE_BYTES = 64 * 1_024;
@@ -92,6 +96,25 @@ const usageUpdateEventBodySchema = z
     contextWindowTokens: z.number().int().positive(),
     cost: z.object({ amount: z.number().nonnegative(), currency: z.string().length(3) }).strict().nullable()
   }).strict();
+const sessionConfigurationSnapshotEventBodySchema = z
+  .object({
+    kind: z.literal("session_configuration_snapshot"),
+    phase: z.enum(["initial", "defaults_applied"]),
+    configuration: acpSessionConfigurationSchema
+  })
+  .strict();
+const sessionModeUpdateEventBodySchema = z
+  .object({
+    kind: z.literal("session_mode_update"),
+    currentModeId: z.string().max(4_096)
+  })
+  .strict();
+const sessionConfigOptionsUpdateEventBodySchema = z
+  .object({
+    kind: z.literal("session_config_options_update"),
+    configOptions: z.array(acpSessionConfigOptionSchema).max(256)
+  })
+  .strict();
 const terminalOutputEventBodySchema = z
   .object({
     kind: z.literal("terminal_output"), terminalId: z.string().min(1).max(256),
@@ -160,6 +183,9 @@ export const normalizedRunnerEventSchema = z
       toolUpdateEventBodySchema,
       planUpdateEventBodySchema,
       usageUpdateEventBodySchema,
+      sessionConfigurationSnapshotEventBodySchema,
+      sessionModeUpdateEventBodySchema,
+      sessionConfigOptionsUpdateEventBodySchema,
       terminalOutputEventBodySchema,
       interactionEventBodySchema,
       interactionResultEventBodySchema,
@@ -175,6 +201,18 @@ export const normalizedRunnerEventSchema = z
         code: z.ZodIssueCode.custom,
         path: ["correlation"],
         message: "ACP correlation ids are only valid for ACP runner events."
+      });
+    }
+    if (
+      (event.body.kind === "session_configuration_snapshot" ||
+        event.body.kind === "session_mode_update" ||
+        event.body.kind === "session_config_options_update") &&
+      event.correlation?.sessionId === undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["correlation", "sessionId"],
+        message: "ACP session configuration events require a sessionId correlation."
       });
     }
   });

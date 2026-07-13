@@ -78,6 +78,10 @@ function readModel(events: NormalizedRunnerEvent[]) {
       terminal: last?.body.kind === "terminal"
     },
     terminal: last?.body.kind === "terminal",
+    actualConfiguration: {
+      available: false,
+      reason: "No authoritative ACP session configuration snapshot was recorded for this run."
+    },
     intervention: {
       prompt: {
         available: false,

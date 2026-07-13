@@ -5,6 +5,14 @@ import type {
   RunnerTransport
 } from "../types.js";
 import { z } from "zod";
+import type { AcpSessionConfiguration } from "./acpSessionConfiguration.js";
+
+export {
+  acpSessionConfigOptionSchema,
+  acpSessionConfigurationSchema,
+  acpSessionModeStateSchema
+} from "./acpSessionConfiguration.js";
+export type { AcpSessionConfiguration } from "./acpSessionConfiguration.js";
 
 const EXECUTOR_AGENT_INFO_FIELD_MAX_LENGTH = 256;
 export const invalidExecutorAgentInfoMessage =
@@ -17,69 +25,6 @@ export const executorAgentInfoSchema = z
   })
   .strict();
 export type ExecutorAgentInfo = z.infer<typeof executorAgentInfoSchema>;
-
-const acpSessionTextSchema = z.string().max(4_096);
-const acpSessionDescriptionSchema = acpSessionTextSchema.nullable();
-
-export const acpSessionModeStateSchema = z
-  .object({
-    currentModeId: acpSessionTextSchema,
-    availableModes: z
-      .array(
-        z
-          .object({
-            id: acpSessionTextSchema,
-            name: acpSessionTextSchema,
-            description: acpSessionDescriptionSchema
-          })
-          .strict()
-      )
-      .max(256)
-  })
-  .strict();
-
-export const acpSessionConfigOptionSchema = z.discriminatedUnion("type", [
-  z
-    .object({
-      id: acpSessionTextSchema,
-      type: z.literal("select"),
-      name: acpSessionTextSchema,
-      description: acpSessionDescriptionSchema,
-      category: acpSessionTextSchema.nullable(),
-      currentValue: acpSessionTextSchema,
-      options: z
-        .array(
-          z
-            .object({
-              value: acpSessionTextSchema,
-              name: acpSessionTextSchema,
-              description: acpSessionDescriptionSchema,
-              group: acpSessionTextSchema.nullable()
-            })
-            .strict()
-        )
-        .max(512)
-    })
-    .strict(),
-  z
-    .object({
-      id: acpSessionTextSchema,
-      type: z.literal("boolean"),
-      name: acpSessionTextSchema,
-      description: acpSessionDescriptionSchema,
-      category: acpSessionTextSchema.nullable(),
-      currentValue: z.boolean()
-    })
-    .strict()
-]);
-
-export const acpSessionConfigurationSchema = z
-  .object({
-    modes: acpSessionModeStateSchema.nullable(),
-    configOptions: z.array(acpSessionConfigOptionSchema).max(256)
-  })
-  .strict();
-export type AcpSessionConfiguration = z.infer<typeof acpSessionConfigurationSchema>;
 
 export type ExecutorPreflightCheckName =
   | "profile_exists"

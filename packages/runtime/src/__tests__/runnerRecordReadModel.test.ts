@@ -151,7 +151,76 @@ function event(
   });
 }
 
+function configurationEvent(sequence: number, body: unknown) {
+  return normalizedRunnerEventSchema.parse({
+    ...event(sequence, "message"),
+    body
+  });
+}
+
 describe("runner record read model", () => {
+  it("replays authoritative session configuration from persisted events", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-config-"));
+    const initial = configurationEvent(1, {
+      kind: "session_configuration_snapshot",
+      phase: "initial",
+      configuration: {
+        modes: {
+          currentModeId: "read-only",
+          availableModes: [
+            { id: "read-only", name: "Read only", description: null },
+            { id: "agent", name: "Agent", description: null }
+          ]
+        },
+        configOptions: [
+          {
+            id: "model",
+            type: "select",
+            name: "Model",
+            description: null,
+            category: "model",
+            currentValue: "gpt-5",
+            options: [
+              { value: "gpt-5", name: "GPT-5", description: null, group: null },
+              { value: "gpt-5.2", name: "GPT-5.2", description: null, group: null }
+            ]
+          }
+        ]
+      }
+    });
+    const live = configurationEvent(2, {
+      kind: "session_config_options_update",
+      configOptions: [
+        {
+          id: "model",
+          type: "select",
+          name: "Model",
+          description: null,
+          category: "model",
+          currentValue: "gpt-5.2",
+          options: [
+            { value: "gpt-5", name: "GPT-5", description: null, group: null },
+            { value: "gpt-5.2", name: "GPT-5.2", description: null, group: null }
+          ]
+        }
+      ]
+    });
+    await writeFile(
+      join(runDir, "events.ndjson"),
+      `${JSON.stringify(initial)}\n${JSON.stringify(live)}\n`,
+      "utf8"
+    );
+
+    const result = await readRunnerRecordReadModel({ runDir, metadata });
+
+    expect(result?.actualConfiguration).toMatchObject({
+      available: true,
+      sequence: 2,
+      sessionId: "session-1",
+      fields: { model: { available: true, value: "gpt-5.2" } }
+    });
+  });
+
   it("keeps persisted interactions stale when no live owner exists", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-"));
     await writeFile(

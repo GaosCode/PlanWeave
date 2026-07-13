@@ -51,6 +51,75 @@ describe("ACP event controller durability and producers", () => {
         }
       })
     ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+    const events = (await readFile(join(root, "events.ndjson"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { body: Record<string, unknown> });
+    const snapshots = events
+      .map((event) => event.body)
+      .filter((body) => body.kind === "session_configuration_snapshot");
+    expect(snapshots.map((body) => body.phase)).toEqual(["initial", "defaults_applied"]);
+    expect(snapshots[1]).toMatchObject({
+      configuration: {
+        modes: { currentModeId: "agent-full-access" },
+        configOptions: [
+          { id: "model", currentValue: "gpt-5.2-codex" },
+          { id: "fast-mode", currentValue: true }
+        ]
+      }
+    });
+  });
+
+  it("records only the initial snapshot when Desktop defaults are absent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-session-initial-"));
+    const controller = new AcpSessionController(
+      new ActiveAgentRunRegistry(),
+      createAcpConnection,
+      new AcpEventReadModelRegistry()
+    );
+
+    await expect(
+      controller.execute(run(root, "artifact-session-config-live"), { timeoutMs: 1_000 })
+    ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+    const events = await readFile(join(root, "events.ndjson"), "utf8");
+    expect(events).toContain('"kind":"session_configuration_snapshot","phase":"initial"');
+    expect(events).not.toContain('"phase":"defaults_applied"');
+  });
+
+  it("persists live mode and full configuration-option updates", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-session-live-config-"));
+    const controller = new AcpSessionController(
+      new ActiveAgentRunRegistry(),
+      createAcpConnection,
+      new AcpEventReadModelRegistry()
+    );
+
+    await expect(
+      controller.execute(run(root, "artifact-session-config-live"), { timeoutMs: 1_000 })
+    ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+    const events = await readFile(join(root, "events.ndjson"), "utf8");
+    expect(events).toContain('"kind":"session_mode_update","currentModeId":"agent-full-access"');
+    expect(events).toContain('"kind":"session_config_options_update"');
+    expect(events).toContain('"id":"reasoning_effort"');
+  });
+
+  it("does not write a defaults-applied snapshot when a configured setter fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-session-config-failure-"));
+    const controller = new AcpSessionController(
+      new ActiveAgentRunRegistry(),
+      createAcpConnection,
+      new AcpEventReadModelRegistry()
+    );
+
+    await expect(
+      controller.execute(run(root, "artifact-session-config"), {
+        timeoutMs: 1_000,
+        sessionDefaults: { modeId: null, configOptions: { missing: "value" } }
+      })
+    ).rejects.toThrow("did not advertise configured option 'missing'");
+    const events = await readFile(join(root, "events.ndjson"), "utf8");
+    expect(events).toContain('"kind":"session_configuration_snapshot","phase":"initial"');
+    expect(events).not.toContain('"phase":"defaults_applied"');
   });
 
   it("does not read Desktop settings for a generic controller execution", async () => {

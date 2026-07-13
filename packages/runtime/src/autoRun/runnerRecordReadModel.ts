@@ -35,6 +35,10 @@ import {
   runSessionIdSchema,
   taskIdSchema
 } from "./runnerContractSchemas.js";
+import {
+  acpActualSessionConfigurationSchema,
+  projectAcpActualSessionConfiguration
+} from "./acpSessionConfiguration.js";
 
 const runnerActionAvailabilitySchema = z
   .object({
@@ -95,6 +99,7 @@ export const runnerRecordReadModelSchema = z
     diagnostics: z.array(runnerEventReplayDiagnosticSchema),
     cursor: runnerEventCursorSchema,
     terminal: z.boolean(),
+    actualConfiguration: acpActualSessionConfigurationSchema,
     intervention: z.object({
       prompt: runnerActionAvailabilitySchema.extend({
         identity: desktopAgentPromptIdentitySchema.nullable(),
@@ -256,6 +261,10 @@ function failedIdentitySnapshot(options: {
         terminal: false
       },
       terminal: options.terminal ?? false,
+      actualConfiguration: {
+        available: false,
+        reason: "Actual ACP session configuration is unavailable because runner identity validation failed."
+      },
       intervention: {
         prompt: {
           available: false,
@@ -654,6 +663,7 @@ export async function consumeRunnerRecordReadModel(options: {
       diagnostics: [...boundaryDiagnostics, ...replay.diagnostics],
       cursor: replay.nextCursor,
       terminal: replay.terminal,
+      actualConfiguration: projectAcpActualSessionConfiguration(completeReplay.events),
       ...interactionState(
         options.runDir,
         selected,

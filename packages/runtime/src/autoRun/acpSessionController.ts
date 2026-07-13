@@ -57,6 +57,11 @@ import { acpEventReadModels, type AcpEventReadModelRegistry } from "./acpEventRe
 import { createAcpElicitationSettlement } from "./acpElicitationSettlement.js";
 import { createAcpInteractionSettlement } from "./acpInteractionSettlement.js";
 import type { DesktopAcpSessionDefaults } from "./desktopAgentSettings.js";
+import {
+  sessionConfigurationFromNewSession,
+  sessionConfigurationFromProtocol,
+  type AcpSessionConfiguration
+} from "./acpSessionConfiguration.js";
 
 export type AcpSessionRunKind = "implementation" | "review" | "feedback";
 export type AcpSessionRun = {
@@ -116,9 +121,10 @@ export async function applyDesktopAcpSessionDefaults(options: {
   connection: AcpConnection;
   session: NewSessionResponse;
   operation?: { signal?: AbortSignal; timeoutMs?: number };
-}): Promise<void> {
+}): Promise<AcpSessionConfiguration> {
   const defaults = options.defaults;
   let advertised = options.session.configOptions ?? [];
+  let modes = options.session.modes;
   const configuredEntries = Object.entries(defaults.configOptions);
   for (const [configId, value] of configuredEntries) {
     const config = advertised.find((candidate) => candidate.id === configId);
@@ -156,7 +162,6 @@ export async function applyDesktopAcpSessionDefaults(options: {
     (option) => option.category === "mode" && Object.hasOwn(defaults.configOptions, option.id)
   );
   if (defaults.modeId && !configuredProtocolMode) {
-    const modes = options.session.modes;
     if (!modes?.availableModes.some((mode) => mode.id === defaults.modeId)) {
       throw new Error(
         `ACP agent '${options.agentId}' did not advertise configured session mode '${defaults.modeId}'.`
@@ -166,7 +171,9 @@ export async function applyDesktopAcpSessionDefaults(options: {
       { sessionId: options.session.sessionId, modeId: defaults.modeId },
       options.operation
     );
+    modes = { ...modes, currentModeId: defaults.modeId };
   }
+  return sessionConfigurationFromProtocol({ modes, configOptions: advertised });
 }
 
 export class AcpSessionController {
@@ -561,18 +568,39 @@ export class AcpSessionController {
         { cwd: run.cwd, mcpServers: [] },
         { signal: abortController.signal, timeoutMs: options?.timeoutMs }
       );
+      const sessionCorrelation = acpCorrelationSchema.parse({ sessionId: session.sessionId });
+      if (eventStore) {
+        await eventStore.append(
+          {
+            kind: "session_configuration_snapshot",
+            phase: "initial",
+            configuration: sessionConfigurationFromNewSession(session)
+          },
+          sessionCorrelation
+        );
+      }
       if (options?.sessionDefaults) {
-        await applyDesktopAcpSessionDefaults({
+        const configuredSession = await applyDesktopAcpSessionDefaults({
           agentId: run.agentId,
           defaults: options.sessionDefaults,
           connection,
           session,
           operation: { signal: abortController.signal, timeoutMs: options.timeoutMs }
         });
+        if (eventStore) {
+          await eventStore.append(
+            {
+              kind: "session_configuration_snapshot",
+              phase: "defaults_applied",
+              configuration: configuredSession
+            },
+            sessionCorrelation
+          );
+        }
       }
       this.registry.bindSession(handle, session.sessionId);
       this.registry.transition(handle, "running");
-      if (eventStore) await eventStore.append({ kind: "lifecycle", state: "running", message: "ACP session is running." }, acpCorrelationSchema.parse({ sessionId: session.sessionId }));
+      if (eventStore) await eventStore.append({ kind: "lifecycle", state: "running", message: "ACP session is running." }, sessionCorrelation);
       await writeState("running", {
         sessionId: session.sessionId,
         agentSessionId: session.sessionId,

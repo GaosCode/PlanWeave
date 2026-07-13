@@ -12,13 +12,12 @@ import {
   persistedPendingInteractionSchema,
   type PersistedPendingInteraction
 } from "./runnerContractSchemas.js";
+import { sessionConfigurationFromProtocol } from "./acpSessionConfiguration.js";
 
 export type AcpNormalizedEventBody = NormalizedRunnerEvent["body"];
 
 const nonConversationSessionUpdateSchema = z.discriminatedUnion("sessionUpdate", [
   z.object({ sessionUpdate: z.literal("available_commands_update") }).passthrough(),
-  z.object({ sessionUpdate: z.literal("current_mode_update") }).passthrough(),
-  z.object({ sessionUpdate: z.literal("config_option_update") }).passthrough(),
   z.object({ sessionUpdate: z.literal("session_info_update") }).passthrough(),
   z.object({ sessionUpdate: z.literal("agent_thought_chunk") }).passthrough()
 ]);
@@ -148,6 +147,16 @@ export function normalizeAcpSessionNotification(notification: SessionNotificatio
       return {
         kind: "usage_update", usedTokens: update.used, contextWindowTokens: update.size,
         cost: update.cost ? { amount: update.cost.amount, currency: update.cost.currency } : null
+      };
+    case "current_mode_update":
+      return { kind: "session_mode_update", currentModeId: update.currentModeId };
+    case "config_option_update":
+      return {
+        kind: "session_config_options_update",
+        configOptions: sessionConfigurationFromProtocol({
+          modes: null,
+          configOptions: update.configOptions
+        }).configOptions
       };
     default: {
       const content = serialized(update);

@@ -230,6 +230,10 @@ export function projectTaskWorkspaceRun(options: {
       currentContext: projectLatestUsage(record.runnerReadModel?.events),
       ...unavailableTokenUsage()
     },
+    actualConfiguration: record.runnerReadModel?.actualConfiguration ?? {
+      available: false,
+      reason: "Actual session configuration is unavailable because this run has no ACP RunnerRecordReadModel."
+    },
     capabilities: projectCapabilities(record.runnerReadModel)
   });
 }

@@ -7,6 +7,10 @@ import {
 import { AcpEventStore, type AcpEventStoreOptions } from "./acpEventStore.js";
 import type { AcpEventSubscriber, AcpEventSubscription } from "./acpEventPublisher.js";
 import type { NormalizedRunnerEvent } from "./normalizedEventContract.js";
+import {
+  projectAcpActualSessionConfiguration,
+  type AcpActualSessionConfiguration
+} from "./acpSessionConfiguration.js";
 import { runnerEventCursorSchema, type RunnerEventCursor, type RunnerEventReplayDiagnostic } from "./runnerEventReplay.js";
 
 export type AcpEventReadSnapshot = {
@@ -15,6 +19,7 @@ export type AcpEventReadSnapshot = {
   diagnostics: RunnerEventReplayDiagnostic[];
   terminal: boolean;
   cursor: RunnerEventCursor;
+  actualConfiguration: AcpActualSessionConfiguration;
 };
 
 export class AcpEventReadModel {
@@ -71,6 +76,9 @@ export class AcpEventReadModel {
       conversation: projectAcpConversation(events),
       diagnostics: this.store.diagnosticsSnapshot(),
       terminal: this.terminal || parsedCursor?.terminal === true,
+      actualConfiguration: projectAcpActualSessionConfiguration(
+        this.store.eventsAfterSequence(0)
+      ),
       cursor: {
         version: "planweave.runner-event-cursor/v1",
         runId: this.store.runId,

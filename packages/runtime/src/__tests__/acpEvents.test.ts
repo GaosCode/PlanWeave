@@ -81,7 +81,7 @@ describe("ACP event normalization", () => {
     } })).toMatchObject({ kind: "usage_update", usedTokens: 10, contextWindowTokens: 100 });
   });
 
-  it("ignores known provider-only status and thought updates without exposing them", () => {
+  it("ignores provider-only status while preserving authoritative configuration updates", () => {
     expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
       sessionUpdate: "session_info_update",
       _meta: { codex: { threadStatus: { type: "active", activeFlags: [] } } }
@@ -99,10 +99,10 @@ describe("ACP event normalization", () => {
     } })).toBeNull();
     expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
       sessionUpdate: "current_mode_update", currentModeId: "code"
-    } })).toBeNull();
+    } })).toEqual({ kind: "session_mode_update", currentModeId: "code" });
     expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
       sessionUpdate: "config_option_update", configOptions: []
-    } })).toBeNull();
+    } })).toEqual({ kind: "session_config_options_update", configOptions: [] });
     expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
       sessionUpdate: "provider_future_update"
     } })).toMatchObject({ kind: "diagnostic", code: "corrupt_line" });

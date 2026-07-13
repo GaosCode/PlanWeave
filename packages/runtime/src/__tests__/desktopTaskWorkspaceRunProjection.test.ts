@@ -68,7 +68,11 @@ function readModel(
     usageEvent(2, 35, "2026-07-13T00:00:02.000Z")
   ],
   canonicalIdentity: typeof runIdentity | null = runIdentity,
-  cancelSessionId = "session-1"
+  cancelSessionId = "session-1",
+  actualConfiguration: unknown = {
+    available: false,
+    reason: "No authoritative ACP session configuration snapshot was recorded for this run."
+  }
 ) {
   return runnerRecordReadModelSchema.parse({
     events,
@@ -84,6 +88,7 @@ function readModel(
       terminal: false
     },
     terminal: false,
+    actualConfiguration,
     intervention: {
       prompt: {
         available: true,
@@ -140,6 +145,56 @@ function blockRecord(overrides: Partial<DesktopRunRecord> = {}): DesktopRunRecor
 }
 
 describe("Task Workspace run projection", () => {
+  it("passes through the strict authoritative actual configuration projection", () => {
+    const actualConfiguration = {
+      available: true as const,
+      sequence: 3,
+      observedAt: "2026-07-13T00:00:03.000Z",
+      sessionId: "session-1",
+      protocol: {
+        modes: null,
+        configOptions: [
+          {
+            id: "effort",
+            type: "select" as const,
+            name: "Effort",
+            description: null,
+            category: "thought_level",
+            currentValue: "high",
+            options: [
+              { value: "high", name: "High", description: null, group: null }
+            ]
+          }
+        ]
+      },
+      fields: {
+        model: { available: false as const, value: null, source: null, reason: "missing" },
+        reasoning: {
+          available: true as const,
+          value: "high",
+          source: { kind: "config_option" as const, optionId: "effort" },
+          reason: null
+        },
+        mode: { available: false as const, value: null, source: null, reason: "missing" },
+        permission: {
+          available: false as const,
+          value: null,
+          source: null,
+          reason: "ACP has no portable permission setting."
+        }
+      }
+    };
+    const projected = projectTaskWorkspaceRun({
+      record: blockRecord({
+        runnerReadModel: readModel(undefined, runIdentity, "session-1", actualConfiguration)
+      }),
+      runIdentity,
+      now: new Date("2026-07-13T00:00:05.000Z")
+    });
+
+    expect(projected.actualConfiguration).toEqual(actualConfiguration);
+  });
+
   it("preserves exact record, runner, prompt, and cancel identities", () => {
     const projected = projectTaskWorkspaceRun({
       record: blockRecord(),

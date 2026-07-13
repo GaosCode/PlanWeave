@@ -110,6 +110,7 @@ const app = agent({ name: "planweave-acp-mock" })
       config: { model: currentModel, "fast-mode": false }
     });
     return scenario === "artifact-session-config" ||
+      scenario === "artifact-session-config-live" ||
       scenario === "probe-session-config-current-second"
       ? {
           sessionId,
@@ -235,7 +236,8 @@ const app = agent({ name: "planweave-acp-mock" })
       scenario === "elicitation-secret" ||
       scenario === "elicitation-validation" ||
       scenario === "multi-interaction" ||
-      scenario === "artifact-session-config";
+      scenario === "artifact-session-config" ||
+      scenario === "artifact-session-config-live";
     if (
       artifactScenario &&
       (!promptText.includes("PLANWEAVE RUNNER-ONLY FINAL ARTIFACT CONTRACT") ||
@@ -247,6 +249,7 @@ const app = agent({ name: "planweave-acp-mock" })
     const artifactText =
       scenario === "artifact-implementation" ||
       scenario === "artifact-session-config" ||
+      scenario === "artifact-session-config-live" ||
       scenario === "delayed-artifact-implementation" ||
       scenario === "terminal-output" ||
       scenario === "permission-deny" ||
@@ -267,6 +270,40 @@ const app = agent({ name: "planweave-acp-mock" })
         content: { type: "text", text: artifactText }
       }
     });
+
+    if (scenario === "artifact-session-config-live") {
+      await ctx.client.notify(methods.client.session.update, {
+        sessionId,
+        update: { sessionUpdate: "current_mode_update", currentModeId: "agent-full-access" }
+      });
+      await ctx.client.notify(methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "config_option_update",
+          configOptions: [
+            {
+              id: "model",
+              type: "select",
+              name: "Model",
+              category: "model",
+              currentValue: "gpt-5.2-codex",
+              options: [
+                { value: "gpt-5", name: "GPT-5" },
+                { value: "gpt-5.2-codex", name: "GPT-5.2 Codex" }
+              ]
+            },
+            {
+              id: "reasoning_effort",
+              type: "select",
+              name: "Reasoning effort",
+              category: "thought_level",
+              currentValue: "high",
+              options: [{ value: "high", name: "High" }]
+            }
+          ]
+        }
+      });
+    }
 
     if (
       scenario === "streaming" ||

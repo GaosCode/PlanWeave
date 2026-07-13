@@ -6,6 +6,7 @@ import {
   runnerSessionActionIdentitySchema
 } from "../../autoRun/runnerContractSchemas.js";
 import { desktopAgentPromptIdentitySchema } from "../../autoRun/runnerRecordReadModel.js";
+import { acpActualSessionConfigurationSchema } from "../../autoRun/acpSessionConfiguration.js";
 import { parseRunRecordId, runRecordId } from "../runRecordIdentity.js";
 
 export const TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON =
@@ -183,6 +184,7 @@ export const taskWorkspaceRunSchema = z
     executionWaveId: executionWaveIdSchema.nullable(),
     duration: taskWorkspaceRunDurationSchema,
     usage: taskWorkspaceRunUsageSchema,
+    actualConfiguration: acpActualSessionConfigurationSchema,
     capabilities: taskWorkspaceRunCapabilitiesSchema
   })
   .strict()
