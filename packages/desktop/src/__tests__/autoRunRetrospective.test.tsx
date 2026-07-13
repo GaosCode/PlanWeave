@@ -130,4 +130,64 @@ describe("auto run control hook retrospective", () => {
     expect(result.current.autoRunRetrospective).toBeNull();
     expect(setError).not.toHaveBeenCalled();
   });
+
+  it("loads the latest effective retrospective after a completed no-work run", async () => {
+    const noWorkState = autoRunState({
+      phase: "completed",
+      runId: "DESKTOP-RUN-0002",
+      runSessionId: "SESSION-0002",
+      stepCount: 0,
+      latestOutputSummary: "no_claimable_blocks"
+    });
+    const effectiveRetrospective = {
+      runId: "DESKTOP-RUN-0001",
+      runSessionId: "SESSION-0001",
+      projectRoot: project.rootPath,
+      canvasId: "canvas-main",
+      phase: "completed" as const,
+      scope: { kind: "project" as const },
+      startedAt: noWorkState.startedAt,
+      updatedAt: noWorkState.updatedAt,
+      elapsedMs: 164_000,
+      stepCount: 4,
+      completedBlockRefs: [selectedBlock.ref],
+      blockedRef: null,
+      failedReason: null,
+      reviewVerdicts: [],
+      latestRecordId: "T-ALPHA#B-001::RUN-001",
+      latestRecordPath: "/tmp/metadata.json",
+      latestReportPath: "/tmp/report.md",
+      nextAction: noWorkState.explanation.nextAction,
+      diagnostics: []
+    };
+    const getAutoRunRetrospective = vi.fn();
+    const getLatestAutoRunRetrospective = vi.fn().mockResolvedValue(effectiveRetrospective);
+    stubAutoRunControlBridge(createDesktopBridgeMock({
+      getAutoRunRetrospective,
+      getLatestAutoRunRetrospective
+    }));
+    const { useAutoRunControl } = await loadAutoRunControl();
+
+    const { result } = renderHook(() =>
+      useAutoRunControl({
+        autoRunState: noWorkState,
+        handleOpenRunRecord: vi.fn(),
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setAutoRunState: vi.fn(),
+        setError: vi.fn(),
+        t: createTranslator("en"),
+        tmuxMonitoringEnabled: false
+      })
+    );
+
+    await waitFor(() => expect(result.current.autoRunRetrospective).toEqual(effectiveRetrospective));
+    expect(getLatestAutoRunRetrospective).toHaveBeenCalledWith({
+      projectRoot: project.rootPath,
+      canvasId: "canvas-main"
+    });
+    expect(getAutoRunRetrospective).not.toHaveBeenCalled();
+  });
 });

@@ -321,6 +321,40 @@ describe("desktop auto run retrospective API", () => {
     });
   });
 
+  it("keeps the latest effective run when a newer Auto Run has no claimable work", async () => {
+    const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
+    const effective = persistedState(init.workspace, {
+      runId: "DESKTOP-RUN-2101",
+      runSessionId: "SESSION-0001",
+      projectRoot: root,
+      stepCount: 4,
+      elapsedMs: 164_000,
+      updatedAt: "2026-06-23T00:02:44.000Z"
+    });
+    const noWork = persistedState(init.workspace, {
+      runId: "DESKTOP-RUN-2102",
+      runSessionId: "SESSION-0002",
+      projectRoot: root,
+      stepCount: 0,
+      elapsedMs: 37,
+      latestOutputSummary: "no_claimable_blocks",
+      latestRecordId: null,
+      latestRecordPath: null,
+      updatedAt: "2026-06-23T00:03:00.037Z"
+    });
+    await writeAutoRunState(effective);
+    await writeAutoRunEvents(effective, []);
+    await writeAutoRunState(noWork);
+    await writeAutoRunEvents(noWork, []);
+
+    await expect(getLatestAutoRunRetrospective(root, null)).resolves.toMatchObject({
+      runId: effective.runId,
+      runSessionId: "SESSION-0001",
+      stepCount: 4,
+      elapsedMs: 164_000
+    });
+  });
+
   it("does not count feedback-only or needs-changes review steps as completed blocks", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
     const state = persistedState(init.workspace, {

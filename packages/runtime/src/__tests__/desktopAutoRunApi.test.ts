@@ -811,10 +811,12 @@ describe("desktop auto run API", () => {
       runId: started.runId,
       runSessionId: "SESSION-0001",
       phase: "completed",
-      currentRef: null,
+      stepCount: 2,
+      currentRef: "T-001#R-001",
       latestRecordId: "T-001#R-001::RUN-001",
-      latestOutputSummary: "no_claimable_blocks"
+      latestOutputSummary: expect.stringContaining("reviewBlockRef")
     });
+    expect(completed.elapsedMs).toBeGreaterThan(0);
     await expect(getRunSession(root, completed.runSessionId!)).resolves.toMatchObject({
       session: {
         kind: "run",
@@ -822,7 +824,7 @@ describe("desktop auto run API", () => {
         phase: "completed",
         autoRun: {
           desktopRunId: started.runId,
-          stepCount: 3,
+          stepCount: 2,
           effectiveExecutor: "pass-review",
           agentId: "codex",
           runnerKind: "cli"

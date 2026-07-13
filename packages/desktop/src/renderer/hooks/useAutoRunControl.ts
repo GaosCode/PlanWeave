@@ -226,7 +226,9 @@ export function useAutoRunControl({
     }
     let cancelled = false;
     const ref = desktopCanvasReference(selectedProject, selectedCanvasId);
-    const loadRetrospective = autoRunRunId
+    const shouldUseLatestEffectiveRun =
+      autoRunState?.phase === "completed" && autoRunState.stepCount === 0;
+    const loadRetrospective = autoRunRunId && !shouldUseLatestEffectiveRun
       ? bridge.getAutoRunRetrospective(ref, autoRunRunId)
       : bridge.getLatestAutoRunRetrospective(ref);
     void loadRetrospective

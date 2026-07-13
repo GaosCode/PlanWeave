@@ -212,6 +212,7 @@ async function buildAutoRunRetrospective(
   const explanation = refreshedExplanation(clonedState);
   return {
     runId: clonedState.runId,
+    runSessionId: clonedState.runSessionId ?? null,
     projectRoot: clonedState.projectRoot,
     canvasId: clonedState.canvasId,
     phase: clonedState.phase,
@@ -259,7 +260,9 @@ export async function getLatestAutoRunRetrospective(
   const normalizedCanvasId = canvasId ?? null;
   const { state, diagnostics } = await readLatestPersistedAutoRunState(workspace, {
     matches: (candidate) =>
-      candidate.projectRoot === projectRoot && candidate.canvasId === normalizedCanvasId
+      candidate.projectRoot === projectRoot &&
+      candidate.canvasId === normalizedCanvasId &&
+      candidate.stepCount > 0
   });
   return state ? buildAutoRunRetrospective(workspace, state, diagnostics) : null;
 }

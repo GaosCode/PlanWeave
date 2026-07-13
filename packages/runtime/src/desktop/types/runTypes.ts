@@ -118,6 +118,7 @@ export type DesktopAutoRunEventLog = {
 
 export type DesktopAutoRunRetrospectiveSummary = {
   runId: string;
+  runSessionId: string | null;
   projectRoot: string;
   canvasId: string | null;
   phase: DesktopAutoRunPhase;

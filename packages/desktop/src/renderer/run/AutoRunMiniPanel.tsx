@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import type {
   DesktopAutoRunRetrospectiveSummary,
   DesktopAutoRunState,
@@ -50,6 +50,10 @@ type AutoRunMiniPanelProps = {
 
 function isFailureState(state: DesktopAutoRunState | null): state is DesktopAutoRunState {
   return state?.phase === "blocked" || state?.phase === "failed";
+}
+
+function isLiveRun(state: DesktopAutoRunState | null): state is DesktopAutoRunState {
+  return state?.phase === "running" || state?.phase === "pausing";
 }
 
 function DisclosureSection({
@@ -266,8 +270,26 @@ export function AutoRunMiniPanel({
   stopAutoRunClick,
   t
 }: AutoRunMiniPanelProps) {
+  const [clockMs, setClockMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isLiveRun(autoRunState)) {
+      return;
+    }
+    setClockMs(Date.now());
+    const timer = window.setInterval(() => setClockMs(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [autoRunState?.phase, autoRunState?.runId]);
+
   const explanation = autoRunState?.explanation ?? null;
   const showFailureDetails = isFailureState(autoRunState);
+  const liveElapsedMs = isLiveRun(autoRunState)
+    ? Math.max(autoRunState.elapsedMs, clockMs - Date.parse(autoRunState.startedAt))
+    : null;
+  const displayedElapsedMs =
+    liveElapsedMs ?? autoRunRetrospective?.elapsedMs ?? autoRunState?.elapsedMs ?? null;
+  const displayedStepCount = autoRunRetrospective?.stepCount ?? autoRunState?.stepCount ?? null;
+  const displayedRunSessionId =
+    autoRunRetrospective?.runSessionId ?? autoRunState?.runSessionId ?? null;
   return (
     <Popover open={miniRunPanelOpen} onOpenChange={setMiniRunPanelOpen}>
       <PopoverTrigger asChild>
@@ -323,17 +345,17 @@ export function AutoRunMiniPanel({
             <span>
               {t("agent")}: {explanation?.currentExecutor ?? "-"}
             </span>
-            <span>
-              {t("elapsedTime")}: {autoRunState ? formatElapsed(autoRunState.elapsedMs) : "-"}
+            <span data-testid="auto-run-elapsed">
+              {t("elapsedTime")}: {displayedElapsedMs === null ? "-" : formatElapsed(displayedElapsedMs)}
             </span>
-            <span>
-              {t("stepCount")}: {autoRunState ? `${autoRunState.stepCount}` : "-"}
+            <span data-testid="auto-run-step-count">
+              {t("stepCount")}: {displayedStepCount === null ? "-" : `${displayedStepCount}`}
             </span>
-            {autoRunState?.runSessionId ? (
+            {displayedRunSessionId ? (
               <span className="col-span-2 min-w-0">
                 {t("runSession")}:{" "}
                 <span className="break-all font-mono" data-testid="auto-run-session-id">
-                  {autoRunState.runSessionId}
+                  {displayedRunSessionId}
                 </span>
               </span>
             ) : null}

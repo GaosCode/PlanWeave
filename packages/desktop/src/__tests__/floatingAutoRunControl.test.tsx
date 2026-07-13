@@ -143,6 +143,7 @@ describe("FloatingAutoRunControl", () => {
     };
     const retrospective: DesktopAutoRunRetrospectiveSummary = {
       runId: "RUN-001",
+      runSessionId: "SESSION-0001",
       projectRoot: project.rootPath,
       canvasId: "canvas-main",
       phase: "running",

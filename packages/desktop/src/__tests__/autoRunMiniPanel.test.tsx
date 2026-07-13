@@ -1,9 +1,13 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { DesktopAutoRunState, DesktopProjectSummary } from "@planweave-ai/runtime";
+import type {
+  DesktopAutoRunRetrospectiveSummary,
+  DesktopAutoRunState,
+  DesktopProjectSummary
+} from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import { AutoRunMiniPanel } from "../renderer/run/AutoRunMiniPanel";
@@ -132,5 +136,113 @@ describe("AutoRunMiniPanel", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Reset runtime state" }));
     expect(resetRuntimeStateClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the latest effective metrics while preserving a newer no-work outcome", () => {
+    const noWorkState = createFailedAutoRunState();
+    noWorkState.phase = "completed";
+    noWorkState.runId = "DESKTOP-RUN-0002";
+    noWorkState.runSessionId = "SESSION-0002";
+    noWorkState.stepCount = 0;
+    noWorkState.elapsedMs = 37;
+    noWorkState.latestOutputSummary = "no_claimable_blocks";
+    noWorkState.explanation = {
+      ...noWorkState.explanation,
+      phase: "completed",
+      latestOutputSummary: "no_claimable_blocks"
+    };
+    const retrospective: DesktopAutoRunRetrospectiveSummary = {
+      runId: "DESKTOP-RUN-0001",
+      runSessionId: "SESSION-0001",
+      projectRoot: project.rootPath,
+      canvasId: "default",
+      phase: "completed",
+      scope: { kind: "project" },
+      startedAt: noWorkState.startedAt,
+      updatedAt: noWorkState.updatedAt,
+      elapsedMs: 164_000,
+      stepCount: 4,
+      completedBlockRefs: ["T-001#B-001", "T-001#R-001"],
+      blockedRef: null,
+      failedReason: null,
+      reviewVerdicts: [],
+      latestRecordId: "T-001#R-001::RUN-001",
+      latestRecordPath: "/tmp/metadata.json",
+      latestReportPath: "/tmp/report.md",
+      nextAction: noWorkState.explanation.nextAction,
+      diagnostics: []
+    };
+
+    render(
+      <AutoRunMiniPanel
+        autoRunNextAction={null}
+        autoRunRetrospective={retrospective}
+        autoRunState={noWorkState}
+        canStop={false}
+        executorPreflight={{
+          error: null,
+          loading: false,
+          result: null,
+          runPreflight: vi.fn().mockResolvedValue(null)
+        }}
+        handleAutoRunClick={vi.fn().mockResolvedValue(undefined)}
+        handleAutoRunNextAction={vi.fn().mockResolvedValue(undefined)}
+        handleRevealPathInFinder={vi.fn().mockResolvedValue(undefined)}
+        hasProject={true}
+        miniRunPanelOpen={true}
+        preflightExecutor={null}
+        resetRuntimeStateClick={vi.fn().mockResolvedValue(undefined)}
+        selectedProject={project}
+        setMiniRunPanelOpen={vi.fn()}
+        stopAutoRunClick={vi.fn().mockResolvedValue(undefined)}
+        t={t}
+      />
+    );
+
+    expect(screen.getByTestId("auto-run-elapsed")).toHaveTextContent("2m 44s");
+    expect(screen.getByTestId("auto-run-step-count")).toHaveTextContent("4");
+    expect(screen.getByTestId("auto-run-session-id")).toHaveTextContent("SESSION-0001");
+    expect(screen.getByText(/no_claimable_blocks/)).toBeInTheDocument();
+  });
+
+  it("ticks elapsed time locally while a long-running step has no runtime event", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-23T00:00:05.000Z"));
+    const runningState = createFailedAutoRunState();
+    runningState.phase = "running";
+    runningState.elapsedMs = 0;
+    runningState.explanation = { ...runningState.explanation, phase: "running" };
+
+    render(
+      <AutoRunMiniPanel
+        autoRunNextAction={null}
+        autoRunRetrospective={null}
+        autoRunState={runningState}
+        canStop={true}
+        executorPreflight={{
+          error: null,
+          loading: false,
+          result: null,
+          runPreflight: vi.fn().mockResolvedValue(null)
+        }}
+        handleAutoRunClick={vi.fn().mockResolvedValue(undefined)}
+        handleAutoRunNextAction={vi.fn().mockResolvedValue(undefined)}
+        handleRevealPathInFinder={vi.fn().mockResolvedValue(undefined)}
+        hasProject={true}
+        miniRunPanelOpen={true}
+        preflightExecutor={null}
+        resetRuntimeStateClick={vi.fn().mockResolvedValue(undefined)}
+        selectedProject={project}
+        setMiniRunPanelOpen={vi.fn()}
+        stopAutoRunClick={vi.fn().mockResolvedValue(undefined)}
+        t={t}
+      />
+    );
+
+    expect(screen.getByTestId("auto-run-elapsed")).toHaveTextContent("5s");
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(screen.getByTestId("auto-run-elapsed")).toHaveTextContent("7s");
   });
 });

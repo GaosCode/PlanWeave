@@ -376,15 +376,25 @@ async function runLoop(runId: string): Promise<void> {
           return;
         }
         const nextPhase = phaseAfterStep(afterStep, patch);
+        const completedWithoutWork = step.kind === "idle";
+        const hasExecutedStep = afterStep.stepCount > 0;
         await setState(
           runId,
           {
-            stepCount: afterStep.stepCount + 1,
-            currentRef: claimRef(step),
-            currentExecutor: step.kind === "idle" ? afterStep.currentExecutor : executorName(step),
-            latestOutputSummary: outputSummary(step),
-            latestRecordId: record?.recordId ?? null,
-            latestRecordPath: record?.path ?? null,
+            stepCount: afterStep.stepCount + (completedWithoutWork ? 0 : 1),
+            currentRef: completedWithoutWork ? afterStep.currentRef : claimRef(step),
+            currentExecutor: completedWithoutWork
+              ? afterStep.currentExecutor
+              : executorName(step),
+            latestOutputSummary: completedWithoutWork && hasExecutedStep
+              ? afterStep.latestOutputSummary
+              : outputSummary(step),
+            latestRecordId: completedWithoutWork
+              ? afterStep.latestRecordId
+              : (record?.recordId ?? null),
+            latestRecordPath: completedWithoutWork
+              ? afterStep.latestRecordPath
+              : (record?.path ?? null),
             ...(patch ?? {}),
             phase: nextPhase
           },
