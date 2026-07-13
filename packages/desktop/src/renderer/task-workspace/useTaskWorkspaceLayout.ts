@@ -2,11 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 
 const defaultTimelineWidth = 280;
 const defaultInspectorWidth = 320;
-const minPanelWidth = 220;
-const maxPanelWidth = 520;
+export const taskWorkspacePanelMinWidth = 220;
+export const taskWorkspacePanelMaxWidth = 520;
 
 function clampPanelWidth(width: number): number {
-  return Math.min(maxPanelWidth, Math.max(minPanelWidth, Math.round(width)));
+  return Math.min(
+    taskWorkspacePanelMaxWidth,
+    Math.max(taskWorkspacePanelMinWidth, Math.round(width))
+  );
 }
 
 export function useTaskWorkspaceLayout(sessionKey: string) {
