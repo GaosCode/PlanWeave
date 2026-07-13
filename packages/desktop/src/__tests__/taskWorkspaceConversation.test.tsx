@@ -249,6 +249,7 @@ describe("Task Workspace conversation", () => {
     const cancelAgentRun = vi.fn(async () => undefined);
     render(
       <TaskWorkspaceComposer
+        accessory={<span>Authoritative usage</span>}
         api={{ cancelAgentRun, sendAgentPrompt }}
         liveStatus="live"
         runnerModel={model}
@@ -268,6 +269,7 @@ describe("Task Workspace conversation", () => {
     expect(cancelAgentRun).toHaveBeenCalledWith(model.intervention.cancel.identity);
     expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /continue session/i })).not.toBeInTheDocument();
+    expect(screen.getByText("Authoritative usage")).toBeInTheDocument();
   });
 
   it("does not expose an ACP composer for an authoritative CLI selection with a stale ACP model", () => {

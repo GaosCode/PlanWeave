@@ -4,7 +4,7 @@ import type {
   TaskWorkspaceLabels,
   TaskWorkspaceSlotRenderers
 } from "./contracts";
-import { TaskWorkspaceShell } from "./TaskWorkspaceShell";
+import { TaskWorkspaceShell, TaskWorkspaceStateShell } from "./TaskWorkspaceShell";
 import { useTaskWorkspaceLayout } from "./useTaskWorkspaceLayout";
 
 function EmptySlot({ description, title }: { description: string; title: string }) {
@@ -38,16 +38,26 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
   const layout = useTaskWorkspaceLayout(sessionKey);
 
   if (controller.status === "idle") {
-    return <EmptySlot title={labels.noTask} description={labels.noTask} />;
+    return (
+      <TaskWorkspaceStateShell labels={labels} onReturnToCanvas={controller.returnToCanvas}>
+        <EmptySlot title={labels.noTask} description={labels.noTask} />
+      </TaskWorkspaceStateShell>
+    );
   }
   if (controller.status === "loading") {
-    return <EmptySlot title={labels.loading} description={labels.loading} />;
+    return (
+      <TaskWorkspaceStateShell labels={labels} onReturnToCanvas={controller.returnToCanvas}>
+        <EmptySlot title={labels.loading} description={labels.loading} />
+      </TaskWorkspaceStateShell>
+    );
   }
   if (controller.status === "error" || !controller.workspace) {
     return (
-      <section className="flex h-full items-center justify-center p-6" role="alert">
-        <p className="max-w-xl text-sm text-destructive">{controller.error ?? labels.noTask}</p>
-      </section>
+      <TaskWorkspaceStateShell labels={labels} onReturnToCanvas={controller.returnToCanvas}>
+        <section className="flex h-full items-center justify-center p-6" role="alert">
+          <p className="max-w-xl text-sm text-destructive">{controller.error ?? labels.noTask}</p>
+        </section>
+      </TaskWorkspaceStateShell>
     );
   }
 
@@ -83,7 +93,8 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
   const composerProps = {
     liveStatus: controller.liveStatus,
     runnerModel: controller.runnerModel,
-    selectedRun: controller.selectedRun
+    selectedRun: controller.selectedRun,
+    workspace: controller.workspace
   };
   const timeline: ReactNode = slots.timeline?.(timelineProps) ?? (
     <EmptySlot title={labels.timeline} description={labels.noRuns} />
@@ -108,18 +119,24 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
   const composer: ReactNode = slots.composer?.(composerProps) ?? (
     <EmptySlot title={labels.composer} description={labels.noConversation} />
   );
+  const headerAction: ReactNode =
+    slots.headerAction?.({
+      runnerModel: controller.runnerModel,
+      selectedRun: controller.selectedRun
+    }) ?? null;
 
   return (
     <TaskWorkspaceShell
       composer={composer}
       conversation={conversation}
+      headerAction={headerAction}
       inspector={inspector}
       labels={labels}
       layout={layout}
       onReturnToCanvas={controller.returnToCanvas}
-      taskStatus={controller.workspace.task.status}
-      taskTitle={controller.workspace.task.title}
+      selectedRun={controller.selectedRun}
       timeline={timeline}
+      workspace={controller.workspace}
     />
   );
 }

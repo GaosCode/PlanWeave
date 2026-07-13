@@ -1,88 +1,129 @@
 import type { DesktopBridgeApi } from "@planweave-ai/runtime";
-import { SendIcon, SquareIcon } from "lucide-react";
+import { SendIcon } from "lucide-react";
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { bridge } from "../../bridge";
 import type { createTranslator } from "../../i18n";
 import { useAgentPrompt } from "../../hooks/useAgentPrompt";
-import { useRunnerInterventions } from "../../hooks/useRunnerInterventions";
 import type { TaskWorkspaceComposerSlotProps } from "../contracts";
-import { samePromptIdentity, sameSessionActionIdentity } from "./actionIdentity";
+import { samePromptIdentity } from "./actionIdentity";
+import {
+  TaskWorkspaceCancelRunAction,
+  type TaskWorkspaceCancelRunController,
+  TaskWorkspaceCancelRunControllerScope
+} from "./TaskWorkspaceCancelRunAction";
 
-type ComposerApi = Partial<Pick<
-  DesktopBridgeApi,
-  "cancelAgentRun" | "respondToAgentRequest" | "sendAgentPrompt"
->>;
+type ComposerApi = Partial<
+  Pick<DesktopBridgeApi, "cancelAgentRun" | "respondToAgentRequest" | "sendAgentPrompt">
+>;
 
 export function TaskWorkspaceComposer({
+  accessory,
   api = bridge,
+  cancelController,
   liveStatus,
   runnerModel,
   selectedRun,
   t
-}: TaskWorkspaceComposerSlotProps & {
+}: Omit<TaskWorkspaceComposerSlotProps, "workspace"> & {
+  accessory?: ReactNode;
   api?: ComposerApi | null;
+  cancelController?: TaskWorkspaceCancelRunController;
   t: ReturnType<typeof createTranslator>;
 }) {
   if (!selectedRun) {
-    return <ComposerUnavailable reason={t("acpPromptUnavailable")} />;
+    return <ComposerUnavailable accessory={accessory} reason={t("acpPromptUnavailable")} />;
   }
   const runnerKind = selectedRun.item.run.metadata.runnerKind;
   if (runnerKind === "cli") {
-    return <ComposerUnavailable reason="CLI runs do not provide an ACP composer. Use Open terminal to continue in the CLI." />;
+    return (
+      <ComposerUnavailable
+        accessory={accessory}
+        reason={t("taskWorkspaceCliComposerUnavailable")}
+      />
+    );
   }
   if (runnerKind !== "acp") {
-    return <ComposerUnavailable reason="The selected run does not declare a supported conversation transport." />;
+    return (
+      <ComposerUnavailable accessory={accessory} reason={t("taskWorkspaceUnsupportedTransport")} />
+    );
   }
   if (!runnerModel) {
-    const reason = liveStatus === "loading"
-      ? "Loading the selected run…"
-      : selectedRun.item.run.capabilities.prompt.reason ?? t("acpPromptUnavailable");
-    return <ComposerUnavailable reason={reason} />;
+    const reason =
+      liveStatus === "loading"
+        ? t("taskWorkspaceLoadingSelectedRun")
+        : (selectedRun.item.run.capabilities.prompt.reason ?? t("acpPromptUnavailable"));
+    return <ComposerUnavailable accessory={accessory} reason={reason} />;
   }
 
-  return <AcpComposer api={api} model={runnerModel} selectedRun={selectedRun} t={t} />;
+  if (cancelController) {
+    return (
+      <AcpComposer
+        accessory={accessory}
+        api={api}
+        cancelController={cancelController}
+        model={runnerModel}
+        selectedRun={selectedRun}
+        t={t}
+      />
+    );
+  }
+  return (
+    <TaskWorkspaceCancelRunControllerScope api={api} model={runnerModel} selectedRun={selectedRun}>
+      {(localCancelController) => (
+        <AcpComposer
+          accessory={accessory}
+          api={api}
+          cancelController={localCancelController}
+          model={runnerModel}
+          selectedRun={selectedRun}
+          t={t}
+        />
+      )}
+    </TaskWorkspaceCancelRunControllerScope>
+  );
 }
 
-function AcpComposer({ api, model, selectedRun, t }: {
+function AcpComposer({
+  accessory,
+  api,
+  cancelController,
+  model,
+  selectedRun,
+  t
+}: {
+  accessory?: ReactNode;
   api: ComposerApi | null;
+  cancelController: TaskWorkspaceCancelRunController;
   model: NonNullable<TaskWorkspaceComposerSlotProps["runnerModel"]>;
   selectedRun: NonNullable<TaskWorkspaceComposerSlotProps["selectedRun"]>;
   t: ReturnType<typeof createTranslator>;
 }) {
   const [draft, setDraft] = useState("");
   const selectedPromptCapability = selectedRun.item.run.capabilities.prompt;
-  const selectedCancelCapability = selectedRun.item.run.capabilities.cancel;
   const promptIdentity = samePromptIdentity(
     model.intervention.prompt.identity,
     selectedPromptCapability.identity
   )
     ? model.intervention.prompt.identity
     : null;
-  const cancelIdentity = sameSessionActionIdentity(
-    model.intervention.cancel.identity,
-    selectedCancelCapability.identity
-  )
-    ? model.intervention.cancel.identity
-    : null;
   const prompt = useAgentPrompt({
     api,
     identity: promptIdentity,
     runtimeInFlight: model.intervention.prompt.inFlight
   });
-  const interventions = useRunnerInterventions({ api, model });
 
-  const promptAvailable = model.intervention.prompt.available &&
+  const promptAvailable =
+    model.intervention.prompt.available &&
     selectedPromptCapability.available &&
     promptIdentity !== null;
-  const cancelAvailable = model.intervention.cancel.available &&
-    selectedCancelCapability.available &&
-    cancelIdentity !== null;
   const disabled = !promptAvailable || prompt.inFlight;
-  const unavailableReason = model.intervention.prompt.available && !promptIdentity
-    ? "The prompt identity does not match the selected run."
-    : model.intervention.prompt.reason ?? t("acpPromptUnavailable");
+  const unavailableReason =
+    model.intervention.prompt.available && !promptIdentity
+      ? t("taskWorkspacePromptIdentityMismatch")
+      : (model.intervention.prompt.reason ?? t("acpPromptUnavailable"));
   const submit = () => {
     const text = draft.trim();
     if (!text || disabled) return;
@@ -110,19 +151,13 @@ function AcpComposer({ api, model, selectedRun, t }: {
         />
         <div className="flex items-center justify-between gap-3 px-1 pt-1 text-[11px] text-muted-foreground">
           <span>{promptAvailable ? t("acpPromptHint") : unavailableReason}</span>
-          <div className="flex items-center gap-2">
-            {cancelAvailable ? (
-              <Button
-                aria-label={t("acpCancelRun")}
-                disabled={interventions.cancelInFlight}
-                onClick={() => interventions.cancel(cancelIdentity)}
-                size="icon-sm"
-                type="button"
-                variant="destructive"
-              >
-                <SquareIcon />
-              </Button>
-            ) : null}
+          <div className="flex min-w-0 items-center gap-2">
+            {accessory}
+            <TaskWorkspaceCancelRunAction
+              buttonLabel={t("acpCancelRun")}
+              controller={cancelController}
+              errorLabel={t("acpActionError")}
+            />
             <Button
               aria-label={t("acpSendPrompt")}
               disabled={disabled || !draft.trim()}
@@ -134,18 +169,29 @@ function AcpComposer({ api, model, selectedRun, t }: {
             </Button>
           </div>
         </div>
-        {prompt.inFlight ? <p className="px-1 pt-1 text-[11px] text-muted-foreground">{t("acpPromptSending")}</p> : null}
-        {prompt.error ? <p className="px-1 pt-1 text-xs text-destructive" role="alert">{t("acpPromptFailed")}: {prompt.error}</p> : null}
-        {interventions.actionError ? <p className="px-1 pt-1 text-xs text-destructive" role="alert">{t("acpActionError")}: {interventions.actionError}</p> : null}
+        {prompt.inFlight ? (
+          <p className="px-1 pt-1 text-[11px] text-muted-foreground">{t("acpPromptSending")}</p>
+        ) : null}
+        {prompt.error ? (
+          <p className="px-1 pt-1 text-xs text-destructive" role="alert">
+            {t("acpPromptFailed")}: {prompt.error}
+          </p>
+        ) : null}
       </div>
     </section>
   );
 }
 
-function ComposerUnavailable({ reason }: { reason: string }) {
+function ComposerUnavailable({ accessory, reason }: { accessory?: ReactNode; reason: string }) {
   return (
-    <section className="mx-auto w-full max-w-5xl p-3" data-testid="task-workspace-composer-unavailable">
-      <p className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">{reason}</p>
+    <section
+      className="mx-auto w-full max-w-5xl p-3"
+      data-testid="task-workspace-composer-unavailable"
+    >
+      <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+        <p className="text-xs text-muted-foreground">{reason}</p>
+        {accessory}
+      </div>
     </section>
   );
 }

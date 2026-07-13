@@ -1,6 +1,10 @@
 export { TaskWorkspaceOverview } from "./TaskWorkspaceOverview";
 export { TaskWorkspaceTimeline } from "./TaskWorkspaceTimeline";
-export { defaultTimelineSelection, projectTaskWorkspaceTimeline } from "./timelineProjection";
+export {
+  defaultTimelineSelection,
+  projectTaskWorkspaceTimeline,
+  taskWorkspaceRunStatus
+} from "./timelineProjection";
 export type {
   TaskWorkspaceTimelineLabels,
   TaskWorkspaceTimelineProjection,

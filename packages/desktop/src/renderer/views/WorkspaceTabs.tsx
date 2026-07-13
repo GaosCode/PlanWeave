@@ -48,7 +48,28 @@ import { SearchView } from "./SearchView";
 import { StatisticsView } from "./StatisticsView";
 import { TodoView } from "./TodoView";
 import { TaskWorkspaceRoute } from "../task-workspace/TaskWorkspaceRoute";
-import { taskWorkspaceLabels } from "../task-workspace/labels";
+import {
+  taskWorkspaceInspectorLabels,
+  taskWorkspaceLabels,
+  taskWorkspaceTimelineLabels,
+  taskWorkspaceUsageLabels
+} from "../task-workspace/labels";
+import {
+  TaskWorkspaceCancelRunAction,
+  TaskWorkspaceCancelRunControllerScope,
+  TaskWorkspaceComposer,
+  TaskWorkspaceConversation
+} from "../task-workspace/conversation";
+import { TaskWorkspaceInspector } from "../task-workspace/inspector/TaskWorkspaceInspector";
+import { TaskWorkspaceUsage } from "../task-workspace/inspector/TaskWorkspaceUsage";
+import { TaskWorkspaceTimeline } from "../task-workspace/timeline";
+import { bridge } from "../bridge";
+import type {
+  TaskWorkspaceComposerSlotProps,
+  TaskWorkspaceConversationSlotProps,
+  TaskWorkspaceInspectorSlotProps,
+  TaskWorkspaceTimelineSlotProps
+} from "../task-workspace/contracts";
 
 export type WorkspaceTabsShellProps = {
   activeView: AppView;
@@ -302,7 +323,65 @@ function CanvasMapRoute() {
 
 function TaskWorkspaceAppRoute() {
   const { shell, taskWorkspace } = useProjectWorkspace();
-  return <TaskWorkspaceRoute controller={taskWorkspace} labels={taskWorkspaceLabels(shell.t)} />;
+  const navigation = taskWorkspace.navigation;
+  return (
+    <TaskWorkspaceCancelRunControllerScope
+      api={bridge}
+      model={taskWorkspace.runnerModel}
+      selectedRun={taskWorkspace.selectedRun}
+    >
+      {(cancelController) => {
+        const slots = navigation
+          ? {
+              composer: (props: TaskWorkspaceComposerSlotProps) => (
+                <TaskWorkspaceComposer
+                  {...props}
+                  accessory={
+                    <TaskWorkspaceUsage
+                      labels={taskWorkspaceUsageLabels(shell.t)}
+                      selectedRun={props.selectedRun}
+                      workspace={props.workspace}
+                    />
+                  }
+                  api={bridge}
+                  cancelController={cancelController}
+                  t={shell.t}
+                />
+              ),
+              conversation: (props: TaskWorkspaceConversationSlotProps) => (
+                <TaskWorkspaceConversation
+                  {...props}
+                  api={bridge}
+                  canvasRef={{ canvasId: navigation.canvasId, projectRoot: navigation.projectRoot }}
+                  t={shell.t}
+                />
+              ),
+              headerAction: () => (
+                <TaskWorkspaceCancelRunAction
+                  buttonLabel={shell.t("stop")}
+                  controller={cancelController}
+                  errorLabel={shell.t("acpActionError")}
+                  showText
+                />
+              ),
+              inspector: (props: TaskWorkspaceInspectorSlotProps) => (
+                <TaskWorkspaceInspector {...props} labels={taskWorkspaceInspectorLabels(shell.t)} />
+              ),
+              timeline: (props: TaskWorkspaceTimelineSlotProps) => (
+                <TaskWorkspaceTimeline {...props} labels={taskWorkspaceTimelineLabels(shell.t)} />
+              )
+            }
+          : undefined;
+        return (
+          <TaskWorkspaceRoute
+            controller={taskWorkspace}
+            labels={taskWorkspaceLabels(shell.t)}
+            slots={slots}
+          />
+        );
+      }}
+    </TaskWorkspaceCancelRunControllerScope>
+  );
 }
 
 export function WorkspaceTabs() {

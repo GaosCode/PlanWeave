@@ -101,7 +101,7 @@ function InteractionCard({ disabled, inFlight, onRespond, request, t }: {
   t: ReturnType<typeof createTranslator>;
 }) {
   const unavailableReason = disabled
-    ? "The active request identity does not match the selected run."
+    ? t("taskWorkspaceRequestIdentityMismatch")
     : request.availability.available
       ? null
       : request.availability.reason;
@@ -155,7 +155,7 @@ function StructuredElicitation({ disabled, onCancel, onSubmit, schema, t }: {
   if (!fields) {
     return (
       <div className="space-y-2">
-        <p className="text-xs text-muted-foreground">This structured request cannot be represented by the available form controls.</p>
+        <p className="text-xs text-muted-foreground">{t("taskWorkspaceStructuredRequestUnsupported")}</p>
         <Button disabled={disabled} onClick={onCancel} size="sm" type="button" variant="outline">
           {t("acpCancelElicitation")}
         </Button>
@@ -167,14 +167,14 @@ function StructuredElicitation({ disabled, onCancel, onSubmit, schema, t }: {
     for (const field of fields) {
       const value = values[field.name];
       if (field.required && (value === undefined || value === "")) {
-        setError(`${field.label} is required.`);
+        setError(t("taskWorkspaceFieldRequired").replace("{field}", field.label));
         return;
       }
       if (value === undefined || value === "") continue;
       if (field.kind === "number") {
         const number = Number(value);
         if (!Number.isFinite(number)) {
-          setError(`${field.label} must be a number.`);
+          setError(t("taskWorkspaceFieldNumber").replace("{field}", field.label));
           return;
         }
         content[field.name] = number;

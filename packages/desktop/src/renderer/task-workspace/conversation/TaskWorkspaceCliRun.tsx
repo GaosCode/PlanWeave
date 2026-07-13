@@ -19,7 +19,7 @@ type TerminalApi = Pick<
 
 export function TaskWorkspaceCliRun({ api = bridge, canvasRef, record, t }: {
   api?: Partial<TerminalApi> | null;
-  canvasRef: DesktopCanvasReference | null;
+  canvasRef: DesktopCanvasReference;
   record: DesktopRunRecord;
   t: ReturnType<typeof createTranslator>;
 }) {
@@ -44,8 +44,8 @@ export function TaskWorkspaceCliRun({ api = bridge, canvasRef, record, t }: {
 
   const displayMarkdown = record.displayMarkdown;
   const openTerminal = async (recordId: string | null, appId: DesktopTerminalAppId) => {
-    if (!api?.openTerminal || !canvasRef) {
-      setError("Open terminal is unavailable because the selected canvas bridge is unavailable.");
+    if (!api?.openTerminal) {
+      setError(t("taskWorkspaceTerminalUnavailable"));
       return;
     }
     try {

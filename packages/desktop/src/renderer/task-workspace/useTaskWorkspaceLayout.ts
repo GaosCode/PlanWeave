@@ -14,13 +14,13 @@ function clampPanelWidth(width: number): number {
 
 export function useTaskWorkspaceLayout(sessionKey: string) {
   const [timelineCollapsed, setTimelineCollapsed] = useState(false);
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
   const [timelineWidth, setTimelineWidthState] = useState(defaultTimelineWidth);
   const [inspectorWidth, setInspectorWidthState] = useState(defaultInspectorWidth);
 
   useEffect(() => {
     setTimelineCollapsed(false);
-    setInspectorCollapsed(false);
+    setInspectorCollapsed(true);
     setTimelineWidthState(defaultTimelineWidth);
     setInspectorWidthState(defaultInspectorWidth);
   }, [sessionKey]);

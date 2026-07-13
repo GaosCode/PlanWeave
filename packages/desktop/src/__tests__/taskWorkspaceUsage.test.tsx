@@ -28,6 +28,8 @@ describe("TaskWorkspaceUsage", () => {
     const trigger = screen.getByRole("button", { name: /Context usage: 18,300 \/ 25,800 tokens/ });
     expect(trigger).toHaveAccessibleName(/Latest snapshot only/);
     expect(screen.getByText("gpt-5")).toBeInTheDocument();
+    expect(screen.getByText("high")).toBeInTheDocument();
+    expect(screen.getByText("code")).toBeInTheDocument();
     await user.click(trigger);
 
     expect(screen.getByText("Current context")).toBeInTheDocument();

@@ -1,19 +1,58 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { runnerRecordReadModelSchema } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceTabs } from "../renderer/views/WorkspaceTabs";
+import { createTranslator } from "../renderer/i18n";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
+import { deferred } from "./helpers/desktopProjectFixtures";
+import { taskWorkspaceInspectorFixture } from "./helpers/taskWorkspaceInspectorFixture";
+import type { TaskWorkspaceController } from "../renderer/task-workspace/contracts";
+import { readModel, record, selection } from "./helpers/taskWorkspaceConversationFixture";
 
 const useProjectWorkspace = vi.hoisted(() => vi.fn());
+const cancelAgentRun = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../renderer/ProjectWorkspaceProvider", () => ({ useProjectWorkspace }));
+vi.mock("../renderer/bridge", () => ({ bridge: { cancelAgentRun } }));
 vi.mock("../renderer/views/GraphView", () => ({
   GraphView: () => <div data-testid="graph-route">Graph route</div>
 }));
 
 afterEach(cleanupRendererTestEnvironment);
+
+function readyTaskWorkspace(
+  fixture: ReturnType<typeof taskWorkspaceInspectorFixture>,
+  patch: Partial<TaskWorkspaceController> = {}
+): TaskWorkspaceController {
+  return {
+    error: null,
+    getRunScrollTop: vi.fn(() => 0),
+    liveStatus: "live",
+    liveUnavailableReason: null,
+    navigation: {
+      projectRoot: "/projects/demo",
+      canvasId: "canvas-main",
+      taskId: "T-001",
+      source: { view: "graph" }
+    },
+    onRunScrollTopChange: vi.fn(),
+    recordError: null,
+    refresh: vi.fn(),
+    returnToCanvas: vi.fn(),
+    runnerModel: fixture.selectedRecord.runnerReadModel,
+    selectRun: vi.fn(),
+    selectedRecord: fixture.selectedRecord,
+    selectedRun: fixture.selectedRun,
+    status: "ready",
+    subscriptionError: null,
+    workspace: fixture.workspace,
+    ...patch
+  };
+}
 
 describe("Task Workspace route wiring", () => {
   it("renders the explicit Task Workspace route without falling back to Graph chrome", () => {
@@ -30,6 +69,7 @@ describe("Task Workspace route wiring", () => {
           taskId: "T-001",
           source: { view: "graph" }
         },
+        returnToCanvas: vi.fn(),
         status: "loading"
       }
     });
@@ -38,7 +78,141 @@ describe("Task Workspace route wiring", () => {
 
     expect(screen.getByRole("heading", { name: "taskWorkspaceLoading" })).toBeInTheDocument();
     expect(screen.queryByTestId("graph-route")).not.toBeInTheDocument();
-    expect(container.querySelector(".app-drag-region")).not.toBeInTheDocument();
+    expect(container.querySelector(".app-drag-region")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "taskWorkspaceBackToCanvas" })).toBeInTheDocument();
     expect(container.firstElementChild).not.toHaveClass("rounded-l-xl");
+  });
+
+  it("keeps production slots and structural overflow controls usable", async () => {
+    const fixture = taskWorkspaceInspectorFixture();
+    const returnToCanvas = vi.fn();
+    useProjectWorkspace.mockReturnValue({
+      shell: {
+        activeView: "task-workspace",
+        t: createTranslator("en")
+      },
+      taskWorkspace: readyTaskWorkspace(fixture, { returnToCanvas })
+    });
+
+    render(<WorkspaceTabs />);
+
+    expect(screen.getByRole("separator", { name: "Resize timeline" })).toBeInTheDocument();
+    expect(screen.getByTestId("task-workspace-acp-conversation")).toBeInTheDocument();
+    expect(screen.getByTestId("task-workspace-composer")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Context usage: 18,300 \/ 25,800 tokens/ })
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("task-workspace-inspector-slot")).not.toBeInTheDocument();
+    expect(screen.getByTestId("task-workspace-shell")).toHaveClass("min-w-0");
+    expect(screen.getByTestId("task-workspace-run-summary")).toHaveClass(
+      "max-w-[50vw]",
+      "overflow-x-auto"
+    );
+    expect(
+      within(screen.getByTestId("task-workspace-header")).queryByRole("button", { name: "Stop" })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Inspector" }));
+    expect(screen.getByTestId("task-workspace-inspector-slot")).toBeInTheDocument();
+    expect(screen.getAllByText("Inspector overview")).toHaveLength(2);
+
+    await userEvent.click(screen.getByRole("button", { name: "Back to canvas" }));
+    expect(returnToCanvas).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows Stop in the topbar only for an exact available ACP cancel identity", async () => {
+    const model = readModel();
+    const selectedRun = selection({ model });
+    const fixture = taskWorkspaceInspectorFixture();
+    cancelAgentRun.mockClear();
+    useProjectWorkspace.mockReturnValue({
+      shell: { activeView: "task-workspace", t: createTranslator("en") },
+      taskWorkspace: readyTaskWorkspace(fixture, {
+        runnerModel: model,
+        selectedRecord: record(model),
+        selectedRun
+      })
+    });
+
+    render(<WorkspaceTabs />);
+
+    const stop = within(screen.getByTestId("task-workspace-header")).getByRole("button", {
+      name: "Stop"
+    });
+    await userEvent.click(stop);
+    await waitFor(() =>
+      expect(cancelAgentRun).toHaveBeenCalledWith(model.intervention.cancel.identity)
+    );
+  });
+
+  it("shares cancellation in-flight state and deduplication across both Stop controls", async () => {
+    const pendingCancel = deferred<void>();
+    const model = readModel();
+    const selectedRun = selection({ model });
+    const fixture = taskWorkspaceInspectorFixture();
+    cancelAgentRun.mockClear();
+    cancelAgentRun.mockImplementation(() => pendingCancel.promise);
+    useProjectWorkspace.mockReturnValue({
+      shell: { activeView: "task-workspace", t: createTranslator("en") },
+      taskWorkspace: readyTaskWorkspace(fixture, {
+        runnerModel: model,
+        selectedRecord: record(model),
+        selectedRun
+      })
+    });
+
+    render(<WorkspaceTabs />);
+
+    const headerStop = screen.getByRole("button", { name: "Stop" });
+    const composerStop = screen.getByRole("button", { name: "Cancel run" });
+    fireEvent.click(headerStop);
+    fireEvent.click(composerStop);
+
+    expect(cancelAgentRun).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(headerStop).toBeDisabled();
+      expect(composerStop).toBeDisabled();
+    });
+
+    pendingCancel.resolve();
+    await pendingCancel.promise;
+    cancelAgentRun.mockResolvedValue(undefined);
+  });
+
+  it("hides Stop when the live and selected ACP cancel identities differ", () => {
+    const selectedModel = readModel();
+    const selectedRun = selection({ model: selectedModel });
+    const liveModel = runnerRecordReadModelSchema.parse({
+      ...selectedModel,
+      intervention: {
+        ...selectedModel.intervention,
+        cancel: {
+          ...selectedModel.intervention.cancel,
+          identity: {
+            ...selectedModel.intervention.cancel.identity,
+            scope: "/projects/other"
+          }
+        }
+      }
+    });
+    const fixture = taskWorkspaceInspectorFixture();
+    cancelAgentRun.mockClear();
+    useProjectWorkspace.mockReturnValue({
+      shell: { activeView: "task-workspace", t: createTranslator("en") },
+      taskWorkspace: readyTaskWorkspace(fixture, {
+        runnerModel: liveModel,
+        selectedRecord: record(liveModel),
+        selectedRun
+      })
+    });
+
+    render(<WorkspaceTabs />);
+
+    expect(
+      within(screen.getByTestId("task-workspace-header")).queryByRole("button", { name: "Stop" })
+    ).not.toBeInTheDocument();
+    expect(cancelAgentRun).not.toHaveBeenCalled();
   });
 });

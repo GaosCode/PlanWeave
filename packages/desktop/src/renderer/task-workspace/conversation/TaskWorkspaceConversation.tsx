@@ -27,43 +27,33 @@ type ConversationApi = Partial<Pick<
   | "updateTerminalPreferences"
 >>;
 
-function derivedCanvasRef(
-  supplied: DesktopCanvasReference | null | undefined,
-  props: TaskWorkspaceConversationSlotProps
-): DesktopCanvasReference | null {
-  if (supplied) return supplied;
-  const projectRoot = props.selectedRecord?.projectRoot;
-  const canvasId = props.selectedRun?.item.run.runIdentity.canvasId;
-  return projectRoot && canvasId ? { projectRoot, canvasId } : null;
-}
-
 export function TaskWorkspaceConversation(props: TaskWorkspaceConversationSlotProps & {
   api?: ConversationApi | null;
-  canvasRef?: DesktopCanvasReference | null;
+  canvasRef: DesktopCanvasReference;
   t: ReturnType<typeof createTranslator>;
 }) {
   const { api = bridge, runnerModel, selectedRecord, selectedRun, t } = props;
-  const canvasRef = derivedCanvasRef(props.canvasRef, props);
+  const { canvasRef } = props;
 
-  if (!selectedRun) return <ConversationState message="Select a run to view its conversation." />;
+  if (!selectedRun) return <ConversationState message={t("taskWorkspaceNoConversation")} />;
   if (!selectedRecord) {
     const message = props.liveStatus === "loading"
-      ? "Loading the selected run…"
-      : props.recordError ?? "The selected run record is unavailable.";
+      ? t("taskWorkspaceLoadingSelectedRun")
+      : props.recordError ?? t("taskWorkspaceRecordUnavailable");
     return <ConversationState message={message} role={props.recordError ? "alert" : undefined} />;
   }
   if (selectedRecord.recordId !== selectedRun.item.run.record.recordId) {
-    return <ConversationState message="The selected run record does not match the current Task Workspace selection." role="alert" />;
+    return <ConversationState message={t("taskWorkspaceRecordMismatch")} role="alert" />;
   }
   const runnerKind = selectedRun.item.run.metadata.runnerKind;
   if (runnerKind === "cli") {
     return <TaskWorkspaceCliRun api={api} canvasRef={canvasRef} record={selectedRecord} t={t} />;
   }
   if (runnerKind !== "acp") {
-    return <ConversationState message="The selected run does not declare a supported conversation transport." role="alert" />;
+    return <ConversationState message={t("taskWorkspaceUnsupportedTransport")} role="alert" />;
   }
   if (!runnerModel) {
-    return <AcpConversationUnavailable props={props} selectedRun={selectedRun} />;
+    return <AcpConversationUnavailable props={props} selectedRun={selectedRun} t={t} />;
   }
 
   return (
@@ -78,34 +68,35 @@ export function TaskWorkspaceConversation(props: TaskWorkspaceConversationSlotPr
   );
 }
 
-function AcpConversationUnavailable({ props, selectedRun }: {
+function AcpConversationUnavailable({ props, selectedRun, t }: {
   props: TaskWorkspaceConversationSlotProps;
   selectedRun: NonNullable<TaskWorkspaceConversationSlotProps["selectedRun"]>;
+  t: ReturnType<typeof createTranslator>;
 }) {
   const error = props.recordError ?? props.subscriptionError;
   if (error || props.liveStatus === "error") {
     return (
       <ConversationState
-        message={error ?? "The selected ACP conversation could not be loaded."}
+        message={error ?? t("taskWorkspaceAcpLoadFailed")}
         role="alert"
       />
     );
   }
   if (props.liveStatus === "loading") {
-    return <ConversationState message="Loading the selected ACP conversation…" />;
+    return <ConversationState message={t("taskWorkspaceAcpLoading")} />;
   }
   if (props.liveStatus === "live") {
-    return <ConversationState message="The selected ACP conversation is live, but its read model is unavailable." role="alert" />;
+    return <ConversationState message={t("taskWorkspaceAcpLiveModelUnavailable")} role="alert" />;
   }
   const message = props.liveUnavailableReason ??
     selectedRun.item.run.capabilities.prompt.reason ??
-    "The selected ACP conversation is unavailable.";
+    t("taskWorkspaceAcpUnavailable");
   return <ConversationState message={message} />;
 }
 
 function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
   api: ConversationApi | null;
-  canvasRef: DesktopCanvasReference | null;
+  canvasRef: DesktopCanvasReference;
   model: NonNullable<TaskWorkspaceConversationSlotProps["runnerModel"]>;
   props: TaskWorkspaceConversationSlotProps;
   selectedRun: NonNullable<TaskWorkspaceConversationSlotProps["selectedRun"]>;

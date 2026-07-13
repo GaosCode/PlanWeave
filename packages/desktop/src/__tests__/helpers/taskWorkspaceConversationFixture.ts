@@ -1,6 +1,7 @@
 import {
   runnerRecordReadModelSchema,
   runnerRunIdentitySchema,
+  type DesktopCanvasReference,
   type DesktopRunRecord,
   type RunnerRecordReadModel,
   type TaskWorkspaceBlock,
@@ -226,8 +227,9 @@ export function conversationProps(
   selectedRun: TaskWorkspaceSelectedRun,
   model: RunnerRecordReadModel | null,
   patch: Partial<TaskWorkspaceConversationSlotProps> = {}
-): TaskWorkspaceConversationSlotProps {
+): TaskWorkspaceConversationSlotProps & { canvasRef: DesktopCanvasReference } {
   return {
+    canvasRef: { projectRoot: "/projects/demo", canvasId: "canvas-main" },
     getRunScrollTop: () => 0,
     liveStatus: model ? "live" : "unavailable",
     liveUnavailableReason: null,

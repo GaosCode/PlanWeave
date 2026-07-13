@@ -20,7 +20,7 @@ function stableRunItems(block: TaskWorkspaceBlock): RunItem[] {
   });
 }
 
-function statusForRun(item: RunItem): TimelineRunStatus {
+export function taskWorkspaceRunStatus(item: RunItem): TimelineRunStatus {
   if (item.waitingInteraction.active) {
     return "waiting";
   }
@@ -78,7 +78,7 @@ function projectRun(
     retryIndex: item.retryIndex,
     runId: record.runId,
     startedAt: item.run.duration.startedAt,
-    status: statusForRun(item)
+    status: taskWorkspaceRunStatus(item)
   };
 }
 

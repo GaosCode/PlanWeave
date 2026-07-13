@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { act, render, renderHook, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { TaskWorkspace } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,18 +10,26 @@ import type {
   TaskWorkspaceController,
   TaskWorkspaceInspectorSlotProps,
   TaskWorkspaceLabels,
+  TaskWorkspaceSelectedRun,
   TaskWorkspaceTimelineSlotProps
 } from "../renderer/task-workspace/contracts";
 import { TaskWorkspaceRoute } from "../renderer/task-workspace/TaskWorkspaceRoute";
 import { useTaskWorkspaceLayout } from "../renderer/task-workspace/useTaskWorkspaceLayout";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
+import { taskWorkspaceInspectorFixture } from "./helpers/taskWorkspaceInspectorFixture";
 
 afterEach(cleanupRendererTestEnvironment);
 
 const labels: TaskWorkspaceLabels = {
+  agent: "Agent",
   backToCanvas: "Back to canvas",
+  booleanFalse: "False",
+  booleanTrue: "True",
   composer: "Composer",
   conversation: "Conversation",
+  elapsed: "Elapsed",
+  expandTimeline: "Expand timeline",
+  formatDuration: (milliseconds) => `${milliseconds / 1_000}s`,
   inspector: "Inspector",
   loading: "Loading",
   liveUnavailable: "Live unavailable",
@@ -29,7 +37,25 @@ const labels: TaskWorkspaceLabels = {
   noInspector: "No inspector",
   noRuns: "No runs",
   noTask: "No task",
-  timeline: "Timeline"
+  mode: "Mode",
+  model: "Model",
+  permission: "Permission",
+  reasoning: "Reasoning",
+  runStatus: {
+    active: "Running",
+    completed: "Completed",
+    failed: "Failed",
+    waiting: "Waiting"
+  },
+  status: "Status",
+  taskStatus: {
+    implemented: "Implemented",
+    in_progress: "In progress",
+    planned: "Planned",
+    ready: "Ready"
+  },
+  timeline: "Timeline",
+  unavailable: "Unavailable"
 };
 
 const savedScrollTop = 42;
@@ -110,7 +136,7 @@ function controller(patch: Partial<TaskWorkspaceController> = {}): TaskWorkspace
 }
 
 describe("Task Workspace shell", () => {
-  it("keeps the page root fixed while each stable slot owns its scroll area", () => {
+  it("keeps the page root fixed while each stable slot owns its scroll area", async () => {
     render(
       <TaskWorkspaceRoute
         controller={controller()}
@@ -124,6 +150,7 @@ describe("Task Workspace shell", () => {
       />
     );
 
+    await userEvent.click(screen.getByRole("button", { name: "Inspector" }));
     expect(screen.getByTestId("task-workspace-shell")).toHaveClass("overflow-hidden");
     expect(screen.getByTestId("task-workspace-timeline-slot")).toHaveClass("overflow-y-auto");
     expect(screen.getByTestId("task-workspace-conversation-slot")).toHaveClass("overflow-y-auto");
@@ -138,10 +165,12 @@ describe("Task Workspace shell", () => {
     render(<TaskWorkspaceRoute controller={controller()} labels={labels} />);
 
     await userEvent.click(screen.getByRole("button", { name: "Timeline" }));
-    await userEvent.click(screen.getByRole("button", { name: "Inspector" }));
-    expect(screen.queryByTestId("task-workspace-timeline-slot")).not.toBeInTheDocument();
+    expect(screen.getByTestId("task-workspace-timeline-compact")).toBeInTheDocument();
     expect(screen.queryByTestId("task-workspace-inspector-slot")).not.toBeInTheDocument();
     expect(screen.getByTestId("task-workspace-conversation-slot")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Expand timeline" }));
+    expect(screen.getByTestId("task-workspace-timeline-slot")).toBeInTheDocument();
   });
 
   it("keeps clamped panel widths session-local for later lane resize controls", () => {
@@ -187,13 +216,14 @@ describe("Task Workspace shell", () => {
     });
     expect(conversationProps).toMatchObject({ getRunScrollTop, onRunScrollTopChange });
     expect(inspectorProps).toMatchObject({
-      inspectorCollapsed: false,
+      inspectorCollapsed: true,
       inspectorWidth: initialInspectorWidth
     });
 
     act(() => {
       timelineProps?.setTimelineWidth(resizedTimelineWidth);
       inspectorProps?.setInspectorWidth(resizedInspectorWidth);
+      inspectorProps?.setInspectorCollapsed(false);
     });
     expect(screen.getByTestId("task-workspace-timeline-slot")).toHaveStyle({
       width: `${resizedTimelineWidth}px`
@@ -202,7 +232,7 @@ describe("Task Workspace shell", () => {
       width: `${resizedInspectorWidth}px`
     });
 
-    act(() => inspectorProps?.setInspectorCollapsed(true));
+    act(() => inspector.mock.calls.at(-1)?.[0].setInspectorCollapsed(true));
     expect(screen.queryByTestId("task-workspace-inspector-slot")).not.toBeInTheDocument();
   });
 
@@ -222,9 +252,102 @@ describe("Task Workspace shell", () => {
       "Selected run record does not match its Task Workspace navigation identity."
     );
     expect(
-      within(screen.getByTestId("task-workspace-conversation-slot")).queryByText(
-        "No conversation"
-      )
+      within(screen.getByTestId("task-workspace-conversation-slot")).queryByText("No conversation")
     ).not.toBeInTheDocument();
+  });
+
+  it("shows only authoritative selected-run configuration in the topbar", () => {
+    const fixture = taskWorkspaceInspectorFixture();
+    render(
+      <TaskWorkspaceRoute
+        controller={controller({
+          selectedRecord: fixture.selectedRecord,
+          selectedRun: fixture.selectedRun,
+          workspace: fixture.workspace
+        })}
+        labels={labels}
+      />
+    );
+
+    expect(screen.getByText("Build the right inspector")).toBeInTheDocument();
+    expect(screen.getByText("T-001")).toBeInTheDocument();
+    const summary = within(screen.getByTestId("task-workspace-run-summary"));
+    expect(summary.getByText("codex")).toBeInTheDocument();
+    expect(summary.getByText("Completed")).toBeInTheDocument();
+    expect(summary.getByText("gpt-5")).toBeInTheDocument();
+    expect(summary.getByText("high")).toBeInTheDocument();
+    expect(summary.getByText("code")).toBeInTheDocument();
+    expect(summary.getByText("120s")).toBeInTheDocument();
+    expect(summary.getAllByText("Unavailable")).toHaveLength(1);
+  });
+
+  it("returns through the same history action for Cmd/Ctrl-[", () => {
+    const returnToCanvas = vi.fn();
+    render(<TaskWorkspaceRoute controller={controller({ returnToCanvas })} labels={labels} />);
+
+    fireEvent.keyDown(globalThis, { key: "[", metaKey: true });
+    expect(returnToCanvas).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves return chrome and the return shortcut when the workspace fails to load", async () => {
+    const returnToCanvas = vi.fn();
+    render(
+      <TaskWorkspaceRoute
+        controller={controller({
+          error: "Workspace failed to load.",
+          returnToCanvas,
+          status: "error",
+          workspace: null
+        })}
+        labels={labels}
+      />
+    );
+
+    expect(screen.getByTestId("task-workspace-shell")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Workspace failed to load.");
+    await userEvent.click(screen.getByRole("button", { name: "Back to canvas" }));
+    fireEvent.keyDown(globalThis, { ctrlKey: true, key: "[" });
+    expect(returnToCanvas).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["active", "Running", "rounded-full", "bg-primary"],
+    ["waiting", "Waiting", "rotate-45", "border-amber-500"],
+    ["failed", "Failed", "rounded-[1px]", "bg-destructive"],
+    ["completed", "Completed", "rounded-full", "border-emerald-500"]
+  ] as const)("shows the selected agent and %s status semantics in the compact timeline", async (status, statusLabel, shapeClass, colorClass) => {
+    const fixture = taskWorkspaceInspectorFixture();
+    const selectedRun: TaskWorkspaceSelectedRun = {
+      block: fixture.selectedRun.block,
+      item: {
+        ...fixture.selectedRun.item,
+        active: status === "active",
+        waitingInteraction:
+          status === "waiting"
+            ? { active: true, count: 1, kinds: ["permission"] }
+            : { active: false, count: 0, kinds: [] },
+        run: {
+          ...fixture.selectedRun.item.run,
+          metadata: {
+            ...fixture.selectedRun.item.run.metadata,
+            exitCode: status === "failed" ? 1 : 0
+          }
+        }
+      }
+    };
+    render(
+      <TaskWorkspaceRoute
+        controller={controller({ selectedRun, workspace: fixture.workspace })}
+        labels={labels}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Timeline" }));
+    const compactTimeline = within(screen.getByTestId("task-workspace-timeline-compact"));
+    expect(compactTimeline.getByText("codex")).toBeInTheDocument();
+    expect(compactTimeline.getByText(statusLabel)).toBeInTheDocument();
+    const indicator = compactTimeline.getByTestId("task-workspace-timeline-status-indicator");
+    expect(indicator).toHaveAttribute("data-run-status", status);
+    expect(indicator).toHaveClass(shapeClass, colorClass);
   });
 });

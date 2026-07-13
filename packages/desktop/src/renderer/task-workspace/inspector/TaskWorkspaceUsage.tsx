@@ -22,10 +22,13 @@ export type TaskWorkspaceUsageLabels = {
   formatDateTime: (value: string) => string;
   formatDuration: (milliseconds: number) => string;
   formatNumber: (value: number) => string;
+  mode: string;
+  model: string;
   noSnapshotCost: string;
   observedAt: string;
   partialAgentTime: (includedRunCount: number, missingRunCount: number) => string;
   reportedSnapshotCost: string;
+  reasoning: string;
   runCost: string;
   runCostUnavailable: string;
   runWallClock: string;
@@ -245,10 +248,12 @@ export function TaskWorkspaceUsage({
   const ringPercent = snapshot
     ? clampedContextUsagePercent(snapshot.usedTokens, snapshot.contextWindowTokens)
     : 0;
-  const modelField = selectedRun?.item.run.actualConfiguration.available
-    ? selectedRun.item.run.actualConfiguration.fields.model
-    : null;
-  const model = modelField?.available ? String(modelField.value) : labels.unavailable;
+  const configuration = selectedRun?.item.run.actualConfiguration;
+  const configurationValue = (field: "mode" | "model" | "reasoning") => {
+    if (!configuration?.available) return labels.unavailable;
+    const value = configuration.fields[field];
+    return value.available ? String(value.value) : labels.unavailable;
+  };
   const triggerLabel = snapshot
     ? `${labels.contextUsage}: ${labels.tokensUsed(
         labels.formatNumber(snapshot.usedTokens),
@@ -258,9 +263,17 @@ export function TaskWorkspaceUsage({
 
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="max-w-36 truncate font-mono text-[11px] text-text-muted" title={model}>
-        {model}
-      </span>
+      <dl className="flex min-w-0 items-center gap-2">
+        {(["model", "reasoning", "mode"] as const).map((field) => {
+          const value = configurationValue(field);
+          return (
+            <div className="min-w-0" key={field}>
+              <dt className="text-[9px] text-text-muted">{labels[field]}</dt>
+              <dd className="max-w-16 truncate font-mono text-[10px] sm:max-w-24" title={value}>{value}</dd>
+            </div>
+          );
+        })}
+      </dl>
       <Popover>
         <PopoverTrigger asChild>
           <button
