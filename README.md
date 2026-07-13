@@ -5,6 +5,54 @@
   本 fork 在 upstream 单机文件驱动的循环之上，新增了权威状态、身份、提案、Work lease、事件流与 Git merge queue。
 </p>
 
+## 核心修改：局域网团队协作模式
+
+这个 fork 最主要的改动，是把 PlanWeave 从“单台电脑上的 Agent 工作流”扩展为一个 **Host 权威协调、成员本地执行、全员共享同一份需求与任务状态** 的局域网协作系统。
+
+一台电脑作为 **Host** 启动团队服务器并配置协调 Agent；其他成员从自己的 PlanWeave 加入团队，并继续使用各自在本机配置好的 Codex、Claude Code、OpenCode 或 Pi。讨论、需求基线、任务归属、事件历史和合并队列由 Host 保存；代码实现和提交前检查在成员本地完成。
+
+### 完整协作流程
+
+1. **Host 创建团队空间**：在桌面端选择“作为主机启动”，创建项目、启动局域网服务，并生成邀请地址与加入令牌。
+2. **成员加入并配置本地 Agent**：成员在桌面端选择“作为成员加入”，连接 Host；每个人独立选择本机执行和检查任务的 Agent，密钥与本地权限不会上传到 Host。
+3. **共同讨论与补充资料**：所有成员在共享规划室中提出需求、增加约束、上传文件和补充实现要求。Host 上的协调 Agent 统一消费这些消息和附件，避免关键上下文散落在不同电脑。
+4. **生成需求共识看板**：协调 Agent 将有效内容整理为带来源的需求、约束、决策、风险、开放问题和验收标准；所有成员看到相同的版本化看板。
+5. **人工确认并冻结基线**：成员对当前版本批准或拒绝。Agent 负责分析和整理，但不能替代人类形成共识；只有满足审批策略且不存在阻塞问题的版本才能被冻结。
+6. **拆分任务与生成流程图**：协调 Agent 根据已冻结基线生成任务节点、依赖关系、可并行边界、允许修改的路径、验收命令和评审要求，并把流程图同步给所有成员。
+7. **申报意向与领取任务**：成员先表达希望负责的节点，再领取正式任务。Host 使用 assignment + lease + heartbeat 保证同一任务不会被多人重复占用，并能回收长期离线的任务。
+8. **本地实施与预检**：每个成员保留一份只读、带版本号的需求基线和流程图。本地 Agent 只能围绕已领取节点工作，并检查实现是否符合节点范围、上游依赖和验收标准。
+9. **提交到 Host**：成员提交不可变的 base/head commit、实现说明和本地检查证据。断线期间可以继续本地工作，恢复连接后再续租、同步并提交。
+10. **Host 权威复检与串行合并**：Host 重新校验提交身份、提交祖先、文件范围和验收命令，再进行 Host Agent Review 与必要的人工批准；通过的提交由 merge queue 串行合并，失败项回到原任务继续修正。
+11. **状态回流到所有成员**：需求版本、任务进度、检查结果、评审反馈和合并状态都通过持久事件流同步，重连后可以从最后一个事件继续恢复。
+
+```mermaid
+flowchart LR
+  A[Host 创建团队空间] --> B[成员加入并配置本地 Agent]
+  B --> C[共同讨论与上传资料]
+  C --> D[协调 Agent 生成需求看板]
+  D --> E{成员审批并冻结基线}
+  E -->|有异议| C
+  E -->|达成共识| F[Agent 拆分任务与生成流程图]
+  F --> G[成员申报并领取节点]
+  G --> H[本地 Agent 实施与预检]
+  H --> I[提交 commit 与检查证据]
+  I --> J{Host 复检与终审}
+  J -->|需要修改| H
+  J -->|通过| K[Merge queue 串行合并]
+  K --> L[事件同步到所有成员]
+```
+
+### 长期协作不变量
+
+- **Host 是协作状态的唯一事实源**：本地缓存可以重建，需求基线、任务归属和合并结果不能由客户端单方面覆盖。
+- **需求看板与任务流程图分层**：前者描述“要做什么以及如何验收”，后者描述“由谁、按什么依赖和边界实现”。
+- **Agent 不代替人类审批**：Agent 可以提出、整理、拆解和评审；冻结需求与最终合并仍受明确的成员角色和审批策略约束。
+- **本地检查不是合并凭证**：成员端预检用于尽早发现问题，Host 必须在受控 worktree 中重新执行权威检查。
+- **所有写入可恢复、可审计**：命令具备幂等键和乐观版本控制，事件与审计记录持久化，断线重连按事件游标续传。
+- **提交具有明确所有权**：任务节点必须声明允许修改的路径和验收命令；越界文件、伪造 submission、过期 lease 或陈旧目标分支都会被拒绝。
+- **身份可以长期续期**：首次加入后签发设备恢复凭据；短期 session 过期时由本机安全存储自动续期，不会把同一成员重复创建成新用户。
+- **Host 数据有自动备份**：启动时及每 6 小时创建 SQLite 一致性快照，滚动保留最近 30 份；中断中的 merge queue 会在重启时协调恢复。
+
 <!-- planweave-badges:start -->
 <p align="center">
   <img alt="version" src="https://img.shields.io/badge/version-0.2.1-orange?style=for-the-badge" />
@@ -25,7 +73,7 @@
 
 | 范围 | 改动 | 代码位置 |
 |---|---|---|
-| **新增 `packages/server`** | axum + `node:sqlite` (WAL) 权威协调器。八个内部模块：`identity` / `planning` / `proposals` / `work` / `events` / `agents` / `git` / `audit`。独立的 HTTP `/api/collaboration` 监听 + WebSocket 同步。 | `packages/server/src/**` |
+| **新增 `packages/server`** | Node.js HTTP + `node:sqlite`（WAL）权威协调器。覆盖 `identity` / `planning` / `proposals` / `attachments` / `coordination` / `work` / `events` / `agents` / `git` / `audit`。统一使用版本化 `/api/v1` HTTP API 与 `/events` WebSocket。 | `packages/server/src/**` |
 | **事务性 work 协调** | 任务、assignments、leases、heartbeat、submissions、reviews。通过 partial unique index 强制"每个任务同一时刻只有一个 active assignment"不变量。Lease 过期回收。Idempotency key + `expectedVersion` 乐观并发。 | `packages/server/src/work/` |
 | **身份与会话** | 用户、设备、邀请码、可吊销的 session、项目成员。Token 化加入。 | `packages/server/src/identity/` |
 | **规划室与提案** | 规划室、消息、附件元数据、不可变的提案修订、审批策略、投票、生命周期跃迁。 | `packages/server/src/{planning,proposals,attachments}/` |
@@ -55,20 +103,20 @@ flowchart LR
   end
 
   subgraph Server["LAN 协作服务器（本 fork 新增）"]
-    H[Collaboration HTTP<br/>/api/collaboration]
-    W[WebSocket<br/>/ws/collaboration]
+    H[Collaboration HTTP<br/>/api/v1]
+    W[WebSocket<br/>/events]
     S[(SQLite WAL<br/>权威存储)]
     CO[Coordinator Agent]
     MQ[Git merge queue<br/>+ 裸仓库]
   end
 
-  D -->|HTTPS + WSS| H
-  C -->|HTTPS + WSS| H
+  D -->|可信 LAN: HTTP + WS| H
+  C -->|可信 LAN: HTTP + WS| H
   H --> S
   W --> S
   CO --> S
-  MQ --> G
-  G -->|push commit| MQ
+  MQ -->|安全时 fast-forward；否则投影到 tracking ref| G
+  G -->|不可变 Git bundle| MQ
   R -. projection .-> S
 ```
 

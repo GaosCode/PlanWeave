@@ -31,12 +31,14 @@ describe("authoritative server store", () => {
       expect(readiness.status).toBe("ready");
       expect(readiness.schemaVersion).toBeGreaterThan(0);
       expect(readiness.subsystems.central).toBeGreaterThan(0);
-      expect(readiness.subsystems.work).toBe(2);
+      expect(readiness.subsystems.work).toBe(3);
       expect(readiness.subsystems.identity).toBe(1);
       expect(readiness.subsystems.planning).toBe(1);
       expect(readiness.subsystems.proposals).toBe(1);
       expect(readiness.subsystems.attachments).toBe(1);
       expect(readiness.subsystems.events).toBe(1);
+      expect(readiness.subsystems.mergeQueue).toBe(3);
+      expect(readiness.subsystems.coordination).toBe(2);
       expect(reconciled).toBe(true);
       await expect(server.createBackup("before-upgrade.sqlite")).resolves.toContain("before-upgrade.sqlite");
       const backup = await server.createBackup("restore-fixture.sqlite");

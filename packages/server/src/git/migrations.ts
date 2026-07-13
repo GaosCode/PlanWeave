@@ -27,7 +27,18 @@ CREATE TABLE merge_queue_config (
 );
 `
 
-export const mergeQueueMigrations = [{ version: 1, sql: mergeQueueMigration1 }] as const
+const mergeQueueMigration2 = `
+ALTER TABLE merge_queue_entries ADD COLUMN agent_review TEXT;
+ALTER TABLE merge_queue_entries ADD COLUMN agent_verdict TEXT;
+ALTER TABLE merge_queue_entries ADD COLUMN agent_reviewed_at TEXT;
+`
+
+const mergeQueueMigration3 = `
+ALTER TABLE merge_queue_entries ADD COLUMN source_projection_status TEXT;
+ALTER TABLE merge_queue_entries ADD COLUMN source_projection_details TEXT;
+`
+
+export const mergeQueueMigrations = [{ version: 1, sql: mergeQueueMigration1 }, { version: 2, sql: mergeQueueMigration2 }, { version: 3, sql: mergeQueueMigration3 }] as const
 
 export function applyMergeQueueMigrations(database: SqliteDatabase): void {
   database.exec("CREATE TABLE IF NOT EXISTS merge_queue_schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")

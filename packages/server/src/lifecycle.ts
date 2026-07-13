@@ -1,11 +1,14 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import type { Server } from "node:http";
 import { join } from "node:path";
 import { applyAgentsMigrations, agentsSchemaVersion } from "./agents/migrations.js";
 import { applyAttachmentsMigrations } from "./attachments/migrations.js";
+import { applyCoordinationMigrations, coordinationSchemaVersion } from "./coordination/migrations.js";
 import type { ServerConfig } from "./config.js";
 import { applyEventsMigrations, eventsSchemaVersion } from "./events/migrations.js";
 import { applyMergeQueueMigrations, mergeQueueSchemaVersion } from "./git/migrations.js";
+import { initializeIntegrationRepository } from "./git/bundleTransport.js";
+import { createMergeQueueServices } from "./git/mergeQueue.js";
 import { applyIdentityMigrations } from "./identity/migrations.js";
 import { applyMigrations, centralSchemaVersion } from "./migrations.js";
 import { applyPlanningMigrations } from "./planning/migrations.js";
@@ -25,6 +28,7 @@ export type SubsystemVersions = {
   agents: number;
   events: number;
   mergeQueue: number;
+  coordination: number;
 };
 export type PlanweaveServer = {
   config: ServerConfig;
@@ -57,8 +61,30 @@ export async function startPlanweaveServer(config: ServerConfig, reconciliationH
   applyAgentsMigrations(database);
   applyEventsMigrations(database);
   applyMergeQueueMigrations(database);
-  for (const hook of reconciliationHooks) await hook(database);
+  applyCoordinationMigrations(database);
   const backupPath = () => join(config.dataDirectory, "backups");
+  const createBackup = async (name: string): Promise<string> => {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(name)) throw new Error("Backup name must be a safe filename.");
+    const directory = backupPath();
+    await mkdir(directory, { recursive: true });
+    const target = join(directory, name);
+    database.exec(`VACUUM INTO '${target.replaceAll("'", "''")}'`);
+    const entries = (await readdir(directory)).filter((entry) => entry.endsWith(".sqlite")).sort().reverse();
+    await Promise.all(entries.slice(30).map((entry) => rm(join(directory, entry), { force: true })));
+    return target;
+  };
+  const timestampedBackup = () => createBackup(`automatic-${new Date().toISOString().replace(/[:.]/g, "-")}.sqlite`);
+  await timestampedBackup();
+  const backupTimer = setInterval(() => { void timestampedBackup().catch(() => undefined); }, 6 * 60 * 60 * 1000);
+  backupTimer.unref();
+  if (config.repositoryPath) {
+    const bareRepoPath = join(config.dataDirectory, "integration.git");
+    await initializeIntegrationRepository({ sourceRepoPath: config.repositoryPath, bareRepoPath, targetBranch: config.targetBranch ?? "main" });
+    const mergeQueue = createMergeQueueServices({ database, config: { dataDirectory: config.dataDirectory, bareRepoPath, sourceRepoPath: config.repositoryPath, checks: config.repositoryChecks, checkExecutionMode: "host", requireApproval: config.requireMergeApproval ?? true } });
+    await mergeQueue.reconcileOnStartup();
+    await mergeQueue.garbageCollect();
+  }
+  for (const hook of reconciliationHooks) await hook(database);
   const computeReadiness = () => {
     // A3's identity/planning/proposals/attachments all share the central
     // `schema_migrations` table at versions 2/3/4/5 respectively. We report each
@@ -75,7 +101,8 @@ export async function startPlanweaveServer(config: ServerConfig, reconciliationH
       attachments: central >= 5 ? 1 : 0,
       agents: agentsSchemaVersion(database),
       events: eventsSchemaVersion(database),
-      mergeQueue: mergeQueueSchemaVersion(database)
+      mergeQueue: mergeQueueSchemaVersion(database),
+      coordination: coordinationSchemaVersion(database)
     };
     return { status: "ready" as const, schemaVersion: Math.max(...Object.values(subsystems)), subsystems };
   };
@@ -84,15 +111,8 @@ export async function startPlanweaveServer(config: ServerConfig, reconciliationH
     database,
     readiness: computeReadiness,
     backupPath,
-    createBackup: async (name) => {
-      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(name)) throw new Error("Backup name must be a safe filename.");
-      const directory = backupPath();
-      await mkdir(directory, { recursive: true });
-      const target = join(directory, name);
-      database.exec(`VACUUM INTO '${target.replaceAll("'", "''")}'`);
-      return target;
-    },
+    createBackup,
     createHttpServer: () => createCollaborationHttpServer({ database, config, readiness: computeReadiness }),
-    close: () => database.close()
+    close: () => { clearInterval(backupTimer); database.close(); }
   };
 }

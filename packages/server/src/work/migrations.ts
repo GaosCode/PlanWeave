@@ -110,7 +110,14 @@ ALTER TABLE work_tasks ADD COLUMN acceptance_checks_json TEXT NOT NULL DEFAULT '
 ALTER TABLE work_tasks ADD COLUMN reviewers_json TEXT NOT NULL DEFAULT '[]';
 `;
 
-export const workMigrations = [{ version: 1, sql: workMigration1 }, { version: 2, sql: workMigration2 }] as const;
+const workMigration3 = `
+ALTER TABLE work_tasks ADD COLUMN description TEXT NOT NULL DEFAULT '';
+ALTER TABLE work_tasks ADD COLUMN baseline_id TEXT;
+ALTER TABLE work_tasks ADD COLUMN requirement_ids_json TEXT NOT NULL DEFAULT '[]';
+CREATE INDEX idx_work_tasks_baseline ON work_tasks(project_id, baseline_id);
+`;
+
+export const workMigrations = [{ version: 1, sql: workMigration1 }, { version: 2, sql: workMigration2 }, { version: 3, sql: workMigration3 }] as const;
 
 /**
  * Apply the work migrations. Uses the private `work_schema_migrations`

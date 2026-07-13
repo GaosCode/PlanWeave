@@ -22,6 +22,7 @@ export type MergeQueueEntry = {
 
 export type MergeQueueConfig = {
   bareRepoPath: string
+  sourceRepoPath?: string
   worktreesDir: string
   checks: string[]
   /** Host execution is opt-in; production should supply an isolated runner instead. */
@@ -42,9 +43,11 @@ export type MergeQueueErrorCode =
   | "worktree_error"
   | "not_found"
   | "state_conflict"
+  | "bundle_invalid"
 
 export type MergeQueueErrorDetails = {
   entryId?: string
+  submissionId?: string
   headCommit?: string
   baseCommit?: string
   targetBranch?: string

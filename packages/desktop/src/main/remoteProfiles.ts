@@ -5,7 +5,7 @@ import { desktopHomePaths } from "./planweaveHomePaths.js"
 import type { RemoteProfile } from "../shared/remoteTypes.js"
 
 const PROFILE_ID_RE = /^[0-9a-f]{16}$/
-export type RemoteProfileWithCredentials = RemoteProfile & { apiKey: string }
+export type RemoteProfileWithCredentials = RemoteProfile & { apiKey: string; resumeToken?: string }
 
 function profileDir(): string {
   return join(desktopHomePaths().planweaveHome, "desktop", "remote-profiles")
@@ -24,7 +24,7 @@ async function writeJsonAtomically(path: string, value: unknown): Promise<void> 
 }
 
 function publicProfile(profile: RemoteProfileWithCredentials): RemoteProfile {
-  const { apiKey: _apiKey, ...metadata } = profile
+  const { apiKey: _apiKey, resumeToken: _resumeToken, ...metadata } = profile
   return metadata
 }
 
@@ -51,11 +51,13 @@ export async function createRemoteProfile(input: {
   const id = randomUUID().split("-").join("").slice(0, 16)
   const serverUrl = normalizeUrl(input.serverUrl)
   let sessionToken = input.apiKey.trim()
+  let resumeToken: string | undefined
   if (input.projectId && input.userId) {
     const response = await fetch(`${serverUrl}/api/v1/join`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: input.projectId, userId: input.userId, displayName: input.userId, deviceId: input.deviceId, joinToken: input.apiKey }) })
-    const body = await response.json().catch(() => null) as { session?: { id: string }; userId?: string; deviceId?: string; error?: { message?: string } } | null
+    const body = await response.json().catch(() => null) as { session?: { id: string }; resumeToken?: string; userId?: string; deviceId?: string; error?: { message?: string } } | null
     if (!response.ok || !body?.session) throw new Error(body?.error?.message ?? `Team join failed with HTTP ${response.status}`)
     sessionToken = body.session.id
+    resumeToken = body.resumeToken
     if (!body.userId || !body.deviceId) throw new Error("Team join response omitted server-issued identity")
     input.userId = body.userId
     input.deviceId = body.deviceId
@@ -66,12 +68,21 @@ export async function createRemoteProfile(input: {
     serverUrl,
     deviceId: input.deviceId.trim(),
     apiKey: sessionToken,
+    ...(resumeToken ? { resumeToken } : {}),
     projectId: input.projectId?.trim(),
     userId: input.userId?.trim(),
     createdAt: new Date().toISOString()
   }
   await writeJsonAtomically(profilePath(id), profile)
   return publicProfile(profile)
+}
+
+export async function updateRemoteSession(id: string, sessionToken: string): Promise<RemoteProfileWithCredentials> {
+  const current = await getRemoteProfileWithCredentials(id)
+  if (!current) throw new Error(`Remote profile '${id}' not found`)
+  const updated = { ...current, apiKey: sessionToken }
+  await writeJsonAtomically(profilePath(id), updated)
+  return updated
 }
 
 export async function updateRemoteProfile(

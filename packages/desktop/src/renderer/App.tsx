@@ -515,6 +515,7 @@ export function App() {
     selectedCanvasId,
     selectedProject,
     section: settingsSection,
+    setSection: setSettingsSection,
     loadProject: openProjectInSession,
     setActiveView,
     setError,
@@ -659,27 +660,18 @@ export function App() {
       />
       <div className="glass-surface relative flex-1 min-w-0 overflow-hidden">
         <div className="app-drag-region absolute left-0 top-0 z-10 h-5 w-full" />
-        <main className="relative flex h-full min-h-0 overflow-hidden">
-        {mode === "team" ? <TeamModeShell embedded teamView={teamView} onConnectionRoleChange={setTeamConnectionRole} onExit={() => setMode("personal")} /> : (
-          <>
-            <div style={{ display: activeView === "settings" ? "contents" : "none" }}>
-              <AppSettingsRoute {...settingsRouteProps} />
-            </div>
-            <div style={{ display: activeView === "settings" ? "none" : "contents" }}>
-              <WorkspaceTabs
-                shell={workspaceShell}
-                graphWorkspace={graphWorkspaceController}
-                autoRun={autoRunController}
-                fileSync={fileSyncController}
-                search={searchController}
-                review={review}
-                newTask={newTask}
-                notifications={notificationController}
-                planning={planning}
-              />
-            </div>
-          </>
-        )}
+        <main className="relative flex h-full min-h-0 overflow-hidden" data-testid="app-main-view" data-active-view={activeView} data-mode={mode}>
+        {activeView === "settings" ? <AppSettingsRoute {...settingsRouteProps} /> : mode === "team" ? <TeamModeShell embedded teamView={teamView} onConnectionRoleChange={setTeamConnectionRole} onExit={() => setMode("personal")} /> : <WorkspaceTabs
+          shell={workspaceShell}
+          graphWorkspace={graphWorkspaceController}
+          autoRun={autoRunController}
+          fileSync={fileSyncController}
+          search={searchController}
+          review={review}
+          newTask={newTask}
+          notifications={notificationController}
+          planning={planning}
+        />}
         {mode !== "team" && activeView === "canvas-map" ? (
           <RightPaletteSidebar
             addPaletteComponent={addPaletteComponent}

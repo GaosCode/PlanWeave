@@ -119,6 +119,21 @@ const remoteApi: PlanWeaveRemoteApi = {
   getRemoteTasks: async (profileId, projectId) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.getRemoteTasks, profileId, projectId),
   claimRemoteTask: async (profileId, projectId, taskId, branchName, baseCommit) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.claimRemoteTask, profileId, projectId, taskId, branchName, baseCommit),
   getRemoteMergeStatus: async (profileId, projectId) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.getRemoteMergeStatus, profileId, projectId),
+  getRemoteCoordination: async (profileId, projectId) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.getRemoteCoordination, profileId, projectId),
+  createRemoteBaseline: async (profileId, projectId, input) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.createRemoteBaseline, profileId, projectId, input),
+  decideRemoteBaseline: async (profileId, projectId, baselineId, decision, reason) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.decideRemoteBaseline, profileId, projectId, baselineId, decision, reason),
+  freezeRemoteBaseline: async (profileId, projectId, baselineId) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.freezeRemoteBaseline, profileId, projectId, baselineId),
+  uploadRemoteAttachment: async (profileId, projectId, filePath) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.uploadRemoteAttachment, profileId, projectId, filePath),
+  registerRemoteAgent: async (profileId, projectId) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.registerRemoteAgent, profileId, projectId),
+  preferRemoteTask: async (profileId, projectId, taskId, note) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.preferRemoteTask, profileId, projectId, taskId, note),
+  getRemoteAssignments: async (profileId, projectId) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.getRemoteAssignments, profileId, projectId),
+  heartbeatRemoteAssignment: async (profileId, projectId, assignmentId, expectedVersion) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.heartbeatRemoteAssignment, profileId, projectId, assignmentId, expectedVersion),
+  validateRemoteAssignmentLocally: async (profileId, projectId, assignmentId, repositoryPath) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.validateRemoteAssignmentLocally, profileId, projectId, assignmentId, repositoryPath),
+  submitRemoteAssignment: async (profileId, projectId, assignmentId, repositoryPath, validation) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.submitRemoteAssignment, profileId, projectId, assignmentId, repositoryPath, validation),
+  getRemoteMergeQueue: async (profileId, projectId) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.getRemoteMergeQueue, profileId, projectId),
+  reviewRemoteMerge: async (profileId, projectId, entryId, decision, repositoryPath) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.reviewRemoteMerge, profileId, projectId, entryId, decision, repositoryPath),
+  generateRemoteBaseline: async (profileId, projectId, repositoryPath) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.generateRemoteBaseline, profileId, projectId, repositoryPath),
+  generateRemoteTasks: async (profileId, projectId, repositoryPath) => ipcRenderer.invoke(remoteCollaborationInvokeChannels.generateRemoteTasks, profileId, projectId, repositoryPath),
   onRemoteEvent: (callback) => {
     const listener = (_event: IpcRendererEvent, payload: Parameters<typeof callback>[0]) => callback(payload)
     ipcRenderer.on(remoteEventChannel, listener)

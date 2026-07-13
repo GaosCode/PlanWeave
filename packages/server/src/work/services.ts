@@ -632,6 +632,9 @@ type WorkTaskRowShape = {
   project_id: string;
   task_id: string;
   title: string;
+  description: string;
+  baseline_id: string | null;
+  requirement_ids_json: string;
   parallel: number;
   locks_json: string;
   ownership_scopes_json: string;
@@ -651,6 +654,9 @@ function mapTaskRow(row: Record<string, unknown>): WorkTask {
     projectId: r.project_id,
     taskId: r.task_id,
     title: r.title,
+    description: r.description,
+    baselineId: r.baseline_id,
+    requirementIds: parseStringArray(r.requirement_ids_json),
     policy: {
       parallel: r.parallel === 1,
       locks: Array.isArray(locks) ? locks.filter((v): v is string => typeof v === "string") : [],

@@ -2,6 +2,7 @@ import type { RemoteProfile } from "./remoteProfile.js";
 import {
   generateIdempotencyKey,
   loadCredentials,
+  saveCredentials,
   updateProfileAssignment
 } from "./remoteProfile.js";
 
@@ -69,6 +70,17 @@ async function request<T>(options: RemoteClientOptions, method: string, path: st
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new RemoteApiError(`Failed to reach server at ${options.serverUrl}: ${message}`, "network_error", "", true);
+  }
+
+  if ((response.status === 401 || response.status === 403) && options.deviceSecret) {
+    const resumed = await fetch(`${options.serverUrl.replace(/\/+$/, "")}/api/v1/resume`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: options.projectId, deviceId: options.deviceId, resumeToken: options.deviceSecret }), signal: AbortSignal.timeout(30_000) });
+    if (resumed.ok) {
+      const resumedBody = await resumed.json() as { session: { id: string } };
+      options.sessionToken = resumedBody.session.id;
+      await saveCredentials(options.profileName, { sessionToken: resumedBody.session.id, deviceSecret: options.deviceSecret });
+      headers.authorization = `Bearer ${resumedBody.session.id}`;
+      response = await fetch(url, { ...fetchOptions, headers });
+    }
   }
 
   const responseBody = (await response.json().catch(() => null)) as unknown;

@@ -17,6 +17,7 @@ type AppSettingsRouteProps = {
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
   section: SettingsSection;
+  setSection: Dispatch<SetStateAction<SettingsSection>>;
   loadProject: (project: DesktopProjectSummary) => Promise<void>;
   setActiveView: Dispatch<SetStateAction<AppView>>;
   setError?: (message: string | null) => void;
@@ -41,6 +42,7 @@ export function AppSettingsRoute({
   selectedCanvasId,
   selectedProject,
   section,
+  setSection,
   loadProject,
   setActiveView,
   setError,
@@ -66,6 +68,7 @@ export function AppSettingsRoute({
         selectedCanvasId={selectedCanvasId}
         selectedProject={selectedProject}
         section={section}
+        setSection={setSection}
         loadProject={loadProject}
         setActiveView={setActiveView}
         setError={setError}

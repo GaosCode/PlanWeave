@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto"
+import { readFile } from "node:fs/promises"
+import { basename } from "node:path"
 import type { WebSocket as WsWebSocket } from "ws"
 import type {
   RemoteProfile,
@@ -10,9 +12,15 @@ import type {
   RemoteMergeStatus,
   RemoteEventPayload,
   RemoteConnectionStatus,
-  RemoteTask
+  RemoteTask,
+  RemoteCoordinationSnapshot,
+  RemoteConsensusBaseline,
+  RemoteAttachment,
+  RemoteAssignment,
+  RemoteMergeQueue
 } from "../shared/remoteTypes.js"
-import type { RemoteProfileWithCredentials } from "./remoteProfiles.js"
+import { updateRemoteSession, type RemoteProfileWithCredentials } from "./remoteProfiles.js"
+import { readTeamCache, updateTeamCache, type TeamCache } from "./teamCache.js"
 
 const DEFAULT_TIMEOUT_MS = 15_000
 
@@ -33,6 +41,33 @@ const connections = new Map<string, RemoteClientState>()
 
 function connectionKey(profileId: string): string {
   return profileId
+}
+
+async function authorizedFetch(profile: RemoteProfileWithCredentials, url: string, init: RequestInit): Promise<Response> {
+  let response = await fetch(url, init)
+  if ((response.status === 401 || response.status === 403) && profile.resumeToken && profile.projectId) {
+    const resumed = await fetch(`${profile.serverUrl}/api/v1/resume`, { method: "POST", headers: { "content-type": "application/json", "accept": "application/json" }, body: JSON.stringify({ projectId: profile.projectId, deviceId: profile.deviceId, resumeToken: profile.resumeToken }) })
+    if (resumed.ok) {
+      const body = await resumed.json() as { session: { id: string } }
+      profile.apiKey = body.session.id
+      await updateRemoteSession(profile.id, body.session.id)
+      const headers = new Headers(init.headers); headers.set("Authorization", `Bearer ${profile.apiKey}`)
+      response = await fetch(url, { ...init, headers })
+    }
+  }
+  return response
+}
+
+async function cachedTeamRead<T>(profile: RemoteProfileWithCredentials, projectId: string, field: Exclude<keyof TeamCache, "updatedAt">, load: () => Promise<T>): Promise<T> {
+  try {
+    const value = await load();
+    await updateTeamCache(profile.id, projectId, { [field]: value });
+    return value;
+  } catch (error) {
+    const cached = await readTeamCache(profile.id, projectId);
+    if (cached?.[field] !== undefined) return cached[field] as T;
+    throw error;
+  }
 }
 
 export function getRemoteConnectionStatus(profileId: string): RemoteConnectionStatus {
@@ -70,7 +105,9 @@ export async function connectRemote(
   }
   connections.set(key, state)
 
-  const snapshot = await httpGet<RemoteProjectSnapshot>(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/snapshot`)
+  let snapshot: RemoteProjectSnapshot
+  try { snapshot = await httpGet<RemoteProjectSnapshot>(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/snapshot`) }
+  catch (error) { const cached = await readTeamCache(profile.id, projectId); if (!cached?.projectSnapshot) throw error; snapshot = cached.projectSnapshot as RemoteProjectSnapshot }
   state.lastEventId = snapshot.lastEventId
   startEventPolling(state)
   void establishConnection(state).catch(() => scheduleReconnect(state))
@@ -223,7 +260,7 @@ export function isRemoteConnected(profileId: string): boolean {
 
 async function httpGet<T>(profile: RemoteProfileWithCredentials, path: string): Promise<T> {
   const url = `${profile.serverUrl}${path}`
-  const response = await fetch(url, {
+  const response = await authorizedFetch(profile, url, {
     method: "GET",
     headers: {
       "Authorization": `Bearer ${profile.apiKey}`,
@@ -243,12 +280,13 @@ async function httpGet<T>(profile: RemoteProfileWithCredentials, path: string): 
 
 async function httpPost<T>(profile: RemoteProfileWithCredentials, path: string, body: unknown): Promise<T> {
   const url = `${profile.serverUrl}${path}`
-  const response = await fetch(url, {
+  const response = await authorizedFetch(profile, url, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${profile.apiKey}`,
       "X-Device-Id": profile.deviceId,
       "X-Request-Id": randomUUID(),
+      "Idempotency-Key": randomUUID(),
       "Content-Type": "application/json",
       "Accept": "application/json"
     },
@@ -263,7 +301,15 @@ async function httpPost<T>(profile: RemoteProfileWithCredentials, path: string, 
   return (await response.json()) as T
 }
 
+async function httpPostBytes<T>(profile: RemoteProfileWithCredentials, path: string, bytes: Buffer, headers: Record<string, string> = {}): Promise<T> {
+  const url = `${profile.serverUrl}${path}`
+  const response = await authorizedFetch(profile, url, { method: "POST", headers: { "Authorization": `Bearer ${profile.apiKey}`, "X-Device-Id": profile.deviceId, "X-Request-Id": randomUUID(), "Idempotency-Key": randomUUID(), "Accept": "application/json", ...headers }, body: new Uint8Array(bytes) })
+  if (!response.ok) throw new Error(`HTTP ${response.status} from ${url}: ${await response.text()}`)
+  return await response.json() as T
+}
+
 export async function getRemoteProjectSnapshot(profile: RemoteProfileWithCredentials, projectId: string): Promise<RemoteProjectSnapshot> {
+  return cachedTeamRead(profile, projectId, "projectSnapshot", async () => {
   const serverSnapshot = await httpGet<{ project: RemoteProjectSnapshot["project"]; lastEventId: string }>(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/snapshot`)
   const project = serverSnapshot.project
   const lastEventId = serverSnapshot.lastEventId
@@ -305,10 +351,11 @@ export async function getRemoteProjectSnapshot(profile: RemoteProfileWithCredent
     proposals,
     mergeStatus
   }
+  })
 }
 
 export async function getRemotePlanningRooms(profile: RemoteProfileWithCredentials, projectId: string): Promise<Array<{ id: string; name: string; archivedAt: string | null }>> {
-  return httpGet(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/rooms`)
+  return cachedTeamRead(profile, projectId, "rooms", () => httpGet(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/rooms`))
 }
 
 export async function getRemoteMessages(profile: RemoteProfileWithCredentials, projectId: string, roomId: string): Promise<RemoteMessage[]> {
@@ -338,7 +385,11 @@ export async function getRemoteMembers(profile: RemoteProfileWithCredentials, pr
 }
 
 export async function getRemoteTasks(profile: RemoteProfileWithCredentials, projectId: string): Promise<RemoteTask[]> {
-  return httpGet(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/tasks`)
+  return cachedTeamRead(profile, projectId, "tasks", () => httpGet(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/tasks`))
+}
+
+export async function createRemoteTask(profile: RemoteProfileWithCredentials, projectId: string, input: { taskId: string; title: string; description: string; baselineId: string; requirementIds: string[]; dependencyIds: string[]; parallel: boolean; locks: string[]; ownershipScopes: string[]; acceptanceChecks: string[]; reviewers: string[] }): Promise<RemoteTask> {
+  return httpPost(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/tasks`, input)
 }
 
 export async function claimRemoteTask(profile: RemoteProfileWithCredentials, projectId: string, taskId: string, branchName: string, baseCommit: string): Promise<unknown> {
@@ -353,4 +404,72 @@ export async function getRemoteMergeStatus(profile: RemoteProfileWithCredentials
     hasConflicts: false,
     lastSyncedEventId: state?.lastEventId ?? null
   }
+}
+
+export async function getRemoteCoordination(profile: RemoteProfileWithCredentials, projectId: string): Promise<RemoteCoordinationSnapshot> {
+  return cachedTeamRead(profile, projectId, "coordination", () => httpGet(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/coordination`))
+}
+
+export async function createRemoteBaseline(profile: RemoteProfileWithCredentials, projectId: string, input: Omit<RemoteConsensusBaseline, "id" | "projectId" | "revision" | "status" | "createdByUserId" | "createdAt" | "frozenAt">): Promise<RemoteConsensusBaseline> {
+  return httpPost(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/baselines`, input)
+}
+
+export async function decideRemoteBaseline(profile: RemoteProfileWithCredentials, projectId: string, baselineId: string, decision: "approve" | "reject", reason?: string): Promise<unknown> {
+  return httpPost(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/baselines/${encodeURIComponent(baselineId)}/decision`, { decision, reason })
+}
+
+export async function freezeRemoteBaseline(profile: RemoteProfileWithCredentials, projectId: string, baselineId: string): Promise<RemoteConsensusBaseline> {
+  return httpPost(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/baselines/${encodeURIComponent(baselineId)}/freeze`, {})
+}
+
+export async function uploadRemoteAttachment(profile: RemoteProfileWithCredentials, projectId: string, filePath: string): Promise<RemoteAttachment> {
+  const bytes = await readFile(filePath)
+  return httpPostBytes(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/attachments`, bytes, { "Content-Type": "application/octet-stream", "X-PlanWeave-File-Name": encodeURIComponent(basename(filePath)) })
+}
+
+export async function getRemoteAttachments(profile: RemoteProfileWithCredentials, projectId: string): Promise<RemoteAttachment[]> {
+  return httpGet(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/attachments`)
+}
+
+export async function getRemoteAttachmentBytes(profile: RemoteProfileWithCredentials, projectId: string, attachmentId: string): Promise<Uint8Array> {
+  const url = `${profile.serverUrl}/api/v1/projects/${encodeURIComponent(projectId)}/attachments/${encodeURIComponent(attachmentId)}`
+  const response = await authorizedFetch(profile, url, { method: "GET", headers: { "Authorization": `Bearer ${profile.apiKey}`, "X-Device-Id": profile.deviceId, "X-Request-Id": randomUUID() } })
+  if (!response.ok) throw new Error(`HTTP ${response.status} from ${url}: ${await response.text()}`)
+  return new Uint8Array(await response.arrayBuffer())
+}
+
+export async function registerRemoteAgent(profile: RemoteProfileWithCredentials, projectId: string, input: { kind: string; name: string; version: string | null; capabilities: string[] }): Promise<unknown> {
+  return httpPost(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/agent-profile`, input)
+}
+
+export async function preferRemoteTask(profile: RemoteProfileWithCredentials, projectId: string, taskId: string, note: string): Promise<unknown> {
+  return httpPost(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/preference`, { note })
+}
+
+export async function getRemoteAssignments(profile: RemoteProfileWithCredentials, projectId: string): Promise<RemoteAssignment[]> {
+  return cachedTeamRead(profile, projectId, "assignments", () => httpGet(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/assignments?mine=1`))
+}
+
+export async function heartbeatRemoteAssignment(profile: RemoteProfileWithCredentials, projectId: string, assignmentId: string, expectedVersion: number): Promise<unknown> {
+  return httpPost(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/assignments/${encodeURIComponent(assignmentId)}/heartbeat`, { expectedVersion, leaseDurationSeconds: 3600 })
+}
+
+export async function submitRemoteAssignmentEvidence(profile: RemoteProfileWithCredentials, projectId: string, assignmentId: string, input: { expectedVersion: number; headCommit: string; baseCommit: string; localChecks: Array<{ name: string; passed: boolean; output?: string }>; agentReport: string }): Promise<{ submission: { id: string } }> {
+  return httpPost(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/assignments/${encodeURIComponent(assignmentId)}/submit`, input)
+}
+
+export async function uploadRemoteSubmissionBundle(profile: RemoteProfileWithCredentials, projectId: string, submissionId: string, bundlePath: string): Promise<unknown> {
+  return httpPostBytes(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/submissions/${encodeURIComponent(submissionId)}/bundle`, await readFile(bundlePath), { "Content-Type": "application/x-git-bundle" })
+}
+
+export async function getRemoteMergeQueue(profile: RemoteProfileWithCredentials, projectId: string): Promise<RemoteMergeQueue> {
+  return cachedTeamRead(profile, projectId, "mergeQueue", () => httpGet(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/merge-queue`))
+}
+
+export async function postRemoteAgentReview(profile: RemoteProfileWithCredentials, projectId: string, entryId: string, verdict: "approve" | "reject", report: string): Promise<unknown> {
+  return httpPost(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/merge-queue/${encodeURIComponent(entryId)}/agent-review`, { verdict, report })
+}
+
+export async function decideRemoteMerge(profile: RemoteProfileWithCredentials, projectId: string, entryId: string, decision: "approve" | "reject"): Promise<unknown> {
+  return httpPost(profile, `/api/v1/projects/${encodeURIComponent(projectId)}/merge-queue/${encodeURIComponent(entryId)}/review`, { decision })
 }

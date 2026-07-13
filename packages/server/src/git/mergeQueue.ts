@@ -5,6 +5,7 @@ import { runRepositoryChecks, runTargetedChecks, retainCheckLogs } from "./check
 import { validateCommitAncestry, validatePathWithinScope } from "./validation.js"
 import { MergeQueueError, type CheckResult, type EnqueueCommand, type MergeQueueConfig, type MergeQueueEntry, type MergeQueueRepository, type MergeQueueServices, type MergeResult, type ReviewMergeQueueCommand } from "./types.js"
 import type { SqliteDatabase } from "../sqlite.js"
+import { projectIntegrationBranch } from "./bundleTransport.js"
 
 function cryptoRandomId(): string {
   const bytes = new Uint8Array(9)
@@ -25,6 +26,7 @@ export function createMergeQueueServices(options: CreateMergeQueueServicesOption
   const dataDir = options.config.dataDirectory
   const config: MergeQueueConfig = {
     bareRepoPath: options.config.bareRepoPath ?? `${dataDir}/bare-repo`,
+    ...(options.config.sourceRepoPath ? { sourceRepoPath: options.config.sourceRepoPath } : {}),
     worktreesDir: options.config.worktreesDir ?? `${dataDir}/worktrees`,
     checks: options.config.checks ?? ["pnpm-lint", "pnpm-build", "pnpm-test"],
     checkExecutionMode: options.config.checkExecutionMode ?? "disabled",
@@ -200,6 +202,11 @@ export function createMergeQueueServices(options: CreateMergeQueueServicesOption
 
       await transitionEntry(entry.id, "merged", worktreePath, checkLogs, null, "merging")
       await cleanupWorktree(worktreePath)
+
+      if (config.sourceRepoPath) {
+        const projection = await projectIntegrationBranch({ sourceRepoPath: config.sourceRepoPath, bareRepoPath: config.bareRepoPath, targetBranch: entry.targetBranch, mergeCommit: mergeResult.mergeCommit })
+        database.prepare("UPDATE merge_queue_entries SET source_projection_status=?,source_projection_details=?,updated_at=? WHERE id=?").run(projection.status, projection.details, clock(), entry.id)
+      }
 
       return { entryId, status: "merged", mergeCommit: mergeResult.mergeCommit }
     } catch (error) {

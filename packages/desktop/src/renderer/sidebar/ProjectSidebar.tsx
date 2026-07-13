@@ -271,8 +271,13 @@ export function ProjectSidebar({
               { key: "git", label: t("gitAndGitHub"), icon: GitForkIcon }
             ].map(({ key, label, icon: Icon }) => (
               <DropdownMenuItem
+                data-testid={`settings-shortcut-${key}`}
                 className={`h-8 gap-2 px-2 ${activeView === "settings" && settingsSection === key ? "bg-state-selected-surface text-text-strong" : ""}`}
                 key={key}
+                onClick={() => {
+                  setSettingsSection(key as SettingsSection);
+                  setActiveView("settings");
+                }}
                 onSelect={() => {
                   setSettingsSection(key as SettingsSection);
                   setActiveView("settings");

@@ -27,6 +27,9 @@ type WorkTaskRow = {
   project_id: string;
   task_id: string;
   title: string;
+  description: string;
+  baseline_id: string | null;
+  requirement_ids_json: string;
   parallel: number;
   locks_json: string;
   ownership_scopes_json: string;
@@ -88,6 +91,9 @@ function mapTask(row: WorkTaskRow): WorkTask {
     projectId: row.project_id,
     taskId: row.task_id,
     title: row.title,
+    description: row.description,
+    baselineId: row.baseline_id,
+    requirementIds: stringArray(row.requirement_ids_json),
     policy: decodePolicy(row),
     version: Number(row.version),
     status: row.status as WorkTask["status"],
@@ -156,8 +162,8 @@ export function createWorkRepository(options: CreateWorkRepositoryOptions): Work
     const version = 1;
     const id = serverTaskId(input.projectId, input.taskId);
     unit.database
-      .prepare("INSERT INTO work_tasks(id,project_id,task_id,title,parallel,locks_json,ownership_scopes_json,acceptance_checks_json,reviewers_json,version,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, input.projectId, input.taskId, input.title, input.policy.parallel ? 1 : 0, JSON.stringify(input.policy.locks), JSON.stringify(input.policy.ownershipScopes ?? []), JSON.stringify(input.policy.acceptanceChecks ?? []), JSON.stringify(input.policy.reviewers ?? []), version, "ready", now, now);
+      .prepare("INSERT INTO work_tasks(id,project_id,task_id,title,description,baseline_id,requirement_ids_json,parallel,locks_json,ownership_scopes_json,acceptance_checks_json,reviewers_json,version,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run(id, input.projectId, input.taskId, input.title, input.description ?? "", input.baselineId ?? null, JSON.stringify(input.requirementIds ?? []), input.policy.parallel ? 1 : 0, JSON.stringify(input.policy.locks), JSON.stringify(input.policy.ownershipScopes ?? []), JSON.stringify(input.policy.acceptanceChecks ?? []), JSON.stringify(input.policy.reviewers ?? []), version, "ready", now, now);
     for (const dependency of input.dependencyIds) {
       const dependencyRow = unit.database.prepare("SELECT id FROM work_tasks WHERE project_id=? AND (id=? OR task_id=?)").get(input.projectId, dependency, dependency);
       if (!dependencyRow) throw new Error(`Dependency '${dependency}' does not exist in project '${input.projectId}'.`);

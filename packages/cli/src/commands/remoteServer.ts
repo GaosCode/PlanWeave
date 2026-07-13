@@ -15,15 +15,16 @@ import type { RemoteProfile } from "../remoteProfile.js";
 /**
  * Start a local PlanWeave server for development/testing.
  */
-async function startServer(port: number, dataDirectory: string, joinToken: string, allowInsecureLan: boolean): Promise<void> {
+async function startServer(port: number, dataDirectory: string, joinToken: string, allowInsecureLan: boolean, repositoryPath?: string, targetBranch = "main", checks?: string[]): Promise<void> {
   const host = allowInsecureLan ? "0.0.0.0" : "127.0.0.1";
-  const server = await startPlanweaveServer({ dataDirectory, databasePath: resolve(dataDirectory, "planweave-server.sqlite"), host, port, busyTimeoutMs: 5000, joinToken });
+  const server = await startPlanweaveServer({ dataDirectory, databasePath: resolve(dataDirectory, "planweave-server.sqlite"), host, port, busyTimeoutMs: 5000, joinToken, ...(repositoryPath ? { repositoryPath: resolve(repositoryPath), targetBranch, repositoryChecks: checks?.length ? checks : ["pnpm-lint", "pnpm-build", "pnpm-test"], requireMergeApproval: true } : {}) });
   const http = server.createHttpServer();
   await new Promise<void>((resolveListen, reject) => {
     http.once("error", reject);
     http.listen(port, host, resolveListen);
   });
   console.log(`PlanWeave collaboration server listening on http://${host}:${port}`);
+  if (!repositoryPath) console.warn("Warning: no --repository was configured; discussion and boards work, but durable bundle review and merge are disabled.");
   if (allowInsecureLan) console.warn("Warning: LAN mode uses plaintext HTTP. Use it only on a trusted network.");
   const shutdown = () => { http.close(() => { server.close(); process.exit(0); }); };
   process.once("SIGINT", shutdown);
@@ -42,12 +43,16 @@ export function registerRemoteServerCommand(program: Command): void {
     .option("--port <port>", "port to listen on", "8788")
     .option("--data-dir <path>", "data directory for the server")
     .option("--allow-insecure-lan", "listen on all interfaces using plaintext HTTP")
+    .option("--repository <path>", "Host Git repository used to initialize the durable integration repository")
+    .option("--target-branch <branch>", "Host integration target branch", "main")
+    .option("--checks <names>", "comma-separated Host checks: pnpm-lint,pnpm-build,pnpm-test")
     .requiredOption("--join-token <token>", "high-entropy team invitation token")
-    .action(async (options: { port: string; dataDir?: string; joinToken: string; allowInsecureLan?: boolean }) => {
+    .action(async (options: { port: string; dataDir?: string; joinToken: string; allowInsecureLan?: boolean; repository?: string; targetBranch: string; checks?: string }) => {
       const port = Number(options.port);
       if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("--port must be an integer between 1 and 65535");
       if (options.joinToken.trim().length < 24) throw new Error("--join-token must contain at least 24 characters");
-      await startServer(port, resolve(options.dataDir ?? ".planweave-server"), options.joinToken, options.allowInsecureLan === true);
+      const checks = options.checks?.split(",").map((value) => value.trim()).filter(Boolean);
+      await startServer(port, resolve(options.dataDir ?? ".planweave-server"), options.joinToken, options.allowInsecureLan === true, options.repository, options.targetBranch, checks);
     });
 
   serverCmd
@@ -90,14 +95,14 @@ export function registerRemoteServerCommand(program: Command): void {
       await saveProfile(profile);
       try {
         const response = await fetch(`${profile.serverUrl}/api/v1/join`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: options.project, displayName: options.user, deviceName: deviceId, joinToken: options.token }) });
-        const body = await response.json() as { session?: { id: string; expiresAt: string }; userId?: string; deviceId?: string; error?: { message: string } };
+        const body = await response.json() as { session?: { id: string; expiresAt: string }; resumeToken?: string; userId?: string; deviceId?: string; error?: { message: string } };
         if (!response.ok || !body.session || !body.userId || !body.deviceId) throw new Error(body.error?.message ?? `HTTP ${response.status}`);
         profile.userId = body.userId;
         profile.deviceId = body.deviceId;
         profile.sessionId = body.session.id;
         profile.sessionExpiresAt = body.session.expiresAt;
         await saveProfile(profile);
-        await saveCredentials(options.name, { sessionToken: body.session.id, deviceSecret: "" });
+        await saveCredentials(options.name, { sessionToken: body.session.id, deviceSecret: body.resumeToken ?? "" });
       } catch (error) {
         await deleteProfile(options.name);
         throw new Error(`Failed to join team server: ${error instanceof Error ? error.message : String(error)}`);

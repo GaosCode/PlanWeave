@@ -66,6 +66,9 @@ export type WorkTask = {
   projectId: string;
   taskId: string;
   title: string;
+  description: string;
+  baselineId: string | null;
+  requirementIds: string[];
   policy: WorkTaskPolicy;
   version: number;
   status: TaskStatus;
@@ -264,7 +267,7 @@ export type WorkRepository = {
   loadTask(projectId: string, taskId: string): WorkTask | null;
   loadTaskByServerId(projectId: string, serverTaskId: string): WorkTask | null;
   listDependencyIds(projectId: string, serverTaskId: string): string[];
-  insertTask(unit: UnitOfWork, input: { projectId: string; taskId: string; title: string; policy: WorkTaskPolicy; dependencyIds: string[]; now: string }): WorkTask;
+  insertTask(unit: UnitOfWork, input: { projectId: string; taskId: string; title: string; description?: string; baselineId?: string | null; requirementIds?: string[]; policy: WorkTaskPolicy; dependencyIds: string[]; now: string }): WorkTask;
   loadAssignment(unit: UnitOfWork, assignmentId: string): WorkAssignment | null;
   /** Returns the active assignment for the task, if any. Enforces uniqueness via the partial index. */
   loadActiveAssignmentForTask(unit: UnitOfWork, projectId: string, serverTaskId: string): WorkAssignment | null;

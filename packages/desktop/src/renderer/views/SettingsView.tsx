@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingsAgentsSection } from "../settings/SettingsAgentsSection";
 import { SettingsComponentsSection } from "../settings/SettingsComponentsSection";
 import { SettingsGeneralSection } from "../settings/SettingsGeneralSection";
-import type { SettingsSection } from "../settings/SettingsNav";
+import { SettingsNav, type SettingsSection } from "../settings/SettingsNav";
 import { SettingsMcpSection } from "../settings/SettingsMcpSection";
 import { SettingsReviewSection } from "../settings/SettingsReviewSection";
 import { SettingsGitSection } from "../settings/SettingsGitSection";
@@ -27,6 +27,7 @@ type SettingsViewProps = {
   selectedCanvasId?: string | null;
   selectedProject?: DesktopProjectSummary | null;
   section: SettingsSection;
+  setSection: Dispatch<SetStateAction<SettingsSection>>;
   loadProject?: (project: DesktopProjectSummary) => Promise<void>;
   setActiveView: Dispatch<SetStateAction<AppView>>;
   setError?: (message: string | null) => void;
@@ -51,6 +52,7 @@ export function SettingsView({
   selectedCanvasId = null,
   selectedProject,
   section,
+  setSection,
   loadProject,
   setActiveView,
   setError = () => undefined,
@@ -93,6 +95,7 @@ export function SettingsView({
 
   return (
     <main className="flex h-full min-h-0 text-text">
+      <SettingsNav section={section} setSection={setSection} onBackToApp={() => setActiveView("graph")} t={t} />
       <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-app-shell text-text">
         <ScrollArea
           className="min-h-0 min-w-0 flex-1 bg-app-canvas"
