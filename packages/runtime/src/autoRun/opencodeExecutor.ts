@@ -11,6 +11,7 @@ import {
   type FeedbackClaim
 } from "./executorShared.js";
 import type { CliProcessExecutor } from "./cliProcess.js";
+import type { ExecutionWaveId } from "./runnerContractSchemas.js";
 import { opencodeInvocation } from "./opencodeInvocation.js";
 import {
   extractOpencodeSessionId,
@@ -92,6 +93,7 @@ export async function runOpencodeBlock(options: {
   tmuxEnabled?: boolean;
   tmuxOwnerRunId?: string;
   signal?: AbortSignal;
+  executionWaveId?: ExecutionWaveId;
   executeProcess: CliProcessExecutor;
 }): Promise<ExecutorAdapterResult> {
   return runTerminalAgentProtocolBlock({ ...options, protocol: opencodeProtocol });

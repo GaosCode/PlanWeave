@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { agentFamilySchema, runnerTransportSchema } from "../types/executor.js";
 import { safeRunnerEventTextSchema, utf8ByteLength } from "./runnerEventRedaction.js";
@@ -25,6 +26,18 @@ export const runnerRunIdSchema = identifierSchema.brand("RunnerRunId");
 export const runSessionIdSchema = identifierSchema.brand("RunSessionId");
 export const desktopRunIdSchema = identifierSchema.brand("DesktopRunId");
 export const executorRunIdSchema = identifierSchema.brand("ExecutorRunId");
+export const executionWaveIdSchema = z
+  .string()
+  .regex(
+    /^WAVE-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    "Execution wave id must use the WAVE-<UUIDv4> format."
+  )
+  .brand("ExecutionWaveId");
+export type ExecutionWaveId = z.infer<typeof executionWaveIdSchema>;
+
+export function createExecutionWaveId(): ExecutionWaveId {
+  return executionWaveIdSchema.parse(`WAVE-${randomUUID()}`);
+}
 export const acpSessionIdSchema = identifierSchema.brand("AcpSessionId");
 export const acpRequestIdSchema = identifierSchema.brand("AcpRequestId");
 export const jsonRpcCorrelationIdSchema = z

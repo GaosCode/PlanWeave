@@ -6,6 +6,7 @@ import type {
 } from "../types.js";
 import type { BlockClaim, FeedbackClaim } from "./executorShared.js";
 import type { CliProcessExecutor } from "./cliProcess.js";
+import type { ExecutionWaveId } from "./runnerContractSchemas.js";
 import {
   runTerminalAgentProtocolBlock,
   runTerminalAgentProtocolFeedback,
@@ -35,6 +36,7 @@ export function runSimpleTerminalAgentBlock<Profile extends AgentCliExecutorProf
   tmuxEnabled?: boolean;
   tmuxOwnerRunId?: string;
   signal?: AbortSignal;
+  executionWaveId?: ExecutionWaveId;
   executeProcess: CliProcessExecutor;
 }): Promise<ExecutorAdapterResult> {
   return runTerminalAgentProtocolBlock(options);

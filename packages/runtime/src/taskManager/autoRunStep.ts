@@ -7,6 +7,10 @@ import {
   resolveExecutorRunnerEvidence
 } from "../autoRun/executors.js";
 import { ExecutorCancelledError, isExecutorCancelledError } from "../autoRun/executorShared.js";
+import {
+  createExecutionWaveId,
+  type ExecutionWaveId
+} from "../autoRun/runnerContractSchemas.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile } from "../json.js";
@@ -290,6 +294,7 @@ async function executeBlockClaim(options: {
   runnerEvidence: AutoRunRunnerEvidence;
   session?: ExecutionGraphSession;
   signal?: AbortSignal;
+  executionWaveId?: ExecutionWaveId;
 }): Promise<SubmittedOrManualStep | BlockedStep> {
   let stage: BlockPipelineStage = "Prompt rendering";
   try {
@@ -300,7 +305,11 @@ async function executeBlockClaim(options: {
       includeSubmissionInstructions: false
     });
     stage = "Executor";
-    const adapterResult = await options.executor.runBlock({ claim: options.claim, prompt });
+    const adapterResult = await options.executor.runBlock({
+      claim: options.claim,
+      prompt,
+      ...(options.executionWaveId ? { executionWaveId: options.executionWaveId } : {})
+    });
     if (adapterResult.kind === "manual") {
       return { kind: "manual", claim: options.claim, adapterResult };
     }
@@ -394,6 +403,7 @@ async function executeBatchRef(options: {
   executorName?: string;
   session?: ExecutionGraphSession;
   signal?: AbortSignal;
+  executionWaveId: ExecutionWaveId;
 }): Promise<SubmittedOrManualStep | BlockedStep> {
   let claim: BlockClaim;
   try {
@@ -417,7 +427,8 @@ async function executeBatchRef(options: {
       session: options.session
     }),
     session: options.session,
-    signal: options.signal
+    signal: options.signal,
+    executionWaveId: options.executionWaveId
   });
 }
 
@@ -476,6 +487,7 @@ export async function runAutoRunStep(options: {
     return { kind: "idle", claim };
   }
   if (claim.kind === "batch") {
+    const executionWaveId = createExecutionWaveId();
     const executor =
       options.executor ??
       createExecutorAdapter({
@@ -500,7 +512,8 @@ export async function runAutoRunStep(options: {
           executor,
           executorName: options.executorName,
           session: options.session,
-          signal: options.signal
+          signal: options.signal,
+          executionWaveId
         })
       )
     );

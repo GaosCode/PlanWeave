@@ -288,7 +288,10 @@ export function createAcpRunner(options?: {
           executorName: input.executorName,
           agentId: definition.agent,
           taskId: input.claim.taskId,
-          metadataIdentity: { blockId: input.claim.blockId },
+          metadataIdentity: {
+            blockId: input.claim.blockId,
+            ...(input.executionWaveId ? { executionWaveId: input.executionWaveId } : {})
+          },
           projectId: prepared.projectId,
           canvasId: prepared.canvasId
         },

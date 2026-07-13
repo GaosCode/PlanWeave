@@ -20,6 +20,8 @@ import { activeAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { trustCommand } from "../taskManager/hookTrustStore.js";
 import { ACP_MOCK_OPERATION_TIMEOUT_MS } from "./support/acpMockHarness.js";
 import { DEFAULT_EXECUTOR_TIMEOUT_MS } from "../autoRun/executorShared.js";
+import { executionWaveIdSchema } from "../autoRun/runnerContractSchemas.js";
+import { readJsonFile } from "../json.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 
@@ -450,12 +452,16 @@ describe("AcpRunner claim routing", () => {
       const launch = mockLaunch(scenario);
       await trustCommand(init.workspace, launch.command, [...launch.args]);
     }
+    const executionWaveId = executionWaveIdSchema.parse(
+      "WAVE-123e4567-e89b-42d3-a456-426614174000"
+    );
     const implementation = await runner.runBlock({
       projectRoot: init.workspace,
       claim: { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation", effectiveExecutor: "codex-acp" },
       prompt: "implement",
       executorName: "codex-acp",
-      profile
+      profile,
+      executionWaveId
     }, definition("artifact-implementation"));
     const review = await runner.runBlock({
       projectRoot: init.workspace,
@@ -479,6 +485,18 @@ describe("AcpRunner claim routing", () => {
     if (implementation.kind !== "block") throw new Error("Expected implementation result.");
     await expect(readFile(join(dirname(implementation.reportPath), "prompt.md"), "utf8"))
       .resolves.toBe("implement");
+    await expect(
+      readJsonFile<Record<string, unknown>>(join(dirname(implementation.reportPath), "metadata.json"))
+    ).resolves.toMatchObject({ executionWaveId });
+    if (review.kind !== "review" || feedback.kind !== "feedback") {
+      throw new Error("Expected review and feedback results.");
+    }
+    await expect(
+      readJsonFile<Record<string, unknown>>(join(dirname(review.resultPath), "metadata.json"))
+    ).resolves.not.toHaveProperty("executionWaveId");
+    await expect(
+      readJsonFile<Record<string, unknown>>(join(dirname(feedback.reportPath), "metadata.json"))
+    ).resolves.not.toHaveProperty("executionWaveId");
   });
 
   it("propagates cancellation through createExecutorAdapter and restores TaskManager claim state", async () => {
@@ -519,6 +537,53 @@ describe("AcpRunner claim routing", () => {
         adapterResult: { kind: "block", runnerKind: "acp" },
         submitResult: { ref: "T-001#B-001", status: "completed" }
       });
+    } finally {
+      codexAgentDefinition.acp.launch = previousLaunch;
+    }
+  });
+
+  it("persists a scheduler-provided wave id through the profiled ACP adapter", async () => {
+    const { init } = await createTestWorkspace(
+      manifestTestBuilder().withDefaultExecutor("codex-acp").build()
+    );
+    const previousLaunch = codexAgentDefinition.acp.launch;
+    codexAgentDefinition.acp.launch = mockLaunch("artifact-implementation");
+    await trustCommand(init.workspace, process.execPath, [fixture, "artifact-implementation"]);
+    try {
+      const executionWaveId = executionWaveIdSchema.parse(
+        "WAVE-123e4567-e89b-42d3-a456-426614174001"
+      );
+      const adapter = createExecutorAdapter({
+        projectRoot: init.workspace,
+        executorName: "codex-acp"
+      });
+      await expect(
+        adapter.runBlock({
+          claim: {
+            kind: "block",
+            ref: "T-001#B-001",
+            taskId: "T-001",
+            blockId: "B-001",
+            blockType: "implementation",
+            effectiveExecutor: "codex-acp"
+          },
+          prompt: "implement",
+          executionWaveId
+        })
+      ).resolves.toMatchObject({ kind: "block" });
+      const metadata = await readJsonFile<Record<string, unknown>>(
+        join(
+          init.workspace.resultsDir,
+          "T-001",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-001",
+          "metadata.json"
+        )
+      );
+
+      expect(metadata.executionWaveId).toBe(executionWaveId);
     } finally {
       codexAgentDefinition.acp.launch = previousLaunch;
     }

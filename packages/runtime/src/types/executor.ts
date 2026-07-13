@@ -445,6 +445,7 @@ export type ExecutorAdapter = {
   runBlock(input: {
     claim: Extract<ClaimResult, { kind: "block" }>;
     prompt: string;
+    executionWaveId?: string;
   }): Promise<ExecutorAdapterResult>;
   runFeedback(input: {
     claim: Extract<ClaimResult, { kind: "feedback" }>;

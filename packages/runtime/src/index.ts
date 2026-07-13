@@ -246,6 +246,7 @@ export {
   canvasIdSchema,
   claimRefSchema,
   desktopRunIdSchema,
+  executionWaveIdSchema,
   executorRunIdSchema,
   jsonRpcCorrelationIdSchema,
   negotiatedCapabilitiesSchema,

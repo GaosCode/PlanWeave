@@ -7,6 +7,7 @@ import type {
 } from "../types.js";
 import type { BlockClaim, FeedbackClaim } from "./executorShared.js";
 import type { RunnerInteractionBroker } from "./liveControl.js";
+import type { ExecutionWaveId } from "./runnerContractSchemas.js";
 
 export type ExecutorRuntimeOptions = {
   tmuxEnabled?: boolean;
@@ -26,6 +27,7 @@ export type ExecutorBlockInput = {
   executorName: string;
   profile: ExecutorProfile;
   profileSource?: "builtin" | "package";
+  executionWaveId?: ExecutionWaveId;
   runtime?: ExecutorRuntimeOptions;
 };
 

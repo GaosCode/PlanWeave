@@ -39,6 +39,7 @@ import {
 } from "./profileExecutor.js";
 import { resolveAgentRunner } from "./runnerRegistry.js";
 import { assertAcpLaunchTrusted } from "./acpLaunch.js";
+import { executionWaveIdSchema } from "./runnerContractSchemas.js";
 
 export const executorPreflightVersionTimeoutMs = 5_000;
 export const executorPreflightAcpSessionProbeTimeoutMs = 30_000;
@@ -98,7 +99,7 @@ function createProfiledAdapter(options: {
   expectedIntegration?: ExecutorIntegrationName;
 }): ExecutorAdapter {
   return {
-    async runBlock({ claim, prompt }) {
+    async runBlock({ claim, prompt, executionWaveId }) {
       const { name, profile, source } = await resolveProfileForClaim({
         projectRoot: options.projectRoot,
         claim,
@@ -122,6 +123,9 @@ function createProfiledAdapter(options: {
         executorName: name,
         profile,
         profileSource: source,
+        ...(executionWaveId !== undefined
+          ? { executionWaveId: executionWaveIdSchema.parse(executionWaveId) }
+          : {}),
         runtime: options.runtime
       });
     },

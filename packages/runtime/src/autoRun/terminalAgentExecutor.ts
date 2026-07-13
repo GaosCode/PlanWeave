@@ -36,6 +36,7 @@ import {
 import type { StreamedCommandResult } from "./streamingExecutor.js";
 import { tmuxMetadataPatch } from "./tmuxExecutor.js";
 import type { ArtifactReference } from "./runnerContractSchemas.js";
+import type { ExecutionWaveId } from "./runnerContractSchemas.js";
 
 /** Command line produced by a protocol adapter for one agent process. */
 export type TerminalAgentInvocation = {
@@ -182,6 +183,7 @@ type SharedRunOptions<TProfile extends ProfileWithCommand> = {
   tmuxEnabled?: boolean;
   tmuxOwnerRunId?: string;
   signal?: AbortSignal;
+  executionWaveId?: ExecutionWaveId;
   executeProcess: CliProcessExecutor;
 };
 
@@ -204,7 +206,8 @@ export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWith
     executorName: options.executorName,
     adapter: protocol.adapter,
     profile: options.profile,
-    prompt: options.prompt
+    prompt: options.prompt,
+    executionWaveId: options.executionWaveId
   });
   const workspace = await resolvePackageWorkspace(options.projectRoot);
   const executionCwd = workspaceExecutionCwd(workspace);

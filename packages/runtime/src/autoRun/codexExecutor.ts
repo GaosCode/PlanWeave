@@ -6,6 +6,7 @@ import type {
 import { codexExecArgs, codexResumeArgs, extractCodexSessionId } from "./codexProtocol.js";
 import type { BlockClaim, FeedbackClaim } from "./executorShared.js";
 import type { CliProcessExecutor } from "./cliProcess.js";
+import type { ExecutionWaveId } from "./runnerContractSchemas.js";
 import {
   runTerminalAgentProtocolBlock,
   runTerminalAgentProtocolFeedback,
@@ -61,6 +62,7 @@ export async function runCodexBlock(options: {
   tmuxEnabled?: boolean;
   tmuxOwnerRunId?: string;
   signal?: AbortSignal;
+  executionWaveId?: ExecutionWaveId;
   executeProcess: CliProcessExecutor;
 }): Promise<ExecutorAdapterResult> {
   return runTerminalAgentProtocolBlock({ ...options, protocol: codexProtocol });

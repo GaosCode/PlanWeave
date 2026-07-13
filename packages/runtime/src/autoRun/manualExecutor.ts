@@ -22,7 +22,8 @@ async function runManualBlock(input: ExecutorBlockInput): Promise<ExecutorAdapte
     executorName: input.executorName,
     adapter: "manual",
     profile: input.profile,
-    prompt: input.prompt
+    prompt: input.prompt,
+    executionWaveId: input.executionWaveId
   });
   const workspace = await resolvePackageWorkspace(input.projectRoot);
   const canvasFlag = await canvasCommandFlagForWorkspace(workspace);

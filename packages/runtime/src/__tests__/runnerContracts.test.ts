@@ -10,6 +10,8 @@ import {
 } from "../autoRun/normalizedEventContract.js";
 import { replayNormalizedRunnerEvents } from "../autoRun/runnerEventReplay.js";
 import {
+  createExecutionWaveId,
+  executionWaveIdSchema,
   negotiatedCapabilitiesSchema,
   persistedPendingInteractionSchema,
   runnerRunIdentitySchema,
@@ -30,6 +32,17 @@ import {
 } from "../autoRun/runnerLifecycle.js";
 import { adaptLegacyDesktopRunnerEvents } from "../desktop/legacyRunnerEventAdapter.js";
 import { redactRunnerEventPayload } from "../autoRun/runnerEventRedaction.js";
+
+describe("execution wave identity", () => {
+  it("creates unique strict UUIDv4 identities", () => {
+    const first = createExecutionWaveId();
+    const second = createExecutionWaveId();
+
+    expect(executionWaveIdSchema.parse(first)).toBe(first);
+    expect(first).not.toBe(second);
+    expect(executionWaveIdSchema.safeParse("WAVE-legacy-or-inferred").success).toBe(false);
+  });
+});
 
 describe("structured runner event redaction", () => {
   it("redacts sensitive keys and values while preserving protocol identities", () => {

@@ -15,6 +15,54 @@ import { manifestTestBuilder } from "./manifestTestBuilder.js";
 import { createContractCodexExecAdapter, runContractAutoRunStep } from "./autoRunTestBuilders.js";
 
 describe("Auto Run codex executor", () => {
+  it("persists the scheduler wave id in every CLI run created by one parallel batch", async () => {
+    const manifest = manifestTestBuilder({
+      parallel: true,
+      maxConcurrent: 2,
+      includeSecondTask: true
+    })
+      .withExecutor("fake-codex", {
+        adapter: "codex-exec",
+        command: process.execPath,
+        args: [
+          "-e",
+          "process.stdin.resume(); process.stdin.on('end', () => console.log('done'));"
+        ]
+      })
+      .withDefaultExecutor("fake-codex")
+      .build();
+    const { root, init } = await createTestWorkspace(manifest);
+
+    await expect(
+      runContractAutoRunStep({
+        projectRoot: root,
+        parallel: true,
+        executor: createContractCodexExecAdapter({
+          projectRoot: root,
+          executorName: "fake-codex"
+        })
+      })
+    ).resolves.toMatchObject({ kind: "batch_submitted" });
+    const metadata = await Promise.all(
+      ["T-001", "T-002"].map((taskId) =>
+        readJsonFile<Record<string, unknown>>(
+          join(
+            init.workspace.resultsDir,
+            taskId,
+            "blocks",
+            "B-001",
+            "runs",
+            "RUN-001",
+            "metadata.json"
+          )
+        )
+      )
+    );
+
+    expect(metadata[0]?.executionWaveId).toMatch(/^WAVE-[0-9a-f-]{36}$/);
+    expect(metadata[1]?.executionWaveId).toBe(metadata[0]?.executionWaveId);
+  });
+
   it("codex-exec adapter runs the configured command and submits the generated block report", async () => {
     const manifest = manifestTestBuilder()
       .withExecutor("fake-codex", {

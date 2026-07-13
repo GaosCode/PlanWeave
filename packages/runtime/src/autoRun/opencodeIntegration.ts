@@ -34,6 +34,7 @@ export const opencodeAgentDefinition: AgentDefinition = {
         tmuxEnabled: input.runtime?.tmuxEnabled ?? input.profile.runner.tmuxEnabled,
         tmuxOwnerRunId: input.runtime?.tmuxOwnerRunId,
         signal: input.runtime?.signal,
+        executionWaveId: input.executionWaveId,
         executeProcess: context.executeProcess
       });
     },

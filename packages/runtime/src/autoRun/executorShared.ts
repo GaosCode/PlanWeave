@@ -15,6 +15,7 @@ import type {
   PackageWorkspaceRef,
   ProjectWorkspace
 } from "../types.js";
+import type { ExecutionWaveId } from "./runnerContractSchemas.js";
 import { runCommandInTmux, type TmuxSessionInfo } from "./tmuxExecutor.js";
 
 export type BlockClaim = Extract<ClaimResult, { kind: "block" }>;
@@ -292,6 +293,7 @@ export async function prepareBlockRun(options: {
   adapter: ExecutorIntegrationName;
   profile: ExecutorProfile;
   prompt: string;
+  executionWaveId?: ExecutionWaveId;
 }): Promise<{
   runId: string;
   runDir: string;
@@ -320,6 +322,7 @@ export async function prepareBlockRun(options: {
     projectRoot: workspace.rootPath,
     executionCwd: workspaceExecutionCwd(workspace),
     startedAt,
+    ...(options.executionWaveId ? { executionWaveId: options.executionWaveId } : {}),
     finishedAt: null,
     exitCode: null,
     agentSessionId: null,

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { getExecutionStatus } from "../index.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 import { runContractAutoRunStep } from "./autoRunTestBuilders.js";
+import { readJsonFile } from "../json.js";
 
 async function expectNoActiveBlocks(root: string) {
   const status = await getExecutionStatus({ projectRoot: root });
@@ -29,11 +30,13 @@ describe("Auto Run parallel execution", () => {
       releaseExecutors = resolve;
     });
     const finishedRefs: string[] = [];
+    const executionWaveIds: Array<string | undefined> = [];
     const stepPromise = runContractAutoRunStep({
       projectRoot: root,
       parallel: true,
       executor: {
-        async runBlock({ claim }) {
+        async runBlock({ claim, executionWaveId }) {
+          executionWaveIds.push(executionWaveId);
           active += 1;
           maxActive = Math.max(maxActive, active);
           if (active === 2) {
@@ -63,6 +66,9 @@ describe("Auto Run parallel execution", () => {
 
     expect(overlapped).toBe(true);
     expect(maxActive).toBe(2);
+    expect(executionWaveIds).toHaveLength(2);
+    expect(executionWaveIds[0]).toMatch(/^WAVE-[0-9a-f-]{36}$/);
+    expect(new Set(executionWaveIds).size).toBe(1);
     expect(finishedRefs).toEqual(["T-002#B-001", "T-001#B-001"]);
     expect(step).toMatchObject({
       kind: "batch_submitted",
@@ -75,6 +81,80 @@ describe("Auto Run parallel execution", () => {
     const status = await getExecutionStatus({ projectRoot: root });
     expect(status.blocks.find((block) => block.ref === "T-001#B-001")?.status).toBe("completed");
     expect(status.blocks.find((block) => block.ref === "T-002#B-001")?.status).toBe("completed");
+  });
+
+  it("assigns different authoritative wave ids to separate parallel dispatches", async () => {
+    const { root } = await createTestWorkspace(
+      basicManifest({ parallel: true, maxConcurrent: 1, includeSecondTask: true })
+    );
+    const executionWaveIds: string[] = [];
+    const executor = {
+      async runBlock({ claim, executionWaveId }) {
+        if (!executionWaveId) throw new Error("Expected a parallel execution wave id.");
+        executionWaveIds.push(executionWaveId);
+        const reportPath = join(root, `${claim.taskId}-${claim.blockId}.md`);
+        await writeFile(reportPath, `${claim.ref} completed\n`, "utf8");
+        return { kind: "block" as const, reportPath };
+      },
+      async runFeedback() {
+        throw new Error("feedback should not run in a parallel batch");
+      }
+    };
+
+    await runContractAutoRunStep({ projectRoot: root, parallel: true, executor });
+    await runContractAutoRunStep({ projectRoot: root, parallel: true, executor });
+
+    expect(executionWaveIds).toHaveLength(2);
+    expect(executionWaveIds[0]).not.toBe(executionWaveIds[1]);
+  });
+
+  it("does not assign a wave id to sequential dispatch", async () => {
+    const { root } = await createTestWorkspace();
+    let observedWaveId: string | undefined;
+    await runContractAutoRunStep({
+      projectRoot: root,
+      executor: {
+        async runBlock({ claim, executionWaveId }) {
+          observedWaveId = executionWaveId;
+          const reportPath = join(root, "sequential-report.md");
+          await writeFile(reportPath, `${claim.ref} completed\n`, "utf8");
+          return { kind: "block" as const, reportPath };
+        },
+        async runFeedback() {
+          throw new Error("feedback should not run");
+        }
+      }
+    });
+
+    expect(observedWaveId).toBeUndefined();
+  });
+
+  it("persists one shared wave id when a manual batch creates its run metadata", async () => {
+    const { root, init } = await createTestWorkspace(
+      basicManifest({ parallel: true, maxConcurrent: 2, includeSecondTask: true })
+    );
+
+    await expect(
+      runContractAutoRunStep({ projectRoot: root, parallel: true })
+    ).resolves.toMatchObject({ kind: "batch_submitted" });
+    const metadata = await Promise.all(
+      ["T-001", "T-002"].map((taskId) =>
+        readJsonFile<Record<string, unknown>>(
+          join(
+            init.workspace.resultsDir,
+            taskId,
+            "blocks",
+            "B-001",
+            "runs",
+            "RUN-001",
+            "metadata.json"
+          )
+        )
+      )
+    );
+
+    expect(metadata[0]?.executionWaveId).toMatch(/^WAVE-[0-9a-f-]{36}$/);
+    expect(metadata[1]?.executionWaveId).toBe(metadata[0]?.executionWaveId);
   });
 
   it("releases a manual sibling after failure so a follow-up step can execute it", async () => {
