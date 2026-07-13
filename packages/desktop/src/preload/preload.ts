@@ -34,6 +34,14 @@ const invokeApi = createDesktopBridgeInvokeApi((channel, ...args) =>
 let lastSmokeRevealPath: string | null = null;
 let runnerRecordSubscriptionSequence = 0;
 
+function runnerRecordSubscriptionIsTerminal(
+  snapshot: DesktopRunnerRecordSubscriptionPush["snapshot"]
+): boolean {
+  return snapshot.terminal &&
+    !snapshot.intervention.prompt.available &&
+    !snapshot.intervention.prompt.inFlight;
+}
+
 const api: DesktopBridgeApi = {
   ...invokeApi,
   revealPathInFinder: async (path) => {
@@ -67,7 +75,7 @@ const api: DesktopBridgeApi = {
     const listener = (_event: IpcRendererEvent, payload: DesktopRunnerRecordSubscriptionPush) => {
       if (!active || payload.subscriptionId !== subscriptionId) return;
       callback({ updateSequence: payload.updateSequence, snapshot: payload.snapshot });
-      if (payload.snapshot.terminal) {
+      if (runnerRecordSubscriptionIsTerminal(payload.snapshot)) {
         active = false;
         ipcRenderer.off(runnerRecordEventChannel, listener);
       }
@@ -79,7 +87,7 @@ const api: DesktopBridgeApi = {
     };
     try {
       const start = await ipcRenderer.invoke(runnerRecordSubscribeChannel, request);
-      if (start.snapshot?.terminal) {
+      if (start.snapshot && runnerRecordSubscriptionIsTerminal(start.snapshot)) {
         active = false;
         ipcRenderer.off(runnerRecordEventChannel, listener);
       }

@@ -71,6 +71,7 @@ import {
   resolveTaskCanvasWorkspace,
   resumeAutoRun,
   respondToDesktopAgentRequest,
+  sendAgentPrompt,
   rollbackPendingImportRecovery,
   saveCanvasMapLayout,
   saveDesktopLayout,
@@ -113,6 +114,8 @@ import type {
 } from "@planweave-ai/runtime";
 import {
   desktopAgentActionIdentitySchema,
+  desktopAgentPromptIdentitySchema,
+  desktopAgentPromptTextSchema,
   desktopAgentSessionActionIdentitySchema,
   desktopAgentActionValueSchema
 } from "@planweave-ai/runtime";
@@ -415,6 +418,11 @@ export const runtimeBridgeHandlers = {
     ),
   cancelAgentRun: (_event, identity) =>
     cancelDesktopAgentRun(desktopAgentSessionActionIdentitySchema.parse(identity)),
+  sendAgentPrompt: (_event, identity, text) =>
+    sendAgentPrompt(
+      desktopAgentPromptIdentitySchema.parse(identity),
+      desktopAgentPromptTextSchema.parse(text)
+    ),
   getReviewAttempts: async (_event, ref, blockRef) =>
     getReviewAttempts(await resolveDesktopCanvasReference(ref), blockRef),
   getFeedbackRecords: async (_event, ref, blockRef) =>

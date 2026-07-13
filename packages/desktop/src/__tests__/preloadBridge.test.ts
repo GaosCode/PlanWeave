@@ -114,6 +114,27 @@ describe("preload bridge invocation", () => {
     expect(invoke).toHaveBeenCalledWith(desktopBridgeInvokeChannels.listProjects);
   });
 
+  it("exposes ACP prompt continuation through the invoke bridge", async () => {
+    electronMock.ipcRenderer.invoke.mockResolvedValue(undefined);
+    await import("../preload/preload");
+    const api = electronMock.exposed.get("planweave") as DesktopBridgeApi;
+    const identity = {
+      ref: { projectRoot: "/tmp/project", canvasId: "canvas-a" },
+      recordId: "T-001#B-001::RUN-001",
+      executorRunId: "RUN-001",
+      claimRef: "T-001#B-001",
+      sessionId: "session-1"
+    };
+
+    await api.sendAgentPrompt(identity, "continue");
+
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      desktopBridgeInvokeChannels.sendAgentPrompt,
+      identity,
+      "continue"
+    );
+  });
+
   it("forwards refreshPackageFileChanges options through the invoke bridge", async () => {
     const invoke = vi.fn<Parameters<typeof createDesktopBridgeInvokeApi>[0]>(async () => ({
       ok: true

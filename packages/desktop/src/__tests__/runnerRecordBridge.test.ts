@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   normalizedRunnerEventSchema,
   projectAcpConversation,
+  projectAcpTimeline,
   runnerRecordReadModelSchema,
   type NormalizedRunnerEvent
 } from "@planweave-ai/runtime";
@@ -67,6 +68,7 @@ function readModel(events: NormalizedRunnerEvent[]) {
   return runnerRecordReadModelSchema.parse({
     events,
     conversation: projectAcpConversation(events),
+    timeline: projectAcpTimeline(events),
     diagnostics: [],
     cursor: {
       version: "planweave.runner-event-cursor/v1",
@@ -77,6 +79,12 @@ function readModel(events: NormalizedRunnerEvent[]) {
     },
     terminal: last?.body.kind === "terminal",
     intervention: {
+      prompt: {
+        available: false,
+        reason: "No completed ACP session is available.",
+        identity: null,
+        inFlight: false
+      },
       cancel: {
         available: false,
         reason: "No live owned ACP session is available.",
@@ -119,6 +127,14 @@ const input = {
 };
 
 describe("runner record desktop bridge", () => {
+  it("registers the ACP prompt handler and rejects malformed identities before dispatch", async () => {
+    const sendPrompt = electronMock.handlers.get(desktopBridgeInvokeChannels.sendAgentPrompt);
+
+    expect(sendPrompt).toBeTypeOf("function");
+    expect(() =>
+      sendPrompt?.({ sender: sender(99) }, { recordId: "../../escape" }, "continue")
+    ).toThrow();
+  });
   beforeEach(async () => {
     await resetRuntimeBridgeMocks();
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
