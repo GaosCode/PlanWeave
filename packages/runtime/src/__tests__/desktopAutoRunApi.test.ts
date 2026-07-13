@@ -181,6 +181,11 @@ async function latestResetSession(projectRoot: string): Promise<RunSessionState>
 describe("desktop auto run API", () => {
   it("preserves ACP profile identity when a Desktop run fails closed before a record", async () => {
     const manifest = manifestTestBuilder()
+      .withExecutor("codex-acp", {
+        adapter: "agent",
+        agent: "codex",
+        runner: { transport: "acp" }
+      })
       .withDefaultExecutor("codex-acp")
       .withBlock("T-001", "B-001", (block) => ({ ...block, executor: "codex-acp" }))
       .build();

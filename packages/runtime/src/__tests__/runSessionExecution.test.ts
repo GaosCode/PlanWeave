@@ -482,6 +482,11 @@ describe("runWithSession", () => {
 
   it("retains ACP executor identity when fail-closed execution blocks before a run record", async () => {
     const manifest = manifestTestBuilder()
+      .withExecutor("codex-acp", {
+        adapter: "agent",
+        agent: "codex",
+        runner: { transport: "acp" }
+      })
       .withDefaultExecutor("codex-acp")
       .withBlock("T-001", "B-001", (block) => ({ ...block, executor: "codex-acp" }))
       .build();

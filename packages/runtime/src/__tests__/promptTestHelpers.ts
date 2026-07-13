@@ -127,6 +127,7 @@ export async function createTestWorkspace(
   const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
   const root = await mkdtemp(join(tmpdir(), "planweave-project-"));
   process.env.PLANWEAVE_HOME = home;
+  process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = join(home, "desktop-settings.json");
   const init = await initWorkspace({ projectRoot: root });
   await writeJsonFile(init.workspace.manifestFile, manifest);
   await writePromptFiles(init.workspace.packageDir, manifest);
