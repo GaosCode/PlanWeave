@@ -12,6 +12,37 @@ import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironmen
 afterEach(cleanupRendererTestEnvironment);
 
 describe("desktop renderer component interactions", () => {
+  it("opens only notifications carrying an authoritative navigation intent", async () => {
+    const onOpenNotification = vi.fn().mockResolvedValue(undefined);
+    const item = {
+      id: "dirty-T-001",
+      title: "Dirty prompt",
+      detail: "T-001",
+      tone: "secondary" as const,
+      read: false,
+      navigationIntent: {
+        kind: "task-workspace" as const,
+        target: {
+          projectRoot: "/projects/demo",
+          canvasId: "canvas-main",
+          taskId: "T-001"
+        }
+      }
+    };
+
+    render(
+      <NotificationsView
+        notificationItems={[item]}
+        onMarkNotificationRead={vi.fn()}
+        onOpenNotification={onOpenNotification}
+        t={createTranslator("zh-CN")}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "打开" }));
+    expect(onOpenNotification).toHaveBeenCalledWith(item);
+  });
+
   it("marks individual notifications as read from the message close button", async () => {
     const onMarkNotificationRead = vi.fn();
 

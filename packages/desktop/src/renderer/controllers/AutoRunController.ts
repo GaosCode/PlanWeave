@@ -33,7 +33,7 @@ export function createFileSyncController(props: FileSyncController): FileSyncCon
 
 export function useAutoRunController({
   autoRunState,
-  handleOpenRunRecord,
+  openRunWorkspace,
   onAutoRunDerivedStateRefresh,
   onPositionCommit,
   position,
@@ -47,10 +47,11 @@ export function useAutoRunController({
   tmuxMonitoringEnabled
 }: {
   autoRunState: DesktopAutoRunState | null;
-  handleOpenRunRecord: (
-    recordId: string | null | undefined,
-    canvasId?: string | null
-  ) => Promise<void>;
+  openRunWorkspace: (locator: {
+    projectRoot: string;
+    canvasId: string;
+    recordId: string;
+  }) => Promise<void>;
   onAutoRunDerivedStateRefresh: () => Promise<void>;
   onPositionCommit: (position: FloatingControlPosition) => void;
   position: FloatingControlPosition | null;
@@ -88,7 +89,7 @@ export function useAutoRunController({
     selectedBlock,
     selectedProject,
     selectedTaskPanelId,
-    handleOpenRunRecord,
+    openRunWorkspace,
     setAutoRunState,
     setError,
     t,

@@ -111,7 +111,7 @@ function projectedRun(runId: string): TaskWorkspaceRun {
       startedAt: "2026-07-13T00:00:00.000Z",
       finishedAt: null,
       calculatedAt: "2026-07-13T00:00:01.000Z",
-      wallClockMs: 1_000,
+      wallClockMs: 1000,
       unavailableReason: null
     },
     usage: {
@@ -290,6 +290,25 @@ function useControllerHarness(
 }
 
 describe("Task Workspace selected run controller", () => {
+  it("rejects a stale block-only navigation target instead of opening the task fallback", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const staleNavigation = taskWorkspaceNavigationIdentity(
+      {
+        projectRoot: "/projects/demo",
+        canvasId: "canvas-main",
+        taskId: "T-001",
+        blockRef: "T-001#B-404"
+      },
+      source
+    );
+    const { result } = renderHook(() => useControllerHarness(api, staleNavigation));
+
+    await waitFor(() => expect(result.current.status).toBe("error"));
+    expect(result.current.error).toBe("Block 'T-001#B-404' is unavailable for task 'T-001'.");
+    expect(result.current.workspace).toBeNull();
+    expect(api.getRunRecord).not.toHaveBeenCalled();
+  });
+
   it("uses history as selected-run state and releases the old live subscription", async () => {
     const { api, unsubscribes } = controllerApi({
       readModel: (recordId) => runnerModel(recordId.split("::")[1] ?? "")

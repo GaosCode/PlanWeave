@@ -36,10 +36,8 @@ function searchArgs(overrides: Partial<ReturnType<typeof searchArgsBase>> = {}) 
 
 function searchArgsBase() {
   return {
-    handleBlockSelect: vi.fn().mockResolvedValue(undefined),
-    handleOpenRunRecord: vi.fn().mockResolvedValue(undefined),
-    openTaskInspector: vi.fn().mockResolvedValue(undefined),
-    loadProject: vi.fn().mockResolvedValue(undefined),
+    openRunWorkspace: vi.fn().mockResolvedValue(undefined),
+    openTaskWorkspace: vi.fn(),
     selectedCanvasId: "canvas-main",
     selectedProject: project,
     setError: vi.fn()
@@ -388,70 +386,103 @@ describe("desktop search hook", () => {
 
   it("opens task, block, and record targets from search results", async () => {
     const args = searchArgs();
-    vi.resetModules();
-    const { useDesktopSearch } = await import("../renderer/hooks/useDesktopSearch");
-
-    const { result } = renderHook(() => useDesktopSearch(args));
-
-    await act(async () => {
-      await result.current.handleSearchResultOpen({
+    const searchResults: DesktopSearchResult[] = [
+      {
         kind: "prompt",
+        canvasId: "canvas-main",
         ref: "T-001",
         targetRef: "T-001",
         title: "Task prompt",
         excerpt: "task"
-      });
-      await result.current.handleSearchResultOpen({
+      },
+      {
         kind: "review_attempt",
+        canvasId: "canvas-main",
         ref: "T-001/reviews/R-001/attempts/REV-001/review-result.json",
         targetRef: "T-001#R-001",
         title: "Review",
         excerpt: "review"
-      });
-      await result.current.handleSearchResultOpen({
-        kind: "feedback",
-        ref: "FE-001",
-        targetRef: "T-001#R-001",
-        title: "Feedback",
-        excerpt: "feedback"
-      });
-      await result.current.handleSearchResultOpen({
+      },
+      {
         kind: "run_record",
+        canvasId: "canvas-main",
         ref: "T-001/blocks/B-001/runs/RUN-001/report.md",
+        targetRef: "T-001#B-001",
         recordId: "T-001#B-001::RUN-001",
         title: "Run",
         excerpt: "run"
-      });
-    });
-
-    expect(args.openTaskInspector).toHaveBeenCalledWith("T-001", "canvas-main");
-    expect(args.handleBlockSelect).toHaveBeenCalledWith("T-001#R-001", "canvas-main");
-    expect(args.handleBlockSelect).toHaveBeenCalledTimes(2);
-    expect(args.handleOpenRunRecord).toHaveBeenCalledWith("T-001#B-001::RUN-001", "canvas-main");
-  });
-
-  it("loads the result canvas before opening its target", async () => {
-    const args = searchArgs();
+      }
+    ];
+    vi.stubGlobal(
+      "planweave",
+      createDesktopBridgeMock({
+        searchProjectWithDiagnostics: vi.fn().mockResolvedValue(searchProjection(searchResults))
+      })
+    );
     vi.resetModules();
     const { useDesktopSearch } = await import("../renderer/hooks/useDesktopSearch");
 
     const { result } = renderHook(() => useDesktopSearch(args));
+    act(() => result.current.setSearchQuery("task"));
+    await waitForSearchDebounce();
+    await waitFor(() => expect(result.current.searchResults).toEqual(searchResults));
 
     await act(async () => {
-      await result.current.handleSearchResultOpen({
-        kind: "prompt",
-        canvasId: "canvas-other",
-        ref: "T-REMOTE",
-        targetRef: "T-REMOTE",
-        title: "Remote task prompt",
-        excerpt: "remote"
-      });
+      for (const searchResult of searchResults) {
+        await result.current.handleSearchResultOpen(searchResult);
+      }
     });
 
-    expect(args.loadProject).toHaveBeenCalledWith(project, "canvas-other");
-    expect(args.openTaskInspector).toHaveBeenCalledWith("T-REMOTE", "canvas-other");
-    expect(args.loadProject.mock.invocationCallOrder[0]).toBeLessThan(
-      args.openTaskInspector.mock.invocationCallOrder[0]
+    expect(args.openTaskWorkspace).toHaveBeenCalledWith({
+      projectRoot: project.rootPath,
+      canvasId: "canvas-main",
+      taskId: "T-001"
+    });
+    expect(args.openTaskWorkspace).toHaveBeenCalledWith({
+      projectRoot: project.rootPath,
+      canvasId: "canvas-main",
+      taskId: "T-001",
+      blockRef: "T-001#R-001"
+    });
+    expect(args.openRunWorkspace).toHaveBeenCalledWith({
+      projectRoot: project.rootPath,
+      canvasId: "canvas-main",
+      recordId: "T-001#B-001::RUN-001",
+      expectedBlockRef: "T-001#B-001"
+    });
+  });
+
+  it("fails closed when a result has no canvas authority", async () => {
+    const args = searchArgs();
+    const searchResult: DesktopSearchResult = {
+      kind: "prompt",
+      ref: "T-REMOTE",
+      targetRef: "T-REMOTE",
+      title: "Remote task prompt",
+      excerpt: "remote"
+    };
+    vi.stubGlobal(
+      "planweave",
+      createDesktopBridgeMock({
+        searchProjectWithDiagnostics: vi.fn().mockResolvedValue(searchProjection([searchResult]))
+      })
     );
+    vi.resetModules();
+    const { useDesktopSearch } = await import("../renderer/hooks/useDesktopSearch");
+
+    const { result } = renderHook(() => useDesktopSearch(args));
+    act(() => result.current.setSearchQuery("remote"));
+    await waitForSearchDebounce();
+    await waitFor(() => expect(result.current.searchResults).toEqual([searchResult]));
+
+    await act(async () => {
+      await result.current.handleSearchResultOpen(searchResult);
+    });
+
+    expect(args.setError).toHaveBeenCalledWith(
+      "Cannot open search result because its canvas authority is unavailable."
+    );
+    expect(args.openTaskWorkspace).not.toHaveBeenCalled();
+    expect(args.openRunWorkspace).not.toHaveBeenCalled();
   });
 });

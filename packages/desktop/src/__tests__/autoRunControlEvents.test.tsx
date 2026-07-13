@@ -41,7 +41,7 @@ describe("auto run control hook events", () => {
       const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(null);
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         onAutoRunDerivedStateRefresh,
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
@@ -82,7 +82,7 @@ describe("auto run control hook events", () => {
       const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(null);
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
         selectedProject: project,
@@ -126,7 +126,7 @@ describe("auto run control hook events", () => {
       );
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
         selectedProject: project,
@@ -174,7 +174,7 @@ describe("auto run control hook events", () => {
       );
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
         selectedProject: project,
@@ -219,7 +219,7 @@ describe("auto run control hook events", () => {
       const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(null);
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         onAutoRunDerivedStateRefresh,
         selectedCanvasId: "canvas-main",
         selectedBlock: null,

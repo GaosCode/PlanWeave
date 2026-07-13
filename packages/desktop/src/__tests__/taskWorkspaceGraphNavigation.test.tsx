@@ -127,6 +127,53 @@ describe("Task Workspace graph navigation", () => {
     expect(setError).not.toHaveBeenCalled();
   });
 
+  it("keeps source selection empty when a cross-authority run target reuses local refs", () => {
+    const history = historyController();
+    const { result } = renderHook(() =>
+      useTaskWorkspaceGraphNavigation({
+        flowInstance: flowInstance(),
+        graph: graphWithBlock,
+        history,
+        openProject: vi.fn(),
+        projectLoading: false,
+        projects: [project],
+        restoreSelection: vi.fn(),
+        selectedCanvasId: "canvas-main",
+        selectedProject: project,
+        setError: vi.fn()
+      })
+    );
+
+    act(() =>
+      result.current.openRunWorkspace({
+        projectRoot: "/projects/other",
+        canvasId: "canvas-other",
+        taskId: "T-ALPHA",
+        blockRef: "T-ALPHA#B-001",
+        recordId: "T-ALPHA#B-001::RUN-001"
+      })
+    );
+
+    expect(history.openTaskWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectRoot: "/projects/other",
+        canvasId: "canvas-other",
+        taskId: "T-ALPHA",
+        blockRef: "T-ALPHA#B-001",
+        recordId: "T-ALPHA#B-001::RUN-001"
+      }),
+      expect.objectContaining({
+        view: "graph",
+        graphSnapshot: expect.objectContaining({
+          projectRoot: project.rootPath,
+          canvasId: "canvas-main",
+          selectedTaskId: null,
+          selectedBlockRef: null
+        })
+      })
+    );
+  });
+
   it("reloads the captured canvas before restoring selection and viewport", async () => {
     const history = historyController(snapshot);
     const flow = flowInstance();
@@ -251,7 +298,9 @@ describe("Task Workspace graph navigation", () => {
       selectedCanvasId: "canvas-main",
       selectedProject: project
     });
-    await waitFor(() => expect(flow.setViewport).toHaveBeenCalledWith(newerSnapshot.viewport, { duration: 0 }));
+    await waitFor(() =>
+      expect(flow.setViewport).toHaveBeenCalledWith(newerSnapshot.viewport, { duration: 0 })
+    );
     await act(async () => olderProjectLoad.resolve());
 
     expect(restoreSelection).toHaveBeenCalledTimes(1);

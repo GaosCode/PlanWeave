@@ -24,10 +24,11 @@ type UseAutoRunControlArgs = {
   selectedBlock: DesktopBlockDetail | null;
   selectedProject: DesktopProjectSummary | null;
   selectedTaskPanelId: string | null;
-  handleOpenRunRecord: (
-    recordId: string | null | undefined,
-    canvasId?: string | null
-  ) => Promise<void>;
+  openRunWorkspace: (locator: {
+    projectRoot: string;
+    canvasId: string;
+    recordId: string;
+  }) => Promise<void>;
   setError: (message: string | null) => void;
   setAutoRunState: (state: DesktopAutoRunState | null) => void;
   t: ReturnType<typeof createTranslator>;
@@ -138,7 +139,7 @@ export function useAutoRunControl({
   selectedBlock,
   selectedProject,
   selectedTaskPanelId,
-  handleOpenRunRecord,
+  openRunWorkspace,
   setError,
   setAutoRunState,
   t,
@@ -228,9 +229,10 @@ export function useAutoRunControl({
     const ref = desktopCanvasReference(selectedProject, selectedCanvasId);
     const shouldUseLatestEffectiveRun =
       autoRunState?.phase === "completed" && autoRunState.stepCount === 0;
-    const loadRetrospective = autoRunRunId && !shouldUseLatestEffectiveRun
-      ? bridge.getAutoRunRetrospective(ref, autoRunRunId)
-      : bridge.getLatestAutoRunRetrospective(ref);
+    const loadRetrospective =
+      autoRunRunId && !shouldUseLatestEffectiveRun
+        ? bridge.getAutoRunRetrospective(ref, autoRunRunId)
+        : bridge.getLatestAutoRunRetrospective(ref);
     void loadRetrospective
       .then((summary) => {
         if (!cancelled) {
@@ -392,15 +394,19 @@ export function useAutoRunControl({
 
   const openRecordOrRevealPath = useCallback(
     async (action: AutoRunNextActionDescriptor) => {
-      if (action.recordId) {
-        await handleOpenRunRecord(action.recordId, autoRunState?.canvasId ?? selectedCanvasId);
+      if (action.recordId && autoRunState?.canvasId) {
+        await openRunWorkspace({
+          projectRoot: autoRunState.projectRoot,
+          canvasId: autoRunState.canvasId,
+          recordId: action.recordId
+        });
         return;
       }
       if (bridge && action.targetPath) {
         await bridge.revealPathInFinder(action.targetPath);
       }
     },
-    [autoRunState?.canvasId, handleOpenRunRecord, selectedCanvasId]
+    [autoRunState, openRunWorkspace]
   );
 
   const handleAutoRunNextAction = useCallback(

@@ -56,7 +56,7 @@ describe("auto run control hook retrospective", () => {
       ({ state }) =>
         useAutoRunControl({
           autoRunState: state,
-          handleOpenRunRecord: vi.fn(),
+          openRunWorkspace: vi.fn(),
           selectedCanvasId: "canvas-main",
           selectedBlock: null,
           selectedProject: project,
@@ -108,7 +108,7 @@ describe("auto run control hook retrospective", () => {
     const { result } = renderHook(() =>
       useAutoRunControl({
         autoRunState: blockedState,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
         selectedProject: project,
@@ -162,16 +162,18 @@ describe("auto run control hook retrospective", () => {
     };
     const getAutoRunRetrospective = vi.fn();
     const getLatestAutoRunRetrospective = vi.fn().mockResolvedValue(effectiveRetrospective);
-    stubAutoRunControlBridge(createDesktopBridgeMock({
-      getAutoRunRetrospective,
-      getLatestAutoRunRetrospective
-    }));
+    stubAutoRunControlBridge(
+      createDesktopBridgeMock({
+        getAutoRunRetrospective,
+        getLatestAutoRunRetrospective
+      })
+    );
     const { useAutoRunControl } = await loadAutoRunControl();
 
     const { result } = renderHook(() =>
       useAutoRunControl({
         autoRunState: noWorkState,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
         selectedProject: project,
@@ -183,7 +185,9 @@ describe("auto run control hook retrospective", () => {
       })
     );
 
-    await waitFor(() => expect(result.current.autoRunRetrospective).toEqual(effectiveRetrospective));
+    await waitFor(() =>
+      expect(result.current.autoRunRetrospective).toEqual(effectiveRetrospective)
+    );
     expect(getLatestAutoRunRetrospective).toHaveBeenCalledWith({
       projectRoot: project.rootPath,
       canvasId: "canvas-main"

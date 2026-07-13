@@ -6,16 +6,19 @@ import type {
   PendingImportTransaction
 } from "@planweave-ai/runtime";
 import type { createTranslator } from "../i18n";
-import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
 import type { PromptConflictRef } from "../hooks/usePromptDrafts";
 import { useAppNotifications } from "../hooks/useAppNotifications";
+import type { TaskWorkspaceNavigationTarget } from "../taskWorkspaceNavigation";
+import type { DesktopSettingsUpdate, DesktopUiSettings, NotificationItem } from "../types";
 import type { WorkspaceTabsNotificationsProps } from "../views/WorkspaceTabs";
 
 type ImportRecoveryRollbackResult = {
   status: string;
 };
 
-export type NotificationController = WorkspaceTabsNotificationsProps;
+export type NotificationController = WorkspaceTabsNotificationsProps & {
+  onOpenNotification: (item: NotificationItem) => Promise<void>;
+};
 
 export function useNotificationController({
   applyLocalPromptConflicts,
@@ -25,6 +28,9 @@ export function useNotificationController({
   handleRevealPathInFinder,
   keepLocalPromptConflicts,
   lastFileChange,
+  navigationContext,
+  openRunWorkspace,
+  openTaskWorkspace,
   pendingImportRecoveries,
   promptConflicts,
   reloadPromptConflicts,
@@ -42,6 +48,13 @@ export function useNotificationController({
   handleRevealPathInFinder: (path: string | null | undefined) => Promise<void>;
   keepLocalPromptConflicts: () => void;
   lastFileChange: DesktopPackageFileChangeEvent | null;
+  navigationContext: { projectRoot: string; canvasId: string } | null;
+  openRunWorkspace: (locator: {
+    projectRoot: string;
+    canvasId: string;
+    recordId: string;
+  }) => Promise<void>;
+  openTaskWorkspace: (target: TaskWorkspaceNavigationTarget) => void;
   pendingImportRecoveries: PendingImportTransaction[];
   promptConflicts: PromptConflictRef[];
   reloadPromptConflicts: () => Promise<void>;
@@ -57,6 +70,7 @@ export function useNotificationController({
     fileSyncDiagnostics,
     graph,
     lastFileChange,
+    navigationContext,
     pendingImportRecoveries,
     promptConflicts,
     settings,
@@ -68,6 +82,22 @@ export function useNotificationController({
       await handleRevealPathInFinder(recoveryRoot);
     },
     [handleRevealPathInFinder]
+  );
+  const handleOpenNotification = useCallback(
+    async (item: NotificationItem) => {
+      try {
+        if (item.navigationIntent?.kind === "task-workspace") {
+          openTaskWorkspace(item.navigationIntent.target);
+          return;
+        }
+        if (item.navigationIntent?.kind === "run-record-lookup") {
+          await openRunWorkspace(item.navigationIntent.locator);
+        }
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    [openRunWorkspace, openTaskWorkspace, setError]
   );
   const handleCopyImportRecoveryTransactionId = useCallback(
     async (transactionId: string) => {
@@ -103,6 +133,7 @@ export function useNotificationController({
     onApplyLocalPromptConflicts: applyLocalPromptConflicts,
     onKeepLocalPromptConflicts: keepLocalPromptConflicts,
     onMarkNotificationRead: handleMarkNotificationRead,
+    onOpenNotification: handleOpenNotification,
     onCopyImportRecoveryTransactionId: handleCopyImportRecoveryTransactionId,
     onReloadPromptConflicts: reloadPromptConflicts,
     onRevealImportRecoveryDirectory: handleRevealImportRecoveryDirectory,

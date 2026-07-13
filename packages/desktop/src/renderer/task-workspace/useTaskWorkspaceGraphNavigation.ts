@@ -6,7 +6,12 @@ import {
   blockWorkspaceTarget,
   graphNavigationSnapshotSchema,
   resolveGraphNavigationSnapshot,
+  runWorkspaceTarget,
   taskWorkspaceTarget
+} from "../taskWorkspaceNavigation";
+import type {
+  RunWorkspaceTargetInput,
+  TaskWorkspaceNavigationTarget
 } from "../taskWorkspaceNavigation";
 import type { AppFlowNode } from "../types";
 
@@ -68,34 +73,56 @@ export function useTaskWorkspaceGraphNavigation(options: {
     awaitingCanvasRender.current = null;
   }
 
-  const openTaskWorkspace = useCallback(
-    (target: { taskId: string; blockRef?: string }) => {
-      if (!selectedProject || !selectedCanvasId || !flowInstance) {
+  const openWorkspaceTarget = useCallback(
+    (navigationTarget: TaskWorkspaceNavigationTarget) => {
+      if (!(selectedProject && selectedCanvasId && flowInstance && graph)) {
         setError("Task Workspace requires an open project canvas and graph viewport.");
         return;
       }
+      const sameAuthority =
+        navigationTarget.projectRoot === selectedProject.rootPath &&
+        navigationTarget.canvasId === selectedCanvasId;
+      const sourceTask = sameAuthority
+        ? graph.tasks.find((task) => task.taskId === navigationTarget.taskId)
+        : undefined;
+      const sourceBlockRef = sourceTask?.blocks.some(
+        (block) => block.ref === navigationTarget.blockRef
+      )
+        ? navigationTarget.blockRef
+        : null;
       const graphSnapshot = graphNavigationSnapshotSchema.parse({
         projectRoot: selectedProject.rootPath,
         canvasId: selectedCanvasId,
         viewport: flowInstance.getViewport(),
-        selectedTaskId: target.taskId,
-        selectedBlockRef: target.blockRef ?? null
+        selectedTaskId: sourceTask?.taskId ?? null,
+        selectedBlockRef: sourceBlockRef
       });
-      const navigationTarget = target.blockRef
-        ? blockWorkspaceTarget({
-            projectRoot: selectedProject.rootPath,
-            canvasId: selectedCanvasId,
-            taskId: target.taskId,
-            blockRef: target.blockRef
-          })
-        : taskWorkspaceTarget({
-            projectRoot: selectedProject.rootPath,
-            canvasId: selectedCanvasId,
-            taskId: target.taskId
-          });
       history.openTaskWorkspace(navigationTarget, { view: "graph", graphSnapshot });
     },
-    [flowInstance, history.openTaskWorkspace, selectedCanvasId, selectedProject, setError]
+    [flowInstance, graph, history.openTaskWorkspace, selectedCanvasId, selectedProject, setError]
+  );
+  const openTaskWorkspace = useCallback(
+    (target: { taskId: string; blockRef?: string }) => {
+      if (!(selectedProject && selectedCanvasId)) {
+        setError("Task Workspace requires an open project canvas and graph viewport.");
+        return;
+      }
+      openWorkspaceTarget(
+        target.blockRef
+          ? blockWorkspaceTarget({
+              projectRoot: selectedProject.rootPath,
+              canvasId: selectedCanvasId,
+              taskId: target.taskId,
+              blockRef: target.blockRef
+            })
+          : taskWorkspaceTarget({
+              projectRoot: selectedProject.rootPath,
+              canvasId: selectedCanvasId,
+              taskId: target.taskId
+            })
+      );
+    },
+    [openWorkspaceTarget, selectedCanvasId, selectedProject, setError]
   );
 
   useEffect(() => {
@@ -239,9 +266,13 @@ export function useTaskWorkspaceGraphNavigation(options: {
     (taskId: string) => openTaskWorkspace({ taskId }),
     [openTaskWorkspace]
   );
+  const openRunWorkspace = useCallback(
+    (target: RunWorkspaceTargetInput) => openWorkspaceTarget(runWorkspaceTarget(target)),
+    [openWorkspaceTarget]
+  );
 
   return useMemo(
-    () => ({ openBlockWorkspace, openTaskWorkspace: openTaskWorkspaceById }),
-    [openBlockWorkspace, openTaskWorkspaceById]
+    () => ({ openBlockWorkspace, openRunWorkspace, openTaskWorkspace: openTaskWorkspaceById }),
+    [openBlockWorkspace, openRunWorkspace, openTaskWorkspaceById]
   );
 }

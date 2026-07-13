@@ -33,7 +33,7 @@ describe("auto run control hook floating position", () => {
       ({ position }) =>
         useAutoRunControl({
           autoRunState: null,
-          handleOpenRunRecord: vi.fn(),
+          openRunWorkspace: vi.fn(),
           position,
           selectedCanvasId: "canvas-main",
           selectedBlock: null,

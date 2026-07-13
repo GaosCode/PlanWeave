@@ -31,7 +31,7 @@ describe("auto run control hook actions", () => {
     const { result } = renderHook(() =>
       useAutoRunControl({
         autoRunState: null,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         selectedCanvasId: "canvas-main",
         selectedBlock,
         selectedProject: project,
@@ -89,7 +89,7 @@ describe("auto run control hook actions", () => {
       const [autoRunStateValue, setAutoRunState] = useState<DesktopAutoRunState | null>(null);
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
         selectedProject: project,
@@ -155,7 +155,7 @@ describe("auto run control hook actions", () => {
     const { result } = renderHook(() =>
       useAutoRunControl({
         autoRunState: manualState,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         selectedCanvasId: "canvas-main",
         selectedBlock,
         selectedProject: project,
@@ -209,7 +209,7 @@ describe("auto run control hook actions", () => {
     const { result } = renderHook(() =>
       useAutoRunControl({
         autoRunState: manualState,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         selectedCanvasId: "canvas-main",
         selectedBlock,
         selectedProject: project,
@@ -269,7 +269,7 @@ describe("auto run control hook actions", () => {
       );
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
         selectedProject: project,
@@ -311,7 +311,7 @@ describe("auto run control hook actions", () => {
       );
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         onAutoRunDerivedStateRefresh,
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
@@ -351,7 +351,7 @@ describe("auto run control hook actions", () => {
     const { result } = renderHook(() =>
       useAutoRunControl({
         autoRunState: runningState,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
         selectedProject: project,
@@ -376,6 +376,8 @@ describe("auto run control hook actions", () => {
 
   it("opens an internal run record before falling back to revealing the record path", async () => {
     const failedState = autoRunState({
+      projectRoot: "/tmp/authority-project",
+      canvasId: "canvas-authority",
       phase: "failed",
       latestRecordId: "T-ALPHA#B-001::RUN-FAILED",
       latestRecordPath: "/tmp/record.json",
@@ -396,7 +398,7 @@ describe("auto run control hook actions", () => {
         }
       }
     });
-    const handleOpenRunRecord = vi.fn().mockResolvedValue(undefined);
+    const openRunWorkspace = vi.fn().mockResolvedValue(undefined);
     const bridge = createDesktopBridgeMock({
       revealPathInFinder: vi.fn().mockResolvedValue(undefined)
     });
@@ -407,7 +409,7 @@ describe("auto run control hook actions", () => {
       ({ state }) =>
         useAutoRunControl({
           autoRunState: state,
-          handleOpenRunRecord,
+          openRunWorkspace,
           selectedCanvasId: "canvas-main",
           selectedBlock: null,
           selectedProject: project,
@@ -423,8 +425,41 @@ describe("auto run control hook actions", () => {
     await act(async () => {
       await result.current.handleAutoRunNextAction(result.current.autoRunNextAction!);
     });
-    expect(handleOpenRunRecord).toHaveBeenCalledWith("T-ALPHA#B-001::RUN-FAILED", "canvas-main");
+    expect(openRunWorkspace).toHaveBeenCalledWith({
+      projectRoot: "/tmp/authority-project",
+      canvasId: "canvas-authority",
+      recordId: "T-ALPHA#B-001::RUN-FAILED"
+    });
     expect(bridge.revealPathInFinder).not.toHaveBeenCalled();
+
+    const rootCanvasState = autoRunState({
+      canvasId: null,
+      phase: "failed",
+      latestRecordId: "T-ALPHA#B-001::RUN-ROOT",
+      latestRecordPath: "/tmp/root-record.json",
+      explanation: {
+        phase: "failed",
+        currentRef: selectedBlock.ref,
+        currentExecutor: "codex",
+        latestRecordId: "T-ALPHA#B-001::RUN-ROOT",
+        latestRecordPath: "/tmp/root-record.json",
+        latestOutputSummary: "failed",
+        error: "failed",
+        nextAction: {
+          kind: "inspect_record",
+          message: "Inspect the latest run record.",
+          command: null,
+          targetPath: "/tmp/root-record.json",
+          ref: selectedBlock.ref
+        }
+      }
+    });
+    rerender({ state: rootCanvasState });
+    await act(async () => {
+      await result.current.handleAutoRunNextAction(result.current.autoRunNextAction!);
+    });
+    expect(bridge.revealPathInFinder).toHaveBeenCalledWith("/tmp/root-record.json");
+    expect(openRunWorkspace).toHaveBeenCalledTimes(1);
 
     const pathOnlyState = autoRunState({
       phase: "failed",
@@ -499,7 +534,7 @@ describe("auto run control hook actions", () => {
       );
       return useAutoRunControl({
         autoRunState: autoRunStateValue,
-        handleOpenRunRecord: vi.fn(),
+        openRunWorkspace: vi.fn(),
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
         selectedProject: project,

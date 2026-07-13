@@ -161,6 +161,27 @@ describe("desktop renderer interface interactions", () => {
   it("builds dirty prompt notifications from graph view model refs", () => {
     const notificationGraph: DesktopGraphViewModel = {
       ...graph,
+      tasks: graph.tasks.map((task) =>
+        task.taskId === "T-001"
+          ? {
+              ...task,
+              blocks: [
+                {
+                  ref: "T-001#B-001",
+                  blockId: "B-001",
+                  type: "implementation",
+                  title: "Implement",
+                  status: "ready",
+                  executor: null,
+                  promptMissing: false,
+                  exceptionReason: null,
+                  dispatchable: true,
+                  waitingOn: null
+                }
+              ]
+            }
+          : task
+      ),
       dirtyPromptRefs: ["T-001#B-001"]
     };
 
@@ -170,6 +191,7 @@ describe("desktop renderer interface interactions", () => {
         fileSyncDiagnostics: [],
         graph: notificationGraph,
         lastFileChange: null,
+        navigationContext: { projectRoot: project.rootPath, canvasId: "canvas-main" },
         promptConflicts: [],
         settings,
         t
@@ -177,7 +199,16 @@ describe("desktop renderer interface interactions", () => {
     ).toEqual([
       expect.objectContaining({
         id: "dirty-T-001#B-001",
-        detail: "T-001#B-001"
+        detail: "T-001#B-001",
+        navigationIntent: {
+          kind: "task-workspace",
+          target: {
+            projectRoot: project.rootPath,
+            canvasId: "canvas-main",
+            taskId: "T-001",
+            blockRef: "T-001#B-001"
+          }
+        }
       })
     ]);
   });

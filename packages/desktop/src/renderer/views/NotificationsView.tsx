@@ -10,6 +10,7 @@ type NotificationsViewProps = {
   onApplyLocalPromptConflicts: () => Promise<void>;
   onKeepLocalPromptConflicts: () => void;
   onMarkNotificationRead: (notificationId: string) => void;
+  onOpenNotification?: (item: NotificationItem) => Promise<void>;
   onOpenGraph: () => void;
   onReloadPromptConflicts: () => Promise<void>;
   onCopyImportRecoveryTransactionId?: (transactionId: string) => Promise<void>;
@@ -24,6 +25,7 @@ export function NotificationsView({
   onApplyLocalPromptConflicts,
   onKeepLocalPromptConflicts,
   onMarkNotificationRead,
+  onOpenNotification,
   onOpenGraph,
   onReloadPromptConflicts,
   onCopyImportRecoveryTransactionId,
@@ -174,6 +176,17 @@ export function NotificationsView({
                       {t("importRecoveryRollback")}
                     </Button>
                   </div>
+                </div>
+              ) : null}
+              {item.navigationIntent && onOpenNotification ? (
+                <div className="mt-3">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void onOpenNotification(item)}
+                  >
+                    {t("open")}
+                  </Button>
                 </div>
               ) : null}
             </div>

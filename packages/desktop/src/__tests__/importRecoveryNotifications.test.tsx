@@ -18,6 +18,7 @@ describe("import recovery notifications", () => {
       fileSyncDiagnostics: [],
       graph: null,
       lastFileChange: null,
+      navigationContext: null,
       pendingImportRecoveries: [
         {
           transactionId: "import-tx-1",

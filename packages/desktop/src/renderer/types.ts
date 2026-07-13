@@ -16,6 +16,7 @@ import type {
   DesktopUiSettings,
   FloatingControlPosition
 } from "../shared/desktopSettings";
+import type { TaskWorkspaceNavigationTarget } from "./taskWorkspaceNavigation";
 export type {
   AppearanceMode,
   DesktopSettingsPatch,
@@ -176,7 +177,22 @@ type BaseNotificationItem = {
   title: string;
   detail: string;
   tone: "destructive" | "secondary" | "outline";
+  navigationIntent?: NotificationNavigationIntent;
 };
+
+export type NotificationNavigationIntent =
+  | {
+      kind: "task-workspace";
+      target: TaskWorkspaceNavigationTarget;
+    }
+  | {
+      kind: "run-record-lookup";
+      locator: {
+        projectRoot: string;
+        canvasId: string;
+        recordId: string;
+      };
+    };
 
 export type NotificationItemDraft =
   | (BaseNotificationItem & {

@@ -136,6 +136,18 @@ export function useTaskWorkspaceController(options: {
           return;
         }
         const selected = initialRunForNavigation(workspace, navigation);
+        if (
+          navigation.blockRef &&
+          !workspace.blocks.some((block) => block.ref === navigation.blockRef)
+        ) {
+          setWorkspaceLoad({
+            error: `Block '${navigation.blockRef}' is unavailable for task '${navigation.taskId}'.`,
+            key,
+            status: "error",
+            workspace: null
+          });
+          return;
+        }
         if (navigation.recordId && !selected) {
           setWorkspaceLoad({
             error: `Run record '${navigation.recordId}' does not belong to block '${navigation.blockRef}'.`,
@@ -299,9 +311,7 @@ export function useTaskWorkspaceController(options: {
   const status = workspaceLoad.key === key ? workspaceLoad.status : navigation ? "loading" : "idle";
   const recordError = recordLoad.key === selectedRecordKey ? recordLoad.error : null;
   const error =
-    history.historyError ??
-    (workspaceLoad.key === key ? workspaceLoad.error : null) ??
-    recordError;
+    history.historyError ?? (workspaceLoad.key === key ? workspaceLoad.error : null) ?? recordError;
 
   return useMemo<TaskWorkspaceController>(
     () => ({

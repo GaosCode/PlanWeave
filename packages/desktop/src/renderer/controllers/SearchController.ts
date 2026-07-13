@@ -1,5 +1,6 @@
 import type { DesktopProjectSummary } from "@planweave-ai/runtime";
 import { useDesktopSearch } from "../hooks/useDesktopSearch";
+import type { TaskWorkspaceNavigationTarget } from "../taskWorkspaceNavigation";
 import type { WorkspaceTabsSearchProps } from "../views/WorkspaceTabs";
 
 export type SearchControllerInput = WorkspaceTabsSearchProps;
@@ -18,21 +19,19 @@ export function createSearchController(props: SearchControllerInput): SearchCont
 }
 
 export function useSearchController({
-  handleBlockSelect,
-  handleOpenRunRecord,
-  loadProject,
-  openTaskInspector,
+  openRunWorkspace,
+  openTaskWorkspace,
   selectedCanvasId,
   selectedProject,
   setError
 }: {
-  handleBlockSelect: (ref: string, canvasId?: string | null) => Promise<void>;
-  handleOpenRunRecord: (
-    recordId: string | null | undefined,
-    canvasId?: string | null
-  ) => Promise<void>;
-  loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
-  openTaskInspector: (taskId: string, canvasId?: string | null) => Promise<void>;
+  openRunWorkspace: (locator: {
+    projectRoot: string;
+    canvasId: string;
+    recordId: string;
+    expectedBlockRef: string;
+  }) => Promise<void>;
+  openTaskWorkspace: (target: TaskWorkspaceNavigationTarget) => void;
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
   setError: (message: string | null) => void;
@@ -50,10 +49,8 @@ export function useSearchController({
     setSearchQuery,
     setSearchResultKindEnabled
   } = useDesktopSearch({
-    handleBlockSelect,
-    handleOpenRunRecord,
-    loadProject,
-    openTaskInspector,
+    openRunWorkspace,
+    openTaskWorkspace,
     selectedCanvasId,
     selectedProject,
     setError

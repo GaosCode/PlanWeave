@@ -15,6 +15,7 @@ export function useAppNotifications({
   fileSyncDiagnostics,
   graph,
   lastFileChange,
+  navigationContext,
   pendingImportRecoveries,
   promptConflicts,
   settings,
@@ -25,6 +26,7 @@ export function useAppNotifications({
   fileSyncDiagnostics: string[];
   graph: DesktopGraphViewModel | null;
   lastFileChange: DesktopPackageFileChangeEvent | null;
+  navigationContext: { projectRoot: string; canvasId: string } | null;
   pendingImportRecoveries: PendingImportTransaction[];
   promptConflicts: PromptConflictRef[];
   settings: DesktopUiSettings;
@@ -36,6 +38,7 @@ export function useAppNotifications({
     fileSyncDiagnostics,
     graph,
     lastFileChange,
+    navigationContext,
     pendingImportRecoveries,
     promptConflicts,
     settings,

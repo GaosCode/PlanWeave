@@ -154,7 +154,7 @@ export function defaultAutoRunControlArgs(
 ): AutoRunControlArgs {
   return {
     autoRunState: null,
-    handleOpenRunRecord: vi.fn(),
+    openRunWorkspace: vi.fn(),
     selectedCanvasId: "canvas-main",
     selectedBlock: null,
     selectedProject: null,

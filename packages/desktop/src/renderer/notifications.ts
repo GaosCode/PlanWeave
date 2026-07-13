@@ -7,12 +7,45 @@ import type {
 import type { createTranslator } from "./i18n";
 import type { PromptConflictRef } from "./hooks/usePromptDrafts";
 import type { DesktopUiSettings, NotificationItem, NotificationItemDraft } from "./types";
+import { blockWorkspaceTarget, taskWorkspaceTarget } from "./taskWorkspaceNavigation";
+
+type NotificationNavigationContext = {
+  projectRoot: string;
+  canvasId: string;
+};
+
+function directNavigationIntent(
+  graph: DesktopGraphViewModel,
+  context: NotificationNavigationContext,
+  ref: string
+): NotificationItemDraft["navigationIntent"] {
+  const separatorIndex = ref.indexOf("#");
+  const taskId = separatorIndex < 0 ? ref : ref.slice(0, separatorIndex);
+  const task = graph.tasks.find((candidate) => candidate.taskId === taskId);
+  if (!task) {
+    return;
+  }
+  if (separatorIndex < 0) {
+    return {
+      kind: "task-workspace",
+      target: taskWorkspaceTarget({ ...context, taskId })
+    };
+  }
+  if (!task.blocks.some((block) => block.ref === ref)) {
+    return;
+  }
+  return {
+    kind: "task-workspace",
+    target: blockWorkspaceTarget({ ...context, taskId, blockRef: ref })
+  };
+}
 
 export function buildNotificationItems({
   autoRunState,
   fileSyncDiagnostics,
   graph,
   lastFileChange,
+  navigationContext,
   pendingImportRecoveries = [],
   promptConflicts,
   settings,
@@ -22,6 +55,7 @@ export function buildNotificationItems({
   fileSyncDiagnostics: string[];
   graph: DesktopGraphViewModel | null;
   lastFileChange: DesktopPackageFileChangeEvent | null;
+  navigationContext: NotificationNavigationContext | null;
   pendingImportRecoveries?: PendingImportTransaction[];
   promptConflicts: PromptConflictRef[];
   settings: DesktopUiSettings;
@@ -42,7 +76,18 @@ export function buildNotificationItems({
       id: `latest-record:${autoRunState.latestRecordPath}`,
       title: t("latestRecord"),
       detail: autoRunState.latestRecordPath,
-      tone: "outline"
+      tone: "outline",
+      navigationIntent:
+        autoRunState.latestRecordId && autoRunState.canvasId
+          ? {
+              kind: "run-record-lookup",
+              locator: {
+                projectRoot: autoRunState.projectRoot,
+                canvasId: autoRunState.canvasId,
+                recordId: autoRunState.latestRecordId
+              }
+            }
+          : undefined
     });
   }
   if (settings.notifications.graphExceptions) {
@@ -52,7 +97,11 @@ export function buildNotificationItems({
           id: `${task.taskId}-${exception.ref}-${exception.source}`,
           title: `${t("graphExceptions")} · ${task.title}`,
           detail: exception.reason,
-          tone: "destructive"
+          tone: "destructive",
+          navigationIntent:
+            graph && navigationContext
+              ? directNavigationIntent(graph, navigationContext, exception.ref)
+              : undefined
         });
       }
     }
@@ -63,7 +112,11 @@ export function buildNotificationItems({
         id: `dirty-${ref}`,
         title: t("notifyDirtyPrompts"),
         detail: ref,
-        tone: "secondary"
+        tone: "secondary",
+        navigationIntent:
+          graph && navigationContext
+            ? directNavigationIntent(graph, navigationContext, ref)
+            : undefined
       });
     }
   }

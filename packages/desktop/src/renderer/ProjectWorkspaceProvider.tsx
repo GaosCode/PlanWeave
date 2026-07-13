@@ -22,7 +22,9 @@ import {
   createContext,
   useCallback,
   useContext,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -85,6 +87,15 @@ import type { AppViewHistoryController } from "./hooks/useAppViewHistory";
 import type { TaskWorkspaceController } from "./task-workspace/contracts";
 import { useTaskWorkspaceController } from "./task-workspace/useTaskWorkspaceController";
 import { useTaskWorkspaceGraphNavigation } from "./task-workspace/useTaskWorkspaceGraphNavigation";
+import {
+  useRecordWorkspaceNavigation,
+  type RecordNavigationSource,
+  type RecordWorkspaceLocator
+} from "./task-workspace/useRecordWorkspaceNavigation";
+import type {
+  RecordAuthorityTarget,
+  TaskWorkspaceNavigationTarget
+} from "./taskWorkspaceNavigation";
 
 const emptyExecutorOptions: string[] = [];
 type TaskCanvasSummary = DesktopProjectSummary["taskCanvases"][number];
@@ -337,6 +348,43 @@ export function ProjectWorkspaceProvider({
     setError
   });
   const taskWorkspace = useTaskWorkspaceController({ history: appHistory });
+  const currentRouteRef = useRef(appHistory.route);
+  currentRouteRef.current = appHistory.route;
+  const recordWorkspaceNavigationRef = useRef<
+    ((source: RecordNavigationSource, locator: RecordWorkspaceLocator) => Promise<void>) | null
+  >(null);
+  const openRecordWorkspace = useCallback(
+    (source: RecordNavigationSource, locator: RecordWorkspaceLocator) => {
+      const open = recordWorkspaceNavigationRef.current;
+      if (!open) {
+        return Promise.reject(new Error("Task Workspace record navigation is unavailable."));
+      }
+      return open(source, locator);
+    },
+    []
+  );
+  const openAutoRunWorkspace = useCallback(
+    (locator: Omit<RecordWorkspaceLocator, "expectedBlockRef">) =>
+      openRecordWorkspace("autoRun", locator),
+    [openRecordWorkspace]
+  );
+  const openSearchRunWorkspace = useCallback(
+    (locator: RecordWorkspaceLocator) => openRecordWorkspace("search", locator),
+    [openRecordWorkspace]
+  );
+  const openNotificationRunWorkspace = useCallback(
+    (locator: Omit<RecordWorkspaceLocator, "expectedBlockRef">) =>
+      openRecordWorkspace("notifications", locator),
+    [openRecordWorkspace]
+  );
+  const openTaskWorkspaceFrom = useCallback(
+    (source: "notifications" | "search", target: TaskWorkspaceNavigationTarget) => {
+      if (currentRouteRef.current.view === source) {
+        appHistory.openTaskWorkspace(target, { view: source });
+      }
+    },
+    [appHistory.openTaskWorkspace]
+  );
 
   const autoRunController = useAutoRunController({
     autoRunState,
@@ -345,7 +393,7 @@ export function ProjectWorkspaceProvider({
     selectedBlock,
     selectedProject,
     selectedTaskPanelId,
-    handleOpenRunRecord,
+    openRunWorkspace: openAutoRunWorkspace,
     setAutoRunState,
     setError,
     t,
@@ -381,14 +429,74 @@ export function ProjectWorkspaceProvider({
   });
 
   const searchController = useSearchController({
-    handleBlockSelect: handleOpenBlockInspector,
-    handleOpenRunRecord,
-    loadProject: openProjectInSession,
-    openTaskInspector: handleOpenTaskInspector,
+    openRunWorkspace: openSearchRunWorkspace,
+    openTaskWorkspace: (target) => openTaskWorkspaceFrom("search", target),
     selectedCanvasId,
     selectedProject,
     setError
   });
+  const recordNavigationSourceContextKeys = useMemo(() => {
+    const selectedContext = [selectedProject?.rootPath ?? null, selectedCanvasId];
+    const runContext = autoRunState
+      ? [
+          autoRunState.runId,
+          autoRunState.projectRoot,
+          autoRunState.canvasId,
+          autoRunState.currentRef,
+          autoRunState.latestRecordId,
+          autoRunState.updatedAt
+        ]
+      : null;
+    return {
+      autoRun: JSON.stringify([...selectedContext, runContext]),
+      notifications: JSON.stringify([
+        ...selectedContext,
+        autoRunState?.projectRoot ?? null,
+        autoRunState?.canvasId ?? null,
+        autoRunState?.latestRecordId ?? null,
+        autoRunState?.updatedAt ?? null
+      ]),
+      search: JSON.stringify([
+        ...selectedContext,
+        searchController.searchQuery,
+        searchController.searchCanvasScope,
+        searchController.selectedSearchResultKinds
+      ])
+    };
+  }, [autoRunState, searchController, selectedCanvasId, selectedProject]);
+  const getNavigationRunRecord = useCallback((locator: RecordWorkspaceLocator) => {
+    if (!bridge) {
+      return Promise.reject(new Error("Task Workspace bridge is unavailable."));
+    }
+    return bridge.getRunRecord(
+      { projectRoot: locator.projectRoot, canvasId: locator.canvasId },
+      locator.recordId
+    );
+  }, []);
+  const publishRecordWorkspaceTarget = useCallback(
+    (source: RecordNavigationSource, target: RecordAuthorityTarget) => {
+      if (source === "autoRun") {
+        taskWorkspaceNavigation.openRunWorkspace(target);
+        return;
+      }
+      appHistory.openTaskWorkspace(target, { view: source });
+    },
+    [appHistory.openTaskWorkspace, taskWorkspaceNavigation.openRunWorkspace]
+  );
+  const recordWorkspaceNavigation = useRecordWorkspaceNavigation({
+    getRunRecord: getNavigationRunRecord,
+    openTarget: publishRecordWorkspaceTarget,
+    route: appHistory.route,
+    sourceContextKeys: recordNavigationSourceContextKeys
+  });
+  useLayoutEffect(() => {
+    recordWorkspaceNavigationRef.current = recordWorkspaceNavigation;
+    return () => {
+      if (recordWorkspaceNavigationRef.current === recordWorkspaceNavigation) {
+        recordWorkspaceNavigationRef.current = null;
+      }
+    };
+  }, [recordWorkspaceNavigation]);
   const visibleProjectDiagnostics = useMemo(
     () =>
       uniqueDesktopDiagnostics([
@@ -744,6 +852,12 @@ export function ProjectWorkspaceProvider({
     handleRevealPathInFinder,
     keepLocalPromptConflicts,
     lastFileChange: fileSyncController.lastFileChange,
+    navigationContext:
+      selectedProject && selectedCanvasId
+        ? { projectRoot: selectedProject.rootPath, canvasId: selectedCanvasId }
+        : null,
+    openRunWorkspace: openNotificationRunWorkspace,
+    openTaskWorkspace: (target) => openTaskWorkspaceFrom("notifications", target),
     pendingImportRecoveries,
     promptConflicts,
     reloadPromptConflicts,

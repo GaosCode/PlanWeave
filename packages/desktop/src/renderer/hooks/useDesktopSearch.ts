@@ -9,6 +9,11 @@ import type {
 } from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
 import { searchNavigationTarget } from "../components/SearchResultList";
+import {
+  blockWorkspaceTarget,
+  taskWorkspaceTarget,
+  type TaskWorkspaceNavigationTarget
+} from "../taskWorkspaceNavigation";
 
 export type DesktopSearchCanvasScope = "all" | "current";
 
@@ -36,13 +41,13 @@ const bodySearchResultKinds = new Set<DesktopSearchResultKind>([
 ]);
 
 type UseDesktopSearchArgs = {
-  handleBlockSelect: (ref: string, canvasId?: string | null) => Promise<void>;
-  handleOpenRunRecord: (
-    recordId: string | null | undefined,
-    canvasId?: string | null
-  ) => Promise<void>;
-  openTaskInspector: (taskId: string, canvasId?: string | null) => Promise<void>;
-  loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
+  openRunWorkspace: (locator: {
+    projectRoot: string;
+    canvasId: string;
+    recordId: string;
+    expectedBlockRef: string;
+  }) => Promise<void>;
+  openTaskWorkspace: (target: TaskWorkspaceNavigationTarget) => void;
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
   setError: (message: string | null) => void;
@@ -58,10 +63,8 @@ function selectedKindsNeedBodySearch(kinds: DesktopSearchResultKind[]): boolean 
 }
 
 export function useDesktopSearch({
-  handleBlockSelect,
-  handleOpenRunRecord,
-  openTaskInspector,
-  loadProject,
+  openRunWorkspace,
+  openTaskWorkspace,
   selectedCanvasId,
   selectedProject,
   setError
@@ -69,6 +72,7 @@ export function useDesktopSearch({
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<DesktopSearchResult[]>([]);
+  const [searchResultsProjectRoot, setSearchResultsProjectRoot] = useState<string | null>(null);
   const [searchDiagnostics, setSearchDiagnostics] = useState<ValidationIssue[]>([]);
   const [searchStatus, setSearchStatus] = useState<DesktopSearchStatus>({ phase: "idle" });
   const [selectedSearchResultKinds, setSelectedSearchResultKinds] = useState<
@@ -82,6 +86,7 @@ export function useDesktopSearch({
   }, [setError]);
   const clearSearchResults = useCallback(() => {
     setSearchResults((current) => (current.length ? [] : current));
+    setSearchResultsProjectRoot(null);
   }, []);
   const clearSearchDiagnostics = useCallback(() => {
     setSearchDiagnostics((current) => (current.length ? [] : current));
@@ -192,6 +197,7 @@ export function useDesktopSearch({
       const { diagnostics, results } = projection;
       setSearchDiagnostics(diagnostics);
       setSearchResults(results);
+      setSearchResultsProjectRoot(projectRoot);
       if (bodyFilters) {
         setSearchStatus({ phase: "body_loading", summaryResultCount: results.length });
         return;
@@ -209,6 +215,7 @@ export function useDesktopSearch({
       const { diagnostics, results } = projection;
       setSearchDiagnostics(diagnostics);
       setSearchResults(results);
+      setSearchResultsProjectRoot(projectRoot);
       setSearchStatus({ phase: "complete", resultCount: results.length, expandedBodySearch: true });
     };
     const applyError = (caught: unknown) => {
@@ -263,31 +270,56 @@ export function useDesktopSearch({
 
   const handleSearchResultOpen = useCallback(
     async (result: DesktopSearchResult) => {
-      if (selectedProject && result.canvasId && result.canvasId !== selectedCanvasId) {
-        await loadProject(selectedProject, result.canvasId);
-      }
-      const target = searchNavigationTarget(result);
-      const canvasId = result.canvasId ?? selectedCanvasId;
-      if (target.kind === "task") {
-        await openTaskInspector(target.ref, canvasId);
-        return;
-      }
-      if (target.kind === "block") {
-        await handleBlockSelect(target.ref, canvasId);
-        return;
-      }
-      if (target.kind === "record") {
-        await handleOpenRunRecord(target.recordId, canvasId);
+      try {
+        if (!searchResultsProjectRoot) {
+          throw new Error(
+            "Cannot open search result because its project authority is unavailable."
+          );
+        }
+        if (!result.canvasId) {
+          throw new Error("Cannot open search result because its canvas authority is unavailable.");
+        }
+        const target = searchNavigationTarget(result);
+        if (target.kind === "task") {
+          openTaskWorkspace(
+            taskWorkspaceTarget({
+              projectRoot: searchResultsProjectRoot,
+              canvasId: result.canvasId,
+              taskId: target.ref
+            })
+          );
+          return;
+        }
+        if (target.kind === "block") {
+          const taskId = target.ref.slice(0, target.ref.indexOf("#"));
+          openTaskWorkspace(
+            blockWorkspaceTarget({
+              projectRoot: searchResultsProjectRoot,
+              canvasId: result.canvasId,
+              taskId,
+              blockRef: target.ref
+            })
+          );
+          return;
+        }
+        if (target.kind === "record") {
+          if (!result.targetRef) {
+            throw new Error("Cannot open run record because its block authority is unavailable.");
+          }
+          await openRunWorkspace({
+            projectRoot: searchResultsProjectRoot,
+            canvasId: result.canvasId,
+            recordId: target.recordId,
+            expectedBlockRef: result.targetRef
+          });
+          return;
+        }
+        throw new Error("Cannot open search result because it has no navigation target.");
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [
-      handleBlockSelect,
-      handleOpenRunRecord,
-      loadProject,
-      openTaskInspector,
-      selectedCanvasId,
-      selectedProject
-    ]
+    [openRunWorkspace, openTaskWorkspace, searchResultsProjectRoot, setError]
   );
 
   return {
