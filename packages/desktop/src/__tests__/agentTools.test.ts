@@ -68,7 +68,7 @@ describe("desktop agent tool detection", () => {
       ["acp", "--help"],
       expect.objectContaining({
         maxBuffer: 64 * 1024,
-        timeout: 5_000
+        timeout: 15_000
       }),
       expect.any(Function)
     );
