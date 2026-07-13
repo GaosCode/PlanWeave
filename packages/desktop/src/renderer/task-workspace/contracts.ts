@@ -6,6 +6,7 @@ import type {
 } from "@planweave-ai/runtime";
 import type { ReactNode } from "react";
 import type { TaskWorkspaceNavigationIdentity } from "../taskWorkspaceNavigation";
+import type { TaskWorkspaceLayout } from "./useTaskWorkspaceLayout";
 
 export type TaskWorkspaceRunItem = TaskWorkspaceBlock["runs"][number];
 
@@ -54,12 +55,15 @@ export type TaskWorkspaceController = {
 export type TaskWorkspaceTimelineSlotProps = Pick<
   TaskWorkspaceController,
   "getRunScrollTop" | "onRunScrollTopChange" | "selectRun" | "selectedRun" | "workspace"
->;
+> &
+  Pick<TaskWorkspaceLayout, "setTimelineWidth" | "timelineWidth">;
 
 export type TaskWorkspaceConversationSlotProps = Pick<
   TaskWorkspaceController,
+  | "getRunScrollTop"
   | "liveStatus"
   | "liveUnavailableReason"
+  | "onRunScrollTopChange"
   | "recordError"
   | "runnerModel"
   | "selectedRecord"
@@ -70,7 +74,11 @@ export type TaskWorkspaceConversationSlotProps = Pick<
 export type TaskWorkspaceInspectorSlotProps = Pick<
   TaskWorkspaceController,
   "selectedRecord" | "selectedRun" | "workspace"
->;
+> &
+  Pick<
+    TaskWorkspaceLayout,
+    "inspectorCollapsed" | "inspectorWidth" | "setInspectorCollapsed" | "setInspectorWidth"
+  >;
 
 export type TaskWorkspaceComposerSlotProps = Pick<
   TaskWorkspaceController,

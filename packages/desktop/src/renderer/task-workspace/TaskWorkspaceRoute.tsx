@@ -56,11 +56,15 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
     onRunScrollTopChange: controller.onRunScrollTopChange,
     selectRun: controller.selectRun,
     selectedRun: controller.selectedRun,
+    setTimelineWidth: layout.setTimelineWidth,
+    timelineWidth: layout.timelineWidth,
     workspace: controller.workspace
   };
   const conversationProps = {
+    getRunScrollTop: controller.getRunScrollTop,
     liveStatus: controller.liveStatus,
     liveUnavailableReason: controller.liveUnavailableReason,
+    onRunScrollTopChange: controller.onRunScrollTopChange,
     recordError: controller.recordError,
     runnerModel: controller.runnerModel,
     selectedRecord: controller.selectedRecord,
@@ -68,8 +72,12 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
     subscriptionError: controller.subscriptionError
   };
   const inspectorProps = {
+    inspectorCollapsed: layout.inspectorCollapsed,
+    inspectorWidth: layout.inspectorWidth,
     selectedRecord: controller.selectedRecord,
     selectedRun: controller.selectedRun,
+    setInspectorCollapsed: layout.setInspectorCollapsed,
+    setInspectorWidth: layout.setInspectorWidth,
     workspace: controller.workspace
   };
   const composerProps = {

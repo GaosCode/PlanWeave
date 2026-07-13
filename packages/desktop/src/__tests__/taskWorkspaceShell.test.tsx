@@ -6,8 +6,11 @@ import userEvent from "@testing-library/user-event";
 import type { TaskWorkspace } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
+  TaskWorkspaceConversationSlotProps,
   TaskWorkspaceController,
-  TaskWorkspaceLabels
+  TaskWorkspaceInspectorSlotProps,
+  TaskWorkspaceLabels,
+  TaskWorkspaceTimelineSlotProps
 } from "../renderer/task-workspace/contracts";
 import { TaskWorkspaceRoute } from "../renderer/task-workspace/TaskWorkspaceRoute";
 import { useTaskWorkspaceLayout } from "../renderer/task-workspace/useTaskWorkspaceLayout";
@@ -28,6 +31,12 @@ const labels: TaskWorkspaceLabels = {
   noTask: "No task",
   timeline: "Timeline"
 };
+
+const savedScrollTop = 42;
+const initialTimelineWidth = 280;
+const initialInspectorWidth = 320;
+const resizedTimelineWidth = 480;
+const resizedInspectorWidth = 500;
 
 const workspace: TaskWorkspace = {
   version: "planweave.task-workspace/v1",
@@ -151,6 +160,50 @@ describe("Task Workspace shell", () => {
     rerender({ sessionKey: "task-2" });
     expect(result.current.timelineWidth).toBe(280);
     expect(result.current.inspectorWidth).toBe(320);
+  });
+
+  it("passes the authoritative controller and layout controls to each lane slot", () => {
+    const getRunScrollTop = vi.fn(() => savedScrollTop);
+    const onRunScrollTopChange = vi.fn();
+    const timeline = vi.fn((_props: TaskWorkspaceTimelineSlotProps) => null);
+    const conversation = vi.fn((_props: TaskWorkspaceConversationSlotProps) => null);
+    const inspector = vi.fn((_props: TaskWorkspaceInspectorSlotProps) => null);
+
+    render(
+      <TaskWorkspaceRoute
+        controller={controller({ getRunScrollTop, onRunScrollTopChange })}
+        labels={labels}
+        slots={{ conversation, inspector, timeline }}
+      />
+    );
+
+    const timelineProps = timeline.mock.calls[0]?.[0];
+    const conversationProps = conversation.mock.calls[0]?.[0];
+    const inspectorProps = inspector.mock.calls[0]?.[0];
+    expect(timelineProps).toMatchObject({
+      getRunScrollTop,
+      onRunScrollTopChange,
+      timelineWidth: initialTimelineWidth
+    });
+    expect(conversationProps).toMatchObject({ getRunScrollTop, onRunScrollTopChange });
+    expect(inspectorProps).toMatchObject({
+      inspectorCollapsed: false,
+      inspectorWidth: initialInspectorWidth
+    });
+
+    act(() => {
+      timelineProps?.setTimelineWidth(resizedTimelineWidth);
+      inspectorProps?.setInspectorWidth(resizedInspectorWidth);
+    });
+    expect(screen.getByTestId("task-workspace-timeline-slot")).toHaveStyle({
+      width: `${resizedTimelineWidth}px`
+    });
+    expect(screen.getByTestId("task-workspace-inspector-slot")).toHaveStyle({
+      width: `${resizedInspectorWidth}px`
+    });
+
+    act(() => inspectorProps?.setInspectorCollapsed(true));
+    expect(screen.queryByTestId("task-workspace-inspector-slot")).not.toBeInTheDocument();
   });
 
   it("shows a selected record failure in the stable conversation slot", () => {
