@@ -74,7 +74,11 @@ export function RunnerRecordMonitor({
   const artifactApi = api === undefined ? bridge : api;
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-2" aria-label={t("acpMonitor")}>
+    <section
+      className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden"
+      aria-label={t("acpMonitor")}
+      data-testid="runner-record-monitor"
+    >
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <Badge variant="outline">ACP</Badge>
         <span className="text-muted-foreground">
@@ -154,17 +158,23 @@ export function RunnerRecordMonitor({
         </div>
       ) : null}
       {diagnostics.length > 0 ? (
-        <div className="space-y-1 rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs">
+        <div
+          className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs"
+          data-testid="runner-record-diagnostics"
+        >
           <div className="font-medium">{t("acpDiagnostics")}</div>
           {diagnostics.map((diagnostic, index) => (
-            <div key={`${diagnostic.code}-${diagnostic.line ?? "stream"}-${index}`}>
+            <div
+              className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+              key={`${diagnostic.code}-${diagnostic.line ?? "stream"}-${index}`}
+            >
               <span className="font-mono">{diagnostic.code}</span>: {diagnostic.message}
             </div>
           ))}
         </div>
       ) : null}
       {detailEvents.length > 0 ? (
-        <div className="space-y-2 rounded-md border p-2 text-xs">
+        <div className="max-h-40 space-y-2 overflow-y-auto rounded-md border p-2 text-xs">
           <div className="font-medium">{t("acpRunDetails")}</div>
           {detailEvents.map((event) => {
             const body = event.body;

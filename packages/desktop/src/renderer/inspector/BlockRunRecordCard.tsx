@@ -136,16 +136,20 @@ export function BlockRunRecordCard({
             t={t}
           />
         ) : null}
-        <div className="text-xs font-medium text-muted-foreground">{t("runReport")}</div>
-        {displayMarkdown ? (
-          <ScrollArea className="min-h-0 flex-1 rounded-md border p-2">
-            <pre className="whitespace-pre-wrap text-xs">{displayMarkdown}</pre>
-          </ScrollArea>
-        ) : (
-          <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
-            {t("noRunReport")}
-          </div>
-        )}
+        {!isAcpRun ? (
+          <>
+            <div className="text-xs font-medium text-muted-foreground">{t("runReport")}</div>
+            {displayMarkdown ? (
+              <ScrollArea className="min-h-0 flex-1 rounded-md border p-2">
+                <pre className="whitespace-pre-wrap text-xs">{displayMarkdown}</pre>
+              </ScrollArea>
+            ) : (
+              <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
+                {t("noRunReport")}
+              </div>
+            )}
+          </>
+        ) : null}
       </CardContent>
     </Card>
   );

@@ -512,6 +512,32 @@ describe("ACP runner record monitor", () => {
     expect(await screen.findAllByText(/missing sequence/)).toHaveLength(1);
   });
 
+  it("bounds long diagnostics inside the monitor", () => {
+    const longDiagnostic = {
+      code: "corrupt_line" as const,
+      line: 7,
+      message: `Unsupported ACP session update: ${"unbroken".repeat(80)}`
+    };
+    render(
+      <RunnerRecordMonitor
+        api={null}
+        initialModel={model([], noInteraction, [longDiagnostic])}
+        recordId="T-001#B-001::RUN-001"
+        t={createTranslator("en")}
+      />
+    );
+
+    expect(screen.getByTestId("runner-record-monitor")).toHaveClass("overflow-hidden");
+    expect(screen.getByTestId("runner-record-diagnostics")).toHaveClass(
+      "max-h-48",
+      "overflow-y-auto"
+    );
+    expect(screen.getByText(/Unsupported ACP session update/)).toHaveClass(
+      "whitespace-pre-wrap",
+      "[overflow-wrap:anywhere]"
+    );
+  });
+
   it("submits an exact permission response once and waits for an authoritative snapshot", async () => {
     let resolveResponse!: () => void;
     const respondToAgentRequest = vi.fn(() => new Promise<void>((resolve) => {
@@ -685,5 +711,52 @@ describe("ACP runner record monitor", () => {
     expect(screen.queryByText("must-not-render")).not.toBeInTheDocument();
     expect(screen.queryByText(/terminal stdout must not render/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open tmux terminal" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Run report")).not.toBeInTheDocument();
+    expect(screen.queryByText("No run report")).not.toBeInTheDocument();
+  });
+
+  it("keeps the traditional run report for non-ACP records", () => {
+    const record: DesktopRunRecord = {
+      recordId: "T-001#B-001::RUN-002",
+      ref: "T-001#B-001",
+      taskId: "T-001",
+      blockId: "B-001",
+      runId: "RUN-002",
+      executor: "codex",
+      adapter: null,
+      executionCwd: "/tmp/project",
+      projectRoot: "/tmp/project",
+      agentSessionId: null,
+      codexSessionId: null,
+      tmuxSessionId: null,
+      tmuxAttachCommand: null,
+      tmuxReadOnlyAttachCommand: null,
+      exitCode: 0,
+      startedAt: "2026-07-11T00:00:00.000Z",
+      finishedAt: "2026-07-11T00:00:01.000Z",
+      promptPath: null,
+      reportPath: "/tmp/project/report.md",
+      metadataPath: "/tmp/project/metadata.json",
+      stdoutSummary: null,
+      stderrSummary: null,
+      promptMarkdown: "",
+      reportMarkdown: "# Completed",
+      displayMarkdown: "# Completed",
+      displayMarkdownSource: "report",
+      metadata: {},
+      runnerReadModel: null
+    };
+
+    render(
+      <BlockRunRecordCard
+        canvasRef={null}
+        selectedRunRecord={record}
+        setSelectedRunRecord={vi.fn()}
+        t={createTranslator("en")}
+      />
+    );
+
+    expect(screen.getByText("Run report")).toBeInTheDocument();
+    expect(screen.getByText("# Completed")).toBeInTheDocument();
   });
 });
