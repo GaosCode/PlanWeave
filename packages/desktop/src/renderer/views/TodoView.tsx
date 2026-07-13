@@ -172,7 +172,8 @@ export function TodoView({ executionPlan, handleBlockSelect, t, todoGroups }: To
                     reviewGate: t("reviewGate"),
                     reviewNeedsChangesReturnsTo: t("reviewNeedsChangesReturnsTo"),
                     reviewRequired: t("reviewRequired"),
-                    reviewUnlocks: t("reviewUnlocks")
+                    reviewUnlocks: t("reviewUnlocks"),
+                    statusLabel: statusLabel(status)
                   }}
                   onSelect={(item) => void handleBlockSelect(item.ref, item.canvasId)}
                   status={status}

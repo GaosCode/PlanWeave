@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type DragEvent, type MouseEvent, type PointerEvent, type Ref, type SetStateAction } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type DragEvent, type MouseEvent, type PointerEvent, type Ref, type SetStateAction } from "react";
 import {
   Background,
   type Connection,
@@ -86,7 +86,7 @@ type GraphViewProps = {
   onNodeDragStop: (event: MouseEvent, node: Node) => Promise<void>;
 };
 
-export function GraphView({
+function GraphViewInner({
   autoRunControlStyle,
   autoRunControlRef,
   autoRunNextAction,
@@ -183,6 +183,34 @@ export function GraphView({
     [handleOpenBlockInspector, onTaskPanelSelect, selectedCanvasId, setActiveView]
   );
 
+  const handleNodeClick = useCallback(
+    (_event: unknown, node: Node) => {
+      if (node.type === "task") {
+        onTaskPanelSelect(node.id);
+      }
+    },
+    [onTaskPanelSelect]
+  );
+
+  const handleNodeMouseEnter = useCallback((_event: unknown, node: Node) => setHoveredNodeId(node.id), []);
+
+  const handleNodeMouseLeave = useCallback(
+    (_event: unknown, node: Node) => setHoveredNodeId((current) => (current === node.id ? null : current)),
+    []
+  );
+
+  const handleEdgeMouseEnter = useCallback((_event: unknown, edge: Edge) => setHoveredEdgeId(edge.id), []);
+
+  const handleEdgeMouseLeave = useCallback(
+    (_event: unknown, edge: Edge) => setHoveredEdgeId((current) => (current === edge.id ? null : current)),
+    []
+  );
+
+  const handlePaneMouseEnter = useCallback(() => {
+    setHoveredEdgeId(null);
+    setHoveredNodeId(null);
+  }, []);
+
   useEffect(() => {
     if (!graph) {
       return undefined;
@@ -246,19 +274,12 @@ export function GraphView({
           edgesReconnectable
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
-          onNodeClick={(_event, node) => {
-            if (node.type === "task") {
-              onTaskPanelSelect(node.id);
-            }
-          }}
-          onNodeMouseEnter={(_event, node) => setHoveredNodeId(node.id)}
-          onNodeMouseLeave={(_event, node) => setHoveredNodeId((current) => (current === node.id ? null : current))}
-          onEdgeMouseEnter={(_event, edge) => setHoveredEdgeId(edge.id)}
-          onEdgeMouseLeave={(_event, edge) => setHoveredEdgeId((current) => (current === edge.id ? null : current))}
-          onPaneMouseEnter={() => {
-            setHoveredEdgeId(null);
-            setHoveredNodeId(null);
-          }}
+          onNodeClick={handleNodeClick}
+          onNodeMouseEnter={handleNodeMouseEnter}
+          onNodeMouseLeave={handleNodeMouseLeave}
+          onEdgeMouseEnter={handleEdgeMouseEnter}
+          onEdgeMouseLeave={handleEdgeMouseLeave}
+          onPaneMouseEnter={handlePaneMouseEnter}
           onNodeDragStop={(event, node) => void onNodeDragStop(event, node)}
           onInit={handleFlowInit}
           proOptions={{ hideAttribution: true }}
@@ -347,3 +368,5 @@ export function GraphView({
     </div>
   );
 }
+
+export const GraphView = memo(GraphViewInner);

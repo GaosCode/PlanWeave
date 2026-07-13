@@ -93,7 +93,7 @@ export function SearchResultList({
 }) {
   return (
     <div className="flex flex-col gap-2 pr-2">
-      {results.map((result) => {
+      {results.map((result, index) => {
         const target = searchNavigationTarget(result);
         const resultContent = (
           <>
@@ -134,17 +134,20 @@ export function SearchResultList({
           </>
         );
         const key = `${result.canvasId ?? "project"}-${result.kind}-${result.ref}`;
+        const animClass = "animate-in fade-in slide-in-from-bottom-2 duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)] fill-mode-both";
+        const animStyle = { animationDelay: `${index * 35}ms` };
         if (target.kind === "none") {
           return (
-            <article className="flex flex-col gap-1 rounded-md border border-border/80 bg-surface-raised p-3 text-left text-text shadow-sm" key={key}>
+            <article className={`flex flex-col gap-1 rounded-md border border-border/80 bg-surface-raised p-3 text-left text-text shadow-sm ${animClass}`} key={key} style={animStyle}>
               {resultContent}
             </article>
           );
         }
         return (
           <button
-            className="flex flex-col gap-1 rounded-md border border-border/80 bg-surface-raised p-3 text-left text-text shadow-sm transition-colors hover:bg-surface-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            className={`flex flex-col gap-1 rounded-md border border-border/80 bg-surface-raised p-3 text-left text-text shadow-sm transition-colors hover:bg-surface-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${animClass}`}
             key={key}
+            style={animStyle}
             type="button"
             onClick={() => void onOpenResult(result)}
           >

@@ -1,0 +1,19 @@
+{
+  "name": "@planweave-ai/server",
+  "version": "0.2.2",
+  "description": "Authoritative LAN collaboration server for PlanWeave.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "cd ../.. && vitest run packages/server/src"
+  },
+  "dependencies": { "ws": "^8.21.0" },
+  "devDependencies": { "@types/ws": "^8.5.14" }
+}

@@ -64,7 +64,8 @@ describe("desktop renderer component interactions", () => {
           reviewGate: "Review gate",
           reviewNeedsChangesReturnsTo: "Needs changes returns to",
           reviewRequired: "Required review",
-          reviewUnlocks: "Unlocks"
+          reviewUnlocks: "Unlocks",
+          statusLabel: "Ready"
         }}
         onSelect={onSelect}
         status="ready"
@@ -597,7 +598,7 @@ describe("desktop renderer component interactions", () => {
 
     try {
       expect(screen.queryByRole("button", { name: "保存 Prompt" })).not.toBeInTheDocument();
-      fireEvent.change(screen.getByRole("textbox", { name: "Source Prompt" }), { target: { value: "# Updated block prompt\n" } });
+      fireEvent.change(screen.getByRole("textbox", { name: "源 Prompt" }), { target: { value: "# Updated block prompt\n" } });
       expect(saveSelectedBlockPrompt).not.toHaveBeenCalled();
 
       await act(async () => {

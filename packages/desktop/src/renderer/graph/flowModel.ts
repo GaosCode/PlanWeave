@@ -285,6 +285,7 @@ export function styleGraphEdgesForInteraction(edges: Edge[], interaction: GraphE
   const hasSelectedEdge = selectedEdgeIds.size > 0;
   const hasHoveredEdge = !hasSelectedEdge && hoveredEdgeId !== null && edges.some((edge) => edge.id === hoveredEdgeId);
   const hasInteraction = hasHoveredNode || hasHoveredEdge || hasSelectedEdge;
+  if (!hasInteraction) return edges;
   return edges.map((edge) => {
     const relatedToSelection = selectedEdgeIds.has(edge.id);
     const lockedBySelection = hasSelectedEdge && !relatedToSelection;

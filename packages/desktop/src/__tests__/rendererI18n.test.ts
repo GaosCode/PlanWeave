@@ -76,7 +76,7 @@ describe("desktop renderer i18n", () => {
     const zh = createTranslator("zh-CN");
     const en = createTranslator("en");
 
-    expect(zh("taskPrompt")).toBe("Task Prompt");
+    expect(zh("taskPrompt")).toBe("任务提示");
     expect(zh("defaultTaskAcceptance")).toBe("Task 完成实现。");
     expect(en("defaultImplementationBlockTitle")).toBe("Implement work");
     expect(en("defaultTaskAcceptance")).toBe("Task is implemented.");

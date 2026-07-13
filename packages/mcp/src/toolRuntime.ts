@@ -60,6 +60,15 @@ import {
   validatePackage
 } from "@planweave-ai/runtime";
 import type { DesktopSearchResult, DesktopTodoItem } from "@planweave-ai/runtime";
+import {
+  getStatus,
+  getDiff,
+  getLog,
+  stageAll,
+  commit,
+  getRepoInfo
+} from "@planweave-ai/runtime";
+import { createPR, listPRs, getPR, mergePR } from "./github/index.js";
 import { sanitizeLocalPaths, sanitizeValidationIssues } from "./toolHelpers.js";
 import { exportCanvasPackage, importPackageFiles } from "./toolPackageFiles.js";
 import type { ReadyBlock, RuntimeGateway, SanitizedExecutionStatus } from "./toolTypes.js";
@@ -299,6 +308,48 @@ export const runtimeGateway: RuntimeGateway = {
       projectRoot: await resolveProjectRoot(input.projectId),
       canvasId: input.canvasId
     });
+  },
+
+  async gitStatus(projectId) {
+    return getStatus(await resolveSourceRoot(projectId));
+  },
+
+  async gitDiff(projectId, staged, files) {
+    return getDiff(await resolveSourceRoot(projectId), { staged, files });
+  },
+
+  async gitLog(projectId, maxCount) {
+    return getLog(await resolveSourceRoot(projectId), { maxCount });
+  },
+
+  async gitCommit(projectId, message) {
+    const cwd = await resolveSourceRoot(projectId);
+    await stageAll(cwd);
+    return commit(cwd, message);
+  },
+
+  async gitRepoInfo(projectId) {
+    return getRepoInfo(await resolveSourceRoot(projectId));
+  },
+
+  async githubCreatePR(projectId, title, head, base, body) {
+    const { owner, repo } = await resolveGitHubRepo(projectId);
+    return createPR(owner, repo, { title, head, base, body });
+  },
+
+  async githubListPRs(projectId, state) {
+    const { owner, repo } = await resolveGitHubRepo(projectId);
+    return listPRs(owner, repo, { state: state as "open" | "closed" | "all" | undefined });
+  },
+
+  async githubGetPR(projectId, prNumber) {
+    const { owner, repo } = await resolveGitHubRepo(projectId);
+    return getPR(owner, repo, prNumber);
+  },
+
+  async githubMergePR(projectId, prNumber, method) {
+    const { owner, repo } = await resolveGitHubRepo(projectId);
+    return mergePR(owner, repo, prNumber, { method });
   }
 };
 
@@ -308,6 +359,25 @@ async function resolveProjectRoot(projectId: string): Promise<string> {
     throw new Error(`Project '${projectId}' is not registered in PlanWeave.`);
   }
   return project.rootPath;
+}
+
+async function resolveSourceRoot(projectId: string): Promise<string> {
+  const project = (await listProjects()).find((item) => item.projectId === projectId);
+  if (!project) {
+    throw new Error(`Project '${projectId}' is not registered in PlanWeave.`);
+  }
+  return project.sourceRoot ?? project.rootPath;
+}
+
+async function resolveGitHubRepo(projectId: string): Promise<{ owner: string; repo: string }> {
+  const cwd = await resolveSourceRoot(projectId);
+  const info = await getRepoInfo(cwd);
+  if (!info.owner || !info.repo) {
+    throw new Error(
+      `Project '${projectId}' is not linked to a GitHub repository. Ensure a git remote named 'origin' points to github.com.`,
+    );
+  }
+  return { owner: info.owner, repo: info.repo };
 }
 
 async function resolveSelectedCanvasId(projectId: string, canvasId?: string | null): Promise<string | null> {

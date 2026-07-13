@@ -10,7 +10,7 @@
     "check:dom-boundaries": "node scripts/check-renderer-dom-boundaries.mjs",
     "check:versions": "node scripts/sync-version-metadata.mjs --check",
     "lint": "pnpm check:versions && pnpm check:dom-boundaries && pnpm typecheck",
-    "typecheck": "pnpm --filter @planweave-ai/runtime typecheck && pnpm --filter @planweave-ai/runtime build && pnpm --filter @planweave-ai/mcp typecheck && pnpm --filter @planweave-ai/mcp build && pnpm --filter @planweave-ai/cli typecheck && pnpm --filter @planweave-ai/desktop typecheck",
+    "typecheck": "pnpm --filter @planweave-ai/runtime typecheck && pnpm --filter @planweave-ai/runtime build && pnpm --filter @planweave-ai/mcp typecheck && pnpm --filter @planweave-ai/mcp build && pnpm --filter @planweave-ai/server typecheck && pnpm --filter @planweave-ai/cli typecheck && pnpm --filter @planweave-ai/desktop typecheck",
     "desktop:build": "pnpm --dir packages/desktop build",
     "desktop:dist:all": "pnpm --dir packages/desktop dist:all",
     "desktop:dist:linux": "pnpm --dir packages/desktop dist:linux",
@@ -35,8 +35,8 @@
   "devDependencies": {
     "@types/node": "^24.10.1",
     "husky": "^9.1.7",
-    "tsx": "^4.22.4",
+    "tsx": "^4.23.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.10"
   }
 }

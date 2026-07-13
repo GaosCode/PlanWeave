@@ -25,6 +25,7 @@ type OAuthProviderOptions = Pick<McpOAuthConfig, "accessTokenTtlMs" | "authoriza
   clientStore?: OAuthClientStore;
   tokenStore?: OAuthTokenStore;
   maxRequestBodyBytes: number;
+  trustProxy?: boolean;
 };
 
 export type OAuthProvider = ReturnType<typeof createOAuthProvider>;
@@ -35,15 +36,16 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
   const authorizationCodes = new Map<string, AuthorizationCode>();
   const accessTokenTtlMs = options.accessTokenTtlMs ?? defaultAccessTokenTtlMs;
   const authorizationCodeTtlMs = options.authorizationCodeTtlMs ?? defaultAuthorizationCodeTtlMs;
+  const trustProxy = options.trustProxy === true;
 
   return {
     async handleRequest(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
       if (req.method === "GET" && (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp")) {
-        writeJson(res, 200, protectedResourceMetadata(requestContext(req)));
+        writeJson(res, 200, protectedResourceMetadata(requestContext(req, { trustProxy })));
         return true;
       }
       if (req.method === "GET" && path === "/.well-known/oauth-authorization-server") {
-        writeJson(res, 200, authorizationServerMetadata(requestContext(req)));
+        writeJson(res, 200, authorizationServerMetadata(requestContext(req, { trustProxy })));
         return true;
       }
       if (req.method === "POST" && path === "/oauth/register") {
@@ -51,11 +53,11 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
         return true;
       }
       if (req.method === "GET" && path === "/oauth/authorize") {
-        await handleAuthorizePage(req, res, clientStore);
+        await handleAuthorizePage(req, res, clientStore, trustProxy);
         return true;
       }
       if (req.method === "POST" && path === "/oauth/authorize/confirm") {
-        await handleAuthorizeConfirm(req, res, options.maxRequestBodyBytes, clientStore, authorizationCodes, authorizationCodeTtlMs);
+        await handleAuthorizeConfirm(req, res, options.maxRequestBodyBytes, clientStore, authorizationCodes, authorizationCodeTtlMs, trustProxy);
         return true;
       }
       if (req.method === "POST" && path === "/oauth/token") {
@@ -79,11 +81,11 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
         await tokenStore.delete(hash);
         return false;
       }
-      return isAllowedOAuthResource(stored.resource, requestContext(req).resource) && scopeIncludesDefault(stored.scope);
+      return isAllowedOAuthResource(stored.resource, requestContext(req, { trustProxy }).resource) && scopeIncludesDefault(stored.scope);
     },
 
     writeUnauthorized(req: IncomingMessage, res: ServerResponse): void {
-      const context = requestContext(req);
+      const context = requestContext(req, { trustProxy });
       res.writeHead(401, {
         "content-type": "application/json; charset=utf-8",
         "www-authenticate": `Bearer realm="planweave-mcp", scope="${defaultOAuthScope}", resource_metadata="${context.authorizationServer}/.well-known/oauth-protected-resource"`
@@ -130,8 +132,8 @@ async function handleRegister(
   });
 }
 
-async function handleAuthorizePage(req: IncomingMessage, res: ServerResponse, clientStore: OAuthClientStore): Promise<void> {
-  const params = await validateAuthorizeParams(req, clientStore);
+async function handleAuthorizePage(req: IncomingMessage, res: ServerResponse, clientStore: OAuthClientStore, trustProxy: boolean): Promise<void> {
+  const params = await validateAuthorizeParams(req, clientStore, { trustProxy });
   if (!params.ok) {
     writeHtml(res, 400, errorPage(params.error));
     return;
@@ -146,14 +148,15 @@ async function handleAuthorizeConfirm(
   maxRequestBodyBytes: number,
   clientStore: OAuthClientStore,
   authorizationCodes: Map<string, AuthorizationCode>,
-  authorizationCodeTtlMs: number
+  authorizationCodeTtlMs: number,
+  trustProxy: boolean
 ): Promise<void> {
   const body = await readFormBody(req, maxRequestBodyBytes);
   if (!body.ok) {
     writeJson(res, body.statusCode, { error: body.error });
     return;
   }
-  const params = await validateAuthorizeSearchParams(new URLSearchParams(body.value), clientStore, requestContext(req).resource, { persistRecoveredClient: true });
+  const params = await validateAuthorizeSearchParams(new URLSearchParams(body.value), clientStore, requestContext(req, { trustProxy }).resource, { persistRecoveredClient: true });
   if (!params.ok) {
     writeJson(res, 400, { error: params.error });
     return;

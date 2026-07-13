@@ -2,6 +2,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { authoringToolHandlers } from "./toolHandlers/authoringTools.js";
 import { contentToolHandlers } from "./toolHandlers/contentTools.js";
 import { exportToolHandlers } from "./toolHandlers/exportTools.js";
+import { githubToolHandlers } from "./toolHandlers/githubTools.js";
 import { graphEditToolHandlers } from "./toolHandlers/graphEditTools.js";
 import { graphReadToolHandlers } from "./toolHandlers/graphReadTools.js";
 import { packageImportToolHandlers } from "./toolHandlers/packageImportTools.js";
@@ -22,7 +23,8 @@ export const planweaveToolHandlerRegistries = [
   graphEditToolHandlers,
   contentToolHandlers,
   exportToolHandlers,
-  packageImportToolHandlers
+  packageImportToolHandlers,
+  githubToolHandlers
 ] as const;
 
 export const planweaveToolHandlers = buildPlanweaveToolHandlerRegistry(planweaveToolHandlerRegistries);

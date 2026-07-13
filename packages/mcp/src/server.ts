@@ -97,7 +97,7 @@ async function handleMcpRequest(req: IncomingMessage, res: ServerResponse, confi
         jsonrpc: "2.0",
         error: {
           code: -32603,
-          message: error instanceof Error ? error.message : "Internal server error"
+          message: error instanceof Error ? "Internal server error" : "Internal server error"
         },
         id: null
       });
@@ -113,7 +113,8 @@ export function createPlanweaveMcpHttpServer(config: McpConfig): Server {
           authorizationCodeTtlMs: config.oauth.authorizationCodeTtlMs,
           clientStore: createFileOAuthClientStore(config.oauth.clientStorePath ?? join(resolvePlanweaveHome(), "config", "mcp-oauth-clients.json")),
           tokenStore: createFileOAuthTokenStore(config.oauth.tokenStorePath ?? join(resolvePlanweaveHome(), "config", "mcp-oauth-tokens.json")),
-          maxRequestBodyBytes: config.maxRequestBodyBytes
+          maxRequestBodyBytes: config.maxRequestBodyBytes,
+          trustProxy: config.trustProxy
         })
       : null;
   return createServer((req, res) => {
@@ -135,7 +136,7 @@ export function createPlanweaveMcpHttpServer(config: McpConfig): Server {
           writeJson(res, 404, { error: "not_found" });
         } catch (error) {
           if (!res.headersSent) {
-            writeJson(res, 500, { error: error instanceof Error ? error.message : "internal_server_error" });
+            writeJson(res, 500, { error: "internal_server_error" });
           }
         }
       })();

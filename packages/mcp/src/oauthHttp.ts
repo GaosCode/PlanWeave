@@ -8,10 +8,15 @@ export type OAuthRequestContext = {
   resource: string;
 };
 
-export function requestContext(req: IncomingMessage): OAuthRequestContext {
+export type OAuthRequestContextOptions = {
+  trustProxy?: boolean;
+};
+
+export function requestContext(req: IncomingMessage, options?: OAuthRequestContextOptions): OAuthRequestContext {
+  const trustProxy = options?.trustProxy === true;
   const encrypted = "encrypted" in req.socket && req.socket.encrypted === true;
-  const proto = firstHeader(req.headers["x-forwarded-proto"]) ?? (encrypted ? "https" : "http");
-  const host = firstHeader(req.headers["x-forwarded-host"]) ?? firstHeader(req.headers.host) ?? "127.0.0.1";
+  const proto = (trustProxy ? firstHeader(req.headers["x-forwarded-proto"]) : undefined) ?? (encrypted ? "https" : "http");
+  const host = (trustProxy ? firstHeader(req.headers["x-forwarded-host"]) : undefined) ?? firstHeader(req.headers.host) ?? "127.0.0.1";
   const authorizationServer = `${proto}://${host}`;
   return {
     authorizationServer,
@@ -19,8 +24,8 @@ export function requestContext(req: IncomingMessage): OAuthRequestContext {
   };
 }
 
-export function requestUrl(req: IncomingMessage): URL {
-  const context = requestContext(req);
+export function requestUrl(req: IncomingMessage, options?: OAuthRequestContextOptions): URL {
+  const context = requestContext(req, options);
   return new URL(req.url ?? "/", context.authorizationServer);
 }
 

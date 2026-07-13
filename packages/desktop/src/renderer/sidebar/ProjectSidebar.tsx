@@ -1,22 +1,27 @@
 import { useState, type Dispatch, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
 import {
-  PanelLeftCloseIcon,
-  RotateCcwIcon
+  BlocksIcon,
+  BotIcon,
+  CableIcon,
+  GitForkIcon,
+  GitPullRequestIcon,
+  RotateCcwIcon,
+  SettingsIcon
 } from "lucide-react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import type { createTranslator } from "../i18n";
 import type { AppView, NotificationItem } from "../types";
-import { HistoryNavigationButtons } from "../components/HistoryNavigationButtons";
+import type { SettingsSection } from "../settings/SettingsNav";
 import { ProjectTree } from "./ProjectTree";
 import { SidebarNav } from "./SidebarNav";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../components/ui/dropdown-menu";
 
 type TaskCanvasSummary = DesktopProjectSummary["taskCanvases"][number];
 
 type ProjectSidebarProps = {
   activeView: AppView;
-  collapsed: boolean;
   expandedProjectId: string | null;
   graph: DesktopGraphViewModel | null;
   handleBindSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
@@ -38,10 +43,15 @@ type ProjectSidebarProps = {
   handleRenameTaskCanvas: (project: DesktopProjectSummary, canvasId: string, currentName: string) => Promise<void>;
   handleUnlinkSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
+  isResizing?: boolean;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
   notificationItems: NotificationItem[];
+  mode: "personal" | "team";
+  teamConnectionRole: "server" | "member" | null;
+  teamView: string;
+  onModeChange: (mode: "personal" | "team") => void;
+  onTeamViewChange: (view: string) => void;
   onResizeStart?: (event: ReactPointerEvent) => void;
-  onToggleSidebar: () => void;
   onTogglePinnedProject: (projectId: string) => void;
   pinnedProjectIds: Set<string>;
   projectRefreshing: boolean;
@@ -50,6 +60,8 @@ type ProjectSidebarProps = {
   selectedProject: DesktopProjectSummary | null;
   selectedCanvasId: string | null;
   selectedTaskPanelId: string | null;
+  settingsSection: SettingsSection;
+  setSettingsSection: (section: SettingsSection) => void;
   setActiveView: Dispatch<SetStateAction<AppView>>;
   t: ReturnType<typeof createTranslator>;
   width?: number;
@@ -57,7 +69,6 @@ type ProjectSidebarProps = {
 
 export function ProjectSidebar({
   activeView,
-  collapsed,
   expandedProjectId,
   graph,
   handleBindSourceRoot,
@@ -79,10 +90,15 @@ export function ProjectSidebar({
   handleRenameTaskCanvas,
   handleUnlinkSourceRoot,
   handleTaskPanelSelect,
+  isResizing,
   loadProject,
   notificationItems,
+  mode,
+  teamConnectionRole,
+  teamView,
+  onModeChange,
+  onTeamViewChange,
   onResizeStart,
-  onToggleSidebar,
   onTogglePinnedProject,
   pinnedProjectIds,
   projectRefreshing,
@@ -91,6 +107,8 @@ export function ProjectSidebar({
   selectedProject,
   selectedCanvasId,
   selectedTaskPanelId,
+  settingsSection,
+  setSettingsSection,
   setActiveView,
   t,
   width = 280
@@ -98,10 +116,6 @@ export function ProjectSidebar({
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
   const [collapsedCanvasIds, setCollapsedCanvasIds] = useState<Set<string>>(() => new Set());
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
-
-  if (collapsed) {
-    return null;
-  }
 
   const toggleProject = (projectId: string) => {
     setCollapsedProjectIds((current) => {
@@ -181,19 +195,17 @@ export function ProjectSidebar({
   };
 
   return (
-    <aside className="relative flex shrink-0 flex-col overflow-hidden text-text" style={{ width }}>
-      <div className="app-drag-region flex h-11 shrink-0 items-center border-b border-border/80 px-3 pl-[124px]">
-        <div className="app-no-drag flex items-center gap-1">
-          <Button size="icon-sm" variant="ghost" aria-label={t("collapseSidebar")} onClick={onToggleSidebar}>
-            <PanelLeftCloseIcon data-icon="inline-start" />
-          </Button>
-          <HistoryNavigationButtons t={t} />
-        </div>
-      </div>
+    <aside className="project-sidebar relative flex shrink-0 flex-col overflow-hidden text-text" data-resizing={isResizing ? "true" : undefined} style={{ width }}>
+      <div className="shrink-0 h-9 border-b border-border/80" />
       <SidebarNav
         activeView={activeView}
         canOpenCanvasMap={selectedProject !== null}
         notificationItems={notificationItems}
+        mode={mode}
+        teamConnectionRole={teamConnectionRole}
+        teamView={teamView}
+        onModeChange={onModeChange}
+        onTeamViewChange={onTeamViewChange}
         onSelectView={setActiveView}
         t={t}
       />
@@ -237,7 +249,46 @@ export function ProjectSidebar({
         t={t}
       />
       <Separator className="bg-border/80" />
-      <div className="flex items-center gap-2 p-3">
+      <div className="flex flex-col gap-1 p-3">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              data-testid="sidebar-settings"
+              className="h-8 justify-start px-2 text-text-muted hover:bg-surface-muted hover:text-text-strong data-[state=open]:bg-surface-muted data-[state=open]:text-text-strong"
+              variant="ghost"
+            >
+              <SettingsIcon data-icon="inline-start" />
+              {t("settings")}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-[calc(var(--radix-dropdown-menu-trigger-width))] bg-surface-raised p-1" side="top" sideOffset={8}>
+            {[
+              { key: "general", label: t("settingsGeneral"), icon: SettingsIcon },
+              { key: "components", label: t("settingsComponents"), icon: BlocksIcon },
+              { key: "review", label: t("settingsReview"), icon: GitPullRequestIcon },
+              { key: "agents", label: t("settingsAgents"), icon: BotIcon },
+              { key: "mcp", label: t("settingsMcpTunnel"), icon: CableIcon },
+              { key: "git", label: t("gitAndGitHub"), icon: GitForkIcon }
+            ].map(({ key, label, icon: Icon }) => (
+              <DropdownMenuItem
+                data-testid={`settings-shortcut-${key}`}
+                className={`h-8 gap-2 px-2 ${activeView === "settings" && settingsSection === key ? "bg-state-selected-surface text-text-strong" : ""}`}
+                key={key}
+                onClick={() => {
+                  setSettingsSection(key as SettingsSection);
+                  setActiveView("settings");
+                }}
+                onSelect={() => {
+                  setSettingsSection(key as SettingsSection);
+                  setActiveView("settings");
+                }}
+              >
+                <Icon className="size-4" />
+                {label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button className="h-8 flex-1 justify-start px-2 text-text-muted hover:bg-surface-muted hover:text-text-strong" variant="ghost" onClick={() => void resetLayout()}>
           <RotateCcwIcon data-icon="inline-start" />
           {t("resetLayout")}

@@ -25,7 +25,7 @@ export function AppSuccessToast({ message, onDismiss, t }: AppSuccessToastProps)
   return (
     <aside
       aria-live="polite"
-      className="app-no-drag pointer-events-auto fixed right-4 bottom-4 z-50 flex w-[min(320px,calc(100vw-2rem))] items-center gap-3 rounded-md border border-state-success/35 bg-state-success-surface p-3 text-sm text-text-strong shadow-xl"
+      className="app-no-drag pointer-events-auto fixed right-4 bottom-4 z-50 flex w-[min(320px,calc(100vw-2rem))] items-center gap-3 rounded-md border border-state-success/35 bg-state-success-surface p-3 text-sm text-text-strong shadow-xl animate-in fade-in slide-in-from-right-4 duration-[var(--motion-duration-base)] ease-[var(--motion-ease-emphasized)]"
       data-testid="app-success-toast"
       role="status"
     >

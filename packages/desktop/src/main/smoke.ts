@@ -263,7 +263,19 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       covered.push("open-notifications");
       covered.push("external-file-change-notification");
       await clickByTestId("sidebar-settings");
-      await waitForSelector('[data-testid="settings-back-to-app"]', "settings back button");
+      await waitForSelector('[data-testid="settings-shortcut-general"]', "general settings shortcut");
+      const generalSettingsShortcut = document.querySelector('[data-testid="settings-shortcut-general"]');
+      if (!(generalSettingsShortcut instanceof HTMLElement)) {
+        throw new Error("General settings shortcut was not visible.");
+      }
+      generalSettingsShortcut.click();
+      await wait(120);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+      await wait(120);
+      const settingsBackVisible = await waitForSelector('[data-testid="settings-back-to-app"]', "settings back button", { required: false });
+      if (!settingsBackVisible) {
+        throw new Error("Settings route did not open after selecting General. history=" + JSON.stringify(window.history.state) + " app=" + JSON.stringify({ view: document.querySelector('[data-testid=\"app-main-view\"]')?.getAttribute("data-active-view"), mode: document.querySelector('[data-testid=\"app-main-view\"]')?.getAttribute("data-mode"), backExists: Boolean(document.querySelector('[data-testid=\"settings-back-to-app\"]')) }) + " visible=" + [...document.querySelectorAll("button")].filter(visible).map(textOf).filter(Boolean).slice(0, 20).join(" | "));
+      }
       await waitForSelector('[data-testid="settings-section-general"]', "general settings section");
       const materialSwitch = document.querySelector('[role="switch"][aria-label="增强窗口材质"], [role="switch"][aria-label="Enhanced window material"]');
       if (!(materialSwitch instanceof HTMLElement)) {

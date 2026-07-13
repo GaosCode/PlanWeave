@@ -21,6 +21,25 @@ describe("handlePlanweaveTool", () => {
     expect(Object.keys(planweaveToolOutputSchemas).sort()).toEqual([...planweaveToolNames].sort());
   });
 
+  it("returns Git/GitHub envelopes that match their output schemas and forwards merge method", async () => {
+    const gateway = createGateway();
+    const cases = [
+      ["git_status", { projectId: "project-1" }],
+      ["git_diff", { projectId: "project-1" }],
+      ["git_log", { projectId: "project-1" }],
+      ["git_commit", { projectId: "project-1", message: "test commit" }],
+      ["github_create_pr", { projectId: "project-1", title: "PR", head: "feature", base: "main" }],
+      ["github_list_prs", { projectId: "project-1" }],
+      ["github_get_pr", { projectId: "project-1", prNumber: 1 }],
+      ["github_merge_pr", { projectId: "project-1", prNumber: 1, method: "squash" }]
+    ] as const;
+    for (const [name, args] of cases) {
+      const value = readJson(await handlePlanweaveTool(name, args, gateway));
+      expect(z.object(planweaveToolOutputSchemas[name]).safeParse(value).success, name).toBe(true);
+    }
+    expect(gateway.githubMergePR).toHaveBeenCalledWith("project-1", 1, "squash");
+  });
+
   it("lists default-discoverable tool groups separately from compat-only aliases", async () => {
     const result = readJson(await handlePlanweaveTool("list_tool_groups", undefined, createGateway()));
     const recommendedTools = result.groups.flatMap((group: { recommendedTools: string[] }) => group.recommendedTools);

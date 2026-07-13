@@ -1,15 +1,16 @@
 import type { IncomingMessage } from "node:http";
 import type { OAuthClientStore, RegisteredClient } from "./oauthClientStore.js";
 import type { ConsentPageParams } from "./oauthConsent.js";
-import { requestContext, requestUrl } from "./oauthHttp.js";
+import { requestContext, requestUrl, type OAuthRequestContextOptions } from "./oauthHttp.js";
 import { isAllowedOAuthResource, isAllowedRedirectUri, normalizeScope } from "./oauthValidation.js";
 
 export async function validateAuthorizeParams(
   req: IncomingMessage,
-  clientStore: OAuthClientStore
+  clientStore: OAuthClientStore,
+  ctxOptions?: OAuthRequestContextOptions
 ): Promise<{ ok: true; value: ConsentPageParams } | { ok: false; error: string }> {
-  const url = requestUrl(req);
-  return validateAuthorizeSearchParams(url.searchParams, clientStore, requestContext(req).resource, { persistRecoveredClient: false });
+  const url = requestUrl(req, ctxOptions);
+  return validateAuthorizeSearchParams(url.searchParams, clientStore, requestContext(req, ctxOptions).resource, { persistRecoveredClient: false });
 }
 
 export async function validateAuthorizeSearchParams(

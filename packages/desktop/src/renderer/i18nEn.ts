@@ -561,7 +561,31 @@ export const enCatalog = {
     deleteBlockConfirm: "Deleting this block removes its prompt file and clears same-task dependencies to it. Continue?",
     openProjectBridgeUnavailable: "Project folder selection is only available in the desktop app. Please open PlanWeave Desktop and choose a project root.",
     openProjectFailedHint: "Could not open the project. Please choose the source project root and try again.",
-    dismissError: "Dismiss error"
+    dismissError: "Dismiss error",
+    gitAndGitHub: "Git & GitHub",
+    gitAndGitHubHint: "View git repository status and manage GitHub authentication.",
+    gitRepository: "Repository",
+    gitBranch: "Branch",
+    gitAheadBehind: "Ahead / Behind",
+    gitStatus: "Status",
+    gitClean: "Clean",
+    gitDirty: "Changed",
+    gitFileCount: "files changed",
+    gitNoProjectOpen: "Open a project to view git status.",
+    gitHubAuthentication: "GitHub Authentication",
+    gitHubLogin: "Login",
+    gitHubSource: "Token source",
+    gitHubScopes: "Scopes",
+    gitHubNone: "None",
+    gitHubStatus: "Status",
+    gitHubConnected: "Connected",
+    gitHubNotAuthenticated: "Not authenticated. Paste a GitHub Personal Access Token.",
+    gitHubTokenPlaceholder: "ghp_...",
+    gitHubTokenHint: "Create a token at https://github.com/settings/tokens/new with 'repo' scope.",
+    gitHubConnect: "Connect",
+    gitHubConnecting: "Connecting...",
+    gitHubLogout: "Logout",
+    gitHubPlanweaveStore: "PlanWeave"
   } as const;
 
 export type TranslationKey = keyof typeof enCatalog;

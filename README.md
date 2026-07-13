@@ -1,16 +1,57 @@
-<h1 align="center">PlanWeave</h1>
+<h1 align="center">PlanWeave — LAN 团队协作 Fork</h1>
 
 <p align="center">
-  PlanWeave is a file-backed loop engineering system for long-running coding agents. It turns fuzzy plans into claimable tasks, routes them through implementation and review agents, records every run, and keeps the loop recoverable.
+  为 PlanWeave 增加的、服务器协调的多人协作层，配 Codex 风格的桌面端外壳。
+  本 fork 在 upstream 单机文件驱动的循环之上，新增了权威状态、身份、提案、Work lease、事件流与 Git merge queue。
 </p>
 
-<p align="center">
-  <img src="readme/assets/planweave-readme-animation.svg" width="860" alt="PlanWeave brand motion." />
-</p>
+## 核心修改：局域网团队协作模式
 
-<p align="center">
-  <a href="readme/README.zh-CN.md">中文 README</a>
-</p>
+这个 fork 最主要的改动，是把 PlanWeave 从“单台电脑上的 Agent 工作流”扩展为一个 **Host 权威协调、成员本地执行、全员共享同一份需求与任务状态** 的局域网协作系统。
+
+一台电脑作为 **Host** 启动团队服务器并配置协调 Agent；其他成员从自己的 PlanWeave 加入团队，并继续使用各自在本机配置好的 Codex、Claude Code、OpenCode 或 Pi。讨论、需求基线、任务归属、事件历史和合并队列由 Host 保存；代码实现和提交前检查在成员本地完成。
+
+### 完整协作流程
+
+1. **Host 创建团队空间**：在桌面端选择“作为主机启动”，创建项目、启动局域网服务，并生成邀请地址与加入令牌。
+2. **成员加入并配置本地 Agent**：成员在桌面端选择“作为成员加入”，连接 Host；每个人独立选择本机执行和检查任务的 Agent，密钥与本地权限不会上传到 Host。
+3. **共同讨论与补充资料**：所有成员在共享规划室中提出需求、增加约束、上传文件和补充实现要求。Host 上的协调 Agent 统一消费这些消息和附件，避免关键上下文散落在不同电脑。
+4. **生成需求共识看板**：协调 Agent 将有效内容整理为带来源的需求、约束、决策、风险、开放问题和验收标准；所有成员看到相同的版本化看板。
+5. **人工确认并冻结基线**：成员对当前版本批准或拒绝。Agent 负责分析和整理，但不能替代人类形成共识；只有满足审批策略且不存在阻塞问题的版本才能被冻结。
+6. **拆分任务与生成流程图**：协调 Agent 根据已冻结基线生成任务节点、依赖关系、可并行边界、允许修改的路径、验收命令和评审要求，并把流程图同步给所有成员。
+7. **申报意向与领取任务**：成员先表达希望负责的节点，再领取正式任务。Host 使用 assignment + lease + heartbeat 保证同一任务不会被多人重复占用，并能回收长期离线的任务。
+8. **本地实施与预检**：每个成员保留一份只读、带版本号的需求基线和流程图。本地 Agent 只能围绕已领取节点工作，并检查实现是否符合节点范围、上游依赖和验收标准。
+9. **提交到 Host**：成员提交不可变的 base/head commit、实现说明和本地检查证据。断线期间可以继续本地工作，恢复连接后再续租、同步并提交。
+10. **Host 权威复检与串行合并**：Host 重新校验提交身份、提交祖先、文件范围和验收命令，再进行 Host Agent Review 与必要的人工批准；通过的提交由 merge queue 串行合并，失败项回到原任务继续修正。
+11. **状态回流到所有成员**：需求版本、任务进度、检查结果、评审反馈和合并状态都通过持久事件流同步，重连后可以从最后一个事件继续恢复。
+
+```mermaid
+flowchart LR
+  A[Host 创建团队空间] --> B[成员加入并配置本地 Agent]
+  B --> C[共同讨论与上传资料]
+  C --> D[协调 Agent 生成需求看板]
+  D --> E{成员审批并冻结基线}
+  E -->|有异议| C
+  E -->|达成共识| F[Agent 拆分任务与生成流程图]
+  F --> G[成员申报并领取节点]
+  G --> H[本地 Agent 实施与预检]
+  H --> I[提交 commit 与检查证据]
+  I --> J{Host 复检与终审}
+  J -->|需要修改| H
+  J -->|通过| K[Merge queue 串行合并]
+  K --> L[事件同步到所有成员]
+```
+
+### 长期协作不变量
+
+- **Host 是协作状态的唯一事实源**：本地缓存可以重建，需求基线、任务归属和合并结果不能由客户端单方面覆盖。
+- **需求看板与任务流程图分层**：前者描述“要做什么以及如何验收”，后者描述“由谁、按什么依赖和边界实现”。
+- **Agent 不代替人类审批**：Agent 可以提出、整理、拆解和评审；冻结需求与最终合并仍受明确的成员角色和审批策略约束。
+- **本地检查不是合并凭证**：成员端预检用于尽早发现问题，Host 必须在受控 worktree 中重新执行权威检查。
+- **所有写入可恢复、可审计**：命令具备幂等键和乐观版本控制，事件与审计记录持久化，断线重连按事件游标续传。
+- **提交具有明确所有权**：任务节点必须声明允许修改的路径和验收命令；越界文件、伪造 submission、过期 lease 或陈旧目标分支都会被拒绝。
+- **身份可以长期续期**：首次加入后签发设备恢复凭据；短期 session 过期时由本机安全存储自动续期，不会把同一成员重复创建成新用户。
+- **Host 数据有自动备份**：启动时及每 6 小时创建 SQLite 一致性快照，滚动保留最近 30 份；中断中的 merge queue 会在重启时协调恢复。
 
 <!-- planweave-badges:start -->
 <p align="center">
@@ -23,265 +64,226 @@
 </p>
 <!-- planweave-badges:end -->
 
+---
+
+## 0. 相对 upstream 做了哪些改动
 
 
-## Why PlanWeave
+| 范围 | 改动 | 代码位置 |
+|---|---|---|
+| **新增 `packages/server`** | Node.js HTTP + `node:sqlite`（WAL）权威协调器。覆盖 `identity` / `planning` / `proposals` / `attachments` / `coordination` / `work` / `events` / `agents` / `git` / `audit`。统一使用版本化 `/api/v1` HTTP API 与 `/events` WebSocket。 | `packages/server/src/**` |
+| **事务性 work 协调** | 任务、assignments、leases、heartbeat、submissions、reviews。通过 partial unique index 强制"每个任务同一时刻只有一个 active assignment"不变量。Lease 过期回收。Idempotency key + `expectedVersion` 乐观并发。 | `packages/server/src/work/` |
+| **身份与会话** | 用户、设备、邀请码、可吊销的 session、项目成员。Token 化加入。 | `packages/server/src/identity/` |
+| **规划室与提案** | 规划室、消息、附件元数据、不可变的提案修订、审批策略、投票、生命周期跃迁。 | `packages/server/src/{planning,proposals,attachments}/` |
+| **持久事件 + WebSocket** | 仅追加的 `domain_events`，通过 `ws 8.x` 暴露 `EventEnvelopeV1` 投影。支持断线重连的 resync cursor。 | `packages/server/src/events/` |
+| **Git merge queue** | 裸集成仓库 + 隔离 worktree。所有权路径校验（拒绝 `events-rogue/**` 这类前缀歧义）。串行合并，依次走身份 / 祖先 / 路径 / 检查 / Agent / 人工 评审。 | `packages/server/src/git/` |
+| **Runtime parity** | `packages/runtime` 在写入边界拆出 `FileRuntimeRepository` ↔ `SqliteRuntimeRepository`，让服务端模式是 source of truth，文件模式照常工作。 | A5 commit |
+| **Coordinator Agent** | artifact / checkpoint 持久化、取消、重试。可插拔 provider 接口；首个真实 provider 需等待持久化工作就绪。 | `packages/server/src/agents/` |
+| **CLI 远程模式** | `planweave server start\|join\|list\|forget\|project`、`planweave remote task\|merge-queue` 等。 | `packages/cli/src/commands/remote*.ts` |
+| **桌面端 Team Mode** | 内嵌 Mode 切换（Personal / Team）。Host / Member 角色选择；本机 `localTeamHost` 一键启服务；连接 profile；规划室、提案、事件同步；角色徽章。 | `packages/desktop/src/renderer/team/`、`packages/desktop/src/main/localTeamHost.ts` |
+| **Codex 风格 UI 整改** | 紧凑常驻侧栏 + brand header；Personal/Team 模式切换 + 角色徽章；向上弹出 Settings 下拉（5 个分区）；可拖拽的浮动组件面板 + 悬停展开；`view-enter` 路由过渡；语义化色彩 token（亮 / 暗 / 跟随系统）。 | `packages/desktop/src/renderer/{sidebar,AppSidebars,AppSettingsRoute,views,index.css}` |
+| **i18n zh-CN** | 覆盖率达到 **98.8%**，附动画。 | `packages/desktop/src/renderer/i18nZhCn.ts` |
+| **worktree 残留清理延后** | `.worktrees/` 下的 A1–A9 worktree 仍在（已合入 main）。 | follow-up |
 
-Chat is a useful place to start a plan, but it is a fragile place to run a long engineering loop.
+upstream 原始的 README 不再是本 fork 的真相来源。旧的 zh-CN 译文见 `readme/README.zh-CN.md`。
 
-PlanWeave turns a fuzzy goal or chat-authored plan into a task graph of nodes and block documents. Each block can be claimed by a focused agent, routed through implementation and review, and recorded as durable run artifacts. Agents get the current block plus relevant graph context, while the project keeps a recoverable history of what ran, what passed review, and what needs another loop.
+---
 
-That makes PlanWeave a better fit for complex engineering work: parallel implementation, staged checks, review feedback, follow-up fixes, continued execution, and progress tracking all stay inside the same local loop.
+## 1. 架构
 
-## Highlights
+```mermaid
+flowchart LR
+  subgraph Local["成员本机"]
+    D[桌面应用<br/>Electron + React]
+    C[CLI<br/>planweave]
+    R[Runtime<br/>文件驱动]
+    G[本地 Git worktree]
+  end
 
-- **Files are nodes, documents are blocks**: the graph is not a decoration on top of chat. It is the project model.
-- **Graph-friendly by default**: task flow, dependencies, review loops, and execution status are visible and editable.
-- **Zero-config start**: install the CLI and agent skills, then use a few commands and skill prompts to create, run, and inspect a plan in an existing project.
-- **Scoped graph context**: agents receive the current block plus relevant task graph context, and can inspect more when needed.
-- **Focused responsibilities**: each claim hands one focused block to one agent, keeping context clean and avoiding unrelated plans, stale discussion, and wasted tokens.
-- **Per-node and per-block agent routing**: use Codex for one block, Claude Code, OpenCode, or Pi for another, and local review scripts where deterministic checks are enough.
-- **MCP authoring for ChatGPT**: connect ChatGPT to PlanWeave through the local MCP server, a headless systemd tunnel, or the desktop secure tunnel, then ask it to create canvases, tasks, blocks, review pipelines, and dependencies.
-- **Full auto-run workflow**: PlanWeave can claim blocks, run agents, collect reports, handle review feedback, and continue the task flow.
-- **Review and feedback as first-class work**: review blocks can produce structured feedback that returns to implementation blocks.
-- **Desktop and CLI support**: use the visual Electron canvas or drive the same runtime from the terminal.
-- **Live observability**: block runs keep logs, reports, metadata, and tmux attach commands for monitoring.
-- **Statistics, search, and todo views**: inspect development efficiency and project state without leaving the workflow.
-- **Local-first and file-backed**: plans, prompts, run records, and artifacts remain inspectable in your workspace.
+  subgraph Server["LAN 协作服务器（本 fork 新增）"]
+    H[Collaboration HTTP<br/>/api/v1]
+    W[WebSocket<br/>/events]
+    S[(SQLite WAL<br/>权威存储)]
+    CO[Coordinator Agent]
+    MQ[Git merge queue<br/>+ 裸仓库]
+  end
 
-For the default canvas, inspectable files live under `canvases/default/package`, `canvases/default/state.json`, and `canvases/default/results` inside the PlanWeave workspace. Use `planweave paths --json` for the exact local paths.
+  D -->|可信 LAN: HTTP + WS| H
+  C -->|可信 LAN: HTTP + WS| H
+  H --> S
+  W --> S
+  CO --> S
+  MQ -->|安全时 fast-forward；否则投影到 tracking ref| G
+  G -->|不可变 Git bundle| MQ
+  R -. projection .-> S
+```
 
-## Quick Start
+### 权威模型
 
-PlanWeave is currently CLI-first. The desktop app is available for testing, but it is experimental and unsigned.
+- **服务器是协作状态的唯一写入者**。所有写操作都在显式 `BEGIN IMMEDIATE` 事务里跑。
+- 每个聚合都带单调递增的 `version`。过期命令会以 `version_conflict` 失败。
+- 每个客户端命令都带 `idempotencyKey`（16–128 个 ASCII 字符）。重放会返回缓存结果。
+- 领域行写入 + idempotency 行 + `domain_events` 追加 + `audit_log` 追加共用一个事务（见 `packages/server/src/store.ts:executeIdempotent`）。
+- Runtime 领域逻辑**不允许 import 服务端**。`packages/runtime` 写入边界拆为 `FileRuntimeRepository`（默认）与 `SqliteRuntimeRepository`（server 模式）。A1–A5 在每次 merge 后保持单机模式仍可跑。
 
-Install the CLI with npm:
+### 服务端模块（`packages/server/src/`）
+
+| 模块 | 职责 |
+|---|---|
+| `identity/` | 用户、设备、邀请码、session、成员、权限 |
+| `planning/` | 规划室、消息、附件元数据、artifact 引用 |
+| `proposals/` | 不可变修订、审批策略、投票、生命周期 |
+| `work/` | 任务、assignment、lease、heartbeat、submission、review、reclaim |
+| `events/` | 持久事件流、WebSocket publisher、resync cursor、HTTP 可用性 |
+| `agents/` | coordinator run、输入输出、预算、取消、重试 |
+| `git/` | 裸仓库、worktree 生命周期、ownership 校验、merge queue、check |
+| `audit/` | 仅追加的动作历史 |
+| `attachments/` | 上传元数据、digest、size 检查、BOLA 防护 |
+| `collaborationApi.ts` | 八个模块的 HTTP 路由 |
+| `lifecycle.ts` | `startPlanweaveServer`、启动 reconciliation、优雅关停 |
+| `store.ts` | SQLite handle、migrations runner、`executeIdempotent` |
+| `config.ts` | 环境变量驱动的配置、端口 / 数据目录 / join token / busy timeout |
+
+### 桌面端分层
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  侧栏                                              │
+│  ├─ PlanWeave brand 头 + 折叠 / 后退 / 前进                     │
+│  ├─ Mode: Personal / Team（带角色徽章）                         │
+│  ├─ Team 子导航（Team 模式时）：规划室 / 流程图 / 团队任务 /    │
+│  │     提案 / 成员                                               │
+│  ├─ 本地导航：新建任务 / 流程图 / 画布地图 / 待办 / 搜索 /      │
+│  │     通知                                                       │
+│  └─ 底部：设置（向上弹出下拉）/ 重置布局                        │
+├─────────────────────────────────────────────────────────────────┤
+│  主显示区                                                        │
+│  ├─ Personal 模式 → WorkspaceTabs（graph / canvas / todo / …） │
+│  ├─ 设置视图  → AppSettingsRoute（5 个分区）                     │
+│  └─ Team 模式  → TeamModeShell（内嵌，占满主区）                │
+│                  ├─ 选择 host / member 角色                      │
+│                  ├─ 本机 team host 启动                          │
+│                  └─ 当前项目 shell                                │
+├─────────────────────────────────────────────────────────────────┤
+│  浮动组件面板（可拖拽、悬停展开）                                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 支持的部署形态
+
+- **单机文件驱动** —— 原版 PlanWeave，照常工作。Runtime 走 `FileRuntimeRepository`，不需要 server。
+- **LAN 多人协作** —— 一个项目对应一个 `packages/server` 实例。桌面 / CLI 通过 LAN 连接。SQLite WAL 提供权威存储；Git merge queue 串行化提交。
+
+---
+
+## 2. Git + GitHub 集成
+
+### MCP 工具
+
+PlanWeave 通过 MCP 协议暴露 8 个 git/GitHub 工具，Agent 可直接调用：
+
+| 工具名 | 类型 | 用途 |
+|--------|------|------|
+| `git_status` | 只读 | 查看工作区状态（分支、暂存/未暂存文件、前后提交数） |
+| `git_diff` | 只读 | 查看未暂存或已暂存的改动 |
+| `git_log` | 只读 | 查看提交历史 |
+| `git_commit` | 写入 | 暂存全部改动并创建提交 |
+| `github_create_pr` | 写入 | 创建 GitHub Pull Request |
+| `github_list_prs` | 只读 | 列出仓库的 Pull Request |
+| `github_get_pr` | 只读 | 查看单个 PR 详情（含修改量、状态） |
+| `github_merge_pr` | 写入 | 合并 PR（支持 merge/squash/rebase） |
+
+### CLI 命令
 
 ```bash
-npm install -g @planweave-ai/cli
+# Git 操作
+planweave git status              # 查看工作区状态
+planweave git diff [--staged]     # 查看改动
+planweave git log [-n 10]         # 提交历史
+planweave git commit -m "msg"     # 暂存全部并提交
+
+# GitHub 认证
+planweave gh login                # 打开浏览器生成 token → 粘贴保存
+planweave gh logout               # 清除保存的 token
+planweave gh status               # 查看当前认证状态
+
+# GitHub 操作
+planweave gh pr create -t "title" --head feat --base main [-b "body"]
+planweave gh pr list [-s open|closed|all]
+planweave gh pr view <number>
+planweave gh pr merge <number> [--squash|--rebase]
 ```
 
-Or install it with Homebrew:
+### 桌面端设置面板
 
-```bash
-brew install GaosCode/tap/planweave
+桌面端设置新增 **Git & GitHub** 标签页，提供：
+
+- **仓库状态**：分支、领先/落后提交数、文件改动列表（无需离开桌面端）
+- **GitHub 认证**：输入框粘贴 Token → 一键连接，显示登录身份和权限范围，一键登出
+
+### 模块位置
+
+```
+packages/runtime/src/git/        ← Git 核心操作（execFile 封装，纯 Node）
+packages/mcp/src/github/         ← GitHub API 客户端 + 认证模块
+packages/mcp/src/toolHandlers/   ← MCP 工具处理器
+packages/cli/src/commands/       ← CLI 命令
+packages/desktop/src/main/       ← gitIntegration IPC 处理器
+packages/desktop/src/renderer/   ← 设置面板 UI
 ```
 
-Then run:
+### 认证（四级自动检测）
 
-```bash
-planweave --help
+```
+PLANWEAVE_GITHUB_TOKEN 环境变量          ← 显式覆盖，最高优先级
+    ↓ 没有
+~/.planweave/github-auth.json            ← planweave gh login 保存
+    ↓ 没有
+gh auth token / ~/.config/gh/hosts.yml   ← gh CLI 登录态
+    ↓ 没有
+git credential fill                      ← HTTPS remote credential helper
+    ↓ 也没有
+提示运行 planweave gh login
 ```
 
-Install the agent skills as well:
+- **90% 用户零配置**：装了 `gh` CLI 的直接用
+- **仓库识别**：通过 `git remote get-url origin` 自动解析 `owner/repo`
 
-```bash
-npx skills@latest add GaosCode/PlanWeave
-```
+---
 
-## MCP and ChatGPT Web Planning
+## 3. Security
 
-PlanWeave includes a local HTTP MCP server for using PlanWeave from MCP clients such as ChatGPT. The MCP tools are not just read-only status helpers: they can also author plans by initializing projects, creating canvases, adding tasks and blocks, wiring dependencies, editing prompts, configuring review pipelines, validating graph quality, and importing package drafts.
+### Ghost Security SAST Scan（2026-07）
 
-For ChatGPT in the browser, use the CLI MCP tunnel on a VPS or PlanWeave Desktop's MCP settings on a local machine. You can use ChatGPT Web as the planning partner: describe the project goal, ask it to write a package-shaped draft in a temporary draft root, dry-run validate and quality-check it, preview the import, then apply it transactionally.
+对 `packages/server/` 和 `packages/mcp/` 运行了 Ghost Security 自动化 SAST 扫描，覆盖 injection、authz、authn、path-traversal、SSRF、info-disclosure 等向量。
 
-Recommended headless setup for a VPS uses systemd. The MCP server stays on loopback, and the OpenAI `tunnel-client` keeps an outbound connection open; PlanWeave does not run its own daemon or pidfile manager.
+#### 已修复
 
-```bash
-sudo mkdir -p /etc/planweave /srv/planweave
-sudo chmod 700 /etc/planweave
+| 严重度 | 组件 | 发现 | 修复 |
+|--------|------|------|------|
+| **HIGH** | server | BOLA：assignment heartbeat/submit/withdraw 不校验 `actorId === assigneeUserId`，任何项目成员可操作他人 assignment | `work/services.ts` 加所属人校验 |
+| **MEDIUM** | server | BFLA：viewer 角色可执行 assignment 状态变更操作 | `collaborationApi.ts` assignment 接口提权到 `contributor` |
+| **MEDIUM** | server | Auth：默认 join token 硬编码为 `"planweave-local-team"`，网络可达时可被猜测 | `config.ts` 强制要求 `PLANWEAVE_SERVER_JOIN_TOKEN` 环境变量 |
+| LOW | server | git branch name 未校验直接传给 git 命令 | `worktreeManager.ts` 加 regex 校验 + `--` 分隔符 |
+| LOW | mcp | 错误消息可能泄露文件系统路径 | `server.ts` 错误响应不再暴露原始 `error.message` |
+| LOW | mcp | X-Forwarded-* 头无条件信任，loopback 外可 spoof issuer URL | `oauthHttp.ts` 仅 `trustProxy: true` 时信任 |
 
-planweave mcp tunnel download
-planweave mcp tunnel configure --tunnel-id tunnel_xxx
-planweave mcp tunnel print-systemd \
-  --planweave-home /srv/planweave \
-  --env-file /etc/planweave/mcp-tunnel.env
-```
+#### 已确认安全
 
-Put the Runtime API key in the systemd environment file, not in PlanWeave's JSON config:
+| 领域 | 评估 |
+|------|------|
+| SQL 注入 | 全部查询使用 `?` 参数化占位符，无拼接 |
+| SSRF | 生产代码无出站 HTTP 请求 |
+| 路径穿越 | `validatePathWithinScope` 校验 + 遍历序列拒绝，含测试覆盖 |
+| PKCE | `timingSafeEqual` + SHA-256，OAuth redirect URI 仅允许 HTTPS / loopback HTTP |
+| 配置文件权限 | 原子写入，目录 `0o700`，文件 `0o600` |
+| ReDoS | 全仓正则无灾难性回溯 |
 
-```bash
-PLANWEAVE_HOME=/srv/planweave
-OPENAI_RUNTIME_API_KEY=...
-```
+#### 已知接受的风险
 
-Keep that file readable only by the service owner:
+| 风险 | 缓解 |
+|------|------|
+| CI acceptance check 命令可由 maintainer 配置并执行 | `execFile` 无 shell 注入；仅 maintainer 可配；timeout 120s + maxBuffer 限制 |
+| OAuth `/register` 无鉴权（DCR 规范兼容） | loopback-only 绑定；consent page 需显式用户授权 |
 
-```bash
-sudo chmod 600 /etc/planweave/mcp-tunnel.env
-```
-
-Install the printed service as `planweave-mcp-tunnel.service`, then run:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now planweave-mcp-tunnel
-journalctl -u planweave-mcp-tunnel -f
-```
-
-For local desktop setup:
-
-1. Open **Settings -> MCP Tunnel** in the desktop app.
-2. Download or select the OpenAI [`tunnel-client`](https://github.com/openai/tunnel-client).
-3. Enter your Tunnel ID and Runtime API key, then start the secure tunnel.
-4. Add PlanWeave in ChatGPT using the Tunnel connection mode.
-
-Once connected, ChatGPT can ask PlanWeave for authoring rules and schema, discover recommended tool groups with `list_tool_groups`, inspect bounded graph views with `get_graph_summary` / `get_graph_slice`, validate graph quality with `validate_graph_quality`, and read large content through path/ref tools instead of broad dumps. For large plans, the recommended MCP flow is `validate_package_draft`, `preview_package_import`, then `import_package_draft` with `apply: true`.
-
-The default MCP discovery list hides legacy aliases and heavy/debug tools. Old MCP clients that still need aliases such as `get_project_graph`, `get_block_detail`, `refresh_prompts`, `export_plan_package`, or `import_plan_package` should start the server with `PLANWEAVE_MCP_TOOL_DISCOVERY=compat`. New clients should keep the default discovery mode and call bounded tools; heavy/debug paths such as `get_block_detail_full_debug`, `refresh_prompts_full_debug`, and `export_plan_package_full` are explicit opt-ins.
-
-Source-level MCP server setup is documented in [Development](DEVELOPMENT.md).
-
-## Agent Execution
-
-PlanWeave supports executor profiles, so different blocks can run through different agents or local commands. Current executors include Codex, Claude Code, OpenCode, Pi, local review commands, and review-feedback loops.
-
-Each block run writes durable output under the PlanWeave workspace, including prompt, stdout, stderr, report, metadata, and monitor commands when available.
-
-## Agent Skills
-
-The repository includes focused agent skills under `skills/`:
-
-- `plan-maker`: design a PlanWeave package-shaped draft from a fuzzy goal or sparse codebase context, then materialize it through draft validation/import when requested.
-- `plan-importer`: create a PlanWeave package draft from strong source docs, then validate, preview, and import it through the draft import flow.
-- `plan-auditor`: review an already-authored PlanWeave plan for coverage, lifecycle gaps, contract drift, weak prompts, and unverifiable completion criteria.
-- `plan-coordinator`: keep a full PlanWeave execution loop moving as the main agent, dispatching implementation, review, and recovery work.
-- `plan-runner`: execute one implementation block and produce a completion report.
-- `plan-reviewer`: execute one review gate and produce a structured `passed` or `needs_changes` result.
-- `plan-recovery`: diagnose and recover stale current refs, state/results drift, blocked/diverged work, and submit retry confusion.
-
-Install them with the `skills` CLI:
-
-```bash
-npx skills@latest add GaosCode/PlanWeave
-```
-
-## Agent Workflow
-
-After installing the skills, use this flow in your target project:
-
-1. Ask your agent to create or import a plan.
-
-```text
-Use skill: plan-maker
-Create a PlanWeave plan for this project from the goal below...
-```
-
-If you already have PRDs, roadmaps, issues, or architecture notes, use `plan-importer` instead. `plan-maker` no longer hands a Markdown-only report to `plan-importer`; when materializing, it should write a package-shaped draft and run:
-
-```bash
-planweave package-draft validate --draft-root <draft> --json
-planweave package-draft quality --draft-root <draft> --json
-planweave package import --from <draft> --dry-run --json
-planweave package import --from <draft> --apply --json
-```
-
-2. Ask the coordinator to run the plan.
-
-```text
-Use skill: plan-coordinator
-Run the current PlanWeave package. Route implementation to plan-runner, review gates to plan-reviewer, and recovery work to plan-recovery.
-```
-
-3. Let the coordinator dispatch focused agents.
-
-The coordinator should assign one concrete block at a time. Implementation agents use `plan-runner`; review agents use `plan-reviewer`; abnormal state or submit retry problems use `plan-recovery`.
-
-4. Use the CLI for inspection when needed.
-
-```bash
-planweave status
-planweave current
-planweave explain <ref>
-planweave graph inspect --view summary --json
-planweave graph quality --json
-planweave doctor
-```
-
-For simple tasks, one agent can use `plan-runner` directly. For larger plans, use `plan-coordinator` as the main agent and route subagent work to `plan-runner`, `plan-reviewer`, or `plan-recovery`.
-
-## Auto Run
-
-PlanWeave includes an experimental one-command execution path:
-
-```bash
-planweave run --once
-planweave run --reset --force --reason "rerun acceptance" --step-limit 20
-planweave reset --force --reason "clear stale manual work"
-planweave run-sessions
-planweave run-session SESSION-0001
-planweave run-status
-```
-
-Auto Run can claim work, call an executor, collect run artifacts, continue review-feedback loops, and record each run/reset as a session. `planweave reset` clears runtime state only; it is separate from `planweave init --reset-package`, which rewrites package source files during initialization.
-
-For cron-style runs, keep execution bounded and inspect the session log afterward. This example can be used directly in crontab:
-
-```bash
-0 9 * * * cd /path/to/project && planweave run --reset --canvas default --force --reason "scheduled run" --step-limit 10 --json >> ~/.planweave-cron.log 2>&1
-```
-
-After a run, inspect the session log:
-
-```bash
-planweave run-sessions --json
-```
-
-Auto Run is still experimental: scheduling, executor integration, and recovery behavior may be unstable. Inspect `planweave run-status`, `planweave run-session <session-id>`, and generated run artifacts before relying on it for unattended work.
-
-## Manual CLI Workflow
-
-Most users should drive PlanWeave through skills. The manual CLI loop is useful for debugging, demos, or writing your own agent integration:
-
-```bash
-planweave init --json
-planweave validate --json
-planweave current
-planweave claim-next --dry-run
-planweave prompt T-001#B-001
-planweave submit-result --canvas default T-001#B-001 --report report.md
-```
-
-Review gates and feedback loops can be handled manually too:
-
-```bash
-planweave submit-review --canvas default T-001#R-001 --result review-result.json
-planweave submit-feedback --canvas default --report feedback-report.md
-```
-
-PlanWeave resolves the target project root from the shell's current directory. Package managers may set `INIT_CWD`, which PlanWeave uses before `cwd`. When running from another directory, pass the global option before the subcommand:
-
-```bash
-planweave --project-root /path/to/project status --json
-planweave --project-root /path/to/project claim-next --canvas desktop
-```
-
-When scheduling is unclear, prefer `planweave explain <ref>`, `planweave why-not <ref>`, and `planweave doctor` before editing package or state files.
-
-## Experimental Desktop App
-
-The desktop app is an experimental build. It is useful for trying the visual task canvas, configuring MCP tunnel access for ChatGPT, and reviewing generated plans before execution, but the CLI remains the recommended interface for serious work.
-
-<p align="center">
-  <img src="readme/assets/planweave-desktop-canvas.png" width="860" alt="PlanWeave desktop canvas showing an agent task graph with implementation and review blocks." />
-</p>
-
-Install a packaged build from GitHub Releases. Current desktop installers are unsigned. macOS may show an unidentified developer warning, and Windows may show an unknown publisher or SmartScreen warning. For early testing on macOS, open the app with **Right Click -> Open** and confirm the prompt.
-
-For repository layout, source setup, tests, and packaging commands, see [Development](DEVELOPMENT.md).
-
-## Future Direction
-
-PlanWeave is still early, and several directions can make plan-based agent work smoother:
-
-- **Better Auto Run UX and reliability**: make automatic execution easier to understand, monitor, pause, resume, recover, and trust, while improving scheduling correctness, failure recovery, and long-running stability.
-- **Collaborative planning board**: let multiple people edit the same task board, refine plan structure together, and turn shared planning decisions into executable blocks.
-- **Cross-host coordination**: PlanWeave already supports routing different blocks to different local agents or executor profiles. A future coordinator could let remote Agent Hosts register capabilities, claim plan blocks through leases, report heartbeats, and submit artifacts safely, making it possible to run specialized frontend, review, runtime, docs, or other agents on different machines.
-
-## Development
-
-Contributor setup, repository layout, test commands, and local packaging notes live in [DEVELOPMENT.md](DEVELOPMENT.md).
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+---

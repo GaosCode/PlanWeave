@@ -5,12 +5,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingsAgentsSection } from "../settings/SettingsAgentsSection";
 import { SettingsComponentsSection } from "../settings/SettingsComponentsSection";
 import { SettingsGeneralSection } from "../settings/SettingsGeneralSection";
-import { SettingsNav } from "../settings/SettingsNav";
-import type { SettingsSection } from "../settings/SettingsNav";
+import { SettingsNav, type SettingsSection } from "../settings/SettingsNav";
 import { SettingsMcpSection } from "../settings/SettingsMcpSection";
 import { SettingsReviewSection } from "../settings/SettingsReviewSection";
+import { SettingsGitSection } from "../settings/SettingsGitSection";
 import type { createTranslator, Language } from "../i18n";
 import type { AppView, DesktopSettingsUpdate, DesktopUiSettings } from "../types";
+import { RemoteProfilesSection } from "../components/RemoteProfilesSection";
+import { remoteBridge } from "../bridge";
+import type { RemoteProfile } from "../../shared/remoteTypes";
 
 type SettingsViewProps = {
   agentDetectionRefreshing: boolean;
@@ -23,6 +26,8 @@ type SettingsViewProps = {
   projects?: DesktopProjectSummary[];
   selectedCanvasId?: string | null;
   selectedProject?: DesktopProjectSummary | null;
+  section: SettingsSection;
+  setSection: Dispatch<SetStateAction<SettingsSection>>;
   loadProject?: (project: DesktopProjectSummary) => Promise<void>;
   setActiveView: Dispatch<SetStateAction<AppView>>;
   setError?: (message: string | null) => void;
@@ -46,6 +51,8 @@ export function SettingsView({
   projects = [],
   selectedCanvasId = null,
   selectedProject,
+  section,
+  setSection,
   loadProject,
   setActiveView,
   setError = () => undefined,
@@ -57,9 +64,9 @@ export function SettingsView({
   updateProjectPromptPolicy,
   updateSettings
 }: SettingsViewProps) {
-  const [section, setSection] = useState<SettingsSection>("general");
   const [projectPromptDraft, setProjectPromptDraft] = useState(projectPromptMarkdown ?? "");
   const [projectPromptSaving, setProjectPromptSaving] = useState(false);
+  const [remoteProfiles, setRemoteProfiles] = useState<RemoteProfile[]>([]);
   const projectPromptAvailable = Boolean(selectedProject && updateProjectPrompt);
   const projectPromptPolicyAvailable = Boolean(selectedProject && projectPromptPolicy && updateProjectPromptPolicy);
   const projectSelectorAvailable = projects.length > 0 && Boolean(loadProject);
@@ -68,6 +75,8 @@ export function SettingsView({
   useEffect(() => {
     setProjectPromptDraft(projectPromptMarkdown ?? "");
   }, [projectPromptMarkdown]);
+
+  useEffect(() => { void remoteBridge?.listRemoteProfiles().then(setRemoteProfiles); }, []);
 
   const selectProject = (projectId: string) => {
     const project = projects.find((item) => item.projectId === projectId);
@@ -87,13 +96,12 @@ export function SettingsView({
   return (
     <main className="flex h-full min-h-0 text-text">
       <SettingsNav section={section} setSection={setSection} onBackToApp={() => setActiveView("graph")} t={t} />
-      <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-l-xl bg-app-shell text-text">
-        <div className="app-drag-region h-11 shrink-0 border-b border-border/80 bg-app-topbar" />
+      <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-app-shell text-text">
         <ScrollArea
           className="min-h-0 min-w-0 flex-1 bg-app-canvas"
           viewportClassName="h-full [&>div]:!block [&>div]:!min-h-full [&>div]:!w-full"
         >
-          <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-12 py-10 pb-16">
+          <div className="view-enter mx-auto flex w-full max-w-5xl flex-col gap-8 px-8 py-8 pb-16">
           {section === "general" ? (
             <SettingsGeneralSection
               language={language}
@@ -130,7 +138,17 @@ export function SettingsView({
               updateSettings={updateSettings}
             />
           ) : null}
-          {section === "mcp" ? <SettingsMcpSection setError={setError} t={t} /> : null}
+          {section === "mcp" ? <><SettingsMcpSection setError={setError} t={t} /><RemoteProfilesSection profiles={remoteProfiles} onProfilesChange={setRemoteProfiles} /></> : null}
+          {section === "git" ? (
+            <SettingsGitSection
+              getGitHubAuthStatus={window.planweaveGitIntegration?.getGitHubAuthStatus ?? (async () => ({ authenticated: false, login: null, scopes: [], source: null }))}
+              getGitStatus={window.planweaveGitIntegration?.getGitStatus ?? (async () => ({ status: null, error: "Desktop bridge unavailable" }))}
+              gitHubLogin={window.planweaveGitIntegration?.gitHubLogin ?? (async () => ({ authenticated: false, login: null, scopes: [], source: null }))}
+              gitHubLogout={window.planweaveGitIntegration?.gitHubLogout ?? (async () => {})}
+              projectId={selectedProject?.projectId ?? null}
+              t={t}
+            />
+          ) : null}
           </div>
         </ScrollArea>
       </section>

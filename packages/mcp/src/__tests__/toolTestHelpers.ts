@@ -563,6 +563,23 @@ export function createGateway(): TestGateway {
     })),
     validatePackageDraft: vi.fn(async () => draftValidation),
     previewPackageDraftImport: vi.fn(async () => draftPreview),
-    importPackageDraft: vi.fn(async () => draftImport)
+    importPackageDraft: vi.fn(async () => draftImport),
+    gitStatus: vi.fn(async () => ({ branch: "main", ahead: 0, behind: 0, files: [], clean: true })),
+    gitDiff: vi.fn(async () => ({ hunks: [], raw: "" })),
+    gitLog: vi.fn(async () => []),
+    gitCommit: vi.fn(async (_projectId, message) => ({ hash: "abc123", message })),
+    gitRepoInfo: vi.fn(async () => ({ owner: "owner", repo: "repo", remotes: [], defaultRemote: "origin" })),
+    githubCreatePR: vi.fn(async (_projectId, title, head, base) => ({
+      number: 1, title, state: "open", htmlUrl: "https://github.com/owner/repo/pull/1", headBranch: head, baseBranch: base,
+      author: "user", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", draft: false, mergeable: true
+    })),
+    githubListPRs: vi.fn(async () => []),
+    githubGetPR: vi.fn(async (_projectId, prNumber) => ({
+      number: prNumber, title: "PR", state: "open", htmlUrl: `https://github.com/owner/repo/pull/${prNumber}`,
+      headBranch: "feature", baseBranch: "main", author: "user", createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z", draft: false, mergeable: true, body: "", additions: 1, deletions: 0,
+      changedFiles: 1, mergeStateStatus: "clean"
+    })),
+    githubMergePR: vi.fn(async () => ({ merged: true, message: "merged" }))
   };
 }

@@ -2,6 +2,7 @@ import type * as z from "zod/v4";
 import { authoringToolOutputSchemas } from "./toolContracts/authoringOutputSchemas.js";
 import { contentToolOutputSchemas } from "./toolContracts/contentOutputSchemas.js";
 import { debugToolOutputSchemas } from "./toolContracts/debugOutputSchemas.js";
+import { githubToolOutputSchemas } from "./toolContracts/githubOutputSchemas.js";
 import { graphToolOutputSchemas } from "./toolContracts/graphOutputSchemas.js";
 import { projectToolOutputSchemas } from "./toolContracts/projectOutputSchemas.js";
 import { readToolOutputSchemas } from "./toolContracts/readOutputSchemas.js";
@@ -14,7 +15,8 @@ export const planweaveToolOutputSchemaRegistries = [
   projectToolOutputSchemas,
   graphToolOutputSchemas,
   contentToolOutputSchemas,
-  debugToolOutputSchemas
+  debugToolOutputSchemas,
+  githubToolOutputSchemas
 ] as const;
 
 export const planweaveToolOutputSchemas = buildToolContractRegistry<z.core.$ZodLooseShape>(

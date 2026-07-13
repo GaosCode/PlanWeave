@@ -271,6 +271,41 @@ export {
   validateGraphEdit
 } from "./desktop/index.js";
 export { edgeTypes, executorAdapters, reviewTriggerConditions, runSubmitStatuses, reviewStatuses } from "./types.js";
+export {
+  isGitRepo,
+  gitExec,
+  GitError,
+  getStatus,
+  getDiff,
+  getLog,
+  hasUncommittedChanges,
+  hasStagedChanges,
+  stageFiles,
+  stageAll,
+  commit,
+  getBranches,
+  getCurrentBranch,
+  createBranch,
+  checkout,
+  getRemotes,
+  getRepoInfo,
+  parseGitHubRemote,
+  push,
+  pull,
+  fetch,
+} from "./git/index.js";
+export type {
+  FileStatus,
+  GitStatus,
+  GitCommit,
+  GitBranch,
+  GitDiffHunk,
+  GitDiffResult,
+  GitRemote,
+  GitRepoInfo,
+  GitCommitResult,
+  GitPushPullResult,
+} from "./git/index.js";
 export type { SourceDefaultProjectCandidate, SourceDefaultProjectEntry } from "./desktop/sourceDefaultProject.js";
 export {
   projectGraphCanvasNodeTypes,

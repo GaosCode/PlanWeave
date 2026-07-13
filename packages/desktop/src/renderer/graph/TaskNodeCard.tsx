@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
+import { memo, useCallback, useMemo, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import { MessageSquareWarningIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,7 +24,7 @@ function taskDependencyHandleStyle(topPercent: number): CSSProperties {
   return { top: `${topPercent}%` };
 }
 
-export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
+function TaskNodeCardInner({ data, selected }: NodeProps<TaskFlowNode>) {
   const {
     task,
     titleDraft,
@@ -50,32 +50,42 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
   } = data;
   const hasException = task.exceptions.length > 0;
   const selectedExecutor = task.executorLabel === "Mixed" ? "__custom" : canonicalExecutorName(task.executorLabel);
-  const taskExecutorOptions = buildExecutorOptionViews({
-    agentDetections,
-    currentExecutorNames: selectedExecutor !== "__custom" && selectedExecutor ? [selectedExecutor] : [],
-    executorOptions
-  });
+  const taskExecutorOptions = useMemo(
+    () =>
+      buildExecutorOptionViews({
+        agentDetections,
+        currentExecutorNames: selectedExecutor !== "__custom" && selectedExecutor ? [selectedExecutor] : [],
+        executorOptions
+      }),
+    [agentDetections, executorOptions, selectedExecutor]
+  );
   const statusVisual = taskNodeStatusVisual(task.status, hasException);
-  const handleTaskDoubleClick = (event: MouseEvent) => {
-    const target = event.target;
-    if (target instanceof HTMLElement && target.closest("button, [role='combobox'], [role='menuitem']")) {
-      return;
-    }
-    onTaskOpen(task.taskId);
-  };
-  const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    const key = event.key.toLowerCase();
-    const isUndo = (event.metaKey || event.ctrlKey) && !event.shiftKey && key === "z";
-    const isRedo = ((event.metaKey || event.ctrlKey) && event.shiftKey && key === "z") || (event.ctrlKey && !event.metaKey && key === "y");
-    if (!isUndo && !isRedo) {
-      return;
-    }
-    if (promptDraft !== task.promptMarkdown) {
-      return;
-    }
-    event.preventDefault();
-    void (isUndo ? onPromptHistoryUndo() : onPromptHistoryRedo());
-  };
+  const handleTaskDoubleClick = useCallback(
+    (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("button, [role='combobox'], [role='menuitem']")) {
+        return;
+      }
+      onTaskOpen(task.taskId);
+    },
+    [onTaskOpen, task.taskId]
+  );
+  const handlePromptKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      const key = event.key.toLowerCase();
+      const isUndo = (event.metaKey || event.ctrlKey) && !event.shiftKey && key === "z";
+      const isRedo = ((event.metaKey || event.ctrlKey) && event.shiftKey && key === "z") || (event.ctrlKey && !event.metaKey && key === "y");
+      if (!isUndo && !isRedo) {
+        return;
+      }
+      if (promptDraft !== task.promptMarkdown) {
+        return;
+      }
+      event.preventDefault();
+      void (isUndo ? onPromptHistoryUndo() : onPromptHistoryRedo());
+    },
+    [promptDraft, task.promptMarkdown, onPromptHistoryUndo, onPromptHistoryRedo]
+  );
 
   return (
     <ContextMenu>
@@ -210,3 +220,18 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
     </ContextMenu>
   );
 }
+
+export const TaskNodeCard = memo(TaskNodeCardInner, (prev, next) => {
+  if (prev.selected !== next.selected) return false;
+  const pd = prev.data;
+  const nd = next.data;
+  if (pd.task.taskId !== nd.task.taskId) return false;
+  if (pd.task.status !== nd.task.status) return false;
+  if (pd.task.executorLabel !== nd.task.executorLabel) return false;
+  if (pd.task.exceptions.length !== nd.task.exceptions.length) return false;
+  if (pd.titleDraft !== nd.titleDraft) return false;
+  if (pd.promptDraft !== nd.promptDraft) return false;
+  if (pd.saveState !== nd.saveState) return false;
+  if (pd.selectedBlock?.ref !== nd.selectedBlock?.ref) return false;
+  return true;
+});

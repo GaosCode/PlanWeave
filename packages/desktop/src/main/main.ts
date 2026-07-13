@@ -2,9 +2,12 @@ import { app, BrowserWindow } from "electron";
 import { registerApplicationMenu } from "./appMenu.js";
 import { checkForAppUpdate, registerAppUpdateHandlers } from "./appUpdate.js";
 import { autoStartMcpTunnel, registerMcpTunnelHandlers, stopMcpTunnelProcesses } from "./mcpTunnel/mcpTunnelHandlers.js";
+import { registerGitIntegrationHandlers } from "./gitIntegrationHandlers.js";
 import { registerDesktopSettingsHandlers } from "./desktopSettingsHandlers.js";
 import { applyPersistedPlanweaveHomeSetting } from "./desktopSettingsStore.js";
 import { registerPackageWatchHandlers } from "./packageWatch.js";
+import { registerRemoteBridgeHandlers } from "./remoteBridgeHandlers.js";
+import { stopLocalTeamHost } from "./localTeamHost.js";
 import { registerRuntimeBridgeHandlers } from "./runtimeBridgeHandlers.js";
 import { registerRuntimeStateWatchHandlers } from "./runtimeStateWatch.js";
 import { registerWindowAppearanceHandlers } from "./windowAppearance.js";
@@ -34,12 +37,14 @@ if (isSmokeRun && process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR) {
 }
 
 registerRuntimeBridgeHandlers();
+registerRemoteBridgeHandlers();
 registerDesktopSettingsHandlers(undefined, { planweaveHomeBaseline: planweaveHomeBaselineForSettingsStore });
 registerPackageWatchHandlers();
 registerRuntimeStateWatchHandlers();
 registerWindowAppearanceHandlers();
 registerAppUpdateHandlers();
 registerMcpTunnelHandlers();
+registerGitIntegrationHandlers();
 registerApplicationMenu({ checkForUpdates: checkForAppUpdate });
 
 app.whenReady().then(() => {
@@ -72,7 +77,7 @@ app.on("before-quit", (event) => {
     return;
   }
   event.preventDefault();
-  void stopMcpTunnelProcesses().finally(() => {
+  void Promise.all([stopMcpTunnelProcesses(), stopLocalTeamHost()]).finally(() => {
     mcpTunnelCleanupComplete = true;
     app.quit();
   });

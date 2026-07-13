@@ -14,6 +14,7 @@ export type McpConfig = {
   oauth?: McpOAuthConfig;
   planweaveHomeFromEnv: boolean;
   toolDiscoveryMode?: "default" | "compat";
+  trustProxy?: boolean;
 };
 
 export type McpConfigEnv = Partial<

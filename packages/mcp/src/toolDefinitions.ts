@@ -1,6 +1,7 @@
 import { authoringToolDefinitions } from "./toolContracts/authoringDefinitions.js";
 import { contentToolDefinitions } from "./toolContracts/contentDefinitions.js";
 import { debugToolDefinitions } from "./toolContracts/debugDefinitions.js";
+import { githubToolDefinitions } from "./toolContracts/githubDefinitions.js";
 import { graphToolDefinitions } from "./toolContracts/graphDefinitions.js";
 import { projectToolDefinitions } from "./toolContracts/projectDefinitions.js";
 import { readToolDefinitions } from "./toolContracts/readDefinitions.js";
@@ -16,7 +17,8 @@ export const planweaveToolDefinitionRegistries = [
   projectToolDefinitions,
   graphToolDefinitions,
   contentToolDefinitions,
-  debugToolDefinitions
+  debugToolDefinitions,
+  githubToolDefinitions
 ] as const;
 
 export const planweaveToolDefinitions = buildToolContractRegistry<ToolDefinition>(

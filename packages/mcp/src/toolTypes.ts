@@ -29,8 +29,14 @@ import type {
   RefreshPromptsResult,
   RuntimeSchemaTopicName,
   SchemaDocument,
-  ValidationReport
+  ValidationReport,
+  GitStatus,
+  GitDiffResult,
+  GitCommit,
+  GitRepoInfo,
+  GitCommitResult
 } from "@planweave-ai/runtime";
+import type { GitHubPR, GitHubPRDetail } from "./github/types.js";
 
 export const planweaveToolNames = [
   "list_tool_groups",
@@ -124,7 +130,15 @@ export const planweaveToolNames = [
   "validate_package_draft",
   "preview_package_import",
   "import_package_draft",
-  "apply_canvas_lane_layout"
+  "apply_canvas_lane_layout",
+  "git_status",
+  "git_diff",
+  "git_log",
+  "git_commit",
+  "github_create_pr",
+  "github_list_prs",
+  "github_get_pr",
+  "github_merge_pr"
 ] as const;
 
 export type PlanweaveToolName = (typeof planweaveToolNames)[number];
@@ -428,4 +442,13 @@ export type RuntimeGateway = {
   validatePackageDraft(draftRoot: string): Promise<PackageDraftValidationResult>;
   previewPackageDraftImport(input: { draftRoot: string; projectId: string; canvasId?: string }): Promise<PackageDraftImportPreview>;
   importPackageDraft(input: { draftRoot: string; projectId: string; canvasId?: string }): Promise<PackageDraftImportApplyResult>;
+  gitStatus(projectId: string): Promise<GitStatus>;
+  gitDiff(projectId: string, staged?: boolean, files?: string[]): Promise<GitDiffResult>;
+  gitLog(projectId: string, maxCount?: number): Promise<GitCommit[]>;
+  gitCommit(projectId: string, message: string): Promise<GitCommitResult>;
+  gitRepoInfo(projectId: string): Promise<GitRepoInfo>;
+  githubCreatePR(projectId: string, title: string, head: string, base: string, body?: string): Promise<GitHubPR>;
+  githubListPRs(projectId: string, state?: string): Promise<GitHubPR[]>;
+  githubGetPR(projectId: string, prNumber: number): Promise<GitHubPRDetail>;
+  githubMergePR(projectId: string, prNumber: number, method?: "merge" | "squash" | "rebase"): Promise<{ merged: boolean; message: string }>;
 };

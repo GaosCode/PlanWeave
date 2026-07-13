@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { Edge } from "@xyflow/react";
 import type {
@@ -104,6 +104,8 @@ export function useGraphFlowModel({
   const { saveSelectedBlockExecutor, saveSelectedBlockPrompt, saveSelectedBlockTitle } = blockActions;
   const { setEdges, setNodes, setSelectedBlock } = flowState;
 
+  const memoizedEdges = useMemo(() => (graph ? graphEdges(graph) : []), [graph]);
+
   useEffect(() => {
     if (!graph) {
       setNodes([]);
@@ -145,7 +147,7 @@ export function useGraphFlowModel({
         handleOpenRunRecord
       )
     );
-    setEdges(graphEdges(graph));
+    setEdges(memoizedEdges);
   }, [
     blockFeedbackRecords,
     blockReviewAttempts,
