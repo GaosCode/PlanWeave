@@ -29,5 +29,42 @@ function projectionItem(event: NormalizedRunnerEvent): AcpConversationItem | nul
 }
 
 export function projectAcpConversation(events: readonly NormalizedRunnerEvent[]): AcpConversationItem[] {
-  return events.map(projectionItem).filter((item): item is AcpConversationItem => item !== null);
+  const items: AcpConversationItem[] = [];
+  let activeMessage: {
+    index: number;
+    role: "assistant" | "user";
+    messageId: string | null;
+  } | null = null;
+
+  for (const event of events) {
+    const item = projectionItem(event);
+    if (item === null) continue;
+    if (event.body.kind !== "message") {
+      items.push(item);
+      activeMessage = null;
+      continue;
+    }
+
+    if (activeMessage !== null &&
+      activeMessage.role === event.body.role &&
+      ((activeMessage.messageId === null && event.body.messageId === null) ||
+        (activeMessage.messageId !== null && activeMessage.messageId === event.body.messageId)) &&
+      event.body.chunk) {
+      const previous = items[activeMessage.index];
+      if (!previous) throw new Error("ACP conversation message projection index is invalid.");
+      items[activeMessage.index] = { ...previous, content: previous.content + item.content };
+      continue;
+    }
+
+    items.push(item);
+    activeMessage = event.body.chunk
+      ? {
+          index: items.length - 1,
+          role: event.body.role,
+          messageId: event.body.messageId
+        }
+      : null;
+  }
+
+  return items;
 }

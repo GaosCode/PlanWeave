@@ -9,6 +9,7 @@ import { AcpEventReadModel, AcpEventReadModelRegistry } from "../autoRun/acpEven
 import { encodeNormalizedRunnerEvent, normalizedRunnerEventSchema, type NormalizedRunnerEvent } from "../autoRun/normalizedEventContract.js";
 import { replayNormalizedRunnerEvents, runnerEventCursorSchema } from "../autoRun/runnerEventReplay.js";
 import { runnerIdentitySchema, runnerRunIdentitySchema } from "../autoRun/runnerContractSchemas.js";
+import { projectAcpConversation } from "../autoRun/acpConversationProjection.js";
 
 function identity(runId = "RUN-001") {
   return runnerRunIdentitySchema.parse({
@@ -24,6 +25,17 @@ function event(sequence: number, runId = "RUN-001"): NormalizedRunnerEvent {
     identity: identity(runId), runner: { version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" },
     correlation: { sessionId: "session-1" },
     body: { kind: "lifecycle", state: "running", message: `event ${sequence}` }
+  });
+}
+
+function projectionEvent(sequence: number, body: NormalizedRunnerEvent["body"]): NormalizedRunnerEvent {
+  return normalizedRunnerEventSchema.parse({
+    version: "planweave.runner-event/v1", sequence,
+    timestamp: `2026-07-11T00:00:${String(sequence).padStart(2, "0")}.000Z`,
+    identity: identity(),
+    runner: { version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" },
+    correlation: { sessionId: "session-1" },
+    body
   });
 }
 
@@ -89,6 +101,53 @@ describe("ACP event normalization", () => {
 });
 
 describe("ACP event store and projection", () => {
+  it("coalesces same-message chunks across non-projected events", () => {
+    const redaction = { classes: [], replaced: 0 } as const;
+    const conversation = projectAcpConversation([
+      projectionEvent(1, { kind: "message", role: "assistant", messageId: "message-1", chunk: true, content: "你", redaction }),
+      projectionEvent(2, { kind: "usage_update", usedTokens: 1, contextWindowTokens: 100, cost: null }),
+      projectionEvent(3, { kind: "lifecycle", state: "running", message: "still running" }),
+      projectionEvent(4, { kind: "diagnostic", code: "protocol_error", message: "non-conversation detail" }),
+      projectionEvent(5, { kind: "message", role: "assistant", messageId: "message-1", chunk: true, content: "好", redaction })
+    ]);
+
+    expect(conversation).toEqual([
+      expect.objectContaining({ sequence: 1, kind: "message", content: "你好" })
+    ]);
+  });
+
+  it("preserves tool boundaries and does not merge different message ids", () => {
+    const redaction = { classes: [], replaced: 0 } as const;
+    const conversation = projectAcpConversation([
+      projectionEvent(1, { kind: "message", role: "assistant", messageId: "message-1", chunk: true, content: "before", redaction }),
+      projectionEvent(2, { kind: "tool_call", callId: "tool-1", status: "in_progress", title: "Read", content: null }),
+      projectionEvent(3, { kind: "tool_update", callId: "tool-1", status: "completed", content: null }),
+      projectionEvent(4, { kind: "message", role: "assistant", messageId: "message-1", chunk: true, content: "after", redaction }),
+      projectionEvent(5, { kind: "message", role: "assistant", messageId: "message-2", chunk: true, content: "next", redaction })
+    ]);
+
+    expect(conversation.map((item) => [item.sequence, item.kind, item.content])).toEqual([
+      [1, "message", "before"],
+      [2, "tool_call", "Read"],
+      [3, "tool_update", "completed"],
+      [4, "message", "after"],
+      [5, "message", "next"]
+    ]);
+  });
+
+  it("merges only contiguous anonymous chunks with the same role", () => {
+    const redaction = { classes: [], replaced: 0 } as const;
+    const conversation = projectAcpConversation([
+      projectionEvent(1, { kind: "message", role: "assistant", messageId: null, chunk: true, content: "a", redaction }),
+      projectionEvent(2, { kind: "usage_update", usedTokens: 1, contextWindowTokens: 100, cost: null }),
+      projectionEvent(3, { kind: "message", role: "assistant", messageId: null, chunk: true, content: "b", redaction }),
+      projectionEvent(4, { kind: "message", role: "assistant", messageId: "known", chunk: true, content: "c", redaction }),
+      projectionEvent(5, { kind: "message", role: "user", messageId: null, chunk: true, content: "d", redaction })
+    ]);
+
+    expect(conversation.map((item) => item.content)).toEqual(["ab", "c", "d"]);
+  });
+
   it("separates redacted protocol and normalized logs and rebuilds conversation", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-events-"));
     const store = new AcpEventStore({
