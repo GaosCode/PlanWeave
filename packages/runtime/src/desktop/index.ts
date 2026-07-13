@@ -171,6 +171,8 @@ export {
   getReviewAttempts,
   getRunRecord,
   listBlockRunRecords,
+  listTaskFeedbackRecords,
+  listTaskFeedbackRunRecords,
   resolveRunRecordArtifactPath,
   sendAgentPrompt,
   subscribeRunRecord
@@ -182,6 +184,7 @@ export {
 } from "./reviewPipelineApi.js";
 export { cloneDesktopGraphEditResult } from "./graphEditResult.js";
 export { projectTaskWorkspaceRun } from "./taskWorkspaceRunProjection.js";
+export { getTaskWorkspace } from "./taskWorkspaceApi.js";
 export {
   TASK_WORKSPACE_RESUME_UNAVAILABLE_REASON,
   TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON,
@@ -198,4 +201,18 @@ export {
   taskWorkspaceRunUsageSchema,
   taskWorkspaceUnavailableTokenAccountingSchema
 } from "./types/taskWorkspaceTypes.js";
+export {
+  TASK_WORKSPACE_TASK_COST_UNAVAILABLE_REASON,
+  taskWorkspaceAgentTimeSchema,
+  taskWorkspaceAnnotationSchema,
+  taskWorkspaceBlockSchema,
+  taskWorkspaceCostAccountingSchema,
+  taskWorkspaceDependencyProgressSchema,
+  taskWorkspaceInputSchema,
+  taskWorkspaceLatestArtifactSchema,
+  taskWorkspaceRunItemSchema,
+  taskWorkspaceSchema,
+  taskWorkspaceWaitingInteractionSchema,
+  taskWorkspaceWallClockSchema
+} from "./types/taskWorkspaceAggregateTypes.js";
 export type * from "./types.js";

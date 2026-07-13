@@ -1,5 +1,6 @@
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { realpath } from "node:fs/promises";
+import { z } from "zod";
 import {
   ArtifactReferenceVerificationError,
   readVerifiedArtifactReference
@@ -15,6 +16,9 @@ import {
 import type { RunnerEventCursor } from "../autoRun/runnerEventReplay.js";
 import {
   artifactReferenceSchema,
+  canvasIdSchema,
+  claimRefSchema,
+  taskIdSchema,
   type ArtifactReference
 } from "../autoRun/runnerContractSchemas.js";
 import { optionalReadFile, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
@@ -416,17 +420,133 @@ async function feedbackRunRecordSummariesForBlock(
   return records.filter((record): record is DesktopBlockRunRecordSummary => record !== null);
 }
 
+const taskFeedbackRunMetadataSchema = z
+  .object({
+    runId: z.string().min(1).max(256),
+    feedbackId: z.string().min(1).max(256),
+    sourceReviewBlockRef: claimRefSchema,
+    taskId: taskIdSchema.optional(),
+    canvasId: canvasIdSchema.optional()
+  })
+  .passthrough();
+
+async function resolveTaskFeedbackScope(projectRoot: string, canvasId: string, taskId: string) {
+  const parsedCanvasId = canvasIdSchema.parse(canvasId);
+  const parsedTaskId = taskIdSchema.parse(taskId);
+  const workspace = await resolveTaskCanvasWorkspace(projectRoot, parsedCanvasId);
+  const { manifest } = await loadPackage(workspace);
+  const taskIds = new Set(manifest.nodes.map((node) => node.id));
+  if (!taskIds.has(parsedTaskId)) {
+    throw new Error(`Task '${parsedTaskId}' does not exist in canvas '${parsedCanvasId}'.`);
+  }
+  return { canvasId: parsedCanvasId, taskId: parsedTaskId, taskIds, workspace };
+}
+
+export async function listTaskFeedbackRunRecords(
+  projectRoot: string,
+  canvasId: string,
+  taskId: string
+): Promise<DesktopBlockRunRecordSummary[]> {
+  const scope = await resolveTaskFeedbackScope(projectRoot, canvasId, taskId);
+  const { workspace } = scope;
+  const runIds = await listDirectories(feedbackRunRoot(workspace.resultsDir));
+  const records = await Promise.all(
+    runIds.map(async (runId) => {
+      const metadataPath = join(feedbackRunRoot(workspace.resultsDir), runId, "metadata.json");
+      const rawMetadata = (await exists(metadataPath))
+        ? await readJsonFile<Record<string, unknown>>(metadataPath)
+        : {};
+      const parsed = taskFeedbackRunMetadataSchema.safeParse(rawMetadata);
+      if (!parsed.success) {
+        throw new Error(
+          `Feedback run '${runId}' metadata is invalid: ${z.prettifyError(parsed.error)}`
+        );
+      }
+      const metadata = parsed.data;
+      if (metadata.runId !== runId) {
+        throw new Error(
+          `Feedback run directory '${runId}' does not match metadata runId '${metadata.runId}'.`
+        );
+      }
+      const sourceTaskId = parseBlockRef(metadata.sourceReviewBlockRef).taskId;
+      if (metadata.taskId !== undefined && metadata.taskId !== sourceTaskId) {
+        throw new Error(
+          `Feedback run '${runId}' taskId '${metadata.taskId}' does not match sourceReviewBlockRef '${metadata.sourceReviewBlockRef}'.`
+        );
+      }
+      if (metadata.canvasId !== undefined && metadata.canvasId !== scope.canvasId) {
+        throw new Error(
+          `Feedback run '${runId}' canvasId '${metadata.canvasId}' does not match Task canvas '${scope.canvasId}'.`
+        );
+      }
+      if (sourceTaskId !== scope.taskId) {
+        return null;
+      }
+      return feedbackRunRecordSummary({
+        resultsDir: workspace.resultsDir,
+        feedbackId: metadata.feedbackId,
+        runId
+      });
+    })
+  );
+  return records
+    .filter((record): record is DesktopBlockRunRecordSummary => record !== null)
+    .sort(compareRunRecordsNewestFirst);
+}
+
+export async function listTaskFeedbackRecords(
+  projectRoot: string,
+  canvasId: string,
+  taskId: string
+): Promise<DesktopFeedbackRecord[]> {
+  const scope = await resolveTaskFeedbackScope(projectRoot, canvasId, taskId);
+  const { taskIds, workspace } = scope;
+  const state = await readState(workspace.stateFile);
+  return Object.entries(state.feedback)
+    .flatMap(([feedbackId, feedback]) => {
+      const sourceTaskId = parseBlockRef(feedback.sourceReviewBlockRef).taskId;
+      if (sourceTaskId === scope.taskId) {
+        return [
+          {
+            feedbackId,
+            sourceReviewBlockRef: feedback.sourceReviewBlockRef,
+            status: feedback.status,
+            latestSubmissionId: feedback.latestSubmissionId,
+            content: feedback.content
+          }
+        ];
+      }
+      if (!taskIds.has(sourceTaskId)) {
+        throw new Error(
+          `State feedback '${feedbackId}' sourceReviewBlockRef '${feedback.sourceReviewBlockRef}' identifies missing Task '${sourceTaskId}' in canvas '${scope.canvasId}'.`
+        );
+      }
+      return [];
+    })
+    .sort((left, right) => compareIdsNewestFirst(left.feedbackId, right.feedbackId));
+}
+
 export async function listBlockRunRecords(
+  projectRoot: PackageWorkspaceRef,
+  blockRef: string
+): Promise<DesktopBlockRunRecordSummary[]> {
+  const blockRecords = await listBlockMainRunRecords(projectRoot, blockRef);
+  const { workspace } = await loadPackage(projectRoot);
+  const feedbackRecords = await feedbackRunRecordSummariesForBlock(workspace.resultsDir, blockRef);
+  return [...blockRecords, ...feedbackRecords].sort(compareRunRecordsNewestFirst);
+}
+
+export async function listBlockMainRunRecords(
   projectRoot: PackageWorkspaceRef,
   blockRef: string
 ): Promise<DesktopBlockRunRecordSummary[]> {
   const { workspace } = await loadPackage(projectRoot);
   const runIds = await listDirectories(blockRunRoot(workspace.resultsDir, blockRef));
-  const blockRecords = await Promise.all(
-    runIds.map((runId) => runRecordSummary({ resultsDir: workspace.resultsDir, blockRef, runId }))
-  );
-  const feedbackRecords = await feedbackRunRecordSummariesForBlock(workspace.resultsDir, blockRef);
-  return [...blockRecords, ...feedbackRecords].sort(compareRunRecordsNewestFirst);
+  return (
+    await Promise.all(
+      runIds.map((runId) => runRecordSummary({ resultsDir: workspace.resultsDir, blockRef, runId }))
+    )
+  ).sort(compareRunRecordsNewestFirst);
 }
 
 export async function getRunRecord(

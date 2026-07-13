@@ -401,6 +401,8 @@ export {
   getSourceDefaultProject,
   listSourceDefaultProjectCandidates,
   listBlockRunRecords,
+  listTaskFeedbackRecords,
+  listTaskFeedbackRunRecords,
   listPendingImportRecoveries,
   openProject,
   refreshChangedDesktopPackagePrompts,
@@ -512,6 +514,21 @@ export {
   taskWorkspaceRunSchema,
   taskWorkspaceRunUsageSchema,
   taskWorkspaceUnavailableTokenAccountingSchema
+} from "./desktop/index.js";
+export {
+  getTaskWorkspace,
+  TASK_WORKSPACE_TASK_COST_UNAVAILABLE_REASON,
+  taskWorkspaceAgentTimeSchema,
+  taskWorkspaceAnnotationSchema,
+  taskWorkspaceBlockSchema,
+  taskWorkspaceCostAccountingSchema,
+  taskWorkspaceDependencyProgressSchema,
+  taskWorkspaceInputSchema,
+  taskWorkspaceLatestArtifactSchema,
+  taskWorkspaceRunItemSchema,
+  taskWorkspaceSchema,
+  taskWorkspaceWaitingInteractionSchema,
+  taskWorkspaceWallClockSchema
 } from "./desktop/index.js";
 export type * from "./runSessions/index.js";
 export type * from "./autoRun/executorPreflightTypes.js";

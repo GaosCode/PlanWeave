@@ -7,6 +7,8 @@ import {
   getReviewAttempts,
   getRunRecord,
   listBlockRunRecords,
+  listTaskFeedbackRecords,
+  listTaskFeedbackRunRecords,
   resolveRunRecordArtifactPath,
   searchProject
 } from "../desktop/index.js";
@@ -19,6 +21,7 @@ import {
   submitFeedback,
   submitReviewResult
 } from "../taskManager/index.js";
+import { readState, writeState } from "../state.js";
 import {
   basicManifest,
   createTestWorkspace,
@@ -31,6 +34,69 @@ afterEach(() => {
 });
 
 describe("desktop records API", () => {
+  it("enumerates feedback run and state records only for the requested Task", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
+    for (const item of [
+      { runId: "RUN-TASK-1", feedbackId: "FE-TASK-1", taskId: "T-001" },
+      { runId: "RUN-TASK-2", feedbackId: "FE-TASK-2", taskId: "T-002" }
+    ]) {
+      const runDir = join(init.workspace.resultsDir, "feedback-runs", item.runId);
+      await mkdir(runDir, { recursive: true });
+      await writeJsonFile(join(runDir, "metadata.json"), {
+        runId: item.runId,
+        feedbackId: item.feedbackId,
+        sourceReviewBlockRef: `${item.taskId}#R-001`,
+        taskId: item.taskId,
+        canvasId: "default",
+        finishedAt: "2026-07-13T00:00:00.000Z"
+      });
+    }
+    const state = await readState(init.workspace.stateFile);
+    state.feedback["FE-TASK-1"] = {
+      status: "resolved",
+      sourceReviewBlockRef: "T-001#R-001",
+      latestSubmissionId: null,
+      content: "Task one"
+    };
+    state.feedback["FE-TASK-2"] = {
+      status: "resolved",
+      sourceReviewBlockRef: "T-002#R-001",
+      latestSubmissionId: null,
+      content: "Task two"
+    };
+    await writeState(init.workspace.stateFile, state);
+
+    await expect(listTaskFeedbackRunRecords(root, "default", "T-001")).resolves.toEqual([
+      expect.objectContaining({
+        feedbackId: "FE-TASK-1",
+        sourceReviewBlockRef: "T-001#R-001",
+        taskId: "T-001"
+      })
+    ]);
+    await expect(listTaskFeedbackRecords(root, "default", "T-001")).resolves.toEqual([
+      expect.objectContaining({
+        feedbackId: "FE-TASK-1",
+        sourceReviewBlockRef: "T-001#R-001",
+        content: "Task one"
+      })
+    ]);
+  });
+
+  it("validates feedback record Task scope before enumerating run metadata", async () => {
+    const { root, init } = await createTestWorkspace();
+    const invalidRunDir = join(init.workspace.resultsDir, "feedback-runs", "RUN-INVALID");
+    await mkdir(invalidRunDir, { recursive: true });
+    await writeJsonFile(join(invalidRunDir, "metadata.json"), {});
+
+    await expect(listTaskFeedbackRunRecords(root, "default", "T-999")).rejects.toThrow(
+      "Task 'T-999' does not exist in canvas 'default'."
+    );
+    await expect(listTaskFeedbackRunRecords(root, "default", "")).rejects.toThrow(/too small/i);
+    await expect(
+      listTaskFeedbackRunRecords(root, "missing-canvas", "T-001")
+    ).rejects.toThrow("Project has no task canvas.");
+  });
+
   it("lists newest run records first and removes terminal control codes from summaries", async () => {
     const { root, init } = await createTestWorkspace();
     const runsRoot = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs");
