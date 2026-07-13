@@ -45,6 +45,12 @@ import {
   displayMarkdownForRecord,
   outputSummaryForRecord
 } from "./runRecordOutput.js";
+import {
+  feedbackRunRecordId,
+  parseRunRecordId,
+  runRecordId,
+  type ParsedRunRecordId
+} from "./runRecordIdentity.js";
 import type {
   DesktopBlockRunRecordSummary,
   DesktopFeedbackRecord,
@@ -108,30 +114,6 @@ function blockRunRoot(resultsDir: string, blockRef: string): string {
 
 function feedbackRunRoot(resultsDir: string): string {
   return join(resultsDir, "feedback-runs");
-}
-
-function runRecordId(blockRef: string, runId: string): string {
-  return `${blockRef}::${runId}`;
-}
-
-function feedbackRunRecordId(feedbackId: string, runId: string): string {
-  return `${feedbackId}::${runId}`;
-}
-
-type ParsedRunRecordId =
-  | { kind: "block"; blockRef: string; runId: string }
-  | { kind: "feedback"; feedbackId: string; runId: string };
-
-function parseRunRecordId(recordId: string): ParsedRunRecordId {
-  const [ref, runId, extra] = recordId.split("::");
-  if (!ref || !runId || extra !== undefined) {
-    throw new Error(`Run record id '${recordId}' is invalid.`);
-  }
-  if (ref.includes("#")) {
-    parseBlockRef(ref);
-    return { kind: "block", blockRef: ref, runId };
-  }
-  return { kind: "feedback", feedbackId: ref, runId };
 }
 
 function assertContainedPath(root: string, candidate: string): void {

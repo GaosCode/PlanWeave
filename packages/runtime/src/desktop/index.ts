@@ -181,4 +181,21 @@ export {
   updateReviewPipeline
 } from "./reviewPipelineApi.js";
 export { cloneDesktopGraphEditResult } from "./graphEditResult.js";
+export { projectTaskWorkspaceRun } from "./taskWorkspaceRunProjection.js";
+export {
+  TASK_WORKSPACE_RESUME_UNAVAILABLE_REASON,
+  TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON,
+  TASK_WORKSPACE_RUN_TOKENS_UNAVAILABLE_REASON,
+  TASK_WORKSPACE_TASK_TOKENS_UNAVAILABLE_REASON,
+  taskWorkspaceCancelCapabilitySchema,
+  taskWorkspaceContextUsageSnapshotSchema,
+  taskWorkspacePromptCapabilitySchema,
+  taskWorkspaceRunCapabilitiesSchema,
+  taskWorkspaceRunDurationSchema,
+  taskWorkspaceRunMetadataSchema,
+  taskWorkspaceRunRecordIdentitySchema,
+  taskWorkspaceRunSchema,
+  taskWorkspaceRunUsageSchema,
+  taskWorkspaceUnavailableTokenAccountingSchema
+} from "./types/taskWorkspaceTypes.js";
 export type * from "./types.js";

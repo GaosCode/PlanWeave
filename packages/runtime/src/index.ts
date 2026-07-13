@@ -500,6 +500,19 @@ export {
   supportedProjectGraphVersion
 } from "./projectGraph/index.js";
 export type * from "./desktop/index.js";
+export {
+  projectTaskWorkspaceRun,
+  taskWorkspaceCancelCapabilitySchema,
+  taskWorkspaceContextUsageSnapshotSchema,
+  taskWorkspacePromptCapabilitySchema,
+  taskWorkspaceRunCapabilitiesSchema,
+  taskWorkspaceRunDurationSchema,
+  taskWorkspaceRunMetadataSchema,
+  taskWorkspaceRunRecordIdentitySchema,
+  taskWorkspaceRunSchema,
+  taskWorkspaceRunUsageSchema,
+  taskWorkspaceUnavailableTokenAccountingSchema
+} from "./desktop/index.js";
 export type * from "./runSessions/index.js";
 export type * from "./autoRun/executorPreflightTypes.js";
 export type * from "./plangraph/index.js";
