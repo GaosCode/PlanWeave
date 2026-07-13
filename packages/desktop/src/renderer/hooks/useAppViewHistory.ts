@@ -3,136 +3,350 @@ import {
   type SetStateAction,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState
 } from "react";
-import type { AppView } from "../types";
+import { z } from "zod";
+import {
+  graphAppViewSchema,
+  nonGraphRegularAppViewSchema,
+  regularAppViewSchema,
+  type AppView
+} from "../appViewContract";
+import {
+  graphNavigationSnapshotSchema,
+  taskWorkspaceNavigationIdentity,
+  taskWorkspaceNavigationIdentitySchema,
+  type GraphNavigationSnapshot,
+  type TaskWorkspaceNavigationIdentity,
+  type TaskWorkspaceNavigationSourceInput,
+  type TaskWorkspaceNavigationTarget
+} from "../taskWorkspaceNavigation";
 
 export const appViewHistoryChangedEvent = "planweave:app-view-history-changed";
 
-type AppViewHistoryState = {
-  planweaveAppView?: AppView;
-  planweaveHistoryIndex?: number;
-  planweaveHistoryMaxIndex?: number;
-};
-
-const appViews = new Set<AppView>([
-  "new-task",
-  "graph",
-  "canvas-map",
-  "review-pipeline",
-  "todo",
-  "statistics",
-  "search",
-  "notifications",
-  "settings"
+export const appHistoryRouteSchema = z.discriminatedUnion("view", [
+  z
+    .object({
+      view: graphAppViewSchema,
+      graphSnapshot: graphNavigationSnapshotSchema.optional()
+    })
+    .strict(),
+  z.object({ view: nonGraphRegularAppViewSchema }).strict(),
+  z
+    .object({
+      view: z.literal("task-workspace"),
+      navigation: taskWorkspaceNavigationIdentitySchema
+    })
+    .strict()
 ]);
 
-function isAppView(value: unknown): value is AppView {
-  return typeof value === "string" && appViews.has(value as AppView);
+const appHistoryStateSchema = z
+  .object({
+    planweaveRoute: appHistoryRouteSchema,
+    planweaveHistoryIndex: z.number().int().nonnegative(),
+    planweaveHistoryMaxIndex: z.number().int().nonnegative()
+  })
+  .passthrough()
+  .superRefine((value, context) => {
+    if (value.planweaveHistoryMaxIndex < value.planweaveHistoryIndex) {
+      context.addIssue({
+        code: "custom",
+        path: ["planweaveHistoryMaxIndex"],
+        message: "History max index cannot precede the current index."
+      });
+    }
+  });
+
+const legacyAppHistoryStateSchema = z
+  .object({
+    planweaveAppView: regularAppViewSchema.optional(),
+    planweaveHistoryIndex: z.number().int().nonnegative().optional(),
+    planweaveHistoryMaxIndex: z.number().int().nonnegative().optional()
+  })
+  .passthrough();
+
+export type AppHistoryRoute = z.output<typeof appHistoryRouteSchema>;
+
+type AppHistoryState = z.output<typeof appHistoryStateSchema>;
+
+type HistoryStateRead =
+  | { status: "ready"; state: AppHistoryState }
+  | { status: "invalid"; message: string };
+
+function historyRecord(state: unknown): Record<string, unknown> {
+  return state !== null && typeof state === "object" ? { ...state } : {};
 }
 
-function readAppViewHistoryState(state: unknown): AppViewHistoryState {
-  if (!state || typeof state !== "object") {
-    return {};
+function canonicalHistoryRecord(state: unknown): Record<string, unknown> {
+  const record = historyRecord(state);
+  Reflect.deleteProperty(record, "planweaveAppView");
+  return record;
+}
+
+function initialRoute(initialView: AppView): AppHistoryRoute {
+  if (initialView === "task-workspace") {
+    throw new Error("Task Workspace cannot be the initial route without a navigation identity.");
   }
-  const candidate = state as AppViewHistoryState;
+  return appHistoryRouteSchema.parse({ view: initialView });
+}
+
+function invalidHistoryState(error?: z.ZodError): HistoryStateRead {
   return {
-    planweaveAppView: isAppView(candidate.planweaveAppView)
-      ? candidate.planweaveAppView
-      : undefined,
-    planweaveHistoryIndex:
-      typeof candidate.planweaveHistoryIndex === "number"
-        ? candidate.planweaveHistoryIndex
-        : undefined,
-    planweaveHistoryMaxIndex:
-      typeof candidate.planweaveHistoryMaxIndex === "number"
-        ? candidate.planweaveHistoryMaxIndex
-        : undefined
+    status: "invalid",
+    message: error
+      ? `Browser history contains an invalid PlanWeave route.\n${z.prettifyError(error)}`
+      : "Browser history contains an invalid PlanWeave route."
   };
+}
+
+function readHistoryState(state: unknown, fallbackRoute?: AppHistoryRoute): HistoryStateRead {
+  const record = historyRecord(state);
+  if (Object.hasOwn(record, "planweaveRoute")) {
+    const canonical = appHistoryStateSchema.safeParse(state);
+    return canonical.success
+      ? { status: "ready", state: canonical.data }
+      : invalidHistoryState(canonical.error);
+  }
+  const legacy = legacyAppHistoryStateSchema.safeParse(state);
+  if (!legacy.success) {
+    return invalidHistoryState(legacy.error);
+  }
+  const legacyView = legacy.data.planweaveAppView;
+  const route = legacyView ? appHistoryRouteSchema.parse({ view: legacyView }) : fallbackRoute;
+  if (!route) {
+    return invalidHistoryState();
+  }
+  const index = legacy.data.planweaveHistoryIndex ?? 0;
+  const maxIndex = legacy.data.planweaveHistoryMaxIndex ?? index;
+  return {
+    status: "ready",
+    state: appHistoryStateSchema.parse({
+      ...canonicalHistoryRecord(state),
+      planweaveRoute: route,
+      planweaveHistoryIndex: index,
+      planweaveHistoryMaxIndex: Math.max(index, maxIndex)
+    })
+  };
+}
+
+function writeHistoryState(
+  method: "push" | "replace",
+  route: AppHistoryRoute,
+  index: number,
+  maxIndex: number
+): AppHistoryState {
+  const next = appHistoryStateSchema.parse({
+    ...canonicalHistoryRecord(window.history.state),
+    planweaveRoute: route,
+    planweaveHistoryIndex: index,
+    planweaveHistoryMaxIndex: maxIndex
+  });
+  window.history[`${method}State`](next, "");
+  window.dispatchEvent(new Event(appViewHistoryChangedEvent));
+  return next;
 }
 
 export function readAppViewHistoryAvailability() {
-  const state = readAppViewHistoryState(window.history.state);
-  const index = state.planweaveHistoryIndex ?? 0;
-  const maxIndex = state.planweaveHistoryMaxIndex ?? index;
+  const read = readHistoryState(window.history.state);
+  if (read.status === "invalid") {
+    return { canGoBack: false, canGoForward: false };
+  }
+  const state = read.state;
   return {
-    canGoBack: index > 0,
-    canGoForward: index < maxIndex
+    canGoBack: state.planweaveHistoryIndex > 0,
+    canGoForward: state.planweaveHistoryIndex < state.planweaveHistoryMaxIndex
   };
 }
 
+export type AppViewHistoryController = {
+  graphSnapshot: GraphNavigationSnapshot | null;
+  historyError: string | null;
+  historyIndex: number;
+  openTaskWorkspace: (
+    target: TaskWorkspaceNavigationTarget,
+    source: TaskWorkspaceNavigationSourceInput
+  ) => void;
+  replaceTaskWorkspaceTarget: (target: TaskWorkspaceNavigationTarget) => void;
+  returnToTaskWorkspaceSource: () => void;
+  route: AppHistoryRoute;
+  taskWorkspaceNavigation: TaskWorkspaceNavigationIdentity | null;
+};
+
 export function useAppViewHistory(
   initialView: AppView
-): [AppView, Dispatch<SetStateAction<AppView>>] {
-  const [activeView, setActiveViewState] = useState<AppView>(
-    () => readAppViewHistoryState(window.history.state).planweaveAppView ?? initialView
+): [AppView, Dispatch<SetStateAction<AppView>>, AppViewHistoryController] {
+  const fallbackRoute = useMemo(() => initialRoute(initialView), [initialView]);
+  const initialRead = useMemo(
+    () => readHistoryState(window.history.state, fallbackRoute),
+    [fallbackRoute]
   );
-  const activeViewRef = useRef(activeView);
+  const initialState = useMemo(
+    () =>
+      initialRead.status === "ready"
+        ? initialRead.state
+        : appHistoryStateSchema.parse({
+            planweaveRoute: fallbackRoute,
+            planweaveHistoryIndex: 0,
+            planweaveHistoryMaxIndex: 0
+          }),
+    [fallbackRoute, initialRead]
+  );
+  const [historyState, setHistoryState] = useState(initialState);
+  const [historyError, setHistoryError] = useState<string | null>(
+    initialRead.status === "invalid" ? initialRead.message : null
+  );
+  const historyStateRef = useRef(historyState);
+
+  const commitState = useCallback((next: AppHistoryState) => {
+    historyStateRef.current = next;
+    setHistoryState(next);
+    setHistoryError(null);
+  }, []);
 
   useEffect(() => {
-    activeViewRef.current = activeView;
-  }, [activeView]);
-
-  useEffect(() => {
-    const historyState = readAppViewHistoryState(window.history.state);
-    const initialHistoryView = historyState.planweaveAppView ?? initialView;
-    const initialIndex = historyState.planweaveHistoryIndex ?? 0;
-    const initialMaxIndex = historyState.planweaveHistoryMaxIndex ?? initialIndex;
-    window.history.replaceState(
-      {
-        ...window.history.state,
-        planweaveAppView: initialHistoryView,
-        planweaveHistoryIndex: initialIndex,
-        planweaveHistoryMaxIndex: initialMaxIndex
-      },
-      ""
-    );
-    setActiveViewState(initialHistoryView);
-    activeViewRef.current = initialHistoryView;
-    window.dispatchEvent(new Event(appViewHistoryChangedEvent));
+    const current = readHistoryState(window.history.state, fallbackRoute);
+    if (current.status === "ready") {
+      const normalized = writeHistoryState(
+        "replace",
+        current.state.planweaveRoute,
+        current.state.planweaveHistoryIndex,
+        current.state.planweaveHistoryMaxIndex
+      );
+      commitState(normalized);
+    } else {
+      setHistoryError(current.message);
+    }
 
     const handlePopState = (event: PopStateEvent) => {
-      const nextView = readAppViewHistoryState(event.state).planweaveAppView ?? initialView;
-      activeViewRef.current = nextView;
-      setActiveViewState(nextView);
-      window.dispatchEvent(new Event(appViewHistoryChangedEvent));
+      const next = readHistoryState(event.state);
+      if (next.status === "invalid") {
+        setHistoryError(next.message);
+        return;
+      }
+      const normalized = writeHistoryState(
+        "replace",
+        next.state.planweaveRoute,
+        next.state.planweaveHistoryIndex,
+        next.state.planweaveHistoryMaxIndex
+      );
+      commitState(normalized);
     };
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [initialView]);
+  }, [commitState, fallbackRoute]);
 
-  const setActiveView = useCallback<Dispatch<SetStateAction<AppView>>>((nextAction) => {
-    const currentView = activeViewRef.current;
-    const nextView = typeof nextAction === "function" ? nextAction(currentView) : nextAction;
-    if (nextView === currentView) {
-      return;
+  const pushRoute = useCallback(
+    (route: AppHistoryRoute) => {
+      const current = historyStateRef.current;
+      const nextIndex = current.planweaveHistoryIndex + 1;
+      writeHistoryState(
+        "replace",
+        current.planweaveRoute,
+        current.planweaveHistoryIndex,
+        nextIndex
+      );
+      const next = writeHistoryState("push", route, nextIndex, nextIndex);
+      commitState(next);
+    },
+    [commitState]
+  );
+
+  const replaceRoute = useCallback(
+    (route: AppHistoryRoute) => {
+      const current = historyStateRef.current;
+      const next = writeHistoryState(
+        "replace",
+        route,
+        current.planweaveHistoryIndex,
+        current.planweaveHistoryMaxIndex
+      );
+      commitState(next);
+    },
+    [commitState]
+  );
+
+  const setActiveView = useCallback<Dispatch<SetStateAction<AppView>>>(
+    (action) => {
+      const currentView = historyStateRef.current.planweaveRoute.view;
+      const nextView = typeof action === "function" ? action(currentView) : action;
+      if (nextView === currentView) {
+        return;
+      }
+      if (nextView === "task-workspace") {
+        throw new Error("Use openTaskWorkspace() with a strict navigation target.");
+      }
+      pushRoute(appHistoryRouteSchema.parse({ view: nextView }));
+    },
+    [pushRoute]
+  );
+
+  const openTaskWorkspace = useCallback(
+    (target: TaskWorkspaceNavigationTarget, source: TaskWorkspaceNavigationSourceInput) => {
+      const navigation = taskWorkspaceNavigationIdentity(target, source);
+      if (navigation.source.view === "graph" && navigation.source.graphSnapshot) {
+        replaceRoute(
+          appHistoryRouteSchema.parse({
+            view: navigation.source.view,
+            graphSnapshot: navigation.source.graphSnapshot
+          })
+        );
+      }
+      pushRoute(appHistoryRouteSchema.parse({ view: "task-workspace", navigation }));
+    },
+    [pushRoute, replaceRoute]
+  );
+
+  const replaceTaskWorkspaceTarget = useCallback(
+    (target: TaskWorkspaceNavigationTarget) => {
+      const current = historyStateRef.current.planweaveRoute;
+      if (current.view !== "task-workspace") {
+        throw new Error("Cannot replace a Task Workspace target outside its route.");
+      }
+      replaceRoute(
+        appHistoryRouteSchema.parse({
+          view: "task-workspace",
+          navigation: taskWorkspaceNavigationIdentity(target, current.navigation.source)
+        })
+      );
+    },
+    [replaceRoute]
+  );
+
+  const returnToTaskWorkspaceSource = useCallback(() => {
+    const current = historyStateRef.current;
+    if (current.planweaveRoute.view !== "task-workspace") {
+      throw new Error("Cannot return to a Task Workspace source outside its route.");
     }
-
-    const historyState = readAppViewHistoryState(window.history.state);
-    const currentIndex = historyState.planweaveHistoryIndex ?? 0;
-    const nextIndex = currentIndex + 1;
-    window.history.replaceState(
-      {
-        ...window.history.state,
-        planweaveHistoryMaxIndex: nextIndex
-      },
-      ""
-    );
-    window.history.pushState(
-      {
-        ...window.history.state,
-        planweaveAppView: nextView,
-        planweaveHistoryIndex: nextIndex,
-        planweaveHistoryMaxIndex: nextIndex
-      },
-      ""
-    );
-    activeViewRef.current = nextView;
-    setActiveViewState(nextView);
-    window.dispatchEvent(new Event(appViewHistoryChangedEvent));
+    if (current.planweaveHistoryIndex <= 0) {
+      throw new Error("Task Workspace source history is unavailable.");
+    }
+    window.history.back();
   }, []);
 
-  return [activeView, setActiveView];
+  const route = historyState.planweaveRoute;
+  const controller = useMemo<AppViewHistoryController>(
+    () => ({
+      graphSnapshot: route.view === "graph" ? (route.graphSnapshot ?? null) : null,
+      historyError,
+      historyIndex: historyState.planweaveHistoryIndex,
+      openTaskWorkspace,
+      replaceTaskWorkspaceTarget,
+      returnToTaskWorkspaceSource,
+      route,
+      taskWorkspaceNavigation: route.view === "task-workspace" ? route.navigation : null
+    }),
+    [
+      historyError,
+      historyState.planweaveHistoryIndex,
+      openTaskWorkspace,
+      replaceTaskWorkspaceTarget,
+      returnToTaskWorkspaceSource,
+      route
+    ]
+  );
+
+  return [route.view, setActiveView, controller];
 }

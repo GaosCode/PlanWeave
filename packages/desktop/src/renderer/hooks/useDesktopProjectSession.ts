@@ -113,6 +113,11 @@ export function useDesktopProjectSession({
     [setActiveView]
   );
 
+  const restoreTaskPanelSelection = useCallback((taskId: string | null) => {
+    setSelectedTaskPanelId(taskId);
+    setTaskFocusRequest(null);
+  }, []);
+
   const openTaskInspector = useCallback(
     async (taskId: string, canvasIdOverride?: string | null) => {
       const canvasId =
@@ -314,6 +319,7 @@ export function useDesktopProjectSession({
     openProject,
     openTaskInspector,
     refreshLatestAutoRunSummary,
+    restoreTaskPanelSelection,
     renameTaskCanvas,
     reloadCurrentCanvas,
     selectedTaskPanelId,

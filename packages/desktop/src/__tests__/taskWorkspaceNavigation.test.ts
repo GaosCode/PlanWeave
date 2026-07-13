@@ -160,6 +160,39 @@ describe("Task Workspace navigation construction", () => {
       }).success
     ).toBe(false);
   });
+
+  it("rejects unknown/self sources and snapshots carried by non-graph sources", () => {
+    const navigation = {
+      projectRoot: "/projects/demo",
+      canvasId: "canvas-main",
+      taskId: "T-001"
+    };
+
+    expect(
+      taskWorkspaceNavigationIdentitySchema.safeParse({
+        ...navigation,
+        source: { view: "task-workspace" }
+      }).success
+    ).toBe(false);
+    expect(
+      taskWorkspaceNavigationIdentitySchema.safeParse({
+        ...navigation,
+        source: { view: "custom-view" }
+      }).success
+    ).toBe(false);
+    expect(
+      taskWorkspaceNavigationIdentitySchema.safeParse({
+        ...navigation,
+        source: { view: "search", graphSnapshot: source.graphSnapshot }
+      }).success
+    ).toBe(false);
+    expect(
+      taskWorkspaceNavigationIdentitySchema.safeParse({
+        ...navigation,
+        source: { view: "graph", graphSnapshot: source.graphSnapshot }
+      }).success
+    ).toBe(true);
+  });
 });
 
 describe("Task Workspace navigation authority", () => {

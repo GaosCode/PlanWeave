@@ -680,7 +680,20 @@ export const enCatalog = {
   acpPromptUnavailable: "This session cannot accept another message.",
   acpSendPrompt: "Send message",
   acpPromptSending: "Agent is working…",
-  acpPromptFailed: "Message could not be sent"
+  acpPromptFailed: "Message could not be sent",
+  inspectTask: "Open task inspector",
+  inspectBlock: "Open block inspector",
+  taskWorkspaceBackToCanvas: "Back to canvas",
+  taskWorkspaceTimeline: "Run timeline",
+  taskWorkspaceConversation: "Conversation",
+  taskWorkspaceInspector: "Inspector",
+  taskWorkspaceComposer: "Composer",
+  taskWorkspaceLoading: "Loading Task Workspace…",
+  taskWorkspaceLiveUnavailable: "Live session details are unavailable for this run.",
+  taskWorkspaceNoRuns: "No runs are available for this Task.",
+  taskWorkspaceNoConversation: "Select a run to view its conversation.",
+  taskWorkspaceNoInspector: "Select a run or Block to inspect its details.",
+  taskWorkspaceNoTask: "No Task Workspace navigation target is available."
 } as const;
 
 export type TranslationKey = keyof typeof enCatalog;

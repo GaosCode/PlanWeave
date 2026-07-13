@@ -112,7 +112,9 @@ import type {
   DesktopOpenTerminalInput,
   DesktopRunTerminalAvailabilityInput,
   DesktopRuntimeResetOptions,
-  GraphEditResult
+  GraphEditResult,
+  TaskWorkspace,
+  TaskWorkspaceInput
 } from "@planweave-ai/runtime";
 import {
   desktopAgentActionIdentitySchema,
@@ -193,6 +195,32 @@ function validationFailureMessage(error: {
     .join("; ");
 }
 
+function assertTaskWorkspaceResponseIdentity(
+  input: TaskWorkspaceInput,
+  result: TaskWorkspace
+): void {
+  const identityFields = [
+    ["project.projectRoot", result.project.projectRoot, input.projectRoot],
+    ["project.canvasId", result.project.canvasId, input.canvasId],
+    ["task.taskId", result.task.taskId, input.taskId]
+  ] as const;
+  for (const [path, actual, expected] of identityFields) {
+    if (actual !== expected) {
+      throw new Error(
+        `invalid Runtime response identity: ${path} '${actual}' does not match request '${expected}'.`
+      );
+    }
+  }
+  if (
+    input.selectedRecordId != null &&
+    result.selectedRecordId !== input.selectedRecordId
+  ) {
+    throw new Error(
+      `invalid Runtime response identity: selectedRecordId '${result.selectedRecordId}' does not match request '${input.selectedRecordId}'.`
+    );
+  }
+}
+
 async function invokeTaskWorkspace(input: unknown) {
   const parsedInput = taskWorkspaceInputSchema.safeParse(input);
   if (!parsedInput.success) {
@@ -206,6 +234,7 @@ async function invokeTaskWorkspace(input: unknown) {
     if (!parsedResult.success) {
       throw new Error(`invalid Runtime response: ${validationFailureMessage(parsedResult.error)}`);
     }
+    assertTaskWorkspaceResponseIdentity(parsedInput.data, parsedResult.data);
     return parsedResult.data;
   } catch (error) {
     const message = isValidationFailure(error)

@@ -47,6 +47,8 @@ import { ReviewPipelineView } from "./ReviewPipelineView";
 import { SearchView } from "./SearchView";
 import { StatisticsView } from "./StatisticsView";
 import { TodoView } from "./TodoView";
+import { TaskWorkspaceRoute } from "../task-workspace/TaskWorkspaceRoute";
+import { taskWorkspaceLabels } from "../task-workspace/labels";
 
 export type WorkspaceTabsShellProps = {
   activeView: AppView;
@@ -298,6 +300,11 @@ function CanvasMapRoute() {
   );
 }
 
+function TaskWorkspaceAppRoute() {
+  const { shell, taskWorkspace } = useProjectWorkspace();
+  return <TaskWorkspaceRoute controller={taskWorkspace} labels={taskWorkspaceLabels(shell.t)} />;
+}
+
 export function WorkspaceTabs() {
   const { shell } = useProjectWorkspace();
   const activeView = shell.activeView;
@@ -318,16 +325,24 @@ export function WorkspaceTabs() {
       case "canvas-map":
         return <CanvasMapRoute />;
       case "graph":
-      default:
         return <GraphWorkspaceRoute />;
+      case "task-workspace":
+        return <TaskWorkspaceAppRoute />;
+      case "settings":
+        return null;
     }
   })();
+  const taskWorkspaceActive = activeView === "task-workspace";
 
   return (
-    <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-l-xl bg-app-shell text-text">
-      <div className="app-drag-region h-11 shrink-0 border-b border-border/80 bg-app-topbar" />
+    <section
+      className={`relative flex min-w-0 flex-1 flex-col overflow-hidden bg-app-shell text-text ${taskWorkspaceActive ? "" : "rounded-l-xl"}`}
+    >
+      {taskWorkspaceActive ? null : (
+        <div className="app-drag-region h-11 shrink-0 border-b border-border/80 bg-app-topbar" />
+      )}
       <div
-        className={`min-h-0 flex-1 bg-app-canvas ${activeView === "graph" || activeView === "canvas-map" ? "" : "p-4"}`}
+        className={`min-h-0 flex-1 bg-app-canvas ${activeView === "graph" || activeView === "canvas-map" || taskWorkspaceActive ? "" : "p-4"}`}
       >
         <div className="h-full min-h-0">{content}</div>
       </div>

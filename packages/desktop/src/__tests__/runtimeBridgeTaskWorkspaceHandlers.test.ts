@@ -24,8 +24,7 @@ describe("Task Workspace runtime bridge", () => {
     const input = {
       projectRoot: "/tmp/project",
       canvasId: "canvas-a",
-      taskId: "T-001",
-      selectedRecordId: "T-001#B-001::RUN-001"
+      taskId: "T-001"
     };
 
     const result = await registeredHandler(desktopBridgeInvokeChannels.getTaskWorkspace)(
@@ -40,6 +39,43 @@ describe("Task Workspace runtime bridge", () => {
       project: { projectRoot: input.projectRoot, canvasId: input.canvasId },
       task: { taskId: input.taskId }
     });
+  });
+
+  it.each([
+    ["project root", "project.projectRoot", "/tmp/other-project"],
+    ["canvas id", "project.canvasId", "canvas-other"],
+    ["task id", "task.taskId", "T-OTHER"]
+  ] as const)("rejects a Runtime response with a mismatched %s", async (_label, path, value) => {
+    const { runtimeMock } = getRuntimeBridgeMocks();
+    const handler = registeredHandler(desktopBridgeInvokeChannels.getTaskWorkspace);
+    const input = { projectRoot: "/tmp/project", canvasId: "canvas-a", taskId: "T-001" };
+    const validResult = taskWorkspaceSchema.parse(await handler(null, input));
+    const mismatchedResult =
+      path === "project.projectRoot"
+        ? { ...validResult, project: { ...validResult.project, projectRoot: value } }
+        : path === "project.canvasId"
+          ? { ...validResult, project: { ...validResult.project, canvasId: value } }
+          : { ...validResult, task: { ...validResult.task, taskId: value } };
+    runtimeMock.getTaskWorkspace.mockResolvedValueOnce(mismatchedResult);
+
+    await expect(handler(null, input)).rejects.toThrow(
+      `Task Workspace request failed: invalid Runtime response identity: ${path}`
+    );
+  });
+
+  it("rejects a Runtime response that ignores an explicit selected record", async () => {
+    const input = {
+      projectRoot: "/tmp/project",
+      canvasId: "canvas-a",
+      taskId: "T-001",
+      selectedRecordId: "T-001#B-001::RUN-001"
+    };
+
+    await expect(
+      registeredHandler(desktopBridgeInvokeChannels.getTaskWorkspace)(null, input)
+    ).rejects.toThrow(
+      "Task Workspace request failed: invalid Runtime response identity: selectedRecordId"
+    );
   });
 
   it.each([

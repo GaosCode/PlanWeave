@@ -5,11 +5,10 @@ import {
   taskWorkspaceInputSchema
 } from "@planweave-ai/runtime";
 import { z } from "zod";
+import { graphAppViewSchema, nonGraphRegularAppViewSchema } from "./appViewContract";
 
 const projectRootSchema = taskWorkspaceInputSchema.shape.projectRoot;
 const recordIdSchema = taskWorkspaceInputSchema.shape.selectedRecordId.unwrap().unwrap();
-const maxSourceViewLength = 64;
-const sourceViewSchema = z.string().min(1).max(maxSourceViewLength);
 const navigationTargetBaseShape = {
   projectRoot: projectRootSchema,
   canvasId: canvasIdSchema,
@@ -109,12 +108,15 @@ export const recordAuthorityTargetSchema = z
   .strict()
   .superRefine(validateBlockOwnership);
 
-export const taskWorkspaceNavigationSourceSchema = z
-  .object({
-    view: sourceViewSchema,
-    graphSnapshot: graphNavigationSnapshotSchema.optional()
-  })
-  .strict();
+export const taskWorkspaceNavigationSourceSchema = z.discriminatedUnion("view", [
+  z
+    .object({
+      view: graphAppViewSchema,
+      graphSnapshot: graphNavigationSnapshotSchema.optional()
+    })
+    .strict(),
+  z.object({ view: nonGraphRegularAppViewSchema }).strict()
+]);
 
 export const taskWorkspaceNavigationIdentitySchema = taskWorkspaceNavigationTargetSchema
   .safeExtend({

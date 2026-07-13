@@ -30,6 +30,8 @@ export function taskNodeLabels(t: ReturnType<typeof createTranslator>): TaskNode
     openTaskInFileManager: fileManagerLabel(t, "task"),
     runTask: t("runTask"),
     runBlock: t("runBlock"),
+    inspectTask: t("inspectTask"),
+    inspectBlock: t("inspectBlock"),
     deleteTaskConfirm: t("deleteTaskConfirm"),
     deleteBlockConfirm: t("deleteBlockConfirm"),
     exclusiveLock: t("exclusiveLock"),

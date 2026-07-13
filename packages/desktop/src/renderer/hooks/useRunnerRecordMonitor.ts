@@ -53,17 +53,29 @@ function mergeDiagnostics(
   return [...diagnostics.values()];
 }
 
-export function useRunnerRecordMonitor(options: {
+type RunnerRecordMonitorOptions = {
   api?: Pick<DesktopBridgeApi, "subscribeRunnerRecord"> | null;
   canvasRef?: DesktopCanvasReference | null;
-  initialModel: RunnerRecordReadModel;
-  recordId: string;
-}) {
+  initialModel: RunnerRecordReadModel | null;
+  recordId: string | null;
+};
+
+export function useRunnerRecordMonitor(
+  options: RunnerRecordMonitorOptions & {
+    initialModel: RunnerRecordReadModel;
+    recordId: string;
+  }
+): { model: RunnerRecordReadModel; subscriptionError: string | null };
+export function useRunnerRecordMonitor(options: RunnerRecordMonitorOptions): {
+  model: RunnerRecordReadModel | null;
+  subscriptionError: string | null;
+};
+export function useRunnerRecordMonitor(options: RunnerRecordMonitorOptions) {
   const { api = bridge, canvasRef, initialModel, recordId } = options;
   const [model, setModel] = useState(initialModel);
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
   const updateSequence = useRef(0);
-  const promptCapable = initialModel.intervention.prompt.identity !== null;
+  const promptCapable = (initialModel?.intervention.prompt.identity ?? null) !== null;
 
   useEffect(() => {
     setModel(initialModel);
@@ -72,7 +84,15 @@ export function useRunnerRecordMonitor(options: {
   }, [initialModel, recordId]);
 
   useEffect(() => {
-    if (!api || !canvasRef || (initialModel.terminal && !promptCapable)) return;
+    if (
+      !api ||
+      !canvasRef ||
+      !initialModel ||
+      !recordId ||
+      (initialModel.terminal && !promptCapable)
+    ) {
+      return;
+    }
     let disposed = false;
     let unsubscribe: (() => Promise<void>) | null = null;
     void api
@@ -81,7 +101,7 @@ export function useRunnerRecordMonitor(options: {
         (update) => {
           if (disposed || update.updateSequence <= updateSequence.current) return;
           updateSequence.current = update.updateSequence;
-          setModel((current) => mergeModel(current, update.snapshot));
+          setModel((current) => (current ? mergeModel(current, update.snapshot) : update.snapshot));
         }
       )
       .then((subscription) => {
@@ -93,7 +113,9 @@ export function useRunnerRecordMonitor(options: {
         if (snapshot) {
           const authoritativeState = subscription.updateSequence >= updateSequence.current;
           if (authoritativeState) updateSequence.current = subscription.updateSequence;
-          setModel((current) => mergeModel(current, snapshot, authoritativeState));
+          setModel((current) =>
+            current ? mergeModel(current, snapshot, authoritativeState) : snapshot
+          );
         }
       })
       .catch((error: unknown) => {
@@ -105,7 +127,14 @@ export function useRunnerRecordMonitor(options: {
       disposed = true;
       void unsubscribe?.();
     };
-  }, [api, canvasRef, initialModel.cursor, initialModel.terminal, promptCapable, recordId]);
+  }, [
+    api,
+    canvasRef,
+    initialModel?.cursor.afterSequence,
+    initialModel?.terminal,
+    promptCapable,
+    recordId
+  ]);
 
   return useMemo(() => ({ model, subscriptionError }), [model, subscriptionError]);
 }

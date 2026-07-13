@@ -1,10 +1,10 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
-import type { CSSProperties } from "react";
+import type { CSSProperties, MouseEventHandler } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TaskNodeCard } from "../renderer/graph/TaskNodeCard";
 import { taskNodeLabels } from "../renderer/graph/taskNodeLabels";
@@ -14,19 +14,25 @@ import type { TaskNodeData } from "../renderer/types";
 vi.mock("@xyflow/react", () => ({
   Handle: ({
     className,
+    "data-graph-interaction": graphInteraction,
+    onClick,
     position,
     style,
     type
   }: {
     className?: string;
+    "data-graph-interaction"?: string;
+    onClick?: MouseEventHandler<HTMLDivElement>;
     position?: string;
     style?: CSSProperties;
     type?: string;
   }) => (
     <div
       className={className}
+      data-graph-interaction={graphInteraction}
       data-testid={`handle-${type ?? "unknown"}`}
       data-position={position}
+      onClick={onClick}
       style={style}
     />
   ),
@@ -98,8 +104,10 @@ function nodeData(patch: Partial<TaskNodeData> = {}): TaskNodeData {
     onPromptHistoryRedo: vi.fn().mockResolvedValue(undefined),
     onPromptHistoryUndo: vi.fn().mockResolvedValue(undefined),
     onBlockSelect: vi.fn(),
+    onBlockWorkspaceOpen: vi.fn(),
     onOverflowBlockSelect: vi.fn(),
     onTaskOpen: vi.fn(),
+    onTaskWorkspaceOpen: vi.fn(),
     onAgentPromptCopy: vi.fn(),
     onRevealTaskInFinder: vi.fn(),
     onAutoRunScopeStart: vi.fn().mockResolvedValue(undefined),
@@ -187,19 +195,42 @@ describe("TaskNodeCard executor options", () => {
 });
 
 describe("TaskNodeCard context menu", () => {
+  it("opens Task Workspace from the card without also opening the inspector", () => {
+    const onTaskOpen = vi.fn();
+    const onTaskWorkspaceOpen = vi.fn();
+    renderTaskNode(nodeData({ onTaskOpen, onTaskWorkspaceOpen }));
+
+    fireEvent.click(screen.getByTestId("task-node-card"));
+
+    expect(onTaskWorkspaceOpen).toHaveBeenCalledWith("T-001");
+    expect(onTaskOpen).not.toHaveBeenCalled();
+  });
+
   it("reveals the task node directory from the context menu", async () => {
     const onRevealTaskInFinder = vi.fn();
     renderTaskNode(nodeData({ onRevealTaskInFinder }));
 
     fireEvent.contextMenu(screen.getByRole("textbox", { name: "T-001 title" }));
     const menuItems = await screen.findAllByRole("menuitem");
-    expect(menuItems).toHaveLength(4);
+    expect(menuItems).toHaveLength(5);
     for (const menuItem of menuItems) {
       expect(menuItem.querySelector("[data-icon='inline-start']")).toBeInTheDocument();
     }
-    await userEvent.click(within(menuItems[1]).getByText(/Open task in/));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Open task in Finder" }));
 
     expect(onRevealTaskInFinder).toHaveBeenCalledWith("T-001");
+  });
+
+  it("keeps the task inspector behind its explicit context-menu action", async () => {
+    const onTaskOpen = vi.fn();
+    const onTaskWorkspaceOpen = vi.fn();
+    renderTaskNode(nodeData({ onTaskOpen, onTaskWorkspaceOpen }));
+
+    fireEvent.contextMenu(screen.getByTestId("task-node-card"));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Open task inspector" }));
+
+    expect(onTaskOpen).toHaveBeenCalledWith("T-001");
+    expect(onTaskWorkspaceOpen).not.toHaveBeenCalled();
   });
 });
 
@@ -212,11 +243,23 @@ describe("TaskNodeCard connection handles", () => {
     expect(targetHandles).toHaveLength(1);
     expect(targetHandles[0].style.top).toBe("56%");
     expect(targetHandles[0]).toHaveAttribute("data-position", "left");
+    expect(targetHandles[0]).toHaveAttribute("data-graph-interaction", "dependency-handle");
     expect(targetHandles[0]).toHaveClass("size-3");
 
     expect(sourceHandles).toHaveLength(1);
     expect(sourceHandles[0].style.top).toBe("44%");
     expect(sourceHandles[0]).toHaveAttribute("data-position", "right");
+    expect(sourceHandles[0]).toHaveAttribute("data-graph-interaction", "dependency-handle");
     expect(sourceHandles[0]).toHaveClass("size-3");
+  });
+
+  it("does not open Task Workspace when either dependency handle is clicked", () => {
+    const onTaskWorkspaceOpen = vi.fn();
+    renderTaskNode(nodeData({ onTaskWorkspaceOpen }));
+
+    fireEvent.click(screen.getByTestId("handle-target"));
+    fireEvent.click(screen.getByTestId("handle-source"));
+
+    expect(onTaskWorkspaceOpen).not.toHaveBeenCalled();
   });
 });

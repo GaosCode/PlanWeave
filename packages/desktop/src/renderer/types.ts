@@ -24,6 +24,7 @@ export type {
   FloatingControlPosition,
   PaletteComponentKey
 } from "../shared/desktopSettings";
+export { appViewSchema, type AppView } from "./appViewContract";
 
 export type DesktopSettingsUpdate =
   | DesktopSettingsPatch
@@ -56,6 +57,8 @@ export type TaskNodeLabels = {
   openTaskInFileManager: string;
   runTask: string;
   runBlock: string;
+  inspectTask: string;
+  inspectBlock: string;
   deleteTaskConfirm: string;
   deleteBlockConfirm: string;
   exclusiveLock: string;
@@ -106,9 +109,11 @@ export type TaskNodeData = {
   onPromptHistoryRedo: () => Promise<void>;
   onPromptHistoryUndo: () => Promise<void>;
   onBlockSelect: (ref: string) => void;
+  onBlockWorkspaceOpen: (ref: string) => void;
   onOverflowBlockSelect: (ref: string) => void;
   onTaskDelete: (taskId: string) => void;
   onTaskOpen: (taskId: string) => void;
+  onTaskWorkspaceOpen: (taskId: string) => void;
   onAgentPromptCopy: (taskId: string) => void;
   onRevealTaskInFinder: (taskId: string) => void;
   onAutoRunScopeStart: (scope: DesktopAutoRunScope) => Promise<void>;
@@ -151,16 +156,6 @@ export type CanvasNodeData = {
 export type CanvasFlowNode = Node<CanvasNodeData, "canvas">;
 
 export type AppFlowNode = TaskFlowNode;
-export type AppView =
-  | "new-task"
-  | "graph"
-  | "canvas-map"
-  | "review-pipeline"
-  | "todo"
-  | "statistics"
-  | "search"
-  | "notifications"
-  | "settings";
 export type AutoRunScopeMode = "project" | "selectedTask" | "selectedBlock";
 export type PaletteDropComponent = "task" | import("@planweave-ai/runtime").BlockType;
 export type PaletteDropPosition = { x: number; y: number };

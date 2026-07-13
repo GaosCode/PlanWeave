@@ -13,6 +13,7 @@ export function BlockPreviewButton({
   block,
   labels,
   onDelete,
+  onInspect,
   onRun,
   onSelect,
   selectedBlockRef
@@ -20,6 +21,7 @@ export function BlockPreviewButton({
   block: DesktopBlockPreview;
   labels: TaskNodeData["labels"];
   onDelete: (ref: string) => void;
+  onInspect: (ref: string) => void;
   onRun: (ref: string) => void;
   onSelect: (ref: string) => void;
   selectedBlockRef: string | null;
@@ -42,6 +44,9 @@ export function BlockPreviewButton({
         </button>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        <ContextMenuItem onSelect={() => onInspect(block.ref)}>
+          {labels.inspectBlock}
+        </ContextMenuItem>
         <ContextMenuItem onSelect={() => onRun(block.ref)}>{labels.runBlock}</ContextMenuItem>
         <ContextMenuItem variant="destructive" onSelect={() => onDelete(block.ref)}>
           {labels.deleteBlock}

@@ -652,5 +652,18 @@ export const zhCnCatalog = {
   acpPromptUnavailable: "此会话无法继续接收消息。",
   acpSendPrompt: "发送消息",
   acpPromptSending: "Agent 正在处理…",
-  acpPromptFailed: "消息发送失败"
+  acpPromptFailed: "消息发送失败",
+  inspectTask: "打开 Task 检查器",
+  inspectBlock: "打开 Block 检查器",
+  taskWorkspaceBackToCanvas: "返回画布",
+  taskWorkspaceTimeline: "运行时间线",
+  taskWorkspaceConversation: "对话",
+  taskWorkspaceInspector: "检查器",
+  taskWorkspaceComposer: "消息编辑器",
+  taskWorkspaceLoading: "正在加载 Task Workspace…",
+  taskWorkspaceLiveUnavailable: "此运行没有可用的实时会话详情。",
+  taskWorkspaceNoRuns: "此 Task 暂无运行记录。",
+  taskWorkspaceNoConversation: "选择一个运行以查看对话。",
+  taskWorkspaceNoInspector: "选择一个运行或 Block 以查看详情。",
+  taskWorkspaceNoTask: "没有可用的 Task Workspace 导航目标。"
 } satisfies Record<TranslationKey, string>;

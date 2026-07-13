@@ -18,7 +18,7 @@ import {
   type ProjectWorkspaceShellInput
 } from "./ProjectWorkspaceProvider";
 
-function AppWorkspaceChrome({
+export function AppWorkspaceChrome({
   leftSidebarCollapsed,
   leftSidebarWidth,
   rightSidebarCollapsed,
@@ -43,6 +43,14 @@ function AppWorkspaceChrome({
 }) {
   const { palette, projectSidebar, shell } = useProjectWorkspace();
   const activeView = shell.activeView;
+
+  if (activeView === "task-workspace") {
+    return (
+      <main className="relative flex h-full min-h-0 overflow-hidden">
+        <WorkspaceTabs />
+      </main>
+    );
+  }
 
   return (
     <>
@@ -113,7 +121,7 @@ export function App() {
     useDesktopSettingsBridge({ setError });
   const language = settings.language;
   const t = useMemo(() => createTranslator(language), [language]);
-  const [activeView, setActiveView] = useAppViewHistory("graph");
+  const [activeView, setActiveView, appHistory] = useAppViewHistory("graph");
   const { agentDetectionRefreshing, agentDetections, refreshAgentDetections } = useDetectedAgents();
   const { refreshRuntimeTools, runtimeTools } = useRuntimeTools();
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -123,6 +131,12 @@ export function App() {
       setError(t("bridgeUnavailable"));
     }
   }, [t]);
+
+  useEffect(() => {
+    if (appHistory.historyError) {
+      setError(appHistory.historyError);
+    }
+  }, [appHistory.historyError]);
 
   useDesktopSettingsEffects(settings);
 
@@ -142,6 +156,7 @@ export function App() {
   const shellInput = useMemo<ProjectWorkspaceShellInput>(
     () => ({
       activeView,
+      appHistory,
       agentDetectionRefreshing,
       agentDetections,
       language,
@@ -159,6 +174,7 @@ export function App() {
     }),
     [
       activeView,
+      appHistory,
       agentDetectionRefreshing,
       agentDetections,
       language,

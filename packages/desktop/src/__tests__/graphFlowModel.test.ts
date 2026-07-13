@@ -76,6 +76,8 @@ describe("desktop graph flow model", () => {
       vi.fn(),
       vi.fn(),
       vi.fn(),
+      vi.fn(),
+      vi.fn(),
       vi.fn()
     );
 
@@ -100,7 +102,9 @@ describe("desktop graph flow model", () => {
       [],
       [],
       [],
-      // 20 task/block callbacks (onTitleChange … onOpenRunRecord)
+      // 22 task/block callbacks (onTitleChange … onOpenRunRecord)
+      noop,
+      noop,
       noop,
       noop,
       noop,
@@ -153,6 +157,8 @@ const labels: TaskNodeLabels = {
   deleteBlockConfirm: "Delete block?",
   deleteTask: "Delete task",
   deleteTaskConfirm: "Delete task?",
+  inspectBlock: "Inspect block",
+  inspectTask: "Inspect task",
   exception: "Exception",
   exceptionOverlay: "Exception overlay",
   feedbackMarker: "Feedback",

@@ -5,6 +5,7 @@ import {
   FolderOpenIcon,
   MessageSquareWarningIcon,
   PlayIcon,
+  ScanSearchIcon,
   Trash2Icon
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -41,10 +42,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import {
-  buildExecutorOptionViews,
-  executorOptionName
-} from "../executors/executorOptionViewModel";
+import { buildExecutorOptionViews, executorOptionName } from "../executors/executorOptionViewModel";
 import type { TaskFlowNode } from "../types";
 import { BlockPreviewButton } from "./BlockPreviewButton";
 import { LockBadges } from "./lockBadges";
@@ -88,7 +86,9 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
     onPromptHistoryUndo,
     onPromptSave,
     onBlockSelect,
+    onBlockWorkspaceOpen,
     onTaskOpen,
+    onTaskWorkspaceOpen,
     onAgentPromptCopy,
     onRevealTaskInFinder,
     onAutoRunScopeStart,
@@ -120,15 +120,15 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
     : waiting
       ? labels.waitingForResource
       : task.status;
-  const handleTaskDoubleClick = (event: MouseEvent) => {
+  const handleTaskClick = (event: MouseEvent) => {
     const target = event.target;
     if (
       target instanceof HTMLElement &&
-      target.closest("button, [role='combobox'], [role='menuitem']")
+      target.closest("button, input, textarea, select, a, [role='combobox'], [role='menuitem']")
     ) {
       return;
     }
-    onTaskOpen(task.taskId);
+    onTaskWorkspaceOpen(task.taskId);
   };
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const key = event.key.toLowerCase();
@@ -169,10 +169,12 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
                 } as CSSProperties)
               : undefined
           }
-          onDoubleClick={handleTaskDoubleClick}
+          onClick={handleTaskClick}
         >
           <Handle
             className={taskDependencyHandleClassName}
+            data-graph-interaction="dependency-handle"
+            onClick={(event) => event.stopPropagation()}
             type="target"
             position={Position.Left}
             style={taskDependencyHandleStyle(taskDependencyTargetHandleTopPercent)}
@@ -302,8 +304,9 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
                     key={block.ref}
                     labels={labels}
                     onDelete={onBlockDelete}
+                    onInspect={onBlockSelect}
                     onRun={(ref) => void onAutoRunScopeStart({ kind: "block", blockRef: ref })}
-                    onSelect={onBlockSelect}
+                    onSelect={onBlockWorkspaceOpen}
                     selectedBlockRef={selectedBlock?.ref ?? null}
                   />
                 ))}
@@ -312,6 +315,8 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
           </CardContent>
           <Handle
             className={taskDependencyHandleClassName}
+            data-graph-interaction="dependency-handle"
+            onClick={(event) => event.stopPropagation()}
             type="source"
             position={Position.Right}
             style={taskDependencyHandleStyle(taskDependencySourceHandleTopPercent)}
@@ -319,6 +324,10 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
         </Card>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        <ContextMenuItem onSelect={() => onTaskOpen(task.taskId)}>
+          <ScanSearchIcon data-icon="inline-start" />
+          {labels.inspectTask}
+        </ContextMenuItem>
         <ContextMenuItem onSelect={() => onAgentPromptCopy(task.taskId)}>
           <ClipboardIcon data-icon="inline-start" />
           {labels.copyAgentPrompt}

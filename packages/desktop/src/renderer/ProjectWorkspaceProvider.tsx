@@ -81,6 +81,10 @@ import type {
 import type { ComponentProps } from "react";
 import type { AppSettingsRoute } from "./AppSettingsRoute";
 import type { ProjectSidebar } from "./sidebar/ProjectSidebar";
+import type { AppViewHistoryController } from "./hooks/useAppViewHistory";
+import type { TaskWorkspaceController } from "./task-workspace/contracts";
+import { useTaskWorkspaceController } from "./task-workspace/useTaskWorkspaceController";
+import { useTaskWorkspaceGraphNavigation } from "./task-workspace/useTaskWorkspaceGraphNavigation";
 
 const emptyExecutorOptions: string[] = [];
 type TaskCanvasSummary = DesktopProjectSummary["taskCanvases"][number];
@@ -105,6 +109,7 @@ type LayoutSettingsPatch = {
 
 export type ProjectWorkspaceShellInput = {
   activeView: AppView;
+  appHistory: AppViewHistoryController;
   agentDetectionRefreshing: boolean;
   agentDetections: DesktopAgentDetection[];
   language: DesktopUiSettings["language"];
@@ -140,6 +145,7 @@ export type ProjectWorkspaceValue = {
   search: WorkspaceTabsSearchProps;
   settingsRouteProps: AppSettingsRouteProps;
   shell: WorkspaceTabsShellProps;
+  taskWorkspace: TaskWorkspaceController;
 };
 
 const ProjectWorkspaceContext = createContext<ProjectWorkspaceValue | null>(null);
@@ -161,6 +167,7 @@ export function ProjectWorkspaceProvider({
 }) {
   const {
     activeView,
+    appHistory,
     agentDetectionRefreshing,
     agentDetections,
     language,
@@ -281,6 +288,7 @@ export function ProjectWorkspaceProvider({
     openTaskInspector: handleOpenTaskInspector,
     renameTaskCanvas: renameTaskCanvasInSession,
     reloadCurrentCanvas,
+    restoreTaskPanelSelection,
     selectedTaskPanelId,
     selectTaskPanel: handleTaskPanelSelect,
     setAutoRunState,
@@ -296,6 +304,39 @@ export function ProjectWorkspaceProvider({
     setSelectedBlock,
     setSelectedRunRecord
   });
+
+  const restoreTaskWorkspaceSourceSelection = useCallback(
+    async (taskId: string | null, blockRef: string | null) => {
+      setSelectedRunRecord(null);
+      if (blockRef) {
+        await handleBlockSelect(blockRef);
+      } else {
+        setSelectedBlock(null);
+        clearSelectedBlockRecords();
+      }
+      restoreTaskPanelSelection(taskId);
+    },
+    [
+      clearSelectedBlockRecords,
+      handleBlockSelect,
+      restoreTaskPanelSelection,
+      setSelectedBlock,
+      setSelectedRunRecord
+    ]
+  );
+  const taskWorkspaceNavigation = useTaskWorkspaceGraphNavigation({
+    flowInstance,
+    graph,
+    history: appHistory,
+    openProject: openProjectInSession,
+    projectLoading,
+    projects,
+    restoreSelection: restoreTaskWorkspaceSourceSelection,
+    selectedCanvasId,
+    selectedProject,
+    setError
+  });
+  const taskWorkspace = useTaskWorkspaceController({ history: appHistory });
 
   const autoRunController = useAutoRunController({
     autoRunState,
@@ -642,8 +683,10 @@ export function ProjectWorkspaceProvider({
       handleCopyAgentPrompt,
       handleRevealTaskInFinder,
       handleOpenBlockInspector,
+      handleOpenBlockWorkspace: taskWorkspaceNavigation.openBlockWorkspace,
       handleOpenRunRecord,
       handleOpenTaskInspector,
+      handleOpenTaskWorkspace: taskWorkspaceNavigation.openTaskWorkspace,
       handlePromptChange,
       handlePromptHistoryRedo: handleRedoGraph,
       handlePromptHistoryUndo: handleUndoGraph,
@@ -960,7 +1003,8 @@ export function ProjectWorkspaceProvider({
       review,
       search,
       settingsRouteProps,
-      shell: workspaceShell
+      shell: workspaceShell,
+      taskWorkspace
     }),
     [
       addPaletteComponent,
@@ -975,6 +1019,7 @@ export function ProjectWorkspaceProvider({
       review,
       search,
       settingsRouteProps,
+      taskWorkspace,
       workspaceShell
     ]
   );
