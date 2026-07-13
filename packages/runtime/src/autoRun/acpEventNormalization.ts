@@ -15,7 +15,10 @@ import {
 
 export type AcpNormalizedEventBody = NormalizedRunnerEvent["body"];
 
-const providerOnlySessionUpdateSchema = z.discriminatedUnion("sessionUpdate", [
+const nonConversationSessionUpdateSchema = z.discriminatedUnion("sessionUpdate", [
+  z.object({ sessionUpdate: z.literal("available_commands_update") }).passthrough(),
+  z.object({ sessionUpdate: z.literal("current_mode_update") }).passthrough(),
+  z.object({ sessionUpdate: z.literal("config_option_update") }).passthrough(),
   z.object({ sessionUpdate: z.literal("session_info_update") }).passthrough(),
   z.object({ sessionUpdate: z.literal("agent_thought_chunk") }).passthrough()
 ]);
@@ -87,7 +90,7 @@ function toolStatus(value: unknown): "pending" | "in_progress" | "completed" | "
 
 export function normalizeAcpSessionNotification(notification: SessionNotification): AcpNormalizedEventBody | null {
   const update = notification.update;
-  if (providerOnlySessionUpdateSchema.safeParse(update).success) return null;
+  if (nonConversationSessionUpdateSchema.safeParse(update).success) return null;
   switch (update.sessionUpdate) {
     case "agent_message_chunk":
     case "user_message_chunk": {
@@ -114,6 +117,8 @@ export function normalizeAcpSessionNotification(notification: SessionNotificatio
       const content = serialized(update.sessionUpdate === "plan" ? update : update.plan);
       return { kind: "plan_update", ...content };
     }
+    case "plan_removed":
+      return { kind: "plan_update", ...normalizedRedactedContent("Plan removed.") };
     case "usage_update":
       return {
         kind: "usage_update", usedTokens: update.used, contextWindowTokens: update.size,

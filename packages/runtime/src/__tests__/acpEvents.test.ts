@@ -37,6 +37,25 @@ describe("ACP event normalization", () => {
       sessionUpdate: "tool_call", toolCallId: "tool-1", title: "Read", status: "in_progress"
     } })).toMatchObject({ kind: "tool_call", callId: "tool-1", status: "in_progress" });
     expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "user_message_chunk", messageId: "message-2",
+      content: { type: "text", text: "hello" }
+    } })).toMatchObject({ kind: "message", role: "user", messageId: "message-2" });
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "tool_call_update", toolCallId: "tool-1", status: "completed"
+    } })).toMatchObject({ kind: "tool_update", callId: "tool-1", status: "completed" });
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "plan", entries: [
+        { content: "finish", priority: "high", status: "in_progress" }
+      ]
+    } })).toMatchObject({ kind: "plan_update" });
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "plan_update",
+      plan: { type: "markdown", planId: "plan-1", content: "# Plan" }
+    } })).toMatchObject({ kind: "plan_update" });
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "plan_removed", planId: "private-plan-id"
+    } })).toMatchObject({ kind: "plan_update", content: "Plan removed." });
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
       sessionUpdate: "usage_update", used: 10, size: 100
     } })).toMatchObject({ kind: "usage_update", usedTokens: 10, contextWindowTokens: 100 });
   });
@@ -53,6 +72,15 @@ describe("ACP event normalization", () => {
     expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
       sessionUpdate: "agent_thought_chunk", messageId: "x".repeat(1_024),
       content: { type: "image", data: "private-image", mimeType: "image/png" }
+    } })).toBeNull();
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "available_commands_update", availableCommands: []
+    } })).toBeNull();
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "current_mode_update", currentModeId: "code"
+    } })).toBeNull();
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "config_option_update", configOptions: []
     } })).toBeNull();
     expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
       sessionUpdate: "provider_future_update"
