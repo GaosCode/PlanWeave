@@ -60,6 +60,7 @@ export function runProfileBlock(input: ExecutorBlockInput) {
         prompt: input.prompt,
         executorName: input.executorName,
         profile: input.profile,
+        profileSource: input.profileSource,
         runtime: input.runtime
       },
       definition
@@ -87,6 +88,7 @@ export function runProfileFeedback(input: ExecutorFeedbackInput) {
         claim: input.claim,
         executorName: input.executorName,
         profile: input.profile,
+        profileSource: input.profileSource,
         runtime: input.runtime
       },
       definition

@@ -146,7 +146,7 @@ export const planweaveHelpTopics: HelpTopic[] = [
       "CLI and ACP are alternative transports: codex/opencode/claude-code/pi select CLI, while explicit *-acp names select ACP; execution never falls back between them.",
       "ACP is conversation/session integration, not a terminal attachment. tmux monitoring is CLI-only.",
       "The selected ACP agent owns login, subscription, provider configuration, quota, and optional API-key mode; PlanWeave does not collect a separate ACP provider API key.",
-      "Trust the exact selected profile with trust executor <name>, then use executors test <name> to diagnose command, authentication, protocol, and capability readiness.",
+      "Versioned built-in registry ACP profiles do not require project trust. Package-authored profiles, including overrides of built-in names, require exact trust executor <name>; use executors test <name> to diagnose readiness.",
       "Headless ACP runs never auto-approve permission, authentication, or elicitation. Desktop may broker live permission and optional Preview elicitation input.",
       "Inspect ordered, redacted ACP events with run-status --follow --json and run-session <id> --json. Protocol/event logs are bounded and redaction cannot guarantee removal of secrets split across unrelated payloads.",
       "Use --canvas for canvas-scoped Auto Run; without it, Auto Run targets the current or first canvas.",

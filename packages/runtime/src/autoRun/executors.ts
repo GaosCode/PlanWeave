@@ -121,6 +121,7 @@ function createProfiledAdapter(options: {
         prompt,
         executorName: name,
         profile,
+        profileSource: source,
         runtime: options.runtime
       });
     },
@@ -148,6 +149,7 @@ function createProfiledAdapter(options: {
         claim,
         executorName: name,
         profile,
+        profileSource: profileSource(manifest, name),
         runtime: options.runtime
       });
     }
@@ -445,7 +447,7 @@ export async function testExecutorProfile(options: {
         await assertPackageExecutorCommandTrusted({
           projectRoot: workspace,
           executorName: options.executorName,
-          profile
+          profile: { ...profile, source: profileSource(manifest, options.executorName) }
         });
       } catch (error) {
         return finalizePreflightResult({
@@ -480,7 +482,8 @@ export async function testExecutorProfile(options: {
         await assertAcpLaunchTrusted({
           projectRoot: workspace,
           executorName: options.executorName,
-          definition
+          definition,
+          profileSource: profileSource(manifest, options.executorName)
         });
       } catch (error) {
         return finalizePreflightResult({
@@ -508,6 +511,7 @@ export async function testExecutorProfile(options: {
     }
     const runnerResult = await runner.preflight({
       profile,
+      profileSource: profileSource(manifest, options.executorName),
       definition,
       cwd: workspaceExecutionCwd(workspace),
       timeoutMs: preflightTimeoutMs
@@ -585,7 +589,7 @@ export async function testExecutorProfile(options: {
     await assertPackageExecutorCommandTrusted({
       projectRoot: workspace,
       executorName: options.executorName,
-      profile
+      profile: { ...profile, source: profileSource(manifest, options.executorName) }
     });
   } catch (error) {
     return finalizePreflightResult({

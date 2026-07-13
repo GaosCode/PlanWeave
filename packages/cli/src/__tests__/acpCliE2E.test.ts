@@ -54,7 +54,6 @@ async function initializePackage(env: NodeJS.ProcessEnv, profile: keyof typeof a
   };
   manifest.execution.defaultExecutor = profile;
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  await runCli(["trust", "executor", profile, "--json"], env);
   return init;
 }
 

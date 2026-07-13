@@ -9,13 +9,12 @@ Existing manifests remain valid. Legacy `*-exec` profiles normalize to the canon
 Install and configure the selected agent using its own instructions. Login, subscription, provider selection, quota, and optional provider API-key mode belong to that agent. PlanWeave does not ask for, collect, or store a separate provider API key for ACP mode.
 
 ```bash
-planweave trust executor codex-acp
 planweave executors test codex-acp --json
 planweave run --once --executor codex-acp --timeout 120000 --json
 planweave run-status --follow --json
 ```
 
-Trust is exact to the resolved local command and arguments. A missing executable, changed command, failed authentication, incompatible protocol, unsupported capability, quota failure, or provider failure stops that profile; it does not fall back to CLI or another agent.
+Versioned built-in registry ACP profiles launch without additional project trust. Package-authored ACP profiles, including profiles that override a built-in name, still require `planweave trust executor <name>`; that trust is exact to the resolved local command and arguments. A missing executable, changed command, failed authentication, incompatible protocol, unsupported capability, quota failure, or provider failure stops that profile; it does not fall back to CLI or another agent.
 
 For authentication errors, complete login in the agent itself and rerun `executors test`. For protocol failures, record the agent version, PlanWeave version, selected profile, failure code, and redacted diagnostic. Do not paste credentials or raw private prompts into an issue.
 

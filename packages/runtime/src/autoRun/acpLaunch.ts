@@ -17,8 +17,12 @@ export async function assertAcpLaunchTrusted(options: {
   projectRoot: PackageWorkspaceRef;
   executorName: string;
   definition: AgentDefinition;
+  profileSource?: "builtin" | "package";
 }): Promise<AcpLaunchMetadata> {
   const launch = requireAcpLaunch(options.definition);
+  if (options.profileSource === "builtin") {
+    return launch;
+  }
   if (!(await isCommandTrusted(options.projectRoot, launch.command, [...launch.args]))) {
     throw untrustedExecutorCommandError(launch.command, options.executorName);
   }

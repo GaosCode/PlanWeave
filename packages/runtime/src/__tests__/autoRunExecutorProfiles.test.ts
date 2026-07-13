@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { access, chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { listExecutorProfiles, testExecutorProfile } from "../index.js";
 import { writeJsonFile } from "../json.js";
 import { manifestSchema } from "../schema/manifest.js";
@@ -260,8 +263,15 @@ describe("Auto Run executor profiles", () => {
     ).toThrow(/does not reference a known executor profile/);
   });
 
-  it("requires trust before ACP initialize without falling back to CLI", async () => {
-    const manifest = manifestTestBuilder().withDefaultExecutor("codex-acp").build();
+  it("requires trust for a package ACP profile that overrides a canonical built-in name", async () => {
+    const manifest = manifestTestBuilder()
+      .withExecutor("codex-acp", {
+        adapter: "agent",
+        agent: "codex",
+        runner: { transport: "acp" }
+      })
+      .withDefaultExecutor("codex-acp")
+      .build();
     const { root } = await createTestWorkspace(manifest);
 
     await expect(
@@ -273,6 +283,36 @@ describe("Auto Run executor profiles", () => {
       ok: false,
       message: expect.stringContaining("Executor command is not trusted")
     });
+  });
+
+  it("does not spawn an untrusted package CLI profile during preflight", async () => {
+    const binDir = await mkdtemp(join(tmpdir(), "planweave-preflight-bin-"));
+    const marker = join(binDir, "spawned");
+    const command = join(binDir, "mock-cli");
+    await writeFile(
+      command,
+      `#!/usr/bin/env node\nrequire("node:fs").writeFileSync(${JSON.stringify(marker)}, "spawned");\n`,
+      "utf8"
+    );
+    await chmod(command, 0o755);
+    const manifest = manifestTestBuilder()
+      .withExecutor("package-cli", {
+        adapter: "agent",
+        agent: "codex",
+        runner: { transport: "cli" },
+        command,
+        args: []
+      })
+      .build();
+    const { root } = await createTestWorkspace(manifest, { trustPackageExecutors: false });
+
+    await expect(
+      testExecutorProfile({ projectRoot: root, executorName: "package-cli" })
+    ).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringContaining("Executor command is not trusted")
+    });
+    await expect(access(marker)).rejects.toThrow();
   });
 
   it("passes executor profile sandbox to codex-exec command arguments", async () => {

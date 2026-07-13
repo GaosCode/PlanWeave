@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -303,6 +303,30 @@ describe("AcpRunner claim routing", () => {
       }
     };
   }
+
+  it("requires exact trust for a package override before creating a run record", async () => {
+    const { init } = await createTestWorkspace();
+    const runner = createAcpRunner();
+    const agentDefinition = definition("artifact-implementation");
+    const input = {
+      projectRoot: init.workspace,
+      claim: { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation", effectiveExecutor: "codex-acp" },
+      prompt: "implement",
+      executorName: "codex-acp",
+      profile,
+      profileSource: "package"
+    } as const;
+    const before = await readdir(init.workspace.resultsDir, { recursive: true });
+
+    await expect(runner.runBlock(input, agentDefinition)).rejects.toThrow("not trusted");
+    expect(await readdir(init.workspace.resultsDir, { recursive: true })).toEqual(before);
+
+    const launch = mockLaunch("artifact-implementation");
+    await trustCommand(init.workspace, launch.command, [...launch.args]);
+    await expect(runner.runBlock(input, agentDefinition)).resolves.toMatchObject({
+      kind: "block"
+    });
+  });
 
   it("routes implementation, review, and feedback claims through distinct sessions", async () => {
     const { init } = await createTestWorkspace();

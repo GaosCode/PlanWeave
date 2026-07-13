@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { AgentAcpBlockInput } from "../autoRun/agentRunner.js";
 import { createAcpRunner, type AcpPreflightProbeResult } from "../autoRun/acpRunner.js";
+import { assertAcpLaunchTrusted } from "../autoRun/acpLaunch.js";
 import {
   builtinAgentProfiles,
   registeredAgentDefinitions,
@@ -312,6 +313,18 @@ describe("AgentRunner registries", () => {
       profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } }
     }, probeDefinition("artifact-implementation"))).rejects.toThrow("not trusted");
     expect(await readdir(init.workspace.resultsDir, { recursive: true })).toEqual(before);
+  });
+
+  it("allows a versioned registry ACP launch for a built-in profile without project trust", async () => {
+    const { init } = await createTestWorkspace();
+    const definition = probeDefinition("artifact-implementation");
+
+    await expect(assertAcpLaunchTrusted({
+      projectRoot: init.workspace,
+      executorName: "codex-acp",
+      definition,
+      profileSource: "builtin"
+    })).resolves.toEqual(definition.acp.launch);
   });
 
   it.each([

@@ -25,6 +25,7 @@ export type ExecutorBlockInput = {
   prompt: string;
   executorName: string;
   profile: ExecutorProfile;
+  profileSource?: "builtin" | "package";
   runtime?: ExecutorRuntimeOptions;
 };
 
@@ -34,6 +35,7 @@ export type ExecutorFeedbackInput = {
   claim: FeedbackClaim;
   executorName: string;
   profile: ExecutorProfile;
+  profileSource?: "builtin" | "package";
   runtime?: ExecutorRuntimeOptions;
 };
 

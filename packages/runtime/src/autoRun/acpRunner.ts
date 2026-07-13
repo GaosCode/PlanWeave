@@ -263,7 +263,8 @@ export function createAcpRunner(options?: {
       const launch = await assertAcpLaunchTrusted({
         projectRoot: input.projectRoot,
         executorName: input.executorName,
-        definition
+        definition,
+        profileSource: input.profileSource
       });
       const prepared = await prepareAcpBlockRun({
         projectRoot: input.projectRoot,
@@ -303,7 +304,8 @@ export function createAcpRunner(options?: {
       const launch = await assertAcpLaunchTrusted({
         projectRoot: input.workspace,
         executorName: input.executorName,
-        definition
+        definition,
+        profileSource: input.profileSource
       });
       const prepared = await prepareAcpFeedbackRun({
         workspace: input.workspace,

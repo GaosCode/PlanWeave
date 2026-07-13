@@ -58,6 +58,7 @@ export type AcpLaunchMetadata = {
 
 export type RunnerPreflightInput = {
   profile: AgentExecutorProfile;
+  profileSource?: "builtin" | "package";
   definition: AgentDefinition;
   cwd: string;
   timeoutMs: number;

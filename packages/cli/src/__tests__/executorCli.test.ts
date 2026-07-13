@@ -71,7 +71,6 @@ describe("executor CLI preflight exit status", () => {
     await chmod(command, 0o755);
     const env = { ...process.env, PLANWEAVE_HOME: home, PATH: `${bin}:${process.env.PATH ?? ""}` };
     await runCli(["init", "--json"], env);
-    await runCli(["trust", "executor", "codex-acp", "--json"], env);
 
     const json = JSON.parse(
       (await runCli(["executors", "test", "codex-acp", "--json"], env)).stdout
