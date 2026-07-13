@@ -20,27 +20,36 @@ export type TaskWorkspaceLoadStatus = "idle" | "loading" | "ready" | "error";
 export type TaskWorkspaceLiveStatus = "idle" | "loading" | "live" | "unavailable" | "error";
 
 export type TaskWorkspaceLabels = {
+  acceptanceCriteria: string;
+  activeRuns: (count: number) => string;
   agent: string;
   backToCanvas: string;
+  blocks: string;
   booleanFalse: string;
   booleanTrue: string;
   composer: string;
   conversation: string;
+  dependencies: string;
+  dependencyProgress: (completed: number, total: number, percent: number) => string;
   elapsed: string;
   expandTimeline: string;
   formatDuration: (milliseconds: number) => string;
   inspector: string;
+  latestArtifact: string;
   loading: string;
   liveUnavailable: string;
   mode: string;
   model: string;
+  noActiveRuns: string;
+  noArtifact: string;
   noConversation: string;
   noInspector: string;
   noRuns: string;
   noTask: string;
+  overview: string;
   permission: string;
   reasoning: string;
-  runStatus: Record<"active" | "completed" | "failed" | "waiting", string>;
+  runStatus: Record<"active" | "cancelled" | "completed" | "failed" | "waiting", string>;
   status: string;
   taskStatus: Record<TaskWorkspace["task"]["status"], string>;
   timeline: string;
@@ -89,7 +98,7 @@ export type TaskWorkspaceConversationSlotProps = Pick<
 
 export type TaskWorkspaceInspectorSlotProps = Pick<
   TaskWorkspaceController,
-  "selectedRecord" | "selectedRun" | "workspace"
+  "runnerModel" | "selectedRecord" | "selectedRun" | "workspace"
 > &
   Pick<
     TaskWorkspaceLayout,

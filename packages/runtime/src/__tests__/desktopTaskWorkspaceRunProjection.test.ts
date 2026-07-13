@@ -3,7 +3,10 @@ import { normalizedRunnerEventSchema } from "../autoRun/normalizedEventContract.
 import { runnerRecordReadModelSchema } from "../autoRun/runnerRecordReadModel.js";
 import { runnerRunIdentitySchema } from "../autoRun/runnerContractSchemas.js";
 import {
+  projectTaskWorkspaceClockSnapshot,
+  projectTaskWorkspaceLiveSnapshot,
   projectTaskWorkspaceRun,
+  taskWorkspaceSchema,
   taskWorkspaceRunDurationSchema,
   taskWorkspaceRunSchema
 } from "../desktop/index.js";
@@ -145,6 +148,219 @@ function blockRecord(overrides: Partial<DesktopRunRecord> = {}): DesktopRunRecor
 }
 
 describe("Task Workspace run projection", () => {
+  function workspaceForRun() {
+    const run = projectTaskWorkspaceRun({
+      record: blockRecord(),
+      runIdentity,
+      now: new Date("2026-07-13T00:00:02.000Z")
+    });
+    return taskWorkspaceSchema.parse({
+      version: "planweave.task-workspace/v1",
+      project: { projectId: "project-1", projectRoot: "/project", canvasId: "default" },
+      task: {
+        taskId: "T-001",
+        title: "Live projection",
+        status: "in_progress",
+        executor: "codex",
+        acceptance: []
+      },
+      dependencyProgress: {
+        total: 0,
+        completed: 0,
+        percent: 100,
+        status: "not_applicable",
+        blockers: []
+      },
+      blocks: [
+        {
+          ref: "T-001#B-001",
+          taskId: "T-001",
+          blockId: "B-001",
+          type: "implementation",
+          title: "Implement",
+          status: "in_progress",
+          effectiveExecutor: "codex",
+          dependencies: {
+            total: 0,
+            completed: 0,
+            percent: 100,
+            status: "not_applicable",
+            blockers: []
+          },
+          runs: [
+            {
+              retryIndex: 1,
+              active: true,
+              selected: true,
+              waitingInteraction: { active: false, count: 0, kinds: [] },
+              run
+            }
+          ],
+          annotations: []
+        }
+      ],
+      activeRecordIds: ["T-001#B-001::RUN-001"],
+      selectedRecordId: "T-001#B-001::RUN-001",
+      latestArtifact: null,
+      duration: {
+        wallClock: {
+          available: true,
+          startedAt: "2026-07-13T00:00:00.000Z",
+          endedAt: "2026-07-13T00:00:02.000Z",
+          calculatedAt: "2026-07-13T00:00:02.000Z",
+          totalMs: 2_000,
+          unavailableReason: null
+        },
+        agentTime: {
+          availability: "complete",
+          totalMs: 2_000,
+          includedRunCount: 1,
+          missingRunCount: 0,
+          reason: null
+        }
+      },
+      usage: {
+        taskTokens: { available: false, totalTokens: null, reason: "Unavailable." },
+        taskCost: { available: false, totals: null, reason: "Unavailable." }
+      }
+    });
+  }
+
+  it("projects one strict live model into duration, usage, configuration, and capabilities", () => {
+    const workspace = workspaceForRun();
+    const model = readModel();
+    const projected = projectTaskWorkspaceLiveSnapshot({
+      workspace,
+      recordId: "T-001#B-001::RUN-001",
+      model,
+      now: new Date("2026-07-13T00:00:05.000Z")
+    });
+    const selected = projected.blocks[0]?.runs[0];
+
+    expect(selected?.run.duration.wallClockMs).toBe(5_000);
+    expect(selected?.run.usage.currentContext).toMatchObject({ usedTokens: 35, sequence: 2 });
+    expect(selected?.run.actualConfiguration).toEqual(model.actualConfiguration);
+    expect(selected?.run.capabilities.prompt).toEqual(model.intervention.prompt);
+    expect(selected?.run.capabilities.cancel).toEqual(model.intervention.cancel);
+    expect(projected.duration.wallClock).toMatchObject({ available: true, totalMs: 5_000 });
+  });
+
+  it("rejects a live model whose canonical identity differs from the selected record", () => {
+    const mismatchedIdentity = {
+      ...runIdentity,
+      runId: "RUN-OTHER",
+      executorRunId: "RUN-OTHER"
+    };
+    expect(() =>
+      projectTaskWorkspaceLiveSnapshot({
+        workspace: workspaceForRun(),
+        recordId: "T-001#B-001::RUN-001",
+        model: readModel(undefined, mismatchedIdentity),
+        now: new Date("2026-07-13T00:00:05.000Z")
+      })
+    ).toThrow("does not match selected record");
+  });
+
+  it("projects the authoritative terminal outcome before the persisted record is finalized", () => {
+    const terminalEvent = normalizedRunnerEventSchema.parse({
+      version: "planweave.runner-event/v1",
+      sequence: 2,
+      timestamp: "2026-07-13T00:00:03.000Z",
+      identity: runIdentity,
+      runner,
+      correlation: { sessionId: "session-1" },
+      body: {
+        kind: "terminal",
+        outcome: {
+          version: "planweave.runner/v1",
+          state: "failed",
+          reason: "failed",
+          exitCode: null,
+          finishedAt: "2026-07-13T00:00:04.000Z",
+          diagnostic: "Agent failed.",
+          artifactValidated: false
+        }
+      }
+    });
+    const base = readModel([
+      usageEvent(1, 20, "2026-07-13T00:00:01.000Z"),
+      terminalEvent
+    ]);
+    const model = runnerRecordReadModelSchema.parse({
+      ...base,
+      cursor: { ...base.cursor, terminal: true },
+      terminal: true
+    });
+
+    const projected = projectTaskWorkspaceLiveSnapshot({
+      workspace: workspaceForRun(),
+      recordId: "T-001#B-001::RUN-001",
+      model,
+      now: new Date("2026-07-13T00:00:05.000Z")
+    });
+    const selected = projected.blocks[0]?.runs[0];
+
+    expect(selected?.active).toBe(false);
+    expect(selected?.run.metadata).toMatchObject({ exitCode: null, terminalState: "failed" });
+    expect(selected?.run.duration).toMatchObject({
+      finishedAt: "2026-07-13T00:00:04.000Z",
+      wallClockMs: 4_000
+    });
+  });
+
+  it("preserves a cancelled terminal state independently of its exit code", () => {
+    const terminalEvent = normalizedRunnerEventSchema.parse({
+      version: "planweave.runner-event/v1",
+      sequence: 2,
+      timestamp: "2026-07-13T00:00:03.000Z",
+      identity: runIdentity,
+      runner,
+      correlation: { sessionId: "session-1" },
+      body: {
+        kind: "terminal",
+        outcome: {
+          version: "planweave.runner/v1",
+          state: "cancelled",
+          reason: "cancelled",
+          exitCode: null,
+          finishedAt: "2026-07-13T00:00:04.000Z",
+          diagnostic: "Agent cancelled.",
+          artifactValidated: false
+        }
+      }
+    });
+    const base = readModel([
+      usageEvent(1, 20, "2026-07-13T00:00:01.000Z"),
+      terminalEvent
+    ]);
+    const model = runnerRecordReadModelSchema.parse({
+      ...base,
+      cursor: { ...base.cursor, terminal: true },
+      terminal: true
+    });
+
+    const projected = projectTaskWorkspaceLiveSnapshot({
+      workspace: workspaceForRun(),
+      recordId: "T-001#B-001::RUN-001",
+      model,
+      now: new Date("2026-07-13T00:00:05.000Z")
+    });
+
+    expect(projected.blocks[0]?.runs[0]?.run.metadata).toMatchObject({
+      exitCode: null,
+      terminalState: "cancelled"
+    });
+  });
+
+  it("advances elapsed time from the UI clock without changing run identity", () => {
+    const projected = projectTaskWorkspaceClockSnapshot(
+      workspaceForRun(),
+      new Date("2026-07-13T00:00:06.000Z")
+    );
+    expect(projected.blocks[0]?.runs[0]?.run.duration.wallClockMs).toBe(6_000);
+    expect(projected.blocks[0]?.runs[0]?.run.runIdentity).toEqual(runIdentity);
+  });
+
   it("passes through the strict authoritative actual configuration projection", () => {
     const actualConfiguration = {
       available: true as const,
@@ -161,9 +377,7 @@ describe("Task Workspace run projection", () => {
             description: null,
             category: "thought_level",
             currentValue: "high",
-            options: [
-              { value: "high", name: "High", description: null, group: null }
-            ]
+            options: [{ value: "high", name: "High", description: null, group: null }]
           }
         ]
       },

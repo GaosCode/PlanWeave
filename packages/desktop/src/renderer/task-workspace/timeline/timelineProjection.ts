@@ -10,6 +10,13 @@ import type {
 
 type RunItem = TaskWorkspaceBlock["runs"][number];
 
+type RunSeed = {
+  block: TaskWorkspaceBlock;
+  blockIndex: number;
+  item: RunItem;
+  ordinal: number;
+};
+
 function stableRunItems(block: TaskWorkspaceBlock): RunItem[] {
   return [...block.runs].sort((left, right) => {
     const retryOrder = left.retryIndex - right.retryIndex;
@@ -27,6 +34,14 @@ export function taskWorkspaceRunStatus(item: RunItem): TimelineRunStatus {
   if (item.active) {
     return "active";
   }
+  switch (item.run.metadata.terminalState) {
+    case "succeeded":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "cancelled":
+      return "cancelled";
+  }
   if (item.run.metadata.exitCode !== null && item.run.metadata.exitCode !== 0) {
     return "failed";
   }
@@ -36,28 +51,86 @@ export function taskWorkspaceRunStatus(item: RunItem): TimelineRunStatus {
   return "waiting";
 }
 
-function waveMemberships(workspace: TaskWorkspace): Map<string, TimelineWaveMembership> {
-  const recordsByWave = new Map<string, string[]>();
-  for (const block of workspace.blocks) {
-    for (const item of stableRunItems(block)) {
-      const waveId = item.run.executionWaveId;
-      if (waveId !== null) {
-        const recordIds = recordsByWave.get(waveId) ?? [];
-        recordIds.push(item.run.record.recordId);
-        recordsByWave.set(waveId, recordIds);
-      }
+function waveMemberships(seeds: RunSeed[]): Map<string, TimelineWaveMembership> {
+  const recordsByWave = new Map<string, RunSeed[]>();
+  for (const seed of seeds) {
+    const { item } = seed;
+    const waveId = item.run.executionWaveId;
+    if (waveId !== null) {
+      const waveSeeds = recordsByWave.get(waveId) ?? [];
+      waveSeeds.push(seed);
+      recordsByWave.set(waveId, waveSeeds);
     }
   }
 
   const memberships = new Map<string, TimelineWaveMembership>();
-  for (const [waveId, recordIds] of recordsByWave) {
-    if (recordIds.length >= 2) {
-      recordIds.forEach((recordId, index) => {
-        memberships.set(recordId, { index: index + 1, total: recordIds.length, waveId });
-      });
+  for (const [waveId, waveSeeds] of recordsByWave) {
+    if (waveSeeds.length >= 2) {
+      waveSeeds
+        .sort((left, right) =>
+          left.blockIndex === right.blockIndex
+            ? left.item.retryIndex - right.item.retryIndex
+            : left.blockIndex - right.blockIndex
+        )
+        .forEach((seed, index) => {
+          memberships.set(seed.item.run.record.recordId, {
+            index: index + 1,
+            total: waveSeeds.length,
+            waveId
+          });
+        });
     }
   }
   return memberships;
+}
+
+function startedAtMs(item: RunItem): number | null {
+  const value = item.run.duration.startedAt;
+  if (value === null) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function chronologicalRuns(
+  seeds: RunSeed[],
+  memberships: Map<string, TimelineWaveMembership>
+): RunSeed[] {
+  const groupStart = new Map<string, { ordinal: number; startedAt: number | null }>();
+  for (const seed of seeds) {
+    const membership = memberships.get(seed.item.run.record.recordId);
+    const groupKey = membership ? `wave:${membership.waveId}` : `run:${seed.ordinal}`;
+    const timestamp = startedAtMs(seed.item);
+    const existing = groupStart.get(groupKey);
+    groupStart.set(groupKey, {
+      ordinal: Math.min(existing?.ordinal ?? seed.ordinal, seed.ordinal),
+      startedAt:
+        timestamp === null
+          ? (existing?.startedAt ?? null)
+          : Math.min(existing?.startedAt ?? timestamp, timestamp)
+    });
+  }
+  return [...seeds].sort((left, right) => {
+    const leftMembership = memberships.get(left.item.run.record.recordId);
+    const rightMembership = memberships.get(right.item.run.record.recordId);
+    const leftGroup = leftMembership ? `wave:${leftMembership.waveId}` : `run:${left.ordinal}`;
+    const rightGroup = rightMembership ? `wave:${rightMembership.waveId}` : `run:${right.ordinal}`;
+    if (leftGroup === rightGroup) {
+      return left.blockIndex === right.blockIndex
+        ? left.item.retryIndex - right.item.retryIndex
+        : left.blockIndex - right.blockIndex;
+    }
+    const leftOrder = groupStart.get(leftGroup)!;
+    const rightOrder = groupStart.get(rightGroup)!;
+    if (leftOrder.startedAt !== null && rightOrder.startedAt !== null) {
+      const timestampOrder = leftOrder.startedAt - rightOrder.startedAt;
+      if (timestampOrder !== 0) return timestampOrder;
+    } else if (leftOrder.startedAt !== null) {
+      return -1;
+    } else if (rightOrder.startedAt !== null) {
+      return 1;
+    }
+    return leftOrder.ordinal - rightOrder.ordinal;
+  });
 }
 
 function projectRun(
@@ -85,7 +158,11 @@ function projectRun(
 export function projectTaskWorkspaceTimeline(
   workspace: TaskWorkspace
 ): TaskWorkspaceTimelineProjection {
-  const memberships = waveMemberships(workspace);
+  let ordinal = 0;
+  const seeds = workspace.blocks.flatMap((block, blockIndex) =>
+    stableRunItems(block).map((item) => ({ block, blockIndex, item, ordinal: ordinal++ }))
+  );
+  const memberships = waveMemberships(seeds);
   const blocks = workspace.blocks.map((block) => ({
     annotations: block.annotations,
     blockId: block.blockId,
@@ -94,7 +171,10 @@ export function projectTaskWorkspaceTimeline(
     title: block.title,
     type: block.type
   }));
-  return { blocks, runs: blocks.flatMap((block) => block.runs) };
+  const runs = chronologicalRuns(seeds, memberships).map((seed) =>
+    projectRun(seed.block, seed.item, memberships)
+  );
+  return { blocks, runs };
 }
 
 export function defaultTimelineSelection(
@@ -110,9 +190,13 @@ export function defaultTimelineSelection(
     return { blockRef: historyRun.blockRef, recordId: historyRun.recordId };
   }
 
-  const activeRun = projection.runs.find((run) => run.active);
-  if (activeRun) {
-    return { blockRef: activeRun.blockRef, recordId: activeRun.recordId };
+  const activeRuns = projection.runs.filter((run) => run.active);
+  if (activeRuns.length === 1) {
+    const [activeRun] = activeRuns;
+    return { blockRef: activeRun!.blockRef, recordId: activeRun!.recordId };
+  }
+  if (activeRuns.length > 1) {
+    return null;
   }
 
   if (context.entryBlockRef) {
@@ -123,9 +207,9 @@ export function defaultTimelineSelection(
     }
   }
 
-  const [firstRun] = projection.runs;
-  if (firstRun) {
-    return { blockRef: firstRun.blockRef, recordId: firstRun.recordId };
+  const latestRun = projection.runs.at(-1);
+  if (latestRun) {
+    return { blockRef: latestRun.blockRef, recordId: latestRun.recordId };
   }
   return null;
 }

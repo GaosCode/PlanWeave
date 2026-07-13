@@ -72,13 +72,62 @@ describe("Task Workspace timeline projection", () => {
     ).toBe(true);
   });
 
-  it("derives waiting, active, failed and completed states while retaining retry identity", () => {
+  it("orders authoritative wave groups by start time and keeps graph order inside each wave", () => {
+    const firstRef = "T-001#B-001";
+    const secondRef = "T-001#B-002";
+    const workspace = timelineWorkspaceFixture([
+      timelineBlockFixture({
+        blockId: "B-001",
+        runs: [
+          timelineRunFixture(firstRef, "RUN-EARLY", {
+            retryIndex: 1,
+            startedAt: "2026-07-13T00:00:00.000Z"
+          }),
+          timelineRunFixture(firstRef, "RUN-WAVE-1", {
+            executionWaveId: parallelWaveId,
+            retryIndex: 2,
+            startedAt: "2026-07-13T00:00:02.000Z"
+          }),
+          timelineRunFixture(firstRef, "RUN-LATE", {
+            retryIndex: 3,
+            startedAt: "2026-07-13T00:00:04.000Z"
+          })
+        ]
+      }),
+      timelineBlockFixture({
+        blockId: "B-002",
+        runs: [
+          timelineRunFixture(secondRef, "RUN-WAVE-2", {
+            executionWaveId: parallelWaveId,
+            startedAt: "2026-07-13T00:00:01.000Z"
+          })
+        ]
+      })
+    ]);
+
+    expect(projectTaskWorkspaceTimeline(workspace).runs.map((run) => run.runId)).toEqual([
+      "RUN-EARLY",
+      "RUN-WAVE-1",
+      "RUN-WAVE-2",
+      "RUN-LATE"
+    ]);
+  });
+
+  it("derives waiting, active, cancelled, failed and completed states while retaining retry identity", () => {
     const ref = "T-001#B-001";
     const block = timelineBlockFixture({
       blockId: "B-001",
       runs: [
         timelineRunFixture(ref, "RUN-WAIT", { active: true, finished: false, waiting: true }),
         timelineRunFixture(ref, "RUN-ACTIVE", { active: true, finished: false }),
+        timelineRunFixture(ref, "RUN-CANCELLED", {
+          exitCode: 17,
+          terminalState: "cancelled"
+        }),
+        timelineRunFixture(ref, "RUN-FAILED-TERMINAL", {
+          exitCode: null,
+          terminalState: "failed"
+        }),
         timelineRunFixture(ref, "RUN-FAILED", { exitCode: 1, retryIndex: 2 }),
         timelineRunFixture(ref, "RUN-DONE")
       ]
@@ -89,6 +138,8 @@ describe("Task Workspace timeline projection", () => {
     expect(Object.fromEntries(runs.map((run) => [run.runId, run.status]))).toMatchObject({
       "RUN-WAIT": "waiting",
       "RUN-ACTIVE": "active",
+      "RUN-CANCELLED": "cancelled",
+      "RUN-FAILED-TERMINAL": "failed",
       "RUN-FAILED": "failed",
       "RUN-DONE": "completed"
     });
@@ -115,7 +166,7 @@ describe("Task Workspace timeline projection", () => {
     expect(projection.blocks[0]?.annotations).toEqual(annotations);
   });
 
-  it("selects history, active, block latest, then task first without live updates stealing history", () => {
+  it("selects history, a sole active run, block latest, then task latest", () => {
     const firstRef = "T-001#B-001";
     const secondRef = "T-001#B-002";
     const history = timelineRunFixture(firstRef, "RUN-HISTORY", { retryIndex: 1 });
@@ -151,8 +202,25 @@ describe("Task Workspace timeline projection", () => {
     });
     expect(defaultTimelineSelection(inactiveWorkspace)).toEqual({
       blockRef: firstRef,
-      recordId: history.run.record.recordId
+      recordId: latest.run.record.recordId
     });
     expect(defaultTimelineSelection(timelineWorkspaceFixture([]))).toBeNull();
+  });
+
+  it("keeps overview selected when multiple runs are active", () => {
+    const firstRef = "T-001#B-001";
+    const secondRef = "T-001#B-002";
+    const workspace = timelineWorkspaceFixture([
+      timelineBlockFixture({
+        blockId: "B-001",
+        runs: [timelineRunFixture(firstRef, "RUN-ACTIVE-1", { active: true, finished: false })]
+      }),
+      timelineBlockFixture({
+        blockId: "B-002",
+        runs: [timelineRunFixture(secondRef, "RUN-ACTIVE-2", { active: true, finished: false })]
+      })
+    ]);
+
+    expect(defaultTimelineSelection(workspace)).toBeNull();
   });
 });

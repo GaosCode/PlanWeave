@@ -16,6 +16,7 @@ import { useTimelineResize } from "./useTimelineResize";
 
 const statusClasses: Record<TimelineRunStatus, string> = {
   active: "border-primary/50 bg-primary/10 text-primary",
+  cancelled: "border-border bg-surface-muted text-text-muted",
   completed: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
   failed: "border-destructive/40 bg-destructive/10 text-destructive",
   waiting: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
@@ -24,6 +25,7 @@ const statusClasses: Record<TimelineRunStatus, string> = {
 function statusLabel(status: TimelineRunStatus, labels: TaskWorkspaceTimelineLabels): string {
   const labelsByStatus: Record<TimelineRunStatus, string> = {
     active: labels.running,
+    cancelled: labels.cancelled,
     completed: labels.completed,
     failed: labels.failed,
     waiting: labels.waiting
@@ -120,6 +122,16 @@ function TimelineRunOption({
       </Badge>
     );
   }
+  const agent =
+    run.item.run.metadata.agentId ??
+    run.item.run.metadata.executor ??
+    run.item.run.metadata.adapter ??
+    labels.unavailable;
+  const startedAt = run.startedAt ? labels.formatDateTime(run.startedAt) : labels.unavailable;
+  const elapsed =
+    run.item.run.duration.wallClockMs === null
+      ? labels.unavailable
+      : labels.formatDuration(run.item.run.duration.wallClockMs);
   return (
     <button
       aria-label={labels.run(run.blockTitle, run.retryIndex)}
@@ -157,6 +169,22 @@ function TimelineRunOption({
         {retryBadge}
         {waveBadge}
       </span>
+      <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[10px] text-text-muted">
+        <dt>{labels.agent}</dt>
+        <dd className="truncate" title={agent}>
+          {agent}
+        </dd>
+        <dt>{labels.runId}</dt>
+        <dd className="truncate font-mono" title={run.runId}>
+          {run.runId}
+        </dd>
+        <dt>{labels.startedAt}</dt>
+        <dd className="truncate" title={startedAt}>
+          {startedAt}
+        </dd>
+        <dt>{labels.elapsed}</dt>
+        <dd className="truncate tabular-nums">{elapsed}</dd>
+      </dl>
     </button>
   );
 }
@@ -224,45 +252,41 @@ export function TaskWorkspaceTimeline({
         onKeyDown={handleListKeyDown}
         role="listbox"
       >
-        {projection.blocks.map((block) => (
-          <section aria-label={block.title} className="space-y-1" key={block.ref}>
-            <h3 className="truncate px-2 text-xs font-semibold">{block.title}</h3>
-            <fieldset aria-label={block.title} className="m-0 space-y-1 border-0 p-0">
-              {block.runs.map((run) => (
-                <TimelineRunOption
-                  focused={run.recordId === effectiveFocusedRecordId}
-                  key={run.recordId}
-                  labels={labels}
-                  onFocus={() => setFocusedRecordId(run.recordId)}
-                  onSelect={() => selectRun({ blockRef: run.blockRef, recordId: run.recordId })}
-                  register={(element) => {
-                    if (element) {
-                      optionRefs.current.set(run.recordId, element);
-                    } else {
-                      optionRefs.current.delete(run.recordId);
-                    }
-                  }}
-                  run={run}
-                  selected={run.recordId === selectedRecordId}
-                />
-              ))}
-              {block.annotations.map((annotation) => (
-                <AnnotationNote
-                  annotation={annotation}
-                  key={annotation.annotationId}
-                  labels={labels}
-                />
-              ))}
-            </fieldset>
-          </section>
+        {projection.runs.map((run) => (
+          <TimelineRunOption
+            focused={run.recordId === effectiveFocusedRecordId}
+            key={run.recordId}
+            labels={labels}
+            onFocus={() => setFocusedRecordId(run.recordId)}
+            onSelect={() => selectRun({ blockRef: run.blockRef, recordId: run.recordId })}
+            register={(element) => {
+              if (element) {
+                optionRefs.current.set(run.recordId, element);
+              } else {
+                optionRefs.current.delete(run.recordId);
+              }
+            }}
+            run={run}
+            selected={run.recordId === selectedRecordId}
+          />
         ))}
+        {projection.blocks.flatMap((block) =>
+          block.annotations.map((annotation) => (
+            <AnnotationNote annotation={annotation} key={annotation.annotationId} labels={labels} />
+          ))
+        )}
       </div>
     );
   }
 
   return (
     <div className="relative min-h-full pr-1">
-      <TaskWorkspaceOverview labels={labels} workspace={workspace} />
+      <TaskWorkspaceOverview
+        labels={labels}
+        onSelect={() => selectRun(null)}
+        selected={selectedRun === null}
+        workspace={workspace}
+      />
       <section className="p-3">
         <h2 className="mb-2 text-xs font-semibold tracking-wide text-text-muted uppercase">
           {labels.timeline}

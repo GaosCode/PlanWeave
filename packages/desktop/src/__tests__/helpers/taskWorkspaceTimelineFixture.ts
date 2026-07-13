@@ -21,6 +21,8 @@ export type TimelineRunFixtureOptions = {
   finished?: boolean;
   retryIndex?: number;
   selected?: boolean;
+  startedAt?: string;
+  terminalState?: "succeeded" | "failed" | "cancelled" | null;
   waiting?: boolean;
 };
 
@@ -57,11 +59,12 @@ export function timelineRunFixture(
       projectRoot: "/projects/demo",
       agentSessionId: `session-${runId}`,
       tmuxSessionId: null,
-      exitCode: options.exitCode ?? null
+      exitCode: options.exitCode ?? null,
+      terminalState: options.terminalState ?? null
     },
     executionWaveId: options.executionWaveId ?? null,
     duration: {
-      startedAt,
+      startedAt: options.startedAt ?? startedAt,
       finishedAt: options.finished === false ? null : finishedAt,
       calculatedAt,
       wallClockMs: options.finished === false ? 10_000 : 5_000,

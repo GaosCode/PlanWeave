@@ -184,6 +184,10 @@ export {
 } from "./reviewPipelineApi.js";
 export { cloneDesktopGraphEditResult } from "./graphEditResult.js";
 export { projectTaskWorkspaceRun } from "./taskWorkspaceRunProjection.js";
+export {
+  projectTaskWorkspaceClockSnapshot,
+  projectTaskWorkspaceLiveSnapshot
+} from "./taskWorkspaceLiveProjection.js";
 export { getTaskWorkspace } from "./taskWorkspaceApi.js";
 export {
   TASK_WORKSPACE_RESUME_UNAVAILABLE_REASON,

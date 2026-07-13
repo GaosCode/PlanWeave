@@ -204,7 +204,7 @@ function projectDependencyProgress(options: {
   return { ...options, percent, status };
 }
 
-function taskDuration(blocks: TaskWorkspaceBlock[], now: Date) {
+export function projectTaskWorkspaceDuration(blocks: TaskWorkspaceBlock[], now: Date) {
   const runs = blocks.flatMap((block) => block.runs.map((item) => item.run));
   const starts = runs
     .map((run) => timestamp(run.duration.startedAt))
@@ -222,13 +222,13 @@ function taskDuration(blocks: TaskWorkspaceBlock[], now: Date) {
         }
       : (() => {
           const started = Math.min(...starts);
-          const hasUnfinishedRun = runs.some(
-            (run) => run.duration.startedAt !== null && run.duration.finishedAt === null
+          const hasActiveRun = blocks.some((block) =>
+            block.runs.some((item) => item.active && item.run.duration.startedAt !== null)
           );
           const finishes = runs
             .map((run) => timestamp(run.duration.finishedAt))
             .filter((value): value is number => value !== null);
-          const ended = hasUnfinishedRun ? now.getTime() : Math.max(...finishes, started);
+          const ended = hasActiveRun ? now.getTime() : Math.max(...finishes, started);
           return {
             available: true,
             startedAt: new Date(started).toISOString(),
@@ -367,7 +367,12 @@ export async function getTaskWorkspace(
     return recordId === undefined ? [] : [recordId];
   });
   const selectedRecordId =
-    explicitSelection ?? activeRecordIds[0] ?? sortRunsNewestFirst(allRecords)[0]?.recordId ?? null;
+    explicitSelection ??
+    (activeRecordIds.length === 1
+      ? activeRecordIds[0]
+      : activeRecordIds.length > 1
+        ? null
+        : (sortRunsNewestFirst(allRecords)[0]?.recordId ?? null));
 
   const blocks = await Promise.all(
     blockDetails.map(async (detail): Promise<TaskWorkspaceBlock> => {
@@ -440,7 +445,7 @@ export async function getTaskWorkspace(
     activeRecordIds,
     selectedRecordId,
     latestArtifact: latestArtifact(allRecords),
-    duration: taskDuration(blocks, now),
+    duration: projectTaskWorkspaceDuration(blocks, now),
     usage: {
       taskTokens: {
         available: false,

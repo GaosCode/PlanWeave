@@ -21,6 +21,7 @@ import {
 afterEach(cleanupRendererTestEnvironment);
 
 const labels: TaskWorkspaceTimelineLabels = {
+  agent: "Agent",
   activeRuns: (count) => `Active runs: ${count}`,
   annotationKinds: {
     feedback: "Feedback",
@@ -30,17 +31,24 @@ const labels: TaskWorkspaceTimelineLabels = {
   completed: "Completed",
   dependencies: "Dependencies",
   dependencyProgress: (completed, total, percent) => `${completed}/${total} (${percent}%)`,
+  elapsed: "Elapsed",
   empty: "No timeline runs",
   failed: "Failed",
+  formatDateTime: (value) => value,
+  formatDuration: (milliseconds) => `${milliseconds}ms`,
   latestArtifact: "Latest artifact",
   noActiveRuns: "No active runs",
   noArtifact: "No artifact",
+  overview: "Task overview",
   parallelWave: (waveId, index, total) => `${waveId} ${index}/${total}`,
   resizeTimeline: "Resize timeline",
   retry: (retryIndex) => `Retry ${retryIndex}`,
   run: (blockTitle, retryIndex) => `${blockTitle} run ${retryIndex}`,
+  runId: "Run ID",
   running: "Running",
+  startedAt: "Started",
   timeline: "Timeline",
+  unavailable: "Unavailable",
   waiting: "Waiting"
 };
 
@@ -90,15 +98,16 @@ function timelineProps() {
 }
 
 describe("TaskWorkspaceTimeline", () => {
-  it("renders the overview and exposes history-selected run state", () => {
+  it("renders the overview, exposes run details, and can select the overview", () => {
     const fixture = timelineProps();
+    const selectRun = vi.fn();
 
     render(
       <TaskWorkspaceTimeline
         getRunScrollTop={() => 0}
         labels={labels}
         onRunScrollTopChange={vi.fn()}
-        selectRun={vi.fn()}
+        selectRun={selectRun}
         selectedRun={{ block: fixture.firstBlock, item: fixture.first }}
         setTimelineWidth={fixture.setTimelineWidth}
         timelineWidth={280}
@@ -118,6 +127,11 @@ describe("TaskWorkspaceTimeline", () => {
     expect(options[0]).toHaveAttribute("aria-selected", "true");
     expect(options[1]).toHaveAttribute("data-retry", "true");
     expect(options[2]).toHaveAttribute("data-status", "active");
+    expect(options[0]).toHaveTextContent("Agentcodex");
+    expect(options[0]).toHaveTextContent("Run IDRUN-001");
+    expect(options[0]).toHaveTextContent("Elapsed5000ms");
+    fireEvent.click(screen.getByTestId("task-workspace-overview-entry"));
+    expect(selectRun).toHaveBeenCalledWith(null);
   });
 
   it("supports Arrow, Home, End and Enter without selecting during focus movement", async () => {

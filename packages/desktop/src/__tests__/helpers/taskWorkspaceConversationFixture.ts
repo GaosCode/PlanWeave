@@ -136,7 +136,8 @@ export function selection(options: {
       projectRoot: "/projects/demo",
       agentSessionId: runnerKind === "acp" ? "ACP-SESSION-001" : null,
       tmuxSessionId: null,
-      exitCode: null
+      exitCode: null,
+      terminalState: null
     },
     executionWaveId: null,
     duration: {

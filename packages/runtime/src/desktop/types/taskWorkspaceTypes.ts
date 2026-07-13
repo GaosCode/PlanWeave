@@ -2,6 +2,7 @@ import { z } from "zod";
 import { agentFamilySchema, runnerTransportSchema } from "../../types/executor.js";
 import {
   executionWaveIdSchema,
+  runnerTerminalStateSchema,
   runnerRunIdentitySchema,
   runnerSessionActionIdentitySchema
 } from "../../autoRun/runnerContractSchemas.js";
@@ -170,7 +171,8 @@ export const taskWorkspaceRunMetadataSchema = z
     projectRoot: nullableNonEmptyStringSchema,
     agentSessionId: nullableNonEmptyStringSchema,
     tmuxSessionId: nullableNonEmptyStringSchema,
-    exitCode: z.number().int().nullable()
+    exitCode: z.number().int().nullable(),
+    terminalState: runnerTerminalStateSchema.nullable()
   })
   .strict();
 

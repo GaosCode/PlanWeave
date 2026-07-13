@@ -503,6 +503,8 @@ export {
 } from "./projectGraph/index.js";
 export type * from "./desktop/index.js";
 export {
+  projectTaskWorkspaceClockSnapshot,
+  projectTaskWorkspaceLiveSnapshot,
   projectTaskWorkspaceRun,
   taskWorkspaceCancelCapabilitySchema,
   taskWorkspaceContextUsageSnapshotSchema,

@@ -9,10 +9,8 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { TaskWorkspaceInspectorSlotProps } from "../contracts";
-import {
-  taskWorkspacePanelMaxWidth,
-  taskWorkspacePanelMinWidth
-} from "../useTaskWorkspaceLayout";
+import { taskWorkspaceRunStatus } from "../timeline/timelineProjection";
+import { taskWorkspacePanelMaxWidth, taskWorkspacePanelMinWidth } from "../useTaskWorkspaceLayout";
 import { DeferredInspectorSection } from "./DeferredInspectorSection";
 import { displayConfigurationValue } from "./formatters";
 import { TaskWorkspaceUsageDetails } from "./TaskWorkspaceUsage";
@@ -61,6 +59,7 @@ export type TaskWorkspaceInspectorLabels = {
   run: string;
   runArtifact: string;
   runStatus: {
+    cancelled: string;
     completed: string;
     failed: string;
     recorded: string;
@@ -109,9 +108,7 @@ function ConfigurationField({
         ) : (
           <span className="text-text-muted">
             {labels.unavailable}
-            <span className="mt-0.5 block text-[10px] font-normal break-words">
-              {field.reason}
-            </span>
+            <span className="mt-0.5 block text-[10px] font-normal break-words">{field.reason}</span>
           </span>
         )
       }
@@ -119,7 +116,10 @@ function ConfigurationField({
   );
 }
 
-function ProtocolOption({ option, labels }: {
+function ProtocolOption({
+  option,
+  labels
+}: {
   labels: TaskWorkspaceInspectorLabels;
   option: SessionConfigOption;
 }) {
@@ -191,18 +191,27 @@ function ProtocolDetails({
 }
 
 function runStatus(
-  props: Pick<TaskWorkspaceInspectorSlotProps, "selectedRecord" | "selectedRun">,
+  selectedRun: TaskWorkspaceInspectorSlotProps["selectedRun"],
   labels: TaskWorkspaceInspectorLabels
 ) {
-  if (props.selectedRun?.item.active) return labels.runStatus.running;
-  if (props.selectedRecord?.finishedAt) {
-    if (props.selectedRecord.exitCode === 0) return labels.runStatus.completed;
-    if (props.selectedRecord.exitCode !== null) return labels.runStatus.failed;
+  if (!selectedRun) return labels.runStatus.recorded;
+  switch (taskWorkspaceRunStatus(selectedRun.item)) {
+    case "active":
+    case "waiting":
+      return labels.runStatus.running;
+    case "cancelled":
+      return labels.runStatus.cancelled;
+    case "completed":
+      return labels.runStatus.completed;
+    case "failed":
+      return labels.runStatus.failed;
   }
-  return labels.runStatus.recorded;
 }
 
-function artifactPath(reference: ArtifactReference | null, reportPath: string | null): string | null {
+function artifactPath(
+  reference: ArtifactReference | null,
+  reportPath: string | null
+): string | null {
   return reference?.relativePath ?? reportPath;
 }
 
@@ -212,6 +221,7 @@ export function TaskWorkspaceInspector({
   inspectorCollapsed,
   inspectorWidth,
   labels,
+  runnerModel,
   selectedRecord,
   selectedRun,
   setInspectorCollapsed,
@@ -225,9 +235,7 @@ export function TaskWorkspaceInspector({
   }
 
   const selectedRecordId = selectedRun?.item.run.record.recordId ?? null;
-  const authoritativeRecord =
-    selectedRecord?.recordId === selectedRecordId ? selectedRecord : null;
-  const runnerModel = authoritativeRecord?.runnerReadModel ?? null;
+  const authoritativeRecord = selectedRecord?.recordId === selectedRecordId ? selectedRecord : null;
   const events = runnerModel?.events ?? [];
   const diagnostics = runnerModel?.diagnostics ?? [];
   const visibleEvents = events.slice(-historyLimit);
@@ -254,7 +262,9 @@ export function TaskWorkspaceInspector({
 
       <header className="sticky top-0 z-[1] flex min-w-0 items-center gap-2 border-b border-border bg-app-panel/95 px-3 py-2 backdrop-blur">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-xs font-semibold tracking-wide uppercase">{labels.overview}</h2>
+          <h2 className="truncate text-xs font-semibold tracking-wide uppercase">
+            {labels.overview}
+          </h2>
           <p className="truncate font-mono text-[10px] text-text-muted">
             {selectedRun?.item.run.record.runId ?? labels.noSelection}
           </p>
@@ -274,17 +284,30 @@ export function TaskWorkspaceInspector({
         <p className="p-4 text-center text-xs text-text-muted">{labels.noSelection}</p>
       ) : (
         <div className="min-w-0">
-          <section className="space-y-3 border-b border-border/80 p-3" aria-labelledby="inspector-overview">
-            <h3 id="inspector-overview" className="text-xs font-semibold tracking-wide text-text-muted uppercase">
+          <section
+            className="space-y-3 border-b border-border/80 p-3"
+            aria-labelledby="inspector-overview"
+          >
+            <h3
+              id="inspector-overview"
+              className="text-xs font-semibold tracking-wide text-text-muted uppercase"
+            >
               {labels.overview}
             </h3>
             <dl>
               <DefinitionRow label={labels.task} value={workspace.task.title} />
               <DefinitionRow label={labels.block} value={selectedRun.block.title} />
-              <DefinitionRow label={labels.run} value={<PathValue value={selectedRun.item.run.record.runId} />} />
+              <DefinitionRow
+                label={labels.run}
+                value={<PathValue value={selectedRun.item.run.record.runId} />}
+              />
               <DefinitionRow
                 label={labels.status}
-                value={<Badge variant="outline">{runStatus({ selectedRecord: authoritativeRecord, selectedRun }, labels)}</Badge>}
+                value={
+                  <Badge variant="outline">
+                    {runStatus(selectedRun, labels)}
+                  </Badge>
+                }
               />
             </dl>
 
@@ -293,34 +316,79 @@ export function TaskWorkspaceInspector({
               {configuration?.available ? (
                 <>
                   <dl>
-                    <ConfigurationField field={configuration.fields.model} label={labels.model} labels={labels} />
-                    <ConfigurationField field={configuration.fields.reasoning} label={labels.reasoning} labels={labels} />
-                    <ConfigurationField field={configuration.fields.mode} label={labels.mode} labels={labels} />
-                    <ConfigurationField field={configuration.fields.permission} label={labels.permission} labels={labels} />
-                    <DefinitionRow label={labels.session} value={<PathValue value={configuration.sessionId} />} />
-                    <DefinitionRow label={labels.observedAt} value={labels.formatDateTime(configuration.observedAt)} />
+                    <ConfigurationField
+                      field={configuration.fields.model}
+                      label={labels.model}
+                      labels={labels}
+                    />
+                    <ConfigurationField
+                      field={configuration.fields.reasoning}
+                      label={labels.reasoning}
+                      labels={labels}
+                    />
+                    <ConfigurationField
+                      field={configuration.fields.mode}
+                      label={labels.mode}
+                      labels={labels}
+                    />
+                    <ConfigurationField
+                      field={configuration.fields.permission}
+                      label={labels.permission}
+                      labels={labels}
+                    />
+                    <DefinitionRow
+                      label={labels.session}
+                      value={<PathValue value={configuration.sessionId} />}
+                    />
+                    <DefinitionRow
+                      label={labels.observedAt}
+                      value={labels.formatDateTime(configuration.observedAt)}
+                    />
                   </dl>
                   <ProtocolDetails labels={labels} protocol={configuration.protocol} />
                 </>
               ) : (
                 <div className="text-xs text-text-muted">
                   <p>{labels.configurationUnavailable}</p>
-                  {configuration ? <p className="mt-1 text-[10px]">{configuration.reason}</p> : null}
+                  {configuration ? (
+                    <p className="mt-1 text-[10px]">{configuration.reason}</p>
+                  ) : null}
                 </div>
               )}
             </div>
           </section>
 
           <section className="border-b border-border/80 p-3" aria-labelledby="inspector-files">
-            <h3 id="inspector-files" className="text-xs font-semibold tracking-wide text-text-muted uppercase">
+            <h3
+              id="inspector-files"
+              className="text-xs font-semibold tracking-wide text-text-muted uppercase"
+            >
               {labels.files}
             </h3>
             {authoritativeRecord ? (
               <dl className="mt-2">
-                {authoritativeRecord.promptPath ? <DefinitionRow label={labels.promptFile} value={<PathValue value={authoritativeRecord.promptPath} />} /> : null}
-                {authoritativeRecord.reportPath ? <DefinitionRow label={labels.reportFile} value={<PathValue value={authoritativeRecord.reportPath} />} /> : null}
-                <DefinitionRow label={labels.metadataFile} value={<PathValue value={authoritativeRecord.metadataPath} />} />
-                {authoritativeRecord.executionCwd ? <DefinitionRow label={labels.workingDirectory} value={<PathValue value={authoritativeRecord.executionCwd} />} /> : null}
+                {authoritativeRecord.promptPath ? (
+                  <DefinitionRow
+                    label={labels.promptFile}
+                    value={<PathValue value={authoritativeRecord.promptPath} />}
+                  />
+                ) : null}
+                {authoritativeRecord.reportPath ? (
+                  <DefinitionRow
+                    label={labels.reportFile}
+                    value={<PathValue value={authoritativeRecord.reportPath} />}
+                  />
+                ) : null}
+                <DefinitionRow
+                  label={labels.metadataFile}
+                  value={<PathValue value={authoritativeRecord.metadataPath} />}
+                />
+                {authoritativeRecord.executionCwd ? (
+                  <DefinitionRow
+                    label={labels.workingDirectory}
+                    value={<PathValue value={authoritativeRecord.executionCwd} />}
+                  />
+                ) : null}
               </dl>
             ) : (
               <p className="mt-2 text-xs text-text-muted">{labels.historyUnavailable}</p>
@@ -331,12 +399,18 @@ export function TaskWorkspaceInspector({
           </section>
 
           <section className="border-b border-border/80 p-3" aria-labelledby="inspector-artifacts">
-            <h3 id="inspector-artifacts" className="text-xs font-semibold tracking-wide text-text-muted uppercase">
+            <h3
+              id="inspector-artifacts"
+              className="text-xs font-semibold tracking-wide text-text-muted uppercase"
+            >
               {labels.artifacts}
             </h3>
             <dl className="mt-2">
               {authoritativeRecord?.reportPath ? (
-                <DefinitionRow label={labels.runArtifact} value={<PathValue value={authoritativeRecord.reportPath} />} />
+                <DefinitionRow
+                  label={labels.runArtifact}
+                  value={<PathValue value={authoritativeRecord.reportPath} />}
+                />
               ) : null}
               {latestArtifactDisplay ? (
                 <DefinitionRow
@@ -360,10 +434,17 @@ export function TaskWorkspaceInspector({
           </section>
 
           <section className="border-b border-border/80 p-3" aria-labelledby="inspector-usage">
-            <h3 id="inspector-usage" className="mb-3 text-xs font-semibold tracking-wide text-text-muted uppercase">
+            <h3
+              id="inspector-usage"
+              className="mb-3 text-xs font-semibold tracking-wide text-text-muted uppercase"
+            >
               {labels.usage}
             </h3>
-            <TaskWorkspaceUsageDetails labels={labels.usageLabels} selectedRun={selectedRun} workspace={workspace} />
+            <TaskWorkspaceUsageDetails
+              labels={labels.usageLabels}
+              selectedRun={selectedRun}
+              workspace={workspace}
+            />
           </section>
 
           <DeferredInspectorSection
@@ -381,10 +462,17 @@ export function TaskWorkspaceInspector({
                   {visibleEvents.map((event) => (
                     <li className="min-w-0 border-l-2 border-border pl-2" key={event.sequence}>
                       <div className="flex min-w-0 items-baseline justify-between gap-2">
-                        <span className="min-w-0 truncate text-xs font-medium">{labels.eventKinds[event.body.kind]}</span>
-                        <span className="shrink-0 font-mono text-[10px] text-text-muted">{labels.sequence(event.sequence)}</span>
+                        <span className="min-w-0 truncate text-xs font-medium">
+                          {labels.eventKinds[event.body.kind]}
+                        </span>
+                        <span className="shrink-0 font-mono text-[10px] text-text-muted">
+                          {labels.sequence(event.sequence)}
+                        </span>
                       </div>
-                      <time className="block text-[10px] text-text-muted" dateTime={event.timestamp}>
+                      <time
+                        className="block text-[10px] text-text-muted"
+                        dateTime={event.timestamp}
+                      >
                         {labels.formatDateTime(event.timestamp)}
                       </time>
                     </li>
@@ -407,8 +495,13 @@ export function TaskWorkspaceInspector({
                 ) : null}
                 <ul className="space-y-2">
                   {visibleDiagnostics.map((diagnostic, index) => (
-                    <li className="border-l-2 border-destructive/60 pl-2" key={`${diagnostic.code}:${diagnostic.line ?? "none"}:${index}`}>
-                      <div className="font-mono text-[10px] text-destructive">{diagnostic.code}</div>
+                    <li
+                      className="border-l-2 border-destructive/60 pl-2"
+                      key={`${diagnostic.code}:${diagnostic.line ?? "none"}:${index}`}
+                    >
+                      <div className="font-mono text-[10px] text-destructive">
+                        {diagnostic.code}
+                      </div>
                       <p className="mt-0.5 text-xs break-words">{diagnostic.message}</p>
                     </li>
                   ))}

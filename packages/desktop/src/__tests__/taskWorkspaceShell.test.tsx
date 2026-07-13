@@ -21,28 +21,38 @@ import { taskWorkspaceInspectorFixture } from "./helpers/taskWorkspaceInspectorF
 afterEach(cleanupRendererTestEnvironment);
 
 const labels: TaskWorkspaceLabels = {
+  acceptanceCriteria: "Acceptance criteria",
+  activeRuns: (count) => `Active runs: ${count}`,
   agent: "Agent",
   backToCanvas: "Back to canvas",
+  blocks: "Blocks",
   booleanFalse: "False",
   booleanTrue: "True",
   composer: "Composer",
   conversation: "Conversation",
+  dependencies: "Dependencies",
+  dependencyProgress: (completed, total, percent) => `${completed}/${total} (${percent}%)`,
   elapsed: "Elapsed",
   expandTimeline: "Expand timeline",
   formatDuration: (milliseconds) => `${milliseconds / 1_000}s`,
   inspector: "Inspector",
+  latestArtifact: "Latest artifact",
   loading: "Loading",
   liveUnavailable: "Live unavailable",
+  noActiveRuns: "No active runs",
+  noArtifact: "No artifact",
   noConversation: "No conversation",
   noInspector: "No inspector",
   noRuns: "No runs",
   noTask: "No task",
+  overview: "Task overview",
   mode: "Mode",
   model: "Model",
   permission: "Permission",
   reasoning: "Reasoning",
   runStatus: {
     active: "Running",
+    cancelled: "Cancelled",
     completed: "Completed",
     failed: "Failed",
     waiting: "Waiting"
@@ -136,10 +146,28 @@ function controller(patch: Partial<TaskWorkspaceController> = {}): TaskWorkspace
 }
 
 describe("Task Workspace shell", () => {
-  it("keeps the page root fixed while each stable slot owns its scroll area", async () => {
+  it("renders Task Overview as the main panel without a run composer", () => {
+    const conversation = vi.fn((_props: TaskWorkspaceConversationSlotProps) => null);
+    const composer = vi.fn(() => null);
     render(
       <TaskWorkspaceRoute
         controller={controller()}
+        labels={labels}
+        slots={{ composer, conversation }}
+      />
+    );
+
+    expect(screen.getByTestId("task-workspace-overview-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("task-workspace-composer-slot")).not.toBeInTheDocument();
+    expect(conversation).not.toHaveBeenCalled();
+    expect(composer).not.toHaveBeenCalled();
+  });
+
+  it("keeps the page root fixed while each stable slot owns its scroll area", async () => {
+    const fixture = taskWorkspaceInspectorFixture();
+    render(
+      <TaskWorkspaceRoute
+        controller={controller({ selectedRun: fixture.selectedRun, workspace: fixture.workspace })}
         labels={labels}
         slots={{
           timeline: () => <div>Timeline implementation slot</div>,
@@ -192,6 +220,7 @@ describe("Task Workspace shell", () => {
   });
 
   it("passes the authoritative controller and layout controls to each lane slot", () => {
+    const fixture = taskWorkspaceInspectorFixture();
     const getRunScrollTop = vi.fn(() => savedScrollTop);
     const onRunScrollTopChange = vi.fn();
     const timeline = vi.fn((_props: TaskWorkspaceTimelineSlotProps) => null);
@@ -200,7 +229,12 @@ describe("Task Workspace shell", () => {
 
     render(
       <TaskWorkspaceRoute
-        controller={controller({ getRunScrollTop, onRunScrollTopChange })}
+        controller={controller({
+          getRunScrollTop,
+          onRunScrollTopChange,
+          selectedRun: fixture.selectedRun,
+          workspace: fixture.workspace
+        })}
         labels={labels}
         slots={{ conversation, inspector, timeline }}
       />
@@ -237,12 +271,15 @@ describe("Task Workspace shell", () => {
   });
 
   it("shows a selected record failure in the stable conversation slot", () => {
+    const fixture = taskWorkspaceInspectorFixture();
     render(
       <TaskWorkspaceRoute
         controller={controller({
           error: "Selected run record does not match its Task Workspace navigation identity.",
           liveStatus: "error",
-          recordError: "Selected run record does not match its Task Workspace navigation identity."
+          recordError: "Selected run record does not match its Task Workspace navigation identity.",
+          selectedRun: fixture.selectedRun,
+          workspace: fixture.workspace
         })}
         labels={labels}
       />
@@ -313,6 +350,7 @@ describe("Task Workspace shell", () => {
   it.each([
     ["active", "Running", "rounded-full", "bg-primary"],
     ["waiting", "Waiting", "rotate-45", "border-amber-500"],
+    ["cancelled", "Cancelled", "rounded-[1px]", "border-text-muted"],
     ["failed", "Failed", "rounded-[1px]", "bg-destructive"],
     ["completed", "Completed", "rounded-full", "border-emerald-500"]
   ] as const)("shows the selected agent and %s status semantics in the compact timeline", async (status, statusLabel, shapeClass, colorClass) => {
@@ -330,7 +368,9 @@ describe("Task Workspace shell", () => {
           ...fixture.selectedRun.item.run,
           metadata: {
             ...fixture.selectedRun.item.run.metadata,
-            exitCode: status === "failed" ? 1 : 0
+            exitCode: status === "failed" ? 1 : 0,
+            terminalState:
+              status === "failed" || status === "cancelled" ? status : "succeeded"
           }
         }
       }

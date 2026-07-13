@@ -190,6 +190,41 @@ describe("desktop Task Workspace aggregate API", () => {
     expect(workspace.duration.wallClock.totalMs).toBe(11_000);
   });
 
+  it("keeps Task Overview as the default when parallel blocks are both active", async () => {
+    const { root, init } = await createTestWorkspace(parallelManifest());
+    const state = await readState(init.workspace.stateFile);
+    state.currentRefs = ["T-001#B-001", "T-001#B-002"];
+    state.tasks["T-001"] = { status: "in_progress", openFeedbackCount: 0 };
+    state.blocks["T-001#B-001"] = { status: "in_progress" };
+    state.blocks["T-001#B-002"] = { status: "in_progress" };
+    await writeState(init.workspace.stateFile, state);
+    await writeBlockRun({
+      resultsDir: init.workspace.resultsDir,
+      blockId: "B-001",
+      runId: "RUN-001",
+      startedAt: "2026-07-13T00:00:00.000Z",
+      finishedAt: null
+    });
+    await writeBlockRun({
+      resultsDir: init.workspace.resultsDir,
+      blockId: "B-002",
+      runId: "RUN-002",
+      startedAt: "2026-07-13T00:00:01.000Z",
+      finishedAt: null
+    });
+
+    const workspace = await getTaskWorkspace(
+      { projectRoot: root, canvasId: "default", taskId: "T-001" },
+      { now: new Date("2026-07-13T00:00:05.000Z") }
+    );
+
+    expect(workspace.activeRecordIds).toEqual(["T-001#B-001::RUN-001", "T-001#B-002::RUN-002"]);
+    expect(workspace.selectedRecordId).toBeNull();
+    expect(
+      workspace.blocks.flatMap((block) => block.runs).filter((item) => item.selected)
+    ).toHaveLength(0);
+  });
+
   it("uses numeric run ordinals for missing and mixed start times and default selection", async () => {
     const { root, init } = await createTestWorkspace();
     await writeBlockRun({

@@ -54,7 +54,7 @@ const taskWorkspaceProjectionMetadataSchema = z
   })
   .passthrough();
 
-function projectDuration(options: {
+export function projectTaskWorkspaceRunDuration(options: {
   startedAt: string | null;
   finishedAt: string | null;
   now: Date;
@@ -88,7 +88,7 @@ function projectDuration(options: {
   };
 }
 
-function projectLatestUsage(
+export function projectTaskWorkspaceCurrentContextUsage(
   events: NonNullable<DesktopRunRecord["runnerReadModel"]>["events"] | undefined
 ): TaskWorkspaceRun["usage"]["currentContext"] {
   return (
@@ -197,6 +197,9 @@ export function projectTaskWorkspaceRun(options: {
     readModel: record.runnerReadModel
   });
   const metadata = taskWorkspaceProjectionMetadataSchema.parse(record.metadata);
+  const terminalState = [...(record.runnerReadModel?.events ?? [])]
+    .reverse()
+    .find((event) => event.body.kind === "terminal")?.body;
 
   return taskWorkspaceRunSchema.parse({
     version: "planweave.task-workspace-run/v1",
@@ -218,21 +221,23 @@ export function projectTaskWorkspaceRun(options: {
       projectRoot: record.projectRoot,
       agentSessionId: record.agentSessionId,
       tmuxSessionId: record.tmuxSessionId ?? null,
-      exitCode: record.exitCode
+      exitCode: record.exitCode,
+      terminalState: terminalState?.kind === "terminal" ? terminalState.outcome.state : null
     },
     executionWaveId: metadata.executionWaveId ?? null,
-    duration: projectDuration({
+    duration: projectTaskWorkspaceRunDuration({
       startedAt: record.startedAt,
       finishedAt: record.finishedAt,
       now: options.now
     }),
     usage: {
-      currentContext: projectLatestUsage(record.runnerReadModel?.events),
+      currentContext: projectTaskWorkspaceCurrentContextUsage(record.runnerReadModel?.events),
       ...unavailableTokenUsage()
     },
     actualConfiguration: record.runnerReadModel?.actualConfiguration ?? {
       available: false,
-      reason: "Actual session configuration is unavailable because this run has no ACP RunnerRecordReadModel."
+      reason:
+        "Actual session configuration is unavailable because this run has no ACP RunnerRecordReadModel."
     },
     capabilities: projectCapabilities(record.runnerReadModel)
   });

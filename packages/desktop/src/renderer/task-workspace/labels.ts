@@ -78,28 +78,39 @@ function usageLabels(t: Translator): TaskWorkspaceUsageLabels {
 
 export function taskWorkspaceLabels(t: Translator): TaskWorkspaceLabels {
   return {
+    acceptanceCriteria: t("acceptanceCriteria"),
+    activeRuns: (count) => interpolate(t("taskWorkspaceActiveRuns"), { count }),
     agent: t("agent"),
     backToCanvas: t("taskWorkspaceBackToCanvas"),
+    blocks: t("blocks"),
     booleanFalse: t("taskWorkspaceFalse"),
     booleanTrue: t("taskWorkspaceTrue"),
     composer: t("taskWorkspaceComposer"),
     conversation: t("taskWorkspaceConversation"),
+    dependencies: t("dependencies"),
+    dependencyProgress: (completed, total, percent) =>
+      interpolate(t("taskWorkspaceDependencyProgress"), { completed, percent, total }),
     elapsed: t("taskWorkspaceElapsed"),
     expandTimeline: t("taskWorkspaceExpandTimeline"),
     formatDuration: (milliseconds) => formatDuration(t, milliseconds),
     inspector: t("taskWorkspaceInspector"),
+    latestArtifact: t("taskWorkspaceLatestArtifact"),
     liveUnavailable: t("taskWorkspaceLiveUnavailable"),
     loading: t("taskWorkspaceLoading"),
     mode: t("taskWorkspaceMode"),
     model: t("taskWorkspaceModel"),
+    noActiveRuns: t("taskWorkspaceNoActiveRuns"),
+    noArtifact: t("taskWorkspaceNoArtifact"),
     noConversation: t("taskWorkspaceNoConversation"),
     noInspector: t("taskWorkspaceNoInspector"),
     noRuns: t("taskWorkspaceNoRuns"),
     noTask: t("taskWorkspaceNoTask"),
+    overview: t("taskWorkspaceOverview"),
     permission: t("taskWorkspacePermission"),
     reasoning: t("taskWorkspaceReasoning"),
     runStatus: {
       active: t("taskWorkspaceRunning"),
+      cancelled: t("taskWorkspaceCancelled"),
       completed: t("taskWorkspaceCompleted"),
       failed: t("taskWorkspaceFailed"),
       waiting: t("taskWorkspaceWaiting")
@@ -118,21 +129,31 @@ export function taskWorkspaceLabels(t: Translator): TaskWorkspaceLabels {
 
 export function taskWorkspaceTimelineLabels(t: Translator): TaskWorkspaceTimelineLabels {
   return {
+    agent: t("agent"),
     activeRuns: (count) => interpolate(t("taskWorkspaceActiveRuns"), { count }),
     annotationKinds: {
       feedback: t("taskWorkspaceAnnotationFeedback"),
       feedback_run: t("taskWorkspaceAnnotationFeedbackRun"),
       review_attempt: t("taskWorkspaceAnnotationReviewAttempt")
     },
+    cancelled: t("taskWorkspaceCancelled"),
     completed: t("taskWorkspaceCompleted"),
     dependencies: t("dependencies"),
     dependencyProgress: (completed, total, percent) =>
       interpolate(t("taskWorkspaceDependencyProgress"), { completed, percent, total }),
+    elapsed: t("taskWorkspaceElapsed"),
     empty: t("taskWorkspaceNoRuns"),
     failed: t("taskWorkspaceFailed"),
+    formatDateTime: (value) =>
+      new Intl.DateTimeFormat(locale(t), {
+        dateStyle: "short",
+        timeStyle: "medium"
+      }).format(new Date(value)),
+    formatDuration: (milliseconds) => formatDuration(t, milliseconds),
     latestArtifact: t("taskWorkspaceLatestArtifact"),
     noActiveRuns: t("taskWorkspaceNoActiveRuns"),
     noArtifact: t("taskWorkspaceNoArtifact"),
+    overview: t("taskWorkspaceOverview"),
     parallelWave: (waveId, index, total) =>
       interpolate(t("taskWorkspaceParallelWave"), {
         index,
@@ -146,8 +167,11 @@ export function taskWorkspaceTimelineLabels(t: Translator): TaskWorkspaceTimelin
         blockTitle,
         retryIndex
       }),
+    runId: t("taskWorkspaceRunId"),
     running: t("taskWorkspaceRunning"),
+    startedAt: t("taskWorkspaceStartedAt"),
     timeline: t("taskWorkspaceTimeline"),
+    unavailable: t("unavailable"),
     waiting: t("taskWorkspaceWaiting")
   };
 }
@@ -214,6 +238,7 @@ export function taskWorkspaceInspectorLabels(t: Translator): TaskWorkspaceInspec
     run: t("taskWorkspaceRun"),
     runArtifact: t("taskWorkspaceRunArtifact"),
     runStatus: {
+      cancelled: t("taskWorkspaceCancelled"),
       completed: t("taskWorkspaceCompleted"),
       failed: t("taskWorkspaceFailed"),
       recorded: t("taskWorkspaceRecorded"),

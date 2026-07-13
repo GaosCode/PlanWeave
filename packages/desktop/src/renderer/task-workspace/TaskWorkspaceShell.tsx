@@ -51,6 +51,7 @@ export function TaskWorkspaceStateShell({
 
 const compactStatusClassName = {
   active: "rounded-full bg-primary",
+  cancelled: "rounded-[1px] border border-text-muted bg-surface-muted",
   completed: "rounded-full border-2 border-emerald-500 bg-transparent",
   empty: "rounded-full border border-border bg-transparent",
   failed: "rounded-[1px] bg-destructive",
@@ -144,12 +145,14 @@ export function TaskWorkspaceShell({
           >
             {conversation}
           </div>
-          <div
-            className="shrink-0 border-t border-border/80 bg-app-panel"
-            data-testid="task-workspace-composer-slot"
-          >
-            {composer}
-          </div>
+          {composer ? (
+            <div
+              className="shrink-0 border-t border-border/80 bg-app-panel"
+              data-testid="task-workspace-composer-slot"
+            >
+              {composer}
+            </div>
+          ) : null}
         </main>
         {layout.inspectorCollapsed ? null : (
           <aside

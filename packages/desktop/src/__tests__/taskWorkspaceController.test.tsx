@@ -46,6 +46,7 @@ function navigation(recordId = "T-001#B-001::RUN-001"): TaskWorkspaceNavigationI
 }
 
 function runnerModel(runId: string): RunnerRecordReadModel {
+  const identity = projectedRun(runId).runIdentity;
   return {
     events: [],
     conversation: [],
@@ -55,10 +56,18 @@ function runnerModel(runId: string): RunnerRecordReadModel {
       version: "planweave.runner-event-cursor/v1",
       runId,
       afterSequence: 0,
-      canonicalIdentity: null,
+      canonicalIdentity: {
+        identity,
+        runner: {
+          version: "planweave.runner/v1",
+          runnerKind: "acp",
+          agentId: "codex"
+        }
+      },
       terminal: false
     },
     terminal: false,
+    actualConfiguration: { available: false, reason: "Unavailable." },
     intervention: {
       prompt: {
         available: false,
@@ -104,7 +113,8 @@ function projectedRun(runId: string): TaskWorkspaceRun {
       projectRoot: "/projects/demo",
       agentSessionId: `session-${runId}`,
       tmuxSessionId: null,
-      exitCode: null
+      exitCode: null,
+      terminalState: null
     },
     executionWaveId: null,
     duration: {
@@ -129,7 +139,8 @@ function projectedRun(runId: string): TaskWorkspaceRun {
       cancel: { available: false, reason: "No cancel capability.", identity: null },
       retry: { available: false, reason: "Retry unavailable.", identity: null },
       resume: { available: false, reason: "Resume unavailable.", identity: null }
-    }
+    },
+    actualConfiguration: { available: false, reason: "Unavailable." }
   };
 }
 
@@ -168,7 +179,7 @@ function workspace(selectedRecordId: string): TaskWorkspace {
         blockId: "B-001",
         type: "implementation",
         title: "Implement",
-        status: "running",
+        status: "in_progress",
         effectiveExecutor: "codex",
         dependencies: {
           total: 0,
@@ -290,6 +301,50 @@ function useControllerHarness(
 }
 
 describe("Task Workspace selected run controller", () => {
+  it("keeps Task Overview selected when more than one run is active", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const firstRecordId = "T-001#B-001::RUN-001";
+    const secondRecordId = "T-001#B-001::RUN-002";
+    const aggregate = workspace(firstRecordId);
+    api.getTaskWorkspace.mockResolvedValue({
+      ...aggregate,
+      activeRecordIds: [firstRecordId, secondRecordId],
+      selectedRecordId: null,
+      blocks: aggregate.blocks.map((block) => ({
+        ...block,
+        runs: block.runs.map((item) => ({ ...item, active: true, selected: false }))
+      }))
+    });
+    const taskNavigation = taskWorkspaceNavigationIdentity(
+      {
+        projectRoot: "/projects/demo",
+        canvasId: "canvas-main",
+        taskId: "T-001"
+      },
+      source
+    );
+    const { result } = renderHook(() => useControllerHarness(api, taskNavigation));
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.selectedRun).toBeNull();
+    expect(result.current.workspace?.activeRecordIds).toEqual([firstRecordId, secondRecordId]);
+    expect(api.getRunRecord).not.toHaveBeenCalled();
+  });
+
+  it("does not let a refresh steal an explicitly selected Task Overview", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const { result } = renderHook(() => useControllerHarness(api));
+    await waitFor(() => expect(result.current.liveStatus).toBe("unavailable"));
+
+    act(() => result.current.selectRun(null));
+    expect(result.current.selectedRun).toBeNull();
+    act(() => result.current.refresh());
+
+    await waitFor(() => expect(api.getTaskWorkspace).toHaveBeenCalledTimes(2));
+    expect(result.current.selectedRun).toBeNull();
+    expect(result.current.navigation?.recordId).toBe("T-001#B-001::RUN-001");
+  });
+
   it("rejects a stale block-only navigation target instead of opening the task fallback", async () => {
     const { api } = controllerApi({ readModel: () => null });
     const staleNavigation = taskWorkspaceNavigationIdentity(

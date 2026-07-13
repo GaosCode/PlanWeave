@@ -5,6 +5,7 @@ import type {
   TaskWorkspaceSlotRenderers
 } from "./contracts";
 import { TaskWorkspaceShell, TaskWorkspaceStateShell } from "./TaskWorkspaceShell";
+import { TaskWorkspaceOverviewPanel } from "./timeline/TaskWorkspaceOverview";
 import { useTaskWorkspaceLayout } from "./useTaskWorkspaceLayout";
 
 function EmptySlot({ description, title }: { description: string; title: string }) {
@@ -84,6 +85,7 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
   const inspectorProps = {
     inspectorCollapsed: layout.inspectorCollapsed,
     inspectorWidth: layout.inspectorWidth,
+    runnerModel: controller.runnerModel,
     selectedRecord: controller.selectedRecord,
     selectedRun: controller.selectedRun,
     setInspectorCollapsed: layout.setInspectorCollapsed,
@@ -99,7 +101,9 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
   const timeline: ReactNode = slots.timeline?.(timelineProps) ?? (
     <EmptySlot title={labels.timeline} description={labels.noRuns} />
   );
-  const conversation: ReactNode = controller.recordError ? (
+  const conversation: ReactNode = !controller.selectedRun ? (
+    <TaskWorkspaceOverviewPanel labels={labels} workspace={controller.workspace} />
+  ) : controller.recordError ? (
     <SlotError title={labels.conversation} message={controller.recordError} />
   ) : (
     (slots.conversation?.(conversationProps) ?? (
@@ -116,9 +120,11 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
   const inspector: ReactNode = slots.inspector?.(inspectorProps) ?? (
     <EmptySlot title={labels.inspector} description={labels.noInspector} />
   );
-  const composer: ReactNode = slots.composer?.(composerProps) ?? (
-    <EmptySlot title={labels.composer} description={labels.noConversation} />
-  );
+  const composer: ReactNode = controller.selectedRun
+    ? (slots.composer?.(composerProps) ?? (
+        <EmptySlot title={labels.composer} description={labels.noConversation} />
+      ))
+    : null;
   const headerAction: ReactNode =
     slots.headerAction?.({
       runnerModel: controller.runnerModel,

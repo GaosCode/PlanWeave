@@ -96,7 +96,8 @@ export function taskWorkspaceInspectorFixture(options: {
       projectRoot: "/projects/demo",
       agentSessionId: "session-1",
       tmuxSessionId: null,
-      exitCode: 0
+      exitCode: 0,
+      terminalState: "succeeded"
     },
     executionWaveId: null,
     duration: {

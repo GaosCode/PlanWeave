@@ -77,6 +77,7 @@ const labels: TaskWorkspaceInspectorLabels = {
   run: "Run",
   runArtifact: "Run artifact",
   runStatus: {
+    cancelled: "Cancelled",
     completed: "Completed",
     failed: "Failed",
     recorded: "Recorded",
@@ -94,12 +95,15 @@ const labels: TaskWorkspaceInspectorLabels = {
   workingDirectory: "Working directory"
 };
 
-function renderInspector(overrides: Partial<React.ComponentProps<typeof TaskWorkspaceInspector>> = {}) {
+function renderInspector(
+  overrides: Partial<React.ComponentProps<typeof TaskWorkspaceInspector>> = {}
+) {
   const fixture = taskWorkspaceInspectorFixture();
   const props: React.ComponentProps<typeof TaskWorkspaceInspector> = {
     inspectorCollapsed: false,
     inspectorWidth: 360,
     labels,
+    runnerModel: fixture.selectedRecord.runnerReadModel,
     selectedRecord: fixture.selectedRecord,
     selectedRun: fixture.selectedRun,
     setInspectorCollapsed: vi.fn(),
@@ -120,7 +124,9 @@ describe("TaskWorkspaceInspector", () => {
     expect(screen.getAllByText("gpt-5").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("high").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("code").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Modified-file history is unavailable from the runtime record contract.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Modified-file history is unavailable from the runtime record contract.")
+    ).toBeInTheDocument();
     expect(screen.getByText("/projects/demo/prompts/run.md")).toBeInTheDocument();
     expect(screen.getAllByText("/projects/demo/results/implementation.md")).toHaveLength(2);
     expect(screen.getByText("implementation.md")).toBeInTheDocument();
@@ -150,6 +156,44 @@ describe("TaskWorkspaceInspector", () => {
     await user.click(screen.getByText("Diagnostics"));
     expect(screen.getByText("sequence_gap")).toBeInTheDocument();
     expect(screen.getByText("Sequence 2 was missing.")).toBeInTheDocument();
+  });
+
+  it("uses the controller live model instead of stale record history", async () => {
+    const user = userEvent.setup();
+    renderInspector({ runnerModel: null });
+
+    await user.click(screen.getByText("Events"));
+    expect(screen.getByText("Selected record history unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("Lifecycle")).not.toBeInTheDocument();
+  });
+
+  it("derives terminal status from the projected selected run before record persistence", () => {
+    const fixture = taskWorkspaceInspectorFixture();
+    const failedItem = {
+      ...fixture.selectedRun.item,
+      run: {
+        ...fixture.selectedRun.item.run,
+        metadata: {
+          ...fixture.selectedRun.item.run.metadata,
+          exitCode: null,
+          terminalState: "failed" as const
+        }
+      }
+    };
+    renderInspector({
+      selectedRecord: {
+        ...fixture.selectedRecord,
+        exitCode: null,
+        finishedAt: null
+      },
+      selectedRun: {
+        block: { ...fixture.selectedRun.block, runs: [failedItem] },
+        item: failedItem
+      }
+    });
+
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.queryByText("Recorded")).not.toBeInTheDocument();
   });
 
   it("uses the authoritative layout setters for close, pointer resize, and keyboard resize", async () => {

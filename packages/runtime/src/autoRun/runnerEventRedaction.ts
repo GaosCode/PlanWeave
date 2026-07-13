@@ -164,7 +164,7 @@ export function redactRunnerEventPayload(value: unknown): unknown {
 }
 
 export function utf8ByteLength(value: string): number {
-  return Buffer.byteLength(value, "utf8");
+  return new TextEncoder().encode(value).byteLength;
 }
 
 export function safeRunnerEventTextSchema(maxBytes: number, fieldName: string) {

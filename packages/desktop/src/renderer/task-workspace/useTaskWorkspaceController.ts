@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DesktopBridgeApi, DesktopRunRecord, TaskWorkspace } from "@planweave-ai/runtime";
+import {
+  projectTaskWorkspaceClockSnapshot,
+  projectTaskWorkspaceLiveSnapshot,
+  type DesktopBridgeApi,
+  type DesktopRunRecord,
+  type TaskWorkspace
+} from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
 import type { AppViewHistoryController } from "../hooks/useAppViewHistory";
 import { useRunnerRecordMonitor } from "../hooks/useRunnerRecordMonitor";
@@ -77,7 +83,7 @@ function initialRunForNavigation(
   }
   if (navigation.blockRef) {
     const block = workspace.blocks.find((candidate) => candidate.ref === navigation.blockRef);
-    const item = block?.runs.at(-1);
+    const item = block?.runs.find((candidate) => candidate.active) ?? block?.runs.at(-1);
     return block && item ? { block, item } : null;
   }
   if (!workspace.selectedRecordId) {
@@ -103,10 +109,26 @@ export function useTaskWorkspaceController(options: {
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [workspaceLoad, setWorkspaceLoad] = useState<WorkspaceLoad>(idleWorkspaceLoad);
   const [recordLoad, setRecordLoad] = useState<RecordLoad>(idleRecordLoad);
+  const [overviewSelected, setOverviewSelected] = useState(false);
+  const [clockNowMs, setClockNowMs] = useState(() => Date.now());
   const workspaceRequest = useRef(0);
   const recordRequest = useRef(0);
+  const overviewSelectedRef = useRef(false);
   const runScrollPositions = useRef(new Map<string, number>());
   const key = navigation ? navigationKey(navigation) : "";
+  const taskAuthorityKey = navigation
+    ? JSON.stringify([navigation.projectRoot, navigation.canvasId, navigation.taskId])
+    : "";
+
+  useEffect(() => {
+    overviewSelectedRef.current = false;
+    setOverviewSelected(false);
+  }, [taskAuthorityKey]);
+
+  useEffect(() => {
+    overviewSelectedRef.current = false;
+    setOverviewSelected(false);
+  }, [navigation?.blockRef, navigation?.recordId]);
 
   useEffect(() => {
     const request = ++workspaceRequest.current;
@@ -157,7 +179,7 @@ export function useTaskWorkspaceController(options: {
           });
           return;
         }
-        if (!navigation.recordId && selected) {
+        if (!navigation.recordId && selected && !overviewSelectedRef.current) {
           history.replaceTaskWorkspaceTarget(
             taskWorkspaceNavigationTargetSchema.parse({
               projectRoot: navigation.projectRoot,
@@ -180,13 +202,14 @@ export function useTaskWorkspaceController(options: {
   }, [api, history.replaceTaskWorkspaceTarget, key, navigation, refreshVersion]);
 
   const workspace = workspaceLoad.key === key ? workspaceLoad.workspace : null;
-  const selectedRun = useMemo(() => {
+  const routedSelectedRun = useMemo(() => {
     if (!workspace || !navigation?.blockRef || !navigation.recordId) {
       return null;
     }
     return findRun(workspace, navigation.blockRef, navigation.recordId);
   }, [navigation?.blockRef, navigation?.recordId, workspace]);
-  const selectedRecordKey = navigation?.recordId ?? "";
+  const selectedRun = overviewSelected ? null : routedSelectedRun;
+  const selectedRecordKey = selectedRun?.item.run.record.recordId ?? "";
   const selectedBlockRef = selectedRun?.block.ref ?? "";
 
   useEffect(() => {
@@ -260,6 +283,59 @@ export function useTaskWorkspaceController(options: {
   });
 
   useEffect(() => {
+    setClockNowMs(Date.now());
+    if (!workspace || workspace.activeRecordIds.length === 0) {
+      return;
+    }
+    const timer = window.setInterval(() => setClockNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [workspace?.activeRecordIds.join("\0")]);
+
+  const liveProjection = useMemo(() => {
+    if (!workspace) {
+      return {
+        error: null as string | null,
+        runnerModel: null,
+        selectedRun: null,
+        workspace: null
+      };
+    }
+    try {
+      const now = new Date(clockNowMs);
+      const projectedWorkspace =
+        selectedRun && monitor.model
+          ? projectTaskWorkspaceLiveSnapshot({
+              workspace,
+              recordId: selectedRun.item.run.record.recordId,
+              model: monitor.model,
+              now
+            })
+          : projectTaskWorkspaceClockSnapshot(workspace, now);
+      const projectedSelectedRun = selectedRun
+        ? findRun(projectedWorkspace, selectedRun.block.ref, selectedRun.item.run.record.recordId)
+        : null;
+      if (selectedRun && !projectedSelectedRun) {
+        throw new Error(
+          `Projected Task Workspace record '${selectedRun.item.run.record.recordId}' is unavailable.`
+        );
+      }
+      return {
+        error: null,
+        runnerModel: monitor.model,
+        selectedRun: projectedSelectedRun,
+        workspace: projectedWorkspace
+      };
+    } catch (error: unknown) {
+      return {
+        error: errorMessage(error),
+        runnerModel: null,
+        selectedRun,
+        workspace
+      };
+    }
+  }, [clockNowMs, monitor.model, selectedRun, workspace]);
+
+  useEffect(() => {
     if (!api || !navigation) {
       return;
     }
@@ -283,13 +359,20 @@ export function useTaskWorkspaceController(options: {
       if (!navigation) {
         throw new Error("Cannot select a run without a Task Workspace navigation identity.");
       }
+      if (selection === null) {
+        overviewSelectedRef.current = true;
+        setOverviewSelected(true);
+        return;
+      }
+      overviewSelectedRef.current = false;
+      setOverviewSelected(false);
       history.replaceTaskWorkspaceTarget(
         taskWorkspaceNavigationTargetSchema.parse({
           projectRoot: navigation.projectRoot,
           canvasId: navigation.canvasId,
           taskId: navigation.taskId,
-          blockRef: selection?.blockRef ?? navigation.blockRef,
-          recordId: selection?.recordId
+          blockRef: selection.blockRef,
+          recordId: selection.recordId
         })
       );
     },
@@ -297,21 +380,26 @@ export function useTaskWorkspaceController(options: {
   );
 
   const liveStatus = useMemo<TaskWorkspaceLiveStatus>(() => {
-    if (!selectedRun) return "idle";
+    if (!liveProjection.selectedRun) return "idle";
     if (recordLoad.status === "loading") return "loading";
-    if (recordLoad.status === "error" || monitor.subscriptionError) return "error";
+    if (recordLoad.status === "error" || monitor.subscriptionError || liveProjection.error) {
+      return "error";
+    }
     if (selectedRecord && !selectedRecord.runnerReadModel) return "unavailable";
-    return monitor.model ? "live" : "loading";
-  }, [monitor.model, monitor.subscriptionError, recordLoad.status, selectedRecord, selectedRun]);
+    return liveProjection.runnerModel ? "live" : "loading";
+  }, [liveProjection, monitor.subscriptionError, recordLoad.status, selectedRecord]);
   const liveUnavailableReason =
     liveStatus === "unavailable"
-      ? (selectedRun?.item.run.capabilities.prompt.reason ??
+      ? (liveProjection.selectedRun?.item.run.capabilities.prompt.reason ??
         "This run has no live RunnerRecordReadModel.")
       : null;
   const status = workspaceLoad.key === key ? workspaceLoad.status : navigation ? "loading" : "idle";
   const recordError = recordLoad.key === selectedRecordKey ? recordLoad.error : null;
   const error =
-    history.historyError ?? (workspaceLoad.key === key ? workspaceLoad.error : null) ?? recordError;
+    history.historyError ??
+    (workspaceLoad.key === key ? workspaceLoad.error : null) ??
+    recordError ??
+    liveProjection.error;
 
   return useMemo<TaskWorkspaceController>(
     () => ({
@@ -326,28 +414,26 @@ export function useTaskWorkspaceController(options: {
       recordError,
       refresh: () => setRefreshVersion((current) => current + 1),
       returnToCanvas: history.returnToTaskWorkspaceSource,
-      runnerModel: monitor.model,
+      runnerModel: liveProjection.runnerModel,
       selectRun,
       selectedRecord,
-      selectedRun,
+      selectedRun: liveProjection.selectedRun,
       status,
       subscriptionError: monitor.subscriptionError,
-      workspace
+      workspace: liveProjection.workspace
     }),
     [
       error,
       history.returnToTaskWorkspaceSource,
       liveStatus,
       liveUnavailableReason,
-      monitor.model,
       monitor.subscriptionError,
+      liveProjection,
       navigation,
       recordError,
       selectRun,
       selectedRecord,
-      selectedRun,
-      status,
-      workspace
+      status
     ]
   );
 }
