@@ -5,6 +5,7 @@ import type {
   TerminalOutputRequest,
   TerminalOutputResponse
 } from "@agentclientprotocol/sdk";
+import { z } from "zod";
 import { normalizedRedactedContent, type NormalizedRunnerEvent } from "./normalizedEventContract.js";
 import {
   acpRequestIdSchema,
@@ -13,6 +14,11 @@ import {
 } from "./runnerContractSchemas.js";
 
 export type AcpNormalizedEventBody = NormalizedRunnerEvent["body"];
+
+const providerOnlySessionUpdateSchema = z.discriminatedUnion("sessionUpdate", [
+  z.object({ sessionUpdate: z.literal("session_info_update") }).passthrough(),
+  z.object({ sessionUpdate: z.literal("agent_thought_chunk") }).passthrough()
+]);
 
 export function createAcpInteractionRequestId(
   kind: PersistedPendingInteraction["kind"],
@@ -79,8 +85,9 @@ function toolStatus(value: unknown): "pending" | "in_progress" | "completed" | "
   return value === "pending" || value === "in_progress" || value === "completed" || value === "failed" || value === "cancelled" ? value : null;
 }
 
-export function normalizeAcpSessionNotification(notification: SessionNotification): AcpNormalizedEventBody {
+export function normalizeAcpSessionNotification(notification: SessionNotification): AcpNormalizedEventBody | null {
   const update = notification.update;
+  if (providerOnlySessionUpdateSchema.safeParse(update).success) return null;
   switch (update.sessionUpdate) {
     case "agent_message_chunk":
     case "user_message_chunk": {

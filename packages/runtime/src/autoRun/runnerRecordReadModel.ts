@@ -193,7 +193,7 @@ function identityMismatch(
     (selected.runSessionId !== undefined && event.identity.runSessionId !== selected.runSessionId) ||
     (selected.desktopRunId !== undefined && event.identity.desktopRunId !== selected.desktopRunId) ||
     (selected.executorRunId !== undefined && event.identity.executorRunId !== selected.executorRunId) ||
-    (selected.sessionId !== undefined &&
+    (selected.sessionId != null &&
       event.correlation !== undefined &&
       event.correlation.sessionId !== selected.sessionId)
   );

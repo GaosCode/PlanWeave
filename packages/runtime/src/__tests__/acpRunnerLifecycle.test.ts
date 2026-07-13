@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ActiveAgentRunRegistry, type ActiveAgentRunHandle } from "../autoRun/activeAgentRunRegistry.js";
 import { AcpSessionController } from "../autoRun/acpSessionController.js";
 import { createAcpConnection, type CreateAcpConnectionOptions } from "../autoRun/acpConnection.js";
@@ -19,6 +19,7 @@ import { startAutoRun, stopAutoRun } from "../desktop/runApi.js";
 import { activeAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { trustCommand } from "../taskManager/hookTrustStore.js";
 import { ACP_MOCK_OPERATION_TIMEOUT_MS } from "./support/acpMockHarness.js";
+import { DEFAULT_EXECUTOR_TIMEOUT_MS } from "../autoRun/executorShared.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 
@@ -285,6 +286,120 @@ describe("AcpSessionController lifecycle", () => {
     expect(metadata).toContain(executionText);
     expect(metadata).toContain("cleanup exploded");
     expect(registry.size).toBe(0);
+  });
+});
+
+describe("ACP runner runtime limits", () => {
+  it.each([
+    { profileTimeoutMs: undefined, expectedTimeoutMs: DEFAULT_EXECUTOR_TIMEOUT_MS },
+    { profileTimeoutMs: 12_345, expectedTimeoutMs: 12_345 }
+  ])("uses the executor profile timeout $expectedTimeoutMs when no call-level timeout is provided", async ({
+    profileTimeoutMs,
+    expectedTimeoutMs
+  }) => {
+    const { init } = await createTestWorkspace();
+    const controller = new AcpSessionController(new ActiveAgentRunRegistry());
+    const execute = vi.spyOn(controller, "execute").mockRejectedValue(new Error("captured"));
+    const runner = createAcpRunner({ sessionController: controller });
+    const runtimeProfile = {
+      adapter: "agent",
+      agent: "codex",
+      runner: { transport: "acp" },
+      ...(profileTimeoutMs === undefined ? {} : { timeoutMs: profileTimeoutMs })
+    } as const;
+    const runtimeDefinition: AgentDefinition = {
+      agent: "codex",
+      builtinProfiles: {},
+      cli: null,
+      acp: {
+        launch: mockLaunch("artifact-implementation"),
+        capabilities: [],
+        optionalCapabilities: [],
+        limitations: []
+      }
+    };
+
+    await expect(runner.runBlock({
+      projectRoot: init.workspace,
+      claim: { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation", effectiveExecutor: "codex-acp" },
+      prompt: "implement",
+      executorName: "codex-acp",
+      profile: runtimeProfile,
+      profileSource: "builtin"
+    }, runtimeDefinition)).rejects.toThrow("captured");
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ timeoutMs: expectedTimeoutMs })
+    );
+  });
+
+  it("prefers a call-level timeout over the executor profile timeout", async () => {
+    const { init } = await createTestWorkspace();
+    const controller = new AcpSessionController(new ActiveAgentRunRegistry());
+    const execute = vi.spyOn(controller, "execute").mockRejectedValue(new Error("captured"));
+    const runner = createAcpRunner({ sessionController: controller });
+    const runtimeProfile = {
+      adapter: "agent", agent: "codex", runner: { transport: "acp" }, timeoutMs: 12_345
+    } as const;
+    const runtimeDefinition: AgentDefinition = {
+      agent: "codex", builtinProfiles: {}, cli: null,
+      acp: {
+        launch: mockLaunch("artifact-implementation"), capabilities: [],
+        optionalCapabilities: [], limitations: []
+      }
+    };
+
+    await expect(runner.runBlock({
+      projectRoot: init.workspace,
+      claim: { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation", effectiveExecutor: "codex-acp" },
+      prompt: "implement", executorName: "codex-acp", profile: runtimeProfile,
+      profileSource: "builtin", runtime: { timeoutMs: 4_321 }
+    }, runtimeDefinition)).rejects.toThrow("captured");
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ timeoutMs: 4_321 })
+    );
+  });
+
+  it.each([
+    { profileTimeoutMs: undefined, expectedTimeoutMs: DEFAULT_EXECUTOR_TIMEOUT_MS },
+    { profileTimeoutMs: 12_345, expectedTimeoutMs: 12_345 }
+  ])("uses timeout $expectedTimeoutMs for feedback runs", async ({
+    profileTimeoutMs,
+    expectedTimeoutMs
+  }) => {
+    const { init } = await createTestWorkspace();
+    const controller = new AcpSessionController(new ActiveAgentRunRegistry());
+    const execute = vi.spyOn(controller, "execute").mockRejectedValue(new Error("captured"));
+    const runner = createAcpRunner({ sessionController: controller });
+    const runtimeProfile = {
+      adapter: "agent", agent: "codex", runner: { transport: "acp" },
+      ...(profileTimeoutMs === undefined ? {} : { timeoutMs: profileTimeoutMs })
+    } as const;
+    const runtimeDefinition: AgentDefinition = {
+      agent: "codex", builtinProfiles: {}, cli: null,
+      acp: {
+        launch: mockLaunch("artifact-feedback"), capabilities: [],
+        optionalCapabilities: [], limitations: []
+      }
+    };
+
+    await expect(runner.runFeedback({
+      projectRoot: init.workspace,
+      workspace: init.workspace,
+      claim: {
+        kind: "feedback", feedbackId: "FE-001", sourceReviewBlockRef: "T-001#R-001",
+        taskId: "T-001", content: "fix", effectiveExecutor: "codex-acp"
+      },
+      executorName: "codex-acp", profile: runtimeProfile, profileSource: "builtin"
+    }, runtimeDefinition)).rejects.toThrow("captured");
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ timeoutMs: expectedTimeoutMs })
+    );
   });
 });
 

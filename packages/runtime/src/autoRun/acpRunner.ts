@@ -12,6 +12,7 @@ import { AcpSessionController } from "./acpSessionController.js";
 import { prepareAcpBlockRun, prepareAcpFeedbackRun } from "./acpRunPreparation.js";
 import { probeInstalledAcpAgent } from "./acpPreflightProbe.js";
 import { assertAcpLaunchTrusted } from "./acpLaunch.js";
+import { executorRuntimeLimits } from "./executorShared.js";
 
 function unavailableMessage(agent: string): string {
   return `ACP runner for agent '${agent}' is not implemented; PlanWeave will not fall back to CLI.`;
@@ -293,7 +294,7 @@ export function createAcpRunner(options?: {
         canvasId: prepared.canvasId
       }, {
         signal: input.runtime?.signal,
-        timeoutMs: input.runtime?.timeoutMs,
+        timeoutMs: input.runtime?.timeoutMs ?? executorRuntimeLimits(input.profile).timeoutMs,
         interactionBroker: input.runtime?.interactionBroker
       });
     },
@@ -336,7 +337,7 @@ export function createAcpRunner(options?: {
         canvasId: prepared.canvasId
       }, {
         signal: input.runtime?.signal,
-        timeoutMs: input.runtime?.timeoutMs,
+        timeoutMs: input.runtime?.timeoutMs ?? executorRuntimeLimits(input.profile).timeoutMs,
         interactionBroker: input.runtime?.interactionBroker
       });
     }

@@ -268,6 +268,31 @@ describe("runner record read model", () => {
     }
   });
 
+  it("keeps a live subscription when metadata has not learned the ACP session id yet", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-null-session-"));
+    const model = await acpEventReadModels.create({
+      runDir,
+      identity: runnerRunIdentitySchema.parse(event(1, "message").identity),
+      runner: runnerIdentitySchema.parse(event(1, "message").runner)
+    });
+    try {
+      const live: number[] = [];
+      const consumer = await consumeRunnerRecordReadModel({
+        runDir,
+        metadata: { ...metadata, sessionId: null },
+        subscriber: (snapshot) => { live.push(snapshot.cursor.afterSequence); }
+      });
+
+      await model.store.append(event(1, "message").body, { sessionId: "session-1" });
+      await vi.waitFor(() => expect(live).toEqual([1]));
+      expect(model.store.snapshot().diagnostics.map((item) => item.code))
+        .not.toContain("subscriber_callback_failed");
+      consumer.subscription?.unsubscribe();
+    } finally {
+      acpEventReadModels.release(runDir);
+    }
+  });
+
   it("pushes authoritative interaction appearance and resolution without inferring from events", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-live-interaction-"));
     const model = await acpEventReadModels.create({

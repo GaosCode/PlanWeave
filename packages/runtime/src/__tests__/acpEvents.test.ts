@@ -40,6 +40,24 @@ describe("ACP event normalization", () => {
       sessionUpdate: "usage_update", used: 10, size: 100
     } })).toMatchObject({ kind: "usage_update", usedTokens: 10, contextWindowTokens: 100 });
   });
+
+  it("ignores known provider-only status and thought updates without exposing them", () => {
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "session_info_update",
+      _meta: { codex: { threadStatus: { type: "active", activeFlags: [] } } }
+    } })).toBeNull();
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "agent_thought_chunk", messageId: "thought-1",
+      content: { type: "text", text: "private reasoning" }
+    } })).toBeNull();
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "agent_thought_chunk", messageId: "x".repeat(1_024),
+      content: { type: "image", data: "private-image", mimeType: "image/png" }
+    } })).toBeNull();
+    expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
+      sessionUpdate: "provider_future_update"
+    } })).toMatchObject({ kind: "diagnostic", code: "corrupt_line" });
+  });
 });
 
 describe("ACP event store and projection", () => {
@@ -49,7 +67,7 @@ describe("ACP event store and projection", () => {
       runDir, identity: identity(),
       runner: runnerIdentitySchema.parse({ version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" })
     });
-    expect(await store.open()).toEqual([expect.objectContaining({ code: "missing_log" })]);
+    expect(await store.open()).toEqual([]);
     await store.appendProtocol("agent_to_client", { token: "raw-secret-value" });
     await store.append({ kind: "message", role: "assistant", messageId: "message-1", chunk: true, content: "hello", redaction: { classes: [], replaced: 0 } }, { sessionId: "session-1" });
     const protocol = await readFile(join(runDir, "protocol.ndjson"), "utf8");
@@ -409,7 +427,7 @@ describe("ACP production read model", () => {
     expect(replay).toMatchObject({
       events: [expect.objectContaining({ sequence: 1 })],
       conversation: [expect.objectContaining({ content: "replayed" })],
-      diagnostics: [expect.objectContaining({ code: "missing_log" })]
+      diagnostics: []
     });
     expect(model.replay(replay.cursor).events).toEqual([]);
     const live: number[] = [];

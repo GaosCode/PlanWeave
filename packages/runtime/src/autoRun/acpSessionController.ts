@@ -216,10 +216,13 @@ export class AcpSessionController {
       const eventSink = async (notification: SessionNotification): Promise<void> => {
         const text = updateText(notification);
         if (text !== null) output += text;
-        if (eventStore) await eventStore.append(
-          normalizeAcpSessionNotification(notification),
-          acpCorrelationSchema.parse({ sessionId: notification.sessionId })
-        );
+        const normalized = normalizeAcpSessionNotification(notification);
+        if (eventStore && normalized) {
+          await eventStore.append(
+            normalized,
+            acpCorrelationSchema.parse({ sessionId: notification.sessionId })
+          );
+        }
       };
       connection = this.connect({
         launch: { trusted: true, ...run.launch },

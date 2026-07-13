@@ -76,10 +76,8 @@ export class AcpEventStore {
     try { content = await readFile(this.eventsPath, "utf8"); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        const missing = { code: "missing_log", line: null, message: "Normalized ACP event log does not exist yet." } satisfies RunnerEventReplayDiagnostic;
-        this.diagnostics.push(missing);
         this.opened = true;
-        return [missing];
+        return [];
       }
       throw error;
     }
