@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  projectAcpConversation,
   type DesktopBridgeApi,
   type DesktopCanvasReference,
   type NormalizedRunnerEvent,
@@ -30,7 +29,8 @@ function mergeModel(
   return {
     ...incoming,
     events,
-    conversation: projectAcpConversation(events),
+    conversation: authoritativeState ? incoming.conversation : current.conversation,
+    timeline: authoritativeState ? incoming.timeline : current.timeline,
     diagnostics: mergeDiagnostics(current.diagnostics, incoming.diagnostics),
     cursor: { ...cursor, terminal: current.terminal || incoming.terminal || cursor.terminal },
     terminal: current.terminal || incoming.terminal,
@@ -63,6 +63,7 @@ export function useRunnerRecordMonitor(options: {
   const [model, setModel] = useState(initialModel);
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
   const updateSequence = useRef(0);
+  const promptCapable = initialModel.intervention.prompt.identity !== null;
 
   useEffect(() => {
     setModel(initialModel);
@@ -71,7 +72,7 @@ export function useRunnerRecordMonitor(options: {
   }, [initialModel, recordId]);
 
   useEffect(() => {
-    if (!api || !canvasRef || initialModel.terminal) return;
+    if (!api || !canvasRef || (initialModel.terminal && !promptCapable)) return;
     let disposed = false;
     let unsubscribe: (() => Promise<void>) | null = null;
     void api
@@ -104,7 +105,7 @@ export function useRunnerRecordMonitor(options: {
       disposed = true;
       void unsubscribe?.();
     };
-  }, [api, canvasRef, initialModel.cursor, initialModel.terminal, recordId]);
+  }, [api, canvasRef, initialModel.cursor, initialModel.terminal, promptCapable, recordId]);
 
   return useMemo(() => ({ model, subscriptionError }), [model, subscriptionError]);
 }

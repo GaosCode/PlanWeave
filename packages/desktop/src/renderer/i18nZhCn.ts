@@ -633,5 +633,20 @@ export const zhCnCatalog = {
   acpElicitationObjectRequired: "请求响应必须是 JSON 对象。",
   acpSubmitElicitation: "提交响应",
   acpCancelElicitation: "取消请求",
-  acpInteractionResult: "交互结果"
+  acpInteractionResult: "交互结果",
+  acpPlanUpdate: "计划更新",
+  acpJumpToLatest: "回到最新消息",
+  acpRoleUser: "你",
+  acpRoleAssistant: "Agent",
+  acpToolInput: "输入",
+  acpToolOutput: "输出",
+  acpToolPending: "等待中",
+  acpTerminalOutput: "终端输出",
+  acpPromptLabel: "向 Agent 发送消息",
+  acpPromptPlaceholder: "继续提问或调整 Agent 的方向…",
+  acpPromptHint: "Enter 发送 · Shift+Enter 换行",
+  acpPromptUnavailable: "此会话无法继续接收消息。",
+  acpSendPrompt: "发送消息",
+  acpPromptSending: "Agent 正在处理…",
+  acpPromptFailed: "消息发送失败"
 } satisfies Record<TranslationKey, string>;

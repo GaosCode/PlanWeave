@@ -661,7 +661,22 @@ export const enCatalog = {
   acpElicitationObjectRequired: "The elicitation response must be a JSON object.",
   acpSubmitElicitation: "Submit response",
   acpCancelElicitation: "Cancel request",
-  acpInteractionResult: "Interaction result"
+  acpInteractionResult: "Interaction result",
+  acpPlanUpdate: "Plan update",
+  acpJumpToLatest: "Jump to latest",
+  acpRoleUser: "You",
+  acpRoleAssistant: "Agent",
+  acpToolInput: "Input",
+  acpToolOutput: "Output",
+  acpToolPending: "pending",
+  acpTerminalOutput: "Terminal output",
+  acpPromptLabel: "Message the agent",
+  acpPromptPlaceholder: "Ask a follow-up or steer the agent…",
+  acpPromptHint: "Enter to send · Shift+Enter for a new line",
+  acpPromptUnavailable: "This session cannot accept another message.",
+  acpSendPrompt: "Send message",
+  acpPromptSending: "Agent is working…",
+  acpPromptFailed: "Message could not be sent"
 } as const;
 
 export type TranslationKey = keyof typeof enCatalog;

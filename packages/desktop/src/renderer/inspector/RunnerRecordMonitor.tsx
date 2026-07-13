@@ -4,14 +4,16 @@ import type {
   RunnerRecordReadModel
 } from "@planweave-ai/runtime";
 import { useState } from "react";
+import { SendIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { bridge } from "../bridge";
 import type { createTranslator } from "../i18n";
 import { useRunnerRecordMonitor } from "../hooks/useRunnerRecordMonitor";
 import { useRunnerInterventions } from "../hooks/useRunnerInterventions";
+import { useAgentPrompt } from "../hooks/useAgentPrompt";
+import { AcpConversationTimeline } from "./AcpConversationTimeline";
 
 type RunnerRecordMonitorProps = {
   api?: (Pick<
@@ -19,7 +21,7 @@ type RunnerRecordMonitorProps = {
     "subscribeRunnerRecord" | "revealRunnerRecordArtifact"
   > & Partial<Pick<
     DesktopBridgeApi,
-    "cancelAgentRun" | "respondToAgentRequest"
+    "cancelAgentRun" | "respondToAgentRequest" | "sendAgentPrompt"
   >>) | null;
   canvasRef?: DesktopCanvasReference | null;
   initialModel: RunnerRecordReadModel;
@@ -43,6 +45,11 @@ export function RunnerRecordMonitor({
   });
   const actionApi = api === undefined ? bridge : api;
   const interventions = useRunnerInterventions({ api: actionApi, model });
+  const prompt = useAgentPrompt({
+    api: actionApi,
+    identity: model.intervention.prompt.identity,
+    runtimeInFlight: model.intervention.prompt.inFlight
+  });
   const interactionLabel = model.interaction.active
     ? t("acpInteractionLive")
     : model.interaction.stale
@@ -249,25 +256,60 @@ export function RunnerRecordMonitor({
         </div>
       ) : null}
       <div className="text-xs font-medium text-muted-foreground">{t("acpConversation")}</div>
-      <ScrollArea className="min-h-0 flex-1 rounded-md border p-2">
-        {model.conversation.length > 0 ? (
-          <div className="space-y-3">
-            {model.conversation.map((item) => (
-              <article key={item.sequence} className="space-y-1 text-xs">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Badge variant="outline">{item.role ?? item.kind}</Badge>
-                  <span className="font-mono">#{item.sequence}</span>
-                </div>
-                <pre className="whitespace-pre-wrap break-words font-sans">{item.content}</pre>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <div className="text-xs text-muted-foreground">{t("acpConversationEmpty")}</div>
-        )}
-      </ScrollArea>
+      <AcpConversationTimeline
+        changeKey={model.cursor.afterSequence}
+        timeline={model.timeline}
+        t={t}
+      />
+      <AgentPromptComposer
+        available={model.intervention.prompt.available}
+        disabledReason={model.intervention.prompt.reason}
+        inFlight={prompt.inFlight}
+        onSend={prompt.send}
+        t={t}
+      />
+      {prompt.error ? <div className="text-xs text-destructive">{t("acpPromptFailed")}: {prompt.error}</div> : null}
     </section>
   );
+}
+
+function AgentPromptComposer({ available, disabledReason, inFlight, onSend, t }: {
+  available: boolean;
+  disabledReason: string | null;
+  inFlight: boolean;
+  onSend: (text: string) => Promise<boolean>;
+  t: ReturnType<typeof createTranslator>;
+}) {
+  const [draft, setDraft] = useState("");
+  const disabled = !available || inFlight;
+  const submit = () => {
+    const text = draft.trim();
+    if (!text || disabled) return;
+    void onSend(text).then((sent) => { if (sent) setDraft(""); });
+  };
+  return <div className="rounded-xl border bg-background p-2 shadow-sm" data-testid="acp-prompt-composer">
+    <Textarea
+      aria-label={t("acpPromptLabel")}
+      className="min-h-20 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+      disabled={disabled}
+      placeholder={available ? t("acpPromptPlaceholder") : (disabledReason ?? t("acpPromptUnavailable"))}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          submit();
+        }
+      }}
+    />
+    <div className="flex items-center justify-between gap-3 px-1 pt-1 text-[11px] text-muted-foreground">
+      <span>{available ? t("acpPromptHint") : (disabledReason ?? t("acpPromptUnavailable"))}</span>
+      <Button aria-label={t("acpSendPrompt")} disabled={disabled || !draft.trim()} size="icon-sm" onClick={submit}>
+        <SendIcon />
+      </Button>
+    </div>
+    {inFlight ? <div className="px-1 pt-1 text-[11px] text-muted-foreground">{t("acpPromptSending")}</div> : null}
+  </div>;
 }
 
 function PreviewElicitationControl({
