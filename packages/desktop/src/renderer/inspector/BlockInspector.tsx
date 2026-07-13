@@ -11,7 +11,8 @@ import type {
   DesktopRunTerminalAvailability,
   DesktopRunRecord,
   DesktopTerminalAppDetection,
-  DesktopTerminalAppId
+  DesktopTerminalAppId,
+  RunnerTransport
 } from "@planweave-ai/runtime";
 import { RefreshCwIcon, XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +31,7 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import {
   buildExecutorOptionViews,
-  canonicalExecutorName
+  executorOptionName
 } from "../executors/executorOptionViewModel";
 import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
 import type { createTranslator } from "../i18n";
@@ -42,6 +43,7 @@ import { TerminalOpenButton } from "./TerminalOpenButton";
 
 type BlockInspectorProps = {
   agentDetections?: DesktopAgentDetection[];
+  agentTransport?: RunnerTransport;
   blockFeedbackRecords: DesktopFeedbackRecord[];
   blockReviewAttempts: DesktopReviewAttemptSummary[];
   blockRunRecords: DesktopBlockRunRecordSummary[];
@@ -76,6 +78,7 @@ const blockPromptAutosaveDelayMs = 700;
 
 export function BlockInspector({
   agentDetections = [],
+  agentTransport,
   blockFeedbackRecords,
   blockReviewAttempts,
   blockRunRecords,
@@ -118,13 +121,17 @@ export function BlockInspector({
     : t("tmuxTerminalNoBlockSession");
   const latestReviewAttempt = blockReviewAttempts[0];
   const selectedExecutor = selectedBlock?.executor
-    ? canonicalExecutorName(selectedBlock.executor)
+    ? executorOptionName(selectedBlock.executor, graph?.packageExecutorNames)
     : "__inherit";
   const concreteExecutor = selectedBlock?.executor ?? selectedBlock?.effectiveExecutor ?? null;
-  const concreteExecutorLabel = concreteExecutor ? canonicalExecutorName(concreteExecutor) : null;
+  const concreteExecutorLabel = concreteExecutor
+    ? executorOptionName(concreteExecutor, graph?.packageExecutorNames)
+    : null;
   const preflightUsesInheritedExecutor = Boolean(!selectedBlock?.executor && concreteExecutor);
   const blockExecutorOptions = buildExecutorOptionViews({
     agentDetections,
+    agentTransport: agentTransport ?? graph?.agentTransport,
+    literalExecutorNames: graph?.packageExecutorNames,
     currentExecutorNames: selectedBlock?.executor ? [selectedBlock.executor] : [],
     executorOptions
   });
@@ -132,7 +139,7 @@ export function BlockInspector({
     bridgeUnavailableMessage: t("bridgeUnavailable"),
     cacheKey: graph ? `${graph.graphVersion}:${graph.packageFingerprint}` : null,
     canvasRef: canvasRef ?? null,
-    executorName: concreteExecutorLabel
+    executorName: concreteExecutor
   });
   const blockPromptBaselineRef = useRef<{ promptMarkdown: string; ref: string } | null>(null);
   const taskBlocks = useMemo(() => {

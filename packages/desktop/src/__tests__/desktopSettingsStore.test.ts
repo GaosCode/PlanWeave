@@ -276,6 +276,26 @@ describe("DesktopSettingsStore", () => {
     });
   });
 
+  it("defaults, normalizes, and merges the agent transport", async () => {
+    const home = await tempHome();
+    const store = testStore(join(home, "config", "desktop-settings.json"));
+
+    await expect(store.read()).resolves.toMatchObject({
+      execution: { tmuxMonitoring: true, agentTransport: "cli" }
+    });
+
+    const patched = await store.mergePatch({ execution: { agentTransport: "acp" } });
+    expect(patched.execution).toEqual({ tmuxMonitoring: true, agentTransport: "acp" });
+
+    await writeFile(
+      store.settingsFile,
+      JSON.stringify({ execution: { tmuxMonitoring: false, agentTransport: "invalid" } })
+    );
+    await expect(store.read()).resolves.toMatchObject({
+      execution: { tmuxMonitoring: false, agentTransport: "cli" }
+    });
+  });
+
   it("normalizes and migrates legacy localStorage payloads", async () => {
     const home = await tempHome();
     const store = testStore(join(home, "config", "desktop-settings.json"));

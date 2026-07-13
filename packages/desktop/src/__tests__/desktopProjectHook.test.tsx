@@ -17,6 +17,7 @@ describe("desktop renderer hook interfaces", () => {
       detectAgentTools: vi.fn().mockResolvedValue([
         {
           kind: "claude-code",
+          runnerKind: "cli",
           name: "Claude Code",
           command: "claude",
           versionArgs: ["--version"],
@@ -28,6 +29,7 @@ describe("desktop renderer hook interfaces", () => {
         },
         {
           kind: "opencode",
+          runnerKind: "cli",
           name: "OpenCode",
           command: "opencode",
           versionArgs: ["--version"],
@@ -39,6 +41,7 @@ describe("desktop renderer hook interfaces", () => {
         },
         {
           kind: "pi",
+          runnerKind: "cli",
           name: "Pi",
           command: "pi",
           versionArgs: ["--version"],

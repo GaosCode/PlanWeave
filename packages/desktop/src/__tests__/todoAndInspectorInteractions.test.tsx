@@ -24,6 +24,7 @@ afterEach(cleanupRendererTestEnvironment);
 
 const missingPiAgent = {
   kind: "pi" as const,
+  runnerKind: "cli" as const,
   name: "Pi",
   command: "pi",
   versionArgs: ["--version"],

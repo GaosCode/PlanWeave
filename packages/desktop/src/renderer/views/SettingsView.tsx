@@ -39,6 +39,7 @@ type SettingsViewProps = {
   updateProjectPrompt?: (markdown: string) => Promise<void>;
   updateProjectPromptPolicy?: (patch: Partial<ProjectPromptPolicy>) => Promise<void>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
+  updateSettingsAndWait: (update: DesktopSettingsUpdate) => Promise<void>;
 };
 
 export function SettingsView({
@@ -61,6 +62,7 @@ export function SettingsView({
   t,
   updateProjectPrompt,
   updateProjectPromptPolicy,
+  updateSettingsAndWait,
   updateSettings
 }: SettingsViewProps) {
   const [section, setSection] = useState<SettingsSection>("general");
@@ -152,6 +154,7 @@ export function SettingsView({
                 agents={agents}
                 canvasRef={selectedCanvasRef}
                 graph={graph}
+                persistSettings={updateSettingsAndWait}
                 refreshAgentDetections={refreshAgentDetections}
                 settings={settings}
                 t={t}

@@ -161,6 +161,7 @@ describe("TaskNodeCard executor options", () => {
         agentDetections: [
           {
             kind: "pi",
+            runnerKind: "cli",
             name: "Pi",
             command: "pi",
             versionArgs: ["--version"],

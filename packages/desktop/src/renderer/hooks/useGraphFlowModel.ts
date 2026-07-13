@@ -8,7 +8,8 @@ import type {
   DesktopFeedbackRecord,
   DesktopGraphViewModel,
   DesktopLayout,
-  DesktopReviewAttemptSummary
+  DesktopReviewAttemptSummary,
+  RunnerTransport
 } from "@planweave-ai/runtime";
 import { graphEdges, graphNodes, type GraphLockUiState } from "../graph/flowModel";
 import { taskNodeLabels } from "../graph/taskNodeLabels";
@@ -17,6 +18,7 @@ import type { AppFlowNode, TaskNodeData } from "../types";
 
 type GraphFlowSource = {
   agentDetections: DesktopAgentDetection[];
+  agentTransport?: RunnerTransport;
   executorOptions: string[];
   graph: DesktopGraphViewModel | null;
   layout: DesktopLayout | null;
@@ -84,7 +86,16 @@ export function useGraphFlowModel({
   source,
   taskActions
 }: UseGraphFlowModelArgs) {
-  const { agentDetections, executorOptions, graph, layout, selectedBlock, t, lockUi } = source;
+  const {
+    agentDetections,
+    agentTransport,
+    executorOptions,
+    graph,
+    layout,
+    selectedBlock,
+    t,
+    lockUi
+  } = source;
   const { promptDrafts, saveStates, titleDrafts } = drafts;
   const activeLock = lockUi?.activeLock ?? null;
   const releaseEpochByLock = lockUi?.releaseEpochByLock;
@@ -130,7 +141,7 @@ export function useGraphFlowModel({
     };
     setNodes(
       graphNodes(
-        graph,
+        agentTransport ? { ...graph, agentTransport } : graph,
         layout,
         agentDetections,
         executorOptions,
@@ -177,6 +188,7 @@ export function useGraphFlowModel({
     blockReviewAttempts,
     blockRunRecords,
     agentDetections,
+    agentTransport,
     executorOptions,
     graph,
     handleDeleteBlock,

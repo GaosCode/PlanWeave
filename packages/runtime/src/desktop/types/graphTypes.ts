@@ -12,6 +12,7 @@ import type {
 import type { PromptSourceSummary } from "../../taskManager/promptRenderer.js";
 import type { ProjectPromptPolicy } from "../../projectPromptPolicy.js";
 import type { PendingImportTransaction } from "../../package/importRecovery.js";
+import type { RunnerTransport } from "../../types.js";
 
 export type DesktopTaskException = {
   ref: string;
@@ -89,6 +90,8 @@ export type DesktopGraphViewModel = {
   graphVersion: string;
   packageFingerprint: string;
   executorOptions: string[];
+  packageExecutorNames?: string[];
+  agentTransport?: RunnerTransport;
   autoRunPreflightExecutorHint: string | null;
   tasks: DesktopTaskNodeViewModel[];
   edges: DesktopGraphEdgeViewModel[];

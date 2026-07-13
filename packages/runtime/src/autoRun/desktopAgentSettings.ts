@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { ExecutorProfile } from "../types.js";
+import type { ExecutorProfile, RunnerTransport } from "../types.js";
 
 type DesktopAgentKind = "codex" | "claude-code" | "opencode" | "pi";
 
@@ -12,12 +12,24 @@ type DesktopAgentRuntimeSetting = {
 
 type DesktopAgentSettings = Partial<Record<DesktopAgentKind, DesktopAgentRuntimeSetting>>;
 
+type DesktopAgentRuntimeSettings = {
+  agentTransport: RunnerTransport;
+  agents: DesktopAgentSettings;
+};
+
 const desktopAgentNames = {
   codex: ["codex", "codex-auto"],
   "claude-code": ["claude-code", "claude-code-auto"],
   opencode: ["opencode"],
   pi: ["pi", "pi-auto"]
 } as const satisfies Record<DesktopAgentKind, readonly string[]>;
+
+const desktopAgentAcpNames = {
+  codex: "codex-acp",
+  "claude-code": "claude-code-acp",
+  opencode: "opencode-acp",
+  pi: "pi-acp"
+} as const satisfies Record<DesktopAgentKind, string>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -30,7 +42,7 @@ function desktopSettingsFile(): string {
     : join(homedir(), ".planweave", "config", "desktop-settings.json");
 }
 
-function readDesktopAgentSettings(): DesktopAgentSettings | null {
+function readDesktopAgentSettings(): DesktopAgentRuntimeSettings | null {
   const settingsFile = desktopSettingsFile();
   let raw: string;
   try {
@@ -50,27 +62,39 @@ function readDesktopAgentSettings(): DesktopAgentSettings | null {
     throw new Error(`Desktop settings file contains invalid JSON: ${settingsFile}: ${reason}`);
   }
 
-  if (!isRecord(parsed) || !isRecord(parsed.agents)) {
+  if (!isRecord(parsed)) {
     return null;
   }
 
   const agents: DesktopAgentSettings = {};
-  for (const kind of Object.keys(desktopAgentNames) as DesktopAgentKind[]) {
-    const value = parsed.agents[kind];
-    if (!isRecord(value)) {
-      continue;
+  if (isRecord(parsed.agents)) {
+    for (const kind of Object.keys(desktopAgentNames) as DesktopAgentKind[]) {
+      const value = parsed.agents[kind];
+      if (!isRecord(value)) {
+        continue;
+      }
+      agents[kind] = {
+        enabled: typeof value.enabled === "boolean" ? value.enabled : undefined,
+        fullAccess: typeof value.fullAccess === "boolean" ? value.fullAccess : undefined
+      };
     }
-    agents[kind] = {
-      enabled: typeof value.enabled === "boolean" ? value.enabled : undefined,
-      fullAccess: typeof value.fullAccess === "boolean" ? value.fullAccess : undefined
-    };
   }
-  return agents;
+  const configuredTransport = isRecord(parsed.execution)
+    ? parsed.execution.agentTransport
+    : undefined;
+  return {
+    agentTransport: configuredTransport === "acp" ? "acp" : "cli",
+    agents
+  };
 }
 
 function fullAccessEnabled(settings: DesktopAgentSettings | null, kind: DesktopAgentKind): boolean {
   const agent = settings?.[kind];
   return agent?.enabled === true && agent.fullAccess === true;
+}
+
+export function selectedDesktopAgentTransport(): RunnerTransport {
+  return readDesktopAgentSettings()?.agentTransport ?? "cli";
 }
 
 function addArgOnce(args: readonly string[], arg: string): string[] {
@@ -89,7 +113,15 @@ export function applyDesktopAgentSettingsToBuiltinProfiles(
   }
 
   const next: Record<string, ExecutorProfile> = { ...profiles };
-  if (fullAccessEnabled(settings, "codex")) {
+  if (settings.agentTransport === "acp") {
+    for (const kind of Object.keys(desktopAgentAcpNames) as DesktopAgentKind[]) {
+      const acpProfile = next[desktopAgentAcpNames[kind]];
+      if (acpProfile) {
+        next[kind] = acpProfile;
+      }
+    }
+  }
+  if (settings.agentTransport === "cli" && fullAccessEnabled(settings.agents, "codex")) {
     for (const name of desktopAgentNames.codex) {
       const profile = next[name];
       if (
@@ -101,7 +133,7 @@ export function applyDesktopAgentSettingsToBuiltinProfiles(
       }
     }
   }
-  if (fullAccessEnabled(settings, "opencode")) {
+  if (settings.agentTransport === "cli" && fullAccessEnabled(settings.agents, "opencode")) {
     for (const name of desktopAgentNames.opencode) {
       const profile = next[name];
       if (
@@ -113,7 +145,10 @@ export function applyDesktopAgentSettingsToBuiltinProfiles(
       }
     }
   }
-  if (fullAccessEnabled(settings, "claude-code")) {
+  if (
+    settings.agentTransport === "cli" &&
+    fullAccessEnabled(settings.agents, "claude-code")
+  ) {
     for (const name of desktopAgentNames["claude-code"]) {
       const profile = next[name];
       if (

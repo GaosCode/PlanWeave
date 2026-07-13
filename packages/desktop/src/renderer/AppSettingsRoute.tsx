@@ -31,6 +31,7 @@ type AppSettingsRouteProps = {
   updateProjectPrompt: (markdown: string) => Promise<void>;
   updateProjectPromptPolicy: (patch: Partial<ProjectPromptPolicy>) => Promise<void>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
+  updateSettingsAndWait: (update: DesktopSettingsUpdate) => Promise<void>;
 };
 
 export function AppSettingsRoute({
@@ -53,6 +54,7 @@ export function AppSettingsRoute({
   t,
   updateProjectPrompt,
   updateProjectPromptPolicy,
+  updateSettingsAndWait,
   updateSettings
 }: AppSettingsRouteProps) {
   return (
@@ -77,6 +79,7 @@ export function AppSettingsRoute({
         t={t}
         updateProjectPrompt={updateProjectPrompt}
         updateProjectPromptPolicy={updateProjectPromptPolicy}
+        updateSettingsAndWait={updateSettingsAndWait}
         updateSettings={updateSettings}
       />
     </div>

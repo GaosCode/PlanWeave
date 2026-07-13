@@ -6,6 +6,7 @@ import { bridge } from "./bridge";
 import { createTranslator, type Language } from "./i18n";
 import { TaskInspector } from "./inspector/TaskInspector";
 import { useDetectedAgents } from "./hooks/useDetectedAgents";
+import { useDesktopSettingsBridge } from "./hooks/useDesktopSettingsBridge";
 
 function supportedLanguage(value: string | null): Language {
   return value === "en" || value === "zh-CN" ? value : "zh-CN";
@@ -57,6 +58,7 @@ export function TaskInspectorWindow() {
   const [graph, setGraph] = useState<DesktopGraphViewModel | null>(null);
   const [error, setError] = useState<string | null>(bridge ? null : t("bridgeUnavailable"));
   const [draftDirty, setDraftDirty] = useState(false);
+  const { settings } = useDesktopSettingsBridge({ setError });
   const { agentDetections } = useDetectedAgents();
   const draftDirtyRef = useRef(false);
 
@@ -169,6 +171,7 @@ export function TaskInspectorWindow() {
       className="inset-0 h-screen w-screen min-w-0 rounded-none border-0 shadow-none ring-0"
       error={error}
       agentDetections={agentDetections}
+      agentTransport={settings.execution.agentTransport}
       executorOptions={graph?.executorOptions ?? []}
       graph={graph}
       onClose={() => window.close()}

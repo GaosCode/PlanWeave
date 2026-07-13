@@ -65,19 +65,25 @@ import type {
   DesktopRunnerRecordSubscriptionUpdate
 } from "./acpBridgeTypes.js";
 import type { ArtifactReference } from "../../autoRun/runnerContractSchemas.js";
+import type { RunnerTransport } from "../../types.js";
 
 export type DesktopAgentKind = "codex" | "claude-code" | "opencode" | "pi";
 
-export type DesktopAgentCliProfile = {
+export type DesktopAgentToolProfile = {
   kind: DesktopAgentKind;
+  runnerKind: RunnerTransport;
   name: string;
   command: string;
   versionArgs: string[];
+  reportsVersion?: boolean;
   execArgs: string[];
   fullAccessArgs: string[];
 };
 
-export type DesktopAgentDetection = DesktopAgentCliProfile & {
+/** @deprecated Use DesktopAgentToolProfile. */
+export type DesktopAgentCliProfile = DesktopAgentToolProfile;
+
+export type DesktopAgentDetection = DesktopAgentToolProfile & {
   installed: boolean;
   version: string | null;
   unavailableReason: string | null;

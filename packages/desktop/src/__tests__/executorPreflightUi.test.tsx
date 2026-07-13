@@ -190,6 +190,63 @@ afterEach(() => {
 });
 
 describe("executor preflight desktop UI", () => {
+  it("shows only detections for the selected agent transport", () => {
+    const detections = [
+      {
+        runnerKind: "cli" as const,
+        kind: "codex" as const,
+        name: "Codex CLI",
+        command: "codex",
+        versionArgs: ["--version"],
+        execArgs: ["exec", "-"],
+        fullAccessArgs: ["exec", "--sandbox", "danger-full-access", "-"],
+        installed: true,
+        version: "1.0.0",
+        unavailableReason: null
+      },
+      {
+        runnerKind: "acp" as const,
+        kind: "codex" as const,
+        name: "Codex ACP",
+        command: "codex-acp",
+        versionArgs: ["--version"],
+        execArgs: [],
+        fullAccessArgs: [],
+        installed: true,
+        version: "1.0.0",
+        unavailableReason: null
+      }
+    ];
+    const props = {
+      agentDetectionRefreshing: false,
+      agents: detections,
+      canvasRef,
+      graph,
+      refreshAgentDetections: vi.fn().mockResolvedValue(undefined),
+      t,
+      updateSettings: vi.fn()
+    };
+    const { rerender } = render(
+      <SettingsAgentsSection {...props} settings={defaultDesktopSettings} />
+    );
+
+    expect(screen.getByText("Codex CLI")).toBeInTheDocument();
+    expect(screen.queryByText("Codex ACP")).not.toBeInTheDocument();
+
+    rerender(
+      <SettingsAgentsSection
+        {...props}
+        settings={{
+          ...defaultDesktopSettings,
+          execution: { ...defaultDesktopSettings.execution, agentTransport: "acp" }
+        }}
+      />
+    );
+
+    expect(screen.getByText("Codex ACP")).toBeInTheDocument();
+    expect(screen.queryByText("Codex CLI")).not.toBeInTheDocument();
+  });
+
   it("runs selected graph executor preflight from settings and renders the full check list", async () => {
     bridgeMock.api.testExecutorProfile.mockResolvedValue(preflightResult);
 
@@ -214,6 +271,40 @@ describe("executor preflight desktop UI", () => {
     );
     expect(screen.getByTestId("executor-preflight-checks")).toHaveTextContent("command_started");
     expect(screen.getAllByText(/Command 'codex' could not be started/).length).toBeGreaterThan(0);
+  });
+
+  it("clears cached settings preflight results when the agent transport changes", async () => {
+    bridgeMock.api.testExecutorProfile.mockResolvedValue({
+      ...preflightResult,
+      message: "CLI preflight result"
+    });
+    const props = {
+      agentDetectionRefreshing: false,
+      agents: [],
+      canvasRef,
+      graph,
+      refreshAgentDetections: vi.fn().mockResolvedValue(undefined),
+      t,
+      updateSettings: vi.fn()
+    };
+    const { rerender } = render(
+      <SettingsAgentsSection {...props} settings={defaultDesktopSettings} />
+    );
+
+    await userEvent.click(screen.getByTestId("settings-run-executor-preflight"));
+    expect(await screen.findByText(/CLI preflight result/)).toBeInTheDocument();
+
+    rerender(
+      <SettingsAgentsSection
+        {...props}
+        settings={{
+          ...defaultDesktopSettings,
+          execution: { ...defaultDesktopSettings.execution, agentTransport: "acp" }
+        }}
+      />
+    );
+
+    expect(screen.queryByText(/CLI preflight result/)).not.toBeInTheDocument();
   });
 
   it("ignores stale executor preflight responses after the selected graph executor changes", async () => {
@@ -318,6 +409,90 @@ describe("executor preflight desktop UI", () => {
     expect(await screen.findByTestId("block-executor-preflight-status")).toHaveTextContent(
       "Preflight passed"
     );
+  });
+
+  it("preflights an explicit legacy ACP block profile without changing its identity", async () => {
+    bridgeMock.api.testExecutorProfile.mockResolvedValue(preflightResult);
+
+    render(
+      <BlockInspector
+        blockFeedbackRecords={[]}
+        blockReviewAttempts={[]}
+        blockRunRecords={[]}
+        canvasRef={canvasRef}
+        error={null}
+        executorOptions={["codex"]}
+        graph={graphWithExecutors(["codex"], { agentTransport: "cli" })}
+        handleOpenRunRecord={vi.fn()}
+        onBlockSelect={vi.fn()}
+        onClose={vi.fn()}
+        saveSelectedBlockExecutor={vi.fn()}
+        saveSelectedBlockPrompt={vi.fn()}
+        saveSelectedBlockTitle={vi.fn()}
+        selectedBlock={blockDetail({ executor: "codex-acp", effectiveExecutor: "codex-acp" })}
+        selectedRunRecord={null}
+        setSelectedBlock={vi.fn()}
+        setSelectedRunRecord={vi.fn()}
+        t={t}
+      />
+    );
+
+    expect(screen.getByRole("combobox")).toHaveTextContent("codex");
+    await userEvent.click(screen.getByTestId("block-executor-preflight"));
+    expect(bridgeMock.api.testExecutorProfile).toHaveBeenCalledWith(canvasRef, "codex-acp");
+  });
+
+  it("keeps a package executor literal when its name overlaps a builtin ACP alias", () => {
+    render(
+      <BlockInspector
+        blockFeedbackRecords={[]}
+        blockReviewAttempts={[]}
+        blockRunRecords={[]}
+        canvasRef={canvasRef}
+        error={null}
+        executorOptions={["codex-acp"]}
+        graph={graphWithExecutors(["codex-acp"], {
+          packageExecutorNames: ["codex-acp"]
+        })}
+        handleOpenRunRecord={vi.fn()}
+        onBlockSelect={vi.fn()}
+        onClose={vi.fn()}
+        saveSelectedBlockExecutor={vi.fn()}
+        saveSelectedBlockPrompt={vi.fn()}
+        saveSelectedBlockTitle={vi.fn()}
+        selectedBlock={blockDetail({ executor: "codex-acp", effectiveExecutor: "codex-acp" })}
+        selectedRunRecord={null}
+        setSelectedBlock={vi.fn()}
+        setSelectedRunRecord={vi.fn()}
+        t={t}
+      />
+    );
+
+    expect(screen.getByRole("combobox")).toHaveTextContent("codex-acp");
+  });
+
+  it("preflights an explicit legacy ACP task profile without changing its identity", async () => {
+    bridgeMock.api.testExecutorProfile.mockResolvedValue(preflightResult);
+
+    render(
+      <TaskInspector
+        canvasRef={canvasRef}
+        error={null}
+        executorOptions={["codex"]}
+        graph={graphWithExecutors(["codex"], { agentTransport: "cli" })}
+        onClose={vi.fn()}
+        saveSelectedTaskExecutor={vi.fn()}
+        saveSelectedTaskPrompt={vi.fn()}
+        saveSelectedTaskTitle={vi.fn()}
+        selectedTask={taskDetail({ executor: "codex-acp" })}
+        setSelectedTask={vi.fn()}
+        t={t}
+      />
+    );
+
+    expect(screen.getByRole("combobox")).toHaveTextContent("codex");
+    await userEvent.click(screen.getByTestId("task-executor-preflight"));
+    expect(bridgeMock.api.testExecutorProfile).toHaveBeenCalledWith(canvasRef, "codex-acp");
   });
 
   it("does not preflight a task executor inferred from renderer fallback defaults", () => {

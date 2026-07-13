@@ -29,6 +29,7 @@ type SettingsAgentsSectionProps = {
   canvasRef?: DesktopCanvasReference | null;
   graph: DesktopGraphViewModel | null;
   refreshAgentDetections: () => Promise<void>;
+  persistSettings?: (update: DesktopSettingsUpdate) => Promise<void>;
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
@@ -110,18 +111,26 @@ export function SettingsAgentsSection({
   agents,
   canvasRef,
   graph,
+  persistSettings,
   refreshAgentDetections,
   settings,
   t,
   updateSettings
 }: SettingsAgentsSectionProps) {
+  const selectedTransport = settings.execution.agentTransport;
+  const transportAgents = useMemo(
+    () => agents.filter((agent) => agent.runnerKind === selectedTransport),
+    [agents, selectedTransport]
+  );
   const executorOptions = useMemo(
     () =>
       buildExecutorOptionViews({
-        agentDetections: agents,
+        agentDetections: transportAgents,
+        agentTransport: selectedTransport,
+        literalExecutorNames: graph?.packageExecutorNames,
         executorOptions: graph?.executorOptions ?? []
       }),
-    [agents, graph?.executorOptions]
+    [graph?.executorOptions, graph?.packageExecutorNames, selectedTransport, transportAgents]
   );
   const selectableExecutorOptions = useMemo(
     () => executorOptions.filter((option) => !option.disabled),
@@ -130,7 +139,10 @@ export function SettingsAgentsSection({
   const [selectedExecutor, setSelectedExecutor] = useState(
     selectableExecutorOptions[0]?.name ?? ""
   );
-  const graphPreflightKey = graph ? `${graph.graphVersion}:${graph.packageFingerprint}` : null;
+  const [transportSaving, setTransportSaving] = useState(false);
+  const graphPreflightKey = graph
+    ? `${graph.graphVersion}:${graph.packageFingerprint}:${selectedTransport}`
+    : null;
   const preflight = useExecutorPreflight({
     bridgeUnavailableMessage: t("bridgeUnavailable"),
     cacheKey: graphPreflightKey,
@@ -168,9 +180,42 @@ export function SettingsAgentsSection({
         </h1>
         <p className="mt-1 text-sm text-text-muted">{t("settingsAgentsHint")}</p>
       </div>
+      <div className="rounded-lg border bg-card p-4">
+        <label className="text-sm font-medium text-text-strong" htmlFor="agent-transport-select">
+          {t("agentTransport")}
+        </label>
+        <p className="mt-1 text-xs text-muted-foreground">{t("agentTransportHint")}</p>
+        <Select
+          disabled={transportSaving}
+          value={selectedTransport}
+          onValueChange={(agentTransport: "cli" | "acp") => {
+            setTransportSaving(true);
+            const save = persistSettings
+              ? persistSettings({ execution: { agentTransport } })
+              : Promise.resolve(updateSettings({ execution: { agentTransport } }));
+            void save.finally(() => {
+              setTransportSaving(false);
+            });
+          }}
+        >
+          <SelectTrigger
+            className="mt-3 w-56"
+            id="agent-transport-select"
+            aria-label={t("agentTransport")}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="cli">{t("agentTransportCli")}</SelectItem>
+              <SelectItem value="acp">{t("agentTransportAcp")}</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
       <AgentSettingsPanel
         agentDetectionRefreshing={agentDetectionRefreshing}
-        agents={agents}
+        agents={transportAgents}
         labels={{
           agentDetected: t("agentDetected"),
           agentInstallStatus: t("agentInstallStatus"),
@@ -241,7 +286,7 @@ export function SettingsAgentsSection({
               </Select>
               <Button
                 data-testid="settings-run-executor-preflight"
-                disabled={!selectedExecutorAvailable || preflight.loading}
+                disabled={!selectedExecutorAvailable || preflight.loading || transportSaving}
                 size="sm"
                 variant="outline"
                 onClick={() => void preflight.runPreflight()}

@@ -12,6 +12,7 @@ import {
 } from "../../taskManager/projectGraphClaimGuard.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "../../taskManager/runtimeContext.js";
 import { listExecutorProfilesForManifest } from "../../autoRun/executors.js";
+import { selectedDesktopAgentTransport } from "../../autoRun/desktopAgentSettings.js";
 import { buildPlanGraphViewProjection, loadPlanGraphPackage } from "../../plangraph/index.js";
 import type { ClaimResult, PackageWorkspaceRef } from "../../types.js";
 import type {
@@ -27,6 +28,8 @@ import { enrichGraphViewModelLocks } from "./lockViewModel.js";
 export type DesktopGraphViewModelContext = RuntimeContext & {
   status: ExecutionStatus;
   executorOptions: string[];
+  packageExecutorNames: string[];
+  agentTransport: "cli" | "acp";
   claimReadiness: ClaimReadiness;
 };
 
@@ -47,12 +50,22 @@ export function buildDesktopGraphViewModelContext(
   status: ExecutionStatus,
   options: { claimGuard?: ProjectGraphClaimGuard } = {}
 ): DesktopGraphViewModelContext {
+  const executorProfiles = listExecutorProfilesForManifest(runtime.manifest);
   return {
     ...runtime,
     status,
-    executorOptions: listExecutorProfilesForManifest(runtime.manifest).map(
-      (profile) => profile.name
-    ),
+    executorOptions: executorProfiles
+      .filter(
+        (profile) =>
+          profile.source === "package" ||
+          profile.profileAdapter !== "agent" ||
+          profile.name === profile.agentId
+      )
+      .map((profile) => profile.name),
+    packageExecutorNames: executorProfiles
+      .filter((profile) => profile.source === "package")
+      .map((profile) => profile.name),
+    agentTransport: selectedDesktopAgentTransport(),
     claimReadiness: buildClaimReadiness({
       graph: runtime.graph,
       manifest: runtime.manifest,
@@ -138,7 +151,7 @@ function resolveAutoRunPreflightClaim(
 export async function buildGraphViewModel(
   context: DesktopGraphViewModelContext
 ): Promise<DesktopGraphViewModel> {
-  const { workspace, status, executorOptions } = context;
+  const { workspace, status, executorOptions, packageExecutorNames, agentTransport } = context;
   // Prompt bodies and missing/read diagnostics already come from the PlanGraph
   // index built by loadPlanGraphPackage (promptMarkdownByPath + graph.diagnostics).
   // Do not re-read every task/block prompt file on each view-model build.
@@ -165,6 +178,8 @@ export async function buildGraphViewModel(
       graphVersion: planGraphPackage.graph.graphVersion,
       packageFingerprint: planGraphPackage.graph.packageFingerprint,
       executorOptions,
+      packageExecutorNames,
+      agentTransport,
       autoRunPreflightExecutorHint: resolveAutoRunPreflightExecutorHint(context),
       tasks: projection.tasks,
       edges: projection.edges,

@@ -44,7 +44,8 @@ const settings: DesktopUiSettings = {
     strictReview: true
   },
   execution: {
-    tmuxMonitoring: true
+    tmuxMonitoring: true,
+    agentTransport: "cli"
   },
   windowMaterial: {
     enabled: false
@@ -1035,6 +1036,7 @@ describe("desktop renderer settings interactions", () => {
         agentDetectionRefreshing={false}
         agents={[
           {
+            runnerKind: "cli",
             kind: "codex",
             name: "Codex",
             command: "codex",
@@ -1068,5 +1070,44 @@ describe("desktop renderer settings interactions", () => {
     expect(screen.queryByText("Full access")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Codex options" }));
     expect(screen.getByRole("switch", { name: "Full access" })).toBeDisabled();
+  });
+
+  it("hides CLI-only full access controls for ACP agents", () => {
+    render(
+      <AgentSettingsPanel
+        agentDetectionRefreshing={false}
+        agents={[
+          {
+            runnerKind: "acp",
+            kind: "codex",
+            name: "Codex",
+            command: "codex-acp",
+            versionArgs: ["--version"],
+            execArgs: [],
+            fullAccessArgs: [],
+            installed: true,
+            version: "1.0.0",
+            unavailableReason: null
+          }
+        ]}
+        labels={{
+          agentDetected: "Agent detected",
+          agentEnableDescription: "Run {command}",
+          agentFullAccess: "Full access",
+          agentFullAccessDescription: "Run {command}",
+          agentInstallStatus: "Agent installation status",
+          agentMissing: "Agent not detected",
+          agentRefresh: "Refresh",
+          agentRefreshing: "Refreshing"
+        }}
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        settings={{ ...settings, execution: { ...settings.execution, agentTransport: "acp" } }}
+        updateSettings={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("switch", { name: "Codex" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Codex options" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Full access")).not.toBeInTheDocument();
   });
 });

@@ -69,10 +69,11 @@ export function AgentSettingsPanel({
         const agentSettings = settings.agents[agent.kind] ?? { enabled: false, fullAccess: false };
         const command = `${agent.command} ${agent.execArgs.join(" ")}`;
         const fullAccessCommand = `${agent.command} ${agent.fullAccessArgs.join(" ")}`;
+        const supportsFullAccess = agent.runnerKind === "cli";
         const expanded = expandedAgent === agent.kind;
         return (
           <div
-            key={agent.kind}
+            key={`${agent.runnerKind}:${agent.kind}`}
             className={cn("border-b last:border-b-0", !agent.installed ? "opacity-50" : "")}
           >
             <div className="flex min-h-24 items-start justify-between gap-4 px-5 py-5">
@@ -87,17 +88,19 @@ export function AgentSettingsPanel({
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <Button
-                  aria-label={`${agent.name} options`}
-                  className="size-7"
-                  size="icon-sm"
-                  variant="ghost"
-                  onClick={() => setExpandedAgent(expanded ? null : agent.kind)}
-                >
-                  <ChevronDownIcon
-                    className={cn("size-4 transition-transform", expanded ? "rotate-180" : "")}
-                  />
-                </Button>
+                {supportsFullAccess ? (
+                  <Button
+                    aria-label={`${agent.name} options`}
+                    className="size-7"
+                    size="icon-sm"
+                    variant="ghost"
+                    onClick={() => setExpandedAgent(expanded ? null : agent.kind)}
+                  >
+                    <ChevronDownIcon
+                      className={cn("size-4 transition-transform", expanded ? "rotate-180" : "")}
+                    />
+                  </Button>
+                ) : null}
                 <Switch
                   aria-label={agent.name}
                   checked={agent.installed && agentSettings.enabled}
@@ -113,7 +116,7 @@ export function AgentSettingsPanel({
                 />
               </div>
             </div>
-            {expanded ? (
+            {supportsFullAccess && expanded ? (
               <div className="border-t bg-muted/20 px-8 py-3">
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">

@@ -16,6 +16,7 @@ import { bridge } from "./bridge";
 import { createTranslator, type Language } from "./i18n";
 import { BlockInspector } from "./inspector/BlockInspector";
 import { useDetectedAgents } from "./hooks/useDetectedAgents";
+import { useDesktopSettingsBridge } from "./hooks/useDesktopSettingsBridge";
 
 function supportedLanguage(value: string | null): Language {
   return value === "en" || value === "zh-CN" ? value : "zh-CN";
@@ -61,6 +62,7 @@ export function BlockInspectorWindow() {
   const [tmuxAvailable, setTmuxAvailable] = useState(false);
   const [error, setError] = useState<string | null>(bridge ? null : t("bridgeUnavailable"));
   const [draftDirty, setDraftDirty] = useState(false);
+  const { settings } = useDesktopSettingsBridge({ setError });
   const { agentDetections } = useDetectedAgents();
   const draftDirtyRef = useRef(false);
 
@@ -359,6 +361,7 @@ export function BlockInspectorWindow() {
       className="inset-0 h-screen w-screen min-w-0 rounded-none border-0 shadow-none ring-0"
       error={error}
       executorOptions={graph?.executorOptions ?? []}
+      agentTransport={settings.execution.agentTransport}
       graph={graph}
       handleOpenRunRecord={handleOpenRunRecord}
       onOpenTerminal={handleOpenTerminal}

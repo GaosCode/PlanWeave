@@ -5,7 +5,8 @@ import type {
   DesktopBlockPreview,
   DesktopCanvasReference,
   DesktopGraphViewModel,
-  DesktopTaskDetail
+  DesktopTaskDetail,
+  RunnerTransport
 } from "@planweave-ai/runtime";
 import { RefreshCwIcon, XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   buildExecutorOptionViews,
-  canonicalExecutorName
+  executorOptionName
 } from "../executors/executorOptionViewModel";
 import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
 import type { createTranslator } from "../i18n";
@@ -36,6 +37,7 @@ type TaskInspectorProps = {
   className?: string;
   error: string | null;
   agentDetections?: DesktopAgentDetection[];
+  agentTransport?: RunnerTransport;
   executorOptions: string[];
   graph: DesktopGraphViewModel | null;
   onClose: () => void;
@@ -53,7 +55,8 @@ const taskPromptAutosaveDelayMs = 700;
 
 function selectedTaskExecutorValue(
   selectedTask: DesktopTaskDetail | null,
-  taskBlocks: DesktopBlockPreview[]
+  taskBlocks: DesktopBlockPreview[],
+  packageExecutorNames: readonly string[]
 ): string {
   if (!selectedTask) {
     return "";
@@ -66,7 +69,10 @@ function selectedTaskExecutorValue(
   if (blockExecutors.size > 1) {
     return "__custom";
   }
-  return canonicalExecutorName([...blockExecutors][0] ?? selectedTask.executor ?? "manual");
+  return executorOptionName(
+    [...blockExecutors][0] ?? selectedTask.executor ?? "manual",
+    packageExecutorNames
+  );
 }
 
 function taskPreflightExecutorValue(
@@ -83,16 +89,17 @@ function taskPreflightExecutorValue(
   );
   if (blockExecutors.size === 1) {
     const executor = [...blockExecutors][0] ?? null;
-    return executor ? canonicalExecutorName(executor) : null;
+    return executor;
   }
   if (blockExecutors.size > 1) {
     return null;
   }
-  return selectedTask.executor ? canonicalExecutorName(selectedTask.executor) : null;
+  return selectedTask.executor;
 }
 
 export function TaskInspector({
   agentDetections = [],
+  agentTransport,
   canvasRef,
   className,
   error,
@@ -115,10 +122,16 @@ export function TaskInspector({
     }
     return graph.tasks.find((task) => task.taskId === selectedTask.taskId)?.blocks ?? [];
   }, [graph, selectedTask]);
-  const selectedExecutor = selectedTaskExecutorValue(selectedTask, taskBlocks);
+  const selectedExecutor = selectedTaskExecutorValue(
+    selectedTask,
+    taskBlocks,
+    graph?.packageExecutorNames ?? []
+  );
   const concreteExecutor = taskPreflightExecutorValue(selectedTask, taskBlocks);
   const taskExecutorOptions = buildExecutorOptionViews({
     agentDetections,
+    agentTransport: agentTransport ?? graph?.agentTransport,
+    literalExecutorNames: graph?.packageExecutorNames,
     currentExecutorNames:
       selectedExecutor !== "__custom" && selectedExecutor ? [selectedExecutor] : [],
     executorOptions

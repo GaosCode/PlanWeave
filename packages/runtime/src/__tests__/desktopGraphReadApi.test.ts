@@ -52,14 +52,15 @@ describe("desktop graph read API", () => {
         "default",
         "manual",
         "codex",
-        "codex-auto",
         "opencode",
         "claude-code",
-        "claude-code-auto",
-        "pi",
-        "pi-auto"
+        "pi"
       ])
     );
+    expect(graph.executorOptions).not.toEqual(
+      expect.arrayContaining(["codex-auto", "codex-acp", "pi-auto", "pi-acp"])
+    );
+    expect(graph.agentTransport).toBe("cli");
     expect(graph.edges).toEqual([]);
     expect(graph.tasks[0]).toMatchObject({
       taskId: "T-001",
@@ -84,6 +85,9 @@ describe("desktop graph read API", () => {
       ...(manifest.executors ?? {}),
       "custom-shell": {
         adapter: "manual"
+      },
+      "codex-acp": {
+        adapter: "manual"
       }
     };
     manifest.execution.defaultExecutor = "custom-shell";
@@ -91,7 +95,10 @@ describe("desktop graph read API", () => {
 
     const graph = await getGraphViewModel(root);
 
-    expect(graph.executorOptions).toEqual(expect.arrayContaining(["manual", "custom-shell"]));
+    expect(graph.executorOptions).toEqual(
+      expect.arrayContaining(["manual", "custom-shell", "codex-acp"])
+    );
+    expect(graph.packageExecutorNames).toEqual(["codex-acp", "custom-shell"]);
     expect(graph.executorOptions.length).toBeGreaterThan(1);
     expect(graph.autoRunPreflightExecutorHint).toBe("custom-shell");
   });

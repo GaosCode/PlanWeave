@@ -462,7 +462,11 @@ export const enCatalog = {
   settingsReviewHint:
     "Configure the current project's Review Pipeline and default feedback cycles.",
   settingsAgentsHint:
-    "Detect available local agent CLIs and configure how PlanWeave invokes them for task execution.",
+    "Choose an agent transport and configure the agents available through it.",
+  agentTransport: "Agent transport",
+  agentTransportHint: "Use command-line agents directly or connect through ACP.",
+  agentTransportCli: "CLI",
+  agentTransportAcp: "ACP",
   settingsMcpTunnelHint:
     "Run the local PlanWeave MCP server and connect it to ChatGPT through OpenAI Secure MCP Tunnel.",
   agentInstallStatus: "Local agent installation status",
@@ -526,8 +530,8 @@ export const enCatalog = {
   reviewSettingsProjectScoped:
     "These settings affect the current project's Review Pipeline behavior.",
   reviewSettingsNoProject: "Open a project to apply these settings to its Review Pipeline.",
-  agentDetected: "CLI detected",
-  agentMissing: "CLI not detected, cannot enable",
+  agentDetected: "Available",
+  agentMissing: "Unavailable, cannot enable",
   agentEnableDescription:
     "When enabled, PlanWeave invokes `{command}` as the common execution entry.",
   agentFullAccess: "Full access permission",

@@ -43,7 +43,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   buildExecutorOptionViews,
-  canonicalExecutorName
+  executorOptionName
 } from "../executors/executorOptionViewModel";
 import type { TaskFlowNode } from "../types";
 import { BlockPreviewButton } from "./BlockPreviewButton";
@@ -68,7 +68,9 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
     promptDraft,
     saveState,
     agentDetections,
+    agentTransport,
     executorOptions,
+    packageExecutorNames,
     labels,
     selectedBlock,
     locks = [],
@@ -100,9 +102,13 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
   const hasException = task.exceptions.length > 0;
   const waiting = dispatchState.kind === "waiting";
   const selectedExecutor =
-    task.executorLabel === "Mixed" ? "__custom" : canonicalExecutorName(task.executorLabel);
+    task.executorLabel === "Mixed"
+      ? "__custom"
+      : executorOptionName(task.executorLabel, packageExecutorNames);
   const taskExecutorOptions = buildExecutorOptionViews({
     agentDetections,
+    agentTransport,
+    literalExecutorNames: packageExecutorNames,
     currentExecutorNames:
       selectedExecutor !== "__custom" && selectedExecutor ? [selectedExecutor] : [],
     executorOptions

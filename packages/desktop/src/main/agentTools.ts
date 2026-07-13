@@ -1,11 +1,15 @@
 import { execFile, type ExecFileOptions } from "node:child_process";
-import type { DesktopAgentCliProfile, DesktopAgentDetection } from "@planweave-ai/runtime";
+import { constants } from "node:fs";
+import { access } from "node:fs/promises";
+import { delimiter, isAbsolute, join } from "node:path";
+import type { DesktopAgentDetection, DesktopAgentToolProfile } from "@planweave-ai/runtime";
 
 const agentPathEntries = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
 
-const agentProfiles: DesktopAgentCliProfile[] = [
+const agentProfiles: DesktopAgentToolProfile[] = [
   {
     kind: "codex",
+    runnerKind: "cli",
     name: "Codex",
     command: "codex",
     versionArgs: ["--version"],
@@ -14,6 +18,7 @@ const agentProfiles: DesktopAgentCliProfile[] = [
   },
   {
     kind: "claude-code",
+    runnerKind: "cli",
     name: "Claude Code",
     command: "claude",
     versionArgs: ["--version"],
@@ -22,6 +27,7 @@ const agentProfiles: DesktopAgentCliProfile[] = [
   },
   {
     kind: "opencode",
+    runnerKind: "cli",
     name: "OpenCode",
     command: "opencode",
     versionArgs: ["--version"],
@@ -30,11 +36,49 @@ const agentProfiles: DesktopAgentCliProfile[] = [
   },
   {
     kind: "pi",
+    runnerKind: "cli",
     name: "Pi",
     command: "pi",
     versionArgs: ["--version"],
     execArgs: ["-p"],
     fullAccessArgs: ["-p"]
+  },
+  {
+    kind: "codex",
+    runnerKind: "acp",
+    name: "Codex",
+    command: "codex-acp",
+    versionArgs: [],
+    execArgs: [],
+    fullAccessArgs: []
+  },
+  {
+    kind: "claude-code",
+    runnerKind: "acp",
+    name: "Claude Code",
+    command: "claude-agent-acp",
+    versionArgs: [],
+    execArgs: [],
+    fullAccessArgs: []
+  },
+  {
+    kind: "opencode",
+    runnerKind: "acp",
+    name: "OpenCode",
+    command: "opencode",
+    versionArgs: ["acp", "--help"],
+    reportsVersion: false,
+    execArgs: ["acp"],
+    fullAccessArgs: []
+  },
+  {
+    kind: "pi",
+    runnerKind: "acp",
+    name: "Pi",
+    command: "pi-acp",
+    versionArgs: [],
+    execArgs: [],
+    fullAccessArgs: []
   }
 ];
 
@@ -59,8 +103,32 @@ function execFileText(
   });
 }
 
-async function detectAgent(profile: DesktopAgentCliProfile): Promise<DesktopAgentDetection> {
+async function executableAvailable(command: string): Promise<boolean> {
+  const candidates = isAbsolute(command)
+    ? [command]
+    : agentDetectionPath().split(delimiter).map((entry) => join(entry, command));
+  for (const candidate of candidates) {
+    try {
+      await access(candidate, constants.X_OK);
+      return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
+async function detectAgent(profile: DesktopAgentToolProfile): Promise<DesktopAgentDetection> {
   try {
+    if (profile.versionArgs.length === 0) {
+      const installed = await executableAvailable(profile.command);
+      return {
+        ...profile,
+        installed,
+        version: null,
+        unavailableReason: installed ? null : `Executable '${profile.command}' was not found.`
+      };
+    }
     const { stdout, stderr } = await execFileText(profile.command, profile.versionArgs, {
       env: { ...process.env, PATH: agentDetectionPath() },
       timeout: 2_000,
@@ -70,7 +138,7 @@ async function detectAgent(profile: DesktopAgentCliProfile): Promise<DesktopAgen
     return {
       ...profile,
       installed: true,
-      version: version || null,
+      version: profile.reportsVersion === false ? null : version || null,
       unavailableReason: null
     };
   } catch (caught) {

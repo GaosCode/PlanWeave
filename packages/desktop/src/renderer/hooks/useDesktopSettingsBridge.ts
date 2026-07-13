@@ -48,6 +48,7 @@ export function useDesktopSettingsBridge({
   const latestSettingsRef = useRef<DesktopUiSettings>(defaultDesktopSettings);
   const lastConfirmedSettingsRef = useRef<DesktopUiSettings>(defaultDesktopSettings);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const refreshQueueRef = useRef<Promise<void>>(Promise.resolve());
   const localRevisionRef = useRef(0);
   const initializationRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -60,7 +61,7 @@ export function useDesktopSettingsBridge({
     }
     let cancelled = false;
 
-    const loadSettings = async () => {
+    const loadSettings = async (options: { migrateLegacy: boolean }) => {
       try {
         const loaded = await settingsApi.getDesktopSettings();
         if (cancelled) {
@@ -72,7 +73,7 @@ export function useDesktopSettingsBridge({
           setSettings(loaded);
         }
 
-        const legacyPayload = readLegacyDesktopSettingsPayload();
+        const legacyPayload = options.migrateLegacy ? readLegacyDesktopSettingsPayload() : null;
         if (!legacyPayload) {
           return;
         }
@@ -94,19 +95,28 @@ export function useDesktopSettingsBridge({
       }
     };
 
-    const initialization = loadSettings();
+    const initialization = loadSettings({ migrateLegacy: true });
     initializationRef.current = initialization;
+    refreshQueueRef.current = initialization;
     void initialization;
+    const refreshOnFocus = () => {
+      refreshQueueRef.current = refreshQueueRef.current
+        .catch(() => undefined)
+        .then(() => loadSettings({ migrateLegacy: false }));
+      void refreshQueueRef.current;
+    };
+    window.addEventListener("focus", refreshOnFocus);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", refreshOnFocus);
     };
   }, [allowInMemoryFallback, setError, settingsApi]);
 
-  const updateSettings = useCallback(
+  const updateSettingsAndWait = useCallback(
     (update: DesktopSettingsUpdate) => {
       if (!settingsApi && !allowInMemoryFallback) {
         setError(missingSettingsBridgeMessage);
-        return;
+        return Promise.resolve();
       }
       const patch = typeof update === "function" ? update(latestSettingsRef.current) : update;
       const nextRevision = localRevisionRef.current + 1;
@@ -116,7 +126,7 @@ export function useDesktopSettingsBridge({
       setSettings(optimisticSettings);
 
       if (!settingsApi) {
-        return;
+        return Promise.resolve();
       }
       saveQueueRef.current = saveQueueRef.current
         .catch(() => undefined)
@@ -137,8 +147,16 @@ export function useDesktopSettingsBridge({
           setError(errorMessage(caught));
         });
       void saveQueueRef.current;
+      return saveQueueRef.current;
     },
     [allowInMemoryFallback, setError, settingsApi]
+  );
+
+  const updateSettings = useCallback(
+    (update: DesktopSettingsUpdate) => {
+      void updateSettingsAndWait(update);
+    },
+    [updateSettingsAndWait]
   );
 
   const updateLayoutSettings = useCallback(
@@ -151,6 +169,7 @@ export function useDesktopSettingsBridge({
   return {
     settings,
     updateLayoutSettings,
-    updateSettings
+    updateSettings,
+    updateSettingsAndWait
   };
 }

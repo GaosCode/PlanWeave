@@ -10,6 +10,7 @@ describe("executor option view model", () => {
       agentDetections: [
         {
           kind: "codex",
+          runnerKind: "cli",
           name: "Codex",
           command: "codex",
           versionArgs: ["--version"],
@@ -78,11 +79,65 @@ describe("executor option view model", () => {
           "manual",
           "codex",
           "codex-auto",
+          "codex-acp",
           "claude-code-auto",
+          "claude-code-acp",
+          "opencode-acp",
           "pi",
-          "pi-auto"
+          "pi-auto",
+          "pi-acp"
         ]
       })
-    ).toEqual(["manual", "codex", "claude-code", "pi"]);
+    ).toEqual(["manual", "codex", "claude-code", "opencode", "pi"]);
+  });
+
+  it("uses only the selected transport when reporting agent availability", () => {
+    const detections = [
+      {
+        kind: "codex" as const,
+        runnerKind: "cli" as const,
+        name: "Codex",
+        command: "codex",
+        versionArgs: ["--version"],
+        execArgs: ["exec", "-"],
+        fullAccessArgs: [],
+        installed: true,
+        version: "codex 1.0.0",
+        unavailableReason: null
+      },
+      {
+        kind: "codex" as const,
+        runnerKind: "acp" as const,
+        name: "Codex",
+        command: "codex-acp",
+        versionArgs: ["--version"],
+        execArgs: [],
+        fullAccessArgs: [],
+        installed: false,
+        version: null,
+        unavailableReason: "not found"
+      }
+    ];
+
+    expect(
+      buildExecutorOptionViews({
+        agentDetections: detections,
+        agentTransport: "acp",
+        executorOptions: ["codex"]
+      })[0]
+    ).toMatchObject({ disabled: true, detected: false, detectionMessage: "not found" });
+  });
+
+  it("preserves package executor names that overlap builtin transport aliases", () => {
+    expect(
+      buildExecutorOptionViews({
+        agentDetections: [],
+        executorOptions: ["manual", "codex-acp"],
+        literalExecutorNames: ["codex-acp"]
+      })
+    ).toEqual([
+      expect.objectContaining({ name: "manual", detected: null, disabled: false }),
+      expect.objectContaining({ name: "codex-acp", detected: null, disabled: false })
+    ]);
   });
 });

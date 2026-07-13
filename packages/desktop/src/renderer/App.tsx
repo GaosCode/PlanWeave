@@ -109,7 +109,8 @@ function AppSettingsChrome({
 
 export function App() {
   const [error, setError] = useState<string | null>(null);
-  const { settings, updateLayoutSettings, updateSettings } = useDesktopSettingsBridge({ setError });
+  const { settings, updateLayoutSettings, updateSettings, updateSettingsAndWait } =
+    useDesktopSettingsBridge({ setError });
   const language = settings.language;
   const t = useMemo(() => createTranslator(language), [language]);
   const [activeView, setActiveView] = useAppViewHistory("graph");
@@ -153,7 +154,8 @@ export function App() {
       settings,
       t,
       updateLayoutSettings,
-      updateSettings
+      updateSettings,
+      updateSettingsAndWait
     }),
     [
       activeView,
@@ -167,7 +169,8 @@ export function App() {
       settings,
       t,
       updateLayoutSettings,
-      updateSettings
+      updateSettings,
+      updateSettingsAndWait
     ]
   );
 

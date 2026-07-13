@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { execFileMock } = vi.hoisted(() => ({
+const { accessMock, execFileMock } = vi.hoisted(() => ({
+  accessMock: vi.fn(),
   execFileMock: vi.fn()
 }));
 
@@ -8,9 +9,15 @@ vi.mock("node:child_process", () => ({
   execFile: execFileMock
 }));
 
+vi.mock("node:fs/promises", () => ({
+  access: accessMock
+}));
+
 describe("desktop agent tool detection", () => {
   beforeEach(() => {
     execFileMock.mockReset();
+    accessMock.mockReset();
+    accessMock.mockResolvedValue(undefined);
   });
 
   it("adds Homebrew paths when detecting agent CLI versions", async () => {
@@ -32,13 +39,18 @@ describe("desktop agent tool detection", () => {
       agents.map((agent) => ({
         command: agent.command,
         installed: agent.installed,
+        runnerKind: agent.runnerKind,
         version: agent.version
       }))
     ).toEqual([
-      { command: "codex", installed: true, version: "codex 1.2.3" },
-      { command: "claude", installed: true, version: "claude 1.2.3" },
-      { command: "opencode", installed: true, version: "opencode 1.2.3" },
-      { command: "pi", installed: true, version: "pi 1.2.3" }
+      { command: "codex", installed: true, runnerKind: "cli", version: "codex 1.2.3" },
+      { command: "claude", installed: true, runnerKind: "cli", version: "claude 1.2.3" },
+      { command: "opencode", installed: true, runnerKind: "cli", version: "opencode 1.2.3" },
+      { command: "pi", installed: true, runnerKind: "cli", version: "pi 1.2.3" },
+      { command: "codex-acp", installed: true, runnerKind: "acp", version: null },
+      { command: "claude-agent-acp", installed: true, runnerKind: "acp", version: null },
+      { command: "opencode", installed: true, runnerKind: "acp", version: null },
+      { command: "pi-acp", installed: true, runnerKind: "acp", version: null }
     ]);
     expect(execFileMock).toHaveBeenCalledWith(
       "codex",
@@ -49,6 +61,12 @@ describe("desktop agent tool detection", () => {
         }),
         timeout: 2_000
       }),
+      expect.any(Function)
+    );
+    expect(execFileMock).toHaveBeenCalledWith(
+      "opencode",
+      ["acp", "--help"],
+      expect.any(Object),
       expect.any(Function)
     );
   });
@@ -68,5 +86,29 @@ describe("desktop agent tool detection", () => {
       "/usr/bin",
       "/bin"
     ]);
+  });
+
+  it("does not mark OpenCode ACP available when its ACP subcommand probe fails", async () => {
+    execFileMock.mockImplementation(
+      (
+        _command: string,
+        args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callback(args[0] === "acp" ? new Error("unknown command acp") : null, "1.2.3", "");
+      }
+    );
+
+    const { detectAgentTools } = await import("../main/agentTools");
+    const agents = await detectAgentTools();
+    const opencodeAcp = agents.find(
+      (agent) => agent.kind === "opencode" && agent.runnerKind === "acp"
+    );
+
+    expect(opencodeAcp).toMatchObject({
+      installed: false,
+      unavailableReason: "unknown command acp"
+    });
   });
 });

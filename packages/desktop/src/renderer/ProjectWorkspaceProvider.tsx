@@ -118,6 +118,7 @@ export type ProjectWorkspaceShellInput = {
   t: ReturnType<typeof createTranslator>;
   updateLayoutSettings: (patch: LayoutSettingsPatch) => void;
   updateSettings: (update: DesktopSettingsUpdate) => void;
+  updateSettingsAndWait: (update: DesktopSettingsUpdate) => Promise<void>;
 };
 
 export type ProjectWorkspaceValue = {
@@ -172,7 +173,8 @@ export function ProjectWorkspaceProvider({
     settings,
     t,
     updateLayoutSettings,
-    updateSettings
+    updateSettings,
+    updateSettingsAndWait
   } = shellInput;
 
   const [, setBlockInspectorOpen] = useState(false);
@@ -626,6 +628,7 @@ export function ProjectWorkspaceProvider({
     },
     source: {
       agentDetections,
+      agentTransport: settings.execution.agentTransport,
       executorOptions: graph?.executorOptions ?? emptyExecutorOptions,
       graph,
       layout,
@@ -728,6 +731,7 @@ export function ProjectWorkspaceProvider({
     t,
     updateProjectPrompt,
     updateProjectPromptPolicy,
+    updateSettingsAndWait,
     updateSettings
   });
   const workspaceShell = useMemo<WorkspaceTabsShellProps>(

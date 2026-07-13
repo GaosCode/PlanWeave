@@ -2,6 +2,7 @@ import type { BlockType, DesktopAgentKind } from "@planweave-ai/runtime";
 
 export type AppearanceMode = "system" | "light" | "dark";
 export type DesktopSettingsLanguage = "system" | "en" | "zh-CN";
+export type DesktopAgentTransport = "cli" | "acp";
 export type PaletteComponentKey = "task" | "implementation" | "review";
 export type FloatingControlPosition = { left: number; top: number };
 
@@ -22,6 +23,7 @@ export type DesktopUiSettings = {
   };
   execution: {
     tmuxMonitoring: boolean;
+    agentTransport: DesktopAgentTransport;
   };
   windowMaterial: {
     enabled: boolean;
@@ -122,7 +124,8 @@ export const defaultDesktopSettings: DesktopUiSettings = {
     fileSyncConflict: true
   },
   execution: {
-    tmuxMonitoring: true
+    tmuxMonitoring: true,
+    agentTransport: "cli"
   },
   windowMaterial: {
     enabled: false
@@ -257,6 +260,10 @@ function isLanguage(value: unknown): value is DesktopUiSettings["language"] {
   return value === "system" || value === "en" || value === "zh-CN";
 }
 
+function isAgentTransport(value: unknown): value is DesktopAgentTransport {
+  return value === "cli" || value === "acp";
+}
+
 function stringArray(value: unknown): string[] | undefined {
   return Array.isArray(value) && value.every((item) => typeof item === "string")
     ? value
@@ -355,9 +362,20 @@ export function normalizeDesktopSettingsPatch(value: unknown): DesktopSettingsPa
   if (notifications) {
     patch.notifications = notifications;
   }
-  const execution = booleanField(defaultDesktopSettings.execution, value.execution);
-  if (execution) {
-    patch.execution = execution;
+  if (isRecord(value.execution)) {
+    const execution = booleanField(
+      { tmuxMonitoring: defaultDesktopSettings.execution.tmuxMonitoring },
+      value.execution
+    );
+    const agentTransport = isAgentTransport(value.execution.agentTransport)
+      ? value.execution.agentTransport
+      : undefined;
+    if (execution || agentTransport) {
+      patch.execution = {
+        ...execution,
+        ...(agentTransport ? { agentTransport } : {})
+      };
+    }
   }
   const windowMaterial = booleanField(defaultDesktopSettings.windowMaterial, value.windowMaterial);
   if (windowMaterial) {

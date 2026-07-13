@@ -128,6 +128,67 @@ describe("desktop settings bridge", () => {
     expect(setError).not.toHaveBeenCalled();
   });
 
+  it("refreshes persisted settings on window focus without repeating legacy migration", async () => {
+    const acpSettings = {
+      ...defaultDesktopSettings,
+      execution: { ...defaultDesktopSettings.execution, agentTransport: "acp" as const }
+    };
+    const getDesktopSettings = vi
+      .fn()
+      .mockResolvedValueOnce(defaultDesktopSettings)
+      .mockResolvedValue(acpSettings);
+    const migrateLegacyDesktopSettings = vi.fn().mockResolvedValue(defaultDesktopSettings);
+    const settingsApi: PlanWeaveDesktopSettingsApi = {
+      getDesktopSettings,
+      saveDesktopSettings: vi.fn().mockResolvedValue(acpSettings),
+      migrateLegacyDesktopSettings
+    };
+    const { result } = renderHook(() =>
+      useDesktopSettingsBridge({ setError: vi.fn(), settingsApi })
+    );
+    await waitFor(() => expect(getDesktopSettings).toHaveBeenCalledTimes(1));
+
+    act(() => window.dispatchEvent(new Event("focus")));
+
+    await waitFor(() => expect(result.current.settings.execution.agentTransport).toBe("acp"));
+    expect(getDesktopSettings.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(migrateLegacyDesktopSettings).not.toHaveBeenCalled();
+  });
+
+  it("serializes focus refresh after the initial settings read", async () => {
+    let resolveInitial!: (settings: DesktopUiSettings) => void;
+    const initialRead = new Promise<DesktopUiSettings>((resolve) => {
+      resolveInitial = resolve;
+    });
+    const acpSettings: DesktopUiSettings = {
+      ...defaultDesktopSettings,
+      execution: { ...defaultDesktopSettings.execution, agentTransport: "acp" }
+    };
+    const getDesktopSettings = vi
+      .fn()
+      .mockReturnValueOnce(initialRead)
+      .mockResolvedValue(acpSettings);
+    const settingsApi: PlanWeaveDesktopSettingsApi = {
+      getDesktopSettings,
+      saveDesktopSettings: vi.fn().mockResolvedValue(acpSettings),
+      migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(acpSettings)
+    };
+    const { result } = renderHook(() =>
+      useDesktopSettingsBridge({ setError: vi.fn(), settingsApi })
+    );
+
+    act(() => window.dispatchEvent(new Event("focus")));
+    expect(getDesktopSettings).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveInitial(defaultDesktopSettings);
+      await initialRead;
+    });
+
+    await waitFor(() => expect(getDesktopSettings.mock.calls.length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(result.current.settings.execution.agentTransport).toBe("acp"));
+  });
+
   it("serializes rapid desktop settings saves so patches do not race", async () => {
     let activeSaves = 0;
     let maxConcurrentSaves = 0;

@@ -8,7 +8,8 @@ import type {
   DesktopCanvasNodeViewModel,
   DesktopFeedbackRecord,
   DesktopReviewAttemptSummary,
-  DesktopTaskNodeViewModel
+  DesktopTaskNodeViewModel,
+  RunnerTransport
 } from "@planweave-ai/runtime";
 import type {
   DesktopSettingsPatch,
@@ -79,7 +80,9 @@ export type TaskNodeData = {
   promptDraft: string;
   saveState: "idle" | "saving" | "saved" | "error";
   agentDetections: DesktopAgentDetection[];
+  agentTransport?: RunnerTransport;
   executorOptions: string[];
+  packageExecutorNames?: string[];
   labels: TaskNodeLabels;
   selectedBlock: DesktopBlockDetail | null;
   blockRunRecords: DesktopBlockRunRecordSummary[];
