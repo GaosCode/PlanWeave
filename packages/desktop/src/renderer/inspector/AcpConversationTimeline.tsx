@@ -8,15 +8,38 @@ import { useConversationAutoScroll } from "../hooks/useConversationAutoScroll";
 import { SafeMarkdown } from "./SafeMarkdown";
 
 function readablePayload(value: string | null): string | null {
-  if (!value) return null;
+  if (value === null) return null;
+  if (value === "") return "Empty string";
   try {
     const parsed: unknown = JSON.parse(value);
-    if (typeof parsed === "string") return parsed;
-    if (typeof parsed === "object" && parsed !== null) return JSON.stringify(parsed, null, 2);
+    return structuredPayloadText(parsed);
   } catch {
     return value;
   }
-  return value;
+}
+
+function structuredPayloadText(value: unknown, depth = 0): string {
+  if (value === null) return "null";
+  if (typeof value === "string") return value === "" ? "Empty string" : value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  const indent = "  ".repeat(depth);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return `${indent}[]`;
+    return value.map((item) => `${indent}- ${structuredPayloadText(item, depth + 1).trimStart()}`).join("\n");
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value);
+    if (entries.length === 0) return `${indent}{}`;
+    return entries.map(([key, item]) => {
+      const rendered = structuredPayloadText(item, depth + 1);
+      return typeof item === "object" && item !== null
+        ? `${indent}${key}:\n${rendered}`
+        : `${indent}${key}: ${rendered}`;
+    }).join("\n");
+  }
+  return String(value);
 }
 
 export function AcpConversationTimeline({ changeKey, timeline, t }: {
@@ -29,27 +52,34 @@ export function AcpConversationTimeline({ changeKey, timeline, t }: {
   return (
     <div className="relative min-h-0 flex-1">
       <div className="h-full overflow-y-auto rounded-xl border bg-muted/15 p-4" ref={viewportRef} onScroll={onScroll} data-testid="acp-conversation-viewport">
-          {timeline.length ? <div className="space-y-4">
-            {timeline.map((item) => item.kind === "tool" ? (
-              <ToolCard key={`tool-${item.callId}`} tool={item} t={t} />
-            ) : item.kind === "plan" ? (
-              <details className="rounded-lg border bg-background/70 px-3 py-2 text-xs" key={`plan-${item.sequence}`}>
-                <summary className="cursor-pointer font-medium">{t("acpPlanUpdate")}</summary>
-                <div className="mt-2 text-muted-foreground"><SafeMarkdown markdown={item.content} /></div>
-              </details>
-            ) : item.kind === "output" ? (
-              <details className="ml-10 rounded-lg border bg-muted/40 px-3 py-2 text-xs" key={`output-${item.sequence}`}>
-                <summary className="cursor-pointer font-medium">{item.stream === "terminal" ? t("acpTerminalOutput") : item.stream}</summary>
-                <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px]">{item.content}</pre>
-              </details>
-            ) : (
-              <MessageCard item={item} key={`message-${item.sequence}`} t={t} />
-            ))}
-          </div> : <div className="py-12 text-center text-xs text-muted-foreground">{t("acpConversationEmpty")}</div>}
+        <AcpConversationItems timeline={timeline} t={t} />
       </div>
       {!following ? <Button className="absolute bottom-3 left-1/2 -translate-x-1/2 shadow-md" size="sm" variant="secondary" onClick={() => scrollToBottom()}><ArrowDownIcon />{t("acpJumpToLatest")}</Button> : null}
     </div>
   );
+}
+
+export function AcpConversationItems({ timeline, t }: {
+  timeline: readonly AcpTimelineItem[];
+  t: ReturnType<typeof createTranslator>;
+}) {
+  return timeline.length ? <div className="space-y-4">
+    {timeline.map((item) => item.kind === "tool" ? (
+      <ToolCard key={`tool-${item.callId}`} tool={item} t={t} />
+    ) : item.kind === "plan" ? (
+      <details className="rounded-lg border bg-background/70 px-3 py-2 text-xs" key={`plan-${item.sequence}`}>
+        <summary className="cursor-pointer font-medium">{t("acpPlanUpdate")}</summary>
+        <div className="mt-2 text-muted-foreground"><SafeMarkdown markdown={item.content} /></div>
+      </details>
+    ) : item.kind === "output" ? (
+      <details className="ml-10 rounded-lg border bg-muted/40 px-3 py-2 text-xs" key={`output-${item.sequence}`}>
+        <summary className="cursor-pointer font-medium">{item.stream === "terminal" ? t("acpTerminalOutput") : item.stream}</summary>
+        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px]">{item.content}</pre>
+      </details>
+    ) : (
+      <MessageCard item={item} key={`message-${item.sequence}`} t={t} />
+    ))}
+  </div> : <div className="py-12 text-center text-xs text-muted-foreground">{t("acpConversationEmpty")}</div>;
 }
 
 const MessageCard = memo(function MessageCard({ item, t }: { item: Extract<AcpTimelineItem, { kind: "message" }>; t: ReturnType<typeof createTranslator> }) {

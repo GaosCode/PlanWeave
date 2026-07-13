@@ -1,0 +1,484 @@
+/* @vitest-environment jsdom */
+
+import "@testing-library/jest-dom/vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  runnerRecordReadModelSchema,
+  type DesktopBridgeApi
+} from "@planweave-ai/runtime";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createTranslator } from "../renderer/i18n";
+import {
+  TaskWorkspaceComposer,
+  TaskWorkspaceConversation
+} from "../renderer/task-workspace/conversation";
+import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
+import {
+  activeIdentity,
+  conversationProps,
+  readModel,
+  record,
+  recordId,
+  selection,
+  timestamp
+} from "./helpers/taskWorkspaceConversationFixture";
+
+afterEach(cleanupRendererTestEnvironment);
+
+const t = createTranslator("en");
+
+describe("Task Workspace conversation", () => {
+  it("reuses the projected ACP timeline for safe wide-screen Markdown", () => {
+    const model = readModel();
+    render(<TaskWorkspaceConversation {...conversationProps(selection({ model }), model)} api={null} t={t} />);
+
+    expect(screen.getByRole("heading", { name: "Result" })).toBeInTheDocument();
+    expect(screen.getByText("shared projected timeline")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Conversation and tools · Implement workspace" })).toBeInTheDocument();
+    expect(screen.queryByText(/planweave\.runner-event/)).not.toBeInTheDocument();
+  });
+
+  it("renders empty structured tool payloads instead of hiding them", () => {
+    const model = readModel({ timeline: [
+      {
+        sequence: 1,
+        timestamp,
+        kind: "tool",
+        callId: "empty-structures",
+        title: "Inspect empty structures",
+        toolKind: "read",
+        status: "completed",
+        input: "{}",
+        output: "[]"
+      },
+      {
+        sequence: 2,
+        timestamp,
+        kind: "tool",
+        callId: "empty-string",
+        title: "Inspect empty string",
+        toolKind: "read",
+        status: "completed",
+        input: "\"\"",
+        output: null
+      }
+    ] });
+    render(<TaskWorkspaceConversation {...conversationProps(selection({ model }), model)} api={null} t={t} />);
+
+    expect(screen.getByText("{}")).toBeInTheDocument();
+    expect(screen.getByText("[]")).toBeInTheDocument();
+    expect(screen.getByText("Empty string")).toBeInTheDocument();
+  });
+
+  it("responds to the selected runnerModel permission request with its exact identity", () => {
+    const identity = activeIdentity("permission-1");
+    const model = readModel({ activeRequests: [{
+      kind: "permission",
+      requestId: "permission-1",
+      interactionId: "interaction-1",
+      requestedAt: timestamp,
+      summary: "Allow the agent to run tests?",
+      identity,
+      availability: { available: true, reason: null },
+      permissionOptions: [
+        { optionId: "approve-once", label: "Approve once", decision: "approve" },
+        { optionId: "deny", label: "Deny", decision: "deny" }
+      ]
+    }] });
+    const respondToAgentRequest = vi.fn(async () => undefined);
+    render(
+      <TaskWorkspaceConversation
+        {...conversationProps(selection({ model }), model)}
+        api={{ respondToAgentRequest }}
+        t={t}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    expect(respondToAgentRequest).toHaveBeenCalledWith(
+      model.interaction.activeRequests[0]!.identity,
+      "approve-once"
+    );
+  });
+
+  it("keeps elicitation and authentication requests in the high-priority interaction region", () => {
+    const elicitationIdentity = activeIdentity("elicitation-1");
+    const authenticationIdentity = activeIdentity("authentication-1");
+    const model = readModel({ activeRequests: [
+      {
+        kind: "elicitation",
+        requestId: "elicitation-1",
+        interactionId: "interaction-elicitation",
+        requestedAt: timestamp,
+        summary: "Choose the release channel.",
+        identity: elicitationIdentity,
+        availability: { available: true, reason: null },
+        elicitationSchema: {
+          type: "object",
+          required: ["channel"],
+          properties: { channel: { type: "string", title: "Release channel" } }
+        }
+      },
+      {
+        kind: "authentication",
+        requestId: "authentication-1",
+        interactionId: "interaction-authentication",
+        requestedAt: timestamp,
+        summary: "Authenticate in the agent-owned browser.",
+        identity: authenticationIdentity,
+        availability: { available: false, reason: "Authentication is agent-managed." }
+      }
+    ] });
+    const respondToAgentRequest = vi.fn(async () => undefined);
+    render(
+      <TaskWorkspaceConversation
+        {...conversationProps(selection({ model }), model)}
+        api={{ respondToAgentRequest }}
+        t={t}
+      />
+    );
+
+    const interactions = screen.getByTestId("task-workspace-interactions");
+    expect(interactions).toHaveTextContent("Choose the release channel.");
+    expect(interactions).toHaveTextContent("Authenticate in the agent-owned browser.");
+    fireEvent.change(screen.getByLabelText(/Release channel/), { target: { value: "stable" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit response" }));
+    expect(respondToAgentRequest).toHaveBeenCalledWith(
+      model.interaction.activeRequests[0]!.identity,
+      { action: "accept", content: { channel: "stable" } }
+    );
+  });
+
+  it("restores a historical run scroll position without live auto-follow", () => {
+    const scrollTo = vi.fn();
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value: scrollTo });
+    try {
+      const model = readModel();
+      const selectedRun = selection({ active: false, model });
+      const onRunScrollTopChange = vi.fn();
+      render(
+        <TaskWorkspaceConversation
+          {...conversationProps(selectedRun, model, {
+            getRunScrollTop: () => 135,
+            onRunScrollTopChange
+          })}
+          api={null}
+          t={t}
+        />
+      );
+      const viewport = screen.getByTestId("task-workspace-conversation-viewport");
+      expect(viewport.scrollTop).toBe(135);
+      expect(scrollTo).not.toHaveBeenCalled();
+      fireEvent.scroll(viewport, { target: { scrollTop: 210 } });
+      expect(onRunScrollTopChange).toHaveBeenCalledWith(recordId, 210);
+      expect(screen.queryByRole("button", { name: "Jump to latest" })).not.toBeInTheDocument();
+    } finally {
+      if (original) Object.defineProperty(HTMLElement.prototype, "scrollTo", original);
+      else delete HTMLElement.prototype.scrollTo;
+    }
+  });
+
+  it("preserves a user's live scroll position across cursor rerenders until Jump to latest restores following", () => {
+    const originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+    const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+    const scrollTo = vi.fn(function (this: HTMLElement, options: ScrollToOptions) {
+      this.scrollTop = Number(options.top ?? 0);
+    });
+    Object.defineProperties(HTMLElement.prototype, {
+      scrollTo: { configurable: true, value: scrollTo },
+      scrollHeight: { configurable: true, get: () => 2_000 },
+      clientHeight: { configurable: true, get: () => 400 }
+    });
+    try {
+      const initialModel = readModel();
+      const selectedRun = selection({ model: initialModel });
+      const positions = new Map<string, number>();
+      const getRunScrollTop = vi.fn((id: string) => positions.get(id) ?? 0);
+      const onRunScrollTopChange = vi.fn((id: string, top: number) => positions.set(id, top));
+      const rendered = render(
+        <TaskWorkspaceConversation
+          {...conversationProps(selectedRun, initialModel, { getRunScrollTop, onRunScrollTopChange })}
+          api={null}
+          t={t}
+        />
+      );
+      const viewport = screen.getByRole("region", { name: "Conversation and tools · Implement workspace" });
+      expect(viewport.scrollTop).toBe(2_000);
+
+      viewport.scrollTop = 300;
+      fireEvent.scroll(viewport);
+      expect(screen.getByRole("button", { name: "Jump to latest" })).toBeInTheDocument();
+      const callsAfterUserScroll = scrollTo.mock.calls.length;
+
+      const updatedModel = readModel({
+        afterSequence: 2,
+        timeline: [
+          ...initialModel.timeline,
+          { sequence: 2, timestamp, kind: "message", role: "assistant", content: "New live event" }
+        ]
+      });
+      rendered.rerender(
+        <TaskWorkspaceConversation
+          {...conversationProps(selectedRun, updatedModel, { getRunScrollTop, onRunScrollTopChange })}
+          api={null}
+          t={t}
+        />
+      );
+      expect(scrollTo).toHaveBeenCalledTimes(callsAfterUserScroll);
+      expect(viewport.scrollTop).toBe(300);
+
+      fireEvent.click(screen.getByRole("button", { name: "Jump to latest" }));
+      expect(viewport.scrollTop).toBe(2_000);
+      expect(scrollTo.mock.calls.length).toBeGreaterThan(callsAfterUserScroll);
+    } finally {
+      if (originalScrollTo) Object.defineProperty(HTMLElement.prototype, "scrollTo", originalScrollTo);
+      else delete HTMLElement.prototype.scrollTo;
+      if (originalScrollHeight) Object.defineProperty(HTMLElement.prototype, "scrollHeight", originalScrollHeight);
+      else delete HTMLElement.prototype.scrollHeight;
+      if (originalClientHeight) Object.defineProperty(HTMLElement.prototype, "clientHeight", originalClientHeight);
+      else delete HTMLElement.prototype.clientHeight;
+    }
+  });
+
+  it("sends and stops only with exact selected session identities and renders no retry or resume action", async () => {
+    const model = readModel();
+    const selectedRun = selection({ model });
+    const sendAgentPrompt = vi.fn(async () => undefined);
+    const cancelAgentRun = vi.fn(async () => undefined);
+    render(
+      <TaskWorkspaceComposer
+        api={{ cancelAgentRun, sendAgentPrompt }}
+        liveStatus="live"
+        runnerModel={model}
+        selectedRun={selectedRun}
+        t={t}
+      />
+    );
+
+    const input = screen.getByLabelText("Message the agent");
+    fireEvent.change(input, { target: { value: "Continue with the focused fix" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await vi.waitFor(() => expect(sendAgentPrompt).toHaveBeenCalledWith(
+      model.intervention.prompt.identity,
+      "Continue with the focused fix"
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel run" }));
+    expect(cancelAgentRun).toHaveBeenCalledWith(model.intervention.cancel.identity);
+    expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /continue session/i })).not.toBeInTheDocument();
+  });
+
+  it("does not expose an ACP composer for an authoritative CLI selection with a stale ACP model", () => {
+    const staleModel = readModel();
+    const selectedRun = selection({ model: null, runnerKind: "cli" });
+    render(
+      <TaskWorkspaceComposer
+        api={{ sendAgentPrompt: vi.fn(async () => undefined) }}
+        liveStatus="live"
+        runnerModel={staleModel}
+        selectedRun={selectedRun}
+        t={t}
+      />
+    );
+
+    expect(screen.queryByLabelText("Message the agent")).not.toBeInTheDocument();
+    expect(screen.getByText(/CLI runs do not provide an ACP composer/)).toBeInTheDocument();
+  });
+
+  it("blocks prompt actions when only the project root differs from the selected capability", () => {
+    const selectedModel = readModel();
+    const selectedRun = selection({ model: selectedModel });
+    const liveModel = runnerRecordReadModelSchema.parse({
+      ...selectedModel,
+      intervention: {
+        ...selectedModel.intervention,
+        prompt: {
+          ...selectedModel.intervention.prompt,
+          identity: {
+            ...selectedModel.intervention.prompt.identity,
+            ref: { projectRoot: "/projects/other", canvasId: "canvas-main" }
+          }
+        }
+      }
+    });
+    const sendAgentPrompt = vi.fn(async () => undefined);
+    render(<TaskWorkspaceComposer api={{ sendAgentPrompt }} liveStatus="live" runnerModel={liveModel} selectedRun={selectedRun} t={t} />);
+
+    expect(screen.getByLabelText("Message the agent")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(sendAgentPrompt).not.toHaveBeenCalled();
+  });
+
+  it("blocks prompt actions when only the canvas differs from the selected capability", () => {
+    const selectedModel = readModel();
+    const selectedRun = selection({ model: selectedModel });
+    const liveModel = runnerRecordReadModelSchema.parse({
+      ...selectedModel,
+      intervention: {
+        ...selectedModel.intervention,
+        prompt: {
+          ...selectedModel.intervention.prompt,
+          identity: {
+            ...selectedModel.intervention.prompt.identity,
+            ref: { projectRoot: "/projects/demo", canvasId: "canvas-other" }
+          }
+        }
+      }
+    });
+    const sendAgentPrompt = vi.fn(async () => undefined);
+    render(<TaskWorkspaceComposer api={{ sendAgentPrompt }} liveStatus="live" runnerModel={liveModel} selectedRun={selectedRun} t={t} />);
+
+    expect(screen.getByLabelText("Message the agent")).toBeDisabled();
+    expect(sendAgentPrompt).not.toHaveBeenCalled();
+  });
+
+  it("blocks cancel actions when only the action scope differs from the selected capability", () => {
+    const selectedModel = readModel();
+    const selectedRun = selection({ model: selectedModel });
+    const liveModel = runnerRecordReadModelSchema.parse({
+      ...selectedModel,
+      intervention: {
+        ...selectedModel.intervention,
+        cancel: {
+          ...selectedModel.intervention.cancel,
+          identity: { ...selectedModel.intervention.cancel.identity, scope: "/projects/other" }
+        }
+      }
+    });
+    const cancelAgentRun = vi.fn(async () => undefined);
+    render(<TaskWorkspaceComposer api={{ cancelAgentRun }} liveStatus="live" runnerModel={liveModel} selectedRun={selectedRun} t={t} />);
+
+    expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+    expect(cancelAgentRun).not.toHaveBeenCalled();
+  });
+
+  it("blocks prompt and cancel actions when only their ACP session differs from the selected capabilities", () => {
+    const selectedModel = readModel();
+    const selectedRun = selection({ model: selectedModel });
+    const liveModel = runnerRecordReadModelSchema.parse({
+      ...selectedModel,
+      intervention: {
+        prompt: {
+          ...selectedModel.intervention.prompt,
+          identity: { ...selectedModel.intervention.prompt.identity, sessionId: "ACP-SESSION-OTHER" }
+        },
+        cancel: {
+          ...selectedModel.intervention.cancel,
+          identity: { ...selectedModel.intervention.cancel.identity, sessionId: "ACP-SESSION-OTHER" }
+        }
+      }
+    });
+    const sendAgentPrompt = vi.fn(async () => undefined);
+    const cancelAgentRun = vi.fn(async () => undefined);
+    render(
+      <TaskWorkspaceComposer
+        api={{ cancelAgentRun, sendAgentPrompt }}
+        liveStatus="live"
+        runnerModel={liveModel}
+        selectedRun={selectedRun}
+        t={t}
+      />
+    );
+
+    expect(screen.getByLabelText("Message the agent")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+    expect(sendAgentPrompt).not.toHaveBeenCalled();
+    expect(cancelAgentRun).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "loading",
+      patch: { liveStatus: "loading" as const },
+      message: "Loading the selected ACP conversation…",
+      alert: false
+    },
+    {
+      name: "unavailable",
+      patch: { liveStatus: "unavailable" as const, liveUnavailableReason: "ACP stream is unavailable." },
+      message: "ACP stream is unavailable.",
+      alert: false
+    },
+    {
+      name: "subscription error",
+      patch: { liveStatus: "error" as const, subscriptionError: "ACP stream failed." },
+      message: "ACP stream failed.",
+      alert: true
+    }
+  ])("renders the authoritative ACP $name state without exposing CLI controls", ({ alert, message, patch }) => {
+    const selectedRun = selection({ model: null, runnerKind: "acp" });
+    render(
+      <TaskWorkspaceConversation
+        {...conversationProps(selectedRun, null, patch)}
+        api={null}
+        t={t}
+      />
+    );
+
+    expect(screen.getByText(message)).toBeInTheDocument();
+    if (alert) expect(screen.getByRole("alert")).toHaveTextContent(message);
+    expect(screen.queryByTestId("task-workspace-cli-run")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open terminal" })).not.toBeInTheDocument();
+  });
+
+  it("shows real CLI projections and opens the selected record in a real terminal", async () => {
+    const selectedRun = selection({ active: false, model: null, runnerKind: "cli" });
+    const openTerminal = vi.fn(async () => ({ appId: "terminal" as const, cwd: "/projects/demo" }));
+    const api = {
+      detectTerminalApps: vi.fn(async () => [{
+        appId: "terminal" as const,
+        label: "Terminal",
+        available: true,
+        iconDataUrl: null,
+        unavailableReason: null
+      }]),
+      getTerminalPreferences: vi.fn(async () => ({ defaultTerminalAppId: "terminal" as const })),
+      openTerminal,
+      updateTerminalPreferences: vi.fn(async (patch) => ({ defaultTerminalAppId: patch.defaultTerminalAppId ?? "terminal" }))
+    } satisfies Partial<DesktopBridgeApi>;
+    render(
+      <TaskWorkspaceConversation
+        {...conversationProps(selectedRun, null)}
+        api={api}
+        canvasRef={{ projectRoot: "/projects/demo", canvasId: "canvas-main" }}
+        t={t}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "CLI result" })).toBeInTheDocument();
+    expect(screen.getByText("real stdout summary")).toBeInTheDocument();
+    expect(screen.getByText("real stderr summary")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Message the agent")).not.toBeInTheDocument();
+    await act(async () => undefined);
+    fireEvent.click(await screen.findByRole("button", { name: "Open terminal" }));
+    await vi.waitFor(() => expect(openTerminal).toHaveBeenCalledWith({
+      ref: { projectRoot: "/projects/demo", canvasId: "canvas-main" },
+      recordId,
+      appId: "terminal"
+    }));
+  });
+
+  it("does not fall back to reportMarkdown when the CLI display projection is empty", () => {
+    const selectedRun = selection({ active: false, model: null, runnerKind: "cli" });
+    render(
+      <TaskWorkspaceConversation
+        {...conversationProps(selectedRun, null, {
+          selectedRecord: record(null, {
+            displayMarkdown: "",
+            reportMarkdown: "## Hidden persisted report",
+            stdoutSummary: "",
+            stderrSummary: ""
+          })
+        })}
+        api={null}
+        t={t}
+      />
+    );
+
+    expect(screen.queryByRole("heading", { name: "Hidden persisted report" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Hidden persisted report")).not.toBeInTheDocument();
+    expect(screen.getByText("No run report")).toBeInTheDocument();
+  });
+});

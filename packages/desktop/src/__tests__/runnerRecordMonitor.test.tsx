@@ -391,9 +391,10 @@ describe("ACP runner record monitor", () => {
 
     expect(screen.getAllByText("Read file")).toHaveLength(1);
     fireEvent.click(screen.getByText("Read file"));
-    expect(screen.getByText(/"path": "README.md"/)).toBeInTheDocument();
-    expect(screen.getByText(/"bytes": 42/)).toBeInTheDocument();
+    expect(screen.getByText("path: README.md")).toBeInTheDocument();
+    expect(screen.getByText("bytes: 42")).toBeInTheDocument();
   });
+
   it("renders and reveals the artifact produced by a real ACP controller run", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-desktop-acp-artifact-"));
     const controller = new AcpSessionController();
