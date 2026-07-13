@@ -103,6 +103,7 @@ describe("desktop IPC contract", () => {
 
   it("uses the desktop canvas reference channel for canvas-scoped bridge calls", () => {
     expect(desktopBridgeInvokeChannels.getGraphViewModel).toBe("planweave:getGraphViewModel");
+    expect(desktopBridgeInvokeChannels.getTaskWorkspace).toBe("planweave:getTaskWorkspace");
     expect(desktopBridgeInvokeChannels.getCanvasGraphViewModel).toBe(
       "planweave:getCanvasGraphViewModel"
     );

@@ -1,4 +1,9 @@
+import type { DesktopBridgeApi } from "@planweave-ai/runtime";
 import { vi } from "vitest";
+
+type GetTaskWorkspace = DesktopBridgeApi["getTaskWorkspace"];
+type GetTaskWorkspaceInput = Parameters<GetTaskWorkspace>[0];
+type GetTaskWorkspaceResult = Awaited<ReturnType<GetTaskWorkspace>>;
 
 type RegisteredHandler = (event: unknown, ...args: unknown[]) => unknown;
 type AutoRunEventListener = (event: unknown) => void;
@@ -16,6 +21,64 @@ export function registeredHandler(channel: string): RegisteredHandler {
 const childProcessMock = vi.hoisted(() => ({
   execFile: vi.fn()
 }));
+
+function taskWorkspaceFixture(input: GetTaskWorkspaceInput): GetTaskWorkspaceResult {
+  return {
+    version: "planweave.task-workspace/v1",
+    project: {
+      projectId: "project-1",
+      projectRoot: input.projectRoot,
+      canvasId: input.canvasId
+    },
+    task: {
+      taskId: input.taskId,
+      title: "Task workspace",
+      status: "planned",
+      executor: null,
+      acceptance: []
+    },
+    dependencyProgress: {
+      total: 0,
+      completed: 0,
+      percent: 100,
+      status: "not_applicable",
+      blockers: []
+    },
+    blocks: [],
+    activeRecordIds: [],
+    selectedRecordId: null,
+    latestArtifact: null,
+    duration: {
+      wallClock: {
+        available: false,
+        startedAt: null,
+        endedAt: null,
+        calculatedAt: "2026-07-13T00:00:00.000Z",
+        totalMs: null,
+        unavailableReason: "No Task runs are available."
+      },
+      agentTime: {
+        availability: "unavailable",
+        totalMs: null,
+        includedRunCount: 0,
+        missingRunCount: 0,
+        reason: "No Task runs are available."
+      }
+    },
+    usage: {
+      taskTokens: {
+        available: false,
+        totalTokens: null,
+        reason: "Task token accounting is unavailable."
+      },
+      taskCost: {
+        available: false,
+        totals: null,
+        reason: "Task cost accounting is unavailable."
+      }
+    }
+  };
+}
 
 const electronMock = vi.hoisted(() => {
   const handlers = new Map<string, RegisteredHandler>();
@@ -70,6 +133,7 @@ const runtimeMock = vi.hoisted(() => {
       errors: []
     })),
     getGraphViewModel: vi.fn(async (workspace: unknown) => ({ workspace })),
+    getTaskWorkspace: vi.fn<GetTaskWorkspace>(async (input) => taskWorkspaceFixture(input)),
     getTaskFileManagerPath: vi.fn(async () => "/tmp/project/package/shared/P00.md"),
     getRunRecord: vi.fn(async () => ({
       recordId: "T-001#B-001::RUN-001",
@@ -203,6 +267,7 @@ vi.mock("@planweave-ai/runtime", async () => {
     getDesktopGraphDiagnostics: runtimeMock.getDesktopGraphDiagnostics,
     getDesktopRuntimeRefresh: runtimeMock.getDesktopRuntimeRefresh,
     getGraphViewModel: runtimeMock.getGraphViewModel,
+    getTaskWorkspace: runtimeMock.getTaskWorkspace,
     getTaskFileManagerPath: runtimeMock.getTaskFileManagerPath,
     getRunRecord: runtimeMock.getRunRecord,
     listDesktopPendingAgentRequests: runtimeMock.listDesktopPendingAgentRequests,
@@ -263,6 +328,7 @@ export async function resetRuntimeBridgeMocks(): Promise<void> {
   runtimeMock.getDesktopProjectSnapshot.mockClear();
   runtimeMock.getDesktopRuntimeRefresh.mockClear();
   runtimeMock.getGraphViewModel.mockClear();
+  runtimeMock.getTaskWorkspace.mockClear();
   runtimeMock.getTaskFileManagerPath.mockClear();
   runtimeMock.getRunRecord.mockClear();
   runtimeMock.listDesktopPendingAgentRequests.mockClear();

@@ -114,6 +114,24 @@ describe("preload bridge invocation", () => {
     expect(invoke).toHaveBeenCalledWith(desktopBridgeInvokeChannels.listProjects);
   });
 
+  it("exposes only the Task Workspace invoke method and forwards its complete input", async () => {
+    const result = { version: "planweave.task-workspace/v1" };
+    const invoke = vi.fn<Parameters<typeof createDesktopBridgeInvokeApi>[0]>(async () => result);
+    const api = createDesktopBridgeInvokeApi(invoke);
+    const input = {
+      projectRoot: "/tmp/project",
+      canvasId: "canvas-a",
+      taskId: "T-001",
+      selectedRecordId: "T-001#B-001::RUN-001"
+    };
+
+    await expect(api.getTaskWorkspace(input)).resolves.toBe(result);
+    expect(invoke).toHaveBeenCalledWith(desktopBridgeInvokeChannels.getTaskWorkspace, input);
+    expect(Object.keys(api).filter((method) => method.includes("TaskWorkspace"))).toEqual([
+      "getTaskWorkspace"
+    ]);
+  });
+
   it("exposes ACP prompt continuation through the invoke bridge", async () => {
     electronMock.ipcRenderer.invoke.mockResolvedValue(undefined);
     await import("../preload/preload");

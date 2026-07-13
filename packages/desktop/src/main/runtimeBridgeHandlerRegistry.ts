@@ -43,6 +43,7 @@ import {
   getTaskDetail,
   getTaskFileManagerPath,
   getTaskExecutionOrder,
+  getTaskWorkspace,
   getTodoGroups,
   initOrOpenProject,
   linkProjectSourceRoot,
@@ -118,7 +119,9 @@ import {
   desktopAgentPromptIdentitySchema,
   desktopAgentPromptTextSchema,
   desktopAgentSessionActionIdentitySchema,
-  desktopAgentActionValueSchema
+  desktopAgentActionValueSchema,
+  taskWorkspaceInputSchema,
+  taskWorkspaceSchema
 } from "@planweave-ai/runtime";
 import type { DesktopBridgeMainInvokeMethod } from "../shared/ipcChannels.js";
 import { detectAgentTools } from "./agentTools.js";
@@ -164,6 +167,54 @@ async function resolveDesktopCanvasReference(ref: DesktopCanvasReference) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isValidationFailure(error: unknown): error is {
+  issues: { path: PropertyKey[]; message: string }[];
+} {
+  if (!isRecord(error) || !Array.isArray(error.issues)) return false;
+  return error.issues.every(
+    (issue) =>
+      isRecord(issue) &&
+      Array.isArray(issue.path) &&
+      issue.path.every((segment) => ["string", "number", "symbol"].includes(typeof segment)) &&
+      typeof issue.message === "string"
+  );
+}
+
+function validationFailureMessage(error: {
+  issues: readonly { path: readonly PropertyKey[]; message: string }[];
+}): string {
+  return error.issues
+    .map((issue) => {
+      const path = issue.path.length === 0 ? "input" : issue.path.map(String).join(".");
+      return `${path}: ${issue.message}`;
+    })
+    .join("; ");
+}
+
+async function invokeTaskWorkspace(input: unknown) {
+  const parsedInput = taskWorkspaceInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    throw new Error(
+      `Task Workspace request failed: ${validationFailureMessage(parsedInput.error)}`
+    );
+  }
+  try {
+    const result = await getTaskWorkspace(parsedInput.data);
+    const parsedResult = taskWorkspaceSchema.safeParse(result);
+    if (!parsedResult.success) {
+      throw new Error(`invalid Runtime response: ${validationFailureMessage(parsedResult.error)}`);
+    }
+    return parsedResult.data;
+  } catch (error) {
+    const message = isValidationFailure(error)
+      ? validationFailureMessage(error)
+      : error instanceof Error && error.message.trim()
+        ? error.message
+        : "unknown Runtime error";
+    throw new Error(`Task Workspace request failed: ${message}`);
+  }
 }
 
 function parseDesktopCanvasReference(value: unknown): DesktopCanvasReference {
@@ -392,6 +443,7 @@ export const runtimeBridgeHandlers = {
     getGraphViewModel(await resolveDesktopCanvasReference(ref)),
   getTaskDetail: async (_event, ref, taskId) =>
     getTaskDetail(await resolveDesktopCanvasReference(ref), taskId),
+  getTaskWorkspace: (_event, input) => invokeTaskWorkspace(input),
   getBlockDetail: async (_event, ref, blockRef) =>
     getBlockDetail(await resolveDesktopCanvasReference(ref), blockRef),
   getTaskExecutionOrder: async (_event, ref, taskId) =>

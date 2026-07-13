@@ -73,6 +73,7 @@ import type {
 } from "./acpBridgeTypes.js";
 import type { ArtifactReference } from "../../autoRun/runnerContractSchemas.js";
 import type { RunnerTransport } from "../../types.js";
+import type { TaskWorkspace, TaskWorkspaceInput } from "./taskWorkspaceAggregateTypes.js";
 
 export type DesktopAgentKind = "codex" | "claude-code" | "opencode" | "pi";
 
@@ -262,6 +263,7 @@ export type DesktopBridgeApi = {
   getDesktopGraphDiagnostics(ref: DesktopCanvasReference): Promise<DesktopGraphDiagnostics>;
   getGraphViewModel(ref: DesktopCanvasReference): Promise<DesktopGraphViewModel>;
   getTaskDetail(ref: DesktopCanvasReference, taskId: string): Promise<DesktopTaskDetail>;
+  getTaskWorkspace(input: TaskWorkspaceInput): Promise<TaskWorkspace>;
   getBlockDetail(ref: DesktopCanvasReference, blockRef: string): Promise<DesktopBlockDetail>;
   getTaskExecutionOrder(
     ref: DesktopCanvasReference,
