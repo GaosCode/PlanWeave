@@ -68,8 +68,6 @@ flowchart LR
 
 ## 0. 相对 upstream 做了哪些改动
 
-> 上游基线：`GaosCode/PlanWeave` @ `6a5dbb1 docs(readme): mention skills in quick start`。
-> 本 fork：领先 20 个 commit，**+15,553 / −155 行，142 个文件**。
 
 | 范围 | 改动 | 代码位置 |
 |---|---|---|
