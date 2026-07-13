@@ -1,7 +1,7 @@
 import { appendFile, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { normalizeAcpSessionNotification } from "../autoRun/acpEventNormalization.js";
 import { AcpEventPublisher } from "../autoRun/acpEventPublisher.js";
 import { AcpEventStore, AcpEventStoreLimitError, AcpEventStoreOpenError } from "../autoRun/acpEventStore.js";
@@ -9,7 +9,8 @@ import { AcpEventReadModel, AcpEventReadModelRegistry } from "../autoRun/acpEven
 import { encodeNormalizedRunnerEvent, normalizedRunnerEventSchema, type NormalizedRunnerEvent } from "../autoRun/normalizedEventContract.js";
 import { replayNormalizedRunnerEvents, runnerEventCursorSchema } from "../autoRun/runnerEventReplay.js";
 import { runnerIdentitySchema, runnerRunIdentitySchema } from "../autoRun/runnerContractSchemas.js";
-import { projectAcpConversation } from "../autoRun/acpConversationProjection.js";
+import { AcpProjectionAccumulator, projectAcpConversation } from "../autoRun/acpConversationProjection.js";
+import { writeAcpConversationProjection } from "../autoRun/acpConversationPersistence.js";
 
 function identity(runId = "RUN-001") {
   return runnerRunIdentitySchema.parse({
@@ -46,15 +47,23 @@ describe("ACP event normalization", () => {
       content: { type: "text", text: "Authorization: Bearer abc.def.ghi" }
     } })).toMatchObject({ kind: "message", role: "assistant", messageId: "message-1", content: "[REDACTED:CREDENTIAL]" });
     expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
-      sessionUpdate: "tool_call", toolCallId: "tool-1", title: "Read", status: "in_progress"
-    } })).toMatchObject({ kind: "tool_call", callId: "tool-1", status: "in_progress" });
+      sessionUpdate: "tool_call", toolCallId: "tool-1", title: "Read", kind: "read", status: "in_progress",
+      rawInput: { path: "README.md" }, rawOutput: "initial"
+    } })).toMatchObject({
+      kind: "tool_call", callId: "tool-1", title: "Read", toolKind: "read", status: "in_progress",
+      rawInput: { content: "{\"path\":\"README.md\"}" }, rawOutput: { content: "initial" }
+    });
     expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
       sessionUpdate: "user_message_chunk", messageId: "message-2",
       content: { type: "text", text: "hello" }
     } })).toMatchObject({ kind: "message", role: "user", messageId: "message-2" });
     expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
-      sessionUpdate: "tool_call_update", toolCallId: "tool-1", status: "completed"
-    } })).toMatchObject({ kind: "tool_update", callId: "tool-1", status: "completed" });
+      sessionUpdate: "tool_call_update", toolCallId: "tool-1", title: "Read complete", kind: "read",
+      status: "completed", content: null, rawOutput: { bytes: 42 }
+    } })).toMatchObject({
+      kind: "tool_update", callId: "tool-1", title: "Read complete", toolKind: "read",
+      status: "completed", content: null, rawOutput: { content: "{\"bytes\":42}" }
+    });
     expect(normalizeAcpSessionNotification({ sessionId: "session-1", update: {
       sessionUpdate: "plan", entries: [
         { content: "finish", priority: "high", status: "in_progress" }
@@ -157,6 +166,7 @@ describe("ACP event store and projection", () => {
     expect(await store.open()).toEqual([]);
     await store.appendProtocol("agent_to_client", { token: "raw-secret-value" });
     await store.append({ kind: "message", role: "assistant", messageId: "message-1", chunk: true, content: "hello", redaction: { classes: [], replaced: 0 } }, { sessionId: "session-1" });
+    await store.drain();
     const protocol = await readFile(join(runDir, "protocol.ndjson"), "utf8");
     const normalized = await readFile(join(runDir, "events.ndjson"), "utf8");
     const conversation = JSON.parse(await readFile(join(runDir, "conversation.json"), "utf8")) as { items: Array<{ content: string }> };
@@ -166,9 +176,38 @@ describe("ACP event store and projection", () => {
     expect(conversation.items).toEqual([expect.objectContaining({ content: "hello" })]);
   });
 
+  it("flushes the final conversation projection when a terminal event commits", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-terminal-projection-"));
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: runnerIdentitySchema.parse({
+        version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex"
+      })
+    });
+    await store.open();
+    await store.append({
+      kind: "message", role: "assistant", messageId: "message-1", chunk: true,
+      content: "finished", redaction: { classes: [], replaced: 0 }
+    });
+    await store.append({
+      kind: "terminal",
+      outcome: {
+        version: "planweave.runner/v1", state: "succeeded", exitCode: 0,
+        finishedAt: "2026-07-11T00:00:01.000Z", diagnostic: null, artifactValidated: true
+      }
+    });
+
+    const conversation = JSON.parse(
+      await readFile(join(runDir, "conversation.json"), "utf8")
+    ) as { items: Array<{ content: string }> };
+    expect(conversation.items).toEqual([expect.objectContaining({ content: "finished" })]);
+  });
+
   it("treats the normalized log as committed when conversation projection fails", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-projection-failure-"));
     let projectionAttempts = 0;
+    const projectedSequences: number[][] = [];
     const store = new AcpEventStore({
       runDir,
       identity: identity(),
@@ -177,13 +216,28 @@ describe("ACP event store and projection", () => {
         runnerKind: "acp",
         agentId: "codex"
       }),
-      writeConversationProjection: async () => {
+      writeConversationProjection: async (targetRunDir, events) => {
         projectionAttempts += 1;
+        projectedSequences.push(events.map((item) => item.sequence));
         if (projectionAttempts === 1) throw new Error("scripted projection failure");
+        await writeAcpConversationProjection(targetRunDir, events);
       }
     });
     await store.open();
-    await expect(store.append(event(1).body)).resolves.toMatchObject({ sequence: 1 });
+    await store.append({
+      kind: "message", role: "assistant", messageId: "message-1", chunk: true,
+      content: "finished after retry", redaction: { classes: [], replaced: 0 }
+    });
+    await expect(store.append({
+      kind: "terminal",
+      outcome: {
+        version: "planweave.runner/v1", state: "succeeded", exitCode: 0,
+        finishedAt: "2026-07-11T00:00:01.000Z", diagnostic: null, artifactValidated: true
+      }
+    })).resolves.toMatchObject({ sequence: 2 });
+    expect(projectionAttempts).toBe(1);
+    await expect(store.drain()).resolves.toBeUndefined();
+    expect(projectionAttempts).toBe(2);
     expect(await readFile(store.eventsPath, "utf8")).toContain('"sequence":1');
     expect(store.snapshot().diagnostics).toContainEqual(expect.objectContaining({
       code: "conversation_projection_failed",
@@ -192,8 +246,18 @@ describe("ACP event store and projection", () => {
     expect(new AcpEventReadModel(store).replay().diagnostics).toContainEqual(
       expect.objectContaining({ code: "conversation_projection_failed" })
     );
-    await expect(store.append(event(2).body)).resolves.toMatchObject({ sequence: 3 });
-    expect(projectionAttempts).toBe(2);
+    expect(projectedSequences).toEqual([[1, 2], [1, 2, 3]]);
+    expect(store.snapshot().events.map((item) => item.sequence)).toEqual([1, 2, 3]);
+    expect(store.snapshot().events.filter((item) =>
+      item.body.kind === "diagnostic" && item.body.code === "conversation_projection_failed"
+    )).toHaveLength(1);
+    expect(store.snapshot().events.some((item) => item.body.kind === "terminal")).toBe(true);
+    const conversation = JSON.parse(
+      await readFile(join(runDir, "conversation.json"), "utf8")
+    ) as { items: Array<{ content: string }> };
+    expect(conversation.items).toEqual([
+      expect.objectContaining({ content: "finished after retry" })
+    ]);
     const reopened = new AcpEventStore({
       runDir,
       identity: identity(),
@@ -368,6 +432,27 @@ describe("ACP event publisher", () => {
     const subscription = publisher.subscribe(0, (item) => { received.push(item.sequence); });
     await subscription.closed;
     expect(received).toEqual([1, 2]);
+    expect(publisher.subscriberCount).toBe(0);
+  });
+
+  it("keeps an explicit conversation subscriber open after executor terminal", async () => {
+    const terminal = normalizedRunnerEventSchema.parse({ ...event(2), body: { kind: "terminal", outcome: {
+      version: "planweave.runner/v1", state: "succeeded", exitCode: 0,
+      finishedAt: "2026-07-11T00:00:01.000Z", diagnostic: null, artifactValidated: true
+    } } });
+    const publisher = new AcpEventPublisher();
+    publisher.seed([event(1), terminal]);
+    const received: number[] = [];
+    const subscription = publisher.subscribe(2, (item) => { received.push(item.sequence); }, {
+      keepOpenAfterTerminal: true
+    });
+
+    publisher.publish(event(3));
+    await Promise.resolve();
+    subscription.unsubscribe();
+    await subscription.closed;
+
+    expect(received).toEqual([3]);
     expect(publisher.subscriberCount).toBe(0);
   });
 
@@ -619,5 +704,49 @@ describe("ACP production read model", () => {
     expect(second.events.map((item) => item.sequence)).toEqual([2]);
     expect(third.events).toEqual([]);
     expect([first.cursor.afterSequence, second.cursor.afterSequence, third.cursor.afterSequence]).toEqual([1, 2, 2]);
+  });
+});
+
+describe("ACP incremental read projection", () => {
+  it("processes live events linearly without reparsing the normalized log", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-linear-read-"));
+    const projectionSizes: number[] = [];
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: runnerIdentitySchema.parse({
+        version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex"
+      }),
+      writeConversationProjection: async (_runDir, events) => {
+        projectionSizes.push(events.length);
+      }
+    });
+    await store.open();
+    const model = new AcpEventReadModel(store);
+    const parseSpy = vi.spyOn(store, "normalizedContent");
+    const appendSpy = vi.spyOn(AcpProjectionAccumulator.prototype, "append");
+    let cursor = runnerEventCursorSchema.parse({
+      version: "planweave.runner-event-cursor/v1",
+      runId: "RUN-001",
+      afterSequence: 0,
+      canonicalIdentity: null,
+      terminal: false
+    });
+    const subscription = model.subscribe(0, () => {
+      cursor = model.replay(cursor).cursor;
+    }, { keepOpenAfterTerminal: true });
+
+    for (let sequence = 1; sequence <= 200; sequence += 1) {
+      await store.append(event(sequence).body, { sessionId: "session-1" });
+    }
+    await vi.waitFor(() => expect(cursor.afterSequence).toBe(200));
+    subscription.unsubscribe();
+    await subscription.closed;
+    expect(projectionSizes).toEqual([]);
+    await store.drain();
+
+    expect(parseSpy).not.toHaveBeenCalled();
+    expect(appendSpy.mock.calls.length).toBeLessThanOrEqual(400);
+    expect(projectionSizes).toEqual([200]);
   });
 });

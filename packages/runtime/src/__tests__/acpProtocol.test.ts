@@ -89,6 +89,19 @@ describe("ACP official SDK subprocess connection", () => {
     );
   });
 
+  it("loads an existing session through the official SDK wire path", async () => {
+    const connection = connect("load-capable");
+    const initialized = await connection.initialize();
+    expect(initialized.agentCapabilities?.loadSession).toBe(true);
+    const session = await connection.newSession({ cwd: process.cwd(), mcpServers: [] });
+
+    await expect(connection.loadSession({
+      sessionId: session.sessionId,
+      cwd: process.cwd(),
+      mcpServers: []
+    })).resolves.toEqual({});
+  });
+
   it("negotiates session/close and performs close over the official SDK wire path", async () => {
     const connection = connect("close-capable");
     const initialized = await connection.initialize();

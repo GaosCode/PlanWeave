@@ -88,6 +88,10 @@ function toolStatus(value: unknown): "pending" | "in_progress" | "completed" | "
   return value === "pending" || value === "in_progress" || value === "completed" || value === "failed" || value === "cancelled" ? value : null;
 }
 
+function optionalSerialized(value: unknown, present: boolean) {
+  return present ? serialized(value) : undefined;
+}
+
 export function normalizeAcpSessionNotification(notification: SessionNotification): AcpNormalizedEventBody | null {
   const update = notification.update;
   if (nonConversationSessionUpdateSchema.safeParse(update).success) return null;
@@ -104,14 +108,35 @@ export function normalizeAcpSessionNotification(notification: SessionNotificatio
       const title = normalizedRedactedContent(update.title);
       return {
         kind: "tool_call", callId: update.toolCallId, status: toolStatus(update.status),
-        title: title.content, content: update.content ? serialized(update.content) : null
+        title: title.content,
+        toolKind: update.kind ?? null,
+        content: update.content ? serialized(update.content) : null,
+        rawInput: Object.hasOwn(update, "rawInput") ? serialized(update.rawInput) : null,
+        rawOutput: Object.hasOwn(update, "rawOutput") ? serialized(update.rawOutput) : null
       };
     }
-    case "tool_call_update":
+    case "tool_call_update": {
+      const status = Object.hasOwn(update, "status")
+        ? toolStatus(update.status)
+        : undefined;
+      const title = Object.hasOwn(update, "title")
+        ? typeof update.title === "string" ? normalizedRedactedContent(update.title).content : null
+        : undefined;
+      const toolKind = Object.hasOwn(update, "kind") ? update.kind ?? null : undefined;
+      const content = Object.hasOwn(update, "content")
+        ? update.content === null ? null : serialized(update.content)
+        : undefined;
       return {
-        kind: "tool_update", callId: update.toolCallId, status: toolStatus(update.status),
-        content: update.content ? serialized(update.content) : null
+        kind: "tool_update",
+        callId: update.toolCallId,
+        ...(status !== undefined ? { status } : {}),
+        ...(title !== undefined ? { title } : {}),
+        ...(toolKind !== undefined ? { toolKind } : {}),
+        ...(content !== undefined || update.content === null ? { content } : {}),
+        ...(Object.hasOwn(update, "rawInput") ? { rawInput: optionalSerialized(update.rawInput, true) } : {}),
+        ...(Object.hasOwn(update, "rawOutput") ? { rawOutput: optionalSerialized(update.rawOutput, true) } : {})
       };
+    }
     case "plan":
     case "plan_update": {
       const content = serialized(update.sessionUpdate === "plan" ? update : update.plan);

@@ -69,12 +69,20 @@ const toolCallEventBodySchema = z
   .object({
     kind: z.literal("tool_call"), callId: z.string().min(1).max(256),
     status: toolStatusSchema.nullable(), title: persistedMessageSchema,
-    content: redactedContentSchema.nullable()
+    toolKind: persistedMessageSchema.nullable().optional(),
+    content: redactedContentSchema.nullable(),
+    rawInput: redactedContentSchema.nullable().optional(),
+    rawOutput: redactedContentSchema.nullable().optional()
   }).strict();
 const toolUpdateEventBodySchema = z
   .object({
     kind: z.literal("tool_update"), callId: z.string().min(1).max(256),
-    status: toolStatusSchema.nullable(), content: redactedContentSchema.nullable()
+    status: toolStatusSchema.nullable().optional(),
+    title: persistedMessageSchema.nullable().optional(),
+    toolKind: persistedMessageSchema.nullable().optional(),
+    content: redactedContentSchema.nullable().optional(),
+    rawInput: redactedContentSchema.optional(),
+    rawOutput: redactedContentSchema.optional()
   }).strict();
 const planUpdateEventBodySchema = z
   .object({ kind: z.literal("plan_update"), content: persistedMessageSchema, redaction: redactionSchema }).strict();

@@ -7,9 +7,12 @@ import type { AcpEventSubscription } from "./acpEventPublisher.js";
 import type { AcpEventReadModel } from "./acpEventReadModel.js";
 import {
   acpConversationItemSchema,
-  projectAcpConversation
+  acpTimelineItemSchema,
+  projectAcpConversation,
+  projectAcpTimeline
 } from "./acpConversationProjection.js";
 import { normalizedRunnerEventSchema, type NormalizedRunnerEvent } from "./normalizedEventContract.js";
+import { isLegacyUnsupportedSessionUpdateDiagnostic } from "./acpLegacyDiagnosticCompatibility.js";
 import { redactRunnerEventText, safeRunnerEventTextSchema } from "./runnerEventRedaction.js";
 import {
   replayNormalizedRunnerEvents,
@@ -39,6 +42,18 @@ const runnerActionAvailabilitySchema = z
     reason: z.string().min(1).max(512).nullable()
   })
   .strict();
+
+export const desktopAgentPromptIdentitySchema = z.object({
+  ref: z.object({
+    projectRoot: z.string().min(1),
+    canvasId: z.string().min(1).nullable().optional()
+  }).strict(),
+  recordId: z.string().min(1),
+  executorRunId: executorRunIdSchema,
+  claimRef: claimRefSchema,
+  sessionId: acpSessionIdSchema
+}).strict();
+export type DesktopAgentPromptIdentity = z.infer<typeof desktopAgentPromptIdentitySchema>;
 
 const runnerRecordActiveInteractionBaseSchema = z
   .object({
@@ -76,10 +91,15 @@ export const runnerRecordReadModelSchema = z
   .object({
     events: z.array(normalizedRunnerEventSchema),
     conversation: z.array(acpConversationItemSchema),
+    timeline: z.array(acpTimelineItemSchema),
     diagnostics: z.array(runnerEventReplayDiagnosticSchema),
     cursor: runnerEventCursorSchema,
     terminal: z.boolean(),
     intervention: z.object({
+      prompt: runnerActionAvailabilitySchema.extend({
+        identity: desktopAgentPromptIdentitySchema.nullable(),
+        inFlight: z.boolean()
+      }).strict(),
       cancel: runnerActionAvailabilitySchema.extend({
         identity: runnerSessionActionIdentitySchema.nullable()
       }).strict()
@@ -109,9 +129,16 @@ function diagnostic(code: RunnerEventReplayDiagnostic["code"], message: string):
   return { code, line: null, message };
 }
 
+function visibleEvents(events: readonly NormalizedRunnerEvent[]): NormalizedRunnerEvent[] {
+  return events.filter((event) => !isLegacyUnsupportedSessionUpdateDiagnostic(event));
+}
+
 export async function readRunnerRecordReadModel(options: {
   runDir: string;
   metadata: Record<string, unknown>;
+  promptIdentity?: DesktopAgentPromptIdentity;
+  promptInFlight?: boolean;
+  promptUnavailableReason?: string;
 }): Promise<RunnerRecordReadModel | null> {
   return (await consumeRunnerRecordReadModel(options)).snapshot;
 }
@@ -215,6 +242,7 @@ function failedIdentitySnapshot(options: {
     snapshot: {
       events: [],
       conversation: [],
+      timeline: [],
       diagnostics: [
         ...(options.diagnostics ?? []),
         diagnostic("identity_mismatch", options.message)
@@ -228,6 +256,12 @@ function failedIdentitySnapshot(options: {
       },
       terminal: options.terminal ?? false,
       intervention: {
+        prompt: {
+          available: false,
+          reason: "Exact Desktop record identity is unavailable.",
+          identity: null,
+          inFlight: false
+        },
         cancel: {
           available: false,
           reason: "Exact live Desktop ACP session identity is unavailable.",
@@ -244,7 +278,11 @@ function interactionState(
   runDir: string,
   selected: SelectedRecordIdentity,
   cursor: RunnerEventCursor,
-  events: readonly NormalizedRunnerEvent[]
+  events: readonly NormalizedRunnerEvent[],
+  knownSessionIds?: ReadonlySet<string>,
+  promptIdentity?: DesktopAgentPromptIdentity,
+  promptInFlight = false,
+  promptUnavailableReason?: string
 ): Pick<RunnerRecordReadModel, "interaction" | "intervention"> {
   const persistedRequestIds = new Set<string>(
     events.flatMap((event) => event.body.kind === "interaction"
@@ -254,13 +292,13 @@ function interactionState(
   const persisted = persistedRequestIds.size > 0;
   const canonical = cursor.canonicalIdentity?.identity;
   if (!canonical?.executorRunId) {
-    return unavailableIntervention(persisted, "Exact runner identity is unavailable.");
+    return unavailableIntervention(persisted, "Exact runner identity is unavailable.", promptIdentity, promptInFlight, promptUnavailableReason);
   }
-  const sessionIds = new Set(
+  const sessionIds = knownSessionIds ?? new Set(
     events.flatMap((event) => event.correlation?.sessionId ? [event.correlation.sessionId] : [])
   );
   const sessionId = selected.sessionId ?? (sessionIds.size === 1 ? [...sessionIds][0] : undefined);
-  if (!sessionId) return unavailableIntervention(persisted, "Exact ACP session identity is unavailable.");
+  if (!sessionId) return unavailableIntervention(persisted, "Exact ACP session identity is unavailable.", promptIdentity, promptInFlight, promptUnavailableReason);
   try {
     const registered = activeAgentRunRegistry.lookupExact({
       scope: runDir,
@@ -270,15 +308,15 @@ function interactionState(
       ...(canonical.runSessionId ? { runSessionId: canonical.runSessionId } : {}),
       sessionId
     });
-    if (!registered) return unavailableIntervention(persisted, "No live owned ACP session is available.");
+    if (!registered) return unavailableIntervention(persisted, "No live owned ACP session is available.", promptIdentity, promptInFlight, promptUnavailableReason);
     if (
       (registered.identity.runSessionId ?? null) !== canonical.runSessionId ||
       (registered.identity.desktopRunId ?? null) !== canonical.desktopRunId
     ) {
-      return unavailableIntervention(persisted, "Live ACP session identity does not match the selected record.");
+      return unavailableIntervention(persisted, "Live ACP session identity does not match the selected record.", promptIdentity, promptInFlight, promptUnavailableReason);
     }
     if (!canonical.desktopRunId || !canonical.runSessionId) {
-      return unavailableIntervention(persisted, "Exact Desktop run/session identity is unavailable.");
+      return unavailableIntervention(persisted, "Exact Desktop run/session identity is unavailable.", promptIdentity, promptInFlight, promptUnavailableReason);
     }
     const sessionIdentity = runnerSessionActionIdentitySchema.parse({
       scope: runDir,
@@ -340,6 +378,9 @@ function interactionState(
       (registered.lifecycleState === "running" || registered.lifecycleState === "waiting_interaction");
     return {
       intervention: {
+        prompt: promptIdentity
+          ? { available: false, reason: "An ACP prompt cannot be sent while the original run is active.", identity: promptIdentity, inFlight: promptInFlight }
+          : { available: false, reason: promptUnavailableReason ?? "Exact Desktop record identity is unavailable.", identity: null, inFlight: false },
         cancel: {
           available: cancelAvailable,
           reason: cancelAvailable
@@ -358,16 +399,22 @@ function interactionState(
       }
     };
   } catch {
-    return unavailableIntervention(persisted, "Live ACP session identity could not be verified.");
+    return unavailableIntervention(persisted, "Live ACP session identity could not be verified.", promptIdentity, promptInFlight, promptUnavailableReason);
   }
 }
 
 function unavailableIntervention(
   persisted: boolean,
-  reason: string
+  reason: string,
+  promptIdentity?: DesktopAgentPromptIdentity,
+  promptInFlight = false,
+  promptUnavailableReason?: string
 ): Pick<RunnerRecordReadModel, "interaction" | "intervention"> {
   return {
     intervention: {
+      prompt: promptIdentity
+        ? { available: !promptInFlight, reason: promptInFlight ? "An ACP conversation turn is already in progress." : null, identity: promptIdentity, inFlight: promptInFlight }
+        : { available: false, reason: promptUnavailableReason ?? reason, identity: null, inFlight: false },
       cancel: { available: false, reason, identity: null }
     },
     interaction: {
@@ -384,22 +431,33 @@ function activeSnapshot(options: {
   runDir: string;
   selected: SelectedRecordIdentity;
   cursor?: RunnerEventCursor;
+  promptIdentity?: DesktopAgentPromptIdentity;
+  promptInFlight?: boolean;
+  promptUnavailableReason?: string;
 }): RunnerRecordReadModel {
   const replay = options.model.replay(options.cursor ?? 0);
-  const completeReplay = options.cursor ? options.model.replay(0) : replay;
-  const mismatch = identityMismatch(completeReplay.events, options.selected, completeReplay.cursor);
-  if (mismatch || completeReplay.diagnostics.some((item) => item.code === "identity_mismatch")) {
+  const mismatch = identityMismatch([], options.selected, replay.cursor);
+  if (mismatch || replay.diagnostics.some((item) => item.code === "identity_mismatch")) {
     throw new Error(mismatch?.message ?? "Runner event stream contains inconsistent identities.");
   }
-  return runnerRecordReadModelSchema.parse({
+  const completeProjection = options.model.completeProjection();
+  const snapshot: RunnerRecordReadModel = {
     ...replay,
+    events: visibleEvents(replay.events),
+    conversation: completeProjection.conversation,
+    timeline: completeProjection.timeline,
     ...interactionState(
       options.runDir,
       options.selected,
-      completeReplay.cursor,
-      completeReplay.events
+      replay.cursor,
+      options.model.interactionEventsSnapshot(),
+      options.model.knownSessionIds(),
+      options.promptIdentity,
+      options.promptInFlight,
+      options.promptUnavailableReason
     )
-  });
+  };
+  return snapshot;
 }
 
 function subscribeActiveModel(options: {
@@ -407,6 +465,9 @@ function subscribeActiveModel(options: {
   runDir: string;
   selected: SelectedRecordIdentity;
   cursor?: RunnerEventCursor;
+  promptIdentity?: DesktopAgentPromptIdentity;
+  promptInFlight?: boolean;
+  promptUnavailableReason?: string;
   afterSequence: number;
   subscriber: RunnerRecordReadSubscriber;
 }): AcpEventSubscription {
@@ -417,7 +478,9 @@ function subscribeActiveModel(options: {
     );
     return updateChain;
   };
-  const eventSubscription = options.model.subscribe(options.afterSequence, emit);
+  const eventSubscription = options.model.subscribe(options.afterSequence, emit, {
+    keepOpenAfterTerminal: options.promptIdentity !== undefined
+  });
   const unsubscribeInteraction = activeAgentRunRegistry.subscribeInteractionChanges((handle) => {
     if (
       handle.identity.scope !== options.runDir ||
@@ -445,6 +508,9 @@ export async function consumeRunnerRecordReadModel(options: {
   metadata: Record<string, unknown>;
   cursor?: RunnerEventCursor;
   subscriber?: RunnerRecordReadSubscriber;
+  promptIdentity?: DesktopAgentPromptIdentity;
+  promptInFlight?: boolean;
+  promptUnavailableReason?: string;
 }): Promise<RunnerRecordReadConsumer> {
   if (options.metadata.runnerKind !== "acp") {
     return { snapshot: null, subscription: null };
@@ -466,7 +532,10 @@ export async function consumeRunnerRecordReadModel(options: {
         model: activeModel,
         runDir: options.runDir,
         selected,
-        ...(options.cursor ? { cursor: options.cursor } : {})
+        ...(options.cursor ? { cursor: options.cursor } : {}),
+        ...(options.promptIdentity ? { promptIdentity: options.promptIdentity } : {}),
+        promptInFlight: options.promptInFlight,
+        promptUnavailableReason: options.promptUnavailableReason
       });
     } catch {
       return failedIdentitySnapshot({
@@ -474,7 +543,7 @@ export async function consumeRunnerRecordReadModel(options: {
         message: "Runner event cursor identity does not match the active record."
       });
     }
-    if (!options.subscriber || snapshot.terminal) {
+    if (!options.subscriber || (snapshot.terminal && snapshot.intervention.prompt.identity === null)) {
       return { snapshot, subscription: null };
     }
     const subscription = subscribeActiveModel({
@@ -483,7 +552,10 @@ export async function consumeRunnerRecordReadModel(options: {
       selected,
       ...(options.cursor ? { cursor: options.cursor } : {}),
       afterSequence: snapshot.cursor.afterSequence,
-      subscriber: options.subscriber
+      subscriber: options.subscriber,
+      ...(options.promptIdentity ? { promptIdentity: options.promptIdentity } : {}),
+      promptInFlight: options.promptInFlight,
+      promptUnavailableReason: options.promptUnavailableReason
     });
     let authoritativeSnapshot: RunnerRecordReadModel;
     try {
@@ -491,7 +563,10 @@ export async function consumeRunnerRecordReadModel(options: {
         model: activeModel,
         runDir: options.runDir,
         selected,
-        ...(options.cursor ? { cursor: options.cursor } : {})
+        ...(options.cursor ? { cursor: options.cursor } : {}),
+        ...(options.promptIdentity ? { promptIdentity: options.promptIdentity } : {}),
+        promptInFlight: options.promptInFlight,
+        promptUnavailableReason: options.promptUnavailableReason
       });
     } catch {
       subscription.unsubscribe();
@@ -500,7 +575,7 @@ export async function consumeRunnerRecordReadModel(options: {
         message: "Runner event identity changed during subscription registration."
       });
     }
-    if (authoritativeSnapshot.terminal) {
+    if (authoritativeSnapshot.terminal && authoritativeSnapshot.intervention.prompt.identity === null) {
       subscription.unsubscribe();
       return { snapshot: authoritativeSnapshot, subscription: null };
     }
@@ -537,8 +612,9 @@ export async function consumeRunnerRecordReadModel(options: {
     : replay;
   return {
     snapshot: runnerRecordReadModelSchema.parse({
-      events: replay.events,
-      conversation: projectAcpConversation(replay.events),
+      events: visibleEvents(replay.events),
+      conversation: projectAcpConversation(visibleEvents(completeReplay.events)),
+      timeline: projectAcpTimeline(visibleEvents(completeReplay.events)),
       diagnostics: [...boundaryDiagnostics, ...replay.diagnostics],
       cursor: replay.nextCursor,
       terminal: replay.terminal,
@@ -546,7 +622,11 @@ export async function consumeRunnerRecordReadModel(options: {
         options.runDir,
         selected,
         completeReplay.nextCursor,
-        completeReplay.events
+        completeReplay.events,
+        undefined,
+        options.promptIdentity,
+        options.promptInFlight,
+        options.promptUnavailableReason
       )
     }),
     subscription: null

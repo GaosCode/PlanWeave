@@ -85,7 +85,8 @@ const agentAcpProfileSchema = z
   .object({
     adapter: executorProfileAdapterSchema.extract(["agent"]),
     agent: agentFamilySchema,
-    runner: acpRunnerSchema
+    runner: acpRunnerSchema,
+    ...executorRuntimeLimitsSchema.shape
   })
   .strict();
 

@@ -58,6 +58,7 @@ import type { CanvasExecutionPolicyInput } from "../graph/editModelTypes.js";
 import type {
   DesktopAgentActionIdentity,
   DesktopAgentSessionActionIdentity,
+  DesktopAgentPromptIdentity,
   DesktopAgentActionValue,
   DesktopPendingAgentRequest,
   DesktopRunnerRecordSubscriptionInput,
@@ -393,6 +394,7 @@ export type DesktopBridgeApi = {
     value: DesktopAgentActionValue
   ): Promise<void>;
   cancelAgentRun(identity: DesktopAgentSessionActionIdentity): Promise<void>;
+  sendAgentPrompt(identity: DesktopAgentPromptIdentity, text: string): Promise<void>;
   startAutoRun(
     ref: DesktopCanvasReference,
     scope: DesktopAutoRunScope,

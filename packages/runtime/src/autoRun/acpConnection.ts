@@ -13,6 +13,8 @@ import {
   type CreateElicitationRequest,
   type CreateElicitationResponse,
   type InitializeResponse,
+  type LoadSessionRequest,
+  type LoadSessionResponse,
   type NewSessionRequest,
   type NewSessionResponse,
   type PromptRequest,
@@ -69,6 +71,7 @@ export type AcpConnection = {
   readonly closed: Promise<void>;
   initialize(options?: AcpOperationOptions): Promise<InitializeResponse>;
   newSession(request: NewSessionRequest, options?: AcpOperationOptions): Promise<NewSessionResponse>;
+  loadSession(request: LoadSessionRequest, options?: AcpOperationOptions): Promise<LoadSessionResponse>;
   prompt(request: PromptRequest, options?: AcpOperationOptions): Promise<PromptResponse>;
   cancel(notification: CancelNotification): Promise<void>;
   closeSession(sessionId: string, options?: AcpOperationOptions): Promise<CloseSessionResponse>;
@@ -328,6 +331,11 @@ class SubprocessAcpConnection implements AcpConnection {
   newSession(request: NewSessionRequest, options?: AcpOperationOptions): Promise<NewSessionResponse> {
     if (!isAbsolute(request.cwd)) return Promise.reject(new Error("ACP session cwd must be absolute."));
     return this.runOperation("session/new", () => this.sdk.newSession(request), options);
+  }
+
+  loadSession(request: LoadSessionRequest, options?: AcpOperationOptions): Promise<LoadSessionResponse> {
+    if (!isAbsolute(request.cwd)) return Promise.reject(new Error("ACP session cwd must be absolute."));
+    return this.runOperation("session/load", () => this.sdk.loadSession(request), options);
   }
 
   prompt(request: PromptRequest, options?: AcpOperationOptions): Promise<PromptResponse> {

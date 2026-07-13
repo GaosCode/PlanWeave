@@ -141,6 +141,8 @@ export type {
 export {
   desktopAgentActionIdentitySchema,
   desktopAgentSessionActionIdentitySchema,
+  desktopAgentPromptIdentitySchema,
+  desktopAgentPromptTextSchema,
   desktopAgentActionValueSchema,
   desktopRunnerRecordSubscriptionInputSchema,
   desktopRunnerRecordSubscriptionPushSchema
@@ -169,6 +171,7 @@ export {
   getRunRecord,
   listBlockRunRecords,
   resolveRunRecordArtifactPath,
+  sendAgentPrompt,
   subscribeRunRecord
 } from "./recordsApi.js";
 export {

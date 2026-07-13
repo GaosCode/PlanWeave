@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   consumeRunnerRecordReadModel,
+  desktopAgentPromptIdentitySchema,
   readRunnerRecordReadModel
 } from "../autoRun/runnerRecordReadModel.js";
 import { acpEventReadModels } from "../autoRun/acpEventReadModel.js";
@@ -183,6 +184,87 @@ describe("runner record read model", () => {
     ]);
   });
 
+  it.each([
+    ["available_commands_update", { availableCommands: [] }],
+    ["current_mode_update", { currentModeId: "code" }],
+    ["config_option_update", { configOptions: [] }],
+    ["session_info_update", { title: "Renamed session" }],
+    ["session_info_update", { updatedAt: "2026-07-13T00:00:00.000Z" }],
+    ["agent_thought_chunk", { content: { type: "text", text: "private" } }],
+    ["plan_removed", { planId: "plan-1" }]
+  ])("hides historical false-positive corrupt_line for %s", async (sessionUpdate, payload) => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-"));
+    const legacy = normalizedRunnerEventSchema.parse({
+      ...event(1, "message"),
+      body: {
+        kind: "diagnostic",
+        code: "corrupt_line",
+        message: `Unsupported ACP session update: ${JSON.stringify({ sessionUpdate, ...payload })}`
+      }
+    });
+    await writeFile(join(runDir, "events.ndjson"), `${JSON.stringify(legacy)}\n`, "utf8");
+
+    const result = await readRunnerRecordReadModel({ runDir, metadata });
+
+    expect(result?.events).toEqual([]);
+    expect(result?.diagnostics).toEqual([]);
+  });
+
+  it("keeps malformed known ACP updates visible", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-"));
+    const malformed = normalizedRunnerEventSchema.parse({
+      ...event(1, "message"),
+      body: {
+        kind: "diagnostic",
+        code: "corrupt_line",
+        message: "Unsupported ACP session update: {\"sessionUpdate\":\"available_commands_update\"}"
+      }
+    });
+    await writeFile(join(runDir, "events.ndjson"), `${JSON.stringify(malformed)}\n`, "utf8");
+
+    const result = await readRunnerRecordReadModel({ runDir, metadata });
+
+    expect(result?.events).toHaveLength(1);
+  });
+
+  it("keeps a known ACP update with a malformed array member visible", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-"));
+    const malformed = normalizedRunnerEventSchema.parse({
+      ...event(1, "message"),
+      body: {
+        kind: "diagnostic",
+        code: "corrupt_line",
+        message: "Unsupported ACP session update: {\"sessionUpdate\":\"available_commands_update\",\"availableCommands\":[{\"name\":\"missing-description\"}]}"
+      }
+    });
+    await writeFile(join(runDir, "events.ndjson"), `${JSON.stringify(malformed)}\n`, "utf8");
+
+    const result = await readRunnerRecordReadModel({ runDir, metadata });
+
+    expect(result?.events).toHaveLength(1);
+  });
+
+  it("keeps genuinely unknown historical ACP session updates visible", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-"));
+    const unknown = normalizedRunnerEventSchema.parse({
+      ...event(1, "message"),
+      body: {
+        kind: "diagnostic",
+        code: "corrupt_line",
+        message: "Unsupported ACP session update: {\"sessionUpdate\":\"future_unknown_update\"}"
+      }
+    });
+    await writeFile(join(runDir, "events.ndjson"), `${JSON.stringify(unknown)}\n`, "utf8");
+
+    const result = await readRunnerRecordReadModel({ runDir, metadata });
+
+    expect(result?.events).toHaveLength(1);
+    expect(result?.events[0]?.body).toMatchObject({
+      kind: "diagnostic",
+      code: "corrupt_line"
+    });
+  });
+
   it("fails closed when a same-run log belongs to another claim", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-"));
     await writeFile(
@@ -263,6 +345,41 @@ describe("runner record read model", () => {
 
       expect(live).toEqual([2, 3]);
       expect(model.store.publisher.subscriberCount).toBe(0);
+    } finally {
+      acpEventReadModels.release(runDir);
+    }
+  });
+
+  it("keeps a completed prompt-capable record subscribed for later conversation turns", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-resume-record-"));
+    const model = await acpEventReadModels.create({
+      runDir,
+      identity: runnerRunIdentitySchema.parse(event(1, "message").identity),
+      runner: runnerIdentitySchema.parse(event(1, "message").runner)
+    });
+    try {
+      await model.store.append(event(1, "message").body);
+      await model.store.append(event(2, "terminal").body);
+      const live: number[] = [];
+      const consumer = await consumeRunnerRecordReadModel({
+        runDir,
+        metadata,
+        promptIdentity: desktopAgentPromptIdentitySchema.parse({
+          ref: { projectRoot: "/tmp/project", canvasId: "default" },
+          recordId: "T-001#B-001::RUN-001",
+          executorRunId: "RUN-001",
+          claimRef: "T-001#B-001",
+          sessionId: "session-1"
+        }),
+        subscriber: (snapshot) => { live.push(snapshot.cursor.afterSequence); }
+      });
+
+      expect(consumer.snapshot?.terminal).toBe(true);
+      expect(consumer.subscription).not.toBeNull();
+      await model.store.append(event(3, "message").body);
+      await vi.waitFor(() => expect(live).toEqual([3]));
+      consumer.subscription?.unsubscribe();
+      await consumer.subscription?.closed;
     } finally {
       acpEventReadModels.release(runDir);
     }

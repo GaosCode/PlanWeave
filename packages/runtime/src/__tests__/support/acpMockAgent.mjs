@@ -31,7 +31,7 @@ const app = agent({ name: "planweave-acp-mock" })
     if (scenario === "expect-broker-capabilities" && elicitation?.form == null) {
       throw RequestError.invalidParams({ reason: "interactive broker omitted form elicitation" });
     }
-    if (scenario === "delayed" || scenario === "delayed-artifact-implementation") await pause(40);
+    if (scenario === "delayed" || scenario === "delayed-artifact-implementation" || scenario === "load-capable-delayed") await pause(40);
     if (scenario === "duplicate-response" || scenario === "unknown-id") {
       const id = scenario === "duplicate-response" ? ctx.requestId : "unknown-request-id";
       setTimeout(() => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, result: { duplicate: true } })}\n`), 10);
@@ -39,7 +39,7 @@ const app = agent({ name: "planweave-acp-mock" })
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentCapabilities: {
-        loadSession: false,
+        loadSession: scenario === "load-capable" || scenario === "load-capable-error" || scenario === "load-capable-delayed",
         ...(scenario === "close-capable" ? { sessionCapabilities: { close: {} } } : {})
       },
       authMethods:
@@ -83,6 +83,21 @@ const app = agent({ name: "planweave-acp-mock" })
     sessions.set(sessionId, { cancelled: false });
     return { sessionId };
   })
+  .onRequest(methods.agent.session.load, async (ctx) => {
+    if (scenario !== "load-capable" && scenario !== "load-capable-error" && scenario !== "load-capable-delayed") {
+      throw RequestError.invalidParams({ sessionId: ctx.params.sessionId });
+    }
+    sessions.set(ctx.params.sessionId, { cancelled: false });
+    await ctx.client.notify(methods.client.session.update, {
+      sessionId: ctx.params.sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "replayed-message",
+        content: { type: "text", text: "historical replay" }
+      }
+    });
+    return {};
+  })
   .onNotification(methods.agent.session.cancel, (ctx) => {
     const session = sessions.get(ctx.params.sessionId);
     if (session) session.cancelled = true;
@@ -97,6 +112,9 @@ const app = agent({ name: "planweave-acp-mock" })
     const { sessionId } = ctx.params;
     const session = sessions.get(sessionId);
     if (!session) throw RequestError.invalidParams({ sessionId });
+    if (scenario === "load-capable-error") {
+      throw RequestError.invalidParams({ reason: "scripted continuation error" });
+    }
     if (scenario === "protocol-error") throw RequestError.invalidParams({ reason: "scripted protocol error" });
     if (scenario === "stubborn-pending") {
       await ctx.client.request("mock/pending", { sessionId });

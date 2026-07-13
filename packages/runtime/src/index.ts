@@ -302,7 +302,11 @@ export {
   runnerRecordReadModelSchema
 } from "./autoRun/runnerRecordReadModel.js";
 export type * from "./autoRun/runnerRecordReadModel.js";
-export { projectAcpConversation } from "./autoRun/acpConversationProjection.js";
+export {
+  acpTimelineItemSchema,
+  projectAcpConversation,
+  projectAcpTimeline
+} from "./autoRun/acpConversationProjection.js";
 export type * from "./autoRun/acpConversationProjection.js";
 export { writeAcpConversationProjection } from "./autoRun/acpConversationPersistence.js";
 export {
@@ -428,6 +432,7 @@ export {
   shutdownDesktopAutoRuns,
   startAutoRun,
   stopAutoRun,
+  sendAgentPrompt,
   subscribeRunRecord,
   subscribeAutoRunEvents,
   updateBlockDependencies,
@@ -451,6 +456,8 @@ export {
 } from "./desktop/index.js";
 export {
   desktopAgentActionIdentitySchema,
+  desktopAgentPromptIdentitySchema,
+  desktopAgentPromptTextSchema,
   desktopAgentSessionActionIdentitySchema,
   desktopAgentActionValueSchema,
   desktopRunnerRecordSubscriptionInputSchema,

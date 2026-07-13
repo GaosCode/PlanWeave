@@ -1,12 +1,14 @@
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { realpath } from "node:fs/promises";
 import {
   ArtifactReferenceVerificationError,
   readVerifiedArtifactReference
 } from "../autoRun/artifactReferenceContract.js";
 import { finalArtifactRelativePath } from "../autoRun/finalArtifactContract.js";
 import {
-  consumeRunnerRecordReadModel,
   readRunnerRecordReadModel,
+  desktopAgentPromptIdentitySchema,
+  type DesktopAgentPromptIdentity,
   type RunnerRecordReadConsumer,
   type RunnerRecordReadSubscriber
 } from "../autoRun/runnerRecordReadModel.js";
@@ -21,7 +23,22 @@ import { readJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { readState } from "../state.js";
 import { reviewResultSchema } from "../taskManager/reviewResultContract.js";
-import type { ExecutorIntegrationName, PackageWorkspaceRef, ReviewVerdict } from "../types.js";
+import {
+  type ExecutorIntegrationName,
+  type PackageWorkspaceRef,
+  type ProjectWorkspace,
+  type ReviewVerdict
+} from "../types.js";
+import {
+  acpPromptReadOptions,
+  consumeAcpPromptRunRecord,
+  continueAcpPrompt,
+  resolveAcpPromptContext
+} from "./acpPromptApi.js";
+import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
+import {
+  desktopAgentPromptTextSchema
+} from "./types/acpBridgeTypes.js";
 import {
   cleanOutputSummary,
   displayMarkdownForRecord,
@@ -114,6 +131,38 @@ function parseRunRecordId(recordId: string): ParsedRunRecordId {
     return { kind: "block", blockRef: ref, runId };
   }
   return { kind: "feedback", feedbackId: ref, runId };
+}
+
+function assertContainedPath(root: string, candidate: string): void {
+  if (!isAbsolute(root) || !isAbsolute(candidate)) {
+    throw new Error("ACP run record paths must be absolute.");
+  }
+  const nested = relative(resolve(root), resolve(candidate));
+  if (nested === "" || (!nested.startsWith(`..${sep}`) && nested !== ".." && !isAbsolute(nested))) {
+    return;
+  }
+  throw new Error("ACP run record path escapes the selected canvas results directory.");
+}
+
+function blockRunDirectory(
+  workspace: ProjectWorkspace,
+  parsed: Extract<ParsedRunRecordId, { kind: "block" }>
+): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(parsed.runId)) {
+    throw new Error(`Run id '${parsed.runId}' is invalid.`);
+  }
+  const runRoot = blockRunRoot(workspace.resultsDir, parsed.blockRef);
+  const runDir = join(runRoot, parsed.runId);
+  assertContainedPath(workspace.resultsDir, runDir);
+  return runDir;
+}
+
+async function assertRealRunDirectory(resultsDir: string, runDir: string): Promise<void> {
+  const [realResultsDir, realRunDir] = await Promise.all([
+    realpath(resultsDir),
+    realpath(runDir)
+  ]);
+  assertContainedPath(realResultsDir, realRunDir);
 }
 
 function reviewAttemptRoot(resultsDir: string, blockRef: string): string {
@@ -447,13 +496,25 @@ export async function getRunRecord(
     stdout,
     stderr
   });
+  const conversation = resolveAcpPromptContext({
+    workspace,
+    recordId,
+    blockRef: parsed.kind === "block" ? parsed.blockRef : null,
+    runId: parsed.kind === "block" ? parsed.runId : null,
+    runDir: parsed.kind === "block" ? runDir : null,
+    metadata
+  });
   return {
     ...summary,
     promptMarkdown,
     reportMarkdown,
     ...display,
     metadata,
-    runnerReadModel: await readRunnerRecordReadModel({ runDir, metadata })
+    runnerReadModel: await readRunnerRecordReadModel({
+      runDir,
+      metadata,
+      ...acpPromptReadOptions(conversation)
+    })
   };
 }
 
@@ -473,7 +534,64 @@ export async function subscribeRunRecord(
   const metadata = (await exists(metadataPath))
     ? await readJsonFile<Record<string, unknown>>(metadataPath)
     : {};
-  return consumeRunnerRecordReadModel({ runDir, metadata, cursor, subscriber });
+  const conversation = resolveAcpPromptContext({
+    workspace,
+    recordId,
+    blockRef: parsed.kind === "block" ? parsed.blockRef : null,
+    runId: parsed.kind === "block" ? parsed.runId : null,
+    runDir: parsed.kind === "block" ? runDir : null,
+    metadata
+  });
+  return consumeAcpPromptRunRecord({
+    context: conversation,
+    runDir,
+    metadata,
+    cursor,
+    subscriber
+  });
+}
+
+export async function sendAgentPrompt(
+  rawIdentity: DesktopAgentPromptIdentity,
+  rawText: string
+): Promise<void> {
+  const identity = desktopAgentPromptIdentitySchema.parse(rawIdentity);
+  const text = desktopAgentPromptTextSchema.parse(rawText);
+  const workspace = await resolveTaskCanvasWorkspace(
+    identity.ref.projectRoot,
+    identity.ref.canvasId
+  );
+  const parsed = parseRunRecordId(identity.recordId);
+  if (parsed.kind !== "block") {
+    throw new Error("ACP conversation turns are only available for block run records.");
+  }
+  const runDir = blockRunDirectory(workspace, parsed);
+  await assertRealRunDirectory(workspace.resultsDir, runDir);
+  const metadataPath = join(runDir, "metadata.json");
+  const metadata = (await exists(metadataPath))
+    ? await readJsonFile<Record<string, unknown>>(metadataPath)
+    : {};
+  const context = resolveAcpPromptContext({
+    workspace,
+    recordId: identity.recordId,
+    blockRef: parsed.blockRef,
+    runId: parsed.runId,
+    runDir,
+    metadata
+  });
+  if (!context.available) throw new Error(context.reason);
+  const expected = context.identity;
+  if (
+    expected.ref.projectRoot !== identity.ref.projectRoot ||
+    expected.ref.canvasId !== identity.ref.canvasId ||
+    expected.recordId !== identity.recordId ||
+    expected.executorRunId !== identity.executorRunId ||
+    expected.claimRef !== identity.claimRef ||
+    expected.sessionId !== identity.sessionId
+  ) {
+    throw new Error("ACP prompt identity does not match the selected persisted run record.");
+  }
+  await continueAcpPrompt({ workspace, context, text });
 }
 
 export async function resolveRunRecordArtifactPath(

@@ -15,7 +15,7 @@ type AcpEventPublisherDiagnostic = {
   message: string;
 };
 
-type Subscriber = { after: number; pending: number; closed: boolean; resolve: () => void; chain: Promise<void>; receive: AcpEventSubscriber };
+type Subscriber = { after: number; pending: number; closed: boolean; closeOnTerminal: boolean; resolve: () => void; chain: Promise<void>; receive: AcpEventSubscriber };
 
 export class AcpEventPublisher {
   private readonly events: NormalizedRunnerEvent[] = [];
@@ -49,17 +49,29 @@ export class AcpEventPublisher {
     for (const subscriber of this.subscribers) this.enqueue(subscriber, event);
     if (event.body.kind === "terminal") {
       this.terminal = true;
-      this.closeAll();
+      this.closeTerminalSubscribers();
     }
   }
 
-  subscribe(afterSequence: number, receive: AcpEventSubscriber): AcpEventSubscription {
+  subscribe(
+    afterSequence: number,
+    receive: AcpEventSubscriber,
+    options: { keepOpenAfterTerminal?: boolean } = {}
+  ): AcpEventSubscription {
     let resolve = (): void => undefined;
     const closed = new Promise<void>((done) => { resolve = done; });
-    const subscriber: Subscriber = { after: afterSequence, pending: 0, closed: false, resolve, chain: Promise.resolve(), receive };
+    const subscriber: Subscriber = {
+      after: afterSequence,
+      pending: 0,
+      closed: false,
+      closeOnTerminal: options.keepOpenAfterTerminal !== true,
+      resolve,
+      chain: Promise.resolve(),
+      receive
+    };
     this.subscribers.add(subscriber);
     for (const event of this.events) if (event.sequence > afterSequence) this.enqueue(subscriber, event);
-    if (this.terminal) this.close(subscriber);
+    if (this.terminal && subscriber.closeOnTerminal) this.close(subscriber);
     return { unsubscribe: () => this.close(subscriber), closed };
   }
 
@@ -91,7 +103,11 @@ export class AcpEventPublisher {
     void subscriber.chain.finally(subscriber.resolve);
   }
 
-  private closeAll(): void { for (const subscriber of [...this.subscribers]) this.close(subscriber); }
+  private closeTerminalSubscribers(): void {
+    for (const subscriber of [...this.subscribers]) {
+      if (subscriber.closeOnTerminal) this.close(subscriber);
+    }
+  }
   private reportDiagnostic(code: "subscriber_backpressure" | "subscriber_callback_failed", message: string): void {
     this.diagnostics.push({ code, message });
     if (!this.diagnosticSink) return;

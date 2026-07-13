@@ -43,6 +43,8 @@ export class AcpEventStore {
   private readonly diagnostics: RunnerEventReplayDiagnostic[] = [];
   private writeChain = Promise.resolve();
   private writeFailure: unknown;
+  private conversationProjectionDirty = false;
+  private conversationProjectionFailureRecorded = false;
   private opened = false;
   private readonly appendText: typeof appendFile;
   private readonly writeConversationProjection: typeof writeAcpConversationProjection;
@@ -129,15 +131,14 @@ export class AcpEventStore {
       this.sequence = event.sequence;
       this.bytes += Buffer.byteLength(encoded);
       this.events.push(event);
+      this.conversationProjectionDirty = true;
       try {
         this.publisher.publish(event);
       } catch (error) {
         await this.recordDerivedFailure("publisher_failed", error);
       }
-      try {
-        await this.writeConversationProjection(this.options.runDir, this.events);
-      } catch (error) {
-        await this.recordDerivedFailure("conversation_projection_failed", error);
+      if (event.body.kind === "terminal") {
+        await this.flushConversationProjection();
       }
       return event;
     });
@@ -156,6 +157,17 @@ export class AcpEventStore {
     };
   }
 
+  eventsAfterSequence(afterSequence: number): NormalizedRunnerEvent[] {
+    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
+      throw new Error("ACP event sequence cursor must be a non-negative safe integer.");
+    }
+    return this.events.slice(Math.min(afterSequence, this.events.length));
+  }
+
+  diagnosticsSnapshot(): RunnerEventReplayDiagnostic[] {
+    return [...this.diagnostics];
+  }
+
   normalizedContent(): string {
     return this.events.map(encodeNormalizedRunnerEvent).join("");
   }
@@ -166,9 +178,9 @@ export class AcpEventStore {
   }
 
   async drain(): Promise<void> {
-    await this.writeChain;
+    await this.serial(() => this.flushConversationProjection());
     await this.publisher.drainDiagnostics();
-    await this.writeChain;
+    await this.serial(() => this.flushConversationProjection());
     if (this.writeFailure !== undefined) throw this.writeFailure;
   }
 
@@ -184,10 +196,10 @@ export class AcpEventStore {
   }
 
   private async appendNormalizedText(encoded: string): Promise<void> {
-    const expectedBefore = this.normalizedContent();
     try {
       await this.appendText(this.eventsPath, encoded, "utf8");
     } catch (error) {
+      const expectedBefore = this.normalizedContent();
       let actual: string;
       try {
         actual = await readFile(this.eventsPath, "utf8");
@@ -200,6 +212,20 @@ export class AcpEventStore {
       if (actual === expectedBefore) throw error;
       if (actual === `${expectedBefore}${encoded}`) return;
       this.poisonNormalizedLog();
+    }
+  }
+
+  private async flushConversationProjection(): Promise<void> {
+    if (!this.conversationProjectionDirty) return;
+    try {
+      await this.writeConversationProjection(this.options.runDir, this.events);
+      this.conversationProjectionDirty = false;
+      this.conversationProjectionFailureRecorded = false;
+    } catch (error) {
+      if (!this.conversationProjectionFailureRecorded) {
+        this.conversationProjectionFailureRecorded = true;
+        await this.recordDerivedFailure("conversation_projection_failed", error);
+      }
     }
   }
 

@@ -6,6 +6,10 @@ import {
   runnerSessionActionIdentitySchema
 } from "../../autoRun/runnerContractSchemas.js";
 import type { RunnerRecordReadModel } from "../../autoRun/runnerRecordReadModel.js";
+import {
+  desktopAgentPromptIdentitySchema,
+  type DesktopAgentPromptIdentity
+} from "../../autoRun/runnerRecordReadModel.js";
 
 const nonEmptyStringSchema = z.string().min(1).max(4_096);
 
@@ -64,3 +68,12 @@ export type DesktopPendingAgentRequest = {
   requestedAt: string;
   summary: string;
 };
+
+export { desktopAgentPromptIdentitySchema };
+export type { DesktopAgentPromptIdentity };
+
+export const desktopAgentPromptTextSchema = z
+  .string()
+  .min(1)
+  .max(64 * 1_024)
+  .refine((value) => value.trim().length > 0, "ACP prompt text must not be blank.");
