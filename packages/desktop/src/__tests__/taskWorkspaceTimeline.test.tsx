@@ -198,6 +198,13 @@ describe("TaskWorkspaceTimeline", () => {
     expect(separator).toHaveAttribute("aria-valuemin", String(taskWorkspacePanelMinWidth));
     expect(separator).toHaveAttribute("aria-valuemax", String(taskWorkspacePanelMaxWidth));
     expect(separator).toHaveAttribute("aria-valuenow", "280");
+    expect(separator).toHaveClass(
+      "w-2",
+      "cursor-col-resize",
+      "after:w-px",
+      "hover:after:opacity-100",
+      "focus-visible:after:opacity-100"
+    );
     fireEvent.pointerDown(separator, { clientX: 100 });
     fireEvent.pointerMove(window, { clientX: 150 });
     expect(fixture.setTimelineWidth).toHaveBeenCalledWith(330);

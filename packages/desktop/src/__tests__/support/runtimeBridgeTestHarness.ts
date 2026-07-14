@@ -110,6 +110,7 @@ const electronMock = vi.hoisted(() => {
       getAllWindows: vi.fn(() => windows)
     },
     shell: {
+      openExternal: vi.fn(),
       openPath: vi.fn(),
       showItemInFolder: vi.fn()
     }
@@ -309,6 +310,7 @@ export async function resetRuntimeBridgeMocks(): Promise<void> {
   electronMock.BrowserWindow.fromWebContents.mockClear();
   electronMock.BrowserWindow.getAllWindows.mockClear();
   electronMock.shell.openPath.mockClear();
+  electronMock.shell.openExternal.mockClear();
   electronMock.shell.showItemInFolder.mockClear();
   childProcessMock.execFile.mockReset();
   childProcessMock.execFile.mockImplementation(

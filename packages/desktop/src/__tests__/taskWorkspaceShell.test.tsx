@@ -10,11 +10,15 @@ import type {
   TaskWorkspaceController,
   TaskWorkspaceInspectorSlotProps,
   TaskWorkspaceLabels,
-  TaskWorkspaceSelectedRun,
   TaskWorkspaceTimelineSlotProps
 } from "../renderer/task-workspace/contracts";
 import { TaskWorkspaceRoute } from "../renderer/task-workspace/TaskWorkspaceRoute";
-import { useTaskWorkspaceLayout } from "../renderer/task-workspace/useTaskWorkspaceLayout";
+import {
+  taskWorkspaceConversationMinWidth,
+  taskWorkspacePanelMaxWidth,
+  taskWorkspacePanelMinWidth,
+  useTaskWorkspaceLayout
+} from "../renderer/task-workspace/useTaskWorkspaceLayout";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 import { taskWorkspaceInspectorFixture } from "./helpers/taskWorkspaceInspectorFixture";
 
@@ -183,6 +187,17 @@ describe("Task Workspace shell", () => {
     expect(screen.getByTestId("task-workspace-timeline-slot")).toHaveClass("overflow-y-auto");
     expect(screen.getByTestId("task-workspace-conversation-slot")).toHaveClass("overflow-y-auto");
     expect(screen.getByTestId("task-workspace-inspector-slot")).toHaveClass("overflow-y-auto");
+    expect(screen.getByTestId("task-workspace-conversation-slot").parentElement).toHaveStyle({
+      minWidth: `${taskWorkspaceConversationMinWidth}px`
+    });
+    expect(screen.getByTestId("task-workspace-timeline-slot")).toHaveStyle({
+      maxWidth: `${taskWorkspacePanelMaxWidth}px`,
+      minWidth: `${taskWorkspacePanelMinWidth}px`
+    });
+    expect(screen.getByTestId("task-workspace-inspector-slot")).toHaveStyle({
+      maxWidth: `${taskWorkspacePanelMaxWidth}px`,
+      minWidth: `${taskWorkspacePanelMinWidth}px`
+    });
     expect(screen.getByText("Timeline implementation slot")).toBeInTheDocument();
     expect(screen.getByText("Conversation implementation slot")).toBeInTheDocument();
     expect(screen.getByText("Inspector implementation slot")).toBeInTheDocument();
@@ -192,13 +207,58 @@ describe("Task Workspace shell", () => {
   it("keeps timeline and inspector collapse state inside the Task Workspace session", async () => {
     render(<TaskWorkspaceRoute controller={controller()} labels={labels} />);
 
+    const timeline = screen.getByTestId("task-workspace-timeline-slot");
+    const inspectorToggle = screen.getByRole("button", { name: "Inspector" });
+
     await userEvent.click(screen.getByRole("button", { name: "Timeline" }));
-    expect(screen.getByTestId("task-workspace-timeline-compact")).toBeInTheDocument();
+    expect(timeline).toHaveStyle({ width: "0px" });
+    expect(timeline).toHaveStyle({ minWidth: "0px" });
+    expect(timeline).toHaveAttribute("aria-hidden", "true");
+    expect(timeline).toHaveAttribute("inert");
+    expect(timeline).toHaveClass("pointer-events-none", "opacity-0");
+    expect(screen.queryByTestId("task-workspace-timeline-compact")).not.toBeInTheDocument();
     expect(screen.queryByTestId("task-workspace-inspector-slot")).not.toBeInTheDocument();
     expect(screen.getByTestId("task-workspace-conversation-slot")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Expand timeline" }));
-    expect(screen.getByTestId("task-workspace-timeline-slot")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Timeline" }));
+    expect(timeline).toHaveStyle({ width: `${initialTimelineWidth}px` });
+    expect(timeline).not.toHaveAttribute("inert");
+
+    await userEvent.click(inspectorToggle);
+    const inspector = screen.getByTestId("task-workspace-inspector-slot");
+    expect(inspector).toHaveStyle({ width: `${initialInspectorWidth}px` });
+    expect(inspector).not.toHaveAttribute("inert");
+
+    await userEvent.click(inspectorToggle);
+    expect(inspector).toHaveStyle({ width: "0px" });
+    expect(inspector).toHaveAttribute("aria-hidden", "true");
+    expect(inspector).toHaveAttribute("inert");
+  });
+
+  it("retains inspector content after its first open so the close transition can finish", async () => {
+    render(
+      <TaskWorkspaceRoute
+        controller={controller()}
+        labels={labels}
+        slots={{
+          inspector: ({ inspectorCollapsed }) =>
+            inspectorCollapsed ? null : <button type="button">Inspector action</button>
+        }}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: "Inspector action" })).not.toBeInTheDocument();
+
+    const inspectorToggle = screen.getByRole("button", { name: "Inspector" });
+    await userEvent.click(inspectorToggle);
+    expect(screen.getByRole("button", { name: "Inspector action" })).toBeInTheDocument();
+
+    await userEvent.click(inspectorToggle);
+    const inspector = screen.getByTestId("task-workspace-inspector-slot");
+    expect(
+      within(inspector).getByRole("button", { name: "Inspector action", hidden: true })
+    ).toBeInTheDocument();
+    expect(inspector).toHaveAttribute("inert");
   });
 
   it("keeps clamped panel widths session-local for later lane resize controls", () => {
@@ -267,7 +327,7 @@ describe("Task Workspace shell", () => {
     });
 
     act(() => inspector.mock.calls.at(-1)?.[0].setInspectorCollapsed(true));
-    expect(screen.queryByTestId("task-workspace-inspector-slot")).not.toBeInTheDocument();
+    expect(screen.getByTestId("task-workspace-inspector-slot")).toHaveStyle({ width: "0px" });
   });
 
   it("shows a selected record failure in the stable conversation slot", () => {
@@ -308,8 +368,19 @@ describe("Task Workspace shell", () => {
 
     expect(screen.getByText("Build the right inspector")).toBeInTheDocument();
     expect(screen.getByText("T-001")).toBeInTheDocument();
+    expect(screen.getByTestId("task-workspace-title-block")).toHaveClass(
+      "items-center",
+      "gap-2"
+    );
+    expect(screen.getByTestId("task-workspace-run-id")).toHaveClass("leading-none");
+    expect(screen.getByTestId("task-workspace-run-id")).toHaveTextContent("RUN-001");
     expect(screen.queryByTestId("task-workspace-run-summary")).not.toBeInTheDocument();
     expect(screen.getByTestId("task-workspace-header")).toHaveClass("pl-[124px]");
+    const header = screen.getByTestId("task-workspace-header");
+    const timelineToggle = within(header).getByRole("button", { name: "Timeline" });
+    const backToCanvas = within(header).getByRole("button", { name: "Back to canvas" });
+    expect(timelineToggle.nextElementSibling).toBe(backToCanvas);
+    expect(within(header).getAllByRole("button").at(-1)).toHaveAccessibleName("Inspector");
   });
 
   it("returns through the same history action for Cmd/Ctrl-[", () => {
@@ -341,47 +412,13 @@ describe("Task Workspace shell", () => {
     expect(returnToCanvas).toHaveBeenCalledTimes(2);
   });
 
-  it.each([
-    ["active", "Running", "rounded-full", "bg-primary"],
-    ["waiting", "Waiting", "rotate-45", "border-amber-500"],
-    ["cancelled", "Cancelled", "rounded-[1px]", "border-text-muted"],
-    ["failed", "Failed", "rounded-[1px]", "bg-destructive"],
-    ["completed", "Completed", "rounded-full", "border-emerald-500"]
-  ] as const)("shows the selected agent and %s status semantics in the compact timeline", async (status, statusLabel, shapeClass, colorClass) => {
-    const fixture = taskWorkspaceInspectorFixture();
-    const selectedRun: TaskWorkspaceSelectedRun = {
-      block: fixture.selectedRun.block,
-      item: {
-        ...fixture.selectedRun.item,
-        active: status === "active",
-        waitingInteraction:
-          status === "waiting"
-            ? { active: true, count: 1, kinds: ["permission"] }
-            : { active: false, count: 0, kinds: [] },
-        run: {
-          ...fixture.selectedRun.item.run,
-          metadata: {
-            ...fixture.selectedRun.item.run.metadata,
-            exitCode: status === "failed" ? 1 : 0,
-            terminalState:
-              status === "failed" || status === "cancelled" ? status : "succeeded"
-          }
-        }
-      }
-    };
-    render(
-      <TaskWorkspaceRoute
-        controller={controller({ selectedRun, workspace: fixture.workspace })}
-        labels={labels}
-      />
-    );
+  it("uses panel motion tokens and disables transitions for reduced motion", () => {
+    render(<TaskWorkspaceRoute controller={controller()} labels={labels} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Timeline" }));
-    const compactTimeline = within(screen.getByTestId("task-workspace-timeline-compact"));
-    expect(compactTimeline.getByText("codex")).toBeInTheDocument();
-    expect(compactTimeline.getByText(statusLabel)).toBeInTheDocument();
-    const indicator = compactTimeline.getByTestId("task-workspace-timeline-status-indicator");
-    expect(indicator).toHaveAttribute("data-run-status", status);
-    expect(indicator).toHaveClass(shapeClass, colorClass);
+    expect(screen.getByTestId("task-workspace-timeline-slot")).toHaveClass(
+      "transition-[width,opacity]",
+      "duration-[var(--motion-duration-panel)]",
+      "motion-reduce:transition-none"
+    );
   });
 });

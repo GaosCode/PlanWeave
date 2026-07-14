@@ -140,17 +140,16 @@ describe("TaskWorkspaceInspector", () => {
     expect(screen.queryByText(/\{"/)).not.toBeInTheDocument();
   });
 
-  it("mounts typed event and diagnostic history only when each disclosure opens", async () => {
+  it("omits raw events while keeping files, artifacts, usage, and deferred diagnostics", async () => {
     const user = userEvent.setup();
     renderInspector();
 
+    expect(screen.queryByText("Events")).not.toBeInTheDocument();
+    expect(screen.getByText("Files")).toBeInTheDocument();
+    expect(screen.getByText("Artifacts")).toBeInTheDocument();
+    expect(screen.getByText("Usage")).toBeInTheDocument();
+    expect(screen.getByText("Diagnostics")).toBeInTheDocument();
     expect(screen.queryByText("Lifecycle")).not.toBeInTheDocument();
-    expect(screen.queryByText("Sequence 2 was missing.")).not.toBeInTheDocument();
-
-    await user.click(screen.getByText("Events"));
-    expect(screen.getByText("Lifecycle")).toBeInTheDocument();
-    expect(screen.getByText("#1")).toBeInTheDocument();
-    expect(screen.queryByText("Runner started.")).not.toBeInTheDocument();
     expect(screen.queryByText("Sequence 2 was missing.")).not.toBeInTheDocument();
 
     await user.click(screen.getByText("Diagnostics"));
@@ -158,13 +157,14 @@ describe("TaskWorkspaceInspector", () => {
     expect(screen.getByText("Sequence 2 was missing.")).toBeInTheDocument();
   });
 
-  it("uses the controller live model instead of stale record history", async () => {
+  it("uses the controller live model for diagnostic history", async () => {
     const user = userEvent.setup();
     renderInspector({ runnerModel: null });
 
-    await user.click(screen.getByText("Events"));
+    expect(screen.queryByText("Events")).not.toBeInTheDocument();
+    await user.click(screen.getByText("Diagnostics"));
     expect(screen.getByText("Selected record history unavailable")).toBeInTheDocument();
-    expect(screen.queryByText("Lifecycle")).not.toBeInTheDocument();
+    expect(screen.queryByText("sequence_gap")).not.toBeInTheDocument();
   });
 
   it("derives terminal status from the projected selected run before record persistence", () => {
@@ -206,6 +206,13 @@ describe("TaskWorkspaceInspector", () => {
     expect(separator).toHaveAttribute("aria-valuemin", String(taskWorkspacePanelMinWidth));
     expect(separator).toHaveAttribute("aria-valuemax", String(taskWorkspacePanelMaxWidth));
     expect(separator).toHaveAttribute("aria-valuenow", "360");
+    expect(separator).toHaveClass(
+      "w-2",
+      "cursor-col-resize",
+      "after:w-px",
+      "hover:after:opacity-100",
+      "focus-visible:after:opacity-100"
+    );
     fireEvent.pointerDown(separator, { clientX: 100 });
     fireEvent.pointerMove(window, { clientX: 140 });
     expect(setInspectorWidth).toHaveBeenCalledWith(320);
@@ -264,5 +271,6 @@ describe("TaskWorkspaceInspector", () => {
       />
     );
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(screen.queryByRole("separator", { name: "Resize inspector" })).not.toBeInTheDocument();
   });
 });

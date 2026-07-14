@@ -4,6 +4,7 @@ const defaultTimelineWidth = 280;
 const defaultInspectorWidth = 320;
 export const taskWorkspacePanelMinWidth = 220;
 export const taskWorkspacePanelMaxWidth = 520;
+export const taskWorkspaceConversationMinWidth = 360;
 
 function clampPanelWidth(width: number): number {
   return Math.min(

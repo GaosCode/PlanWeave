@@ -11,7 +11,7 @@ import {
 } from "../shared/ipcChannels";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { electronMock, runtimeMock } = getRuntimeBridgeMocks();
+const { childProcessMock, electronMock, runtimeMock } = getRuntimeBridgeMocks();
 
 describe("runtime bridge handlers: graph and project", () => {
   beforeEach(async () => {
@@ -250,6 +250,10 @@ describe("runtime bridge handlers: graph and project", () => {
       null,
       "/tmp/project"
     );
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInVsCode)?.(
+      null,
+      "/tmp/project"
+    );
     await electronMock.handlers.get(desktopBridgeInvokeChannels.revealPathInFinder)?.(
       null,
       "/tmp/project/.planweave/runs/RUN-001/metadata.json"
@@ -266,9 +270,125 @@ describe("runtime bridge handlers: graph and project", () => {
     );
 
     expect(electronMock.shell.openPath).not.toHaveBeenCalled();
+    expect(electronMock.shell.openExternal).not.toHaveBeenCalled();
     expect(electronMock.shell.showItemInFolder).not.toHaveBeenCalled();
     expect(runtimeMock.resolveTaskCanvasWorkspace).not.toHaveBeenCalled();
     expect(runtimeMock.getTaskFileManagerPath).not.toHaveBeenCalled();
+  });
+
+  it("opens encoded repository paths with the VS Code URL handler", async () => {
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInVsCode)?.(
+      null,
+      "/tmp/project folder/repository#one"
+    );
+
+    expect(electronMock.shell.openExternal).toHaveBeenCalledWith(
+      "vscode://file/tmp/project%20folder/repository%23one"
+    );
+    expect(electronMock.shell.openPath).not.toHaveBeenCalled();
+  });
+
+  it("detects the VS Code protocol handler and returns its native icon", async () => {
+    electronMock.app.getFileIcon.mockResolvedValueOnce({
+      toDataURL: () => "data:image/png;base64,vscode-icon"
+    });
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    await expect(
+      electronMock.handlers.get(desktopBridgeInvokeChannels.detectVsCode)?.(null)
+    ).resolves.toEqual({
+      available: true,
+      label: "Visual Studio Code",
+      iconDataUrl: "data:image/png;base64,vscode-icon",
+      iconUnavailableReason: null,
+      unavailableReason: null
+    });
+    expect(childProcessMock.execFile).toHaveBeenCalledWith(
+      "/usr/bin/open",
+      ["-Ra", "Visual Studio Code"],
+      { timeout: 2_000, maxBuffer: 64 * 1024 },
+      expect.any(Function)
+    );
+    expect(electronMock.app.getFileIcon).toHaveBeenCalledWith(
+      "/Applications/Visual Studio Code.app",
+      { size: "normal" }
+    );
+  });
+
+  it("reports VS Code as unavailable when no protocol handler is installed", async () => {
+    childProcessMock.execFile.mockImplementationOnce(
+      (
+        _command: string,
+        _args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callback(new Error("No application handles vscode"), "", "");
+      }
+    );
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    await expect(
+      electronMock.handlers.get(desktopBridgeInvokeChannels.detectVsCode)?.(null)
+    ).resolves.toEqual({
+      available: false,
+      label: "Visual Studio Code",
+      iconDataUrl: null,
+      iconUnavailableReason: null,
+      unavailableReason: "No application handles vscode"
+    });
+  });
+
+  it("keeps VS Code available and reports a native icon loading failure", async () => {
+    electronMock.app.getFileIcon.mockRejectedValueOnce(new Error("Icon file unavailable"));
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    await expect(
+      electronMock.handlers.get(desktopBridgeInvokeChannels.detectVsCode)?.(null)
+    ).resolves.toEqual({
+      available: true,
+      label: "Visual Studio Code",
+      iconDataUrl: null,
+      iconUnavailableReason: "Icon file unavailable",
+      unavailableReason: null
+    });
+  });
+
+  it("detects VS Code from PATH outside macOS", async () => {
+    const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+    childProcessMock.execFile.mockImplementationOnce(
+      (
+        _command: string,
+        _args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void
+      ) => callback(null, "/usr/local/bin/code\n", "")
+    );
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    try {
+      await expect(
+        electronMock.handlers.get(desktopBridgeInvokeChannels.detectVsCode)?.(null)
+      ).resolves.toMatchObject({ available: true, iconUnavailableReason: null });
+      expect(childProcessMock.execFile).toHaveBeenCalledWith(
+        "which",
+        ["code"],
+        { timeout: 2_000, maxBuffer: 64 * 1024 },
+        expect.any(Function)
+      );
+      expect(electronMock.app.getFileIcon).toHaveBeenCalledWith("/usr/local/bin/code", {
+        size: "normal"
+      });
+    } finally {
+      platformSpy.mockRestore();
+    }
   });
 
   it("opens resolved task canvas workspace directories in Finder", async () => {

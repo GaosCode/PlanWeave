@@ -87,6 +87,8 @@ export const enCatalog = {
   newGraph: "New task canvas",
   pinProject: "Pin project",
   unpinProject: "Unpin project",
+  openInVsCode: "Open in VS Code",
+  repositoryActions: "Code repository actions",
   openInFinder: "Open in Finder",
   openPlanWorkspaceInFinder: "Open plan workspace in Finder",
   openSourceRootInFinder: "Open code repository in Finder",

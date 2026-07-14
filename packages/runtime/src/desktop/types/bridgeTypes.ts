@@ -131,6 +131,14 @@ export type DesktopTerminalAppDetection = {
   unavailableReason: string | null;
 };
 
+export type DesktopVsCodeDetection = {
+  available: boolean;
+  label: string;
+  iconDataUrl: string | null;
+  iconUnavailableReason: string | null;
+  unavailableReason: string | null;
+};
+
 export type DesktopOpenRunTerminalInput = {
   ref: DesktopCanvasReference;
   recordId: string;
@@ -191,6 +199,7 @@ export type DesktopBridgeApi = {
   listProjects(): Promise<DesktopProjectSummary[]>;
   chooseProjectFolder(): Promise<string | null>;
   chooseSourceRootFolder(): Promise<string | null>;
+  openProjectInVsCode(rootPath: string): Promise<void>;
   revealProjectInFinder(rootPath: string): Promise<void>;
   revealPathInFinder(path: string): Promise<void>;
   revealTaskCanvasInFinder(projectRoot: string, canvasId: string): Promise<void>;
@@ -198,6 +207,7 @@ export type DesktopBridgeApi = {
   detectAgentTools(): Promise<DesktopAgentDetection[]>;
   detectRuntimeTools(): Promise<DesktopRuntimeToolAvailability>;
   detectTerminalApps(): Promise<DesktopTerminalAppDetection[]>;
+  detectVsCode(): Promise<DesktopVsCodeDetection>;
   getTerminalPreferences(): Promise<DesktopTerminalPreferences>;
   updateTerminalPreferences(
     patch: Partial<DesktopTerminalPreferences>

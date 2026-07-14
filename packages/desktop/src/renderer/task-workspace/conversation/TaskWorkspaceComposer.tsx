@@ -140,7 +140,7 @@ function AcpComposer({
       <div className="rounded-2xl border bg-background p-2 shadow-lg shadow-black/5">
         <Textarea
           aria-label={t("acpPromptLabel")}
-          className="min-h-20 max-h-40 resize-y border-0 bg-transparent shadow-none focus-visible:ring-0"
+          className="min-h-20 max-h-40 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
           disabled={disabled}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {

@@ -1,13 +1,67 @@
 import type { TaskWorkspace } from "@planweave-ai/runtime";
-import { ArrowLeftIcon, PanelLeftOpenIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { ArrowLeftIcon } from "lucide-react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { TaskWorkspaceLabels, TaskWorkspaceSelectedRun } from "./contracts";
 import { TaskWorkspaceHeader } from "./TaskWorkspaceHeader";
-import { taskWorkspaceRunStatus } from "./timeline";
-import type { TaskWorkspaceLayout } from "./useTaskWorkspaceLayout";
+import {
+  taskWorkspaceConversationMinWidth,
+  taskWorkspacePanelMaxWidth,
+  taskWorkspacePanelMinWidth,
+  type TaskWorkspaceLayout
+} from "./useTaskWorkspaceLayout";
 import { useTaskWorkspaceReturnShortcut } from "./useTaskWorkspaceReturnShortcut";
+
+interface AnimatedWorkspacePanelProps {
+  children: ReactNode;
+  collapsed: boolean;
+  label: string;
+  side: "left" | "right";
+  testId?: string;
+  width: number;
+}
+
+function AnimatedWorkspacePanel({
+  children,
+  collapsed,
+  label,
+  side,
+  testId,
+  width
+}: AnimatedWorkspacePanelProps) {
+  let interactionClassName = "opacity-100";
+  let minimumWidth = taskWorkspacePanelMinWidth;
+  let panelWidth = width;
+  let inert: true | undefined;
+  let borderClassName = "border-r border-border/80";
+  if (collapsed) {
+    interactionClassName = "pointer-events-none opacity-0";
+    minimumWidth = 0;
+    panelWidth = 0;
+    inert = true;
+  }
+  if (side === "right") {
+    borderClassName = "border-l border-border/80";
+  }
+
+  return (
+    <aside
+      aria-hidden={collapsed}
+      aria-label={label}
+      className={cn(
+        "relative min-h-0 shrink overflow-x-hidden overflow-y-auto bg-app-panel transition-[width,opacity] duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)] motion-reduce:transition-none",
+        borderClassName,
+        interactionClassName
+      )}
+      data-testid={testId}
+      inert={inert}
+      style={{ maxWidth: taskWorkspacePanelMaxWidth, minWidth: minimumWidth, width: panelWidth }}
+    >
+      {children}
+    </aside>
+  );
+}
 
 export type TaskWorkspaceShellProps = {
   composer: ReactNode;
@@ -49,15 +103,6 @@ export function TaskWorkspaceStateShell({
   );
 }
 
-const compactStatusClassName = {
-  active: "rounded-full bg-primary",
-  cancelled: "rounded-[1px] border border-text-muted bg-surface-muted",
-  completed: "rounded-full border-2 border-emerald-500 bg-transparent",
-  empty: "rounded-full border border-border bg-transparent",
-  failed: "rounded-[1px] bg-destructive",
-  waiting: "rotate-45 border border-amber-500 bg-amber-500/20"
-} as const;
-
 export function TaskWorkspaceShell({
   composer,
   conversation,
@@ -71,16 +116,22 @@ export function TaskWorkspaceShell({
   workspace
 }: TaskWorkspaceShellProps) {
   useTaskWorkspaceReturnShortcut(onReturnToCanvas);
-  const compactStatus = selectedRun
-    ? labels.runStatus[taskWorkspaceRunStatus(selectedRun.item)]
-    : labels.noRuns;
-  const compactStatusKey = selectedRun ? taskWorkspaceRunStatus(selectedRun.item) : "empty";
-  const compactAgent = selectedRun
-    ? (selectedRun.item.run.metadata.agentId ??
-      selectedRun.item.run.metadata.executor ??
-      selectedRun.item.run.metadata.adapter ??
-      labels.unavailable)
-    : labels.unavailable;
+  const retainedInspector = useRef<{ content: ReactNode; workspaceIdentity: string } | null>(null);
+  const workspaceIdentity = `${workspace.project.projectId}\0${workspace.project.canvasId}\0${workspace.task.taskId}`;
+
+  useEffect(() => {
+    if (!layout.inspectorCollapsed) {
+      retainedInspector.current = { content: inspector, workspaceIdentity };
+    }
+  }, [inspector, layout.inspectorCollapsed, workspaceIdentity]);
+
+  let inspectorContent: ReactNode = null;
+  if (!layout.inspectorCollapsed) {
+    inspectorContent = inspector;
+  } else if (retainedInspector.current?.workspaceIdentity === workspaceIdentity) {
+    inspectorContent = retainedInspector.current.content;
+  }
+  const hasOpenedInspector = inspectorContent !== null;
 
   return (
     <section
@@ -96,49 +147,19 @@ export function TaskWorkspaceShell({
         workspace={workspace}
       />
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {layout.timelineCollapsed ? (
-          <aside
-            aria-label={labels.timeline}
-            className="flex w-20 shrink-0 flex-col items-center gap-2 border-r border-border/80 bg-app-panel px-1 py-2"
-            data-testid="task-workspace-timeline-compact"
-          >
-            <Button
-              aria-label={labels.expandTimeline}
-              onClick={() => layout.setTimelineCollapsed(false)}
-              size="icon-sm"
-              type="button"
-              variant="ghost"
-            >
-              <PanelLeftOpenIcon />
-            </Button>
-            <span
-              className="w-full truncate text-center font-mono text-[10px] text-text-muted"
-              title={compactAgent}
-            >
-              {compactAgent}
-            </span>
-            <span className="flex max-w-full items-center gap-1" role="status">
-              <span
-                aria-hidden="true"
-                className={cn("size-2 shrink-0", compactStatusClassName[compactStatusKey])}
-                data-run-status={compactStatusKey}
-                data-testid="task-workspace-timeline-status-indicator"
-              />
-              <span className="truncate text-[10px]" title={compactStatus}>
-                {compactStatus}
-              </span>
-            </span>
-          </aside>
-        ) : (
-          <aside
-            className="min-h-0 shrink-0 overflow-y-auto border-r border-border/80 bg-app-panel"
-            data-testid="task-workspace-timeline-slot"
-            style={{ width: layout.timelineWidth }}
-          >
-            {timeline}
-          </aside>
-        )}
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <AnimatedWorkspacePanel
+          collapsed={layout.timelineCollapsed}
+          label={labels.timeline}
+          side="left"
+          testId="task-workspace-timeline-slot"
+          width={layout.timelineWidth}
+        >
+          {timeline}
+        </AnimatedWorkspacePanel>
+        <main
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          style={{ minWidth: taskWorkspaceConversationMinWidth }}
+        >
           <div
             className="min-h-0 min-w-0 flex-1 overflow-y-auto"
             data-testid="task-workspace-conversation-slot"
@@ -151,15 +172,15 @@ export function TaskWorkspaceShell({
             </div>
           ) : null}
         </main>
-        {layout.inspectorCollapsed ? null : (
-          <aside
-            className="min-h-0 shrink-0 overflow-y-auto border-l border-border/80 bg-app-panel"
-            data-testid="task-workspace-inspector-slot"
-            style={{ width: layout.inspectorWidth }}
-          >
-            {inspector}
-          </aside>
-        )}
+        <AnimatedWorkspacePanel
+          collapsed={layout.inspectorCollapsed}
+          label={labels.inspector}
+          side="right"
+          testId={hasOpenedInspector ? "task-workspace-inspector-slot" : undefined}
+          width={layout.inspectorWidth}
+        >
+          {inspectorContent}
+        </AnimatedWorkspacePanel>
       </div>
     </section>
   );

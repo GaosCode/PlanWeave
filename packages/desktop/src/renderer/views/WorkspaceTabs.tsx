@@ -64,6 +64,8 @@ import { TaskWorkspaceInspector } from "../task-workspace/inspector/TaskWorkspac
 import { TaskWorkspaceUsage } from "../task-workspace/inspector/TaskWorkspaceUsage";
 import { TaskWorkspaceTimeline } from "../task-workspace/timeline";
 import { bridge } from "../bridge";
+import { fileManagerLabel } from "../fileManagerLabels";
+import { TaskWorkspaceRepositoryActions } from "../task-workspace/TaskWorkspaceRepositoryActions";
 import type {
   TaskWorkspaceComposerSlotProps,
   TaskWorkspaceConversationSlotProps,
@@ -324,6 +326,8 @@ function CanvasMapRoute() {
 function TaskWorkspaceAppRoute() {
   const { shell, taskWorkspace } = useProjectWorkspace();
   const navigation = taskWorkspace.navigation;
+  const repositoryRoot = shell.selectedProject?.sourceRoot ??
+    (shell.selectedProject?.kind === "external" ? shell.selectedProject.rootPath : null);
   return (
     <TaskWorkspaceCancelRunControllerScope
       api={bridge}
@@ -357,12 +361,24 @@ function TaskWorkspaceAppRoute() {
                 />
               ),
               headerAction: () => (
-                <TaskWorkspaceCancelRunAction
-                  buttonLabel={shell.t("stop")}
-                  controller={cancelController}
-                  errorLabel={shell.t("acpActionError")}
-                  showText
-                />
+                <>
+                  <TaskWorkspaceRepositoryActions
+                    api={bridge}
+                    labels={{
+                      openInFileManager: fileManagerLabel(shell.t, "sourceRoot"),
+                      openInVsCode: shell.t("openInVsCode"),
+                      repositoryActions: shell.t("repositoryActions")
+                    }}
+                    onError={shell.setError}
+                    repositoryRoot={repositoryRoot}
+                  />
+                  <TaskWorkspaceCancelRunAction
+                    buttonLabel={shell.t("stop")}
+                    controller={cancelController}
+                    errorLabel={shell.t("acpActionError")}
+                    showText
+                  />
+                </>
               ),
               inspector: (props: TaskWorkspaceInspectorSlotProps) => (
                 <TaskWorkspaceInspector {...props} labels={taskWorkspaceInspectorLabels(shell.t)} />

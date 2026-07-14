@@ -87,6 +87,8 @@ export const zhCnCatalog = {
   newGraph: "新建任务画布",
   pinProject: "置顶项目",
   unpinProject: "取消置顶",
+  openInVsCode: "在 VS Code 中打开",
+  repositoryActions: "代码仓库操作",
   openInFinder: "在 Finder 中打开",
   openPlanWorkspaceInFinder: "在 Finder 中打开计划工作区",
   openSourceRootInFinder: "在 Finder 中打开代码仓库",

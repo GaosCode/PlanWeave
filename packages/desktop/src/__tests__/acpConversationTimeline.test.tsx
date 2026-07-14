@@ -42,6 +42,8 @@ describe("Block Inspector ACP conversation timeline", () => {
       />
     );
 
+    const tool = screen.getByText("Inspect empty structures").closest("details");
+    expect(tool).toHaveClass("ml-10", "rounded-lg", "border", "bg-background", "shadow-sm");
     expect(screen.getByText("{}")).toBeInTheDocument();
     expect(screen.getByText("[]")).toBeInTheDocument();
     expect(screen.getByText("Empty string")).toBeInTheDocument();

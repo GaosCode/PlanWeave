@@ -41,12 +41,14 @@ describe("Task Workspace conversation", () => {
 
     const assistantMessage = screen.getByText("Flat assistant Markdown").closest("article");
     const userMessage = screen.getByText("Keep this focused").closest("article");
-    const tool = screen.getByText("Inspect workspace").closest("details");
+    const tool = screen.getByTestId("workspace-tool-event");
     const output = screen.getByText("Terminal output").closest("details");
 
     expect(assistantMessage).toHaveClass("w-full");
     expect(userMessage).toHaveClass("justify-end");
     expect(tool).not.toHaveClass("ml-10");
+    expect(tool).not.toHaveClass("rounded-lg", "border", "bg-background", "shadow-sm");
+    expect(screen.getByRole("button", { name: /Inspect workspace/ })).not.toHaveAttribute("aria-expanded");
     expect(output).not.toHaveClass("ml-10");
     expect(container.querySelector(".lucide-bot")).not.toBeInTheDocument();
     expect(container.querySelector(".lucide-user")).not.toBeInTheDocument();
@@ -65,7 +67,7 @@ describe("Task Workspace conversation", () => {
     expect(screen.queryByText(/planweave\.runner-event/)).not.toBeInTheDocument();
   });
 
-  it("renders empty structured tool payloads instead of hiding them", () => {
+  it("expands lightweight tool payloads without restoring card chrome", () => {
     const model = readModel({ timeline: [
       {
         sequence: 1,
@@ -91,6 +93,19 @@ describe("Task Workspace conversation", () => {
       }
     ] });
     render(<TaskWorkspaceConversation {...conversationProps(selection({ model }), model)} api={null} t={t} />);
+
+    const tool = screen.getAllByTestId("workspace-tool-event")[0];
+    const trigger = screen.getByRole("button", { name: /Inspect empty structures/ });
+    const details = screen.getAllByTestId("workspace-tool-details")[0];
+    expect(tool).not.toHaveClass("rounded-lg", "border", "shadow-sm");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(details).toHaveClass("grid-rows-[0fr]", "opacity-0");
+    expect(screen.getByText("Inspect empty structures")).toHaveClass("group-hover/tool:text-foreground");
+    expect(tool.querySelector(".lucide-chevron-right")).toHaveClass("opacity-0", "group-hover/tool:opacity-100");
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(details).toHaveClass("grid-rows-[1fr]", "opacity-100");
+    expect(tool.querySelector(".lucide-chevron-right")).toHaveClass("rotate-90");
 
     expect(screen.getByText("{}")).toBeInTheDocument();
     expect(screen.getByText("[]")).toBeInTheDocument();
@@ -286,6 +301,8 @@ describe("Task Workspace conversation", () => {
     );
 
     const input = screen.getByLabelText("Message the agent");
+    expect(input.className).toContain("resize-none");
+    expect(input.className).not.toContain("resize-y");
     fireEvent.change(input, { target: { value: "Continue with the focused fix" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await vi.waitFor(() => expect(sendAgentPrompt).toHaveBeenCalledWith(

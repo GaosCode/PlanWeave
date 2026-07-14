@@ -293,15 +293,16 @@ export function TaskWorkspaceTimeline({
         </h2>
         {timelineContent}
       </section>
-      <hr
+      <div
         aria-label={labels.resizeTimeline}
         aria-orientation="vertical"
         aria-valuemax={taskWorkspacePanelMaxWidth}
         aria-valuemin={taskWorkspacePanelMinWidth}
         aria-valuenow={timelineWidth}
-        className="absolute inset-y-0 right-0 w-1 cursor-col-resize border-0 outline-none hover:bg-primary/30 focus-visible:bg-primary/40"
+        className="app-no-drag absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize bg-transparent transition-colors duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-standard)] after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:rounded-full after:bg-border/80 after:opacity-0 hover:bg-state-selected/10 hover:after:opacity-100 focus-visible:bg-state-selected/10 focus-visible:after:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 active:bg-state-selected/20"
         onKeyDown={resize.resizeWithKeyboard}
         onPointerDown={resize.startResize}
+        role="separator"
         tabIndex={0}
       />
     </div>

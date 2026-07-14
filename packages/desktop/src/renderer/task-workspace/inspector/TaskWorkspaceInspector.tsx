@@ -236,9 +236,7 @@ export function TaskWorkspaceInspector({
 
   const selectedRecordId = selectedRun?.item.run.record.recordId ?? null;
   const authoritativeRecord = selectedRecord?.recordId === selectedRecordId ? selectedRecord : null;
-  const events = runnerModel?.events ?? [];
   const diagnostics = runnerModel?.diagnostics ?? [];
-  const visibleEvents = events.slice(-historyLimit);
   const visibleDiagnostics = diagnostics.slice(-historyLimit);
   const configuration = selectedRun?.item.run.actualConfiguration ?? null;
   const latestArtifact = workspace?.latestArtifact ?? null;
@@ -248,15 +246,16 @@ export function TaskWorkspaceInspector({
 
   return (
     <aside className="relative min-h-full min-w-0" aria-label={labels.overview}>
-      <hr
+      <div
         aria-label={labels.resizeInspector}
         aria-orientation="vertical"
         aria-valuemax={taskWorkspacePanelMaxWidth}
         aria-valuemin={taskWorkspacePanelMinWidth}
         aria-valuenow={inspectorWidth}
-        className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize border-0 outline-none hover:bg-primary/30 focus-visible:bg-primary/40"
+        className="app-no-drag absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize bg-transparent transition-colors duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-standard)] after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:rounded-full after:bg-border/80 after:opacity-0 hover:bg-state-selected/10 hover:after:opacity-100 focus-visible:bg-state-selected/10 focus-visible:after:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 active:bg-state-selected/20"
         onKeyDown={resize.resizeWithKeyboard}
         onPointerDown={resize.startResize}
+        role="separator"
         tabIndex={0}
       />
 
@@ -446,41 +445,6 @@ export function TaskWorkspaceInspector({
               workspace={workspace}
             />
           </section>
-
-          <DeferredInspectorSection
-            count={events.length}
-            empty={runnerModel ? labels.emptyEvents : labels.historyUnavailable}
-            label={labels.events}
-            renderContent={() => (
-              <div className="space-y-2">
-                {events.length > visibleEvents.length ? (
-                  <p className="text-[11px] text-text-muted">
-                    {labels.showingLatest(visibleEvents.length, events.length)}
-                  </p>
-                ) : null}
-                <ol className="space-y-1.5">
-                  {visibleEvents.map((event) => (
-                    <li className="min-w-0 border-l-2 border-border pl-2" key={event.sequence}>
-                      <div className="flex min-w-0 items-baseline justify-between gap-2">
-                        <span className="min-w-0 truncate text-xs font-medium">
-                          {labels.eventKinds[event.body.kind]}
-                        </span>
-                        <span className="shrink-0 font-mono text-[10px] text-text-muted">
-                          {labels.sequence(event.sequence)}
-                        </span>
-                      </div>
-                      <time
-                        className="block text-[10px] text-text-muted"
-                        dateTime={event.timestamp}
-                      >
-                        {labels.formatDateTime(event.timestamp)}
-                      </time>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
-          />
 
           <DeferredInspectorSection
             count={diagnostics.length}

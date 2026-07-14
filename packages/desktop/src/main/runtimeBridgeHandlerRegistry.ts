@@ -5,6 +5,7 @@ import {
   type IpcMainInvokeEvent,
   type OpenDialogOptions
 } from "electron";
+import { pathToFileURL } from "node:url";
 import {
   addBlock,
   addDependencyEdge,
@@ -100,6 +101,7 @@ import {
   undoDesktopPlanGraphCommand,
   validateGraphEdit
 } from "@planweave-ai/runtime";
+import { detectVsCode } from "./codeEditors.js";
 import type {
   DesktopAutoRunOptions,
   DesktopAutoRunScope,
@@ -375,6 +377,13 @@ export const runtimeBridgeHandlers = {
     }
     return result.filePaths[0] ?? null;
   },
+  openProjectInVsCode: async (_event, rootPath) => {
+    if (process.env.PLANWEAVE_DESKTOP_SMOKE === "1") {
+      return;
+    }
+    const vscodeUrl = pathToFileURL(rootPath).href.replace(/^file:\/\/\//, "vscode://file/");
+    await shell.openExternal(vscodeUrl);
+  },
   revealProjectInFinder: async (_event, rootPath) => {
     if (process.env.PLANWEAVE_DESKTOP_SMOKE === "1") {
       return;
@@ -412,6 +421,7 @@ export const runtimeBridgeHandlers = {
   detectAgentTools: () => detectAgentTools(),
   detectRuntimeTools: () => detectRuntimeTools(),
   detectTerminalApps: () => detectTerminalApps(),
+  detectVsCode: () => detectVsCode(),
   getTerminalPreferences: () => getTerminalPreferences(),
   updateTerminalPreferences: (_event, patch) => updateTerminalPreferences(patch),
   getRunTerminalAvailability: async (_event, input) =>

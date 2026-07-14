@@ -1,6 +1,6 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { AcpTimelineItem } from "@planweave-ai/runtime";
-import { ArrowDownIcon, BotIcon, UserIcon, WrenchIcon } from "lucide-react";
+import { ArrowDownIcon, BotIcon, ChevronRightIcon, UserIcon, WrenchIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { createTranslator } from "../i18n";
@@ -128,7 +128,10 @@ const ToolCard = memo(function ToolCard({ presentation, tool, t }: {
 }) {
   const input = readablePayload(tool.input);
   const output = readablePayload(tool.output);
-  return <details className={`group ${presentation === "workspace" ? "" : "ml-10 "}rounded-lg border bg-background shadow-sm`}>
+  if (presentation === "workspace") {
+    return <WorkspaceToolRow input={input} output={output} tool={tool} t={t} />;
+  }
+  return <details className="group ml-10 rounded-lg border bg-background shadow-sm">
     <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs">
       <WrenchIcon className="size-3.5 text-muted-foreground" /><span className="min-w-0 flex-1 truncate font-medium">{tool.title}</span><Badge variant={tool.status === "failed" ? "destructive" : "secondary"}>{tool.status ?? t("acpToolPending")}</Badge>
     </summary>
@@ -146,6 +149,49 @@ const ToolCard = memo(function ToolCard({ presentation, tool, t }: {
   previous.presentation === next.presentation &&
   previous.t === next.t);
 
-function ToolPayload({ label, value }: { label: string; value: string }) {
-  return <div className="space-y-1"><div className="font-medium text-muted-foreground">{label}</div><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-[11px] leading-5">{value}</pre></div>;
+function WorkspaceToolRow({ input, output, tool, t }: {
+  input: string | null;
+  output: string | null;
+  tool: Extract<AcpTimelineItem, { kind: "tool" }>;
+  t: ReturnType<typeof createTranslator>;
+}) {
+  const [open, setOpen] = useState(false);
+  const expandable = Boolean(input || output);
+  const status = tool.status ?? t("acpToolPending");
+
+  return <div className="group/tool text-xs" data-testid="workspace-tool-event">
+    <button
+      aria-expanded={expandable ? open : undefined}
+      className={`flex w-full items-center gap-2 py-1.5 text-left text-muted-foreground outline-none ${expandable ? "cursor-pointer" : "cursor-default"}`}
+      onClick={() => {
+        if (expandable) setOpen((current) => !current);
+      }}
+      type="button"
+    >
+      <WrenchIcon className="size-3.5 shrink-0" />
+      <span className="min-w-0 flex-1 truncate font-medium transition-colors duration-[var(--motion-duration-fast)] group-hover/tool:text-foreground group-focus-within/tool:text-foreground">{tool.title}</span>
+      <span className={tool.status === "failed" ? "shrink-0 text-destructive" : "shrink-0"}>{status}</span>
+      {expandable ? <ChevronRightIcon className={`size-3.5 shrink-0 opacity-0 transition-[transform,opacity] duration-[var(--motion-duration-base)] ease-[var(--motion-ease-standard)] group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 motion-reduce:transition-none ${open ? "rotate-90" : ""}`} /> : null}
+    </button>
+    {expandable ? <div
+      aria-hidden={!open}
+      className={`grid transition-[grid-template-rows,opacity] duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)] motion-reduce:transition-none ${open ? "grid-rows-[1fr] opacity-100" : "pointer-events-none grid-rows-[0fr] opacity-0"}`}
+      data-testid="workspace-tool-details"
+    >
+      <div className="min-h-0 overflow-hidden">
+        <div className="ml-1.5 mt-1 space-y-3 border-l border-border/80 py-1 pl-4">
+          {input ? <ToolPayload label={t("acpToolInput")} presentation="workspace" value={input} /> : null}
+          {output ? <ToolPayload label={t("acpToolOutput")} presentation="workspace" value={output} /> : null}
+        </div>
+      </div>
+    </div> : null}
+  </div>;
+}
+
+function ToolPayload({ label, presentation = "inspector", value }: {
+  label: string;
+  presentation?: AcpConversationPresentation;
+  value: string;
+}) {
+  return <div className="space-y-1"><div className="font-medium text-muted-foreground">{label}</div><pre className={`max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 ${presentation === "workspace" ? "" : "rounded-md bg-muted p-2"}`}>{value}</pre></div>;
 }
