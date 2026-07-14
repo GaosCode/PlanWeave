@@ -3,7 +3,7 @@ import { ArrowLeftIcon } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { TaskWorkspaceLabels, TaskWorkspaceSelectedRun } from "./contracts";
+import type { TaskWorkspaceLabels } from "./contracts";
 import { TaskWorkspaceHeader } from "./TaskWorkspaceHeader";
 import {
   taskWorkspaceConversationMinWidth,
@@ -71,7 +71,6 @@ export type TaskWorkspaceShellProps = {
   labels: TaskWorkspaceLabels;
   layout: TaskWorkspaceLayout;
   onReturnToCanvas: () => void;
-  selectedRun: TaskWorkspaceSelectedRun | null;
   timeline: ReactNode;
   workspace: TaskWorkspace;
 };
@@ -111,7 +110,6 @@ export function TaskWorkspaceShell({
   labels,
   layout,
   onReturnToCanvas,
-  selectedRun,
   timeline,
   workspace
 }: TaskWorkspaceShellProps) {
@@ -143,7 +141,6 @@ export function TaskWorkspaceShell({
         labels={labels}
         layout={layout}
         onReturnToCanvas={onReturnToCanvas}
-        selectedRun={selectedRun}
         workspace={workspace}
       />
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">

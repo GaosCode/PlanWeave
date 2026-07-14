@@ -64,7 +64,6 @@ import { TaskWorkspaceInspector } from "../task-workspace/inspector/TaskWorkspac
 import { TaskWorkspaceUsage } from "../task-workspace/inspector/TaskWorkspaceUsage";
 import { TaskWorkspaceTimeline } from "../task-workspace/timeline";
 import { bridge } from "../bridge";
-import { fileManagerLabel } from "../fileManagerLabels";
 import { TaskWorkspaceRepositoryActions } from "../task-workspace/TaskWorkspaceRepositoryActions";
 import type {
   TaskWorkspaceComposerSlotProps,
@@ -365,8 +364,6 @@ function TaskWorkspaceAppRoute() {
                   <TaskWorkspaceRepositoryActions
                     api={bridge}
                     labels={{
-                      openInFileManager: fileManagerLabel(shell.t, "sourceRoot"),
-                      openInVsCode: shell.t("openInVsCode"),
                       repositoryActions: shell.t("repositoryActions")
                     }}
                     onError={shell.setError}

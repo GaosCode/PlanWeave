@@ -140,7 +140,6 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
       labels={labels}
       layout={layout}
       onReturnToCanvas={controller.returnToCanvas}
-      selectedRun={controller.selectedRun}
       timeline={timeline}
       workspace={controller.workspace}
     />

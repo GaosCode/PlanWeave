@@ -15,18 +15,10 @@ import { readModel, record, selection } from "./helpers/taskWorkspaceConversatio
 
 const useProjectWorkspace = vi.hoisted(() => vi.fn());
 const cancelAgentRun = vi.hoisted(() => vi.fn(async () => undefined));
-const detectVsCode = vi.hoisted(() =>
-  vi.fn(async () => ({
-    available: false,
-    label: "VS Code",
-    iconDataUrl: null,
-    iconUnavailableReason: null,
-    unavailableReason: "VS Code is unavailable in this test."
-  }))
-);
+const detectDevelopmentTools = vi.hoisted(() => vi.fn(async () => []));
 
 vi.mock("../renderer/ProjectWorkspaceProvider", () => ({ useProjectWorkspace }));
-vi.mock("../renderer/bridge", () => ({ bridge: { cancelAgentRun, detectVsCode } }));
+vi.mock("../renderer/bridge", () => ({ bridge: { cancelAgentRun, detectDevelopmentTools } }));
 vi.mock("../renderer/views/GraphView", () => ({
   GraphView: () => <div data-testid="graph-route">Graph route</div>
 }));

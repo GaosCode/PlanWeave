@@ -1,33 +1,62 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { DesktopDevelopmentToolDetection } from "@planweave-ai/runtime";
 import { TaskWorkspaceRepositoryActions } from "../renderer/task-workspace/TaskWorkspaceRepositoryActions";
 
 afterEach(cleanup);
 
 const labels = {
-  openInFileManager: "Open code repository in Finder",
-  openInVsCode: "Open in VS Code",
   repositoryActions: "Code repository actions"
 };
 
-const vsCodeDetection = {
+const developmentTools: DesktopDevelopmentToolDetection[] = [
+  {
+    toolId: "vscode",
+    label: "VS Code",
+    available: true,
+    iconDataUrl: "data:image/png;base64,vscode-icon",
+    iconUnavailableReason: null,
+    unavailableReason: null
+  },
+  {
+    toolId: "cursor",
+    label: "Cursor",
+    available: false,
+    iconDataUrl: null,
+    iconUnavailableReason: null,
+    unavailableReason: "Cursor is not installed."
+  },
+  {
+    toolId: "finder",
+    label: "Finder",
+    available: true,
+    iconDataUrl: "data:image/png;base64,finder-icon",
+    iconUnavailableReason: null,
+    unavailableReason: null
+  }
+];
+const finderTool: DesktopDevelopmentToolDetection = {
+  toolId: "finder",
+  label: "Finder",
   available: true,
-  label: "Visual Studio Code",
-  iconDataUrl: "data:image/png;base64,vscode-icon",
+  iconDataUrl: "data:image/png;base64,finder-icon",
   iconUnavailableReason: null,
   unavailableReason: null
 };
 
+function repositoryApi(tools = developmentTools) {
+  return {
+    detectDevelopmentTools: vi.fn(async () => tools),
+    openProjectInDevelopmentTool: vi.fn(async () => undefined)
+  };
+}
+
 describe("TaskWorkspaceRepositoryActions", () => {
-  it("opens the linked repository directly in VS Code", async () => {
-    const api = {
-      detectVsCode: vi.fn(async () => vsCodeDetection),
-      openProjectInVsCode: vi.fn(async () => undefined),
-      revealProjectInFinder: vi.fn(async () => undefined)
-    };
+  it("opens the linked repository in the first available development tool", async () => {
+    const api = repositoryApi();
     const onError = vi.fn();
     render(
       <TaskWorkspaceRepositoryActions
@@ -38,26 +67,25 @@ describe("TaskWorkspaceRepositoryActions", () => {
       />
     );
 
-    await waitFor(() =>
-      expect(screen.getByTitle(labels.openInVsCode)).toHaveProperty("disabled", false)
+    const primaryAction = await screen.findByTitle("VS Code");
+    expect(primaryAction).toHaveProperty("disabled", false);
+    expect(primaryAction.querySelector("img")?.getAttribute("src")).toBe(
+      developmentTools[0]?.iconDataUrl
     );
-    const icon = screen.getByTitle(labels.openInVsCode).querySelector("img");
-    expect(icon?.getAttribute("src")).toBe(vsCodeDetection.iconDataUrl);
-    expect(icon?.className).toContain("size-5");
-    expect(screen.getByText("VS Code").className).toContain("leading-none");
-    fireEvent.click(screen.getByTitle(labels.openInVsCode));
+    expect(primaryAction.textContent).not.toContain("VS Code");
+    fireEvent.click(primaryAction);
 
-    await waitFor(() => expect(api.openProjectInVsCode).toHaveBeenCalledWith("/workspace/source"));
-    expect(api.revealProjectInFinder).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(api.openProjectInDevelopmentTool).toHaveBeenCalledWith(
+        "/workspace/source",
+        "vscode"
+      )
+    );
     expect(onError).toHaveBeenLastCalledWith(null);
   });
 
-  it("offers Finder from the repository actions menu", async () => {
-    const api = {
-      detectVsCode: vi.fn(async () => vsCodeDetection),
-      openProjectInVsCode: vi.fn(async () => undefined),
-      revealProjectInFinder: vi.fn(async () => undefined)
-    };
+  it("shows only detected tools with native icons in preference order", async () => {
+    const api = repositoryApi();
     render(
       <TaskWorkspaceRepositoryActions
         api={api}
@@ -67,28 +95,63 @@ describe("TaskWorkspaceRepositoryActions", () => {
       />
     );
 
+    await screen.findByTitle("VS Code");
     await userEvent.click(screen.getByRole("button", { name: labels.repositoryActions }));
-    await userEvent.click(await screen.findByRole("menuitem", { name: labels.openInFileManager }));
+    const menu = await screen.findByRole("menu");
+    const items = within(menu).getAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual(["VS Code", "Finder"]);
+    expect(items[1]?.querySelector("img")?.getAttribute("src")).toBe(
+      finderTool.iconDataUrl
+    );
 
-    await waitFor(() => expect(api.revealProjectInFinder).toHaveBeenCalledWith("/workspace/source"));
-    expect(api.openProjectInVsCode).not.toHaveBeenCalled();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Finder" }));
+    await waitFor(() =>
+      expect(api.openProjectInDevelopmentTool).toHaveBeenCalledWith(
+        "/workspace/source",
+        "finder"
+      )
+    );
+  });
+
+  it("uses Cursor as the primary action when VS Code is not detected", async () => {
+    const cursor: DesktopDevelopmentToolDetection = {
+      toolId: "cursor",
+      label: "Cursor",
+      available: true,
+      iconDataUrl: "data:image/png;base64,cursor-icon",
+      iconUnavailableReason: null,
+      unavailableReason: null
+    };
+    const api = repositoryApi([cursor, finderTool]);
+    render(
+      <TaskWorkspaceRepositoryActions
+        api={api}
+        labels={labels}
+        onError={vi.fn()}
+        repositoryRoot="/workspace/source"
+      />
+    );
+
+    fireEvent.click(await screen.findByTitle("Cursor"));
+
+    await waitFor(() =>
+      expect(api.openProjectInDevelopmentTool).toHaveBeenCalledWith(
+        "/workspace/source",
+        "cursor"
+      )
+    );
   });
 
   it("disables repository actions when no source repository is linked", () => {
     render(
       <TaskWorkspaceRepositoryActions
-        api={{
-          detectVsCode: vi.fn(async () => vsCodeDetection),
-          openProjectInVsCode: vi.fn(async () => undefined),
-          revealProjectInFinder: vi.fn(async () => undefined)
-        }}
+        api={repositoryApi()}
         labels={labels}
         onError={vi.fn()}
         repositoryRoot={null}
       />
     );
 
-    expect(screen.getByTitle(labels.openInVsCode)).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: labels.repositoryActions })).toHaveProperty(
       "disabled",
       true

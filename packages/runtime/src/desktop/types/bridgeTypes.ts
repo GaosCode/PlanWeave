@@ -131,9 +131,22 @@ export type DesktopTerminalAppDetection = {
   unavailableReason: string | null;
 };
 
-export type DesktopVsCodeDetection = {
-  available: boolean;
+export type DesktopDevelopmentToolId =
+  | "vscode"
+  | "cursor"
+  | "finder"
+  | "terminal"
+  | "iterm2"
+  | "ghostty"
+  | "xcode"
+  | "android-studio"
+  | "goland"
+  | "pycharm";
+
+export type DesktopDevelopmentToolDetection = {
+  toolId: DesktopDevelopmentToolId;
   label: string;
+  available: boolean;
   iconDataUrl: string | null;
   iconUnavailableReason: string | null;
   unavailableReason: string | null;
@@ -199,7 +212,10 @@ export type DesktopBridgeApi = {
   listProjects(): Promise<DesktopProjectSummary[]>;
   chooseProjectFolder(): Promise<string | null>;
   chooseSourceRootFolder(): Promise<string | null>;
-  openProjectInVsCode(rootPath: string): Promise<void>;
+  openProjectInDevelopmentTool(
+    rootPath: string,
+    toolId: DesktopDevelopmentToolId
+  ): Promise<void>;
   revealProjectInFinder(rootPath: string): Promise<void>;
   revealPathInFinder(path: string): Promise<void>;
   revealTaskCanvasInFinder(projectRoot: string, canvasId: string): Promise<void>;
@@ -207,7 +223,7 @@ export type DesktopBridgeApi = {
   detectAgentTools(): Promise<DesktopAgentDetection[]>;
   detectRuntimeTools(): Promise<DesktopRuntimeToolAvailability>;
   detectTerminalApps(): Promise<DesktopTerminalAppDetection[]>;
-  detectVsCode(): Promise<DesktopVsCodeDetection>;
+  detectDevelopmentTools(): Promise<DesktopDevelopmentToolDetection[]>;
   getTerminalPreferences(): Promise<DesktopTerminalPreferences>;
   updateTerminalPreferences(
     patch: Partial<DesktopTerminalPreferences>

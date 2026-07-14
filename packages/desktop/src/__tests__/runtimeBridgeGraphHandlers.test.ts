@@ -11,14 +11,25 @@ import {
 } from "../shared/ipcChannels";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const fileAccessMock = vi.hoisted(() => vi.fn(async () => undefined));
+
+vi.mock("node:fs/promises", async () => {
+  const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  return { ...actual, access: fileAccessMock };
+});
+
 const { childProcessMock, electronMock, runtimeMock } = getRuntimeBridgeMocks();
+let platformSpy: ReturnType<typeof vi.spyOn>;
 
 describe("runtime bridge handlers: graph and project", () => {
   beforeEach(async () => {
     await resetRuntimeBridgeMocks();
+    fileAccessMock.mockClear();
+    platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
   });
 
   afterEach(async () => {
+    platformSpy.mockRestore();
     await restoreRuntimeBridgeEnv();
   });
 
@@ -250,9 +261,10 @@ describe("runtime bridge handlers: graph and project", () => {
       null,
       "/tmp/project"
     );
-    await electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInVsCode)?.(
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInDevelopmentTool)?.(
       null,
-      "/tmp/project"
+      "/tmp/project",
+      "vscode"
     );
     await electronMock.handlers.get(desktopBridgeInvokeChannels.revealPathInFinder)?.(
       null,
@@ -276,119 +288,404 @@ describe("runtime bridge handlers: graph and project", () => {
     expect(runtimeMock.getTaskFileManagerPath).not.toHaveBeenCalled();
   });
 
-  it("opens encoded repository paths with the VS Code URL handler", async () => {
-    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
-    registerRuntimeBridgeHandlers();
-
-    await electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInVsCode)?.(
-      null,
-      "/tmp/project folder/repository#one"
-    );
-
-    expect(electronMock.shell.openExternal).toHaveBeenCalledWith(
-      "vscode://file/tmp/project%20folder/repository%23one"
-    );
-    expect(electronMock.shell.openPath).not.toHaveBeenCalled();
-  });
-
-  it("detects the VS Code protocol handler and returns its native icon", async () => {
-    electronMock.app.getFileIcon.mockResolvedValueOnce({
-      toDataURL: () => "data:image/png;base64,vscode-icon"
-    });
-    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
-    registerRuntimeBridgeHandlers();
-
-    await expect(
-      electronMock.handlers.get(desktopBridgeInvokeChannels.detectVsCode)?.(null)
-    ).resolves.toEqual({
-      available: true,
-      label: "Visual Studio Code",
-      iconDataUrl: "data:image/png;base64,vscode-icon",
-      iconUnavailableReason: null,
-      unavailableReason: null
-    });
-    expect(childProcessMock.execFile).toHaveBeenCalledWith(
-      "/usr/bin/open",
-      ["-Ra", "Visual Studio Code"],
-      { timeout: 2_000, maxBuffer: 64 * 1024 },
-      expect.any(Function)
-    );
-    expect(electronMock.app.getFileIcon).toHaveBeenCalledWith(
-      "/Applications/Visual Studio Code.app",
-      { size: "normal" }
-    );
-  });
-
-  it("reports VS Code as unavailable when no protocol handler is installed", async () => {
-    childProcessMock.execFile.mockImplementationOnce(
+  it("opens repository paths directly in the detected VS Code application", async () => {
+    childProcessMock.execFile.mockImplementation(
       (
-        _command: string,
+        command: string,
         _args: string[],
         _options: unknown,
         callback: (error: Error | null, stdout: string, stderr: string) => void
+      ) =>
+        callback(
+          null,
+          command === "/usr/bin/mdfind" ? "/Resolved/Visual Studio Code.app\n" : "",
+          ""
+        )
+    );
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInDevelopmentTool)?.(
+      null,
+      "/tmp/project folder/repository#one",
+      "vscode"
+    );
+
+    expect(childProcessMock.execFile).toHaveBeenCalledWith(
+      "/usr/bin/open",
+      ["-a", "/Resolved/Visual Studio Code.app", "/tmp/project folder/repository#one"],
+      { timeout: 2_000, maxBuffer: 64 * 1024 },
+      expect.any(Function)
+    );
+    expect(electronMock.shell.openExternal).not.toHaveBeenCalled();
+  });
+
+  it("opens VS Code through its resolved executable path on Linux", async () => {
+    platformSpy.mockReturnValue("linux");
+    childProcessMock.execFile.mockImplementation(
+      (
+        command: string,
+        _args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void
+      ) => callback(null, command === "which" ? "/usr/local/bin/code\n" : "", "")
+    );
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInDevelopmentTool)?.(
+      null,
+      "/tmp/project",
+      "vscode"
+    );
+
+    expect(childProcessMock.execFile).toHaveBeenCalledWith(
+      "which",
+      ["code"],
+      { timeout: 2_000, maxBuffer: 64 * 1024 },
+      expect.any(Function)
+    );
+    expect(childProcessMock.execFile).toHaveBeenCalledWith(
+      "/usr/local/bin/code",
+      ["/tmp/project"],
+      { timeout: 2_000, maxBuffer: 64 * 1024 },
+      expect.any(Function)
+    );
+  });
+
+  it("prefers a directly executable VS Code binary on Windows", async () => {
+    platformSpy.mockReturnValue("win32");
+    const codeExecutable = "C:\\Program Files\\Microsoft VS Code\\Code.exe";
+    childProcessMock.execFile.mockImplementation(
+      (
+        command: string,
+        args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void
+      ) =>
+        callback(
+          null,
+          command === "where.exe" && args[0] === "Code.exe"
+            ? `${codeExecutable}\r\n`
+            : "",
+          ""
+        )
+    );
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInDevelopmentTool)?.(
+      null,
+      "C:\\work\\project",
+      "vscode"
+    );
+
+    expect(childProcessMock.execFile).toHaveBeenCalledWith(
+      "where.exe",
+      ["Code.exe"],
+      { timeout: 2_000, maxBuffer: 64 * 1024 },
+      expect.any(Function)
+    );
+    expect(childProcessMock.execFile).toHaveBeenCalledWith(
+      codeExecutable,
+      ["C:\\work\\project"],
+      { timeout: 2_000, maxBuffer: 64 * 1024 },
+      expect.any(Function)
+    );
+  });
+
+  it("uses a Windows command shim only to locate the real executable", async () => {
+    platformSpy.mockReturnValue("win32");
+    const codeCommand = "C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd";
+    const codeExecutable = "C:\\Program Files\\Microsoft VS Code\\Code.exe";
+    const repositoryRoot = "C:\\work%name% & tools|review^(draft)";
+    childProcessMock.execFile.mockImplementation(
+      (
+        command: string,
+        args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void
       ) => {
-        callback(new Error("No application handles vscode"), "", "");
+        if (command === "where.exe" && args[0] === "Code.exe") {
+          callback(new Error("Code.exe was not found"), "", "");
+          return;
+        }
+        callback(
+          null,
+          command === "where.exe" && args[0] === "code.cmd" ? `${codeCommand}\r\n` : "",
+          ""
+        );
       }
     );
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 
-    await expect(
-      electronMock.handlers.get(desktopBridgeInvokeChannels.detectVsCode)?.(null)
-    ).resolves.toEqual({
-      available: false,
-      label: "Visual Studio Code",
-      iconDataUrl: null,
-      iconUnavailableReason: null,
-      unavailableReason: "No application handles vscode"
-    });
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInDevelopmentTool)?.(
+      null,
+      repositoryRoot,
+      "vscode"
+    );
+
+    expect(fileAccessMock).toHaveBeenCalledWith(codeExecutable);
+    expect(childProcessMock.execFile).toHaveBeenCalledWith(
+      codeExecutable,
+      [repositoryRoot],
+      { timeout: 2_000, maxBuffer: 64 * 1024 },
+      expect.any(Function)
+    );
+    expect(childProcessMock.execFile).not.toHaveBeenCalledWith(
+      "cmd.exe",
+      expect.anything(),
+      expect.anything(),
+      expect.any(Function)
+    );
   });
 
-  it("keeps VS Code available and reports a native icon loading failure", async () => {
-    electronMock.app.getFileIcon.mockRejectedValueOnce(new Error("Icon file unavailable"));
-    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
-    registerRuntimeBridgeHandlers();
-
-    await expect(
-      electronMock.handlers.get(desktopBridgeInvokeChannels.detectVsCode)?.(null)
-    ).resolves.toEqual({
-      available: true,
-      label: "Visual Studio Code",
-      iconDataUrl: null,
-      iconUnavailableReason: "Icon file unavailable",
-      unavailableReason: null
-    });
-  });
-
-  it("detects VS Code from PATH outside macOS", async () => {
-    const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("linux");
-    childProcessMock.execFile.mockImplementationOnce(
+  it("locates the real Cursor executable beside its Windows command shim", async () => {
+    platformSpy.mockReturnValue("win32");
+    const cursorCommand =
+      "C:\\Users\\dev\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin\\cursor.cmd";
+    const cursorExecutable =
+      "C:\\Users\\dev\\AppData\\Local\\Programs\\cursor\\Cursor.exe";
+    childProcessMock.execFile.mockImplementation(
       (
-        _command: string,
-        _args: string[],
+        command: string,
+        args: string[],
         _options: unknown,
         callback: (error: Error | null, stdout: string, stderr: string) => void
-      ) => callback(null, "/usr/local/bin/code\n", "")
+      ) => {
+        if (command === "where.exe" && args[0] === "Cursor.exe") {
+          callback(new Error("Cursor.exe was not found"), "", "");
+          return;
+        }
+        callback(
+          null,
+          command === "where.exe" && args[0] === "cursor.cmd"
+            ? `${cursorCommand}\r\n`
+            : "",
+          ""
+        );
+      }
     );
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 
-    try {
-      await expect(
-        electronMock.handlers.get(desktopBridgeInvokeChannels.detectVsCode)?.(null)
-      ).resolves.toMatchObject({ available: true, iconUnavailableReason: null });
-      expect(childProcessMock.execFile).toHaveBeenCalledWith(
-        "which",
-        ["code"],
-        { timeout: 2_000, maxBuffer: 64 * 1024 },
-        expect.any(Function)
-      );
-      expect(electronMock.app.getFileIcon).toHaveBeenCalledWith("/usr/local/bin/code", {
-        size: "normal"
-      });
-    } finally {
-      platformSpy.mockRestore();
-    }
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInDevelopmentTool)?.(
+      null,
+      "C:\\workspace",
+      "cursor"
+    );
+
+    expect(fileAccessMock).toHaveBeenCalledWith(cursorExecutable);
+    expect(childProcessMock.execFile).toHaveBeenCalledWith(
+      cursorExecutable,
+      ["C:\\workspace"],
+      { timeout: 2_000, maxBuffer: 64 * 1024 },
+      expect.any(Function)
+    );
+  });
+
+  it("opens the repository with the system file manager on every platform", async () => {
+    platformSpy.mockReturnValue("win32");
+    electronMock.shell.openPath.mockResolvedValue("");
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInDevelopmentTool)?.(
+      null,
+      "C:\\work%name% & tools",
+      "finder"
+    );
+
+    expect(electronMock.shell.openPath).toHaveBeenCalledWith("C:\\work%name% & tools");
+    expect(childProcessMock.execFile).not.toHaveBeenCalled();
+  });
+
+  it("reuses the detected terminal launcher to open the repository directory", async () => {
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInDevelopmentTool)?.(
+      null,
+      "/tmp/project",
+      "terminal"
+    );
+
+    expect(childProcessMock.execFile).toHaveBeenCalledWith(
+      "/usr/bin/open",
+      ["-Ra", "Terminal"],
+      { timeout: 2_000, maxBuffer: 64 * 1024 },
+      expect.any(Function)
+    );
+    expect(childProcessMock.execFile).toHaveBeenCalledWith(
+      "/usr/bin/open",
+      ["-a", "Terminal", "/tmp/project"],
+      { maxBuffer: 64 * 1024 },
+      expect.any(Function)
+    );
+  });
+
+  it("rejects unsupported development tool ids before launching", async () => {
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    await expect(
+      electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInDevelopmentTool)?.(
+        null,
+        "/tmp/project",
+        "unknown-editor"
+      )
+    ).rejects.toThrow("Development tool id is invalid.");
+    expect(childProcessMock.execFile).not.toHaveBeenCalled();
+  });
+
+  it("detects available development tools in preference order with native icons", async () => {
+    childProcessMock.execFile.mockImplementation(
+      (
+        command: string,
+        args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        if (command === "/usr/bin/mdfind") {
+          const bundleId = args[0]?.match(/'([^']+)'/u)?.[1] ?? "unknown.bundle";
+          callback(null, `/Resolved/${bundleId}.app\n`, "");
+          return;
+        }
+        callback(null, "", "");
+      }
+    );
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    const tools = (await electronMock.handlers.get(
+      desktopBridgeInvokeChannels.detectDevelopmentTools
+    )?.(null)) as Array<{
+      toolId: string;
+      label: string;
+      available: boolean;
+      iconDataUrl: string | null;
+    }>;
+
+    expect(tools.map((tool) => tool.toolId)).toEqual([
+      "vscode",
+      "cursor",
+      "finder",
+      "terminal",
+      "iterm2",
+      "ghostty",
+      "xcode",
+      "android-studio",
+      "goland",
+      "pycharm"
+    ]);
+    expect(tools).toContainEqual(
+      expect.objectContaining({
+        toolId: "finder",
+        label: "Finder",
+        available: true,
+        iconDataUrl: "data:image/png;base64,terminal-icon"
+      })
+    );
+    expect(electronMock.app.getFileIcon).toHaveBeenCalledWith(
+      "/Resolved/com.apple.finder.app",
+      { size: "normal" }
+    );
+    expect(childProcessMock.execFile).toHaveBeenCalledWith(
+      "/usr/bin/mdfind",
+      [
+        "kMDItemCFBundleIdentifier == 'com.jetbrains.pycharm' || " +
+          "kMDItemCFBundleIdentifier == 'com.jetbrains.pycharm.ce'"
+      ],
+      { timeout: 5_000, maxBuffer: 256 * 1024 },
+      expect.any(Function)
+    );
+    const applicationNames = new Set([
+      "Visual Studio Code",
+      "Cursor",
+      "Finder",
+      "Xcode",
+      "Android Studio",
+      "GoLand",
+      "PyCharm"
+    ]);
+    expect(
+      childProcessMock.execFile.mock.calls.some(
+        (call) =>
+          call[0] === "/usr/bin/osascript" ||
+          (call[0] === "/usr/bin/open" && applicationNames.has(String(call[1]?.[1])))
+      )
+    ).toBe(false);
+
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInDevelopmentTool)?.(
+      null,
+      "/tmp/goland-project",
+      "goland"
+    );
+    await electronMock.handlers.get(desktopBridgeInvokeChannels.openProjectInDevelopmentTool)?.(
+      null,
+      "/tmp/pycharm-project",
+      "pycharm"
+    );
+
+    expect(childProcessMock.execFile).toHaveBeenCalledWith(
+      "/usr/bin/open",
+      ["-a", "/Resolved/com.jetbrains.goland.app", "/tmp/goland-project"],
+      { timeout: 2_000, maxBuffer: 64 * 1024 },
+      expect.any(Function)
+    );
+    expect(childProcessMock.execFile).toHaveBeenCalledWith(
+      "/usr/bin/open",
+      ["-a", "/Resolved/com.jetbrains.pycharm.app", "/tmp/pycharm-project"],
+      { timeout: 2_000, maxBuffer: 64 * 1024 },
+      expect.any(Function)
+    );
+    expect(
+      childProcessMock.execFile.mock.calls.filter(
+        (call) =>
+          call[0] === "/usr/bin/mdfind" &&
+          String(call[1]?.[0]).includes("com.jetbrains.goland")
+      )
+    ).toHaveLength(1);
+    expect(
+      childProcessMock.execFile.mock.calls.filter(
+        (call) =>
+          call[0] === "/usr/bin/mdfind" &&
+          String(call[1]?.[0]).includes("com.jetbrains.pycharm")
+      )
+    ).toHaveLength(1);
+  });
+
+  it("reports applications that cannot be resolved by the bundle index", async () => {
+    childProcessMock.execFile.mockImplementation(
+      (
+        command: string,
+        args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        if (command === "/usr/bin/mdfind") {
+          const isCursor = args[0]?.includes("com.todesktop.230313mzl4w4u92") ?? false;
+          callback(null, isCursor ? "" : "/Resolved/Application.app\n", "");
+          return;
+        }
+        callback(null, "", "");
+      }
+    );
+    const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    registerRuntimeBridgeHandlers();
+
+    const tools = (await electronMock.handlers.get(
+      desktopBridgeInvokeChannels.detectDevelopmentTools
+    )?.(null)) as Array<{
+      toolId: string;
+      available: boolean;
+      unavailableReason: string | null;
+    }>;
+    expect(tools.find((tool) => tool.toolId === "cursor")).toMatchObject({
+      available: false,
+      unavailableReason: "Cursor application bundle was not found."
+    });
   });
 
   it("opens resolved task canvas workspace directories in Finder", async () => {

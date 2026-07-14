@@ -363,24 +363,32 @@ describe("Task Workspace shell", () => {
           workspace: fixture.workspace
         })}
         labels={labels}
+        slots={{
+          headerAction: () => <button type="button">Repository action</button>
+        }}
       />
     );
 
     expect(screen.getByText("Build the right inspector")).toBeInTheDocument();
-    expect(screen.getByText("T-001")).toBeInTheDocument();
-    expect(screen.getByTestId("task-workspace-title-block")).toHaveClass(
-      "items-center",
-      "gap-2"
-    );
-    expect(screen.getByTestId("task-workspace-run-id")).toHaveClass("leading-none");
-    expect(screen.getByTestId("task-workspace-run-id")).toHaveTextContent("RUN-001");
+    const titleBlock = screen.getByTestId("task-workspace-title-block");
+    expect(titleBlock).toHaveTextContent("Build the right inspector");
+    expect(titleBlock).not.toHaveTextContent("T-001");
+    expect(titleBlock).not.toHaveTextContent("Implemented");
+    expect(titleBlock).not.toHaveTextContent("RUN-001");
     expect(screen.queryByTestId("task-workspace-run-summary")).not.toBeInTheDocument();
     expect(screen.getByTestId("task-workspace-header")).toHaveClass("pl-[124px]");
     const header = screen.getByTestId("task-workspace-header");
     const timelineToggle = within(header).getByRole("button", { name: "Timeline" });
     const backToCanvas = within(header).getByRole("button", { name: "Back to canvas" });
-    expect(timelineToggle.nextElementSibling).toBe(backToCanvas);
-    expect(within(header).getAllByRole("button").at(-1)).toHaveAccessibleName("Inspector");
+    expect(backToCanvas.nextElementSibling).toBe(timelineToggle);
+    const divider = screen.getByTestId("task-workspace-header-divider");
+    expect(divider).toHaveClass("h-4", "w-px");
+    expect(backToCanvas.parentElement?.nextElementSibling).toBe(divider);
+    expect(divider.nextElementSibling).toBe(titleBlock);
+    const headerAction = within(header).getByRole("button", { name: "Repository action" });
+    const inspectorToggle = within(header).getByRole("button", { name: "Inspector" });
+    expect(titleBlock.nextElementSibling).toContainElement(headerAction);
+    expect(titleBlock.nextElementSibling?.nextElementSibling).toBe(inspectorToggle);
   });
 
   it("returns through the same history action for Cmd/Ctrl-[", () => {

@@ -1,5 +1,8 @@
-import type { DesktopBridgeApi, DesktopVsCodeDetection } from "@planweave-ai/runtime";
-import { ChevronDownIcon, Code2Icon, FolderOpenIcon } from "lucide-react";
+import type {
+  DesktopBridgeApi,
+  DesktopDevelopmentToolDetection
+} from "@planweave-ai/runtime";
+import { ChevronDownIcon, Code2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,16 +14,16 @@ import {
 
 type RepositoryBridge = Pick<
   DesktopBridgeApi,
-  "detectVsCode" | "openProjectInVsCode" | "revealProjectInFinder"
+  "detectDevelopmentTools" | "openProjectInDevelopmentTool"
 >;
 
-function VsCodeIcon({ detection }: { detection: DesktopVsCodeDetection | null }) {
-  if (detection?.iconDataUrl) {
+function DevelopmentToolIcon({ tool }: { tool: DesktopDevelopmentToolDetection | null }) {
+  if (tool?.iconDataUrl) {
     return (
       <img
         alt=""
         className="relative top-px size-5 shrink-0 object-contain"
-        src={detection.iconDataUrl}
+        src={tool.iconDataUrl}
       />
     );
   }
@@ -28,8 +31,6 @@ function VsCodeIcon({ detection }: { detection: DesktopVsCodeDetection | null })
 }
 
 export type TaskWorkspaceRepositoryActionLabels = {
-  openInFileManager: string;
-  openInVsCode: string;
   repositoryActions: string;
 };
 
@@ -44,40 +45,37 @@ export function TaskWorkspaceRepositoryActions({
   onError: (message: string | null) => void;
   repositoryRoot: string | null;
 }) {
-  const [vsCode, setVsCode] = useState<DesktopVsCodeDetection | null>(null);
+  const [developmentTools, setDevelopmentTools] = useState<DesktopDevelopmentToolDetection[]>([]);
+  const availableDevelopmentTools = developmentTools.filter((tool) => tool.available);
   const repositoryAvailable = Boolean(api && repositoryRoot);
-  const vsCodeAvailable = Boolean(repositoryAvailable && vsCode?.available);
+  const preferredTool = availableDevelopmentTools[0] ?? null;
+  const preferredToolAvailable = Boolean(repositoryAvailable && preferredTool);
 
   useEffect(() => {
     let active = true;
-    setVsCode(null);
+    setDevelopmentTools([]);
     if (!api) return () => {
       active = false;
     };
-    void api.detectVsCode().then(
-      (detection) => {
-        if (active) setVsCode(detection);
+    void api.detectDevelopmentTools().then(
+      (tools) => {
+        if (active) setDevelopmentTools(tools);
       },
       (caught: unknown) => {
         if (!active) return;
-        setVsCode({
-          available: false,
-          label: "Visual Studio Code",
-          iconDataUrl: null,
-          iconUnavailableReason: null,
-          unavailableReason: caught instanceof Error ? caught.message : String(caught)
-        });
+        setDevelopmentTools([]);
+        onError(caught instanceof Error ? caught.message : String(caught));
       }
     );
     return () => {
       active = false;
     };
-  }, [api]);
+  }, [api, onError]);
 
-  const openRepository = async (open: (path: string) => Promise<void>) => {
-    if (!repositoryRoot) return;
+  const openRepository = async (tool: DesktopDevelopmentToolDetection) => {
+    if (!api || !repositoryRoot) return;
     try {
-      await open(repositoryRoot);
+      await api.openProjectInDevelopmentTool(repositoryRoot, tool.toolId);
       onError(null);
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
@@ -88,26 +86,23 @@ export function TaskWorkspaceRepositoryActions({
     <div className="app-no-drag inline-flex items-center" data-testid="task-workspace-repository-actions">
       <Button
         className="gap-1.5 rounded-r-none px-2.5"
-        disabled={!vsCodeAvailable}
+        disabled={!preferredToolAvailable}
         onClick={() => {
-          if (api) void openRepository(api.openProjectInVsCode.bind(api));
+          if (preferredTool) void openRepository(preferredTool);
         }}
         size="sm"
-        title={
-          vsCode?.unavailableReason ?? vsCode?.iconUnavailableReason ?? labels.openInVsCode
-        }
+        title={preferredTool?.label}
         type="button"
         variant="outline"
       >
-        <VsCodeIcon detection={vsCode} />
-        <span className="hidden leading-none lg:inline">VS Code</span>
+        <DevelopmentToolIcon tool={preferredTool} />
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             aria-label={labels.repositoryActions}
             className="-ml-px rounded-l-none px-2"
-            disabled={!repositoryAvailable}
+            disabled={!repositoryAvailable || availableDevelopmentTools.length === 0}
             size="sm"
             type="button"
             variant="outline"
@@ -116,24 +111,16 @@ export function TaskWorkspaceRepositoryActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuItem
-            disabled={!vsCodeAvailable}
-            onSelect={() => {
-              if (api) void openRepository(api.openProjectInVsCode.bind(api));
-            }}
-            title={vsCode?.unavailableReason ?? vsCode?.iconUnavailableReason ?? undefined}
-          >
-            <VsCodeIcon detection={vsCode} />
-            {labels.openInVsCode}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() => {
-              if (api) void openRepository(api.revealProjectInFinder.bind(api));
-            }}
-          >
-            <FolderOpenIcon />
-            {labels.openInFileManager}
-          </DropdownMenuItem>
+          {availableDevelopmentTools.map((tool) => (
+            <DropdownMenuItem
+              key={tool.toolId}
+              onSelect={() => void openRepository(tool)}
+              title={tool.iconUnavailableReason ?? undefined}
+            >
+              <DevelopmentToolIcon tool={tool} />
+              {tool.label}
+            </DropdownMenuItem>
+          ))}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
