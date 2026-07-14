@@ -1,11 +1,5 @@
 import type { TaskWorkspace } from "@planweave-ai/runtime";
-import {
-  Popover,
-  PopoverContent,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger
-} from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useId } from "react";
 import type { TaskWorkspaceSelectedRun } from "../contracts";
 import { clampedContextUsagePercent, contextUsagePercent } from "./formatters";
@@ -138,7 +132,10 @@ export function TaskWorkspaceUsageDetails({
             label={labels.tokens}
             value={
               run ? (
-                <UnavailableValue reason={run.usage.runTokens.reason} unavailable={labels.unavailable} />
+                <UnavailableValue
+                  reason={run.usage.runTokens.reason}
+                  unavailable={labels.unavailable}
+                />
               ) : (
                 <UnavailableValue reason={labels.unavailable} unavailable={labels.unavailable} />
               )
@@ -292,48 +289,60 @@ export function TaskWorkspaceUsage({
           </div>
         ))}
       </dl>
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            aria-label={triggerLabel}
-            className="relative grid size-9 shrink-0 place-items-center rounded-full outline-none hover:bg-app-hover focus-visible:ring-2 focus-visible:ring-ring/50"
-            type="button"
-          >
-            <svg aria-hidden="true" className="size-8 -rotate-90" viewBox="0 0 36 36">
-              <circle
-                className="stroke-border"
-                cx="18"
-                cy="18"
-                fill="none"
-                pathLength="100"
-                r="15"
-                strokeWidth="3"
-              />
-              <circle
-                className="stroke-primary transition-[stroke-dashoffset]"
-                cx="18"
-                cy="18"
-                fill="none"
-                pathLength="100"
-                r="15"
-                strokeDasharray="100"
-                strokeDashoffset={100 - ringPercent}
-                strokeLinecap="round"
-                strokeWidth="3"
-              />
-            </svg>
-            <span className="absolute font-mono text-[9px] font-semibold tabular-nums">
-              {percent === null ? "—" : `${percent}%`}
-            </span>
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-80 max-w-[calc(100vw-1rem)] p-3">
-          <PopoverHeader>
-            <PopoverTitle>{labels.contextUsage}</PopoverTitle>
-          </PopoverHeader>
-          <TaskWorkspaceUsageDetails labels={labels} selectedRun={selectedRun} workspace={workspace} />
-        </PopoverContent>
-      </Popover>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              aria-label={triggerLabel}
+              className="relative grid size-9 shrink-0 place-items-center rounded-full outline-none hover:bg-app-hover focus-visible:ring-2 focus-visible:ring-ring/50"
+              type="button"
+            >
+              <svg aria-hidden="true" className="size-8 -rotate-90" viewBox="0 0 36 36">
+                <circle
+                  className="stroke-border"
+                  cx="18"
+                  cy="18"
+                  fill="none"
+                  pathLength="100"
+                  r="15"
+                  strokeWidth="3"
+                />
+                <circle
+                  className="stroke-primary transition-[stroke-dashoffset]"
+                  cx="18"
+                  cy="18"
+                  fill="none"
+                  pathLength="100"
+                  r="15"
+                  strokeDasharray="100"
+                  strokeDashoffset={100 - ringPercent}
+                  strokeLinecap="round"
+                  strokeWidth="3"
+                />
+              </svg>
+              <span className="absolute font-mono text-[9px] font-semibold tabular-nums">
+                {percent === null ? "—" : `${percent}%`}
+              </span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent align="end" className="space-y-0.5 text-center" side="top">
+            <div className="text-text-muted">{labels.contextUsage}</div>
+            {snapshot ? (
+              <>
+                <div className="text-text-muted">{labels.usagePercent(percent ?? 0)}</div>
+                <div className="text-sm font-medium text-text">
+                  {labels.tokensUsed(
+                    labels.formatNumber(snapshot.usedTokens),
+                    labels.formatNumber(snapshot.contextWindowTokens)
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="text-sm font-medium text-text">{labels.unavailable}</div>
+            )}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     </div>
   );
 }

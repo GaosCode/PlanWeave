@@ -26,10 +26,13 @@ export function TaskWorkspaceHeader({
 }) {
   return (
     <header
-      className="app-drag-region grid h-12 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 border-b border-border/80 bg-app-topbar pr-3 pl-[124px]"
+      className="app-drag-region grid h-12 shrink-0 items-center border-b border-border/80 bg-app-topbar pr-3"
       data-testid="task-workspace-header"
+      style={{
+        gridTemplateColumns: `${layout.timelineCollapsed ? "auto" : `${layout.timelineWidth}px`} minmax(0, 1fr) auto auto`
+      }}
     >
-      <div className="app-no-drag flex items-center gap-1">
+      <div className="app-no-drag flex min-w-0 items-center justify-end gap-1 overflow-hidden pr-2 pl-[124px]">
         <Button size="sm" variant="ghost" onClick={onReturnToCanvas}>
           <ArrowLeftIcon data-icon="inline-start" />
           {labels.backToCanvas}
