@@ -35,6 +35,35 @@ describe("TaskWorkspaceUsage", () => {
     expect(within(tooltip).getByText("high")).toBeInTheDocument();
   });
 
+  it("explains when an older run did not record its actual configuration", async () => {
+    const fixture = taskWorkspaceInspectorFixture();
+    const reason = "No authoritative ACP session configuration snapshot was recorded for this run.";
+    const selectedRun = {
+      ...fixture.selectedRun,
+      item: {
+        ...fixture.selectedRun.item,
+        run: {
+          ...fixture.selectedRun.item.run,
+          actualConfiguration: { available: false as const, reason }
+        }
+      }
+    };
+    const user = userEvent.setup();
+    render(
+      <TaskWorkspaceUsage
+        labels={labels}
+        selectedRun={selectedRun}
+        workspace={fixture.workspace}
+      />
+    );
+
+    await user.hover(screen.getByRole("button", { name: "Agent: codex" }));
+
+    const tooltip = await screen.findByRole("tooltip");
+    expect(within(tooltip).getAllByText("Unavailable")).toHaveLength(2);
+    expect(within(tooltip).getAllByText(reason)).toHaveLength(2);
+  });
+
   it("shows only the latest context snapshot in a hover tooltip", async () => {
     const fixture = taskWorkspaceInspectorFixture();
     const user = userEvent.setup();

@@ -56,6 +56,26 @@ function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function ConfigurationValue({
+  reason,
+  unavailable,
+  value
+}: {
+  reason: string | null;
+  unavailable: string;
+  value: string | null;
+}) {
+  if (value) return <>{value}</>;
+  return (
+    <span className="block max-w-56 text-right text-text-muted">
+      {unavailable}
+      {reason ? (
+        <span className="mt-0.5 block text-[10px] font-normal break-words">{reason}</span>
+      ) : null}
+    </span>
+  );
+}
+
 export function TaskWorkspaceUsageDetails({
   labels,
   selectedRun,
@@ -248,19 +268,22 @@ export function TaskWorkspaceUsage({
     ? clampedContextUsagePercent(snapshot.usedTokens, snapshot.contextWindowTokens)
     : 0;
   const configuration = selectedRun?.item.run.actualConfiguration;
-  const configurationValue = (field: "mode" | "model" | "permission" | "reasoning") => {
-    if (!configuration?.available) return null;
+  const configurationField = (field: "mode" | "model" | "permission" | "reasoning") => {
+    if (!configuration) return { reason: null, value: null };
+    if (!configuration.available) return { reason: configuration.reason, value: null };
     const value = configuration.fields[field];
-    return value.available ? String(value.value) : null;
+    return value.available
+      ? { reason: null, value: String(value.value) }
+      : { reason: value.reason, value: null };
   };
   const run = selectedRun?.item.run ?? null;
   const agent = run?.metadata.agentId ?? run?.metadata.executor ?? run?.metadata.adapter ?? null;
-  const model = configurationValue("model");
-  const reasoning = configurationValue("reasoning");
+  const model = configurationField("model");
+  const reasoning = configurationField("reasoning");
   const sessionMetadata = [
     agent ? { key: "agent", label: labels.agent, value: agent } : null,
     ...(["model", "reasoning", "mode", "permission"] as const).map((field) => {
-      const value = configurationValue(field);
+      const value = configurationField(field).value;
       return value ? { key: field, label: labels[field], value } : null;
     })
   ].filter((item): item is { key: string; label: string; value: string } => item !== null);
@@ -302,11 +325,19 @@ export function TaskWorkspaceUsage({
                       <dl className="grid grid-cols-[auto_auto] gap-x-3 gap-y-1 text-xs">
                         <dt className="text-text-muted">{labels.model}</dt>
                         <dd className="text-right font-medium text-text">
-                          {model ?? labels.unavailable}
+                          <ConfigurationValue
+                            reason={model.reason}
+                            unavailable={labels.unavailable}
+                            value={model.value}
+                          />
                         </dd>
                         <dt className="text-text-muted">{labels.reasoning}</dt>
                         <dd className="text-right font-medium text-text">
-                          {reasoning ?? labels.unavailable}
+                          <ConfigurationValue
+                            reason={reasoning.reason}
+                            unavailable={labels.unavailable}
+                            value={reasoning.value}
+                          />
                         </dd>
                       </dl>
                     </TooltipContent>
