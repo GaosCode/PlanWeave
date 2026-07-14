@@ -31,4 +31,19 @@ describe("VerticalResizeHandle", () => {
     );
     expect(separator).not.toHaveClass("hover:bg-state-selected/10", "active:bg-state-selected/20");
   });
+
+  it("can inset only the visible line while retaining the full-height hit area", () => {
+    render(
+      <VerticalResizeHandle
+        aria-label="Resize inset"
+        role="separator"
+        side="right"
+        visualTopInset
+      />
+    );
+
+    const separator = screen.getByRole("separator", { name: "Resize inset" });
+    expect(separator).toHaveClass("inset-y-0", "after:top-11", "after:bottom-0");
+    expect(separator).not.toHaveClass("after:inset-y-0");
+  });
 });

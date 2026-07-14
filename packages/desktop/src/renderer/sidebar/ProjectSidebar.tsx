@@ -283,6 +283,7 @@ export function ProjectSidebar({
           role="separator"
           side="right"
           tabIndex={0}
+          visualTopInset
           onPointerDown={onResizeStart}
         />
       ) : null}

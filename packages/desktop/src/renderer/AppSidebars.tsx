@@ -112,7 +112,7 @@ export function CollapsedSidebarControls({
         </div>
       ) : null}
       {rightSidebarCollapsed ? (
-        <div className="app-drag-region absolute right-0 top-0 z-30 flex h-11 w-11 items-center justify-center border-b border-l border-border/80 bg-app-topbar text-text">
+        <div className="app-drag-region absolute right-0 top-0 z-30 flex h-11 w-11 items-center justify-center border-b border-border/80 bg-app-topbar text-text">
           <Button
             className="app-no-drag"
             size="icon-sm"

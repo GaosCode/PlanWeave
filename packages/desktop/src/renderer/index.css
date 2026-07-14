@@ -296,6 +296,16 @@
   html {
     @apply font-sans;
   }
+  ::-webkit-scrollbar {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-track-piece,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
 }
 
 html[data-window-material="true"] {
