@@ -1,17 +1,19 @@
 import { z } from "zod";
 import { agentFamilySchema, runnerTransportSchema } from "../../types/executor.js";
 import {
+  canvasIdSchema,
   executionWaveIdSchema,
   runnerTerminalStateSchema,
   runnerRunIdentitySchema,
-  runnerSessionActionIdentitySchema
+  runnerSessionActionIdentitySchema,
+  taskIdSchema
 } from "../../autoRun/runnerContractSchemas.js";
 import { desktopAgentPromptIdentitySchema } from "../../autoRun/runnerRecordReadModel.js";
 import { acpActualSessionConfigurationSchema } from "../../autoRun/acpSessionConfiguration.js";
 import { parseRunRecordId, runRecordId } from "../runRecordIdentity.js";
 
 export const TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON =
-  "Retry is unavailable because runtime does not provide a live Block retry API.";
+  "Retry is unavailable for this persisted run.";
 export const TASK_WORKSPACE_RESUME_UNAVAILABLE_REASON =
   "Continue session is unavailable because runtime does not provide a live resume API.";
 export const TASK_WORKSPACE_RUN_TOKENS_UNAVAILABLE_REASON =
@@ -68,6 +70,49 @@ export const taskWorkspaceCancelCapabilitySchema = availabilityBaseSchema
   .strict()
   .superRefine(requireAvailableIdentity);
 
+export const taskWorkspaceRetryIdentitySchema = z
+  .object({
+    version: z.literal("planweave.task-workspace-retry/v1"),
+    projectId: nonEmptyStringSchema.max(256),
+    projectRoot: nonEmptyStringSchema,
+    canvasId: canvasIdSchema,
+    taskId: taskIdSchema,
+    blockId: nonEmptyStringSchema.max(256),
+    claimRef: nonEmptyStringSchema.max(513),
+    recordId: nonEmptyStringSchema.max(1_024),
+    runId: nonEmptyStringSchema.max(256),
+    executorRunId: nonEmptyStringSchema.max(256)
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.claimRef !== `${value.taskId}#${value.blockId}`) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["claimRef"],
+        message: "Retry claimRef must equal '<taskId>#<blockId>'."
+      });
+    }
+    if (value.recordId !== runRecordId(value.claimRef, value.runId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["recordId"],
+        message: "Retry recordId must equal '<claimRef>::<runId>'."
+      });
+    }
+    if (value.executorRunId !== value.runId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["executorRunId"],
+        message: "Retry executorRunId must equal runId."
+      });
+    }
+  });
+
+export const taskWorkspaceRetryCapabilitySchema = availabilityBaseSchema
+  .extend({ identity: taskWorkspaceRetryIdentitySchema.nullable() })
+  .strict()
+  .superRefine(requireAvailableIdentity);
+
 const unavailableFutureActionSchema = z
   .object({
     available: z.literal(false),
@@ -80,7 +125,7 @@ export const taskWorkspaceRunCapabilitiesSchema = z
   .object({
     prompt: taskWorkspacePromptCapabilitySchema,
     cancel: taskWorkspaceCancelCapabilitySchema,
-    retry: unavailableFutureActionSchema,
+    retry: taskWorkspaceRetryCapabilitySchema,
     resume: unavailableFutureActionSchema
   })
   .strict();
@@ -259,6 +304,24 @@ export const taskWorkspaceRunSchema = z
         message: "Cancel action identity must match the selected RunnerRunIdentity."
       });
     }
+    const retryIdentity = value.capabilities.retry.identity;
+    if (
+      retryIdentity !== null &&
+      (retryIdentity.projectId !== identity.projectId ||
+        retryIdentity.canvasId !== identity.canvasId ||
+        retryIdentity.taskId !== record.taskId ||
+        retryIdentity.blockId !== record.blockId ||
+        retryIdentity.claimRef !== record.ref ||
+        retryIdentity.recordId !== record.recordId ||
+        retryIdentity.runId !== record.runId ||
+        retryIdentity.executorRunId !== identity.executorRunId)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["capabilities", "retry", "identity"],
+        message: "Retry action identity must match the selected persisted block record."
+      });
+    }
     if (
       promptIdentity !== null &&
       cancelIdentity !== null &&
@@ -274,6 +337,8 @@ export const taskWorkspaceRunSchema = z
 
 export type TaskWorkspacePromptCapability = z.infer<typeof taskWorkspacePromptCapabilitySchema>;
 export type TaskWorkspaceCancelCapability = z.infer<typeof taskWorkspaceCancelCapabilitySchema>;
+export type TaskWorkspaceRetryIdentity = z.infer<typeof taskWorkspaceRetryIdentitySchema>;
+export type TaskWorkspaceRetryCapability = z.infer<typeof taskWorkspaceRetryCapabilitySchema>;
 export type TaskWorkspaceRunCapabilities = z.infer<typeof taskWorkspaceRunCapabilitiesSchema>;
 export type TaskWorkspaceContextUsageSnapshot = z.infer<
   typeof taskWorkspaceContextUsageSnapshotSchema

@@ -29,16 +29,58 @@ afterEach(cleanupRendererTestEnvironment);
 
 const t = createTranslator("en");
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+function retrySelection(runId: string) {
+  const selectedRun = selection({ active: false, model: null, retry: true });
+  const identity = selectedRun.item.run.capabilities.retry.identity;
+  if (!identity) throw new Error("Expected retry identity fixture.");
+  identity.runId = runId;
+  identity.executorRunId = runId;
+  identity.recordId = `T-001#B-001::${runId}`;
+  return selectedRun;
+}
+
 describe("Task Workspace conversation", () => {
   it("uses a flat Codex-style presentation without role chrome or structured-item indentation", () => {
-    const model = readModel({ timeline: [
-      { sequence: 1, timestamp, kind: "message", role: "assistant", content: "## Assistant result\n\nFlat assistant Markdown" },
-      { sequence: 2, timestamp, kind: "message", role: "user", content: "Keep this focused" },
-      { sequence: 3, timestamp, kind: "tool", callId: "workspace-tool", title: "Inspect workspace", toolKind: "read", status: "completed", input: null, output: null },
-      { sequence: 4, timestamp, kind: "output", stream: "terminal", content: "workspace output" }
-    ] });
+    const model = readModel({
+      timeline: [
+        {
+          sequence: 1,
+          timestamp,
+          kind: "message",
+          role: "assistant",
+          content: "## Assistant result\n\nFlat assistant Markdown"
+        },
+        { sequence: 2, timestamp, kind: "message", role: "user", content: "Keep this focused" },
+        {
+          sequence: 3,
+          timestamp,
+          kind: "tool",
+          callId: "workspace-tool",
+          title: "Inspect workspace",
+          toolKind: "read",
+          status: "completed",
+          input: null,
+          output: null
+        },
+        { sequence: 4, timestamp, kind: "output", stream: "terminal", content: "workspace output" }
+      ]
+    });
     const { container } = render(
-      <TaskWorkspaceConversation {...conversationProps(selection({ model }), model)} api={null} t={t} />
+      <TaskWorkspaceConversation
+        {...conversationProps(selection({ model }), model)}
+        api={null}
+        t={t}
+      />
     );
 
     const assistantMessage = screen.getByText("Flat assistant Markdown").closest("article");
@@ -50,7 +92,9 @@ describe("Task Workspace conversation", () => {
     expect(userMessage).toHaveClass("justify-end");
     expect(tool).not.toHaveClass("ml-10");
     expect(tool).not.toHaveClass("rounded-lg", "border", "bg-background", "shadow-sm");
-    expect(screen.getByRole("button", { name: /Inspect workspace/ })).not.toHaveAttribute("aria-expanded");
+    expect(screen.getByRole("button", { name: /Inspect workspace/ })).not.toHaveAttribute(
+      "aria-expanded"
+    );
     expect(output).not.toHaveClass("ml-10");
     expect(container.querySelector(".lucide-bot")).not.toBeInTheDocument();
     expect(container.querySelector(".lucide-user")).not.toBeInTheDocument();
@@ -90,11 +134,19 @@ describe("Task Workspace conversation", () => {
 
   it("reuses the projected ACP timeline for safe wide-screen Markdown", () => {
     const model = readModel();
-    render(<TaskWorkspaceConversation {...conversationProps(selection({ model }), model)} api={null} t={t} />);
+    render(
+      <TaskWorkspaceConversation
+        {...conversationProps(selection({ model }), model)}
+        api={null}
+        t={t}
+      />
+    );
 
     expect(screen.getByRole("heading", { name: "Result" })).toBeInTheDocument();
     expect(screen.getByText("shared projected timeline")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Conversation and tools · Implement workspace" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Conversation and tools · Implement workspace" })
+    ).toBeInTheDocument();
     expect(screen.queryByText(/planweave\.runner-event/)).not.toBeInTheDocument();
   });
 
@@ -186,31 +238,39 @@ describe("Task Workspace conversation", () => {
   });
 
   it("expands lightweight tool payloads without restoring card chrome", () => {
-    const model = readModel({ timeline: [
-      {
-        sequence: 1,
-        timestamp,
-        kind: "tool",
-        callId: "empty-structures",
-        title: "Inspect empty structures",
-        toolKind: "read",
-        status: "completed",
-        input: "{}",
-        output: "[]"
-      },
-      {
-        sequence: 2,
-        timestamp,
-        kind: "tool",
-        callId: "empty-string",
-        title: "Inspect empty string",
-        toolKind: "read",
-        status: "completed",
-        input: "\"\"",
-        output: null
-      }
-    ] });
-    render(<TaskWorkspaceConversation {...conversationProps(selection({ model }), model)} api={null} t={t} />);
+    const model = readModel({
+      timeline: [
+        {
+          sequence: 1,
+          timestamp,
+          kind: "tool",
+          callId: "empty-structures",
+          title: "Inspect empty structures",
+          toolKind: "read",
+          status: "completed",
+          input: "{}",
+          output: "[]"
+        },
+        {
+          sequence: 2,
+          timestamp,
+          kind: "tool",
+          callId: "empty-string",
+          title: "Inspect empty string",
+          toolKind: "read",
+          status: "completed",
+          input: '""',
+          output: null
+        }
+      ]
+    });
+    render(
+      <TaskWorkspaceConversation
+        {...conversationProps(selection({ model }), model)}
+        api={null}
+        t={t}
+      />
+    );
 
     const tool = screen.getAllByTestId("workspace-tool-event")[0];
     const trigger = screen.getByRole("button", { name: /Inspect empty structures/ });
@@ -218,8 +278,13 @@ describe("Task Workspace conversation", () => {
     expect(tool).not.toHaveClass("rounded-lg", "border", "shadow-sm");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(details).toHaveClass("grid-rows-[0fr]", "opacity-0");
-    expect(screen.getByText("Inspect empty structures")).toHaveClass("group-hover/tool:text-foreground");
-    expect(tool.querySelector(".lucide-chevron-right")).toHaveClass("opacity-0", "group-hover/tool:opacity-100");
+    expect(screen.getByText("Inspect empty structures")).toHaveClass(
+      "group-hover/tool:text-foreground"
+    );
+    expect(tool.querySelector(".lucide-chevron-right")).toHaveClass(
+      "opacity-0",
+      "group-hover/tool:opacity-100"
+    );
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(details).toHaveClass("grid-rows-[1fr]", "opacity-100");
@@ -232,19 +297,23 @@ describe("Task Workspace conversation", () => {
 
   it("responds to the selected runnerModel permission request with its exact identity", () => {
     const identity = activeIdentity("permission-1");
-    const model = readModel({ activeRequests: [{
-      kind: "permission",
-      requestId: "permission-1",
-      interactionId: "interaction-1",
-      requestedAt: timestamp,
-      summary: "Allow the agent to run tests?",
-      identity,
-      availability: { available: true, reason: null },
-      permissionOptions: [
-        { optionId: "approve-once", label: "Approve once", decision: "approve" },
-        { optionId: "deny", label: "Deny", decision: "deny" }
+    const model = readModel({
+      activeRequests: [
+        {
+          kind: "permission",
+          requestId: "permission-1",
+          interactionId: "interaction-1",
+          requestedAt: timestamp,
+          summary: "Allow the agent to run tests?",
+          identity,
+          availability: { available: true, reason: null },
+          permissionOptions: [
+            { optionId: "approve-once", label: "Approve once", decision: "approve" },
+            { optionId: "deny", label: "Deny", decision: "deny" }
+          ]
+        }
       ]
-    }] });
+    });
     const respondToAgentRequest = vi.fn(async () => undefined);
     render(
       <TaskWorkspaceConversation
@@ -264,31 +333,33 @@ describe("Task Workspace conversation", () => {
   it("keeps elicitation and authentication requests in the high-priority interaction region", () => {
     const elicitationIdentity = activeIdentity("elicitation-1");
     const authenticationIdentity = activeIdentity("authentication-1");
-    const model = readModel({ activeRequests: [
-      {
-        kind: "elicitation",
-        requestId: "elicitation-1",
-        interactionId: "interaction-elicitation",
-        requestedAt: timestamp,
-        summary: "Choose the release channel.",
-        identity: elicitationIdentity,
-        availability: { available: true, reason: null },
-        elicitationSchema: {
-          type: "object",
-          required: ["channel"],
-          properties: { channel: { type: "string", title: "Release channel" } }
+    const model = readModel({
+      activeRequests: [
+        {
+          kind: "elicitation",
+          requestId: "elicitation-1",
+          interactionId: "interaction-elicitation",
+          requestedAt: timestamp,
+          summary: "Choose the release channel.",
+          identity: elicitationIdentity,
+          availability: { available: true, reason: null },
+          elicitationSchema: {
+            type: "object",
+            required: ["channel"],
+            properties: { channel: { type: "string", title: "Release channel" } }
+          }
+        },
+        {
+          kind: "authentication",
+          requestId: "authentication-1",
+          interactionId: "interaction-authentication",
+          requestedAt: timestamp,
+          summary: "Authenticate in the agent-owned browser.",
+          identity: authenticationIdentity,
+          availability: { available: false, reason: "Authentication is agent-managed." }
         }
-      },
-      {
-        kind: "authentication",
-        requestId: "authentication-1",
-        interactionId: "interaction-authentication",
-        requestedAt: timestamp,
-        summary: "Authenticate in the agent-owned browser.",
-        identity: authenticationIdentity,
-        availability: { available: false, reason: "Authentication is agent-managed." }
-      }
-    ] });
+      ]
+    });
     const respondToAgentRequest = vi.fn(async () => undefined);
     render(
       <TaskWorkspaceConversation
@@ -312,7 +383,10 @@ describe("Task Workspace conversation", () => {
   it("restores a historical run scroll position without live auto-follow", () => {
     const scrollTo = vi.fn();
     const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
-    Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value: scrollTo });
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      configurable: true,
+      value: scrollTo
+    });
     try {
       const model = readModel();
       const selectedRun = selection({ active: false, model });
@@ -341,8 +415,14 @@ describe("Task Workspace conversation", () => {
 
   it("preserves a user's live scroll position across cursor rerenders until Jump to latest restores following", () => {
     const originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
-    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
-    const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollHeight"
+    );
+    const originalClientHeight = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientHeight"
+    );
     const scrollTo = vi.fn(function (this: HTMLElement, options: ScrollToOptions) {
       this.scrollTop = Number(options.top ?? 0);
     });
@@ -359,12 +439,17 @@ describe("Task Workspace conversation", () => {
       const onRunScrollTopChange = vi.fn((id: string, top: number) => positions.set(id, top));
       const rendered = render(
         <TaskWorkspaceConversation
-          {...conversationProps(selectedRun, initialModel, { getRunScrollTop, onRunScrollTopChange })}
+          {...conversationProps(selectedRun, initialModel, {
+            getRunScrollTop,
+            onRunScrollTopChange
+          })}
           api={null}
           t={t}
         />
       );
-      const viewport = screen.getByRole("region", { name: "Conversation and tools · Implement workspace" });
+      const viewport = screen.getByRole("region", {
+        name: "Conversation and tools · Implement workspace"
+      });
       expect(viewport.scrollTop).toBe(2_000);
 
       viewport.scrollTop = 300;
@@ -381,7 +466,10 @@ describe("Task Workspace conversation", () => {
       });
       rendered.rerender(
         <TaskWorkspaceConversation
-          {...conversationProps(selectedRun, updatedModel, { getRunScrollTop, onRunScrollTopChange })}
+          {...conversationProps(selectedRun, updatedModel, {
+            getRunScrollTop,
+            onRunScrollTopChange
+          })}
           api={null}
           t={t}
         />
@@ -393,11 +481,14 @@ describe("Task Workspace conversation", () => {
       expect(viewport.scrollTop).toBe(2_000);
       expect(scrollTo.mock.calls.length).toBeGreaterThan(callsAfterUserScroll);
     } finally {
-      if (originalScrollTo) Object.defineProperty(HTMLElement.prototype, "scrollTo", originalScrollTo);
+      if (originalScrollTo)
+        Object.defineProperty(HTMLElement.prototype, "scrollTo", originalScrollTo);
       else delete HTMLElement.prototype.scrollTo;
-      if (originalScrollHeight) Object.defineProperty(HTMLElement.prototype, "scrollHeight", originalScrollHeight);
+      if (originalScrollHeight)
+        Object.defineProperty(HTMLElement.prototype, "scrollHeight", originalScrollHeight);
       else delete HTMLElement.prototype.scrollHeight;
-      if (originalClientHeight) Object.defineProperty(HTMLElement.prototype, "clientHeight", originalClientHeight);
+      if (originalClientHeight)
+        Object.defineProperty(HTMLElement.prototype, "clientHeight", originalClientHeight);
       else delete HTMLElement.prototype.clientHeight;
     }
   });
@@ -424,15 +515,115 @@ describe("Task Workspace conversation", () => {
     expect(input.className).not.toContain("resize-y");
     fireEvent.change(input, { target: { value: "Continue with the focused fix" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    await vi.waitFor(() => expect(sendAgentPrompt).toHaveBeenCalledWith(
-      model.intervention.prompt.identity,
-      "Continue with the focused fix"
-    ));
+    await vi.waitFor(() =>
+      expect(sendAgentPrompt).toHaveBeenCalledWith(
+        model.intervention.prompt.identity,
+        "Continue with the focused fix"
+      )
+    );
     fireEvent.click(screen.getByRole("button", { name: "Cancel run" }));
     expect(cancelAgentRun).toHaveBeenCalledWith(model.intervention.cancel.identity);
     expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /continue session/i })).not.toBeInTheDocument();
     expect(screen.getByText("Authoritative usage")).toBeInTheDocument();
+  });
+
+  it("retries with the canonical capability identity and refreshes even without a runner model", async () => {
+    const selectedRun = selection({ active: false, model: null, retry: true });
+    const retryTaskWorkspaceRun = vi.fn(async () => undefined);
+    const refresh = vi.fn();
+    render(
+      <TaskWorkspaceComposer
+        api={{ retryTaskWorkspaceRun }}
+        liveStatus="unavailable"
+        refresh={refresh}
+        runnerModel={null}
+        selectedRun={selectedRun}
+        t={t}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await vi.waitFor(() =>
+      expect(retryTaskWorkspaceRun).toHaveBeenCalledWith(
+        selectedRun.item.run.capabilities.retry.identity
+      )
+    );
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("does not keep a newly selected retry disabled while an older identity is pending", async () => {
+    const first = retrySelection("RUN-001");
+    const second = retrySelection("RUN-002");
+    const firstRequest = deferred<void>();
+    const retryTaskWorkspaceRun = vi.fn((identity) =>
+      identity.runId === "RUN-001" ? firstRequest.promise : Promise.resolve()
+    );
+    const refresh = vi.fn();
+    const { rerender } = render(
+      <TaskWorkspaceComposer
+        api={{ retryTaskWorkspaceRun }}
+        liveStatus="unavailable"
+        refresh={refresh}
+        runnerModel={null}
+        selectedRun={first}
+        t={t}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    rerender(
+      <TaskWorkspaceComposer
+        api={{ retryTaskWorkspaceRun }}
+        liveStatus="unavailable"
+        refresh={refresh}
+        runnerModel={null}
+        selectedRun={second}
+        t={t}
+      />
+    );
+    const secondButton = screen.getByRole("button", { name: "Retry" });
+    expect(secondButton).toBeEnabled();
+    fireEvent.click(secondButton);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+
+    await act(async () => firstRequest.resolve());
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("does not show an older retry failure after selecting a different identity", async () => {
+    const first = retrySelection("RUN-001");
+    const second = retrySelection("RUN-002");
+    const firstRequest = deferred<void>();
+    const retryTaskWorkspaceRun = vi.fn(() => firstRequest.promise);
+    const { rerender } = render(
+      <TaskWorkspaceComposer
+        api={{ retryTaskWorkspaceRun }}
+        liveStatus="unavailable"
+        refresh={vi.fn()}
+        runnerModel={null}
+        selectedRun={first}
+        t={t}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    rerender(
+      <TaskWorkspaceComposer
+        api={{ retryTaskWorkspaceRun }}
+        liveStatus="unavailable"
+        refresh={vi.fn()}
+        runnerModel={null}
+        selectedRun={second}
+        t={t}
+      />
+    );
+    await act(async () => firstRequest.reject(new Error("old retry failed")));
+
+    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText(/old retry failed/)).not.toBeInTheDocument();
   });
 
   it("does not expose an ACP composer for an authoritative CLI selection with a stale ACP model", () => {
@@ -469,7 +660,15 @@ describe("Task Workspace conversation", () => {
       }
     });
     const sendAgentPrompt = vi.fn(async () => undefined);
-    render(<TaskWorkspaceComposer api={{ sendAgentPrompt }} liveStatus="live" runnerModel={liveModel} selectedRun={selectedRun} t={t} />);
+    render(
+      <TaskWorkspaceComposer
+        api={{ sendAgentPrompt }}
+        liveStatus="live"
+        runnerModel={liveModel}
+        selectedRun={selectedRun}
+        t={t}
+      />
+    );
 
     expect(screen.getByLabelText("Message the agent")).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
@@ -493,7 +692,15 @@ describe("Task Workspace conversation", () => {
       }
     });
     const sendAgentPrompt = vi.fn(async () => undefined);
-    render(<TaskWorkspaceComposer api={{ sendAgentPrompt }} liveStatus="live" runnerModel={liveModel} selectedRun={selectedRun} t={t} />);
+    render(
+      <TaskWorkspaceComposer
+        api={{ sendAgentPrompt }}
+        liveStatus="live"
+        runnerModel={liveModel}
+        selectedRun={selectedRun}
+        t={t}
+      />
+    );
 
     expect(screen.getByLabelText("Message the agent")).toBeDisabled();
     expect(sendAgentPrompt).not.toHaveBeenCalled();
@@ -513,7 +720,15 @@ describe("Task Workspace conversation", () => {
       }
     });
     const cancelAgentRun = vi.fn(async () => undefined);
-    render(<TaskWorkspaceComposer api={{ cancelAgentRun }} liveStatus="live" runnerModel={liveModel} selectedRun={selectedRun} t={t} />);
+    render(
+      <TaskWorkspaceComposer
+        api={{ cancelAgentRun }}
+        liveStatus="live"
+        runnerModel={liveModel}
+        selectedRun={selectedRun}
+        t={t}
+      />
+    );
 
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
     expect(cancelAgentRun).not.toHaveBeenCalled();
@@ -527,11 +742,17 @@ describe("Task Workspace conversation", () => {
       intervention: {
         prompt: {
           ...selectedModel.intervention.prompt,
-          identity: { ...selectedModel.intervention.prompt.identity, sessionId: "ACP-SESSION-OTHER" }
+          identity: {
+            ...selectedModel.intervention.prompt.identity,
+            sessionId: "ACP-SESSION-OTHER"
+          }
         },
         cancel: {
           ...selectedModel.intervention.cancel,
-          identity: { ...selectedModel.intervention.cancel.identity, sessionId: "ACP-SESSION-OTHER" }
+          identity: {
+            ...selectedModel.intervention.cancel.identity,
+            sessionId: "ACP-SESSION-OTHER"
+          }
         }
       }
     });
@@ -562,7 +783,10 @@ describe("Task Workspace conversation", () => {
     },
     {
       name: "unavailable",
-      patch: { liveStatus: "unavailable" as const, liveUnavailableReason: "ACP stream is unavailable." },
+      patch: {
+        liveStatus: "unavailable" as const,
+        liveUnavailableReason: "ACP stream is unavailable."
+      },
       message: "ACP stream is unavailable.",
       alert: false
     },
@@ -572,7 +796,11 @@ describe("Task Workspace conversation", () => {
       message: "ACP stream failed.",
       alert: true
     }
-  ])("renders the authoritative ACP $name state without exposing CLI controls", ({ alert, message, patch }) => {
+  ])("renders the authoritative ACP $name state without exposing CLI controls", ({
+    alert,
+    message,
+    patch
+  }) => {
     const selectedRun = selection({ model: null, runnerKind: "acp" });
     render(
       <TaskWorkspaceConversation
@@ -592,16 +820,20 @@ describe("Task Workspace conversation", () => {
     const selectedRun = selection({ active: false, model: null, runnerKind: "cli" });
     const openTerminal = vi.fn(async () => ({ appId: "terminal" as const, cwd: "/projects/demo" }));
     const api = {
-      detectTerminalApps: vi.fn(async () => [{
-        appId: "terminal" as const,
-        label: "Terminal",
-        available: true,
-        iconDataUrl: null,
-        unavailableReason: null
-      }]),
+      detectTerminalApps: vi.fn(async () => [
+        {
+          appId: "terminal" as const,
+          label: "Terminal",
+          available: true,
+          iconDataUrl: null,
+          unavailableReason: null
+        }
+      ]),
       getTerminalPreferences: vi.fn(async () => ({ defaultTerminalAppId: "terminal" as const })),
       openTerminal,
-      updateTerminalPreferences: vi.fn(async (patch) => ({ defaultTerminalAppId: patch.defaultTerminalAppId ?? "terminal" }))
+      updateTerminalPreferences: vi.fn(async (patch) => ({
+        defaultTerminalAppId: patch.defaultTerminalAppId ?? "terminal"
+      }))
     } satisfies Partial<DesktopBridgeApi>;
     render(
       <TaskWorkspaceConversation
@@ -618,11 +850,13 @@ describe("Task Workspace conversation", () => {
     expect(screen.queryByLabelText("Message the agent")).not.toBeInTheDocument();
     await act(async () => undefined);
     fireEvent.click(await screen.findByRole("button", { name: "Open terminal" }));
-    await vi.waitFor(() => expect(openTerminal).toHaveBeenCalledWith({
-      ref: { projectRoot: "/projects/demo", canvasId: "canvas-main" },
-      recordId,
-      appId: "terminal"
-    }));
+    await vi.waitFor(() =>
+      expect(openTerminal).toHaveBeenCalledWith({
+        ref: { projectRoot: "/projects/demo", canvasId: "canvas-main" },
+        recordId,
+        appId: "terminal"
+      })
+    );
   });
 
   it("does not fall back to reportMarkdown when the CLI display projection is empty", () => {
@@ -642,7 +876,9 @@ describe("Task Workspace conversation", () => {
       />
     );
 
-    expect(screen.queryByRole("heading", { name: "Hidden persisted report" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Hidden persisted report" })
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("Hidden persisted report")).not.toBeInTheDocument();
     expect(screen.getByText("No run report")).toBeInTheDocument();
   });

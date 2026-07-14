@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { killTmuxSessionsForRun } from "../autoRun/tmuxExecutor.js";
 import { listExecutorProfilesForManifest } from "../autoRun/executors.js";
 import {
@@ -10,8 +11,12 @@ import {
 import type { JsonRpcValue, RunnerInteractionBroker } from "../autoRun/liveControl.js";
 import { redactRunnerEventText } from "../autoRun/runnerEventRedaction.js";
 import { createAutoRunExplanation, runAutoRunStep } from "../taskManager/autoRun.js";
-import { resetMaxCycleReviewsForRetry } from "../taskManager/reviewRetry.js";
+import {
+  resetMaxCycleReviewsForRetryWithRollback,
+  type MaxCycleReviewResetTransaction
+} from "../taskManager/reviewRetry.js";
 import { loadPackage } from "../package/loadPackage.js";
+import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import type { PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
 import type {
@@ -36,6 +41,7 @@ import {
 } from "./runStateStore.js";
 import {
   nextPersistedAutoRunId,
+  listPersistedAutoRunStatesWithDiagnostics,
   readLatestPersistedAutoRunState,
   readPersistedAutoRunEventLog,
   writePersistedAutoRunState
@@ -62,7 +68,13 @@ import {
   resetRuntimeState,
   updateRunSession
 } from "../runSessions/index.js";
+import { discardRunSessionInitialization } from "../runSessions/repository.js";
 import type { RunSessionAutoRunSummary, RunSessionPhase } from "../runSessions/index.js";
+import {
+  latestAutoRunStatePointerPath,
+  readLatestAutoRunStatePointer,
+  writeLatestAutoRunStatePointer
+} from "./runStatePointer.js";
 
 const runs = new Map<string, DesktopAutoRunState>();
 const runWorkspaces = new Map<string, ProjectWorkspace>();
@@ -383,12 +395,11 @@ async function runLoop(runId: string): Promise<void> {
           {
             stepCount: afterStep.stepCount + (completedWithoutWork ? 0 : 1),
             currentRef: completedWithoutWork ? afterStep.currentRef : claimRef(step),
-            currentExecutor: completedWithoutWork
-              ? afterStep.currentExecutor
-              : executorName(step),
-            latestOutputSummary: completedWithoutWork && hasExecutedStep
-              ? afterStep.latestOutputSummary
-              : outputSummary(step),
+            currentExecutor: completedWithoutWork ? afterStep.currentExecutor : executorName(step),
+            latestOutputSummary:
+              completedWithoutWork && hasExecutedStep
+                ? afterStep.latestOutputSummary
+                : outputSummary(step),
             latestRecordId: completedWithoutWork
               ? afterStep.latestRecordId
               : (record?.recordId ?? null),
@@ -586,19 +597,59 @@ function rehydratePersistedRun(
   return rehydrated;
 }
 
-export async function startAutoRun(
+function clearAutoRunInitializationMemory(runId: string): void {
+  activeLoops.delete(runId);
+  runs.delete(runId);
+  runWorkspaces.delete(runId);
+  runAbortControllers.delete(runId);
+  runCliAbortControllers.delete(runId);
+  runLoopOperations.delete(runId);
+  stopOperations.delete(runId);
+}
+
+async function rollbackAutoRunInitialization(options: {
+  workspace: ProjectWorkspace;
+  runId: string;
+  sessionId: string | null;
+  previousPointer: Awaited<ReturnType<typeof readLatestAutoRunStatePointer>>;
+  originalError: unknown;
+}): Promise<never> {
+  clearAutoRunInitializationMemory(options.runId);
+  const cleanupOperations: Promise<unknown>[] = [
+    rm(autoRunRoot(options.workspace, options.runId), { recursive: true, force: true }),
+    options.previousPointer === null
+      ? rm(latestAutoRunStatePointerPath(options.workspace), { force: true })
+      : writeLatestAutoRunStatePointer(options.workspace, options.previousPointer)
+  ];
+  if (options.sessionId !== null) {
+    cleanupOperations.push(discardRunSessionInitialization(options.workspace, options.sessionId));
+  }
+  const cleanupResults = await Promise.allSettled(cleanupOperations);
+  const cleanupErrors = cleanupResults.flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : []
+  );
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(
+      [options.originalError, ...cleanupErrors],
+      `Auto Run '${options.runId}' initialization failed and cleanup did not complete.`
+    );
+  }
+  throw options.originalError;
+}
+
+export async function initializeAutoRunUnderCanvasLock(
+  workspace: ProjectWorkspace,
   projectRoot: string,
   canvasId: string | null | undefined,
   scope: DesktopAutoRunScope = { kind: "project" },
   stepLimit = 20,
   options?: DesktopAutoRunOptions
 ): Promise<DesktopAutoRunState> {
-  const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
+  if (await hasAutoRunInWorkspace(workspace, ["running", "pausing"])) {
+    throw new Error("Cannot start Auto Run while another Auto Run is active.");
+  }
   const { manifest } = await loadPackage(workspace);
-  const resetReviews = await resetMaxCycleReviewsForRetry({
-    projectRoot: workspace,
-    scope: claimScope(scope)
-  });
+  const previousPointer = await readLatestAutoRunStatePointer(workspace);
   const runId = await nextPersistedAutoRunId(workspace, {
     isReserved: (candidateRunId) => {
       const existing = runs.get(candidateRunId);
@@ -607,68 +658,114 @@ export async function startAutoRun(
       );
     }
   });
-  const root = autoRunRoot(workspace, runId);
-  const session = await createRunSession({
-    projectRoot: workspace,
-    kind: "run",
-    trigger: "desktop",
-    scope
-  });
-  const timestamp = now();
-  const state = withExplanation({
-    runId,
-    runSessionId: session.sessionId,
-    projectRoot,
-    canvasId: canvasId ?? null,
-    scope,
-    phase: "running",
-    stepCount: 0,
-    stepLimit,
-    currentRef: null,
-    currentExecutor: null,
-    elapsedMs: 0,
-    latestOutputSummary: null,
-    latestRecordId: null,
-    latestRecordPath: null,
-    statePath: join(root, "state.json"),
-    eventLogPath: join(root, "events.ndjson"),
-    options: normalizeAutoRunOptions(options),
-    error: null,
-    startedAt: timestamp,
-    updatedAt: timestamp
-  });
-  runs.set(runId, state);
-  runAbortControllers.set(runId, new AbortController());
-  runCliAbortControllers.set(runId, new AbortController());
-  runWorkspaces.set(runId, workspace);
-  await writePersistedAutoRunState(state);
-  await appendAutoRunEvent(state, "run_started", {
-    scope,
-    resetMaxCycleReviewRefs: resetReviews.refs
-  });
-  await updateRunSession(workspace, session.sessionId, {
-    phase: "running",
-    autoRun: {
-      desktopRunId: runId,
+  let sessionId: string | null = null;
+  let reviewReset: MaxCycleReviewResetTransaction | null = null;
+  try {
+    const session = await createRunSession({
+      projectRoot: workspace,
+      kind: "run",
+      trigger: "desktop",
+      scope
+    });
+    sessionId = session.sessionId;
+    const root = autoRunRoot(workspace, runId);
+    const timestamp = now();
+    const state = withExplanation({
+      runId,
+      runSessionId: session.sessionId,
+      projectRoot,
+      canvasId: canvasId ?? null,
+      scope,
+      phase: "running",
       stepCount: 0,
-      parallel: manifest.execution.parallel.enabled,
-      executorOverride: null,
-      effectiveExecutor: null,
-      agentId: null,
-      runnerKind: null,
-      stopReason: null
-    },
-    error: null
-  });
-  await appendRunSessionEvent(workspace, session.sessionId, "run_started", {
-    phase: "running",
-    desktopRunId: runId,
-    scope,
-    resetMaxCycleReviewRefs: resetReviews.refs
-  });
-  emitAutoRunChanged(state, "run_started");
+      stepLimit,
+      currentRef: null,
+      currentExecutor: null,
+      elapsedMs: 0,
+      latestOutputSummary: null,
+      latestRecordId: null,
+      latestRecordPath: null,
+      statePath: join(root, "state.json"),
+      eventLogPath: join(root, "events.ndjson"),
+      options: normalizeAutoRunOptions(options),
+      error: null,
+      startedAt: timestamp,
+      updatedAt: timestamp
+    });
+    runs.set(runId, state);
+    runAbortControllers.set(runId, new AbortController());
+    runCliAbortControllers.set(runId, new AbortController());
+    runWorkspaces.set(runId, workspace);
+    await writePersistedAutoRunState(state);
+    reviewReset = await resetMaxCycleReviewsForRetryWithRollback({
+      projectRoot: workspace,
+      scope: claimScope(scope)
+    });
+    await appendAutoRunEvent(state, "run_started", {
+      scope,
+      resetMaxCycleReviewRefs: reviewReset.refs
+    });
+    await updateRunSession(workspace, session.sessionId, {
+      phase: "running",
+      autoRun: {
+        desktopRunId: runId,
+        stepCount: 0,
+        parallel: manifest.execution.parallel.enabled,
+        executorOverride: null,
+        effectiveExecutor: null,
+        agentId: null,
+        runnerKind: null,
+        stopReason: null
+      },
+      error: null
+    });
+    await appendRunSessionEvent(workspace, session.sessionId, "run_started", {
+      phase: "running",
+      desktopRunId: runId,
+      scope,
+      resetMaxCycleReviewRefs: reviewReset.refs
+    });
+    emitAutoRunChanged(state, "run_started");
+    return cloneAutoRunState(state);
+  } catch (error) {
+    let initializationError = error;
+    if (reviewReset !== null) {
+      try {
+        await reviewReset.rollback();
+      } catch (rollbackError) {
+        initializationError = new AggregateError(
+          [error, rollbackError],
+          `Auto Run '${runId}' initialization failed and review retry state rollback did not complete.`
+        );
+      }
+    }
+    return rollbackAutoRunInitialization({
+      workspace,
+      runId,
+      sessionId,
+      previousPointer,
+      originalError: initializationError
+    });
+  }
+}
+
+export async function startAutoRun(
+  projectRoot: string,
+  canvasId: string | null | undefined,
+  scope: DesktopAutoRunScope = { kind: "project" },
+  stepLimit = 20,
+  options?: DesktopAutoRunOptions
+): Promise<DesktopAutoRunState> {
+  const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
+  const state = await withCanvasLock(dirname(workspace.stateFile), () =>
+    initializeAutoRunUnderCanvasLock(workspace, projectRoot, canvasId, scope, stepLimit, options)
+  );
+  launchInitializedAutoRun(state.runId);
+  return state;
+}
+
+export function launchInitializedAutoRun(runId: string): void {
   launchRunLoop(runId);
-  return cloneAutoRunState(state);
 }
 
 export async function pauseAutoRun(runId: string): Promise<DesktopAutoRunState> {
@@ -731,12 +828,9 @@ export async function stopAutoRun(runId: string): Promise<DesktopAutoRunState> {
     let stopped: DesktopAutoRunState | undefined;
     let terminalError: unknown;
     try {
-      stopped = await setState(
-        runId,
-        { phase: "stopped" },
-        "run_stopped",
-        { killedTmuxSessions: killed }
-      );
+      stopped = await setState(runId, { phase: "stopped" }, "run_stopped", {
+        killedTmuxSessions: killed
+      });
     } catch (error) {
       terminalError = error;
     }
@@ -779,9 +873,7 @@ export async function shutdownDesktopAutoRuns(
 ): Promise<void> {
   const runIds = new Set([
     ...runLoopOperations.keys(),
-    ...[...runs.values()]
-      .filter((run) => isRunIdConflictProtected(run))
-      .map((run) => run.runId)
+    ...[...runs.values()].filter((run) => isRunIdConflictProtected(run)).map((run) => run.runId)
   ]);
   const loopOperations = [...runIds].flatMap((runId) => {
     const operation = runLoopOperations.get(runId);
@@ -791,9 +883,7 @@ export async function shutdownDesktopAutoRuns(
     runAbortControllers.get(runId)?.abort(new Error(reason));
     runCliAbortControllers.get(runId)?.abort(new Error(reason));
   }
-  const stopResults = await Promise.allSettled(
-    [...runIds].map((runId) => stopAutoRun(runId))
-  );
+  const stopResults = await Promise.allSettled([...runIds].map((runId) => stopAutoRun(runId)));
   const loopResults = await Promise.allSettled(
     loopOperations.map(({ operation }) => operation.result)
   );
@@ -803,9 +893,7 @@ export async function shutdownDesktopAutoRuns(
       runLoopOperations.delete(runId);
     }
   }
-  const agentCleanup = await Promise.allSettled([
-    activeAgentRunRegistry.shutdown(reason)
-  ]);
+  const agentCleanup = await Promise.allSettled([activeAgentRunRegistry.shutdown(reason)]);
   const failures = [...stopResults, ...loopResults, ...agentCleanup].flatMap((result) =>
     result.status === "rejected" ? [result.reason] : []
   );
@@ -920,6 +1008,44 @@ export async function getLatestAutoRunSummary(
   canvasId?: string | null
 ): Promise<DesktopAutoRunState | null> {
   return (await getLatestAutoRunSummaryWithDiagnostics(projectRoot, canvasId)).state;
+}
+
+export async function hasNonTerminalAutoRunForTarget(
+  projectRoot: string,
+  canvasId?: string | null
+): Promise<boolean> {
+  const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
+  return hasAutoRunInWorkspace(workspace, ["running", "pausing", "paused", "manual"]);
+}
+
+async function hasAutoRunInWorkspace(
+  workspace: ProjectWorkspace,
+  blockingPhases: DesktopAutoRunPhase[]
+): Promise<boolean> {
+  const targetStateFile = resolve(workspace.stateFile);
+  if (
+    [...runs.values()].some((run) => {
+      const runWorkspace = runWorkspaces.get(run.runId);
+      return (
+        runWorkspace !== undefined &&
+        resolve(runWorkspace.stateFile) === targetStateFile &&
+        (blockingPhases.includes(run.phase) || activeLoops.has(run.runId))
+      );
+    })
+  ) {
+    return true;
+  }
+  const persisted = await listPersistedAutoRunStatesWithDiagnostics(workspace, {
+    hasActiveLoop: (runId) => activeLoops.has(runId)
+  });
+  if (persisted.diagnostics.length > 0) {
+    throw new Error(
+      `Cannot start Auto Run because persisted Auto Run state is unreadable: ${persisted.diagnostics
+        .map((diagnostic) => diagnostic.message)
+        .join("; ")}`
+    );
+  }
+  return persisted.states.some((state) => blockingPhases.includes(state.phase));
 }
 
 export async function getDesktopRuntimeRefresh(

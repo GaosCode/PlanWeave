@@ -44,6 +44,7 @@ import {
   getTaskFileManagerPath,
   getTaskExecutionOrder,
   getTaskWorkspace,
+  retryTaskWorkspaceRun,
   getTodoGroups,
   initOrOpenProject,
   linkProjectSourceRoot,
@@ -128,6 +129,7 @@ import {
   desktopAgentSessionActionIdentitySchema,
   desktopAgentActionValueSchema,
   taskWorkspaceInputSchema,
+  taskWorkspaceRetryIdentitySchema,
   taskWorkspaceSchema
 } from "@planweave-ai/runtime";
 import type { DesktopBridgeMainInvokeMethod } from "../shared/ipcChannels.js";
@@ -216,10 +218,7 @@ function assertTaskWorkspaceResponseIdentity(
       );
     }
   }
-  if (
-    input.selectedRecordId != null &&
-    result.selectedRecordId !== input.selectedRecordId
-  ) {
+  if (input.selectedRecordId != null && result.selectedRecordId !== input.selectedRecordId) {
     throw new Error(
       `invalid Runtime response identity: selectedRecordId '${result.selectedRecordId}' does not match request '${input.selectedRecordId}'.`
     );
@@ -488,6 +487,8 @@ export const runtimeBridgeHandlers = {
   getTaskDetail: async (_event, ref, taskId) =>
     getTaskDetail(await resolveDesktopCanvasReference(ref), taskId),
   getTaskWorkspace: (_event, input) => invokeTaskWorkspace(input),
+  retryTaskWorkspaceRun: (_event, identity) =>
+    retryTaskWorkspaceRun(taskWorkspaceRetryIdentitySchema.parse(identity)),
   getBlockDetail: async (_event, ref, blockRef) =>
     getBlockDetail(await resolveDesktopCanvasReference(ref), blockRef),
   getTaskExecutionOrder: async (_event, ref, taskId) =>

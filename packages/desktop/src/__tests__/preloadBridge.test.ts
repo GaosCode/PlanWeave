@@ -114,7 +114,7 @@ describe("preload bridge invocation", () => {
     expect(invoke).toHaveBeenCalledWith(desktopBridgeInvokeChannels.listProjects);
   });
 
-  it("exposes only the Task Workspace invoke method and forwards its complete input", async () => {
+  it("exposes the Task Workspace query and retry methods and forwards their complete inputs", async () => {
     const result = { version: "planweave.task-workspace/v1" };
     const invoke = vi.fn<Parameters<typeof createDesktopBridgeInvokeApi>[0]>(async () => result);
     const api = createDesktopBridgeInvokeApi(invoke);
@@ -127,8 +127,26 @@ describe("preload bridge invocation", () => {
 
     await expect(api.getTaskWorkspace(input)).resolves.toBe(result);
     expect(invoke).toHaveBeenCalledWith(desktopBridgeInvokeChannels.getTaskWorkspace, input);
+    const retryIdentity = {
+      version: "planweave.task-workspace-retry/v1" as const,
+      projectId: "project-1",
+      projectRoot: "/tmp/project",
+      canvasId: "canvas-a" as const,
+      taskId: "T-001" as const,
+      blockId: "B-001",
+      claimRef: "T-001#B-001",
+      recordId: "T-001#B-001::RUN-001",
+      runId: "RUN-001",
+      executorRunId: "RUN-001"
+    };
+    await api.retryTaskWorkspaceRun(retryIdentity);
+    expect(invoke).toHaveBeenLastCalledWith(
+      desktopBridgeInvokeChannels.retryTaskWorkspaceRun,
+      retryIdentity
+    );
     expect(Object.keys(api).filter((method) => method.includes("TaskWorkspace"))).toEqual([
-      "getTaskWorkspace"
+      "getTaskWorkspace",
+      "retryTaskWorkspaceRun"
     ]);
   });
 

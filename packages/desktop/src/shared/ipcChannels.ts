@@ -67,6 +67,7 @@ export const desktopBridgeInvokeChannels = {
   getStatistics: "planweave:getStatistics",
   getTaskDetail: "planweave:getTaskDetail",
   getTaskWorkspace: "planweave:getTaskWorkspace",
+  retryTaskWorkspaceRun: "planweave:retryTaskWorkspaceRun",
   getTaskExecutionOrder: "planweave:getTaskExecutionOrder",
   getTerminalPreferences: "planweave:getTerminalPreferences",
   getTodoGroups: "planweave:getTodoGroups",

@@ -8,7 +8,8 @@ import {
   projectTaskWorkspaceRun,
   taskWorkspaceSchema,
   taskWorkspaceRunDurationSchema,
-  taskWorkspaceRunSchema
+  taskWorkspaceRunSchema,
+  taskWorkspaceRetryIdentitySchema
 } from "../desktop/index.js";
 import type { DesktopRunRecord } from "../desktop/types.js";
 
@@ -282,10 +283,7 @@ describe("Task Workspace run projection", () => {
         }
       }
     });
-    const base = readModel([
-      usageEvent(1, 20, "2026-07-13T00:00:01.000Z"),
-      terminalEvent
-    ]);
+    const base = readModel([usageEvent(1, 20, "2026-07-13T00:00:01.000Z"), terminalEvent]);
     const model = runnerRecordReadModelSchema.parse({
       ...base,
       cursor: { ...base.cursor, terminal: true },
@@ -329,10 +327,7 @@ describe("Task Workspace run projection", () => {
         }
       }
     });
-    const base = readModel([
-      usageEvent(1, 20, "2026-07-13T00:00:01.000Z"),
-      terminalEvent
-    ]);
+    const base = readModel([usageEvent(1, 20, "2026-07-13T00:00:01.000Z"), terminalEvent]);
     const model = runnerRecordReadModelSchema.parse({
       ...base,
       cursor: { ...base.cursor, terminal: true },
@@ -619,6 +614,30 @@ describe("Task Workspace run projection", () => {
         now: new Date("2026-07-13T00:00:05.000Z")
       })
     ).toThrow(/same sessionId/);
+  });
+
+  it("rejects a retry capability identity that differs from the persisted run", () => {
+    const retryIdentity = taskWorkspaceRetryIdentitySchema.parse({
+      version: "planweave.task-workspace-retry/v1",
+      projectId: "project-1",
+      projectRoot: "/project",
+      canvasId: "default",
+      taskId: "T-001",
+      blockId: "B-001",
+      claimRef: "T-001#B-001",
+      recordId: "T-001#B-001::RUN-OTHER",
+      runId: "RUN-OTHER",
+      executorRunId: "RUN-OTHER"
+    });
+
+    expect(() =>
+      projectTaskWorkspaceRun({
+        record: blockRecord(),
+        runIdentity,
+        retry: { available: true, reason: null, identity: retryIdentity },
+        now: new Date("2026-07-13T00:00:05.000Z")
+      })
+    ).toThrow(/Retry action identity/);
   });
 
   it("rejects duration without a start time when wall-clock data is present or unexplained", () => {

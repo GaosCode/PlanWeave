@@ -1,8 +1,6 @@
-import {
-  artifactReferenceSchema,
-  runnerRunIdentitySchema
-} from "../autoRun/runnerContractSchemas.js";
+import { artifactReferenceSchema } from "../autoRun/runnerContractSchemas.js";
 import { getExecutionStatus } from "../taskManager/executionStatus.js";
+import { hasNonTerminalAutoRunForTarget } from "./runApi.js";
 import type { ProjectWorkspace } from "../types.js";
 import { compareRunDirectoriesNewestFirst } from "./autoRunIdReservations.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
@@ -15,6 +13,10 @@ import {
   listTaskFeedbackRunRecords
 } from "./recordsApi.js";
 import { projectTaskWorkspaceRun } from "./taskWorkspaceRunProjection.js";
+import {
+  canonicalTaskWorkspaceRunIdentity,
+  evaluateTaskWorkspaceRetry
+} from "./taskWorkspaceRetry.js";
 import {
   TASK_WORKSPACE_TASK_COST_UNAVAILABLE_REASON,
   taskWorkspaceInputSchema,
@@ -67,46 +69,6 @@ function sortRunsOldestFirst(records: DesktopRunRecord[]): DesktopRunRecord[] {
 
 function sortRunsNewestFirst(records: DesktopRunRecord[]): DesktopRunRecord[] {
   return sortRunsOldestFirst(records).reverse();
-}
-
-function assertCanonicalIdentity(options: {
-  workspace: ProjectWorkspace;
-  canvasId: string;
-  record: DesktopRunRecord;
-}): ReturnType<typeof runnerRunIdentitySchema.parse> {
-  const { workspace, canvasId, record } = options;
-  const canonical = record.runnerReadModel?.cursor.canonicalIdentity?.identity;
-  if (canonical !== undefined) {
-    if (
-      canonical.projectId !== workspace.id ||
-      canonical.canvasId !== canvasId ||
-      canonical.taskId !== record.taskId ||
-      canonical.blockId !== record.blockId ||
-      canonical.claimRef !== record.ref ||
-      canonical.runId !== record.runId ||
-      canonical.executorRunId !== record.runId
-    ) {
-      throw new Error(
-        `Persisted runner identity does not match Task Workspace record '${record.recordId}'.`
-      );
-    }
-    return runnerRunIdentitySchema.parse(canonical);
-  }
-  if (record.runnerReadModel !== null) {
-    throw new Error(`Persisted runner record '${record.recordId}' has no canonical identity.`);
-  }
-  return runnerRunIdentitySchema.parse({
-    projectId: workspace.id,
-    canvasId,
-    taskId: record.taskId,
-    blockId: record.blockId,
-    claimRef: record.ref,
-    runId: record.runId,
-    runOwner: "executor",
-    runSessionId: null,
-    desktopRunId: null,
-    executorRunId: record.runId
-  });
 }
 
 function waitingInteraction(record: DesktopRunRecord) {
@@ -287,9 +249,10 @@ export async function getTaskWorkspace(
   const now = options.now ?? new Date();
   if (!Number.isFinite(now.getTime())) throw new Error("Task Workspace now must be a valid Date.");
   const workspace = await resolveTaskCanvasWorkspace(input.projectRoot, input.canvasId);
-  const [taskDetail, executionStatus] = await Promise.all([
+  const [taskDetail, executionStatus, hasActiveAutoRun] = await Promise.all([
     getTaskDetail(workspace, input.taskId),
-    getExecutionStatus({ projectRoot: workspace })
+    getExecutionStatus({ projectRoot: workspace }),
+    hasNonTerminalAutoRunForTarget(input.projectRoot, input.canvasId)
   ]);
   const blockDetails = await Promise.all(
     taskDetail.blockOrder.map((ref) => getBlockDetail(workspace, ref))
@@ -309,6 +272,7 @@ export async function getTaskWorkspace(
     }
   }
   const recordsByRef = new Map<string, DesktopRunRecord[]>();
+  const latestRecordIdByRef = new Map<string, string | null>();
   const feedbackRunsByRef = new Map<string, DesktopRunRecord[]>();
   const feedbackRecordsByRef = new Map<string, DesktopFeedbackRecord[]>();
   for (const detail of blockDetails) {
@@ -331,6 +295,7 @@ export async function getTaskWorkspace(
   await Promise.all(
     blockDetails.map(async (detail) => {
       const summaries = await listBlockMainRunRecords(workspace, detail.ref);
+      latestRecordIdByRef.set(detail.ref, summaries[0]?.recordId ?? null);
       const records = await Promise.all(
         summaries.map((summary) => getRunRecord(workspace, summary.recordId))
       );
@@ -402,12 +367,23 @@ export async function getTaskWorkspace(
           waitingInteraction: waitingInteraction(record),
           run: projectTaskWorkspaceRun({
             record,
-            runIdentity: assertCanonicalIdentity({
+            runIdentity: canonicalTaskWorkspaceRunIdentity({
               workspace,
               canvasId: input.canvasId,
               record
             }),
-            now
+            now,
+            retry: evaluateTaskWorkspaceRetry({
+              workspace,
+              canvasId: input.canvasId,
+              taskId: input.taskId,
+              block: detail,
+              record,
+              selectedRecordId,
+              latestRecordId: latestRecordIdByRef.get(detail.ref) ?? null,
+              hasActiveRun: hasActiveAutoRun || activeRecordIds.length > 0,
+              dependenciesSatisfied: dependencyProgress(detail, detailsByRef).blockers.length === 0
+            })
           })
         })),
         annotations

@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { optionalReaddir } from "../fs/optionalFile.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
@@ -359,12 +359,32 @@ export async function createRunSession(options: CreateRunSessionOptions): Promis
     latestRecordPath: null,
     error: null
   };
-  await writeJsonFile(sessionSummaryPath(workspace, sessionId), session);
-  await appendRunSessionEvent(options.projectRoot, sessionId, "session_started", {
-    timestamp: now,
-    phase: session.phase
-  });
-  return session;
+  try {
+    await writeJsonFile(sessionSummaryPath(workspace, sessionId), session);
+    await appendRunSessionEvent(options.projectRoot, sessionId, "session_started", {
+      timestamp: now,
+      phase: session.phase
+    });
+    return session;
+  } catch (error) {
+    try {
+      await rm(sessionRoot(workspace, sessionId), { recursive: true, force: true });
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `Run session '${sessionId}' initialization failed and cleanup did not complete.`
+      );
+    }
+    throw error;
+  }
+}
+
+export async function discardRunSessionInitialization(
+  workspace: ProjectWorkspace,
+  sessionId: string
+): Promise<void> {
+  assertValidRunSessionId(sessionId);
+  await rm(sessionRoot(workspace, sessionId), { recursive: true, force: true });
 }
 
 export async function updateRunSession(

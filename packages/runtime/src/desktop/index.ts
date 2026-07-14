@@ -118,6 +118,7 @@ export {
   getAutoRunRetrospective,
   getLatestAutoRunRetrospective
 } from "./autoRunRetrospectiveApi.js";
+export { retryTaskWorkspaceRun } from "./taskWorkspaceActionsApi.js";
 export {
   cancelDesktopAgentRun,
   getDesktopRuntimeRefresh,
@@ -197,6 +198,8 @@ export {
   taskWorkspaceCancelCapabilitySchema,
   taskWorkspaceContextUsageSnapshotSchema,
   taskWorkspacePromptCapabilitySchema,
+  taskWorkspaceRetryCapabilitySchema,
+  taskWorkspaceRetryIdentitySchema,
   taskWorkspaceRunCapabilitiesSchema,
   taskWorkspaceRunDurationSchema,
   taskWorkspaceRunMetadataSchema,

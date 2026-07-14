@@ -14,9 +14,13 @@ import {
   type TaskWorkspaceCancelRunController,
   TaskWorkspaceCancelRunControllerScope
 } from "./TaskWorkspaceCancelRunAction";
+import { TaskWorkspaceRetryRunAction } from "./TaskWorkspaceRetryRunAction";
 
 type ComposerApi = Partial<
-  Pick<DesktopBridgeApi, "cancelAgentRun" | "respondToAgentRequest" | "sendAgentPrompt">
+  Pick<
+    DesktopBridgeApi,
+    "cancelAgentRun" | "respondToAgentRequest" | "retryTaskWorkspaceRun" | "sendAgentPrompt"
+  >
 >;
 
 export function TaskWorkspaceComposer({
@@ -24,6 +28,7 @@ export function TaskWorkspaceComposer({
   api = bridge,
   cancelController,
   liveStatus,
+  refresh,
   runnerModel,
   selectedRun,
   t
@@ -36,18 +41,33 @@ export function TaskWorkspaceComposer({
   if (!selectedRun) {
     return <ComposerUnavailable accessory={accessory} reason={t("acpPromptUnavailable")} />;
   }
+  const actionAccessory = (
+    <>
+      {accessory}
+      <TaskWorkspaceRetryRunAction
+        api={api}
+        buttonLabel={t("taskWorkspaceRetryAction")}
+        errorLabel={t("acpActionError")}
+        onRetried={refresh}
+        selectedRun={selectedRun}
+      />
+    </>
+  );
   const runnerKind = selectedRun.item.run.metadata.runnerKind;
   if (runnerKind === "cli") {
     return (
       <ComposerUnavailable
-        accessory={accessory}
+        accessory={actionAccessory}
         reason={t("taskWorkspaceCliComposerUnavailable")}
       />
     );
   }
   if (runnerKind !== "acp") {
     return (
-      <ComposerUnavailable accessory={accessory} reason={t("taskWorkspaceUnsupportedTransport")} />
+      <ComposerUnavailable
+        accessory={actionAccessory}
+        reason={t("taskWorkspaceUnsupportedTransport")}
+      />
     );
   }
   if (!runnerModel) {
@@ -55,13 +75,13 @@ export function TaskWorkspaceComposer({
       liveStatus === "loading"
         ? t("taskWorkspaceLoadingSelectedRun")
         : (selectedRun.item.run.capabilities.prompt.reason ?? t("acpPromptUnavailable"));
-    return <ComposerUnavailable accessory={accessory} reason={reason} />;
+    return <ComposerUnavailable accessory={actionAccessory} reason={reason} />;
   }
 
   if (cancelController) {
     return (
       <AcpComposer
-        accessory={accessory}
+        accessory={actionAccessory}
         api={api}
         cancelController={cancelController}
         model={runnerModel}
@@ -74,7 +94,7 @@ export function TaskWorkspaceComposer({
     <TaskWorkspaceCancelRunControllerScope api={api} model={runnerModel} selectedRun={selectedRun}>
       {(localCancelController) => (
         <AcpComposer
-          accessory={accessory}
+          accessory={actionAccessory}
           api={api}
           cancelController={localCancelController}
           model={runnerModel}

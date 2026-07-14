@@ -41,6 +41,46 @@ describe("Task Workspace runtime bridge", () => {
     });
   });
 
+  it("validates and forwards the canonical retry identity to Runtime", async () => {
+    const { runtimeMock } = getRuntimeBridgeMocks();
+    const identity = {
+      version: "planweave.task-workspace-retry/v1",
+      projectId: "project-1",
+      projectRoot: "/tmp/project",
+      canvasId: "canvas-a",
+      taskId: "T-001",
+      blockId: "B-001",
+      claimRef: "T-001#B-001",
+      recordId: "T-001#B-001::RUN-001",
+      runId: "RUN-001",
+      executorRunId: "RUN-001"
+    };
+
+    await registeredHandler(desktopBridgeInvokeChannels.retryTaskWorkspaceRun)(null, identity);
+
+    expect(runtimeMock.retryTaskWorkspaceRun).toHaveBeenCalledWith(identity);
+  });
+
+  it("rejects a retry identity whose executor run does not match the persisted run", async () => {
+    const { runtimeMock } = getRuntimeBridgeMocks();
+
+    expect(() =>
+      registeredHandler(desktopBridgeInvokeChannels.retryTaskWorkspaceRun)(null, {
+        version: "planweave.task-workspace-retry/v1",
+        projectId: "project-1",
+        projectRoot: "/tmp/project",
+        canvasId: "canvas-a",
+        taskId: "T-001",
+        blockId: "B-001",
+        claimRef: "T-001#B-001",
+        recordId: "T-001#B-001::RUN-001",
+        runId: "RUN-001",
+        executorRunId: "RUN-OTHER"
+      })
+    ).toThrow("Retry executorRunId must equal runId");
+    expect(runtimeMock.retryTaskWorkspaceRun).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["project root", "project.projectRoot", "/tmp/other-project"],
     ["canvas id", "project.canvasId", "canvas-other"],

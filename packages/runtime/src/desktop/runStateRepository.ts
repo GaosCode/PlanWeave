@@ -1,6 +1,7 @@
 export type {
   PersistedAutoRunStateReadDiagnostic,
   PersistedAutoRunStateReadResult,
+  PersistedAutoRunStateListResult,
   LatestPersistedAutoRunStateResult
 } from "./runStatePersistence.js";
 export {
@@ -8,6 +9,7 @@ export {
   readPersistedAutoRunState,
   readPersistedAutoRunStateWithDiagnostics,
   listPersistedAutoRunStates,
+  listPersistedAutoRunStatesWithDiagnostics,
   writePersistedAutoRunState,
   readPersistedAutoRunEventLog
 } from "./runStatePersistence.js";

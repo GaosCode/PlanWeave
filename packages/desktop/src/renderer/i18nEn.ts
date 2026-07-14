@@ -772,6 +772,7 @@ export const enCatalog = {
   taskWorkspaceParallelWave: "{waveId} {index}/{total}",
   taskWorkspaceResizeTimeline: "Resize timeline",
   taskWorkspaceRetry: "Retry {retryIndex}",
+  taskWorkspaceRetryAction: "Retry",
   taskWorkspaceRunLabel: "{blockTitle} run {retryIndex}",
   taskWorkspaceRunId: "Run ID",
   taskWorkspaceStartedAt: "Started",

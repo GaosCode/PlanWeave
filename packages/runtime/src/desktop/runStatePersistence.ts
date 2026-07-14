@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { isNodeFileNotFoundError } from "../fs/optionalFile.js";
 import { readJsonFile } from "../json.js";
@@ -36,6 +36,11 @@ export type PersistedAutoRunStateReadResult = {
 };
 
 export type LatestPersistedAutoRunStateResult = PersistedAutoRunStateReadResult;
+
+export type PersistedAutoRunStateListResult = {
+  states: DesktopAutoRunState[];
+  diagnostics: PersistedAutoRunStateReadDiagnostic[];
+};
 
 const autoRunLogEventDataKeys = new Set([
   "timestamp",
@@ -294,12 +299,24 @@ export async function nextPersistedAutoRunId(
     }
     try {
       await mkdir(autoRunRoot(workspace, runId), { recursive: false });
-      await recordReservedAutoRunId(workspace, runId);
-      return runId;
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "EEXIST") {
         nextNumber += 1;
         continue;
+      }
+      throw error;
+    }
+    try {
+      await recordReservedAutoRunId(workspace, runId);
+      return runId;
+    } catch (error) {
+      try {
+        await rm(autoRunRoot(workspace, runId), { recursive: true, force: true });
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          `Auto Run '${runId}' reservation failed and cleanup did not complete.`
+        );
       }
       throw error;
     }
@@ -415,16 +432,28 @@ export async function listPersistedAutoRunStates(
   workspace: ProjectWorkspace,
   options: { hasActiveLoop?: (runId: string) => boolean } = {}
 ): Promise<DesktopAutoRunState[]> {
+  return (await listPersistedAutoRunStatesWithDiagnostics(workspace, options)).states;
+}
+
+export async function listPersistedAutoRunStatesWithDiagnostics(
+  workspace: ProjectWorkspace,
+  options: { hasActiveLoop?: (runId: string) => boolean } = {}
+): Promise<PersistedAutoRunStateListResult> {
   const states: DesktopAutoRunState[] = [];
+  const diagnostics: PersistedAutoRunStateReadDiagnostic[] = [];
   for (const runId of await listRunDirectories(workspace)) {
-    const state = await readPersistedAutoRunState(workspace, runId, {
+    const result = await readPersistedAutoRunStateWithDiagnostics(workspace, runId, {
       hasActiveLoop: options.hasActiveLoop?.(runId) ?? false
     });
-    if (state) {
-      states.push(state);
+    diagnostics.push(...result.diagnostics);
+    if (result.state) {
+      states.push(result.state);
     }
   }
-  return states.sort(compareAutoRunStatesNewestFirst);
+  return {
+    states: states.sort(compareAutoRunStatesNewestFirst),
+    diagnostics
+  };
 }
 
 export async function writePersistedAutoRunState(state: DesktopAutoRunState): Promise<void> {

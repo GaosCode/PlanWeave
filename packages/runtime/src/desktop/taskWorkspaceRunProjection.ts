@@ -112,7 +112,8 @@ export function projectTaskWorkspaceCurrentContextUsage(
 }
 
 function projectCapabilities(
-  readModel: DesktopRunRecord["runnerReadModel"]
+  readModel: DesktopRunRecord["runnerReadModel"],
+  retry: TaskWorkspaceRun["capabilities"]["retry"] | undefined
 ): TaskWorkspaceRun["capabilities"] {
   return {
     prompt: readModel?.intervention.prompt ?? {
@@ -126,7 +127,7 @@ function projectCapabilities(
       reason: TASK_WORKSPACE_CANCEL_READ_MODEL_UNAVAILABLE_REASON,
       identity: null
     },
-    retry: {
+    retry: retry ?? {
       available: false,
       reason: TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON,
       identity: null
@@ -189,6 +190,7 @@ export function projectTaskWorkspaceRun(options: {
   record: DesktopRunRecord;
   runIdentity: RunnerRunIdentity;
   now: Date;
+  retry?: TaskWorkspaceRun["capabilities"]["retry"];
 }): TaskWorkspaceRun {
   const record = taskWorkspaceProjectionRecordSchema.parse(options.record);
   const suppliedRunIdentity = runnerRunIdentitySchema.parse(options.runIdentity);
@@ -239,6 +241,6 @@ export function projectTaskWorkspaceRun(options: {
       reason:
         "Actual session configuration is unavailable because this run has no ACP RunnerRecordReadModel."
     },
-    capabilities: projectCapabilities(record.runnerReadModel)
+    capabilities: projectCapabilities(record.runnerReadModel, options.retry)
   });
 }

@@ -74,6 +74,7 @@ import type {
 import type { ArtifactReference } from "../../autoRun/runnerContractSchemas.js";
 import type { RunnerTransport } from "../../types.js";
 import type { TaskWorkspace, TaskWorkspaceInput } from "./taskWorkspaceAggregateTypes.js";
+import type { TaskWorkspaceRetryIdentity } from "./taskWorkspaceTypes.js";
 
 export type DesktopAgentKind = "codex" | "claude-code" | "opencode" | "pi";
 
@@ -212,10 +213,7 @@ export type DesktopBridgeApi = {
   listProjects(): Promise<DesktopProjectSummary[]>;
   chooseProjectFolder(): Promise<string | null>;
   chooseSourceRootFolder(): Promise<string | null>;
-  openProjectInDevelopmentTool(
-    rootPath: string,
-    toolId: DesktopDevelopmentToolId
-  ): Promise<void>;
+  openProjectInDevelopmentTool(rootPath: string, toolId: DesktopDevelopmentToolId): Promise<void>;
   revealProjectInFinder(rootPath: string): Promise<void>;
   revealPathInFinder(path: string): Promise<void>;
   revealTaskCanvasInFinder(projectRoot: string, canvasId: string): Promise<void>;
@@ -290,6 +288,7 @@ export type DesktopBridgeApi = {
   getGraphViewModel(ref: DesktopCanvasReference): Promise<DesktopGraphViewModel>;
   getTaskDetail(ref: DesktopCanvasReference, taskId: string): Promise<DesktopTaskDetail>;
   getTaskWorkspace(input: TaskWorkspaceInput): Promise<TaskWorkspace>;
+  retryTaskWorkspaceRun(identity: TaskWorkspaceRetryIdentity): Promise<DesktopAutoRunState>;
   getBlockDetail(ref: DesktopCanvasReference, blockRef: string): Promise<DesktopBlockDetail>;
   getTaskExecutionOrder(
     ref: DesktopCanvasReference,

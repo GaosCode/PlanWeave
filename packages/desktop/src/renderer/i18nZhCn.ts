@@ -737,6 +737,7 @@ export const zhCnCatalog = {
   taskWorkspaceParallelWave: "{waveId} {index}/{total}",
   taskWorkspaceResizeTimeline: "调整时间线宽度",
   taskWorkspaceRetry: "重试 {retryIndex}",
+  taskWorkspaceRetryAction: "重试",
   taskWorkspaceRunLabel: "{blockTitle} 第 {retryIndex} 次运行",
   taskWorkspaceRunId: "运行 ID",
   taskWorkspaceStartedAt: "开始时间",

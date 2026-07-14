@@ -94,6 +94,7 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
   };
   const composerProps = {
     liveStatus: controller.liveStatus,
+    refresh: controller.refresh,
     runnerModel: controller.runnerModel,
     selectedRun: controller.selectedRun,
     workspace: controller.workspace

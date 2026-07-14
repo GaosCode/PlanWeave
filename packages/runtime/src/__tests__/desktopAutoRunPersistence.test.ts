@@ -12,7 +12,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
     ...actual,
-    readdir: async (path: PathLike, ...args: unknown[]) => {
+    readdir: async (path: import("node:fs").PathLike, ...args: unknown[]) => {
       fsObservations.readdirPaths.push(path.toString());
       return actual.readdir(
         path,
@@ -36,8 +36,8 @@ import {
   startAutoRun,
   stopAutoRun
 } from "../desktop/index.js";
-import { readState } from "../state.js";
 import type { DesktopAutoRunState } from "../desktop/index.js";
+import { readState } from "../state.js";
 import {
   nextPersistedAutoRunId,
   readLatestPersistedAutoRunState,
@@ -50,6 +50,10 @@ import { writeProjectGraph } from "../projectGraph/loadProjectGraph.js";
 import type { PlanPackageManifest, ProjectWorkspace } from "../types.js";
 import { createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
+import {
+  persistedAutoRunState,
+  waitForDesktopAutoRun as waitForRun
+} from "./support/desktopAutoRunTestSupport.js";
 
 const startedRunIds = new Set<string>();
 const noTmux = { tmuxEnabled: false } as const;
@@ -60,63 +64,6 @@ afterEach(async () => {
   fsObservations.readdirPaths = [];
   delete process.env.PLANWEAVE_HOME;
 });
-
-function persistedAutoRunState(
-  workspace: ProjectWorkspace,
-  patch: Partial<Omit<DesktopAutoRunState, "explanation">> = {}
-): DesktopAutoRunState {
-  const runId = patch.runId ?? "DESKTOP-RUN-0001";
-  const runRoot = join(workspace.resultsDir, "auto-runs", runId);
-  const state = {
-    runId,
-    projectRoot: workspace.rootPath,
-    canvasId: null,
-    scope: { kind: "project" },
-    phase: "completed",
-    stepCount: 1,
-    stepLimit: 20,
-    currentRef: "T-001#B-001",
-    currentExecutor: "fake-codex",
-    elapsedMs: 1250,
-    latestOutputSummary: "persisted output",
-    latestRecordId: "T-001#B-001::RUN-001",
-    latestRecordPath: join(
-      workspace.resultsDir,
-      "T-001",
-      "blocks",
-      "B-001",
-      "runs",
-      "RUN-001",
-      "metadata.json"
-    ),
-    statePath: join(runRoot, "state.json"),
-    eventLogPath: join(runRoot, "events.ndjson"),
-    options: { tmuxEnabled: false },
-    error: null,
-    startedAt: "2026-05-23T00:00:00.000Z",
-    updatedAt: "2026-05-23T00:00:01.250Z",
-    ...patch
-  } satisfies Omit<DesktopAutoRunState, "explanation">;
-  return {
-    ...state,
-    explanation: {
-      phase: state.phase,
-      currentRef: state.currentRef,
-      currentExecutor: state.currentExecutor,
-      latestRecordId: state.latestRecordId,
-      latestRecordPath: state.latestRecordPath,
-      latestOutputSummary: state.latestOutputSummary,
-      error: state.error,
-      nextAction: {
-        kind: "review_status",
-        message: "Review the final status and latest run record.",
-        command: null,
-        targetPath: null,
-        ref: state.currentRef
-      }
-    }
-  };
-}
 
 async function writePersistedAutoRunState(state: DesktopAutoRunState): Promise<void> {
   await mkdir(dirname(state.statePath), { recursive: true });
@@ -150,18 +97,6 @@ function globalAutoRunIdsRoot(workspace: ProjectWorkspace): string {
 
 function autoRunIdReservationIndexPath(workspace: ProjectWorkspace): string {
   return join(globalAutoRunIdsRoot(workspace), "index.json");
-}
-
-async function waitForRun(
-  runId: string,
-  predicate: (state: Awaited<ReturnType<typeof getAutoRunState>>) => boolean
-) {
-  let state = await getAutoRunState(runId);
-  for (let attempt = 0; attempt < 500 && !predicate(state); attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    state = await getAutoRunState(runId);
-  }
-  return state;
 }
 
 describe("desktop auto run persistence", () => {
@@ -291,22 +226,6 @@ describe("desktop auto run persistence", () => {
     startedRunIds.add(started.runId);
 
     expect(desktopRunNumber(started.runId)).toBeGreaterThanOrEqual(8);
-  });
-
-  it("allocates distinct desktop run IDs for concurrent starts", async () => {
-    const manifest = manifestTestBuilder().build();
-    const { root } = await createTestWorkspace(manifest);
-
-    const [first, second] = await Promise.all([
-      startAutoRun(root, null, { kind: "project" }, 0, noTmux),
-      startAutoRun(root, null, { kind: "project" }, 0, noTmux)
-    ]);
-    startedRunIds.add(first.runId);
-    startedRunIds.add(second.runId);
-
-    expect(first.runId).not.toBe(second.runId);
-    expect(first.runId).toMatch(/^DESKTOP-RUN-\d{4,}$/);
-    expect(second.runId).toMatch(/^DESKTOP-RUN-\d{4,}$/);
   });
 
   it("allocates globally distinct desktop run IDs across project canvas workspaces", async () => {

@@ -135,6 +135,7 @@ const runtimeMock = vi.hoisted(() => {
     })),
     getGraphViewModel: vi.fn(async (workspace: unknown) => ({ workspace })),
     getTaskWorkspace: vi.fn<GetTaskWorkspace>(async (input) => taskWorkspaceFixture(input)),
+    retryTaskWorkspaceRun: vi.fn(async (identity: unknown) => ({ identity })),
     getTaskFileManagerPath: vi.fn(async () => "/tmp/project/package/shared/P00.md"),
     getRunRecord: vi.fn(async () => ({
       recordId: "T-001#B-001::RUN-001",
@@ -269,6 +270,7 @@ vi.mock("@planweave-ai/runtime", async () => {
     getDesktopRuntimeRefresh: runtimeMock.getDesktopRuntimeRefresh,
     getGraphViewModel: runtimeMock.getGraphViewModel,
     getTaskWorkspace: runtimeMock.getTaskWorkspace,
+    retryTaskWorkspaceRun: runtimeMock.retryTaskWorkspaceRun,
     getTaskFileManagerPath: runtimeMock.getTaskFileManagerPath,
     getRunRecord: runtimeMock.getRunRecord,
     listDesktopPendingAgentRequests: runtimeMock.listDesktopPendingAgentRequests,
@@ -331,6 +333,7 @@ export async function resetRuntimeBridgeMocks(): Promise<void> {
   runtimeMock.getDesktopRuntimeRefresh.mockClear();
   runtimeMock.getGraphViewModel.mockClear();
   runtimeMock.getTaskWorkspace.mockClear();
+  runtimeMock.retryTaskWorkspaceRun.mockClear();
   runtimeMock.getTaskFileManagerPath.mockClear();
   runtimeMock.getRunRecord.mockClear();
   runtimeMock.listDesktopPendingAgentRequests.mockClear();

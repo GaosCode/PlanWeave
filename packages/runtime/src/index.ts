@@ -509,6 +509,8 @@ export {
   taskWorkspaceCancelCapabilitySchema,
   taskWorkspaceContextUsageSnapshotSchema,
   taskWorkspacePromptCapabilitySchema,
+  taskWorkspaceRetryCapabilitySchema,
+  taskWorkspaceRetryIdentitySchema,
   taskWorkspaceRunCapabilitiesSchema,
   taskWorkspaceRunDurationSchema,
   taskWorkspaceRunMetadataSchema,
@@ -519,6 +521,7 @@ export {
 } from "./desktop/index.js";
 export {
   getTaskWorkspace,
+  retryTaskWorkspaceRun,
   TASK_WORKSPACE_TASK_COST_UNAVAILABLE_REASON,
   taskWorkspaceAgentTimeSchema,
   taskWorkspaceAnnotationSchema,

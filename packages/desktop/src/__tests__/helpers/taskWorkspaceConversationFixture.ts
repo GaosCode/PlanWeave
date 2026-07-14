@@ -28,25 +28,29 @@ export function activeIdentity(requestId: string) {
   };
 }
 
-export function readModel(options: {
-  activeRequests?: unknown[];
-  afterSequence?: number;
-  prompt?: boolean;
-  terminal?: boolean;
-  timeline?: RunnerRecordReadModel["timeline"];
-} = {}): RunnerRecordReadModel {
+export function readModel(
+  options: {
+    activeRequests?: unknown[];
+    afterSequence?: number;
+    prompt?: boolean;
+    terminal?: boolean;
+    timeline?: RunnerRecordReadModel["timeline"];
+  } = {}
+): RunnerRecordReadModel {
   const terminal = options.terminal ?? false;
   const promptAvailable = options.prompt ?? true;
   return runnerRecordReadModelSchema.parse({
     events: [],
     conversation: [],
-    timeline: options.timeline ?? [{
-      sequence: 1,
-      timestamp,
-      kind: "message",
-      role: "assistant",
-      content: "## Result\n\n- shared projected timeline\n\n`safe markdown`"
-    }],
+    timeline: options.timeline ?? [
+      {
+        sequence: 1,
+        timestamp,
+        kind: "message",
+        role: "assistant",
+        content: "## Result\n\n- shared projected timeline\n\n`safe markdown`"
+      }
+    ],
     diagnostics: [],
     actualConfiguration: { available: false, reason: "Unavailable." },
     cursor: {
@@ -61,26 +65,30 @@ export function readModel(options: {
       prompt: {
         available: promptAvailable,
         reason: promptAvailable ? null : "Prompt unavailable.",
-        identity: promptAvailable ? {
-          ref: { projectRoot: "/projects/demo", canvasId: "canvas-main" },
-          recordId,
-          executorRunId: "RUN-001",
-          claimRef: "T-001#B-001",
-          sessionId: "ACP-SESSION-001"
-        } : null,
+        identity: promptAvailable
+          ? {
+              ref: { projectRoot: "/projects/demo", canvasId: "canvas-main" },
+              recordId,
+              executorRunId: "RUN-001",
+              claimRef: "T-001#B-001",
+              sessionId: "ACP-SESSION-001"
+            }
+          : null,
         inFlight: false
       },
       cancel: {
         available: !terminal,
         reason: terminal ? "Run finished." : null,
-        identity: terminal ? null : {
-          scope: "/projects/demo",
-          executorRunId: "RUN-001",
-          desktopRunId: "DESKTOP-001",
-          runSessionId: "RUN-SESSION-001",
-          claimRef: "T-001#B-001",
-          sessionId: "ACP-SESSION-001"
-        }
+        identity: terminal
+          ? null
+          : {
+              scope: "/projects/demo",
+              executorRunId: "RUN-001",
+              desktopRunId: "DESKTOP-001",
+              runSessionId: "RUN-SESSION-001",
+              claimRef: "T-001#B-001",
+              sessionId: "ACP-SESSION-001"
+            }
       }
     },
     interaction: {
@@ -92,11 +100,14 @@ export function readModel(options: {
   });
 }
 
-export function selection(options: {
-  active?: boolean;
-  model?: RunnerRecordReadModel | null;
-  runnerKind?: "acp" | "cli";
-} = {}): TaskWorkspaceSelectedRun {
+export function selection(
+  options: {
+    active?: boolean;
+    model?: RunnerRecordReadModel | null;
+    retry?: boolean;
+    runnerKind?: "acp" | "cli";
+  } = {}
+): TaskWorkspaceSelectedRun {
   const model = options.model === undefined ? readModel() : options.model;
   const runnerKind = options.runnerKind ?? "acp";
   const prompt = model?.intervention.prompt ?? {
@@ -137,7 +148,7 @@ export function selection(options: {
       agentSessionId: runnerKind === "acp" ? "ACP-SESSION-001" : null,
       tmuxSessionId: null,
       exitCode: null,
-      terminalState: null
+      terminalState: options.retry ? "failed" : null
     },
     executionWaveId: null,
     duration: {
@@ -156,7 +167,24 @@ export function selection(options: {
     capabilities: {
       prompt,
       cancel,
-      retry: { available: false, reason: "Retry API unavailable.", identity: null },
+      retry: options.retry
+        ? {
+            available: true,
+            reason: null,
+            identity: {
+              version: "planweave.task-workspace-retry/v1",
+              projectId: "project-1",
+              projectRoot: "/projects/demo",
+              canvasId: "canvas-main",
+              taskId: "T-001",
+              blockId: "B-001",
+              claimRef: "T-001#B-001",
+              recordId,
+              runId: "RUN-001",
+              executorRunId: "RUN-001"
+            }
+          }
+        : { available: false, reason: "Retry API unavailable.", identity: null },
       resume: { available: false, reason: "Resume API unavailable.", identity: null }
     }
   };
@@ -166,7 +194,7 @@ export function selection(options: {
     blockId: run.record.blockId,
     type: "implementation",
     title: "Implement workspace",
-    status: options.active === false ? "completed" : "in_progress",
+    status: options.retry ? "blocked" : options.active === false ? "completed" : "in_progress",
     effectiveExecutor: run.metadata.executor,
     dependencies: { total: 0, completed: 0, percent: 100, status: "not_applicable", blockers: [] },
     runs: [],
@@ -189,7 +217,10 @@ export function selection(options: {
   return { block, item };
 }
 
-export function record(model: RunnerRecordReadModel | null, patch: Partial<DesktopRunRecord> = {}): DesktopRunRecord {
+export function record(
+  model: RunnerRecordReadModel | null,
+  patch: Partial<DesktopRunRecord> = {}
+): DesktopRunRecord {
   return {
     recordId,
     kind: "block",

@@ -225,7 +225,7 @@ describe("desktop Task Workspace aggregate API", () => {
     ).toHaveLength(0);
   });
 
-  it("uses numeric run ordinals for missing and mixed start times and default selection", async () => {
+  it("uses numeric run ordinals when start times are missing or mixed", async () => {
     const { root, init } = await createTestWorkspace();
     await writeBlockRun({
       resultsDir: init.workspace.resultsDir,
