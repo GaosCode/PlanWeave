@@ -235,7 +235,7 @@ function ArtifactFileLink({ artifact, fullPath, onReveal }: {
           <TooltipTrigger asChild>
             <button
               aria-disabled={!onReveal}
-              className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-disabled:cursor-default"
+              className="font-medium text-blue-600 underline-offset-4 hover:text-blue-700 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-disabled:cursor-default dark:text-blue-400 dark:hover:text-blue-300"
               onClick={() => void onReveal?.()}
               type="button"
             >

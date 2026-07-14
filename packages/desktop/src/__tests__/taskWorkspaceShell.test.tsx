@@ -386,7 +386,7 @@ describe("Task Workspace shell", () => {
       gridTemplateColumns: `${initialTimelineWidth}px minmax(0, 1fr)`
     });
     const headerMain = screen.getByTestId("task-workspace-header-main");
-    expect(headerMain).toHaveClass("border-b", "border-border/80");
+    expect(headerMain).toHaveClass("border-b", "border-l", "border-border/80");
     expect(screen.getByTestId("task-workspace-timeline-slot")).toHaveClass(
       "border-r",
       "border-border/80"

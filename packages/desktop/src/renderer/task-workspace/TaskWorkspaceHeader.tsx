@@ -49,7 +49,7 @@ export function TaskWorkspaceHeader({
         </Button>
       </div>
       <div
-        className="grid h-full min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center border-b border-border/80 pr-3"
+        className="grid h-full min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center border-b border-l border-border/80 pr-3"
         data-testid="task-workspace-header-main"
       >
         <div

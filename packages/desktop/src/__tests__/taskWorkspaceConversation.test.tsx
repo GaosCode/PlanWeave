@@ -117,7 +117,7 @@ describe("Task Workspace conversation", () => {
     );
 
     const link = screen.getByRole("button", { name: "codeEditors.ts" });
-    expect(link).toHaveClass("text-primary");
+    expect(link).toHaveClass("text-blue-600", "dark:text-blue-400");
     expect(screen.queryByText("Artifact")).not.toBeInTheDocument();
     expect(screen.queryByText("310 B")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Show in file manager" })).not.toBeInTheDocument();

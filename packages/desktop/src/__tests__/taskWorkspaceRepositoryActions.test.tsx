@@ -111,6 +111,9 @@ describe("TaskWorkspaceRepositoryActions", () => {
         "finder"
       )
     );
+    expect(screen.getByTitle("Finder").querySelector("img")?.getAttribute("src")).toBe(
+      finderTool.iconDataUrl
+    );
   });
 
   it("uses Cursor as the primary action when VS Code is not detected", async () => {
