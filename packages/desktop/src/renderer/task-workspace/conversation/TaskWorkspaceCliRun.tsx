@@ -66,7 +66,10 @@ export function TaskWorkspaceCliRun({ api = bridge, canvasRef, record, t }: {
   };
 
   return (
-    <section className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-5" data-testid="task-workspace-cli-run">
+    <section
+      className="mx-auto flex h-full w-full max-w-5xl flex-col gap-4 overflow-y-auto p-5 pb-[calc(var(--task-workspace-composer-height,0px)+1.25rem)]"
+      data-testid="task-workspace-cli-run"
+    >
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Badge variant="outline">CLI</Badge>

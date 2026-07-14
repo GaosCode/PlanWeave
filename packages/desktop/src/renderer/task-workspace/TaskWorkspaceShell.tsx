@@ -1,8 +1,9 @@
 import type { TaskWorkspace } from "@planweave-ai/runtime";
 import { ArrowLeftIcon } from "lucide-react";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useElementHeight } from "../hooks/useElementHeight";
 import type { TaskWorkspaceLabels } from "./contracts";
 import { TaskWorkspaceHeader } from "./TaskWorkspaceHeader";
 import {
@@ -114,6 +115,7 @@ export function TaskWorkspaceShell({
   workspace
 }: TaskWorkspaceShellProps) {
   useTaskWorkspaceReturnShortcut(onReturnToCanvas);
+  const composerSlot = useElementHeight<HTMLDivElement>();
   const retainedInspector = useRef<{ content: ReactNode; workspaceIdentity: string } | null>(null);
   const workspaceIdentity = `${workspace.project.projectId}\0${workspace.project.canvasId}\0${workspace.task.taskId}`;
 
@@ -154,17 +156,25 @@ export function TaskWorkspaceShell({
           {timeline}
         </AnimatedWorkspacePanel>
         <main
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
-          style={{ minWidth: taskWorkspaceConversationMinWidth }}
+          className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-app-canvas"
+          data-testid="task-workspace-main"
+          style={{
+            minWidth: taskWorkspaceConversationMinWidth,
+            "--task-workspace-composer-height": `${composerSlot.height}px`
+          } as CSSProperties}
         >
           <div
-            className="min-h-0 min-w-0 flex-1 overflow-y-auto"
+            className="min-h-0 min-w-0 flex-1 overflow-hidden"
             data-testid="task-workspace-conversation-slot"
           >
             {conversation}
           </div>
           {composer ? (
-            <div className="shrink-0 bg-app-shell" data-testid="task-workspace-composer-slot">
+            <div
+              className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
+              data-testid="task-workspace-composer-slot"
+              ref={composerSlot.ref}
+            >
               {composer}
             </div>
           ) : null}

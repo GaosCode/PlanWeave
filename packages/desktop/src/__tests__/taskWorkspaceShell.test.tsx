@@ -185,7 +185,8 @@ describe("Task Workspace shell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Inspector" }));
     expect(screen.getByTestId("task-workspace-shell")).toHaveClass("overflow-hidden");
     expect(screen.getByTestId("task-workspace-timeline-slot")).toHaveClass("overflow-y-auto");
-    expect(screen.getByTestId("task-workspace-conversation-slot")).toHaveClass("overflow-y-auto");
+    expect(screen.getByTestId("task-workspace-main")).toHaveClass("relative");
+    expect(screen.getByTestId("task-workspace-conversation-slot")).toHaveClass("overflow-hidden");
     expect(screen.getByTestId("task-workspace-inspector-slot")).toHaveClass("overflow-y-auto");
     expect(screen.getByTestId("task-workspace-conversation-slot").parentElement).toHaveStyle({
       minWidth: `${taskWorkspaceConversationMinWidth}px`
@@ -202,6 +203,11 @@ describe("Task Workspace shell", () => {
     expect(screen.getByText("Conversation implementation slot")).toBeInTheDocument();
     expect(screen.getByText("Inspector implementation slot")).toBeInTheDocument();
     expect(screen.getByText("Composer implementation slot")).toBeInTheDocument();
+    expect(screen.getByTestId("task-workspace-composer-slot")).toHaveClass(
+      "absolute",
+      "pointer-events-none"
+    );
+    expect(screen.getByTestId("task-workspace-composer-slot")).not.toHaveClass("bg-app-shell");
   });
 
   it("keeps timeline and inspector collapse state inside the Task Workspace session", async () => {

@@ -166,7 +166,7 @@ function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
       <div className="relative min-h-0 flex-1">
         <div
           aria-label={`${t("acpConversation")} · ${selectedRun.block.title}`}
-          className="h-full overflow-y-auto px-5 py-5"
+          className="h-full overflow-y-auto px-5 pt-5 pb-[calc(var(--task-workspace-composer-height,0px)+1.25rem)] [scrollbar-gutter:stable_both-edges]"
           data-testid="task-workspace-conversation-viewport"
           onScroll={(event) => {
             const viewport = event.currentTarget;

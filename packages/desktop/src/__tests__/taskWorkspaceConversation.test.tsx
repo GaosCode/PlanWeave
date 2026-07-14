@@ -59,6 +59,35 @@ describe("Task Workspace conversation", () => {
     expect(screen.getByTestId("task-workspace-conversation-content")).toHaveClass("max-w-3xl");
   });
 
+  it("aligns the composer with the conversation column and masks with the conversation layer", () => {
+    const model = readModel();
+    render(
+      <>
+        <TaskWorkspaceConversation
+          {...conversationProps(selection({ model }), model)}
+          api={null}
+          t={t}
+        />
+        <TaskWorkspaceComposer
+          {...conversationProps(selection({ model }), model)}
+          api={null}
+          t={t}
+        />
+      </>
+    );
+
+    const viewport = screen.getByTestId("task-workspace-conversation-viewport");
+    const conversation = screen.getByTestId("task-workspace-conversation-content");
+    const composer = screen.getByTestId("task-workspace-composer");
+    const composerSurface = screen.getByTestId("task-workspace-composer-surface");
+
+    expect(viewport).toHaveClass("px-5", "[scrollbar-gutter:stable_both-edges]");
+    expect(conversation).toHaveClass("mx-auto", "w-full", "max-w-3xl");
+    expect(composer).toHaveClass("w-full", "px-5", "before:top-2", "before:bg-app-canvas");
+    expect(composer).not.toHaveClass("max-w-3xl", "px-4", "bg-background");
+    expect(composerSurface).toHaveClass("mx-auto", "w-full", "max-w-3xl");
+  });
+
   it("reuses the projected ACP timeline for safe wide-screen Markdown", () => {
     const model = readModel();
     render(<TaskWorkspaceConversation {...conversationProps(selection({ model }), model)} api={null} t={t} />);
@@ -390,6 +419,7 @@ describe("Task Workspace conversation", () => {
     );
 
     const input = screen.getByLabelText("Message the agent");
+    expect(screen.getByTestId("task-workspace-composer")).toHaveClass("pointer-events-auto");
     expect(input.className).toContain("resize-none");
     expect(input.className).not.toContain("resize-y");
     fireEvent.change(input, { target: { value: "Continue with the focused fix" } });

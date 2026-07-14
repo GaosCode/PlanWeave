@@ -134,10 +134,13 @@ function AcpComposer({
 
   return (
     <section
-      className="mx-auto w-full max-w-3xl px-4 pt-2 pb-4"
+      className="pointer-events-auto relative w-full px-5 pt-2 pb-4 before:absolute before:inset-x-0 before:top-2 before:bottom-0 before:bg-app-canvas"
       data-testid="task-workspace-composer"
     >
-      <div className="rounded-2xl border bg-background p-2 shadow-lg shadow-black/5">
+      <div
+        className="relative z-10 mx-auto w-full max-w-3xl rounded-2xl border bg-background p-2 shadow-lg shadow-black/5"
+        data-testid="task-workspace-composer-surface"
+      >
         <Textarea
           aria-label={t("acpPromptLabel")}
           className="min-h-20 max-h-40 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
@@ -188,10 +191,10 @@ function AcpComposer({
 function ComposerUnavailable({ accessory, reason }: { accessory?: ReactNode; reason: string }) {
   return (
     <section
-      className="mx-auto w-full max-w-3xl px-4 pt-2 pb-4"
+      className="pointer-events-auto relative w-full px-5 pt-2 pb-4 before:absolute before:inset-x-0 before:top-2 before:bottom-0 before:bg-app-canvas"
       data-testid="task-workspace-composer-unavailable"
     >
-      <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+      <div className="relative z-10 mx-auto flex w-full max-w-3xl items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2">
         <p className="text-xs text-muted-foreground">{reason}</p>
         {accessory}
       </div>
