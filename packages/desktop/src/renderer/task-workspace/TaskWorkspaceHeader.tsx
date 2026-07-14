@@ -32,7 +32,10 @@ export function TaskWorkspaceHeader({
         gridTemplateColumns: `${layout.timelineCollapsed ? "auto" : `${layout.timelineWidth}px`} minmax(0, 1fr)`
       }}
     >
-      <div className="app-no-drag flex min-w-0 items-center justify-end gap-1 overflow-hidden pr-2 pl-[124px]">
+      <div
+        className="app-no-drag flex min-w-0 items-center justify-end gap-1 overflow-hidden border-r border-border/80 pr-2 pl-[124px]"
+        data-testid="task-workspace-header-timeline"
+      >
         <Button size="sm" variant="ghost" onClick={onReturnToCanvas}>
           <ArrowLeftIcon data-icon="inline-start" />
           {labels.backToCanvas}
@@ -49,7 +52,7 @@ export function TaskWorkspaceHeader({
         </Button>
       </div>
       <div
-        className="grid h-full min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center border-b border-l border-border/80 pr-3"
+        className="grid h-full min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center border-b border-border/80 pr-3"
         data-testid="task-workspace-header-main"
       >
         <div
