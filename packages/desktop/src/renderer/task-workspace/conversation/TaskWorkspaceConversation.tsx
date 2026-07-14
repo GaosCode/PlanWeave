@@ -3,7 +3,7 @@ import type {
   DesktopBridgeApi,
   DesktopCanvasReference
 } from "@planweave-ai/runtime";
-import { ArrowDownIcon } from "lucide-react";
+import { ArrowDownIcon, AtomIcon, FileIcon } from "lucide-react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -235,10 +235,11 @@ function ArtifactFileLink({ artifact, fullPath, onReveal }: {
           <TooltipTrigger asChild>
             <button
               aria-disabled={!onReveal}
-              className="font-medium text-blue-600 underline-offset-4 hover:text-blue-700 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-disabled:cursor-default dark:text-blue-400 dark:hover:text-blue-300"
+              className="inline-flex items-center gap-1.5 font-medium text-sky-500 underline-offset-4 hover:text-sky-600 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-disabled:cursor-default dark:text-sky-400 dark:hover:text-sky-300"
               onClick={() => void onReveal?.()}
               type="button"
             >
+              <ArtifactFileTypeIcon path={artifact.relativePath} />
               {artifact.relativePath}
             </button>
           </TooltipTrigger>
@@ -248,6 +249,33 @@ function ArtifactFileLink({ artifact, fullPath, onReveal }: {
         </Tooltip>
       </TooltipProvider>
     </div>
+  );
+}
+
+function ArtifactFileTypeIcon({ path }: { path: string }) {
+  const extension = path.split(".").pop()?.toLowerCase() ?? "";
+  if (extension === "tsx" || extension === "jsx") {
+    return <AtomIcon aria-hidden="true" className="size-4 shrink-0" data-file-type={extension} />;
+  }
+
+  const label = extension === "md" || extension === "mdx"
+    ? "MD"
+    : extension === "ts" || extension === "mts" || extension === "cts"
+      ? "TS"
+      : extension === "js" || extension === "mjs" || extension === "cjs"
+        ? "JS"
+        : null;
+
+  return label ? (
+    <span
+      aria-hidden="true"
+      className="inline-flex size-4 shrink-0 items-center justify-center rounded-[3px] bg-sky-500 text-[7px] font-bold leading-none text-white dark:bg-sky-400 dark:text-slate-950"
+      data-file-type={extension}
+    >
+      {label}
+    </span>
+  ) : (
+    <FileIcon aria-hidden="true" className="size-4 shrink-0" data-file-type="file" />
   );
 }
 

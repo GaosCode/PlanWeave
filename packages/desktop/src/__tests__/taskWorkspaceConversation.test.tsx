@@ -69,16 +69,16 @@ describe("Task Workspace conversation", () => {
     expect(screen.queryByText(/planweave\.runner-event/)).not.toBeInTheDocument();
   });
 
-  it("renders a local artifact as an inline file link with its full path on hover", async () => {
+  it("renders a local artifact as a typed light-blue file link with its full path on hover", async () => {
     const artifact = {
       version: "planweave.runner/v1" as const,
       kind: "implementation" as const,
-      relativePath: "codeEditors.ts",
+      relativePath: "report.md",
       sha256: "a".repeat(64),
       sizeBytes: 310,
       mediaType: "text/markdown" as const
     };
-    const artifactPath = "/Users/mrbrain/code/PlanWeave/packages/desktop/src/main/codeEditors.ts";
+    const artifactPath = "/Users/mrbrain/code/PlanWeave/report.md";
     const baseModel = readModel();
     const artifactEvent = normalizedRunnerEventSchema.parse({
       version: "planweave.runner-event/v1",
@@ -100,9 +100,19 @@ describe("Task Workspace conversation", () => {
       correlation: { sessionId: "ACP-SESSION-001" },
       body: { kind: "artifact", artifact }
     });
+    const tsxArtifact = {
+      ...artifact,
+      relativePath: "TaskWorkspaceHeader.tsx",
+      sha256: "b".repeat(64)
+    };
+    const tsxArtifactEvent = normalizedRunnerEventSchema.parse({
+      ...artifactEvent,
+      sequence: 3,
+      body: { kind: "artifact", artifact: tsxArtifact }
+    });
     const model = runnerRecordReadModelSchema.parse({
       ...baseModel,
-      events: [artifactEvent]
+      events: [artifactEvent, tsxArtifactEvent]
     });
     const revealRunnerRecordArtifact = vi.fn(async () => undefined);
     const user = userEvent.setup();
@@ -116,8 +126,11 @@ describe("Task Workspace conversation", () => {
       />
     );
 
-    const link = screen.getByRole("button", { name: "codeEditors.ts" });
-    expect(link).toHaveClass("text-blue-600", "dark:text-blue-400");
+    const link = screen.getByRole("button", { name: "report.md" });
+    expect(link).toHaveClass("text-sky-500", "dark:text-sky-400", "inline-flex");
+    expect(link.querySelector('[data-file-type="md"]')).toHaveTextContent("MD");
+    const tsxLink = screen.getByRole("button", { name: "TaskWorkspaceHeader.tsx" });
+    expect(tsxLink.querySelector('[data-file-type="tsx"]')).toBeInTheDocument();
     expect(screen.queryByText("Artifact")).not.toBeInTheDocument();
     expect(screen.queryByText("310 B")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Show in file manager" })).not.toBeInTheDocument();
