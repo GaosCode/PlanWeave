@@ -210,9 +210,11 @@ describe("TaskWorkspaceInspector", () => {
       "w-2",
       "cursor-col-resize",
       "after:w-px",
-      "hover:after:opacity-100",
-      "focus-visible:after:opacity-100"
+      "after:bg-border/80",
+      "hover:after:bg-foreground/30",
+      "active:after:bg-foreground/50"
     );
+    expect(separator).not.toHaveClass("hover:bg-state-selected/10", "active:bg-state-selected/20");
     fireEvent.pointerDown(separator, { clientX: 100 });
     fireEvent.pointerMove(window, { clientX: 140 });
     expect(setInspectorWidth).toHaveBeenCalledWith(320);

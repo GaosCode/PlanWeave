@@ -5,6 +5,7 @@ import type { createTranslator } from "./i18n";
 import { ComponentPalette } from "./palette/ComponentPalette";
 import type { DesktopUiSettings, PaletteDropComponent } from "./types";
 import { HistoryNavigationButtons } from "./components/HistoryNavigationButtons";
+import { VerticalResizeHandle } from "./components/VerticalResizeHandle";
 
 type AppSidebarsProps = {
   addPaletteComponent: (type: PaletteDropComponent) => Promise<void>;
@@ -49,11 +50,11 @@ export function RightPaletteSidebar({
       style={{ width }}
     >
       {onResizeStart ? (
-        <div
+        <VerticalResizeHandle
           aria-label={t("resizeSidebar")}
           aria-orientation="vertical"
-          className="app-no-drag absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize bg-transparent transition-colors duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-standard)] after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:rounded-full after:bg-border/80 after:opacity-0 hover:bg-state-selected/10 hover:after:opacity-100 focus-visible:bg-state-selected/10 focus-visible:after:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 active:bg-state-selected/20"
           role="separator"
+          side="left"
           tabIndex={0}
           onPointerDown={onResizeStart}
         />
