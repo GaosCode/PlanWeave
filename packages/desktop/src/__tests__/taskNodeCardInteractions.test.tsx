@@ -195,15 +195,64 @@ describe("TaskNodeCard executor options", () => {
 });
 
 describe("TaskNodeCard context menu", () => {
-  it("opens Task Workspace from the card without also opening the inspector", () => {
-    const onTaskOpen = vi.fn();
+  it("leaves ordinary card clicks to ReactFlow task selection", () => {
+    const onParentClick = vi.fn();
     const onTaskWorkspaceOpen = vi.fn();
-    renderTaskNode(nodeData({ onTaskOpen, onTaskWorkspaceOpen }));
+    const data = nodeData({ onTaskWorkspaceOpen });
+
+    render(
+      <div onClick={onParentClick}>
+        <TaskNodeCard
+          {...({ data, selected: false } as Parameters<typeof TaskNodeCard>[0])}
+        />
+      </div>
+    );
 
     fireEvent.click(screen.getByTestId("task-node-card"));
 
-    expect(onTaskWorkspaceOpen).toHaveBeenCalledWith("T-001");
-    expect(onTaskOpen).not.toHaveBeenCalled();
+    expect(onTaskWorkspaceOpen).not.toHaveBeenCalled();
+    expect(onParentClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a Block workspace without bubbling into Task or ReactFlow selection", () => {
+    const onParentClick = vi.fn();
+    const onBlockWorkspaceOpen = vi.fn();
+    const onTaskWorkspaceOpen = vi.fn();
+    const data = nodeData({
+      onBlockWorkspaceOpen,
+      onTaskWorkspaceOpen,
+      task: {
+        ...task("# Prompt"),
+        blocks: [
+          {
+            ref: "T-001#B-001",
+            blockId: "B-001",
+            type: "implementation",
+            title: "Implement workspace",
+            status: "ready",
+            executor: null,
+            promptMissing: false,
+            exceptionReason: null,
+            dispatchable: true,
+            waitingOn: null
+          }
+        ]
+      }
+    });
+
+    render(
+      <div onClick={onParentClick}>
+        <TaskNodeCard
+          {...({ data, selected: false } as Parameters<typeof TaskNodeCard>[0])}
+        />
+      </div>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Implement workspace/ }));
+
+    expect(onBlockWorkspaceOpen).toHaveBeenCalledWith("T-001#B-001");
+    expect(onTaskWorkspaceOpen).not.toHaveBeenCalled();
+    expect(onParentClick).not.toHaveBeenCalled();
   });
 
   it("reveals the task node directory from the context menu", async () => {

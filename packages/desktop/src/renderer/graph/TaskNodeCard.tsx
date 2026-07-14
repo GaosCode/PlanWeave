@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
+import { type CSSProperties, type KeyboardEvent } from "react";
 import {
   ClipboardIcon,
   FolderOpenIcon,
@@ -88,7 +88,6 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
     onBlockSelect,
     onBlockWorkspaceOpen,
     onTaskOpen,
-    onTaskWorkspaceOpen,
     onAgentPromptCopy,
     onRevealTaskInFinder,
     onAutoRunScopeStart,
@@ -120,16 +119,6 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
     : waiting
       ? labels.waitingForResource
       : task.status;
-  const handleTaskClick = (event: MouseEvent) => {
-    const target = event.target;
-    if (
-      target instanceof HTMLElement &&
-      target.closest("button, input, textarea, select, a, [role='combobox'], [role='menuitem']")
-    ) {
-      return;
-    }
-    onTaskWorkspaceOpen(task.taskId);
-  };
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const key = event.key.toLowerCase();
     const isUndo = (event.metaKey || event.ctrlKey) && !event.shiftKey && key === "z";
@@ -169,7 +158,6 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
                 } as CSSProperties)
               : undefined
           }
-          onClick={handleTaskClick}
         >
           <Handle
             className={taskDependencyHandleClassName}

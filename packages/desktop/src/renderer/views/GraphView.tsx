@@ -306,6 +306,17 @@ export function GraphView({
               onTaskPanelSelect(node.id);
             }
           }}
+          onNodeDoubleClick={(event, node) => {
+            const target = event.target;
+            const isInteractiveTarget =
+              target instanceof HTMLElement &&
+              target.closest(
+                "button, input, textarea, select, a, [role='combobox'], [role='menuitem'], [data-graph-interaction]"
+              );
+            if (node.type === "task" && !isInteractiveTarget) {
+              node.data.onTaskWorkspaceOpen(node.id);
+            }
+          }}
           onNodeMouseEnter={(_event, node) => setHoveredNodeId(node.id)}
           onNodeMouseLeave={(_event, node) =>
             setHoveredNodeId((current) => (current === node.id ? null : current))

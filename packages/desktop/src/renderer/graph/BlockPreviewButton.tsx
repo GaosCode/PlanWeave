@@ -35,7 +35,10 @@ export function BlockPreviewButton({
           className="flex h-7 items-center justify-between gap-2 rounded-md border bg-background px-2 text-left text-xs hover:bg-muted data-[selected=true]:border-foreground"
           data-selected={isSelected}
           type="button"
-          onClick={() => onSelect(block.ref)}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelect(block.ref);
+          }}
         >
           <span className="min-w-0 truncate">{block.title}</span>
           <Badge className="shrink-0" variant={statusVariant[block.status]}>

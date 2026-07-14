@@ -116,9 +116,12 @@ function flowNode(promptDraft = "# Prompt"): AppFlowNode {
       onPromptHistoryRedo: vi.fn().mockResolvedValue(undefined),
       onPromptHistoryUndo: vi.fn().mockResolvedValue(undefined),
       onBlockSelect: vi.fn(),
+      onBlockWorkspaceOpen: vi.fn(),
       onOverflowBlockSelect: vi.fn(),
       onTaskOpen: vi.fn(),
+      onTaskWorkspaceOpen: vi.fn(),
       onAgentPromptCopy: vi.fn(),
+      onRevealTaskInFinder: vi.fn(),
       onAutoRunScopeStart: vi.fn().mockResolvedValue(undefined),
       onTaskDelete: vi.fn(),
       onBlockDelete: vi.fn(),
@@ -320,5 +323,74 @@ describe("GraphView viewport fitting", () => {
 
     await waitFor(() => expect(reactFlowMock.props.length).toBeGreaterThan(1));
     expect(reactFlowMock.flowInstance.fitView).not.toHaveBeenCalled();
+  });
+
+  it("keeps single-click selection and opens Task Workspace on a task-node double-click", async () => {
+    const node = flowNode();
+    const onTaskWorkspaceOpen = vi.fn();
+    const onTaskPanelSelect = vi.fn();
+    node.data.onTaskWorkspaceOpen = onTaskWorkspaceOpen;
+    render(<GraphView {...defaultProps({ nodes: [node], onTaskPanelSelect })} />);
+
+    await waitFor(() => expect(reactFlowMock.props.length).toBeGreaterThan(0));
+    const latestProps = reactFlowMock.props.at(-1) as {
+      onNodeClick: (event: MouseEvent, selectedNode: AppFlowNode) => void;
+      onNodeDoubleClick: (event: MouseEvent, selectedNode: AppFlowNode) => void;
+    };
+
+    act(() => {
+      latestProps.onNodeClick(new MouseEvent("click"), node);
+    });
+    expect(onTaskPanelSelect).toHaveBeenCalledWith("T-001");
+    expect(onTaskWorkspaceOpen).not.toHaveBeenCalled();
+
+    act(() => {
+      latestProps.onNodeDoubleClick(new MouseEvent("dblclick"), node);
+    });
+
+    expect(onTaskWorkspaceOpen).toHaveBeenCalledWith("T-001");
+  });
+
+  it("does not open Task Workspace when an editable node control is double-clicked", async () => {
+    const node = flowNode();
+    const onTaskWorkspaceOpen = vi.fn();
+    node.data.onTaskWorkspaceOpen = onTaskWorkspaceOpen;
+    render(<GraphView {...defaultProps({ nodes: [node] })} />);
+
+    await waitFor(() => expect(reactFlowMock.props.length).toBeGreaterThan(0));
+    const latestProps = reactFlowMock.props.at(-1) as {
+      onNodeDoubleClick: (event: MouseEvent, selectedNode: AppFlowNode) => void;
+    };
+    const titleInput = document.createElement("input");
+    const event = new MouseEvent("dblclick");
+    Object.defineProperty(event, "target", { value: titleInput });
+
+    act(() => {
+      latestProps.onNodeDoubleClick(event, node);
+    });
+
+    expect(onTaskWorkspaceOpen).not.toHaveBeenCalled();
+  });
+
+  it("does not open Task Workspace when a dependency handle is double-clicked", async () => {
+    const node = flowNode();
+    const onTaskWorkspaceOpen = vi.fn();
+    node.data.onTaskWorkspaceOpen = onTaskWorkspaceOpen;
+    render(<GraphView {...defaultProps({ nodes: [node] })} />);
+
+    await waitFor(() => expect(reactFlowMock.props.length).toBeGreaterThan(0));
+    const latestProps = reactFlowMock.props.at(-1) as {
+      onNodeDoubleClick: (event: MouseEvent, selectedNode: AppFlowNode) => void;
+    };
+    const dependencyHandle = document.createElement("div");
+    dependencyHandle.dataset.graphInteraction = "dependency-handle";
+    const event = new MouseEvent("dblclick");
+    Object.defineProperty(event, "target", { value: dependencyHandle });
+
+    act(() => {
+      latestProps.onNodeDoubleClick(event, node);
+    });
+
+    expect(onTaskWorkspaceOpen).not.toHaveBeenCalled();
   });
 });
