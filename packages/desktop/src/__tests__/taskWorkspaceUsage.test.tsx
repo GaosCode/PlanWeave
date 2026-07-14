@@ -14,6 +14,27 @@ import {
 afterEach(cleanupRendererTestEnvironment);
 
 describe("TaskWorkspaceUsage", () => {
+  it("shows the actual model and reasoning when the agent name is hovered", async () => {
+    const fixture = taskWorkspaceInspectorFixture();
+    const user = userEvent.setup();
+    render(
+      <TaskWorkspaceUsage
+        labels={labels}
+        selectedRun={fixture.selectedRun}
+        workspace={fixture.workspace}
+      />
+    );
+
+    const trigger = screen.getByRole("button", { name: "Agent: codex" });
+    await user.hover(trigger);
+
+    const tooltip = await screen.findByRole("tooltip");
+    expect(within(tooltip).getByText("Model")).toBeInTheDocument();
+    expect(within(tooltip).getByText("gpt-5")).toBeInTheDocument();
+    expect(within(tooltip).getByText("Reasoning")).toBeInTheDocument();
+    expect(within(tooltip).getByText("high")).toBeInTheDocument();
+  });
+
   it("shows only the latest context snapshot in a hover tooltip", async () => {
     const fixture = taskWorkspaceInspectorFixture();
     const user = userEvent.setup();
@@ -54,6 +75,8 @@ describe("TaskWorkspaceUsage", () => {
     );
 
     const trigger = screen.getByRole("button", { name: "Context usage: Unavailable" });
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Agent: codex" })).toHaveFocus();
     await user.tab();
     expect(trigger).toHaveFocus();
     const tooltip = await screen.findByRole("tooltip");

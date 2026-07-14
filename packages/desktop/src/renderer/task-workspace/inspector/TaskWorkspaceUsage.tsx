@@ -255,6 +255,8 @@ export function TaskWorkspaceUsage({
   };
   const run = selectedRun?.item.run ?? null;
   const agent = run?.metadata.agentId ?? run?.metadata.executor ?? run?.metadata.adapter ?? null;
+  const model = configurationValue("model");
+  const reasoning = configurationValue("reasoning");
   const sessionMetadata = [
     agent ? { key: "agent", label: labels.agent, value: agent } : null,
     ...(["model", "reasoning", "mode", "permission"] as const).map((field) => {
@@ -270,26 +272,52 @@ export function TaskWorkspaceUsage({
     : `${labels.contextUsage}: ${labels.unavailable}`;
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <dl className="flex min-w-0 items-center gap-1 text-[11px] text-text-muted">
-        {sessionMetadata.map(({ key, label, value }, index) => (
-          <div className="flex min-w-0 items-center gap-1" key={key}>
-            {index > 0 ? (
-              <span aria-hidden="true" className="text-border">
-                ·
-              </span>
-            ) : null}
-            <dt className="sr-only">{label}</dt>
-            <dd
-              className="max-w-20 truncate font-medium text-text sm:max-w-28"
-              title={`${label}: ${value}`}
-            >
-              {value}
-            </dd>
-          </div>
-        ))}
-      </dl>
-      <TooltipProvider>
+    <TooltipProvider>
+      <div className="flex min-w-0 items-center gap-2">
+        <dl className="flex min-w-0 items-center gap-1 text-[11px] text-text-muted">
+          {sessionMetadata.map(({ key, label, value }, index) => (
+            <div className="flex min-w-0 items-center gap-1" key={key}>
+              {index > 0 ? (
+                <span aria-hidden="true" className="text-border">
+                  ·
+                </span>
+              ) : null}
+              <dt className="sr-only">{label}</dt>
+              <dd
+                className="max-w-20 truncate font-medium text-text sm:max-w-28"
+                title={`${label}: ${value}`}
+              >
+                {key === "agent" ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        aria-label={`${label}: ${value}`}
+                        className="max-w-full truncate rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                        type="button"
+                      >
+                        {value}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent align="end" side="top">
+                      <dl className="grid grid-cols-[auto_auto] gap-x-3 gap-y-1 text-xs">
+                        <dt className="text-text-muted">{labels.model}</dt>
+                        <dd className="text-right font-medium text-text">
+                          {model ?? labels.unavailable}
+                        </dd>
+                        <dt className="text-text-muted">{labels.reasoning}</dt>
+                        <dd className="text-right font-medium text-text">
+                          {reasoning ?? labels.unavailable}
+                        </dd>
+                      </dl>
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  value
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -342,7 +370,7 @@ export function TaskWorkspaceUsage({
             )}
           </TooltipContent>
         </Tooltip>
-      </TooltipProvider>
-    </div>
+      </div>
+    </TooltipProvider>
   );
 }
