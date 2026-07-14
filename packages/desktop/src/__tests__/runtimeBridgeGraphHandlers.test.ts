@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import {
   getRuntimeBridgeMocks,
   resetRuntimeBridgeMocks,
@@ -541,7 +542,7 @@ describe("runtime bridge handlers: graph and project", () => {
 
   it("detects available development tools in preference order with native icons", async () => {
     childProcessMock.execFile.mockImplementation(
-      (
+      async (
         command: string,
         args: string[],
         _options: unknown,
@@ -550,6 +551,20 @@ describe("runtime bridge handlers: graph and project", () => {
         if (command === "/usr/bin/mdfind") {
           const bundleId = args[0]?.match(/'([^']+)'/u)?.[1] ?? "unknown.bundle";
           callback(null, `/Resolved/${bundleId}.app\n`, "");
+          return;
+        }
+        if (command === "/usr/libexec/PlistBuddy") {
+          callback(null, "ApplicationIcon\n", "");
+          return;
+        }
+        if (command === "/usr/bin/sips") {
+          const outputPath = args.at(-1);
+          if (!outputPath) {
+            callback(new Error("Icon output path is missing."), "", "");
+            return;
+          }
+          await writeFile(outputPath, "native-development-tool-icon");
+          callback(null, "", "");
           return;
         }
         callback(null, "", "");
@@ -584,13 +599,22 @@ describe("runtime bridge handlers: graph and project", () => {
         toolId: "finder",
         label: "Finder",
         available: true,
-        iconDataUrl: "data:image/png;base64,terminal-icon"
+        iconDataUrl: `data:image/png;base64,${Buffer.from(
+          "native-development-tool-icon"
+        ).toString("base64")}`
       })
     );
-    expect(electronMock.app.getFileIcon).toHaveBeenCalledWith(
-      "/Resolved/com.apple.finder.app",
-      { size: "normal" }
+    expect(childProcessMock.execFile).toHaveBeenCalledWith(
+      "/usr/libexec/PlistBuddy",
+      [
+        "-c",
+        "Print :CFBundleIconFile",
+        "/Resolved/com.apple.finder.app/Contents/Info.plist"
+      ],
+      { timeout: 5_000, maxBuffer: 256 * 1024 },
+      expect.any(Function)
     );
+    expect(electronMock.app.getFileIcon).not.toHaveBeenCalled();
     expect(childProcessMock.execFile).toHaveBeenCalledWith(
       "/usr/bin/mdfind",
       [

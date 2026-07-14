@@ -1,6 +1,7 @@
 import { execFile, type ExecFileOptions } from "node:child_process";
-import { access } from "node:fs/promises";
-import { basename, win32 as windowsPath } from "node:path";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join, win32 as windowsPath } from "node:path";
 import { app, shell } from "electron";
 import type {
   DesktopDevelopmentToolDetection,
@@ -223,6 +224,10 @@ async function resolveApplicationPath(tool: ApplicationTool): Promise<string> {
 async function applicationIconDataUrl(
   iconPath: string
 ): Promise<{ iconDataUrl: string | null; iconUnavailableReason: string | null }> {
+  const bundleIconDataUrl = await applicationBundleIconDataUrl(iconPath);
+  if (bundleIconDataUrl) {
+    return { iconDataUrl: bundleIconDataUrl, iconUnavailableReason: null };
+  }
   try {
     const icon = await app.getFileIcon(iconPath, { size: "normal" });
     const iconDataUrl = icon.toDataURL();
@@ -234,6 +239,38 @@ async function applicationIconDataUrl(
         };
   } catch (caught) {
     return { iconDataUrl: null, iconUnavailableReason: errorMessage(caught) };
+  }
+}
+
+async function applicationBundleIconDataUrl(applicationPath: string): Promise<string | null> {
+  if (process.platform !== "darwin" || !applicationPath.endsWith(".app")) {
+    return null;
+  }
+  let tempDir: string | null = null;
+  try {
+    const rawIconFile = await execFileText(
+      "/usr/libexec/PlistBuddy",
+      ["-c", "Print :CFBundleIconFile", join(applicationPath, "Contents", "Info.plist")],
+      applicationPathDetectionOptions
+    );
+    if (!rawIconFile) return null;
+    const iconFile = rawIconFile.endsWith(".icns") ? rawIconFile : `${rawIconFile}.icns`;
+    const iconFilePath = join(applicationPath, "Contents", "Resources", iconFile);
+    tempDir = await mkdtemp(join(tmpdir(), "planweave-development-tool-icon-"));
+    const outputPath = join(tempDir, "icon.png");
+    await execFileVoid(
+      "/usr/bin/sips",
+      ["-z", "64", "64", "-s", "format", "png", iconFilePath, "--out", outputPath],
+      { timeout: 5_000, maxBuffer: 256 * 1024 }
+    );
+    const png = await readFile(outputPath);
+    return png.length > 0 ? `data:image/png;base64,${png.toString("base64")}` : null;
+  } catch {
+    return null;
+  } finally {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 }
 

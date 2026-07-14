@@ -381,10 +381,8 @@ describe("Task Workspace shell", () => {
     const timelineToggle = within(header).getByRole("button", { name: "Timeline" });
     const backToCanvas = within(header).getByRole("button", { name: "Back to canvas" });
     expect(backToCanvas.nextElementSibling).toBe(timelineToggle);
-    const divider = screen.getByTestId("task-workspace-header-divider");
-    expect(divider).toHaveClass("h-4", "w-px");
-    expect(backToCanvas.parentElement?.nextElementSibling).toBe(divider);
-    expect(divider.nextElementSibling).toBe(titleBlock);
+    expect(titleBlock).toHaveClass("h-6", "border-l", "pl-4");
+    expect(backToCanvas.parentElement?.nextElementSibling).toBe(titleBlock);
     const headerAction = within(header).getByRole("button", { name: "Repository action" });
     const inspectorToggle = within(header).getByRole("button", { name: "Inspector" });
     expect(titleBlock.nextElementSibling).toContainElement(headerAction);
