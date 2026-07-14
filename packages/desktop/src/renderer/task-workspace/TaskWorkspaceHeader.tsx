@@ -26,10 +26,10 @@ export function TaskWorkspaceHeader({
 }) {
   return (
     <header
-      className="app-drag-region grid h-12 shrink-0 items-center border-b border-border/80 bg-app-topbar pr-3"
+      className="app-drag-region grid h-12 shrink-0 items-center bg-app-topbar"
       data-testid="task-workspace-header"
       style={{
-        gridTemplateColumns: `${layout.timelineCollapsed ? "auto" : `${layout.timelineWidth}px`} minmax(0, 1fr) auto auto`
+        gridTemplateColumns: `${layout.timelineCollapsed ? "auto" : `${layout.timelineWidth}px`} minmax(0, 1fr)`
       }}
     >
       <div className="app-no-drag flex min-w-0 items-center justify-end gap-1 overflow-hidden pr-2 pl-[124px]">
@@ -49,23 +49,28 @@ export function TaskWorkspaceHeader({
         </Button>
       </div>
       <div
-        className="flex h-6 min-w-0 items-center gap-2 border-l border-border/80 pl-4"
-        data-testid="task-workspace-title-block"
+        className="grid h-full min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center border-b border-border/80 pr-3"
+        data-testid="task-workspace-header-main"
       >
-        <span className="truncate text-sm leading-5 font-medium">{workspace.task.title}</span>
+        <div
+          className="flex h-6 min-w-0 items-center gap-2 pl-4"
+          data-testid="task-workspace-title-block"
+        >
+          <span className="truncate text-sm leading-5 font-medium">{workspace.task.title}</span>
+        </div>
+        <div className="app-no-drag flex shrink-0 items-center gap-2">{headerAction}</div>
+        <Button
+          aria-label={labels.inspector}
+          aria-pressed={!layout.inspectorCollapsed}
+          className="app-no-drag"
+          onClick={() => layout.setInspectorCollapsed((current) => !current)}
+          size="icon-sm"
+          type="button"
+          variant="ghost"
+        >
+          {layout.inspectorCollapsed ? <PanelRightOpenIcon /> : <PanelRightCloseIcon />}
+        </Button>
       </div>
-      <div className="app-no-drag flex shrink-0 items-center gap-2">{headerAction}</div>
-      <Button
-        aria-label={labels.inspector}
-        aria-pressed={!layout.inspectorCollapsed}
-        className="app-no-drag"
-        onClick={() => layout.setInspectorCollapsed((current) => !current)}
-        size="icon-sm"
-        type="button"
-        variant="ghost"
-      >
-        {layout.inspectorCollapsed ? <PanelRightOpenIcon /> : <PanelRightCloseIcon />}
-      </Button>
     </header>
   );
 }

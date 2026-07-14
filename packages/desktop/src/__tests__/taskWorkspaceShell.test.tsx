@@ -323,7 +323,7 @@ describe("Task Workspace shell", () => {
       width: `${resizedTimelineWidth}px`
     });
     expect(screen.getByTestId("task-workspace-header")).toHaveStyle({
-      gridTemplateColumns: `${resizedTimelineWidth}px minmax(0, 1fr) auto auto`
+      gridTemplateColumns: `${resizedTimelineWidth}px minmax(0, 1fr)`
     });
     expect(screen.getByTestId("task-workspace-inspector-slot")).toHaveStyle({
       width: `${resizedInspectorWidth}px`
@@ -381,14 +381,23 @@ describe("Task Workspace shell", () => {
     expect(screen.queryByTestId("task-workspace-run-summary")).not.toBeInTheDocument();
     const header = screen.getByTestId("task-workspace-header");
     expect(header).not.toHaveClass("gap-2");
+    expect(header).not.toHaveClass("border-b");
     expect(header).toHaveStyle({
-      gridTemplateColumns: `${initialTimelineWidth}px minmax(0, 1fr) auto auto`
+      gridTemplateColumns: `${initialTimelineWidth}px minmax(0, 1fr)`
     });
+    const headerMain = screen.getByTestId("task-workspace-header-main");
+    expect(headerMain).toHaveClass("border-b", "border-border/80");
+    expect(screen.getByTestId("task-workspace-timeline-slot")).toHaveClass(
+      "border-r",
+      "border-border/80"
+    );
     const timelineToggle = within(header).getByRole("button", { name: "Timeline" });
     const backToCanvas = within(header).getByRole("button", { name: "Back to canvas" });
     expect(backToCanvas.nextElementSibling).toBe(timelineToggle);
-    expect(titleBlock).toHaveClass("h-6", "border-l", "pl-4");
-    expect(backToCanvas.parentElement?.nextElementSibling).toBe(titleBlock);
+    expect(titleBlock).toHaveClass("h-6", "pl-4");
+    expect(titleBlock).not.toHaveClass("border-l");
+    expect(backToCanvas.parentElement?.nextElementSibling).toBe(headerMain);
+    expect(headerMain.firstElementChild).toBe(titleBlock);
     expect(backToCanvas.parentElement).toHaveClass("pl-[124px]", "justify-end");
     const headerAction = within(header).getByRole("button", { name: "Repository action" });
     const inspectorToggle = within(header).getByRole("button", { name: "Inspector" });
