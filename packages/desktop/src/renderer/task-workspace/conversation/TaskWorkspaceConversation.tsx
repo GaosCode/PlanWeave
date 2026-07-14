@@ -5,8 +5,8 @@ import type {
 } from "@planweave-ai/runtime";
 import { ArrowDownIcon } from "lucide-react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { bridge } from "../../bridge";
 import type { createTranslator } from "../../i18n";
 import { AcpConversationItems } from "../../inspector/AcpConversationTimeline";
@@ -188,8 +188,9 @@ function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
           <div className="mx-auto w-full max-w-3xl space-y-4" data-testid="task-workspace-conversation-content">
             <AcpConversationItems presentation="workspace" timeline={model.timeline} t={t} />
             {artifacts.map(({ artifact, sequence }) => (
-              <ArtifactCard
+              <ArtifactFileLink
                 artifact={artifact}
+                fullPath={props.selectedRecord?.reportPath ?? artifact.relativePath}
                 key={`${sequence}-${artifact.relativePath}`}
                 onReveal={revealArtifact && canvasRef
                   ? async () => {
@@ -201,7 +202,6 @@ function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
                       }
                     }
                   : null}
-                t={t}
               />
             ))}
           </div>
@@ -223,18 +223,31 @@ function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
   );
 }
 
-function ArtifactCard({ artifact, onReveal, t }: {
+function ArtifactFileLink({ artifact, fullPath, onReveal }: {
   artifact: ArtifactReference;
+  fullPath: string;
   onReveal: (() => Promise<void>) | null;
-  t: ReturnType<typeof createTranslator>;
 }) {
   return (
-    <article className="flex flex-wrap items-center gap-3 rounded-lg border bg-background p-3 text-xs shadow-sm">
-      <Badge variant="outline">{t("acpArtifact")}</Badge>
-      <span className="min-w-0 flex-1 break-all font-mono">{artifact.relativePath}</span>
-      <span className="text-muted-foreground">{artifact.sizeBytes} B</span>
-      {onReveal ? <Button onClick={() => void onReveal()} size="sm" type="button" variant="outline">{t("acpRevealArtifact")}</Button> : null}
-    </article>
+    <div className="text-sm">
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              aria-disabled={!onReveal}
+              className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-disabled:cursor-default"
+              onClick={() => void onReveal?.()}
+              type="button"
+            >
+              {artifact.relativePath}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-md break-all font-mono" side="top">
+            {fullPath}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
   );
 }
 

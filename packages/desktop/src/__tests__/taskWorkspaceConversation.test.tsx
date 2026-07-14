@@ -2,7 +2,9 @@
 
 import "@testing-library/jest-dom/vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import {
+  normalizedRunnerEventSchema,
   runnerRecordReadModelSchema,
   type DesktopBridgeApi
 } from "@planweave-ai/runtime";
@@ -65,6 +67,70 @@ describe("Task Workspace conversation", () => {
     expect(screen.getByText("shared projected timeline")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Conversation and tools · Implement workspace" })).toBeInTheDocument();
     expect(screen.queryByText(/planweave\.runner-event/)).not.toBeInTheDocument();
+  });
+
+  it("renders a local artifact as an inline file link with its full path on hover", async () => {
+    const artifact = {
+      version: "planweave.runner/v1" as const,
+      kind: "implementation" as const,
+      relativePath: "codeEditors.ts",
+      sha256: "a".repeat(64),
+      sizeBytes: 310,
+      mediaType: "text/markdown" as const
+    };
+    const artifactPath = "/Users/mrbrain/code/PlanWeave/packages/desktop/src/main/codeEditors.ts";
+    const baseModel = readModel();
+    const artifactEvent = normalizedRunnerEventSchema.parse({
+      version: "planweave.runner-event/v1",
+      sequence: 2,
+      timestamp,
+      identity: {
+        projectId: "project-1",
+        canvasId: "canvas-main",
+        taskId: "T-001",
+        blockId: "B-001",
+        claimRef: "T-001#B-001",
+        runId: "RUN-001",
+        runOwner: "executor",
+        runSessionId: "RUN-SESSION-001",
+        desktopRunId: "DESKTOP-001",
+        executorRunId: "RUN-001"
+      },
+      runner: { version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" },
+      correlation: { sessionId: "ACP-SESSION-001" },
+      body: { kind: "artifact", artifact }
+    });
+    const model = runnerRecordReadModelSchema.parse({
+      ...baseModel,
+      events: [artifactEvent]
+    });
+    const revealRunnerRecordArtifact = vi.fn(async () => undefined);
+    const user = userEvent.setup();
+    render(
+      <TaskWorkspaceConversation
+        {...conversationProps(selection({ model }), model, {
+          selectedRecord: record(model, { reportPath: artifactPath })
+        })}
+        api={{ revealRunnerRecordArtifact }}
+        t={t}
+      />
+    );
+
+    const link = screen.getByRole("button", { name: "codeEditors.ts" });
+    expect(link).toHaveClass("text-primary");
+    expect(screen.queryByText("Artifact")).not.toBeInTheDocument();
+    expect(screen.queryByText("310 B")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show in file manager" })).not.toBeInTheDocument();
+
+    await user.hover(link);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(artifactPath);
+
+    await user.click(link);
+    expect(revealRunnerRecordArtifact).toHaveBeenCalledWith(
+      { projectRoot: "/projects/demo", canvasId: "canvas-main" },
+      recordId,
+      artifact
+    );
   });
 
   it("expands lightweight tool payloads without restoring card chrome", () => {
