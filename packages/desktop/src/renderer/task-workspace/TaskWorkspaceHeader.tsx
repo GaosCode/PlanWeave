@@ -10,35 +10,7 @@ import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { TaskWorkspaceLabels, TaskWorkspaceSelectedRun } from "./contracts";
-import { displayConfigurationValue } from "./inspector/formatters";
-import { taskWorkspaceRunStatus } from "./timeline";
 import type { TaskWorkspaceLayout } from "./useTaskWorkspaceLayout";
-
-function configurationValue(
-  selectedRun: TaskWorkspaceSelectedRun | null,
-  field: "mode" | "model" | "permission" | "reasoning",
-  labels: TaskWorkspaceLabels
-): string {
-  const configuration = selectedRun?.item.run.actualConfiguration;
-  if (!configuration?.available) return labels.unavailable;
-  const value = configuration.fields[field];
-  if (!value.available) return labels.unavailable;
-  return displayConfigurationValue(value.value, {
-    false: labels.booleanFalse,
-    true: labels.booleanTrue
-  });
-}
-
-function RunMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <span className="min-w-16 shrink-0">
-      <span className="text-[10px] text-text-muted">{label}</span>
-      <span className="block max-w-32 truncate text-xs font-medium" title={value}>
-        {value}
-      </span>
-    </span>
-  );
-}
 
 export function TaskWorkspaceHeader({
   headerAction,
@@ -55,16 +27,9 @@ export function TaskWorkspaceHeader({
   selectedRun: TaskWorkspaceSelectedRun | null;
   workspace: TaskWorkspace;
 }) {
-  const run = selectedRun?.item.run ?? null;
-  const agent = run?.metadata.agentId ?? run?.metadata.executor ?? run?.metadata.adapter;
-  const status = selectedRun
-    ? labels.runStatus[taskWorkspaceRunStatus(selectedRun.item)]
-    : labels.unavailable;
-  const elapsed = run?.duration.wallClockMs;
-
   return (
     <header
-      className="app-drag-region flex min-h-11 shrink-0 items-center gap-3 border-b border-border/80 bg-app-topbar px-3 py-1.5"
+      className="app-drag-region flex min-h-11 shrink-0 items-center gap-3 border-b border-border/80 bg-app-topbar py-1.5 pr-3 pl-[124px]"
       data-testid="task-workspace-header"
     >
       <Button className="app-no-drag" size="sm" variant="ghost" onClick={onReturnToCanvas}>
@@ -84,31 +49,6 @@ export function TaskWorkspaceHeader({
         <div className="truncate font-mono text-[10px] text-text-muted">
           {selectedRun?.item.run.record.runId ?? labels.unavailable}
         </div>
-      </div>
-      <div
-        className="app-no-drag flex max-w-[50vw] min-w-0 items-center gap-3 overflow-x-auto border-l border-border/80 pl-3"
-        data-testid="task-workspace-run-summary"
-      >
-        <RunMetric label={labels.agent} value={agent ?? labels.unavailable} />
-        <RunMetric label={labels.status} value={status} />
-        <RunMetric label={labels.model} value={configurationValue(selectedRun, "model", labels)} />
-        <RunMetric
-          label={labels.reasoning}
-          value={configurationValue(selectedRun, "reasoning", labels)}
-        />
-        <RunMetric label={labels.mode} value={configurationValue(selectedRun, "mode", labels)} />
-        <RunMetric
-          label={labels.permission}
-          value={configurationValue(selectedRun, "permission", labels)}
-        />
-        <RunMetric
-          label={labels.elapsed}
-          value={
-            elapsed === null || elapsed === undefined
-              ? labels.unavailable
-              : labels.formatDuration(elapsed)
-          }
-        />
       </div>
       {headerAction}
       <Button

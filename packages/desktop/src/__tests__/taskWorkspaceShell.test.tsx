@@ -293,7 +293,7 @@ describe("Task Workspace shell", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows only authoritative selected-run configuration in the topbar", () => {
+  it("keeps run configuration out of the compact topbar", () => {
     const fixture = taskWorkspaceInspectorFixture();
     render(
       <TaskWorkspaceRoute
@@ -308,14 +308,8 @@ describe("Task Workspace shell", () => {
 
     expect(screen.getByText("Build the right inspector")).toBeInTheDocument();
     expect(screen.getByText("T-001")).toBeInTheDocument();
-    const summary = within(screen.getByTestId("task-workspace-run-summary"));
-    expect(summary.getByText("codex")).toBeInTheDocument();
-    expect(summary.getByText("Completed")).toBeInTheDocument();
-    expect(summary.getByText("gpt-5")).toBeInTheDocument();
-    expect(summary.getByText("high")).toBeInTheDocument();
-    expect(summary.getByText("code")).toBeInTheDocument();
-    expect(summary.getByText("120s")).toBeInTheDocument();
-    expect(summary.getAllByText("Unavailable")).toHaveLength(1);
+    expect(screen.queryByTestId("task-workspace-run-summary")).not.toBeInTheDocument();
+    expect(screen.getByTestId("task-workspace-header")).toHaveClass("pl-[124px]");
   });
 
   it("returns through the same history action for Cmd/Ctrl-[", () => {

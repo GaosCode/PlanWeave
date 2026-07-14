@@ -59,31 +59,52 @@ export function AcpConversationTimeline({ changeKey, timeline, t }: {
   );
 }
 
-export function AcpConversationItems({ timeline, t }: {
+type AcpConversationPresentation = "inspector" | "workspace";
+
+export function AcpConversationItems({ presentation = "inspector", timeline, t }: {
+  presentation?: AcpConversationPresentation;
   timeline: readonly AcpTimelineItem[];
   t: ReturnType<typeof createTranslator>;
 }) {
+  const workspace = presentation === "workspace";
   return timeline.length ? <div className="space-y-4">
     {timeline.map((item) => item.kind === "tool" ? (
-      <ToolCard key={`tool-${item.callId}`} tool={item} t={t} />
+      <ToolCard key={`tool-${item.callId}`} presentation={presentation} tool={item} t={t} />
     ) : item.kind === "plan" ? (
       <details className="rounded-lg border bg-background/70 px-3 py-2 text-xs" key={`plan-${item.sequence}`}>
         <summary className="cursor-pointer font-medium">{t("acpPlanUpdate")}</summary>
         <div className="mt-2 text-muted-foreground"><SafeMarkdown markdown={item.content} /></div>
       </details>
     ) : item.kind === "output" ? (
-      <details className="ml-10 rounded-lg border bg-muted/40 px-3 py-2 text-xs" key={`output-${item.sequence}`}>
+      <details className={`${workspace ? "" : "ml-10 "}rounded-lg border bg-muted/40 px-3 py-2 text-xs`} key={`output-${item.sequence}`}>
         <summary className="cursor-pointer font-medium">{item.stream === "terminal" ? t("acpTerminalOutput") : item.stream}</summary>
         <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px]">{item.content}</pre>
       </details>
     ) : (
-      <MessageCard item={item} key={`message-${item.sequence}`} t={t} />
+      <MessageCard item={item} key={`message-${item.sequence}`} presentation={presentation} t={t} />
     ))}
   </div> : <div className="py-12 text-center text-xs text-muted-foreground">{t("acpConversationEmpty")}</div>;
 }
 
-const MessageCard = memo(function MessageCard({ item, t }: { item: Extract<AcpTimelineItem, { kind: "message" }>; t: ReturnType<typeof createTranslator> }) {
+const MessageCard = memo(function MessageCard({ item, presentation, t }: {
+  item: Extract<AcpTimelineItem, { kind: "message" }>;
+  presentation: AcpConversationPresentation;
+  t: ReturnType<typeof createTranslator>;
+}) {
   const user = item.role === "user";
+  if (presentation === "workspace") {
+    return user ? (
+      <article className="flex justify-end">
+        <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-muted px-4 py-2.5 text-sm">
+          <div className="whitespace-pre-wrap break-words">{item.content}</div>
+        </div>
+      </article>
+    ) : (
+      <article className="w-full text-sm">
+        <SafeMarkdown markdown={item.content} />
+      </article>
+    );
+  }
   return <article className={`flex gap-3 ${user ? "flex-row-reverse" : ""}`}>
     <div className={`mt-1 flex size-7 shrink-0 items-center justify-center rounded-full ${user ? "bg-primary text-primary-foreground" : "border bg-background"}`}>{user ? <UserIcon className="size-3.5" /> : <BotIcon className="size-3.5" />}</div>
     <div className={`max-w-[86%] space-y-1 ${user ? "items-end" : ""}`}>
@@ -97,12 +118,17 @@ const MessageCard = memo(function MessageCard({ item, t }: { item: Extract<AcpTi
   previous.item.sequence === next.item.sequence &&
   previous.item.role === next.item.role &&
   previous.item.content === next.item.content &&
+  previous.presentation === next.presentation &&
   previous.t === next.t);
 
-const ToolCard = memo(function ToolCard({ tool, t }: { tool: Extract<AcpTimelineItem, { kind: "tool" }>; t: ReturnType<typeof createTranslator> }) {
+const ToolCard = memo(function ToolCard({ presentation, tool, t }: {
+  presentation: AcpConversationPresentation;
+  tool: Extract<AcpTimelineItem, { kind: "tool" }>;
+  t: ReturnType<typeof createTranslator>;
+}) {
   const input = readablePayload(tool.input);
   const output = readablePayload(tool.output);
-  return <details className="group ml-10 rounded-lg border bg-background shadow-sm">
+  return <details className={`group ${presentation === "workspace" ? "" : "ml-10 "}rounded-lg border bg-background shadow-sm`}>
     <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs">
       <WrenchIcon className="size-3.5 text-muted-foreground" /><span className="min-w-0 flex-1 truncate font-medium">{tool.title}</span><Badge variant={tool.status === "failed" ? "destructive" : "secondary"}>{tool.status ?? t("acpToolPending")}</Badge>
     </summary>
@@ -117,6 +143,7 @@ const ToolCard = memo(function ToolCard({ tool, t }: { tool: Extract<AcpTimeline
   previous.tool.status === next.tool.status &&
   previous.tool.input === next.tool.input &&
   previous.tool.output === next.tool.output &&
+  previous.presentation === next.presentation &&
   previous.t === next.t);
 
 function ToolPayload({ label, value }: { label: string; value: string }) {

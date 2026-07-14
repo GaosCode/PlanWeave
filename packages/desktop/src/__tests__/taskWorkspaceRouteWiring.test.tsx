@@ -102,12 +102,15 @@ describe("Task Workspace route wiring", () => {
     expect(
       screen.getByRole("button", { name: /Context usage: 18,300 \/ 25,800 tokens/ })
     ).toBeInTheDocument();
+    const composer = within(screen.getByTestId("task-workspace-composer"));
+    expect(composer.getByTitle("Agent: codex")).toBeInTheDocument();
+    expect(composer.getByTitle("Model: gpt-5")).toBeInTheDocument();
+    expect(composer.getByTitle("Reasoning: high")).toBeInTheDocument();
+    expect(composer.getByTitle("Mode: code")).toBeInTheDocument();
+    expect(composer.queryByTitle(/^Permission:/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("task-workspace-inspector-slot")).not.toBeInTheDocument();
     expect(screen.getByTestId("task-workspace-shell")).toHaveClass("min-w-0");
-    expect(screen.getByTestId("task-workspace-run-summary")).toHaveClass(
-      "max-w-[50vw]",
-      "overflow-x-auto"
-    );
+    expect(screen.queryByTestId("task-workspace-run-summary")).not.toBeInTheDocument();
     expect(
       within(screen.getByTestId("task-workspace-header")).queryByRole("button", { name: "Stop" })
     ).not.toBeInTheDocument();

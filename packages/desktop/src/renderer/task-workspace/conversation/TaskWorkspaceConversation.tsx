@@ -185,8 +185,8 @@ function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
           role="region"
           tabIndex={0}
         >
-          <div className="mx-auto w-full max-w-5xl space-y-4">
-            <AcpConversationItems timeline={model.timeline} t={t} />
+          <div className="mx-auto w-full max-w-3xl space-y-4" data-testid="task-workspace-conversation-content">
+            <AcpConversationItems presentation="workspace" timeline={model.timeline} t={t} />
             {artifacts.map(({ artifact, sequence }) => (
               <ArtifactCard
                 artifact={artifact}

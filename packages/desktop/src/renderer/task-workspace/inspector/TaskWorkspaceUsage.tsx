@@ -11,6 +11,7 @@ import type { TaskWorkspaceSelectedRun } from "../contracts";
 import { clampedContextUsagePercent, contextUsagePercent } from "./formatters";
 
 export type TaskWorkspaceUsageLabels = {
+  agent: string;
   agentTime: string;
   contextSnapshot: string;
   contextUnavailable: string;
@@ -27,6 +28,7 @@ export type TaskWorkspaceUsageLabels = {
   noSnapshotCost: string;
   observedAt: string;
   partialAgentTime: (includedRunCount: number, missingRunCount: number) => string;
+  permission: string;
   reportedSnapshotCost: string;
   reasoning: string;
   runCost: string;
@@ -249,11 +251,20 @@ export function TaskWorkspaceUsage({
     ? clampedContextUsagePercent(snapshot.usedTokens, snapshot.contextWindowTokens)
     : 0;
   const configuration = selectedRun?.item.run.actualConfiguration;
-  const configurationValue = (field: "mode" | "model" | "reasoning") => {
-    if (!configuration?.available) return labels.unavailable;
+  const configurationValue = (field: "mode" | "model" | "permission" | "reasoning") => {
+    if (!configuration?.available) return null;
     const value = configuration.fields[field];
-    return value.available ? String(value.value) : labels.unavailable;
+    return value.available ? String(value.value) : null;
   };
+  const run = selectedRun?.item.run ?? null;
+  const agent = run?.metadata.agentId ?? run?.metadata.executor ?? run?.metadata.adapter ?? null;
+  const sessionMetadata = [
+    agent ? { key: "agent", label: labels.agent, value: agent } : null,
+    ...(["model", "reasoning", "mode", "permission"] as const).map((field) => {
+      const value = configurationValue(field);
+      return value ? { key: field, label: labels[field], value } : null;
+    })
+  ].filter((item): item is { key: string; label: string; value: string } => item !== null);
   const triggerLabel = snapshot
     ? `${labels.contextUsage}: ${labels.tokensUsed(
         labels.formatNumber(snapshot.usedTokens),
@@ -263,16 +274,23 @@ export function TaskWorkspaceUsage({
 
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <dl className="flex min-w-0 items-center gap-2">
-        {(["model", "reasoning", "mode"] as const).map((field) => {
-          const value = configurationValue(field);
-          return (
-            <div className="min-w-0" key={field}>
-              <dt className="text-[9px] text-text-muted">{labels[field]}</dt>
-              <dd className="max-w-16 truncate font-mono text-[10px] sm:max-w-24" title={value}>{value}</dd>
-            </div>
-          );
-        })}
+      <dl className="flex min-w-0 items-center gap-1 text-[11px] text-text-muted">
+        {sessionMetadata.map(({ key, label, value }, index) => (
+          <div className="flex min-w-0 items-center gap-1" key={key}>
+            {index > 0 ? (
+              <span aria-hidden="true" className="text-border">
+                ·
+              </span>
+            ) : null}
+            <dt className="sr-only">{label}</dt>
+            <dd
+              className="max-w-20 truncate font-medium text-text sm:max-w-28"
+              title={`${label}: ${value}`}
+            >
+              {value}
+            </dd>
+          </div>
+        ))}
       </dl>
       <Popover>
         <PopoverTrigger asChild>

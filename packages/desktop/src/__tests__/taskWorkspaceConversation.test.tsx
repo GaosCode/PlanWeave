@@ -28,6 +28,33 @@ afterEach(cleanupRendererTestEnvironment);
 const t = createTranslator("en");
 
 describe("Task Workspace conversation", () => {
+  it("uses a flat Codex-style presentation without role chrome or structured-item indentation", () => {
+    const model = readModel({ timeline: [
+      { sequence: 1, timestamp, kind: "message", role: "assistant", content: "## Assistant result\n\nFlat assistant Markdown" },
+      { sequence: 2, timestamp, kind: "message", role: "user", content: "Keep this focused" },
+      { sequence: 3, timestamp, kind: "tool", callId: "workspace-tool", title: "Inspect workspace", toolKind: "read", status: "completed", input: null, output: null },
+      { sequence: 4, timestamp, kind: "output", stream: "terminal", content: "workspace output" }
+    ] });
+    const { container } = render(
+      <TaskWorkspaceConversation {...conversationProps(selection({ model }), model)} api={null} t={t} />
+    );
+
+    const assistantMessage = screen.getByText("Flat assistant Markdown").closest("article");
+    const userMessage = screen.getByText("Keep this focused").closest("article");
+    const tool = screen.getByText("Inspect workspace").closest("details");
+    const output = screen.getByText("Terminal output").closest("details");
+
+    expect(assistantMessage).toHaveClass("w-full");
+    expect(userMessage).toHaveClass("justify-end");
+    expect(tool).not.toHaveClass("ml-10");
+    expect(output).not.toHaveClass("ml-10");
+    expect(container.querySelector(".lucide-bot")).not.toBeInTheDocument();
+    expect(container.querySelector(".lucide-user")).not.toBeInTheDocument();
+    expect(screen.queryByText("Agent")).not.toBeInTheDocument();
+    expect(screen.queryByText("You")).not.toBeInTheDocument();
+    expect(screen.getByTestId("task-workspace-conversation-content")).toHaveClass("max-w-3xl");
+  });
+
   it("reuses the projected ACP timeline for safe wide-screen Markdown", () => {
     const model = readModel();
     render(<TaskWorkspaceConversation {...conversationProps(selection({ model }), model)} api={null} t={t} />);

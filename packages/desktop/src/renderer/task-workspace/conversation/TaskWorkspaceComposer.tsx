@@ -133,11 +133,14 @@ function AcpComposer({
   };
 
   return (
-    <section className="mx-auto w-full max-w-5xl p-3" data-testid="task-workspace-composer">
-      <div className="rounded-xl border bg-background p-2 shadow-sm">
+    <section
+      className="mx-auto w-full max-w-3xl px-4 pt-2 pb-4"
+      data-testid="task-workspace-composer"
+    >
+      <div className="rounded-2xl border bg-background p-2 shadow-lg shadow-black/5">
         <Textarea
           aria-label={t("acpPromptLabel")}
-          className="min-h-16 max-h-40 resize-y border-0 bg-transparent shadow-none focus-visible:ring-0"
+          className="min-h-20 max-h-40 resize-y border-0 bg-transparent shadow-none focus-visible:ring-0"
           disabled={disabled}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
@@ -185,7 +188,7 @@ function AcpComposer({
 function ComposerUnavailable({ accessory, reason }: { accessory?: ReactNode; reason: string }) {
   return (
     <section
-      className="mx-auto w-full max-w-5xl p-3"
+      className="mx-auto w-full max-w-3xl px-4 pt-2 pb-4"
       data-testid="task-workspace-composer-unavailable"
     >
       <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2">

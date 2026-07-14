@@ -28,6 +28,7 @@ function formatDuration(t: Translator, milliseconds: number): string {
 
 function usageLabels(t: Translator): TaskWorkspaceUsageLabels {
   return {
+    agent: t("agent"),
     agentTime: t("taskWorkspaceAgentTime"),
     contextSnapshot: t("taskWorkspaceContextSnapshot"),
     contextUnavailable: t("taskWorkspaceContextUnavailable"),
@@ -56,6 +57,7 @@ function usageLabels(t: Translator): TaskWorkspaceUsageLabels {
         included,
         missing
       }),
+    permission: t("taskWorkspacePermission"),
     reasoning: t("taskWorkspaceReasoning"),
     reportedSnapshotCost: t("taskWorkspaceReportedSnapshotCost"),
     runCost: t("taskWorkspaceRunCost"),

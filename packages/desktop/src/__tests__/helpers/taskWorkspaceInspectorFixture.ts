@@ -330,6 +330,7 @@ export function taskWorkspaceInspectorFixture(options: {
 }
 
 export const taskWorkspaceUsageLabelsFixture: TaskWorkspaceUsageLabels = {
+  agent: "Agent",
   agentTime: "Agent time",
   contextSnapshot: "Latest snapshot only",
   contextUnavailable: "No authoritative current-context snapshot was recorded.",
@@ -346,6 +347,7 @@ export const taskWorkspaceUsageLabelsFixture: TaskWorkspaceUsageLabels = {
   noSnapshotCost: "No cost was reported with the latest context snapshot.",
   observedAt: "Observed at",
   partialAgentTime: (included, missing) => `${included} included, ${missing} missing`,
+  permission: "Permission",
   reasoning: "Reasoning",
   reportedSnapshotCost: "Reported session cost snapshot; not final run cost",
   runCost: "Run cost",

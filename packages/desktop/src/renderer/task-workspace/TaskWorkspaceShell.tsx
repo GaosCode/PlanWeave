@@ -38,7 +38,7 @@ export function TaskWorkspaceStateShell({
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app-shell text-text"
       data-testid="task-workspace-shell"
     >
-      <header className="app-drag-region flex min-h-11 shrink-0 items-center border-b border-border/80 bg-app-topbar px-3 py-1.5">
+      <header className="app-drag-region flex min-h-11 shrink-0 items-center border-b border-border/80 bg-app-topbar py-1.5 pr-3 pl-[124px]">
         <Button className="app-no-drag" size="sm" variant="ghost" onClick={onReturnToCanvas}>
           <ArrowLeftIcon data-icon="inline-start" />
           {labels.backToCanvas}
@@ -146,10 +146,7 @@ export function TaskWorkspaceShell({
             {conversation}
           </div>
           {composer ? (
-            <div
-              className="shrink-0 border-t border-border/80 bg-app-panel"
-              data-testid="task-workspace-composer-slot"
-            >
+            <div className="shrink-0 bg-app-shell" data-testid="task-workspace-composer-slot">
               {composer}
             </div>
           ) : null}
