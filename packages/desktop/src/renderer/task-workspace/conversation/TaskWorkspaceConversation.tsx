@@ -141,11 +141,6 @@ function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
     if (selectedRun.item.active && following) scrollToBottom("auto");
   }, [following, model.cursor.afterSequence, scrollToBottom, selectedRun.item.active]);
 
-  const artifacts = model.events.flatMap((event) =>
-    event.body.kind === "artifact"
-      ? [{ artifact: event.body.artifact, sequence: event.sequence }]
-      : []
-  );
   const revealArtifact = api?.revealRunnerRecordArtifact;
 
   return (
@@ -186,24 +181,28 @@ function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
           tabIndex={0}
         >
           <div className="mx-auto w-full max-w-3xl space-y-4" data-testid="task-workspace-conversation-content">
-            <AcpConversationItems presentation="workspace" timeline={model.timeline} t={t} />
-            {artifacts.map(({ artifact, sequence }) => (
-              <ArtifactFileLink
-                artifact={artifact}
-                fullPath={props.selectedRecord?.reportPath ?? artifact.relativePath}
-                key={`${sequence}-${artifact.relativePath}`}
-                onReveal={revealArtifact && canvasRef
-                  ? async () => {
-                      setArtifactError(null);
-                      try {
-                        await revealArtifact(canvasRef, recordId, artifact);
-                      } catch (caught) {
-                        setArtifactError(caught instanceof Error ? caught.message : String(caught));
+            <AcpConversationItems
+              presentation="workspace"
+              renderArtifact={({ artifact, sequence }) => (
+                <ArtifactFileLink
+                  artifact={artifact}
+                  fullPath={props.selectedRecord?.reportPath ?? artifact.relativePath}
+                  key={`artifact-${sequence}-${artifact.relativePath}`}
+                  onReveal={revealArtifact && canvasRef
+                    ? async () => {
+                        setArtifactError(null);
+                        try {
+                          await revealArtifact(canvasRef, recordId, artifact);
+                        } catch (caught) {
+                          setArtifactError(caught instanceof Error ? caught.message : String(caught));
+                        }
                       }
-                    }
-                  : null}
-              />
-            ))}
+                    : null}
+                />
+              )}
+              timeline={model.timeline}
+              t={t}
+            />
           </div>
         </div>
         {!following && selectedRun.item.active ? (

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { NormalizedRunnerEvent } from "./normalizedEventContract.js";
+import { artifactReferenceSchema } from "./runnerContractSchemas.js";
 
 export const acpConversationItemSchema = z
   .object({
@@ -39,6 +40,10 @@ export const acpTimelineItemSchema = z.discriminatedUnion("kind", [
     output: z.string().nullable()
   }).strict(),
   timelineBaseSchema.extend({ kind: z.literal("plan"), content: z.string() }).strict(),
+  timelineBaseSchema.extend({
+    kind: z.literal("artifact"),
+    artifact: artifactReferenceSchema
+  }).strict(),
   timelineBaseSchema.extend({
     kind: z.literal("output"),
     stream: z.enum(["stdout", "stderr", "terminal"]),
@@ -185,6 +190,13 @@ export class AcpProjectionAccumulator {
       }
     } else if (body.kind === "plan_update") {
       this.timelineItems.push({ sequence: event.sequence, timestamp: event.timestamp, kind: "plan", content: body.content });
+    } else if (body.kind === "artifact") {
+      this.timelineItems.push({
+        sequence: event.sequence,
+        timestamp: event.timestamp,
+        kind: "artifact",
+        artifact: body.artifact
+      });
     } else if (body.kind === "output") {
       this.timelineItems.push({ sequence: event.sequence, timestamp: event.timestamp, kind: "output", stream: body.stream, content: body.content });
     } else if (body.kind === "terminal_output") {

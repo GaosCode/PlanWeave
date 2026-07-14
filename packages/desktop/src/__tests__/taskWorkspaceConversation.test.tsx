@@ -112,7 +112,13 @@ describe("Task Workspace conversation", () => {
     });
     const model = runnerRecordReadModelSchema.parse({
       ...baseModel,
-      events: [artifactEvent, tsxArtifactEvent]
+      events: [artifactEvent, tsxArtifactEvent],
+      timeline: [
+        { sequence: 1, timestamp, kind: "message", role: "assistant", content: "Before artifact" },
+        { sequence: 2, timestamp, kind: "artifact", artifact },
+        { sequence: 3, timestamp, kind: "artifact", artifact: tsxArtifact },
+        { sequence: 4, timestamp, kind: "message", role: "assistant", content: "After artifact" }
+      ]
     });
     const revealRunnerRecordArtifact = vi.fn(async () => undefined);
     const user = userEvent.setup();
@@ -134,6 +140,10 @@ describe("Task Workspace conversation", () => {
     expect(screen.queryByText("Artifact")).not.toBeInTheDocument();
     expect(screen.queryByText("310 B")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Show in file manager" })).not.toBeInTheDocument();
+    const before = screen.getByText("Before artifact");
+    const after = screen.getByText("After artifact");
+    expect(before.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(link.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await user.hover(link);
     expect(await screen.findByRole("tooltip")).toHaveTextContent(artifactPath);

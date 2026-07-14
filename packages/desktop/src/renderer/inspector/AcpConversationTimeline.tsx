@@ -1,4 +1,5 @@
 import { memo, useState } from "react";
+import type { ReactElement } from "react";
 import type { AcpTimelineItem } from "@planweave-ai/runtime";
 import { ArrowDownIcon, BotIcon, ChevronRightIcon, UserIcon, WrenchIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -61,14 +62,20 @@ export function AcpConversationTimeline({ changeKey, timeline, t }: {
 
 type AcpConversationPresentation = "inspector" | "workspace";
 
-export function AcpConversationItems({ presentation = "inspector", timeline, t }: {
+export function AcpConversationItems({ presentation = "inspector", renderArtifact, timeline, t }: {
   presentation?: AcpConversationPresentation;
+  renderArtifact?: (item: Extract<AcpTimelineItem, { kind: "artifact" }>) => ReactElement;
   timeline: readonly AcpTimelineItem[];
   t: ReturnType<typeof createTranslator>;
 }) {
   const workspace = presentation === "workspace";
-  return timeline.length ? <div className="space-y-4">
-    {timeline.map((item) => item.kind === "tool" ? (
+  const visibleTimeline = renderArtifact
+    ? timeline
+    : timeline.filter((item) => item.kind !== "artifact");
+  return visibleTimeline.length ? <div className="space-y-4">
+    {visibleTimeline.map((item) => item.kind === "artifact" ? (
+      renderArtifact?.(item) ?? null
+    ) : item.kind === "tool" ? (
       <ToolCard key={`tool-${item.callId}`} presentation={presentation} tool={item} t={t} />
     ) : item.kind === "plan" ? (
       <details className="rounded-lg border bg-background/70 px-3 py-2 text-xs" key={`plan-${item.sequence}`}>

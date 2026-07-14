@@ -123,6 +123,53 @@ describe("ACP conversation projection", () => {
     expect(projectAcpTimeline([call, absent, cleared])[0]).toMatchObject({ output: null });
   });
 
+  it("keeps an artifact at its normalized event position in the timeline", () => {
+    const base = {
+      version: "planweave.runner-event/v1" as const,
+      timestamp: "2026-07-11T00:00:00.000Z",
+      identity: {
+        projectId: "project-1", canvasId: "canvas-a", taskId: "T-001", blockId: "B-001",
+        claimRef: "T-001#B-001", runId: "RUN-001", runOwner: "executor" as const,
+        runSessionId: null, desktopRunId: null, executorRunId: "RUN-001"
+      },
+      runner: { version: "planweave.runner/v1" as const, runnerKind: "acp" as const, agentId: "codex" as const }
+    };
+    const message = (sequence: number, content: string) => normalizedRunnerEventSchema.parse({
+      ...base,
+      sequence,
+      body: {
+        kind: "message",
+        role: "assistant",
+        messageId: `message-${sequence}`,
+        chunk: false,
+        content,
+        redaction: { classes: [], replaced: 0 }
+      }
+    });
+    const artifact = normalizedRunnerEventSchema.parse({
+      ...base,
+      sequence: 2,
+      body: {
+        kind: "artifact",
+        artifact: {
+          version: "planweave.runner/v1",
+          kind: "implementation",
+          relativePath: "report.md",
+          sha256: "a".repeat(64),
+          sizeBytes: 310,
+          mediaType: "text/markdown"
+        }
+      }
+    });
+
+    expect(projectAcpTimeline([message(1, "First turn"), artifact, message(3, "Follow-up turn")]))
+      .toEqual([
+        expect.objectContaining({ sequence: 1, kind: "message", content: "First turn" }),
+        expect.objectContaining({ sequence: 2, kind: "artifact", artifact: artifact.body.artifact }),
+        expect.objectContaining({ sequence: 3, kind: "message", content: "Follow-up turn" })
+      ]);
+  });
+
   it("coalesces an out-of-order tool update with its later tool call", () => {
     const base = {
       version: "planweave.runner-event/v1" as const,
