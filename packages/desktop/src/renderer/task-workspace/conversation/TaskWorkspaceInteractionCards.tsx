@@ -23,7 +23,7 @@ type ElicitationField = {
 
 function objectValue(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 
@@ -40,11 +40,12 @@ function elicitationFields(schema: unknown): ElicitationField[] | null {
     if (!property || !["boolean", "integer", "number", "string"].includes(String(property.type))) {
       return null;
     }
-    const kind = property.type === "boolean"
-      ? "boolean"
-      : property.type === "integer" || property.type === "number"
-        ? "number"
-        : "string";
+    const kind =
+      property.type === "boolean"
+        ? "boolean"
+        : property.type === "integer" || property.type === "number"
+          ? "number"
+          : "string";
     fields.push({
       kind,
       label: typeof property.title === "string" && property.title.trim() ? property.title : name,
@@ -55,7 +56,12 @@ function elicitationFields(schema: unknown): ElicitationField[] | null {
   return fields;
 }
 
-export function TaskWorkspaceInteractionCards({ api, model, sessionIdentity, t }: {
+export function TaskWorkspaceInteractionCards({
+  api,
+  model,
+  sessionIdentity,
+  t
+}: {
   api: Partial<Pick<DesktopBridgeApi, "cancelAgentRun" | "respondToAgentRequest">> | null;
   model: RunnerRecordReadModel;
   sessionIdentity: DesktopAgentSessionActionIdentity | null;
@@ -93,7 +99,13 @@ export function TaskWorkspaceInteractionCards({ api, model, sessionIdentity, t }
   );
 }
 
-function InteractionCard({ disabled, inFlight, onRespond, request, t }: {
+function InteractionCard({
+  disabled,
+  inFlight,
+  onRespond,
+  request,
+  t
+}: {
   disabled: boolean;
   inFlight: boolean;
   onRespond: (value: DesktopAgentActionValue) => void;
@@ -112,7 +124,9 @@ function InteractionCard({ disabled, inFlight, onRespond, request, t }: {
         <span className="font-mono text-[11px] text-muted-foreground">{request.requestId}</span>
       </div>
       <p className="whitespace-pre-wrap break-words text-sm">{request.summary}</p>
-      {unavailableReason ? <p className="text-xs text-muted-foreground">{unavailableReason}</p> : null}
+      {unavailableReason ? (
+        <p className="text-xs text-muted-foreground">{unavailableReason}</p>
+      ) : null}
       {!unavailableReason && request.kind === "permission" ? (
         <div className="flex flex-wrap gap-2">
           {request.permissionOptions.map((option) => (
@@ -142,7 +156,13 @@ function InteractionCard({ disabled, inFlight, onRespond, request, t }: {
   );
 }
 
-function StructuredElicitation({ disabled, onCancel, onSubmit, schema, t }: {
+function StructuredElicitation({
+  disabled,
+  onCancel,
+  onSubmit,
+  schema,
+  t
+}: {
   disabled: boolean;
   onCancel: () => void;
   onSubmit: (content: Record<string, string | number | boolean>) => void;
@@ -155,7 +175,9 @@ function StructuredElicitation({ disabled, onCancel, onSubmit, schema, t }: {
   if (!fields) {
     return (
       <div className="space-y-2">
-        <p className="text-xs text-muted-foreground">{t("taskWorkspaceStructuredRequestUnsupported")}</p>
+        <p className="text-xs text-muted-foreground">
+          {t("taskWorkspaceStructuredRequestUnsupported")}
+        </p>
         <Button disabled={disabled} onClick={onCancel} size="sm" type="button" variant="outline">
           {t("acpCancelElicitation")}
         </Button>
@@ -189,26 +211,37 @@ function StructuredElicitation({ disabled, onCancel, onSubmit, schema, t }: {
     <div className="space-y-3">
       {fields.map((field) => (
         <label className="grid gap-1 text-xs" key={field.name}>
-          <span className="font-medium">{field.label}{field.required ? " *" : ""}</span>
+          <span className="font-medium">
+            {field.label}
+            {field.required ? " *" : ""}
+          </span>
           {field.kind === "boolean" ? (
             <input
               checked={values[field.name] === true}
               className="size-4"
               disabled={disabled}
-              onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.checked }))}
+              onChange={(event) =>
+                setValues((current) => ({ ...current, [field.name]: event.target.checked }))
+              }
               type="checkbox"
             />
           ) : (
             <Input
               disabled={disabled}
-              onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
+              onChange={(event) =>
+                setValues((current) => ({ ...current, [field.name]: event.target.value }))
+              }
               type={field.kind === "number" ? "number" : "text"}
               value={typeof values[field.name] === "string" ? String(values[field.name]) : ""}
             />
           )}
         </label>
       ))}
-      {error ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
+      {error ? (
+        <p className="text-xs text-destructive" role="alert">
+          {error}
+        </p>
+      ) : null}
       <div className="flex gap-2">
         <Button disabled={disabled} onClick={submit} size="sm" type="button">
           {disabled ? t("acpActionPending") : t("acpSubmitElicitation")}

@@ -7,10 +7,7 @@ import {
   resolveExecutorRunnerEvidence
 } from "../autoRun/executors.js";
 import { ExecutorCancelledError, isExecutorCancelledError } from "../autoRun/executorShared.js";
-import {
-  createExecutionWaveId,
-  type ExecutionWaveId
-} from "../autoRun/runnerContractSchemas.js";
+import { createExecutionWaveId, type ExecutionWaveId } from "../autoRun/runnerContractSchemas.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile } from "../json.js";

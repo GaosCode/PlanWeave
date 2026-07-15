@@ -17,7 +17,12 @@ type TerminalApi = Pick<
   "detectTerminalApps" | "getTerminalPreferences" | "openTerminal" | "updateTerminalPreferences"
 >;
 
-export function TaskWorkspaceCliRun({ api = bridge, canvasRef, record, t }: {
+export function TaskWorkspaceCliRun({
+  api = bridge,
+  canvasRef,
+  record,
+  t
+}: {
   api?: Partial<TerminalApi> | null;
   canvasRef: DesktopCanvasReference;
   record: DesktopRunRecord;
@@ -39,7 +44,9 @@ export function TaskWorkspaceCliRun({ api = bridge, canvasRef, record, t }: {
       .catch((caught: unknown) => {
         if (!disposed) setError(caught instanceof Error ? caught.message : String(caught));
       });
-    return () => { disposed = true; };
+    return () => {
+      disposed = true;
+    };
   }, [api]);
 
   const displayMarkdown = record.displayMarkdown;
@@ -87,13 +94,22 @@ export function TaskWorkspaceCliRun({ api = bridge, canvasRef, record, t }: {
           t={t}
         />
       </header>
-      {error ? <p className="rounded-md border border-destructive/40 p-3 text-sm text-destructive" role="alert">{error}</p> : null}
+      {error ? (
+        <p
+          className="rounded-md border border-destructive/40 p-3 text-sm text-destructive"
+          role="alert"
+        >
+          {error}
+        </p>
+      ) : null}
       {displayMarkdown ? (
         <article className="rounded-xl border bg-background p-5 text-sm shadow-sm">
           <SafeMarkdown markdown={displayMarkdown} />
         </article>
       ) : (
-        <p className="rounded-xl border bg-muted/20 p-5 text-sm text-muted-foreground">{t("noRunReport")}</p>
+        <p className="rounded-xl border bg-muted/20 p-5 text-sm text-muted-foreground">
+          {t("noRunReport")}
+        </p>
       )}
       {record.stdoutSummary ? (
         <details className="rounded-lg border bg-background px-4 py-3" open={!displayMarkdown}>

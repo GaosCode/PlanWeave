@@ -68,10 +68,13 @@ function followedRunSessionIds(stdout: string): string[] {
     .trim()
     .split("\n")
     .filter((line) => line.startsWith('{"kind":"runner_event"'))
-    .map((line) => JSON.parse(line) as {
-      kind: string;
-      event?: { identity?: { runSessionId?: string | null } };
-    })
+    .map(
+      (line) =>
+        JSON.parse(line) as {
+          kind: string;
+          event?: { identity?: { runSessionId?: string | null } };
+        }
+    )
     .flatMap((item) =>
       item.kind === "runner_event" && item.event?.identity?.runSessionId
         ? [item.event.identity.runSessionId]

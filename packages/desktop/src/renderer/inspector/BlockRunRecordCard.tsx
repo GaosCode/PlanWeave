@@ -62,19 +62,21 @@ export function BlockRunRecordCard({
         <CardTitle className="text-sm">{selectedRunRecord.ref}</CardTitle>
         <CardDescription>{selectedRunRecord.runId}</CardDescription>
         <CardAction className="flex items-center gap-1">
-          {!isAcpRun ? <TerminalOpenButton
-            canvasRef={canvasRef}
-            defaultTerminalAppId={defaultTerminalAppId}
-            missingSessionReason={t("tmuxTerminalNoSession")}
-            onOpenTerminal={onOpenTerminal}
-            onOpenRunTerminal={onOpenRunTerminal}
-            onTerminalDefaultAppChange={onTerminalDefaultAppChange}
-            recordId={selectedRunRecord.recordId}
-            terminalAvailability={terminalAvailability}
-            terminalApps={terminalApps}
-            tmuxAvailable={tmuxAvailable}
-            t={t}
-          /> : null}
+          {!isAcpRun ? (
+            <TerminalOpenButton
+              canvasRef={canvasRef}
+              defaultTerminalAppId={defaultTerminalAppId}
+              missingSessionReason={t("tmuxTerminalNoSession")}
+              onOpenTerminal={onOpenTerminal}
+              onOpenRunTerminal={onOpenRunTerminal}
+              onTerminalDefaultAppChange={onTerminalDefaultAppChange}
+              recordId={selectedRunRecord.recordId}
+              terminalAvailability={terminalAvailability}
+              terminalApps={terminalApps}
+              tmuxAvailable={tmuxAvailable}
+              t={t}
+            />
+          ) : null}
           <Button
             size="icon-sm"
             variant="ghost"

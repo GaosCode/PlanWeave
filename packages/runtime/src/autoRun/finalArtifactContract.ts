@@ -15,7 +15,9 @@ const implementationArtifactSchema = z
     kind: z.literal("implementation"),
     ref: z.string().min(1),
     taskId: z.string().min(1),
-    reportMarkdown: z.string().refine((value) => value.trim().length > 0, "Report must not be blank.")
+    reportMarkdown: z
+      .string()
+      .refine((value) => value.trim().length > 0, "Report must not be blank.")
   })
   .strict();
 const reviewArtifactSchema = z
@@ -44,7 +46,9 @@ const feedbackArtifactSchema = z
     feedbackId: z.string().min(1),
     sourceReviewBlockRef: z.string().min(1),
     taskId: z.string().min(1),
-    reportMarkdown: z.string().refine((value) => value.trim().length > 0, "Report must not be blank.")
+    reportMarkdown: z
+      .string()
+      .refine((value) => value.trim().length > 0, "Report must not be blank.")
   })
   .strict();
 
@@ -117,9 +121,7 @@ function finalArtifactPromptTemplate(expected: ExpectedFinalArtifactIdentity): o
   };
 }
 
-export function finalArtifactPromptInstruction(
-  expected: ExpectedFinalArtifactIdentity
-): string {
+export function finalArtifactPromptInstruction(expected: ExpectedFinalArtifactIdentity): string {
   const contentField = expected.kind === "review" ? "reviewResult.content" : "reportMarkdown";
   const reviewInstruction =
     expected.kind === "review"

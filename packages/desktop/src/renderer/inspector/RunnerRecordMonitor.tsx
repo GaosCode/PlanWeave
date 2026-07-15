@@ -16,13 +16,12 @@ import { useAgentPrompt } from "../hooks/useAgentPrompt";
 import { AcpConversationTimeline } from "./AcpConversationTimeline";
 
 type RunnerRecordMonitorProps = {
-  api?: (Pick<
-    DesktopBridgeApi,
-    "subscribeRunnerRecord" | "revealRunnerRecordArtifact"
-  > & Partial<Pick<
-    DesktopBridgeApi,
-    "cancelAgentRun" | "respondToAgentRequest" | "sendAgentPrompt"
-  >>) | null;
+  api?:
+    | (Pick<DesktopBridgeApi, "subscribeRunnerRecord" | "revealRunnerRecordArtifact"> &
+        Partial<
+          Pick<DesktopBridgeApi, "cancelAgentRun" | "respondToAgentRequest" | "sendAgentPrompt">
+        >)
+    | null;
   canvasRef?: DesktopCanvasReference | null;
   initialModel: RunnerRecordReadModel;
   recordId: string;
@@ -71,12 +70,13 @@ export function RunnerRecordMonitor({
   const activeRequestIds = new Set(
     model.interaction.activeRequests.map((request) => request.requestId)
   );
-  const detailEvents = model.events.filter((event) =>
-    event.body.kind === "usage_update" ||
-    event.body.kind === "artifact" ||
-    event.body.kind === "interaction" ||
-    event.body.kind === "interaction_result" ||
-    event.body.kind === "lifecycle"
+  const detailEvents = model.events.filter(
+    (event) =>
+      event.body.kind === "usage_update" ||
+      event.body.kind === "artifact" ||
+      event.body.kind === "interaction" ||
+      event.body.kind === "interaction_result" ||
+      event.body.kind === "lifecycle"
   );
   const artifactApi = api === undefined ? bridge : api;
 
@@ -152,10 +152,12 @@ export function RunnerRecordMonitor({
                 <PreviewElicitationControl
                   disabled={interventions.requestInFlight(request.identity)}
                   onCancel={() => interventions.respond(request.identity, { action: "cancel" })}
-                  onSubmit={(content) => interventions.respond(request.identity, {
-                    action: "accept",
-                    content
-                  })}
+                  onSubmit={(content) =>
+                    interventions.respond(request.identity, {
+                      action: "accept",
+                      content
+                    })
+                  }
                   schema={request.elicitationSchema}
                   t={t}
                 />
@@ -189,9 +191,17 @@ export function RunnerRecordMonitor({
               return (
                 <div key={event.sequence} className="flex flex-wrap gap-x-3 gap-y-1">
                   <Badge variant="outline">{t("acpUsage")}</Badge>
-                  <span>{t("acpUsedTokens")}: {body.usedTokens}</span>
-                  <span>{t("acpContextWindow")}: {body.contextWindowTokens}</span>
-                  {body.cost ? <span>{t("acpCost")}: {body.cost.amount} {body.cost.currency}</span> : null}
+                  <span>
+                    {t("acpUsedTokens")}: {body.usedTokens}
+                  </span>
+                  <span>
+                    {t("acpContextWindow")}: {body.contextWindowTokens}
+                  </span>
+                  {body.cost ? (
+                    <span>
+                      {t("acpCost")}: {body.cost.amount} {body.cost.currency}
+                    </span>
+                  ) : null}
                 </div>
               );
             }
@@ -199,7 +209,9 @@ export function RunnerRecordMonitor({
               return (
                 <div key={event.sequence} className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline">{t("acpArtifact")}</Badge>
-                  <span className="font-mono">{body.artifact.kind}: {body.artifact.relativePath}</span>
+                  <span className="font-mono">
+                    {body.artifact.kind}: {body.artifact.relativePath}
+                  </span>
                   <span>{body.artifact.sizeBytes} B</span>
                   {artifactApi && canvasRef ? (
                     <Button
@@ -210,7 +222,9 @@ export function RunnerRecordMonitor({
                         void artifactApi
                           .revealRunnerRecordArtifact(canvasRef, recordId, body.artifact)
                           .catch((error: unknown) => {
-                            setArtifactError(error instanceof Error ? error.message : String(error));
+                            setArtifactError(
+                              error instanceof Error ? error.message : String(error)
+                            );
                           });
                       }}
                     >
@@ -268,12 +282,22 @@ export function RunnerRecordMonitor({
         onSend={prompt.send}
         t={t}
       />
-      {prompt.error ? <div className="text-xs text-destructive">{t("acpPromptFailed")}: {prompt.error}</div> : null}
+      {prompt.error ? (
+        <div className="text-xs text-destructive">
+          {t("acpPromptFailed")}: {prompt.error}
+        </div>
+      ) : null}
     </section>
   );
 }
 
-function AgentPromptComposer({ available, disabledReason, inFlight, onSend, t }: {
+function AgentPromptComposer({
+  available,
+  disabledReason,
+  inFlight,
+  onSend,
+  t
+}: {
   available: boolean;
   disabledReason: string | null;
   inFlight: boolean;
@@ -285,31 +309,49 @@ function AgentPromptComposer({ available, disabledReason, inFlight, onSend, t }:
   const submit = () => {
     const text = draft.trim();
     if (!text || disabled) return;
-    void onSend(text).then((sent) => { if (sent) setDraft(""); });
+    void onSend(text).then((sent) => {
+      if (sent) setDraft("");
+    });
   };
-  return <div className="rounded-xl border bg-background p-2 shadow-sm" data-testid="acp-prompt-composer">
-    <Textarea
-      aria-label={t("acpPromptLabel")}
-      className="min-h-20 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
-      disabled={disabled}
-      placeholder={available ? t("acpPromptPlaceholder") : (disabledReason ?? t("acpPromptUnavailable"))}
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-          event.preventDefault();
-          submit();
+  return (
+    <div
+      className="rounded-xl border bg-background p-2 shadow-sm"
+      data-testid="acp-prompt-composer"
+    >
+      <Textarea
+        aria-label={t("acpPromptLabel")}
+        className="min-h-20 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+        disabled={disabled}
+        placeholder={
+          available ? t("acpPromptPlaceholder") : (disabledReason ?? t("acpPromptUnavailable"))
         }
-      }}
-    />
-    <div className="flex items-center justify-between gap-3 px-1 pt-1 text-[11px] text-muted-foreground">
-      <span>{available ? t("acpPromptHint") : (disabledReason ?? t("acpPromptUnavailable"))}</span>
-      <Button aria-label={t("acpSendPrompt")} disabled={disabled || !draft.trim()} size="icon-sm" onClick={submit}>
-        <SendIcon />
-      </Button>
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            submit();
+          }
+        }}
+      />
+      <div className="flex items-center justify-between gap-3 px-1 pt-1 text-[11px] text-muted-foreground">
+        <span>
+          {available ? t("acpPromptHint") : (disabledReason ?? t("acpPromptUnavailable"))}
+        </span>
+        <Button
+          aria-label={t("acpSendPrompt")}
+          disabled={disabled || !draft.trim()}
+          size="icon-sm"
+          onClick={submit}
+        >
+          <SendIcon />
+        </Button>
+      </div>
+      {inFlight ? (
+        <div className="px-1 pt-1 text-[11px] text-muted-foreground">{t("acpPromptSending")}</div>
+      ) : null}
     </div>
-    {inFlight ? <div className="px-1 pt-1 text-[11px] text-muted-foreground">{t("acpPromptSending")}</div> : null}
-  </div>;
+  );
 }
 
 function PreviewElicitationControl({

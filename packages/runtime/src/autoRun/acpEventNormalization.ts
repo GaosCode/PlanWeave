@@ -6,7 +6,10 @@ import type {
   TerminalOutputResponse
 } from "@agentclientprotocol/sdk";
 import { z } from "zod";
-import { normalizedRedactedContent, type NormalizedRunnerEvent } from "./normalizedEventContract.js";
+import {
+  normalizedRedactedContent,
+  type NormalizedRunnerEvent
+} from "./normalizedEventContract.js";
 import {
   acpRequestIdSchema,
   persistedPendingInteractionSchema,
@@ -37,13 +40,21 @@ export function normalizeAcpPermissionHistory(
   requestId: string,
   requestedAt = new Date().toISOString()
 ): AcpNormalizedEventBody {
-  const summary = normalizedRedactedContent(request.toolCall.title ?? `Permission requested for ${request.toolCall.toolCallId}.`);
+  const summary = normalizedRedactedContent(
+    request.toolCall.title ?? `Permission requested for ${request.toolCall.toolCallId}.`
+  );
   return {
     kind: "interaction",
     interaction: persistedPendingInteractionSchema.parse({
-      version: "planweave.runner/v1", interactionId: requestId, requestId,
-      kind: "permission", requestedAt, summary: summary.content, status: "cancelled",
-      actionable: false, nonActionableReason: "persisted_history"
+      version: "planweave.runner/v1",
+      interactionId: requestId,
+      requestId,
+      kind: "permission",
+      requestedAt,
+      summary: summary.content,
+      status: "cancelled",
+      actionable: false,
+      nonActionableReason: "persisted_history"
     })
   };
 }
@@ -57,9 +68,15 @@ export function normalizeAcpElicitationHistory(
   return {
     kind: "interaction",
     interaction: persistedPendingInteractionSchema.parse({
-      version: "planweave.runner/v1", interactionId: requestId, requestId,
-      kind: "elicitation", requestedAt, summary: summary.content, status: "cancelled",
-      actionable: false, nonActionableReason: "persisted_history"
+      version: "planweave.runner/v1",
+      interactionId: requestId,
+      requestId,
+      kind: "elicitation",
+      requestedAt,
+      summary: summary.content,
+      status: "cancelled",
+      actionable: false,
+      nonActionableReason: "persisted_history"
     })
   };
 }
@@ -77,21 +94,37 @@ function serialized(value: unknown): ReturnType<typeof normalizedRedactedContent
 }
 
 function textContent(value: unknown): ReturnType<typeof normalizedRedactedContent> {
-  if (typeof value === "object" && value !== null && "type" in value && value.type === "text" && "text" in value) {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "text" &&
+    "text" in value
+  ) {
     return normalizedRedactedContent(String(value.text));
   }
   return serialized(value);
 }
 
-function toolStatus(value: unknown): "pending" | "in_progress" | "completed" | "failed" | "cancelled" | null {
-  return value === "pending" || value === "in_progress" || value === "completed" || value === "failed" || value === "cancelled" ? value : null;
+function toolStatus(
+  value: unknown
+): "pending" | "in_progress" | "completed" | "failed" | "cancelled" | null {
+  return value === "pending" ||
+    value === "in_progress" ||
+    value === "completed" ||
+    value === "failed" ||
+    value === "cancelled"
+    ? value
+    : null;
 }
 
 function optionalSerialized(value: unknown, present: boolean) {
   return present ? serialized(value) : undefined;
 }
 
-export function normalizeAcpSessionNotification(notification: SessionNotification): AcpNormalizedEventBody | null {
+export function normalizeAcpSessionNotification(
+  notification: SessionNotification
+): AcpNormalizedEventBody | null {
   const update = notification.update;
   if (nonConversationSessionUpdateSchema.safeParse(update).success) return null;
   switch (update.sessionUpdate) {
@@ -99,14 +132,19 @@ export function normalizeAcpSessionNotification(notification: SessionNotificatio
     case "user_message_chunk": {
       const content = textContent(update.content);
       return {
-        kind: "message", role: update.sessionUpdate === "agent_message_chunk" ? "assistant" : "user",
-        messageId: update.messageId ?? null, chunk: true, ...content
+        kind: "message",
+        role: update.sessionUpdate === "agent_message_chunk" ? "assistant" : "user",
+        messageId: update.messageId ?? null,
+        chunk: true,
+        ...content
       };
     }
     case "tool_call": {
       const title = normalizedRedactedContent(update.title);
       return {
-        kind: "tool_call", callId: update.toolCallId, status: toolStatus(update.status),
+        kind: "tool_call",
+        callId: update.toolCallId,
+        status: toolStatus(update.status),
         title: title.content,
         toolKind: update.kind ?? null,
         content: update.content ? serialized(update.content) : null,
@@ -115,15 +153,17 @@ export function normalizeAcpSessionNotification(notification: SessionNotificatio
       };
     }
     case "tool_call_update": {
-      const status = Object.hasOwn(update, "status")
-        ? toolStatus(update.status)
-        : undefined;
+      const status = Object.hasOwn(update, "status") ? toolStatus(update.status) : undefined;
       const title = Object.hasOwn(update, "title")
-        ? typeof update.title === "string" ? normalizedRedactedContent(update.title).content : null
+        ? typeof update.title === "string"
+          ? normalizedRedactedContent(update.title).content
+          : null
         : undefined;
-      const toolKind = Object.hasOwn(update, "kind") ? update.kind ?? null : undefined;
+      const toolKind = Object.hasOwn(update, "kind") ? (update.kind ?? null) : undefined;
       const content = Object.hasOwn(update, "content")
-        ? update.content === null ? null : serialized(update.content)
+        ? update.content === null
+          ? null
+          : serialized(update.content)
         : undefined;
       return {
         kind: "tool_update",
@@ -132,8 +172,12 @@ export function normalizeAcpSessionNotification(notification: SessionNotificatio
         ...(title !== undefined ? { title } : {}),
         ...(toolKind !== undefined ? { toolKind } : {}),
         ...(content !== undefined || update.content === null ? { content } : {}),
-        ...(Object.hasOwn(update, "rawInput") ? { rawInput: optionalSerialized(update.rawInput, true) } : {}),
-        ...(Object.hasOwn(update, "rawOutput") ? { rawOutput: optionalSerialized(update.rawOutput, true) } : {})
+        ...(Object.hasOwn(update, "rawInput")
+          ? { rawInput: optionalSerialized(update.rawInput, true) }
+          : {}),
+        ...(Object.hasOwn(update, "rawOutput")
+          ? { rawOutput: optionalSerialized(update.rawOutput, true) }
+          : {})
       };
     }
     case "plan":
@@ -145,7 +189,9 @@ export function normalizeAcpSessionNotification(notification: SessionNotificatio
       return { kind: "plan_update", ...normalizedRedactedContent("Plan removed.") };
     case "usage_update":
       return {
-        kind: "usage_update", usedTokens: update.used, contextWindowTokens: update.size,
+        kind: "usage_update",
+        usedTokens: update.used,
+        contextWindowTokens: update.size,
         cost: update.cost ? { amount: update.cost.amount, currency: update.cost.currency } : null
       };
     case "current_mode_update":
@@ -160,7 +206,11 @@ export function normalizeAcpSessionNotification(notification: SessionNotificatio
       };
     default: {
       const content = serialized(update);
-      return { kind: "diagnostic", code: "corrupt_line", message: `Unsupported ACP session update: ${content.content}` };
+      return {
+        kind: "diagnostic",
+        code: "corrupt_line",
+        message: `Unsupported ACP session update: ${content.content}`
+      };
     }
   }
 }

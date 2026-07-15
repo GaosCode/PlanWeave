@@ -41,9 +41,7 @@ import {
   resolveAcpPromptContext
 } from "./acpPromptApi.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
-import {
-  desktopAgentPromptTextSchema
-} from "./types/acpBridgeTypes.js";
+import { desktopAgentPromptTextSchema } from "./types/acpBridgeTypes.js";
 import {
   cleanOutputSummary,
   displayMarkdownForRecord,
@@ -145,10 +143,7 @@ function blockRunDirectory(
 }
 
 async function assertRealRunDirectory(resultsDir: string, runDir: string): Promise<void> {
-  const [realResultsDir, realRunDir] = await Promise.all([
-    realpath(resultsDir),
-    realpath(runDir)
-  ]);
+  const [realResultsDir, realRunDir] = await Promise.all([realpath(resultsDir), realpath(runDir)]);
   assertContainedPath(realResultsDir, realRunDir);
 }
 
@@ -585,9 +580,7 @@ export async function getRunRecord(
       : await readOptionalFile(
           join(
             runDir,
-            finalArtifactRelativePath(
-              parsed.kind === "feedback" ? "feedback" : "implementation"
-            )
+            finalArtifactRelativePath(parsed.kind === "feedback" ? "feedback" : "implementation")
           )
         );
   const stdout = await readOptionalFile(join(runDir, "stdout.md"));

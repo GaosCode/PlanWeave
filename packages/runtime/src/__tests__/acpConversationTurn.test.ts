@@ -17,16 +17,18 @@ function sessionUpdate(text: string): SessionNotification {
   };
 }
 
-function createHarness(options: {
-  loadSession?: boolean;
-  promptError?: Error;
-  holdPrompt?: boolean;
-} = {}) {
+function createHarness(
+  options: { loadSession?: boolean; promptError?: Error; holdPrompt?: boolean } = {}
+) {
   const appended: NormalizedRunnerEvent["body"][] = [];
   let releasePrompt: (() => void) | null = null;
-  let connectionOptions: Parameters<ConstructorParameters<typeof AcpConversationTurnCoordinator>[0]>[0] | null = null;
+  let connectionOptions:
+    | Parameters<ConstructorParameters<typeof AcpConversationTurnCoordinator>[0]>[0]
+    | null = null;
   const connection: AcpConversationTurnConnection = {
-    initialize: vi.fn(async () => ({ agentCapabilities: { loadSession: options.loadSession ?? true } })),
+    initialize: vi.fn(async () => ({
+      agentCapabilities: { loadSession: options.loadSession ?? true }
+    })),
     loadSession: vi.fn(async () => {
       await connectionOptions?.onSessionUpdate?.(sessionUpdate("replayed"));
       return {};
@@ -110,9 +112,7 @@ describe("ACP conversation turn", () => {
     const first = harness.coordinator.send(harness.input);
     await vi.waitFor(() => expect(harness.connection.prompt).toHaveBeenCalledOnce());
 
-    await expect(harness.coordinator.send(harness.input)).rejects.toThrow(
-      "already in progress"
-    );
+    await expect(harness.coordinator.send(harness.input)).rejects.toThrow("already in progress");
     harness.releasePrompt();
     await first;
   });
@@ -139,16 +139,20 @@ describe("ACP conversation turn", () => {
       throw new Error("Expected ACP safety callbacks.");
     }
 
-    await expect(options.onPermissionRequest({
-      sessionId: "session-1",
-      toolCall: { toolCallId: "tool-1", title: "write", status: "pending" },
-      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }]
-    })).resolves.toEqual({ outcome: { outcome: "cancelled" } });
-    await expect(options.onElicitationRequest({
-      mode: "form",
-      sessionId: "session-1",
-      message: "secret",
-      requestedSchema: { type: "object", properties: {} }
-    })).resolves.toEqual({ action: "cancel" });
+    await expect(
+      options.onPermissionRequest({
+        sessionId: "session-1",
+        toolCall: { toolCallId: "tool-1", title: "write", status: "pending" },
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }]
+      })
+    ).resolves.toEqual({ outcome: { outcome: "cancelled" } });
+    await expect(
+      options.onElicitationRequest({
+        mode: "form",
+        sessionId: "session-1",
+        message: "secret",
+        requestedSchema: { type: "object", properties: {} }
+      })
+    ).resolves.toEqual({ action: "cancel" });
   });
 });

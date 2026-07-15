@@ -58,10 +58,12 @@ describe("structured runner event redaction", () => {
     });
     expect(payload).toEqual({
       password: "[REDACTED:CREDENTIAL]",
-      nested: [{
-        ACCESS_TOKEN: "[REDACTED:CREDENTIAL]",
-        note: "[REDACTED:CREDENTIAL]"
-      }],
+      nested: [
+        {
+          ACCESS_TOKEN: "[REDACTED:CREDENTIAL]",
+          note: "[REDACTED:CREDENTIAL]"
+        }
+      ],
       optionId: "token=opaque-action-id",
       request_id: "token=opaque-request-id",
       sessionId: "token=opaque-session-id",

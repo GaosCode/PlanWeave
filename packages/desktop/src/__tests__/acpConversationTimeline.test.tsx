@@ -34,7 +34,7 @@ describe("Block Inspector ACP conversation timeline", () => {
             title: "Inspect empty string",
             toolKind: "read",
             status: "completed",
-            input: "\"\"",
+            input: '""',
             output: null
           }
         ]}

@@ -8,10 +8,7 @@ import type {
   DesktopDevelopmentToolId,
   DesktopTerminalAppId
 } from "@planweave-ai/runtime";
-import {
-  assertTerminalAppAvailable,
-  detectTerminalApps
-} from "./terminalApps.js";
+import { assertTerminalAppAvailable, detectTerminalApps } from "./terminalApps.js";
 import { openTerminal } from "./terminalLauncher.js";
 
 type ApplicationTool = {
@@ -84,11 +81,7 @@ const applicationTools: ApplicationTool[] = [
   }
 ];
 
-const terminalToolIds = new Set<DesktopDevelopmentToolId>([
-  "terminal",
-  "iterm2",
-  "ghostty"
-]);
+const terminalToolIds = new Set<DesktopDevelopmentToolId>(["terminal", "iterm2", "ghostty"]);
 const developmentToolOrder: readonly DesktopDevelopmentToolId[] = [
   "vscode",
   "cursor",
@@ -101,9 +94,7 @@ const developmentToolOrder: readonly DesktopDevelopmentToolId[] = [
   "goland",
   "pycharm"
 ];
-const applicationToolsById = new Map(
-  applicationTools.map((tool) => [tool.toolId, tool] as const)
-);
+const applicationToolsById = new Map(applicationTools.map((tool) => [tool.toolId, tool] as const));
 const detectedMacApplicationPaths = new Map<DesktopDevelopmentToolId, string>();
 const executableOutputLine = /\r?\n/u;
 const detectionOptions = { timeout: 2_000, maxBuffer: 64 * 1024 } as const;
@@ -145,9 +136,7 @@ function errorMessage(caught: unknown): string {
   return caught instanceof Error ? caught.message : String(caught);
 }
 
-export function isDesktopDevelopmentToolId(
-  value: unknown
-): value is DesktopDevelopmentToolId {
+export function isDesktopDevelopmentToolId(value: unknown): value is DesktopDevelopmentToolId {
   return typeof value === "string" && developmentToolOrder.some((toolId) => toolId === value);
 }
 
@@ -156,9 +145,7 @@ function isTerminalToolId(toolId: DesktopDevelopmentToolId): toolId is DesktopTe
 }
 
 function macBundleQuery(bundleIds: readonly string[]): string {
-  return bundleIds
-    .map((bundleId) => `kMDItemCFBundleIdentifier == '${bundleId}'`)
-    .join(" || ");
+  return bundleIds.map((bundleId) => `kMDItemCFBundleIdentifier == '${bundleId}'`).join(" || ");
 }
 
 function preferredApplicationPath(paths: string[], macOpenName: string): string | null {

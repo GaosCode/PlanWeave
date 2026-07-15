@@ -24,10 +24,7 @@ describe("Auto Run codex executor", () => {
       .withExecutor("fake-codex", {
         adapter: "codex-exec",
         command: process.execPath,
-        args: [
-          "-e",
-          "process.stdin.resume(); process.stdin.on('end', () => console.log('done'));"
-        ]
+        args: ["-e", "process.stdin.resume(); process.stdin.on('end', () => console.log('done'));"]
       })
       .withDefaultExecutor("fake-codex")
       .build();

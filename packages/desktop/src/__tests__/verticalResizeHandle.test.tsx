@@ -10,13 +10,7 @@ describe("VerticalResizeHandle", () => {
     ["left", "left-0", "after:left-0"],
     ["right", "right-0", "after:right-0"]
   ] as const)("keeps a transparent hit area and one lightweight %s edge", (side, edge, lineEdge) => {
-    render(
-      <VerticalResizeHandle
-        aria-label={`Resize ${side}`}
-        role="separator"
-        side={side}
-      />
-    );
+    render(<VerticalResizeHandle aria-label={`Resize ${side}`} role="separator" side={side} />);
 
     const separator = screen.getByRole("separator", { name: `Resize ${side}` });
     expect(separator).toHaveClass(

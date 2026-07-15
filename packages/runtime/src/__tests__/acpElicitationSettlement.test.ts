@@ -50,7 +50,8 @@ function permissionRun(
 describe("ACP Preview elicitation settlement", () => {
   it("allows retry after a transient publication failure without acknowledging the first attempt", async () => {
     const complete = vi.fn();
-    const publishResult = vi.fn()
+    const publishResult = vi
+      .fn()
       .mockRejectedValueOnce(new Error("transient durable failure"))
       .mockResolvedValueOnce(undefined);
     const settlement = createAcpElicitationSettlement({
@@ -74,24 +75,30 @@ describe("ACP Preview elicitation settlement", () => {
 
   it("settles valid accept and cancel responses through the real ACP controller", async () => {
     for (const [decision, act] of [
-      ["accept", async (request: LivePendingRequestHandle) => request.respond({
-        action: "accept",
-        content: { value: "accepted" }
-      })],
+      [
+        "accept",
+        async (request: LivePendingRequestHandle) =>
+          request.respond({
+            action: "accept",
+            content: { value: "accepted" }
+          })
+      ],
       ["cancel", async (request: LivePendingRequestHandle) => request.reject("cancelled by test")]
     ] as const) {
       const root = await mkdtemp(join(tmpdir(), `planweave-acp-elicitation-${decision}-`));
       const controller = new AcpSessionController(new ActiveAgentRunRegistry());
-      await expect(controller.execute(controllerRun(root, "required"), {
-        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-        interactionBroker: {
-          mode: "interactive",
-          requestAvailable: async (request) => {
-            expect(request.kind).toBe("elicitation");
-            await act(request);
+      await expect(
+        controller.execute(controllerRun(root, "required"), {
+          timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
+          interactionBroker: {
+            mode: "interactive",
+            requestAvailable: async (request) => {
+              expect(request.kind).toBe("elicitation");
+              await act(request);
+            }
           }
-        }
-      })).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+        })
+      ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
       const events = await readFile(join(root, "events.ndjson"), "utf8");
       expect(events).toContain('"kind":"interaction_result"');
       expect(events).toContain(`"outcome":"${decision === "accept" ? "submitted" : "cancelled"}"`);
@@ -103,17 +110,19 @@ describe("ACP Preview elicitation settlement", () => {
   it("settles once and rejects a duplicate after durable publication", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-elicitation-one-shot-"));
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
-    await expect(controller.execute(controllerRun(root, "required"), {
-      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-      interactionBroker: {
-        mode: "interactive",
-        requestAvailable: async (request) => {
-          const response = { action: "accept", content: { value: "accepted" } } as const;
-          await request.respond(response);
-          await expect(request.respond(response)).rejects.toThrow("already answered");
+    await expect(
+      controller.execute(controllerRun(root, "required"), {
+        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
+        interactionBroker: {
+          mode: "interactive",
+          requestAvailable: async (request) => {
+            const response = { action: "accept", content: { value: "accepted" } } as const;
+            await request.respond(response);
+            await expect(request.respond(response)).rejects.toThrow("already answered");
+          }
         }
-      }
-    })).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+      })
+    ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
     const events = await readFile(join(root, "events.ndjson"), "utf8");
     expect(events.match(/"kind":"interaction_result"/g)).toHaveLength(1);
   });
@@ -127,7 +136,11 @@ describe("ACP Preview elicitation settlement", () => {
     ["number range", "range", { action: "accept", content: { value: 6 } }],
     ["integer type", "integer", { action: "accept", content: { value: 1.5 } }],
     ["multi-select minItems", "multi", { action: "accept", content: { value: [] } }],
-    ["multi-select maxItems", "multi", { action: "accept", content: { value: ["alpha", "beta", "gamma"] } }],
+    [
+      "multi-select maxItems",
+      "multi",
+      { action: "accept", content: { value: ["alpha", "beta", "gamma"] } }
+    ],
     ["multi-select enum", "multi", { action: "accept", content: { value: ["unknown"] } }],
     ["titled multi-select", "multi-titled", { action: "accept", content: { value: ["unknown"] } }],
     ["SDK wire content", "required", { action: "accept", content: { value: { nested: true } } }],
@@ -136,21 +149,27 @@ describe("ACP Preview elicitation settlement", () => {
     const root = await mkdtemp(join(tmpdir(), `planweave-acp-elicitation-invalid-${schema}-`));
     const registry = new ActiveAgentRunRegistry();
     const controller = new AcpSessionController(registry);
-    await expect(controller.execute(controllerRun(root, schema), {
-      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-      interactionBroker: {
-        mode: "interactive",
-        requestAvailable: async (request) => {
-          expect(request.kind).toBe("elicitation");
-          await expect(request.respond(response)).rejects.toThrow(/Preview elicitation response/);
-          expect(registry.lookupDesktopRun("AUTO-RUN-001")?.control.pendingRequests.has(request.requestId))
-            .toBe(true);
-          expect(await readFile(join(root, "events.ndjson"), "utf8"))
-            .not.toContain('"kind":"interaction_result"');
-          await request.reject("cancel invalid response");
+    await expect(
+      controller.execute(controllerRun(root, schema), {
+        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
+        interactionBroker: {
+          mode: "interactive",
+          requestAvailable: async (request) => {
+            expect(request.kind).toBe("elicitation");
+            await expect(request.respond(response)).rejects.toThrow(/Preview elicitation response/);
+            expect(
+              registry
+                .lookupDesktopRun("AUTO-RUN-001")
+                ?.control.pendingRequests.has(request.requestId)
+            ).toBe(true);
+            expect(await readFile(join(root, "events.ndjson"), "utf8")).not.toContain(
+              '"kind":"interaction_result"'
+            );
+            await request.reject("cancel invalid response");
+          }
         }
-      }
-    })).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+      })
+    ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
     const events = await readFile(join(root, "events.ndjson"), "utf8");
     expect(events).not.toContain('"outcome":"submitted"');
     expect(events).toContain('"outcome":"cancelled"');
@@ -161,49 +180,62 @@ describe("ACP Preview elicitation settlement", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-elicitation-unsupported-schema-"));
     const available = vi.fn();
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
-    await expect(controller.execute(controllerRun(root, "unsupported"), {
-      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-      interactionBroker: { mode: "interactive", requestAvailable: available }
-    })).rejects.toThrow(/unsupported property type|Invalid params/i);
+    await expect(
+      controller.execute(controllerRun(root, "unsupported"), {
+        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
+        interactionBroker: { mode: "interactive", requestAvailable: available }
+      })
+    ).rejects.toThrow(/unsupported property type|Invalid params/i);
     expect(available).not.toHaveBeenCalled();
-    expect(await readFile(join(root, "events.ndjson"), "utf8"))
-      .not.toContain('"kind":"interaction_result"');
+    expect(await readFile(join(root, "events.ndjson"), "utf8")).not.toContain(
+      '"kind":"interaction_result"'
+    );
   });
 
   it("does not acknowledge or release input when durable result append fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-elicitation-event-failure-"));
     const registry = new ActiveAgentRunRegistry();
-    const eventModels = new AcpEventReadModelRegistry((options) => new AcpEventStore({
-      ...options,
-      appendText: async (...args) => {
-        if (String(args[1]).includes('"kind":"interaction_result"')) {
-          throw new Error("scripted interaction result append failure");
-        }
-        return appendFile(...args);
-      }
-    }));
+    const eventModels = new AcpEventReadModelRegistry(
+      (options) =>
+        new AcpEventStore({
+          ...options,
+          appendText: async (...args) => {
+            if (String(args[1]).includes('"kind":"interaction_result"')) {
+              throw new Error("scripted interaction result append failure");
+            }
+            return appendFile(...args);
+          }
+        })
+    );
     const abort = new AbortController();
     let observedPending = false;
     const controller = new AcpSessionController(registry, undefined, eventModels);
-    await expect(controller.execute(controllerRun(root, "required"), {
-      signal: abort.signal,
-      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-      interactionBroker: {
-        mode: "interactive",
-        requestAvailable: async (request) => {
-          await expect(request.respond({ action: "accept", content: { value: "valid" } }))
-            .rejects.toThrow("scripted interaction result append failure");
-          observedPending =
-            registry.lookupDesktopRun("AUTO-RUN-001")?.control.pendingRequests.has(request.requestId) === true;
-          abort.abort(new Error("stop after append failure assertion"));
+    await expect(
+      controller.execute(controllerRun(root, "required"), {
+        signal: abort.signal,
+        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
+        interactionBroker: {
+          mode: "interactive",
+          requestAvailable: async (request) => {
+            await expect(
+              request.respond({ action: "accept", content: { value: "valid" } })
+            ).rejects.toThrow("scripted interaction result append failure");
+            observedPending =
+              registry
+                .lookupDesktopRun("AUTO-RUN-001")
+                ?.control.pendingRequests.has(request.requestId) === true;
+            abort.abort(new Error("stop after append failure assertion"));
+          }
         }
-      }
-    })).rejects.toThrow();
+      })
+    ).rejects.toThrow();
     expect(observedPending).toBe(true);
-    expect(await readFile(join(root, "events.ndjson"), "utf8"))
-      .not.toContain('"kind":"interaction_result"');
-    expect(await readFile(join(root, "protocol.ndjson"), "utf8"))
-      .not.toContain('"action":"accept"');
+    expect(await readFile(join(root, "events.ndjson"), "utf8")).not.toContain(
+      '"kind":"interaction_result"'
+    );
+    expect(await readFile(join(root, "protocol.ndjson"), "utf8")).not.toContain(
+      '"action":"accept"'
+    );
   });
 });
 
@@ -212,46 +244,47 @@ describe("ACP permission settlement", () => {
     ["approve", "permission-secret", "token=opaque-action-id"],
     ["deny", "permission-deny", "deny"],
     ["cancel", "permission-secret", null]
-  ] as const)("retries %s after a pre-commit append failure and settles once", async (
-    decision,
-    scenario,
-    optionId
-  ) => {
+  ] as const)("retries %s after a pre-commit append failure and settles once", async (decision, scenario, optionId) => {
     const root = await mkdtemp(join(tmpdir(), `planweave-acp-permission-${decision}-`));
     let failInteractionResult = true;
-    const eventModels = new AcpEventReadModelRegistry((options) => new AcpEventStore({
-      ...options,
-      appendText: async (...args) => {
-        if (
-          failInteractionResult &&
-          String(args[1]).includes('"kind":"interaction_result"')
-        ) {
-          failInteractionResult = false;
-          throw new Error("scripted permission append failure");
-        }
-        return appendFile(...args);
-      }
-    }));
+    const eventModels = new AcpEventReadModelRegistry(
+      (options) =>
+        new AcpEventStore({
+          ...options,
+          appendText: async (...args) => {
+            if (failInteractionResult && String(args[1]).includes('"kind":"interaction_result"')) {
+              failInteractionResult = false;
+              throw new Error("scripted permission append failure");
+            }
+            return appendFile(...args);
+          }
+        })
+    );
     const registry = new ActiveAgentRunRegistry();
     const controller = new AcpSessionController(registry, undefined, eventModels);
-    await expect(controller.execute(permissionRun(root, scenario), {
-      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-      interactionBroker: {
-        mode: "interactive",
-        requestAvailable: async (request) => {
-          const act = () => optionId === null
-            ? request.reject("cancelled by test")
-            : request.respond(optionId);
-          await expect(act()).rejects.toThrow("scripted permission append failure");
-          expect(registry.lookupDesktopRun("AUTO-RUN-001")?.control.pendingRequests.has(request.requestId))
-            .toBe(true);
-          expect(await readFile(join(root, "events.ndjson"), "utf8"))
-            .not.toContain('"kind":"interaction_result"');
-          await expect(act()).resolves.toBeUndefined();
-          await expect(act()).rejects.toThrow("already answered");
+    await expect(
+      controller.execute(permissionRun(root, scenario), {
+        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
+        interactionBroker: {
+          mode: "interactive",
+          requestAvailable: async (request) => {
+            const act = () =>
+              optionId === null ? request.reject("cancelled by test") : request.respond(optionId);
+            await expect(act()).rejects.toThrow("scripted permission append failure");
+            expect(
+              registry
+                .lookupDesktopRun("AUTO-RUN-001")
+                ?.control.pendingRequests.has(request.requestId)
+            ).toBe(true);
+            expect(await readFile(join(root, "events.ndjson"), "utf8")).not.toContain(
+              '"kind":"interaction_result"'
+            );
+            await expect(act()).resolves.toBeUndefined();
+            await expect(act()).rejects.toThrow("already answered");
+          }
         }
-      }
-    })).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+      })
+    ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
     const events = await readFile(join(root, "events.ndjson"), "utf8");
     expect(events.match(/"kind":"interaction_result"/g)).toHaveLength(1);
     expect(events).toContain(
@@ -262,29 +295,36 @@ describe("ACP permission settlement", () => {
   it("treats a post-log projection failure as committed and releases permission", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-permission-projection-"));
     let failProjection = true;
-    const eventModels = new AcpEventReadModelRegistry((options) => new AcpEventStore({
-      ...options,
-      writeConversationProjection: async (_runDir, events) => {
-        if (failProjection && events.at(-1)?.body.kind === "interaction_result") {
-          failProjection = false;
-          throw new Error("path=/private/secret projection payload");
-        }
-      }
-    }));
+    const eventModels = new AcpEventReadModelRegistry(
+      (options) =>
+        new AcpEventStore({
+          ...options,
+          writeConversationProjection: async (_runDir, events) => {
+            if (failProjection && events.at(-1)?.body.kind === "interaction_result") {
+              failProjection = false;
+              throw new Error("path=/private/secret projection payload");
+            }
+          }
+        })
+    );
     const registry = new ActiveAgentRunRegistry();
     const controller = new AcpSessionController(registry, undefined, eventModels);
-    await expect(controller.execute(permissionRun(root, "permission-secret"), {
-      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-      interactionBroker: {
-        mode: "interactive",
-        requestAvailable: async (request) => {
-          await expect(request.respond("token=opaque-action-id")).resolves.toBeUndefined();
-          expect(registry.lookupDesktopRun("AUTO-RUN-001")?.control.pendingRequests.has(request.requestId))
-            .toBe(false);
+    await expect(
+      controller.execute(permissionRun(root, "permission-secret"), {
+        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
+        interactionBroker: {
+          mode: "interactive",
+          requestAvailable: async (request) => {
+            await expect(request.respond("token=opaque-action-id")).resolves.toBeUndefined();
+            expect(
+              registry
+                .lookupDesktopRun("AUTO-RUN-001")
+                ?.control.pendingRequests.has(request.requestId)
+            ).toBe(false);
+          }
         }
-      }
-    })).resolves.toMatchObject({ kind: "block", exitCode: 0 });
-    expect(await readFile(join(root, "events.ndjson"), "utf8"))
-      .toContain('"outcome":"approved"');
+      })
+    ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+    expect(await readFile(join(root, "events.ndjson"), "utf8")).toContain('"outcome":"approved"');
   });
 });

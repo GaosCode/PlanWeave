@@ -7,15 +7,8 @@ import { acpConversationTurns } from "../autoRun/acpConversationTurn.js";
 import { acpEventReadModels } from "../autoRun/acpEventReadModel.js";
 import { AcpSessionController } from "../autoRun/acpSessionController.js";
 import { normalizedRunnerEventSchema } from "../autoRun/normalizedEventContract.js";
-import {
-  getRunRecord,
-  sendAgentPrompt,
-  subscribeRunRecord
-} from "../desktop/recordsApi.js";
-import {
-  consumeAcpPromptRunRecord,
-  resolveAcpPromptContext
-} from "../desktop/acpPromptApi.js";
+import { getRunRecord, sendAgentPrompt, subscribeRunRecord } from "../desktop/recordsApi.js";
+import { consumeAcpPromptRunRecord, resolveAcpPromptContext } from "../desktop/acpPromptApi.js";
 import { writeJsonFile } from "../json.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 import type { AgentFamily, ExecutorProfile } from "../types.js";
@@ -100,14 +93,7 @@ async function completedRecord(
   const executor = options.executor ?? agentId;
   if (options.profile) manifest.executors = { [executor]: options.profile };
   const { root, init } = await createTestWorkspace(manifest);
-  const runDir = join(
-    init.workspace.resultsDir,
-    "T-001",
-    "blocks",
-    "B-001",
-    "runs",
-    "RUN-001"
-  );
+  const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
   await mkdir(runDir, { recursive: true });
   const metadata = {
     runId: "RUN-001",
@@ -178,41 +164,41 @@ function identityFor(prepared: Awaited<ReturnType<typeof completedRecord>>) {
 describe("Desktop ACP prompt continuation", () => {
   it("queues a prompt on the existing live owned ACP session before terminal artifacts exist", async () => {
     const { root, init } = await createTestWorkspace(basicManifest());
-    const runDir = join(
-      init.workspace.resultsDir,
-      "T-001",
-      "blocks",
-      "B-001",
-      "runs",
-      "RUN-001"
-    );
+    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
     const controller = new AcpSessionController();
-    const execution = controller.execute({
-      kind: "implementation",
-      identity: {
-        scope: runDir,
-        desktopRunId: "DESKTOP-RUN-0001",
-        runSessionId: "SESSION-0001",
-        executorRunId: "RUN-001",
-        claimRef: "T-001#B-001"
-      },
-      runDir,
-      metadataPath: join(runDir, "metadata.json"),
-      prompt: "original live prompt",
-      cwd: root,
-      launch: { command: process.execPath, args: [fixture, "long-prompt"] },
-      executorName: "codex-acp",
-      agentId: "codex",
-      taskId: "T-001",
-      metadataIdentity: { blockId: "B-001" },
-      projectId: init.workspace.id,
-      canvasId: "default"
-    }, { timeoutMs: 2_000 }).then(
-      () => null,
-      (error: unknown) => error
-    );
+    const execution = controller
+      .execute(
+        {
+          kind: "implementation",
+          identity: {
+            scope: runDir,
+            desktopRunId: "DESKTOP-RUN-0001",
+            runSessionId: "SESSION-0001",
+            executorRunId: "RUN-001",
+            claimRef: "T-001#B-001"
+          },
+          runDir,
+          metadataPath: join(runDir, "metadata.json"),
+          prompt: "original live prompt",
+          cwd: root,
+          launch: { command: process.execPath, args: [fixture, "long-prompt"] },
+          executorName: "codex-acp",
+          agentId: "codex",
+          taskId: "T-001",
+          metadataIdentity: { blockId: "B-001" },
+          projectId: init.workspace.id,
+          canvasId: "default"
+        },
+        { timeoutMs: 2_000 }
+      )
+      .then(
+        () => null,
+        (error: unknown) => error
+      );
     let identity: NonNullable<
-      NonNullable<Awaited<ReturnType<typeof getRunRecord>>["runnerReadModel"]>["intervention"]["prompt"]["identity"]
+      NonNullable<
+        Awaited<ReturnType<typeof getRunRecord>>["runnerReadModel"]
+      >["intervention"]["prompt"]["identity"]
     > | null = null;
     for (let attempt = 0; attempt < 100 && !identity; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -227,8 +213,7 @@ describe("Desktop ACP prompt continuation", () => {
     const executionError = await execution;
 
     expect(executionError).toBeInstanceOf(Error);
-    expect(await readFile(join(runDir, "events.ndjson"), "utf8"))
-      .toContain("follow up while live");
+    expect(await readFile(join(runDir, "events.ndjson"), "utf8")).toContain("follow up while live");
     acpEventReadModels.release(runDir);
   });
 
@@ -241,11 +226,8 @@ describe("Desktop ACP prompt continuation", () => {
     const identity = record.runnerReadModel?.intervention.prompt.identity;
     if (!identity) throw new Error("Expected a completed ACP prompt identity.");
     const snapshots: Array<NonNullable<typeof record.runnerReadModel>> = [];
-    const consumer = await subscribeRunRecord(
-      prepared.workspace,
-      recordId,
-      undefined,
-      (snapshot) => snapshots.push(snapshot)
+    const consumer = await subscribeRunRecord(prepared.workspace, recordId, undefined, (snapshot) =>
+      snapshots.push(snapshot)
     );
 
     await sendAgentPrompt(identity, "continue from desktop");
@@ -259,8 +241,9 @@ describe("Desktop ACP prompt continuation", () => {
     expect(await readFile(join(prepared.runDir, "report.md"))).toEqual(beforeReport);
     expect(snapshots.some((snapshot) => snapshot.intervention.prompt.inFlight)).toBe(true);
     expect(snapshots.at(-1)?.intervention.prompt.inFlight).toBe(false);
-    expect(snapshots.at(-1)?.conversation.some((item) => item.content.includes("hello from session-1")))
-      .toBe(true);
+    expect(
+      snapshots.at(-1)?.conversation.some((item) => item.content.includes("hello from session-1"))
+    ).toBe(true);
   });
 
   it("rejects stale identity, path traversal, and non-succeeded terminal metadata", async () => {
@@ -270,21 +253,23 @@ describe("Desktop ACP prompt continuation", () => {
     const identity = record.runnerReadModel?.intervention.prompt.identity;
     if (!identity) throw new Error("Expected a completed ACP prompt identity.");
 
-    await expect(sendAgentPrompt({ ...identity, sessionId: "other-session" }, "continue"))
-      .rejects.toThrow("does not match");
-    await expect(sendAgentPrompt({ ...identity, recordId: "T-001#B-001::../RUN-001" }, "continue"))
-      .rejects.toThrow("invalid");
+    await expect(
+      sendAgentPrompt({ ...identity, sessionId: "other-session" }, "continue")
+    ).rejects.toThrow("does not match");
+    await expect(
+      sendAgentPrompt({ ...identity, recordId: "T-001#B-001::../RUN-001" }, "continue")
+    ).rejects.toThrow("invalid");
     const outside = await mkdtemp(join(tmpdir(), "planweave-outside-run-"));
     await writeJsonFile(join(outside, "metadata.json"), prepared.metadata);
     await symlink(outside, join(dirname(prepared.runDir), "RUN-002"), "dir");
-    await expect(sendAgentPrompt({ ...identity, recordId: "T-001#B-001::RUN-002" }, "continue"))
-      .rejects.toThrow("escapes");
+    await expect(
+      sendAgentPrompt({ ...identity, recordId: "T-001#B-001::RUN-002" }, "continue")
+    ).rejects.toThrow("escapes");
     await writeJsonFile(join(prepared.runDir, "metadata.json"), {
       ...prepared.metadata,
       outcome: "failed"
     });
-    await expect(sendAgentPrompt(identity, "continue"))
-      .rejects.toThrow("not a completed ACP run");
+    await expect(sendAgentPrompt(identity, "continue")).rejects.toThrow("not a completed ACP run");
   });
 
   it("rejects an authoritative ACP terminal outcome that failed", async () => {
@@ -292,8 +277,9 @@ describe("Desktop ACP prompt continuation", () => {
       terminalState: "failed"
     });
 
-    await expect(sendAgentPrompt(identityFor(prepared), "continue"))
-      .rejects.toThrow("not a successfully completed run");
+    await expect(sendAgentPrompt(identityFor(prepared), "continue")).rejects.toThrow(
+      "not a successfully completed run"
+    );
   });
 
   it("rejects authoritative ACP events whose session does not match metadata", async () => {
@@ -301,8 +287,9 @@ describe("Desktop ACP prompt continuation", () => {
       eventSessionId: "other-session"
     });
 
-    await expect(sendAgentPrompt(identityFor(prepared), "continue"))
-      .rejects.toThrow("session does not match");
+    await expect(sendAgentPrompt(identityFor(prepared), "continue")).rejects.toThrow(
+      "session does not match"
+    );
   });
 
   it("rejects authoritative ACP events whose agent does not match metadata", async () => {
@@ -315,8 +302,9 @@ describe("Desktop ACP prompt continuation", () => {
       runner: prepared.originalEvents[0].runner
     });
     try {
-      await expect(sendAgentPrompt(identityFor(prepared), "continue"))
-        .rejects.toThrow("runner does not match");
+      await expect(sendAgentPrompt(identityFor(prepared), "continue")).rejects.toThrow(
+        "runner does not match"
+      );
     } finally {
       acpEventReadModels.release(prepared.runDir);
     }
@@ -332,8 +320,9 @@ describe("Desktop ACP prompt continuation", () => {
       runner: prepared.originalEvents[0].runner
     });
     try {
-      await expect(sendAgentPrompt(identityFor(prepared), "continue"))
-        .rejects.toThrow("identity does not match");
+      await expect(sendAgentPrompt(identityFor(prepared), "continue")).rejects.toThrow(
+        "identity does not match"
+      );
     } finally {
       acpEventReadModels.release(prepared.runDir);
     }
@@ -363,8 +352,9 @@ describe("Desktop ACP prompt continuation", () => {
     ];
     for (const invalid of invalidProfiles) {
       const prepared = await completedRecord("codex", "load-capable", invalid);
-      await expect(sendAgentPrompt(identityFor(prepared), "continue"))
-        .rejects.toThrow(/no longer available|does not match/);
+      await expect(sendAgentPrompt(identityFor(prepared), "continue")).rejects.toThrow(
+        /no longer available|does not match/
+      );
     }
   });
 
@@ -379,8 +369,9 @@ describe("Desktop ACP prompt continuation", () => {
       }
     });
     await sendAgentPrompt(identityFor(successful), "continue alias");
-    expect(await readFile(join(successful.runDir, "events.ndjson"), "utf8"))
-      .toContain("continue alias");
+    expect(await readFile(join(successful.runDir, "events.ndjson"), "utf8")).toContain(
+      "continue alias"
+    );
 
     const profile = {
       adapter: "agent",
@@ -393,8 +384,9 @@ describe("Desktop ACP prompt continuation", () => {
       profile
     });
 
-    await expect(sendAgentPrompt(identityFor(prepared), "continue"))
-      .rejects.toThrow(/timed out|timeout/i);
+    await expect(sendAgentPrompt(identityFor(prepared), "continue")).rejects.toThrow(
+      /timed out|timeout/i
+    );
   });
 
   it("cleans up the turn listener on explicit run-record unsubscribe", async () => {
@@ -432,14 +424,17 @@ describe("Desktop ACP prompt continuation", () => {
       expect(acpConversationTurns.subscriberCount(prepared.runDir)).toBe(1);
       const correlation = prepared.originalEvents[0].correlation;
       if (!correlation) throw new Error("Expected fixture correlation.");
-      await model.store.append({
-        kind: "message",
-        role: "assistant",
-        messageId: "close-trigger",
-        chunk: false,
-        content: "trigger",
-        redaction: { classes: [], replaced: 0 }
-      }, correlation);
+      await model.store.append(
+        {
+          kind: "message",
+          role: "assistant",
+          messageId: "close-trigger",
+          chunk: false,
+          content: "trigger",
+          redaction: { classes: [], replaced: 0 }
+        },
+        correlation
+      );
 
       await consumer.subscription?.closed;
       expect(acpConversationTurns.subscriberCount(prepared.runDir)).toBe(0);
@@ -450,10 +445,8 @@ describe("Desktop ACP prompt continuation", () => {
 
   it("does not resolve wrapper closure before the underlying subscription closes", async () => {
     const prepared = await completedRecord();
-    const snapshot = (await getRunRecord(
-      prepared.workspace,
-      "T-001#B-001::RUN-001"
-    )).runnerReadModel;
+    const snapshot = (await getRunRecord(prepared.workspace, "T-001#B-001::RUN-001"))
+      .runnerReadModel;
     if (!snapshot) throw new Error("Expected a runner snapshot.");
     const context = resolveAcpPromptContext({
       workspace: prepared.workspace,
@@ -469,22 +462,25 @@ describe("Desktop ACP prompt continuation", () => {
     });
     const underlyingUnsubscribe = vi.fn();
     const unsubscribeTurn = vi.fn();
-    const consumer = await consumeAcpPromptRunRecord({
-      context,
-      runDir: prepared.runDir,
-      metadata: prepared.metadata,
-      cursor: undefined,
-      subscriber: () => undefined
-    }, {
-      consume: vi.fn().mockResolvedValue({
-        snapshot,
-        subscription: {
-          unsubscribe: underlyingUnsubscribe,
-          closed: underlyingClosed
-        }
-      }),
-      subscribeTurn: () => unsubscribeTurn
-    });
+    const consumer = await consumeAcpPromptRunRecord(
+      {
+        context,
+        runDir: prepared.runDir,
+        metadata: prepared.metadata,
+        cursor: undefined,
+        subscriber: () => undefined
+      },
+      {
+        consume: vi.fn().mockResolvedValue({
+          snapshot,
+          subscription: {
+            unsubscribe: underlyingUnsubscribe,
+            closed: underlyingClosed
+          }
+        }),
+        subscribeTurn: () => unsubscribeTurn
+      }
+    );
     let wrapperClosed = false;
     void consumer.subscription?.closed.then(() => {
       wrapperClosed = true;
@@ -503,10 +499,8 @@ describe("Desktop ACP prompt continuation", () => {
 
   it("does not deliver a refresh that finishes after closure starts", async () => {
     const prepared = await completedRecord();
-    const snapshot = (await getRunRecord(
-      prepared.workspace,
-      "T-001#B-001::RUN-001"
-    )).runnerReadModel;
+    const snapshot = (await getRunRecord(prepared.workspace, "T-001#B-001::RUN-001"))
+      .runnerReadModel;
     if (!snapshot) throw new Error("Expected a runner snapshot.");
     const context = resolveAcpPromptContext({
       workspace: prepared.workspace,
@@ -536,22 +530,25 @@ describe("Desktop ACP prompt continuation", () => {
       return { snapshot, subscription: null };
     });
     const subscriber = vi.fn();
-    const consumer = await consumeAcpPromptRunRecord({
-      context,
-      runDir: prepared.runDir,
-      metadata: prepared.metadata,
-      cursor: undefined,
-      subscriber
-    }, {
-      consume,
-      subscribeTurn: (_key, callback) => {
-        turnListenerCount += 1;
-        turnSubscriber = callback;
-        return () => {
-          turnListenerCount -= 1;
-        };
+    const consumer = await consumeAcpPromptRunRecord(
+      {
+        context,
+        runDir: prepared.runDir,
+        metadata: prepared.metadata,
+        cursor: undefined,
+        subscriber
+      },
+      {
+        consume,
+        subscribeTurn: (_key, callback) => {
+          turnListenerCount += 1;
+          turnSubscriber = callback;
+          return () => {
+            turnListenerCount -= 1;
+          };
+        }
       }
-    });
+    );
     if (!turnSubscriber) throw new Error("Expected a turn subscriber.");
     const refresh = turnSubscriber();
     await refreshStarted;
@@ -573,23 +570,23 @@ describe("Desktop ACP prompt continuation", () => {
     expect(turnListenerCount).toBe(0);
   });
 
-  it.each(["opencode", "pi"] as const)(
-    "continues a completed %s ACP session without CLI fallback",
-    async (agentId) => {
-      const prepared = await completedRecord(agentId);
-      const recordId = "T-001#B-001::RUN-001";
-      const record = await getRunRecord(prepared.workspace, recordId);
-      const identity = record.runnerReadModel?.intervention.prompt.identity;
-      if (!identity) throw new Error(`Expected a completed ${agentId} ACP prompt identity.`);
+  it.each([
+    "opencode",
+    "pi"
+  ] as const)("continues a completed %s ACP session without CLI fallback", async (agentId) => {
+    const prepared = await completedRecord(agentId);
+    const recordId = "T-001#B-001::RUN-001";
+    const record = await getRunRecord(prepared.workspace, recordId);
+    const identity = record.runnerReadModel?.intervention.prompt.identity;
+    if (!identity) throw new Error(`Expected a completed ${agentId} ACP prompt identity.`);
 
-      await sendAgentPrompt(identity, `continue ${agentId}`);
+    await sendAgentPrompt(identity, `continue ${agentId}`);
 
-      const events = await readFile(join(prepared.runDir, "events.ndjson"), "utf8");
-      expect(events).toContain(`continue ${agentId}`);
-      expect(events).toContain("hello from session-1");
-      expect(events).not.toContain("historical replay");
-    }
-  );
+    const events = await readFile(join(prepared.runDir, "events.ndjson"), "utf8");
+    expect(events).toContain(`continue ${agentId}`);
+    expect(events).toContain("hello from session-1");
+    expect(events).not.toContain("historical replay");
+  });
 
   it("records a continuation error without changing the completed task result", async () => {
     const prepared = await completedRecord("codex", "load-capable-error");
@@ -600,8 +597,9 @@ describe("Desktop ACP prompt continuation", () => {
     const beforeMetadata = await readFile(join(prepared.runDir, "metadata.json"));
     const beforeReport = await readFile(join(prepared.runDir, "report.md"));
 
-    await expect(sendAgentPrompt(identity, "fail this turn"))
-      .rejects.toThrow("ACP conversation turn failed: Invalid params");
+    await expect(sendAgentPrompt(identity, "fail this turn")).rejects.toThrow(
+      "ACP conversation turn failed: Invalid params"
+    );
 
     expect(await readFile(join(prepared.runDir, "metadata.json"))).toEqual(beforeMetadata);
     expect(await readFile(join(prepared.runDir, "report.md"))).toEqual(beforeReport);

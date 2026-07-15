@@ -158,10 +158,12 @@ export function TaskWorkspaceShell({
         <main
           className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-app-canvas"
           data-testid="task-workspace-main"
-          style={{
-            minWidth: taskWorkspaceConversationMinWidth,
-            "--task-workspace-composer-height": `${composerSlot.height}px`
-          } as CSSProperties}
+          style={
+            {
+              minWidth: taskWorkspaceConversationMinWidth,
+              "--task-workspace-composer-height": `${composerSlot.height}px`
+            } as CSSProperties
+          }
         >
           <div
             className="min-h-0 min-w-0 flex-1 overflow-hidden"

@@ -13,7 +13,7 @@ export function useElementHeight<T extends HTMLElement>(): {
 
     const updateHeight = () => {
       const nextHeight = element.getBoundingClientRect().height;
-      setHeight((currentHeight) => currentHeight === nextHeight ? currentHeight : nextHeight);
+      setHeight((currentHeight) => (currentHeight === nextHeight ? currentHeight : nextHeight));
     };
 
     updateHeight();

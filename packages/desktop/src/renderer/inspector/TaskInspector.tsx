@@ -24,10 +24,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import {
-  buildExecutorOptionViews,
-  executorOptionName
-} from "../executors/executorOptionViewModel";
+import { buildExecutorOptionViews, executorOptionName } from "../executors/executorOptionViewModel";
 import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
 import type { createTranslator } from "../i18n";
 import { statusVariant } from "../viewHelpers";

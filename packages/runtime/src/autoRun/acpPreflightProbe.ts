@@ -1,10 +1,7 @@
 import { createAcpConnection } from "./acpConnection.js";
 import type { AcpPreflightProbe } from "./acpRunner.js";
 import type { RunnerCapability } from "./runnerContractSchemas.js";
-import {
-  RequestError,
-  type InitializeResponse
-} from "@agentclientprotocol/sdk";
+import { RequestError, type InitializeResponse } from "@agentclientprotocol/sdk";
 import {
   executorAgentInfoSchema,
   invalidExecutorAgentInfoMessage

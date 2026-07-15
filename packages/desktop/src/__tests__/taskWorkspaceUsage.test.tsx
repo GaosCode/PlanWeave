@@ -50,11 +50,7 @@ describe("TaskWorkspaceUsage", () => {
     };
     const user = userEvent.setup();
     render(
-      <TaskWorkspaceUsage
-        labels={labels}
-        selectedRun={selectedRun}
-        workspace={fixture.workspace}
-      />
+      <TaskWorkspaceUsage labels={labels} selectedRun={selectedRun} workspace={fixture.workspace} />
     );
 
     await user.hover(screen.getByRole("button", { name: "Agent: codex" }));

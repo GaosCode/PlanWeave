@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { ActiveAgentRunRegistry, type ActiveAgentRunHandle } from "../autoRun/activeAgentRunRegistry.js";
+import {
+  ActiveAgentRunRegistry,
+  type ActiveAgentRunHandle
+} from "../autoRun/activeAgentRunRegistry.js";
 import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
 import { acpEventReadModels } from "../autoRun/acpEventReadModel.js";
 import {
@@ -49,30 +52,50 @@ function controllerRun(root: string, scenario: string, prompt = scenario): AcpSe
 function fixture(options: { closeSupported?: boolean; order?: string[] } = {}) {
   const order = options.order ?? [];
   const ownership = createLiveOwnership("scope:RUN-001", 1);
-  const respond = vi.fn(async () => { order.push("respond"); });
-  const reject = vi.fn(async () => { order.push("reject-request"); });
+  const respond = vi.fn(async () => {
+    order.push("respond");
+  });
+  const reject = vi.fn(async () => {
+    order.push("reject-request");
+  });
   const control: RunnerLiveControl = {
     ownership,
     sessionId: "session-1",
-    process: { pid: 42, terminate: vi.fn(async () => { order.push("process"); }) },
+    process: {
+      pid: 42,
+      terminate: vi.fn(async () => {
+        order.push("process");
+      })
+    },
     connection: {
       send: vi.fn(async () => undefined),
-      close: vi.fn(async () => { order.push("connection"); }),
-      cancelSession: vi.fn(async () => { order.push("cancel"); }),
-      closeSession: vi.fn(async () => { order.push("close-session"); }),
+      close: vi.fn(async () => {
+        order.push("connection");
+      }),
+      cancelSession: vi.fn(async () => {
+        order.push("cancel");
+      }),
+      closeSession: vi.fn(async () => {
+        order.push("close-session");
+      }),
       supportsSessionClose: options.closeSupported === true
     },
     interventionCapabilities: { cancel: true, permission: true, elicitationPreview: true },
-    pendingRequests: new Map([["permission-1", {
-      requestId: "permission-1",
-      interactionId: "permission-1",
-      kind: "permission",
-      requestedAt: "2026-07-11T00:00:00.000Z",
-      summary: "Approve command?",
-      permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" }],
-      respond,
-      reject
-    }]]),
+    pendingRequests: new Map([
+      [
+        "permission-1",
+        {
+          requestId: "permission-1",
+          interactionId: "permission-1",
+          kind: "permission",
+          requestedAt: "2026-07-11T00:00:00.000Z",
+          summary: "Approve command?",
+          permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" }],
+          respond,
+          reject
+        }
+      ]
+    ]),
     pendingOperations: new Map()
   };
   const handle: ActiveAgentRunHandle = {
@@ -118,47 +141,49 @@ describe("ACP live actions", () => {
         resolveInactive = resolve;
       });
       try {
-        await expect(controller.execute(controllerRun(root, scenario), {
-          timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-          interactionBroker: {
-            mode: "interactive",
-            requestAvailable: async (request) => {
-              const consumer = await consumeRunnerRecordReadModel({
-                runDir: root,
-                metadata: {
-                  runnerKind: "acp",
-                  runId: "RUN-001",
-                  ref: "T-001#B-001",
-                  taskId: "T-001",
-                  blockId: "B-001",
-                  executorRunId: "RUN-001",
-                  desktopRunId: "AUTO-RUN-001",
-                  runSessionId: "SESSION-001",
-                  sessionId: "mock-session-1"
-                },
-                subscriber: (snapshot) => {
-                  if (!snapshot.interaction.active) resolveInactive(snapshot);
+        await expect(
+          controller.execute(controllerRun(root, scenario), {
+            timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
+            interactionBroker: {
+              mode: "interactive",
+              requestAvailable: async (request) => {
+                const consumer = await consumeRunnerRecordReadModel({
+                  runDir: root,
+                  metadata: {
+                    runnerKind: "acp",
+                    runId: "RUN-001",
+                    ref: "T-001#B-001",
+                    taskId: "T-001",
+                    blockId: "B-001",
+                    executorRunId: "RUN-001",
+                    desktopRunId: "AUTO-RUN-001",
+                    runSessionId: "SESSION-001",
+                    sessionId: "mock-session-1"
+                  },
+                  subscriber: (snapshot) => {
+                    if (!snapshot.interaction.active) resolveInactive(snapshot);
+                  }
+                });
+                activeSnapshot = consumer.snapshot;
+                const persisted = consumer.snapshot?.events.find(
+                  (event) => event.body.kind === "interaction"
+                );
+                expect(persisted?.body.kind).toBe("interaction");
+                if (persisted?.body.kind === "interaction") {
+                  expect(persisted.body.interaction.requestId).toBe(request.requestId);
+                  expect(persisted.body.interaction.requestedAt).toBe(request.requestedAt);
                 }
-              });
-              activeSnapshot = consumer.snapshot;
-              const persisted = consumer.snapshot?.events.find(
-                (event) => event.body.kind === "interaction"
-              );
-              expect(persisted?.body.kind).toBe("interaction");
-              if (persisted?.body.kind === "interaction") {
-                expect(persisted.body.interaction.requestId).toBe(request.requestId);
-                expect(persisted.body.interaction.requestedAt).toBe(request.requestedAt);
+                expect(consumer.snapshot?.interaction.activeRequests).toMatchObject([
+                  { requestId: request.requestId, kind: request.kind }
+                ]);
+                if (request.kind === "permission") await request.respond("deny");
+                else await request.reject("test resolution");
+                inactiveSnapshot = await inactive;
+                consumer.subscription?.unsubscribe();
               }
-              expect(consumer.snapshot?.interaction.activeRequests).toMatchObject([
-                { requestId: request.requestId, kind: request.kind }
-              ]);
-              if (request.kind === "permission") await request.respond("deny");
-              else await request.reject("test resolution");
-              inactiveSnapshot = await inactive;
-              consumer.subscription?.unsubscribe();
             }
-          }
-        })).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+          })
+        ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
         expect(activeSnapshot?.interaction.active).toBe(true);
         expect(inactiveSnapshot?.interaction.active).toBe(false);
 
@@ -182,10 +207,13 @@ describe("ACP live actions", () => {
           stale: true,
           activeRequests: []
         });
-        expect(reopened?.events.some((event) =>
-          event.body.kind === "interaction_result" &&
-          event.body.outcome === (scenario === "permission-deny" ? "denied" : "cancelled")
-        )).toBe(true);
+        expect(
+          reopened?.events.some(
+            (event) =>
+              event.body.kind === "interaction_result" &&
+              event.body.outcome === (scenario === "permission-deny" ? "denied" : "cancelled")
+          )
+        ).toBe(true);
       } finally {
         acpEventReadModels.release(root);
       }
@@ -199,10 +227,12 @@ describe("ACP live actions", () => {
       await request.respond("deny");
     });
     const controller = new AcpSessionController(registry);
-    await expect(controller.execute(controllerRun(root, "permission-deny"), {
-      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-      interactionBroker: { mode: "interactive", requestAvailable: available }
-    })).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+    await expect(
+      controller.execute(controllerRun(root, "permission-deny"), {
+        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
+        interactionBroker: { mode: "interactive", requestAvailable: available }
+      })
+    ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
     expect(available).toHaveBeenCalledTimes(1);
     expect(registry.size).toBe(0);
     const protocol = await readFile(join(root, "protocol.ndjson"), "utf8");
@@ -215,9 +245,11 @@ describe("ACP live actions", () => {
   it("persists the headless permission cancellation result before continuing", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-headless-permission-"));
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
-    await expect(controller.execute(controllerRun(root, "permission-secret"), {
-      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS
-    })).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+    await expect(
+      controller.execute(controllerRun(root, "permission-secret"), {
+        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS
+      })
+    ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
     const events = await readFile(join(root, "events.ndjson"), "utf8");
     expect(events).toContain('"interactionKind":"permission"');
     expect(events).toContain('"outcome":"cancelled"');
@@ -227,14 +259,19 @@ describe("ACP live actions", () => {
   it("advertises preview elicitation only for an explicit interactive broker", async () => {
     for (const [scenario, interactionBroker] of [
       ["expect-headless-capabilities", undefined],
-      ["expect-broker-capabilities", { mode: "interactive" as const, requestAvailable: () => undefined }]
+      [
+        "expect-broker-capabilities",
+        { mode: "interactive" as const, requestAvailable: () => undefined }
+      ]
     ] as const) {
       const root = await mkdtemp(join(tmpdir(), `planweave-acp-${scenario}-`));
       const controller = new AcpSessionController(new ActiveAgentRunRegistry());
-      await expect(controller.execute(controllerRun(root, scenario), {
-        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-        ...(interactionBroker ? { interactionBroker } : {})
-      })).rejects.toThrow("Final artifact marker was not found");
+      await expect(
+        controller.execute(controllerRun(root, scenario), {
+          timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
+          ...(interactionBroker ? { interactionBroker } : {})
+        })
+      ).rejects.toThrow("Final artifact marker was not found");
     }
   });
 
@@ -242,10 +279,12 @@ describe("ACP live actions", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-unsupported-elicitation-"));
     const available = vi.fn();
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
-    await expect(controller.execute(controllerRun(root, "unsupported-elicitation"), {
-      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-      interactionBroker: { mode: "interactive", requestAvailable: available }
-    })).rejects.toThrow("Final artifact marker was not found");
+    await expect(
+      controller.execute(controllerRun(root, "unsupported-elicitation"), {
+        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
+        interactionBroker: { mode: "interactive", requestAvailable: available }
+      })
+    ).rejects.toThrow("Final artifact marker was not found");
     expect(available).not.toHaveBeenCalled();
     const protocol = await readFile(join(root, "protocol.ndjson"), "utf8");
     expect(protocol).toContain('"action":"cancel"');
@@ -257,20 +296,22 @@ describe("ACP live actions", () => {
     for (const scenario of ["permission-secret", "elicitation-secret"]) {
       const root = await mkdtemp(join(tmpdir(), `planweave-acp-${scenario}-`));
       const controller = new AcpSessionController(new ActiveAgentRunRegistry());
-      await expect(controller.execute(controllerRun(root, scenario), {
-        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-        interactionBroker: {
-          mode: "interactive",
-          requestAvailable: async (request) => {
-            summaries.push(request.summary);
-            if (request.kind === "permission") {
-              await request.respond("token=opaque-action-id");
-            } else {
-              await request.reject("test decision");
+      await expect(
+        controller.execute(controllerRun(root, scenario), {
+          timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
+          interactionBroker: {
+            mode: "interactive",
+            requestAvailable: async (request) => {
+              summaries.push(request.summary);
+              if (request.kind === "permission") {
+                await request.respond("token=opaque-action-id");
+              } else {
+                await request.reject("test decision");
+              }
             }
           }
-        }
-      })).resolves.toMatchObject({ kind: "block" });
+        })
+      ).resolves.toMatchObject({ kind: "block" });
       protocols.push(await readFile(join(root, "protocol.ndjson"), "utf8"));
     }
     expect(summaries).toHaveLength(2);
@@ -291,24 +332,26 @@ describe("ACP live actions", () => {
     const registry = new ActiveAgentRunRegistry();
     const pending: LivePendingRequestHandle[] = [];
     const controller = new AcpSessionController(registry);
-    await expect(controller.execute(controllerRun(root, "multi-interaction"), {
-      timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-      interactionBroker: {
-        mode: "interactive",
-        requestAvailable: async (request) => {
-          pending.push(request);
-          if (pending.length !== 2) return;
-          const handle = registry.lookupDesktopRun("AUTO-RUN-001");
-          expect(handle?.lifecycleState).toBe("waiting_interaction");
-          await pending[0]?.reject("first settled");
-          expect(handle?.lifecycleState).toBe("waiting_interaction");
-          expect(handle?.control.pendingRequests.size).toBe(1);
-          await pending[1]?.reject("second settled");
-          expect(handle?.lifecycleState).toBe("running");
-          expect(handle?.control.pendingRequests.size).toBe(0);
+    await expect(
+      controller.execute(controllerRun(root, "multi-interaction"), {
+        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
+        interactionBroker: {
+          mode: "interactive",
+          requestAvailable: async (request) => {
+            pending.push(request);
+            if (pending.length !== 2) return;
+            const handle = registry.lookupDesktopRun("AUTO-RUN-001");
+            expect(handle?.lifecycleState).toBe("waiting_interaction");
+            await pending[0]?.reject("first settled");
+            expect(handle?.lifecycleState).toBe("waiting_interaction");
+            expect(handle?.control.pendingRequests.size).toBe(1);
+            await pending[1]?.reject("second settled");
+            expect(handle?.lifecycleState).toBe("running");
+            expect(handle?.control.pendingRequests.size).toBe(0);
+          }
         }
-      }
-    })).resolves.toMatchObject({ kind: "block" });
+      })
+    ).resolves.toMatchObject({ kind: "block" });
     expect(pending).toHaveLength(2);
   });
 
@@ -318,25 +361,42 @@ describe("ACP live actions", () => {
     registry.register(first.handle);
     const actionIdentity = { ...first.handle.identity, requestId: "permission-1" };
     expect(registry.listPending(actionIdentity)).toHaveLength(1);
-    for (const field of ["scope", "executorRunId", "desktopRunId", "runSessionId", "claimRef", "sessionId", "requestId"] as const) {
-      expect(() => Reflect.apply(registry.listPending, registry, [{ ...actionIdentity, [field]: undefined }]))
-        .toThrow(`requires a non-empty ${field}`);
+    for (const field of [
+      "scope",
+      "executorRunId",
+      "desktopRunId",
+      "runSessionId",
+      "claimRef",
+      "sessionId",
+      "requestId"
+    ] as const) {
+      expect(() =>
+        Reflect.apply(registry.listPending, registry, [{ ...actionIdentity, [field]: undefined }])
+      ).toThrow(`requires a non-empty ${field}`);
     }
-    expect(() => registry.lookupExact({
-      ...first.handle.identity,
-      sessionId: "another-session"
-    })).toThrow("does not match executor run");
-    await expect(registry.respond({
-      ...actionIdentity,
-      desktopRunId: "AUTO-RUN-999"
-    }, "allow_once")).rejects.toThrow("does not match executor run");
+    expect(() =>
+      registry.lookupExact({
+        ...first.handle.identity,
+        sessionId: "another-session"
+      })
+    ).toThrow("does not match executor run");
+    await expect(
+      registry.respond(
+        {
+          ...actionIdentity,
+          desktopRunId: "AUTO-RUN-999"
+        },
+        "allow_once"
+      )
+    ).rejects.toThrow("does not match executor run");
     for (const mismatch of [
       { sessionId: "other-session" },
       { claimRef: "T-999#B-001" },
       { runSessionId: "SESSION-999" }
     ]) {
-      await expect(registry.respond({ ...actionIdentity, ...mismatch }, "allow_once"))
-        .rejects.toThrow("does not match executor run");
+      await expect(
+        registry.respond({ ...actionIdentity, ...mismatch }, "allow_once")
+      ).rejects.toThrow("does not match executor run");
     }
     expect(first.respond).not.toHaveBeenCalled();
   });
@@ -389,7 +449,9 @@ describe("ACP live actions", () => {
     };
     const sent: string[] = [];
     let releaseFirst: (() => void) | undefined;
-    const firstSend = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const firstSend = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
     const first = registry.queuePrompt(identity, "first follow-up");
     const draining = registry.drainPromptQueue(item.handle, async (text) => {
       sent.push(text);
@@ -405,8 +467,9 @@ describe("ACP live actions", () => {
     await expect(finalTurn).resolves.toBeUndefined();
     expect(sent).toEqual(["first follow-up", "queued as the initial round ends"]);
     expect(registry.promptAccepting(item.handle)).toBe(false);
-    await expect(registry.queuePrompt(identity, "terminal race"))
-      .rejects.toThrow("session is finishing");
+    await expect(registry.queuePrompt(identity, "terminal race")).rejects.toThrow(
+      "session is finishing"
+    );
     await registry.remove(item.handle, "test complete");
   });
 
@@ -422,8 +485,9 @@ describe("ACP live actions", () => {
       claimRef: "T-006#B-001",
       sessionId: "session-1"
     };
-    await expect(registry.queuePrompt(identity, "do not bypass permission"))
-      .rejects.toThrow("pending permission");
+    await expect(registry.queuePrompt(identity, "do not bypass permission")).rejects.toThrow(
+      "pending permission"
+    );
 
     waiting.handle.lifecycleState = "running";
     waiting.control.pendingRequests.clear();
@@ -431,8 +495,9 @@ describe("ACP live actions", () => {
     const queuedRejection = expect(queued).rejects.toThrow("test complete");
     await registry.remove(waiting.handle, "test complete");
     await queuedRejection;
-    await expect(registry.queuePrompt(identity, "after terminal"))
-      .rejects.toThrow("does not exist");
+    await expect(registry.queuePrompt(identity, "after terminal")).rejects.toThrow(
+      "does not exist"
+    );
   });
 
   it("allows a pending response at most once and rejects duplicate and late actions", async () => {
@@ -443,19 +508,23 @@ describe("ACP live actions", () => {
       requestId: "permission-1",
       value: "allow_once"
     });
-    await expect(respondToPendingRunnerRequest({
-      control: item.control,
-      ownership: item.ownership,
-      requestId: "permission-1",
-      value: "allow_once"
-    })).rejects.toThrow("already answered");
+    await expect(
+      respondToPendingRunnerRequest({
+        control: item.control,
+        ownership: item.ownership,
+        requestId: "permission-1",
+        value: "allow_once"
+      })
+    ).rejects.toThrow("already answered");
     await cleanupRunnerLiveControl(item.control, item.ownership, "finished");
-    await expect(respondToPendingRunnerRequest({
-      control: item.control,
-      ownership: item.ownership,
-      requestId: "permission-1",
-      value: "allow_once"
-    })).rejects.toThrow("no longer actionable");
+    await expect(
+      respondToPendingRunnerRequest({
+        control: item.control,
+        ownership: item.ownership,
+        requestId: "permission-1",
+        value: "allow_once"
+      })
+    ).rejects.toThrow("no longer actionable");
     expect(item.respond).toHaveBeenCalledTimes(1);
     expect(item.reject).not.toHaveBeenCalled();
   });
@@ -481,8 +550,9 @@ describe("ACP live actions", () => {
       ...item.handle.identity,
       requestId: "permission-1"
     };
-    await expect(registry.cancel({ ...identity, sessionId: "foreign-session" }))
-      .rejects.toThrow("does not match executor run");
+    await expect(registry.cancel({ ...identity, sessionId: "foreign-session" })).rejects.toThrow(
+      "does not match executor run"
+    );
     await expect(registry.cancel(identity)).resolves.toBeUndefined();
     expect(item.order).toEqual(["reject-request", "cancel", "connection", "process"]);
     await expect(registry.cancel(identity)).rejects.toThrow("does not exist");
@@ -492,17 +562,33 @@ describe("ACP live actions", () => {
   it("settles pending requests before cancel, optional close, and process teardown", async () => {
     const item = fixture({ closeSupported: true });
     await cleanupRunnerLiveControl(item.control, item.ownership, "Desktop stopped");
-    expect(item.order).toEqual(["reject-request", "cancel", "close-session", "connection", "process"]);
+    expect(item.order).toEqual([
+      "reject-request",
+      "cancel",
+      "close-session",
+      "connection",
+      "process"
+    ]);
     await cleanupRunnerLiveControl(item.control, item.ownership, "duplicate stop");
-    expect(item.order).toEqual(["reject-request", "cancel", "close-session", "connection", "process"]);
+    expect(item.order).toEqual([
+      "reject-request",
+      "cancel",
+      "close-session",
+      "connection",
+      "process"
+    ]);
   });
 
   it("waits for an in-flight durable response before terminal teardown", async () => {
     const item = fixture();
     let releaseResponse!: () => void;
     let markStarted!: () => void;
-    const started = new Promise<void>((resolve) => { markStarted = resolve; });
-    const gate = new Promise<void>((resolve) => { releaseResponse = resolve; });
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
     item.respond.mockImplementation(async () => {
       markStarted();
       await gate;
@@ -528,8 +614,12 @@ describe("ACP live actions", () => {
     const item = fixture();
     let releaseResponse!: () => void;
     let markStarted!: () => void;
-    const started = new Promise<void>((resolve) => { markStarted = resolve; });
-    const gate = new Promise<void>((resolve) => { releaseResponse = resolve; });
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
     item.respond.mockImplementation(async () => {
       markStarted();
       await gate;

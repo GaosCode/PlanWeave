@@ -346,7 +346,8 @@ export function AutoRunMiniPanel({
               {t("agent")}: {explanation?.currentExecutor ?? "-"}
             </span>
             <span data-testid="auto-run-elapsed">
-              {t("elapsedTime")}: {displayedElapsedMs === null ? "-" : formatElapsed(displayedElapsedMs)}
+              {t("elapsedTime")}:{" "}
+              {displayedElapsedMs === null ? "-" : formatElapsed(displayedElapsedMs)}
             </span>
             <span data-testid="auto-run-step-count">
               {t("stepCount")}: {displayedStepCount === null ? "-" : `${displayedStepCount}`}

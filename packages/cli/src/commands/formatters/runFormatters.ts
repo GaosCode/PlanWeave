@@ -161,7 +161,9 @@ export function formatRunSessions(result: ListRunSessionsResult): string {
 }
 
 export function formatRunSessionDetail(
-  detail: RunSessionDetail & { runnerReadModel?: import("@planweave-ai/runtime").RunnerRecordReadModel | null }
+  detail: RunSessionDetail & {
+    runnerReadModel?: import("@planweave-ai/runtime").RunnerRecordReadModel | null;
+  }
 ): string {
   const lines = [
     `session: ${detail.session.sessionId}`,

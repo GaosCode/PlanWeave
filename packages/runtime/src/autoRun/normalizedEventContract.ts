@@ -71,31 +71,46 @@ const messageEventBodySchema = z
 const toolStatusSchema = z.enum(["pending", "in_progress", "completed", "failed", "cancelled"]);
 const toolCallEventBodySchema = z
   .object({
-    kind: z.literal("tool_call"), callId: z.string().min(1).max(256),
-    status: toolStatusSchema.nullable(), title: persistedMessageSchema,
+    kind: z.literal("tool_call"),
+    callId: z.string().min(1).max(256),
+    status: toolStatusSchema.nullable(),
+    title: persistedMessageSchema,
     toolKind: persistedMessageSchema.nullable().optional(),
     content: redactedContentSchema.nullable(),
     rawInput: redactedContentSchema.nullable().optional(),
     rawOutput: redactedContentSchema.nullable().optional()
-  }).strict();
+  })
+  .strict();
 const toolUpdateEventBodySchema = z
   .object({
-    kind: z.literal("tool_update"), callId: z.string().min(1).max(256),
+    kind: z.literal("tool_update"),
+    callId: z.string().min(1).max(256),
     status: toolStatusSchema.nullable().optional(),
     title: persistedMessageSchema.nullable().optional(),
     toolKind: persistedMessageSchema.nullable().optional(),
     content: redactedContentSchema.nullable().optional(),
     rawInput: redactedContentSchema.optional(),
     rawOutput: redactedContentSchema.optional()
-  }).strict();
+  })
+  .strict();
 const planUpdateEventBodySchema = z
-  .object({ kind: z.literal("plan_update"), content: persistedMessageSchema, redaction: redactionSchema }).strict();
+  .object({
+    kind: z.literal("plan_update"),
+    content: persistedMessageSchema,
+    redaction: redactionSchema
+  })
+  .strict();
 const usageUpdateEventBodySchema = z
   .object({
-    kind: z.literal("usage_update"), usedTokens: z.number().int().nonnegative(),
+    kind: z.literal("usage_update"),
+    usedTokens: z.number().int().nonnegative(),
     contextWindowTokens: z.number().int().positive(),
-    cost: z.object({ amount: z.number().nonnegative(), currency: z.string().length(3) }).strict().nullable()
-  }).strict();
+    cost: z
+      .object({ amount: z.number().nonnegative(), currency: z.string().length(3) })
+      .strict()
+      .nullable()
+  })
+  .strict();
 const sessionConfigurationSnapshotEventBodySchema = z
   .object({
     kind: z.literal("session_configuration_snapshot"),
@@ -117,9 +132,12 @@ const sessionConfigOptionsUpdateEventBodySchema = z
   .strict();
 const terminalOutputEventBodySchema = z
   .object({
-    kind: z.literal("terminal_output"), terminalId: z.string().min(1).max(256),
-    content: persistedMessageSchema, redaction: redactionSchema
-  }).strict();
+    kind: z.literal("terminal_output"),
+    terminalId: z.string().min(1).max(256),
+    content: persistedMessageSchema,
+    redaction: redactionSchema
+  })
+  .strict();
 const interactionEventBodySchema = z
   .object({ kind: z.literal("interaction"), interaction: persistedPendingInteractionSchema })
   .strict();

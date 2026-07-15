@@ -219,7 +219,10 @@ export const terminalOutcomeSchema = z
     version: runnerContractVersionSchema,
     state: runnerTerminalStateSchema,
     reason: z.enum(["completed", "failed", "cancelled", "timed_out"]).optional(),
-    cleanup: z.object({ status: z.enum(["succeeded", "failed"]) }).strict().optional(),
+    cleanup: z
+      .object({ status: z.enum(["succeeded", "failed"]) })
+      .strict()
+      .optional(),
     exitCode: z.number().int().nullable(),
     finishedAt: z.string().datetime(),
     diagnostic: safeRunnerEventTextSchema(8_192, "Terminal diagnostic").nullable(),
@@ -256,7 +259,8 @@ export const terminalOutcomeSchema = z
       });
     }
     if (
-      value.reason !== undefined && value.state === "failed" &&
+      value.reason !== undefined &&
+      value.state === "failed" &&
       !["failed", "timed_out"].includes(value.reason)
     ) {
       context.addIssue({

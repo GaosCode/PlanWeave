@@ -405,9 +405,7 @@ export function GraphView({
                           className="mr-2 inline-block size-2.5 rounded-full"
                           style={{ backgroundColor: color.dot }}
                         />
-                        <span className="flex-1 truncate">
-                          {group.name}
-                        </span>
+                        <span className="flex-1 truncate">{group.name}</span>
                         <span className="ml-2 text-xs text-text-faint">
                           {group.memberTaskIds.length}
                           {group.activeBlockRefs.length > 0

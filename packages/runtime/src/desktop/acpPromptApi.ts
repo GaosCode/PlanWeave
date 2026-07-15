@@ -5,10 +5,7 @@ import { acpEventReadModels } from "../autoRun/acpEventReadModel.js";
 import { activeAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { builtinAgentProfiles, resolveAgentDefinition } from "../autoRun/agentRegistry.js";
 import { requireAcpLaunch } from "../autoRun/acpLaunch.js";
-import {
-  DEFAULT_EXECUTOR_TIMEOUT_MS,
-  workspaceExecutionCwd
-} from "../autoRun/executorShared.js";
+import { DEFAULT_EXECUTOR_TIMEOUT_MS, workspaceExecutionCwd } from "../autoRun/executorShared.js";
 import {
   consumeRunnerRecordReadModel,
   desktopAgentPromptIdentitySchema,
@@ -143,20 +140,32 @@ export function resolveAcpPromptContext(options: {
     }
   }
   const identity = desktopAgentPromptIdentitySchema.parse({
-      ref: {
-        projectRoot: options.workspace.rootPath,
-        canvasId: basename(dirname(options.workspace.packageDir))
-      },
-      recordId: options.recordId,
-      executorRunId: metadata.executorRunId,
-      claimRef: metadata.claimRef,
-      sessionId: metadata.sessionId
-    });
+    ref: {
+      projectRoot: options.workspace.rootPath,
+      canvasId: basename(dirname(options.workspace.packageDir))
+    },
+    recordId: options.recordId,
+    executorRunId: metadata.executorRunId,
+    claimRef: metadata.claimRef,
+    sessionId: metadata.sessionId
+  });
   if (liveMetadata.success) {
-    return { available: true, mode: "live", runDir: options.runDir, metadata: liveMetadata.data, identity };
+    return {
+      available: true,
+      mode: "live",
+      runDir: options.runDir,
+      metadata: liveMetadata.data,
+      identity
+    };
   }
   if (completedMetadata.success) {
-    return { available: true, mode: "completed", runDir: options.runDir, metadata: completedMetadata.data, identity };
+    return {
+      available: true,
+      mode: "completed",
+      runDir: options.runDir,
+      metadata: completedMetadata.data,
+      identity
+    };
   }
   return {
     available: false,
@@ -166,7 +175,7 @@ export function resolveAcpPromptContext(options: {
 
 export function acpPromptReadOptions(context: AcpPromptContext) {
   return context.available
-      ? {
+    ? {
         promptIdentity: context.identity,
         promptContinuationAvailable: context.mode === "completed",
         promptInFlight: acpConversationTurns.isInFlight(context.runDir)
@@ -226,23 +235,18 @@ async function verifiedPromptEventStore(options: {
   if (JSON.stringify(canonical.identity) !== JSON.stringify(authority.identity)) {
     throw new Error("ACP event log identity does not match the persisted run record.");
   }
-  if (
-    JSON.stringify(canonical.runner) !== JSON.stringify(authority.runner)
-  ) {
+  if (JSON.stringify(canonical.runner) !== JSON.stringify(authority.runner)) {
     throw new Error("ACP event log runner does not match the persisted run metadata.");
   }
   const events = model.replay(0).events;
   const sessionIds = new Set(
-    events.flatMap((event) => event.correlation?.sessionId ? [event.correlation.sessionId] : [])
+    events.flatMap((event) => (event.correlation?.sessionId ? [event.correlation.sessionId] : []))
   );
   if (sessionIds.size !== 1 || !sessionIds.has(expectedSessionId)) {
     throw new Error("ACP event log session does not match the persisted run metadata.");
   }
   const agentIds = new Set(events.map((event) => event.runner.agentId));
-  if (
-    agentIds.size !== 1 ||
-    !agentIds.has(options.context.metadata.agentId)
-  ) {
+  if (agentIds.size !== 1 || !agentIds.has(options.context.metadata.agentId)) {
     throw new Error("ACP event log agent does not match the persisted run metadata.");
   }
   const terminalEvents = events.filter((event) => event.body.kind === "terminal");
@@ -256,9 +260,7 @@ async function verifiedPromptEventStore(options: {
     terminal.body.outcome.state !== "succeeded" ||
     terminal.body.outcome.artifactValidated !== true
   ) {
-    throw new Error(
-      "ACP event log is not a successfully completed run with a validated artifact."
-    );
+    throw new Error("ACP event log is not a successfully completed run with a validated artifact.");
   }
   return model.store;
 }
@@ -306,22 +308,22 @@ function resolveAcpPromptProfile(
   throw new Error(`ACP executor profile '${metadata.executor}' is no longer available.`);
 }
 
-export async function consumeAcpPromptRunRecord(options: {
-  context: AcpPromptContext;
-  runDir: string;
-  metadata: Record<string, unknown>;
-  cursor: RunnerEventCursor | undefined;
-  subscriber: RunnerRecordReadSubscriber;
-}, dependencies: {
-  consume: typeof consumeRunnerRecordReadModel;
-  subscribeTurn: (
-    key: string,
-    subscriber: () => void | Promise<void>
-  ) => () => void;
-} = {
-  consume: consumeRunnerRecordReadModel,
-  subscribeTurn: (key, subscriber) => acpConversationTurns.subscribe(key, subscriber)
-}): Promise<RunnerRecordReadConsumer> {
+export async function consumeAcpPromptRunRecord(
+  options: {
+    context: AcpPromptContext;
+    runDir: string;
+    metadata: Record<string, unknown>;
+    cursor: RunnerEventCursor | undefined;
+    subscriber: RunnerRecordReadSubscriber;
+  },
+  dependencies: {
+    consume: typeof consumeRunnerRecordReadModel;
+    subscribeTurn: (key: string, subscriber: () => void | Promise<void>) => () => void;
+  } = {
+    consume: consumeRunnerRecordReadModel,
+    subscribeTurn: (key, subscriber) => acpConversationTurns.subscribe(key, subscriber)
+  }
+): Promise<RunnerRecordReadConsumer> {
   const consumer = await dependencies.consume({
     runDir: options.runDir,
     metadata: options.metadata,
@@ -393,14 +395,19 @@ export function queueLiveAcpPrompt(options: {
 }): Promise<void> {
   const metadata = options.context.metadata;
   if (!metadata.desktopRunId || !metadata.runSessionId) {
-    return Promise.reject(new Error("Live ACP prompt requires exact Desktop run/session identity."));
+    return Promise.reject(
+      new Error("Live ACP prompt requires exact Desktop run/session identity.")
+    );
   }
-  return activeAgentRunRegistry.queuePrompt(runnerSessionActionIdentitySchema.parse({
-    scope: options.context.runDir,
-    executorRunId: metadata.executorRunId,
-    desktopRunId: metadata.desktopRunId,
-    runSessionId: metadata.runSessionId,
-    claimRef: metadata.claimRef,
-    sessionId: metadata.sessionId
-  }), options.text);
+  return activeAgentRunRegistry.queuePrompt(
+    runnerSessionActionIdentitySchema.parse({
+      scope: options.context.runDir,
+      executorRunId: metadata.executorRunId,
+      desktopRunId: metadata.desktopRunId,
+      runSessionId: metadata.runSessionId,
+      claimRef: metadata.claimRef,
+      sessionId: metadata.sessionId
+    }),
+    options.text
+  );
 }

@@ -133,10 +133,7 @@ describe("desktop renderer component interactions", () => {
       />
     );
 
-    expect(container.querySelector(".app-drag-region")).toHaveClass(
-      "border-b",
-      "border-border/80"
-    );
+    expect(container.querySelector(".app-drag-region")).toHaveClass("border-b", "border-border/80");
     expect(screen.getByRole("button", { name: "frontend-example" })).toBeVisible();
     expect(screen.getByRole("button", { name: /frontend-example\s*2/ })).toBeVisible();
     expect(screen.getByRole("button", { name: "收起任务画布" })).toBeVisible();

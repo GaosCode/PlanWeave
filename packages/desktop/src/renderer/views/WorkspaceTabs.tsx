@@ -325,7 +325,8 @@ function CanvasMapRoute() {
 function TaskWorkspaceAppRoute() {
   const { shell, taskWorkspace } = useProjectWorkspace();
   const navigation = taskWorkspace.navigation;
-  const repositoryRoot = shell.selectedProject?.sourceRoot ??
+  const repositoryRoot =
+    shell.selectedProject?.sourceRoot ??
     (shell.selectedProject?.kind === "external" ? shell.selectedProject.rootPath : null);
   return (
     <TaskWorkspaceCancelRunControllerScope

@@ -284,7 +284,9 @@ describe("ACP event controller durability and producers", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-timeout-event-"));
     const readModels = new AcpEventReadModelRegistry();
     let markPromptStarted!: () => void;
-    const promptStarted = new Promise<void>((resolve) => { markPromptStarted = resolve; });
+    const promptStarted = new Promise<void>((resolve) => {
+      markPromptStarted = resolve;
+    });
     let rejectPrompt!: (reason: unknown) => void;
     const blockedPrompt = new Promise<Awaited<ReturnType<AcpConnection["prompt"]>>>((_, reject) => {
       rejectPrompt = reject;
@@ -321,9 +323,7 @@ describe("ACP event controller durability and producers", () => {
     const execution = controller.execute(run(root, "long-prompt"), { timeoutMs: 200 });
     await promptStarted;
     rejectPrompt(new AcpOperationTimeoutError("prompt", 200));
-    await expect(execution).rejects.toThrow(
-      "timed out"
-    );
+    await expect(execution).rejects.toThrow("timed out");
     const events = readModels.get(root)?.replay(0).events ?? [];
     const runningIndex = events.findIndex(
       (event) => event.body.kind === "lifecycle" && event.body.state === "running"

@@ -75,11 +75,9 @@ function runnerModel(): RunnerRecordReadModel {
   });
 }
 
-export function taskWorkspaceInspectorFixture(options: {
-  contextSnapshot?: boolean;
-  includeRunnerModel?: boolean;
-  zeroMetrics?: boolean;
-} = {}) {
+export function taskWorkspaceInspectorFixture(
+  options: { contextSnapshot?: boolean; includeRunnerModel?: boolean; zeroMetrics?: boolean } = {}
+) {
   const zeroMetrics = options.zeroMetrics === true;
   const effectiveFinishedAt = zeroMetrics ? startedAt : finishedAt;
   const run = taskWorkspaceRunSchema.parse({
@@ -108,16 +106,17 @@ export function taskWorkspaceInspectorFixture(options: {
       unavailableReason: null
     },
     usage: {
-      currentContext: options.contextSnapshot === false
-        ? null
-        : {
-            aggregation: "snapshot",
-            sequence: 9,
-            observedAt: "2026-07-13T00:01:30.000Z",
-            usedTokens: zeroMetrics ? 0 : 18_300,
-            contextWindowTokens: 25_800,
-            cost: { amount: zeroMetrics ? 0 : 0.42, currency: "USD" }
-          },
+      currentContext:
+        options.contextSnapshot === false
+          ? null
+          : {
+              aggregation: "snapshot",
+              sequence: 9,
+              observedAt: "2026-07-13T00:01:30.000Z",
+              usedTokens: zeroMetrics ? 0 : 18_300,
+              contextWindowTokens: 25_800,
+              cost: { amount: zeroMetrics ? 0 : 0.42, currency: "USD" }
+            },
       runTokens: {
         available: false,
         totalTokens: null,
@@ -163,9 +162,7 @@ export function taskWorkspaceInspectorFixture(options: {
             description: null,
             category: "thought_level",
             currentValue: "high",
-            options: [
-              { value: "high", name: "High", description: null, group: null }
-            ]
+            options: [{ value: "high", name: "High", description: null, group: null }]
           }
         ]
       },

@@ -16,30 +16,35 @@ import { TaskWorkspaceInteractionCards } from "./TaskWorkspaceInteractionCards";
 
 const bottomThreshold = 48;
 
-type ConversationApi = Partial<Pick<
-  DesktopBridgeApi,
-  | "cancelAgentRun"
-  | "detectTerminalApps"
-  | "getTerminalPreferences"
-  | "openTerminal"
-  | "respondToAgentRequest"
-  | "revealRunnerRecordArtifact"
-  | "updateTerminalPreferences"
->>;
+type ConversationApi = Partial<
+  Pick<
+    DesktopBridgeApi,
+    | "cancelAgentRun"
+    | "detectTerminalApps"
+    | "getTerminalPreferences"
+    | "openTerminal"
+    | "respondToAgentRequest"
+    | "revealRunnerRecordArtifact"
+    | "updateTerminalPreferences"
+  >
+>;
 
-export function TaskWorkspaceConversation(props: TaskWorkspaceConversationSlotProps & {
-  api?: ConversationApi | null;
-  canvasRef: DesktopCanvasReference;
-  t: ReturnType<typeof createTranslator>;
-}) {
+export function TaskWorkspaceConversation(
+  props: TaskWorkspaceConversationSlotProps & {
+    api?: ConversationApi | null;
+    canvasRef: DesktopCanvasReference;
+    t: ReturnType<typeof createTranslator>;
+  }
+) {
   const { api = bridge, runnerModel, selectedRecord, selectedRun, t } = props;
   const { canvasRef } = props;
 
   if (!selectedRun) return <ConversationState message={t("taskWorkspaceNoConversation")} />;
   if (!selectedRecord) {
-    const message = props.liveStatus === "loading"
-      ? t("taskWorkspaceLoadingSelectedRun")
-      : props.recordError ?? t("taskWorkspaceRecordUnavailable");
+    const message =
+      props.liveStatus === "loading"
+        ? t("taskWorkspaceLoadingSelectedRun")
+        : (props.recordError ?? t("taskWorkspaceRecordUnavailable"));
     return <ConversationState message={message} role={props.recordError ? "alert" : undefined} />;
   }
   if (selectedRecord.recordId !== selectedRun.item.run.record.recordId) {
@@ -68,19 +73,18 @@ export function TaskWorkspaceConversation(props: TaskWorkspaceConversationSlotPr
   );
 }
 
-function AcpConversationUnavailable({ props, selectedRun, t }: {
+function AcpConversationUnavailable({
+  props,
+  selectedRun,
+  t
+}: {
   props: TaskWorkspaceConversationSlotProps;
   selectedRun: NonNullable<TaskWorkspaceConversationSlotProps["selectedRun"]>;
   t: ReturnType<typeof createTranslator>;
 }) {
   const error = props.recordError ?? props.subscriptionError;
   if (error || props.liveStatus === "error") {
-    return (
-      <ConversationState
-        message={error ?? t("taskWorkspaceAcpLoadFailed")}
-        role="alert"
-      />
-    );
+    return <ConversationState message={error ?? t("taskWorkspaceAcpLoadFailed")} role="alert" />;
   }
   if (props.liveStatus === "loading") {
     return <ConversationState message={t("taskWorkspaceAcpLoading")} />;
@@ -88,13 +92,21 @@ function AcpConversationUnavailable({ props, selectedRun, t }: {
   if (props.liveStatus === "live") {
     return <ConversationState message={t("taskWorkspaceAcpLiveModelUnavailable")} role="alert" />;
   }
-  const message = props.liveUnavailableReason ??
+  const message =
+    props.liveUnavailableReason ??
     selectedRun.item.run.capabilities.prompt.reason ??
     t("taskWorkspaceAcpUnavailable");
   return <ConversationState message={message} />;
 }
 
-function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
+function AcpRunConversation({
+  api,
+  canvasRef,
+  model,
+  props,
+  selectedRun,
+  t
+}: {
   api: ConversationApi | null;
   canvasRef: DesktopCanvasReference;
   model: NonNullable<TaskWorkspaceConversationSlotProps["runnerModel"]>;
@@ -108,17 +120,20 @@ function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
   const [following, setFollowing] = useState(selectedRun.item.active);
   const [artifactError, setArtifactError] = useState<string | null>(null);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    if (typeof viewport.scrollTo === "function") {
-      viewport.scrollTo({ top: viewport.scrollHeight, behavior });
-    } else {
-      viewport.scrollTop = viewport.scrollHeight;
-    }
-    props.onRunScrollTopChange(recordId, viewport.scrollHeight);
-    setFollowing(true);
-  }, [props.onRunScrollTopChange, recordId]);
+  const scrollToBottom = useCallback(
+    (behavior: ScrollBehavior = "smooth") => {
+      const viewport = viewportRef.current;
+      if (!viewport) return;
+      if (typeof viewport.scrollTo === "function") {
+        viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+      } else {
+        viewport.scrollTop = viewport.scrollHeight;
+      }
+      props.onRunScrollTopChange(recordId, viewport.scrollHeight);
+      setFollowing(true);
+    },
+    [props.onRunScrollTopChange, recordId]
+  );
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -133,7 +148,7 @@ function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
     viewport.scrollTop = storedTop;
     setFollowing(
       selectedRun.item.active &&
-      viewport.scrollHeight - storedTop - viewport.clientHeight <= bottomThreshold
+        viewport.scrollHeight - storedTop - viewport.clientHeight <= bottomThreshold
     );
   }, [props.getRunScrollTop, recordId, scrollToBottom, selectedRun.item.active]);
 
@@ -144,7 +159,10 @@ function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
   const revealArtifact = api?.revealRunnerRecordArtifact;
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="task-workspace-acp-conversation">
+    <section
+      className="flex h-full min-h-0 flex-col overflow-hidden"
+      data-testid="task-workspace-acp-conversation"
+    >
       <div className="shrink-0 px-5 pt-5">
         <TaskWorkspaceInteractionCards
           api={api}
@@ -153,12 +171,18 @@ function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
           t={t}
         />
         {props.subscriptionError ? (
-          <p className="mt-3 rounded-md border border-destructive/40 p-3 text-sm text-destructive" role="alert">
+          <p
+            className="mt-3 rounded-md border border-destructive/40 p-3 text-sm text-destructive"
+            role="alert"
+          >
             {t("acpSubscriptionError")}: {props.subscriptionError}
           </p>
         ) : null}
         {artifactError ? (
-          <p className="mt-3 rounded-md border border-destructive/40 p-3 text-sm text-destructive" role="alert">
+          <p
+            className="mt-3 rounded-md border border-destructive/40 p-3 text-sm text-destructive"
+            role="alert"
+          >
             {t("acpArtifactOpenError")}: {artifactError}
           </p>
         ) : null}
@@ -173,14 +197,18 @@ function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
             props.onRunScrollTopChange(recordId, viewport.scrollTop);
             setFollowing(
               selectedRun.item.active &&
-              viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= bottomThreshold
+                viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <=
+                  bottomThreshold
             );
           }}
           ref={viewportRef}
           role="region"
           tabIndex={0}
         >
-          <div className="mx-auto w-full max-w-3xl space-y-4" data-testid="task-workspace-conversation-content">
+          <div
+            className="mx-auto w-full max-w-3xl space-y-4"
+            data-testid="task-workspace-conversation-content"
+          >
             <AcpConversationItems
               presentation="workspace"
               renderArtifact={({ artifact, sequence }) => (
@@ -188,16 +216,20 @@ function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
                   artifact={artifact}
                   fullPath={props.selectedRecord?.reportPath ?? artifact.relativePath}
                   key={`artifact-${sequence}-${artifact.relativePath}`}
-                  onReveal={revealArtifact && canvasRef
-                    ? async () => {
-                        setArtifactError(null);
-                        try {
-                          await revealArtifact(canvasRef, recordId, artifact);
-                        } catch (caught) {
-                          setArtifactError(caught instanceof Error ? caught.message : String(caught));
+                  onReveal={
+                    revealArtifact && canvasRef
+                      ? async () => {
+                          setArtifactError(null);
+                          try {
+                            await revealArtifact(canvasRef, recordId, artifact);
+                          } catch (caught) {
+                            setArtifactError(
+                              caught instanceof Error ? caught.message : String(caught)
+                            );
+                          }
                         }
-                      }
-                    : null}
+                      : null
+                  }
                 />
               )}
               timeline={model.timeline}
@@ -222,7 +254,11 @@ function AcpRunConversation({ api, canvasRef, model, props, selectedRun, t }: {
   );
 }
 
-function ArtifactFileLink({ artifact, fullPath, onReveal }: {
+function ArtifactFileLink({
+  artifact,
+  fullPath,
+  onReveal
+}: {
   artifact: ArtifactReference;
   fullPath: string;
   onReveal: (() => Promise<void>) | null;
@@ -257,13 +293,14 @@ function ArtifactFileTypeIcon({ path }: { path: string }) {
     return <AtomIcon aria-hidden="true" className="size-4 shrink-0" data-file-type={extension} />;
   }
 
-  const label = extension === "md" || extension === "mdx"
-    ? "MD"
-    : extension === "ts" || extension === "mts" || extension === "cts"
-      ? "TS"
-      : extension === "js" || extension === "mjs" || extension === "cjs"
-        ? "JS"
-        : null;
+  const label =
+    extension === "md" || extension === "mdx"
+      ? "MD"
+      : extension === "ts" || extension === "mts" || extension === "cts"
+        ? "TS"
+        : extension === "js" || extension === "mjs" || extension === "cjs"
+          ? "JS"
+          : null;
 
   return label ? (
     <span
@@ -281,7 +318,15 @@ function ArtifactFileTypeIcon({ path }: { path: string }) {
 function ConversationState({ message, role }: { message: string; role?: "alert" }) {
   return (
     <section className="flex h-full items-center justify-center p-6" role={role}>
-      <p className={role === "alert" ? "max-w-xl text-sm text-destructive" : "max-w-xl text-sm text-muted-foreground"}>{message}</p>
+      <p
+        className={
+          role === "alert"
+            ? "max-w-xl text-sm text-destructive"
+            : "max-w-xl text-sm text-muted-foreground"
+        }
+      >
+        {message}
+      </p>
     </section>
   );
 }

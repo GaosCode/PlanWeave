@@ -206,8 +206,7 @@ describe("Auto Run manual executor", () => {
           "planweave submit-feedback --canvas manual-canvas --report <feedback-report.md>",
         nextAction: {
           kind: "submit_manual_result",
-          command:
-            "planweave submit-feedback --canvas manual-canvas --report <feedback-report.md>",
+          command: "planweave submit-feedback --canvas manual-canvas --report <feedback-report.md>",
           ref: "FE-001"
         }
       },

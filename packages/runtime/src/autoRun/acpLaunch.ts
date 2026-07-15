@@ -1,8 +1,5 @@
 import type { PackageWorkspaceRef } from "../types.js";
-import {
-  isCommandTrusted,
-  untrustedExecutorCommandError
-} from "../taskManager/hookTrustStore.js";
+import { isCommandTrusted, untrustedExecutorCommandError } from "../taskManager/hookTrustStore.js";
 import type { AcpLaunchMetadata, AgentDefinition } from "./agentRunner.js";
 
 export function requireAcpLaunch(definition: AgentDefinition): AcpLaunchMetadata {

@@ -136,9 +136,7 @@ async function detectAgent(profile: DesktopAgentToolProfile): Promise<DesktopAge
     const { stdout, stderr } = await execFileText(profile.command, profile.versionArgs, {
       env: { ...process.env, PATH: agentDetectionPath() },
       timeout:
-        profile.runnerKind === "acp"
-          ? agentAcpDetectionTimeoutMs
-          : agentVersionDetectionTimeoutMs,
+        profile.runnerKind === "acp" ? agentAcpDetectionTimeoutMs : agentVersionDetectionTimeoutMs,
       maxBuffer: 64 * 1024
     });
     const version = `${stdout}${stderr}`.trim().split(/\r?\n/)[0] ?? "";

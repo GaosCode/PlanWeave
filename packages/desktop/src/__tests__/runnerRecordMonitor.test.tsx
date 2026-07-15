@@ -27,10 +27,7 @@ import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironmen
 
 afterEach(cleanupRendererTestEnvironment);
 
-const acpFixture = join(
-  process.cwd(),
-  "packages/runtime/src/__tests__/support/acpMockAgent.mjs"
-);
+const acpFixture = join(process.cwd(), "packages/runtime/src/__tests__/support/acpMockAgent.mjs");
 
 function event(sequence: number, kind: "message" | "tool_call" | "terminal", content: string) {
   return normalizedRunnerEventSchema.parse({
@@ -51,34 +48,35 @@ function event(sequence: number, kind: "message" | "tool_call" | "terminal", con
     },
     runner: { version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" },
     correlation: { sessionId: "session-1" },
-    body: kind === "message"
-      ? {
-          kind,
-          role: "assistant",
-          messageId: `message-${sequence}`,
-          chunk: true,
-          content,
-          redaction: { classes: [], replaced: 0 }
-        }
-      : kind === "tool_call"
+    body:
+      kind === "message"
         ? {
             kind,
-            callId: `tool-${sequence}`,
-            title: content,
-            status: "in_progress",
-            content: null
+            role: "assistant",
+            messageId: `message-${sequence}`,
+            chunk: true,
+            content,
+            redaction: { classes: [], replaced: 0 }
           }
-        : {
-            kind,
-            outcome: {
-              version: "planweave.runner/v1",
-              state: "succeeded",
-              exitCode: 0,
-              finishedAt: "2026-07-11T00:00:01.000Z",
-              diagnostic: null,
-              artifactValidated: true
+        : kind === "tool_call"
+          ? {
+              kind,
+              callId: `tool-${sequence}`,
+              title: content,
+              status: "in_progress",
+              content: null
             }
-          }
+          : {
+              kind,
+              outcome: {
+                version: "planweave.runner/v1",
+                state: "succeeded",
+                exitCode: 0,
+                finishedAt: "2026-07-11T00:00:01.000Z",
+                diagnostic: null,
+                artifactValidated: true
+              }
+            }
   });
 }
 
@@ -146,9 +144,7 @@ function model(
 
 function api(options: {
   snapshot?: RunnerRecordReadModel | null;
-  onSubscribe?: (
-    callback: Parameters<DesktopBridgeApi["subscribeRunnerRecord"]>[1]
-  ) => void;
+  onSubscribe?: (callback: Parameters<DesktopBridgeApi["subscribeRunnerRecord"]>[1]) => void;
   unsubscribe?: () => Promise<void>;
   revealRunnerRecordArtifact?: DesktopBridgeApi["revealRunnerRecordArtifact"];
   respondToAgentRequest?: DesktopBridgeApi["respondToAgentRequest"];
@@ -166,9 +162,10 @@ function api(options: {
         unsubscribe: options.unsubscribe ?? vi.fn(async () => undefined)
       };
     }),
-    revealRunnerRecordArtifact:
-      options.revealRunnerRecordArtifact ?? vi.fn(async () => undefined),
-    ...(options.respondToAgentRequest ? { respondToAgentRequest: options.respondToAgentRequest } : {}),
+    revealRunnerRecordArtifact: options.revealRunnerRecordArtifact ?? vi.fn(async () => undefined),
+    ...(options.respondToAgentRequest
+      ? { respondToAgentRequest: options.respondToAgentRequest }
+      : {}),
     ...(options.cancelAgentRun ? { cancelAgentRun: options.cancelAgentRun } : {}),
     ...(options.sendAgentPrompt ? { sendAgentPrompt: options.sendAgentPrompt } : {})
   };
@@ -181,7 +178,8 @@ describe("ACP runner record monitor", () => {
       role: "assistant",
       messageId: "assistant-1",
       chunk: false,
-      content: "## Result\n\n- one\n- two\n\n`inline`\n\n```ts\nconst value = 1;\n```\n\n| Name | Value |\n| --- | --- |\n| mode | ACP |\n\n<script>window.bad = true</script>",
+      content:
+        "## Result\n\n- one\n- two\n\n`inline`\n\n```ts\nconst value = 1;\n```\n\n| Name | Value |\n| --- | --- |\n| mode | ACP |\n\n<script>window.bad = true</script>",
       redaction: { classes: [], replaced: 0 }
     });
     const user = detailEvent(2, {
@@ -192,7 +190,14 @@ describe("ACP runner record monitor", () => {
       content: "Please continue",
       redaction: { classes: [], replaced: 0 }
     });
-    const rendered = render(<RunnerRecordMonitor api={null} initialModel={model([assistant, user])} recordId="T-001#B-001::RUN-001" t={createTranslator("en")} />);
+    const rendered = render(
+      <RunnerRecordMonitor
+        api={null}
+        initialModel={model([assistant, user])}
+        recordId="T-001#B-001::RUN-001"
+        t={createTranslator("en")}
+      />
+    );
 
     expect(screen.getByRole("heading", { name: "Result" })).toBeInTheDocument();
     expect(screen.getByText("const value = 1;")).toBeInTheDocument();
@@ -203,15 +208,24 @@ describe("ACP runner record monitor", () => {
   });
 
   it("keeps a long projected timeline usable without rendering raw token events", () => {
-    const events = Array.from({ length: 160 }, (_, index) => detailEvent(index + 1, {
-      kind: "message",
-      role: "assistant",
-      messageId: `assistant-${index}`,
-      chunk: false,
-      content: `Message ${index + 1}`,
-      redaction: { classes: [], replaced: 0 }
-    }));
-    render(<RunnerRecordMonitor api={null} initialModel={model(events)} recordId="T-001#B-001::RUN-001" t={createTranslator("en")} />);
+    const events = Array.from({ length: 160 }, (_, index) =>
+      detailEvent(index + 1, {
+        kind: "message",
+        role: "assistant",
+        messageId: `assistant-${index}`,
+        chunk: false,
+        content: `Message ${index + 1}`,
+        redaction: { classes: [], replaced: 0 }
+      })
+    );
+    render(
+      <RunnerRecordMonitor
+        api={null}
+        initialModel={model(events)}
+        recordId="T-001#B-001::RUN-001"
+        t={createTranslator("en")}
+      />
+    );
 
     expect(screen.getAllByRole("article")).toHaveLength(160);
     expect(screen.getByText("Message 160")).toBeInTheDocument();
@@ -234,19 +248,19 @@ describe("ACP runner record monitor", () => {
     });
     try {
       const t = createTranslator("en");
-      const initial = [{
-        sequence: 1,
-        timestamp: "2026-07-11T00:00:00.000Z",
-        kind: "tool" as const,
-        callId: "tool-1",
-        title: "Run tests",
-        status: "in_progress" as const,
-        input: null,
-        output: "first"
-      }];
-      const rendered = render(
-        <AcpConversationTimeline changeKey={1} timeline={initial} t={t} />
-      );
+      const initial = [
+        {
+          sequence: 1,
+          timestamp: "2026-07-11T00:00:00.000Z",
+          kind: "tool" as const,
+          callId: "tool-1",
+          title: "Run tests",
+          status: "in_progress" as const,
+          input: null,
+          output: "first"
+        }
+      ];
+      const rendered = render(<AcpConversationTimeline changeKey={1} timeline={initial} t={t} />);
       const callsAfterInitialRender = scrollTo.mock.calls.length;
       rendered.rerender(
         <AcpConversationTimeline
@@ -276,16 +290,18 @@ describe("ACP runner record monitor", () => {
     });
     const sendAgentPrompt = vi.fn(async () => undefined);
     const bridgeApi = api({ sendAgentPrompt });
-    render(<RunnerRecordMonitor
-      api={bridgeApi}
-      canvasRef={{ projectRoot: "/tmp/project", canvasId: "canvas-a" }}
-      initialModel={model([event(1, "terminal", "done")], noInteraction, [], {
-        prompt: { available: true, reason: null, identity, inFlight: false },
-        cancel: noIntervention.cancel
-      })}
-      recordId="T-001#B-001::RUN-001"
-      t={createTranslator("en")}
-    />);
+    render(
+      <RunnerRecordMonitor
+        api={bridgeApi}
+        canvasRef={{ projectRoot: "/tmp/project", canvasId: "canvas-a" }}
+        initialModel={model([event(1, "terminal", "done")], noInteraction, [], {
+          prompt: { available: true, reason: null, identity, inFlight: false },
+          cancel: noIntervention.cancel
+        })}
+        recordId="T-001#B-001::RUN-001"
+        t={createTranslator("en")}
+      />
+    );
 
     const input = screen.getByLabelText("Message the agent");
     expect(input).toBeEnabled();
@@ -309,16 +325,23 @@ describe("ACP runner record monitor", () => {
       sessionId: "session-1"
     });
     let resolveSend!: () => void;
-    const sendAgentPrompt = vi.fn(() => new Promise<void>((resolve) => { resolveSend = resolve; }));
-    render(<RunnerRecordMonitor
-      api={api({ sendAgentPrompt })}
-      initialModel={model([], noInteraction, [], {
-        prompt: { available: true, reason: null, identity, inFlight: false },
-        cancel: noIntervention.cancel
-      })}
-      recordId="T-001#B-001::RUN-001"
-      t={createTranslator("en")}
-    />);
+    const sendAgentPrompt = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSend = resolve;
+        })
+    );
+    render(
+      <RunnerRecordMonitor
+        api={api({ sendAgentPrompt })}
+        initialModel={model([], noInteraction, [], {
+          prompt: { available: true, reason: null, identity, inFlight: false },
+          cancel: noIntervention.cancel
+        })}
+        recordId="T-001#B-001::RUN-001"
+        t={createTranslator("en")}
+      />
+    );
     const input = screen.getByLabelText("Message the agent");
     fireEvent.change(input, { target: { value: "Only once" } });
     const send = screen.getByRole("button", { name: "Send message" });
@@ -340,28 +363,37 @@ describe("ACP runner record monitor", () => {
       sessionId: "session-1"
     });
     const bridgeApi = api({});
-    render(<RunnerRecordMonitor
-      api={bridgeApi}
-      canvasRef={{ projectRoot: "/tmp/project" }}
-      initialModel={model([event(1, "terminal", "done")], noInteraction, [], {
-        prompt: {
-          available: false,
-          reason: "A follow-up prompt is already running.",
-          identity,
-          inFlight: true
-        },
-        cancel: noIntervention.cancel
-      })}
-      recordId="T-001#B-001::RUN-001"
-      t={createTranslator("en")}
-    />);
+    render(
+      <RunnerRecordMonitor
+        api={bridgeApi}
+        canvasRef={{ projectRoot: "/tmp/project" }}
+        initialModel={model([event(1, "terminal", "done")], noInteraction, [], {
+          prompt: {
+            available: false,
+            reason: "A follow-up prompt is already running.",
+            identity,
+            inFlight: true
+          },
+          cancel: noIntervention.cancel
+        })}
+        recordId="T-001#B-001::RUN-001"
+        t={createTranslator("en")}
+      />
+    );
 
     expect(bridgeApi.subscribeRunnerRecord).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Agent is working…")).toBeInTheDocument();
   });
 
   it("explains why a session cannot accept another prompt", () => {
-    render(<RunnerRecordMonitor api={null} initialModel={model([])} recordId="T-001#B-001::RUN-001" t={createTranslator("en")} />);
+    render(
+      <RunnerRecordMonitor
+        api={null}
+        initialModel={model([])}
+        recordId="T-001#B-001::RUN-001"
+        t={createTranslator("en")}
+      />
+    );
     expect(screen.getByLabelText("Message the agent")).toBeDisabled();
     expect(screen.getAllByText("No ACP session is available.").length).toBeGreaterThan(0);
   });
@@ -387,7 +419,14 @@ describe("ACP runner record monitor", () => {
         redaction: { classes: [], replaced: 0 }
       }
     });
-    render(<RunnerRecordMonitor api={null} initialModel={model([call, update])} recordId="T-001#B-001::RUN-001" t={createTranslator("en")} />);
+    render(
+      <RunnerRecordMonitor
+        api={null}
+        initialModel={model([call, update])}
+        recordId="T-001#B-001::RUN-001"
+        t={createTranslator("en")}
+      />
+    );
 
     expect(screen.getAllByText("Read file")).toHaveLength(1);
     fireEvent.click(screen.getByText("Read file"));
@@ -399,30 +438,34 @@ describe("ACP runner record monitor", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-desktop-acp-artifact-"));
     const controller = new AcpSessionController();
     try {
-      await controller.execute({
-        kind: "implementation",
-        identity: {
-          scope: root,
-          desktopRunId: "DESKTOP-001",
-          runSessionId: "SESSION-001",
-          executorRunId: "RUN-001",
-          claimRef: "T-001#B-001"
+      await controller.execute(
+        {
+          kind: "implementation",
+          identity: {
+            scope: root,
+            desktopRunId: "DESKTOP-001",
+            runSessionId: "SESSION-001",
+            executorRunId: "RUN-001",
+            claimRef: "T-001#B-001"
+          },
+          runDir: root,
+          metadataPath: join(root, "metadata.json"),
+          prompt: "artifact-implementation",
+          cwd: root,
+          launch: { command: process.execPath, args: [acpFixture, "artifact-implementation"] },
+          executorName: "mock-acp",
+          agentId: "codex",
+          taskId: "T-001",
+          metadataIdentity: { blockId: "B-001" },
+          projectId: "project-1",
+          canvasId: "canvas-a"
         },
-        runDir: root,
-        metadataPath: join(root, "metadata.json"),
-        prompt: "artifact-implementation",
-        cwd: root,
-        launch: { command: process.execPath, args: [acpFixture, "artifact-implementation"] },
-        executorName: "mock-acp",
-        agentId: "codex",
-        taskId: "T-001",
-        metadataIdentity: { blockId: "B-001" },
-        projectId: "project-1",
-        canvasId: "canvas-a"
-      }, { timeoutMs: 1_000 });
-      const metadata = JSON.parse(
-        await readFile(join(root, "metadata.json"), "utf8")
-      ) as Record<string, unknown>;
+        { timeoutMs: 1_000 }
+      );
+      const metadata = JSON.parse(await readFile(join(root, "metadata.json"), "utf8")) as Record<
+        string,
+        unknown
+      >;
       const readModel = await readRunnerRecordReadModel({ runDir: root, metadata });
       if (!readModel) throw new Error("Expected an ACP runner read model.");
       expect(readModel?.events.some((event) => event.body.kind === "artifact")).toBe(true);
@@ -455,7 +498,9 @@ describe("ACP runner record monitor", () => {
     const current = model([event(1, "message", "first"), event(2, "tool_call", "Read file")]);
     const bridgeApi = api({
       snapshot: current,
-      onSubscribe: (callback) => { push = callback; }
+      onSubscribe: (callback) => {
+        push = callback;
+      }
     });
     render(
       <RunnerRecordMonitor
@@ -470,18 +515,22 @@ describe("ACP runner record monitor", () => {
     expect(await screen.findByText("Read file")).toBeInTheDocument();
     expect(screen.getAllByText("first")).toHaveLength(1);
     expect(screen.queryByText("duplicate")).not.toBeInTheDocument();
-    act(() => push?.({
-      updateSequence: 1,
-      snapshot: current
-    }));
-    act(() => push?.({
-      updateSequence: 2,
-      snapshot: model([
-        event(1, "message", "first"),
-        event(2, "tool_call", "Read file"),
-        event(3, "message", "live answer")
-      ])
-    }));
+    act(() =>
+      push?.({
+        updateSequence: 1,
+        snapshot: current
+      })
+    );
+    act(() =>
+      push?.({
+        updateSequence: 2,
+        snapshot: model([
+          event(1, "message", "first"),
+          event(2, "tool_call", "Read file"),
+          event(3, "message", "live answer")
+        ])
+      })
+    );
     expect(screen.getAllByText("Read file")).toHaveLength(1);
     expect(screen.getByText("live answer")).toBeInTheDocument();
   });
@@ -505,18 +554,17 @@ describe("ACP runner record monitor", () => {
       />
     );
 
-    act(() => push?.({
-      updateSequence: 1,
-      snapshot: model([event(2, "message", "early live")])
-    }));
+    act(() =>
+      push?.({
+        updateSequence: 1,
+        snapshot: model([event(2, "message", "early live")])
+      })
+    );
     await act(async () => {
       resolve({
         subscriptionId: "test-subscription",
         updateSequence: 1,
-        snapshot: model([
-          event(1, "message", "replayed"),
-          event(2, "message", "early live")
-        ]),
+        snapshot: model([event(1, "message", "replayed"), event(2, "message", "early live")]),
         unsubscribe: vi.fn(async () => undefined)
       });
     });
@@ -548,16 +596,18 @@ describe("ACP runner record monitor", () => {
           persisted: true,
           active: true,
           stale: false,
-          activeRequests: [{
-            requestId: "permission-1",
-            interactionId: "permission-1",
-            kind: "permission",
-            requestedAt: "2026-07-11T00:00:00.000Z",
-            summary: "approval required",
-            identity: actionIdentity("permission-1"),
-            availability: { available: false, reason: "unsupported in test" },
-            permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" }]
-          }]
+          activeRequests: [
+            {
+              requestId: "permission-1",
+              interactionId: "permission-1",
+              kind: "permission",
+              requestedAt: "2026-07-11T00:00:00.000Z",
+              summary: "approval required",
+              identity: actionIdentity("permission-1"),
+              availability: { available: false, reason: "unsupported in test" },
+              permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" }]
+            }
+          ]
         })}
         recordId="T-001#B-001::RUN-002"
         t={createTranslator("en")}
@@ -586,18 +636,24 @@ describe("ACP runner record monitor", () => {
       persisted: true,
       active: true,
       stale: false,
-      activeRequests: [{
-        requestId: "permission-1",
-        interactionId: "permission-1",
-        kind: "permission",
-        requestedAt: "2026-07-11T00:00:00.000Z",
-        summary: "Allow reading the project?",
-        identity: actionIdentity("permission-1"),
-        availability: { available: true, reason: null },
-        permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" }]
-      }]
+      activeRequests: [
+        {
+          requestId: "permission-1",
+          interactionId: "permission-1",
+          kind: "permission",
+          requestedAt: "2026-07-11T00:00:00.000Z",
+          summary: "Allow reading the project?",
+          identity: actionIdentity("permission-1"),
+          availability: { available: true, reason: null },
+          permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" }]
+        }
+      ]
     };
-    const bridgeApi = api({ onSubscribe: (callback) => { push = callback; } });
+    const bridgeApi = api({
+      onSubscribe: (callback) => {
+        push = callback;
+      }
+    });
     const rendered = render(
       <RunnerRecordMonitor
         api={bridgeApi}
@@ -612,27 +668,31 @@ describe("ACP runner record monitor", () => {
     expect((await screen.findAllByText("Allow reading the project?")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Action required").length).toBeGreaterThan(0);
 
-    act(() => push?.({
-      updateSequence: 2,
-      snapshot: model([interaction], {
-        persisted: true,
-        active: false,
-        stale: true,
-        activeRequests: []
+    act(() =>
+      push?.({
+        updateSequence: 2,
+        snapshot: model([interaction], {
+          persisted: true,
+          active: false,
+          stale: true,
+          activeRequests: []
+        })
       })
-    }));
+    );
     expect(screen.queryByText("Action required")).not.toBeInTheDocument();
     expect(screen.getAllByText("Persisted request (not actionable)").length).toBeGreaterThan(0);
 
-    act(() => push?.({
-      updateSequence: 3,
-      snapshot: model([interaction, event(2, "terminal", "done")], {
-        persisted: true,
-        active: false,
-        stale: true,
-        activeRequests: []
+    act(() =>
+      push?.({
+        updateSequence: 3,
+        snapshot: model([interaction, event(2, "terminal", "done")], {
+          persisted: true,
+          active: false,
+          stale: true,
+          activeRequests: []
+        })
       })
-    }));
+    );
     expect(screen.getByText("Finished")).toBeInTheDocument();
     rendered.unmount();
 
@@ -680,7 +740,9 @@ describe("ACP runner record monitor", () => {
     ]);
     const bridgeApi = api({
       snapshot: replay,
-      onSubscribe: (callback) => { push = callback; },
+      onSubscribe: (callback) => {
+        push = callback;
+      },
       revealRunnerRecordArtifact
     });
     render(
@@ -716,24 +778,28 @@ describe("ACP runner record monitor", () => {
         nonActionableReason: "persisted_history"
       }
     });
-    act(() => push?.({
-      updateSequence: 1,
-      snapshot: model([elicitation], {
-        persisted: true,
-        active: true,
-        stale: false,
-        activeRequests: [{
-          requestId: "elicitation-1",
-          interactionId: "elicitation-1",
-          kind: "elicitation",
-          requestedAt: "2026-07-11T00:00:02.000Z",
-          summary: "Choose a deployment region",
-          identity: actionIdentity("elicitation-1"),
-          availability: { available: false, reason: "read only test" },
-          elicitationSchema: { type: "object" }
-        }]
+    act(() =>
+      push?.({
+        updateSequence: 1,
+        snapshot: model([elicitation], {
+          persisted: true,
+          active: true,
+          stale: false,
+          activeRequests: [
+            {
+              requestId: "elicitation-1",
+              interactionId: "elicitation-1",
+              kind: "elicitation",
+              requestedAt: "2026-07-11T00:00:02.000Z",
+              summary: "Choose a deployment region",
+              identity: actionIdentity("elicitation-1"),
+              availability: { available: false, reason: "read only test" },
+              elicitationSchema: { type: "object" }
+            }
+          ]
+        })
       })
-    }));
+    );
     expect(screen.getAllByText("Choose a deployment region").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /approve|deny|respond/i })).not.toBeInTheDocument();
   });
@@ -780,24 +846,29 @@ describe("ACP runner record monitor", () => {
 
   it("submits an exact permission response once and waits for an authoritative snapshot", async () => {
     let resolveResponse!: () => void;
-    const respondToAgentRequest = vi.fn(() => new Promise<void>((resolve) => {
-      resolveResponse = resolve;
-    }));
+    const respondToAgentRequest = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveResponse = resolve;
+        })
+    );
     const bridgeApi = api({ respondToAgentRequest });
     const active: RunnerRecordReadModel["interaction"] = {
       persisted: true,
       active: true,
       stale: false,
-      activeRequests: [{
-        requestId: "permission-1",
-        interactionId: "permission-1",
-        kind: "permission",
-        requestedAt: "2026-07-11T00:00:00.000Z",
-        summary: "Allow command?",
-        identity: actionIdentity("permission-1"),
-        availability: { available: true, reason: null },
-        permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" }]
-      }]
+      activeRequests: [
+        {
+          requestId: "permission-1",
+          interactionId: "permission-1",
+          kind: "permission",
+          requestedAt: "2026-07-11T00:00:00.000Z",
+          summary: "Allow command?",
+          identity: actionIdentity("permission-1"),
+          availability: { available: true, reason: null },
+          permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" }]
+        }
+      ]
     };
     const rendered = render(
       <RunnerRecordMonitor
@@ -830,7 +901,9 @@ describe("ACP runner record monitor", () => {
         t={createTranslator("en")}
       />
     );
-    await vi.waitFor(() => expect(screen.queryByRole("button", { name: "Allow" })).not.toBeInTheDocument());
+    await vi.waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Allow" })).not.toBeInTheDocument()
+    );
   });
 
   it("routes exact cancellation and Preview elicitation through separate controls", () => {
@@ -841,24 +914,31 @@ describe("ACP runner record monitor", () => {
     render(
       <RunnerRecordMonitor
         api={api({ respondToAgentRequest, cancelAgentRun })}
-        initialModel={model([], {
-          persisted: true,
-          active: true,
-          stale: false,
-          activeRequests: [{
-            requestId: "elicitation-1",
-            interactionId: "elicitation-1",
-            kind: "elicitation",
-            requestedAt: "2026-07-11T00:00:00.000Z",
-            summary: "Choose values",
-            identity: requestIdentity,
-            availability: { available: true, reason: null },
-            elicitationSchema: { type: "object" }
-          }]
-        }, [], {
-          prompt: noIntervention.prompt,
-          cancel: { available: true, reason: null, identity: sessionIdentity }
-        })}
+        initialModel={model(
+          [],
+          {
+            persisted: true,
+            active: true,
+            stale: false,
+            activeRequests: [
+              {
+                requestId: "elicitation-1",
+                interactionId: "elicitation-1",
+                kind: "elicitation",
+                requestedAt: "2026-07-11T00:00:00.000Z",
+                summary: "Choose values",
+                identity: requestIdentity,
+                availability: { available: true, reason: null },
+                elicitationSchema: { type: "object" }
+              }
+            ]
+          },
+          [],
+          {
+            prompt: noIntervention.prompt,
+            cancel: { available: true, reason: null, identity: sessionIdentity }
+          }
+        )}
         recordId="T-001#B-001::RUN-001"
         t={createTranslator("en")}
       />

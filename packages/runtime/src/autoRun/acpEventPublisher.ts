@@ -8,14 +8,19 @@ export type AcpEventPublisherDiagnosticSink = (
 ) => void | Promise<void>;
 
 type AcpEventPublisherDiagnostic = {
-  code:
-    | "subscriber_backpressure"
-    | "subscriber_callback_failed"
-    | "diagnostic_sink_failed";
+  code: "subscriber_backpressure" | "subscriber_callback_failed" | "diagnostic_sink_failed";
   message: string;
 };
 
-type Subscriber = { after: number; pending: number; closed: boolean; closeOnTerminal: boolean; resolve: () => void; chain: Promise<void>; receive: AcpEventSubscriber };
+type Subscriber = {
+  after: number;
+  pending: number;
+  closed: boolean;
+  closeOnTerminal: boolean;
+  resolve: () => void;
+  chain: Promise<void>;
+  receive: AcpEventSubscriber;
+};
 
 export class AcpEventPublisher {
   private readonly events: NormalizedRunnerEvent[] = [];
@@ -27,12 +32,17 @@ export class AcpEventPublisher {
   constructor(
     private readonly maxPendingPerSubscriber = 256,
     diagnosticSink?: AcpEventPublisherDiagnosticSink
-  ) { this.diagnosticSink = diagnosticSink ?? null; }
+  ) {
+    this.diagnosticSink = diagnosticSink ?? null;
+  }
 
   setDiagnosticSink(sink: AcpEventPublisherDiagnosticSink): void {
     const previous = this.diagnosticSink;
     this.diagnosticSink = previous
-      ? async (code, message) => { await previous(code, message); await sink(code, message); }
+      ? async (code, message) => {
+          await previous(code, message);
+          await sink(code, message);
+        }
       : sink;
   }
 
@@ -59,7 +69,9 @@ export class AcpEventPublisher {
     options: { keepOpenAfterTerminal?: boolean } = {}
   ): AcpEventSubscription {
     let resolve = (): void => undefined;
-    const closed = new Promise<void>((done) => { resolve = done; });
+    const closed = new Promise<void>((done) => {
+      resolve = done;
+    });
     const subscriber: Subscriber = {
       after: afterSequence,
       pending: 0,
@@ -70,7 +82,8 @@ export class AcpEventPublisher {
       receive
     };
     this.subscribers.add(subscriber);
-    for (const event of this.events) if (event.sequence > afterSequence) this.enqueue(subscriber, event);
+    for (const event of this.events)
+      if (event.sequence > afterSequence) this.enqueue(subscriber, event);
     if (this.terminal && subscriber.closeOnTerminal) this.close(subscriber);
     return { unsubscribe: () => this.close(subscriber), closed };
   }
@@ -79,7 +92,10 @@ export class AcpEventPublisher {
     if (subscriber.closed || event.sequence <= subscriber.after) return;
     if (subscriber.pending >= this.maxPendingPerSubscriber) {
       this.close(subscriber);
-      this.reportDiagnostic("subscriber_backpressure", `Subscriber exceeded ${this.maxPendingPerSubscriber} pending events and was unsubscribed.`);
+      this.reportDiagnostic(
+        "subscriber_backpressure",
+        `Subscriber exceeded ${this.maxPendingPerSubscriber} pending events and was unsubscribed.`
+      );
       return;
     }
     subscriber.after = event.sequence;
@@ -93,7 +109,9 @@ export class AcpEventPublisher {
           `Subscriber callback failed: ${error instanceof Error ? error.message : String(error)}`
         );
       })
-      .finally(() => { subscriber.pending -= 1; });
+      .finally(() => {
+        subscriber.pending -= 1;
+      });
   }
 
   private close(subscriber: Subscriber): void {
@@ -108,7 +126,10 @@ export class AcpEventPublisher {
       if (subscriber.closeOnTerminal) this.close(subscriber);
     }
   }
-  private reportDiagnostic(code: "subscriber_backpressure" | "subscriber_callback_failed", message: string): void {
+  private reportDiagnostic(
+    code: "subscriber_backpressure" | "subscriber_callback_failed",
+    message: string
+  ): void {
     this.diagnostics.push({ code, message });
     if (!this.diagnosticSink) return;
     this.diagnosticChain = this.diagnosticChain.then(async () => {
@@ -122,6 +143,10 @@ export class AcpEventPublisher {
       }
     });
   }
-  async drainDiagnostics(): Promise<void> { await this.diagnosticChain; }
-  get subscriberCount(): number { return this.subscribers.size; }
+  async drainDiagnostics(): Promise<void> {
+    await this.diagnosticChain;
+  }
+  get subscriberCount(): number {
+    return this.subscribers.size;
+  }
 }

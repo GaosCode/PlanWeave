@@ -5,7 +5,9 @@ export const reviewResultSchema = z
     reviewBlockRef: z.string().min(1),
     taskId: z.string().min(1),
     verdict: z.enum(["passed", "needs_changes"]),
-    content: z.string().refine((value) => value.trim().length > 0, "Review content must not be blank.")
+    content: z
+      .string()
+      .refine((value) => value.trim().length > 0, "Review content must not be blank.")
   })
   .strict();
 

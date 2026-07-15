@@ -37,9 +37,11 @@ let runnerRecordSubscriptionSequence = 0;
 function runnerRecordSubscriptionIsTerminal(
   snapshot: DesktopRunnerRecordSubscriptionPush["snapshot"]
 ): boolean {
-  return snapshot.terminal &&
+  return (
+    snapshot.terminal &&
     !snapshot.intervention.prompt.available &&
-    !snapshot.intervention.prompt.inFlight;
+    !snapshot.intervention.prompt.inFlight
+  );
 }
 
 const api: DesktopBridgeApi = {

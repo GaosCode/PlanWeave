@@ -52,7 +52,11 @@ import {
   normalizeAcpSessionNotification,
   normalizeAcpTerminalOutput
 } from "./acpEventNormalization.js";
-import { acpCorrelationSchema, runnerIdentitySchema, runnerRunIdentitySchema } from "./runnerContractSchemas.js";
+import {
+  acpCorrelationSchema,
+  runnerIdentitySchema,
+  runnerRunIdentitySchema
+} from "./runnerContractSchemas.js";
 import { acpEventReadModels, type AcpEventReadModelRegistry } from "./acpEventReadModel.js";
 import { createAcpElicitationSettlement } from "./acpElicitationSettlement.js";
 import { createAcpInteractionSettlement } from "./acpInteractionSettlement.js";
@@ -78,7 +82,9 @@ export type AcpSessionRun = {
   metadataIdentity: Record<string, string>;
   projectId?: string;
   canvasId?: string;
-  terminalOutputHandler?: (request: TerminalOutputRequest) => TerminalOutputResponse | Promise<TerminalOutputResponse>;
+  terminalOutputHandler?: (
+    request: TerminalOutputRequest
+  ) => TerminalOutputResponse | Promise<TerminalOutputResponse>;
 };
 
 type ConnectionFactory = (options: CreateAcpConnectionOptions) => AcpConnection;
@@ -129,7 +135,9 @@ export async function applyDesktopAcpSessionDefaults(options: {
   for (const [configId, value] of configuredEntries) {
     const config = advertised.find((candidate) => candidate.id === configId);
     if (!config) {
-      throw new Error(`ACP agent '${options.agentId}' did not advertise configured option '${configId}'.`);
+      throw new Error(
+        `ACP agent '${options.agentId}' did not advertise configured option '${configId}'.`
+      );
     }
     if (config.type === "boolean") {
       if (typeof value !== "boolean") {
@@ -183,12 +191,15 @@ export class AcpSessionController {
     private readonly eventReadModels: AcpEventReadModelRegistry = acpEventReadModels
   ) {}
 
-  async execute(run: AcpSessionRun, options?: {
-    signal?: AbortSignal;
-    timeoutMs?: number;
-    interactionBroker?: RunnerInteractionBroker;
-    sessionDefaults?: DesktopAcpSessionDefaults;
-  }): Promise<ExecutorAdapterResult> {
+  async execute(
+    run: AcpSessionRun,
+    options?: {
+      signal?: AbortSignal;
+      timeoutMs?: number;
+      interactionBroker?: RunnerInteractionBroker;
+      sessionDefaults?: DesktopAcpSessionDefaults;
+    }
+  ): Promise<ExecutorAdapterResult> {
     await mkdir(run.runDir, { recursive: true });
     const heartbeatPath = join(run.runDir, "heartbeat.json");
     const startedAt = new Date().toISOString();
@@ -199,7 +210,8 @@ export class AcpSessionController {
     let handleRegistered = false;
     let cleanupAttempted = false;
     let cleanupCompleted = false;
-    let validatedArtifactReference: Awaited<ReturnType<typeof materializeFinalArtifact>> | null = null;
+    let validatedArtifactReference: Awaited<ReturnType<typeof materializeFinalArtifact>> | null =
+      null;
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     const abortController = new AbortController();
     const persistedDetails: Record<string, unknown> = {};
@@ -208,18 +220,32 @@ export class AcpSessionController {
     if ((run.projectId === undefined) !== (run.canvasId === undefined)) {
       throw new Error("ACP event identity requires both projectId and canvasId.");
     }
-    const eventModel = run.projectId && run.canvasId ? await this.eventReadModels.create({
-      runDir: run.runDir,
-      identity: runnerRunIdentitySchema.parse({
-        projectId: run.projectId, canvasId: run.canvasId, taskId: run.taskId, blockId,
-        claimRef: run.identity.claimRef, runId: run.identity.executorRunId, runOwner: "executor",
-        runSessionId: run.identity.runSessionId ?? null, desktopRunId: run.identity.desktopRunId ?? null,
-        executorRunId: run.identity.executorRunId
-      }),
-      runner: runnerIdentitySchema.parse({ version: "planweave.runner/v1", runnerKind: "acp", agentId: run.agentId })
-    }) : null;
+    const eventModel =
+      run.projectId && run.canvasId
+        ? await this.eventReadModels.create({
+            runDir: run.runDir,
+            identity: runnerRunIdentitySchema.parse({
+              projectId: run.projectId,
+              canvasId: run.canvasId,
+              taskId: run.taskId,
+              blockId,
+              claimRef: run.identity.claimRef,
+              runId: run.identity.executorRunId,
+              runOwner: "executor",
+              runSessionId: run.identity.runSessionId ?? null,
+              desktopRunId: run.identity.desktopRunId ?? null,
+              executorRunId: run.identity.executorRunId
+            }),
+            runner: runnerIdentitySchema.parse({
+              version: "planweave.runner/v1",
+              runnerKind: "acp",
+              agentId: run.agentId
+            })
+          })
+        : null;
     const eventStore = eventModel?.store ?? null;
-    if (eventStore) await eventStore.append({ kind: "lifecycle", state: "created", message: "ACP run created." });
+    if (eventStore)
+      await eventStore.append({ kind: "lifecycle", state: "created", message: "ACP run created." });
     let interactionOrdinal = 0;
     const pendingRequests = new Map<string, LivePendingRequestHandle>();
     const releasePendingRequest = (requestId: string): void => {
@@ -234,35 +260,40 @@ export class AcpSessionController {
     let stateWrite = Promise.resolve();
     const relayAbort = (): void => abortController.abort(options?.signal?.reason);
     options?.signal?.addEventListener("abort", relayAbort, { once: true });
-    const writeState = async (status: "running" | TerminalStatus, patch: Record<string, unknown> = {}): Promise<void> => {
+    const writeState = async (
+      status: "running" | TerminalStatus,
+      patch: Record<string, unknown> = {}
+    ): Promise<void> => {
       Object.assign(persistedDetails, patch);
       const now = new Date().toISOString();
       const details = { ...persistedDetails };
-      stateWrite = stateWrite.then(async () => Promise.all([
-        writeJsonFile(heartbeatPath, {
-          status,
-          pid: null,
-          startedAt,
-          lastHeartbeatAt: now,
-          finishedAt: status === "running" ? null : now,
-          ...details
-        }),
-        writeJsonFile(run.metadataPath, {
-          runId: run.identity.executorRunId,
-          ref: run.identity.claimRef,
-          taskId: run.taskId,
-          executor: run.executorName,
-          agentId: run.agentId,
-          runnerKind: "acp",
-          status,
-          outcome: status === "completed" ? "succeeded" : status,
-          startedAt,
-          finishedAt: status === "running" ? null : now,
-          ...run.identity,
-          ...run.metadataIdentity,
-          ...details
-        })
-      ]).then(() => undefined));
+      stateWrite = stateWrite.then(async () =>
+        Promise.all([
+          writeJsonFile(heartbeatPath, {
+            status,
+            pid: null,
+            startedAt,
+            lastHeartbeatAt: now,
+            finishedAt: status === "running" ? null : now,
+            ...details
+          }),
+          writeJsonFile(run.metadataPath, {
+            runId: run.identity.executorRunId,
+            ref: run.identity.claimRef,
+            taskId: run.taskId,
+            executor: run.executorName,
+            agentId: run.agentId,
+            runnerKind: "acp",
+            status,
+            outcome: status === "completed" ? "succeeded" : status,
+            startedAt,
+            finishedAt: status === "running" ? null : now,
+            ...run.identity,
+            ...run.metadataIdentity,
+            ...details
+          })
+        ]).then(() => undefined)
+      );
       await stateWrite;
     };
     await writeState("running", {
@@ -300,30 +331,34 @@ export class AcpSessionController {
         cwd: run.cwd,
         env: environment(),
         clientInfo: { name: "planweave", version: "1" },
-        ...(options?.interactionBroker ? {
-          clientCapabilities: { elicitation: { form: {} } }
-        } : {}),
+        ...(options?.interactionBroker
+          ? {
+              clientCapabilities: { elicitation: { form: {} } }
+            }
+          : {}),
         defaultTimeoutMs: options?.timeoutMs,
         onSessionUpdate: eventSink,
         onPermissionRequest: async (request) => {
-          const requestId = createAcpInteractionRequestId(
-            "permission",
-            ++interactionOrdinal
-          );
+          const requestId = createAcpInteractionRequestId("permission", ++interactionOrdinal);
           const requestedAt = new Date().toISOString();
-          if (eventStore) await eventStore.append(
-            normalizeAcpPermissionHistory(request, requestId, requestedAt),
-            acpCorrelationSchema.parse({ sessionId: request.sessionId })
-          );
+          if (eventStore)
+            await eventStore.append(
+              normalizeAcpPermissionHistory(request, requestId, requestedAt),
+              acpCorrelationSchema.parse({ sessionId: request.sessionId })
+            );
           if (!options?.interactionBroker) {
-            if (eventStore) await eventStore.append({
-              kind: "interaction_result",
-              requestId,
-              interactionId: requestId,
-              interactionKind: "permission",
-              outcome: "cancelled",
-              message: "Permission request was cancelled by the headless default-deny policy."
-            }, acpCorrelationSchema.parse({ sessionId: request.sessionId }));
+            if (eventStore)
+              await eventStore.append(
+                {
+                  kind: "interaction_result",
+                  requestId,
+                  interactionId: requestId,
+                  interactionKind: "permission",
+                  outcome: "cancelled",
+                  message: "Permission request was cancelled by the headless default-deny policy."
+                },
+                acpCorrelationSchema.parse({ sessionId: request.sessionId })
+              );
             return { outcome: { outcome: "cancelled" } };
           }
           return new Promise<RequestPermissionResponse>((resolve, reject) => {
@@ -331,9 +366,7 @@ export class AcpSessionController {
               releasePendingRequest(requestId);
               resolve(response);
             };
-            type PermissionDecision =
-              | { kind: "select"; optionId: string }
-              | { kind: "cancel" };
+            type PermissionDecision = { kind: "select"; optionId: string } | { kind: "cancel" };
             type PermissionResult = {
               outcome: "approved" | "denied" | "cancelled";
               message: string;
@@ -358,9 +391,7 @@ export class AcpSessionController {
                   (candidate) => candidate.optionId === decision.optionId
                 );
                 if (!option) {
-                  throw new Error(
-                    `Permission option '${decision.optionId}' is not advertised.`
-                  );
+                  throw new Error(`Permission option '${decision.optionId}' is not advertised.`);
                 }
                 const denied = option.kind.startsWith("reject");
                 return {
@@ -371,7 +402,7 @@ export class AcpSessionController {
                     }
                   },
                   result: {
-                    outcome: denied ? "denied" as const : "approved" as const,
+                    outcome: denied ? ("denied" as const) : ("approved" as const),
                     message: denied
                       ? "Permission request was denied."
                       : "Permission request was approved."
@@ -379,14 +410,18 @@ export class AcpSessionController {
                 };
               },
               publishResult: async (result) => {
-                if (eventStore) await eventStore.append({
-                  kind: "interaction_result",
-                  requestId,
-                  interactionId: requestId,
-                  interactionKind: "permission",
-                  outcome: result.outcome,
-                  message: result.message
-                }, acpCorrelationSchema.parse({ sessionId: request.sessionId }));
+                if (eventStore)
+                  await eventStore.append(
+                    {
+                      kind: "interaction_result",
+                      requestId,
+                      interactionId: requestId,
+                      interactionKind: "permission",
+                      outcome: result.outcome,
+                      message: result.message
+                    },
+                    acpCorrelationSchema.parse({ sessionId: request.sessionId })
+                  );
               },
               complete: finish
             });
@@ -398,7 +433,9 @@ export class AcpSessionController {
               summary: JSON.stringify(redactRunnerEventPayload(request.options)),
               respond: async (value: JsonRpcValue) => {
                 if (typeof value !== "string") {
-                  throw new Error(`Permission response for '${requestId}' must select an advertised option id.`);
+                  throw new Error(
+                    `Permission response for '${requestId}' must select an advertised option id.`
+                  );
                 }
                 await settlement.settle({ kind: "select", optionId: value });
               },
@@ -408,11 +445,14 @@ export class AcpSessionController {
               permissionOptions: request.options.map((option) => ({
                 optionId: option.optionId,
                 label: redactRunnerEventText(option.name).text,
-                decision: option.kind.startsWith("reject") ? "deny" as const : "approve" as const
+                decision: option.kind.startsWith("reject")
+                  ? ("deny" as const)
+                  : ("approve" as const)
               }))
             };
             pendingRequests.set(requestId, pending);
-            if (handle?.lifecycleState === "running") this.registry.transition(handle, "waiting_interaction");
+            if (handle?.lifecycleState === "running")
+              this.registry.transition(handle, "waiting_interaction");
             if (handle) this.registry.notifyInteractionChanged(handle);
             Promise.resolve(options.interactionBroker?.requestAvailable(pending)).catch((error) => {
               releasePendingRequest(requestId);
@@ -421,29 +461,32 @@ export class AcpSessionController {
           });
         },
         onElicitationRequest: async (request) => {
-          const requestId = createAcpInteractionRequestId(
-            "elicitation",
-            ++interactionOrdinal
-          );
+          const requestId = createAcpInteractionRequestId("elicitation", ++interactionOrdinal);
           const requestedAt = new Date().toISOString();
-          const sessionId = "sessionId" in request && typeof request.sessionId === "string"
-            ? request.sessionId
-            : null;
-          if (eventStore) await eventStore.append(
-            normalizeAcpElicitationHistory(request, requestId, requestedAt),
-            sessionId ? acpCorrelationSchema.parse({ sessionId }) : undefined
-          );
+          const sessionId =
+            "sessionId" in request && typeof request.sessionId === "string"
+              ? request.sessionId
+              : null;
+          if (eventStore)
+            await eventStore.append(
+              normalizeAcpElicitationHistory(request, requestId, requestedAt),
+              sessionId ? acpCorrelationSchema.parse({ sessionId }) : undefined
+            );
           if (!options?.interactionBroker || !CreateElicitationRequestGuard.isForm(request)) {
-            if (eventStore) await eventStore.append({
-              kind: "interaction_result",
-              requestId,
-              interactionId: requestId,
-              interactionKind: "elicitation",
-              outcome: "cancelled",
-              message: options?.interactionBroker
-                ? "Unsupported elicitation was cancelled."
-                : "Elicitation was cancelled by the headless default-safe policy."
-            }, sessionId ? acpCorrelationSchema.parse({ sessionId }) : undefined);
+            if (eventStore)
+              await eventStore.append(
+                {
+                  kind: "interaction_result",
+                  requestId,
+                  interactionId: requestId,
+                  interactionKind: "elicitation",
+                  outcome: "cancelled",
+                  message: options?.interactionBroker
+                    ? "Unsupported elicitation was cancelled."
+                    : "Elicitation was cancelled by the headless default-safe policy."
+                },
+                sessionId ? acpCorrelationSchema.parse({ sessionId }) : undefined
+              );
             return { action: "cancel" };
           }
           return new Promise<CreateElicitationResponse>((resolve, reject) => {
@@ -458,14 +501,18 @@ export class AcpSessionController {
                 requestedSchema: request.requestedSchema,
                 complete,
                 publishResult: async (result) => {
-                  if (eventStore) await eventStore.append({
-                    kind: "interaction_result",
-                    requestId,
-                    interactionId: requestId,
-                    interactionKind: "elicitation",
-                    outcome: result.outcome,
-                    message: result.message
-                  }, sessionId ? acpCorrelationSchema.parse({ sessionId }) : undefined);
+                  if (eventStore)
+                    await eventStore.append(
+                      {
+                        kind: "interaction_result",
+                        requestId,
+                        interactionId: requestId,
+                        interactionKind: "elicitation",
+                        outcome: result.outcome,
+                        message: result.message
+                      },
+                      sessionId ? acpCorrelationSchema.parse({ sessionId }) : undefined
+                    );
                 }
               });
             } catch (error) {
@@ -479,12 +526,11 @@ export class AcpSessionController {
               summary: JSON.stringify(redactRunnerEventPayload(request)),
               respond: settlement.respond,
               reject: settlement.cancel,
-              elicitationSchema: z.json().parse(
-                redactRunnerEventPayload(request.requestedSchema)
-              )
+              elicitationSchema: z.json().parse(redactRunnerEventPayload(request.requestedSchema))
             };
             pendingRequests.set(requestId, pending);
-            if (handle?.lifecycleState === "running") this.registry.transition(handle, "waiting_interaction");
+            if (handle?.lifecycleState === "running")
+              this.registry.transition(handle, "waiting_interaction");
             if (handle) this.registry.notifyInteractionChanged(handle);
             Promise.resolve(options.interactionBroker?.requestAvailable(pending)).catch((error) => {
               releasePendingRequest(requestId);
@@ -492,32 +538,42 @@ export class AcpSessionController {
             });
           });
         },
-        ...(terminalOutputHandler ? {
-          onTerminalOutput: async (request: TerminalOutputRequest) => {
-            const response = await terminalOutputHandler(request);
-            if (eventStore) await eventStore.append(
-              normalizeAcpTerminalOutput(request, response),
-              acpCorrelationSchema.parse({ sessionId: request.sessionId })
-            );
-            return response;
-          }
-        } : {}),
-        ...(eventStore ? {
-          observer: {
-            redact: redactRunnerEventPayload,
-            observe: (observation: { direction: string; payload: unknown }) => {
-              void eventStore.appendProtocol(observation.direction, observation.payload).catch((error) => {
-                protocolObserverError ??= error;
-              });
+        ...(terminalOutputHandler
+          ? {
+              onTerminalOutput: async (request: TerminalOutputRequest) => {
+                const response = await terminalOutputHandler(request);
+                if (eventStore)
+                  await eventStore.append(
+                    normalizeAcpTerminalOutput(request, response),
+                    acpCorrelationSchema.parse({ sessionId: request.sessionId })
+                  );
+                return response;
+              }
             }
-          }
-        } : {})
+          : {}),
+        ...(eventStore
+          ? {
+              observer: {
+                redact: redactRunnerEventPayload,
+                observe: (observation: { direction: string; payload: unknown }) => {
+                  void eventStore
+                    .appendProtocol(observation.direction, observation.payload)
+                    .catch((error) => {
+                      protocolObserverError ??= error;
+                    });
+                }
+              }
+            }
+          : {})
       });
       if (abortController.signal.aborted) {
         await connection.dispose();
         throw new ExecutorCancelledError(diagnostic(abortController.signal.reason));
       }
-      const ownership = createLiveOwnership(`${run.identity.scope}:${run.identity.executorRunId}`, 1);
+      const ownership = createLiveOwnership(
+        `${run.identity.scope}:${run.identity.executorRunId}`,
+        1
+      );
       handle = {
         identity: { ...run.identity },
         connection,
@@ -537,7 +593,9 @@ export class AcpSessionController {
             },
             close: async () => connection?.dispose(),
             cancelSession: async (sessionId) => connection?.cancel({ sessionId }),
-            closeSession: async (sessionId) => { await connection?.closeSession(sessionId); },
+            closeSession: async (sessionId) => {
+              await connection?.closeSession(sessionId);
+            },
             get supportsSessionClose() {
               return initializedCapabilities?.sessionCapabilities?.close != null;
             }
@@ -554,16 +612,29 @@ export class AcpSessionController {
       };
       this.registry.register(handle);
       handleRegistered = true;
-      if (eventStore) await eventStore.append({ kind: "lifecycle", state: "initializing", message: "ACP connection initialized." });
+      if (eventStore)
+        await eventStore.append({
+          kind: "lifecycle",
+          state: "initializing",
+          message: "ACP connection initialized."
+        });
       await writeState("running", { pid: connection.processId });
-      const initialized = await connection.initialize({ signal: abortController.signal, timeoutMs: options?.timeoutMs });
+      const initialized = await connection.initialize({
+        signal: abortController.signal,
+        timeoutMs: options?.timeoutMs
+      });
       initializedCapabilities = initialized.agentCapabilities;
       handle.control.interventionCapabilities.cancel = true;
       handle.control.interventionCapabilities.permission = options?.interactionBroker != null;
       handle.control.interventionCapabilities.elicitationPreview =
         options?.interactionBroker != null;
       this.registry.transition(handle, "ready");
-      if (eventStore) await eventStore.append({ kind: "lifecycle", state: "ready", message: "ACP runner is ready." });
+      if (eventStore)
+        await eventStore.append({
+          kind: "lifecycle",
+          state: "ready",
+          message: "ACP runner is ready."
+        });
       const session = await connection.newSession(
         { cwd: run.cwd, mcpServers: [] },
         { signal: abortController.signal, timeoutMs: options?.timeoutMs }
@@ -600,7 +671,11 @@ export class AcpSessionController {
       }
       this.registry.bindSession(handle, session.sessionId);
       this.registry.transition(handle, "running");
-      if (eventStore) await eventStore.append({ kind: "lifecycle", state: "running", message: "ACP session is running." }, sessionCorrelation);
+      if (eventStore)
+        await eventStore.append(
+          { kind: "lifecycle", state: "running", message: "ACP session is running." },
+          sessionCorrelation
+        );
       await writeState("running", {
         sessionId: session.sessionId,
         agentSessionId: session.sessionId,
@@ -622,13 +697,16 @@ export class AcpSessionController {
       }
       await this.registry.drainPromptQueue(handle, async (text) => {
         if (eventStore) {
-          await eventStore.append({
-            kind: "message",
-            role: "user",
-            messageId: `desktop-live-turn-${randomUUID()}`,
-            chunk: false,
-            ...normalizedRedactedContent(text)
-          }, acpCorrelationSchema.parse({ sessionId: session.sessionId }));
+          await eventStore.append(
+            {
+              kind: "message",
+              role: "user",
+              messageId: `desktop-live-turn-${randomUUID()}`,
+              chunk: false,
+              ...normalizedRedactedContent(text)
+            },
+            acpCorrelationSchema.parse({ sessionId: session.sessionId })
+          );
         }
         const followUp = await activeConnection.prompt(
           { sessionId: session.sessionId, prompt: [{ type: "text", text }] },
@@ -668,19 +746,32 @@ export class AcpSessionController {
       cleanupCompleted = true;
       if (eventStore) await eventStore.drain();
       if (protocolObserverError !== undefined) throw protocolObserverError;
-      if (eventStore) await eventStore.append({
-        kind: "terminal",
-        outcome: {
-          version: "planweave.runner/v1", state: "succeeded", reason: "completed",
-          cleanup: { status: "succeeded" }, exitCode: 0,
-          finishedAt: new Date().toISOString(), diagnostic: null, artifactValidated: true
-        }
-      }, acpCorrelationSchema.parse({ sessionId: session.sessionId }));
+      if (eventStore)
+        await eventStore.append(
+          {
+            kind: "terminal",
+            outcome: {
+              version: "planweave.runner/v1",
+              state: "succeeded",
+              reason: "completed",
+              cleanup: { status: "succeeded" },
+              exitCode: 0,
+              finishedAt: new Date().toISOString(),
+              diagnostic: null,
+              artifactValidated: true
+            }
+          },
+          acpCorrelationSchema.parse({ sessionId: session.sessionId })
+        );
       if (eventStore) await eventStore.drain();
       clearInterval(heartbeatTimer);
       heartbeatTimer = null;
       const finishedAt = new Date().toISOString();
-      await writeState("completed", { sessionId: session.sessionId, exitCode: 0, artifactReference });
+      await writeState("completed", {
+        sessionId: session.sessionId,
+        exitCode: 0,
+        artifactReference
+      });
       const common = {
         runId: run.identity.executorRunId,
         executor: run.executorName,
@@ -729,9 +820,10 @@ export class AcpSessionController {
           cleanupError = caught;
         }
       }
-      const executionMessage = cleanupAttempted && validatedArtifactReference
-        ? "Execution succeeded and artifact was validated."
-        : diagnostic(error);
+      const executionMessage =
+        cleanupAttempted && validatedArtifactReference
+          ? "Execution succeeded and artifact was validated."
+          : diagnostic(error);
       const cleanupMessage = validatedArtifactReference
         ? diagnostic(error)
         : cleanupError === undefined
@@ -741,28 +833,31 @@ export class AcpSessionController {
         ? `Execution: ${executionMessage}; cleanup: ${cleanupMessage}`
         : executionMessage;
       const timedOut = error instanceof AcpOperationTimeoutError;
-      const cancelled =
-        cancelledBeforeCleanup ||
-        handle?.lifecycleState === "cancelled";
-      const cleanupFailed =
-        cleanupError !== undefined ||
-        (cleanupAttempted && !cleanupCompleted);
+      const cancelled = cancelledBeforeCleanup || handle?.lifecycleState === "cancelled";
+      const cleanupFailed = cleanupError !== undefined || (cleanupAttempted && !cleanupCompleted);
       const status: TerminalStatus = timedOut ? "timed_out" : cancelled ? "cancelled" : "failed";
       let eventLogError: unknown;
       try {
-        if (eventStore && !cancelled) await eventStore.append({
-          kind: "diagnostic", code: "protocol_error", message
-        });
-        if (eventStore) await eventStore.append({
-          kind: "terminal",
-          outcome: {
-            version: "planweave.runner/v1", state: cancelled ? "cancelled" : "failed",
-            reason: timedOut ? "timed_out" : cancelled ? "cancelled" : "failed",
-            cleanup: { status: cleanupFailed ? "failed" : "succeeded" },
-            exitCode: cancelled ? 130 : 1, finishedAt: new Date().toISOString(),
-            diagnostic: message, artifactValidated: validatedArtifactReference !== null
-          }
-        });
+        if (eventStore && !cancelled)
+          await eventStore.append({
+            kind: "diagnostic",
+            code: "protocol_error",
+            message
+          });
+        if (eventStore)
+          await eventStore.append({
+            kind: "terminal",
+            outcome: {
+              version: "planweave.runner/v1",
+              state: cancelled ? "cancelled" : "failed",
+              reason: timedOut ? "timed_out" : cancelled ? "cancelled" : "failed",
+              cleanup: { status: cleanupFailed ? "failed" : "succeeded" },
+              exitCode: cancelled ? 130 : 1,
+              finishedAt: new Date().toISOString(),
+              diagnostic: message,
+              artifactValidated: validatedArtifactReference !== null
+            }
+          });
         if (eventStore) await eventStore.drain();
       } catch (caught) {
         eventLogError = caught;

@@ -4,7 +4,15 @@ import { fileURLToPath } from "node:url";
 export const ACP_PROTOCOL_AUTHORITY = {
   packageName: "@agentclientprotocol/sdk",
   version: "1.2.1",
-  stable: ["initialize", "authenticate", "session/new", "session/prompt", "session/cancel", "session/update", "session/request_permission"],
+  stable: [
+    "initialize",
+    "authenticate",
+    "session/new",
+    "session/prompt",
+    "session/cancel",
+    "session/update",
+    "session/request_permission"
+  ],
   experimental: ["elicitation/create"]
 } as const;
 
@@ -57,7 +65,9 @@ export class AcpMockHarness {
   constructor(scenario: AcpMockScenario) {
     this.scenario = scenario;
     const fixture = fileURLToPath(new URL("./acpMockAgent.mjs", import.meta.url));
-    this.process = spawn(process.execPath, [fixture, scenario], { stdio: ["pipe", "pipe", "pipe"] });
+    this.process = spawn(process.execPath, [fixture, scenario], {
+      stdio: ["pipe", "pipe", "pipe"]
+    });
     this.process.stdout.setEncoding("utf8");
     this.process.stderr.setEncoding("utf8");
     this.process.stdout.on("data", (chunk: string) => this.consumeStdout(chunk));
@@ -67,7 +77,9 @@ export class AcpMockHarness {
       this.process.once("error", () => resolve({ code: null, signal: null }));
     });
     this.process.once("exit", (code, signal) => {
-      const error = new Error(`Mock ACP process exited (code=${String(code)}, signal=${String(signal)})`);
+      const error = new Error(
+        `Mock ACP process exited (code=${String(code)}, signal=${String(signal)})`
+      );
       for (const request of this.pending.values()) request.reject(error);
       this.pending.clear();
     });
@@ -91,8 +103,7 @@ export class AcpMockHarness {
   async initialize(): Promise<JsonRpcMessage> {
     return this.request("initialize", {
       protocolVersion: 1,
-      clientCapabilities:
-        this.scenario === "elicitation" ? { elicitation: { form: {} } } : {},
+      clientCapabilities: this.scenario === "elicitation" ? { elicitation: { form: {} } } : {},
       clientInfo: { name: "planweave-test-client", version: "1.0.0" }
     });
   }
@@ -169,13 +180,25 @@ export class AcpMockHarness {
 
   private respondToAgentRequest(message: JsonRpcMessage): void {
     if (message.method === "session/request_permission") {
-      this.write({ jsonrpc: "2.0", id: message.id, result: { outcome: { outcome: "selected", optionId: "allow" } } });
+      this.write({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: { outcome: { outcome: "selected", optionId: "allow" } }
+      });
     } else if (message.method === "elicitation/create") {
-      this.write({ jsonrpc: "2.0", id: message.id, result: { action: "accept", content: { value: "mock" } } });
+      this.write({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: { action: "accept", content: { value: "mock" } }
+      });
     } else if (message.method === "mock/pending") {
       return;
     } else {
-      this.write({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Method not found" } });
+      this.write({
+        jsonrpc: "2.0",
+        id: message.id,
+        error: { code: -32601, message: "Method not found" }
+      });
     }
   }
 

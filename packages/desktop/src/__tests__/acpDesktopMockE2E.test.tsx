@@ -57,13 +57,9 @@ describe("provider-free ACP Desktop E2E", () => {
     };
     await trustCommand(workspace.init.workspace, process.execPath, [fixture, "permission-secret"]);
     try {
-      const started = await startAutoRun(
-        workspace.root,
-        null,
-        { kind: "project" },
-        1,
-        { tmuxEnabled: false }
-      );
+      const started = await startAutoRun(workspace.root, null, { kind: "project" }, 1, {
+        tmuxEnabled: false
+      });
       activeRuns.add(started.runId);
       const handle = await waitFor(
         () => activeAgentRunRegistry.lookupDesktopRun(started.runId),
@@ -75,7 +71,10 @@ describe("provider-free ACP Desktop E2E", () => {
       });
       const recordId = `T-001#B-001::${handle?.identity.executorRunId}`;
       await waitFor(
-        async () => JSON.parse(await readFile(join(handle?.identity.scope ?? "", "metadata.json"), "utf8")) as { sessionId?: string | null },
+        async () =>
+          JSON.parse(
+            await readFile(join(handle?.identity.scope ?? "", "metadata.json"), "utf8")
+          ) as { sessionId?: string | null },
         (value) => value.sessionId === handle?.identity.sessionId
       );
       const eventModel = acpEventReadModels.get(handle?.identity.scope ?? "");
@@ -99,14 +98,18 @@ describe("provider-free ACP Desktop E2E", () => {
       const initialConsumer = await consumeRunnerRecordReadModel({
         runDir: handle?.identity.scope ?? "",
         metadata,
-        subscriber: (snapshot) => bridgeListener?.({
-          updateSequence: snapshot.cursor.afterSequence,
-          snapshot
-        })
+        subscriber: (snapshot) =>
+          bridgeListener?.({
+            updateSequence: snapshot.cursor.afterSequence,
+            snapshot
+          })
       });
       if (!initialConsumer.snapshot) throw new Error("Expected an active ACP read model.");
       const initialModel = initialConsumer.snapshot;
-      const api: Pick<DesktopBridgeApi, "subscribeRunnerRecord" | "revealRunnerRecordArtifact" | "respondToAgentRequest"> = {
+      const api: Pick<
+        DesktopBridgeApi,
+        "subscribeRunnerRecord" | "revealRunnerRecordArtifact" | "respondToAgentRequest"
+      > = {
         subscribeRunnerRecord: async (_input, listener) => {
           bridgeListener = listener;
           return {

@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { ActiveAgentRunRegistry, type ActiveAgentRunHandle } from "../autoRun/activeAgentRunRegistry.js";
+import {
+  ActiveAgentRunRegistry,
+  type ActiveAgentRunHandle
+} from "../autoRun/activeAgentRunRegistry.js";
 import { AcpSessionController } from "../autoRun/acpSessionController.js";
 import { createAcpConnection, type CreateAcpConnectionOptions } from "../autoRun/acpConnection.js";
 import { createAcpRunner } from "../autoRun/acpRunner.js";
@@ -31,7 +34,10 @@ function mockLaunch(scenario: string) {
   return { command: process.execPath, args: [fixture, scenario], source };
 }
 
-async function waitForCondition(predicate: () => Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+async function waitForCondition(
+  predicate: () => Promise<boolean>,
+  timeoutMs = 5_000
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await predicate()) return;
@@ -46,7 +52,12 @@ function environment(): Record<string, string> {
   );
 }
 
-function handle(scope: string, runId: string, sessionId: string, closed: string[]): ActiveAgentRunHandle {
+function handle(
+  scope: string,
+  runId: string,
+  sessionId: string,
+  closed: string[]
+): ActiveAgentRunHandle {
   const abortController = new AbortController();
   const ownership = createLiveOwnership(`${scope}:${runId}`, 1);
   const connection = createAcpConnection({
@@ -72,7 +83,9 @@ function handle(scope: string, runId: string, sessionId: string, closed: string[
           await connection.dispose();
         },
         cancelSession: (boundSessionId) => connection.cancel({ sessionId: boundSessionId }),
-        closeSession: async (boundSessionId) => { await connection.closeSession(boundSessionId); },
+        closeSession: async (boundSessionId) => {
+          await connection.closeSession(boundSessionId);
+        },
         supportsSessionClose: false
       },
       interventionCapabilities: { cancel: true, permission: true, elicitationPreview: true },
@@ -91,12 +104,20 @@ describe("ActiveAgentRunRegistry", () => {
     const second = handle("/project-b/results/run", "RUN-001", "session-1", closed);
     registry.register(first);
     registry.register(second);
-    expect(registry.lookup("sessionId", "/project-a/results/run", "session-1", "RUN-001")).toBe(first);
-    expect(registry.lookup("sessionId", "/project-b/results/run", "session-1", "RUN-001")).toBe(second);
-    expect(() => registry.lookup("sessionId", "/project-a/results/run", "session-1", "RUN-002")).toThrow("different executor run");
+    expect(registry.lookup("sessionId", "/project-a/results/run", "session-1", "RUN-001")).toBe(
+      first
+    );
+    expect(registry.lookup("sessionId", "/project-b/results/run", "session-1", "RUN-001")).toBe(
+      second
+    );
+    expect(() =>
+      registry.lookup("sessionId", "/project-a/results/run", "session-1", "RUN-002")
+    ).toThrow("different executor run");
     const collision = handle("/project-a/results/run", "RUN-001", "session-1", closed);
     expect(() => registry.register(collision)).toThrow("collision");
-    await expect(Promise.all([registry.remove(first, "done"), registry.remove(first, "again")])).resolves.toEqual([true, true]);
+    await expect(
+      Promise.all([registry.remove(first, "done"), registry.remove(first, "again")])
+    ).resolves.toEqual([true, true]);
     expect(closed).toEqual(["done"]);
     expect(registry.size).toBe(1);
     await registry.shutdown();
@@ -165,20 +186,28 @@ describe("AcpSessionController lifecycle", () => {
     });
     expect(run.registry.size).toBe(0);
     await expect(readFile(join(run.root, "report.md"), "utf8")).resolves.toBe("implemented\n");
-    await expect(readFile(join(run.root, "metadata.json"), "utf8")).resolves.toContain('"status": "completed"');
-    await expect(readFile(join(run.root, "heartbeat.json"), "utf8")).resolves.toContain('"status": "completed"');
+    await expect(readFile(join(run.root, "metadata.json"), "utf8")).resolves.toContain(
+      '"status": "completed"'
+    );
+    await expect(readFile(join(run.root, "heartbeat.json"), "utf8")).resolves.toContain(
+      '"status": "completed"'
+    );
   });
 
   it("persists failed and timed-out terminal diagnostics and cleans live ownership", async () => {
     const failed = await execute("protocol-error");
     await expect(failed.promise).rejects.toThrow();
     expect(failed.registry.size).toBe(0);
-    await expect(readFile(join(failed.root, "metadata.json"), "utf8")).resolves.toContain('"status": "failed"');
+    await expect(readFile(join(failed.root, "metadata.json"), "utf8")).resolves.toContain(
+      '"status": "failed"'
+    );
 
     const timedOut = await execute("delayed", 5);
     await expect(timedOut.promise).rejects.toThrow("timed out");
     expect(timedOut.registry.size).toBe(0);
-    await expect(readFile(join(timedOut.root, "heartbeat.json"), "utf8")).resolves.toContain('"status": "timed_out"');
+    await expect(readFile(join(timedOut.root, "heartbeat.json"), "utf8")).resolves.toContain(
+      '"status": "timed_out"'
+    );
   });
 
   it("persists cancellation and settles registry ownership", async () => {
@@ -199,7 +228,11 @@ describe("AcpSessionController lifecycle", () => {
     }
     expect(pending.registry.size).toBe(1);
     let live = pending.registry.lookup("executorRunId", pending.root, "RUN-001");
-    for (let attempt = 0; attempt < 20 && live?.connection.pendingOperationCount !== 1; attempt += 1) {
+    for (
+      let attempt = 0;
+      attempt < 20 && live?.connection.pendingOperationCount !== 1;
+      attempt += 1
+    ) {
       await new Promise((resolve) => setTimeout(resolve, 2));
       live = pending.registry.lookup("executorRunId", pending.root, "RUN-001");
     }
@@ -207,9 +240,9 @@ describe("AcpSessionController lifecycle", () => {
     expect(live?.connection.pendingOperationCount).toBe(1);
     expect(live?.ownership.generation).toBe(1);
     expect(live?.control.ownership).toBe(live?.ownership);
-    expect([...live!.control.pendingOperations.values()].map((operation) => operation.operation)).toEqual([
-      "initialize"
-    ]);
+    expect(
+      [...live!.control.pendingOperations.values()].map((operation) => operation.operation)
+    ).toEqual(["initialize"]);
     await pending.registry.shutdown("test shutdown");
     await expect(pending.promise).rejects.toMatchObject({ name: "AbortError" });
     expect(live?.connection.pendingOperationCount).toBe(0);
@@ -239,7 +272,11 @@ describe("AcpSessionController lifecycle", () => {
       await new Promise((resolve) => setTimeout(resolve, 2));
     }
     let live = pending.registry.lookup("executorRunId", pending.root, "RUN-001");
-    for (let attempt = 0; attempt < 100 && live?.connection.pendingOperationCount !== 1; attempt += 1) {
+    for (
+      let attempt = 0;
+      attempt < 100 && live?.connection.pendingOperationCount !== 1;
+      attempt += 1
+    ) {
       await new Promise((resolve) => setTimeout(resolve, 2));
       live = pending.registry.lookup("executorRunId", pending.root, "RUN-001");
     }
@@ -321,14 +358,26 @@ describe("ACP runner runtime limits", () => {
       }
     };
 
-    await expect(runner.runBlock({
-      projectRoot: init.workspace,
-      claim: { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation", effectiveExecutor: "codex-acp" },
-      prompt: "implement",
-      executorName: "codex-acp",
-      profile: runtimeProfile,
-      profileSource: "builtin"
-    }, runtimeDefinition)).rejects.toThrow("captured");
+    await expect(
+      runner.runBlock(
+        {
+          projectRoot: init.workspace,
+          claim: {
+            kind: "block",
+            ref: "T-001#B-001",
+            taskId: "T-001",
+            blockId: "B-001",
+            blockType: "implementation",
+            effectiveExecutor: "codex-acp"
+          },
+          prompt: "implement",
+          executorName: "codex-acp",
+          profile: runtimeProfile,
+          profileSource: "builtin"
+        },
+        runtimeDefinition
+      )
+    ).rejects.toThrow("captured");
 
     expect(execute).toHaveBeenCalledWith(
       expect.any(Object),
@@ -342,22 +391,44 @@ describe("ACP runner runtime limits", () => {
     const execute = vi.spyOn(controller, "execute").mockRejectedValue(new Error("captured"));
     const runner = createAcpRunner({ sessionController: controller });
     const runtimeProfile = {
-      adapter: "agent", agent: "codex", runner: { transport: "acp" }, timeoutMs: 12_345
+      adapter: "agent",
+      agent: "codex",
+      runner: { transport: "acp" },
+      timeoutMs: 12_345
     } as const;
     const runtimeDefinition: AgentDefinition = {
-      agent: "codex", builtinProfiles: {}, cli: null,
+      agent: "codex",
+      builtinProfiles: {},
+      cli: null,
       acp: {
-        launch: mockLaunch("artifact-implementation"), capabilities: [],
-        optionalCapabilities: [], limitations: []
+        launch: mockLaunch("artifact-implementation"),
+        capabilities: [],
+        optionalCapabilities: [],
+        limitations: []
       }
     };
 
-    await expect(runner.runBlock({
-      projectRoot: init.workspace,
-      claim: { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation", effectiveExecutor: "codex-acp" },
-      prompt: "implement", executorName: "codex-acp", profile: runtimeProfile,
-      profileSource: "builtin", runtime: { timeoutMs: 4_321 }
-    }, runtimeDefinition)).rejects.toThrow("captured");
+    await expect(
+      runner.runBlock(
+        {
+          projectRoot: init.workspace,
+          claim: {
+            kind: "block",
+            ref: "T-001#B-001",
+            taskId: "T-001",
+            blockId: "B-001",
+            blockType: "implementation",
+            effectiveExecutor: "codex-acp"
+          },
+          prompt: "implement",
+          executorName: "codex-acp",
+          profile: runtimeProfile,
+          profileSource: "builtin",
+          runtime: { timeoutMs: 4_321 }
+        },
+        runtimeDefinition
+      )
+    ).rejects.toThrow("captured");
 
     expect(execute).toHaveBeenCalledWith(
       expect.any(Object),
@@ -377,26 +448,43 @@ describe("ACP runner runtime limits", () => {
     const execute = vi.spyOn(controller, "execute").mockRejectedValue(new Error("captured"));
     const runner = createAcpRunner({ sessionController: controller });
     const runtimeProfile = {
-      adapter: "agent", agent: "codex", runner: { transport: "acp" },
+      adapter: "agent",
+      agent: "codex",
+      runner: { transport: "acp" },
       ...(profileTimeoutMs === undefined ? {} : { timeoutMs: profileTimeoutMs })
     } as const;
     const runtimeDefinition: AgentDefinition = {
-      agent: "codex", builtinProfiles: {}, cli: null,
+      agent: "codex",
+      builtinProfiles: {},
+      cli: null,
       acp: {
-        launch: mockLaunch("artifact-feedback"), capabilities: [],
-        optionalCapabilities: [], limitations: []
+        launch: mockLaunch("artifact-feedback"),
+        capabilities: [],
+        optionalCapabilities: [],
+        limitations: []
       }
     };
 
-    await expect(runner.runFeedback({
-      projectRoot: init.workspace,
-      workspace: init.workspace,
-      claim: {
-        kind: "feedback", feedbackId: "FE-001", sourceReviewBlockRef: "T-001#R-001",
-        taskId: "T-001", content: "fix", effectiveExecutor: "codex-acp"
-      },
-      executorName: "codex-acp", profile: runtimeProfile, profileSource: "builtin"
-    }, runtimeDefinition)).rejects.toThrow("captured");
+    await expect(
+      runner.runFeedback(
+        {
+          projectRoot: init.workspace,
+          workspace: init.workspace,
+          claim: {
+            kind: "feedback",
+            feedbackId: "FE-001",
+            sourceReviewBlockRef: "T-001#R-001",
+            taskId: "T-001",
+            content: "fix",
+            effectiveExecutor: "codex-acp"
+          },
+          executorName: "codex-acp",
+          profile: runtimeProfile,
+          profileSource: "builtin"
+        },
+        runtimeDefinition
+      )
+    ).rejects.toThrow("captured");
 
     expect(execute).toHaveBeenCalledWith(
       expect.any(Object),
@@ -427,7 +515,14 @@ describe("AcpRunner claim routing", () => {
     const agentDefinition = definition("artifact-implementation");
     const input = {
       projectRoot: init.workspace,
-      claim: { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation", effectiveExecutor: "codex-acp" },
+      claim: {
+        kind: "block",
+        ref: "T-001#B-001",
+        taskId: "T-001",
+        blockId: "B-001",
+        blockType: "implementation",
+        effectiveExecutor: "codex-acp"
+      },
       prompt: "implement",
       executorName: "codex-acp",
       profile,
@@ -455,38 +550,71 @@ describe("AcpRunner claim routing", () => {
     const executionWaveId = executionWaveIdSchema.parse(
       "WAVE-123e4567-e89b-42d3-a456-426614174000"
     );
-    const implementation = await runner.runBlock({
-      projectRoot: init.workspace,
-      claim: { kind: "block", ref: "T-001#B-001", taskId: "T-001", blockId: "B-001", blockType: "implementation", effectiveExecutor: "codex-acp" },
-      prompt: "implement",
-      executorName: "codex-acp",
-      profile,
-      executionWaveId
-    }, definition("artifact-implementation"));
-    const review = await runner.runBlock({
-      projectRoot: init.workspace,
-      claim: { kind: "block", ref: "T-001#R-001", taskId: "T-001", blockId: "R-001", blockType: "review", effectiveExecutor: "codex-acp" },
-      prompt: "review",
-      executorName: "codex-acp",
-      profile
-    }, definition("artifact-review"));
-    const feedback = await runner.runFeedback({
-      projectRoot: init.workspace,
-      workspace: init.workspace,
-      claim: { kind: "feedback", feedbackId: "FE-001", sourceReviewBlockRef: "T-001#R-001", taskId: "T-001", content: "fix", effectiveExecutor: "codex-acp" },
-      executorName: "codex-acp",
-      profile
-    }, definition("artifact-feedback"));
+    const implementation = await runner.runBlock(
+      {
+        projectRoot: init.workspace,
+        claim: {
+          kind: "block",
+          ref: "T-001#B-001",
+          taskId: "T-001",
+          blockId: "B-001",
+          blockType: "implementation",
+          effectiveExecutor: "codex-acp"
+        },
+        prompt: "implement",
+        executorName: "codex-acp",
+        profile,
+        executionWaveId
+      },
+      definition("artifact-implementation")
+    );
+    const review = await runner.runBlock(
+      {
+        projectRoot: init.workspace,
+        claim: {
+          kind: "block",
+          ref: "T-001#R-001",
+          taskId: "T-001",
+          blockId: "R-001",
+          blockType: "review",
+          effectiveExecutor: "codex-acp"
+        },
+        prompt: "review",
+        executorName: "codex-acp",
+        profile
+      },
+      definition("artifact-review")
+    );
+    const feedback = await runner.runFeedback(
+      {
+        projectRoot: init.workspace,
+        workspace: init.workspace,
+        claim: {
+          kind: "feedback",
+          feedbackId: "FE-001",
+          sourceReviewBlockRef: "T-001#R-001",
+          taskId: "T-001",
+          content: "fix",
+          effectiveExecutor: "codex-acp"
+        },
+        executorName: "codex-acp",
+        profile
+      },
+      definition("artifact-feedback")
+    );
 
     expect(implementation).toMatchObject({ kind: "block", agentSessionId: "mock-session-1" });
     expect(review).toMatchObject({ kind: "review", agentSessionId: "mock-session-1" });
     expect(feedback).toMatchObject({ kind: "feedback", agentSessionId: "mock-session-1" });
     expect(new Set([implementation.runId, review.runId])).toEqual(new Set(["RUN-001"]));
     if (implementation.kind !== "block") throw new Error("Expected implementation result.");
-    await expect(readFile(join(dirname(implementation.reportPath), "prompt.md"), "utf8"))
-      .resolves.toBe("implement");
     await expect(
-      readJsonFile<Record<string, unknown>>(join(dirname(implementation.reportPath), "metadata.json"))
+      readFile(join(dirname(implementation.reportPath), "prompt.md"), "utf8")
+    ).resolves.toBe("implement");
+    await expect(
+      readJsonFile<Record<string, unknown>>(
+        join(dirname(implementation.reportPath), "metadata.json")
+      )
     ).resolves.toMatchObject({ executionWaveId });
     if (review.kind !== "review" || feedback.kind !== "feedback") {
       throw new Error("Expected review and feedback results.");
@@ -511,7 +639,12 @@ describe("AcpRunner claim routing", () => {
         executor: createExecutorAdapter({
           projectRoot: init.workspace,
           executorName: "codex-acp",
-          runtime: { signal: abort.signal, timeoutMs: 500, desktopRunId: "DESKTOP-RUN-0001", runSessionId: "SESSION-0001" }
+          runtime: {
+            signal: abort.signal,
+            timeoutMs: 500,
+            desktopRunId: "DESKTOP-RUN-0001",
+            runSessionId: "SESSION-0001"
+          }
         })
       });
       setTimeout(() => abort.abort(new Error("end-to-end cancelled")), 10);
@@ -529,10 +662,12 @@ describe("AcpRunner claim routing", () => {
     codexAgentDefinition.acp.launch = mockLaunch("artifact-implementation");
     await trustCommand(init.workspace, process.execPath, [fixture, "artifact-implementation"]);
     try {
-      await expect(runAutoRunStep({
-        projectRoot: init.workspace,
-        executorName: "codex-acp"
-      })).resolves.toMatchObject({
+      await expect(
+        runAutoRunStep({
+          projectRoot: init.workspace,
+          executorName: "codex-acp"
+        })
+      ).resolves.toMatchObject({
         kind: "submitted",
         adapterResult: { kind: "block", runnerKind: "acp" },
         submitResult: { ref: "T-001#B-001", status: "completed" }
@@ -592,19 +727,24 @@ describe("AcpRunner claim routing", () => {
 
 describe("Desktop ACP stop ownership", () => {
   async function workspace() {
-    return createTestWorkspace(
-      manifestTestBuilder().withDefaultExecutor("codex-acp").build()
-    );
+    return createTestWorkspace(manifestTestBuilder().withDefaultExecutor("codex-acp").build());
   }
 
   it("keeps an immediately stopped ACP block ready without submission", async () => {
     const { root, init } = await workspace();
     const previousLaunch = codexAgentDefinition.acp.launch;
     codexAgentDefinition.acp.launch = mockLaunch("delayed-artifact-implementation");
-    await trustCommand(init.workspace, process.execPath, [fixture, "delayed-artifact-implementation"]);
+    await trustCommand(init.workspace, process.execPath, [
+      fixture,
+      "delayed-artifact-implementation"
+    ]);
     try {
-      expect((await getExecutionStatus({ projectRoot: init.workspace })).blocks[0]?.effectiveExecutor).toBe("codex-acp");
-      const started = await startAutoRun(root, null, { kind: "project" }, 1, { tmuxEnabled: false });
+      expect(
+        (await getExecutionStatus({ projectRoot: init.workspace })).blocks[0]?.effectiveExecutor
+      ).toBe("codex-acp");
+      const started = await startAutoRun(root, null, { kind: "project" }, 1, {
+        tmuxEnabled: false
+      });
       await stopAutoRun(started.runId);
       await waitForCondition(async () => {
         const status = await getExecutionStatus({ projectRoot: init.workspace });
@@ -627,12 +767,20 @@ describe("Desktop ACP stop ownership", () => {
     codexAgentDefinition.acp.launch = mockLaunch("late-update");
     await trustCommand(init.workspace, process.execPath, [fixture, "late-update"]);
     try {
-      expect((await getExecutionStatus({ projectRoot: init.workspace })).blocks[0]?.effectiveExecutor).toBe("codex-acp");
-      const started = await startAutoRun(root, null, { kind: "project" }, 1, { tmuxEnabled: false });
-      await waitForCondition(async () =>
-        activeAgentRunRegistry.lookupDesktopRun(started.runId)?.identity.sessionId === "mock-session-1"
+      expect(
+        (await getExecutionStatus({ projectRoot: init.workspace })).blocks[0]?.effectiveExecutor
+      ).toBe("codex-acp");
+      const started = await startAutoRun(root, null, { kind: "project" }, 1, {
+        tmuxEnabled: false
+      });
+      await waitForCondition(
+        async () =>
+          activeAgentRunRegistry.lookupDesktopRun(started.runId)?.identity.sessionId ===
+          "mock-session-1"
       );
-      expect(activeAgentRunRegistry.lookupDesktopRun(started.runId)?.identity.sessionId).toBe("mock-session-1");
+      expect(activeAgentRunRegistry.lookupDesktopRun(started.runId)?.identity.sessionId).toBe(
+        "mock-session-1"
+      );
       await stopAutoRun(started.runId);
       await waitForCondition(async () => {
         const status = await getExecutionStatus({ projectRoot: init.workspace });

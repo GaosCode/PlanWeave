@@ -8,13 +8,13 @@ import type {
   SessionNotification
 } from "@agentclientprotocol/sdk";
 import type { AgentFamily } from "../types.js";
-import {
-  createAcpConnection,
-  type CreateAcpConnectionOptions
-} from "./acpConnection.js";
+import { createAcpConnection, type CreateAcpConnectionOptions } from "./acpConnection.js";
 import { normalizeAcpSessionNotification } from "./acpEventNormalization.js";
 import type { AcpEventStore } from "./acpEventStore.js";
-import { normalizedRedactedContent, type NormalizedRunnerEvent } from "./normalizedEventContract.js";
+import {
+  normalizedRedactedContent,
+  type NormalizedRunnerEvent
+} from "./normalizedEventContract.js";
 import { acpCorrelationSchema } from "./runnerContractSchemas.js";
 import { redactRunnerEventPayload, redactRunnerEventText } from "./runnerEventRedaction.js";
 
@@ -107,9 +107,8 @@ export class AcpConversationTurnCoordinator {
   }
 
   private async execute(input: AcpConversationTurnInput): Promise<void> {
-    const eventStore = typeof input.eventStore === "function"
-      ? await input.eventStore()
-      : input.eventStore;
+    const eventStore =
+      typeof input.eventStore === "function" ? await input.eventStore() : input.eventStore;
     let persistNotifications = false;
     let protocolObserverError: unknown;
     const correlation = acpCorrelationSchema.parse({ sessionId: input.sessionId });
@@ -133,9 +132,11 @@ export class AcpConversationTurnCoordinator {
         redact: redactRunnerEventPayload,
         observe: (observation) => {
           if (!persistNotifications) return;
-          void eventStore.appendProtocol(observation.direction, observation.payload).catch((error) => {
-            protocolObserverError ??= error;
-          });
+          void eventStore
+            .appendProtocol(observation.direction, observation.payload)
+            .catch((error) => {
+              protocolObserverError ??= error;
+            });
         }
       },
       defaultTimeoutMs: input.timeoutMs
@@ -145,7 +146,9 @@ export class AcpConversationTurnCoordinator {
     try {
       const initialized = await connection.initialize();
       if (initialized.agentCapabilities?.loadSession !== true) {
-        throw new Error(`ACP agent '${input.agentId}' does not support loading an existing session.`);
+        throw new Error(
+          `ACP agent '${input.agentId}' does not support loading an existing session.`
+        );
       }
       await connection.loadSession({
         sessionId: input.sessionId,
@@ -171,10 +174,9 @@ export class AcpConversationTurnCoordinator {
       await eventStore.drain();
       if (protocolObserverError !== undefined) throw protocolObserverError;
     } catch (error) {
-      executionError = new Error(
-        `ACP conversation turn failed: ${diagnostic(error)}`,
-        { cause: error }
-      );
+      executionError = new Error(`ACP conversation turn failed: ${diagnostic(error)}`, {
+        cause: error
+      });
       try {
         await append({
           kind: "diagnostic",
@@ -204,11 +206,9 @@ export class AcpConversationTurnCoordinator {
     }
     if (executionError !== undefined) {
       if (secondaryErrors.length > 0) {
-        throw new AggregateError(
-          [executionError, ...secondaryErrors],
-          diagnostic(executionError),
-          { cause: executionError }
-        );
+        throw new AggregateError([executionError, ...secondaryErrors], diagnostic(executionError), {
+          cause: executionError
+        });
       }
       throw executionError;
     }

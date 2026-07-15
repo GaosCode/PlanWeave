@@ -76,10 +76,7 @@ describe("TaskWorkspaceRepositoryActions", () => {
     fireEvent.click(primaryAction);
 
     await waitFor(() =>
-      expect(api.openProjectInDevelopmentTool).toHaveBeenCalledWith(
-        "/workspace/source",
-        "vscode"
-      )
+      expect(api.openProjectInDevelopmentTool).toHaveBeenCalledWith("/workspace/source", "vscode")
     );
     expect(onError).toHaveBeenLastCalledWith(null);
   });
@@ -100,16 +97,11 @@ describe("TaskWorkspaceRepositoryActions", () => {
     const menu = await screen.findByRole("menu");
     const items = within(menu).getAllByRole("menuitem");
     expect(items.map((item) => item.textContent)).toEqual(["VS Code", "Finder"]);
-    expect(items[1]?.querySelector("img")?.getAttribute("src")).toBe(
-      finderTool.iconDataUrl
-    );
+    expect(items[1]?.querySelector("img")?.getAttribute("src")).toBe(finderTool.iconDataUrl);
 
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Finder" }));
     await waitFor(() =>
-      expect(api.openProjectInDevelopmentTool).toHaveBeenCalledWith(
-        "/workspace/source",
-        "finder"
-      )
+      expect(api.openProjectInDevelopmentTool).toHaveBeenCalledWith("/workspace/source", "finder")
     );
     expect(screen.getByTitle("Finder").querySelector("img")?.getAttribute("src")).toBe(
       finderTool.iconDataUrl
@@ -138,10 +130,7 @@ describe("TaskWorkspaceRepositoryActions", () => {
     fireEvent.click(await screen.findByTitle("Cursor"));
 
     await waitFor(() =>
-      expect(api.openProjectInDevelopmentTool).toHaveBeenCalledWith(
-        "/workspace/source",
-        "cursor"
-      )
+      expect(api.openProjectInDevelopmentTool).toHaveBeenCalledWith("/workspace/source", "cursor")
     );
   });
 

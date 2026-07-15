@@ -454,7 +454,10 @@ describe("desktop auto run API", () => {
     await expect(
       resetDesktopRuntimeState(root, null, { force: true, reason: "test reset" })
     ).rejects.toThrow("Cannot reset runtime state while Auto Run is active");
-    await waitForAutoRunEvent(started.eventLogPath, (event) => event.type === "stopped_step_ignored");
+    await waitForAutoRunEvent(
+      started.eventLogPath,
+      (event) => event.type === "stopped_step_ignored"
+    );
     await expect(
       resetDesktopRuntimeState(root, null, { force: true, reason: "settled reset" })
     ).resolves.toMatchObject({ forced: true });
@@ -546,7 +549,9 @@ describe("desktop auto run API", () => {
     );
     const state = await readState(init.workspace.stateFile);
     expect(state.blocks["T-001#B-001"]?.status).toBe("ready");
-    await expect(shutdownDesktopAutoRuns("repeated test Desktop teardown")).resolves.toBeUndefined();
+    await expect(
+      shutdownDesktopAutoRuns("repeated test Desktop teardown")
+    ).resolves.toBeUndefined();
   });
 
   it("does not claim CLI work after an immediate pre-claim stop", async () => {

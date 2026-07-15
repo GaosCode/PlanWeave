@@ -65,7 +65,9 @@ export const acpSessionConfigurationSchema = z
 const actualConfigurationSourceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("config_option"), optionId: acpSessionTextSchema }).strict(),
   z.object({ kind: z.literal("session_mode"), optionId: z.null() }).strict(),
-  z.object({ kind: z.literal("config_option_and_session_mode"), optionId: acpSessionTextSchema }).strict()
+  z
+    .object({ kind: z.literal("config_option_and_session_mode"), optionId: acpSessionTextSchema })
+    .strict()
 ]);
 
 export const acpActualConfigurationFieldSchema = z.discriminatedUnion("available", [
@@ -115,9 +117,7 @@ export const acpActualSessionConfigurationSchema = z.discriminatedUnion("availab
 
 export type AcpSessionConfiguration = z.infer<typeof acpSessionConfigurationSchema>;
 export type AcpSessionConfigOption = z.infer<typeof acpSessionConfigOptionSchema>;
-export type AcpActualSessionConfiguration = z.infer<
-  typeof acpActualSessionConfigurationSchema
->;
+export type AcpActualSessionConfiguration = z.infer<typeof acpActualSessionConfigurationSchema>;
 export type AcpActualConfigurationField = z.infer<typeof acpActualConfigurationFieldSchema>;
 
 function normalizeConfigOptions(
@@ -324,7 +324,8 @@ export function projectAcpActualSessionConfiguration(
         initialSeen = true;
       } else {
         if (!initialSeen || defaultsSeen) {
-          failure = "ACP defaults-applied configuration snapshot is missing its initial snapshot or duplicated.";
+          failure =
+            "ACP defaults-applied configuration snapshot is missing its initial snapshot or duplicated.";
           continue;
         }
         defaultsSeen = true;

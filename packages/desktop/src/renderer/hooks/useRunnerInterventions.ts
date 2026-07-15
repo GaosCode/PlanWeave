@@ -7,10 +7,7 @@ import type {
   RunnerRecordReadModel
 } from "@planweave-ai/runtime";
 
-type RunnerInterventionApi = Pick<
-  DesktopBridgeApi,
-  "cancelAgentRun" | "respondToAgentRequest"
->;
+type RunnerInterventionApi = Pick<DesktopBridgeApi, "cancelAgentRun" | "respondToAgentRequest">;
 
 function identityKey(
   prefix: "cancel" | "request",
@@ -89,24 +86,29 @@ export function useRunnerInterventions(options: {
     }
   }, []);
 
-  const respond = useCallback((
-    identity: DesktopAgentActionIdentity,
-    value: DesktopAgentActionValue
-  ) => {
-    if (!api?.respondToAgentRequest) {
-      setActionError("Desktop ACP intervention bridge is unavailable.");
-      return;
-    }
-    void execute(identityKey("request", identity), () => api.respondToAgentRequest!(identity, value));
-  }, [api, execute]);
+  const respond = useCallback(
+    (identity: DesktopAgentActionIdentity, value: DesktopAgentActionValue) => {
+      if (!api?.respondToAgentRequest) {
+        setActionError("Desktop ACP intervention bridge is unavailable.");
+        return;
+      }
+      void execute(identityKey("request", identity), () =>
+        api.respondToAgentRequest!(identity, value)
+      );
+    },
+    [api, execute]
+  );
 
-  const cancel = useCallback((identity: DesktopAgentSessionActionIdentity) => {
-    if (!api?.cancelAgentRun) {
-      setActionError("Desktop ACP cancellation bridge is unavailable.");
-      return;
-    }
-    void execute(identityKey("cancel", identity), () => api.cancelAgentRun!(identity));
-  }, [api, execute]);
+  const cancel = useCallback(
+    (identity: DesktopAgentSessionActionIdentity) => {
+      if (!api?.cancelAgentRun) {
+        setActionError("Desktop ACP cancellation bridge is unavailable.");
+        return;
+      }
+      void execute(identityKey("cancel", identity), () => api.cancelAgentRun!(identity));
+    },
+    [api, execute]
+  );
 
   return {
     actionError,

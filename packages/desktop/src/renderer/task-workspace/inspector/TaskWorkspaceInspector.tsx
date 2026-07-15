@@ -303,11 +303,7 @@ export function TaskWorkspaceInspector({
               />
               <DefinitionRow
                 label={labels.status}
-                value={
-                  <Badge variant="outline">
-                    {runStatus(selectedRun, labels)}
-                  </Badge>
-                }
+                value={<Badge variant="outline">{runStatus(selectedRun, labels)}</Badge>}
               />
             </dl>
 

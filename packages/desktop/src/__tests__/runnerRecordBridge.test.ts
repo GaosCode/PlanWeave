@@ -173,12 +173,10 @@ describe("runner record desktop bridge", () => {
       new Error("Artifact path is outside the selected record.")
     );
     await expect(
-      handler?.(
-        {},
-        { projectRoot: "/tmp/project", canvasId: "canvas-a" },
-        "T-001#B-001::RUN-001",
-        { ...reference, relativePath: "../outside.md" }
-      )
+      handler?.({}, { projectRoot: "/tmp/project", canvasId: "canvas-a" }, "T-001#B-001::RUN-001", {
+        ...reference,
+        relativePath: "../outside.md"
+      })
     ).rejects.toThrow("outside");
     expect(electronMock.shell.showItemInFolder).not.toHaveBeenCalled();
   });
@@ -209,7 +207,9 @@ describe("runner record desktop bridge", () => {
     receive?.(readModel([runnerEvent(3, "terminal")]));
 
     expect(start.snapshot.events.map((event) => event.sequence)).toEqual([1]);
-    expect(webContents.send.mock.calls.map((call) => call[1].snapshot.cursor.afterSequence)).toEqual([2, 3]);
+    expect(
+      webContents.send.mock.calls.map((call) => call[1].snapshot.cursor.afterSequence)
+    ).toEqual([2, 3]);
     expect(webContents.send.mock.calls.map((call) => call[1].updateSequence)).toEqual([1, 2]);
     expect(webContents.send).toHaveBeenCalledWith(
       runnerRecordEventChannel,

@@ -24,7 +24,9 @@ export function useConversationAutoScroll(changeKey: number) {
   const onScroll = useCallback(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-    setFollowing(viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= BOTTOM_THRESHOLD);
+    setFollowing(
+      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= BOTTOM_THRESHOLD
+    );
   }, []);
 
   return { following, onScroll, scrollToBottom, viewportRef };

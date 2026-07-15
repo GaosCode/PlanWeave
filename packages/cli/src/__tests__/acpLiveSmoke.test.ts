@@ -22,8 +22,10 @@ async function fixture() {
     agent,
     'if (process.env.SMOKE_FAILURE !== "silent-agent-version") console.log("codex-acp test-version");\n'
   );
-  await executable(piAgent, 'process.exit(93);\n');
-  await executable(planweave, `
+  await executable(piAgent, "process.exit(93);\n");
+  await executable(
+    planweave,
+    `
 const { existsSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 const args = process.argv.slice(2);
@@ -110,7 +112,8 @@ else if (args[0] === "run-session") {
   } }));
 }
 else process.exit(2);
-`);
+`
+  );
   return { root, planweave };
 }
 
@@ -121,20 +124,19 @@ async function invoke(
   failure?: string,
   profile = "codex-acp"
 ) {
-  return execFileAsync(process.execPath, [
-    smokeScript,
-    "--profile", profile,
-    "--evidence", evidencePath,
-    "--cancellation-timeout", "25"
-  ], {
-    cwd: root,
-    env: {
-      ...process.env,
-      PATH: `${root}:${process.env.PATH ?? ""}`,
-      PLANWEAVE_BIN: planweave,
-      ...(failure ? { SMOKE_FAILURE: failure } : {})
+  return execFileAsync(
+    process.execPath,
+    [smokeScript, "--profile", profile, "--evidence", evidencePath, "--cancellation-timeout", "25"],
+    {
+      cwd: root,
+      env: {
+        ...process.env,
+        PATH: `${root}:${process.env.PATH ?? ""}`,
+        PLANWEAVE_BIN: planweave,
+        ...(failure ? { SMOKE_FAILURE: failure } : {})
+      }
     }
-  });
+  );
 }
 
 describe("ACP live smoke evidence program", () => {
@@ -187,30 +189,32 @@ describe("ACP live smoke evidence program", () => {
     });
   });
 
-  it.each(["missing-preflight-agent-info", "empty-preflight-agent-version"])(
-    "fails closed when Pi preflight returns %s",
-    async (failure) => {
-      const { root, planweave } = await fixture();
-      const evidencePath = join(root, `${failure}.json`);
+  it.each([
+    "missing-preflight-agent-info",
+    "empty-preflight-agent-version"
+  ])("fails closed when Pi preflight returns %s", async (failure) => {
+    const { root, planweave } = await fixture();
+    const evidencePath = join(root, `${failure}.json`);
 
-      await expect(invoke(root, planweave, evidencePath, failure, "pi-acp")).rejects.toMatchObject({
-        code: 1
-      });
-      expect(JSON.parse(await readFile(evidencePath, "utf8"))).toMatchObject({
-        profile: "pi-acp",
-        agentVersion: "unavailable",
-        result: "failed",
-        diagnostic:
-          "ACP initialize returned invalid agentInfo; name and version must be non-empty strings."
-      });
-    }
-  );
+    await expect(invoke(root, planweave, evidencePath, failure, "pi-acp")).rejects.toMatchObject({
+      code: 1
+    });
+    expect(JSON.parse(await readFile(evidencePath, "utf8"))).toMatchObject({
+      profile: "pi-acp",
+      agentVersion: "unavailable",
+      result: "failed",
+      diagnostic:
+        "ACP initialize returned invalid agentInfo; name and version must be non-empty strings."
+    });
+  });
 
   it("fails closed when an agent version command exits successfully without output", async () => {
     const { root, planweave } = await fixture();
     const evidencePath = join(root, "silent-agent-version.json");
 
-    await expect(invoke(root, planweave, evidencePath, "silent-agent-version")).rejects.toMatchObject({
+    await expect(
+      invoke(root, planweave, evidencePath, "silent-agent-version")
+    ).rejects.toMatchObject({
       code: 1
     });
     const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as {

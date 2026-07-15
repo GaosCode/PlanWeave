@@ -202,9 +202,7 @@ describe("TaskNodeCard context menu", () => {
 
     render(
       <div onClick={onParentClick}>
-        <TaskNodeCard
-          {...({ data, selected: false } as Parameters<typeof TaskNodeCard>[0])}
-        />
+        <TaskNodeCard {...({ data, selected: false } as Parameters<typeof TaskNodeCard>[0])} />
       </div>
     );
 
@@ -242,9 +240,7 @@ describe("TaskNodeCard context menu", () => {
 
     render(
       <div onClick={onParentClick}>
-        <TaskNodeCard
-          {...({ data, selected: false } as Parameters<typeof TaskNodeCard>[0])}
-        />
+        <TaskNodeCard {...({ data, selected: false } as Parameters<typeof TaskNodeCard>[0])} />
       </div>
     );
 

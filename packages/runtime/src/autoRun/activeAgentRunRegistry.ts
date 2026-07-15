@@ -6,10 +6,7 @@ import {
   type LiveOwnership,
   type RunnerLiveControl
 } from "./liveControl.js";
-import {
-  executeRunnerLifecycleTransition,
-  transitionRunnerLifecycle
-} from "./runnerLifecycle.js";
+import { executeRunnerLifecycleTransition, transitionRunnerLifecycle } from "./runnerLifecycle.js";
 import type {
   RunnerLifecycleState,
   RunnerRequestActionIdentity,
@@ -36,7 +33,12 @@ export type ActiveAgentRunHandle = {
   lifecycleState: RunnerLifecycleState;
 };
 
-export type IdentityKind = "desktopRunId" | "runSessionId" | "executorRunId" | "claimRef" | "sessionId";
+export type IdentityKind =
+  | "desktopRunId"
+  | "runSessionId"
+  | "executorRunId"
+  | "claimRef"
+  | "sessionId";
 export type ActiveAgentRunLookup = Pick<ActiveAgentRunIdentity, "scope" | "executorRunId"> &
   Partial<Pick<ActiveAgentRunIdentity, "desktopRunId" | "runSessionId" | "claimRef" | "sessionId">>;
 export type ActiveAgentRunSessionActionIdentity = RunnerSessionActionIdentity;
@@ -51,7 +53,13 @@ type AgentPromptQueue = {
   draining: boolean;
   closed: boolean;
 };
-const identityKinds: readonly IdentityKind[] = ["desktopRunId", "runSessionId", "executorRunId", "claimRef", "sessionId"];
+const identityKinds: readonly IdentityKind[] = [
+  "desktopRunId",
+  "runSessionId",
+  "executorRunId",
+  "claimRef",
+  "sessionId"
+];
 
 function key(scope: string, value: string): string {
   return `${scope}\0${value}`;
@@ -88,7 +96,8 @@ export class ActiveAgentRunRegistry {
     if (handle.identity.sessionId) throw new Error("Active ACP run already has a session id.");
     const sessionIndex = this.indexes.get("sessionId");
     const sessionKey = key(handle.identity.scope, sessionId);
-    if (sessionIndex?.has(sessionKey)) throw new Error(`Active ACP sessionId collision for '${sessionId}' in run scope.`);
+    if (sessionIndex?.has(sessionKey))
+      throw new Error(`Active ACP sessionId collision for '${sessionId}' in run scope.`);
     handle.identity.sessionId = sessionId;
     handle.control.sessionId = sessionId;
     sessionIndex?.set(sessionKey, handle);
@@ -104,10 +113,21 @@ export class ActiveAgentRunRegistry {
     handle.lifecycleState = result.state;
   }
 
-  lookup(kind: IdentityKind, scope: string, value: string, expectedExecutorRunId?: string): ActiveAgentRunHandle | null {
+  lookup(
+    kind: IdentityKind,
+    scope: string,
+    value: string,
+    expectedExecutorRunId?: string
+  ): ActiveAgentRunHandle | null {
     const handle = this.indexes.get(kind)?.get(key(scope, value)) ?? null;
-    if (handle && expectedExecutorRunId !== undefined && handle.identity.executorRunId !== expectedExecutorRunId) {
-      throw new Error(`Active ACP ${kind} '${value}' belongs to a different executor run in this scope.`);
+    if (
+      handle &&
+      expectedExecutorRunId !== undefined &&
+      handle.identity.executorRunId !== expectedExecutorRunId
+    ) {
+      throw new Error(
+        `Active ACP ${kind} '${value}' belongs to a different executor run in this scope.`
+      );
     }
     return handle;
   }
@@ -118,7 +138,9 @@ export class ActiveAgentRunRegistry {
     for (const kind of identityKinds) {
       const expected = identity[kind];
       if (expected !== undefined && handle.identity[kind] !== expected) {
-        throw new Error(`Active ACP ${kind} '${expected}' does not match executor run '${identity.executorRunId}'.`);
+        throw new Error(
+          `Active ACP ${kind} '${expected}' does not match executor run '${identity.executorRunId}'.`
+        );
       }
     }
     return handle;
@@ -129,18 +151,21 @@ export class ActiveAgentRunRegistry {
     if (!handle) return [];
     const request = handle.control.pendingRequests.get(identity.requestId);
     if (!request) return [];
-    return [{
-      requestId: request.requestId,
-      interactionId: request.interactionId,
-      kind: request.kind,
-      requestedAt: request.requestedAt,
-      summary: request.summary
-    }];
+    return [
+      {
+        requestId: request.requestId,
+        interactionId: request.interactionId,
+        kind: request.kind,
+        requestedAt: request.requestedAt,
+        summary: request.summary
+      }
+    ];
   }
 
   async respond(identity: ActiveAgentRunActionIdentity, value: JsonRpcValue): Promise<void> {
     const handle = this.resolveAction(identity);
-    if (!handle) throw new Error(`Active ACP executor run '${identity.executorRunId}' does not exist.`);
+    if (!handle)
+      throw new Error(`Active ACP executor run '${identity.executorRunId}' does not exist.`);
     const request = handle.control.pendingRequests.get(identity.requestId);
     if (!request) throw new Error(`Live runner request '${identity.requestId}' does not exist.`);
     if (request.kind === "authentication") {
@@ -149,7 +174,10 @@ export class ActiveAgentRunRegistry {
     if (request.kind === "permission" && !handle.control.interventionCapabilities.permission) {
       throw new Error("Permission intervention is not negotiated for this Desktop ACP session.");
     }
-    if (request.kind === "elicitation" && !handle.control.interventionCapabilities.elicitationPreview) {
+    if (
+      request.kind === "elicitation" &&
+      !handle.control.interventionCapabilities.elicitationPreview
+    ) {
       throw new Error("Preview elicitation is not negotiated for this Desktop ACP session.");
     }
     await respondToPendingRunnerRequest({
@@ -162,15 +190,25 @@ export class ActiveAgentRunRegistry {
 
   async cancel(identity: ActiveAgentRunSessionActionIdentity): Promise<void> {
     const handle = this.resolveSessionAction(identity);
-    if (!handle) throw new Error(`Active ACP executor run '${identity.executorRunId}' does not exist.`);
+    if (!handle)
+      throw new Error(`Active ACP executor run '${identity.executorRunId}' does not exist.`);
     if (handle.lifecycleState !== "running" && handle.lifecycleState !== "waiting_interaction") {
-      throw new Error(`Active ACP session '${identity.sessionId}' is not cancellable in state '${handle.lifecycleState}'.`);
+      throw new Error(
+        `Active ACP session '${identity.sessionId}' is not cancellable in state '${handle.lifecycleState}'.`
+      );
     }
     if (!handle.control.interventionCapabilities.cancel) {
       throw new Error("ACP session cancellation is not negotiated for this Desktop session.");
     }
-    const removed = await this.remove(handle, "Desktop requested ACP session cancellation.", "cancelled");
-    if (!removed) throw new Error(`Active ACP executor run '${identity.executorRunId}' is no longer available.`);
+    const removed = await this.remove(
+      handle,
+      "Desktop requested ACP session cancellation.",
+      "cancelled"
+    );
+    if (!removed)
+      throw new Error(
+        `Active ACP executor run '${identity.executorRunId}' is no longer available.`
+      );
   }
 
   queuePrompt(identity: ActiveAgentRunSessionActionIdentity, text: string): Promise<void> {
@@ -180,14 +218,21 @@ export class ActiveAgentRunRegistry {
         new Error(`Active ACP executor run '${identity.executorRunId}' does not exist.`)
       );
     }
-    if (handle.lifecycleState === "waiting_interaction" || handle.control.pendingRequests.size > 0) {
+    if (
+      handle.lifecycleState === "waiting_interaction" ||
+      handle.control.pendingRequests.size > 0
+    ) {
       return Promise.reject(
-        new Error("ACP prompt cannot be queued while a pending permission or elicitation requires a decision.")
+        new Error(
+          "ACP prompt cannot be queued while a pending permission or elicitation requires a decision."
+        )
       );
     }
     if (handle.lifecycleState !== "running") {
       return Promise.reject(
-        new Error(`Active ACP session '${identity.sessionId}' is not prompt-capable in state '${handle.lifecycleState}'.`)
+        new Error(
+          `Active ACP session '${identity.sessionId}' is not prompt-capable in state '${handle.lifecycleState}'.`
+        )
       );
     }
     const queue = this.promptQueue(handle);
@@ -222,7 +267,9 @@ export class ActiveAgentRunRegistry {
           throw new Error("Active ACP prompt ownership ended before the queued turn could run.");
         }
         if (handle.control.pendingRequests.size > 0) {
-          throw new Error("ACP prompt cannot run while a pending permission or elicitation requires a decision.");
+          throw new Error(
+            "ACP prompt cannot run while a pending permission or elicitation requires a decision."
+          );
         }
         const item = queue.items.shift();
         if (!item) {
@@ -254,9 +301,9 @@ export class ActiveAgentRunRegistry {
   }
 
   lookupDesktopRun(desktopRunId: string): ActiveAgentRunHandle | null {
-    return [...this.handles].find(
-      (handle) => handle.identity.desktopRunId === desktopRunId
-    ) ?? null;
+    return (
+      [...this.handles].find((handle) => handle.identity.desktopRunId === desktopRunId) ?? null
+    );
   }
 
   remove(
@@ -273,9 +320,14 @@ export class ActiveAgentRunRegistry {
   }
 
   async shutdown(reason = "PlanWeave runtime shutdown."): Promise<void> {
-    const results = await Promise.allSettled([...this.handles].map((handle) => this.remove(handle, reason)));
-    const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
-    if (failures.length > 0) throw new AggregateError(failures, "Active ACP run shutdown did not complete cleanly.");
+    const results = await Promise.allSettled(
+      [...this.handles].map((handle) => this.remove(handle, reason))
+    );
+    const failures = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : []
+    );
+    if (failures.length > 0)
+      throw new AggregateError(failures, "Active ACP run shutdown did not complete cleanly.");
   }
 
   async shutdownDesktopRun(desktopRunId: string, reason: string): Promise<void> {
@@ -283,19 +335,41 @@ export class ActiveAgentRunRegistry {
       (handle) => handle.identity.desktopRunId === desktopRunId
     );
     const results = await Promise.allSettled(matches.map((handle) => this.remove(handle, reason)));
-    const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
-    if (failures.length > 0) throw new AggregateError(failures, `ACP cleanup failed for Desktop run '${desktopRunId}'.`);
+    const failures = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : []
+    );
+    if (failures.length > 0)
+      throw new AggregateError(failures, `ACP cleanup failed for Desktop run '${desktopRunId}'.`);
   }
 
-  get size(): number { return this.handles.size; }
+  get size(): number {
+    return this.handles.size;
+  }
 
   private resolveAction(identity: ActiveAgentRunActionIdentity): ActiveAgentRunHandle | null {
-    this.assertActionIdentity(identity, ["scope", "executorRunId", "desktopRunId", "runSessionId", "claimRef", "sessionId", "requestId"]);
+    this.assertActionIdentity(identity, [
+      "scope",
+      "executorRunId",
+      "desktopRunId",
+      "runSessionId",
+      "claimRef",
+      "sessionId",
+      "requestId"
+    ]);
     return this.lookupExact(identity);
   }
 
-  private resolveSessionAction(identity: ActiveAgentRunSessionActionIdentity): ActiveAgentRunHandle | null {
-    this.assertActionIdentity(identity, ["scope", "executorRunId", "desktopRunId", "runSessionId", "claimRef", "sessionId"]);
+  private resolveSessionAction(
+    identity: ActiveAgentRunSessionActionIdentity
+  ): ActiveAgentRunHandle | null {
+    this.assertActionIdentity(identity, [
+      "scope",
+      "executorRunId",
+      "desktopRunId",
+      "runSessionId",
+      "claimRef",
+      "sessionId"
+    ]);
     return this.lookupExact(identity);
   }
 
@@ -349,7 +423,8 @@ export class ActiveAgentRunRegistry {
     for (const kind of identityKinds) {
       const value = handle.identity[kind];
       const scopedKey = value ? key(handle.identity.scope, value) : null;
-      if (scopedKey && this.indexes.get(kind)?.get(scopedKey) === handle) this.indexes.get(kind)?.delete(scopedKey);
+      if (scopedKey && this.indexes.get(kind)?.get(scopedKey) === handle)
+        this.indexes.get(kind)?.delete(scopedKey);
     }
     handle.abortController.abort(new Error(reason));
     if (

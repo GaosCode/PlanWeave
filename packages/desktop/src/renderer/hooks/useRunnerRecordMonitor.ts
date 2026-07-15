@@ -104,8 +104,7 @@ export function useRunnerRecordMonitor(options: RunnerRecordMonitorOptions) {
   const model =
     modelState.recordId !== recordId ||
     initialCursor > monitoredCursor ||
-    (initialCursor === monitoredCursor &&
-      modelState.initialModelRevision !== initialModelRevision)
+    (initialCursor === monitoredCursor && modelState.initialModelRevision !== initialModelRevision)
       ? initialModel
       : modelState.model;
 

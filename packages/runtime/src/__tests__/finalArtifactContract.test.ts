@@ -124,7 +124,9 @@ describe("final artifact envelope codec", () => {
 
     expect(extractFinalArtifactEnvelope(marker, expected)).toEqual(envelope);
     expect(extractFinalArtifactEnvelope(`provider prefix ${marker}`, expected)).toEqual(envelope);
-    expect(extractFinalArtifactEnvelope(`provider prefix\n${marker}\n`, expected)).toEqual(envelope);
+    expect(extractFinalArtifactEnvelope(`provider prefix\n${marker}\n`, expected)).toEqual(
+      envelope
+    );
   });
 
   it("does not treat the marker name inside report JSON as a second envelope", () => {

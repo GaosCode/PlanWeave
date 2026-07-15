@@ -366,9 +366,7 @@ describe("runtime bridge handlers: graph and project", () => {
       ) =>
         callback(
           null,
-          command === "where.exe" && args[0] === "Code.exe"
-            ? `${codeExecutable}\r\n`
-            : "",
+          command === "where.exe" && args[0] === "Code.exe" ? `${codeExecutable}\r\n` : "",
           ""
         )
     );
@@ -446,8 +444,7 @@ describe("runtime bridge handlers: graph and project", () => {
     platformSpy.mockReturnValue("win32");
     const cursorCommand =
       "C:\\Users\\dev\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin\\cursor.cmd";
-    const cursorExecutable =
-      "C:\\Users\\dev\\AppData\\Local\\Programs\\cursor\\Cursor.exe";
+    const cursorExecutable = "C:\\Users\\dev\\AppData\\Local\\Programs\\cursor\\Cursor.exe";
     childProcessMock.execFile.mockImplementation(
       (
         command: string,
@@ -461,9 +458,7 @@ describe("runtime bridge handlers: graph and project", () => {
         }
         callback(
           null,
-          command === "where.exe" && args[0] === "cursor.cmd"
-            ? `${cursorCommand}\r\n`
-            : "",
+          command === "where.exe" && args[0] === "cursor.cmd" ? `${cursorCommand}\r\n` : "",
           ""
         );
       }
@@ -599,18 +594,14 @@ describe("runtime bridge handlers: graph and project", () => {
         toolId: "finder",
         label: "Finder",
         available: true,
-        iconDataUrl: `data:image/png;base64,${Buffer.from(
-          "native-development-tool-icon"
-        ).toString("base64")}`
+        iconDataUrl: `data:image/png;base64,${Buffer.from("native-development-tool-icon").toString(
+          "base64"
+        )}`
       })
     );
     expect(childProcessMock.execFile).toHaveBeenCalledWith(
       "/usr/libexec/PlistBuddy",
-      [
-        "-c",
-        "Print :CFBundleIconFile",
-        "/Resolved/com.apple.finder.app/Contents/Info.plist"
-      ],
+      ["-c", "Print :CFBundleIconFile", "/Resolved/com.apple.finder.app/Contents/Info.plist"],
       { timeout: 5_000, maxBuffer: 256 * 1024 },
       expect.any(Function)
     );
@@ -667,15 +658,13 @@ describe("runtime bridge handlers: graph and project", () => {
     expect(
       childProcessMock.execFile.mock.calls.filter(
         (call) =>
-          call[0] === "/usr/bin/mdfind" &&
-          String(call[1]?.[0]).includes("com.jetbrains.goland")
+          call[0] === "/usr/bin/mdfind" && String(call[1]?.[0]).includes("com.jetbrains.goland")
       )
     ).toHaveLength(1);
     expect(
       childProcessMock.execFile.mock.calls.filter(
         (call) =>
-          call[0] === "/usr/bin/mdfind" &&
-          String(call[1]?.[0]).includes("com.jetbrains.pycharm")
+          call[0] === "/usr/bin/mdfind" && String(call[1]?.[0]).includes("com.jetbrains.pycharm")
       )
     ).toHaveLength(1);
   });

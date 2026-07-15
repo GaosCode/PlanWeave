@@ -69,7 +69,16 @@ export const opencodeAgentDefinition: AgentDefinition = {
       }
     },
     capabilities: ["session", "prompt", "cancel", "streaming", "tool-updates"],
-    optionalCapabilities: ["permission", "authentication", "image", "embedded-context", "session-close", "history-load"],
-    limitations: ["Requires an installed OpenCode v1.17.18-compatible binary and agent-owned provider configuration."]
+    optionalCapabilities: [
+      "permission",
+      "authentication",
+      "image",
+      "embedded-context",
+      "session-close",
+      "history-load"
+    ],
+    limitations: [
+      "Requires an installed OpenCode v1.17.18-compatible binary and agent-owned provider configuration."
+    ]
   }
 };

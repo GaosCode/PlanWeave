@@ -82,16 +82,20 @@ app.on("before-quit", (event) => {
   void Promise.allSettled([
     stopMcpTunnelProcesses(),
     shutdownDesktopAutoRuns("PlanWeave Desktop is quitting.")
-  ]).then((results) => {
-    for (const result of results) {
-      if (result.status === "rejected") {
-        console.error(result.reason instanceof Error ? result.reason.message : String(result.reason));
+  ])
+    .then((results) => {
+      for (const result of results) {
+        if (result.status === "rejected") {
+          console.error(
+            result.reason instanceof Error ? result.reason.message : String(result.reason)
+          );
+        }
       }
-    }
-  }).finally(() => {
-    mcpTunnelCleanupComplete = true;
-    app.quit();
-  });
+    })
+    .finally(() => {
+      mcpTunnelCleanupComplete = true;
+      app.quit();
+    });
 });
 
 app.on("window-all-closed", () => {

@@ -33,7 +33,10 @@ describe("ACP mock subprocess harness", () => {
     const initialized = await harness.initialize();
     expect(initialized.result).toEqual(expect.objectContaining({ protocolVersion: 1 }));
     expect(harness.sent[0]).toEqual(
-      expect.objectContaining({ method: "initialize", params: expect.objectContaining({ clientCapabilities: {} }) })
+      expect.objectContaining({
+        method: "initialize",
+        params: expect.objectContaining({ clientCapabilities: {} })
+      })
     );
 
     const [first, second] = await Promise.all([harness.newSession(), harness.newSession()]);
@@ -59,22 +62,29 @@ describe("ACP mock subprocess harness", () => {
       const initialize = harness.sent.find((message) => message.method === "initialize");
       expect(initialize?.params).toEqual(
         expect.objectContaining({
-          clientCapabilities:
-            scenario === "elicitation" ? { elicitation: { form: {} } } : {}
+          clientCapabilities: scenario === "elicitation" ? { elicitation: { form: {} } } : {}
         })
       );
       const sessionId = await harness.newSession();
       await expect(harness.prompt(sessionId)).resolves.toEqual(
         expect.objectContaining({ result: { stopReason: "end_turn" } })
       );
-      expect(harness.traffic.some((message) => message.method === (scenario === "permission" ? "session/request_permission" : "elicitation/create"))).toBe(true);
+      expect(
+        harness.traffic.some(
+          (message) =>
+            message.method ===
+            (scenario === "permission" ? "session/request_permission" : "elicitation/create")
+        )
+      ).toBe(true);
     }
   });
 
   it("supports authentication errors, cancellation races, and late updates", async () => {
     const auth = spawnHarness("auth-required");
     await auth.initialize();
-    await expect(auth.request("session/new", { cwd: process.cwd(), mcpServers: [] })).resolves.toEqual(
+    await expect(
+      auth.request("session/new", { cwd: process.cwd(), mcpServers: [] })
+    ).resolves.toEqual(
       expect.objectContaining({ error: expect.objectContaining({ code: -32000 }) })
     );
 
@@ -83,7 +93,9 @@ describe("ACP mock subprocess harness", () => {
     const sessionId = await late.newSession();
     const prompt = late.prompt(sessionId);
     late.notify("session/cancel", { sessionId });
-    await expect(prompt).resolves.toEqual(expect.objectContaining({ result: { stopReason: "cancelled" } }));
+    await expect(prompt).resolves.toEqual(
+      expect.objectContaining({ result: { stopReason: "cancelled" } })
+    );
     expect(JSON.stringify(late.traffic)).toContain("late");
   });
 
@@ -109,7 +121,9 @@ describe("ACP mock subprocess harness", () => {
 
   it("surfaces delayed responses, malformed stdout, stderr, and early process exit", async () => {
     const delayed = spawnHarness("delayed");
-    await expect(delayed.initialize()).resolves.toEqual(expect.objectContaining({ result: expect.any(Object) }));
+    await expect(delayed.initialize()).resolves.toEqual(
+      expect.objectContaining({ result: expect.any(Object) })
+    );
 
     const malformed = spawnHarness("malformed");
     await malformed.initialize();

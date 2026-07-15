@@ -61,9 +61,11 @@ async function expectFeedbackReleased(
 }
 
 describe("Auto Run persisted artifact identity", () => {
-  it.each(["missing_claim_ref", "conflicting_claim_ref", "replaced_source"] as const)(
-    "fails closed for ACP implementation %s",
-    async (failure) => {
+  it.each([
+    "missing_claim_ref",
+    "conflicting_claim_ref",
+    "replaced_source"
+  ] as const)("fails closed for ACP implementation %s", async (failure) => {
     const { root, init } = await createTestWorkspace();
     const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
     const executor: ExecutorAdapter = {
@@ -81,8 +83,7 @@ describe("Auto Run persisted artifact identity", () => {
           ...(failure === "missing_claim_ref"
             ? {}
             : {
-                claimRef:
-                  failure === "conflicting_claim_ref" ? "T-001#B-WRONG" : "T-001#B-001"
+                claimRef: failure === "conflicting_claim_ref" ? "T-001#B-WRONG" : "T-001#B-001"
               }),
           taskId: "T-001",
           blockId: "B-001",
@@ -109,12 +110,13 @@ describe("Auto Run persisted artifact identity", () => {
       kind: "blocked",
       claim: { ref: "T-001#B-001" }
     });
-    }
-  );
+  });
 
-  it.each(["missing_claim_ref", "conflicting_claim_ref", "symlink_source"] as const)(
-    "fails closed for ACP review %s",
-    async (failure) => {
+  it.each([
+    "missing_claim_ref",
+    "conflicting_claim_ref",
+    "symlink_source"
+  ] as const)("fails closed for ACP review %s", async (failure) => {
     const { root, init } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
     await submitBlockResult({
@@ -144,8 +146,7 @@ describe("Auto Run persisted artifact identity", () => {
           ...(failure === "missing_claim_ref"
             ? {}
             : {
-                claimRef:
-                  failure === "conflicting_claim_ref" ? "T-001#R-WRONG" : "T-001#R-001"
+                claimRef: failure === "conflicting_claim_ref" ? "T-001#R-WRONG" : "T-001#R-001"
               }),
           taskId: "T-001",
           blockId: "R-001",
@@ -178,12 +179,14 @@ describe("Auto Run persisted artifact identity", () => {
       kind: "blocked",
       claim: { ref: "T-001#R-001" }
     });
-    }
-  );
+  });
 
-  it.each(
-    ["missing_claim_ref", "conflicting_claim_ref", "conflicting_ref", "agent_mismatch"] as const
-  )("fails closed for ACP feedback %s", async (failure) => {
+  it.each([
+    "missing_claim_ref",
+    "conflicting_claim_ref",
+    "conflicting_ref",
+    "agent_mismatch"
+  ] as const)("fails closed for ACP feedback %s", async (failure) => {
     const workspace = await openFeedbackWorkspace();
     const runDir = join(workspace.init.workspace.resultsDir, "feedback-runs", "RUN-001");
     const executor: ExecutorAdapter = {
@@ -202,8 +205,7 @@ describe("Auto Run persisted artifact identity", () => {
           ...(failure === "missing_claim_ref"
             ? {}
             : {
-                claimRef:
-                  failure === "conflicting_claim_ref" ? "T-001#R-WRONG" : "T-001#R-001"
+                claimRef: failure === "conflicting_claim_ref" ? "T-001#R-WRONG" : "T-001#R-001"
               }),
           feedbackId: "FE-001",
           sourceReviewBlockRef: "T-001#R-001",

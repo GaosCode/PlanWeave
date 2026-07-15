@@ -147,15 +147,11 @@ describe("ACP actual session configuration", () => {
   it("strictly merges defaults and live full-option/mode updates by sequence", () => {
     const initial = configuration({
       mode: "read-only",
-      configOptions: [
-        selectOption({ id: "model", category: "model", currentValue: "initial" })
-      ]
+      configOptions: [selectOption({ id: "model", category: "model", currentValue: "initial" })]
     });
     const defaultsApplied = configuration({
       mode: "agent",
-      configOptions: [
-        selectOption({ id: "model", category: "model", currentValue: "configured" })
-      ]
+      configOptions: [selectOption({ id: "model", category: "model", currentValue: "configured" })]
     });
     const result = projectAcpActualSessionConfiguration([
       event(1, {
@@ -232,9 +228,7 @@ describe("ACP actual session configuration", () => {
         phase: "initial",
         configuration: configuration({
           mode: "read-only",
-          configOptions: [
-            selectOption({ id: "mode", category: "mode", currentValue: "agent" })
-          ]
+          configOptions: [selectOption({ id: "mode", category: "mode", currentValue: "agent" })]
         })
       })
     ]);

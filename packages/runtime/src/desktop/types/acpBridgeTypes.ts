@@ -53,7 +53,9 @@ export type DesktopRunnerRecordSubscriptionUpdate = Omit<
 >;
 
 export const desktopAgentSessionActionIdentitySchema = runnerSessionActionIdentitySchema;
-export type DesktopAgentSessionActionIdentity = z.infer<typeof desktopAgentSessionActionIdentitySchema>;
+export type DesktopAgentSessionActionIdentity = z.infer<
+  typeof desktopAgentSessionActionIdentitySchema
+>;
 
 export const desktopAgentActionIdentitySchema = runnerRequestActionIdentitySchema;
 export type DesktopAgentActionIdentity = z.infer<typeof desktopAgentActionIdentitySchema>;

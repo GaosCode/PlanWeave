@@ -402,28 +402,36 @@ describe("AgentRunner registries", () => {
   it("applies Desktop ACP session defaults only when desktopRunId identifies the origin", async () => {
     const { init } = await createTestWorkspace();
     const settingsFile = join(init.workspace.rootPath, "desktop-settings.json");
-    await writeFile(settingsFile, JSON.stringify({
-      agents: {
-        codex: {
-          acp: {
-            modeId: "agent-full-access",
-            configOptions: { model: "gpt-5.2-codex", "fast-mode": true }
+    await writeFile(
+      settingsFile,
+      JSON.stringify({
+        agents: {
+          codex: {
+            acp: {
+              modeId: "agent-full-access",
+              configOptions: { model: "gpt-5.2-codex", "fast-mode": true }
+            }
           }
         }
-      }
-    }));
+      })
+    );
     const previous = process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
     process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = settingsFile;
     try {
-      await expect(createAcpRunner().runBlock({
-        projectRoot: init.workspace,
-        claim: blockClaim,
-        prompt: "desktop ACP execution",
-        executorName: "codex-acp",
-        profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
-        profileSource: "builtin",
-        runtime: { desktopRunId: "DESKTOP-001", timeoutMs: 1_000 }
-      }, probeDefinition("artifact-session-config"))).resolves.toMatchObject({
+      await expect(
+        createAcpRunner().runBlock(
+          {
+            projectRoot: init.workspace,
+            claim: blockClaim,
+            prompt: "desktop ACP execution",
+            executorName: "codex-acp",
+            profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
+            profileSource: "builtin",
+            runtime: { desktopRunId: "DESKTOP-001", timeoutMs: 1_000 }
+          },
+          probeDefinition("artifact-session-config")
+        )
+      ).resolves.toMatchObject({
         kind: "block",
         exitCode: 0
       });
@@ -440,15 +448,20 @@ describe("AgentRunner registries", () => {
     const previous = process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
     process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = settingsFile;
     try {
-      await expect(createAcpRunner().runBlock({
-        projectRoot: init.workspace,
-        claim: blockClaim,
-        prompt: "non-Desktop ACP execution",
-        executorName: "codex-acp",
-        profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
-        profileSource: "builtin",
-        runtime: { runSessionId: "SESSION-CLI-001", timeoutMs: 1_000 }
-      }, probeDefinition("artifact-implementation"))).resolves.toMatchObject({
+      await expect(
+        createAcpRunner().runBlock(
+          {
+            projectRoot: init.workspace,
+            claim: blockClaim,
+            prompt: "non-Desktop ACP execution",
+            executorName: "codex-acp",
+            profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
+            profileSource: "builtin",
+            runtime: { runSessionId: "SESSION-CLI-001", timeoutMs: 1_000 }
+          },
+          probeDefinition("artifact-implementation")
+        )
+      ).resolves.toMatchObject({
         kind: "block",
         exitCode: 0
       });

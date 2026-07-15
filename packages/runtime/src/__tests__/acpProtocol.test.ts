@@ -95,11 +95,13 @@ describe("ACP official SDK subprocess connection", () => {
     expect(initialized.agentCapabilities?.loadSession).toBe(true);
     const session = await connection.newSession({ cwd: process.cwd(), mcpServers: [] });
 
-    await expect(connection.loadSession({
-      sessionId: session.sessionId,
-      cwd: process.cwd(),
-      mcpServers: []
-    })).resolves.toEqual({});
+    await expect(
+      connection.loadSession({
+        sessionId: session.sessionId,
+        cwd: process.cwd(),
+        mcpServers: []
+      })
+    ).resolves.toEqual({});
   });
 
   it("negotiates session/close and performs close over the official SDK wire path", async () => {
@@ -141,15 +143,16 @@ describe("ACP official SDK subprocess connection", () => {
     ).resolves.toMatchObject({ stopReason: "end_turn" });
   });
 
-  it.each(["malformed", "duplicate-response", "unknown-id"])(
-    "terminates on %s transport input",
-    async (scenario) => {
-      const connection = connect(scenario);
-      await connection.initialize();
-      await new Promise((resolve) => setTimeout(resolve, 35));
-      await expect(connection.newSession({ cwd: process.cwd(), mcpServers: [] })).rejects.toThrow();
-    }
-  );
+  it.each([
+    "malformed",
+    "duplicate-response",
+    "unknown-id"
+  ])("terminates on %s transport input", async (scenario) => {
+    const connection = connect(scenario);
+    await connection.initialize();
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    await expect(connection.newSession({ cwd: process.cwd(), mcpServers: [] })).rejects.toThrow();
+  });
 
   it("fails closed on a valid JSON non-object and settles an in-flight request", async () => {
     const connection = connect("invalid-envelope-pending");
@@ -238,7 +241,8 @@ describe("ACP official SDK subprocess connection", () => {
       payload: "mock ACP [redacted]\n"
     });
     expect(observations.filter((item) => item.direction !== "agent_stderr")).toSatisfy(
-      (items: AcpProtocolObservation[]) => items.every((item) => JSON.stringify(item.payload) === '{"redacted":true}')
+      (items: AcpProtocolObservation[]) =>
+        items.every((item) => JSON.stringify(item.payload) === '{"redacted":true}')
     );
   });
 

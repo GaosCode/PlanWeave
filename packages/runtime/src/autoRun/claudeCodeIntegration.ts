@@ -86,7 +86,16 @@ export const claudeCodeAgentDefinition: AgentDefinition = {
       }
     },
     capabilities: ["session", "prompt", "cancel", "streaming", "tool-updates"],
-    optionalCapabilities: ["permission", "authentication", "image", "embedded-context", "session-close", "history-load"],
-    limitations: ["Requires a separately installed claude-agent-acp executable and agent-owned authentication."]
+    optionalCapabilities: [
+      "permission",
+      "authentication",
+      "image",
+      "embedded-context",
+      "session-close",
+      "history-load"
+    ],
+    limitations: [
+      "Requires a separately installed claude-agent-acp executable and agent-owned authentication."
+    ]
   }
 };

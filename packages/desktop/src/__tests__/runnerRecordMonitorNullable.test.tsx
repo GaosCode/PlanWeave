@@ -48,32 +48,34 @@ function modelWithEvent(sequence: number, content: string): RunnerRecordReadMode
   const model = liveModel();
   return {
     ...model,
-    events: [{
-      version: "planweave.runner-event/v1",
-      sequence,
-      timestamp: "2026-07-13T00:00:00.000Z",
-      identity: {
-        projectId: "project-a",
-        canvasId: "canvas-main",
-        taskId: "T-001",
-        blockId: "B-001",
-        claimRef: "T-001#B-001",
-        runId: "RUN-001",
-        runOwner: "executor",
-        runSessionId: "SESSION-001",
-        desktopRunId: "DESKTOP-RUN-001",
-        executorRunId: "RUN-001"
-      },
-      runner: { version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" },
-      body: {
-        kind: "message",
-        role: "assistant",
-        messageId: null,
-        chunk: true,
-        content,
-        redaction: { classes: [], replaced: 0 }
+    events: [
+      {
+        version: "planweave.runner-event/v1",
+        sequence,
+        timestamp: "2026-07-13T00:00:00.000Z",
+        identity: {
+          projectId: "project-a",
+          canvasId: "canvas-main",
+          taskId: "T-001",
+          blockId: "B-001",
+          claimRef: "T-001#B-001",
+          runId: "RUN-001",
+          runOwner: "executor",
+          runSessionId: "SESSION-001",
+          desktopRunId: "DESKTOP-RUN-001",
+          executorRunId: "RUN-001"
+        },
+        runner: { version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" },
+        body: {
+          kind: "message",
+          role: "assistant",
+          messageId: null,
+          chunk: true,
+          content,
+          redaction: { classes: [], replaced: 0 }
+        }
       }
-    }],
+    ],
     cursor: { ...model.cursor, afterSequence: sequence }
   };
 }

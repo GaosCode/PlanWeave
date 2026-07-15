@@ -85,7 +85,15 @@ export const piAgentDefinition: AgentDefinition = {
       }
     },
     capabilities: ["session", "prompt", "cancel", "streaming", "tool-updates"],
-    optionalCapabilities: ["authentication", "image", "embedded-context", "session-close", "history-load"],
-    limitations: ["Requires separately installed pi-acp and pi executables; filesystem and terminal delegation are not supported."]
+    optionalCapabilities: [
+      "authentication",
+      "image",
+      "embedded-context",
+      "session-close",
+      "history-load"
+    ],
+    limitations: [
+      "Requires separately installed pi-acp and pi executables; filesystem and terminal delegation are not supported."
+    ]
   }
 };

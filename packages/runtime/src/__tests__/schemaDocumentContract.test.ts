@@ -5,11 +5,7 @@ import {
   reviewTriggerConditions,
   supportedManifestVersion
 } from "../types.js";
-import {
-  executorAdapter,
-  executorAdapters,
-  executorIntegration
-} from "../index.js";
+import { executorAdapter, executorAdapters, executorIntegration } from "../index.js";
 import type { ExecutorAdapterName } from "../index.js";
 import { manifestSchemaTopLevelFields } from "../schema/manifest.js";
 import { projectGraphEdgeTypes, supportedProjectGraphVersion } from "../projectGraph/types.js";

@@ -11,7 +11,11 @@ import {
   projectAcpActualSessionConfiguration,
   type AcpActualSessionConfiguration
 } from "./acpSessionConfiguration.js";
-import { runnerEventCursorSchema, type RunnerEventCursor, type RunnerEventReplayDiagnostic } from "./runnerEventReplay.js";
+import {
+  runnerEventCursorSchema,
+  type RunnerEventCursor,
+  type RunnerEventReplayDiagnostic
+} from "./runnerEventReplay.js";
 
 export type AcpEventReadSnapshot = {
   events: NormalizedRunnerEvent[];
@@ -64,8 +68,10 @@ export class AcpEventReadModel {
       throw new Error("Runner event cursor runId does not match the requested run.");
     }
     const canonicalIdentity = this.store.canonicalIdentity();
-    if (parsedCursor?.canonicalIdentity &&
-      JSON.stringify(parsedCursor.canonicalIdentity) !== JSON.stringify(canonicalIdentity)) {
+    if (
+      parsedCursor?.canonicalIdentity &&
+      JSON.stringify(parsedCursor.canonicalIdentity) !== JSON.stringify(canonicalIdentity)
+    ) {
       throw new Error("ACP event cursor canonical identity does not match the read model.");
     }
     const afterSequence = typeof cursor === "number" ? cursor : cursor.afterSequence;
@@ -76,9 +82,7 @@ export class AcpEventReadModel {
       conversation: projectAcpConversation(events),
       diagnostics: this.store.diagnosticsSnapshot(),
       terminal: this.terminal || parsedCursor?.terminal === true,
-      actualConfiguration: projectAcpActualSessionConfiguration(
-        this.store.eventsAfterSequence(0)
-      ),
+      actualConfiguration: projectAcpActualSessionConfiguration(this.store.eventsAfterSequence(0)),
       cursor: {
         version: "planweave.runner-event-cursor/v1",
         runId: this.store.runId,
@@ -100,18 +104,26 @@ export class AcpEventReadModel {
 
 export class AcpEventReadModelRegistry {
   private readonly models = new Map<string, AcpEventReadModel>();
-  constructor(private readonly createStore: (options: AcpEventStoreOptions) => AcpEventStore = (options) => new AcpEventStore(options)) {}
+  constructor(
+    private readonly createStore: (options: AcpEventStoreOptions) => AcpEventStore = (options) =>
+      new AcpEventStore(options)
+  ) {}
 
   async create(options: AcpEventStoreOptions): Promise<AcpEventReadModel> {
-    if (this.models.has(options.runDir)) throw new Error(`ACP event read model already exists for '${options.runDir}'.`);
+    if (this.models.has(options.runDir))
+      throw new Error(`ACP event read model already exists for '${options.runDir}'.`);
     const model = new AcpEventReadModel(this.createStore(options));
     await model.store.open();
     this.models.set(options.runDir, model);
     return model;
   }
 
-  get(runDir: string): AcpEventReadModel | null { return this.models.get(runDir) ?? null; }
-  release(runDir: string): boolean { return this.models.delete(runDir); }
+  get(runDir: string): AcpEventReadModel | null {
+    return this.models.get(runDir) ?? null;
+  }
+  release(runDir: string): boolean {
+    return this.models.delete(runDir);
+  }
 }
 
 export const acpEventReadModels = new AcpEventReadModelRegistry();

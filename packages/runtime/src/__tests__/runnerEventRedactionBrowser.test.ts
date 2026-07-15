@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  safeRunnerEventTextSchema,
-  utf8ByteLength
-} from "../autoRun/runnerEventRedaction.js";
+import { safeRunnerEventTextSchema, utf8ByteLength } from "../autoRun/runnerEventRedaction.js";
 
 describe("runner event redaction browser compatibility", () => {
   afterEach(() => vi.unstubAllGlobals());

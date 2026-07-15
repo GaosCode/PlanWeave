@@ -92,10 +92,7 @@ function installSelectDomStubs() {
   });
 }
 
-function acpAgent(
-  kind: DesktopAgentDetection["kind"],
-  name: string
-): DesktopAgentDetection {
+function acpAgent(kind: DesktopAgentDetection["kind"], name: string): DesktopAgentDetection {
   return {
     runnerKind: "acp",
     kind,
@@ -408,73 +405,70 @@ describe("executor preflight desktop UI", () => {
       currentValue: "balanced",
       currentLabel: "Balanced"
     }
-  ])(
-    "shows and persists $kind thinking options from advertised values",
-    async ({
-      kind,
-      agentName,
-      optionId,
-      optionName,
-      firstValue,
-      firstLabel,
-      currentValue,
-      currentLabel
-    }) => {
-      installSelectDomStubs();
-      bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
-        agentKind: kind,
-        ok: true,
-        message: "ACP capability probe passed.",
-        failureCode: null,
-        agentInfo: { name: agentName, version: "1.0.0" },
-        capabilities: ["session"],
-        sessionConfig: {
-          modes: null,
-          configOptions: [
-            {
-              id: optionId,
-              type: "select",
-              name: optionName,
-              description: null,
-              category: null,
-              currentValue,
-              options: [
-                { value: firstValue, name: firstLabel, description: null, group: null },
-                { value: currentValue, name: currentLabel, description: null, group: null }
-              ]
-            }
-          ]
-        }
-      });
-      const updateSettings = vi.fn();
-      render(
-        <SettingsAgentsSection
-          agentDetectionRefreshing={false}
-          agents={[acpAgent(kind, agentName)]}
-          canvasRef={canvasRef}
-          graph={graphWithExecutors([kind])}
-          refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
-          settings={defaultDesktopSettings}
-          t={t}
-          updateSettings={updateSettings}
-        />
-      );
+  ])("shows and persists $kind thinking options from advertised values", async ({
+    kind,
+    agentName,
+    optionId,
+    optionName,
+    firstValue,
+    firstLabel,
+    currentValue,
+    currentLabel
+  }) => {
+    installSelectDomStubs();
+    bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
+      agentKind: kind,
+      ok: true,
+      message: "ACP capability probe passed.",
+      failureCode: null,
+      agentInfo: { name: agentName, version: "1.0.0" },
+      capabilities: ["session"],
+      sessionConfig: {
+        modes: null,
+        configOptions: [
+          {
+            id: optionId,
+            type: "select",
+            name: optionName,
+            description: null,
+            category: null,
+            currentValue,
+            options: [
+              { value: firstValue, name: firstLabel, description: null, group: null },
+              { value: currentValue, name: currentLabel, description: null, group: null }
+            ]
+          }
+        ]
+      }
+    });
+    const updateSettings = vi.fn();
+    render(
+      <SettingsAgentsSection
+        agentDetectionRefreshing={false}
+        agents={[acpAgent(kind, agentName)]}
+        canvasRef={canvasRef}
+        graph={graphWithExecutors([kind])}
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        settings={defaultDesktopSettings}
+        t={t}
+        updateSettings={updateSettings}
+      />
+    );
 
-      await userEvent.click(screen.getByRole("button", { name: `${agentName} options` }));
-      const select = await screen.findByRole("combobox", { name: optionName });
-      expect(select).toHaveTextContent(currentLabel);
-      expect(select).not.toHaveTextContent(firstLabel);
+    await userEvent.click(screen.getByRole("button", { name: `${agentName} options` }));
+    const select = await screen.findByRole("combobox", { name: optionName });
+    expect(select).toHaveTextContent(currentLabel);
+    expect(select).not.toHaveTextContent(firstLabel);
 
-      await userEvent.click(select);
-      await userEvent.click(screen.getByRole("option", { name: firstLabel }));
+    await userEvent.click(select);
+    await userEvent.click(screen.getByRole("option", { name: firstLabel }));
 
-      const update = updateSettings.mock.calls.at(-1)?.[0];
-      expect(typeof update).toBe("function");
-      expect(update(defaultDesktopSettings)).toMatchObject({
-        agents: { [kind]: { acp: { configOptions: { [optionId]: firstValue } } } }
-      });
-    }
-  );
+    const update = updateSettings.mock.calls.at(-1)?.[0];
+    expect(typeof update).toBe("function");
+    expect(update(defaultDesktopSettings)).toMatchObject({
+      agents: { [kind]: { acp: { configOptions: { [optionId]: firstValue } } } }
+    });
+  });
 
   it("shows Pi's advertised current session mode and persists an explicit override", async () => {
     installSelectDomStubs();

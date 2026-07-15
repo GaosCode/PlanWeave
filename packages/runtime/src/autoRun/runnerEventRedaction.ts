@@ -25,7 +25,11 @@ type RedactionRule = {
 };
 
 const redactionRules: readonly RedactionRule[] = [
-  { pattern: jsonCredentialLabelPattern, classification: "credential", replacement: '"credential":"[REDACTED:CREDENTIAL]"' },
+  {
+    pattern: jsonCredentialLabelPattern,
+    classification: "credential",
+    replacement: '"credential":"[REDACTED:CREDENTIAL]"'
+  },
   {
     pattern: privateKeyPattern,
     classification: "credential",
@@ -126,7 +130,11 @@ function isSensitiveStructuredKey(key: string): boolean {
   return sensitiveStructuredKeyEndings.some((ending) => normalized.endsWith(ending));
 }
 
-function redactStructuredValue(value: unknown, key: string | null, ancestors: WeakSet<object>): unknown {
+function redactStructuredValue(
+  value: unknown,
+  key: string | null,
+  ancestors: WeakSet<object>
+): unknown {
   const normalizedKey = key === null ? null : normalizedStructuredKey(key);
   if (normalizedKey !== null && protocolIdentityKeys.has(normalizedKey)) {
     if (typeof value === "string" || typeof value === "number" || value === null) return value;

@@ -222,37 +222,39 @@ async function performRunnerCleanup(
   const history = requests.map((request) =>
     persistedInteractionHistory(request, "terminal_cleanup")
   );
-  const requestResults = await Promise.allSettled(requests.map(async (request) => {
-    const response = respondingRequestPromises.get(request);
-    if (response) {
-      try {
-        await response;
-      } catch {
-        // A failed response remains pending and must still be cancelled by terminal cleanup.
+  const requestResults = await Promise.allSettled(
+    requests.map(async (request) => {
+      const response = respondingRequestPromises.get(request);
+      if (response) {
+        try {
+          await response;
+        } catch {
+          // A failed response remains pending and must still be cancelled by terminal cleanup.
+        }
       }
-    }
-    if (settledRequests.has(request)) return;
-    respondingRequests.add(request);
-    try {
-      await request.reject(reason);
-      settledRequests.add(request);
-      const ids = settledRequestIds.get(control) ?? new Set<string>();
-      ids.add(request.requestId);
-      settledRequestIds.set(control, ids);
-    } finally {
-      respondingRequests.delete(request);
-    }
-  }));
+      if (settledRequests.has(request)) return;
+      respondingRequests.add(request);
+      try {
+        await request.reject(reason);
+        settledRequests.add(request);
+        const ids = settledRequestIds.get(control) ?? new Set<string>();
+        ids.add(request.requestId);
+        settledRequestIds.set(control, ids);
+      } finally {
+        respondingRequests.delete(request);
+      }
+    })
+  );
   const cancellationResults: PromiseSettledResult<unknown>[] = [];
   if (cancelSession && control.sessionId) {
-    cancellationResults.push(...await Promise.allSettled([
-      control.connection.cancelSession(control.sessionId)
-    ]));
+    cancellationResults.push(
+      ...(await Promise.allSettled([control.connection.cancelSession(control.sessionId)]))
+    );
     await boundedGrace(RUNNER_CANCEL_GRACE_MS);
     if (control.connection.supportsSessionClose) {
-      cancellationResults.push(...await Promise.allSettled([
-        control.connection.closeSession(control.sessionId)
-      ]));
+      cancellationResults.push(
+        ...(await Promise.allSettled([control.connection.closeSession(control.sessionId)]))
+      );
     }
   }
   const operationResults = await Promise.allSettled(
@@ -262,7 +264,12 @@ async function performRunnerCleanup(
     Promise.resolve().then(() => control.connection.close(reason)),
     Promise.resolve().then(() => control.process.terminate(reason))
   ]);
-  const results = [...requestResults, ...operationResults, ...cancellationResults, ...processResults];
+  const results = [
+    ...requestResults,
+    ...operationResults,
+    ...cancellationResults,
+    ...processResults
+  ];
   const failures: unknown[] = [];
   for (const result of results) {
     if (result.status === "rejected") {

@@ -99,12 +99,7 @@ function viewForName(
   literalExecutorNames: ReadonlySet<string>
 ): ExecutorOptionView {
   const canonicalName = optionExecutorName(name, literalExecutorNames);
-  const detection = detectionForName(
-    name,
-    agentDetections,
-    agentTransport,
-    literalExecutorNames
-  );
+  const detection = detectionForName(name, agentDetections, agentTransport, literalExecutorNames);
   return {
     name: canonicalName,
     label: canonicalName,

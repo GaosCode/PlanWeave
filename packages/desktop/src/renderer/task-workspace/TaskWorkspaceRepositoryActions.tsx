@@ -1,7 +1,4 @@
-import type {
-  DesktopBridgeApi,
-  DesktopDevelopmentToolDetection
-} from "@planweave-ai/runtime";
+import type { DesktopBridgeApi, DesktopDevelopmentToolDetection } from "@planweave-ai/runtime";
 import { ChevronDownIcon, Code2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -58,9 +55,10 @@ export function TaskWorkspaceRepositoryActions({
   useEffect(() => {
     let active = true;
     setDevelopmentTools([]);
-    if (!api) return () => {
-      active = false;
-    };
+    if (!api)
+      return () => {
+        active = false;
+      };
     void api.detectDevelopmentTools().then(
       (tools) => {
         if (!active) return;
@@ -94,7 +92,10 @@ export function TaskWorkspaceRepositoryActions({
   };
 
   return (
-    <div className="app-no-drag inline-flex items-center" data-testid="task-workspace-repository-actions">
+    <div
+      className="app-no-drag inline-flex items-center"
+      data-testid="task-workspace-repository-actions"
+    >
       <Button
         className="gap-1.5 rounded-r-none px-2.5"
         disabled={!selectedToolAvailable}

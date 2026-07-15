@@ -34,19 +34,21 @@ function activeHandle(
   }
 ): ActiveAgentRunHandle {
   const ownership = createLiveOwnership(`${runDir}:RUN-001`, 1);
-  const pendingRequests = new Map([[
-    "permission-1",
-    {
-      requestId: "permission-1",
-      interactionId: "permission-1",
-      kind: "permission" as const,
-      requestedAt: "2026-07-11T00:00:00.000Z",
-      summary: "approval required",
-      permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" as const }],
-      respond: vi.fn(async () => undefined),
-      reject: vi.fn(async () => undefined)
-    }
-  ]]);
+  const pendingRequests = new Map([
+    [
+      "permission-1",
+      {
+        requestId: "permission-1",
+        interactionId: "permission-1",
+        kind: "permission" as const,
+        requestedAt: "2026-07-11T00:00:00.000Z",
+        summary: "approval required",
+        permissionOptions: [{ optionId: "allow", label: "Allow", decision: "approve" as const }],
+        respond: vi.fn(async () => undefined),
+        reject: vi.fn(async () => undefined)
+      }
+    ]
+  ]);
   return {
     identity: {
       scope: runDir,
@@ -115,39 +117,42 @@ function event(
     },
     runner: { version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" },
     correlation: { sessionId: "session-1" },
-    body: kind === "interaction"
-      ? {
-          kind: "interaction",
-          interaction: {
-            version: "planweave.runner/v1",
-            interactionId: "permission-1",
-            requestId: "permission-1",
-            kind: "permission",
-            requestedAt: "2026-07-11T00:00:00.000Z",
-            summary: "approval required",
-            status: "cancelled",
-            actionable: false,
-            nonActionableReason: "terminal_cleanup"
+    body:
+      kind === "interaction"
+        ? {
+            kind: "interaction",
+            interaction: {
+              version: "planweave.runner/v1",
+              interactionId: "permission-1",
+              requestId: "permission-1",
+              kind: "permission",
+              requestedAt: "2026-07-11T00:00:00.000Z",
+              summary: "approval required",
+              status: "cancelled",
+              actionable: false,
+              nonActionableReason: "terminal_cleanup"
+            }
           }
-        }
-      : kind === "terminal" ? {
-          kind: "terminal",
-          outcome: {
-            version: "planweave.runner/v1",
-            state: "succeeded",
-            exitCode: 0,
-            finishedAt: "2026-07-11T00:00:01.000Z",
-            diagnostic: null,
-            artifactValidated: true
-          }
-        } : {
-          kind: "message",
-          role: "assistant",
-          messageId: `message-${sequence}`,
-          chunk: true,
-          content: `message ${sequence}`,
-          redaction: { classes: [], replaced: 0 }
-        }
+        : kind === "terminal"
+          ? {
+              kind: "terminal",
+              outcome: {
+                version: "planweave.runner/v1",
+                state: "succeeded",
+                exitCode: 0,
+                finishedAt: "2026-07-11T00:00:01.000Z",
+                diagnostic: null,
+                artifactValidated: true
+              }
+            }
+          : {
+              kind: "message",
+              role: "assistant",
+              messageId: `message-${sequence}`,
+              chunk: true,
+              content: `message ${sequence}`,
+              redaction: { classes: [], replaced: 0 }
+            }
   });
 }
 
@@ -245,12 +250,9 @@ describe("runner record read model", () => {
     expect(missing?.diagnostics.map((item) => item.code)).toContain("missing_log");
 
     const damagedDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-"));
-    await writeFile(join(damagedDir, "events.ndjson"), "not-json\n{\"partial\":", "utf8");
+    await writeFile(join(damagedDir, "events.ndjson"), 'not-json\n{"partial":', "utf8");
     const damaged = await readRunnerRecordReadModel({ runDir: damagedDir, metadata });
-    expect(damaged?.diagnostics.map((item) => item.code)).toEqual([
-      "corrupt_line",
-      "partial_line"
-    ]);
+    expect(damaged?.diagnostics.map((item) => item.code)).toEqual(["corrupt_line", "partial_line"]);
   });
 
   it.each([
@@ -286,7 +288,7 @@ describe("runner record read model", () => {
       body: {
         kind: "diagnostic",
         code: "corrupt_line",
-        message: "Unsupported ACP session update: {\"sessionUpdate\":\"available_commands_update\"}"
+        message: 'Unsupported ACP session update: {"sessionUpdate":"available_commands_update"}'
       }
     });
     await writeFile(join(runDir, "events.ndjson"), `${JSON.stringify(malformed)}\n`, "utf8");
@@ -303,7 +305,8 @@ describe("runner record read model", () => {
       body: {
         kind: "diagnostic",
         code: "corrupt_line",
-        message: "Unsupported ACP session update: {\"sessionUpdate\":\"available_commands_update\",\"availableCommands\":[{\"name\":\"missing-description\"}]}"
+        message:
+          'Unsupported ACP session update: {"sessionUpdate":"available_commands_update","availableCommands":[{"name":"missing-description"}]}'
       }
     });
     await writeFile(join(runDir, "events.ndjson"), `${JSON.stringify(malformed)}\n`, "utf8");
@@ -320,7 +323,7 @@ describe("runner record read model", () => {
       body: {
         kind: "diagnostic",
         code: "corrupt_line",
-        message: "Unsupported ACP session update: {\"sessionUpdate\":\"future_unknown_update\"}"
+        message: 'Unsupported ACP session update: {"sessionUpdate":"future_unknown_update"}'
       }
     });
     await writeFile(join(runDir, "events.ndjson"), `${JSON.stringify(unknown)}\n`, "utf8");
@@ -357,7 +360,11 @@ describe("runner record read model", () => {
 
   it("fails closed for conflicting metadata identity fields before replay", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-"));
-    await writeFile(join(runDir, "events.ndjson"), `${JSON.stringify(event(1, "message"))}\n`, "utf8");
+    await writeFile(
+      join(runDir, "events.ndjson"),
+      `${JSON.stringify(event(1, "message"))}\n`,
+      "utf8"
+    );
 
     const result = await readRunnerRecordReadModel({
       runDir,
@@ -403,7 +410,9 @@ describe("runner record read model", () => {
       const consumer = await consumeRunnerRecordReadModel({
         runDir,
         metadata,
-        subscriber: (snapshot) => { live.push(snapshot.cursor.afterSequence); }
+        subscriber: (snapshot) => {
+          live.push(snapshot.cursor.afterSequence);
+        }
       });
       expect(consumer.snapshot?.events.map((item) => item.sequence)).toEqual([1]);
       expect(consumer.subscription).not.toBeNull();
@@ -440,7 +449,9 @@ describe("runner record read model", () => {
           claimRef: "T-001#B-001",
           sessionId: "session-1"
         }),
-        subscriber: (snapshot) => { live.push(snapshot.cursor.afterSequence); }
+        subscriber: (snapshot) => {
+          live.push(snapshot.cursor.afterSequence);
+        }
       });
 
       expect(consumer.snapshot?.terminal).toBe(true);
@@ -466,13 +477,16 @@ describe("runner record read model", () => {
       const consumer = await consumeRunnerRecordReadModel({
         runDir,
         metadata: { ...metadata, sessionId: null },
-        subscriber: (snapshot) => { live.push(snapshot.cursor.afterSequence); }
+        subscriber: (snapshot) => {
+          live.push(snapshot.cursor.afterSequence);
+        }
       });
 
       await model.store.append(event(1, "message").body, { sessionId: "session-1" });
       await vi.waitFor(() => expect(live).toEqual([1]));
-      expect(model.store.snapshot().diagnostics.map((item) => item.code))
-        .not.toContain("subscriber_callback_failed");
+      expect(model.store.snapshot().diagnostics.map((item) => item.code)).not.toContain(
+        "subscriber_callback_failed"
+      );
       consumer.subscription?.unsubscribe();
     } finally {
       acpEventReadModels.release(runDir);
@@ -662,7 +676,9 @@ describe("runner record read model", () => {
 
       expect(consumer.snapshot?.events).toEqual([]);
       expect(consumer.snapshot?.conversation).toEqual([]);
-      expect(consumer.snapshot?.diagnostics.map((item) => item.code)).toContain("identity_mismatch");
+      expect(consumer.snapshot?.diagnostics.map((item) => item.code)).toContain(
+        "identity_mismatch"
+      );
       expect(consumer.subscription).toBeNull();
     } finally {
       acpEventReadModels.release(runDir);
@@ -671,7 +687,11 @@ describe("runner record read model", () => {
 
   it("marks interaction active only for exact live registry ownership", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-owned-record-"));
-    await writeFile(join(runDir, "events.ndjson"), `${JSON.stringify(event(1, "interaction"))}\n`, "utf8");
+    await writeFile(
+      join(runDir, "events.ndjson"),
+      `${JSON.stringify(event(1, "interaction"))}\n`,
+      "utf8"
+    );
     const handle = activeHandle(runDir);
     activeAgentRunRegistry.register(handle);
     try {
@@ -683,9 +703,9 @@ describe("runner record read model", () => {
         activeRequests: [{ requestId: "permission-1", kind: "permission" }]
       });
       const foreign = await readRunnerRecordReadModel({
-          runDir,
-          metadata: { ...metadata, ref: "T-002#B-001" }
-        });
+        runDir,
+        metadata: { ...metadata, ref: "T-002#B-001" }
+      });
       expect(foreign?.events).toEqual([]);
       expect(foreign?.diagnostics.map((item) => item.code)).toContain("identity_mismatch");
       expect(foreign?.interaction.active).toBe(false);
@@ -719,7 +739,11 @@ describe("runner record read model", () => {
     }
 
     const requestRunDir = await mkdtemp(join(tmpdir(), "planweave-acp-owned-record-"));
-    await writeFile(join(requestRunDir, "events.ndjson"), `${JSON.stringify(ownedEvent)}\n`, "utf8");
+    await writeFile(
+      join(requestRunDir, "events.ndjson"),
+      `${JSON.stringify(ownedEvent)}\n`,
+      "utf8"
+    );
     const requestHandle = activeHandle(requestRunDir, {
       desktopRunId: "DESKTOP-good",
       runSessionId: "SESSION-good"

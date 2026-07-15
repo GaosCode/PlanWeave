@@ -92,9 +92,9 @@ describe("desktop records API", () => {
       "Task 'T-999' does not exist in canvas 'default'."
     );
     await expect(listTaskFeedbackRunRecords(root, "default", "")).rejects.toThrow(/too small/i);
-    await expect(
-      listTaskFeedbackRunRecords(root, "missing-canvas", "T-001")
-    ).rejects.toThrow("Project has no task canvas.");
+    await expect(listTaskFeedbackRunRecords(root, "missing-canvas", "T-001")).rejects.toThrow(
+      "Project has no task canvas."
+    );
   });
 
   it("lists newest run records first and removes terminal control codes from summaries", async () => {
@@ -196,11 +196,7 @@ describe("desktop records API", () => {
     await writeFile(join(feedbackRunDir, "prompt.md"), "Fix the review feedback.\n", "utf8");
     await writeFile(join(feedbackRunDir, "stdout.md"), "Applied feedback fix.\n", "utf8");
     await writeFile(join(feedbackRunDir, "stderr.log"), "", "utf8");
-    await writeFile(
-      join(feedbackRunDir, "feedback-report.md"),
-      "Feedback resolved.\n",
-      "utf8"
-    );
+    await writeFile(join(feedbackRunDir, "feedback-report.md"), "Feedback resolved.\n", "utf8");
     await writeJsonFile(join(feedbackRunDir, "heartbeat.json"), {
       status: "finished",
       pid: 12345,
@@ -452,21 +448,12 @@ describe("desktop records API", () => {
     const cli = await readRunnerRecordReadModelForArtifact(reportPath);
 
     expect(desktop.runnerReadModel).toEqual(cli);
-    expect(cli?.conversation).toEqual([
-      expect.objectContaining({ content: "shared projection" })
-    ]);
+    expect(cli?.conversation).toEqual([expect.objectContaining({ content: "shared projection" })]);
   });
 
   it("resolves only verified in-record artifacts and rejects traversal or missing files", async () => {
     const { root, init } = await createTestWorkspace();
-    const runDir = join(
-      init.workspace.resultsDir,
-      "T-001",
-      "blocks",
-      "B-001",
-      "runs",
-      "RUN-001"
-    );
+    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
     await mkdir(runDir, { recursive: true });
     const reportPath = join(runDir, "report.md");
     await writeFile(reportPath, "verified artifact\n", "utf8");

@@ -9,10 +9,13 @@ export function clampedContextUsagePercent(
   return Math.min(100, Math.max(0, contextUsagePercent(usedTokens, contextWindowTokens)));
 }
 
-export function displayConfigurationValue(value: string | boolean, booleanLabels: {
-  false: string;
-  true: string;
-}): string {
+export function displayConfigurationValue(
+  value: string | boolean,
+  booleanLabels: {
+    false: string;
+    true: string;
+  }
+): string {
   if (typeof value === "boolean") {
     return value ? booleanLabels.true : booleanLabels.false;
   }

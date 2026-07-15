@@ -117,9 +117,8 @@ function projectBlock(options: {
         `Terminal live Task Workspace model for record '${recordId}' has no terminal event.`
       );
     }
-    const terminalOutcome = terminalEvent?.body.kind === "terminal"
-      ? terminalEvent.body.outcome
-      : null;
+    const terminalOutcome =
+      terminalEvent?.body.kind === "terminal" ? terminalEvent.body.outcome : null;
     const finishedAt = terminalOutcome?.finishedAt ?? item.run.duration.finishedAt;
     const active = liveModel ? item.active && !liveModel.terminal : item.active;
     return {
