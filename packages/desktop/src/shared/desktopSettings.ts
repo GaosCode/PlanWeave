@@ -184,6 +184,11 @@ export const defaultDesktopSettings: DesktopUiSettings = {
       enabled: false,
       fullAccess: false,
       acp: { modeId: null, configOptions: {} }
+    },
+    grok: {
+      enabled: false,
+      fullAccess: false,
+      acp: { modeId: null, configOptions: {} }
     }
   }
 };
@@ -283,6 +288,18 @@ export function mergeDesktopSettings(
           configOptions: {
             ...current.agents.pi.acp.configOptions,
             ...patch.agents?.pi?.acp?.configOptions
+          }
+        }
+      },
+      grok: {
+        ...current.agents.grok,
+        ...patch.agents?.grok,
+        acp: {
+          ...current.agents.grok.acp,
+          ...patch.agents?.grok?.acp,
+          configOptions: {
+            ...current.agents.grok.acp.configOptions,
+            ...patch.agents?.grok?.acp?.configOptions
           }
         }
       }

@@ -18,7 +18,8 @@ const acpProfiles = {
   "codex-acp": "codex-acp",
   "claude-code-acp": "claude-agent-acp",
   "opencode-acp": "opencode",
-  "pi-acp": "pi-acp"
+  "pi-acp": "pi-acp",
+  "grok-acp": "grok"
 } as const;
 
 async function fakeAcpEnvironment() {

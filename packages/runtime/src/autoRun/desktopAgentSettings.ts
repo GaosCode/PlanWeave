@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { ExecutorProfile, RunnerTransport } from "../types.js";
+import type { AgentFamily, ExecutorProfile, RunnerTransport } from "../types.js";
 
-export type DesktopAgentKind = "codex" | "claude-code" | "opencode" | "pi";
+export type DesktopAgentKind = AgentFamily;
 
 export type DesktopAcpSessionDefaults = {
   modeId: string | null;
@@ -27,14 +27,16 @@ const desktopAgentNames = {
   codex: ["codex", "codex-auto"],
   "claude-code": ["claude-code", "claude-code-auto"],
   opencode: ["opencode"],
-  pi: ["pi", "pi-auto"]
+  pi: ["pi", "pi-auto"],
+  grok: []
 } as const satisfies Record<DesktopAgentKind, readonly string[]>;
 
 const desktopAgentAcpNames = {
   codex: "codex-acp",
   "claude-code": "claude-code-acp",
   opencode: "opencode-acp",
-  pi: "pi-acp"
+  pi: "pi-acp",
+  grok: "grok-acp"
 } as const satisfies Record<DesktopAgentKind, string>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -140,7 +142,7 @@ export function applyDesktopAgentSettingsToBuiltinProfiles(
   if (settings.agentTransport === "acp") {
     for (const kind of Object.keys(desktopAgentAcpNames) as DesktopAgentKind[]) {
       const acpProfile = next[desktopAgentAcpNames[kind]];
-      if (acpProfile) {
+      if (acpProfile && desktopAgentNames[kind].length > 0) {
         next[kind] = acpProfile;
       }
     }

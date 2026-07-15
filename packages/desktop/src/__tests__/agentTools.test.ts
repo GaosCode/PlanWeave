@@ -50,7 +50,8 @@ describe("desktop agent tool detection", () => {
       { command: "codex-acp", installed: true, runnerKind: "acp", version: null },
       { command: "claude-agent-acp", installed: true, runnerKind: "acp", version: null },
       { command: "opencode", installed: true, runnerKind: "acp", version: null },
-      { command: "pi-acp", installed: true, runnerKind: "acp", version: null }
+      { command: "pi-acp", installed: true, runnerKind: "acp", version: null },
+      { command: "grok", installed: true, runnerKind: "acp", version: null }
     ]);
     expect(execFileMock).toHaveBeenCalledWith(
       "codex",
@@ -66,6 +67,15 @@ describe("desktop agent tool detection", () => {
     expect(execFileMock).toHaveBeenCalledWith(
       "opencode",
       ["acp", "--help"],
+      expect.objectContaining({
+        maxBuffer: 64 * 1024,
+        timeout: 15_000
+      }),
+      expect.any(Function)
+    );
+    expect(execFileMock).toHaveBeenCalledWith(
+      "grok",
+      ["--no-auto-update", "agent", "stdio", "--help"],
       expect.objectContaining({
         maxBuffer: 64 * 1024,
         timeout: 15_000

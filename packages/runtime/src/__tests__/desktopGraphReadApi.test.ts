@@ -48,7 +48,15 @@ describe("desktop graph read API", () => {
     expect(graph.projectId).toBe(init.workspace.id);
     expect(graph.projectTitle).toBe("Test Plan");
     expect(graph.executorOptions).toEqual(
-      expect.arrayContaining(["default", "manual", "codex", "opencode", "claude-code", "pi"])
+      expect.arrayContaining([
+        "default",
+        "manual",
+        "codex",
+        "opencode",
+        "claude-code",
+        "pi",
+        "grok-acp"
+      ])
     );
     expect(graph.executorOptions).not.toEqual(
       expect.arrayContaining(["codex-auto", "codex-acp", "pi-auto", "pi-acp"])

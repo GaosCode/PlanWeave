@@ -302,11 +302,11 @@ describe("DesktopSettingsStore", () => {
 
     const patched = await store.mergePatch({
       agents: {
-        codex: {
+        grok: {
           acp: {
-            modeId: "agent-full-access",
+            modeId: "grok-default",
             configOptions: {
-              model: "gpt-5.2-codex",
+              model: "grok-4",
               "fast-mode": true
             }
           }
@@ -314,14 +314,14 @@ describe("DesktopSettingsStore", () => {
       }
     });
 
-    expect(patched.agents.codex.acp).toEqual({
-      modeId: "agent-full-access",
+    expect(patched.agents.grok.acp).toEqual({
+      modeId: "grok-default",
       configOptions: {
-        model: "gpt-5.2-codex",
+        model: "grok-4",
         "fast-mode": true
       }
     });
-    await expect(store.read()).resolves.toMatchObject({ agents: { codex: patched.agents.codex } });
+    await expect(store.read()).resolves.toMatchObject({ agents: { grok: patched.agents.grok } });
   });
 
   it("normalizes and migrates legacy localStorage payloads", async () => {

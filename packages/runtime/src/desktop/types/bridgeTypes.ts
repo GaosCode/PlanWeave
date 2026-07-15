@@ -75,11 +75,11 @@ import type {
   DesktopRunnerRecordSubscriptionUpdate
 } from "./acpBridgeTypes.js";
 import type { ArtifactReference } from "../../autoRun/runnerContractSchemas.js";
-import type { RunnerTransport } from "../../types.js";
+import type { AgentFamily, RunnerTransport } from "../../types.js";
 import type { TaskWorkspace, TaskWorkspaceInput } from "./taskWorkspaceAggregateTypes.js";
 import type { TaskWorkspaceRetryIdentity } from "./taskWorkspaceTypes.js";
 
-export type DesktopAgentKind = "codex" | "claude-code" | "opencode" | "pi";
+export type DesktopAgentKind = AgentFamily;
 
 export type DesktopAgentToolProfile = {
   kind: DesktopAgentKind;

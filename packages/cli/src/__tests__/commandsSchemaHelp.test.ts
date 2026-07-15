@@ -95,7 +95,13 @@ describe("planweave CLI help and schema output", () => {
       "Agent identity and runner transport are separate."
     );
     expect(formatSchemaHelp("manifest")).toContain("does not require a PlanWeave API key");
-    expect(formatSchemaHelp("manifest")).toContain("explicit *-acp names select ACP");
+    expect(formatSchemaHelp("manifest")).toContain(
+      "explicit *-acp names, including ACP-only grok-acp, select ACP"
+    );
+    expect(formatSchemaHelp("manifest")).toContain(
+      '\\"codex\\" | \\"opencode\\" | \\"claude-code\\" | \\"pi\\" | \\"grok\\"'
+    );
+    expect(formatSchemaHelp("manifest")).toContain("ACP-only grok-acp");
     expect(formatSchemaHelp("state")).toContain('"planned"');
     expect(formatSchemaHelp("state")).toContain('"implemented"');
     expect(formatSchemaHelp("layout")).toContain('"desktop-layout/v1"');

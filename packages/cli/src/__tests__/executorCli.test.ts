@@ -16,7 +16,8 @@ describe("executor CLI preflight exit status", () => {
         "codex-acp": ["codex-acp", []],
         "claude-code-acp": ["claude-agent-acp", []],
         "opencode-acp": ["opencode", ["acp"]],
-        "pi-acp": ["pi-acp", []]
+        "pi-acp": ["pi-acp", []],
+        "grok-acp": ["grok", ["--no-auto-update", "agent", "stdio"]]
       } as const;
       for (const [profile, [command, args]] of Object.entries(expected)) {
         const result = JSON.parse(

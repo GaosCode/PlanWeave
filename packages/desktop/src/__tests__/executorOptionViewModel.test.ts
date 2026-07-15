@@ -85,10 +85,11 @@ describe("executor option view model", () => {
           "opencode-acp",
           "pi",
           "pi-auto",
-          "pi-acp"
+          "pi-acp",
+          "grok-acp"
         ]
       })
-    ).toEqual(["manual", "codex", "claude-code", "opencode", "pi"]);
+    ).toEqual(["manual", "codex", "claude-code", "opencode", "pi", "grok-acp"]);
   });
 
   it("uses only the selected transport when reporting agent availability", () => {
@@ -126,6 +127,72 @@ describe("executor option view model", () => {
         executorOptions: ["codex"]
       })[0]
     ).toMatchObject({ disabled: true, detected: false, detectionMessage: "not found" });
+  });
+
+  it("uses ACP detection for grok-acp even when the global transport is CLI", () => {
+    const options = buildExecutorOptionViews({
+      agentDetections: [
+        {
+          kind: "codex",
+          runnerKind: "cli",
+          name: "Codex",
+          command: "codex",
+          versionArgs: ["--version"],
+          execArgs: ["exec", "-"],
+          fullAccessArgs: [],
+          installed: true,
+          version: "codex 1.0.0",
+          unavailableReason: null
+        },
+        {
+          kind: "grok",
+          runnerKind: "acp",
+          name: "Grok",
+          command: "grok",
+          versionArgs: ["--no-auto-update", "agent", "stdio", "--help"],
+          execArgs: ["--no-auto-update", "agent", "stdio"],
+          fullAccessArgs: [],
+          installed: false,
+          version: null,
+          unavailableReason: "grok ACP unavailable"
+        }
+      ],
+      agentTransport: "cli",
+      executorOptions: ["codex", "grok-acp"]
+    });
+
+    expect(options).toEqual([
+      expect.objectContaining({ name: "codex", detected: true, disabled: false }),
+      expect.objectContaining({
+        name: "grok-acp",
+        detected: false,
+        disabled: true,
+        detectionMessage: "grok ACP unavailable"
+      })
+    ]);
+  });
+
+  it("keeps grok-acp selectable when its ACP detection is installed under global CLI", () => {
+    expect(
+      buildExecutorOptionViews({
+        agentDetections: [
+          {
+            kind: "grok",
+            runnerKind: "acp",
+            name: "Grok",
+            command: "grok",
+            versionArgs: ["--no-auto-update", "agent", "stdio", "--help"],
+            execArgs: ["--no-auto-update", "agent", "stdio"],
+            fullAccessArgs: [],
+            installed: true,
+            version: null,
+            unavailableReason: null
+          }
+        ],
+        agentTransport: "cli",
+        executorOptions: ["grok-acp"]
+      })[0]
+    ).toMatchObject({ name: "grok-acp", detected: true, disabled: false });
   });
 
   it("preserves package executor names that overlap builtin transport aliases", () => {

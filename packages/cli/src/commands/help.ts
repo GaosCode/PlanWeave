@@ -143,7 +143,7 @@ export const planweaveHelpTopics: HelpTopic[] = [
       "run-status --json"
     ],
     notes: [
-      "CLI and ACP are alternative transports: codex/opencode/claude-code/pi select CLI, while explicit *-acp names select ACP; execution never falls back between them.",
+      "CLI and ACP are alternative transports: codex/opencode/claude-code/pi select CLI, while explicit *-acp names, including ACP-only grok-acp, select ACP; execution never falls back between them.",
       "ACP is conversation/session integration, not a terminal attachment. tmux monitoring is CLI-only.",
       "The selected ACP agent owns login, subscription, provider configuration, quota, and optional API-key mode; PlanWeave does not collect a separate ACP provider API key.",
       "Versioned built-in registry ACP profiles do not require project trust. Package-authored profiles, including overrides of built-in names, require exact trust executor <name>; use executors test <name> to diagnose readiness.",

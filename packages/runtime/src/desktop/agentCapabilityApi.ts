@@ -3,13 +3,13 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { createAcpRunner } from "../autoRun/acpRunner.js";
 import { resolveAgentDefinition } from "../autoRun/agentRegistry.js";
-import type { AgentExecutorProfile } from "../types.js";
+import { agentFamilySchema, type AgentExecutorProfile } from "../types.js";
 import type {
   DesktopAgentCapabilityProbeInput,
   DesktopAgentCapabilityProbeResult
 } from "./types/bridgeTypes.js";
 
-const desktopAgentKindSchema = z.enum(["codex", "claude-code", "opencode", "pi"]);
+const desktopAgentKindSchema = agentFamilySchema;
 const desktopAgentCapabilityProbeInputSchema = z
   .object({
     agentKind: desktopAgentKindSchema,

@@ -32,7 +32,7 @@ const executorProfileSchema: Record<string, Record<string, unknown>> = {
   },
   "agent-acp": {
     adapter: "agent",
-    agent: '"codex" | "opencode" | "claude-code" | "pi"',
+    agent: '"codex" | "opencode" | "claude-code" | "pi" | "grok"',
     runner: { transport: '"acp"' }
   },
   "codex-exec": {
@@ -154,7 +154,7 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
     "Absent block parallel means the block has no shared-resource coordination hints.",
     "Agent identity and runner transport are separate. Each agent profile selects exactly one runner: cli or acp.",
     "Legacy *-exec profiles remain valid and normalize once to the canonical agent plus CLI runner shape.",
-    "CLI and ACP are alternative runner transports. Built-in codex/opencode/claude-code/pi names select CLI; explicit *-acp names select ACP. PlanWeave never falls back between them.",
+    "CLI and ACP are alternative runner transports. Built-in codex/opencode/claude-code/pi names select CLI; explicit *-acp names, including ACP-only grok-acp, select ACP. PlanWeave never falls back between them.",
     "ACP is conversation/session integration, not terminal attachment. The selected agent owns login, subscription, provider configuration, quota, and optional API-key mode; PlanWeave does not collect those credentials and ACP does not require a PlanWeave API key.",
     "Existing legacy CLI manifests remain valid without changes and normalize once to the CLI runner contract.",
     "tmuxEnabled is CLI-only. ACP runner objects are strict and reject CLI command, terminal, and tmux fields.",

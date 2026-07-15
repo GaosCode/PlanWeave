@@ -39,7 +39,7 @@ export const executorAdapters = executorIntegrations;
  */
 export type ExecutorAdapterName = ExecutorIntegrationName;
 
-export const agentFamilySchema = z.enum(["codex", "opencode", "claude-code", "pi"]);
+export const agentFamilySchema = z.enum(["codex", "opencode", "claude-code", "pi", "grok"]);
 export const agentFamilies = agentFamilySchema.options;
 export type AgentFamily = z.infer<typeof agentFamilySchema>;
 
@@ -237,6 +237,9 @@ const executorProfileDiscriminatorSchema = z
   .passthrough();
 
 type ExecutorProfileZodIssue = z.ZodError["issues"][number];
+const unsupportedAgentCliProfileSchema = z.never({
+  error: "ACP-only agent does not define a CLI runner; use runner transport 'acp'."
+});
 
 function appendReadableProfileIssues(
   issues: readonly ExecutorProfileZodIssue[],
@@ -309,7 +312,10 @@ function selectedExecutorProfileParse(raw: unknown) {
   if (agentDiscriminator.data.agent === "claude-code") {
     return claudeCodeCliProfileSchema.safeParse(raw);
   }
-  return piCliProfileSchema.safeParse(raw);
+  if (agentDiscriminator.data.agent === "pi") {
+    return piCliProfileSchema.safeParse(raw);
+  }
+  return unsupportedAgentCliProfileSchema.safeParse(raw);
 }
 
 const executorProfileBoundarySchema = z.unknown().transform((raw, context) => {

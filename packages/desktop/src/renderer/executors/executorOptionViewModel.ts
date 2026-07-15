@@ -32,11 +32,17 @@ const executorAliases: Record<string, string> = {
   "pi-acp": "pi"
 };
 
-const executorAgentKinds: Record<string, DesktopAgentKind> = {
-  codex: "codex",
-  opencode: "opencode",
-  "claude-code": "claude-code",
-  pi: "pi"
+interface ExecutorAgentDetectionBinding {
+  kind: DesktopAgentKind;
+  fixedTransport?: RunnerTransport;
+}
+
+const executorAgentDetectionBindings: Record<string, ExecutorAgentDetectionBinding> = {
+  codex: { kind: "codex" },
+  opencode: { kind: "opencode" },
+  "claude-code": { kind: "claude-code" },
+  pi: { kind: "pi" },
+  "grok-acp": { kind: "grok", fixedTransport: "acp" }
 };
 
 export function canonicalExecutorName(name: string): string {
@@ -80,13 +86,14 @@ function detectionForName(
   if (literalExecutorNames.has(name)) {
     return null;
   }
-  const agentKind = executorAgentKinds[canonicalExecutorName(name)];
-  if (!agentKind) {
+  const binding = executorAgentDetectionBindings[canonicalExecutorName(name)];
+  if (!binding) {
     return null;
   }
+  const runnerKind = binding.fixedTransport ?? agentTransport;
   return (
     agentDetections.find(
-      (agent) => agent.kind === agentKind && agent.runnerKind === agentTransport
+      (agent) => agent.kind === binding.kind && agent.runnerKind === runnerKind
     ) ?? null
   );
 }

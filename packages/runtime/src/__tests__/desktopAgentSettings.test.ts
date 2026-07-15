@@ -46,6 +46,12 @@ describe("desktop agent transport settings", () => {
       runner: { transport: "acp" }
     });
     expect(profiles["codex-auto"]).toMatchObject({ runner: { transport: "cli" } });
+    expect(profiles.grok).toBeUndefined();
+    expect(profiles["grok-acp"]).toMatchObject({
+      adapter: "agent",
+      agent: "grok",
+      runner: { transport: "acp" }
+    });
   });
 
   it("defaults missing and invalid transport settings to ACP", async () => {
@@ -64,5 +70,7 @@ describe("desktop agent transport settings", () => {
 
     expect(selectedDesktopAgentTransport()).toBe("cli");
     expect(profiles.codex).toMatchObject({ runner: { transport: "cli" } });
+    expect(profiles.grok).toBeUndefined();
+    expect(profiles["grok-acp"]).toMatchObject({ runner: { transport: "acp" } });
   });
 });

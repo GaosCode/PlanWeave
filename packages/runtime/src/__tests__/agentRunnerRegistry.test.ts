@@ -12,6 +12,7 @@ import {
 } from "../autoRun/agentRegistry.js";
 import { createCodexExecAdapter, listExecutorProfilesForManifest } from "../autoRun/executors.js";
 import { registeredAgentRunners, resolveAgentRunner } from "../autoRun/runnerRegistry.js";
+import { executorProfileSchema, type AgentFamily } from "../types.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
@@ -21,9 +22,10 @@ const notAdvertisedAuthentication = { status: "not_advertised" } as const;
 
 function probeDefinition(
   scenario: string,
-  capabilities = ["session", "prompt", "cancel"] as const
+  capabilities = ["session", "prompt", "cancel"] as const,
+  agent: AgentFamily = "codex"
 ) {
-  const base = resolveAgentDefinition("codex");
+  const base = resolveAgentDefinition(agent);
   return {
     ...base,
     acp: {
@@ -51,18 +53,21 @@ describe("AgentRunner registries", () => {
       "codex",
       "opencode",
       "claude-code",
-      "pi"
+      "pi",
+      "grok"
     ]);
     expect(registeredAgentRunners().map((runner) => runner.transport)).toEqual(["cli", "acp"]);
 
     for (const definition of registeredAgentDefinitions()) {
-      expect(definition.cli?.integration).toMatch(CLI_INTEGRATION_PATTERN);
+      if (definition.cli) {
+        expect(definition.cli.integration).toMatch(CLI_INTEGRATION_PATTERN);
+      }
       expect(definition.acp.launch).toMatchObject({
         command: expect.any(String),
         source: {
           registryId: expect.any(String),
           version: expect.stringMatching(/^\d+\.\d+\.\d+$/),
-          url: "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
+          url: expect.stringMatching(/^https:\/\//),
           descriptor: expect.any(String)
         }
       });
@@ -94,7 +99,8 @@ describe("AgentRunner registries", () => {
       },
       "claude-code-acp": { agent: "claude-code", runner: { transport: "acp" } },
       pi: { agent: "pi", runner: { transport: "cli" }, command: "pi" },
-      "pi-acp": { agent: "pi", runner: { transport: "acp" } }
+      "pi-acp": { agent: "pi", runner: { transport: "acp" } },
+      "grok-acp": { agent: "grok", runner: { transport: "acp" } }
     });
   });
 
@@ -126,6 +132,98 @@ describe("AgentRunner registries", () => {
     expect(profiles[cliName]).toMatchObject({ agent, runner: { transport: "cli" } });
     expect(profiles[acpName]).toMatchObject({ agent, runner: { transport: "acp" } });
     expect(resolveAgentRunner(profiles[cliName]!)).not.toBe(resolveAgentRunner(profiles[acpName]!));
+  });
+
+  it("registers Grok as ACP-only and rejects a Grok CLI profile at the public schema boundary", () => {
+    const definition = resolveAgentDefinition("grok");
+    expect(definition.cli).toBeNull();
+    expect(definition.builtinProfiles).toEqual({
+      "grok-acp": { adapter: "agent", agent: "grok", runner: { transport: "acp" } }
+    });
+    expect(
+      executorProfileSchema.parse({
+        adapter: "agent",
+        agent: "grok",
+        runner: { transport: "acp" }
+      })
+    ).toEqual({ adapter: "agent", agent: "grok", runner: { transport: "acp" } });
+    expect(() =>
+      executorProfileSchema.parse({
+        adapter: "agent",
+        agent: "grok",
+        runner: { transport: "cli" },
+        command: "grok",
+        args: ["-p"]
+      })
+    ).toThrow("ACP-only agent does not define a CLI runner");
+  });
+
+  it.each([
+    "codex",
+    "opencode",
+    "claude-code",
+    "pi"
+  ] as const)("keeps %s on the shared no-auth-methods ACP lifecycle", async (agent) => {
+    const result = await createAcpRunner().preflight({
+      profile: { adapter: "agent", agent, runner: { transport: "acp" } },
+      definition: probeDefinition("success", undefined, agent),
+      cwd: "/tmp",
+      timeoutMs: 1_000
+    });
+
+    expect(result.authentication).toEqual(notAdvertisedAuthentication);
+    expect(result.negotiatedCapabilities).not.toBeNull();
+  });
+
+  it("applies Grok auth hints through the shared advertised-method lifecycle", async () => {
+    const previous = process.env.XAI_API_KEY;
+    delete process.env.XAI_API_KEY;
+    try {
+      const cached = await createAcpRunner().preflight({
+        profile: { adapter: "agent", agent: "grok", runner: { transport: "acp" } },
+        definition: probeDefinition("grok-auth", undefined, "grok"),
+        cwd: "/tmp",
+        timeoutMs: 1_000
+      });
+      expect(cached.authentication).toEqual({
+        status: "authenticated",
+        methodId: "cached_token"
+      });
+
+      process.env.XAI_API_KEY = "test-value-must-not-be-projected";
+      const apiKey = await createAcpRunner().preflight({
+        profile: { adapter: "agent", agent: "grok", runner: { transport: "acp" } },
+        definition: probeDefinition("grok-auth", undefined, "grok"),
+        cwd: "/tmp",
+        timeoutMs: 1_000
+      });
+      expect(apiKey.authentication).toEqual({
+        status: "authenticated",
+        methodId: "xai.api_key"
+      });
+      expect(JSON.stringify([cached, apiKey])).not.toContain(process.env.XAI_API_KEY);
+    } finally {
+      if (previous === undefined) delete process.env.XAI_API_KEY;
+      else process.env.XAI_API_KEY = previous;
+    }
+  });
+
+  it("returns action required for interactive grok.com authentication", async () => {
+    const result = await createAcpRunner().preflight({
+      profile: { adapter: "agent", agent: "grok", runner: { transport: "acp" } },
+      definition: probeDefinition("grok-interactive", undefined, "grok"),
+      cwd: "/tmp",
+      timeoutMs: 1_000
+    });
+
+    expect(result.authentication).toEqual({
+      status: "action_required",
+      reason: "no_safe_method",
+      methods: [{ id: "grok.com", name: "Sign in with Grok", type: "agent" }]
+    });
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ failureCode: "auth_required" })])
+    );
   });
 
   it.each<{
@@ -570,6 +668,18 @@ describe("AgentRunner registries", () => {
         "session-close",
         "history-load"
       ]
+    });
+    expect(summaries.find((summary) => summary.name === "grok-acp")).toMatchObject({
+      runnerKind: "acp",
+      acpLaunch: {
+        command: "grok",
+        args: ["--no-auto-update", "agent", "stdio"],
+        source: {
+          registryId: "xai-grok-cli",
+          version: "0.2.101",
+          url: "https://docs.x.ai/build/cli/headless-scripting"
+        }
+      }
     });
   });
 

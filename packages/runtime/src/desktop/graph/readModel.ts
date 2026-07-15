@@ -12,6 +12,7 @@ import {
 } from "../../taskManager/projectGraphClaimGuard.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "../../taskManager/runtimeContext.js";
 import { listExecutorProfilesForManifest } from "../../autoRun/executors.js";
+import { resolveAgentDefinition } from "../../autoRun/agentRegistry.js";
 import { selectedDesktopAgentTransport } from "../../autoRun/desktopAgentSettings.js";
 import { buildPlanGraphViewProjection, loadPlanGraphPackage } from "../../plangraph/index.js";
 import type { ClaimResult, PackageWorkspaceRef } from "../../types.js";
@@ -59,7 +60,10 @@ export function buildDesktopGraphViewModelContext(
         (profile) =>
           profile.source === "package" ||
           profile.profileAdapter !== "agent" ||
-          profile.name === profile.agentId
+          profile.name === profile.agentId ||
+          (profile.runnerKind === "acp" &&
+            profile.agentId != null &&
+            resolveAgentDefinition(profile.agentId).cli === null)
       )
       .map((profile) => profile.name),
     packageExecutorNames: executorProfiles

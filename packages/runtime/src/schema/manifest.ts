@@ -157,6 +157,7 @@ export const manifestSchema = z
       "pi",
       "pi-auto",
       "pi-acp",
+      "grok-acp",
       ...Object.keys(manifest.executors ?? {})
     ]);
     if (

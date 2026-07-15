@@ -15,7 +15,7 @@ import type {
   RunSessionState,
   UpdateRunSessionPatch
 } from "./types.js";
-import type { PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
+import { agentFamilies, type PackageWorkspaceRef, type ProjectWorkspace } from "../types.js";
 
 const sessionIdPattern = /^SESSION-(\d{4,})$/;
 const runSessionKinds = new Set(["run", "reset"]);
@@ -31,7 +31,7 @@ const runSessionPhases = new Set([
   "stopped"
 ]);
 const autoRunStopReasons = new Set(["none", "once", "step_limit", "no_steps", "cancelled"]);
-const agentIds = new Set(["codex", "opencode", "claude-code", "pi"]);
+const agentIds = new Set<string>(agentFamilies);
 const runnerKinds = new Set(["cli", "acp"]);
 
 export function assertValidRunSessionId(sessionId: string): void {

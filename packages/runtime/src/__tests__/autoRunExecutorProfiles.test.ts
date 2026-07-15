@@ -164,7 +164,7 @@ describe("Auto Run executor profiles", () => {
       [
         {
           path: ["executors", "invalid", "agent"],
-          message: 'Invalid option: expected one of "codex"|"opencode"|"claude-code"|"pi"'
+          message: 'Invalid option: expected one of "codex"|"opencode"|"claude-code"|"pi"|"grok"'
         }
       ]
     ],

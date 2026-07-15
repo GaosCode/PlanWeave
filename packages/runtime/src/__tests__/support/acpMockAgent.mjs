@@ -77,33 +77,52 @@ const app = agent({ name: "planweave-acp-mock" })
           : {})
       },
       authMethods:
-        scenario === "auth-required" ||
-        scenario === "action-required" ||
-        scenario === "authenticated-with-auth-methods" ||
-        scenario === "authenticated-artifact-implementation" ||
-        scenario === "authenticate-delayed" ||
-        scenario === "authenticate-protocol-error" ||
-        scenario === "env-auth"
-          ? scenario === "env-auth"
-            ? [
-                {
-                  id: "env-login",
-                  name: "Environment login",
-                  type: "env_var",
-                  vars: [{ name: "PLANWEAVE_T002_TEST_API_KEY", secret: true }],
-                  _meta: { token: "mock-auth-meta-secret" }
-                },
-                {
-                  id: "terminal-login",
-                  name: "Terminal login",
-                  type: "terminal",
-                  args: ["login"],
-                  env: { CUSTOM_AUTH_MATERIAL: "opaque-terminal-auth-material" },
-                  _meta: { private: "opaque-private-auth-metadata" }
-                }
-              ]
-            : [{ id: "mock-login", name: "Mock login", description: "Test-only authentication" }]
-          : [],
+        scenario === "grok-auth"
+          ? [
+              { id: "cached_token", name: "Cached token" },
+              {
+                id: "xai.api_key",
+                name: "xAI API key",
+                type: "env_var",
+                vars: [{ name: "XAI_API_KEY", secret: true }]
+              },
+              { id: "grok.com", name: "Sign in with Grok" }
+            ]
+          : scenario === "grok-interactive"
+            ? [{ id: "grok.com", name: "Sign in with Grok" }]
+            : scenario === "auth-required" ||
+                scenario === "action-required" ||
+                scenario === "authenticated-with-auth-methods" ||
+                scenario === "authenticated-artifact-implementation" ||
+                scenario === "authenticate-delayed" ||
+                scenario === "authenticate-protocol-error" ||
+                scenario === "env-auth"
+              ? scenario === "env-auth"
+                ? [
+                    {
+                      id: "env-login",
+                      name: "Environment login",
+                      type: "env_var",
+                      vars: [{ name: "PLANWEAVE_T002_TEST_API_KEY", secret: true }],
+                      _meta: { token: "mock-auth-meta-secret" }
+                    },
+                    {
+                      id: "terminal-login",
+                      name: "Terminal login",
+                      type: "terminal",
+                      args: ["login"],
+                      env: { CUSTOM_AUTH_MATERIAL: "opaque-terminal-auth-material" },
+                      _meta: { private: "opaque-private-auth-metadata" }
+                    }
+                  ]
+                : [
+                    {
+                      id: "mock-login",
+                      name: "Mock login",
+                      description: "Test-only authentication"
+                    }
+                  ]
+              : [],
       ...(scenario === "missing-agent-info"
         ? {}
         : {
@@ -131,6 +150,8 @@ const app = agent({ name: "planweave-acp-mock" })
   .onRequest(methods.agent.authenticate, async (ctx) => {
     recordLifecycle("authenticate");
     if (
+      scenario !== "grok-auth" &&
+      scenario !== "grok-interactive" &&
       scenario !== "auth-required" &&
       scenario !== "action-required" &&
       scenario !== "authenticated-with-auth-methods" &&
@@ -141,7 +162,16 @@ const app = agent({ name: "planweave-acp-mock" })
     ) {
       throw RequestError.invalidParams({ reason: "authentication was not advertised" });
     }
-    const expectedMethodId = scenario === "env-auth" ? "env-login" : "mock-login";
+    const expectedMethodId =
+      scenario === "grok-auth"
+        ? process.env.XAI_API_KEY === undefined
+          ? "cached_token"
+          : "xai.api_key"
+        : scenario === "grok-interactive"
+          ? "grok.com"
+          : scenario === "env-auth"
+            ? "env-login"
+            : "mock-login";
     if (ctx.params.methodId !== expectedMethodId) {
       throw RequestError.invalidParams({ methodId: ctx.params.methodId });
     }
@@ -164,7 +194,9 @@ const app = agent({ name: "planweave-acp-mock" })
       throw RequestError.authRequired();
     }
     if (
-      (scenario === "authenticated-with-auth-methods" ||
+      (scenario === "grok-auth" ||
+        scenario === "grok-interactive" ||
+        scenario === "authenticated-with-auth-methods" ||
         scenario === "authenticated-artifact-implementation" ||
         scenario === "authenticate-delayed" ||
         scenario === "authenticate-protocol-error" ||

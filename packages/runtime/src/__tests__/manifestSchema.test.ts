@@ -120,6 +120,15 @@ describe("plan-package/v1 manifest schema", () => {
     const result = manifestSchema.safeParse(manifest);
 
     expect(result.success).toBe(true);
+
+    expect(
+      manifestSchema.safeParse(
+        manifestTestBuilder()
+          .withDefaultExecutor("grok-acp")
+          .withTask("T-001", (task) => ({ ...task, executor: "grok-acp" }))
+          .build()
+      ).success
+    ).toBe(true);
   });
 
   it("rejects non-positive codex executor timeouts", () => {
