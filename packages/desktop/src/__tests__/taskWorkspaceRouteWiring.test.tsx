@@ -62,7 +62,7 @@ function readyTaskWorkspace(
 }
 
 describe("Task Workspace route wiring", () => {
-  it("renders the explicit Task Workspace route without falling back to Graph chrome", () => {
+  it("renders the explicit Task Workspace route without falling back to Graph chrome", async () => {
     useProjectWorkspace.mockReturnValue({
       shell: {
         activeView: "task-workspace",
@@ -83,7 +83,9 @@ describe("Task Workspace route wiring", () => {
 
     const { container } = render(<WorkspaceTabs />);
 
-    expect(screen.getByRole("heading", { name: "taskWorkspaceLoading" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "taskWorkspaceLoading" })
+    ).toBeInTheDocument();
     expect(screen.queryByTestId("graph-route")).not.toBeInTheDocument();
     expect(container.querySelector(".app-drag-region")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "taskWorkspaceBackToCanvas" })).toBeInTheDocument();
@@ -103,7 +105,7 @@ describe("Task Workspace route wiring", () => {
 
     render(<WorkspaceTabs />);
 
-    expect(screen.getByRole("separator", { name: "Resize timeline" })).toBeInTheDocument();
+    expect(await screen.findByRole("separator", { name: "Resize timeline" })).toBeInTheDocument();
     expect(screen.getByTestId("task-workspace-acp-conversation")).toBeInTheDocument();
     expect(screen.getByTestId("task-workspace-composer")).toBeInTheDocument();
     expect(
@@ -151,7 +153,7 @@ describe("Task Workspace route wiring", () => {
 
     render(<WorkspaceTabs />);
 
-    const stop = within(screen.getByTestId("task-workspace-header")).getByRole("button", {
+    const stop = within(await screen.findByTestId("task-workspace-header")).getByRole("button", {
       name: "Stop"
     });
     await userEvent.click(stop);
@@ -178,7 +180,7 @@ describe("Task Workspace route wiring", () => {
 
     render(<WorkspaceTabs />);
 
-    const headerStop = screen.getByRole("button", { name: "Stop" });
+    const headerStop = await screen.findByRole("button", { name: "Stop" });
     const composerStop = screen.getByRole("button", { name: "Cancel run" });
     fireEvent.click(headerStop);
     fireEvent.click(composerStop);
@@ -194,7 +196,7 @@ describe("Task Workspace route wiring", () => {
     cancelAgentRun.mockResolvedValue(undefined);
   });
 
-  it("hides Stop when the live and selected ACP cancel identities differ", () => {
+  it("hides Stop when the live and selected ACP cancel identities differ", async () => {
     const selectedModel = readModel();
     const selectedRun = selection({ model: selectedModel });
     const liveModel = runnerRecordReadModelSchema.parse({
@@ -224,7 +226,9 @@ describe("Task Workspace route wiring", () => {
     render(<WorkspaceTabs />);
 
     expect(
-      within(screen.getByTestId("task-workspace-header")).queryByRole("button", { name: "Stop" })
+      within(await screen.findByTestId("task-workspace-header")).queryByRole("button", {
+        name: "Stop"
+      })
     ).not.toBeInTheDocument();
     expect(cancelAgentRun).not.toHaveBeenCalled();
   });

@@ -1,11 +1,13 @@
-import type {
-  CSSProperties,
-  Dispatch,
-  DragEvent,
-  MouseEvent,
-  PointerEvent,
-  Ref,
-  SetStateAction
+import {
+  lazy,
+  Suspense,
+  type CSSProperties,
+  type Dispatch,
+  type DragEvent,
+  type MouseEvent,
+  type PointerEvent,
+  type Ref,
+  type SetStateAction
 } from "react";
 import type {
   Connection,
@@ -39,38 +41,32 @@ import type { AppEdgeTypes, AppNodeTypes } from "../graph/flowModel";
 import type { AutoRunNextActionDescriptor } from "../run/autoRunNextActions";
 import type { AppFlowNode, AppView, AutoRunScopeMode, NotificationItem } from "../types";
 import { useProjectWorkspace } from "../ProjectWorkspaceProvider";
-import { CanvasMapView } from "./CanvasMapView";
-import { GraphView } from "./GraphView";
-import { NewTaskView } from "./NewTaskView";
-import { NotificationsView } from "./NotificationsView";
-import { ReviewPipelineView } from "./ReviewPipelineView";
-import { SearchView } from "./SearchView";
-import { StatisticsView } from "./StatisticsView";
-import { TodoView } from "./TodoView";
-import { TaskWorkspaceRoute } from "../task-workspace/TaskWorkspaceRoute";
-import {
-  taskWorkspaceInspectorLabels,
-  taskWorkspaceLabels,
-  taskWorkspaceTimelineLabels,
-  taskWorkspaceUsageLabels
-} from "../task-workspace/labels";
-import {
-  TaskWorkspaceCancelRunAction,
-  TaskWorkspaceCancelRunControllerScope,
-  TaskWorkspaceComposer,
-  TaskWorkspaceConversation
-} from "../task-workspace/conversation";
-import { TaskWorkspaceInspector } from "../task-workspace/inspector/TaskWorkspaceInspector";
-import { TaskWorkspaceUsage } from "../task-workspace/inspector/TaskWorkspaceUsage";
-import { TaskWorkspaceTimeline } from "../task-workspace/timeline";
-import { bridge } from "../bridge";
-import { TaskWorkspaceRepositoryActions } from "../task-workspace/TaskWorkspaceRepositoryActions";
-import type {
-  TaskWorkspaceComposerSlotProps,
-  TaskWorkspaceConversationSlotProps,
-  TaskWorkspaceInspectorSlotProps,
-  TaskWorkspaceTimelineSlotProps
-} from "../task-workspace/contracts";
+
+const CanvasMapView = lazy(() =>
+  import("./CanvasMapView").then((module) => ({ default: module.CanvasMapView }))
+);
+const GraphView = lazy(() =>
+  import("./GraphView").then((module) => ({ default: module.GraphView }))
+);
+const NewTaskView = lazy(() =>
+  import("./NewTaskView").then((module) => ({ default: module.NewTaskView }))
+);
+const NotificationsView = lazy(() =>
+  import("./NotificationsView").then((module) => ({ default: module.NotificationsView }))
+);
+const ReviewPipelineView = lazy(() =>
+  import("./ReviewPipelineView").then((module) => ({ default: module.ReviewPipelineView }))
+);
+const SearchView = lazy(() =>
+  import("./SearchView").then((module) => ({ default: module.SearchView }))
+);
+const StatisticsView = lazy(() =>
+  import("./StatisticsView").then((module) => ({ default: module.StatisticsView }))
+);
+const TodoView = lazy(() => import("./TodoView").then((module) => ({ default: module.TodoView })));
+const TaskWorkspaceAppRoute = lazy(() =>
+  import("./TaskWorkspaceAppRoute").then((module) => ({ default: module.TaskWorkspaceAppRoute }))
+);
 
 export type WorkspaceTabsShellProps = {
   activeView: AppView;
@@ -321,82 +317,6 @@ function CanvasMapRoute() {
   );
 }
 
-function TaskWorkspaceAppRoute() {
-  const { shell, taskWorkspace } = useProjectWorkspace();
-  const navigation = taskWorkspace.navigation;
-  const repositoryRoot =
-    shell.selectedProject?.sourceRoot ??
-    (shell.selectedProject?.kind === "external" ? shell.selectedProject.rootPath : null);
-  return (
-    <TaskWorkspaceCancelRunControllerScope
-      api={bridge}
-      model={taskWorkspace.runnerModel}
-      selectedRun={taskWorkspace.selectedRun}
-    >
-      {(cancelController) => {
-        const slots = navigation
-          ? {
-              composer: (props: TaskWorkspaceComposerSlotProps) => (
-                <TaskWorkspaceComposer
-                  {...props}
-                  accessory={
-                    <TaskWorkspaceUsage
-                      labels={taskWorkspaceUsageLabels(shell.t)}
-                      selectedRun={props.selectedRun}
-                      workspace={props.workspace}
-                    />
-                  }
-                  api={bridge}
-                  cancelController={cancelController}
-                  t={shell.t}
-                />
-              ),
-              conversation: (props: TaskWorkspaceConversationSlotProps) => (
-                <TaskWorkspaceConversation
-                  {...props}
-                  api={bridge}
-                  canvasRef={{ canvasId: navigation.canvasId, projectRoot: navigation.projectRoot }}
-                  t={shell.t}
-                />
-              ),
-              headerAction: () => (
-                <>
-                  <TaskWorkspaceRepositoryActions
-                    api={bridge}
-                    labels={{
-                      repositoryActions: shell.t("repositoryActions")
-                    }}
-                    onError={shell.setError}
-                    repositoryRoot={repositoryRoot}
-                  />
-                  <TaskWorkspaceCancelRunAction
-                    buttonLabel={shell.t("stop")}
-                    controller={cancelController}
-                    errorLabel={shell.t("acpActionError")}
-                    showText
-                  />
-                </>
-              ),
-              inspector: (props: TaskWorkspaceInspectorSlotProps) => (
-                <TaskWorkspaceInspector {...props} labels={taskWorkspaceInspectorLabels(shell.t)} />
-              ),
-              timeline: (props: TaskWorkspaceTimelineSlotProps) => (
-                <TaskWorkspaceTimeline {...props} labels={taskWorkspaceTimelineLabels(shell.t)} />
-              )
-            }
-          : undefined;
-        return (
-          <TaskWorkspaceRoute
-            controller={taskWorkspace}
-            labels={taskWorkspaceLabels(shell.t)}
-            slots={slots}
-          />
-        );
-      }}
-    </TaskWorkspaceCancelRunControllerScope>
-  );
-}
-
 export function WorkspaceTabs() {
   const { shell } = useProjectWorkspace();
   const activeView = shell.activeView;
@@ -436,7 +356,17 @@ export function WorkspaceTabs() {
       <div
         className={`min-h-0 flex-1 bg-app-canvas ${activeView === "graph" || activeView === "canvas-map" || taskWorkspaceActive ? "" : "p-4"}`}
       >
-        <div className="h-full min-h-0">{content}</div>
+        <div className="h-full min-h-0">
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center text-sm text-text-muted">
+                {shell.t("loadingProject")}
+              </div>
+            }
+          >
+            {content}
+          </Suspense>
+        </div>
       </div>
     </section>
   );
