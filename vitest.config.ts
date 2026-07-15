@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 import { resolve } from "node:path";
 
 /**
- * File parallelism is enabled (Vitest default). Isolation notes:
+ * File parallelism is enabled with a bounded worker pool. Isolation notes:
  * - PLANWEAVE_HOME: vitest.setup.ts clears it after each test so files sharing a
  *   worker cannot leak homes; suites that need a home still mkdtemp their own.
  * - MCP HTTP tests already bind listen(0) and read the assigned port; config.port
@@ -21,6 +21,7 @@ export default defineConfig({
     include: ["packages/**/*.test.ts", "packages/**/*.test.tsx"],
     exclude: ["**/node_modules/**", "**/dist/**"],
     setupFiles: ["./vitest.setup.ts"],
+    maxWorkers: 4,
     testTimeout: 10_000
   }
 });
