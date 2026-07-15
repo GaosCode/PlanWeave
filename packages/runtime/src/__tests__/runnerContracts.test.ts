@@ -31,7 +31,10 @@ import {
   transitionRunnerLifecycle
 } from "../autoRun/runnerLifecycle.js";
 import { adaptLegacyDesktopRunnerEvents } from "../desktop/legacyRunnerEventAdapter.js";
-import { redactRunnerEventPayload } from "../autoRun/runnerEventRedaction.js";
+import {
+  redactAcpProtocolPayload,
+  redactRunnerEventPayload
+} from "../autoRun/runnerEventRedaction.js";
 
 describe("execution wave identity", () => {
   it("creates unique strict UUIDv4 identities", () => {
@@ -48,6 +51,7 @@ describe("structured runner event redaction", () => {
   it("redacts sensitive keys and values while preserving protocol identities", () => {
     const payload = redactRunnerEventPayload({
       password: "opaque-password",
+      _meta: { arbitrary: "opaque-metadata" },
       nested: [{ ACCESS_TOKEN: "opaque-access", note: "api_key=ordinary-secret" }],
       optionId: "token=opaque-action-id",
       request_id: "token=opaque-request-id",
@@ -80,6 +84,60 @@ describe("structured runner event redaction", () => {
       cyclic: { self: "[REDACTED:SENSITIVE_CONTENT]" },
       date: "[REDACTED:SENSITIVE_CONTENT]"
     });
+  });
+
+  it("removes all metadata and only strips env from ACP terminal authentication methods", () => {
+    const payload = redactAcpProtocolPayload({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        _meta: { private: "opaque-top-level-metadata" },
+        authMethods: [
+          {
+            id: "terminal-login",
+            name: "Terminal login",
+            type: "terminal",
+            args: ["login"],
+            env: { CUSTOM_AUTH_MATERIAL: "opaque-terminal-auth-material" },
+            nested: { _meta: { arbitrary: "opaque-nested-metadata" } }
+          },
+          {
+            id: "env-login",
+            name: "Environment login",
+            type: "env_var",
+            vars: [{ name: "CUSTOM_AUTH_MATERIAL" }]
+          }
+        ],
+        ordinary: { env: { CUSTOM_RUNTIME_VALUE: "preserved" } }
+      }
+    });
+
+    expect(payload).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        authMethods: [
+          {
+            id: "terminal-login",
+            name: "Terminal login",
+            type: "terminal",
+            args: ["login"],
+            nested: {}
+          },
+          {
+            id: "env-login",
+            name: "Environment login",
+            type: "env_var",
+            vars: [{ name: "CUSTOM_AUTH_MATERIAL" }]
+          }
+        ],
+        ordinary: { env: { CUSTOM_RUNTIME_VALUE: "preserved" } }
+      }
+    });
+    expect(JSON.stringify(payload)).not.toContain("_meta");
+    expect(JSON.stringify(payload)).not.toContain("opaque-terminal-auth-material");
+    expect(JSON.stringify(payload)).not.toContain("opaque-top-level-metadata");
+    expect(JSON.stringify(payload)).not.toContain("opaque-nested-metadata");
   });
 });
 

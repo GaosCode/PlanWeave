@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,7 +7,7 @@ import {
   ActiveAgentRunRegistry,
   type ActiveAgentRunHandle
 } from "../autoRun/activeAgentRunRegistry.js";
-import { AcpSessionController } from "../autoRun/acpSessionController.js";
+import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
 import { createAcpConnection, type CreateAcpConnectionOptions } from "../autoRun/acpConnection.js";
 import { createAcpRunner } from "../autoRun/acpRunner.js";
 import type { AgentDefinition } from "../autoRun/agentRunner.js";
@@ -32,6 +32,29 @@ function mockLaunch(scenario: string) {
   const source = codexAgentDefinition.acp.launch?.source;
   if (!source) throw new Error("Expected Codex ACP launch source metadata.");
   return { command: process.execPath, args: [fixture, scenario], source };
+}
+
+async function withLifecycleTrace<T>(run: (path: string) => Promise<T>) {
+  const directory = await mkdtemp(join(tmpdir(), "planweave-acp-run-lifecycle-"));
+  const path = join(directory, "lifecycle.log");
+  await writeFile(path, "", "utf8");
+  const previous = process.env.PLANWEAVE_ACP_TEST_LIFECYCLE_FILE;
+  process.env.PLANWEAVE_ACP_TEST_LIFECYCLE_FILE = path;
+  try {
+    const result = await run(path);
+    return { result, lifecycle: await readFile(path, "utf8") };
+  } finally {
+    if (previous === undefined) delete process.env.PLANWEAVE_ACP_TEST_LIFECYCLE_FILE;
+    else process.env.PLANWEAVE_ACP_TEST_LIFECYCLE_FILE = previous;
+  }
+}
+
+function lifecycleOperations(lifecycle: string): string[] {
+  return lifecycle
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => line.slice(line.indexOf(" ") + 1));
 }
 
 async function waitForCondition(
@@ -152,7 +175,8 @@ describe("AcpSessionController lifecycle", () => {
     scenario: string,
     timeoutMs = ACP_MOCK_OPERATION_TIMEOUT_MS,
     signal?: AbortSignal,
-    controller?: AcpSessionController
+    controller?: AcpSessionController,
+    runPatch: Partial<AcpSessionRun> = {}
   ) {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-lifecycle-"));
     const registry = new ActiveAgentRunRegistry();
@@ -169,7 +193,8 @@ describe("AcpSessionController lifecycle", () => {
         executorName: "mock-acp",
         agentId: "codex",
         taskId: "T-001",
-        metadataIdentity: { blockId: "B-001" }
+        metadataIdentity: { blockId: "B-001" },
+        ...runPatch
       },
       { timeoutMs, signal }
     );
@@ -191,6 +216,128 @@ describe("AcpSessionController lifecycle", () => {
     );
     await expect(readFile(join(run.root, "heartbeat.json"), "utf8")).resolves.toContain(
       '"status": "completed"'
+    );
+  });
+
+  it("orders initialize, authentication, session creation, and prompt before becoming runnable", async () => {
+    const { result, lifecycle } = await withLifecycleTrace(async () => {
+      const run = await execute(
+        "authenticated-artifact-implementation",
+        1_000,
+        undefined,
+        undefined,
+        {
+          authenticationHints: {
+            preferredMethodIds: ["mock-login"],
+            headlessSafeMethodIds: ["mock-login"]
+          },
+          projectId: "project-1",
+          canvasId: "default"
+        }
+      );
+      return { run, output: await run.promise };
+    });
+
+    expect(result.output).toMatchObject({ kind: "block", exitCode: 0 });
+    expect(lifecycleOperations(lifecycle)).toEqual([
+      "spawn",
+      "initialize",
+      "authenticate",
+      "session/new",
+      "session/prompt"
+    ]);
+    const events = await readFile(join(result.run.root, "events.ndjson"), "utf8");
+    const selectedIndex = events.indexOf("ACP authentication method selected: mock-login");
+    const completedIndex = events.indexOf("ACP authentication completed.");
+    const readyIndex = events.indexOf("ACP runner is ready.");
+    expect(selectedIndex).toBeGreaterThanOrEqual(0);
+    expect(selectedIndex).toBeLessThan(completedIndex);
+    expect(completedIndex).toBeLessThan(readyIndex);
+  });
+
+  it("does not authenticate when no methods are advertised", async () => {
+    const { result, lifecycle } = await withLifecycleTrace(async () => {
+      const run = await execute("artifact-implementation", 1_000);
+      return { run, output: await run.promise };
+    });
+
+    expect(result.output).toMatchObject({ kind: "block", exitCode: 0 });
+    expect(lifecycleOperations(lifecycle)).toEqual([
+      "spawn",
+      "initialize",
+      "session/new",
+      "session/prompt"
+    ]);
+  });
+
+  it("fails action-required authentication before ready, session creation, or prompt", async () => {
+    const { result, lifecycle } = await withLifecycleTrace(async () => {
+      const run = await execute("action-required", 1_000, undefined, undefined, {
+        projectId: "project-1",
+        canvasId: "default"
+      });
+      await expect(run.promise).rejects.toThrow("headless-safe authentication method");
+      return run;
+    });
+
+    expect(lifecycleOperations(lifecycle)).toEqual(["spawn", "initialize"]);
+    const events = await readFile(join(result.root, "events.ndjson"), "utf8");
+    expect(events).toContain("ACP authentication requires user action.");
+    expect(events).not.toContain("ACP runner is ready.");
+    expect(events).not.toContain('"state":"running"');
+    expect(events).toContain('"kind":"terminal"');
+    expect(events).toContain('"state":"failed"');
+    await expect(readFile(join(result.root, "metadata.json"), "utf8")).resolves.toContain(
+      '"status": "failed"'
+    );
+  });
+
+  it("preserves authentication protocol failures before session creation", async () => {
+    const { result, lifecycle } = await withLifecycleTrace(async () => {
+      const run = await execute("authenticate-protocol-error", 1_000, undefined, undefined, {
+        authenticationHints: {
+          preferredMethodIds: ["mock-login"],
+          headlessSafeMethodIds: ["mock-login"]
+        }
+      });
+      await expect(run.promise).rejects.toThrow("Invalid params");
+      return run;
+    });
+
+    expect(lifecycleOperations(lifecycle)).toEqual(["spawn", "initialize", "authenticate"]);
+    await expect(readFile(join(result.root, "metadata.json"), "utf8")).resolves.toContain(
+      '"status": "failed"'
+    );
+  });
+
+  it("preserves authentication timeout and cancellation without creating a session", async () => {
+    const authenticationHints = {
+      preferredMethodIds: ["mock-login"],
+      headlessSafeMethodIds: ["mock-login"]
+    } as const;
+    const timedOut = await execute("authenticate-delayed", 25, undefined, undefined, {
+      authenticationHints
+    });
+    await expect(timedOut.promise).rejects.toThrow("timed out");
+    await expect(readFile(join(timedOut.root, "metadata.json"), "utf8")).resolves.toContain(
+      '"status": "timed_out"'
+    );
+
+    const abort = new AbortController();
+    const { result, lifecycle } = await withLifecycleTrace(async (path) => {
+      const cancelled = await execute("authenticate-delayed", 1_000, abort.signal, undefined, {
+        authenticationHints
+      });
+      await waitForCondition(async () =>
+        (await readFile(path, "utf8")).includes(" authenticate\n")
+      );
+      abort.abort(new Error("cancel authentication"));
+      await expect(cancelled.promise).rejects.toThrow("cancel authentication");
+      return cancelled;
+    });
+    expect(lifecycleOperations(lifecycle)).toEqual(["spawn", "initialize", "authenticate"]);
+    await expect(readFile(join(result.root, "metadata.json"), "utf8")).resolves.toContain(
+      '"status": "cancelled"'
     );
   });
 
@@ -298,9 +445,19 @@ describe("AcpSessionController lifecycle", () => {
   });
 
   it.each([
-    ["artifact-implementation", "Execution succeeded"],
-    ["protocol-error", "Invalid params"]
-  ])("persists failed when %s execution is followed by cleanup failure", async (scenario, executionText) => {
+    ["artifact-implementation", "Execution succeeded", {}],
+    ["protocol-error", "Invalid params", {}],
+    [
+      "authenticate-protocol-error",
+      "Invalid params",
+      {
+        authenticationHints: {
+          preferredMethodIds: ["mock-login"],
+          headlessSafeMethodIds: ["mock-login"]
+        }
+      }
+    ]
+  ])("persists failed when %s execution is followed by cleanup failure", async (scenario, executionText, runPatch) => {
     const registry = new ActiveAgentRunRegistry();
     const controller = new AcpSessionController(registry, (options: CreateAcpConnectionOptions) => {
       const base = createAcpConnection(options);
@@ -317,7 +474,7 @@ describe("AcpSessionController lifecycle", () => {
         }
       });
     });
-    const failed = await execute(scenario, 500, undefined, controller);
+    const failed = await execute(scenario, 500, undefined, controller, runPatch);
     await expect(failed.promise).rejects.toThrow();
     const metadata = await readFile(join(failed.root, "metadata.json"), "utf8");
     expect(metadata).toContain('"status": "failed"');
@@ -352,6 +509,10 @@ describe("ACP runner runtime limits", () => {
       cli: null,
       acp: {
         launch: mockLaunch("artifact-implementation"),
+        authentication: {
+          preferredMethodIds: ["mock-login"],
+          headlessSafeMethodIds: ["mock-login"]
+        },
         capabilities: [],
         optionalCapabilities: [],
         limitations: []
@@ -380,7 +541,12 @@ describe("ACP runner runtime limits", () => {
     ).rejects.toThrow("captured");
 
     expect(execute).toHaveBeenCalledWith(
-      expect.any(Object),
+      expect.objectContaining({
+        authenticationHints: {
+          preferredMethodIds: ["mock-login"],
+          headlessSafeMethodIds: ["mock-login"]
+        }
+      }),
       expect.objectContaining({ timeoutMs: expectedTimeoutMs })
     );
   });
@@ -459,6 +625,10 @@ describe("ACP runner runtime limits", () => {
       cli: null,
       acp: {
         launch: mockLaunch("artifact-feedback"),
+        authentication: {
+          preferredMethodIds: ["mock-login"],
+          headlessSafeMethodIds: ["mock-login"]
+        },
         capabilities: [],
         optionalCapabilities: [],
         limitations: []
@@ -487,7 +657,12 @@ describe("ACP runner runtime limits", () => {
     ).rejects.toThrow("captured");
 
     expect(execute).toHaveBeenCalledWith(
-      expect.any(Object),
+      expect.objectContaining({
+        authenticationHints: {
+          preferredMethodIds: ["mock-login"],
+          headlessSafeMethodIds: ["mock-login"]
+        }
+      }),
       expect.objectContaining({ timeoutMs: expectedTimeoutMs })
     );
   });

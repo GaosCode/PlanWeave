@@ -130,10 +130,18 @@ function isSensitiveStructuredKey(key: string): boolean {
   return sensitiveStructuredKeyEndings.some((ending) => normalized.endsWith(ending));
 }
 
+type StructuredRedactionLocation = "ordinary" | "acp_auth_methods" | "acp_auth_method";
+
+function isAcpTerminalAuthMethod(value: object): boolean {
+  return "type" in value && value.type === "terminal";
+}
+
 function redactStructuredValue(
   value: unknown,
   key: string | null,
-  ancestors: WeakSet<object>
+  ancestors: WeakSet<object>,
+  acpProtocol: boolean,
+  location: StructuredRedactionLocation
 ): unknown {
   const normalizedKey = key === null ? null : normalizedStructuredKey(key);
   if (normalizedKey !== null && protocolIdentityKeys.has(normalizedKey)) {
@@ -144,7 +152,10 @@ function redactStructuredValue(
   if (Array.isArray(value)) {
     if (ancestors.has(value)) return "[REDACTED:SENSITIVE_CONTENT]";
     ancestors.add(value);
-    const result = value.map((item) => redactStructuredValue(item, null, ancestors));
+    const childLocation = location === "acp_auth_methods" ? "acp_auth_method" : "ordinary";
+    const result = value.map((item) =>
+      redactStructuredValue(item, null, ancestors, acpProtocol, childLocation)
+    );
     ancestors.delete(value);
     return result;
   }
@@ -155,11 +166,19 @@ function redactStructuredValue(
     }
     if (ancestors.has(value)) return "[REDACTED:SENSITIVE_CONTENT]";
     ancestors.add(value);
+    const terminalAuthMethod =
+      acpProtocol && location === "acp_auth_method" && isAcpTerminalAuthMethod(value);
     const result = Object.fromEntries(
-      Object.entries(value).map(([childKey, item]) => [
-        childKey,
-        redactStructuredValue(item, childKey, ancestors)
-      ])
+      Object.entries(value).flatMap(([childKey, item]) => {
+        if (childKey === "_meta" || (terminalAuthMethod && childKey === "env")) {
+          return [];
+        }
+        const childLocation =
+          acpProtocol && childKey === "authMethods" ? "acp_auth_methods" : "ordinary";
+        return [
+          [childKey, redactStructuredValue(item, childKey, ancestors, acpProtocol, childLocation)]
+        ];
+      })
     );
     ancestors.delete(value);
     return result;
@@ -168,7 +187,11 @@ function redactStructuredValue(
 }
 
 export function redactRunnerEventPayload(value: unknown): unknown {
-  return redactStructuredValue(value, null, new WeakSet());
+  return redactStructuredValue(value, null, new WeakSet(), false, "ordinary");
+}
+
+export function redactAcpProtocolPayload(value: unknown): unknown {
+  return redactStructuredValue(value, null, new WeakSet(), true, "ordinary");
 }
 
 export function utf8ByteLength(value: string): number {

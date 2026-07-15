@@ -164,6 +164,42 @@ export const acpAuthenticationOutcomeSchema = z.discriminatedUnion("kind", [
 ]);
 export type AcpAuthenticationOutcome = z.infer<typeof acpAuthenticationOutcomeSchema>;
 
+type AcpAuthenticationRequiredOutcome = Extract<
+  AcpAuthenticationOutcome,
+  { kind: "auth_required" }
+>;
+
+function authenticationRequiredMessage(outcome: AcpAuthenticationRequiredOutcome): string {
+  if (outcome.reason === "missing_credentials") {
+    const missingVariables = [
+      ...new Set(
+        outcome.methods.flatMap((method) =>
+          method.type === "env_var" ? method.missingVariables : []
+        )
+      )
+    ];
+    return missingVariables.length > 0
+      ? `ACP authentication requires credentials. Configure environment variables ${missingVariables.join(", ")}, then retry.`
+      : "ACP authentication requires credentials. Configure the advertised authentication method, then retry.";
+  }
+  if (outcome.reason === "interactive_method") {
+    return "ACP authentication requires user interaction. Complete authentication with the agent, then retry.";
+  }
+  return "ACP agent did not advertise a headless-safe authentication method. Complete authentication with the agent, then retry.";
+}
+
+export class AcpAuthenticationRequiredError extends Error {
+  readonly reason: AcpAuthenticationRequiredOutcome["reason"];
+  readonly methods: AcpAuthenticationRequiredOutcome["methods"];
+
+  constructor(outcome: AcpAuthenticationRequiredOutcome) {
+    super(authenticationRequiredMessage(outcome));
+    this.name = "AcpAuthenticationRequiredError";
+    this.reason = outcome.reason;
+    this.methods = outcome.methods;
+  }
+}
+
 function stableUnique(values: readonly string[]): string[] {
   return [...new Set(values)];
 }

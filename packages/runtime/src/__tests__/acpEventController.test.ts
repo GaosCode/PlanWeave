@@ -34,6 +34,45 @@ function run(root: string, scenario: string): AcpSessionRun {
 }
 
 describe("ACP event controller durability and producers", () => {
+  it("records only the selected authentication method without spawn secrets or protocol metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-auth-events-"));
+    const variable = "PLANWEAVE_T002_TEST_API_KEY";
+    const secret = "must-not-appear-in-run-records";
+    const previous = process.env[variable];
+    process.env[variable] = secret;
+    try {
+      const controller = new AcpSessionController(
+        new ActiveAgentRunRegistry(),
+        createAcpConnection,
+        new AcpEventReadModelRegistry()
+      );
+
+      await expect(
+        controller.execute(run(root, "env-auth"), { timeoutMs: 1_000 })
+      ).resolves.toMatchObject({
+        kind: "block",
+        exitCode: 0
+      });
+      const persisted = await Promise.all(
+        ["events.ndjson", "protocol.ndjson", "metadata.json", "heartbeat.json"].map((name) =>
+          readFile(join(root, name), "utf8")
+        )
+      );
+      const combined = persisted.join("\n");
+      expect(combined).toContain("ACP authentication method selected: env-login");
+      expect(combined).toContain("ACP authentication completed.");
+      expect(combined).not.toContain(secret);
+      expect(combined).not.toContain("mock-auth-meta-secret");
+      expect(combined).not.toContain("opaque-terminal-auth-material");
+      expect(combined).not.toContain("opaque-private-auth-metadata");
+      expect(combined).not.toContain("CUSTOM_AUTH_MATERIAL");
+      expect(combined).not.toContain('"_meta"');
+    } finally {
+      if (previous === undefined) delete process.env[variable];
+      else process.env[variable] = previous;
+    }
+  });
+
   it("applies explicitly supplied Desktop ACP defaults before the first prompt", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-session-config-"));
     const controller = new AcpSessionController(

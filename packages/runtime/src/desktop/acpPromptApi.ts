@@ -383,6 +383,7 @@ export async function continueAcpPrompt(options: {
     sessionId: options.context.metadata.sessionId,
     agentId: options.context.metadata.agentId,
     launch: { command: launch.command, args: launch.args },
+    authenticationHints: definition.acp.authentication,
     text: options.text,
     timeoutMs: profile.timeoutMs ?? DEFAULT_EXECUTOR_TIMEOUT_MS,
     eventStore: async () => verifiedPromptEventStore(options)

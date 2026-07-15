@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
-import type {
-  AgentCapabilities,
-  LoadSessionRequest,
-  LoadSessionResponse,
-  PromptRequest,
-  PromptResponse,
-  SessionNotification
-} from "@agentclientprotocol/sdk";
+import type { SessionNotification } from "@agentclientprotocol/sdk";
 import type { AgentFamily } from "../types.js";
-import { createAcpConnection, type CreateAcpConnectionOptions } from "./acpConnection.js";
+import {
+  createAcpConnection,
+  type AcpConnection,
+  type CreateAcpConnectionOptions
+} from "./acpConnection.js";
+import {
+  AcpAuthenticationRequiredError,
+  coordinateAcpAuthentication,
+  type AcpAuthenticationHints
+} from "./acpAuthentication.js";
 import { normalizeAcpSessionNotification } from "./acpEventNormalization.js";
 import type { AcpEventStore } from "./acpEventStore.js";
 import {
@@ -16,14 +18,12 @@ import {
   type NormalizedRunnerEvent
 } from "./normalizedEventContract.js";
 import { acpCorrelationSchema } from "./runnerContractSchemas.js";
-import { redactRunnerEventPayload, redactRunnerEventText } from "./runnerEventRedaction.js";
+import { redactAcpProtocolPayload, redactRunnerEventText } from "./runnerEventRedaction.js";
 
-export type AcpConversationTurnConnection = {
-  initialize(): Promise<{ agentCapabilities?: AgentCapabilities }>;
-  loadSession(request: LoadSessionRequest): Promise<LoadSessionResponse>;
-  prompt(request: PromptRequest): Promise<PromptResponse>;
-  dispose(): Promise<void>;
-};
+export type AcpConversationTurnConnection = Pick<
+  AcpConnection,
+  "initialize" | "authenticate" | "loadSession" | "prompt" | "dispose"
+>;
 
 export type AcpConversationTurnConnectionOptions = Pick<
   CreateAcpConnectionOptions,
@@ -46,6 +46,7 @@ export type AcpConversationTurnInput = {
   sessionId: string;
   agentId: AgentFamily;
   launch: { command: string; args: readonly string[] };
+  authenticationHints?: AcpAuthenticationHints;
   text: string;
   timeoutMs: number;
   eventStore: ConversationEventStore | (() => Promise<ConversationEventStore>);
@@ -116,10 +117,11 @@ export class AcpConversationTurnCoordinator {
       await eventStore.append(body, correlation);
       await this.notify(input.key);
     };
+    const spawnEnvironment = environment();
     const connection = this.connect({
       launch: { trusted: true, ...input.launch },
       cwd: input.cwd,
-      env: environment(),
+      env: spawnEnvironment,
       clientInfo: { name: "planweave", version: "1" },
       onSessionUpdate: async (notification: SessionNotification) => {
         if (!persistNotifications || notification.sessionId !== input.sessionId) return;
@@ -129,7 +131,7 @@ export class AcpConversationTurnCoordinator {
       onPermissionRequest: async () => ({ outcome: { outcome: "cancelled" } }),
       onElicitationRequest: async () => ({ action: "cancel" }),
       observer: {
-        redact: redactRunnerEventPayload,
+        redact: redactAcpProtocolPayload,
         observe: (observation) => {
           if (!persistNotifications) return;
           void eventStore
@@ -145,6 +147,15 @@ export class AcpConversationTurnCoordinator {
     const secondaryErrors: unknown[] = [];
     try {
       const initialized = await connection.initialize();
+      const authenticationOutcome = await coordinateAcpAuthentication({
+        connection,
+        initialized,
+        hints: input.authenticationHints,
+        availableEnvironmentVariables: new Set(Object.keys(spawnEnvironment))
+      });
+      if (authenticationOutcome.kind === "auth_required") {
+        throw new AcpAuthenticationRequiredError(authenticationOutcome);
+      }
       if (initialized.agentCapabilities?.loadSession !== true) {
         throw new Error(
           `ACP agent '${input.agentId}' does not support loading an existing session.`

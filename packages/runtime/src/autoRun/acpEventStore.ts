@@ -8,7 +8,7 @@ import {
   normalizedRunnerEventSchema,
   type NormalizedRunnerEvent
 } from "./normalizedEventContract.js";
-import { redactRunnerEventPayload, redactRunnerEventText } from "./runnerEventRedaction.js";
+import { redactAcpProtocolPayload, redactRunnerEventText } from "./runnerEventRedaction.js";
 import {
   replayNormalizedRunnerEvents,
   type CanonicalRunnerEventIdentity,
@@ -118,7 +118,7 @@ export class AcpEventStore {
   }
 
   appendProtocol(direction: string, payload: unknown): Promise<void> {
-    const redacted = redactRunnerEventPayload({
+    const redacted = redactAcpProtocolPayload({
       timestamp: new Date().toISOString(),
       direction,
       payload

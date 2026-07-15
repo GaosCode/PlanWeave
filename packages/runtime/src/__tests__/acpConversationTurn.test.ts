@@ -18,22 +18,49 @@ function sessionUpdate(text: string): SessionNotification {
 }
 
 function createHarness(
-  options: { loadSession?: boolean; promptError?: Error; holdPrompt?: boolean } = {}
+  options: {
+    loadSession?: boolean;
+    promptError?: Error;
+    loadError?: Error;
+    authenticateError?: Error;
+    authMethods?: Array<{ id: string; name: string }>;
+    rejectUnauthenticatedLoad?: boolean;
+    holdPrompt?: boolean;
+  } = {}
 ) {
   const appended: NormalizedRunnerEvent["body"][] = [];
+  const operationOrder: string[] = [];
+  let authenticated = false;
   let releasePrompt: (() => void) | null = null;
   let connectionOptions:
     | Parameters<ConstructorParameters<typeof AcpConversationTurnCoordinator>[0]>[0]
     | null = null;
   const connection: AcpConversationTurnConnection = {
-    initialize: vi.fn(async () => ({
-      agentCapabilities: { loadSession: options.loadSession ?? true }
-    })),
+    initialize: vi.fn(async () => {
+      operationOrder.push("initialize");
+      return {
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: options.loadSession ?? true },
+        authMethods: options.authMethods ?? []
+      };
+    }),
+    authenticate: vi.fn(async () => {
+      operationOrder.push("authenticate");
+      if (options.authenticateError) throw options.authenticateError;
+      authenticated = true;
+      return {};
+    }),
     loadSession: vi.fn(async () => {
+      operationOrder.push("loadSession");
+      if (options.rejectUnauthenticatedLoad && !authenticated) {
+        throw new Error("load rejected before authentication");
+      }
+      if (options.loadError) throw options.loadError;
       await connectionOptions?.onSessionUpdate?.(sessionUpdate("replayed"));
       return {};
     }),
     prompt: vi.fn(async () => {
+      operationOrder.push("prompt");
       await connectionOptions?.onSessionUpdate?.(sessionUpdate("fresh"));
       if (options.holdPrompt) {
         await new Promise<void>((resolve) => {
@@ -68,6 +95,7 @@ function createHarness(
   };
   return {
     appended,
+    operationOrder,
     connection,
     connect,
     coordinator,
@@ -95,6 +123,75 @@ describe("ACP conversation turn", () => {
       expect.objectContaining({ kind: "message", role: "assistant", content: "fresh" })
     ]);
     expect(harness.connection.dispose).toHaveBeenCalledOnce();
+    expect(harness.operationOrder).toEqual(["initialize", "loadSession", "prompt"]);
+  });
+
+  it("authenticates each new transport before loading the existing session", async () => {
+    const harness = createHarness({
+      authMethods: [{ id: "cached-login", name: "Cached login" }],
+      rejectUnauthenticatedLoad: true
+    });
+
+    await harness.coordinator.send({
+      ...harness.input,
+      authenticationHints: {
+        preferredMethodIds: ["cached-login"],
+        headlessSafeMethodIds: ["cached-login"]
+      }
+    });
+
+    expect(harness.operationOrder).toEqual(["initialize", "authenticate", "loadSession", "prompt"]);
+    expect(harness.connection.authenticate).toHaveBeenCalledWith(
+      { methodId: "cached-login" },
+      undefined
+    );
+  });
+
+  it("does not load or prompt when authentication requires user action", async () => {
+    const harness = createHarness({
+      authMethods: [{ id: "interactive-login", name: "Interactive login" }],
+      rejectUnauthenticatedLoad: true
+    });
+
+    await expect(harness.coordinator.send(harness.input)).rejects.toThrow(
+      "headless-safe authentication method"
+    );
+
+    expect(harness.operationOrder).toEqual(["initialize"]);
+    expect(harness.connection.loadSession).not.toHaveBeenCalled();
+    expect(harness.connection.prompt).not.toHaveBeenCalled();
+    expect(harness.connection.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("preserves authentication failures without loading or prompting", async () => {
+    const harness = createHarness({
+      authMethods: [{ id: "cached-login", name: "Cached login" }],
+      authenticateError: new Error("authentication protocol failure"),
+      rejectUnauthenticatedLoad: true
+    });
+
+    await expect(
+      harness.coordinator.send({
+        ...harness.input,
+        authenticationHints: {
+          preferredMethodIds: ["cached-login"],
+          headlessSafeMethodIds: ["cached-login"]
+        }
+      })
+    ).rejects.toThrow("authentication protocol failure");
+
+    expect(harness.operationOrder).toEqual(["initialize", "authenticate"]);
+    expect(harness.connection.loadSession).not.toHaveBeenCalled();
+    expect(harness.connection.prompt).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to a new session when session/load fails", async () => {
+    const harness = createHarness({ loadError: new Error("load failed") });
+
+    await expect(harness.coordinator.send(harness.input)).rejects.toThrow("load failed");
+
+    expect(harness.operationOrder).toEqual(["initialize", "loadSession"]);
+    expect(harness.connection.prompt).not.toHaveBeenCalled();
   });
 
   it("rejects providers that do not advertise session/load", async () => {
@@ -105,6 +202,7 @@ describe("ACP conversation turn", () => {
     );
     expect(harness.connection.loadSession).not.toHaveBeenCalled();
     expect(harness.connection.prompt).not.toHaveBeenCalled();
+    expect(harness.operationOrder).toEqual(["initialize"]);
   });
 
   it("fails closed when the same record receives concurrent prompts", async () => {

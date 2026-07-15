@@ -9,6 +9,7 @@ import {
 import { sessionConfigurationFromNewSession } from "./acpSessionConfiguration.js";
 import {
   coordinateAcpAuthentication,
+  AcpAuthenticationRequiredError,
   hasAdvertisedAcpAuthenticationMethods,
   type AcpAuthenticationOutcome
 } from "./acpAuthentication.js";
@@ -71,27 +72,6 @@ function authenticationStateFromOutcome(
   return outcome.kind === "authenticated"
     ? { status: "authenticated", methodId: outcome.methodId }
     : { status: "not_advertised" };
-}
-
-function authenticationRequiredMessage(
-  outcome: Extract<AcpAuthenticationOutcome, { kind: "auth_required" }>
-): string {
-  if (outcome.reason === "missing_credentials") {
-    const missingVariables = [
-      ...new Set(
-        outcome.methods.flatMap((method) =>
-          method.type === "env_var" ? method.missingVariables : []
-        )
-      )
-    ];
-    return missingVariables.length > 0
-      ? `ACP authentication requires credentials. Configure environment variables ${missingVariables.join(", ")}, then retry.`
-      : "ACP authentication requires credentials. Configure the advertised authentication method, then retry.";
-  }
-  if (outcome.reason === "interactive_method") {
-    return "ACP authentication requires user interaction. Complete authentication with the agent, then retry.";
-  }
-  return "ACP agent did not advertise a headless-safe authentication method. Complete authentication with the agent, then retry.";
 }
 
 export const probeInstalledAcpAgent: AcpPreflightProbe = async ({ definition, cwd, signal }) => {
@@ -158,9 +138,10 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({ definition, cw
         throw new AcpPreflightPhaseError("authentication", error);
       }
       if (authenticationOutcome.kind === "auth_required") {
+        const authenticationError = new AcpAuthenticationRequiredError(authenticationOutcome);
         return {
           kind: "auth_required",
-          message: authenticationRequiredMessage(authenticationOutcome),
+          message: authenticationError.message,
           agentInfo: agentInfo.data,
           authentication: {
             status: "action_required",

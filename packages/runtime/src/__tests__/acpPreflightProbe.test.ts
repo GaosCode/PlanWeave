@@ -122,6 +122,11 @@ describe("ACP authenticated preflight lifecycle", () => {
             requiredVariables: [variable],
             missingVariables: [variable],
             link: null
+          },
+          {
+            id: "terminal-login",
+            name: "Terminal login",
+            type: "terminal"
           }
         ]
       });

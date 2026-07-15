@@ -23,6 +23,11 @@ import {
   type AcpConnection,
   type CreateAcpConnectionOptions
 } from "./acpConnection.js";
+import {
+  AcpAuthenticationRequiredError,
+  coordinateAcpAuthentication,
+  type AcpAuthenticationHints
+} from "./acpAuthentication.js";
 import { ExecutorCancelledError } from "./executorShared.js";
 import {
   extractFinalArtifactEnvelope,
@@ -37,7 +42,11 @@ import {
   type ActiveAgentRunIdentity,
   type ActiveAgentRunRegistry
 } from "./activeAgentRunRegistry.js";
-import { redactRunnerEventPayload, redactRunnerEventText } from "./runnerEventRedaction.js";
+import {
+  redactAcpProtocolPayload,
+  redactRunnerEventPayload,
+  redactRunnerEventText
+} from "./runnerEventRedaction.js";
 import { normalizedRedactedContent } from "./normalizedEventContract.js";
 import {
   createLiveOwnership,
@@ -76,6 +85,7 @@ export type AcpSessionRun = {
   prompt: string;
   cwd: string;
   launch: { command: string; args: readonly string[] };
+  authenticationHints?: AcpAuthenticationHints;
   executorName: string;
   agentId: AgentFamily;
   taskId: string;
@@ -326,10 +336,11 @@ export class AcpSessionController {
           );
         }
       };
+      const spawnEnvironment = environment();
       connection = this.connect({
         launch: { trusted: true, ...run.launch },
         cwd: run.cwd,
-        env: environment(),
+        env: spawnEnvironment,
         clientInfo: { name: "planweave", version: "1" },
         ...(options?.interactionBroker
           ? {
@@ -554,7 +565,7 @@ export class AcpSessionController {
         ...(eventStore
           ? {
               observer: {
-                redact: redactRunnerEventPayload,
+                redact: redactAcpProtocolPayload,
                 observe: (observation: { direction: string; payload: unknown }) => {
                   void eventStore
                     .appendProtocol(observation.direction, observation.payload)
@@ -624,6 +635,44 @@ export class AcpSessionController {
         timeoutMs: options?.timeoutMs
       });
       initializedCapabilities = initialized.agentCapabilities;
+      const authenticationOutcome = await coordinateAcpAuthentication({
+        connection,
+        initialized,
+        hints: run.authenticationHints,
+        availableEnvironmentVariables: new Set(Object.keys(spawnEnvironment)),
+        operationOptions: { signal: abortController.signal, timeoutMs: options?.timeoutMs }
+      });
+      if (authenticationOutcome.kind === "auth_required") {
+        if (eventStore)
+          await eventStore.append({
+            kind: "lifecycle",
+            state: "initializing",
+            message: "ACP authentication requires user action."
+          });
+        throw new AcpAuthenticationRequiredError(authenticationOutcome);
+      }
+      if (eventStore) {
+        if (authenticationOutcome.kind === "authenticated") {
+          await eventStore.append({
+            kind: "lifecycle",
+            state: "initializing",
+            message: diagnostic(
+              `ACP authentication method selected: ${authenticationOutcome.methodId}`
+            )
+          });
+          await eventStore.append({
+            kind: "lifecycle",
+            state: "initializing",
+            message: "ACP authentication completed."
+          });
+        } else {
+          await eventStore.append({
+            kind: "lifecycle",
+            state: "initializing",
+            message: "ACP agent did not advertise authentication methods."
+          });
+        }
+      }
       handle.control.interventionCapabilities.cancel = true;
       handle.control.interventionCapabilities.permission = options?.interactionBroker != null;
       handle.control.interventionCapabilities.elicitationPreview =

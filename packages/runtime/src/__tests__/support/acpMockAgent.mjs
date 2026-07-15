@@ -80,6 +80,7 @@ const app = agent({ name: "planweave-acp-mock" })
         scenario === "auth-required" ||
         scenario === "action-required" ||
         scenario === "authenticated-with-auth-methods" ||
+        scenario === "authenticated-artifact-implementation" ||
         scenario === "authenticate-delayed" ||
         scenario === "authenticate-protocol-error" ||
         scenario === "env-auth"
@@ -91,6 +92,14 @@ const app = agent({ name: "planweave-acp-mock" })
                   type: "env_var",
                   vars: [{ name: "PLANWEAVE_T002_TEST_API_KEY", secret: true }],
                   _meta: { token: "mock-auth-meta-secret" }
+                },
+                {
+                  id: "terminal-login",
+                  name: "Terminal login",
+                  type: "terminal",
+                  args: ["login"],
+                  env: { CUSTOM_AUTH_MATERIAL: "opaque-terminal-auth-material" },
+                  _meta: { private: "opaque-private-auth-metadata" }
                 }
               ]
             : [{ id: "mock-login", name: "Mock login", description: "Test-only authentication" }]
@@ -125,6 +134,7 @@ const app = agent({ name: "planweave-acp-mock" })
       scenario !== "auth-required" &&
       scenario !== "action-required" &&
       scenario !== "authenticated-with-auth-methods" &&
+      scenario !== "authenticated-artifact-implementation" &&
       scenario !== "authenticate-delayed" &&
       scenario !== "authenticate-protocol-error" &&
       scenario !== "env-auth"
@@ -155,6 +165,7 @@ const app = agent({ name: "planweave-acp-mock" })
     }
     if (
       (scenario === "authenticated-with-auth-methods" ||
+        scenario === "authenticated-artifact-implementation" ||
         scenario === "authenticate-delayed" ||
         scenario === "authenticate-protocol-error" ||
         scenario === "env-auth") &&
@@ -216,6 +227,7 @@ const app = agent({ name: "planweave-acp-mock" })
       : { sessionId };
   })
   .onRequest(methods.agent.session.load, async (ctx) => {
+    recordLifecycle("session/load");
     if (
       scenario !== "load-capable" &&
       scenario !== "load-capable-error" &&
@@ -280,6 +292,7 @@ const app = agent({ name: "planweave-acp-mock" })
     };
   })
   .onRequest(methods.agent.session.prompt, async (ctx) => {
+    recordLifecycle("session/prompt");
     const { sessionId } = ctx.params;
     const session = sessions.get(sessionId);
     if (!session) throw RequestError.invalidParams({ sessionId });
@@ -304,6 +317,8 @@ const app = agent({ name: "planweave-acp-mock" })
     const taskPrompt = promptText.split("\n\nPLANWEAVE RUNNER-ONLY FINAL ARTIFACT CONTRACT", 1)[0];
     const artifactScenario =
       scenario.startsWith("artifact-") ||
+      scenario === "authenticated-artifact-implementation" ||
+      scenario === "env-auth" ||
       scenario === "delayed-artifact-implementation" ||
       scenario === "terminal-output" ||
       scenario === "permission-deny" ||
@@ -323,6 +338,8 @@ const app = agent({ name: "planweave-acp-mock" })
 
     const artifactText =
       scenario === "artifact-implementation" ||
+      scenario === "authenticated-artifact-implementation" ||
+      scenario === "env-auth" ||
       scenario === "artifact-session-config" ||
       scenario === "artifact-session-config-live" ||
       scenario === "delayed-artifact-implementation" ||
