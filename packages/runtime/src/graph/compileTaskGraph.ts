@@ -16,9 +16,9 @@ import type {
 import {
   blockUsesDeprecatedParallelSafe,
   deprecatedParallelSafeWarning,
-  effectiveLocksForBlock,
-  sharedResourcesForBlock
+  effectiveLocksForBlock
 } from "./parallelLocks.js";
+import { sharedResourcesForBlock } from "./sharedResources.js";
 
 function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
