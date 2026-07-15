@@ -173,6 +173,7 @@ export {
   createCodexExecAdapter,
   createClaudeCodeExecAdapter,
   createExecutorAdapter,
+  createGrokExecAdapter,
   createLocalReviewAdapter,
   createManualExecutorAdapter,
   createOpencodeExecAdapter,

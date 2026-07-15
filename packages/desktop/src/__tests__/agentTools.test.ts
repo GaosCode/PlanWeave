@@ -47,6 +47,7 @@ describe("desktop agent tool detection", () => {
       { command: "claude", installed: true, runnerKind: "cli", version: "claude 1.2.3" },
       { command: "opencode", installed: true, runnerKind: "cli", version: "opencode 1.2.3" },
       { command: "pi", installed: true, runnerKind: "cli", version: "pi 1.2.3" },
+      { command: "grok", installed: true, runnerKind: "cli", version: "grok 1.2.3" },
       { command: "codex-acp", installed: true, runnerKind: "acp", version: null },
       { command: "claude-agent-acp", installed: true, runnerKind: "acp", version: null },
       { command: "opencode", installed: true, runnerKind: "acp", version: null },
@@ -71,6 +72,12 @@ describe("desktop agent tool detection", () => {
         maxBuffer: 64 * 1024,
         timeout: 15_000
       }),
+      expect.any(Function)
+    );
+    expect(execFileMock).toHaveBeenCalledWith(
+      "grok",
+      ["--version"],
+      expect.objectContaining({ timeout: 5_000 }),
       expect.any(Function)
     );
     expect(execFileMock).toHaveBeenCalledWith(

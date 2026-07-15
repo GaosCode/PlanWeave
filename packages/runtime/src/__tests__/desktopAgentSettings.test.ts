@@ -46,7 +46,11 @@ describe("desktop agent transport settings", () => {
       runner: { transport: "acp" }
     });
     expect(profiles["codex-auto"]).toMatchObject({ runner: { transport: "cli" } });
-    expect(profiles.grok).toBeUndefined();
+    expect(profiles.grok).toMatchObject({
+      adapter: "agent",
+      agent: "grok",
+      runner: { transport: "acp" }
+    });
     expect(profiles["grok-acp"]).toMatchObject({
       adapter: "agent",
       agent: "grok",
@@ -70,7 +74,27 @@ describe("desktop agent transport settings", () => {
 
     expect(selectedDesktopAgentTransport()).toBe("cli");
     expect(profiles.codex).toMatchObject({ runner: { transport: "cli" } });
-    expect(profiles.grok).toBeUndefined();
+    expect(profiles.grok).toMatchObject({
+      adapter: "agent",
+      agent: "grok",
+      runner: { transport: "cli" },
+      args: ["--no-auto-update", "--prompt-file"]
+    });
+    expect(profiles["grok-acp"]).toMatchObject({ runner: { transport: "acp" } });
+  });
+
+  it("applies the explicit full-access setting to Grok CLI only", async () => {
+    await writeSettings({
+      execution: { agentTransport: "cli" },
+      agents: { grok: { enabled: true, fullAccess: true } }
+    });
+
+    const profiles = applyDesktopAgentSettingsToBuiltinProfiles(builtinAgentProfiles());
+
+    expect(profiles.grok).toMatchObject({
+      runner: { transport: "cli" },
+      args: ["--always-approve", "--no-auto-update", "--prompt-file"]
+    });
     expect(profiles["grok-acp"]).toMatchObject({ runner: { transport: "acp" } });
   });
 });

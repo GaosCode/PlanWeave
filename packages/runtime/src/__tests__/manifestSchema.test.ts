@@ -124,6 +124,14 @@ describe("plan-package/v1 manifest schema", () => {
     expect(
       manifestSchema.safeParse(
         manifestTestBuilder()
+          .withDefaultExecutor("grok")
+          .withTask("T-001", (task) => ({ ...task, executor: "grok" }))
+          .build()
+      ).success
+    ).toBe(true);
+    expect(
+      manifestSchema.safeParse(
+        manifestTestBuilder()
           .withDefaultExecutor("grok-acp")
           .withTask("T-001", (task) => ({ ...task, executor: "grok-acp" }))
           .build()

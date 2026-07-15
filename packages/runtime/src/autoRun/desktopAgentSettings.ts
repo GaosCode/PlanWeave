@@ -28,7 +28,7 @@ const desktopAgentNames = {
   "claude-code": ["claude-code", "claude-code-auto"],
   opencode: ["opencode"],
   pi: ["pi", "pi-auto"],
-  grok: []
+  grok: ["grok"]
 } as const satisfies Record<DesktopAgentKind, readonly string[]>;
 
 const desktopAgentAcpNames = {
@@ -171,6 +171,14 @@ export function applyDesktopAgentSettingsToBuiltinProfiles(
           ...profile,
           args: addArgOnce(profile.args, "--dangerously-skip-permissions")
         };
+      }
+    }
+  }
+  if (settings.agentTransport === "cli" && fullAccessEnabled(settings.agents, "grok")) {
+    for (const name of desktopAgentNames.grok) {
+      const profile = next[name];
+      if (profile?.adapter === "agent" && profile.agent === "grok" && "command" in profile) {
+        next[name] = { ...profile, args: addArgOnce(profile.args, "--always-approve") };
       }
     }
   }

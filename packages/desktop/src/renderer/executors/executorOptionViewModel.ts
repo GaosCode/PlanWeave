@@ -29,7 +29,8 @@ const executorAliases: Record<string, string> = {
   "claude-code-acp": "claude-code",
   "opencode-acp": "opencode",
   "pi-auto": "pi",
-  "pi-acp": "pi"
+  "pi-acp": "pi",
+  "grok-acp": "grok"
 };
 
 interface ExecutorAgentDetectionBinding {
@@ -42,7 +43,7 @@ const executorAgentDetectionBindings: Record<string, ExecutorAgentDetectionBindi
   opencode: { kind: "opencode" },
   "claude-code": { kind: "claude-code" },
   pi: { kind: "pi" },
-  "grok-acp": { kind: "grok", fixedTransport: "acp" }
+  grok: { kind: "grok" }
 };
 
 export function canonicalExecutorName(name: string): string {

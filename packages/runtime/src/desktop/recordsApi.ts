@@ -241,6 +241,7 @@ function adapterField(metadata: Record<string, unknown>): ExecutorIntegrationNam
     value === "opencode-exec" ||
     value === "claude-code-exec" ||
     value === "pi-exec" ||
+    value === "grok-exec" ||
     value === "local-review"
     ? value
     : null;

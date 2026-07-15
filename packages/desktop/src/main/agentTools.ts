@@ -46,6 +46,15 @@ const agentProfiles: DesktopAgentToolProfile[] = [
     fullAccessArgs: ["-p"]
   },
   {
+    kind: "grok",
+    runnerKind: "cli",
+    name: "Grok",
+    command: "grok",
+    versionArgs: ["--version"],
+    execArgs: ["--no-auto-update", "--prompt-file"],
+    fullAccessArgs: ["--always-approve", "--no-auto-update", "--prompt-file"]
+  },
+  {
     kind: "codex",
     runnerKind: "acp",
     name: "Codex",

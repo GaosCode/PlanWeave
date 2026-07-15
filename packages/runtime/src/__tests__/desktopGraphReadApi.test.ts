@@ -55,7 +55,7 @@ describe("desktop graph read API", () => {
         "opencode",
         "claude-code",
         "pi",
-        "grok-acp"
+        "grok"
       ])
     );
     expect(graph.executorOptions).not.toEqual(

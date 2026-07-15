@@ -100,6 +100,7 @@ describe("AgentRunner registries", () => {
       "claude-code-acp": { agent: "claude-code", runner: { transport: "acp" } },
       pi: { agent: "pi", runner: { transport: "cli" }, command: "pi" },
       "pi-acp": { agent: "pi", runner: { transport: "acp" } },
+      grok: { agent: "grok", runner: { transport: "cli" }, command: "grok" },
       "grok-acp": { agent: "grok", runner: { transport: "acp" } }
     });
   });
@@ -126,7 +127,8 @@ describe("AgentRunner registries", () => {
     ["codex", "codex", "codex-acp"],
     ["opencode", "opencode", "opencode-acp"],
     ["claude-code", "claude-code", "claude-code-acp"],
-    ["pi", "pi", "pi-acp"]
+    ["pi", "pi", "pi-acp"],
+    ["grok", "grok", "grok-acp"]
   ] as const)("selects explicit CLI and ACP profiles for %s", (agent, cliName, acpName) => {
     const profiles = builtinAgentProfiles();
     expect(profiles[cliName]).toMatchObject({ agent, runner: { transport: "cli" } });
@@ -134,10 +136,17 @@ describe("AgentRunner registries", () => {
     expect(resolveAgentRunner(profiles[cliName]!)).not.toBe(resolveAgentRunner(profiles[acpName]!));
   });
 
-  it("registers Grok as ACP-only and rejects a Grok CLI profile at the public schema boundary", () => {
+  it("registers Grok CLI and ACP profiles at the public schema boundary", () => {
     const definition = resolveAgentDefinition("grok");
-    expect(definition.cli).toBeNull();
-    expect(definition.builtinProfiles).toEqual({
+    expect(definition.cli?.integration).toBe("grok-exec");
+    expect(definition.builtinProfiles).toMatchObject({
+      grok: {
+        adapter: "agent",
+        agent: "grok",
+        runner: { transport: "cli" },
+        command: "grok",
+        args: ["--no-auto-update", "--prompt-file"]
+      },
       "grok-acp": { adapter: "agent", agent: "grok", runner: { transport: "acp" } }
     });
     expect(
@@ -147,15 +156,21 @@ describe("AgentRunner registries", () => {
         runner: { transport: "acp" }
       })
     ).toEqual({ adapter: "agent", agent: "grok", runner: { transport: "acp" } });
-    expect(() =>
+    expect(
       executorProfileSchema.parse({
         adapter: "agent",
         agent: "grok",
         runner: { transport: "cli" },
         command: "grok",
-        args: ["-p"]
+        args: ["--no-auto-update", "--prompt-file"]
       })
-    ).toThrow("ACP-only agent does not define a CLI runner");
+    ).toEqual({
+      adapter: "agent",
+      agent: "grok",
+      runner: { transport: "cli" },
+      command: "grok",
+      args: ["--no-auto-update", "--prompt-file"]
+    });
   });
 
   it.each([

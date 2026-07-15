@@ -93,6 +93,7 @@ export type ProtocolAdapter<TProfile extends ProfileWithCommand> = {
   buildInvocation(input: {
     profile: TProfile;
     prompt: string;
+    promptPath: string;
     executionCwd: string;
   }): TerminalAgentInvocation;
   sessionIdFromOutput?(output: string): string | null;
@@ -219,6 +220,9 @@ export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWith
   const prompt = preparePrompt
     ? preparePrompt({ prompt: options.prompt, claim: options.claim, reviewResultPath })
     : options.prompt;
+  if (prompt !== options.prompt) {
+    await writeFile(run.promptPath, prompt, "utf8");
+  }
   const usesReviewEnv =
     protocol.usesReviewResultEnvironment ?? protocol.reviewResultMode === "result-file";
   const reviewContract =
@@ -229,7 +233,12 @@ export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWith
           taskId: options.claim.taskId
         }
       : null;
-  const invocation = protocol.buildInvocation({ profile: options.profile, prompt, executionCwd });
+  const invocation = protocol.buildInvocation({
+    profile: options.profile,
+    prompt,
+    promptPath: run.promptPath,
+    executionCwd
+  });
   const limits = executorRuntimeLimits(options.profile);
   let agentSessionId: string | null = null;
   const onSessionId = async (sessionId: string): Promise<void> => {
@@ -547,11 +556,13 @@ export async function runTerminalAgentProtocolFeedback<TProfile extends ProfileW
   const runId = await allocateRunId(runRoot);
   const runDir = join(runRoot, runId);
   const metadataPath = join(runDir, "metadata.json");
+  const promptPath = join(runDir, "prompt.md");
   const startedAt = new Date().toISOString();
-  await writeFile(join(runDir, "prompt.md"), options.claim.content, "utf8");
+  await writeFile(promptPath, options.claim.content, "utf8");
   const invocation = protocol.buildInvocation({
     profile: options.profile,
     prompt: options.claim.content,
+    promptPath,
     executionCwd: options.executionCwd
   });
   const limits = executorRuntimeLimits(options.profile);

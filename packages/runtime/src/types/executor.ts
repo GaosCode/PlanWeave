@@ -10,6 +10,7 @@ export const executorIntegrationSchema = z.enum([
   "opencode-exec",
   "claude-code-exec",
   "pi-exec",
+  "grok-exec",
   "local-review"
 ]);
 export const executorIntegrations = executorIntegrationSchema.options;
@@ -20,6 +21,7 @@ export const executorIntegration = {
   opencodeExec: executorIntegrationSchema.enum["opencode-exec"],
   claudeCodeExec: executorIntegrationSchema.enum["claude-code-exec"],
   piExec: executorIntegrationSchema.enum["pi-exec"],
+  grokExec: executorIntegrationSchema.enum["grok-exec"],
   localReview: executorIntegrationSchema.enum["local-review"]
 } as const;
 
@@ -137,6 +139,39 @@ const piCliProfileSchema = z
   })
   .strict();
 
+const grokCliArgsSchema = z
+  .array(z.string())
+  .default(["--no-auto-update", "--prompt-file"])
+  .superRefine((args, context) => {
+    if (!args.includes("--no-auto-update")) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Grok CLI args must include '--no-auto-update'."
+      });
+    }
+    const promptFileIndexes = args.flatMap((arg, index) =>
+      arg === "--prompt-file" ? [index] : []
+    );
+    if (promptFileIndexes.length !== 1 || promptFileIndexes[0] !== args.length - 1) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Grok CLI args must contain exactly one '--prompt-file' as the final argument; PlanWeave appends the prompt path at runtime."
+      });
+    }
+  });
+
+const grokCliProfileSchema = z
+  .object({
+    adapter: executorProfileAdapterSchema.extract(["agent"]),
+    agent: agentFamilySchema.extract(["grok"]),
+    runner: cliRunnerSchema,
+    command: z.string().min(1),
+    args: grokCliArgsSchema,
+    ...executorRuntimeLimitsSchema.shape
+  })
+  .strict();
+
 const canonicalExecutorProfileSchema = z.union([
   manualExecutorProfileSchema,
   localReviewExecutorProfileSchema,
@@ -144,6 +179,7 @@ const canonicalExecutorProfileSchema = z.union([
   opencodeCliProfileSchema,
   claudeCodeCliProfileSchema,
   piCliProfileSchema,
+  grokCliProfileSchema,
   agentAcpProfileSchema
 ]);
 
@@ -182,6 +218,14 @@ const legacyAgentProfileSchema = z.discriminatedUnion("adapter", [
       args: z.array(z.string()).default(["-p"]),
       ...executorRuntimeLimitsSchema.shape
     })
+    .strict(),
+  z
+    .object({
+      adapter: executorIntegrationSchema.extract(["grok-exec"]),
+      command: z.string().min(1),
+      args: grokCliArgsSchema,
+      ...executorRuntimeLimitsSchema.shape
+    })
     .strict()
 ]);
 
@@ -210,8 +254,12 @@ function normalizeLegacyAgentProfile(
       ...cli
     };
   }
+  if (profile.adapter === "pi-exec") {
+    const { adapter: _adapter, ...cli } = profile;
+    return { adapter: "agent", agent: "pi", runner: { transport: "cli" }, ...cli };
+  }
   const { adapter: _adapter, ...cli } = profile;
-  return { adapter: "agent", agent: "pi", runner: { transport: "cli" }, ...cli };
+  return { adapter: "agent", agent: "grok", runner: { transport: "cli" }, ...cli };
 }
 
 const executorProfileUnionSchema = z.union([
@@ -288,7 +336,8 @@ function selectedExecutorProfileParse(raw: unknown) {
     adapter === "codex-exec" ||
     adapter === "opencode-exec" ||
     adapter === "claude-code-exec" ||
-    adapter === "pi-exec"
+    adapter === "pi-exec" ||
+    adapter === "grok-exec"
   ) {
     return legacyAgentProfileSchema.safeParse(raw);
   }
@@ -315,6 +364,9 @@ function selectedExecutorProfileParse(raw: unknown) {
   if (agentDiscriminator.data.agent === "pi") {
     return piCliProfileSchema.safeParse(raw);
   }
+  if (agentDiscriminator.data.agent === "grok") {
+    return grokCliProfileSchema.safeParse(raw);
+  }
   return unsupportedAgentCliProfileSchema.safeParse(raw);
 }
 
@@ -333,7 +385,8 @@ export const executorProfileSchema = executorProfileBoundarySchema.transform((pr
     profile.adapter === "codex-exec" ||
     profile.adapter === "opencode-exec" ||
     profile.adapter === "claude-code-exec" ||
-    profile.adapter === "pi-exec"
+    profile.adapter === "pi-exec" ||
+    profile.adapter === "grok-exec"
   ) {
     return normalizeLegacyAgentProfile(profile);
   }
@@ -356,6 +409,7 @@ export type ClaudeCodeExecExecutorProfile = Extract<
   { agent: "claude-code" }
 >;
 export type PiExecExecutorProfile = Extract<AgentCliExecutorProfile, { agent: "pi" }>;
+export type GrokExecExecutorProfile = Extract<AgentCliExecutorProfile, { agent: "grok" }>;
 
 type ExecutorProfileSummaryFor<TProfile extends ExecutorProfile> = TProfile extends ExecutorProfile
   ? Omit<TProfile, "adapter"> & {

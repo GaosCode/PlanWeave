@@ -105,6 +105,7 @@ function isExecutorIntegration(value: unknown): value is ExecutorIntegrationName
     value === "opencode-exec" ||
     value === "claude-code-exec" ||
     value === "pi-exec" ||
+    value === "grok-exec" ||
     value === "local-review"
   );
 }
@@ -119,7 +120,8 @@ function runnerIdentity(metadata: Record<string, unknown>): {
     (agentId === "codex" ||
       agentId === "opencode" ||
       agentId === "claude-code" ||
-      agentId === "pi") &&
+      agentId === "pi" ||
+      agentId === "grok") &&
     (runnerKind === "cli" || runnerKind === "acp")
   ) {
     return { agentId, runnerKind };
@@ -129,6 +131,7 @@ function runnerIdentity(metadata: Record<string, unknown>): {
   if (adapter === "opencode-exec") return { agentId: "opencode", runnerKind: "cli" };
   if (adapter === "claude-code-exec") return { agentId: "claude-code", runnerKind: "cli" };
   if (adapter === "pi-exec") return { agentId: "pi", runnerKind: "cli" };
+  if (adapter === "grok-exec") return { agentId: "grok", runnerKind: "cli" };
   return { agentId: null, runnerKind: null };
 }
 

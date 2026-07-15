@@ -102,6 +102,7 @@ describe("desktop records API", () => {
     const runsRoot = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs");
     await mkdir(join(runsRoot, "RUN-001"), { recursive: true });
     await mkdir(join(runsRoot, "RUN-002"), { recursive: true });
+    await mkdir(join(runsRoot, "RUN-003"), { recursive: true });
     await writeJsonFile(join(runsRoot, "RUN-001", "metadata.json"), {
       runId: "RUN-001",
       ref: "T-001#B-001",
@@ -123,11 +124,23 @@ describe("desktop records API", () => {
       "\u001b[31mRead README.md\u001b[0m\n",
       "utf8"
     );
+    await writeJsonFile(join(runsRoot, "RUN-003", "metadata.json"), {
+      runId: "RUN-003",
+      ref: "T-001#B-001",
+      executor: "grok",
+      adapter: "grok-exec",
+      finishedAt: "2026-05-23T03:00:00.000Z",
+      exitCode: 0
+    });
 
     const records = await listBlockRunRecords(root, "T-001#B-001");
 
-    expect(records.map((record) => record.runId)).toEqual(["RUN-002", "RUN-001"]);
+    expect(records.map((record) => record.runId)).toEqual(["RUN-003", "RUN-002", "RUN-001"]);
     expect(records[0]).toMatchObject({
+      executor: "grok",
+      adapter: "grok-exec"
+    });
+    expect(records[1]).toMatchObject({
       executor: "opencode",
       adapter: "opencode-exec",
       stderrSummary: "Read README.md"

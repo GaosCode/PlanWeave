@@ -203,6 +203,14 @@ export function createPiExecAdapter(options: {
   return createProfiledAdapter({ ...options, expectedIntegration: "pi-exec" });
 }
 
+export function createGrokExecAdapter(options: {
+  projectRoot: PackageWorkspaceRef;
+  executorName?: string;
+  runtime?: ExecutorRuntimeOptions;
+}): ExecutorAdapter {
+  return createProfiledAdapter({ ...options, expectedIntegration: "grok-exec" });
+}
+
 export function createLocalReviewAdapter(options: {
   projectRoot: PackageWorkspaceRef;
   executorName?: string;

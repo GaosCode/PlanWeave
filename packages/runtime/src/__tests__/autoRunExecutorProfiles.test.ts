@@ -50,6 +50,11 @@ describe("Auto Run executor profiles", () => {
           command: "pi",
           args: ["-p"]
         },
+        grok: {
+          adapter: "grok-exec",
+          command: "grok",
+          args: ["--no-auto-update", "--prompt-file"]
+        },
         "local-review": {
           adapter: "local-review",
           command: "node",
@@ -92,6 +97,11 @@ describe("Auto Run executor profiles", () => {
     });
     expect(parsed.executors["claude-code"].adapter).toBe("agent");
     expect(parsed.executors.pi.adapter).toBe("agent");
+    expect(parsed.executors.grok).toMatchObject({
+      adapter: "agent",
+      agent: "grok",
+      runner: { transport: "cli" }
+    });
     expect(parsed.executors["local-review"].adapter).toBe("local-review");
     const task = parsed.nodes[0];
     expect(task.type).toBe("task");
