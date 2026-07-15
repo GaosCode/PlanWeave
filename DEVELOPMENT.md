@@ -146,6 +146,7 @@ Run the deterministic ACP contract, CLI, and Desktop tests:
 ```bash
 pnpm exec vitest run \
   packages/runtime/src/__tests__/runnerContracts.test.ts \
+  packages/runtime/src/__tests__/acpGrokLiveSmoke.test.ts \
   packages/runtime/src/__tests__/acpRunnerLifecycle.test.ts \
   packages/runtime/src/__tests__/acpEventController.test.ts \
   packages/cli/src/__tests__/acpCliE2E.test.ts \
@@ -163,6 +164,14 @@ node scripts/acp-live-smoke.mjs --profile pi-acp --evidence /tmp/pi-acp.json
 ```
 
 The command checks profile preflight, a successful artifact submission, ordered runner events, bounded cancellation, cleanup, canonical session identity, and stable replay. Use `--cancellation-timeout <ms>` when the selected agent needs a longer interval to enter the running state. Evidence files are written with mode `0600`.
+
+Grok also has a separate opt-in live smoke that talks directly to the installed ACP command. It is skipped by default, so the normal test suite and CI do not depend on Grok CLI or an account. Run it only after installing Grok CLI and completing any required login outside PlanWeave:
+
+```bash
+PLANWEAVE_LIVE_GROK_ACP=1 pnpm exec vitest run packages/runtime/src/__tests__/acpGrokLiveSmoke.test.ts
+```
+
+The smoke checks the local command/version, initialize, authentication using only an actually advertised `cached_token` method or an already-present `XAI_API_KEY`, session creation, and one minimal streamed prompt with a terminal response. It does not start login, a browser, or an authentication terminal; it cancels permission and elicitation requests, never invokes a tool on purpose, and does not print environment values or raw protocol payloads. If the agent requires user action or does not advertise a safe method, the smoke fails with a redacted stage/status instead of changing credentials. Session close is called only when the initialize response advertises it.
 
 ## Local Packaging
 

@@ -19,7 +19,7 @@
   <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178c6?style=for-the-badge" />
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Node.js-43853d?style=for-the-badge" />
   <img alt="desktop" src="https://img.shields.io/badge/desktop-Electron-47848f?style=for-the-badge" />
-  <img alt="agents" src="https://img.shields.io/badge/agents-Codex%20%7C%20Claude%20Code%20%7C%20OpenCode%20%7C%20Pi-6f42c1?style=for-the-badge" />
+  <img alt="agents" src="https://img.shields.io/badge/agents-Codex%20%7C%20Claude%20Code%20%7C%20OpenCode%20%7C%20Pi%20%7C%20Grok%20(ACP)-6f42c1?style=for-the-badge" />
 </p>
 <!-- planweave-badges:end -->
 
@@ -38,7 +38,7 @@ That makes PlanWeave a better fit for complex engineering work: parallel impleme
 - **Zero-config start**: install the CLI and agent skills, then use a few commands and skill prompts to create, run, and inspect a plan in an existing project.
 - **Scoped graph context**: agents receive the current block plus relevant task graph context, and can inspect more when needed.
 - **Focused responsibilities**: each claim hands one focused block to one agent, keeping context clean and avoiding unrelated plans, stale discussion, and wasted tokens.
-- **Per-node and per-block agent routing**: use Codex for one block, Claude Code, OpenCode, or Pi for another, and local review scripts where deterministic checks are enough.
+- **Per-node and per-block agent routing**: use Codex for one block, Claude Code, OpenCode, or Pi for another, route Grok through ACP-only execution, and use local review scripts where deterministic checks are enough.
 - **MCP authoring for ChatGPT**: connect ChatGPT to PlanWeave through the local MCP server, a headless systemd tunnel, or the desktop secure tunnel, then ask it to create canvases, tasks, blocks, review pipelines, and dependencies.
 - **Full auto-run workflow**: PlanWeave can claim blocks, run agents, collect reports, handle review feedback, and continue the task flow.
 - **Review and feedback as first-class work**: review blocks can produce structured feedback that returns to implementation blocks.
@@ -128,7 +128,7 @@ Source-level MCP server setup is documented in [Development](DEVELOPMENT.md).
 
 ## Agent Execution
 
-PlanWeave supports executor profiles, so different blocks can run through Codex, Claude Code, OpenCode, Pi, or local review commands. The runtime carries accepted results through review-feedback loops.
+PlanWeave supports executor profiles, so different blocks can run through Codex, Claude Code, OpenCode, Pi, Grok through ACP only, or local review commands. The runtime carries accepted results through review-feedback loops.
 
 Each block run writes durable output under the PlanWeave workspace, including prompt, stdout, stderr, report, metadata, and monitor commands when available.
 
@@ -217,21 +217,38 @@ planweave run-session <session-id> --json
 
 ### ACP runners
 
-Codex, Claude Code, OpenCode, and Pi provide explicit ACP profiles:
+Codex, Claude Code, OpenCode, Pi, and Grok provide explicit ACP profiles. Grok is ACP-only and has no PlanWeave CLI runner:
 
 ```text
 codex-acp
 claude-code-acp
 opencode-acp
 pi-acp
+grok-acp
 ```
 
-Install and sign in to the selected agent, then verify and run the profile:
+Install the command used by the selected profile and complete its agent-owned login and provider setup before running preflight:
+
+| Profile | Built-in ACP launch | Prerequisite |
+| --- | --- | --- |
+| `codex-acp` | `codex-acp` | Install and authenticate the separate Codex ACP agent. |
+| `claude-code-acp` | `claude-agent-acp` | Install and authenticate the separate Claude Code ACP agent. |
+| `opencode-acp` | `opencode acp` | Install OpenCode and configure its provider. |
+| `pi-acp` | `pi-acp` | Install `pi-acp` and `pi`, then configure the agent. |
+| `grok-acp` | `grok --no-auto-update agent stdio` | Install Grok CLI and complete Grok-owned login or provider configuration. |
+
+Then verify and run the profile:
 
 ```bash
 planweave executors test codex-acp --json
 planweave run --once --executor codex-acp --timeout 120000 --json
 ```
+
+ACP authentication is negotiated on every new transport. PlanWeave initializes the agent, considers only the `authMethods` returned by that initialize response, and chooses deterministically from methods that are safe without interaction: an `env_var` method only when all required variable names are present, or an agent-owned method only when its built-in definition marks that method ID as headless-safe. If the agent returns no `authMethods`, PlanWeave preserves compatibility by skipping protocol authentication and proceeding to session creation. A missing `agentInfo` is also valid and is shown as not provided; an `agentInfo` object with invalid name or version fields fails preflight.
+
+Terminal login, browser login, and other interactive methods are never started automatically. When credentials are missing or no safe method is advertised, CLI and Desktop preflight return an action-required state with the advertised method IDs/types and the next step. Configure the named environment variables (and restart PlanWeave if they were added after launch) or finish login in the agent outside PlanWeave, then rerun preflight. For Grok, the built-in preference hints cover `xai.api_key` and `cached_token`, but the current agent's advertised methods remain authoritative; this documentation does not claim that every Grok account or authentication path has passed live verification.
+
+PlanWeave passes the existing process environment to the selected agent but does not collect or persist secret values in authentication state, run metadata, IPC, or renderer state. Diagnostics may retain the selected method ID and missing environment variable names. ACP profiles never fall back to a CLI profile.
 
 ACP runs provide structured messages, tool updates, artifacts, usage snapshots, and interaction requests. PlanWeave Desktop exposes the follow-up, cancellation, permission, elicitation, and retry actions available for the selected run. Run records keep normalized events and protocol diagnostics for inspection and replay.
 
@@ -241,7 +258,7 @@ Custom package profiles require exact trust for their resolved command and argum
 planweave trust executor <profile>
 ```
 
-For authentication or provider errors, complete the agent's login and provider setup, then rerun `executors test`. Contributor verification commands are documented in [Development](DEVELOPMENT.md#acp-verification).
+For authentication or provider errors, follow the preflight next step and rerun `executors test`. Contributor verification commands, including the opt-in Grok live smoke, are documented in [Development](DEVELOPMENT.md#acp-verification).
 
 ## Manual CLI Workflow
 
