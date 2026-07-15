@@ -14,7 +14,7 @@
 
 <!-- planweave-badges:start -->
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.1-orange?style=for-the-badge" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.2-orange?style=for-the-badge" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-yellow.svg?style=for-the-badge" />
   <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178c6?style=for-the-badge" />
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Node.js-43853d?style=for-the-badge" />
@@ -22,8 +22,6 @@
   <img alt="agents" src="https://img.shields.io/badge/agents-Codex%20%7C%20Claude%20Code%20%7C%20OpenCode%20%7C%20Pi-6f42c1?style=for-the-badge" />
 </p>
 <!-- planweave-badges:end -->
-
-
 
 ## Why PlanWeave
 
@@ -49,11 +47,9 @@ That makes PlanWeave a better fit for complex engineering work: parallel impleme
 - **Statistics, search, and todo views**: inspect development efficiency and project state without leaving the workflow.
 - **Local-first and file-backed**: plans, prompts, run records, and artifacts remain inspectable in your workspace.
 
-For the default canvas, inspectable files live under `canvases/default/package`, `canvases/default/state.json`, and `canvases/default/results` inside the PlanWeave workspace. Use `planweave paths --json` for the exact local paths.
-
 ## Quick Start
 
-PlanWeave is currently CLI-first. The desktop app is available for testing, but it is experimental and unsigned.
+Use PlanWeave Desktop for visual planning and execution, or install the CLI for terminal workflows.
 
 Install the CLI with npm:
 
@@ -81,11 +77,11 @@ npx skills@latest add GaosCode/PlanWeave
 
 ## MCP and ChatGPT Web Planning
 
-PlanWeave includes a local HTTP MCP server for using PlanWeave from MCP clients such as ChatGPT. The MCP tools are not just read-only status helpers: they can also author plans by initializing projects, creating canvases, adding tasks and blocks, wiring dependencies, editing prompts, configuring review pipelines, validating graph quality, and importing package drafts.
+PlanWeave includes a local HTTP MCP server for MCP clients such as ChatGPT. Its tools inspect and author plans by initializing projects, creating canvases, adding tasks and blocks, wiring dependencies, editing prompts, configuring review pipelines, validating graph quality, and importing package drafts.
 
 For ChatGPT in the browser, use the CLI MCP tunnel on a VPS or PlanWeave Desktop's MCP settings on a local machine. You can use ChatGPT Web as the planning partner: describe the project goal, ask it to write a package-shaped draft in a temporary draft root, dry-run validate and quality-check it, preview the import, then apply it transactionally.
 
-Recommended headless setup for a VPS uses systemd. The MCP server stays on loopback, and the OpenAI `tunnel-client` keeps an outbound connection open; PlanWeave does not run its own daemon or pidfile manager.
+Recommended headless setup for a VPS uses systemd. The MCP server stays on loopback, the OpenAI `tunnel-client` keeps an outbound connection open, and systemd manages the service lifecycle.
 
 ```bash
 sudo mkdir -p /etc/planweave /srv/planweave
@@ -128,13 +124,11 @@ For local desktop setup:
 
 Once connected, ChatGPT can ask PlanWeave for authoring rules and schema, discover recommended tool groups with `list_tool_groups`, inspect bounded graph views with `get_graph_summary` / `get_graph_slice`, validate graph quality with `validate_graph_quality`, and read large content through path/ref tools instead of broad dumps. For large plans, the recommended MCP flow is `validate_package_draft`, `preview_package_import`, then `import_package_draft` with `apply: true`.
 
-The default MCP discovery list hides legacy aliases and heavy/debug tools. Old MCP clients that still need aliases such as `get_project_graph`, `get_block_detail`, `refresh_prompts`, `export_plan_package`, or `import_plan_package` should start the server with `PLANWEAVE_MCP_TOOL_DISCOVERY=compat`. New clients should keep the default discovery mode and call bounded tools; heavy/debug paths such as `get_block_detail_full_debug`, `refresh_prompts_full_debug`, and `export_plan_package_full` are explicit opt-ins.
-
 Source-level MCP server setup is documented in [Development](DEVELOPMENT.md).
 
 ## Agent Execution
 
-PlanWeave supports executor profiles, so different blocks can run through different agents or local commands. Current executors include Codex, Claude Code, OpenCode, Pi, local review commands, and review-feedback loops.
+PlanWeave supports executor profiles, so different blocks can run through Codex, Claude Code, OpenCode, Pi, or local review commands. The runtime carries accepted results through review-feedback loops.
 
 Each block run writes durable output under the PlanWeave workspace, including prompt, stdout, stderr, report, metadata, and monitor commands when available.
 
@@ -167,7 +161,7 @@ Use skill: plan-maker
 Create a PlanWeave plan for this project from the goal below...
 ```
 
-If you already have PRDs, roadmaps, issues, or architecture notes, use `plan-importer` instead. `plan-maker` no longer hands a Markdown-only report to `plan-importer`; when materializing, it should write a package-shaped draft and run:
+If you already have PRDs, roadmaps, issues, or architecture notes, use `plan-importer` instead. To materialize a plan, `plan-maker` writes a package-shaped draft and runs:
 
 ```bash
 planweave package-draft validate --draft-root <draft> --json
@@ -269,7 +263,7 @@ planweave submit-review --canvas default T-001#R-001 --result review-result.json
 planweave submit-feedback --canvas default --report feedback-report.md
 ```
 
-PlanWeave resolves the target project root from the shell's current directory. Package managers may set `INIT_CWD`, which PlanWeave uses before `cwd`. When running from another directory, pass the global option before the subcommand:
+Run commands from the target project root. To work from another directory, pass the global project option before the subcommand:
 
 ```bash
 planweave --project-root /path/to/project status --json
@@ -278,24 +272,25 @@ planweave --project-root /path/to/project claim-next --canvas desktop
 
 When scheduling is unclear, prefer `planweave explain <ref>`, `planweave why-not <ref>`, and `planweave doctor` before editing package or state files.
 
-## Experimental Desktop App
+## Desktop App
 
-The desktop app is an experimental build. It is useful for trying the visual task canvas, configuring MCP tunnel access for ChatGPT, and reviewing generated plans before execution, but the CLI remains the recommended interface for serious work.
+PlanWeave Desktop provides a visual task canvas, task workspaces, Auto Run controls, run history, search and statistics views, and MCP tunnel settings for ChatGPT.
 
 <p align="center">
   <img src="readme/assets/planweave-desktop-canvas.png" width="860" alt="PlanWeave desktop canvas showing an agent task graph with implementation and review blocks." />
 </p>
 
-Install a packaged build from GitHub Releases. Current desktop installers are unsigned. macOS may show an unidentified developer warning, and Windows may show an unknown publisher or SmartScreen warning. For early testing on macOS, open the app with **Right Click -> Open** and confirm the prompt.
+Install a packaged build from [GitHub Releases](https://github.com/GaosCode/PlanWeave/releases). Current desktop installers are unsigned. macOS may show an unidentified developer warning, and Windows may show an unknown publisher or SmartScreen warning. On macOS, open the app with **Right Click -> Open** and confirm the prompt.
 
 For repository layout, source setup, tests, and packaging commands, see [Development](DEVELOPMENT.md).
 
 ## Future Direction
 
-PlanWeave is still early, and several directions can make plan-based agent work smoother:
+PlanWeave will continue to expand in three directions:
 
-- **Collaborative planning board**: let multiple people edit the same task board, refine plan structure together, and turn shared planning decisions into executable blocks.
-- **Cross-host coordination**: PlanWeave already supports routing different blocks to different local agents or executor profiles. A future coordinator could let remote Agent Hosts register capabilities, claim plan blocks through leases, report heartbeats, and submit artifacts safely, making it possible to run specialized frontend, review, runtime, docs, or other agents on different machines.
+- **Auto Run**: improve execution control, recovery, and long-running reliability.
+- **Collaborative planning**: let teams edit and refine the same task board together.
+- **Cross-host execution**: coordinate specialized agents across different machines.
 
 ## Development
 
