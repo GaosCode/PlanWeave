@@ -9,7 +9,7 @@ import type {
   TaskStatus,
   ValidationIssue
 } from "../../types.js";
-import type { PromptSourceSummary } from "../../taskManager/promptRenderer.js";
+import type { PromptSourceSummary } from "../../taskManager/promptContracts.js";
 import type { ProjectPromptPolicy } from "../../projectPromptPolicy.js";
 import type { PendingImportTransaction } from "../../package/importRecovery.js";
 import type { RunnerTransport } from "../../types.js";

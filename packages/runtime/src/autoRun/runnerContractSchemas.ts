@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { agentFamilySchema, runnerTransportSchema } from "../types/executor.js";
 import {
@@ -41,7 +40,7 @@ export const executionWaveIdSchema = z
 export type ExecutionWaveId = z.infer<typeof executionWaveIdSchema>;
 
 export function createExecutionWaveId(): ExecutionWaveId {
-  return executionWaveIdSchema.parse(`WAVE-${randomUUID()}`);
+  return executionWaveIdSchema.parse(`WAVE-${globalThis.crypto.randomUUID()}`);
 }
 export const acpSessionIdSchema = identifierSchema.brand("AcpSessionId");
 export const acpRequestIdSchema = identifierSchema.brand("AcpRequestId");

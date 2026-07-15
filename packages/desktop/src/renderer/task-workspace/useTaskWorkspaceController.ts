@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   projectTaskWorkspaceClockSnapshot,
-  projectTaskWorkspaceLiveSnapshot,
-  type DesktopBridgeApi,
-  type DesktopRunRecord,
-  type TaskWorkspace
-} from "@planweave-ai/runtime";
+  projectTaskWorkspaceLiveSnapshot
+} from "@planweave-ai/runtime/browser";
+import type { DesktopBridgeApi, DesktopRunRecord, TaskWorkspace } from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
 import type { AppViewHistoryController } from "../hooks/useAppViewHistory";
 import { useRunnerRecordMonitor } from "../hooks/useRunnerRecordMonitor";

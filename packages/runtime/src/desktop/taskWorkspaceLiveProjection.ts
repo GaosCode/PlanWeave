@@ -1,11 +1,11 @@
-import type { RunnerRecordReadModel } from "../autoRun/runnerRecordReadModel.js";
+import type { RunnerRecordReadModel } from "../autoRun/runnerRecordReadModelContract.js";
 import type { RunnerRunIdentity } from "../autoRun/runnerContractSchemas.js";
 import {
   taskWorkspaceSchema,
   type TaskWorkspace,
   type TaskWorkspaceBlock
 } from "./types/taskWorkspaceAggregateTypes.js";
-import { projectTaskWorkspaceDuration } from "./taskWorkspaceApi.js";
+import { projectTaskWorkspaceDuration } from "./taskWorkspaceDurationProjection.js";
 import {
   projectTaskWorkspaceCurrentContextUsage,
   projectTaskWorkspaceRunDuration

@@ -13,7 +13,10 @@ import type {
   PlanPackageManifest,
   ValidationIssue
 } from "../types.js";
+import { parseBlockRef } from "./blockRef.js";
 import { sharedResourcesForBlock } from "./sharedResources.js";
+
+export { parseBlockRef } from "./blockRef.js";
 
 function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
@@ -66,14 +69,6 @@ async function listMarkdownFiles(
 
 function blockRef(taskId: string, blockId: string): string {
   return `${taskId}#${blockId}`;
-}
-
-export function parseBlockRef(ref: string): { taskId: string; blockId: string } {
-  const parts = ref.split("#");
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Error(`Invalid block ref '${ref}'. Expected '<task-id>#<block-id>'.`);
-  }
-  return { taskId: parts[0], blockId: parts[1] };
 }
 
 function edgeKey(edge: ManifestEdge): string {

@@ -1,15 +1,15 @@
 import { z } from "zod";
 import { runnerEventCursorSchema } from "../../autoRun/runnerEventReplay.js";
-import { runnerRecordReadModelSchema } from "../../autoRun/runnerRecordReadModel.js";
+import { runnerRecordReadModelSchema } from "../../autoRun/runnerRecordReadModelContract.js";
 import {
   runnerRequestActionIdentitySchema,
   runnerSessionActionIdentitySchema
 } from "../../autoRun/runnerContractSchemas.js";
-import type { RunnerRecordReadModel } from "../../autoRun/runnerRecordReadModel.js";
+import type { RunnerRecordReadModel } from "../../autoRun/runnerRecordReadModelContract.js";
 import {
   desktopAgentPromptIdentitySchema,
   type DesktopAgentPromptIdentity
-} from "../../autoRun/runnerRecordReadModel.js";
+} from "../../autoRun/runnerRecordReadModelContract.js";
 
 const nonEmptyStringSchema = z.string().min(1).max(4_096);
 

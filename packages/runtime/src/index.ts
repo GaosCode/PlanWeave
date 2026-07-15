@@ -216,7 +216,7 @@ export {
 } from "./taskManager/index.js";
 export type { TrustedCommand, TrustedCommandsFile } from "./taskManager/index.js";
 export { getAutoRunStatus, runAutoRunStep } from "./taskManager/autoRun.js";
-export type { PromptSourceSummary } from "./taskManager/promptRenderer.js";
+export type { PromptSourceSummary } from "./taskManager/promptContracts.js";
 export {
   RETENTION_DOCTOR_THRESHOLD,
   appendRunSessionEvent,

@@ -12,7 +12,7 @@ import {
   reviewVerdicts,
   taskStatuses
 } from "../../types/state.js";
-import { promptSourceSummarySchema } from "../../taskManager/promptRenderer.js";
+import { promptSourceSummarySchema } from "../../taskManager/promptContracts.js";
 import {
   taskWorkspaceRunSchema,
   taskWorkspaceUnavailableTokenAccountingSchema
@@ -149,6 +149,7 @@ export const taskWorkspaceBlockSchema = z
     type: z.enum(blockTypes),
     title: nonEmptyStringSchema,
     status: z.enum(blockStatuses),
+    executor: nonEmptyStringSchema.nullable(),
     effectiveExecutor: nonEmptyStringSchema.nullable(),
     promptMarkdown: z.string(),
     promptMissing: z.boolean(),

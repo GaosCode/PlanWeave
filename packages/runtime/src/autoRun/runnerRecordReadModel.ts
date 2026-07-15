@@ -5,22 +5,12 @@ import { activeAgentRunRegistry } from "./activeAgentRunRegistry.js";
 import { acpEventReadModels } from "./acpEventReadModel.js";
 import type { AcpEventSubscription } from "./acpEventPublisher.js";
 import type { AcpEventReadModel } from "./acpEventReadModel.js";
-import {
-  acpConversationItemSchema,
-  acpTimelineItemSchema,
-  projectAcpConversation,
-  projectAcpTimeline
-} from "./acpConversationProjection.js";
-import {
-  normalizedRunnerEventSchema,
-  type NormalizedRunnerEvent
-} from "./normalizedEventContract.js";
+import { projectAcpConversation, projectAcpTimeline } from "./acpConversationProjection.js";
+import type { NormalizedRunnerEvent } from "./normalizedEventContract.js";
 import { isLegacyUnsupportedSessionUpdateDiagnostic } from "./acpLegacyDiagnosticCompatibility.js";
-import { redactRunnerEventText, safeRunnerEventTextSchema } from "./runnerEventRedaction.js";
+import { redactRunnerEventText } from "./runnerEventRedaction.js";
 import {
   replayNormalizedRunnerEvents,
-  runnerEventCursorSchema,
-  runnerEventReplayDiagnosticSchema,
   type RunnerEventCursor,
   type RunnerEventReplayDiagnostic
 } from "./runnerEventReplay.js";
@@ -38,113 +28,22 @@ import {
   runSessionIdSchema,
   taskIdSchema
 } from "./runnerContractSchemas.js";
+import { projectAcpActualSessionConfiguration } from "./acpSessionConfiguration.js";
 import {
-  acpActualSessionConfigurationSchema,
-  projectAcpActualSessionConfiguration
-} from "./acpSessionConfiguration.js";
+  desktopAgentPromptIdentitySchema,
+  runnerRecordReadModelSchema,
+  type DesktopAgentPromptIdentity,
+  type RunnerRecordReadModel
+} from "./runnerRecordReadModelContract.js";
 
-const runnerActionAvailabilitySchema = z
-  .object({
-    available: z.boolean(),
-    reason: z.string().min(1).max(512).nullable()
-  })
-  .strict();
-
-export const desktopAgentPromptIdentitySchema = z
-  .object({
-    ref: z
-      .object({
-        projectRoot: z.string().min(1),
-        canvasId: z.string().min(1).nullable().optional()
-      })
-      .strict(),
-    recordId: z.string().min(1),
-    executorRunId: executorRunIdSchema,
-    claimRef: claimRefSchema,
-    sessionId: acpSessionIdSchema
-  })
-  .strict();
-export type DesktopAgentPromptIdentity = z.infer<typeof desktopAgentPromptIdentitySchema>;
-
-const runnerRecordActiveInteractionBaseSchema = z
-  .object({
-    requestId: z.string().min(1).max(256),
-    interactionId: z.string().min(1).max(256),
-    requestedAt: z.string().datetime(),
-    summary: safeRunnerEventTextSchema(4_096, "Active interaction summary").refine(
-      (value) => value.length > 0,
-      "Active interaction summary must not be empty."
-    ),
-    identity: runnerRequestActionIdentitySchema,
-    availability: runnerActionAvailabilitySchema
-  })
-  .strict();
-
-const runnerRecordActiveInteractionSchema = z.discriminatedUnion("kind", [
-  runnerRecordActiveInteractionBaseSchema
-    .extend({
-      kind: z.literal("permission"),
-      permissionOptions: z
-        .array(
-          z
-            .object({
-              optionId: z.string().min(1).max(256),
-              label: safeRunnerEventTextSchema(512, "Permission option label"),
-              decision: z.enum(["approve", "deny"])
-            })
-            .strict()
-        )
-        .min(1)
-    })
-    .strict(),
-  runnerRecordActiveInteractionBaseSchema
-    .extend({
-      kind: z.literal("elicitation"),
-      elicitationSchema: z.json()
-    })
-    .strict(),
-  runnerRecordActiveInteractionBaseSchema
-    .extend({
-      kind: z.literal("authentication")
-    })
-    .strict()
-]);
-
-export const runnerRecordReadModelSchema = z
-  .object({
-    events: z.array(normalizedRunnerEventSchema),
-    conversation: z.array(acpConversationItemSchema),
-    timeline: z.array(acpTimelineItemSchema),
-    diagnostics: z.array(runnerEventReplayDiagnosticSchema),
-    cursor: runnerEventCursorSchema,
-    terminal: z.boolean(),
-    actualConfiguration: acpActualSessionConfigurationSchema,
-    intervention: z
-      .object({
-        prompt: runnerActionAvailabilitySchema
-          .extend({
-            identity: desktopAgentPromptIdentitySchema.nullable(),
-            inFlight: z.boolean()
-          })
-          .strict(),
-        cancel: runnerActionAvailabilitySchema
-          .extend({
-            identity: runnerSessionActionIdentitySchema.nullable()
-          })
-          .strict()
-      })
-      .strict(),
-    interaction: z
-      .object({
-        persisted: z.boolean(),
-        active: z.boolean(),
-        stale: z.boolean(),
-        activeRequests: z.array(runnerRecordActiveInteractionSchema)
-      })
-      .strict()
-  })
-  .strict();
-export type RunnerRecordReadModel = z.infer<typeof runnerRecordReadModelSchema>;
+export {
+  desktopAgentPromptIdentitySchema,
+  runnerRecordReadModelSchema
+} from "./runnerRecordReadModelContract.js";
+export type {
+  DesktopAgentPromptIdentity,
+  RunnerRecordReadModel
+} from "./runnerRecordReadModelContract.js";
 
 export type RunnerRecordReadConsumer = {
   snapshot: RunnerRecordReadModel | null;

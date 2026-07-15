@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { runnerRecordReadModelSchema } from "../autoRun/runnerRecordReadModel.js";
+import { runnerRecordReadModelSchema } from "../autoRun/runnerRecordReadModelContract.js";
 import {
   executionWaveIdSchema,
   runnerRunIdentitySchema,

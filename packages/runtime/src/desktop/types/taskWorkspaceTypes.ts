@@ -8,7 +8,7 @@ import {
   runnerSessionActionIdentitySchema,
   taskIdSchema
 } from "../../autoRun/runnerContractSchemas.js";
-import { desktopAgentPromptIdentitySchema } from "../../autoRun/runnerRecordReadModel.js";
+import { desktopAgentPromptIdentitySchema } from "../../autoRun/runnerRecordReadModelContract.js";
 import { acpActualSessionConfigurationSchema } from "../../autoRun/acpSessionConfiguration.js";
 import { parseRunRecordId, runRecordId } from "../runRecordIdentity.js";
 

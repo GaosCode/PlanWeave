@@ -3,7 +3,7 @@ import {
   claimRefSchema,
   taskIdSchema,
   taskWorkspaceInputSchema
-} from "@planweave-ai/runtime";
+} from "@planweave-ai/runtime/browser";
 import { z } from "zod";
 import { graphAppViewSchema, nonGraphRegularAppViewSchema } from "./appViewContract";
 

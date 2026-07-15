@@ -1,4 +1,4 @@
-import { parseBlockRef } from "../graph/compileTaskGraph.js";
+import { parseBlockRef } from "../graph/blockRef.js";
 
 export function runRecordId(blockRef: string, runId: string): string {
   return `${blockRef}::${runId}`;
