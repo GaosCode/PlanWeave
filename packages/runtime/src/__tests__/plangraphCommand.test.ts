@@ -30,6 +30,8 @@ const ordinaryPackageCommandTypes = [
   "updateBlockPrompt",
   "updateTaskFields",
   "updateBlockFields",
+  "bulkUpdateBlocks",
+  "bulkUpdateParallelPolicy",
   "addTask",
   "removeTask",
   "restoreTask",
@@ -91,8 +93,7 @@ describe("PlanGraph SQLite index and commands", () => {
         type: "implementation",
         title: "Implement",
         prompt: "nodes/T-001/blocks/B-002.prompt.md",
-        depends_on: [],
-        parallel: { locks: [] }
+        depends_on: []
       } satisfies ManifestBlock,
       promptMarkdown: "# Block\n",
       insertIndex: 1,
@@ -120,6 +121,14 @@ describe("PlanGraph SQLite index and commands", () => {
       { type: "updateBlockPrompt", blockRef: "T-001#B-001", promptMarkdown: "# Block\n" },
       { type: "updateTaskFields", taskId: "T-001", fields: { title: "Task" } },
       { type: "updateBlockFields", blockRef: "T-001#B-001", fields: { title: "Block" } },
+      {
+        type: "bulkUpdateBlocks",
+        updates: [{ blockRef: "T-001#B-001", fields: { title: "Block" } }]
+      },
+      {
+        type: "bulkUpdateParallelPolicy",
+        blocks: [{ blockRef: "T-001#B-001", input: { sharedResources: ["runtime"] } }]
+      },
       { type: "addTask", snapshot: taskSnapshot },
       { type: "removeTask", taskId: "T-001" },
       { type: "restoreTask", snapshot: taskSnapshot },
@@ -215,7 +224,7 @@ describe("PlanGraph SQLite index and commands", () => {
           title: "Implement third task",
           prompt: "nodes/T-003/blocks/B-001.prompt.md",
           depends_on: [],
-          parallel: { locks: ["third"] }
+          parallel: { sharedResources: ["third"] }
         }
       ]
     });
@@ -349,6 +358,94 @@ describe("PlanGraph SQLite index and commands", () => {
     ).toEqual(["B-001"]);
   });
 
+  it("canonicalizes shared resources when adding and redoing a block", async () => {
+    const { root, init } = await createTestWorkspace();
+    const snapshot = {
+      taskId: "T-001",
+      block: {
+        id: "B-002",
+        type: "implementation",
+        title: "Parallel implementation",
+        prompt: "nodes/T-001/blocks/B-002.prompt.md",
+        depends_on: [],
+        parallel: { sharedResources: ["database", "database"] }
+      },
+      promptMarkdown: "# Parallel implementation\n",
+      insertIndex: 1,
+      affectedDependsOn: []
+    } satisfies Extract<PlanGraphCommand, { type: "addBlock" }>["snapshot"];
+
+    await expect(
+      executePlanGraphCommand({
+        projectRoot: root,
+        command: { type: "addBlock", snapshot }
+      })
+    ).resolves.toMatchObject({ ok: true });
+
+    let written = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    let task = written.nodes[0];
+    if (task?.type !== "task") {
+      throw new Error("Fixture task missing.");
+    }
+    expect(task.blocks.find((block) => block.id === "B-002")?.parallel).toEqual({
+      sharedResources: ["database"]
+    });
+
+    await expect(undoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({ ok: true });
+    await expect(redoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({ ok: true });
+
+    written = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    task = written.nodes[0];
+    if (task?.type !== "task") {
+      throw new Error("Fixture task missing.");
+    }
+    expect(task.blocks.find((block) => block.id === "B-002")?.parallel).toEqual({
+      sharedResources: ["database"]
+    });
+  });
+
+  it("omits empty shared resources when restoring and redoing a block", async () => {
+    const { root, init } = await createTestWorkspace();
+    const snapshot = {
+      taskId: "T-001",
+      block: {
+        id: "B-002",
+        type: "implementation",
+        title: "Restored implementation",
+        prompt: "nodes/T-001/blocks/B-002.prompt.md",
+        depends_on: [],
+        parallel: { sharedResources: [] }
+      },
+      promptMarkdown: "# Restored implementation\n",
+      insertIndex: 1,
+      affectedDependsOn: []
+    } satisfies Extract<PlanGraphCommand, { type: "restoreBlock" }>["snapshot"];
+
+    await expect(
+      executePlanGraphCommand({
+        projectRoot: root,
+        command: { type: "restoreBlock", snapshot }
+      })
+    ).resolves.toMatchObject({ ok: true });
+
+    let written = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    let task = written.nodes[0];
+    if (task?.type !== "task") {
+      throw new Error("Fixture task missing.");
+    }
+    expect(task.blocks.find((block) => block.id === "B-002")).not.toHaveProperty("parallel");
+
+    await expect(undoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({ ok: true });
+    await expect(redoPlanGraphCommand({ projectRoot: root })).resolves.toMatchObject({ ok: true });
+
+    written = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
+    task = written.nodes[0];
+    if (task?.type !== "task") {
+      throw new Error("Fixture task missing.");
+    }
+    expect(task.blocks.find((block) => block.id === "B-002")).not.toHaveProperty("parallel");
+  });
+
   it("restores dependent block edges when undoing a removed block", async () => {
     const manifest = basicManifest();
     const task = manifest.nodes[0];
@@ -361,7 +458,7 @@ describe("PlanGraph SQLite index and commands", () => {
       title: "Follow-up implementation",
       prompt: "nodes/T-001/blocks/B-002.prompt.md",
       depends_on: ["B-001"],
-      parallel: { locks: ["shared"] }
+      parallel: { sharedResources: ["shared"] }
     });
     task.blocks[2].depends_on = ["B-002"];
     const { root, init } = await createTestWorkspace(manifest);
@@ -566,7 +663,7 @@ describe("PlanGraph SQLite index and commands", () => {
       prompt: "nodes/T-001/blocks/B-002.prompt.md",
       depends_on: ["B-001"],
       executor: "manual",
-      parallel: { locks: ["shared"] }
+      parallel: { sharedResources: ["runtime"] }
     });
     task.blocks[2].depends_on = ["B-002"];
     const { root, init } = await createTestWorkspace(manifest);
@@ -581,8 +678,7 @@ describe("PlanGraph SQLite index and commands", () => {
             title: "Updated implementation block",
             executor: null,
             dependsOn: [],
-            parallelSafe: false,
-            parallelLocks: ["api", "db"]
+            sharedResources: ["api", "db"]
           }
         }
       })
@@ -595,7 +691,7 @@ describe("PlanGraph SQLite index and commands", () => {
     expect(writtenTask.blocks[1]).toMatchObject({
       title: "Updated implementation block",
       depends_on: [],
-      parallel: { locks: ["api", "db", "exclusive"] }
+      parallel: { sharedResources: ["api", "db"] }
     });
     expect(writtenTask.blocks[1]).not.toHaveProperty("executor");
 
@@ -609,7 +705,7 @@ describe("PlanGraph SQLite index and commands", () => {
       title: "Follow-up implementation",
       depends_on: ["B-001"],
       executor: "manual",
-      parallel: { locks: ["shared"] }
+      parallel: { sharedResources: ["runtime"] }
     });
 
     await expect(

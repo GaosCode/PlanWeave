@@ -263,6 +263,12 @@ describe("agent skill contract docs", () => {
     expect(skill).toContain("schema without runtime use");
     expect(skill).toContain("Read `project-graph.json` when present");
     expect(skill).toContain("cross-canvas task blockers must be explicit `crossTaskEdges`");
+    expect(skill).toContain(
+      "Parallel tasks must be independent in dependency reachability, data flow, and contract timing."
+    );
+    expect(skill).toContain(
+      "Identify shared-resource overlap between parallel tasks as a non-blocking coordination hint."
+    );
     expect(skill).toContain("Treat dense or repeated `crossTaskEdges`");
     expect(skill).toContain("canvas-boundary defect");
     expect(skill).toContain(

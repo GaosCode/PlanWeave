@@ -446,8 +446,8 @@ function sanitizeReadyBlock(item: DesktopTodoItem): ReadyBlock {
     taskId: item.taskId,
     blockId: item.blockId,
     title: item.title,
-    parallelSafe: item.parallelSafe,
-    locks: item.locks,
+    dispatchable: item.dispatchable,
+    sharedResources: item.sharedResources,
     reviewGate: item.reviewGate
   };
 }

@@ -215,7 +215,7 @@ export type RenderedPromptPayload = {
 
 export type ReadyBlock = Pick<
   DesktopTodoItem,
-  "ref" | "taskId" | "blockId" | "title" | "parallelSafe" | "locks" | "reviewGate"
+  "ref" | "taskId" | "blockId" | "title" | "dispatchable" | "sharedResources" | "reviewGate"
 > & {
   canvasId: string | null;
   canvasName: string | null;
@@ -374,9 +374,7 @@ export type RuntimeGateway = {
         promptMarkdown?: string;
         executor?: string | null;
         dependsOn?: string[];
-        exclusive?: boolean;
-        parallelSafe?: boolean;
-        parallelLocks?: string[];
+        sharedResources?: string[];
         reviewRequired?: boolean;
         maxFeedbackCycles?: number;
         reviewHook?: ReviewHookDefinition | null;
@@ -407,9 +405,7 @@ export type RuntimeGateway = {
     canvasId: string | undefined,
     blockRef: string,
     input: {
-      exclusive?: boolean;
-      parallelSafe?: boolean;
-      parallelLocks?: string[];
+      sharedResources?: string[];
       reviewRequired?: boolean;
       maxFeedbackCycles?: number;
       reviewHook?: ReviewHookDefinition | null;
@@ -426,7 +422,7 @@ export type RuntimeGateway = {
       };
       blocks: Array<{
         blockRef: string;
-        input: { exclusive?: boolean; parallelSafe?: boolean; parallelLocks?: string[] };
+        input: { sharedResources?: string[] };
       }>;
     }
   ): Promise<GraphEditResult>;

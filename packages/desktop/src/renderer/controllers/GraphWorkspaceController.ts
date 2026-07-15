@@ -67,11 +67,10 @@ export function useGraphWorkspaceController({
   setFlowInstance,
   setSuccessMessage,
   t,
-  pinnedLock,
-  onLockHover,
-  onLockPin,
-  clearPinnedLock,
-  refreshGraphLocks
+  pinnedResource,
+  onResourceHover,
+  onResourcePin,
+  clearPinnedResource
 }: {
   edges: Edge[];
   edgeTypes: AppEdgeTypes;
@@ -100,11 +99,10 @@ export function useGraphWorkspaceController({
   setFlowInstance: Dispatch<SetStateAction<ReactFlowInstance<AppFlowNode, Edge> | null>>;
   setSuccessMessage: (value: SetStateAction<string | null>) => void;
   t: ReturnType<typeof createTranslator>;
-  pinnedLock: string | null;
-  onLockHover: (name: string | null) => void;
-  onLockPin: (name: string | null) => void;
-  clearPinnedLock: () => void;
-  refreshGraphLocks: () => Promise<void>;
+  pinnedResource: string | null;
+  onResourceHover: (name: string | null) => void;
+  onResourcePin: (name: string | null) => void;
+  clearPinnedResource: () => void;
 }): GraphWorkspaceController {
   const { visibleTaskIds, visibleTasks } = useVisibleGraphTasks(graph, searchQuery);
 
@@ -134,10 +132,9 @@ export function useGraphWorkspaceController({
     t,
     visibleTaskIds,
     visibleTasks,
-    pinnedLock,
-    onLockHover,
-    onLockPin,
-    clearPinnedLock,
-    refreshGraphLocks
+    pinnedResource,
+    onResourceHover,
+    onResourcePin,
+    clearPinnedResource
   });
 }

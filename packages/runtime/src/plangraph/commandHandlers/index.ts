@@ -1,5 +1,6 @@
 import type { PlanGraphCommand } from "../commands.js";
 import { blockCommandHandler } from "./blockCommands.js";
+import { bulkCommandHandler } from "./bulkCommands.js";
 import { dependencyCommandHandler } from "./dependencyCommands.js";
 import { layoutCommandHandler } from "./layoutCommands.js";
 import { reviewCommandHandler } from "./reviewCommands.js";
@@ -10,6 +11,7 @@ export const planGraphCommandHandlers = [
   dependencyCommandHandler,
   taskCommandHandler,
   blockCommandHandler,
+  bulkCommandHandler,
   reviewCommandHandler,
   layoutCommandHandler
 ] as const satisfies readonly PlanGraphCommandHandler[];

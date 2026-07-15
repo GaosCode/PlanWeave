@@ -36,7 +36,7 @@ const missingPiAgent = {
 };
 
 describe("desktop renderer component interactions", () => {
-  it("renders Todo blockers, parallel safety, and locks and jumps to the selected block", async () => {
+  it("renders Todo readiness, dispatchability, and shared resources and jumps to the selected block", async () => {
     const item: DesktopTodoItem = {
       ref: "T-001#B-001",
       taskId: "T-001",
@@ -44,8 +44,8 @@ describe("desktop renderer component interactions", () => {
       title: "Implement dependency-aware Todo",
       status: "ready",
       dependencyBlockers: ["T-002"],
-      parallelSafe: false,
-      locks: ["package/manifest.json"],
+      dispatchable: false,
+      sharedResources: ["package/manifest.json"],
       reviewGate: {
         isGate: true,
         required: true,
@@ -63,12 +63,12 @@ describe("desktop renderer component interactions", () => {
         items={[item]}
         labels={{
           dependencyBlockers: "Dependency blockers",
-          locks: "Locks",
+          dispatchability: "Dispatchability",
+          dispatchable: "Dispatchable",
+          notDispatchable: "Not dispatchable",
           noBlockers: "No blockers",
-          noLocks: "No locks",
-          parallelBlocked: "Not safe",
-          parallelSafe: "Safe",
-          parallelSafety: "Parallel safety",
+          noSharedResources: "No shared resources",
+          sharedResources: "Shared resources",
           reviewExecutor: "Review role",
           reviewGate: "Review gate",
           reviewNeedsChangesReturnsTo: "Needs changes returns to",
@@ -82,8 +82,8 @@ describe("desktop renderer component interactions", () => {
 
     expect(screen.getByText("Dependency blockers")).toBeInTheDocument();
     expect(screen.getByText("T-002")).toBeInTheDocument();
-    expect(screen.getByText("Parallel safety")).toBeInTheDocument();
-    expect(screen.getAllByText("Not safe")).toHaveLength(2);
+    expect(screen.getByText("Dispatchability")).toBeInTheDocument();
+    expect(screen.getAllByText("Not dispatchable")).toHaveLength(2);
     expect(screen.getByText("package/manifest.json")).toBeInTheDocument();
     expect(screen.getByText("Review gate")).toBeInTheDocument();
     expect(screen.getByText("Required review")).toBeInTheDocument();
@@ -434,7 +434,7 @@ describe("desktop renderer component interactions", () => {
           executorLabel: "legacy-executor",
           promptMarkdown: "# Task",
           promptPreview: "Task",
-          locks: [],
+          sharedResources: [],
           blocks: [],
           blockPreview: [],
           hiddenBlockRefs: [],
@@ -443,7 +443,7 @@ describe("desktop renderer component interactions", () => {
         }
       ],
       edges: [],
-      lockGroups: [],
+      sharedResourceGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -495,7 +495,7 @@ describe("desktop renderer component interactions", () => {
           executorLabel: "pi-auto",
           promptMarkdown: "# Task",
           promptPreview: "Task",
-          locks: [],
+          sharedResources: [],
           blocks: [],
           blockPreview: [],
           hiddenBlockRefs: [],
@@ -504,7 +504,7 @@ describe("desktop renderer component interactions", () => {
         }
       ],
       edges: [],
-      lockGroups: [],
+      sharedResourceGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -571,7 +571,7 @@ describe("desktop renderer component interactions", () => {
           executorLabel: "codex",
           promptMarkdown: "# Task",
           promptPreview: "Task",
-          locks: [],
+          sharedResources: [],
           blocks: [
             {
               ref: "T-001#B-001",
@@ -582,8 +582,7 @@ describe("desktop renderer component interactions", () => {
               executor: "codex",
               promptMissing: false,
               exceptionReason: null,
-              dispatchable: false,
-              waitingOn: null
+              dispatchable: false
             }
           ],
           blockPreview: [],
@@ -593,7 +592,7 @@ describe("desktop renderer component interactions", () => {
         }
       ],
       edges: [],
-      lockGroups: [],
+      sharedResourceGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };

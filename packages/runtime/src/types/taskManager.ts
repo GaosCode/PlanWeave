@@ -128,7 +128,6 @@ export type ClaimHint = {
   blockedByBlocks: string[];
   blockedByTasks: string[];
   blockedByProject: string[];
-  parallelSafe: boolean;
   sequentialOnly: boolean;
   recommendedCommand: string | null;
   dispatchable: boolean;

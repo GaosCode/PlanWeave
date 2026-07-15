@@ -39,26 +39,40 @@ function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
 }
 
-function validateForWrite(manifest: PlanPackageManifest): ValidationIssue[] {
+type PreparedManifestWrite = {
+  manifest: PlanPackageManifest;
+  graph: CompiledTaskGraph;
+};
+
+function prepareManifestForWrite(
+  manifest: PlanPackageManifest
+): { ok: true; value: PreparedManifestWrite } | { ok: false; diagnostics: ValidationIssue[] } {
   const parsed = manifestSchema.safeParse(manifest);
   if (!parsed.success) {
-    return parsed.error.issues.map((item) =>
-      issue(
-        "manifest_schema_invalid",
-        item.message,
-        item.path.length > 0 ? item.path.join(".") : "manifest.json"
+    return {
+      ok: false,
+      diagnostics: parsed.error.issues.map((item) =>
+        issue(
+          "manifest_schema_invalid",
+          item.message,
+          item.path.length > 0 ? item.path.join(".") : "manifest.json"
+        )
       )
-    );
+    };
   }
-  return compileTaskGraph(manifest).diagnostics.errors;
+  const graph = compileTaskGraph(parsed.data);
+  if (graph.diagnostics.errors.length > 0) {
+    return { ok: false, diagnostics: graph.diagnostics.errors };
+  }
+  return { ok: true, value: { manifest: parsed.data, graph } };
 }
 
 function result(
   manifest: PlanPackageManifest,
   affectedTasks: string[],
-  diagnostics: ValidationIssue[] = []
+  diagnostics: ValidationIssue[] = [],
+  graph: CompiledTaskGraph = compileTaskGraph(manifest)
 ): GraphEditResult {
-  const graph = compileTaskGraph(manifest);
   const allDiagnostics = [...diagnostics, ...graph.diagnostics.errors];
   return {
     ok: allDiagnostics.length === 0,
@@ -66,18 +80,6 @@ function result(
     diagnostics: allDiagnostics,
     graph
   };
-}
-
-async function writeManifest(
-  projectRoot: PackageWorkspaceRef,
-  manifest: PlanPackageManifest
-): Promise<void> {
-  const diagnostics = validateForWrite(manifest);
-  if (diagnostics.length > 0) {
-    throw new Error(diagnostics.map((item) => `${item.code}: ${item.message}`).join("; "));
-  }
-  const { workspace } = await loadPackage(projectRoot);
-  await writeJsonFile(workspace.manifestFile, manifest);
 }
 
 type SideEffectBackup =
@@ -175,17 +177,21 @@ export async function commitPlanPackageGraphMutation(options: {
   projectRoot: PackageWorkspaceRef;
   mutation: PlanPackageGraphMutation;
 }): Promise<GraphEditResult> {
-  const diagnostics = validateForWrite(options.mutation.nextManifest);
-  if (diagnostics.length > 0) {
-    return result(options.mutation.nextManifest, options.mutation.affectedTasks, diagnostics);
+  const prepared = prepareManifestForWrite(options.mutation.nextManifest);
+  if (!prepared.ok) {
+    return {
+      ok: false,
+      affectedTasks: [...new Set(options.mutation.affectedTasks)],
+      diagnostics: prepared.diagnostics
+    };
   }
   const { workspace } = await loadPackage(options.projectRoot);
   await applyMutationSideEffectsWithRollback(
     workspace.packageDir,
     options.mutation.sideEffects,
-    () => writeManifest(options.projectRoot, options.mutation.nextManifest)
+    () => writeJsonFile(workspace.manifestFile, prepared.value.manifest)
   );
-  return result(options.mutation.nextManifest, options.mutation.affectedTasks);
+  return result(prepared.value.manifest, options.mutation.affectedTasks, [], prepared.value.graph);
 }
 
 export async function addNode(options: {

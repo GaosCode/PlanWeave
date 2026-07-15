@@ -433,7 +433,7 @@ describe("desktop search and statistics API", () => {
       expect.objectContaining({
         canvasId: secondCanvas.canvasId,
         ref: "T-001#B-001",
-        parallelSafe: true
+        dispatchable: true
       })
     ]);
     expect(plan.readyQueue.map((item) => `${item.canvasId}:${item.ref}`)).toEqual([

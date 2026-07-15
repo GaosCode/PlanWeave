@@ -74,7 +74,7 @@ function task(promptMarkdown: string): DesktopGraphViewModel["tasks"][number] {
     executorLabel: "manual",
     promptMarkdown,
     promptPreview: "Prompt",
-    locks: [],
+    sharedResources: [],
     blocks: [],
     blockPreview: [],
     hiddenBlockRefs: [],
@@ -231,8 +231,7 @@ describe("TaskNodeCard context menu", () => {
             executor: null,
             promptMissing: false,
             exceptionReason: null,
-            dispatchable: true,
-            waitingOn: null
+            dispatchable: true
           }
         ]
       }

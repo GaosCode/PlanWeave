@@ -42,7 +42,7 @@ export const projectSchemaDocument: SchemaDocument<"project"> = {
     "Canvas ids must be CLI-safe because generated agent commands pass them to --canvas without shell quoting.",
     "Use canvas edges only when the whole downstream canvas waits for the whole upstream canvas.",
     "Use crossTaskEdges when only specific tasks have cross-canvas ordering.",
-    "Use block parallel.locks for write conflicts that have no logical ordering.",
+    "Use block dependencies for required ordering and sharedResources for coordination hints.",
     "Edge direction matches manifest task edges: from depends_on to, so from waits for to.",
     "Desktop layout stores canvas coordinates only; canvas dependencies belong in this schema."
   ]

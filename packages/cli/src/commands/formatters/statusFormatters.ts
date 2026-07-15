@@ -15,7 +15,11 @@ export function formatClaimHint(hint: ClaimHint): string {
         ? `${hint.status}: ${hint.statusReason}`
         : `status ${hint.status}`;
   const gate = hint.reviewGate ? "review gate, " : "";
-  const mode = hint.sequentialOnly ? "sequential-only" : "parallel-safe";
+  const mode = hint.sequentialOnly
+    ? "sequential-only"
+    : hint.dispatchable
+      ? "dispatchable"
+      : "not-dispatchable";
   const command = hint.recommendedCommand
     ? `, run: ${hint.recommendedCommand}`
     : hint.dispatchCommand

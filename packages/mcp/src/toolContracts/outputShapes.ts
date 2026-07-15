@@ -727,7 +727,6 @@ export const executionStatusSchema = {
         blockedByBlocks: z.array(z.string()),
         blockedByTasks: z.array(z.string()),
         blockedByProject: z.array(z.string()),
-        parallelSafe: z.boolean(),
         sequentialOnly: z.boolean(),
         recommendedCommand: z.string().nullable(),
         dispatchable: z.boolean(),
@@ -776,8 +775,8 @@ export const readyBlockSchema = z
     taskId: z.string(),
     blockId: z.string(),
     title: z.string(),
-    parallelSafe: z.boolean(),
-    locks: z.array(z.string()),
+    dispatchable: z.boolean(),
+    sharedResources: z.array(z.string()),
     reviewGate: z.unknown().nullable()
   })
   .passthrough();

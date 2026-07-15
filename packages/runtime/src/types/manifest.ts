@@ -25,9 +25,6 @@ export type ReviewHookDefinition = {
 export type ReviewTriggerCondition = (typeof reviewTriggerConditions)[number];
 
 export type BlockParallelPolicy = {
-  /** @deprecated Use locks including "exclusive" instead of safe: false. */
-  safe?: boolean;
-  locks: string[];
   /** Potentially shared resources. Informational only; never a scheduling constraint. */
   sharedResources?: string[];
 };
@@ -39,7 +36,7 @@ export type ManifestImplementationBlock = {
   prompt: string;
   depends_on: string[];
   executor?: string;
-  parallel: BlockParallelPolicy;
+  parallel?: BlockParallelPolicy;
 };
 
 export type ManifestReviewBlock = {

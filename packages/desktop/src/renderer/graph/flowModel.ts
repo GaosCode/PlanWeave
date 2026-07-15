@@ -17,20 +17,17 @@ import {
   dependencyEdgeSourceColors
 } from "./dependencyEdgeVisual";
 import { displayEdgeManifestData, executionFlowEndpoints } from "./dependencyEdges";
-import { buildTaskDispatchState } from "./taskLockViewModel";
-import { lockColor } from "./lockColors";
 
 export const nodeTypes = {
   task: TaskNodeCard
 };
 
-export type GraphLockUiState = {
-  activeLock: string | null;
-  releaseEpochByLock: Record<string, number>;
-  onLockHover: TaskNodeData["onLockHover"];
-  onLockPin: TaskNodeData["onLockPin"];
-  onLockOverflow: TaskNodeData["onLockOverflow"];
-  onJumpToTask: TaskNodeData["onJumpToTask"];
+export type GraphSharedResourceUiState = {
+  activeResource: string | null;
+  transitionEpochByResource: Record<string, number>;
+  onResourceHover: TaskNodeData["onResourceHover"];
+  onResourcePin: TaskNodeData["onResourcePin"];
+  onResourceOverflow: TaskNodeData["onResourceOverflow"];
 };
 
 export type AppNodeTypes = typeof nodeTypes;
@@ -191,31 +188,36 @@ export function graphNodes(
   onBlockExecutorChange: TaskNodeData["onBlockExecutorChange"],
   onBlockPromptSave: TaskNodeData["onBlockPromptSave"],
   onOpenRunRecord: TaskNodeData["onOpenRunRecord"],
-  lockUi: GraphLockUiState = {
-    activeLock: null,
-    releaseEpochByLock: {},
-    onLockHover: () => undefined,
-    onLockPin: () => undefined,
-    onLockOverflow: () => undefined,
-    onJumpToTask: () => undefined
+  resourceUi: GraphSharedResourceUiState = {
+    activeResource: null,
+    transitionEpochByResource: {},
+    onResourceHover: () => undefined,
+    onResourcePin: () => undefined,
+    onResourceOverflow: () => undefined
   }
 ): AppFlowNode[] {
   const layoutByNode = new Map(layout?.nodes.map((node) => [node.nodeId, node]) ?? []);
   const defaultPositions = defaultTaskNodePositions(graph);
-  const lockGroups = graph.sharedResourceGroups ?? [];
-  const activeGroup = lockUi.activeLock
-    ? lockGroups.find((group) => group.name === lockUi.activeLock)
+  const resourceGroups = graph.sharedResourceGroups;
+  const activeGroup = resourceUi.activeResource
+    ? resourceGroups.find((group) => group.name === resourceUi.activeResource)
     : null;
   const activeMembers = new Set(activeGroup?.memberTaskIds ?? []);
+  const activeResourceNames = new Set(
+    resourceGroups
+      .filter((group) => group.activeBlockRefs.length > 0)
+      .map((group) => group.name)
+  );
   const taskNodes: TaskFlowNode[] = graph.tasks.map((task, index) => {
     const saved = layoutByNode.get(task.taskId);
     const defaultPosition = defaultPositions.get(task.taskId) ?? {
       x: defaultLayoutOrigin.x + (index % 3) * defaultLayoutColumnGap,
       y: defaultLayoutOrigin.y + Math.floor(index / 3) * defaultLayoutRowGap
     };
-    const locks = task.sharedResources ?? [];
-    const lockHighlighted = lockUi.activeLock != null && activeMembers.has(task.taskId);
-    const dimmed = lockUi.activeLock != null && !activeMembers.has(task.taskId);
+    const sharedResources = task.sharedResources;
+    const resourceHighlighted =
+      resourceUi.activeResource != null && activeMembers.has(task.taskId);
+    const dimmed = resourceUi.activeResource != null && !activeMembers.has(task.taskId);
     return {
       id: task.taskId,
       type: "task",
@@ -234,13 +236,14 @@ export function graphNodes(
         blockRunRecords,
         blockReviewAttempts,
         blockFeedbackRecords,
-        locks,
-        lockStates: Object.fromEntries(locks.map((name) => [name, { kind: "free" as const }])),
-        dispatchState: buildTaskDispatchState(task),
-        highlightedLock: lockUi.activeLock,
-        lockHighlighted,
+        sharedResources,
+        activeSharedResources: new Set(
+          sharedResources.filter((name) => activeResourceNames.has(name))
+        ),
+        highlightedResource: resourceUi.activeResource,
+        resourceHighlighted,
         dimmed,
-        releaseEpochByLock: lockUi.releaseEpochByLock,
+        transitionEpochByResource: resourceUi.transitionEpochByResource,
         onTitleChange,
         onTitleSave,
         onExecutorChange,
@@ -263,10 +266,9 @@ export function graphNodes(
         onBlockExecutorChange,
         onBlockPromptSave,
         onOpenRunRecord,
-        onLockHover: lockUi.onLockHover,
-        onLockPin: lockUi.onLockPin,
-        onLockOverflow: lockUi.onLockOverflow,
-        onJumpToTask: lockUi.onJumpToTask
+        onResourceHover: resourceUi.onResourceHover,
+        onResourcePin: resourceUi.onResourcePin,
+        onResourceOverflow: resourceUi.onResourceOverflow
       }
     };
   });
@@ -275,7 +277,7 @@ export function graphNodes(
 
 export function graphEdges(
   graph: DesktopGraphViewModel,
-  options: { activeLock?: string | null } = {}
+  options: { activeResource?: string | null } = {}
 ): Edge[] {
   const nodeIds = new Set(graph.tasks.map((task) => task.taskId));
   const dependencyLinks = graph.edges
@@ -285,12 +287,12 @@ export function graphEdges(
     graph.tasks.map((task) => task.taskId),
     dependencyLinks
   );
-  const lockGroups = graph.sharedResourceGroups ?? [];
-  const activeGroup = options.activeLock
-    ? lockGroups.find((group) => group.name === options.activeLock)
+  const resourceGroups = graph.sharedResourceGroups;
+  const activeGroup = options.activeResource
+    ? resourceGroups.find((group) => group.name === options.activeResource)
     : null;
   const activeMembers = new Set(activeGroup?.memberTaskIds ?? []);
-  const dimEdges = options.activeLock != null;
+  const dimEdges = options.activeResource != null;
   return graph.edges
     .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to))
     .map((edge) => {
@@ -329,8 +331,4 @@ export function graphEdges(
         }
       } satisfies Edge;
     });
-}
-
-export function activeLockHighlightColor(lockName: string | null): string | null {
-  return lockName ? lockColor(lockName).dot : null;
 }

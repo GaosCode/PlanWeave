@@ -32,14 +32,14 @@ describe("MCP discovery tools", () => {
             tool: "update_canvas_execution_policy"
           }),
           expect.objectContaining({
-            need: expect.stringContaining("locks"),
+            need: expect.stringContaining("shared resources"),
             tool: "update_block_planning"
           })
         ]),
         concepts: expect.arrayContaining([
           expect.objectContaining({
             name: "Parallel execution policy",
-            description: expect.stringContaining("exclusive")
+            description: expect.stringContaining("shared resources")
           })
         ]),
         nonGoals: expect.arrayContaining([
@@ -117,6 +117,15 @@ describe("MCP discovery tools", () => {
     expect(selected.files).toEqual(
       expect.arrayContaining([expect.objectContaining({ path: "manifest.json" })])
     );
+    const basicManifestFile = (selected.files as Array<{ path: string; content: string }>).find(
+      (file) => file.path === "manifest.json"
+    );
+    const basicManifest = JSON.parse(basicManifestFile?.content ?? "{}") as {
+      nodes: Array<{ blocks: Array<{ id: string; parallel?: unknown }> }>;
+    };
+    expect(basicManifest.nodes[0]?.blocks.find((block) => block.id === "B-001")?.parallel).toBe(
+      undefined
+    );
     const large = readJson(
       await handlePlanweaveTool(
         "get_plan_package_examples",
@@ -134,6 +143,27 @@ describe("MCP discovery tools", () => {
       ]),
       notes: [expect.stringContaining("apply_canvas_lane_layout")]
     });
+    const manifestFile = (large.files as Array<{ path: string; content: string }>).find(
+      (file) => file.path === "manifest.json"
+    );
+    const manifest = JSON.parse(manifestFile?.content ?? "{}") as {
+      nodes: Array<{
+        id: string;
+        blocks: Array<{ id: string; parallel?: { sharedResources: string[] } }>;
+      }>;
+    };
+    const implementationBlocks = manifest.nodes.map((task) => ({
+      taskId: task.id,
+      block: task.blocks.find((block) => block.id === "B-001")
+    }));
+    expect(implementationBlocks.find(({ taskId }) => taskId === "T-005")?.block).toMatchObject({
+      parallel: { sharedResources: ["desktop-ui"] }
+    });
+    expect(
+      implementationBlocks
+        .filter(({ taskId }) => taskId !== "T-005")
+        .every(({ block }) => block?.parallel === undefined)
+    ).toBe(true);
     await expect(
       handlePlanweaveTool("get_plan_package_examples", { template: "missing" }, createGateway())
     ).rejects.toThrow("Unknown package example template 'missing'");

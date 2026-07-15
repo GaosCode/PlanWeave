@@ -44,7 +44,7 @@
           "prompt": "nodes/T-001/blocks/B-001.prompt.md",
           "depends_on": [],
           "parallel": {
-            "locks": ["example"]
+            "sharedResources": ["example"]
           }
         },
         {

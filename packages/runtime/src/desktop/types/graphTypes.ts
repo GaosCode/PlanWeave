@@ -20,11 +20,6 @@ export type DesktopTaskException = {
   source: "blocked" | "diverged" | "needs_changes";
 };
 
-export type DesktopBlockWaitingOn = {
-  lock: string;
-  holderRef: string;
-};
-
 export type DesktopBlockPreview = {
   ref: string;
   blockId: string;
@@ -34,26 +29,15 @@ export type DesktopBlockPreview = {
   executor: string | null;
   promptMissing: boolean;
   exceptionReason: string | null;
-  /** True when claim/dispatch can start this block now (locks free, capacity available). */
+  /** True when claim/dispatch can start this block now. */
   dispatchable: boolean;
-  /** Set when the block is ready but waiting on a held lock. */
-  waitingOn: DesktopBlockWaitingOn | null;
-};
-
-export type DesktopLockGroup = {
-  name: string;
-  memberTaskIds: string[];
-  /** Implementation block refs whose effective locks include this lock. */
-  memberBlockRefs: string[];
-  /** In-progress implementation block ref that holds this lock, or null when free. */
-  holderRef: string | null;
 };
 
 export type DesktopSharedResourceGroup = {
   name: string;
   memberTaskIds: string[];
   memberBlockRefs: string[];
-  /** Members currently executing. Multiple members may be active because this is not a lock. */
+  /** Members currently executing; multiple refs indicate active shared-resource overlap. */
   activeBlockRefs: string[];
 };
 
@@ -67,10 +51,8 @@ export type DesktopTaskNodeViewModel = {
   promptHash?: string;
   promptMissing: boolean;
   promptPreview: string;
-  /** Union of effective locks on this task's implementation blocks (includes "exclusive"). */
-  locks: string[];
   /** Union of non-blocking shared-resource hints on implementation blocks. */
-  sharedResources?: string[];
+  sharedResources: string[];
   blocks: DesktopBlockPreview[];
   blockPreview: DesktopBlockPreview[];
   hiddenBlockRefs: string[];
@@ -95,10 +77,8 @@ export type DesktopGraphViewModel = {
   autoRunPreflightExecutorHint: string | null;
   tasks: DesktopTaskNodeViewModel[];
   edges: DesktopGraphEdgeViewModel[];
-  /** Per-lock membership and current holder for mutex-group highlights. */
-  lockGroups: DesktopLockGroup[];
-  /** Soft coordination groups; unlike lockGroups, these never gate dispatch. */
-  sharedResourceGroups?: DesktopSharedResourceGroup[];
+  /** Informational coordination groups; these never gate dispatch. */
+  sharedResourceGroups: DesktopSharedResourceGroup[];
   diagnostics: ValidationIssue[];
   dirtyPromptRefs: string[];
 };
@@ -305,8 +285,8 @@ export type DesktopTodoItem = {
   title: string;
   status: BlockStatus;
   dependencyBlockers: string[];
-  parallelSafe: boolean;
-  locks: string[];
+  dispatchable: boolean;
+  sharedResources: string[];
   reviewGate: ReviewGateHint | null;
 };
 

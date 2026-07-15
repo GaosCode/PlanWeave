@@ -85,9 +85,9 @@ describe("desktop graph flow model", () => {
     expect(nodes.find((node) => node.id === "T-001")?.position.x).toBeLessThan(999);
   });
 
-  it("threads shared-resource hints without creating lock wait state", () => {
-    const graph = sharedLockGraph();
-    const onLockHover = vi.fn();
+  it("threads shared-resource hints without creating scheduling state", () => {
+    const graph = sharedResourceGraph();
+    const onResourceHover = vi.fn();
     const noop = vi.fn();
     const nodes = graphNodes(
       graph,
@@ -126,24 +126,22 @@ describe("desktop graph flow model", () => {
       noop,
       noop,
       {
-        activeLock: "db",
-        releaseEpochByLock: {},
-        onLockHover,
-        onLockPin: vi.fn(),
-        onLockOverflow: vi.fn(),
-        onJumpToTask: vi.fn()
+        activeResource: "db",
+        transitionEpochByResource: {},
+        onResourceHover,
+        onResourcePin: vi.fn(),
+        onResourceOverflow: vi.fn()
       }
     );
 
     const nodeA = nodes.find((node) => node.id === "T-A");
     const nodeB = nodes.find((node) => node.id === "T-B");
-    expect(nodeA?.data.locks).toEqual(["db"]);
-    expect(nodeB?.data.locks).toEqual(["db"]);
-    expect(nodeA?.data.lockStates.db).toEqual({ kind: "free" });
-    expect(nodeB?.data.lockStates.db).toEqual({ kind: "free" });
-    expect(nodeB?.data.dispatchState).toEqual({ kind: "dispatchable" });
-    expect(nodeA?.data.lockHighlighted).toBe(true);
-    expect(nodeB?.data.lockHighlighted).toBe(true);
+    expect(nodeA?.data.sharedResources).toEqual(["db"]);
+    expect(nodeB?.data.sharedResources).toEqual(["db"]);
+    expect(nodeA?.data.activeSharedResources).toEqual(new Set(["db"]));
+    expect(nodeB?.data.activeSharedResources).toEqual(new Set(["db"]));
+    expect(nodeA?.data.resourceHighlighted).toBe(true);
+    expect(nodeB?.data.resourceHighlighted).toBe(true);
   });
 });
 
@@ -178,10 +176,9 @@ const labels: TaskNodeLabels = {
   taskPrompt: "Task Prompt",
   title: "Title",
   unavailable: "Unavailable",
-  exclusiveLock: "Exclusive",
-  heldBy: "Held by",
-  waitingForResource: "Waiting for resource",
-  moreLocks: (count: number) => `+${count}`
+  sharedResource: "Shared resource",
+  sharedResourceActive: "Active shared resource",
+  moreResources: (count: number) => `+${count}`
 };
 
 function graphView(
@@ -197,7 +194,7 @@ function graphView(
     autoRunPreflightExecutorHint: null,
     tasks: taskIds.map((taskId) => task(taskId)),
     edges,
-    lockGroups: [],
+    sharedResourceGroups: [],
     diagnostics: [],
     dirtyPromptRefs: []
   };
@@ -213,7 +210,7 @@ function task(taskId: string): DesktopGraphViewModel["tasks"][number] {
     promptMarkdown: "",
     promptMissing: false,
     promptPreview: "",
-    locks: [],
+    sharedResources: [],
     blocks: [],
     blockPreview: [],
     hiddenBlockRefs: [],
@@ -222,7 +219,7 @@ function task(taskId: string): DesktopGraphViewModel["tasks"][number] {
   };
 }
 
-function sharedLockGraph(): DesktopGraphViewModel {
+function sharedResourceGraph(): DesktopGraphViewModel {
   return {
     projectId: "P-001",
     projectTitle: "Project",
@@ -234,7 +231,6 @@ function sharedLockGraph(): DesktopGraphViewModel {
       {
         ...task("T-A"),
         status: "in_progress",
-        locks: [],
         sharedResources: ["db"],
         blocks: [
           {
@@ -246,8 +242,7 @@ function sharedLockGraph(): DesktopGraphViewModel {
             executor: null,
             promptMissing: false,
             exceptionReason: null,
-            dispatchable: false,
-            waitingOn: null
+            dispatchable: false
           }
         ],
         blockPreview: []
@@ -255,7 +250,6 @@ function sharedLockGraph(): DesktopGraphViewModel {
       {
         ...task("T-B"),
         status: "ready",
-        locks: [],
         sharedResources: ["db"],
         blocks: [
           {
@@ -267,22 +261,13 @@ function sharedLockGraph(): DesktopGraphViewModel {
             executor: null,
             promptMissing: false,
             exceptionReason: null,
-            dispatchable: true,
-            waitingOn: null
+            dispatchable: true
           }
         ],
         blockPreview: []
       }
     ],
     edges: [],
-    lockGroups: [
-      {
-        name: "db",
-        memberTaskIds: ["T-A", "T-B"],
-        memberBlockRefs: ["T-A#B-001", "T-B#B-001"],
-        holderRef: "T-A#B-001"
-      }
-    ],
     sharedResourceGroups: [
       {
         name: "db",

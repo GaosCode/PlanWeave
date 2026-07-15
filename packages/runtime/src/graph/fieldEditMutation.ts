@@ -1,5 +1,4 @@
 import { parseBlockRef } from "./compileTaskGraph.js";
-import { withExclusiveLock } from "./parallelLocks.js";
 import {
   buildPlanPackageManifestChangeMutation,
   writePromptSideEffects,
@@ -34,10 +33,6 @@ export type PlanPackageBlockFieldEditInput = {
   promptMarkdown?: string;
   executor?: string | null;
   dependsOn?: string[];
-  /** @deprecated Prefer exclusive; maps to reserved exclusive lock. */
-  parallelSafe?: boolean;
-  exclusive?: boolean;
-  parallelLocks?: string[];
   sharedResources?: string[];
   reviewRequired?: boolean;
   maxFeedbackCycles?: number;
@@ -50,6 +45,12 @@ export type PlanPackageBlockFieldEditMutation = PlanPackageGraphMutation & {
   blockId: string;
   blockType: BlockType;
   updatedFields: string[];
+};
+
+export type PlanPackageExecutionPolicyFieldEditInput = {
+  defaultExecutor?: string | null;
+  parallelEnabled?: boolean;
+  maxConcurrent?: number;
 };
 
 function nonEmpty(value: string, field: string): string {
@@ -101,69 +102,68 @@ function replaceTask(manifest: PlanPackageManifest, task: ManifestTaskNode): Pla
   };
 }
 
+export function buildPlanPackageExecutionPolicyFieldEditManifest(
+  manifest: PlanPackageManifest,
+  input: PlanPackageExecutionPolicyFieldEditInput
+): PlanPackageManifest {
+  if (
+    input.defaultExecutor === undefined &&
+    input.parallelEnabled === undefined &&
+    input.maxConcurrent === undefined
+  ) {
+    throw new Error("At least one execution policy field must be provided.");
+  }
+  if (
+    input.maxConcurrent !== undefined &&
+    (!Number.isInteger(input.maxConcurrent) || input.maxConcurrent < 1)
+  ) {
+    throw new Error("maxConcurrent must be a positive integer.");
+  }
+
+  const nextManifest: PlanPackageManifest = {
+    ...manifest,
+    execution: {
+      ...manifest.execution,
+      ...(input.defaultExecutor === undefined
+        ? {}
+        : input.defaultExecutor === null
+          ? { defaultExecutor: undefined }
+          : { defaultExecutor: input.defaultExecutor }),
+      parallel: {
+        ...manifest.execution.parallel,
+        enabled: input.parallelEnabled ?? manifest.execution.parallel.enabled,
+        maxConcurrent: input.maxConcurrent ?? manifest.execution.parallel.maxConcurrent
+      }
+    }
+  };
+  if (input.defaultExecutor === null) {
+    delete nextManifest.execution.defaultExecutor;
+  }
+  return nextManifest;
+}
+
 function editImplementationBlock(
   block: ManifestImplementationBlock,
-  input: Pick<
-    PlanPackageBlockFieldEditInput,
-    "parallelSafe" | "exclusive" | "parallelLocks" | "sharedResources"
-  >
+  input: Pick<PlanPackageBlockFieldEditInput, "sharedResources">
 ): { block: ManifestImplementationBlock; fields: string[] } {
   const fields: string[] = [];
   let next = block;
-  let locks = [...next.parallel.locks];
-  let locksTouched = false;
-  if (input.parallelLocks !== undefined) {
-    locks = input.parallelLocks.map((lock) => nonEmpty(lock, "parallel lock"));
-    locksTouched = true;
-    fields.push("parallel.locks");
-  }
-  // exclusive takes precedence over deprecated parallelSafe when both are set.
-  const exclusive =
-    input.exclusive !== undefined
-      ? input.exclusive
-      : input.parallelSafe !== undefined
-        ? !input.parallelSafe
-        : undefined;
-  if (exclusive !== undefined) {
-    locks = withExclusiveLock(locks, exclusive);
-    locksTouched = true;
-    if (input.parallelSafe !== undefined && input.exclusive === undefined) {
-      fields.push("parallel.safe");
-    }
-    fields.push("parallel.locks");
-  }
-  if (locksTouched) {
-    const { safe: _deprecatedSafe, ...restParallel } = next.parallel;
-    next = {
-      ...next,
-      parallel: {
-        ...restParallel,
-        locks
-      }
-    };
-  }
   if (input.sharedResources !== undefined) {
+    const sharedResources = [
+      ...new Set(input.sharedResources.map((resource) => nonEmpty(resource, "shared resource")))
+    ];
     next = {
       ...next,
-      parallel: {
-        ...next.parallel,
-        sharedResources: [
-          ...new Set(input.sharedResources.map((resource) => nonEmpty(resource, "shared resource")))
-        ]
-      }
+      ...(sharedResources.length === 0
+        ? { parallel: undefined }
+        : { parallel: { sharedResources } })
     };
+    if (sharedResources.length === 0) {
+      delete next.parallel;
+    }
     fields.push("parallel.sharedResources");
   }
-  // Stable unique order: parallel.safe then parallel.locks.
-  const ordered: string[] = [];
-  if (fields.includes("parallel.safe")) {
-    ordered.push("parallel.safe");
-  }
-  if (fields.includes("parallel.locks")) {
-    ordered.push("parallel.locks");
-  }
-  const other = fields.filter((field) => field !== "parallel.safe" && field !== "parallel.locks");
-  return { block: next, fields: [...other, ...ordered] };
+  return { block: next, fields };
 }
 
 function editReviewBlock(
@@ -197,13 +197,7 @@ function ensureBlockFieldCompatibility(
   block: ManifestBlock,
   input: PlanPackageBlockFieldEditInput
 ): void {
-  if (
-    block.type !== "implementation" &&
-    (input.parallelSafe !== undefined ||
-      input.exclusive !== undefined ||
-      input.parallelLocks !== undefined ||
-      input.sharedResources !== undefined)
-  ) {
+  if (block.type !== "implementation" && input.sharedResources !== undefined) {
     throw new Error("parallel fields can only be edited on implementation blocks.");
   }
   if (

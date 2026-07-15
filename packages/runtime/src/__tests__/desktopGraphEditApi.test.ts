@@ -272,7 +272,7 @@ describe("desktop graph edit API", () => {
       bulkUpdateBlocks(root, [
         {
           blockRef: "T-BULK-ALPHA#B-001",
-          fields: { title: "Bulk alpha implementation updated", parallelSafe: true }
+          fields: { title: "Bulk alpha implementation updated", sharedResources: ["runtime"] }
         },
         {
           blockRef: "T-BULK-ALPHA#R-001",
@@ -470,13 +470,20 @@ describe("desktop graph edit API", () => {
       bulkUpdateParallelPolicy(root, {
         canvasPolicy: { parallelEnabled: true, maxConcurrent: 3 },
         blocks: [
-          { blockRef: "T-001#B-001", input: { parallelSafe: false, parallelLocks: ["api"] } },
-          { blockRef: "T-002#MISSING", input: { parallelSafe: true } }
+          { blockRef: "T-001#B-001", input: { sharedResources: ["api"] } },
+          { blockRef: "T-002#MISSING", input: { sharedResources: ["runtime"] } }
         ]
       })
-    ).rejects.toThrow("Block 'T-002#MISSING' does not exist.");
+    ).resolves.toMatchObject({
+      ok: false,
+      diagnostics: [expect.objectContaining({ code: "block_missing" })]
+    });
 
     await expect(readFile(init.workspace.manifestFile, "utf8")).resolves.toBe(manifestBefore);
+    await expect(undoDesktopPlanGraphCommand(root)).resolves.toMatchObject({
+      ok: false,
+      diagnostics: [expect.objectContaining({ code: "history_empty" })]
+    });
   });
 
   it("updates task fields atomically through one desktop graph command", async () => {
@@ -809,7 +816,7 @@ describe("desktop graph edit API", () => {
       title: "Follow-up implementation",
       prompt: "nodes/T-001/blocks/B-002.prompt.md",
       depends_on: ["B-001"],
-      parallel: { locks: ["shared"] }
+      parallel: { sharedResources: ["runtime"] }
     });
     task.blocks[2].depends_on = ["B-002"];
     const { root, init } = await createTestWorkspace(manifest);
@@ -837,7 +844,7 @@ describe("desktop graph edit API", () => {
     expect(writtenTask.blocks.find((block) => block.id === "B-002")?.depends_on).toEqual(["B-001"]);
 
     await expect(
-      updateBlockPlanning(root, "T-001#B-002", { parallelSafe: false, parallelLocks: ["api"] })
+      updateBlockPlanning(root, "T-001#B-002", { sharedResources: ["api"] })
     ).resolves.toMatchObject({
       ok: true
     });
@@ -848,15 +855,8 @@ describe("desktop graph edit API", () => {
       throw new Error("Fixture task missing.");
     }
     expect(writtenTask.blocks.find((block) => block.id === "B-002")).toMatchObject({
-      parallel: { locks: ["shared"] }
+      parallel: { sharedResources: ["runtime"] }
     });
-    expect(
-      (
-        writtenTask.blocks.find((block) => block.id === "B-002") as {
-          parallel: { locks: string[] };
-        }
-      ).parallel.locks
-    ).not.toContain("exclusive");
   });
 
   it("records desktop layout saves as undoable PlanGraph history", async () => {

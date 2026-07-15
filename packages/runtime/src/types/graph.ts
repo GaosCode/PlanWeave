@@ -23,7 +23,6 @@ export type CompiledExecutionGraph = {
   blockDependenciesByRef: Map<string, string[]>;
   blockDependentsByRef: Map<string, string[]>;
   reviewBlocksByTask: Map<string, string[]>;
-  locksByBlockRef: Map<string, string[]>;
   sharedResourcesByBlockRef: Map<string, string[]>;
   diagnostics: {
     errors: ValidationIssue[];
@@ -105,10 +104,6 @@ export type EditBlockInput = {
   promptMarkdown?: string;
   executor?: string | null;
   dependsOn?: string[];
-  /** @deprecated Prefer exclusive; maps to reserved exclusive lock. */
-  parallelSafe?: boolean;
-  exclusive?: boolean;
-  parallelLocks?: string[];
   sharedResources?: string[];
   reviewRequired?: boolean;
   maxFeedbackCycles?: number;

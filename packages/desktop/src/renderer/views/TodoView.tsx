@@ -113,8 +113,8 @@ export function TodoView({ executionPlan, handleBlockSelect, t, todoGroups }: To
             </div>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {executionPlan.phases.map((phase) => {
-                const parallel = phase.parallelReadyQueue.length;
-                const sequential = phase.sequentialReadyQueue.length;
+                const dispatchable = phase.readyQueue.filter((item) => item.dispatchable).length;
+                const notDispatchable = phase.readyQueue.length - dispatchable;
                 const blocked = phase.blockedCount;
                 return (
                   <div
@@ -137,15 +137,19 @@ export function TodoView({ executionPlan, handleBlockSelect, t, todoGroups }: To
                     <div className="mt-3">
                       <SegmentedBar
                         items={[
-                          { status: "parallel", count: parallel, tone: "emerald" },
-                          { status: "sequential", count: sequential, tone: "amber" },
+                          { status: "dispatchable", count: dispatchable, tone: "emerald" },
+                          { status: "not-dispatchable", count: notDispatchable, tone: "amber" },
                           { status: "blocked", count: blocked, tone: "rose" }
                         ]}
-                        total={parallel + sequential + blocked}
+                        total={dispatchable + notDispatchable + blocked}
                       />
                       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                        <LegendItem count={parallel} label={t("parallelSafe")} tone="emerald" />
-                        <LegendItem count={sequential} label={t("parallelBlocked")} tone="amber" />
+                        <LegendItem count={dispatchable} label={t("dispatchable")} tone="emerald" />
+                        <LegendItem
+                          count={notDispatchable}
+                          label={t("notDispatchable")}
+                          tone="amber"
+                        />
                         <LegendItem count={blocked} label={t("blocked")} tone="rose" />
                       </div>
                     </div>
@@ -181,12 +185,12 @@ export function TodoView({ executionPlan, handleBlockSelect, t, todoGroups }: To
                   key={status}
                   labels={{
                     dependencyBlockers: t("dependencyBlockers"),
-                    locks: t("locks"),
+                    dispatchability: t("dispatchability"),
+                    dispatchable: t("dispatchable"),
+                    notDispatchable: t("notDispatchable"),
                     noBlockers: t("noBlockers"),
-                    noLocks: t("noLocks"),
-                    parallelBlocked: t("parallelBlocked"),
-                    parallelSafe: t("parallelSafe"),
-                    parallelSafety: t("parallelSafety"),
+                    noSharedResources: t("noSharedResources"),
+                    sharedResources: t("sharedResources"),
                     reviewExecutor: t("reviewExecutor"),
                     reviewGate: t("reviewGate"),
                     reviewNeedsChangesReturnsTo: t("reviewNeedsChangesReturnsTo"),

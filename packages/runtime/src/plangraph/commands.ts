@@ -1,4 +1,5 @@
 import type { ProjectTaskRef } from "../projectGraph/types.js";
+import type { PlanPackageExecutionPolicyFieldEditInput } from "../graph/fieldEditMutation.js";
 import type {
   ManifestBlock,
   ManifestEdge,
@@ -66,16 +67,31 @@ export type UpdateBlockFieldsCommand = PlanGraphCommandBase & {
     promptMarkdown?: string;
     executor?: string | null;
     dependsOn?: string[];
-    /** @deprecated Prefer exclusive; maps to reserved exclusive lock. */
-    parallelSafe?: boolean;
-    exclusive?: boolean;
-    parallelLocks?: string[];
     sharedResources?: string[];
     reviewRequired?: boolean;
     maxFeedbackCycles?: number;
     reviewHook?: ReviewHookDefinition | null;
     basePromptHash?: string;
   };
+};
+
+export type BulkUpdateBlocksCommand = PlanGraphCommandBase & {
+  type: "bulkUpdateBlocks";
+  updates: Array<{
+    blockRef: string;
+    fields: Omit<UpdateBlockFieldsCommand["fields"], "basePromptHash">;
+  }>;
+};
+
+export type BulkUpdateParallelPolicyCommand = PlanGraphCommandBase & {
+  type: "bulkUpdateParallelPolicy";
+  canvasPolicy?: PlanPackageExecutionPolicyFieldEditInput;
+  blocks: Array<{
+    blockRef: string;
+    input: {
+      sharedResources?: string[];
+    };
+  }>;
 };
 
 export type TaskComponentSnapshot = {
@@ -181,6 +197,8 @@ export type PlanGraphCommand =
   | UpdateBlockPromptCommand
   | UpdateTaskFieldsCommand
   | UpdateBlockFieldsCommand
+  | BulkUpdateBlocksCommand
+  | BulkUpdateParallelPolicyCommand
   | AddTaskCommand
   | RemoveTaskCommand
   | RestoreTaskCommand

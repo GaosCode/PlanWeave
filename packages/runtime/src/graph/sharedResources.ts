@@ -5,5 +5,5 @@ export function sharedResourcesForBlock(block: ManifestBlock): string[] {
   if (block.type !== "implementation") {
     return [];
   }
-  return [...new Set(block.parallel.sharedResources ?? [])];
+  return [...new Set(block.parallel?.sharedResources ?? [])];
 }

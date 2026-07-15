@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claimNext } from "../taskManager/claimScheduler.js";
+import { claimBlock, claimNext } from "../taskManager/claimScheduler.js";
 import { buildClaimReadiness } from "../taskManager/claimReadiness.js";
 import { loadRuntime } from "../taskManager/runtimeContext.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
@@ -16,13 +16,13 @@ describe("claim readiness", () => {
     expect(readiness.nextSequentialClaimable).toEqual([]);
     expect(readiness.claimHints.find((hint) => hint.ref === "T-001#B-001")).toMatchObject({
       ready: true,
-      readyReason: "Block is ready and parallel-eligible (locks-only mutex).",
+      readyReason: "Block is ready for implementation.",
       recommendedCommand: "planweave claim T-001#B-001"
     });
     expect(context.state.currentRefs).toEqual([]);
   });
 
-  it("names lock and holder when a ready block is blocked by a held lock", async () => {
+  it("keeps an independent shared-resource peer dispatchable", async () => {
     const manifest = basicManifest({ parallel: true, maxConcurrent: 2, includeSecondTask: true });
     for (const taskId of ["T-001", "T-002"] as const) {
       const task = manifest.nodes.find((node) => node.type === "task" && node.id === taskId);
@@ -33,17 +33,17 @@ describe("claim readiness", () => {
       if (block?.type !== "implementation") {
         throw new Error("missing block");
       }
-      block.parallel = { locks: ["runtime-desktop"] };
+      block.parallel = { sharedResources: ["runtime-desktop"] };
     }
     const { root } = await createTestWorkspace(manifest);
-    await claimNext({ projectRoot: root, parallel: true });
+    await claimBlock({ projectRoot: root, ref: "T-001#B-001", dispatch: true });
     const context = await loadRuntime({ projectRoot: root });
     const readiness = buildClaimReadiness(context);
     const peer = readiness.claimHints.find((hint) => hint.ref === "T-002#B-001");
     expect(peer).toMatchObject({
       ready: false,
-      dispatchable: false,
-      statusReason: "blocked by lock 'runtime-desktop' held by T-001#B-001 (in_progress)"
+      dispatchable: true,
+      statusReason: "Default claims are blocked by current block 'T-001#B-001'."
     });
   });
 

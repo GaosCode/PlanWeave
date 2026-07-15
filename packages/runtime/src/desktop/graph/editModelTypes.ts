@@ -3,6 +3,10 @@ import type { DesktopAddBlockInput, DesktopAddTaskInput } from "../types.js";
 
 type UpdateTaskFieldsCommand = Extract<PlanGraphCommand, { type: "updateTaskFields" }>;
 type UpdateBlockFieldsCommand = Extract<PlanGraphCommand, { type: "updateBlockFields" }>;
+type BulkUpdateParallelPolicyCommand = Extract<
+  PlanGraphCommand,
+  { type: "bulkUpdateParallelPolicy" }
+>;
 
 export type DesktopTaskFieldEditInput = Omit<UpdateTaskFieldsCommand["fields"], "basePromptHash">;
 export type DesktopBlockFieldEditInput = Omit<UpdateBlockFieldsCommand["fields"], "basePromptHash">;
@@ -24,8 +28,6 @@ export type DesktopBulkRemoveGraphItemsInput = {
   blockDependencyEdges?: Array<{ blockRef: string; dependsOnBlockId: string }>;
 };
 
-export type CanvasExecutionPolicyInput = {
-  defaultExecutor?: string | null;
-  parallelEnabled?: boolean;
-  maxConcurrent?: number;
-};
+export type CanvasExecutionPolicyInput = NonNullable<
+  BulkUpdateParallelPolicyCommand["canvasPolicy"]
+>;

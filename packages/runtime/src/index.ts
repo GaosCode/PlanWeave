@@ -22,8 +22,6 @@ export type { ProjectPromptPolicy } from "./projectPromptPolicy.js";
 export { initManagedWorkspace, initWorkspace } from "./initWorkspace.js";
 export { linkProjectSourceRoot, unlinkProjectSourceRoot } from "./desktop/projectApi.js";
 export {
-  EXCLUSIVE_LOCK,
-  PARALLEL_SAFE_DEPRECATION_MESSAGE,
   manifestNodeSchema,
   manifestSchema,
   manifestSchemaTopLevelFields
@@ -291,6 +289,18 @@ export {
 export type * from "./autoRun/runnerEventReplay.js";
 export { normalizeAcpSessionNotification } from "./autoRun/acpEventNormalization.js";
 export type * from "./autoRun/acpEventNormalization.js";
+export {
+  acpAuthenticationHintsSchema,
+  acpAuthMethodSummarySchema,
+  acpAuthMethodSummariesSchema,
+  acpAuthenticationPlanSchema,
+  acpAuthenticationOutcomeSchema,
+  normalizeAcpAuthMethods,
+  planAcpAuthentication,
+  hasAdvertisedAcpAuthenticationMethods,
+  coordinateAcpAuthentication
+} from "./autoRun/acpAuthentication.js";
+export type * from "./autoRun/acpAuthentication.js";
 export { AcpEventPublisher } from "./autoRun/acpEventPublisher.js";
 export type * from "./autoRun/acpEventPublisher.js";
 export { AcpEventStore } from "./autoRun/acpEventStore.js";

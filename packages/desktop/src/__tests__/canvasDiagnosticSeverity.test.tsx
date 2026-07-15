@@ -25,9 +25,9 @@ const t = createTranslator("en");
 const warningCanvasButtonName = /Warning canvas\s*2/;
 const errorCanvasButtonName = /Warning canvas Error:/;
 const warningDiagnostic = {
-  code: "parallel_safe_deprecated",
-  message: "parallel.safe is deprecated",
-  path: "nodes.0.blocks.0.parallel.safe",
+  code: "prompt_duplicate_many",
+  message: "Prompt text is duplicated across several blocks",
+  path: "nodes.0.blocks",
   severity: "warning" as const
 };
 const warningCanvas = {
@@ -255,7 +255,7 @@ describe("canvas diagnostic severity in the canvas inspector", () => {
       />
     );
 
-    const diagnostic = screen.getByText("parallel_safe_deprecated").parentElement;
+    const diagnostic = screen.getByText("prompt_duplicate_many").parentElement;
 
     expect(screen.getByText("Warning")).toBeVisible();
     expect(screen.queryByText("Error")).not.toBeInTheDocument();

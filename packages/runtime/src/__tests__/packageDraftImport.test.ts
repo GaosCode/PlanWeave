@@ -139,7 +139,7 @@ function hundredTaskManifest(): PlanPackageManifest {
           title: `Implement import acceptance task ${number}`,
           prompt: `nodes/${id}/blocks/B-001.prompt.md`,
           depends_on: [],
-          parallel: { locks: [`acceptance-${id}`] }
+          parallel: { sharedResources: [`acceptance-${id}`] }
         }
       ]
     };

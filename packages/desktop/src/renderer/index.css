@@ -145,33 +145,31 @@
   --motion-duration-panel: 180ms;
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
-  /* Resource lock palette (12 hues + exclusive neutral) */
-  --lock-color-0: oklch(0.62 0.16 250);
-  --lock-color-0-halo: oklch(0.62 0.16 250 / 0.28);
-  --lock-color-1: oklch(0.62 0.15 20);
-  --lock-color-1-halo: oklch(0.62 0.15 20 / 0.28);
-  --lock-color-2: oklch(0.64 0.14 145);
-  --lock-color-2-halo: oklch(0.64 0.14 145 / 0.28);
-  --lock-color-3: oklch(0.66 0.15 300);
-  --lock-color-3-halo: oklch(0.66 0.15 300 / 0.28);
-  --lock-color-4: oklch(0.68 0.14 70);
-  --lock-color-4-halo: oklch(0.68 0.14 70 / 0.28);
-  --lock-color-5: oklch(0.6 0.14 200);
-  --lock-color-5-halo: oklch(0.6 0.14 200 / 0.28);
-  --lock-color-6: oklch(0.63 0.16 340);
-  --lock-color-6-halo: oklch(0.63 0.16 340 / 0.28);
-  --lock-color-7: oklch(0.65 0.13 120);
-  --lock-color-7-halo: oklch(0.65 0.13 120 / 0.28);
-  --lock-color-8: oklch(0.61 0.15 40);
-  --lock-color-8-halo: oklch(0.61 0.15 40 / 0.28);
-  --lock-color-9: oklch(0.64 0.14 220);
-  --lock-color-9-halo: oklch(0.64 0.14 220 / 0.28);
-  --lock-color-10: oklch(0.62 0.15 280);
-  --lock-color-10-halo: oklch(0.62 0.15 280 / 0.28);
-  --lock-color-11: oklch(0.66 0.12 160);
-  --lock-color-11-halo: oklch(0.66 0.12 160 / 0.28);
-  --lock-color-exclusive: oklch(0.45 0.02 250);
-  --lock-color-exclusive-halo: oklch(0.45 0.02 250 / 0.28);
+  /* Shared-resource palette (12 stable hues) */
+  --shared-resource-color-0: oklch(0.62 0.16 250);
+  --shared-resource-color-0-halo: oklch(0.62 0.16 250 / 0.28);
+  --shared-resource-color-1: oklch(0.62 0.15 20);
+  --shared-resource-color-1-halo: oklch(0.62 0.15 20 / 0.28);
+  --shared-resource-color-2: oklch(0.64 0.14 145);
+  --shared-resource-color-2-halo: oklch(0.64 0.14 145 / 0.28);
+  --shared-resource-color-3: oklch(0.66 0.15 300);
+  --shared-resource-color-3-halo: oklch(0.66 0.15 300 / 0.28);
+  --shared-resource-color-4: oklch(0.68 0.14 70);
+  --shared-resource-color-4-halo: oklch(0.68 0.14 70 / 0.28);
+  --shared-resource-color-5: oklch(0.6 0.14 200);
+  --shared-resource-color-5-halo: oklch(0.6 0.14 200 / 0.28);
+  --shared-resource-color-6: oklch(0.63 0.16 340);
+  --shared-resource-color-6-halo: oklch(0.63 0.16 340 / 0.28);
+  --shared-resource-color-7: oklch(0.65 0.13 120);
+  --shared-resource-color-7-halo: oklch(0.65 0.13 120 / 0.28);
+  --shared-resource-color-8: oklch(0.61 0.15 40);
+  --shared-resource-color-8-halo: oklch(0.61 0.15 40 / 0.28);
+  --shared-resource-color-9: oklch(0.64 0.14 220);
+  --shared-resource-color-9-halo: oklch(0.64 0.14 220 / 0.28);
+  --shared-resource-color-10: oklch(0.62 0.15 280);
+  --shared-resource-color-10-halo: oklch(0.62 0.15 280 / 0.28);
+  --shared-resource-color-11: oklch(0.66 0.12 160);
+  --shared-resource-color-11-halo: oklch(0.66 0.12 160 / 0.28);
 }
 
 .dark {
@@ -234,35 +232,33 @@
   --state-success-surface: oklch(0.32 0.055 145);
   --state-dirty: oklch(0.76 0.14 52);
   --state-dirty-surface: oklch(0.32 0.06 52);
-  --lock-color-0: oklch(0.74 0.14 250);
-  --lock-color-0-halo: oklch(0.74 0.14 250 / 0.32);
-  --lock-color-1: oklch(0.74 0.14 20);
-  --lock-color-1-halo: oklch(0.74 0.14 20 / 0.32);
-  --lock-color-2: oklch(0.76 0.13 145);
-  --lock-color-2-halo: oklch(0.76 0.13 145 / 0.32);
-  --lock-color-3: oklch(0.76 0.14 300);
-  --lock-color-3-halo: oklch(0.76 0.14 300 / 0.32);
-  --lock-color-4: oklch(0.78 0.13 70);
-  --lock-color-4-halo: oklch(0.78 0.13 70 / 0.32);
-  --lock-color-5: oklch(0.72 0.13 200);
-  --lock-color-5-halo: oklch(0.72 0.13 200 / 0.32);
-  --lock-color-6: oklch(0.74 0.14 340);
-  --lock-color-6-halo: oklch(0.74 0.14 340 / 0.32);
-  --lock-color-7: oklch(0.76 0.12 120);
-  --lock-color-7-halo: oklch(0.76 0.12 120 / 0.32);
-  --lock-color-8: oklch(0.73 0.14 40);
-  --lock-color-8-halo: oklch(0.73 0.14 40 / 0.32);
-  --lock-color-9: oklch(0.75 0.13 220);
-  --lock-color-9-halo: oklch(0.75 0.13 220 / 0.32);
-  --lock-color-10: oklch(0.74 0.14 280);
-  --lock-color-10-halo: oklch(0.74 0.14 280 / 0.32);
-  --lock-color-11: oklch(0.76 0.11 160);
-  --lock-color-11-halo: oklch(0.76 0.11 160 / 0.32);
-  --lock-color-exclusive: oklch(0.78 0.02 250);
-  --lock-color-exclusive-halo: oklch(0.78 0.02 250 / 0.32);
+  --shared-resource-color-0: oklch(0.74 0.14 250);
+  --shared-resource-color-0-halo: oklch(0.74 0.14 250 / 0.32);
+  --shared-resource-color-1: oklch(0.74 0.14 20);
+  --shared-resource-color-1-halo: oklch(0.74 0.14 20 / 0.32);
+  --shared-resource-color-2: oklch(0.76 0.13 145);
+  --shared-resource-color-2-halo: oklch(0.76 0.13 145 / 0.32);
+  --shared-resource-color-3: oklch(0.76 0.14 300);
+  --shared-resource-color-3-halo: oklch(0.76 0.14 300 / 0.32);
+  --shared-resource-color-4: oklch(0.78 0.13 70);
+  --shared-resource-color-4-halo: oklch(0.78 0.13 70 / 0.32);
+  --shared-resource-color-5: oklch(0.72 0.13 200);
+  --shared-resource-color-5-halo: oklch(0.72 0.13 200 / 0.32);
+  --shared-resource-color-6: oklch(0.74 0.14 340);
+  --shared-resource-color-6-halo: oklch(0.74 0.14 340 / 0.32);
+  --shared-resource-color-7: oklch(0.76 0.12 120);
+  --shared-resource-color-7-halo: oklch(0.76 0.12 120 / 0.32);
+  --shared-resource-color-8: oklch(0.73 0.14 40);
+  --shared-resource-color-8-halo: oklch(0.73 0.14 40 / 0.32);
+  --shared-resource-color-9: oklch(0.75 0.13 220);
+  --shared-resource-color-9-halo: oklch(0.75 0.13 220 / 0.32);
+  --shared-resource-color-10: oklch(0.74 0.14 280);
+  --shared-resource-color-10-halo: oklch(0.74 0.14 280 / 0.32);
+  --shared-resource-color-11: oklch(0.76 0.11 160);
+  --shared-resource-color-11-halo: oklch(0.76 0.11 160 / 0.32);
 }
 
-@keyframes lock-release-pulse {
+@keyframes shared-resource-transition-pulse {
   0% {
     transform: scale(1);
   }

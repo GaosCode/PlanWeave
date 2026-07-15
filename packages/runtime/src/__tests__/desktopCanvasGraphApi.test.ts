@@ -155,7 +155,7 @@ describe("desktop canvas graph API", () => {
     });
   });
 
-  it("projects deprecated package fields as canvas warnings", async () => {
+  it("projects removed package fields as strict manifest errors", async () => {
     const manifest = basicManifest();
     const task = manifest.nodes.find((node) => node.type === "task");
     const block =
@@ -163,17 +163,23 @@ describe("desktop canvas graph API", () => {
     if (!block || block.type !== "implementation") {
       throw new Error("Expected an implementation block fixture.");
     }
-    block.parallel = { safe: true, locks: ["shared"] };
-    const { root } = await createTestWorkspace(manifest);
+    const { root, init } = await createTestWorkspace(manifest);
+    block.parallel = { safe: false } as never;
+    await writeJsonFile(init.workspace.manifestFile, manifest);
 
     const graph = await getCanvasGraphViewModel(root);
     const canvas = graph.canvases.find((item) => item.canvasId === "default");
     const health = graph.health.canvases.find((item) => item.canvasId === "default");
 
     expect(canvas?.diagnostics).toContainEqual(
-      expect.objectContaining({ code: "parallel_safe_deprecated", severity: "warning" })
+      expect.objectContaining({
+        code: "manifest_schema",
+        message: 'Unrecognized key: "safe"',
+        severity: "error"
+      })
     );
-    expect(health).toMatchObject({ severity: "warning", diagnosticCount: 1 });
+    expect(health?.severity).toBe("error");
+    expect(health?.diagnosticCount).toBeGreaterThan(0);
   });
 
   it("refreshes the cached canvas graph when project graph changes externally", async () => {

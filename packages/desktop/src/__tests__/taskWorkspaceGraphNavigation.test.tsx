@@ -38,8 +38,7 @@ const graphWithBlock: DesktopGraphViewModel = {
               executor: null,
               promptMissing: false,
               exceptionReason: null,
-              dispatchable: true,
-              waitingOn: null
+              dispatchable: true
             }
           ]
         }

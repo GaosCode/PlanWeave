@@ -46,7 +46,7 @@ function manyTaskManifest(count: number): PlanPackageManifest {
             title: `Implement ${taskId}`,
             prompt: `nodes/${taskId}/blocks/B-001.prompt.md`,
             depends_on: [],
-            parallel: { locks: [taskId] }
+            parallel: { sharedResources: [taskId] }
           }
         ]
       };

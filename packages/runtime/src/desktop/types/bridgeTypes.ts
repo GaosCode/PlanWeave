@@ -458,11 +458,11 @@ export type DesktopBridgeApi = {
   ): Promise<DesktopRuntimeResetResult>;
   unblockBlock(ref: DesktopCanvasReference, blockRef: string, reason: string): Promise<void>;
   /**
-   * Mark an in-progress block blocked (releases locks via currentRefs) with a non-empty reason.
+   * Mark an in-progress block blocked and remove it from currentRefs with a non-empty reason.
    */
   markBlockedBlock(ref: DesktopCanvasReference, blockRef: string, reason: string): Promise<void>;
   /**
-   * Dispatch-claim a ready implementation block when locks allow.
+   * Dispatch-claim a ready implementation block when dependencies allow.
    * Returns ClaimResult so the UI can surface refused dispatch reasons.
    */
   dispatchBlock(ref: DesktopCanvasReference, blockRef: string): Promise<ClaimResult>;

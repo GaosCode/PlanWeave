@@ -1,6 +1,7 @@
 import { commitPlanPackageGraphMutation } from "../../graph/editGraph.js";
 import {
   buildPlanPackageBlockFieldEditMutation,
+  buildPlanPackageExecutionPolicyFieldEditManifest,
   buildPlanPackageTaskFieldEditMutation
 } from "../../graph/fieldEditMutation.js";
 import {
@@ -149,9 +150,7 @@ export async function updateBlockPlanning(
   projectRoot: PackageWorkspaceRef,
   ref: string,
   input: {
-    exclusive?: boolean;
-    parallelSafe?: boolean;
-    parallelLocks?: string[];
+    sharedResources?: string[];
     reviewRequired?: boolean;
     maxFeedbackCycles?: number;
     reviewHook?: ReviewHookDefinition | null;
@@ -160,52 +159,12 @@ export async function updateBlockPlanning(
   return updateBlockFields(projectRoot, ref, input);
 }
 
-function updateCanvasExecutionPolicyManifest(
-  manifest: PlanPackageManifest,
-  input: CanvasExecutionPolicyInput
-): PlanPackageManifest {
-  if (
-    input.defaultExecutor === undefined &&
-    input.parallelEnabled === undefined &&
-    input.maxConcurrent === undefined
-  ) {
-    throw new Error("At least one execution policy field must be provided.");
-  }
-  if (
-    input.maxConcurrent !== undefined &&
-    (!Number.isInteger(input.maxConcurrent) || input.maxConcurrent < 1)
-  ) {
-    throw new Error("maxConcurrent must be a positive integer.");
-  }
-
-  const nextManifest: PlanPackageManifest = {
-    ...manifest,
-    execution: {
-      ...manifest.execution,
-      ...(input.defaultExecutor === undefined
-        ? {}
-        : input.defaultExecutor === null
-          ? { defaultExecutor: undefined }
-          : { defaultExecutor: input.defaultExecutor }),
-      parallel: {
-        ...manifest.execution.parallel,
-        enabled: input.parallelEnabled ?? manifest.execution.parallel.enabled,
-        maxConcurrent: input.maxConcurrent ?? manifest.execution.parallel.maxConcurrent
-      }
-    }
-  };
-  if (input.defaultExecutor === null) {
-    delete nextManifest.execution.defaultExecutor;
-  }
-  return nextManifest;
-}
-
 export async function updateCanvasExecutionPolicy(
   projectRoot: PackageWorkspaceRef,
   input: CanvasExecutionPolicyInput
 ): Promise<GraphEditResult> {
   const { workspace, manifest } = await loadPackage(projectRoot);
-  const nextManifest = updateCanvasExecutionPolicyManifest(manifest, input);
+  const nextManifest = buildPlanPackageExecutionPolicyFieldEditManifest(manifest, input);
   const affectedTasks = nextManifest.nodes.map((node) => node.id);
   const result = manifestValidationResult(nextManifest, affectedTasks);
   if (!result.ok) {
@@ -224,9 +183,7 @@ export async function bulkUpdateParallelPolicy(
     blocks: Array<{
       blockRef: string;
       input: {
-        exclusive?: boolean;
-        parallelSafe?: boolean;
-        parallelLocks?: string[];
+        sharedResources?: string[];
       };
     }>;
   }
@@ -236,32 +193,11 @@ export async function bulkUpdateParallelPolicy(
       "bulk_update_parallel_policy requires canvasPolicy or at least one block update."
     );
   }
-  const { manifest } = await loadPackage(projectRoot);
-  let nextManifest = input.canvasPolicy
-    ? updateCanvasExecutionPolicyManifest(manifest, input.canvasPolicy)
-    : manifest;
-  const affectedTasks = input.canvasPolicy ? nextManifest.nodes.map((node) => node.id) : [];
-  const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
-  for (const update of input.blocks) {
-    const mutation = buildPlanPackageBlockFieldEditMutation(nextManifest, {
-      blockRef: update.blockRef,
-      exclusive: update.input.exclusive,
-      parallelSafe: update.input.parallelSafe,
-      parallelLocks: update.input.parallelLocks
-    });
-    nextManifest = mutation.nextManifest;
-    affectedTasks.push(...mutation.affectedTasks, mutation.taskId);
-    sideEffects.push(...mutation.sideEffects);
-  }
-  const result = await commitPlanPackageGraphMutation({
-    projectRoot,
-    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
-      affectedTasks,
-      sideEffects
-    })
+  return executeDesktopPlanGraphCommand(projectRoot, {
+    type: "bulkUpdateParallelPolicy",
+    canvasPolicy: input.canvasPolicy,
+    blocks: input.blocks
   });
-  invalidateDesktopProjectProjection(projectRoot);
-  return result;
 }
 
 export async function bulkUpdateTasks(
@@ -305,29 +241,13 @@ export async function bulkUpdateBlocks(
   if (updates.length === 0) {
     throw new Error("bulk_update_blocks requires at least one block update.");
   }
-  const { manifest } = await loadPackage(projectRoot);
-  let nextManifest = manifest;
-  const affectedTasks: string[] = [];
-  const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
   for (const update of updates) {
     if (!hasFieldEditValue(update.fields)) {
       throw new Error("At least one block field must be provided.");
     }
-    const mutation = buildPlanPackageBlockFieldEditMutation(nextManifest, {
-      blockRef: update.blockRef,
-      ...update.fields
-    });
-    nextManifest = mutation.nextManifest;
-    affectedTasks.push(...mutation.affectedTasks, mutation.taskId);
-    sideEffects.push(...mutation.sideEffects);
   }
-  const result = await commitPlanPackageGraphMutation({
-    projectRoot,
-    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
-      affectedTasks,
-      sideEffects
-    })
+  return executeDesktopPlanGraphCommand(projectRoot, {
+    type: "bulkUpdateBlocks",
+    updates
   });
-  invalidateDesktopProjectProjection(projectRoot);
-  return result;
 }

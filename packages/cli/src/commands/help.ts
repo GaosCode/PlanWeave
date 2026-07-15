@@ -50,7 +50,7 @@ export const planweaveHelpTopics: HelpTopic[] = [
       "prompt <block-ref>",
       "edit-task <task-id> --title <title>",
       "edit-block <block-ref> --review-required false",
-      "edit-block <block-ref> --parallel-safe true --parallel-locks api,db"
+      "edit-block <block-ref> --shared-resources api,db"
     ],
     notes: [
       "Rendered prompts are derived output.",
@@ -77,7 +77,7 @@ export const planweaveHelpTopics: HelpTopic[] = [
       "Use dry-run before automatic scheduling when the next step is unclear.",
       "Use --canvas for formal multi-canvas projects; without it, CLI commands target the current or first canvas, not every project canvas.",
       "Review gates are sequential work, not parallel implementation blocks.",
-      "Use --dispatch only for graph-ready, parallel-safe implementation blocks assigned to another agent."
+      "Use --dispatch only for graph-ready, dispatchable implementation blocks assigned to another agent."
     ]
   },
   {

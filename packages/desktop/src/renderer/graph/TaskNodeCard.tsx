@@ -45,8 +45,8 @@ import { cn } from "@/lib/utils";
 import { buildExecutorOptionViews, executorOptionName } from "../executors/executorOptionViewModel";
 import type { TaskFlowNode } from "../types";
 import { BlockPreviewButton } from "./BlockPreviewButton";
-import { LockBadges } from "./lockBadges";
-import { lockColor } from "./lockColors";
+import { SharedResourceBadges } from "./sharedResourceBadges";
+import { sharedResourceColor } from "./sharedResourceColors";
 import { taskNodeStatusVisual, TaskNodeStatusMarker } from "./taskNodeStatus";
 
 export const taskNodeSelectedClassName = "outline-2 outline-offset-2 outline-state-selected";
@@ -71,13 +71,12 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
     packageExecutorNames,
     labels,
     selectedBlock,
-    locks = [],
-    lockStates = {},
-    dispatchState = { kind: "none" },
-    highlightedLock = null,
-    lockHighlighted = false,
+    sharedResources = [],
+    activeSharedResources = new Set(),
+    highlightedResource = null,
+    resourceHighlighted = false,
     dimmed = false,
-    releaseEpochByLock = {},
+    transitionEpochByResource = {},
     onTitleChange,
     onTitleSave,
     onExecutorChange,
@@ -93,13 +92,11 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
     onAutoRunScopeStart,
     onTaskDelete,
     onBlockDelete,
-    onLockHover = () => undefined,
-    onLockPin = () => undefined,
-    onLockOverflow = () => undefined,
-    onJumpToTask = () => undefined
+    onResourceHover = () => undefined,
+    onResourcePin = () => undefined,
+    onResourceOverflow = () => undefined
   } = data;
   const hasException = task.exceptions.length > 0;
-  const waiting = dispatchState.kind === "waiting";
   const selectedExecutor =
     task.executorLabel === "Mixed"
       ? "__custom"
@@ -112,13 +109,12 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
       selectedExecutor !== "__custom" && selectedExecutor ? [selectedExecutor] : [],
     executorOptions
   });
-  const statusVisual = taskNodeStatusVisual(task.status, hasException, { waiting });
-  const highlightColor = lockHighlighted && highlightedLock ? lockColor(highlightedLock).dot : null;
-  const statusLabel = hasException
-    ? labels.exception
-    : waiting
-      ? labels.waitingForResource
-      : task.status;
+  const statusVisual = taskNodeStatusVisual(task.status, hasException);
+  const highlightColor =
+    resourceHighlighted && highlightedResource
+      ? sharedResourceColor(highlightedResource).dot
+      : null;
+  const statusLabel = hasException ? labels.exception : task.status;
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const key = event.key.toLowerCase();
     const isUndo = (event.metaKey || event.ctrlKey) && !event.shiftKey && key === "z";
@@ -143,17 +139,17 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
             "h-auto min-h-[220px] w-[320px] border transition-[border-color,box-shadow,opacity] duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-standard)]",
             statusVisual.cardClassName,
             selected ? taskNodeSelectedClassName : null,
-            lockHighlighted ? "ring-2" : null,
+            resourceHighlighted ? "ring-2" : null,
             dimmed ? "opacity-40" : null
           )}
-          data-lock-highlighted={lockHighlighted ? "true" : "false"}
+          data-resource-highlighted={resourceHighlighted ? "true" : "false"}
           data-dimmed={dimmed ? "true" : "false"}
           data-testid="task-node-card"
           size="sm"
           style={
             highlightColor
               ? ({
-                  ["--lock-highlight-color" as string]: highlightColor,
+                  ["--shared-resource-highlight-color" as string]: highlightColor,
                   boxShadow: `0 0 0 2px ${highlightColor}`
                 } as CSSProperties)
               : undefined
@@ -180,7 +176,6 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
                 hasException={hasException}
                 label={statusLabel}
                 status={task.status}
-                waiting={waiting}
               />
             </CardTitle>
             <CardDescription className="flex items-center gap-2">
@@ -249,23 +244,20 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
               ) : null}
             </CardAction>
           </CardHeader>
-          {locks.length > 0 ? (
-            <LockBadges
-              locks={locks}
-              lockStates={lockStates}
-              dispatchState={dispatchState}
-              highlightedLock={highlightedLock}
-              releaseEpochByLock={releaseEpochByLock}
+          {sharedResources.length > 0 ? (
+            <SharedResourceBadges
+              resources={sharedResources}
+              activeResources={activeSharedResources}
+              highlightedResource={highlightedResource}
+              transitionEpochByResource={transitionEpochByResource}
               labels={{
-                exclusiveLock: labels.exclusiveLock,
-                heldBy: labels.heldBy,
-                waitingForResource: labels.waitingForResource,
-                moreLocks: labels.moreLocks
+                sharedResource: labels.sharedResource,
+                sharedResourceActive: labels.sharedResourceActive,
+                moreResources: labels.moreResources
               }}
-              onLockHover={onLockHover}
-              onLockPin={onLockPin}
-              onOverflowOpen={() => onLockOverflow(task.taskId)}
-              onJumpToTask={onJumpToTask}
+              onResourceHover={onResourceHover}
+              onResourcePin={onResourcePin}
+              onOverflowOpen={() => onResourceOverflow(task.taskId)}
             />
           ) : null}
           <CardContent className="flex min-h-0 flex-1 flex-col gap-2.5">

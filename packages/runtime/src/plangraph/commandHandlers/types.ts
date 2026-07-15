@@ -4,7 +4,7 @@ import type { ManifestBlock, ManifestTaskNode, PlanPackageManifest } from "../..
 import type { PlanGraphCommand, PlanGraphCommandDiagnostic } from "../commands.js";
 import type { LoadedPlanGraphPackage } from "../packageRepository.js";
 
-export type PlanGraphCommandFamily = "dependency" | "task" | "block" | "review" | "layout";
+export type PlanGraphCommandFamily = "dependency" | "task" | "block" | "bulk" | "review" | "layout";
 
 export type PlanGraphCommandHandler<TCommand extends PlanGraphCommand = PlanGraphCommand> = {
   readonly family: PlanGraphCommandFamily;

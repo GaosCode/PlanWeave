@@ -48,16 +48,6 @@ function blockUpdatedFields(manifest: PlanPackageManifest, options: EditBlockInp
     fields.push("depends_on");
   }
   if (block.type === "implementation") {
-    if (options.parallelSafe !== undefined) {
-      fields.push("parallel.safe");
-    }
-    if (
-      options.exclusive !== undefined ||
-      options.parallelSafe !== undefined ||
-      options.parallelLocks !== undefined
-    ) {
-      fields.push("parallel.locks");
-    }
     if (options.sharedResources !== undefined) {
       fields.push("parallel.sharedResources");
     }
@@ -130,9 +120,6 @@ export async function editBlock(options: EditBlockInput): Promise<EditBlockResul
         promptMarkdown: options.promptMarkdown,
         executor: options.executor,
         dependsOn: options.dependsOn,
-        parallelSafe: options.parallelSafe,
-        exclusive: options.exclusive,
-        parallelLocks: options.parallelLocks,
         sharedResources: options.sharedResources,
         reviewRequired: options.reviewRequired,
         maxFeedbackCycles: options.maxFeedbackCycles,

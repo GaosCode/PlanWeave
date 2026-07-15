@@ -261,8 +261,7 @@ describe("PlanGraph command history schema", () => {
             type: "implementation",
             title: "Implement",
             prompt: "nodes/T-002/blocks/B-001.prompt.md",
-            depends_on: [],
-            parallel: { locks: [] }
+            depends_on: []
           }
         ]
       },
@@ -320,8 +319,7 @@ describe("PlanGraph command history schema", () => {
           title: "Review",
           executor: null,
           dependsOn: ["B-001"],
-          parallelSafe: false,
-          parallelLocks: ["shared"],
+          sharedResources: ["runtime"],
           reviewRequired: true,
           maxFeedbackCycles: 2,
           reviewHook: {
@@ -388,6 +386,19 @@ describe("PlanGraph command history schema", () => {
     ).toThrow();
     expect(() => parsePlanGraphCommand({ type: "unknownCommand" })).toThrow();
     expect(() => parsePlanGraphCommandArrayOrSingle([])).toThrow();
+  });
+
+  it("strictly rejects removed block planning fields", () => {
+    const removedFields = ["parallelSafe", "parallelLocks", "exclusive"];
+    for (const field of removedFields) {
+      expect(() =>
+        parsePlanGraphCommand({
+          type: "updateBlockFields",
+          blockRef: "T-001#B-001",
+          fields: { [field]: field === "exclusive" ? true : [] }
+        })
+      ).toThrow();
+    }
   });
 
   it("rejects updateLayout commands with invalid scoped layout payloads", () => {

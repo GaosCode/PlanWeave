@@ -1,25 +1,19 @@
 import { useMemo } from "react";
-import type {
-  DesktopCanvasReference,
-  DesktopGraphViewModel,
-  DesktopSharedResourceGroup
-} from "@planweave-ai/runtime";
+import type { DesktopGraphViewModel, DesktopSharedResourceGroup } from "@planweave-ai/runtime";
 import { InfoIcon, XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { createTranslator } from "../i18n";
-import { lockColor } from "../graph/lockColors";
+import { sharedResourceColor } from "../graph/sharedResourceColors";
 
 export type ResourceInspectorProps = {
-  canvasRef: DesktopCanvasReference | null;
   className?: string;
   graph: DesktopGraphViewModel;
-  lockGroup: DesktopSharedResourceGroup;
+  resourceGroup: DesktopSharedResourceGroup;
   onClose: () => void;
   onJumpToTask: (taskId: string) => void;
-  onRefresh: () => Promise<void>;
   t: ReturnType<typeof createTranslator>;
 };
 
@@ -60,14 +54,17 @@ function buildMemberRows(
 export function ResourceInspector({
   className,
   graph,
-  lockGroup,
+  resourceGroup,
   onClose,
   onJumpToTask,
   t
 }: ResourceInspectorProps) {
-  const color = lockColor(lockGroup.name);
-  const rows = useMemo(() => buildMemberRows(graph, lockGroup), [graph, lockGroup]);
-  const overlap = lockGroup.activeBlockRefs.length > 1;
+  const color = sharedResourceColor(resourceGroup.name);
+  const rows = useMemo(
+    () => buildMemberRows(graph, resourceGroup),
+    [graph, resourceGroup]
+  );
+  const overlap = resourceGroup.activeBlockRefs.length > 1;
 
   return (
     <Card
@@ -82,7 +79,7 @@ export function ResourceInspector({
             className="inline-block size-2.5 rounded-full"
             style={{ backgroundColor: color.dot }}
           />
-          <span className="truncate">{lockGroup.name}</span>
+          <span className="truncate">{resourceGroup.name}</span>
           <Badge variant="outline" className="ml-auto shrink-0">
             {t("sharedResourceHint")}
           </Badge>

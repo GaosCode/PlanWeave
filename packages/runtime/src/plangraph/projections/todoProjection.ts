@@ -9,7 +9,6 @@ import type {
 import type { ValidationIssue } from "../../types.js";
 import type { ProjectCanvasAggregationContext } from "../../desktop/graph/projectCanvasAggregation.js";
 import { getBlock } from "../../desktop/graph/graphHelpers.js";
-import { deriveParallelSafe } from "../../graph/parallelLocks.js";
 import type { PlanGraph } from "../domain/types.js";
 
 export type CanvasTodoRuntimeContext = RuntimeContext & {
@@ -93,8 +92,8 @@ export function buildTodoProjection(input: TodoProjectionInput): TodoProjection 
       title: blockTitle(input, blockStatus.ref),
       status: displayStatus,
       dependencyBlockers,
-      parallelSafe: deriveParallelSafe(runtime.graph.locksByBlockRef.get(blockStatus.ref) ?? []),
-      locks: runtime.graph.locksByBlockRef.get(blockStatus.ref) ?? [],
+      dispatchable: claimHint?.dispatchable ?? false,
+      sharedResources: runtime.graph.sharedResourcesByBlockRef.get(blockStatus.ref) ?? [],
       reviewGate: claimHint?.reviewGate ?? null
     };
     groups[groupName].push(item);
@@ -139,8 +138,8 @@ function executionPhaseFromGroups(
     canvasName,
     taskCount,
     readyQueue,
-    parallelReadyQueue: readyQueue.filter((item) => item.parallelSafe),
-    sequentialReadyQueue: readyQueue.filter((item) => !item.parallelSafe),
+    parallelReadyQueue: readyQueue.filter((item) => item.reviewGate === null),
+    sequentialReadyQueue: readyQueue.filter((item) => item.reviewGate !== null),
     blockedCount:
       groups.blocked.length +
       groups.diverged.length +

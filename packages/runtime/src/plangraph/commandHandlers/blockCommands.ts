@@ -103,6 +103,57 @@ function blockSnapshotMutation(
   );
 }
 
+export function inverseBlockFieldsCommand(
+  loaded: LoadedPlanGraphPackage,
+  command: UpdateBlockFieldsCommand
+): UpdateBlockFieldsCommand | PlanGraphCommandDiagnostic {
+  const current = blockFromManifest(loaded.manifest, command.blockRef);
+  if (!current) {
+    return diagnostic(
+      "block_missing",
+      `Block '${command.blockRef}' does not exist.`,
+      command.blockRef
+    );
+  }
+  const fields: UpdateBlockFieldsCommand["fields"] = {};
+  if (command.fields.title !== undefined) {
+    fields.title = current.block.title;
+  }
+  if (command.fields.promptMarkdown !== undefined) {
+    const markdown = promptMarkdown(loaded, current.block.prompt);
+    if (markdown === undefined) {
+      return diagnostic(
+        "prompt_missing",
+        `Prompt for block '${command.blockRef}' is not indexed.`,
+        command.blockRef
+      );
+    }
+    fields.promptMarkdown = markdown;
+  }
+  if (command.fields.executor !== undefined) {
+    fields.executor = current.block.executor ?? null;
+  }
+  if (command.fields.dependsOn !== undefined) {
+    fields.dependsOn = [...current.block.depends_on];
+  }
+  if (current.block.type === "implementation") {
+    if (command.fields.sharedResources !== undefined) {
+      fields.sharedResources = [...(current.block.parallel?.sharedResources ?? [])];
+    }
+  } else {
+    if (command.fields.reviewRequired !== undefined) {
+      fields.reviewRequired = current.block.review.required;
+    }
+    if (command.fields.maxFeedbackCycles !== undefined) {
+      fields.maxFeedbackCycles = current.block.review.maxFeedbackCycles;
+    }
+    if (command.fields.reviewHook !== undefined) {
+      fields.reviewHook = current.block.review.hook;
+    }
+  }
+  return { type: "updateBlockFields", blockRef: command.blockRef, fields };
+}
+
 export const blockCommandHandler: PlanGraphCommandHandler<BlockCommand> = {
   family: "block",
   commandTypes: [
@@ -138,9 +189,6 @@ export const blockCommandHandler: PlanGraphCommandHandler<BlockCommand> = {
         promptMarkdown: command.fields.promptMarkdown,
         executor: command.fields.executor,
         dependsOn: command.fields.dependsOn,
-        parallelSafe: command.fields.parallelSafe,
-        exclusive: command.fields.exclusive,
-        parallelLocks: command.fields.parallelLocks,
         sharedResources: command.fields.sharedResources,
         reviewRequired: command.fields.reviewRequired,
         maxFeedbackCycles: command.fields.maxFeedbackCycles,
@@ -197,60 +245,7 @@ export const blockCommandHandler: PlanGraphCommandHandler<BlockCommand> = {
           };
     }
     if (command.type === "updateBlockFields") {
-      const current = blockFromManifest(loaded.manifest, command.blockRef);
-      if (!current) {
-        return diagnostic(
-          "block_missing",
-          `Block '${command.blockRef}' does not exist.`,
-          command.blockRef
-        );
-      }
-      const fields: UpdateBlockFieldsCommand["fields"] = {};
-      if (command.fields.title !== undefined) {
-        fields.title = current.block.title;
-      }
-      if (command.fields.promptMarkdown !== undefined) {
-        const markdown = promptMarkdown(loaded, current.block.prompt);
-        if (markdown === undefined) {
-          return diagnostic(
-            "prompt_missing",
-            `Prompt for block '${command.blockRef}' is not indexed.`,
-            command.blockRef
-          );
-        }
-        fields.promptMarkdown = markdown;
-      }
-      if (command.fields.executor !== undefined) {
-        fields.executor = current.block.executor ?? null;
-      }
-      if (command.fields.dependsOn !== undefined) {
-        fields.dependsOn = [...current.block.depends_on];
-      }
-      if (current.block.type === "implementation") {
-        if (command.fields.parallelSafe !== undefined) {
-          fields.parallelSafe = current.block.parallel.safe;
-        }
-        if (command.fields.exclusive !== undefined) {
-          fields.exclusive = (current.block.parallel.locks ?? []).includes("exclusive");
-        }
-        if (command.fields.parallelLocks !== undefined) {
-          fields.parallelLocks = [...current.block.parallel.locks];
-        }
-        if (command.fields.sharedResources !== undefined) {
-          fields.sharedResources = [...(current.block.parallel.sharedResources ?? [])];
-        }
-      } else {
-        if (command.fields.reviewRequired !== undefined) {
-          fields.reviewRequired = current.block.review.required;
-        }
-        if (command.fields.maxFeedbackCycles !== undefined) {
-          fields.maxFeedbackCycles = current.block.review.maxFeedbackCycles;
-        }
-        if (command.fields.reviewHook !== undefined) {
-          fields.reviewHook = current.block.review.hook;
-        }
-      }
-      return { type: "updateBlockFields", blockRef: command.blockRef, fields };
+      return inverseBlockFieldsCommand(loaded, command);
     }
     if (command.type === "addBlock" || command.type === "restoreBlock") {
       return {

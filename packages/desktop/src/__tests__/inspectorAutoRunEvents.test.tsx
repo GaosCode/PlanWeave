@@ -48,7 +48,6 @@ const initialBlock: DesktopBlockDetail = {
   activeFeedbackId: null,
   exceptionReason: null,
   dispatchable: false,
-  waitingOn: null,
   reviewGate: null
 };
 
@@ -74,7 +73,7 @@ const graph: DesktopGraphViewModel = {
       promptMarkdown: "# Alpha",
       promptMissing: false,
       promptPreview: "Alpha",
-      locks: [],
+      sharedResources: [],
       blocks: [
         {
           ref: "T-ALPHA#B-001",
@@ -85,8 +84,7 @@ const graph: DesktopGraphViewModel = {
           executor: null,
           promptMissing: false,
           exceptionReason: null,
-          dispatchable: false,
-          waitingOn: null
+          dispatchable: false
         }
       ],
       blockPreview: [],
@@ -96,7 +94,7 @@ const graph: DesktopGraphViewModel = {
     }
   ],
   edges: [],
-  lockGroups: [],
+  sharedResourceGroups: [],
   diagnostics: [],
   dirtyPromptRefs: []
 };

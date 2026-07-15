@@ -45,7 +45,11 @@ export async function claimDispatchedBlock(options: {
     if (projectBlocker) {
       return { kind: "blocked", ref: options.ref, reason: projectBlocker };
     }
-    if (!canDispatchImplementationBlock(graph, state, options.ref)) {
+    if (
+      !canDispatchImplementationBlock(graph, state, options.ref, {
+        maxConcurrent: manifest.execution.parallel.maxConcurrent
+      })
+    ) {
       return {
         kind: "blocked",
         ref: options.ref,

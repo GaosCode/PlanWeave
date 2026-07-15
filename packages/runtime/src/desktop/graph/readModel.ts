@@ -23,7 +23,7 @@ import type {
 } from "../types.js";
 import { getDirtyPromptRefs } from "../fileSyncApi.js";
 import { getBlock, getTask, readOptionalFile, sortBlockRefsForTask } from "./graphHelpers.js";
-import { enrichGraphViewModelLocks } from "./lockViewModel.js";
+import { enrichGraphViewModelSharedResources } from "./sharedResourceViewModel.js";
 
 export type DesktopGraphViewModelContext = RuntimeContext & {
   status: ExecutionStatus;
@@ -171,7 +171,7 @@ export async function buildGraphViewModel(
     taskPromptMarkdownById
   });
 
-  return enrichGraphViewModelLocks(
+  return enrichGraphViewModelSharedResources(
     {
       projectId: workspace.id,
       projectTitle: planGraphPackage.graph.project.title,

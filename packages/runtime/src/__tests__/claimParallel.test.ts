@@ -20,7 +20,7 @@ function withImplementationParallel(
   manifest: PlanPackageManifest,
   taskId: string,
   blockId: string,
-  parallel: { safe?: boolean; locks?: string[] } | null
+  sharedResources: string[] | null
 ): PlanPackageManifest {
   const nodes = manifest.nodes.map((node) => {
     if (node.type !== "task" || node.id !== taskId) {
@@ -32,18 +32,15 @@ function withImplementationParallel(
         if (block.id !== blockId || block.type !== "implementation") {
           return block;
         }
-        if (parallel === null) {
+        if (sharedResources === null) {
           const { parallel: _drop, ...rest } = block as typeof block & {
             parallel?: unknown;
           };
-          return { ...rest, parallel: { locks: [] } };
+          return rest;
         }
         return {
           ...block,
-          parallel: {
-            locks: parallel.locks ?? [],
-            ...(parallel.safe === undefined ? {} : { safe: parallel.safe })
-          }
+          parallel: { sharedResources }
         };
       })
     };
@@ -82,7 +79,7 @@ describe("parallel claim", () => {
       "B-001",
       null
     );
-    // Remove parallel key entirely from source JSON semantics: parse default is locks:[]
+    // Remove the optional parallel key entirely from source JSON semantics.
     const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
     if (task?.type !== "task") {
       throw new Error("missing task");
@@ -91,8 +88,7 @@ describe("parallel claim", () => {
     if (block?.type !== "implementation") {
       throw new Error("missing block");
     }
-    // Ensure fixture has only default locks (no exclusive).
-    block.parallel = { locks: [] };
+    delete block.parallel;
 
     const { root } = await createTestWorkspace(manifest);
     const first = await claimNext({ projectRoot: root, parallel: true });
@@ -116,8 +112,7 @@ describe("parallel claim", () => {
           type: "implementation",
           title: "Implement third",
           prompt: "nodes/T-003/blocks/B-001.prompt.md",
-          depends_on: [],
-          parallel: { locks: ["third"] }
+          depends_on: []
         },
         {
           id: "R-001",
@@ -181,8 +176,7 @@ describe("parallel claim", () => {
           type: "implementation",
           title: "Implement third",
           prompt: "nodes/T-003/blocks/B-001.prompt.md",
-          depends_on: [],
-          parallel: { locks: ["third"] }
+          depends_on: []
         },
         {
           id: "R-001",
@@ -242,71 +236,33 @@ describe("parallel claim", () => {
     });
   });
 
-  it("never co-claims exclusive blocks and blocks peers while exclusive runs", async () => {
+  it("co-claims independent blocks that share a coordination resource", async () => {
     let manifest = basicManifest({ parallel: true, maxConcurrent: 2, includeSecondTask: true });
-    manifest = withImplementationParallel(manifest, "T-001", "B-001", {
-      locks: ["exclusive"]
-    });
-    // Peer keeps a non-conflicting lock so only exclusive is the barrier.
-    manifest = withImplementationParallel(manifest, "T-002", "B-001", {
-      locks: ["peer"]
-    });
+    manifest = withImplementationParallel(manifest, "T-001", "B-001", ["database"]);
+    manifest = withImplementationParallel(manifest, "T-002", "B-001", ["database"]);
 
     const { root } = await createTestWorkspace(manifest);
     const first = await claimNext({ projectRoot: root, parallel: true });
-    // Exclusive is first in manifest order and conflicts with everything → only exclusive.
     expect(first).toMatchObject({
       kind: "batch",
-      refs: ["T-001#B-001"]
-    });
-
-    const second = await claimNext({ projectRoot: root, parallel: true });
-    expect(second).toMatchObject({
-      kind: "batch",
-      refs: ["T-001#B-001"],
-      reason: "at_capacity"
-    });
-
-    await submitBlockResult({
-      projectRoot: root,
-      ref: "T-001#B-001",
-      reportPath: await writeReport(root, "ex.md")
-    });
-
-    const third = await claimNext({ projectRoot: root, parallel: true });
-    expect(third).toMatchObject({
-      kind: "batch",
-      refs: ["T-002#B-001"]
+      refs: ["T-001#B-001", "T-002#B-001"]
     });
   });
 
-  it("transfers a shared lock after mark-blocked (stall transfer)", async () => {
-    let manifest = basicManifest({ parallel: true, maxConcurrent: 2, includeSecondTask: true });
-    manifest = withImplementationParallel(manifest, "T-001", "B-001", {
-      locks: ["shared-resource"]
-    });
-    manifest = withImplementationParallel(manifest, "T-002", "B-001", {
-      locks: ["shared-resource"]
-    });
+  it("frees capacity after marking an in-progress block blocked", async () => {
+    const manifest = basicManifest({ parallel: true, maxConcurrent: 1, includeSecondTask: true });
 
     const { root } = await createTestWorkspace(manifest);
     const first = await claimNext({ projectRoot: root, parallel: true });
     expect(first).toMatchObject({
       kind: "batch",
       refs: ["T-001#B-001"]
-    });
-
-    const blockedPeer = await claimNext({ projectRoot: root, parallel: true });
-    expect(blockedPeer).toMatchObject({
-      kind: "batch",
-      refs: ["T-001#B-001"],
-      reason: "at_capacity"
     });
 
     await markBlockBlocked({
       projectRoot: root,
       ref: "T-001#B-001",
-      reason: "stall transfer test"
+      reason: "capacity release test"
     });
 
     const after = await claimNext({ projectRoot: root, parallel: true });

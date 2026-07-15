@@ -9,7 +9,7 @@ export const authoringRules = [
   "After importing a large DAG, use apply_canvas_lane_layout to materialize the recommended canvas lane layout.",
   "Create and update graph structure through create_task, create_block, add_task_dependency, remove_task_dependency, set_task_dependencies, and related semantic write tools.",
   "Use update_task_acceptance, set_block_dependencies, update_block_planning, set_review_pipeline, and project graph dependency tools for plan metadata that is not prompt text.",
-  "Use update_canvas_execution_policy for canvas-level execution.defaultExecutor and execution.parallel settings; use update_block_planning for per-block exclusive lock / locks.",
+  "Use update_canvas_execution_policy for canvas-level execution.defaultExecutor and execution.parallel settings; use update_block_planning for per-block shared resource hints.",
   "Keep the graph acyclic. Use get_graph_summary, get_graph_slice, and validate_graph_quality before and after large dependency changes.",
   "Write task and block prompt markdown through write_prompt_source, update_task, or update_block, then run refresh_prompts_summary, validate_project, and validate_graph_quality.",
   "Use implementation blocks for work and review blocks for review gates; review blocks should depend on the implementation blocks they inspect.",
@@ -43,7 +43,7 @@ export const planweaveGuide = {
     {
       name: "Parallel execution policy",
       description:
-        "Dependency edges answer when a block can start; locks answer which ready blocks can run at the same time. Parallel eligibility = canvas execution.parallel policy + non-conflicting locks. Reserved lock exclusive conflicts with everything. parallel.safe is deprecated."
+        "Dependency edges and review gates determine when blocks can start. Canvas execution.parallel controls capacity; shared resources are non-blocking coordination hints."
     },
     {
       name: "Prompt surfaces",
@@ -72,7 +72,7 @@ export const planweaveGuide = {
     "Use create_canvas when the plan should live in a new isolated canvas.",
     "For large plans, write a package-shaped draft root outside the active project, then use validate_package_draft, validate_graph_quality, preview_package_import, import_package_draft with apply: true, and apply_canvas_lane_layout.",
     "Use create_task, create_block, update_task_acceptance, set_block_dependencies, update_canvas_execution_policy, update_block_planning, set_review_pipeline, add_task_dependency, set_task_dependencies, and project graph dependency tools for direct edits.",
-    "For parallel plans, first set the selected canvas execution.parallel policy with update_canvas_execution_policy, then set non-conflicting locks (or exclusive) via update_block_planning exclusive/parallelLocks. Isolated blocks with no locks are parallel-eligible by default.",
+    "For parallel plans, set the selected canvas execution.parallel policy with update_canvas_execution_policy and record non-blocking coordination hints with update_block_planning sharedResources.",
     "Use write_prompt_source, update_task, and update_block to update promptMarkdown, titles, or executors.",
     "Run refresh_prompts_summary, validate_project, validate_graph_quality, and validate_execution_readiness after meaningful authoring changes."
   ],
@@ -99,7 +99,7 @@ export const planweaveGuide = {
       tool: "update_canvas_execution_policy"
     },
     {
-      need: "Set exclusive lock or resource locks on implementation blocks",
+      need: "Record shared resources used by implementation blocks",
       tool: "update_block_planning"
     },
     {
@@ -125,7 +125,7 @@ export const exampleTemplates = [
     template: "large_dag_with_review_loop",
     title: "Large DAG with review loop",
     description:
-      "Six task nodes with branching dependencies, review gates, and parallel-safe implementation blocks.",
+      "Six task nodes with branching dependencies, review gates, and shared resource hints.",
     fileCount: 19
   }
 ] as const;
@@ -162,8 +162,7 @@ const basicExampleFiles = [
                 type: "implementation",
                 title: "Implement feature",
                 prompt: "nodes/T-001/blocks/B-001.prompt.md",
-                depends_on: [],
-                parallel: { locks: [], sharedResources: [] }
+                depends_on: []
               },
               {
                 id: "R-001",
@@ -269,10 +268,9 @@ function largeDagManifest(): string {
             title: `Implement ${title.toLowerCase()}`,
             prompt: `nodes/${id}/blocks/B-001.prompt.md`,
             depends_on: [],
-            parallel: {
-              locks: [],
-              sharedResources: id === "T-005" ? ["desktop-ui"] : []
-            }
+            ...(id === "T-005"
+              ? { parallel: { sharedResources: ["desktop-ui"] } }
+              : {})
           },
           {
             id: "R-001",

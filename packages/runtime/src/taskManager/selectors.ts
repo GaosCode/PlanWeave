@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
-import { EXCLUSIVE_LOCK, locksConflict } from "../graph/parallelLocks.js";
 import type {
   ClaimResult,
   ClaimScope,
@@ -238,10 +237,7 @@ export function refsConflict(
   ) {
     return true;
   }
-  return locksConflict(
-    graph.locksByBlockRef.get(leftRef) ?? [],
-    graph.locksByBlockRef.get(rightRef) ?? []
-  );
+  return false;
 }
 
 export function inProgressImplementationRefs(
@@ -259,7 +255,11 @@ export function inProgressImplementationRefs(
 export function canDispatchImplementationBlock(
   graph: CompiledExecutionGraph,
   state: RuntimeState,
-  ref: string
+  ref: string,
+  options: {
+    maxConcurrent: number;
+    selectedRefs?: readonly string[];
+  }
 ): boolean {
   const taskId = graph.blockTaskByRef.get(ref);
   const block = graph.blocksByRef.get(ref);
@@ -275,44 +275,19 @@ export function canDispatchImplementationBlock(
   ) {
     return false;
   }
-  return state.currentRefs.every(
+  const selectedRefs = options.selectedRefs ?? [];
+  const runningRefs = inProgressImplementationRefs(graph, state);
+  if (runningRefs.length + selectedRefs.length >= options.maxConcurrent) {
+    return false;
+  }
+  const conflictsWithCurrent = state.currentRefs.some(
     (currentRef) =>
-      state.blocks[currentRef]?.status !== "in_progress" || !refsConflict(graph, ref, currentRef)
+      state.blocks[currentRef]?.status === "in_progress" && refsConflict(graph, ref, currentRef)
   );
-}
-
-/**
- * Describe the first lock/holder that blocks `ref` from dispatching alongside current work.
- * Used by explain/claim hints when a block is ready but not dispatchable due to locks.
- */
-export function lockHolderBlockerReason(
-  graph: CompiledExecutionGraph,
-  state: RuntimeState,
-  ref: string
-): string | null {
-  const block = graph.blocksByRef.get(ref);
-  if (block?.type !== "implementation" || state.blocks[ref]?.status !== "ready") {
-    return null;
-  }
-  const candidateLocks = graph.locksByBlockRef.get(ref) ?? [];
-  for (const currentRef of state.currentRefs) {
-    if (state.blocks[currentRef]?.status !== "in_progress") {
-      continue;
-    }
-    if (!refsConflict(graph, ref, currentRef)) {
-      continue;
-    }
-    const holderLocks = graph.locksByBlockRef.get(currentRef) ?? [];
-    const shared =
-      candidateLocks.find((lock) => holderLocks.includes(lock)) ??
-      candidateLocks.find((lock) => lock === EXCLUSIVE_LOCK) ??
-      holderLocks.find((lock) => lock === EXCLUSIVE_LOCK) ??
-      holderLocks[0] ??
-      candidateLocks[0] ??
-      "resource";
-    return `blocked by lock '${shared}' held by ${currentRef} (in_progress)`;
-  }
-  return null;
+  const conflictsWithSelected = selectedRefs.some((selectedRef) =>
+    refsConflict(graph, ref, selectedRef)
+  );
+  return !conflictsWithCurrent && !conflictsWithSelected;
 }
 
 export function markClaimed(state: RuntimeState, ref: string, graph: CompiledExecutionGraph): void {

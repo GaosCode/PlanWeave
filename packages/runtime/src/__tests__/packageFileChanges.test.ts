@@ -201,7 +201,7 @@ describe("package file changes", () => {
         title: `Implement ${id}`,
         prompt: `nodes/T-001/blocks/${id}.prompt.md`,
         depends_on: [],
-        parallel: { locks: [id] }
+        parallel: { sharedResources: [id] }
       };
     });
     const { root, init } = await createTestWorkspace(manifest);

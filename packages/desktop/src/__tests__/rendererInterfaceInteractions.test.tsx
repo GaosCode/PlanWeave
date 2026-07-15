@@ -123,7 +123,7 @@ const graph: DesktopGraphViewModel = {
       executorLabel: "inherit",
       promptMarkdown: "# Bridge",
       promptPreview: "Bridge",
-      locks: [],
+      sharedResources: [],
       blocks: [],
       blockPreview: [],
       hiddenBlockRefs: [],
@@ -138,6 +138,7 @@ const graph: DesktopGraphViewModel = {
       executorLabel: "inherit",
       promptMarkdown: "# Tests",
       promptPreview: "Tests",
+      sharedResources: [],
       blocks: [],
       blockPreview: [],
       hiddenBlockRefs: [],
@@ -146,7 +147,7 @@ const graph: DesktopGraphViewModel = {
     }
   ],
   edges: [],
-  lockGroups: [],
+  sharedResourceGroups: [],
   diagnostics: [],
   dirtyPromptRefs: []
 };
@@ -175,8 +176,7 @@ describe("desktop renderer interface interactions", () => {
                   executor: null,
                   promptMissing: false,
                   exceptionReason: null,
-                  dispatchable: true,
-                  waitingOn: null
+                  dispatchable: true
                 }
               ]
             }
@@ -699,9 +699,9 @@ describe("desktop renderer interface interactions", () => {
           missingPromptCount: 0,
           diagnostics: [
             {
-              code: "parallel_safe_deprecated",
-              message: "parallel.safe is deprecated",
-              path: "nodes.0.blocks.0.parallel.safe",
+              code: "prompt_duplicate_many",
+              message: "Prompt text is duplicated across several blocks",
+              path: "nodes.0.blocks",
               severity: "warning"
             },
             {

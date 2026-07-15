@@ -34,9 +34,8 @@ export function taskNodeLabels(t: ReturnType<typeof createTranslator>): TaskNode
     inspectBlock: t("inspectBlock"),
     deleteTaskConfirm: t("deleteTaskConfirm"),
     deleteBlockConfirm: t("deleteBlockConfirm"),
-    exclusiveLock: t("exclusiveLock"),
-    heldBy: t("heldBy"),
-    waitingForResource: t("waitingForResource"),
-    moreLocks: (count: number) => t("moreLocks").replace("{count}", String(count))
+    sharedResource: t("sharedResourceHint"),
+    sharedResourceActive: t("sharedResourceActive"),
+    moreResources: (count: number) => t("moreResources").replace("{count}", String(count))
   };
 }

@@ -47,30 +47,17 @@ export function parseBlockDependenciesInput(record: Record<string, unknown>): st
 }
 
 export function parseBlockPlanningInput(record: Record<string, unknown>) {
-  const parallelSafe = optionalBoolean(record.parallelSafe, "parallelSafe");
-  const exclusiveDirect = optionalBoolean(record.exclusive, "exclusive");
-  // Deprecated parallelSafe maps to exclusive (false ⇒ exclusive true).
-  const exclusive =
-    exclusiveDirect !== undefined
-      ? exclusiveDirect
-      : parallelSafe !== undefined
-        ? !parallelSafe
-        : undefined;
   const input = {
-    exclusive,
-    parallelSafe,
-    parallelLocks:
-      record.parallelLocks === undefined
+    sharedResources:
+      record.sharedResources === undefined
         ? undefined
-        : requiredStringArray(record.parallelLocks, "parallelLocks"),
+        : requiredStringArray(record.sharedResources, "sharedResources"),
     reviewRequired: optionalBoolean(record.reviewRequired, "reviewRequired"),
     maxFeedbackCycles: optionalNonNegativeInteger(record.maxFeedbackCycles, "maxFeedbackCycles"),
     reviewHook: parseOptionalReviewHook(record.reviewHook, "reviewHook")
   };
   if (
-    input.exclusive === undefined &&
-    input.parallelSafe === undefined &&
-    input.parallelLocks === undefined &&
+    input.sharedResources === undefined &&
     input.reviewRequired === undefined &&
     input.maxFeedbackCycles === undefined &&
     input.reviewHook === undefined

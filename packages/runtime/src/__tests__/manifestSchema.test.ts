@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { compileTaskGraph } from "../graph/compileTaskGraph.js";
-import { EXCLUSIVE_LOCK, PARALLEL_SAFE_DEPRECATION_MESSAGE } from "../schema/manifest.js";
 import { manifestSchema } from "../schema/manifest.js";
 import { basicManifest } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
@@ -35,8 +33,7 @@ describe("plan-package/v1 manifest schema", () => {
       type: "check",
       title: "Check task",
       prompt: "nodes/T-001/blocks/C-001.prompt.md",
-      depends_on: ["B-001"],
-      parallel: { safe: true, locks: ["check"] }
+      depends_on: ["B-001"]
     } as never);
 
     const result = manifestSchema.safeParse(manifest);
@@ -185,7 +182,7 @@ describe("plan-package/v1 manifest schema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("defaults absent parallel to locks-only empty policy", () => {
+  it("accepts an implementation block without parallel coordination hints", () => {
     const manifest = basicManifest();
     const task = manifest.nodes.find((node) => node.type === "task");
     if (task?.type !== "task") {
@@ -202,10 +199,10 @@ describe("plan-package/v1 manifest schema", () => {
     const parsed = result.data?.nodes
       .find((node) => node.type === "task")
       ?.blocks.find((item) => item.id === "B-001");
-    expect(parsed?.type === "implementation" ? parsed.parallel : null).toEqual({ locks: [] });
+    expect(parsed?.type === "implementation" ? parsed.parallel : null).toBeUndefined();
   });
 
-  it("accepts locks including reserved exclusive", () => {
+  it("deduplicates shared resources", () => {
     const manifest = basicManifest();
     const task = manifest.nodes.find((node) => node.type === "task");
     if (task?.type !== "task") {
@@ -215,10 +212,28 @@ describe("plan-package/v1 manifest schema", () => {
     if (block?.type !== "implementation") {
       throw new Error("missing block");
     }
-    block.parallel = { locks: ["exclusive"] };
+    block.parallel = { sharedResources: ["db", "db", "api"] };
 
     const result = manifestSchema.safeParse(manifest);
     expect(result.success).toBe(true);
+    const parsed = result.data?.nodes[0]?.blocks[0];
+    expect(parsed?.type === "implementation" ? parsed.parallel?.sharedResources : null).toEqual([
+      "db",
+      "api"
+    ]);
+  });
+
+  it("normalizes empty shared resources to an absent parallel policy", () => {
+    const manifest = basicManifest();
+    const block = manifest.nodes[0]?.blocks[0];
+    if (block?.type !== "implementation") {
+      throw new Error("missing block");
+    }
+    block.parallel = { sharedResources: [] };
+
+    const result = manifestSchema.parse(manifest);
+    const parsed = result.nodes[0]?.blocks[0];
+    expect(parsed?.type === "implementation" ? parsed.parallel : null).toBeUndefined();
   });
 
   it("keeps plan-package/v1 version literal", () => {
@@ -227,7 +242,7 @@ describe("plan-package/v1 manifest schema", () => {
     expect(result.data?.version).toBe("plan-package/v1");
   });
 
-  it("emits deprecation warning and maps safe:false to exclusive at compile time", () => {
+  it.each(["safe", "locks", "exclusive"])("rejects removed parallel field %s", (field) => {
     const manifest = basicManifest();
     const task = manifest.nodes.find((node) => node.type === "task");
     if (task?.type !== "task") {
@@ -237,35 +252,8 @@ describe("plan-package/v1 manifest schema", () => {
     if (block?.type !== "implementation") {
       throw new Error("missing block");
     }
-    block.parallel = { safe: false, locks: ["db"] };
+    block.parallel = { [field]: field === "safe" ? false : ["db"] } as never;
 
-    const graph = compileTaskGraph(manifestSchema.parse(manifest));
-    expect(graph.locksByBlockRef.get("T-001#B-001")).toEqual(["db", EXCLUSIVE_LOCK]);
-    expect(
-      graph.diagnostics.warnings.some(
-        (warning) =>
-          warning.code === "parallel_safe_deprecated" &&
-          warning.message === PARALLEL_SAFE_DEPRECATION_MESSAGE
-      )
-    ).toBe(true);
-  });
-
-  it("treats safe:true as no-op with deprecation warning", () => {
-    const manifest = basicManifest();
-    const task = manifest.nodes.find((node) => node.type === "task");
-    if (task?.type !== "task") {
-      throw new Error("missing task");
-    }
-    const block = task.blocks.find((item) => item.id === "B-001");
-    if (block?.type !== "implementation") {
-      throw new Error("missing block");
-    }
-    block.parallel = { safe: true, locks: ["api"] };
-
-    const graph = compileTaskGraph(manifestSchema.parse(manifest));
-    expect(graph.locksByBlockRef.get("T-001#B-001")).toEqual(["api"]);
-    expect(
-      graph.diagnostics.warnings.some((warning) => warning.code === "parallel_safe_deprecated")
-    ).toBe(true);
+    expect(manifestSchema.safeParse(manifest).success).toBe(false);
   });
 });

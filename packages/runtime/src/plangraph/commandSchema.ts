@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { manifestBlockSchema, manifestNodeSchema, reviewBlockSchema } from "../schema/manifest.js";
 import type { PlanGraphCommand, PlanGraphCommandDiagnostic } from "./commands.js";
 
 const baseCommandShape = {
@@ -12,66 +13,6 @@ const reviewHookSchema = z
     command: z.string(),
     args: z.array(z.string()),
     executionPolicy: z.literal("trusted-local")
-  })
-  .strict();
-
-const blockParallelPolicySchema = z
-  .object({
-    safe: z.boolean().optional(),
-    locks: z.array(z.string()),
-    sharedResources: z.array(z.string()).optional()
-  })
-  .strict();
-
-const implementationBlockSchema = z
-  .object({
-    id: z.string(),
-    type: z.literal("implementation"),
-    title: z.string(),
-    prompt: z.string(),
-    depends_on: z.array(z.string()),
-    executor: z.string().optional(),
-    parallel: blockParallelPolicySchema
-  })
-  .strict();
-
-const reviewBlockSchema = z
-  .object({
-    id: z.string(),
-    type: z.literal("review"),
-    title: z.string(),
-    prompt: z.string(),
-    depends_on: z.array(z.string()),
-    executor: z.string().optional(),
-    review: z
-      .object({
-        required: z.boolean(),
-        maxFeedbackCycles: z.number().int().nonnegative(),
-        preset: z.string().optional(),
-        triggerCondition: z.enum(["after_required_work_completed", "manual"]).optional(),
-        inputContext: z.string().optional(),
-        passCriteria: z.string().optional(),
-        feedbackFormat: z.string().optional(),
-        hook: reviewHookSchema.nullable()
-      })
-      .strict()
-  })
-  .strict();
-
-const manifestBlockSchema = z.discriminatedUnion("type", [
-  implementationBlockSchema,
-  reviewBlockSchema
-]);
-
-const manifestTaskNodeSchema = z
-  .object({
-    id: z.string(),
-    type: z.literal("task"),
-    title: z.string(),
-    prompt: z.string(),
-    executor: z.string().optional(),
-    acceptance: z.array(z.string()),
-    blocks: z.array(manifestBlockSchema)
   })
   .strict();
 
@@ -93,7 +34,7 @@ const layoutNodeSchema = z
 
 const taskComponentSnapshotSchema = z
   .object({
-    task: manifestTaskNodeSchema,
+    task: manifestNodeSchema,
     taskPromptMarkdown: z.string(),
     blockPromptMarkdown: z.array(
       z
@@ -173,6 +114,30 @@ const updateLayoutCommandSchema = z
     }
   });
 
+const blockFieldEditSchema = z
+  .object({
+    title: z.string().optional(),
+    promptMarkdown: z.string().optional(),
+    executor: z.string().nullable().optional(),
+    dependsOn: z.array(z.string()).optional(),
+    sharedResources: z.array(z.string()).optional(),
+    reviewRequired: z.boolean().optional(),
+    maxFeedbackCycles: z.number().int().nonnegative().optional(),
+    reviewHook: reviewHookSchema.nullable().optional(),
+    basePromptHash: z.string().optional()
+  })
+  .strict();
+
+const bulkBlockFieldEditSchema = blockFieldEditSchema.omit({ basePromptHash: true });
+
+const canvasExecutionPolicyFieldEditSchema = z
+  .object({
+    defaultExecutor: z.string().nullable().optional(),
+    parallelEnabled: z.boolean().optional(),
+    maxConcurrent: z.number().int().positive().optional()
+  })
+  .strict();
+
 const planGraphCommandSchemaOptions = [
   z
     .object({
@@ -239,22 +204,42 @@ const planGraphCommandSchemaOptions = [
       ...baseCommandShape,
       type: z.literal("updateBlockFields"),
       blockRef: z.string(),
-      fields: z
-        .object({
-          title: z.string().optional(),
-          promptMarkdown: z.string().optional(),
-          executor: z.string().nullable().optional(),
-          dependsOn: z.array(z.string()).optional(),
-          parallelSafe: z.boolean().optional(),
-          exclusive: z.boolean().optional(),
-          parallelLocks: z.array(z.string()).optional(),
-          sharedResources: z.array(z.string()).optional(),
-          reviewRequired: z.boolean().optional(),
-          maxFeedbackCycles: z.number().int().nonnegative().optional(),
-          reviewHook: reviewHookSchema.nullable().optional(),
-          basePromptHash: z.string().optional()
-        })
-        .strict()
+      fields: blockFieldEditSchema
+    })
+    .strict(),
+  z
+    .object({
+      ...baseCommandShape,
+      type: z.literal("bulkUpdateBlocks"),
+      updates: z
+        .array(
+          z
+            .object({
+              blockRef: z.string(),
+              fields: bulkBlockFieldEditSchema
+            })
+            .strict()
+        )
+        .min(1)
+    })
+    .strict(),
+  z
+    .object({
+      ...baseCommandShape,
+      type: z.literal("bulkUpdateParallelPolicy"),
+      canvasPolicy: canvasExecutionPolicyFieldEditSchema.optional(),
+      blocks: z.array(
+        z
+          .object({
+            blockRef: z.string(),
+            input: z
+              .object({
+                sharedResources: z.array(z.string()).optional()
+              })
+              .strict()
+          })
+          .strict()
+      )
     })
     .strict(),
   z

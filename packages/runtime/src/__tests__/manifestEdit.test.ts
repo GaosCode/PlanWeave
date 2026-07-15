@@ -131,8 +131,7 @@ describe("manifest edit commands", () => {
       projectRoot: root,
       ref: "T-001#B-001",
       dependsOn: [],
-      parallelSafe: false,
-      parallelLocks: ["db", "api"]
+      sharedResources: ["db", "api", "db"]
     });
     const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
 
@@ -140,14 +139,11 @@ describe("manifest edit commands", () => {
       ok: true,
       ref: "T-001#B-001",
       blockType: "implementation",
-      updatedFields: ["depends_on", "parallel.safe", "parallel.locks"]
+      updatedFields: ["depends_on", "parallel.sharedResources"]
     });
     expect(blockById(manifest, "T-001", "B-001")).toMatchObject({
       depends_on: [],
-      parallel: { locks: ["db", "api", "exclusive"] }
+      parallel: { sharedResources: ["db", "api"] }
     });
-    expect(
-      (blockById(manifest, "T-001", "B-001") as { parallel: { safe?: boolean } }).parallel.safe
-    ).toBeUndefined();
   });
 });

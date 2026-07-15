@@ -56,7 +56,7 @@ function taskFromTemplate(index: number): ManifestTaskNode {
         title: `Implement task ${index}`,
         prompt: `nodes/${id}/blocks/B-001.prompt.md`,
         depends_on: [],
-        parallel: { locks: [`task-${index}`] }
+        parallel: { sharedResources: [`task-${index}`] }
       },
       {
         id: "R-001",
@@ -88,7 +88,7 @@ function gateTask(): ManifestTaskNode {
         title: "Run quality gate",
         prompt: "nodes/QUALITY-GATE/blocks/B-001.prompt.md",
         depends_on: [],
-        parallel: { locks: ["quality-gate"] }
+        parallel: { sharedResources: ["quality-gate"] }
       },
       {
         id: "R-001",

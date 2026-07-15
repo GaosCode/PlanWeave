@@ -37,8 +37,7 @@ export function basicManifest(
               type: "implementation" as const,
               title: "Implement second task",
               prompt: "nodes/T-002/blocks/B-001.prompt.md",
-              depends_on: [],
-              parallel: { locks: ["second"] }
+              depends_on: []
             },
             {
               id: "R-001",
@@ -93,8 +92,7 @@ export function basicManifest(
             type: "implementation",
             title: "Implement task",
             prompt: "nodes/T-001/blocks/B-001.prompt.md",
-            depends_on: [],
-            parallel: { locks: ["shared"] }
+            depends_on: []
           },
           {
             id: "R-001",

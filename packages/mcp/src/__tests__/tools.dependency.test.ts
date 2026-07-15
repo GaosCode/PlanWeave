@@ -67,7 +67,13 @@ describe("dependency MCP tools", () => {
       {
         projectId: "project-1",
         canvasId: "default",
-        updates: [{ blockRef: "T-001#B-001", promptMarkdown: "# Updated block" }]
+        updates: [
+          {
+            blockRef: "T-001#B-001",
+            promptMarkdown: "# Updated block",
+            sharedResources: ["api"]
+          }
+        ]
       },
       gateway
     );
@@ -142,8 +148,7 @@ describe("dependency MCP tools", () => {
           promptMarkdown: "# Updated block",
           executor: undefined,
           dependsOn: undefined,
-          parallelSafe: undefined,
-          parallelLocks: undefined,
+          sharedResources: ["api"],
           reviewRequired: undefined,
           maxFeedbackCycles: undefined,
           reviewHook: undefined
@@ -319,7 +324,7 @@ describe("dependency MCP tools", () => {
         projectId: "project-1",
         canvasId: "default",
         canvasPolicy: { parallelEnabled: true, maxConcurrent: 3 },
-        blocks: [{ blockRef: "T-001#B-001", parallelSafe: true, parallelLocks: ["api"] }]
+        blocks: [{ blockRef: "T-001#B-001", sharedResources: ["api"] }]
       },
       gateway
     );
@@ -359,7 +364,7 @@ describe("dependency MCP tools", () => {
       blocks: [
         {
           blockRef: "T-001#B-001",
-          input: { exclusive: false, parallelSafe: true, parallelLocks: ["api"] }
+          input: { sharedResources: ["api"] }
         }
       ]
     });

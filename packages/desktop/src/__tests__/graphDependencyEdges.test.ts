@@ -66,7 +66,7 @@ describe("desktop graph dependency edge direction", () => {
         task("T-002", "Prerequisite task", "ready")
       ],
       edges: [{ from: "T-001", to: "T-002", type: "depends_on" }],
-      lockGroups: [],
+      sharedResourceGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -111,7 +111,7 @@ describe("desktop graph dependency edge direction", () => {
         { from: "T-003", to: "T-001", type: "depends_on" },
         { from: "T-004", to: "T-001", type: "depends_on" }
       ],
-      lockGroups: [],
+      sharedResourceGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -147,7 +147,7 @@ describe("desktop graph dependency edge direction", () => {
         { from: "T-001", to: "T-003", type: "depends_on" },
         { from: "T-001", to: "T-004", type: "depends_on" }
       ],
-      lockGroups: [],
+      sharedResourceGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -181,7 +181,7 @@ describe("desktop graph dependency edge direction", () => {
         { from: "T-001", to: "T-002", type: "depends_on" },
         { from: "T-003", to: "T-001", type: "depends_on" }
       ],
-      lockGroups: [],
+      sharedResourceGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -214,7 +214,7 @@ describe("desktop graph dependency edge direction", () => {
         { from: "T-003", to: "T-001", type: "depends_on" },
         { from: "T-004", to: "T-001", type: "depends_on" }
       ],
-      lockGroups: [],
+      sharedResourceGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -247,7 +247,7 @@ describe("desktop graph dependency edge direction", () => {
         { from: "T-002", to: "T-001", type: "depends_on" },
         { from: "T-003", to: "T-001", type: "depends_on" }
       ],
-      lockGroups: [],
+      sharedResourceGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -266,7 +266,7 @@ describe("desktop graph dependency edge direction", () => {
     expect(styled.map((edge) => edge.data)).toEqual(edges.map((edge) => edge.data));
   });
 
-  it("locks hover and selection to the selected dependency edge", () => {
+  it("keeps hover and selection scoped to the selected dependency edge", () => {
     const graph: DesktopGraphViewModel = {
       projectId: "P-001",
       projectTitle: "Execution flow",
@@ -282,7 +282,7 @@ describe("desktop graph dependency edge direction", () => {
         { from: "T-002", to: "T-001", type: "depends_on" },
         { from: "T-003", to: "T-001", type: "depends_on" }
       ],
-      lockGroups: [],
+      sharedResourceGroups: [],
       diagnostics: [],
       dirtyPromptRefs: []
     };
@@ -325,7 +325,7 @@ function task(
     executorLabel: "inherit",
     promptMarkdown: "",
     promptPreview: "",
-    locks: [],
+    sharedResources: [],
     blocks: [],
     blockPreview: [],
     hiddenBlockRefs: [],

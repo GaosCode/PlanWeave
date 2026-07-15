@@ -175,7 +175,7 @@ export const graphToolDefinitions = {
   update_canvas_execution_policy: {
     title: "Update PlanWeave Canvas Execution Policy",
     description:
-      "Update selected top-level manifest execution policy fields for one canvas. Use this for execution.defaultExecutor and execution.parallel; use update_block_planning for per-block exclusive/locks.",
+      "Update selected top-level manifest execution policy fields for one canvas. Use update_block_planning for per-block shared resource coordination hints.",
     inputSchema: {
       ...projectCanvasInput,
       defaultExecutor: z.string().min(1).nullable().optional(),
@@ -187,13 +187,11 @@ export const graphToolDefinitions = {
   update_block_planning: {
     title: "Update PlanWeave Block Planning",
     description:
-      "Update per-block planning fields: exclusive lock / locks, or review block planning fields. Use update_canvas_execution_policy for the canvas-level parallel enable/maxConcurrent switch. parallelSafe is a deprecated alias for exclusive (inverted).",
+      "Update per-block shared resource coordination hints or review block planning fields. Shared resources do not affect readiness or dispatchability.",
     inputSchema: {
       ...projectCanvasInput,
       ...blockRefInput,
-      exclusive: z.boolean().optional(),
-      parallelSafe: z.boolean().optional(),
-      parallelLocks: z.array(z.string().min(1)).optional(),
+      sharedResources: z.array(z.string().min(1)).optional(),
       reviewRequired: z.boolean().optional(),
       maxFeedbackCycles: z.number().int().nonnegative().optional(),
       reviewHook: reviewHookSchema.nullable().optional()
@@ -332,7 +330,7 @@ export const graphToolDefinitions = {
   bulk_update_parallel_policy: {
     title: "Bulk Update PlanWeave Parallel Policy",
     description:
-      "Update canvas-level parallel settings and per-block parallel safety/locks after validating all inputs.",
+      "Update canvas-level parallel settings and per-block shared resource hints after validating all inputs.",
     inputSchema: {
       ...projectCanvasInput,
       canvasPolicy: z

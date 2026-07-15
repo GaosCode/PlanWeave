@@ -106,15 +106,13 @@ export const bulkUpdateTaskSchema = z.object({
   acceptance: z.array(z.string().min(1)).optional()
 });
 
-export const bulkUpdateBlockSchema = z.object({
+export const bulkUpdateBlockSchema = z.strictObject({
   ...blockRefInput,
   title: z.string().min(1).optional(),
   promptMarkdown: z.string().optional(),
   executor: z.string().min(1).nullable().optional(),
   dependsOn: z.array(z.string().min(1)).optional(),
-  exclusive: z.boolean().optional(),
-  parallelSafe: z.boolean().optional(),
-  parallelLocks: z.array(z.string().min(1)).optional(),
+  sharedResources: z.array(z.string().min(1)).optional(),
   reviewRequired: z.boolean().optional(),
   maxFeedbackCycles: z.number().int().nonnegative().optional(),
   reviewHook: reviewHookSchema.nullable().optional()
@@ -138,13 +136,11 @@ export const reviewPipelineBulkUpdateSchema = z.object({
   steps: updateReviewPipelineInputShape.steps
 });
 
-export const parallelBlockPolicySchema = z.object({
+export const parallelBlockPolicySchema = z.strictObject({
   blockRef: z.string().min(1).optional(),
   taskId: z.string().min(1).optional(),
   blockId: z.string().min(1).optional(),
-  exclusive: z.boolean().optional(),
-  parallelSafe: z.boolean().optional(),
-  parallelLocks: z.array(z.string().min(1)).optional()
+  sharedResources: z.array(z.string().min(1)).optional()
 });
 
 export const graphReadInput = {

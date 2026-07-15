@@ -14,22 +14,20 @@ import { buildClaimHints } from "./claimHints.js";
 import {
   blockMatchesClaimFilter,
   blockReadyWithoutProjectBlockers,
-  currentClaimLockReason,
+  currentClaimBlockedReason,
   noProjectGraphBlockers,
   projectBlockerReason,
   reviewMaxCycleWarnings
 } from "./claimReadinessRules.js";
 import {
-  blockDependenciesCompleted,
   blockInScope,
+  canDispatchImplementationBlock,
   claimResultForBlock,
   activeOpenFeedback,
   effectiveFeedbackExecutor,
   feedbackInScope,
   inProgressImplementationRefs,
   normalizeClaimScope,
-  refsConflict,
-  taskDependenciesSatisfied,
   validateClaimScope
 } from "./selectors.js";
 
@@ -42,7 +40,7 @@ export type ClaimReadiness = {
   scope: ClaimScope;
   invalidScope: ClaimResult | null;
   claimOrder: ClaimOrder;
-  defaultClaimLockReason: string | null;
+  defaultClaimBlockedReason: string | null;
   claimHints: ClaimHint[];
   nextClaimable: string[];
   nextParallelClaimable: string[];
@@ -115,10 +113,6 @@ function selectedParallelBatchRefs(
   projectGuard: ProjectGraphClaimGuard
 ): string[] {
   const retained = inProgressImplementationRefs(graph, state);
-  const capacity = manifest.execution.parallel.maxConcurrent - retained.length;
-  if (capacity <= 0) {
-    return [];
-  }
   const selected: string[] = [];
   for (const ref of graph.blockRefsInManifestOrder) {
     const taskId = graph.blockTaskByRef.get(ref);
@@ -131,28 +125,19 @@ function selectedParallelBatchRefs(
     ) {
       continue;
     }
-    if (selected.length >= capacity) {
-      break;
-    }
     if (retained.includes(ref) || state.blocks[ref]?.status !== "ready") {
       continue;
     }
     if (
-      !taskDependenciesSatisfied(graph, state, taskId) ||
       projectBlockerReason(projectGuard, taskId) ||
-      !blockDependenciesCompleted(graph, state, ref)
+      !canDispatchImplementationBlock(graph, state, ref, {
+        maxConcurrent: manifest.execution.parallel.maxConcurrent,
+        selectedRefs: selected
+      })
     ) {
       continue;
     }
-    const conflictsWithRunning = retained.some((currentRef) =>
-      refsConflict(graph, ref, currentRef)
-    );
-    const conflictsWithSelected = selected.some((selectedRef) =>
-      refsConflict(graph, ref, selectedRef)
-    );
-    if (!conflictsWithRunning && !conflictsWithSelected) {
-      selected.push(ref);
-    }
+    selected.push(ref);
   }
   return selected;
 }
@@ -369,12 +354,13 @@ export function buildClaimReadiness(input: BuildClaimReadinessInput): ClaimReadi
   const scope = normalizeClaimScope(input.scope);
   const projectGuard = input.projectGuard ?? noProjectGraphBlockers;
   const invalidScope = validateClaimScope(scope, input.graph);
-  const defaultClaimLockReason = currentClaimLockReason(input.graph, input.state);
+  const defaultClaimBlockedReason = currentClaimBlockedReason(input.graph, input.state);
   const claimHints = buildClaimHints(
     input.graph,
     input.state,
     projectGuard,
-    defaultClaimLockReason,
+    defaultClaimBlockedReason,
+    input.manifest.execution.parallel.maxConcurrent,
     input.manifest.execution.defaultExecutor
   );
   const scopedReadyRefs = input.graph.blockRefsInManifestOrder.filter(
@@ -394,7 +380,8 @@ export function buildClaimReadiness(input: BuildClaimReadinessInput): ClaimReadi
       claimCandidate(ref, input.graph, "claimed", input.manifest.execution.defaultExecutor)
     );
   const nextClaimable = claimHints.filter((hint) => hint.ready).map((hint) => hint.ref);
-  // All ready implementation blocks are parallel-eligible (exclusive runs alone via locks).
+  // Ready implementation blocks are eligible for parallel selection; dependencies and
+  // project scope remain the ordering authority.
   const nextParallelClaimable = claimHints
     .filter((hint) => hint.ready && hint.blockType === "implementation")
     .map((hint) => hint.ref);
@@ -421,7 +408,7 @@ export function buildClaimReadiness(input: BuildClaimReadinessInput): ClaimReadi
       blockType: input.blockType,
       projectGuard
     }),
-    defaultClaimLockReason,
+    defaultClaimBlockedReason,
     claimHints,
     nextClaimable,
     nextParallelClaimable,

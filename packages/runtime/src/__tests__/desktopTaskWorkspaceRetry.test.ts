@@ -271,8 +271,7 @@ describe("desktop Task Workspace retry", () => {
       type: "implementation",
       title: "Dependency",
       prompt: "nodes/T-001/blocks/B-002.prompt.md",
-      depends_on: [],
-      parallel: { locks: [], sharedResources: [] }
+      depends_on: []
     });
     const { root, init } = await createTestWorkspace(manifest);
     await writeBlockRun({

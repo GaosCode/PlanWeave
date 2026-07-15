@@ -33,7 +33,7 @@ export function projectBlockers(
   return taskId ? projectGuard.blockersForTask(taskId) : [];
 }
 
-export function currentClaimLockReason(
+export function currentClaimBlockedReason(
   graph: CompiledExecutionGraph,
   state: RuntimeState
 ): string | null {
@@ -41,21 +41,21 @@ export function currentClaimLockReason(
     isActiveFeedbackStatus(feedback.status)
   );
   if (activeFeedback) {
-    return `Default claims are locked by current feedback '${activeFeedback[0]}'.`;
+    return `Default claims are blocked by current feedback '${activeFeedback[0]}'.`;
   }
   const inProgressReview = graph.blockRefsInManifestOrder.find((ref) => {
     const block = graph.blocksByRef.get(ref);
     return block?.type === "review" && state.blocks[ref]?.status === "in_progress";
   });
   if (inProgressReview) {
-    return `Default claims are locked by current review block '${inProgressReview}'.`;
+    return `Default claims are blocked by current review block '${inProgressReview}'.`;
   }
   const inProgressBlock = graph.blockRefsInManifestOrder.find((ref) => {
     const block = graph.blocksByRef.get(ref);
     return block?.type !== "review" && state.blocks[ref]?.status === "in_progress";
   });
   return inProgressBlock
-    ? `Default claims are locked by current block '${inProgressBlock}'.`
+    ? `Default claims are blocked by current block '${inProgressBlock}'.`
     : null;
 }
 

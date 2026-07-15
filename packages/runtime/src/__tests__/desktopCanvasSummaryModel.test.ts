@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 describe("desktop canvas summary model", () => {
-  it("preserves graph warning severity without promoting it to an error", async () => {
+  it("does not report shared-resource coordination hints as diagnostics", async () => {
     const manifest = basicManifest();
     const task = manifest.nodes.find((node) => node.type === "task");
     const block =
@@ -27,18 +27,11 @@ describe("desktop canvas summary model", () => {
     if (!block || block.type !== "implementation") {
       throw new Error("Expected an implementation block fixture.");
     }
-    block.parallel = { safe: true, locks: ["shared"] };
+    block.parallel = { sharedResources: ["shared"] };
     const { root } = await createTestWorkspace(manifest);
 
     const summaries = await listTaskCanvases(root);
-    const warning = summaries[0]?.diagnostics.find(
-      (diagnostic) => diagnostic.code === "parallel_safe_deprecated"
-    );
-
-    expect(warning).toMatchObject({ severity: "warning" });
-    expect(summaries[0]?.diagnostics.some((diagnostic) => diagnostic.severity === "error")).toBe(
-      false
-    );
+    expect(summaries[0]?.diagnostics).toEqual([]);
   });
 
   it("marks manifest schema diagnostics as errors", async () => {

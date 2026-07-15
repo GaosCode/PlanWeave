@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { styleDependencyEdgesForInteraction } from "../graph/dependencyEdgeVisual";
 import type { AppEdgeTypes, AppNodeTypes } from "../graph/flowModel";
-import { lockColor } from "../graph/lockColors";
+import { sharedResourceColor } from "../graph/sharedResourceColors";
 import { useEdgeReconnect } from "../hooks/useEdgeReconnect";
 import { ResourceInspector } from "../inspector/ResourceInspector";
 import type { AppView } from "../types";
@@ -52,7 +52,6 @@ import { GraphEmptyState } from "./GraphEmptyState";
 import { FloatingAutoRunControl } from "../run/FloatingAutoRunControl";
 import type { AutoRunNextActionDescriptor } from "../run/autoRunNextActions";
 import type { AppFlowNode, AutoRunScopeMode } from "../types";
-import { desktopCanvasReference } from "../bridge";
 
 type GraphViewProps = {
   autoRunControlStyle: CSSProperties;
@@ -107,11 +106,10 @@ type GraphViewProps = {
   visibleTaskIds: Set<string>;
   visibleTasks: DesktopGraphViewModel["tasks"] | undefined;
   onNodeDragStop: (event: MouseEvent, node: Node) => Promise<void>;
-  pinnedLock: string | null;
-  onLockHover: (name: string | null) => void;
-  onLockPin: (name: string | null) => void;
-  clearPinnedLock: () => void;
-  refreshGraphLocks: () => Promise<void>;
+  pinnedResource: string | null;
+  onResourceHover: (name: string | null) => void;
+  onResourcePin: (name: string | null) => void;
+  clearPinnedResource: () => void;
 };
 
 export function GraphView({
@@ -167,11 +165,10 @@ export function GraphView({
   t,
   visibleTaskIds,
   visibleTasks,
-  pinnedLock,
-  onLockHover,
-  onLockPin,
-  clearPinnedLock,
-  refreshGraphLocks
+  pinnedResource,
+  onResourceHover,
+  onResourcePin,
+  clearPinnedResource
 }: GraphViewProps) {
   const fittedGraphScopeId = useRef<string | null>(null);
   const [localFlowInstance, setLocalFlowInstance] = useState<ReactFlowInstance<
@@ -330,7 +327,7 @@ export function GraphView({
             setHoveredNodeId(null);
           }}
           onPaneClick={() => {
-            clearPinnedLock();
+            clearPinnedResource();
           }}
           onNodeDragStop={(event, node) => void onNodeDragStop(event, node)}
           onInit={handleFlowInit}
@@ -376,7 +373,7 @@ export function GraphView({
               <Redo2Icon />
             </Button>
           </div>
-          {(graph.sharedResourceGroups ?? []).length > 0 ? (
+          {graph.sharedResourceGroups.length > 0 ? (
             <div className="flex h-full border-l border-border/70">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -389,16 +386,16 @@ export function GraphView({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="min-w-[220px]">
-                  {(graph.sharedResourceGroups ?? []).map((group) => {
-                    const color = lockColor(group.name);
+                  {graph.sharedResourceGroups.map((group) => {
+                    const color = sharedResourceColor(group.name);
                     return (
                       <DropdownMenuItem
                         key={group.name}
                         data-testid="graph-resources-legend-item"
-                        data-lock-name={group.name}
-                        onMouseEnter={() => onLockHover(group.name)}
-                        onMouseLeave={() => onLockHover(null)}
-                        onSelect={() => onLockPin(group.name)}
+                        data-resource-name={group.name}
+                        onMouseEnter={() => onResourceHover(group.name)}
+                        onMouseLeave={() => onResourceHover(null)}
+                        onSelect={() => onResourcePin(group.name)}
                       >
                         <span
                           aria-hidden="true"
@@ -421,23 +418,21 @@ export function GraphView({
           ) : null}
         </div>
       ) : null}
-      {graph && pinnedLock
+      {graph && pinnedResource
         ? (() => {
-            const lockGroup = (graph.sharedResourceGroups ?? []).find(
-              (group) => group.name === pinnedLock
+            const resourceGroup = graph.sharedResourceGroups.find(
+              (group) => group.name === pinnedResource
             );
-            if (!lockGroup || !selectedProject) {
+            if (!resourceGroup || !selectedProject) {
               return null;
             }
             return (
               <div className="pointer-events-none absolute right-3 top-14 z-20">
                 <ResourceInspector
-                  canvasRef={desktopCanvasReference(selectedProject, selectedCanvasId)}
                   graph={graph}
-                  lockGroup={lockGroup}
-                  onClose={clearPinnedLock}
+                  resourceGroup={resourceGroup}
+                  onClose={clearPinnedResource}
                   onJumpToTask={(taskId) => onTaskPanelSelect(taskId)}
-                  onRefresh={refreshGraphLocks}
                   t={t}
                 />
               </div>

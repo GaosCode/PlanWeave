@@ -7,11 +7,6 @@ import type {
   PlanPackageManifest,
   ValidationIssue
 } from "../../types.js";
-import {
-  blockUsesDeprecatedParallelSafe,
-  deprecatedParallelSafeWarning,
-  effectiveLocksForBlock
-} from "../parallelLocks.js";
 import { sharedResourcesForBlock } from "../sharedResources.js";
 
 export function issue(code: string, message: string, path?: string): ValidationIssue {
@@ -66,11 +61,7 @@ function addBlockIndexes(
   if (block.type === "review") {
     graph.reviewBlocksByTask.get(taskId)?.push(ref);
   }
-  graph.locksByBlockRef.set(ref, effectiveLocksForBlock(block));
   graph.sharedResourcesByBlockRef.set(ref, sharedResourcesForBlock(block));
-  if (blockUsesDeprecatedParallelSafe(block)) {
-    graph.diagnostics.warnings.push(deprecatedParallelSafeWarning(ref));
-  }
 }
 
 export function removeTaskIndexes(graph: CompiledExecutionGraph, taskId: string): string[] {
@@ -80,7 +71,6 @@ export function removeTaskIndexes(graph: CompiledExecutionGraph, taskId: string)
     graph.blockTaskByRef.delete(ref);
     graph.blockDependenciesByRef.delete(ref);
     graph.blockDependentsByRef.delete(ref);
-    graph.locksByBlockRef.delete(ref);
     graph.sharedResourcesByBlockRef.delete(ref);
   }
   for (const dependents of graph.blockDependentsByRef.values()) {

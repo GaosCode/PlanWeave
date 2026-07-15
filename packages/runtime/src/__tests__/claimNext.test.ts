@@ -198,7 +198,7 @@ describe("claimNext", () => {
     });
   });
 
-  it("claims exclusive blocks alone under parallel mode", async () => {
+  it("claims a block with shared-resource hints under parallel mode", async () => {
     const manifest = basicManifest({ parallel: true });
     const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
     const implementationBlock =
@@ -206,7 +206,7 @@ describe("claimNext", () => {
     if (implementationBlock?.type !== "implementation") {
       throw new Error("missing implementation block");
     }
-    implementationBlock.parallel = { locks: ["exclusive"] };
+    implementationBlock.parallel = { sharedResources: ["database"] };
 
     const { root } = await createTestWorkspace(manifest);
     const status = await getExecutionStatus({ projectRoot: root });
@@ -215,7 +215,6 @@ describe("claimNext", () => {
     expect(status.nextParallelClaimable).toEqual(["T-001#B-001"]);
     expect(status.nextSequentialClaimable).toEqual([]);
     expect(status.claimHints.find((hint) => hint.ref === "T-001#B-001")).toMatchObject({
-      parallelSafe: false,
       sequentialOnly: false
     });
     expect(await claimNext({ projectRoot: root, parallel: true })).toMatchObject({
@@ -234,7 +233,7 @@ describe("claimNext", () => {
     });
   });
 
-  it("dispatches a parallel-safe implementation block without replacing the current review claim", async () => {
+  it("dispatches an independent implementation block without replacing the current review claim", async () => {
     const { root } = await createTestWorkspace(
       basicManifest({ includeSecondTask: true, parallel: true, maxConcurrent: 2 })
     );
@@ -256,6 +255,35 @@ describe("claimNext", () => {
     });
     expect(status.currentRefs).toEqual(["T-001#R-001", "T-002#B-001"]);
     expect(status.blocks.find((block) => block.ref === "T-002#B-001")?.status).toBe("in_progress");
+  });
+
+  it("rejects dispatch when implementation capacity is full", async () => {
+    const manifest = basicManifest({ includeSecondTask: true, parallel: true, maxConcurrent: 1 });
+    for (const task of manifest.nodes) {
+      const implementation = task.blocks.find((block) => block.type === "implementation");
+      if (implementation?.type === "implementation") {
+        implementation.parallel = { sharedResources: ["database"] };
+      }
+    }
+    const { root } = await createTestWorkspace(manifest);
+    await claimBlock({ projectRoot: root, ref: "T-001#B-001", dispatch: true });
+
+    const before = await getExecutionStatus({ projectRoot: root });
+    const rejected = await claimBlock({
+      projectRoot: root,
+      ref: "T-002#B-001",
+      dispatch: true
+    });
+    const after = await getExecutionStatus({ projectRoot: root });
+
+    expect(before.claimHints.find((hint) => hint.ref === "T-002#B-001")?.dispatchable).toBe(false);
+    expect(rejected).toMatchObject({
+      kind: "blocked",
+      ref: "T-002#B-001",
+      reason: "Block 'T-002#B-001' is not dispatchable right now."
+    });
+    expect(after.currentRefs).toEqual(["T-001#B-001"]);
+    expect(after.blocks.find((block) => block.ref === "T-002#B-001")?.status).toBe("ready");
   });
 
   it("claims the next executable block inside an explicit task", async () => {

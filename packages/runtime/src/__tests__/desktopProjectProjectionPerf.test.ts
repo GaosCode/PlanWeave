@@ -92,7 +92,7 @@ function createRegressionManifest(canvasId: string): PlanPackageManifest {
           title: `${canvasId} implementation ${taskIndex + 1}`,
           prompt: `nodes/${id}/blocks/${implementationId}.prompt.md`,
           depends_on: [],
-          parallel: { locks: [canvasId] }
+          parallel: { sharedResources: [canvasId] }
         },
         {
           id: reviewId,

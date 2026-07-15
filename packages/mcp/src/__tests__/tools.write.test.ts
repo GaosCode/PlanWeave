@@ -133,8 +133,7 @@ describe("MCP tools: write tools", () => {
         projectId: "project-1",
         canvasId: "default",
         blockRef: "T-001#B-001",
-        parallelSafe: true,
-        parallelLocks: ["repo"]
+        sharedResources: ["repo"]
       },
       gateway
     );
@@ -184,9 +183,7 @@ describe("MCP tools: write tools", () => {
       "default",
       "T-001#B-001",
       {
-        exclusive: false,
-        parallelSafe: true,
-        parallelLocks: ["repo"],
+        sharedResources: ["repo"],
         reviewRequired: undefined,
         maxFeedbackCycles: undefined,
         reviewHook: undefined

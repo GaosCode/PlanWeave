@@ -36,7 +36,7 @@ function parallelManifest(): PlanPackageManifest {
     title: "Implement parallel work",
     prompt: "nodes/T-001/blocks/B-002.prompt.md",
     depends_on: [],
-    parallel: { locks: ["parallel"] }
+    parallel: { sharedResources: ["parallel"] }
   });
   const review = task.blocks[2];
   if (review?.type === "review") review.depends_on = ["B-001", "B-002"];

@@ -120,12 +120,11 @@ export type WorkspaceTabsGraphWorkspaceProps = {
   setFlowInstance: Dispatch<SetStateAction<ReactFlowInstance<AppFlowNode, Edge> | null>>;
   visibleTaskIds: Set<string>;
   visibleTasks: DesktopGraphViewModel["tasks"] | undefined;
-  /** Active lock pin for resource inspector (null when none). */
-  pinnedLock: string | null;
-  onLockHover: (name: string | null) => void;
-  onLockPin: (name: string | null) => void;
-  clearPinnedLock: () => void;
-  refreshGraphLocks: () => Promise<void>;
+  /** Active shared-resource pin for the resource inspector. */
+  pinnedResource: string | null;
+  onResourceHover: (name: string | null) => void;
+  onResourcePin: (name: string | null) => void;
+  clearPinnedResource: () => void;
 };
 
 export type WorkspaceTabsAutoRunProps = {

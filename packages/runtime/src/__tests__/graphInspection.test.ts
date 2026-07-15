@@ -37,7 +37,7 @@ function threeTaskManifest(): PlanPackageManifest {
         title: "Implement third task",
         prompt: "nodes/T-003/blocks/B-001.prompt.md",
         depends_on: [],
-        parallel: { locks: ["third"] }
+        parallel: { sharedResources: ["third"] }
       },
       {
         id: "R-001",
@@ -71,7 +71,7 @@ function taskWithImplementationBlocks(id: string, title: string, blockCount = 1)
         title: `Implement ${title} ${index + 1}`,
         prompt: `nodes/${id}/blocks/${blockId}.prompt.md`,
         depends_on: [],
-        parallel: { locks: [`${id}-${blockId}`] }
+        parallel: { sharedResources: [`${id}-${blockId}`] }
       };
     })
   };

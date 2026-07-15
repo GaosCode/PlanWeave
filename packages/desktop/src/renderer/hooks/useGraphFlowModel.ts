@@ -11,7 +11,11 @@ import type {
   DesktopReviewAttemptSummary,
   RunnerTransport
 } from "@planweave-ai/runtime";
-import { graphEdges, graphNodes, type GraphLockUiState } from "../graph/flowModel";
+import {
+  graphEdges,
+  graphNodes,
+  type GraphSharedResourceUiState
+} from "../graph/flowModel";
 import { taskNodeLabels } from "../graph/taskNodeLabels";
 import type { createTranslator } from "../i18n";
 import type { AppFlowNode, TaskNodeData } from "../types";
@@ -24,7 +28,7 @@ type GraphFlowSource = {
   layout: DesktopLayout | null;
   selectedBlock: DesktopBlockDetail | null;
   t: ReturnType<typeof createTranslator>;
-  lockUi?: GraphLockUiState;
+  resourceUi?: GraphSharedResourceUiState;
 };
 
 type GraphFlowDrafts = {
@@ -96,15 +100,14 @@ export function useGraphFlowModel({
     layout,
     selectedBlock,
     t,
-    lockUi
+    resourceUi
   } = source;
   const { promptDrafts, saveStates, titleDrafts } = drafts;
-  const activeLock = lockUi?.activeLock ?? null;
-  const releaseEpochByLock = lockUi?.releaseEpochByLock;
-  const onLockHover = lockUi?.onLockHover;
-  const onLockPin = lockUi?.onLockPin;
-  const onLockOverflow = lockUi?.onLockOverflow;
-  const onJumpToTask = lockUi?.onJumpToTask;
+  const activeResource = resourceUi?.activeResource ?? null;
+  const transitionEpochByResource = resourceUi?.transitionEpochByResource;
+  const onResourceHover = resourceUi?.onResourceHover;
+  const onResourcePin = resourceUi?.onResourcePin;
+  const onResourceOverflow = resourceUi?.onResourceOverflow;
   const { blockFeedbackRecords, blockReviewAttempts, blockRunRecords } = records;
   const {
     handleDeleteBlock,
@@ -135,13 +138,12 @@ export function useGraphFlowModel({
       setEdges([]);
       return;
     }
-    const resolvedLockUi: GraphLockUiState = {
-      activeLock,
-      releaseEpochByLock: releaseEpochByLock ?? {},
-      onLockHover: onLockHover ?? (() => undefined),
-      onLockPin: onLockPin ?? (() => undefined),
-      onLockOverflow: onLockOverflow ?? (() => undefined),
-      onJumpToTask: onJumpToTask ?? (() => undefined)
+    const resolvedResourceUi: GraphSharedResourceUiState = {
+      activeResource,
+      transitionEpochByResource: transitionEpochByResource ?? {},
+      onResourceHover: onResourceHover ?? (() => undefined),
+      onResourcePin: onResourcePin ?? (() => undefined),
+      onResourceOverflow: onResourceOverflow ?? (() => undefined)
     };
     setNodes(
       graphNodes(
@@ -179,17 +181,16 @@ export function useGraphFlowModel({
         saveSelectedBlockExecutor,
         saveSelectedBlockPrompt,
         handleOpenRunRecord,
-        resolvedLockUi
+        resolvedResourceUi
       )
     );
-    setEdges(graphEdges(graph, { activeLock }));
+    setEdges(graphEdges(graph, { activeResource }));
   }, [
-    activeLock,
-    releaseEpochByLock,
-    onLockHover,
-    onLockPin,
-    onLockOverflow,
-    onJumpToTask,
+    activeResource,
+    transitionEpochByResource,
+    onResourceHover,
+    onResourcePin,
+    onResourceOverflow,
     blockFeedbackRecords,
     blockReviewAttempts,
     blockRunRecords,

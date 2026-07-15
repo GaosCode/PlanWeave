@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import {
   createExecutionGraphSession,
@@ -8,7 +9,7 @@ import {
 import { sharedResourcesForBlock } from "../graph/sharedResources.js";
 import { editBlock } from "../package/manifestEdit.js";
 import { getGraphViewModel } from "../desktop/index.js";
-import { desktopSharedResourceGroupSchema } from "../desktop/graph/lockViewModel.js";
+import { desktopSharedResourceGroupSchema } from "../desktop/graph/sharedResourceViewModel.js";
 import { renderPrompt, claimNext } from "../taskManager/index.js";
 import type { ManifestTaskNode } from "../types.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
@@ -19,7 +20,6 @@ function manifestWithSharedResources() {
     const implementation = task.blocks.find((block) => block.type === "implementation");
     if (implementation?.type === "implementation") {
       implementation.parallel = {
-        locks: [],
         sharedResources: ["packages/runtime", "packages/runtime"]
       };
     }
@@ -56,11 +56,10 @@ describe("shared resource hints", () => {
     expect(sharedResourcesForBlock(review)).toEqual([]);
   });
 
-  it("compiles deduplicated hints without turning them into locks", () => {
+  it("compiles deduplicated hints into the resource index", () => {
     const graph = compileTaskGraph(manifestWithSharedResources());
 
     expect(graph.sharedResourcesByBlockRef.get("T-001#B-001")).toEqual(["packages/runtime"]);
-    expect(graph.locksByBlockRef.get("T-001#B-001")).toEqual([]);
   });
 
   it("allows ready blocks with the same shared resource to be claimed together", async () => {
@@ -88,7 +87,7 @@ describe("shared resource hints", () => {
       }
     ]);
     expect(() =>
-      desktopSharedResourceGroupSchema.parse(graph.sharedResourceGroups?.[0])
+      desktopSharedResourceGroupSchema.parse(graph.sharedResourceGroups[0])
     ).not.toThrow();
 
     const prompt = await renderPrompt({ projectRoot: root, ref: "T-001#B-001" });
@@ -130,7 +129,7 @@ describe("shared resource hints", () => {
     expect(session.graph.sharedResourcesByBlockRef.has("T-002#B-001")).toBe(false);
   });
 
-  it("edits shared resources independently from legacy hard locks", async () => {
+  it("edits shared resources through the canonical graph field", async () => {
     const { root } = await createTestWorkspace(basicManifest());
 
     const result = await editBlock({
@@ -144,7 +143,19 @@ describe("shared resource hints", () => {
       "db/schema",
       "runtime/state"
     ]);
-    expect(result.graph?.locksByBlockRef.get("T-001#B-001")).toEqual(["shared"]);
+  });
+
+  it("removes parallel from source when shared resources are cleared", async () => {
+    const { root, init } = await createTestWorkspace(manifestWithSharedResources());
+
+    await editBlock({ projectRoot: root, ref: "T-001#B-001", sharedResources: [] });
+
+    const source = JSON.parse(await readFile(init.workspace.manifestFile, "utf8")) as {
+      nodes: Array<{ blocks: Array<{ id: string; parallel?: unknown }> }>;
+    };
+    expect(source.nodes[0]?.blocks.find((block) => block.id === "B-001")).not.toHaveProperty(
+      "parallel"
+    );
   });
 
   it("rejects shared resources on review blocks", async () => {

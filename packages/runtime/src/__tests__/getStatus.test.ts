@@ -44,7 +44,7 @@ describe("getExecutionStatus", () => {
     expect(status.claimHints.find((hint) => hint.ref === "T-001#B-001")).toMatchObject({
       ref: "T-001#B-001",
       blockedByTasks: ["T-002"],
-      parallelSafe: true,
+      dispatchable: false,
       sequentialOnly: false
     });
   });
@@ -67,7 +67,7 @@ describe("getExecutionStatus", () => {
       ref: "T-001#R-001",
       ready: true,
       readyReason: "Review gate is ready after required implementation blocks completed.",
-      parallelSafe: false,
+      dispatchable: false,
       sequentialOnly: true,
       recommendedCommand: "planweave claim T-001#R-001",
       reviewGate: {
@@ -101,7 +101,7 @@ describe("getExecutionStatus", () => {
     expect(status.nextParallelDispatchable).toEqual(["T-002#B-001"]);
     expect(secondTaskHint).toMatchObject({
       ready: false,
-      statusReason: "Default claims are locked by current review block 'T-001#R-001'.",
+      statusReason: "Default claims are blocked by current review block 'T-001#R-001'.",
       dispatchable: true,
       dispatchCommand: "planweave claim T-002#B-001 --dispatch"
     });
@@ -147,7 +147,7 @@ describe("getExecutionStatus", () => {
           title: "Implement third task",
           prompt: "nodes/T-003/blocks/B-001.prompt.md",
           depends_on: [],
-          parallel: { locks: ["third"] }
+          parallel: { sharedResources: ["third"] }
         }
       ]
     });

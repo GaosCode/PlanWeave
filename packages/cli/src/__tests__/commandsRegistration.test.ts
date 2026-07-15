@@ -134,14 +134,15 @@ describe("planweave CLI command registration", () => {
       expect.arrayContaining([
         "--title",
         "--prompt-file",
-        "--exclusive",
-        "--parallel-safe",
-        "--parallel-locks",
+        "--shared-resources",
         "--review-required",
         "--max-feedback-cycles",
         "--review-hook-json",
         "--clear-review-hook"
       ])
+    );
+    expect(commandOptionLongs("edit-block")).not.toEqual(
+      expect.arrayContaining(["--exclusive", "--parallel-safe", "--parallel-locks"])
     );
     expect(commandOptionLongs("edit-block")).toContain("--canvas");
     expect(commandOptionLongs("resolve-divergence")).toContain("--reason");

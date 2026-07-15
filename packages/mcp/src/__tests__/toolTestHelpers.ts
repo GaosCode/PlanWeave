@@ -235,7 +235,6 @@ export function createGateway(): TestGateway {
         blockedByBlocks: [],
         blockedByTasks: [],
         blockedByProject: [],
-        parallelSafe: true,
         sequentialOnly: false,
         recommendedCommand: "planweave claim T-001#I-001",
         dispatchable: true,
@@ -282,8 +281,8 @@ export function createGateway(): TestGateway {
     taskId: "T-001",
     blockId: "I-001",
     title: "Implement",
-    parallelSafe: true,
-    locks: ["repo"],
+    dispatchable: true,
+    sharedResources: ["repo"],
     reviewGate: null
   };
   const graph: DesktopGraphViewModel = {

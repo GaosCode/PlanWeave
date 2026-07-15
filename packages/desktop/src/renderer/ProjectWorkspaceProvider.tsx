@@ -60,7 +60,7 @@ import { useTaskExecutorActions } from "./hooks/useTaskExecutorActions";
 import { useDesktopProjectActions } from "./hooks/useDesktopProjectActions";
 import { useGraphFlowModel } from "./hooks/useGraphFlowModel";
 import { useGraphHistoryActions } from "./hooks/useGraphHistoryActions";
-import { useLockHighlight } from "./hooks/useLockHighlight";
+import { useSharedResourceHighlight } from "./hooks/useSharedResourceHighlight";
 import { useLerpedNodeDrag } from "./hooks/useLerpedNodeDrag";
 import { buildAppSettingsRouteProps } from "./AppSettingsRouteProps";
 import { useAutoRunController, useFileSyncController } from "./controllers/AutoRunController";
@@ -570,42 +570,27 @@ export function ProjectWorkspaceProvider({
   } = usePromptDrafts({ graph, refreshGraph, selectedCanvasId, selectedProject, setError });
 
   const {
-    activeLock,
-    pinnedLock,
-    releaseEpochByLock,
-    onLockHover,
-    onLockPin,
-    clearPin: clearPinnedLock,
-    setPinnedLock
-  } = useLockHighlight(graph);
+    activeResource,
+    pinnedResource,
+    transitionEpochByResource,
+    onResourceHover,
+    onResourcePin,
+    clearPin: clearPinnedResource,
+    setPinnedResource
+  } = useSharedResourceHighlight(graph);
 
-  const handleJumpToTask = useCallback(
+  const handleResourceOverflow = useCallback(
     (taskId: string) => {
-      handleTaskPanelSelect(taskId);
-      if (flowInstance) {
-        void flowInstance.fitView({
-          nodes: [{ id: taskId }],
-          maxZoom: 1.2,
-          duration: 200
-        });
-      }
-    },
-    [flowInstance, handleTaskPanelSelect]
-  );
-
-  const handleLockOverflow = useCallback(
-    (_taskId: string) => {
-      // Overflow opens the resource panel for the first shared-resource hint (or active pin).
-      if (pinnedLock) {
+      if (pinnedResource) {
         return;
       }
-      const task = graph?.tasks.find((item) => item.taskId === _taskId);
-      const firstLock = task?.sharedResources?.[0];
-      if (firstLock) {
-        setPinnedLock(firstLock);
+      const task = graph?.tasks.find((item) => item.taskId === taskId);
+      const firstResource = task?.sharedResources[0];
+      if (firstResource) {
+        setPinnedResource(firstResource);
       }
     },
-    [graph, pinnedLock, setPinnedLock]
+    [graph, pinnedResource, setPinnedResource]
   );
 
   const { handleTaskExecutorChange } = useTaskExecutorActions({
@@ -742,16 +727,21 @@ export function ProjectWorkspaceProvider({
     [setError, setSuccessMessage, t]
   );
 
-  const lockUi = useMemo(
+  const resourceUi = useMemo(
     () => ({
-      activeLock,
-      releaseEpochByLock,
-      onLockHover,
-      onLockPin,
-      onLockOverflow: handleLockOverflow,
-      onJumpToTask: handleJumpToTask
+      activeResource,
+      transitionEpochByResource,
+      onResourceHover,
+      onResourcePin,
+      onResourceOverflow: handleResourceOverflow
     }),
-    [activeLock, releaseEpochByLock, onLockHover, onLockPin, handleLockOverflow, handleJumpToTask]
+    [
+      activeResource,
+      transitionEpochByResource,
+      onResourceHover,
+      onResourcePin,
+      handleResourceOverflow
+    ]
   );
 
   useGraphFlowModel({
@@ -783,7 +773,7 @@ export function ProjectWorkspaceProvider({
       layout,
       selectedBlock,
       t,
-      lockUi
+      resourceUi
     },
     taskActions: {
       handleDeleteBlock,
@@ -948,11 +938,10 @@ export function ProjectWorkspaceProvider({
     setSuccessMessage,
     setFlowInstance,
     t,
-    pinnedLock,
-    onLockHover,
-    onLockPin,
-    clearPinnedLock,
-    refreshGraphLocks: refreshGraph
+    pinnedResource,
+    onResourceHover,
+    onResourcePin,
+    clearPinnedResource
   });
   const review = useMemo<WorkspaceTabsReviewProps>(
     () => ({

@@ -134,10 +134,10 @@ describe("desktop graph read API", () => {
       block.id === "R-001" ? { ...block, executor: "codex" } : block
     );
     // T-002 waits on T-001 becoming implemented, so it is not parallel-batchable yet.
-    // Under locks-only eligibility every ready implementation is batch-eligible; task deps
+    // Every ready implementation is batch-eligible; task dependencies
     // are how we keep a serial-only peer out of the parallel batch while review is ready.
     secondTask.blocks = secondTask.blocks.map((block) =>
-      block.id === "B-001" ? { ...block, executor: "opencode", parallel: { locks: [] } } : block
+      block.id === "B-001" ? { ...block, executor: "opencode" } : block
     );
     manifest.edges = [
       ...(manifest.edges ?? []),
@@ -167,10 +167,10 @@ describe("desktop graph read API", () => {
     if (task?.type !== "task") {
       throw new Error("Fixture task missing.");
     }
-    // Exclusive (formerly safe:false) still yields a single-ref parallel batch with codex.
+    // A single ready implementation still yields a single-ref parallel batch with codex.
     task.blocks = task.blocks.map((block) =>
       block.id === "B-001"
-        ? { ...block, executor: "codex", parallel: { locks: ["exclusive"] } }
+        ? { ...block, executor: "codex", parallel: { sharedResources: ["runtime"] } }
         : block
     );
     await writeJsonFile(init.workspace.manifestFile, manifest);
@@ -189,7 +189,7 @@ describe("desktop graph read API", () => {
     }
     task.blocks = task.blocks.map((block) =>
       block.id === "B-001"
-        ? { ...block, executor: "codex", parallel: { locks: ["exclusive"] } }
+        ? { ...block, executor: "codex", parallel: { sharedResources: ["runtime"] } }
         : block
     );
     await writeJsonFile(init.workspace.manifestFile, manifest);

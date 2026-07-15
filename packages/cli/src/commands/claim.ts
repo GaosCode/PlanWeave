@@ -24,7 +24,7 @@ export function registerClaimCommand(program: Command): void {
       )
       .option(
         "--dispatch",
-        "formally dispatch a parallel-safe implementation block without replacing current work"
+        "formally dispatch a graph-ready implementation block without replacing current work"
       )
   ).action(
     async (

@@ -65,6 +65,10 @@ describe("planweave CLI help and schema output", () => {
     expect(formatCliHelp("plan")).toContain(
       "planweave edit-block <block-ref> --review-required false"
     );
+    expect(formatCliHelp("plan")).toContain(
+      "planweave edit-block <block-ref> --shared-resources api,db"
+    );
+    expect(formatCliHelp("plan")).not.toMatch(/parallel-safe|parallel-locks|exclusive/);
     expect(formatCliHelp("recovery")).toContain(
       "Doctor checks state/results consistency; it is not a general Plan Package repair tool."
     );

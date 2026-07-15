@@ -1,5 +1,4 @@
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
-import { deriveParallelSafe } from "../graph/parallelLocks.js";
 import type {
   BlockState,
   ClaimHint,
@@ -16,7 +15,6 @@ import {
 import {
   canDispatchImplementationBlock,
   effectiveBlockExecutor,
-  lockHolderBlockerReason,
   requiredImplementationRefs
 } from "./selectors.js";
 
@@ -74,7 +72,8 @@ export function buildClaimHints(
   graph: CompiledExecutionGraph,
   state: RuntimeState,
   projectGuard: ProjectGraphClaimGuard,
-  defaultClaimLockReason: string | null,
+  defaultClaimBlockedReason: string | null,
+  maxConcurrent: number,
   defaultExecutor?: string
 ): ClaimHint[] {
   return graph.blockRefsInManifestOrder.map((ref) => {
@@ -86,16 +85,10 @@ export function buildClaimHints(
     const baseReady = blockReadyWithoutProjectBlockers(graph, state, ref);
     const projectBlocker = projectBlockerReason(projectGuard, taskId);
     const blockedByProject = projectBlockers(projectGuard, taskId);
-    const ready = baseReady && defaultClaimLockReason === null && projectBlocker === null;
-    const locks = graph.locksByBlockRef.get(ref) ?? [];
-    // Compat field: true when the block is not exclusive (can co-run with non-conflicting peers).
-    const parallelSafe = block?.type === "implementation" && deriveParallelSafe(locks);
+    const ready = baseReady && defaultClaimBlockedReason === null && projectBlocker === null;
     const dispatchable =
-      projectBlocker === null && canDispatchImplementationBlock(graph, state, ref);
-    const lockBlocker =
-      baseReady && projectBlocker === null && block?.type === "implementation" && !dispatchable
-        ? lockHolderBlockerReason(graph, state, ref)
-        : null;
+      projectBlocker === null &&
+      canDispatchImplementationBlock(graph, state, ref, { maxConcurrent });
     const downstreamTasks =
       taskId && block?.type === "review" ? (graph.taskDependentsByTask.get(taskId) ?? []) : [];
     const reviewGate =
@@ -115,18 +108,13 @@ export function buildClaimHints(
     const readyReason = ready
       ? block?.type === "review"
         ? "Review gate is ready after required implementation blocks completed."
-        : parallelSafe
-          ? "Block is ready and parallel-eligible (locks-only mutex)."
-          : "Block is ready; reserved exclusive lock means it must run alone."
+        : "Block is ready for implementation."
       : null;
     const explicitStatusReason = statusReasonForBlock(blockState);
-    // Prefer lock-holder detail over the generic sequential current-block lock reason so
-    // explain/status can name the lock and holder when parallel dispatch is blocked by mutex.
     const statusReason =
       explicitStatusReason ??
       (baseReady && projectBlocker ? projectBlocker : null) ??
-      lockBlocker ??
-      (baseReady && defaultClaimLockReason ? defaultClaimLockReason : null) ??
+      (baseReady && defaultClaimBlockedReason ? defaultClaimBlockedReason : null) ??
       (block?.type === "review" && !block.review.required
         ? "Optional review gate is not required and is not claimable; task can complete without it."
         : null);
@@ -143,7 +131,6 @@ export function buildClaimHints(
       blockedByBlocks: blockers.blockedByBlocks,
       blockedByTasks: blockers.blockedByTasks,
       blockedByProject,
-      parallelSafe,
       sequentialOnly: block?.type === "review",
       recommendedCommand: ready ? `planweave claim ${ref}` : null,
       dispatchable,

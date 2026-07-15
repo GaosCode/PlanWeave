@@ -110,11 +110,8 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
             depends_on: "block id string[], default: []",
             executor: "string, optional; must reference a known executor profile",
             parallel: {
-              locks:
-                'string[], default: []; reserved name "exclusive" is mutually exclusive with every other block',
               sharedResources:
-                "string[], default: []; non-blocking coordination hints that never affect ready, claim, or scheduling",
-              safe: 'boolean, optional, deprecated — use locks:["exclusive"] instead of safe:false; presence emits a deprecation warning'
+                "string[], optional; deduplicated coordination hints that never affect ready, claim, or scheduling"
             }
           },
           {
@@ -153,9 +150,8 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
     "Only task nodes are supported; do not create goal, context, requirement, risk, or file nodes.",
     "Only implementation and review block types are supported.",
     "Use task edges for task dependencies and block depends_on for block order inside a task.",
-    "Dependency edges answer when a block can start; locks answer which ready blocks can run at the same time.",
-    "Absent block parallel means parallel-eligible with no locks. Reserved lock exclusive conflicts with everything.",
-    "parallel.safe is deprecated: safe:false is normalized to locks including exclusive; safe:true has no effect.",
+    "Dependencies answer when a block can start; shared resources only describe coordination context.",
+    "Absent block parallel means the block has no shared-resource coordination hints.",
     "Agent identity and runner transport are separate. Each agent profile selects exactly one runner: cli or acp.",
     "Legacy *-exec profiles remain valid and normalize once to the canonical agent plus CLI runner shape.",
     "CLI and ACP are alternative runner transports. Built-in codex/opencode/claude-code/pi names select CLI; explicit *-acp names select ACP. PlanWeave never falls back between them.",

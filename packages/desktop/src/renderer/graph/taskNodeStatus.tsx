@@ -2,19 +2,18 @@ import {
   CheckCircle2Icon,
   CircleAlertIcon,
   CircleIcon,
-  HourglassIcon,
   LoaderCircleIcon
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-type TaskNodeStatusTone = "neutral" | "running" | "complete" | "problem" | "waiting";
+type TaskNodeStatusTone = "neutral" | "running" | "complete" | "problem";
 
 type TaskNodeStatusVisual = {
   tone: TaskNodeStatusTone;
   cardClassName: string;
   markerClassName: string;
-  iconName: "empty-circle" | "loader" | "check" | "alert" | "hourglass";
+  iconName: "empty-circle" | "loader" | "check" | "alert";
   Icon: typeof CircleIcon;
 };
 
@@ -25,24 +24,17 @@ const cardClassNames: Record<TaskNodeStatusTone, string> = {
   complete:
     "border-state-success/55 bg-state-success-surface text-text-strong shadow-sm ring-1 ring-state-success/15",
   problem:
-    "border-state-failed/60 bg-state-failed-surface text-text-strong shadow-sm ring-1 ring-state-failed/15",
-  waiting:
-    "border-state-warning/55 bg-state-warning-surface text-text-strong shadow-sm ring-1 ring-state-warning/15"
+    "border-state-failed/60 bg-state-failed-surface text-text-strong shadow-sm ring-1 ring-state-failed/15"
 };
 
 const markerClassNames: Record<TaskNodeStatusTone, string> = {
   neutral: "border-border/80 bg-surface-muted text-text-muted",
   running: "border-state-running/45 bg-state-running-surface text-state-running",
   complete: "border-state-success/45 bg-state-success-surface text-state-success",
-  problem: "border-state-failed/50 bg-state-failed-surface text-state-failed",
-  waiting: "border-state-warning/45 bg-state-warning-surface text-state-warning"
+  problem: "border-state-failed/50 bg-state-failed-surface text-state-failed"
 };
 
-export function taskNodeStatusVisual(
-  status: string,
-  hasException: boolean,
-  options: { waiting?: boolean } = {}
-): TaskNodeStatusVisual {
+export function taskNodeStatusVisual(status: string, hasException: boolean): TaskNodeStatusVisual {
   if (hasException || status === "blocked" || status === "diverged" || status === "needs_changes") {
     return {
       tone: "problem",
@@ -70,15 +62,6 @@ export function taskNodeStatusVisual(
       Icon: LoaderCircleIcon
     };
   }
-  if (options.waiting) {
-    return {
-      tone: "waiting",
-      cardClassName: cardClassNames.waiting,
-      markerClassName: markerClassNames.waiting,
-      iconName: "hourglass",
-      Icon: HourglassIcon
-    };
-  }
   return {
     tone: "neutral",
     cardClassName: cardClassNames.neutral,
@@ -91,15 +74,13 @@ export function taskNodeStatusVisual(
 export function TaskNodeStatusMarker({
   hasException,
   label,
-  status,
-  waiting = false
+  status
 }: {
   hasException: boolean;
   label: string;
   status: string;
-  waiting?: boolean;
 }) {
-  const visual = taskNodeStatusVisual(status, hasException, { waiting });
+  const visual = taskNodeStatusVisual(status, hasException);
   const Icon = visual.Icon;
 
   return (

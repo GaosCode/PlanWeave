@@ -365,8 +365,8 @@ describe("MCP tools: project context", () => {
           taskId: "T-001",
           blockId: "I-001",
           title: "Implement",
-          parallelSafe: true,
-          locks: ["repo"],
+          dispatchable: true,
+          sharedResources: ["repo"],
           reviewGate: null
         }
       ]

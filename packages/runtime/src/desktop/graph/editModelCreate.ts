@@ -97,8 +97,7 @@ function createBlock(options: {
   }
   return {
     ...common,
-    type: options.type,
-    parallel: { locks: [], sharedResources: [] }
+    type: options.type
   };
 }
 

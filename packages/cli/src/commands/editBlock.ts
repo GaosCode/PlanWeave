@@ -40,7 +40,7 @@ function parseNonNegativeInteger(value: string, optionName: string): number {
   return parsed;
 }
 
-function parseLocks(value: string): string[] {
+function parseSharedResources(value: string): string[] {
   if (value.trim() === "") {
     return [];
   }
@@ -77,18 +77,6 @@ export function registerEditBlockCommand(program: Command): void {
       .option("--executor <name>", "set block executor")
       .option("--clear-executor", "remove block executor")
       .option(
-        "--exclusive <true|false>",
-        "set reserved exclusive lock (true = locks include exclusive)"
-      )
-      .option(
-        "--parallel-safe <true|false>",
-        "deprecated alias of --exclusive with inverted boolean (false ⇒ exclusive)"
-      )
-      .option(
-        "--parallel-locks <locks>",
-        "set implementation parallel locks as a comma-separated list"
-      )
-      .option(
         "--shared-resources <resources>",
         "set non-blocking shared resource hints as a comma-separated list"
       )
@@ -105,9 +93,6 @@ export function registerEditBlockCommand(program: Command): void {
         promptFile?: string;
         executor?: string;
         clearExecutor?: boolean;
-        exclusive?: string;
-        parallelSafe?: string;
-        parallelLocks?: string;
         sharedResources?: string;
         reviewRequired?: string;
         maxFeedbackCycles?: string;
@@ -118,33 +103,16 @@ export function registerEditBlockCommand(program: Command): void {
       if (options.executor !== undefined && options.clearExecutor) {
         throw new Error("Use either --executor or --clear-executor, not both.");
       }
-      let exclusive: boolean | undefined =
-        options.exclusive === undefined
-          ? undefined
-          : parseBoolean(options.exclusive, "--exclusive");
-      let parallelSafe: boolean | undefined;
-      if (options.parallelSafe !== undefined) {
-        console.error(
-          'Warning: --parallel-safe is deprecated; use --exclusive <true|false> (or locks: ["exclusive"]).'
-        );
-        const safe = parseBoolean(options.parallelSafe, "--parallel-safe");
-        if (exclusive === undefined) {
-          exclusive = !safe;
-        }
-        parallelSafe = safe;
-      }
       const result = await editBlock({
         projectRoot: await resolveCliPackageWorkspace(options),
         ref,
         title: options.title,
         promptMarkdown: await promptMarkdown(options),
         executor: options.clearExecutor ? null : options.executor,
-        exclusive,
-        parallelSafe,
-        parallelLocks:
-          options.parallelLocks === undefined ? undefined : parseLocks(options.parallelLocks),
         sharedResources:
-          options.sharedResources === undefined ? undefined : parseLocks(options.sharedResources),
+          options.sharedResources === undefined
+            ? undefined
+            : parseSharedResources(options.sharedResources),
         reviewRequired:
           options.reviewRequired === undefined
             ? undefined

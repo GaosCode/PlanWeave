@@ -95,9 +95,7 @@ export function parseBulkUpdateBlocks(
 ): Parameters<RuntimeGateway["bulkUpdateBlocks"]>[2] {
   return requiredObjectArray(record.updates, "updates").map((item) => {
     const planning: Partial<ReturnType<typeof parseBlockPlanningInput>> = [
-      "exclusive",
-      "parallelSafe",
-      "parallelLocks",
+      "sharedResources",
       "reviewRequired",
       "maxFeedbackCycles",
       "reviewHook"
@@ -112,9 +110,7 @@ export function parseBulkUpdateBlocks(
           ? item.executor
           : nonEmptyString(item.executor, "executor"),
       dependsOn: parseOptionalBlockDependencies(item.dependsOn, "dependsOn"),
-      exclusive: planning.exclusive,
-      parallelSafe: planning.parallelSafe,
-      parallelLocks: planning.parallelLocks,
+      sharedResources: planning.sharedResources,
       reviewRequired: planning.reviewRequired,
       maxFeedbackCycles: planning.maxFeedbackCycles,
       reviewHook: planning.reviewHook
@@ -211,9 +207,7 @@ export function parseBulkParallelPolicyInput(record: Record<string, unknown>): {
     return {
       blockRef: blockRefFromArgs(blockRecord),
       input: {
-        exclusive: blockPlanning.exclusive,
-        parallelSafe: blockPlanning.parallelSafe,
-        parallelLocks: blockPlanning.parallelLocks
+        sharedResources: blockPlanning.sharedResources
       }
     };
   });

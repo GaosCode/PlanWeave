@@ -2,7 +2,7 @@ import { access, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { undoDesktopPlanGraphCommand } from "@planweave-ai/runtime";
+import { redoDesktopPlanGraphCommand, undoDesktopPlanGraphCommand } from "@planweave-ai/runtime";
 import { runtimeGateway } from "../toolRuntime.js";
 
 const packageFiles = [
@@ -165,4 +165,76 @@ describe("MCP runtime gateway", () => {
       promptMarkdown: expect.stringContaining("# Implement work")
     });
   });
+
+  it.each(["single", "bulk-blocks", "bulk-policy"] as const)(
+    "persists and replays canonical shared resources through the %s MCP gateway",
+    async (mode) => {
+      const home = await mkdtemp(join(tmpdir(), "planweave-mcp-home-"));
+      process.env.PLANWEAVE_HOME = home;
+      const project = await runtimeGateway.initProject("Gateway Shared Resources");
+      await runtimeGateway.createTask(project.projectId, undefined, {
+        title: "MCP shared resources",
+        promptMarkdown: "# MCP shared resources\n"
+      });
+      const manifestPath = join(
+        project.workspaceRoot,
+        "canvases",
+        "default",
+        "package",
+        "manifest.json"
+      );
+      const readBlock = async (): Promise<Record<string, unknown>> => {
+        const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+          nodes: Array<{
+            id: string;
+            title: string;
+            blocks: Array<Record<string, unknown> & { id: string }>;
+          }>;
+        };
+        const task = manifest.nodes.find((node) => node.title === "MCP shared resources");
+        const block = task?.blocks.find((item) => item.id === "B-001");
+        if (!task || !block) {
+          throw new Error("Expected MCP shared resources implementation block.");
+        }
+        return { taskId: task.id, ...block };
+      };
+      const initialBlock = await readBlock();
+      const blockRef = `${String(initialBlock.taskId)}#${String(initialBlock.id)}`;
+      const expectResources = async (resources: string[] | undefined): Promise<void> => {
+        const block = await readBlock();
+        const parallel = block.parallel as Record<string, unknown> | undefined;
+        expect(parallel?.sharedResources).toEqual(resources);
+        if (parallel) {
+          expect(parallel).not.toHaveProperty("safe");
+          expect(parallel).not.toHaveProperty("locks");
+        } else {
+          expect(block).not.toHaveProperty("parallel");
+        }
+      };
+
+      const resources = [mode];
+      const result =
+        mode === "single"
+          ? await runtimeGateway.updateBlockPlanning(project.projectId, undefined, blockRef, {
+              sharedResources: resources
+            })
+          : mode === "bulk-blocks"
+            ? await runtimeGateway.bulkUpdateBlocks(project.projectId, undefined, [
+                { blockRef, input: { sharedResources: resources } }
+              ])
+            : await runtimeGateway.bulkUpdateParallelPolicy(project.projectId, undefined, {
+                blocks: [{ blockRef, input: { sharedResources: resources } }]
+              });
+      expect(result).toMatchObject({ ok: true });
+      await expectResources(resources);
+      await expect(undoDesktopPlanGraphCommand(project.workspaceRoot)).resolves.toMatchObject({
+        ok: true
+      });
+      await expectResources(undefined);
+      await expect(redoDesktopPlanGraphCommand(project.workspaceRoot)).resolves.toMatchObject({
+        ok: true
+      });
+      await expectResources(resources);
+    }
+  );
 });

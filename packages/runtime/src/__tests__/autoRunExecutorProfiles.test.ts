@@ -75,11 +75,7 @@ describe("Auto Run executor profiles", () => {
               title: "Implementation",
               prompt: "nodes/T-001/blocks/B-001.prompt.md",
               depends_on: [],
-              executor: "manual",
-              parallel: {
-                safe: false,
-                locks: []
-              }
+              executor: "manual"
             }
           ]
         }

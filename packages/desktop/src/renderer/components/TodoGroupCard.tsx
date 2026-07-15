@@ -12,12 +12,12 @@ import { cn } from "@/lib/utils";
 
 type TodoGroupCardLabels = {
   dependencyBlockers: string;
-  locks: string;
+  dispatchability: string;
+  dispatchable: string;
+  notDispatchable: string;
   noBlockers: string;
-  noLocks: string;
-  parallelBlocked: string;
-  parallelSafe: string;
-  parallelSafety: string;
+  noSharedResources: string;
+  sharedResources: string;
   reviewExecutor: string;
   reviewGate: string;
   reviewNeedsChangesReturnsTo: string;
@@ -115,8 +115,8 @@ export function TodoGroupCard({
                 {item.taskId} / {item.blockId}
               </div>
             </div>
-            <Badge className="shrink-0" variant={item.parallelSafe ? "secondary" : "destructive"}>
-              {item.parallelSafe ? labels.parallelSafe : labels.parallelBlocked}
+            <Badge className="shrink-0" variant={item.dispatchable ? "secondary" : "destructive"}>
+              {item.dispatchable ? labels.dispatchable : labels.notDispatchable}
             </Badge>
           </div>
           <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-md bg-surface-muted/70 p-2 text-muted-foreground">
@@ -126,11 +126,13 @@ export function TodoGroupCard({
                 ? item.dependencyBlockers.join(", ")
                 : labels.noBlockers}
             </span>
-            <span className="font-medium text-foreground/70">{labels.parallelSafety}</span>
-            <span>{item.parallelSafe ? labels.parallelSafe : labels.parallelBlocked}</span>
-            <span className="font-medium text-foreground/70">{labels.locks}</span>
+            <span className="font-medium text-foreground/70">{labels.dispatchability}</span>
+            <span>{item.dispatchable ? labels.dispatchable : labels.notDispatchable}</span>
+            <span className="font-medium text-foreground/70">{labels.sharedResources}</span>
             <span className="truncate font-mono">
-              {item.locks.length ? item.locks.join(", ") : labels.noLocks}
+              {item.sharedResources.length
+                ? item.sharedResources.join(", ")
+                : labels.noSharedResources}
             </span>
             {item.reviewGate ? (
               <>

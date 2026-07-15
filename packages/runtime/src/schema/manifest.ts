@@ -6,21 +6,20 @@ import {
   supportedManifestVersion
 } from "../types.js";
 
-/** Reserved lock name: mutually exclusive with every other in-progress block. */
-export const EXCLUSIVE_LOCK = "exclusive" as const;
-
-export const PARALLEL_SAFE_DEPRECATION_MESSAGE =
-  '`parallel.safe` is deprecated; use `locks: ["exclusive"]` for mutual exclusion. Absent `parallel` means parallel-eligible with no locks.';
-
 const blockParallelPolicySchema = z
   .object({
-    /** @deprecated Use locks: ["exclusive"] instead of safe: false. */
-    safe: z.boolean().optional(),
-    locks: z.array(z.string().min(1)).default([]),
     /** Soft hints only; these never affect readiness or claimability. */
-    sharedResources: z.array(z.string().min(1)).optional()
+    sharedResources: z
+      .array(z.string().min(1))
+      .transform((resources) => [...new Set(resources)])
+      .optional()
   })
-  .strict();
+  .strict()
+  .transform((policy) =>
+    policy.sharedResources && policy.sharedResources.length > 0
+      ? { sharedResources: policy.sharedResources }
+      : undefined
+  );
 
 const reviewHookSchema = z
   .object({
@@ -40,11 +39,11 @@ const implementationBlockSchema = z
     prompt: z.string().min(1),
     depends_on: z.array(z.string().min(1)).default([]),
     executor: z.string().min(1).optional(),
-    parallel: blockParallelPolicySchema.default({ locks: [] })
+    parallel: blockParallelPolicySchema.optional()
   })
   .strict();
 
-const reviewBlockSchema = z
+export const reviewBlockSchema = z
   .object({
     id: z.string().min(1),
     type: z.literal("review"),

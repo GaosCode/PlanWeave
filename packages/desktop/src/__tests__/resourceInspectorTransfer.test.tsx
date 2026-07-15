@@ -27,7 +27,6 @@ function sharedResourceGraph(): DesktopGraphViewModel {
     promptMarkdown: "",
     promptMissing: false,
     promptPreview: "",
-    locks: [],
     sharedResources: ["packages/runtime"],
     blocks: [
       {
@@ -39,8 +38,7 @@ function sharedResourceGraph(): DesktopGraphViewModel {
         executor: null,
         promptMissing: false,
         exceptionReason: null,
-        dispatchable: status === "ready",
-        waitingOn: null
+        dispatchable: status === "ready"
       }
     ],
     blockPreview: [],
@@ -57,7 +55,6 @@ function sharedResourceGraph(): DesktopGraphViewModel {
     autoRunPreflightExecutorHint: null,
     tasks: [task("T-A", "in_progress"), task("T-B", "ready")],
     edges: [],
-    lockGroups: [],
     sharedResourceGroups: [
       {
         name: "packages/runtime",
@@ -72,21 +69,19 @@ function sharedResourceGraph(): DesktopGraphViewModel {
 }
 
 describe("ResourceInspector shared-resource hints", () => {
-  it("shows overlap as non-blocking information without lock actions", async () => {
+  it("shows overlap as non-blocking information without scheduling actions", async () => {
     const graph = sharedResourceGraph();
-    const group = graph.sharedResourceGroups?.[0];
+    const group = graph.sharedResourceGroups[0];
     if (!group) {
       throw new Error("Missing shared resource group fixture.");
     }
     const onJumpToTask = vi.fn();
     render(
       <ResourceInspector
-        canvasRef={{ projectRoot: "/tmp/project", canvasId: "default" }}
         graph={graph}
-        lockGroup={group}
+        resourceGroup={group}
         onClose={vi.fn()}
         onJumpToTask={onJumpToTask}
-        onRefresh={vi.fn()}
         t={createTranslator("en")}
       />
     );
