@@ -179,6 +179,26 @@ describe("desktop Task Workspace aggregate API", () => {
     ).toBe(true);
   });
 
+  it("projects explicit and inherited executor values separately for Task Workspace editing", async () => {
+    const manifest = basicManifest();
+    manifest.execution.defaultExecutor = "manual";
+    manifest.nodes[0]!.executor = "codex";
+    manifest.nodes[0]!.blocks[0]!.executor = "pi";
+    const { root } = await createTestWorkspace(manifest);
+
+    const workspace = await getTaskWorkspace({
+      projectRoot: root,
+      canvasId: "default",
+      taskId: "T-001"
+    });
+    const implementation = workspace.blocks.find((block) => block.blockId === "B-001");
+    const review = workspace.blocks.find((block) => block.blockId === "R-001");
+
+    expect(workspace.task.executor).toBe("codex");
+    expect(implementation).toMatchObject({ executor: "pi", effectiveExecutor: "pi" });
+    expect(review).toMatchObject({ executor: null, effectiveExecutor: "codex" });
+  });
+
   it("marks only the latest unfinished current-ref run active and defaults selection to it", async () => {
     const { root, init } = await createTestWorkspace();
     await claimNext({ projectRoot: root });

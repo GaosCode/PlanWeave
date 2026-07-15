@@ -100,6 +100,7 @@ export function taskWorkspaceLabels(t: Translator): TaskWorkspaceLabels {
     activeRuns: (count) => interpolate(t("taskWorkspaceActiveRuns"), { count }),
     agent: t("agent"),
     backToCanvas: t("taskWorkspaceBackToCanvas"),
+    blockExecutor: t("taskWorkspaceBlockExecutor"),
     blocks: t("blocks"),
     booleanFalse: t("taskWorkspaceFalse"),
     booleanTrue: t("taskWorkspaceTrue"),
@@ -109,9 +110,13 @@ export function taskWorkspaceLabels(t: Translator): TaskWorkspaceLabels {
     dependencyProgress: (completed, total, percent) =>
       interpolate(t("taskWorkspaceDependencyProgress"), { completed, percent, total }),
     elapsed: t("taskWorkspaceElapsed"),
+    executorSaved: t("taskWorkspaceExecutorSaved"),
+    executorSaving: t("taskWorkspaceExecutorSaving"),
     expandTimeline: t("taskWorkspaceExpandTimeline"),
     formatDuration: (milliseconds) => formatDuration(t, milliseconds),
     inspector: t("taskWorkspaceInspector"),
+    inheritCanvasExecutor: t("taskWorkspaceInheritCanvasExecutor"),
+    inheritTaskExecutor: t("taskWorkspaceInheritTaskExecutor"),
     latestArtifact: t("taskWorkspaceLatestArtifact"),
     liveUnavailable: t("taskWorkspaceLiveUnavailable"),
     loading: t("taskWorkspaceLoading"),
@@ -135,6 +140,7 @@ export function taskWorkspaceLabels(t: Translator): TaskWorkspaceLabels {
       waiting: t("taskWorkspaceWaiting")
     },
     status: t("taskWorkspaceStatus"),
+    taskExecutor: t("taskWorkspaceTaskExecutor"),
     taskStatus: {
       implemented: t("taskWorkspaceTaskImplemented"),
       in_progress: t("taskWorkspaceTaskInProgress"),

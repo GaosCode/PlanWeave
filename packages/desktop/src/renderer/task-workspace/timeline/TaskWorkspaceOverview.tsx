@@ -3,6 +3,7 @@ import { ChevronRightIcon } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { TaskWorkspaceExecutorSelect } from "../TaskWorkspaceExecutorSelect";
 import { TaskWorkspaceBlockPrompts, TaskWorkspaceTaskPrompt } from "../TaskWorkspacePrompts";
 import type { TaskWorkspaceLabels, TaskWorkspacePromptSaveInput } from "../contracts";
 import type { TaskWorkspaceTimelineLabels } from "./types";
@@ -34,13 +35,19 @@ function artifactPath(workspace: TaskWorkspace): string | null {
 
 function BlockPromptDisclosure({
   initiallyOpen,
+  executorOptions,
   labels,
   block,
+  onSaveExecutor,
+  packageExecutorNames,
   onSavePrompt
 }: {
   initiallyOpen: boolean;
+  executorOptions: readonly string[];
   labels: TaskWorkspaceLabels;
   block: TaskWorkspace["blocks"][number];
+  onSaveExecutor: (executorName: string | null) => Promise<void>;
+  packageExecutorNames: readonly string[];
   onSavePrompt: (input: TaskWorkspacePromptSaveInput) => Promise<void>;
 }) {
   const [open, setOpen] = useState(initiallyOpen);
@@ -58,10 +65,19 @@ function BlockPromptDisclosure({
         />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{block.title}</div>
-          <div className="mt-1 truncate font-mono text-xs text-text-muted">
-            {block.ref} · {block.effectiveExecutor ?? labels.unavailable}
-          </div>
+          <div className="mt-1 truncate font-mono text-xs text-text-muted">{block.ref}</div>
         </div>
+        <TaskWorkspaceExecutorSelect
+          className="w-48 shrink-0"
+          compact
+          executorName={block.executor}
+          executorOptions={executorOptions}
+          inheritLabel={labels.inheritTaskExecutor}
+          label={labels.blockExecutor}
+          labels={{ saved: labels.executorSaved, saving: labels.executorSaving }}
+          onSave={onSaveExecutor}
+          packageExecutorNames={packageExecutorNames}
+        />
         <Badge variant="outline">{block.status}</Badge>
       </summary>
       <div className="border-t border-border/80 p-4">
@@ -140,16 +156,24 @@ export function TaskWorkspaceOverview({
 }
 
 export function TaskWorkspaceOverviewPanel({
+  executorOptions,
   focusedBlockRef,
   labels,
+  onSaveBlockExecutor,
   onSaveBlockPrompt,
+  onSaveTaskExecutor,
   onSaveTaskPrompt,
+  packageExecutorNames,
   workspace
 }: {
+  executorOptions: readonly string[];
   focusedBlockRef: string | null;
   labels: TaskWorkspaceLabels;
+  onSaveBlockExecutor: (blockRef: string, executorName: string | null) => Promise<void>;
   onSaveBlockPrompt: (blockRef: string, input: TaskWorkspacePromptSaveInput) => Promise<void>;
+  onSaveTaskExecutor: (executorName: string | null) => Promise<void>;
   onSaveTaskPrompt: (input: TaskWorkspacePromptSaveInput) => Promise<void>;
+  packageExecutorNames: readonly string[];
   workspace: TaskWorkspace;
 }) {
   const runs = activeRuns(workspace);
@@ -161,13 +185,24 @@ export function TaskWorkspaceOverviewPanel({
       data-testid="task-workspace-overview-panel"
     >
       <div className="mx-auto w-full max-w-5xl space-y-8 p-6 sm:p-8">
-        <header className="space-y-2 border-b border-border/80 pb-6">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">{labels.overview}</Badge>
-            <Badge variant="secondary">{labels.taskStatus[workspace.task.status]}</Badge>
+        <header className="grid gap-5 border-b border-border/80 pb-6 md:grid-cols-[minmax(0,1fr)_18rem] md:items-end">
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">{labels.overview}</Badge>
+              <Badge variant="secondary">{labels.taskStatus[workspace.task.status]}</Badge>
+            </div>
+            <h1 className="text-2xl font-semibold tracking-tight">{workspace.task.title}</h1>
+            <p className="font-mono text-xs text-text-muted">{workspace.task.taskId}</p>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">{workspace.task.title}</h1>
-          <p className="font-mono text-xs text-text-muted">{workspace.task.taskId}</p>
+          <TaskWorkspaceExecutorSelect
+            executorName={workspace.task.executor}
+            executorOptions={executorOptions}
+            inheritLabel={labels.inheritCanvasExecutor}
+            label={labels.taskExecutor}
+            labels={{ saved: labels.executorSaved, saving: labels.executorSaving }}
+            onSave={onSaveTaskExecutor}
+            packageExecutorNames={packageExecutorNames}
+          />
         </header>
 
         <section className="grid gap-4 lg:grid-cols-3">
@@ -241,10 +276,13 @@ export function TaskWorkspaceOverviewPanel({
               return (
                 <BlockPromptDisclosure
                   block={block}
+                  executorOptions={executorOptions}
                   initiallyOpen={initiallyOpen}
                   key={`${block.ref}:${initiallyOpen}`}
                   labels={labels}
+                  onSaveExecutor={(executorName) => onSaveBlockExecutor(block.ref, executorName)}
                   onSavePrompt={(input) => onSaveBlockPrompt(block.ref, input)}
+                  packageExecutorNames={packageExecutorNames}
                 />
               );
             })}

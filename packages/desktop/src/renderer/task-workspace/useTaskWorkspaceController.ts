@@ -16,23 +16,29 @@ import type {
   TaskWorkspaceLiveStatus,
   TaskWorkspaceSelectedRun
 } from "./contracts";
+import { useTaskWorkspaceExecutorActions } from "./useTaskWorkspaceExecutorActions";
 
 type TaskWorkspaceApi = Pick<
   DesktopBridgeApi,
   | "getRunRecord"
   | "getBlockDetail"
+  | "getGraphViewModel"
   | "getTaskDetail"
   | "getTaskWorkspace"
   | "onAutoRunChanged"
   | "onRuntimeStateChanged"
   | "subscribeRunnerRecord"
+  | "updateBlockExecutor"
   | "updateBlockPrompt"
+  | "updateTaskExecutor"
   | "updateTaskPrompt"
 >;
 
 type WorkspaceLoad = {
   error: string | null;
+  executorOptions: string[];
   key: string;
+  packageExecutorNames: string[];
   status: "idle" | "loading" | "ready" | "error";
   workspace: TaskWorkspace | null;
 };
@@ -46,7 +52,9 @@ type RecordLoad = {
 
 const idleWorkspaceLoad: WorkspaceLoad = {
   error: null,
+  executorOptions: [],
   key: "",
+  packageExecutorNames: [],
   status: "idle",
   workspace: null
 };
@@ -59,7 +67,7 @@ function errorMessage(error: unknown): string {
 function graphEditError(result: Awaited<ReturnType<DesktopBridgeApi["updateTaskPrompt"]>>): string {
   return (
     result.diagnostics.map((diagnostic) => diagnostic.message).join("\n") ||
-    "The prompt could not be saved."
+    "The graph edit could not be saved."
   );
 }
 
@@ -116,6 +124,7 @@ export function useTaskWorkspaceController(options: {
   const { api = bridge, history } = options;
   const navigation = history.taskWorkspaceNavigation;
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const refresh = useCallback(() => setRefreshVersion((current) => current + 1), []);
   const [workspaceLoad, setWorkspaceLoad] = useState<WorkspaceLoad>(idleWorkspaceLoad);
   const [recordLoad, setRecordLoad] = useState<RecordLoad>(idleRecordLoad);
   const [overviewSelected, setOverviewSelected] = useState(false);
@@ -148,22 +157,47 @@ export function useTaskWorkspaceController(options: {
     if (!api) {
       setWorkspaceLoad({
         error: "Task Workspace bridge is unavailable.",
+        executorOptions: [],
         key,
+        packageExecutorNames: [],
         status: "error",
         workspace: null
       });
       return;
     }
-    setWorkspaceLoad({ error: null, key, status: "loading", workspace: null });
-    void api
-      .getTaskWorkspace({
-        projectRoot: navigation.projectRoot,
-        canvasId: navigation.canvasId,
+    setWorkspaceLoad({
+      error: null,
+      executorOptions: [],
+      key,
+      packageExecutorNames: [],
+      status: "loading",
+      workspace: null
+    });
+    const canvasRef = {
+      projectRoot: navigation.projectRoot,
+      canvasId: navigation.canvasId
+    };
+    void Promise.all([
+      api.getTaskWorkspace({
+        ...canvasRef,
         taskId: navigation.taskId,
         selectedRecordId: navigation.recordId ?? null
-      })
-      .then((workspace) => {
+      }),
+      api.getGraphViewModel(canvasRef)
+    ])
+      .then(([workspace, graph]) => {
         if (workspaceRequest.current !== request) {
+          return;
+        }
+        if (!graph.tasks.some((task) => task.taskId === navigation.taskId)) {
+          setWorkspaceLoad({
+            error: `Task '${navigation.taskId}' is unavailable in the current graph view.`,
+            executorOptions: [],
+            key,
+            packageExecutorNames: [],
+            status: "error",
+            workspace: null
+          });
           return;
         }
         const selected = initialRunForNavigation(workspace, navigation);
@@ -173,7 +207,9 @@ export function useTaskWorkspaceController(options: {
         ) {
           setWorkspaceLoad({
             error: `Block '${navigation.blockRef}' is unavailable for task '${navigation.taskId}'.`,
+            executorOptions: [],
             key,
+            packageExecutorNames: [],
             status: "error",
             workspace: null
           });
@@ -182,7 +218,9 @@ export function useTaskWorkspaceController(options: {
         if (navigation.recordId && !selected) {
           setWorkspaceLoad({
             error: `Run record '${navigation.recordId}' does not belong to block '${navigation.blockRef}'.`,
+            executorOptions: [],
             key,
+            packageExecutorNames: [],
             status: "error",
             workspace: null
           });
@@ -200,17 +238,33 @@ export function useTaskWorkspaceController(options: {
           );
           return;
         }
-        setWorkspaceLoad({ error: null, key, status: "ready", workspace });
+        setWorkspaceLoad({
+          error: null,
+          executorOptions: graph.executorOptions,
+          key,
+          packageExecutorNames: graph.packageExecutorNames ?? [],
+          status: "ready",
+          workspace
+        });
       })
       .catch((error: unknown) => {
         if (workspaceRequest.current !== request) {
           return;
         }
-        setWorkspaceLoad({ error: errorMessage(error), key, status: "error", workspace: null });
+        setWorkspaceLoad({
+          error: errorMessage(error),
+          executorOptions: [],
+          key,
+          packageExecutorNames: [],
+          status: "error",
+          workspace: null
+        });
       });
   }, [api, history.replaceTaskWorkspaceTarget, key, navigation, refreshVersion]);
 
   const workspace = workspaceLoad.key === key ? workspaceLoad.workspace : null;
+  const executorOptions = workspaceLoad.key === key ? workspaceLoad.executorOptions : [];
+  const packageExecutorNames = workspaceLoad.key === key ? workspaceLoad.packageExecutorNames : [];
   const routedSelectedRun = useMemo(() => {
     if (!workspace || !navigation?.blockRef || !navigation.recordId) {
       return null;
@@ -350,12 +404,12 @@ export function useTaskWorkspaceController(options: {
     }
     const matchesCanvas = (event: { projectRoot: string; canvasId: string | null }) =>
       event.projectRoot === navigation.projectRoot && event.canvasId === navigation.canvasId;
-    const refresh = () => setRefreshVersion((current) => current + 1);
+    const refreshFromEvent = () => setRefreshVersion((current) => current + 1);
     const removeRuntimeListener = api.onRuntimeStateChanged((event) => {
-      if (matchesCanvas(event)) refresh();
+      if (matchesCanvas(event)) refreshFromEvent();
     });
     const removeAutoRunListener = api.onAutoRunChanged((event) => {
-      if (matchesCanvas(event)) refresh();
+      if (matchesCanvas(event)) refreshFromEvent();
     });
     return () => {
       removeRuntimeListener();
@@ -418,9 +472,9 @@ export function useTaskWorkspaceController(options: {
       if (!result.ok) {
         throw new Error(graphEditError(result));
       }
-      setRefreshVersion((value) => value + 1);
+      refresh();
     },
-    [api, navigation]
+    [api, navigation, refresh]
   );
 
   const saveBlockPrompt = useCallback<TaskWorkspaceController["saveBlockPrompt"]>(
@@ -453,10 +507,16 @@ export function useTaskWorkspaceController(options: {
       if (!result.ok) {
         throw new Error(graphEditError(result));
       }
-      setRefreshVersion((value) => value + 1);
+      refresh();
     },
-    [api, navigation]
+    [api, navigation, refresh]
   );
+
+  const { saveBlockExecutor, saveTaskExecutor } = useTaskWorkspaceExecutorActions({
+    api,
+    navigation,
+    onSaved: refresh
+  });
 
   const liveStatus = useMemo<TaskWorkspaceLiveStatus>(() => {
     if (!liveProjection.selectedRun) return "idle";
@@ -483,6 +543,7 @@ export function useTaskWorkspaceController(options: {
   return useMemo<TaskWorkspaceController>(
     () => ({
       error,
+      executorOptions,
       getRunScrollTop: (recordId) => runScrollPositions.current.get(recordId) ?? 0,
       liveStatus,
       liveUnavailableReason,
@@ -490,11 +551,14 @@ export function useTaskWorkspaceController(options: {
       onRunScrollTopChange: (recordId, scrollTop) => {
         runScrollPositions.current.set(recordId, Math.max(0, scrollTop));
       },
+      packageExecutorNames,
       recordError,
-      refresh: () => setRefreshVersion((current) => current + 1),
+      refresh,
       returnToCanvas: history.returnToTaskWorkspaceSource,
       runnerModel: liveProjection.runnerModel,
+      saveBlockExecutor,
       saveBlockPrompt,
+      saveTaskExecutor,
       saveTaskPrompt,
       selectRun,
       selectedRecord,
@@ -505,14 +569,19 @@ export function useTaskWorkspaceController(options: {
     }),
     [
       error,
+      executorOptions,
       history.returnToTaskWorkspaceSource,
       liveStatus,
       liveUnavailableReason,
       monitor.subscriptionError,
       liveProjection,
       navigation,
+      packageExecutorNames,
       recordError,
+      refresh,
+      saveBlockExecutor,
       saveBlockPrompt,
+      saveTaskExecutor,
       saveTaskPrompt,
       selectRun,
       selectedRecord,

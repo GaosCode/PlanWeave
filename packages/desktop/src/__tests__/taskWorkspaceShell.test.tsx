@@ -1,10 +1,18 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { TaskWorkspace } from "@planweave-ai/runtime";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   TaskWorkspaceConversationSlotProps,
   TaskWorkspaceController,
@@ -19,16 +27,21 @@ import {
   taskWorkspacePanelMinWidth,
   useTaskWorkspaceLayout
 } from "../renderer/task-workspace/useTaskWorkspaceLayout";
-import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
+import {
+  cleanupRendererTestEnvironment,
+  stubSelectLayoutApis
+} from "./helpers/rendererTestEnvironment";
 import { taskWorkspaceInspectorFixture } from "./helpers/taskWorkspaceInspectorFixture";
 
 afterEach(cleanupRendererTestEnvironment);
+beforeEach(stubSelectLayoutApis);
 
 const labels: TaskWorkspaceLabels = {
   acceptanceCriteria: "Acceptance criteria",
   activeRuns: (count) => `Active runs: ${count}`,
   agent: "Agent",
   backToCanvas: "Back to canvas",
+  blockExecutor: "Block executor",
   blocks: "Blocks",
   booleanFalse: "False",
   booleanTrue: "True",
@@ -37,9 +50,13 @@ const labels: TaskWorkspaceLabels = {
   dependencies: "Dependencies",
   dependencyProgress: (completed, total, percent) => `${completed}/${total} (${percent}%)`,
   elapsed: "Elapsed",
+  executorSaved: "Executor saved",
+  executorSaving: "Saving executor",
   expandTimeline: "Expand timeline",
   formatDuration: (milliseconds) => `${milliseconds / 1_000}s`,
   inspector: "Inspector",
+  inheritCanvasExecutor: "Inherit canvas default",
+  inheritTaskExecutor: "Inherit Task / canvas",
   latestArtifact: "Latest artifact",
   loading: "Loading",
   liveUnavailable: "Live unavailable",
@@ -75,6 +92,7 @@ const labels: TaskWorkspaceLabels = {
     waiting: "Waiting"
   },
   status: "Status",
+  taskExecutor: "Task executor",
   taskStatus: {
     implemented: "Implemented",
     in_progress: "In progress",
@@ -140,6 +158,7 @@ const workspace: TaskWorkspace = {
 function controller(patch: Partial<TaskWorkspaceController> = {}): TaskWorkspaceController {
   return {
     error: null,
+    executorOptions: ["manual", "codex", "claude-code", "pi"],
     getRunScrollTop: () => 0,
     liveStatus: "idle",
     liveUnavailableReason: null,
@@ -150,11 +169,14 @@ function controller(patch: Partial<TaskWorkspaceController> = {}): TaskWorkspace
       source: { view: "graph" }
     },
     onRunScrollTopChange: vi.fn(),
+    packageExecutorNames: [],
     recordError: null,
     refresh: vi.fn(),
     returnToCanvas: vi.fn(),
     runnerModel: null,
+    saveBlockExecutor: vi.fn(async () => undefined),
     saveBlockPrompt: vi.fn(async () => undefined),
+    saveTaskExecutor: vi.fn(async () => undefined),
     saveTaskPrompt: vi.fn(async () => undefined),
     selectRun: vi.fn(),
     selectedRecord: null,
@@ -192,6 +214,56 @@ describe("Task Workspace shell", () => {
       "h-full",
       "overflow-y-auto",
       "[scrollbar-gutter:stable]"
+    );
+  });
+
+  it("edits Task and Block executors from the overview while preserving current custom values", async () => {
+    const fixture = taskWorkspaceInspectorFixture();
+    const saveTaskExecutor = vi.fn(async () => undefined);
+    const saveBlockExecutor = vi.fn(async () => undefined);
+    const block = { ...fixture.selectedRun.block, runs: [] };
+    const executorWorkspace = {
+      ...fixture.workspace,
+      task: { ...fixture.workspace.task, executor: "legacy-agent" },
+      blocks: [block],
+      activeRecordIds: [],
+      selectedRecordId: null
+    };
+
+    render(
+      <TaskWorkspaceRoute
+        controller={controller({
+          executorOptions: ["manual", "codex", "claude-code", "pi"],
+          packageExecutorNames: [],
+          saveBlockExecutor,
+          saveTaskExecutor,
+          workspace: executorWorkspace
+        })}
+        labels={labels}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText("Task executor"));
+    expect(screen.getByRole("option", { name: "legacy-agent" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "claude-code" }));
+    expect(saveTaskExecutor).toHaveBeenCalledWith("claude-code");
+
+    fireEvent.click(screen.getByLabelText("Block executor"));
+    fireEvent.click(screen.getByRole("option", { name: "Inherit Task / canvas" }));
+    expect(saveBlockExecutor).toHaveBeenCalledWith(block.ref, null);
+  });
+
+  it("keeps executor edit failures visible beside the selector", async () => {
+    const saveTaskExecutor = vi.fn(async () => {
+      throw new Error("Executor profile is unavailable.");
+    });
+    render(<TaskWorkspaceRoute controller={controller({ saveTaskExecutor })} labels={labels} />);
+
+    fireEvent.click(screen.getByLabelText("Task executor"));
+    fireEvent.click(screen.getByRole("option", { name: "codex" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Executor profile is unavailable.")
     );
   });
 

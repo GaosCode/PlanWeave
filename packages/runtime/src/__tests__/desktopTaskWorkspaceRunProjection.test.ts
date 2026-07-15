@@ -182,6 +182,7 @@ describe("Task Workspace run projection", () => {
           type: "implementation",
           title: "Implement",
           status: "in_progress",
+          executor: "codex",
           effectiveExecutor: "codex",
           promptMarkdown: "# Implement",
           promptMissing: false,

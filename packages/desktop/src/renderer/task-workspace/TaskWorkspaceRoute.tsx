@@ -134,10 +134,14 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
   );
   const conversation: ReactNode = !controller.selectedRun ? (
     <TaskWorkspaceOverviewPanel
+      executorOptions={controller.executorOptions}
       focusedBlockRef={controller.navigation?.blockRef ?? null}
       labels={labels}
+      onSaveBlockExecutor={controller.saveBlockExecutor}
       onSaveBlockPrompt={controller.saveBlockPrompt}
+      onSaveTaskExecutor={controller.saveTaskExecutor}
       onSaveTaskPrompt={controller.saveTaskPrompt}
+      packageExecutorNames={controller.packageExecutorNames}
       workspace={controller.workspace}
     />
   ) : controller.recordError ? (

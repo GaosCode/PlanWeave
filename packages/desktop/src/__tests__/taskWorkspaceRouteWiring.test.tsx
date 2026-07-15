@@ -31,6 +31,7 @@ function readyTaskWorkspace(
 ): TaskWorkspaceController {
   return {
     error: null,
+    executorOptions: ["manual", "codex", "claude-code", "pi"],
     getRunScrollTop: vi.fn(() => 0),
     liveStatus: "live",
     liveUnavailableReason: null,
@@ -41,11 +42,14 @@ function readyTaskWorkspace(
       source: { view: "graph" }
     },
     onRunScrollTopChange: vi.fn(),
+    packageExecutorNames: [],
     recordError: null,
     refresh: vi.fn(),
     returnToCanvas: vi.fn(),
     runnerModel: fixture.selectedRecord.runnerReadModel,
+    saveBlockExecutor: vi.fn(async () => undefined),
     saveBlockPrompt: vi.fn(async () => undefined),
+    saveTaskExecutor: vi.fn(async () => undefined),
     saveTaskPrompt: vi.fn(async () => undefined),
     selectRun: vi.fn(),
     selectedRecord: fixture.selectedRecord,

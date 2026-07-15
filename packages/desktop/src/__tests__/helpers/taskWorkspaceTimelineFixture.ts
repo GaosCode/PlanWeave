@@ -113,6 +113,7 @@ export function timelineBlockFixture(options: {
     type: options.type ?? "implementation",
     title: options.title ?? options.blockId,
     status: "in_progress",
+    executor: "codex",
     effectiveExecutor: "codex",
     promptMarkdown: `# ${options.blockId} source prompt`,
     promptMissing: false,

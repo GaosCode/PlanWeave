@@ -43,6 +43,7 @@ export type TaskWorkspaceLabels = {
   activeRuns: (count: number) => string;
   agent: string;
   backToCanvas: string;
+  blockExecutor: string;
   blocks: string;
   booleanFalse: string;
   booleanTrue: string;
@@ -51,9 +52,13 @@ export type TaskWorkspaceLabels = {
   dependencies: string;
   dependencyProgress: (completed: number, total: number, percent: number) => string;
   elapsed: string;
+  executorSaved: string;
+  executorSaving: string;
   expandTimeline: string;
   formatDuration: (milliseconds: number) => string;
   inspector: string;
+  inheritCanvasExecutor: string;
+  inheritTaskExecutor: string;
   latestArtifact: string;
   loading: string;
   liveUnavailable: string;
@@ -71,6 +76,7 @@ export type TaskWorkspaceLabels = {
   reasoning: string;
   runStatus: Record<"active" | "cancelled" | "completed" | "failed" | "waiting", string>;
   status: string;
+  taskExecutor: string;
   taskStatus: Record<TaskWorkspace["task"]["status"], string>;
   timeline: string;
   unavailable: string;
@@ -78,16 +84,20 @@ export type TaskWorkspaceLabels = {
 
 export type TaskWorkspaceController = {
   error: string | null;
+  executorOptions: string[];
   getRunScrollTop: (recordId: string) => number;
   liveStatus: TaskWorkspaceLiveStatus;
   liveUnavailableReason: string | null;
   navigation: TaskWorkspaceNavigationIdentity | null;
   onRunScrollTopChange: (recordId: string, scrollTop: number) => void;
+  packageExecutorNames: string[];
   recordError: string | null;
   refresh: () => void;
   returnToCanvas: () => void;
   runnerModel: RunnerRecordReadModel | null;
+  saveBlockExecutor: (blockRef: string, executorName: string | null) => Promise<void>;
   saveBlockPrompt: (blockRef: string, input: TaskWorkspacePromptSaveInput) => Promise<void>;
+  saveTaskExecutor: (executorName: string | null) => Promise<void>;
   saveTaskPrompt: (input: TaskWorkspacePromptSaveInput) => Promise<void>;
   selectRun: (selection: { blockRef: string; recordId: string } | null) => void;
   selectedRecord: DesktopRunRecord | null;

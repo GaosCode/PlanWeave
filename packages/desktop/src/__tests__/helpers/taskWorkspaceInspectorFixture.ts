@@ -214,6 +214,7 @@ export function taskWorkspaceInspectorFixture(
     type: "implementation",
     title: "Implement inspector",
     status: "completed",
+    executor: "codex",
     effectiveExecutor: "codex",
     promptMarkdown: "# Implement inspector\n\nBlock source prompt.",
     promptMissing: false,

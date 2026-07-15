@@ -195,6 +195,7 @@ export function selection(
     type: "implementation",
     title: "Implement workspace",
     status: options.retry ? "blocked" : options.active === false ? "completed" : "in_progress",
+    executor: run.metadata.executor,
     effectiveExecutor: run.metadata.executor,
     promptMarkdown: "# Implement workspace\n\nBlock source prompt.",
     promptMissing: false,

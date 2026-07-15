@@ -182,6 +182,7 @@ function workspace(selectedRecordId: string): TaskWorkspace {
         type: "implementation",
         title: "Implement",
         status: "in_progress",
+        executor: "codex",
         effectiveExecutor: "codex",
         promptMarkdown: "# Implement",
         promptMissing: false,
@@ -287,6 +288,50 @@ function controllerApi(options: { readModel: (recordId: string) => RunnerRecordR
     getTaskWorkspace: vi.fn(async (input: { selectedRecordId?: string | null }) =>
       workspace(input.selectedRecordId ?? "T-001#B-001::RUN-001")
     ),
+    getGraphViewModel: vi.fn(async () => ({
+      projectId: "project-1",
+      projectTitle: "Demo",
+      graphVersion: "pgv-1",
+      packageFingerprint: "fingerprint-1",
+      executorOptions: ["manual", "codex", "claude-code", "pi"],
+      packageExecutorNames: [],
+      agentTransport: "acp" as const,
+      autoRunPreflightExecutorHint: "codex",
+      tasks: [
+        {
+          taskId: "T-001",
+          title: "Task workspace",
+          status: "in_progress" as const,
+          executor: "codex",
+          executorLabel: "codex",
+          promptMarkdown: "# Task workspace",
+          promptMissing: false,
+          promptPreview: "Task workspace",
+          sharedResources: [],
+          blocks: [
+            {
+              ref: "T-001#B-001",
+              blockId: "B-001",
+              type: "implementation" as const,
+              title: "Implement",
+              status: "in_progress" as const,
+              executor: "codex",
+              promptMissing: false,
+              exceptionReason: null,
+              dispatchable: false
+            }
+          ],
+          blockPreview: [],
+          hiddenBlockRefs: [],
+          overflowBlockCount: 0,
+          exceptions: []
+        }
+      ],
+      edges: [],
+      sharedResourceGroups: [],
+      diagnostics: [],
+      dirtyPromptRefs: []
+    })),
     getTaskDetail: vi.fn(async () => ({
       taskId: "T-001",
       graphVersion: "pgv-1",
@@ -319,7 +364,17 @@ function controllerApi(options: { readModel: (recordId: string) => RunnerRecordR
       affectedTasks: ["T-001"],
       diagnostics: []
     })),
+    updateBlockExecutor: vi.fn(async () => ({
+      ok: true,
+      affectedTasks: ["T-001"],
+      diagnostics: []
+    })),
     updateTaskPrompt: vi.fn(async () => ({
+      ok: true,
+      affectedTasks: ["T-001"],
+      diagnostics: []
+    })),
+    updateTaskExecutor: vi.fn(async () => ({
       ok: true,
       affectedTasks: ["T-001"],
       diagnostics: []
@@ -351,6 +406,56 @@ function useControllerHarness(
 }
 
 describe("Task Workspace selected run controller", () => {
+  it("saves a Task executor without changing Block overrides", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const { result } = renderHook(() => useControllerHarness(api));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await result.current.saveTaskExecutor("claude-code");
+    });
+
+    expect(api.updateTaskExecutor).toHaveBeenCalledWith(
+      { projectRoot: "/projects/demo", canvasId: "canvas-main" },
+      "T-001",
+      "claude-code"
+    );
+    expect(api.updateBlockExecutor).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.getTaskWorkspace).toHaveBeenCalledTimes(2));
+  });
+
+  it("clears a Block override when its executor is changed to inherit", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const { result } = renderHook(() => useControllerHarness(api));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await result.current.saveBlockExecutor("T-001#B-001", null);
+    });
+
+    expect(api.updateBlockExecutor).toHaveBeenCalledWith(
+      { projectRoot: "/projects/demo", canvasId: "canvas-main" },
+      "T-001#B-001",
+      null
+    );
+  });
+
+  it("surfaces executor edit diagnostics and does not refresh after failure", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    api.updateTaskExecutor.mockResolvedValueOnce({
+      ok: false,
+      affectedTasks: [],
+      diagnostics: [{ code: "invalid_executor", message: "Executor is unavailable." }]
+    });
+    const { result } = renderHook(() => useControllerHarness(api));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await expect(result.current.saveTaskExecutor("missing-agent")).rejects.toThrow(
+      "Executor is unavailable."
+    );
+    expect(api.getTaskWorkspace).toHaveBeenCalledTimes(1);
+  });
+
   it("saves Task prompts through the revision-checked graph edit path and refreshes the workspace", async () => {
     const { api } = controllerApi({ readModel: () => null });
     const { result } = renderHook(() => useControllerHarness(api));
