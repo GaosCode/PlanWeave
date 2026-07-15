@@ -1069,6 +1069,7 @@ describe("desktop renderer settings interactions", () => {
         }}
         refreshAgentDetections={refreshAgentDetections}
         settings={settings}
+        t={createTranslator("en")}
         updateSettings={vi.fn()}
       />
     );
@@ -1116,6 +1117,7 @@ describe("desktop renderer settings interactions", () => {
         }}
         refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
         settings={{ ...settings, execution: { ...settings.execution, agentTransport: "acp" } }}
+        t={createTranslator("en")}
         updateSettings={vi.fn()}
       />
     );

@@ -17,7 +17,9 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { bridge } from "../bridge";
+import type { createTranslator } from "../i18n";
 import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
+import { ExecutorPreflightSummary } from "./ExecutorPreflightSummary";
 
 type AcpProbeState = {
   error: string | null;
@@ -47,6 +49,7 @@ type AgentSettingsPanelProps = {
   projectRoot?: string | null;
   refreshAgentDetections: () => Promise<void>;
   settings: DesktopUiSettings;
+  t: ReturnType<typeof createTranslator>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
 };
 
@@ -72,6 +75,7 @@ export function AgentSettingsPanel({
   labels,
   refreshAgentDetections,
   settings,
+  t,
   updateSettings
 }: AgentSettingsPanelProps) {
   const [expandedAgent, setExpandedAgent] = useState<DesktopAgentKind | null>(null);
@@ -83,8 +87,8 @@ export function AgentSettingsPanel({
     setAcpProbes({});
   }, [projectRoot]);
 
-  const probeAcpAgent = async (agentKind: DesktopAgentKind) => {
-    if (acpProbes[agentKind]?.result?.ok === true || acpProbes[agentKind]?.loading) {
+  const probeAcpAgent = async (agentKind: DesktopAgentKind, force = false) => {
+    if (!force && (acpProbes[agentKind]?.result?.ok === true || acpProbes[agentKind]?.loading)) {
       return;
     }
     if (!bridge) {
@@ -107,7 +111,10 @@ export function AgentSettingsPanel({
       setAcpProbes((current) => ({
         ...current,
         [agentKind]: {
-          error: result.ok ? null : result.message,
+          error:
+            result.ok || result.authentication?.status === "action_required"
+              ? null
+              : result.message,
           loading: false,
           result
         }
@@ -139,6 +146,12 @@ export function AgentSettingsPanel({
             void refreshAgentDetections().then(() => {
               probeGenerationRef.current += 1;
               setAcpProbes({});
+              const expandedDetection = agents.find(
+                (agent) => agent.kind === expandedAgent && agent.runnerKind === "acp"
+              );
+              if (expandedDetection?.installed) {
+                void probeAcpAgent(expandedDetection.kind, true);
+              }
             });
           }}
         >
@@ -157,6 +170,7 @@ export function AgentSettingsPanel({
         const supportsAcpOptions = agent.runnerKind === "acp";
         const expanded = expandedAgent === agent.kind;
         const acpProbe = acpProbes[agent.kind];
+        const acpProbeReady = acpProbe?.result?.ok === true;
         const sessionConfig =
           supportsAcpOptions && acpProbe?.result?.agentKind === agent.kind
             ? acpProbe.result.sessionConfig
@@ -247,6 +261,9 @@ export function AgentSettingsPanel({
                 ) : null}
                 {!acpProbe && !sessionConfig ? (
                   <div className="text-xs text-muted-foreground">{labels.acpNotProbed}</div>
+                ) : null}
+                {acpProbe?.result ? (
+                  <ExecutorPreflightSummary result={acpProbe.result} t={t} />
                 ) : null}
                 {sessionConfig?.configOptions.map((option) => (
                   <div className="flex items-center justify-between gap-4" key={option.id}>
@@ -358,10 +375,15 @@ export function AgentSettingsPanel({
                 ) : null}
                 {!acpProbe?.loading &&
                 !acpProbe?.error &&
+                acpProbeReady &&
                 !sessionConfig?.configOptions.some((option) => option.category === "model") ? (
                   <div className="text-xs text-muted-foreground">{labels.acpModelManaged}</div>
                 ) : null}
-                <div className="text-xs text-muted-foreground">{labels.acpPermissionsManaged}</div>
+                {acpProbeReady ? (
+                  <div className="text-xs text-muted-foreground">
+                    {labels.acpPermissionsManaged}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>

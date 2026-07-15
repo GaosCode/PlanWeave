@@ -219,7 +219,8 @@ describe("preload bridge invocation", () => {
       agentInfo: null,
       authentication: { status: "not_advertised" },
       capabilities: ["session"],
-      sessionConfig: null
+      sessionConfig: null,
+      checks: [{ check: "acp_initialized", status: "passed", message: "ACP initialize completed." }]
     }));
     const api = createDesktopBridgeInvokeApi(invoke);
     const input = { agentKind: "codex" as const, projectRoot: null };

@@ -98,7 +98,10 @@ export {
 } from "../projectPromptPolicy.js";
 export type { ProjectPromptPolicy } from "../projectPromptPolicy.js";
 export { getDesktopGraphDiagnostics } from "./diagnosticsApi.js";
-export { probeDesktopAgentCapabilities } from "./agentCapabilityApi.js";
+export {
+  desktopAgentCapabilityProbeResultSchema,
+  probeDesktopAgentCapabilities
+} from "./agentCapabilityApi.js";
 export { listPendingImportRecoveries, rollbackPendingImportRecovery } from "./importRecoveryApi.js";
 export {
   applyCanvasLaneLayout,

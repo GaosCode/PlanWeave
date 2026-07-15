@@ -62,7 +62,7 @@ describe("executor CLI preflight exit status", () => {
   );
 
   it(
-    "emits authoritative ACP agentInfo in JSON without changing human output",
+    "emits authoritative ACP agentInfo in JSON and authentication state in human output",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
       const bin = await mkdtemp(join(tmpdir(), "planweave-acp-bin-"));
@@ -93,8 +93,11 @@ describe("executor CLI preflight exit status", () => {
       });
 
       const human = await runCli(["executors", "test", "codex-acp"], env);
-      expect(human.stdout.trim()).toBe(
+      expect(human.stdout).toContain(
         "ok codex-acp agent=codex runner=acp: ACP runner preflight passed."
+      );
+      expect(human.stdout).toContain(
+        "authentication: not advertised; protocol authentication was not invoked."
       );
     },
     cliWorkflowTimeoutMs

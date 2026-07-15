@@ -52,16 +52,7 @@ import type {
   DesktopRuntimeResetOptions,
   DesktopRuntimeResetResult
 } from "./runTypes.js";
-import type {
-  AcpSessionConfiguration,
-  ExecutorAgentInfo,
-  ExecutorPreflightFailureCode,
-  ProducedExecutorPreflightResult
-} from "../../autoRun/executorPreflightTypes.js";
-import type {
-  RunnerAuthenticationState,
-  RunnerCapability
-} from "../../autoRun/runnerContractSchemas.js";
+import type { ProducedExecutorPreflightResult } from "../../autoRun/executorPreflightTypes.js";
 import type { ClaimResult } from "../../types.js";
 import type { CanvasExecutionPolicyInput } from "../graph/editModelTypes.js";
 import type {
@@ -106,15 +97,18 @@ export type DesktopAgentCapabilityProbeInput = {
   projectRoot?: string | null;
 };
 
-export type DesktopAgentCapabilityProbeResult = {
+export type DesktopAgentCapabilityProbeResult = Pick<
+  ProducedExecutorPreflightResult,
+  | "ok"
+  | "message"
+  | "failureCode"
+  | "agentInfo"
+  | "authentication"
+  | "capabilities"
+  | "sessionConfig"
+  | "checks"
+> & {
   agentKind: DesktopAgentKind;
-  ok: boolean;
-  message: string;
-  failureCode: ExecutorPreflightFailureCode | null;
-  agentInfo: ExecutorAgentInfo | null;
-  authentication: RunnerAuthenticationState | null;
-  capabilities: RunnerCapability[] | null;
-  sessionConfig: AcpSessionConfiguration | null;
 };
 
 export type DesktopRuntimeToolAvailability = {

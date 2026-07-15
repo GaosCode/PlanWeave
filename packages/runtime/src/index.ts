@@ -181,7 +181,10 @@ export {
   resolveExecutorRunnerEvidence,
   testExecutorProfile
 } from "./autoRun/executors.js";
-export { probeDesktopAgentCapabilities } from "./desktop/agentCapabilityApi.js";
+export {
+  desktopAgentCapabilityProbeResultSchema,
+  probeDesktopAgentCapabilities
+} from "./desktop/agentCapabilityApi.js";
 export {
   executorIntegrationForProfile,
   requireExecutorIntegration

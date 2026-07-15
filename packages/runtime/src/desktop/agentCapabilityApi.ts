@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { createAcpRunner } from "../autoRun/acpRunner.js";
+import { producedExecutorPreflightResultSchema } from "../autoRun/executorPreflightTypes.js";
 import { resolveAgentDefinition } from "../autoRun/agentRegistry.js";
 import { agentFamilySchema, type AgentExecutorProfile } from "../types.js";
 import type {
@@ -10,6 +11,19 @@ import type {
 } from "./types/bridgeTypes.js";
 
 const desktopAgentKindSchema = agentFamilySchema;
+export const desktopAgentCapabilityProbeResultSchema = producedExecutorPreflightResultSchema
+  .pick({
+    ok: true,
+    message: true,
+    failureCode: true,
+    agentInfo: true,
+    authentication: true,
+    capabilities: true,
+    sessionConfig: true,
+    checks: true
+  })
+  .extend({ agentKind: desktopAgentKindSchema })
+  .strict();
 const desktopAgentCapabilityProbeInputSchema = z
   .object({
     agentKind: desktopAgentKindSchema,
@@ -38,7 +52,7 @@ export async function probeDesktopAgentCapabilities(
   });
   const failedCheck = preflight.checks.find((check) => check.status === "failed") ?? null;
   const ok = failedCheck === null && preflight.negotiatedCapabilities !== null;
-  return {
+  return desktopAgentCapabilityProbeResultSchema.parse({
     agentKind: parsed.agentKind,
     ok,
     message: ok
@@ -49,6 +63,7 @@ export async function probeDesktopAgentCapabilities(
     authentication: preflight.authentication ?? null,
     capabilities:
       preflight.availableCapabilities ?? preflight.negotiatedCapabilities?.available ?? null,
-    sessionConfig: preflight.sessionConfig ?? null
-  };
+    sessionConfig: preflight.sessionConfig ?? null,
+    checks: preflight.checks
+  });
 }

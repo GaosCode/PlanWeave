@@ -37,6 +37,10 @@ vi.mock("../renderer/bridge", () => ({
 
 const t = createTranslator("en");
 const canvasRef = { projectRoot: "/tmp/project", canvasId: "canvas-main" };
+const successfulAcpChecks: ExecutorPreflightResult["checks"] = [
+  { check: "acp_initialized", status: "passed", message: "ACP initialize completed." },
+  { check: "acp_authenticated", status: "passed", message: "ACP authentication completed." }
+];
 
 const graph: DesktopGraphViewModel = {
   projectId: "P-001",
@@ -300,6 +304,7 @@ describe("executor preflight desktop UI", () => {
       agentInfo: { name: "Codex ACP", version: "1.0.0" },
       authentication: { status: "not_advertised" },
       capabilities: ["session"],
+      checks: successfulAcpChecks,
       sessionConfig: {
         modes: null,
         configOptions: [
@@ -425,6 +430,7 @@ describe("executor preflight desktop UI", () => {
       agentInfo: { name: agentName, version: "1.0.0" },
       authentication: { status: "not_advertised" },
       capabilities: ["session"],
+      checks: successfulAcpChecks,
       sessionConfig: {
         modes: null,
         configOptions: [
@@ -482,6 +488,7 @@ describe("executor preflight desktop UI", () => {
       agentInfo: { name: "Pi ACP", version: "1.0.0" },
       authentication: { status: "not_advertised" },
       capabilities: ["session"],
+      checks: successfulAcpChecks,
       sessionConfig: {
         modes: {
           currentModeId: "thinking",
@@ -533,6 +540,17 @@ describe("executor preflight desktop UI", () => {
         agentInfo: null,
         authentication: agentKind === "codex" ? { status: "not_advertised" } : null,
         capabilities: agentKind === "codex" ? ["session"] : null,
+        checks:
+          agentKind === "codex"
+            ? successfulAcpChecks
+            : [
+                {
+                  check: "acp_initialized",
+                  status: "failed",
+                  failureCode: "initialization_failed",
+                  message: "OpenCode ACP unavailable."
+                }
+              ],
         sessionConfig: agentKind === "codex" ? { modes: null, configOptions: [] } : null
       })
     );
@@ -606,7 +624,16 @@ describe("executor preflight desktop UI", () => {
           methods: []
         },
         capabilities: ["authentication"],
-        sessionConfig: null
+        sessionConfig: null,
+        checks: [
+          { check: "acp_initialized", status: "passed", message: "ACP initialize completed." },
+          {
+            check: "acp_authenticated",
+            status: "failed",
+            failureCode: "auth_required",
+            message: "Authentication required."
+          }
+        ]
       })
       .mockResolvedValueOnce({
         agentKind: "codex",
@@ -629,7 +656,11 @@ describe("executor preflight desktop UI", () => {
               options: [{ value: "gpt-5", name: "GPT-5", description: null, group: null }]
             }
           ]
-        }
+        },
+        checks: [
+          { check: "acp_initialized", status: "passed", message: "ACP initialize completed." },
+          { check: "acp_authenticated", status: "passed", message: "No methods advertised." }
+        ]
       });
 
     render(
@@ -659,7 +690,12 @@ describe("executor preflight desktop UI", () => {
 
     const optionsButton = screen.getByRole("button", { name: "Codex ACP options" });
     await userEvent.click(optionsButton);
-    expect(await screen.findByText("Authentication required.")).toBeInTheDocument();
+    expect(await screen.findByText("Action required")).toBeInTheDocument();
+    expect(
+      screen.getByText("After login or configuration is complete, test again.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Authentication required.")).not.toBeInTheDocument();
+    expect(screen.queryByText(t("acpPermissionsManaged"))).not.toBeInTheDocument();
     await userEvent.click(optionsButton);
     await userEvent.click(optionsButton);
 
@@ -667,7 +703,7 @@ describe("executor preflight desktop UI", () => {
     expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(2);
   });
 
-  it("clears successful capability probes after agent detection refresh without probing twice", async () => {
+  it("reuses agent detection refresh to rerun the expanded ACP probe", async () => {
     bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
       agentKind: "codex",
       ok: true,
@@ -676,6 +712,7 @@ describe("executor preflight desktop UI", () => {
       agentInfo: null,
       authentication: { status: "not_advertised" },
       capabilities: ["session"],
+      checks: successfulAcpChecks,
       sessionConfig: { modes: null, configOptions: [] }
     });
     const refreshAgentDetections = vi.fn().mockResolvedValue(undefined);
@@ -713,13 +750,13 @@ describe("executor preflight desktop UI", () => {
 
     await userEvent.click(screen.getByRole("button", { name: t("agentRefresh") }));
     await waitFor(() => expect(refreshAgentDetections).toHaveBeenCalledTimes(1));
-    await screen.findByText(t("acpNotProbed"));
-    expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(1);
-    await userEvent.click(optionsButton);
-    await userEvent.click(optionsButton);
     await waitFor(() =>
       expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(2)
     );
+    expect(screen.queryByText(t("acpNotProbed"))).not.toBeInTheDocument();
+    await userEvent.click(optionsButton);
+    await userEvent.click(optionsButton);
+    expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(2);
   });
 
   it("probes ACP capabilities without a graph or canvas", async () => {
@@ -731,6 +768,7 @@ describe("executor preflight desktop UI", () => {
       agentInfo: { name: "Codex ACP", version: "1.0.0" },
       authentication: { status: "not_advertised" },
       capabilities: ["session"],
+      checks: successfulAcpChecks,
       sessionConfig: { modes: null, configOptions: [] }
     });
 

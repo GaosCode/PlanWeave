@@ -207,6 +207,9 @@ const runtimeMock = vi.hoisted(() => {
       authentication: { status: "not_advertised" },
       capabilities: ["session"],
       sessionConfig: null,
+      checks: [
+        { check: "acp_initialized", status: "passed", message: "ACP initialize completed." }
+      ],
       input
     })),
     testExecutorProfile: vi.fn(async (options: unknown) => ({

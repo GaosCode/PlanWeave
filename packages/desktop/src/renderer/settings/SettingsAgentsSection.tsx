@@ -18,6 +18,7 @@ import {
   SelectValue
 } from "@/components/ui/select";
 import { AgentSettingsPanel } from "../components/AgentSettingsPanel";
+import { ExecutorPreflightSummary } from "../components/ExecutorPreflightSummary";
 import { buildExecutorOptionViews } from "../executors/executorOptionViewModel";
 import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
 import type { createTranslator } from "../i18n";
@@ -234,6 +235,7 @@ export function SettingsAgentsSection({
         }}
         refreshAgentDetections={refreshAgentDetections}
         settings={settings}
+        t={t}
         updateSettings={updateSettings}
       />
       <div className="rounded-lg border bg-card p-4" data-testid="settings-executor-preflight">
@@ -320,6 +322,7 @@ export function SettingsAgentsSection({
                     {preflight.result.executionIntegration ?? t("none")}
                   </div>
                 </div>
+                <ExecutorPreflightSummary result={preflight.result} t={t} />
                 <ExecutorPreflightCheckList result={preflight.result} t={t} />
               </div>
             ) : null}

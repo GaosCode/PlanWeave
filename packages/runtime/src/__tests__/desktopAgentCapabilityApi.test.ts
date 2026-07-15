@@ -2,7 +2,10 @@ import { access, chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { probeDesktopAgentCapabilities } from "../desktop/agentCapabilityApi.js";
+import {
+  desktopAgentCapabilityProbeResultSchema,
+  probeDesktopAgentCapabilities
+} from "../desktop/agentCapabilityApi.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 
@@ -35,9 +38,9 @@ describe("desktop agent capability API", () => {
     process.env.PATH = [binDir, previousPath].filter(Boolean).join(":");
 
     try {
-      await expect(
-        probeDesktopAgentCapabilities({ agentKind: "codex", projectRoot: root })
-      ).resolves.toMatchObject({
+      const result = await probeDesktopAgentCapabilities({ agentKind: "codex", projectRoot: root });
+      expect(desktopAgentCapabilityProbeResultSchema.parse(result)).toEqual(result);
+      expect(result).toMatchObject({
         agentKind: "codex",
         ok: true,
         agentInfo: { name: "planweave-acp-mock", version: "1.0.0" },
@@ -49,7 +52,11 @@ describe("desktop agent capability API", () => {
             expect.objectContaining({ id: "model", currentValue: "gpt-5.2-codex" }),
             expect.objectContaining({ id: "fast-mode", currentValue: false })
           ])
-        }
+        },
+        checks: expect.arrayContaining([
+          expect.objectContaining({ check: "acp_initialized", status: "passed" }),
+          expect.objectContaining({ check: "acp_authenticated", status: "passed" })
+        ])
       });
       await expect(access(marker)).rejects.toThrow();
     } finally {
@@ -87,7 +94,15 @@ describe("desktop agent capability API", () => {
           reason: "no_safe_method",
           methods: [{ id: "mock-login", name: "Mock login", type: "agent" }]
         },
-        capabilities: expect.arrayContaining(["authentication"])
+        capabilities: expect.arrayContaining(["authentication"]),
+        checks: [
+          expect.objectContaining({ check: "acp_initialized", status: "passed" }),
+          expect.objectContaining({
+            check: "acp_authenticated",
+            status: "failed",
+            failureCode: "auth_required"
+          })
+        ]
       });
       expect(JSON.stringify(result)).not.toContain("Test-only authentication");
     } finally {
