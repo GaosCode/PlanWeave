@@ -253,7 +253,8 @@ describe("TaskNodeCard context menu", () => {
 
   it("reveals the task node directory from the context menu", async () => {
     const onRevealTaskInFinder = vi.fn();
-    renderTaskNode(nodeData({ onRevealTaskInFinder }));
+    const data = nodeData({ onRevealTaskInFinder });
+    renderTaskNode(data);
 
     fireEvent.contextMenu(screen.getByRole("textbox", { name: "T-001 title" }));
     const menuItems = await screen.findAllByRole("menuitem");
@@ -261,7 +262,9 @@ describe("TaskNodeCard context menu", () => {
     for (const menuItem of menuItems) {
       expect(menuItem.querySelector("[data-icon='inline-start']")).toBeInTheDocument();
     }
-    await userEvent.click(screen.getByRole("menuitem", { name: "Open task in Finder" }));
+    await userEvent.click(
+      screen.getByRole("menuitem", { name: data.labels.openTaskInFileManager })
+    );
 
     expect(onRevealTaskInFinder).toHaveBeenCalledWith("T-001");
   });

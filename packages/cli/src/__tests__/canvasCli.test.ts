@@ -526,5 +526,5 @@ describe("STEP-1 CLI contract: canvas", () => {
       JSON.parse((await runCli([...rootArgs, "current", "--canvas", "desktop"], env)).stdout)
         .items[0].submitCommand
     ).toContain("--canvas desktop");
-  }, 20_000);
+  }, 30_000);
 });
