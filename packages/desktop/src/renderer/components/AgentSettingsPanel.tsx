@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type {
-  DesktopAgentDetection,
   DesktopAgentCapabilityProbeResult,
+  DesktopAgentDetection,
   DesktopAgentKind
 } from "@planweave-ai/runtime";
 import { ChevronDownIcon, RefreshCwIcon } from "lucide-react";
@@ -19,13 +19,13 @@ import { cn } from "@/lib/utils";
 import { bridge } from "../bridge";
 import type { createTranslator } from "../i18n";
 import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
+import {
+  clearAgentCapabilityProbeSession,
+  readAgentCapabilityProbeSession,
+  writeAgentCapabilityProbeSession,
+  type AcpProbeState
+} from "./agentCapabilityProbeSessionCache";
 import { ExecutorPreflightSummary } from "./ExecutorPreflightSummary";
-
-type AcpProbeState = {
-  error: string | null;
-  loading: boolean;
-  result: DesktopAgentCapabilityProbeResult | null;
-};
 
 type AgentSettingsPanelProps = {
   agentDetectionRefreshing: boolean;
@@ -67,6 +67,30 @@ function updateAgentSettings(
   };
 }
 
+function hasSettledAcpProbe(probe: AcpProbeState | undefined) {
+  if (!probe) {
+    return false;
+  }
+  return probe.loading || probe.result !== null || probe.error !== null;
+}
+
+function getCompletedProbeError(result: DesktopAgentCapabilityProbeResult) {
+  if (result.ok) {
+    return null;
+  }
+  if (result.authentication?.status === "action_required") {
+    return null;
+  }
+  return result.message;
+}
+
+function getCaughtProbeError(caught: unknown) {
+  if (caught instanceof Error) {
+    return caught.message;
+  }
+  return String(caught);
+}
+
 export function AgentSettingsPanel({
   agentDetectionRefreshing,
   agents,
@@ -79,22 +103,31 @@ export function AgentSettingsPanel({
   updateSettings
 }: AgentSettingsPanelProps) {
   const [expandedAgent, setExpandedAgent] = useState<DesktopAgentKind | null>(null);
-  const [acpProbes, setAcpProbes] = useState<Partial<Record<DesktopAgentKind, AcpProbeState>>>({});
+  const [acpProbes, setAcpProbes] = useState<Partial<Record<DesktopAgentKind, AcpProbeState>>>(() =>
+    readAgentCapabilityProbeSession(projectRoot)
+  );
   const probeGenerationRef = useRef(0);
 
   useEffect(() => {
     probeGenerationRef.current += 1;
-    setAcpProbes({});
+    setAcpProbes(readAgentCapabilityProbeSession(projectRoot));
   }, [projectRoot]);
 
   const probeAcpAgent = async (agentKind: DesktopAgentKind, force = false) => {
-    if (!force && (acpProbes[agentKind]?.result?.ok === true || acpProbes[agentKind]?.loading)) {
+    const currentProbe = acpProbes[agentKind];
+    if (!force && hasSettledAcpProbe(currentProbe)) {
       return;
     }
     if (!bridge) {
+      const completedProbe = {
+        error: bridgeUnavailableMessage,
+        loading: false,
+        result: null
+      } satisfies AcpProbeState;
+      writeAgentCapabilityProbeSession(projectRoot, agentKind, completedProbe);
       setAcpProbes((current) => ({
         ...current,
-        [agentKind]: { error: bridgeUnavailableMessage, loading: false, result: null }
+        [agentKind]: completedProbe
       }));
       return;
     }
@@ -108,28 +141,29 @@ export function AgentSettingsPanel({
       if (probeGenerationRef.current !== generation) {
         return;
       }
+      const completedProbe = {
+        error: getCompletedProbeError(result),
+        loading: false,
+        result
+      } satisfies AcpProbeState;
+      writeAgentCapabilityProbeSession(projectRoot, agentKind, completedProbe);
       setAcpProbes((current) => ({
         ...current,
-        [agentKind]: {
-          error:
-            result.ok || result.authentication?.status === "action_required"
-              ? null
-              : result.message,
-          loading: false,
-          result
-        }
+        [agentKind]: completedProbe
       }));
     } catch (caught) {
       if (probeGenerationRef.current !== generation) {
         return;
       }
+      const completedProbe = {
+        error: getCaughtProbeError(caught),
+        loading: false,
+        result: null
+      } satisfies AcpProbeState;
+      writeAgentCapabilityProbeSession(projectRoot, agentKind, completedProbe);
       setAcpProbes((current) => ({
         ...current,
-        [agentKind]: {
-          error: caught instanceof Error ? caught.message : String(caught),
-          loading: false,
-          result: null
-        }
+        [agentKind]: completedProbe
       }));
     }
   };
@@ -145,6 +179,7 @@ export function AgentSettingsPanel({
           onClick={() => {
             void refreshAgentDetections().then(() => {
               probeGenerationRef.current += 1;
+              clearAgentCapabilityProbeSession(projectRoot);
               setAcpProbes({});
               const expandedDetection = agents.find(
                 (agent) => agent.kind === expandedAgent && agent.runnerKind === "acp"

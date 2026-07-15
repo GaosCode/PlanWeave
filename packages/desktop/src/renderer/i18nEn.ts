@@ -542,7 +542,7 @@ export const enCatalog = {
   acpPermissionsManaged:
     "Permission requests are handled individually through ACP interactions while the agent is running.",
   acpSessionMode: "Session mode",
-  acpNotProbed: "Collapse and reopen this agent to discover its ACP options.",
+  acpNotProbed: "Click Refresh to test this agent again.",
   executorPreflight: "Executor preflight",
   executorPreflightSettingsHint:
     "Run the runtime executor checks for one graph executor before starting Auto Run.",

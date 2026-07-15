@@ -522,7 +522,7 @@ export const zhCnCatalog = {
   acpModelManaged: "默认模型由 Agent 自身配置管理。",
   acpPermissionsManaged: "权限请求会在 Agent 运行期间通过 ACP 协议交互逐次处理。",
   acpSessionMode: "会话模式",
-  acpNotProbed: "收起并重新展开此 Agent 以探测 ACP 选项。",
+  acpNotProbed: "点击刷新以重新检测此 Agent。",
   executorPreflight: "执行器预检",
   executorPreflightSettingsHint: "启动 Auto Run 前，可对单个图谱执行器运行 runtime 预检。",
   executorPreflightNoGraph: "打开项目和任务画布后可测试执行器预检。",

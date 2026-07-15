@@ -14,6 +14,7 @@ import type {
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
+import { resetAgentCapabilityProbeSessionCache } from "../renderer/components/agentCapabilityProbeSessionCache";
 import { defaultDesktopSettings } from "../renderer/settings";
 import { SettingsAgentsSection } from "../renderer/settings/SettingsAgentsSection";
 import { BlockInspector } from "../renderer/inspector/BlockInspector";
@@ -226,6 +227,7 @@ function autoRunState(): DesktopAutoRunState {
 
 afterEach(() => {
   cleanup();
+  resetAgentCapabilityProbeSessionCache();
   bridgeMock.api.probeDesktopAgentCapabilities.mockReset();
   bridgeMock.api.testExecutorProfile.mockReset();
 });
@@ -610,58 +612,30 @@ describe("executor preflight desktop UI", () => {
     expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(2);
   });
 
-  it("retries a failed ACP capability probe after collapsing and reopening the agent", async () => {
-    bridgeMock.api.probeDesktopAgentCapabilities
-      .mockResolvedValueOnce({
-        agentKind: "codex",
-        ok: false,
-        message: "Authentication required.",
-        failureCode: "auth_required",
-        agentInfo: null,
-        authentication: {
-          status: "action_required",
-          reason: "no_safe_method",
-          methods: []
-        },
-        capabilities: ["authentication"],
-        sessionConfig: null,
-        checks: [
-          { check: "acp_initialized", status: "passed", message: "ACP initialize completed." },
-          {
-            check: "acp_authenticated",
-            status: "failed",
-            failureCode: "auth_required",
-            message: "Authentication required."
-          }
-        ]
-      })
-      .mockResolvedValueOnce({
-        agentKind: "codex",
-        ok: true,
-        message: "ACP capability probe passed.",
-        failureCode: null,
-        agentInfo: { name: "Codex ACP", version: "1.0.0" },
-        authentication: { status: "not_advertised" },
-        capabilities: ["session"],
-        sessionConfig: {
-          modes: null,
-          configOptions: [
-            {
-              id: "model",
-              type: "select",
-              name: "Model",
-              description: null,
-              category: "model",
-              currentValue: "gpt-5",
-              options: [{ value: "gpt-5", name: "GPT-5", description: null, group: null }]
-            }
-          ]
-        },
-        checks: [
-          { check: "acp_initialized", status: "passed", message: "ACP initialize completed." },
-          { check: "acp_authenticated", status: "passed", message: "No methods advertised." }
-        ]
-      });
+  it("reuses an action-required ACP result after collapsing and reopening the agent", async () => {
+    bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
+      agentKind: "codex",
+      ok: false,
+      message: "Authentication required.",
+      failureCode: "auth_required",
+      agentInfo: null,
+      authentication: {
+        status: "action_required",
+        reason: "no_safe_method",
+        methods: []
+      },
+      capabilities: ["authentication"],
+      sessionConfig: null,
+      checks: [
+        { check: "acp_initialized", status: "passed", message: "ACP initialize completed." },
+        {
+          check: "acp_authenticated",
+          status: "failed",
+          failureCode: "auth_required",
+          message: "Authentication required."
+        }
+      ]
+    });
 
     render(
       <SettingsAgentsSection
@@ -699,8 +673,9 @@ describe("executor preflight desktop UI", () => {
     await userEvent.click(optionsButton);
     await userEvent.click(optionsButton);
 
-    expect(await screen.findByRole("combobox", { name: "Model" })).toBeInTheDocument();
-    expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Action required")).toBeInTheDocument();
+    expect(screen.queryByText(t("preflightRunning"))).not.toBeInTheDocument();
+    expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(1);
   });
 
   it("reuses agent detection refresh to rerun the expanded ACP probe", async () => {
