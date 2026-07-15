@@ -64,7 +64,8 @@ For every cell, cite exact PlanWeave task/block ids, prompts, reference files, a
 
 ### Execution Graph
 - Check whether tasks, blocks, canvases, project graph edges, and dependency edges express the real execution order.
-- Parallel tasks must be independent in data flow, locks, and contract timing.
+- Parallel tasks must be independent in dependency reachability, data flow, and contract timing.
+- Identify shared-resource overlap between parallel tasks as a non-blocking coordination hint. If overlap requires ordering, require an explicit dependency instead.
 - Different canvases are not automatically parallel; cross-canvas dependencies must be explicit in `project-graph.json` when a formal project graph exists.
 - Canvas-level dependencies must be project graph canvas edges; cross-canvas task blockers must be explicit `crossTaskEdges`.
 - Treat dense or repeated `crossTaskEdges`, stage-wide ordering expressed as task edges, and task edges redundant with canvas order as a canvas-boundary defect.
