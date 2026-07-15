@@ -252,6 +252,10 @@ export {
   persistedPendingInteractionSchema,
   projectIdSchema,
   runnerCapabilitySchema,
+  runnerAuthenticationActionRequiredSchema,
+  runnerAuthenticationAuthenticatedSchema,
+  runnerAuthenticationNotAdvertisedSchema,
+  runnerAuthenticationStateSchema,
   runnerContractVersionSchema,
   runnerIdentitySchema,
   runnerLifecycleStateSchema,
@@ -290,6 +294,8 @@ export type * from "./autoRun/runnerEventReplay.js";
 export { normalizeAcpSessionNotification } from "./autoRun/acpEventNormalization.js";
 export type * from "./autoRun/acpEventNormalization.js";
 export {
+  acpAuthMethodIdSchema,
+  acpAuthenticationActionReasonSchema,
   acpAuthenticationHintsSchema,
   acpAuthMethodSummarySchema,
   acpAuthMethodSummariesSchema,
@@ -546,6 +552,15 @@ export {
   taskWorkspaceWallClockSchema
 } from "./desktop/index.js";
 export type * from "./runSessions/index.js";
+export {
+  executorAgentInfoSchema,
+  executorPreflightCheckNameSchema,
+  executorPreflightFailureCodeSchema,
+  executorPreflightCheckStatusSchema,
+  executorPreflightCheckSchema,
+  executorPreflightResultSchema,
+  producedExecutorPreflightResultSchema
+} from "./autoRun/executorPreflightTypes.js";
 export type * from "./autoRun/executorPreflightTypes.js";
 export type * from "./plangraph/index.js";
 export type * from "./projectGraph/index.js";

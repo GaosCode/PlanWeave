@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { agentFamilySchema, runnerTransportSchema } from "../types/executor.js";
+import {
+  acpAuthenticationActionReasonSchema,
+  acpAuthMethodIdSchema,
+  acpAuthMethodSummariesSchema
+} from "./acpAuthentication.js";
 import { safeRunnerEventTextSchema, utf8ByteLength } from "./runnerEventRedaction.js";
 
 export const runnerContractVersionSchema = z.literal("planweave.runner/v1");
@@ -116,6 +121,29 @@ export const runnerCapabilitySchema = z.enum([
   "history-load"
 ]);
 export type RunnerCapability = z.infer<typeof runnerCapabilitySchema>;
+
+export const runnerAuthenticationNotAdvertisedSchema = z
+  .object({ status: z.literal("not_advertised") })
+  .strict();
+export const runnerAuthenticationAuthenticatedSchema = z
+  .object({
+    status: z.literal("authenticated"),
+    methodId: acpAuthMethodIdSchema
+  })
+  .strict();
+export const runnerAuthenticationActionRequiredSchema = z
+  .object({
+    status: z.literal("action_required"),
+    reason: acpAuthenticationActionReasonSchema,
+    methods: acpAuthMethodSummariesSchema
+  })
+  .strict();
+export const runnerAuthenticationStateSchema = z.discriminatedUnion("status", [
+  runnerAuthenticationNotAdvertisedSchema,
+  runnerAuthenticationAuthenticatedSchema,
+  runnerAuthenticationActionRequiredSchema
+]);
+export type RunnerAuthenticationState = z.infer<typeof runnerAuthenticationStateSchema>;
 
 export const negotiatedCapabilitiesSchema = z
   .object({

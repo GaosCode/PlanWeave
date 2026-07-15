@@ -57,4 +57,42 @@ describe("desktop agent capability API", () => {
       else process.env.PATH = previousPath;
     }
   });
+
+  it("projects actionable authentication and advertised capability without secret values", async () => {
+    const binDir = await mkdtemp(join(tmpdir(), "planweave-agent-auth-capability-bin-"));
+    const launcher = join(binDir, "codex-acp");
+    await writeFile(
+      launcher,
+      [
+        "#!/usr/bin/env node",
+        'process.argv[2] = "action-required";',
+        `await import(${JSON.stringify(fixture.href)});`
+      ].join("\n"),
+      "utf8"
+    );
+    await chmod(launcher, 0o755);
+    const previousPath = process.env.PATH;
+    process.env.PATH = [binDir, previousPath].filter(Boolean).join(":");
+
+    try {
+      const result = await probeDesktopAgentCapabilities({
+        agentKind: "codex",
+        projectRoot: null
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        failureCode: "auth_required",
+        authentication: {
+          status: "action_required",
+          reason: "no_safe_method",
+          methods: [{ id: "mock-login", name: "Mock login", type: "agent" }]
+        },
+        capabilities: expect.arrayContaining(["authentication"])
+      });
+      expect(JSON.stringify(result)).not.toContain("Test-only authentication");
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  });
 });

@@ -7,6 +7,8 @@ import {
   ndJsonStream,
   type AgentCapabilities,
   type AnyMessage,
+  type AuthenticateRequest,
+  type AuthenticateResponse,
   type CancelNotification,
   type Client,
   type CloseSessionResponse,
@@ -74,6 +76,10 @@ export type AcpConnection = {
   readonly stderr: readonly string[];
   readonly closed: Promise<void>;
   initialize(options?: AcpOperationOptions): Promise<InitializeResponse>;
+  authenticate(
+    request: AuthenticateRequest,
+    options?: AcpOperationOptions
+  ): Promise<AuthenticateResponse>;
   newSession(
     request: NewSessionRequest,
     options?: AcpOperationOptions
@@ -133,6 +139,9 @@ function validateSpawnOptions(options: CreateAcpConnectionOptions): void {
     if (!key || key.includes("=") || key.includes("\0") || value.includes("\0")) {
       throw new Error(`ACP environment entry '${key}' is invalid.`);
     }
+  }
+  if (options.clientCapabilities?.auth?.terminal === true) {
+    throw new Error("ACP client does not implement terminal authentication.");
   }
 }
 
@@ -277,6 +286,7 @@ class SubprocessAcpConnection implements AcpConnection {
   private readonly sdk: ClientSideConnection;
   private readonly options: CreateAcpConnectionOptions;
   private capabilities: AgentCapabilities | undefined;
+  private initialized = false;
   private terminalError: Error | undefined;
   private disposePromise: Promise<void> | undefined;
   private readonly livePendingOperations = new Map<string, LivePendingOperationHandle>();
@@ -355,7 +365,18 @@ class SubprocessAcpConnection implements AcpConnection {
       throw error;
     }
     this.capabilities = response.agentCapabilities;
+    this.initialized = true;
     return response;
+  }
+
+  authenticate(
+    request: AuthenticateRequest,
+    options?: AcpOperationOptions
+  ): Promise<AuthenticateResponse> {
+    if (!this.initialized) {
+      return Promise.reject(new Error("ACP connection must be initialized before authenticate."));
+    }
+    return this.runOperation("authenticate", () => this.sdk.authenticate(request), options);
   }
 
   newSession(

@@ -17,6 +17,7 @@ import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
 const acpFixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const mockAgentInfo = { name: "planweave-acp-mock", version: "1.0.0" } as const;
+const notAdvertisedAuthentication = { status: "not_advertised" } as const;
 
 function probeDefinition(
   scenario: string,
@@ -134,12 +135,27 @@ describe("AgentRunner registries", () => {
   }>([
     {
       label: "requires agent-owned authentication",
-      probe: { kind: "auth_required", message: "Sign in with the selected agent." },
+      probe: {
+        kind: "auth_required",
+        message: "Sign in with the selected agent.",
+        agentInfo: mockAgentInfo,
+        authentication: {
+          status: "action_required",
+          reason: "no_safe_method",
+          methods: [{ id: "login", name: "Login", type: "agent" }]
+        },
+        capabilities: ["session", "authentication"]
+      },
       failureCode: "auth_required"
     },
     {
       label: "rejects unsupported capabilities",
-      probe: { kind: "ready", authenticated: true, agentInfo: mockAgentInfo, capabilities: [] },
+      probe: {
+        kind: "ready",
+        authentication: notAdvertisedAuthentication,
+        agentInfo: mockAgentInfo,
+        capabilities: []
+      },
       failureCode: "unsupported_capability"
     },
     {
@@ -155,9 +171,18 @@ describe("AgentRunner registries", () => {
       acp: { launch: { command: "codex-acp", args: [] }, capabilities: ["session"] }
     };
     const runner = createAcpRunner({
-      probe: async () => {
+      probe: async ({ signal }) => {
         if (probe === "hang") {
-          return new Promise<AcpPreflightProbeResult>(() => undefined);
+          return new Promise<AcpPreflightProbeResult>((_resolve, reject) => {
+            const rejectAbort = (): void => {
+              reject(signal.reason ?? new Error("ACP preflight aborted."));
+            };
+            if (signal.aborted) {
+              rejectAbort();
+              return;
+            }
+            signal.addEventListener("abort", rejectAbort, { once: true });
+          });
         }
         return probe;
       }
@@ -192,7 +217,7 @@ describe("AgentRunner registries", () => {
     const runner = createAcpRunner({
       probe: async () => ({
         kind: "ready",
-        authenticated: true,
+        authentication: notAdvertisedAuthentication,
         agentInfo: mockAgentInfo,
         capabilities: ["session", "prompt", "event-replay"]
       })
@@ -249,7 +274,7 @@ describe("AgentRunner registries", () => {
     const runner = createAcpRunner({
       probe: async () => ({
         kind: "ready",
-        authenticated: true,
+        authentication: notAdvertisedAuthentication,
         agentInfo: mockAgentInfo,
         capabilities: ["session"],
         sessionConfig
@@ -311,22 +336,6 @@ describe("AgentRunner registries", () => {
     expect(Object.keys(result.agentInfo ?? {})).toEqual(["name", "version"]);
   });
 
-  it("treats advertised authentication methods as capabilities rather than authentication state", async () => {
-    const result = await createAcpRunner().preflight({
-      profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
-      definition: probeDefinition("authenticated-with-auth-methods"),
-      cwd: "/tmp",
-      timeoutMs: 1_000
-    });
-
-    expect(result.checks).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ check: "acp_authenticated", status: "passed" })
-      ])
-    );
-    expect(result.negotiatedCapabilities).not.toBeNull();
-  });
-
   it.each([
     ["auth-required", "auth_required", 1_000],
     ["generic-server-error", "initialization_failed", 1_000],
@@ -341,30 +350,6 @@ describe("AgentRunner registries", () => {
     expect(result.checks).toEqual(
       expect.arrayContaining([expect.objectContaining({ status: "failed", failureCode: code })])
     );
-  });
-
-  it.each([
-    "missing-agent-info",
-    "empty-agent-version",
-    "invalid-agent-version"
-  ])("fails closed with an explicit diagnostic for %s", async (scenario) => {
-    const result = await createAcpRunner().preflight({
-      profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
-      definition: probeDefinition(scenario),
-      cwd: "/tmp",
-      timeoutMs: 1_000
-    });
-
-    expect(result.agentInfo).toBeUndefined();
-    expect(result.checks).toEqual([
-      expect.objectContaining({
-        check: "acp_initialized",
-        status: "failed",
-        failureCode: "initialization_failed",
-        message:
-          "ACP initialize returned invalid agentInfo; name and version must be non-empty strings."
-      })
-    ]);
   });
 
   it("refuses an untrusted default run before creating a process or run record", async () => {
@@ -472,11 +457,32 @@ describe("AgentRunner registries", () => {
   });
 
   it.each([
-    { kind: "ready", authenticated: false, capabilities: ["session"] },
     { kind: "ready", capabilities: ["session"] },
-    { kind: "ready", authenticated: true, capabilities: ["session", "session"] },
-    { kind: "ready", authenticated: true, capabilities: ["unknown"] },
-    { kind: "ready", authenticated: true, capabilities: ["session"], extra: true },
+    {
+      kind: "ready",
+      agentInfo: null,
+      authentication: { status: "action_required", reason: "no_safe_method", methods: [] },
+      capabilities: ["session"]
+    },
+    {
+      kind: "ready",
+      agentInfo: null,
+      authentication: notAdvertisedAuthentication,
+      capabilities: ["session", "session"]
+    },
+    {
+      kind: "ready",
+      agentInfo: null,
+      authentication: notAdvertisedAuthentication,
+      capabilities: ["unknown"]
+    },
+    {
+      kind: "ready",
+      agentInfo: null,
+      authentication: notAdvertisedAuthentication,
+      capabilities: ["session"],
+      extra: true
+    },
     { kind: "unknown", message: "Authorization: Bearer raw-probe-secret" }
   ])("fails closed for an untyped malformed ACP probe result: %j", async (malformed) => {
     const base = resolveAgentDefinition("codex");

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { appendFileSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
 import {
   PROTOCOL_VERSION,
@@ -11,6 +12,16 @@ import {
 const scenario = process.argv[2] ?? "success";
 const sessions = new Map();
 let nextSession = 1;
+let authenticated = false;
+const lifecycleFile = process.env.PLANWEAVE_ACP_TEST_LIFECYCLE_FILE;
+
+function recordLifecycle(event) {
+  if (lifecycleFile !== undefined) {
+    appendFileSync(lifecycleFile, `${process.pid} ${event}\n`);
+  }
+}
+
+recordLifecycle("spawn");
 
 if (scenario === "early-exit") {
   process.stderr.write("mock ACP exited before initialization\n");
@@ -30,6 +41,7 @@ const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, mil
 
 const app = agent({ name: "planweave-acp-mock" })
   .onRequest(methods.agent.initialize, async (ctx) => {
+    recordLifecycle("initialize");
     const elicitation = ctx.params.clientCapabilities?.elicitation;
     if (scenario === "expect-headless-capabilities" && elicitation != null) {
       throw RequestError.invalidParams({ reason: "headless client advertised elicitation" });
@@ -60,11 +72,28 @@ const app = agent({ name: "planweave-acp-mock" })
           scenario === "load-capable" ||
           scenario === "load-capable-error" ||
           scenario === "load-capable-delayed",
-        ...(scenario === "close-capable" ? { sessionCapabilities: { close: {} } } : {})
+        ...(scenario === "close-capable" || scenario === "close-capable-error"
+          ? { sessionCapabilities: { close: {} } }
+          : {})
       },
       authMethods:
-        scenario === "auth-required" || scenario === "authenticated-with-auth-methods"
-          ? [{ id: "mock-login", name: "Mock login", description: "Test-only authentication" }]
+        scenario === "auth-required" ||
+        scenario === "action-required" ||
+        scenario === "authenticated-with-auth-methods" ||
+        scenario === "authenticate-delayed" ||
+        scenario === "authenticate-protocol-error" ||
+        scenario === "env-auth"
+          ? scenario === "env-auth"
+            ? [
+                {
+                  id: "env-login",
+                  name: "Environment login",
+                  type: "env_var",
+                  vars: [{ name: "PLANWEAVE_T002_TEST_API_KEY", secret: true }],
+                  _meta: { token: "mock-auth-meta-secret" }
+                }
+              ]
+            : [{ id: "mock-login", name: "Mock login", description: "Test-only authentication" }]
           : [],
       ...(scenario === "missing-agent-info"
         ? {}
@@ -72,11 +101,13 @@ const app = agent({ name: "planweave-acp-mock" })
             agentInfo: {
               name: "planweave-acp-mock",
               version:
-                scenario === "empty-agent-version"
-                  ? ""
-                  : scenario === "invalid-agent-version"
-                    ? 31
-                    : "1.0.0",
+                scenario === "missing-agent-version"
+                  ? undefined
+                  : scenario === "empty-agent-version"
+                    ? ""
+                    : scenario === "invalid-agent-version"
+                      ? 31
+                      : "1.0.0",
               ...(scenario === "extended-agent-info"
                 ? {
                     title: null,
@@ -88,9 +119,50 @@ const app = agent({ name: "planweave-acp-mock" })
           })
     };
   })
-  .onRequest(methods.agent.authenticate, () => ({}))
+  .onRequest(methods.agent.authenticate, async (ctx) => {
+    recordLifecycle("authenticate");
+    if (
+      scenario !== "auth-required" &&
+      scenario !== "action-required" &&
+      scenario !== "authenticated-with-auth-methods" &&
+      scenario !== "authenticate-delayed" &&
+      scenario !== "authenticate-protocol-error" &&
+      scenario !== "env-auth"
+    ) {
+      throw RequestError.invalidParams({ reason: "authentication was not advertised" });
+    }
+    const expectedMethodId = scenario === "env-auth" ? "env-login" : "mock-login";
+    if (ctx.params.methodId !== expectedMethodId) {
+      throw RequestError.invalidParams({ methodId: ctx.params.methodId });
+    }
+    if (scenario === "env-auth" && process.env.PLANWEAVE_T002_TEST_API_KEY === undefined) {
+      throw RequestError.invalidParams({ reason: "test credential was not present in spawn env" });
+    }
+    if (scenario === "authenticate-delayed") await pause(5_000);
+    if (scenario === "authenticate-protocol-error") {
+      throw RequestError.invalidParams({ reason: "scripted authentication failure" });
+    }
+    authenticated = true;
+    return {};
+  })
   .onRequest(methods.agent.session.new, async () => {
-    if (scenario === "auth-required") {
+    recordLifecycle("session/new");
+    if (scenario === "action-required" && !authenticated) {
+      throw RequestError.invalidParams({ reason: "session/new must not run before user action" });
+    }
+    if (scenario === "auth-required" && !authenticated) {
+      throw RequestError.authRequired();
+    }
+    if (
+      (scenario === "authenticated-with-auth-methods" ||
+        scenario === "authenticate-delayed" ||
+        scenario === "authenticate-protocol-error" ||
+        scenario === "env-auth") &&
+      !authenticated
+    ) {
+      throw RequestError.authRequired();
+    }
+    if (scenario === "no-auth-methods-but-session-requires-auth") {
       throw RequestError.authRequired();
     }
     if (scenario === "generic-server-error") {
@@ -167,6 +239,9 @@ const app = agent({ name: "planweave-acp-mock" })
     if (session) session.cancelled = true;
   })
   .onRequest(methods.agent.session.close, (ctx) => {
+    if (scenario === "close-capable-error") {
+      throw RequestError.invalidParams({ reason: "scripted close failure" });
+    }
     if (!sessions.delete(ctx.params.sessionId)) {
       throw RequestError.invalidParams({ sessionId: ctx.params.sessionId });
     }

@@ -14,10 +14,15 @@ const environment = Object.fromEntries(
 );
 const connections: AcpConnection[] = [];
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function connect(
   scenario: string,
   options: {
     observations?: AcpProtocolObservation[];
+    redactorInputs?: unknown[];
     timeoutMs?: number;
     onUpdate?: (text: string) => void;
     allowPermission?: boolean;
@@ -42,6 +47,7 @@ function connect(
     observer: options.observations
       ? {
           redact(payload) {
+            options.redactorInputs?.push(payload);
             return typeof payload === "string"
               ? payload.replaceAll("diagnostic", "[redacted]")
               : { redacted: true };
@@ -129,6 +135,100 @@ describe("ACP official SDK subprocess connection", () => {
     await expect(
       protocol.prompt({ sessionId: session.sessionId, prompt: [{ type: "text", text: "fail" }] })
     ).rejects.toThrow();
+  });
+
+  it("authenticates through the official SDK request path without exposing the method to observers", async () => {
+    const observations: AcpProtocolObservation[] = [];
+    const redactorInputs: unknown[] = [];
+    const connection = connect("authenticated-with-auth-methods", {
+      observations,
+      redactorInputs
+    });
+    const initialized = await connection.initialize();
+    expect(initialized.authMethods).toEqual([
+      expect.objectContaining({ id: "mock-login", name: "Mock login" })
+    ]);
+
+    const observationStart = observations.length;
+    const redactorInputStart = redactorInputs.length;
+    await expect(connection.authenticate({ methodId: "mock-login" })).resolves.toEqual({});
+
+    const authenticateEnvelope = redactorInputs
+      .slice(redactorInputStart)
+      .find(
+        (payload): payload is Record<string, unknown> =>
+          isRecord(payload) && payload.method === "authenticate"
+      );
+    expect(authenticateEnvelope).toBeDefined();
+    expect(authenticateEnvelope).toMatchObject({
+      jsonrpc: "2.0",
+      method: "authenticate",
+      params: { methodId: "mock-login" }
+    });
+    expect(Object.keys(authenticateEnvelope ?? {}).sort()).toEqual([
+      "id",
+      "jsonrpc",
+      "method",
+      "params"
+    ]);
+    const authenticateParams = authenticateEnvelope?.params;
+    expect(isRecord(authenticateParams)).toBe(true);
+    if (!isRecord(authenticateParams)) {
+      throw new Error("ACP authenticate request params were not an object.");
+    }
+    expect(Object.keys(authenticateParams)).toEqual(["methodId"]);
+    expect(JSON.stringify(authenticateEnvelope)).not.toContain("opaque-auth-secret");
+    expect(JSON.stringify(authenticateEnvelope)).not.toContain("_meta");
+
+    const authObservations = observations.slice(observationStart);
+    expect(authObservations).not.toHaveLength(0);
+    expect(authObservations).toSatisfy((items: AcpProtocolObservation[]) =>
+      items.every((item) => JSON.stringify(item.payload) === '{"redacted":true}')
+    );
+    expect(JSON.stringify(authObservations)).not.toContain("mock-login");
+    expect(JSON.stringify(authObservations)).not.toContain("opaque-auth-secret");
+  });
+
+  it("rejects authenticate before initialize", async () => {
+    await expect(
+      connect("authenticated-with-auth-methods").authenticate({ methodId: "mock-login" })
+    ).rejects.toThrow("must be initialized before authenticate");
+  });
+
+  it("applies timeout and AbortSignal boundaries to authenticate", async () => {
+    const timedOut = connect("authenticate-delayed");
+    await timedOut.initialize();
+    await expect(
+      timedOut.authenticate({ methodId: "mock-login" }, { timeoutMs: 10 })
+    ).rejects.toThrow("ACP authenticate timed out");
+
+    const aborted = connect("authenticate-delayed");
+    await aborted.initialize();
+    const controller = new AbortController();
+    const authentication = aborted.authenticate(
+      { methodId: "mock-login" },
+      { signal: controller.signal }
+    );
+    controller.abort(new Error("authentication cancelled"));
+    await expect(authentication).rejects.toThrow("authentication cancelled");
+  });
+
+  it("registers authenticate as pending work and settles it during disposal", async () => {
+    const connection = connect("authenticate-delayed");
+    await connection.initialize();
+    const authentication = connection.authenticate({ methodId: "mock-login" });
+    for (let attempt = 0; attempt < 100 && connection.pendingOperationCount === 0; attempt += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    expect(connection.pendingOperationCount).toBe(1);
+    expect([...connection.pendingOperations.values()]).toEqual([
+      expect.objectContaining({ operation: "authenticate" })
+    ]);
+
+    const settledAuthentication = expect(authentication).rejects.toThrow();
+    await connection.dispose();
+    await settledAuthentication;
+    expect(connection.pendingOperationCount).toBe(0);
   });
 
   it("handles bidirectional permission requests through the explicit client callback", async () => {
@@ -263,5 +363,14 @@ describe("ACP official SDK subprocess connection", () => {
         clientInfo: { name: "test", version: "1" }
       })
     ).toThrow("absolute path");
+    expect(() =>
+      createAcpConnection({
+        launch: { trusted: true, command: process.execPath, args: [] },
+        cwd: process.cwd(),
+        env: environment,
+        clientInfo: { name: "test", version: "1" },
+        clientCapabilities: { auth: { terminal: true } }
+      })
+    ).toThrow("does not implement terminal authentication");
   });
 });

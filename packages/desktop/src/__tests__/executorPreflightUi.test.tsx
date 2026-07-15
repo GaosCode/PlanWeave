@@ -298,6 +298,7 @@ describe("executor preflight desktop UI", () => {
       message: "ACP capability probe passed.",
       failureCode: null,
       agentInfo: { name: "Codex ACP", version: "1.0.0" },
+      authentication: { status: "not_advertised" },
       capabilities: ["session"],
       sessionConfig: {
         modes: null,
@@ -422,6 +423,7 @@ describe("executor preflight desktop UI", () => {
       message: "ACP capability probe passed.",
       failureCode: null,
       agentInfo: { name: agentName, version: "1.0.0" },
+      authentication: { status: "not_advertised" },
       capabilities: ["session"],
       sessionConfig: {
         modes: null,
@@ -478,6 +480,7 @@ describe("executor preflight desktop UI", () => {
       message: "ACP capability probe passed.",
       failureCode: null,
       agentInfo: { name: "Pi ACP", version: "1.0.0" },
+      authentication: { status: "not_advertised" },
       capabilities: ["session"],
       sessionConfig: {
         modes: {
@@ -528,6 +531,7 @@ describe("executor preflight desktop UI", () => {
           agentKind === "codex" ? "Codex capability probe passed." : "OpenCode ACP unavailable.",
         failureCode: agentKind === "codex" ? null : "initialization_failed",
         agentInfo: null,
+        authentication: agentKind === "codex" ? { status: "not_advertised" } : null,
         capabilities: agentKind === "codex" ? ["session"] : null,
         sessionConfig: agentKind === "codex" ? { modes: null, configOptions: [] } : null
       })
@@ -596,7 +600,12 @@ describe("executor preflight desktop UI", () => {
         message: "Authentication required.",
         failureCode: "auth_required",
         agentInfo: null,
-        capabilities: null,
+        authentication: {
+          status: "action_required",
+          reason: "no_safe_method",
+          methods: []
+        },
+        capabilities: ["authentication"],
         sessionConfig: null
       })
       .mockResolvedValueOnce({
@@ -605,6 +614,7 @@ describe("executor preflight desktop UI", () => {
         message: "ACP capability probe passed.",
         failureCode: null,
         agentInfo: { name: "Codex ACP", version: "1.0.0" },
+        authentication: { status: "not_advertised" },
         capabilities: ["session"],
         sessionConfig: {
           modes: null,
@@ -664,6 +674,7 @@ describe("executor preflight desktop UI", () => {
       message: "ACP capability probe passed.",
       failureCode: null,
       agentInfo: null,
+      authentication: { status: "not_advertised" },
       capabilities: ["session"],
       sessionConfig: { modes: null, configOptions: [] }
     });
@@ -718,6 +729,7 @@ describe("executor preflight desktop UI", () => {
       message: "ACP capability probe passed.",
       failureCode: null,
       agentInfo: { name: "Codex ACP", version: "1.0.0" },
+      authentication: { status: "not_advertised" },
       capabilities: ["session"],
       sessionConfig: { modes: null, configOptions: [] }
     });

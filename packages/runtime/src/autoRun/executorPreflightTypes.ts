@@ -1,11 +1,15 @@
-import type {
-  AgentFamily,
-  ExecutorIntegrationName,
-  ExecutorProfileAdapter,
-  RunnerTransport
-} from "../types.js";
 import { z } from "zod";
-import type { AcpSessionConfiguration } from "./acpSessionConfiguration.js";
+import {
+  agentFamilySchema,
+  executorIntegrationSchema,
+  executorProfileAdapterSchema,
+  runnerTransportSchema
+} from "../types/executor.js";
+import { acpSessionConfigurationSchema } from "./acpSessionConfiguration.js";
+import {
+  runnerAuthenticationStateSchema,
+  runnerCapabilitySchema
+} from "./runnerContractSchemas.js";
 
 export {
   acpSessionConfigOptionSchema,
@@ -26,25 +30,31 @@ export const executorAgentInfoSchema = z
   .strict();
 export type ExecutorAgentInfo = z.infer<typeof executorAgentInfoSchema>;
 
-export type ExecutorPreflightCheckName =
-  | "profile_exists"
-  | "adapter_supported"
-  | "cwd_resolved"
-  | "command_started"
-  | "command_version"
-  | "acp_initialized"
-  | "acp_authenticated"
-  | "acp_capabilities"
-  | "interaction_policy";
+export const executorPreflightCheckNameSchema = z.enum([
+  "profile_exists",
+  "adapter_supported",
+  "cwd_resolved",
+  "command_started",
+  "command_version",
+  "acp_initialized",
+  "acp_authenticated",
+  "acp_session",
+  "acp_capabilities",
+  "interaction_policy"
+]);
+export type ExecutorPreflightCheckName = z.infer<typeof executorPreflightCheckNameSchema>;
 
-export type ExecutorPreflightFailureCode =
-  | "missing_command"
-  | "invalid_profile"
-  | "auth_required"
-  | "unsupported_capability"
-  | "initialization_failed"
-  | "timeout"
-  | "unsafe_interaction";
+export const executorPreflightFailureCodeSchema = z.enum([
+  "missing_command",
+  "invalid_profile",
+  "auth_required",
+  "unsupported_capability",
+  "initialization_failed",
+  "timeout",
+  "cancelled",
+  "unsafe_interaction"
+]);
+export type ExecutorPreflightFailureCode = z.infer<typeof executorPreflightFailureCodeSchema>;
 
 export function executorSpawnFailureCode(error: unknown): ExecutorPreflightFailureCode {
   return error instanceof Error && "code" in error && error.code === "ENOENT"
@@ -52,45 +62,57 @@ export function executorSpawnFailureCode(error: unknown): ExecutorPreflightFailu
     : "initialization_failed";
 }
 
-export type ExecutorPreflightCheckStatus = "passed" | "failed" | "skipped";
+export const executorPreflightCheckStatusSchema = z.enum(["passed", "failed", "skipped"]);
+export type ExecutorPreflightCheckStatus = z.infer<typeof executorPreflightCheckStatusSchema>;
 
-export type ExecutorPreflightCheck = {
-  check: ExecutorPreflightCheckName;
-  status: ExecutorPreflightCheckStatus;
-  message: string;
-  command?: string;
-  cwd?: string;
-  output?: string;
-  exitCode?: number;
-  timedOut?: boolean;
-  failureCode?: ExecutorPreflightFailureCode;
-};
+export const executorPreflightCheckSchema = z
+  .object({
+    check: executorPreflightCheckNameSchema,
+    status: executorPreflightCheckStatusSchema,
+    message: z.string(),
+    command: z.string().optional(),
+    cwd: z.string().optional(),
+    output: z.string().optional(),
+    exitCode: z.number().int().optional(),
+    timedOut: z.boolean().optional(),
+    failureCode: executorPreflightFailureCodeSchema.optional()
+  })
+  .strict();
+export type ExecutorPreflightCheck = z.infer<typeof executorPreflightCheckSchema>;
 
-export type ExecutorPreflightResult = {
-  name: string;
-  /** Compatibility field derived from executionIntegration, or profileAdapter for ACP. */
-  adapter: ExecutorIntegrationName | ExecutorProfileAdapter | null;
-  profileAdapter?: ExecutorProfileAdapter | null;
-  executionIntegration?: ExecutorIntegrationName | null;
-  agentId?: AgentFamily | null;
-  runnerKind?: RunnerTransport | null;
-  failureCode?: ExecutorPreflightFailureCode | null;
-  agentInfo?: ExecutorAgentInfo | null;
-  sessionConfig?: AcpSessionConfiguration | null;
-  ok: boolean;
-  message: string;
-  checks: ExecutorPreflightCheck[];
-};
+const executorPreflightResultShape = {
+  name: z.string(),
+  adapter: z.union([executorIntegrationSchema, executorProfileAdapterSchema]).nullable(),
+  profileAdapter: executorProfileAdapterSchema.nullable().optional(),
+  executionIntegration: executorIntegrationSchema.nullable().optional(),
+  agentId: agentFamilySchema.nullable().optional(),
+  runnerKind: runnerTransportSchema.nullable().optional(),
+  failureCode: executorPreflightFailureCodeSchema.nullable().optional(),
+  agentInfo: executorAgentInfoSchema.nullable().optional(),
+  authentication: runnerAuthenticationStateSchema.nullable().optional(),
+  capabilities: z.array(runnerCapabilitySchema).max(32).nullable().optional(),
+  sessionConfig: acpSessionConfigurationSchema.nullable().optional(),
+  ok: z.boolean(),
+  message: z.string(),
+  checks: z.array(executorPreflightCheckSchema)
+} as const;
 
-export type ProducedExecutorPreflightResult = Omit<
-  ExecutorPreflightResult,
-  "profileAdapter" | "executionIntegration"
-> & {
-  profileAdapter: ExecutorProfileAdapter | null;
-  executionIntegration: ExecutorIntegrationName | null;
-  agentId: AgentFamily | null;
-  runnerKind: RunnerTransport | null;
-  failureCode: ExecutorPreflightFailureCode | null;
-  agentInfo: ExecutorAgentInfo | null;
-  sessionConfig: AcpSessionConfiguration | null;
-};
+/** Accepts the additive public contract, including source-compatible legacy values. */
+export const executorPreflightResultSchema = z.object(executorPreflightResultShape).strict();
+export type ExecutorPreflightResult = z.infer<typeof executorPreflightResultSchema>;
+
+export const producedExecutorPreflightResultSchema = z
+  .object({
+    ...executorPreflightResultShape,
+    profileAdapter: executorProfileAdapterSchema.nullable(),
+    executionIntegration: executorIntegrationSchema.nullable(),
+    agentId: agentFamilySchema.nullable(),
+    runnerKind: runnerTransportSchema.nullable(),
+    failureCode: executorPreflightFailureCodeSchema.nullable(),
+    agentInfo: executorAgentInfoSchema.nullable(),
+    authentication: runnerAuthenticationStateSchema.nullable(),
+    capabilities: z.array(runnerCapabilitySchema).max(32).nullable(),
+    sessionConfig: acpSessionConfigurationSchema.nullable()
+  })
+  .strict();
+export type ProducedExecutorPreflightResult = z.infer<typeof producedExecutorPreflightResultSchema>;

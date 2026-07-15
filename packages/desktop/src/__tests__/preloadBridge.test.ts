@@ -217,6 +217,7 @@ describe("preload bridge invocation", () => {
       message: "ACP capability probe passed.",
       failureCode: null,
       agentInfo: null,
+      authentication: { status: "not_advertised" },
       capabilities: ["session"],
       sessionConfig: null
     }));

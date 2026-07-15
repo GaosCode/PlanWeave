@@ -1,14 +1,44 @@
-import { createAcpConnection } from "./acpConnection.js";
+import { ACP_SDK_AUTHORITY, createAcpConnection } from "./acpConnection.js";
 import type { AcpPreflightProbe } from "./acpRunner.js";
-import type { RunnerCapability } from "./runnerContractSchemas.js";
+import type { RunnerAuthenticationState, RunnerCapability } from "./runnerContractSchemas.js";
 import { RequestError, type InitializeResponse } from "@agentclientprotocol/sdk";
 import {
   executorAgentInfoSchema,
   invalidExecutorAgentInfoMessage
 } from "./executorPreflightTypes.js";
 import { sessionConfigurationFromNewSession } from "./acpSessionConfiguration.js";
+import {
+  coordinateAcpAuthentication,
+  hasAdvertisedAcpAuthenticationMethods,
+  type AcpAuthenticationOutcome
+} from "./acpAuthentication.js";
 
 export { sessionConfigurationFromNewSession } from "./acpSessionConfiguration.js";
+
+export type AcpPreflightPhase = "initialize" | "authentication" | "session";
+
+export class AcpPreflightPhaseError extends Error {
+  readonly phase: AcpPreflightPhase;
+
+  constructor(phase: AcpPreflightPhase, error: unknown) {
+    const detail = error instanceof Error ? error.message : String(error);
+    super(`ACP ${phase} failed: ${detail}`, { cause: error });
+    this.name = "AcpPreflightPhaseError";
+    this.phase = phase;
+  }
+}
+
+export class AcpPreflightCleanupError extends AggregateError {
+  readonly phase: AcpPreflightPhase | null;
+
+  constructor(primaryError: unknown, cleanupError: unknown) {
+    const primaryMessage =
+      primaryError instanceof Error ? primaryError.message : String(primaryError);
+    super([primaryError, cleanupError], primaryMessage, { cause: primaryError });
+    this.name = "AcpPreflightCleanupError";
+    this.phase = primaryError instanceof AcpPreflightPhaseError ? primaryError.phase : null;
+  }
+}
 
 export function capabilitiesFromInitialize(initialized: InitializeResponse): RunnerCapability[] {
   const capabilities: RunnerCapability[] = [
@@ -25,7 +55,7 @@ export function capabilitiesFromInitialize(initialized: InitializeResponse): Run
   }
   if (advertised?.sessionCapabilities?.close != null) capabilities.push("session-close");
   if (advertised?.loadSession === true) capabilities.push("history-load");
-  if (advertised?.auth?.logout != null) capabilities.push("authentication");
+  if (hasAdvertisedAcpAuthenticationMethods(initialized)) capabilities.push("authentication");
   return capabilities;
 }
 
@@ -35,51 +65,167 @@ function isAuthRequiredError(error: unknown): error is RequestError {
   return message === "Authentication required" || message.startsWith("Authentication required:");
 }
 
+function authenticationStateFromOutcome(
+  outcome: Exclude<AcpAuthenticationOutcome, { kind: "auth_required" }>
+): Extract<RunnerAuthenticationState, { status: "not_advertised" | "authenticated" }> {
+  return outcome.kind === "authenticated"
+    ? { status: "authenticated", methodId: outcome.methodId }
+    : { status: "not_advertised" };
+}
+
+function authenticationRequiredMessage(
+  outcome: Extract<AcpAuthenticationOutcome, { kind: "auth_required" }>
+): string {
+  if (outcome.reason === "missing_credentials") {
+    const missingVariables = [
+      ...new Set(
+        outcome.methods.flatMap((method) =>
+          method.type === "env_var" ? method.missingVariables : []
+        )
+      )
+    ];
+    return missingVariables.length > 0
+      ? `ACP authentication requires credentials. Configure environment variables ${missingVariables.join(", ")}, then retry.`
+      : "ACP authentication requires credentials. Configure the advertised authentication method, then retry.";
+  }
+  if (outcome.reason === "interactive_method") {
+    return "ACP authentication requires user interaction. Complete authentication with the agent, then retry.";
+  }
+  return "ACP agent did not advertise a headless-safe authentication method. Complete authentication with the agent, then retry.";
+}
+
 export const probeInstalledAcpAgent: AcpPreflightProbe = async ({ definition, cwd, signal }) => {
   const launch = definition.acp.launch;
   if (!launch) return { kind: "failed", message: "ACP launch metadata is unavailable." };
   const env = Object.fromEntries(
     Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
   );
+  const availableEnvironmentVariables = new Set(Object.keys(env));
   const connection = createAcpConnection({
     launch: { trusted: true, command: launch.command, args: launch.args },
     cwd,
     env,
     clientInfo: { name: "PlanWeave", version: "0.1.0" }
   });
+  type ProbeResult = Awaited<ReturnType<AcpPreflightProbe>>;
+  type ProbeOutcome =
+    | { status: "pending" }
+    | { status: "returned"; result: ProbeResult }
+    | { status: "threw"; error: unknown };
+  type CleanupOutcome = { status: "passed" } | { status: "failed"; error: unknown };
+  let probeOutcome: ProbeOutcome = { status: "pending" };
+  let cleanupOutcome: CleanupOutcome = { status: "passed" };
   try {
-    const initialized = await connection.initialize({ signal });
-    const agentInfo = executorAgentInfoSchema.safeParse({
-      name: initialized.agentInfo?.name,
-      version: initialized.agentInfo?.version
-    });
-    if (!agentInfo.success) {
+    const result = await (async (): Promise<ProbeResult> => {
+      let initialized: InitializeResponse;
+      try {
+        initialized = await connection.initialize({ signal });
+      } catch (error) {
+        throw new AcpPreflightPhaseError("initialize", error);
+      }
+      if (initialized.protocolVersion !== ACP_SDK_AUTHORITY.protocolVersion) {
+        throw new AcpPreflightPhaseError(
+          "initialize",
+          new Error(`ACP protocol version '${initialized.protocolVersion}' is not supported.`)
+        );
+      }
+      const capabilities = capabilitiesFromInitialize(initialized);
+      const rawAgentInfo = initialized.agentInfo;
+      const agentInfo =
+        rawAgentInfo === undefined
+          ? { success: true as const, data: null }
+          : executorAgentInfoSchema.safeParse(
+              typeof rawAgentInfo === "object" && rawAgentInfo !== null
+                ? { name: rawAgentInfo.name, version: rawAgentInfo.version }
+                : rawAgentInfo
+            );
+      if (!agentInfo.success) {
+        return {
+          kind: "failed",
+          message: invalidExecutorAgentInfoMessage
+        };
+      }
+      let authenticationOutcome: AcpAuthenticationOutcome;
+      try {
+        authenticationOutcome = await coordinateAcpAuthentication({
+          connection,
+          initialized,
+          hints: definition.acp.authentication,
+          availableEnvironmentVariables,
+          operationOptions: { signal }
+        });
+      } catch (error) {
+        throw new AcpPreflightPhaseError("authentication", error);
+      }
+      if (authenticationOutcome.kind === "auth_required") {
+        return {
+          kind: "auth_required",
+          message: authenticationRequiredMessage(authenticationOutcome),
+          agentInfo: agentInfo.data,
+          authentication: {
+            status: "action_required",
+            reason: authenticationOutcome.reason,
+            methods: authenticationOutcome.methods
+          },
+          capabilities
+        };
+      }
+      let session;
+      try {
+        session = await connection.newSession({ cwd, mcpServers: [] }, { signal });
+      } catch (error) {
+        if (!isAuthRequiredError(error)) {
+          throw new AcpPreflightPhaseError("session", error);
+        }
+        return {
+          kind: "auth_required",
+          message:
+            "ACP agent requires authentication but did not advertise a headless-safe method. Authenticate with the agent, then retry.",
+          agentInfo: agentInfo.data,
+          authentication: {
+            status: "action_required",
+            reason: "no_safe_method",
+            methods: []
+          },
+          capabilities
+        };
+      }
+      if (initialized.agentCapabilities?.sessionCapabilities?.close != null) {
+        try {
+          await connection.closeSession(session.sessionId, { signal });
+        } catch (error) {
+          throw new AcpPreflightPhaseError("session", error);
+        }
+      }
       return {
-        kind: "failed",
-        message: invalidExecutorAgentInfoMessage
+        kind: "ready",
+        agentInfo: agentInfo.data,
+        authentication: authenticationStateFromOutcome(authenticationOutcome),
+        capabilities,
+        sessionConfig: sessionConfigurationFromNewSession(session)
       };
-    }
-    let session;
-    try {
-      session = await connection.newSession({ cwd, mcpServers: [] }, { signal });
-    } catch (error) {
-      if (!isAuthRequiredError(error)) throw error;
-      return {
-        kind: "auth_required",
-        message: "ACP agent requires authentication. Authenticate with the agent, then retry."
-      };
-    }
-    if (initialized.agentCapabilities?.sessionCapabilities?.close != null) {
-      await connection.closeSession(session.sessionId, { signal });
-    }
-    return {
-      kind: "ready",
-      authenticated: true,
-      agentInfo: agentInfo.data,
-      capabilities: capabilitiesFromInitialize(initialized),
-      sessionConfig: sessionConfigurationFromNewSession(session)
-    };
+    })();
+    probeOutcome = { status: "returned", result };
+  } catch (error) {
+    probeOutcome = { status: "threw", error };
   } finally {
-    await connection.dispose();
+    try {
+      await connection.dispose();
+    } catch (error) {
+      cleanupOutcome = { status: "failed", error };
+    }
   }
+  if (probeOutcome.status === "threw") {
+    if (cleanupOutcome.status === "failed") {
+      throw new AcpPreflightCleanupError(probeOutcome.error, cleanupOutcome.error);
+    }
+    throw probeOutcome.error;
+  }
+  if (cleanupOutcome.status === "failed") {
+    throw cleanupOutcome.error;
+  }
+  if (probeOutcome.status === "returned") {
+    return probeOutcome.result;
+  }
+  throw new Error("ACP preflight completed without a result.");
 };

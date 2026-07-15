@@ -3,7 +3,10 @@ import type {
   ExecutorPreflightCheck,
   ProducedExecutorPreflightResult
 } from "./executorPreflightTypes.js";
-import { executorSpawnFailureCode } from "./executorPreflightTypes.js";
+import {
+  executorSpawnFailureCode,
+  producedExecutorPreflightResultSchema
+} from "./executorPreflightTypes.js";
 import type {
   AutoRunRunnerEvidence,
   ExecutorAdapter,
@@ -337,10 +340,12 @@ function finalizePreflightResult(options: {
   agentId?: ExecutorPreflightResultIdentity["agentId"];
   runnerKind?: ExecutorPreflightResultIdentity["runnerKind"];
   agentInfo?: ProducedExecutorPreflightResult["agentInfo"];
+  authentication?: ProducedExecutorPreflightResult["authentication"];
+  capabilities?: ProducedExecutorPreflightResult["capabilities"];
   sessionConfig?: ProducedExecutorPreflightResult["sessionConfig"];
 }): ProducedExecutorPreflightResult {
   const failed = options.checks.find((check) => check.status === "failed");
-  return {
+  return producedExecutorPreflightResultSchema.parse({
     name: options.name,
     adapter: options.executionIntegration ?? options.profileAdapter,
     profileAdapter: options.profileAdapter,
@@ -349,11 +354,13 @@ function finalizePreflightResult(options: {
     runnerKind: options.runnerKind ?? null,
     failureCode: failed?.failureCode ?? null,
     agentInfo: options.agentInfo ?? null,
+    authentication: options.authentication ?? null,
+    capabilities: options.capabilities ?? null,
     sessionConfig: options.sessionConfig ?? null,
     ok: failed === undefined,
     message: failed?.message ?? options.successMessage,
     checks: options.checks
-  };
+  });
 }
 
 type ExecutorPreflightResultIdentity = Pick<
@@ -529,6 +536,11 @@ export async function testExecutorProfile(options: {
       agentId: profile.agent,
       runnerKind: profile.runner.transport,
       agentInfo: runnerResult.agentInfo ?? null,
+      authentication: runnerResult.authentication ?? null,
+      capabilities:
+        runnerResult.availableCapabilities ??
+        runnerResult.negotiatedCapabilities?.available ??
+        null,
       sessionConfig: runnerResult.sessionConfig ?? null,
       successMessage: `${profile.runner.transport.toUpperCase()} runner preflight passed.`,
       checks: [

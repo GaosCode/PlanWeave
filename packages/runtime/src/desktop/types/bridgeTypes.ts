@@ -52,13 +52,16 @@ import type {
   DesktopRuntimeResetOptions,
   DesktopRuntimeResetResult
 } from "./runTypes.js";
-import type { ExecutorPreflightResult } from "../../autoRun/executorPreflightTypes.js";
 import type {
   AcpSessionConfiguration,
   ExecutorAgentInfo,
-  ExecutorPreflightFailureCode
+  ExecutorPreflightFailureCode,
+  ProducedExecutorPreflightResult
 } from "../../autoRun/executorPreflightTypes.js";
-import type { RunnerCapability } from "../../autoRun/runnerContractSchemas.js";
+import type {
+  RunnerAuthenticationState,
+  RunnerCapability
+} from "../../autoRun/runnerContractSchemas.js";
 import type { ClaimResult } from "../../types.js";
 import type { CanvasExecutionPolicyInput } from "../graph/editModelTypes.js";
 import type {
@@ -109,6 +112,7 @@ export type DesktopAgentCapabilityProbeResult = {
   message: string;
   failureCode: ExecutorPreflightFailureCode | null;
   agentInfo: ExecutorAgentInfo | null;
+  authentication: RunnerAuthenticationState | null;
   capabilities: RunnerCapability[] | null;
   sessionConfig: AcpSessionConfiguration | null;
 };
@@ -234,7 +238,7 @@ export type DesktopBridgeApi = {
   testExecutorProfile(
     ref: DesktopCanvasReference,
     executorName: string
-  ): Promise<ExecutorPreflightResult>;
+  ): Promise<ProducedExecutorPreflightResult>;
   probeDesktopAgentCapabilities(
     input: DesktopAgentCapabilityProbeInput
   ): Promise<DesktopAgentCapabilityProbeResult>;

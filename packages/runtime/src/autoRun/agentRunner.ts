@@ -8,6 +8,7 @@ import type {
   RunnerTransport
 } from "../types.js";
 import type { CliProcessExecutor } from "./cliProcess.js";
+import type { AcpAuthenticationHints } from "./acpAuthentication.js";
 import type {
   AcpSessionConfiguration,
   ExecutorAgentInfo,
@@ -18,7 +19,11 @@ import type {
   ExecutorFeedbackInput,
   ExecutorRuntimeOptions
 } from "./executorIntegration.js";
-import type { NegotiatedCapabilities, RunnerCapability } from "./runnerContractSchemas.js";
+import type {
+  NegotiatedCapabilities,
+  RunnerAuthenticationState,
+  RunnerCapability
+} from "./runnerContractSchemas.js";
 
 type AgentAcpExecutorProfile = Extract<AgentExecutorProfile, { runner: { transport: "acp" } }>;
 
@@ -73,7 +78,9 @@ export type RunnerPreflightResult = {
   executionIntegration: ExecutorIntegrationName | null;
   checks: ExecutorPreflightCheck[];
   negotiatedCapabilities: NegotiatedCapabilities | null;
+  availableCapabilities?: RunnerCapability[] | null;
   agentInfo?: ExecutorAgentInfo | null;
+  authentication?: RunnerAuthenticationState | null;
   sessionConfig?: AcpSessionConfiguration | null;
 };
 
@@ -93,6 +100,7 @@ export type AgentDefinition = {
   } | null;
   acp: {
     launch: AcpLaunchMetadata | null;
+    authentication?: AcpAuthenticationHints;
     capabilities: readonly RunnerCapability[];
     optionalCapabilities: readonly RunnerCapability[];
     limitations: readonly string[];

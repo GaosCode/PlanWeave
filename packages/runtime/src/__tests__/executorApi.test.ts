@@ -5,6 +5,7 @@ import type {
   ExecutorPreflightCheck,
   ExecutorPreflightResult
 } from "../autoRun/executorPreflightTypes.js";
+import { producedExecutorPreflightResultSchema } from "../autoRun/executorPreflightTypes.js";
 import {
   executorPreflightAcpSessionProbeTimeoutMs,
   executorPreflightVersionTimeoutMs,
@@ -83,6 +84,8 @@ describe("executor API helpers", () => {
       profileAdapter: "manual",
       executionIntegration: "manual",
       agentInfo: null,
+      authentication: null,
+      capabilities: null,
       ok: true,
       checks: [
         { check: "profile_exists", status: "passed" },
@@ -92,6 +95,7 @@ describe("executor API helpers", () => {
         { check: "command_version", status: "skipped" }
       ]
     });
+    expect(producedExecutorPreflightResultSchema.parse(result)).toEqual(result);
   });
 
   it("preflights executor commands with the lightweight version check", async () => {

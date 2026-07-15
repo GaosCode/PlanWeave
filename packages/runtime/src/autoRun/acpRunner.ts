@@ -7,11 +7,22 @@ import {
   invalidExecutorAgentInfoMessage,
   type ExecutorPreflightFailureCode
 } from "./executorPreflightTypes.js";
-import { negotiatedCapabilitiesSchema, runnerCapabilitySchema } from "./runnerContractSchemas.js";
+import {
+  negotiatedCapabilitiesSchema,
+  runnerAuthenticationActionRequiredSchema,
+  runnerAuthenticationAuthenticatedSchema,
+  runnerAuthenticationNotAdvertisedSchema,
+  runnerCapabilitySchema
+} from "./runnerContractSchemas.js";
 import { redactRunnerEventText, safeRunnerEventTextSchema } from "./runnerEventRedaction.js";
 import { AcpSessionController } from "./acpSessionController.js";
 import { prepareAcpBlockRun, prepareAcpFeedbackRun } from "./acpRunPreparation.js";
-import { probeInstalledAcpAgent } from "./acpPreflightProbe.js";
+import {
+  AcpPreflightCleanupError,
+  AcpPreflightPhaseError,
+  probeInstalledAcpAgent,
+  type AcpPreflightPhase
+} from "./acpPreflightProbe.js";
 import { assertAcpLaunchTrusted } from "./acpLaunch.js";
 import { executorRuntimeLimits } from "./executorShared.js";
 import { selectedDesktopAcpSessionDefaults } from "./desktopAgentSettings.js";
@@ -34,13 +45,24 @@ export const acpProbeResultSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("ready"),
-      authenticated: z.literal(true),
-      agentInfo: executorAgentInfoSchema,
+      agentInfo: executorAgentInfoSchema.nullable(),
+      authentication: z.union([
+        runnerAuthenticationNotAdvertisedSchema,
+        runnerAuthenticationAuthenticatedSchema
+      ]),
       capabilities: uniqueCapabilitiesSchema,
       sessionConfig: acpSessionConfigurationSchema.optional()
     })
     .strict(),
-  z.object({ kind: z.literal("auth_required"), message: acpProbeMessageSchema }).strict(),
+  z
+    .object({
+      kind: z.literal("auth_required"),
+      message: acpProbeMessageSchema,
+      agentInfo: executorAgentInfoSchema.nullable(),
+      authentication: runnerAuthenticationActionRequiredSchema,
+      capabilities: uniqueCapabilitiesSchema
+    })
+    .strict(),
   z
     .object({
       kind: z.literal("interaction_required"),
@@ -63,11 +85,30 @@ function safeDiagnostic(error: unknown): string {
 }
 
 function failedCheck(
-  check: "acp_initialized" | "acp_authenticated" | "acp_capabilities" | "interaction_policy",
+  check:
+    | "acp_initialized"
+    | "acp_authenticated"
+    | "acp_session"
+    | "acp_capabilities"
+    | "interaction_policy",
   failureCode: ExecutorPreflightFailureCode,
   message: string
 ) {
   return { check, status: "failed" as const, failureCode, message };
+}
+
+function preflightCheckForPhase(
+  phase: AcpPreflightPhase
+): "acp_initialized" | "acp_authenticated" | "acp_session" {
+  if (phase === "authentication") return "acp_authenticated";
+  if (phase === "session") return "acp_session";
+  return "acp_initialized";
+}
+
+function preflightPhaseFromError(error: unknown): AcpPreflightPhase {
+  if (error instanceof AcpPreflightPhaseError) return error.phase;
+  if (error instanceof AcpPreflightCleanupError && error.phase !== null) return error.phase;
+  return "initialize";
 }
 
 export function createAcpRunner(options?: {
@@ -115,35 +156,64 @@ export function createAcpRunner(options?: {
           ]
         };
       }
-      const controller = new AbortController();
-      const relayAbort = (): void => controller.abort(signal?.reason);
-      signal?.addEventListener("abort", relayAbort, { once: true });
-      let rejectTimeout: ((error: Error) => void) | null = null;
-      const timeout = new Promise<never>((_resolve, reject) => {
-        rejectTimeout = reject;
-      });
-      const timer = setTimeout(() => {
-        controller.abort(new Error("ACP initialize timed out."));
-        rejectTimeout?.(new Error("ACP initialize timed out."));
-      }, timeoutMs);
-      let rawResult: unknown;
-      try {
-        rawResult = await Promise.race([
-          probe({ definition, cwd, signal: controller.signal }),
-          timeout
-        ]);
-      } catch (error) {
-        const timedOut = controller.signal.aborted && signal?.aborted !== true;
+      if (signal?.aborted) {
         return {
           executionIntegration: null,
           negotiatedCapabilities: null,
           checks: [
             failedCheck(
               "acp_initialized",
-              timedOut ? "timeout" : "initialization_failed",
+              "cancelled",
+              `ACP initialize was cancelled before preflight started: ${safeDiagnostic(signal.reason)}`
+            )
+          ]
+        };
+      }
+      const controller = new AbortController();
+      const relayAbort = (): void => controller.abort(signal?.reason);
+      signal?.addEventListener("abort", relayAbort, { once: true });
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        if (controller.signal.aborted) return;
+        timedOut = true;
+        controller.abort(new Error(`ACP preflight timed out after ${timeoutMs}ms.`));
+      }, timeoutMs);
+      let rawResult: unknown;
+      try {
+        rawResult = await probe({ definition, cwd, signal: controller.signal });
+        if (controller.signal.aborted) {
+          const cancelled = signal?.aborted === true;
+          return {
+            executionIntegration: null,
+            negotiatedCapabilities: null,
+            checks: [
+              failedCheck(
+                "acp_initialized",
+                timedOut ? "timeout" : "cancelled",
+                timedOut
+                  ? `ACP preflight timed out after ${timeoutMs}ms.`
+                  : cancelled
+                    ? `ACP initialize was cancelled: ${safeDiagnostic(signal.reason)}`
+                    : "ACP initialize was cancelled."
+              )
+            ]
+          };
+        }
+      } catch (error) {
+        const cancelled = signal?.aborted === true;
+        const phase = preflightPhaseFromError(error);
+        return {
+          executionIntegration: null,
+          negotiatedCapabilities: null,
+          checks: [
+            failedCheck(
+              preflightCheckForPhase(phase),
+              timedOut ? "timeout" : cancelled ? "cancelled" : "initialization_failed",
               timedOut
-                ? `ACP initialize timed out after ${timeoutMs}ms.`
-                : `ACP initialize failed: ${safeDiagnostic(error)}`
+                ? `ACP preflight timed out after ${timeoutMs}ms.`
+                : cancelled
+                  ? `ACP ${phase} was cancelled: ${safeDiagnostic(error)}`
+                  : safeDiagnostic(error)
             )
           ]
         };
@@ -180,6 +250,9 @@ export function createAcpRunner(options?: {
         return {
           executionIntegration: null,
           negotiatedCapabilities: null,
+          availableCapabilities: result.capabilities,
+          agentInfo: result.agentInfo,
+          authentication: result.authentication,
           checks: [initialized, failedCheck("acp_authenticated", "auth_required", result.message)]
         };
       }
@@ -187,6 +260,7 @@ export function createAcpRunner(options?: {
         return {
           executionIntegration: null,
           negotiatedCapabilities: null,
+          authentication: null,
           checks: [
             initialized,
             failedCheck(
@@ -213,12 +287,24 @@ export function createAcpRunner(options?: {
         return {
           executionIntegration: null,
           negotiatedCapabilities: null,
+          availableCapabilities: available,
+          agentInfo: result.agentInfo,
+          authentication: result.authentication,
+          sessionConfig: result.sessionConfig ?? null,
           checks: [
             initialized,
             {
               check: "acp_authenticated",
               status: "passed",
-              message: "ACP authentication is available."
+              message:
+                result.authentication.status === "authenticated"
+                  ? `ACP authentication completed with method '${result.authentication.methodId}'.`
+                  : "ACP agent did not advertise authentication methods."
+            },
+            {
+              check: "acp_session",
+              status: "passed",
+              message: "ACP temporary session was created successfully."
             },
             failedCheck(
               "acp_capabilities",
@@ -233,14 +319,24 @@ export function createAcpRunner(options?: {
       return {
         executionIntegration: null,
         negotiatedCapabilities: negotiated.data,
+        availableCapabilities: available,
         agentInfo: result.agentInfo,
+        authentication: result.authentication,
         sessionConfig: result.sessionConfig ?? null,
         checks: [
           initialized,
           {
             check: "acp_authenticated",
             status: "passed",
-            message: "ACP authentication is available."
+            message:
+              result.authentication.status === "authenticated"
+                ? `ACP authentication completed with method '${result.authentication.methodId}'.`
+                : "ACP agent did not advertise authentication methods."
+          },
+          {
+            check: "acp_session",
+            status: "passed",
+            message: "ACP temporary session was created successfully."
           },
           {
             check: "acp_capabilities",

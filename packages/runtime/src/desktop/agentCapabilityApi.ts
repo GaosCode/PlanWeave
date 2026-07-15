@@ -46,7 +46,9 @@ export async function probeDesktopAgentCapabilities(
       : (failedCheck?.message ?? `ACP capability probe failed for agent '${parsed.agentKind}'.`),
     failureCode: failedCheck?.failureCode ?? null,
     agentInfo: preflight.agentInfo ?? null,
-    capabilities: preflight.negotiatedCapabilities?.available ?? null,
+    authentication: preflight.authentication ?? null,
+    capabilities:
+      preflight.availableCapabilities ?? preflight.negotiatedCapabilities?.available ?? null,
     sessionConfig: preflight.sessionConfig ?? null
   };
 }
