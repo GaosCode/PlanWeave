@@ -139,6 +139,31 @@ Run the desktop smoke test after building:
 pnpm --filter @planweave-ai/desktop smoke
 ```
 
+## ACP Verification
+
+Run the deterministic ACP contract, CLI, and Desktop tests:
+
+```bash
+pnpm exec vitest run \
+  packages/runtime/src/__tests__/runnerContracts.test.ts \
+  packages/runtime/src/__tests__/acpRunnerLifecycle.test.ts \
+  packages/runtime/src/__tests__/acpEventController.test.ts \
+  packages/cli/src/__tests__/acpCliE2E.test.ts \
+  packages/cli/src/__tests__/acpLiveSmoke.test.ts \
+  packages/desktop/src/__tests__/acpDesktopMockE2E.test.tsx
+```
+
+For live verification, use an isolated PlanWeave workspace with one block that submits an artifact and a second block that remains active beyond the cancellation timeout. Run the smoke command for each profile being verified:
+
+```bash
+node scripts/acp-live-smoke.mjs --profile codex-acp --evidence /tmp/codex-acp.json
+node scripts/acp-live-smoke.mjs --profile claude-code-acp --evidence /tmp/claude-code-acp.json
+node scripts/acp-live-smoke.mjs --profile opencode-acp --evidence /tmp/opencode-acp.json
+node scripts/acp-live-smoke.mjs --profile pi-acp --evidence /tmp/pi-acp.json
+```
+
+The command checks profile preflight, a successful artifact submission, ordered runner events, bounded cancellation, cleanup, canonical session identity, and stable replay. Use `--cancellation-timeout <ms>` when the selected agent needs a longer interval to enter the running state. Evidence files are written with mode `0600`.
+
 ## Local Packaging
 
 The npm pack/publish scripts include runtime, MCP, and CLI packages so the CLI's `@planweave-ai/mcp` dependency is available when published.

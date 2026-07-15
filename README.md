@@ -45,7 +45,7 @@ That makes PlanWeave a better fit for complex engineering work: parallel impleme
 - **Full auto-run workflow**: PlanWeave can claim blocks, run agents, collect reports, handle review feedback, and continue the task flow.
 - **Review and feedback as first-class work**: review blocks can produce structured feedback that returns to implementation blocks.
 - **Desktop and CLI support**: use the visual Electron canvas or drive the same runtime from the terminal.
-- **Live observability**: block runs keep logs, reports, metadata, and tmux attach commands for monitoring.
+- **Live observability**: block runs keep ordered events, logs, reports, metadata, and available monitor actions.
 - **Statistics, search, and todo views**: inspect development efficiency and project state without leaving the workflow.
 - **Local-first and file-backed**: plans, prompts, run records, and artifacts remain inspectable in your workspace.
 
@@ -138,8 +138,6 @@ PlanWeave supports executor profiles, so different blocks can run through differ
 
 Each block run writes durable output under the PlanWeave workspace, including prompt, stdout, stderr, report, metadata, and monitor commands when available.
 
-ACP runner setup, safety boundaries, troubleshooting, and release-time live evidence are documented in [ACP runners](readme/ACP.md).
-
 ## Agent Skills
 
 The repository includes focused agent skills under `skills/`:
@@ -204,32 +202,52 @@ For simple tasks, one agent can use `plan-runner` directly. For larger plans, us
 
 ## Auto Run
 
-PlanWeave includes an experimental one-command execution path:
+Auto Run claims ready work, invokes the selected executor, submits artifacts, continues review-feedback loops, and records each run as a session.
 
 ```bash
-planweave run --once
-planweave run --reset --force --reason "rerun acceptance" --step-limit 20
-planweave reset --force --reason "clear stale manual work"
-planweave run-sessions
-planweave run-session SESSION-0001
-planweave run-status
+planweave run --once --json
+planweave run --parallel --step-limit 20 --timeout 120000 --json
+planweave run --scope task --task T-001 --once --json
+planweave run --scope block --block T-001#B-001 --once --json
 ```
 
-Auto Run can claim work, call an executor, collect run artifacts, continue review-feedback loops, and record each run/reset as a session. `planweave reset` clears runtime state only; it is separate from `planweave init --reset-package`, which rewrites package source files during initialization.
+The executor is resolved from the block, task, and package defaults. Use `--executor <profile>` for an explicit run override and `--canvas <canvas-id>` to select a canvas.
 
-For cron-style runs, keep execution bounded and inspect the session log afterward. This example can be used directly in crontab:
-
-```bash
-0 9 * * * cd /path/to/project && planweave run --reset --canvas default --force --reason "scheduled run" --step-limit 10 --json >> ~/.planweave-cron.log 2>&1
-```
-
-After a run, inspect the session log:
+PlanWeave Desktop provides scoped run controls, live progress, and session history. CLI users can inspect the same runtime state with:
 
 ```bash
+planweave run-status --follow --json
 planweave run-sessions --json
+planweave run-session <session-id> --json
 ```
 
-Auto Run is still experimental: scheduling, executor integration, and recovery behavior may be unstable. Inspect `planweave run-status`, `planweave run-session <session-id>`, and generated run artifacts before relying on it for unattended work.
+### ACP runners
+
+Codex, Claude Code, OpenCode, and Pi provide explicit ACP profiles:
+
+```text
+codex-acp
+claude-code-acp
+opencode-acp
+pi-acp
+```
+
+Install and sign in to the selected agent, then verify and run the profile:
+
+```bash
+planweave executors test codex-acp --json
+planweave run --once --executor codex-acp --timeout 120000 --json
+```
+
+ACP runs provide structured messages, tool updates, artifacts, usage snapshots, and interaction requests. PlanWeave Desktop exposes the follow-up, cancellation, permission, elicitation, and retry actions available for the selected run. Run records keep normalized events and protocol diagnostics for inspection and replay.
+
+Custom package profiles require exact trust for their resolved command and arguments:
+
+```bash
+planweave trust executor <profile>
+```
+
+For authentication or provider errors, complete the agent's login and provider setup, then rerun `executors test`. Contributor verification commands are documented in [Development](DEVELOPMENT.md#acp-verification).
 
 ## Manual CLI Workflow
 
@@ -276,7 +294,6 @@ For repository layout, source setup, tests, and packaging commands, see [Develop
 
 PlanWeave is still early, and several directions can make plan-based agent work smoother:
 
-- **Better Auto Run UX and reliability**: make automatic execution easier to understand, monitor, pause, resume, recover, and trust, while improving scheduling correctness, failure recovery, and long-running stability.
 - **Collaborative planning board**: let multiple people edit the same task board, refine plan structure together, and turn shared planning decisions into executable blocks.
 - **Cross-host coordination**: PlanWeave already supports routing different blocks to different local agents or executor profiles. A future coordinator could let remote Agent Hosts register capabilities, claim plan blocks through leases, report heartbeats, and submit artifacts safely, making it possible to run specialized frontend, review, runtime, docs, or other agents on different machines.
 

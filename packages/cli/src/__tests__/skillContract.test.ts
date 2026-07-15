@@ -118,21 +118,26 @@ describe("agent skill contract docs", () => {
       "configured runner (CLI or ACP) owns the work: `<pw> run --once --scope block --block <ref>`"
     );
     expect(coordinator).toContain(
-      "CLI and ACP are alternative runner transports behind the same `effectiveExecutor` route."
+      "Select the observation path from the run's `runnerKind`, capabilities, session identity, and record metadata."
     );
     expect(coordinator).toContain(
       "inspect `<pw> run-status --json` and `<pw> run-session <session-id> --json`"
     );
-    expect(coordinator).toContain("Never substitute CLI for ACP or ACP for CLI");
     expect(coordinator).toContain(
-      "The selected agent owns login, subscription, provider configuration, quota, and optional API-key mode."
+      "Use `run-status --follow --json` for live ordered runner progress."
     );
-    expect(coordinator).toContain("PlanWeave does not collect or store those credentials.");
     expect(coordinator).toContain(
-      "Near-headless execution is bounded to the selected profile and declared runner capabilities"
+      "Keep execution on the selected runner transport. Route authentication, quota, provider, permission, and elicitation boundaries through the capabilities and diagnostics returned for that run."
     );
-    expect(coordinator).toContain("never auto-approve requests");
-    expect(coordinator).toContain("never fall back to another runner transport");
+    expect(coordinator).toContain(
+      "Use normalized runner events, session state, diagnostics, and record artifacts as the primary evidence for every transport."
+    );
+    expect(coordinator).toContain(
+      "For ACP runs, follow ordered runner events and resolve permission or elicitation requests through the runtime-provided interaction identity and capability."
+    );
+    expect(coordinator).toContain(
+      "For CLI runs, use the terminal monitoring, attach commands, and captured-output artifacts present in the run record."
+    );
     expect(coordinator).toContain("Use skill: plan-runner");
     expect(coordinator).toContain(
       "Assign `plan-runner` to a worker subagent for one implementation block"

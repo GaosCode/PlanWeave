@@ -67,9 +67,10 @@ Use this skill as the main agent/controller for a PlanWeave package. The coordin
 
 ## Parallel Dispatch
 
-- Within one canvas, dispatch only ready blocks whose dependency edges are satisfied and whose locks/parallel safety do not conflict.
+- Within one canvas, use runtime-reported ready, claimable, and dispatchable results as the scheduling authority. Do not reproduce scheduler rules in the coordinator.
+- Treat `parallel.sharedResources` as non-blocking coordination context for worker handoffs and overlap warnings. It does not change readiness, claimability, batch selection, or concurrency capacity.
 - Different canvases are not automatically parallel; cross-canvas dependencies must come from formal project graph canvas edges and explicit `crossTaskEdges` when `project-graph.json` exists.
-- If no formal project graph exists, require explicit documented canvas order before dispatching across canvases and report that this is legacy compatibility rather than enforced project graph behavior.
+- If no formal project graph exists, do not assume cross-canvas parallelism; require explicit user or package guidance before dispatching across canvases.
 - Do not dispatch downstream canvas work while upstream canvas blockers or explicit cross-task blockers remain incomplete.
 - Use `status --json`, `claim-next --dry-run --json`, or `claim-next --parallel --dry-run --json` to build the next batch, then assign refs explicitly.
 - Review gates are sequential control points unless the plan explicitly models otherwise.
@@ -93,16 +94,15 @@ The coordinator may submit an artifact after a worker returns it, but must not a
 
 ## Executor Run Monitoring
 
-- CLI and ACP are alternative runner transports behind the same `effectiveExecutor` route. ACP is conversation/session integration rather than terminal attachment; tmux monitoring below applies only to CLI runners.
-- After delegating to a non-current agent with `<pw> run --once --scope block --block <ref>`, inspect `<pw> run-status --json` and `<pw> run-session <session-id> --json`; verify the effective executor, agent id, runner kind, ordered runner progress, pending-interaction diagnostics, terminal phase/reason, and latest record path before deciding whether to continue. Use `run-status --follow --json` when live ordered ACP evidence is required; it follows the runner record and does not require tmux.
-- Never substitute CLI for ACP or ACP for CLI after preflight or execution failure. In headless execution, do not auto-approve permission/authentication requests or unsupported elicitation; preserve the fail-closed diagnostic.
-- The selected agent owns login, subscription, provider configuration, quota, and optional API-key mode. PlanWeave does not collect or store those credentials.
-- Near-headless execution is bounded to the selected profile and declared runner capabilities: never auto-approve requests, never fall back to another runner transport, and stop at the first authentication, quota, provider, permission, or elicitation boundary.
+- Select the observation path from the run's `runnerKind`, capabilities, session identity, and record metadata.
+- After delegating to a non-current agent with `<pw> run --once --scope block --block <ref>`, inspect `<pw> run-status --json` and `<pw> run-session <session-id> --json`; verify the effective executor, agent id, runner kind, ordered runner progress, pending-interaction diagnostics, terminal phase/reason, and latest record path before deciding whether to continue.
+- Use `run-status --follow --json` for live ordered runner progress.
+- Keep execution on the selected runner transport. Route authentication, quota, provider, permission, and elicitation boundaries through the capabilities and diagnostics returned for that run.
 - For bounded unattended execution, pass an explicit positive `--timeout <ms>` to `run`; timeout and Ctrl-C must reach the selected runner cancellation/cleanup chain.
-- Runtime run records use `metadata.json`, `stdout.md`, and `stderr.log`; `run-status` provides summaries, not a streaming terminal.
-- If `run-status --json` or `metadata.json` contains `tmuxSessionName`, prefer non-interactive inspection with `tmux capture-pane -p -e -S -5000 -t <session>` while the session is alive. Repeat capture-pane for low-risk live monitoring.
-- Treat `tmuxAttachCommand` as a human interactive terminal entrypoint, not the coordinator's default observation path. After the session exits, read `stdout.md` and `stderr.log`.
-- Do not assume a missing live tmux session means the run failed; check the run metadata, exit code, report/review result, and submitted state.
+- Use normalized runner events, session state, diagnostics, and record artifacts as the primary evidence for every transport.
+- For ACP runs, follow ordered runner events and resolve permission or elicitation requests through the runtime-provided interaction identity and capability.
+- For CLI runs, use the terminal monitoring, attach commands, and captured-output artifacts present in the run record.
+- Determine the outcome from terminal state, metadata, diagnostics, report/review result, artifacts, and submitted state.
 - For executor failures, timeouts, stale current refs, missing reports, or inconsistent submitted state, stop dependent dispatch and route to `plan-recovery`.
 
 ## Review And Feedback
