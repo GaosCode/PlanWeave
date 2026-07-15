@@ -45,6 +45,8 @@ function readyTaskWorkspace(
     refresh: vi.fn(),
     returnToCanvas: vi.fn(),
     runnerModel: fixture.selectedRecord.runnerReadModel,
+    saveBlockPrompt: vi.fn(async () => undefined),
+    saveTaskPrompt: vi.fn(async () => undefined),
     selectRun: vi.fn(),
     selectedRecord: fixture.selectedRecord,
     selectedRun: fixture.selectedRun,
@@ -109,7 +111,12 @@ describe("Task Workspace route wiring", () => {
     expect(composer.getByTitle("Reasoning: high")).toBeInTheDocument();
     expect(composer.getByTitle("Mode: code")).toBeInTheDocument();
     expect(composer.queryByTitle(/^Permission:/)).not.toBeInTheDocument();
-    expect(screen.queryByTestId("task-workspace-inspector-slot")).not.toBeInTheDocument();
+    expect(screen.getByTestId("task-workspace-inspector-slot")).toBeInTheDocument();
+    expect(screen.getByLabelText("Task Prompt")).toHaveTextContent("Task source prompt.");
+    expect(screen.getByLabelText("Block prompt")).toHaveTextContent("Block source prompt.");
+    expect(screen.getByLabelText("Effective Prompt")).toHaveTextContent(
+      "Task prompt and block prompt rendered together."
+    );
     expect(screen.getByTestId("task-workspace-shell")).toHaveClass("min-w-0");
     expect(screen.queryByTestId("task-workspace-run-summary")).not.toBeInTheDocument();
     expect(
@@ -118,8 +125,6 @@ describe("Task Workspace route wiring", () => {
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Inspector" }));
-    expect(screen.getByTestId("task-workspace-inspector-slot")).toBeInTheDocument();
     expect(screen.getAllByText("Inspector overview")).toHaveLength(2);
 
     await userEvent.click(screen.getByRole("button", { name: "Back to canvas" }));

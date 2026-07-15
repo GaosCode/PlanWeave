@@ -359,6 +359,10 @@ export async function getTaskWorkspace(
         title: detail.title,
         status: detail.status,
         effectiveExecutor: detail.effectiveExecutor,
+        promptMarkdown: detail.promptMarkdown,
+        promptMissing: detail.promptMissing,
+        promptSurfaceMarkdown: detail.promptSurfaceMarkdown,
+        promptSources: detail.promptSources,
         dependencies: dependencyProgress(detail, detailsByRef),
         runs: records.map((record, index) => ({
           retryIndex: index + 1,
@@ -410,6 +414,8 @@ export async function getTaskWorkspace(
       title: taskDetail.title,
       status: taskDetail.status,
       executor: taskDetail.executor,
+      promptMarkdown: taskDetail.promptMarkdown,
+      promptMissing: taskDetail.promptMissing,
       acceptance: taskDetail.acceptance
     },
     dependencyProgress: projectDependencyProgress({

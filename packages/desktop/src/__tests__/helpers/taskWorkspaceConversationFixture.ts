@@ -196,6 +196,20 @@ export function selection(
     title: "Implement workspace",
     status: options.retry ? "blocked" : options.active === false ? "completed" : "in_progress",
     effectiveExecutor: run.metadata.executor,
+    promptMarkdown: "# Implement workspace\n\nBlock source prompt.",
+    promptMissing: false,
+    promptSurfaceMarkdown: "# Rendered workspace prompt",
+    promptSources: [
+      {
+        kind: "block",
+        label: "Block Prompt",
+        included: true,
+        empty: false,
+        missing: false,
+        disabledReason: null,
+        preview: "Implement workspace"
+      }
+    ],
     dependencies: { total: 0, completed: 0, percent: 100, status: "not_applicable", blockers: [] },
     runs: [],
     annotations: []

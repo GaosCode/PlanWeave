@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
 import { isNodeFileNotFoundError } from "../fs/optionalFile.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
@@ -14,17 +15,28 @@ import { renderProjectCanvasContext } from "./projectCanvasContext.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "./runtimeContext.js";
 import { getBlock, getTask, requiredImplementationRefs } from "./selectors.js";
 
-export type PromptSourceKind = "global" | "projectCanvas" | "projectGraph" | "taskNode" | "block";
+export const promptSourceKinds = [
+  "global",
+  "projectCanvas",
+  "projectGraph",
+  "taskNode",
+  "block"
+] as const;
 
-export type PromptSourceSummary = {
-  kind: PromptSourceKind;
-  label: string;
-  included: boolean;
-  empty: boolean;
-  missing: boolean;
-  disabledReason: string | null;
-  preview: string;
-};
+export const promptSourceSummarySchema = z
+  .object({
+    kind: z.enum(promptSourceKinds),
+    label: z.string().min(1),
+    included: z.boolean(),
+    empty: z.boolean(),
+    missing: z.boolean(),
+    disabledReason: z.string().min(1).nullable(),
+    preview: z.string()
+  })
+  .strict();
+
+export type PromptSourceKind = (typeof promptSourceKinds)[number];
+export type PromptSourceSummary = z.infer<typeof promptSourceSummarySchema>;
 
 export type PromptSurface = {
   markdown: string;

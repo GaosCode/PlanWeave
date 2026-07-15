@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type {
   TaskWorkspaceController,
   TaskWorkspaceLabels,
@@ -37,6 +37,29 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
     ? `${controller.navigation.projectRoot}\0${controller.navigation.canvasId}\0${controller.navigation.taskId}`
     : "task-workspace-unavailable";
   const layout = useTaskWorkspaceLayout(sessionKey);
+  const directTargetKey =
+    controller.navigation && !controller.navigation.recordId
+      ? `${controller.navigation.projectRoot}\0${controller.navigation.canvasId}\0${controller.navigation.taskId}\0${controller.navigation.blockRef ?? "task"}`
+      : null;
+  const pendingDirectTargetRef = useRef<string | null>(null);
+  const openedDirectTargetRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (directTargetKey) {
+      pendingDirectTargetRef.current = directTargetKey;
+    }
+    const pendingTarget = pendingDirectTargetRef.current;
+    if (
+      !controller.selectedRun ||
+      !pendingTarget ||
+      openedDirectTargetRef.current === pendingTarget
+    ) {
+      return;
+    }
+    openedDirectTargetRef.current = pendingTarget;
+    pendingDirectTargetRef.current = null;
+    layout.setInspectorCollapsed(false);
+  }, [controller.selectedRun, directTargetKey, layout.setInspectorCollapsed]);
 
   if (controller.status === "idle") {
     return (
@@ -83,6 +106,13 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
     subscriptionError: controller.subscriptionError
   };
   const inspectorProps = {
+    focusedBlock:
+      controller.selectedRun?.block ??
+      (controller.navigation?.blockRef
+        ? (controller.workspace.blocks.find(
+            (block) => block.ref === controller.navigation?.blockRef
+          ) ?? null)
+        : null),
     inspectorCollapsed: layout.inspectorCollapsed,
     inspectorWidth: layout.inspectorWidth,
     runnerModel: controller.runnerModel,
@@ -103,7 +133,13 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
     <EmptySlot title={labels.timeline} description={labels.noRuns} />
   );
   const conversation: ReactNode = !controller.selectedRun ? (
-    <TaskWorkspaceOverviewPanel labels={labels} workspace={controller.workspace} />
+    <TaskWorkspaceOverviewPanel
+      focusedBlockRef={controller.navigation?.blockRef ?? null}
+      labels={labels}
+      onSaveBlockPrompt={controller.saveBlockPrompt}
+      onSaveTaskPrompt={controller.saveTaskPrompt}
+      workspace={controller.workspace}
+    />
   ) : controller.recordError ? (
     <SlotError title={labels.conversation} message={controller.recordError} />
   ) : (

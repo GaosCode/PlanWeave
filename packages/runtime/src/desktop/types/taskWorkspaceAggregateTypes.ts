@@ -12,6 +12,7 @@ import {
   reviewVerdicts,
   taskStatuses
 } from "../../types/state.js";
+import { promptSourceSummarySchema } from "../../taskManager/promptRenderer.js";
 import {
   taskWorkspaceRunSchema,
   taskWorkspaceUnavailableTokenAccountingSchema
@@ -149,6 +150,10 @@ export const taskWorkspaceBlockSchema = z
     title: nonEmptyStringSchema,
     status: z.enum(blockStatuses),
     effectiveExecutor: nonEmptyStringSchema.nullable(),
+    promptMarkdown: z.string(),
+    promptMissing: z.boolean(),
+    promptSurfaceMarkdown: z.string(),
+    promptSources: z.array(promptSourceSummarySchema),
     dependencies: taskWorkspaceDependencyProgressSchema,
     runs: z.array(taskWorkspaceRunItemSchema),
     annotations: z.array(taskWorkspaceAnnotationSchema)
@@ -274,6 +279,8 @@ export const taskWorkspaceSchema = z
         title: nonEmptyStringSchema,
         status: z.enum(taskStatuses),
         executor: nonEmptyStringSchema.nullable(),
+        promptMarkdown: z.string(),
+        promptMissing: z.boolean(),
         acceptance: z.array(z.string())
       })
       .strict(),

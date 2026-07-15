@@ -1,5 +1,5 @@
 import type { createTranslator } from "../i18n";
-import type { TaskWorkspaceLabels } from "./contracts";
+import type { TaskWorkspaceLabels, TaskWorkspacePromptLabels } from "./contracts";
 import type { TaskWorkspaceInspectorLabels } from "./inspector/TaskWorkspaceInspector";
 import type { TaskWorkspaceUsageLabels } from "./inspector/TaskWorkspaceUsage";
 import type { TaskWorkspaceTimelineLabels } from "./timeline";
@@ -24,6 +24,22 @@ function formatDuration(t: Translator, milliseconds: number): string {
       maximumFractionDigits: seconds < 10 ? 1 : 0
     }).format(seconds)
   });
+}
+
+function promptLabels(t: Translator): TaskWorkspacePromptLabels {
+  return {
+    blockPrompt: t("blockPrompt"),
+    disabled: t("disabled"),
+    effectivePrompt: t("effectivePrompt"),
+    empty: t("empty"),
+    included: t("included"),
+    missing: t("missing"),
+    promptSources: t("promptSources"),
+    savePrompt: t("savePrompt"),
+    saved: t("saved"),
+    saving: t("saving"),
+    taskPrompt: t("taskPrompt")
+  };
 }
 
 function usageLabels(t: Translator): TaskWorkspaceUsageLabels {
@@ -109,6 +125,7 @@ export function taskWorkspaceLabels(t: Translator): TaskWorkspaceLabels {
     noTask: t("taskWorkspaceNoTask"),
     overview: t("taskWorkspaceOverview"),
     permission: t("taskWorkspacePermission"),
+    promptLabels: promptLabels(t),
     reasoning: t("taskWorkspaceReasoning"),
     runStatus: {
       active: t("taskWorkspaceRunning"),
@@ -232,6 +249,7 @@ export function taskWorkspaceInspectorLabels(t: Translator): TaskWorkspaceInspec
     options: t("taskWorkspaceOptions"),
     overview: t("taskWorkspaceInspectorOverview"),
     permission: t("taskWorkspacePermission"),
+    promptLabels: promptLabels(t),
     promptFile: t("taskWorkspacePromptFile"),
     protocolDetails: t("taskWorkspaceProtocolDetails"),
     reasoning: t("taskWorkspaceReasoning"),

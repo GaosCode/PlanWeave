@@ -19,6 +19,25 @@ export type TaskWorkspaceLoadStatus = "idle" | "loading" | "ready" | "error";
 
 export type TaskWorkspaceLiveStatus = "idle" | "loading" | "live" | "unavailable" | "error";
 
+export type TaskWorkspacePromptLabels = {
+  blockPrompt: string;
+  disabled: string;
+  effectivePrompt: string;
+  empty: string;
+  included: string;
+  missing: string;
+  promptSources: string;
+  savePrompt: string;
+  saved: string;
+  saving: string;
+  taskPrompt: string;
+};
+
+export type TaskWorkspacePromptSaveInput = {
+  baseMarkdown: string;
+  markdown: string;
+};
+
 export type TaskWorkspaceLabels = {
   acceptanceCriteria: string;
   activeRuns: (count: number) => string;
@@ -48,6 +67,7 @@ export type TaskWorkspaceLabels = {
   noTask: string;
   overview: string;
   permission: string;
+  promptLabels: TaskWorkspacePromptLabels;
   reasoning: string;
   runStatus: Record<"active" | "cancelled" | "completed" | "failed" | "waiting", string>;
   status: string;
@@ -67,6 +87,8 @@ export type TaskWorkspaceController = {
   refresh: () => void;
   returnToCanvas: () => void;
   runnerModel: RunnerRecordReadModel | null;
+  saveBlockPrompt: (blockRef: string, input: TaskWorkspacePromptSaveInput) => Promise<void>;
+  saveTaskPrompt: (input: TaskWorkspacePromptSaveInput) => Promise<void>;
   selectRun: (selection: { blockRef: string; recordId: string } | null) => void;
   selectedRecord: DesktopRunRecord | null;
   selectedRun: TaskWorkspaceSelectedRun | null;
@@ -103,7 +125,9 @@ export type TaskWorkspaceInspectorSlotProps = Pick<
   Pick<
     TaskWorkspaceLayout,
     "inspectorCollapsed" | "inspectorWidth" | "setInspectorCollapsed" | "setInspectorWidth"
-  >;
+  > & {
+    focusedBlock: TaskWorkspaceBlock | null;
+  };
 
 export type TaskWorkspaceComposerSlotProps = Pick<
   TaskWorkspaceController,

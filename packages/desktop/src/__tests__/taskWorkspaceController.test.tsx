@@ -163,6 +163,8 @@ function workspace(selectedRecordId: string): TaskWorkspace {
       title: "Task workspace",
       status: "in_progress",
       executor: "codex",
+      promptMarkdown: "# Task workspace",
+      promptMissing: false,
       acceptance: []
     },
     dependencyProgress: {
@@ -181,6 +183,10 @@ function workspace(selectedRecordId: string): TaskWorkspace {
         title: "Implement",
         status: "in_progress",
         effectiveExecutor: "codex",
+        promptMarkdown: "# Implement",
+        promptMissing: false,
+        promptSurfaceMarkdown: "# Rendered implement prompt",
+        promptSources: [],
         dependencies: {
           total: 0,
           completed: 0,
@@ -256,9 +262,43 @@ function record(recordId: string, readModel: RunnerRecordReadModel | null): Desk
 function controllerApi(options: { readModel: (recordId: string) => RunnerRecordReadModel | null }) {
   const unsubscribes = new Map<string, ReturnType<typeof vi.fn>>();
   const api = {
+    getBlockDetail: vi.fn(async (_ref: unknown, blockRef: string) => ({
+      ref: blockRef,
+      graphVersion: "pgv-1",
+      taskId: "T-001",
+      blockId: "B-001",
+      type: "implementation" as const,
+      title: "Implement",
+      status: "in_progress" as const,
+      executor: "codex",
+      effectiveExecutor: "codex",
+      promptMarkdown: "# Implement",
+      promptHash: "block-prompt-hash",
+      promptMissing: false,
+      promptSurfaceMarkdown: "# Rendered implement prompt",
+      promptSources: [],
+      dependencies: [],
+      latestRunId: null,
+      latestReviewAttemptId: null,
+      activeFeedbackId: null,
+      exceptionReason: null,
+      reviewGate: null
+    })),
     getTaskWorkspace: vi.fn(async (input: { selectedRecordId?: string | null }) =>
       workspace(input.selectedRecordId ?? "T-001#B-001::RUN-001")
     ),
+    getTaskDetail: vi.fn(async () => ({
+      taskId: "T-001",
+      graphVersion: "pgv-1",
+      title: "Task workspace",
+      status: "in_progress" as const,
+      executor: "codex",
+      promptMarkdown: "# Task workspace",
+      promptHash: "task-prompt-hash",
+      promptMissing: false,
+      acceptance: [],
+      blockOrder: ["T-001#B-001"]
+    })),
     getRunRecord: vi.fn(async (_ref: unknown, recordId: string) =>
       record(recordId, options.readModel(recordId))
     ),
@@ -273,7 +313,17 @@ function controllerApi(options: { readModel: (recordId: string) => RunnerRecordR
       };
     }),
     onRuntimeStateChanged: vi.fn(() => () => undefined),
-    onAutoRunChanged: vi.fn(() => () => undefined)
+    onAutoRunChanged: vi.fn(() => () => undefined),
+    updateBlockPrompt: vi.fn(async () => ({
+      ok: true,
+      affectedTasks: ["T-001"],
+      diagnostics: []
+    })),
+    updateTaskPrompt: vi.fn(async () => ({
+      ok: true,
+      affectedTasks: ["T-001"],
+      diagnostics: []
+    }))
   };
   return { api, unsubscribes };
 }
@@ -301,6 +351,75 @@ function useControllerHarness(
 }
 
 describe("Task Workspace selected run controller", () => {
+  it("saves Task prompts through the revision-checked graph edit path and refreshes the workspace", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const { result } = renderHook(() => useControllerHarness(api));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await result.current.saveTaskPrompt({
+        baseMarkdown: "# Task workspace",
+        markdown: "# Updated Task workspace"
+      });
+    });
+
+    expect(api.getTaskDetail).toHaveBeenCalledWith(
+      { projectRoot: "/projects/demo", canvasId: "canvas-main" },
+      "T-001"
+    );
+    expect(api.updateTaskPrompt).toHaveBeenCalledWith(
+      { projectRoot: "/projects/demo", canvasId: "canvas-main" },
+      "T-001",
+      "# Updated Task workspace",
+      { baseGraphVersion: "pgv-1", basePromptHash: "task-prompt-hash" }
+    );
+    await waitFor(() => expect(api.getTaskWorkspace).toHaveBeenCalledTimes(2));
+  });
+
+  it("saves Block prompts through the revision-checked graph edit path", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const { result } = renderHook(() => useControllerHarness(api));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await result.current.saveBlockPrompt("T-001#B-001", {
+        baseMarkdown: "# Implement",
+        markdown: "# Updated implementation"
+      });
+    });
+
+    expect(api.getBlockDetail).toHaveBeenCalledWith(
+      { projectRoot: "/projects/demo", canvasId: "canvas-main" },
+      "T-001#B-001"
+    );
+    expect(api.updateBlockPrompt).toHaveBeenCalledWith(
+      { projectRoot: "/projects/demo", canvasId: "canvas-main" },
+      "T-001#B-001",
+      "# Updated implementation",
+      { baseGraphVersion: "pgv-1", basePromptHash: "block-prompt-hash" }
+    );
+  });
+
+  it("refuses to overwrite a Task prompt changed outside the editor", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    api.getTaskDetail.mockResolvedValueOnce({
+      ...(await api.getTaskDetail()),
+      promptMarkdown: "# Changed elsewhere",
+      promptHash: "new-task-prompt-hash"
+    });
+    api.getTaskDetail.mockClear();
+    const { result } = renderHook(() => useControllerHarness(api));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await expect(
+      result.current.saveTaskPrompt({
+        baseMarkdown: "# Task workspace",
+        markdown: "# Local draft"
+      })
+    ).rejects.toThrow("The Task prompt changed outside this editor.");
+    expect(api.updateTaskPrompt).not.toHaveBeenCalled();
+  });
+
   it("keeps Task Overview selected when more than one run is active", async () => {
     const { api } = controllerApi({ readModel: () => null });
     const firstRecordId = "T-001#B-001::RUN-001";

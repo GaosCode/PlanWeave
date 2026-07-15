@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import {
@@ -128,6 +128,24 @@ describe("desktop Task Workspace aggregate API", () => {
     );
 
     expect(taskWorkspaceSchema.parse(workspace)).toEqual(workspace);
+    expect(workspace.task).toMatchObject({
+      promptMarkdown: "# T-001 task prompt\n",
+      promptMissing: false
+    });
+    expect(workspace.blocks[0]).toMatchObject({
+      promptMarkdown: "# T-001#B-001 implementation prompt\n",
+      promptMissing: false
+    });
+    expect(workspace.blocks[0]?.promptSurfaceMarkdown).toContain("# T-001 task prompt");
+    expect(workspace.blocks[0]?.promptSurfaceMarkdown).toContain(
+      "# T-001#B-001 implementation prompt"
+    );
+    expect(workspace.blocks[0]?.promptSources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "taskNode", included: true, missing: false }),
+        expect.objectContaining({ kind: "block", included: true, missing: false })
+      ])
+    );
     expect(workspace.blocks.map((block) => block.ref)).toEqual([
       "T-001#B-001",
       "T-001#B-002",
@@ -188,6 +206,31 @@ describe("desktop Task Workspace aggregate API", () => {
     expect(workspace.selectedRecordId).toBe("T-001#B-001::RUN-002");
     expect(workspace.blocks[0]?.runs.map((item) => item.active)).toEqual([false, true]);
     expect(workspace.duration.wallClock.totalMs).toBe(11_000);
+  });
+
+  it("preserves explicit missing prompt state without fabricating prompt content", async () => {
+    const { root, init } = await createTestWorkspace();
+    await Promise.all([
+      unlink(join(init.workspace.packageDir, "nodes/T-001/prompt.md")),
+      unlink(join(init.workspace.packageDir, "nodes/T-001/blocks/B-001.prompt.md"))
+    ]);
+
+    const workspace = await getTaskWorkspace({
+      projectRoot: root,
+      canvasId: "default",
+      taskId: "T-001"
+    });
+    const block = workspace.blocks.find((candidate) => candidate.ref === "T-001#B-001");
+
+    expect(workspace.task).toMatchObject({ promptMarkdown: "", promptMissing: true });
+    expect(block).toMatchObject({ promptMarkdown: "", promptMissing: true });
+    expect(block?.promptSources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "taskNode", included: true, missing: true }),
+        expect.objectContaining({ kind: "block", included: true, missing: true })
+      ])
+    );
+    expect(block?.promptSurfaceMarkdown).not.toContain("undefined");
   });
 
   it("keeps Task Overview as the default when parallel blocks are both active", async () => {

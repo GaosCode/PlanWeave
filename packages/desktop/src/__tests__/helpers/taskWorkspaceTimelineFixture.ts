@@ -114,6 +114,20 @@ export function timelineBlockFixture(options: {
     title: options.title ?? options.blockId,
     status: "in_progress",
     effectiveExecutor: "codex",
+    promptMarkdown: `# ${options.blockId} source prompt`,
+    promptMissing: false,
+    promptSurfaceMarkdown: `# ${options.blockId} rendered prompt`,
+    promptSources: [
+      {
+        kind: "block",
+        label: "Block Prompt",
+        included: true,
+        empty: false,
+        missing: false,
+        disabledReason: null,
+        preview: `${options.blockId} source prompt`
+      }
+    ],
     dependencies: {
       total: 0,
       completed: 0,
@@ -140,6 +154,8 @@ export function timelineWorkspaceFixture(
       title: "Timeline task",
       status: "in_progress",
       executor: "codex",
+      promptMarkdown: "# Timeline task prompt",
+      promptMissing: false,
       acceptance: []
     },
     dependencyProgress: patch.dependencyProgress ?? {

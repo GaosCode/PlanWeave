@@ -53,6 +53,19 @@ const labels: TaskWorkspaceLabels = {
   mode: "Mode",
   model: "Model",
   permission: "Permission",
+  promptLabels: {
+    blockPrompt: "Block prompt",
+    disabled: "Disabled",
+    effectivePrompt: "Effective prompt",
+    empty: "Empty",
+    included: "Included",
+    missing: "Missing",
+    promptSources: "Prompt sources",
+    savePrompt: "Save Prompt",
+    saved: "Saved",
+    saving: "Saving",
+    taskPrompt: "Task prompt"
+  },
   reasoning: "Reasoning",
   runStatus: {
     active: "Running",
@@ -86,6 +99,8 @@ const workspace: TaskWorkspace = {
     title: "Build Task Workspace",
     status: "planned",
     executor: null,
+    promptMarkdown: "# Build Task Workspace",
+    promptMissing: false,
     acceptance: []
   },
   dependencyProgress: {
@@ -139,6 +154,8 @@ function controller(patch: Partial<TaskWorkspaceController> = {}): TaskWorkspace
     refresh: vi.fn(),
     returnToCanvas: vi.fn(),
     runnerModel: null,
+    saveBlockPrompt: vi.fn(async () => undefined),
+    saveTaskPrompt: vi.fn(async () => undefined),
     selectRun: vi.fn(),
     selectedRecord: null,
     selectedRun: null,
@@ -165,6 +182,56 @@ describe("Task Workspace shell", () => {
     expect(screen.queryByTestId("task-workspace-composer-slot")).not.toBeInTheDocument();
     expect(conversation).not.toHaveBeenCalled();
     expect(composer).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Task prompt")).toHaveValue("# Build Task Workspace");
+  });
+
+  it("gives the Task Overview its own vertical scroll viewport", () => {
+    render(<TaskWorkspaceRoute controller={controller()} labels={labels} />);
+
+    expect(screen.getByTestId("task-workspace-overview-panel")).toHaveClass(
+      "h-full",
+      "overflow-y-auto",
+      "[scrollbar-gutter:stable]"
+    );
+  });
+
+  it("opens a directly targeted Block prompt while keeping Effective Prompt read-only", () => {
+    const fixture = taskWorkspaceInspectorFixture();
+    const blockWithoutRuns = {
+      ...fixture.selectedRun.block,
+      runs: [],
+      status: "ready" as const
+    };
+    const blockWorkspace = {
+      ...fixture.workspace,
+      blocks: [blockWithoutRuns],
+      activeRecordIds: [],
+      selectedRecordId: null
+    };
+
+    render(
+      <TaskWorkspaceRoute
+        controller={controller({
+          navigation: {
+            projectRoot: "/projects/demo",
+            canvasId: "canvas-main",
+            taskId: "T-001",
+            blockRef: blockWithoutRuns.ref,
+            source: { view: "graph" }
+          },
+          workspace: blockWorkspace
+        })}
+        labels={labels}
+      />
+    );
+
+    const blockPrompts = screen.getByTestId(`task-workspace-block-prompts:${blockWithoutRuns.ref}`);
+    expect(blockPrompts.closest("details")).toHaveAttribute("open");
+    const blockPrompt = within(blockPrompts).getByLabelText("Block prompt");
+    const effectivePrompt = within(blockPrompts).getByLabelText("Effective prompt");
+    expect(blockPrompt).toHaveValue(blockWithoutRuns.promptMarkdown);
+    expect(effectivePrompt).toHaveTextContent("Rendered inspector prompt");
+    expect(effectivePrompt.tagName).toBe("PRE");
   });
 
   it("keeps the page root fixed while each stable slot owns its scroll area", async () => {
@@ -182,7 +249,7 @@ describe("Task Workspace shell", () => {
       />
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Inspector" }));
+    expect(screen.getByTestId("task-workspace-inspector-slot")).toBeInTheDocument();
     expect(screen.getByTestId("task-workspace-shell")).toHaveClass("overflow-hidden");
     expect(screen.getByTestId("task-workspace-timeline-slot")).toHaveClass("overflow-y-auto");
     expect(screen.getByTestId("task-workspace-main")).toHaveClass("relative");

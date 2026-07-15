@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { VerticalResizeHandle } from "../../components/VerticalResizeHandle";
 import type { TaskWorkspaceInspectorSlotProps } from "../contracts";
+import type { TaskWorkspacePromptLabels } from "../contracts";
+import { TaskWorkspaceBlockPrompts, TaskWorkspaceTaskPrompt } from "../TaskWorkspacePrompts";
 import { taskWorkspaceRunStatus } from "../timeline/timelineProjection";
 import { taskWorkspacePanelMaxWidth, taskWorkspacePanelMinWidth } from "../useTaskWorkspaceLayout";
 import { DeferredInspectorSection } from "./DeferredInspectorSection";
@@ -52,6 +54,7 @@ export type TaskWorkspaceInspectorLabels = {
   options: string;
   overview: string;
   permission: string;
+  promptLabels: TaskWorkspacePromptLabels;
   promptFile: string;
   protocolDetails: string;
   reasoning: string;
@@ -219,6 +222,7 @@ function artifactPath(
 const historyLimit = 100;
 
 export function TaskWorkspaceInspector({
+  focusedBlock,
   inspectorCollapsed,
   inspectorWidth,
   labels,
@@ -279,6 +283,15 @@ export function TaskWorkspaceInspector({
           <XIcon />
         </Button>
       </header>
+
+      {workspace ? (
+        <section className="space-y-4 border-b border-border/80 p-3">
+          <TaskWorkspaceTaskPrompt compact labels={labels.promptLabels} task={workspace.task} />
+          {focusedBlock ? (
+            <TaskWorkspaceBlockPrompts block={focusedBlock} compact labels={labels.promptLabels} />
+          ) : null}
+        </section>
+      ) : null}
 
       {!selectedRun || !workspace ? (
         <p className="p-4 text-center text-xs text-text-muted">{labels.noSelection}</p>

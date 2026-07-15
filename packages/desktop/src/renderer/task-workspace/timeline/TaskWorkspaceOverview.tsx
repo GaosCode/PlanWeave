@@ -1,7 +1,10 @@
 import type { TaskWorkspace } from "@planweave-ai/runtime";
+import { ChevronRightIcon } from "lucide-react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { TaskWorkspaceLabels } from "../contracts";
+import { TaskWorkspaceBlockPrompts, TaskWorkspaceTaskPrompt } from "../TaskWorkspacePrompts";
+import type { TaskWorkspaceLabels, TaskWorkspacePromptSaveInput } from "../contracts";
 import type { TaskWorkspaceTimelineLabels } from "./types";
 
 function activeRuns(workspace: TaskWorkspace) {
@@ -26,6 +29,49 @@ function artifactPath(workspace: TaskWorkspace): string | null {
     workspace.latestArtifact?.reference?.relativePath ??
     workspace.latestArtifact?.reportPath ??
     null
+  );
+}
+
+function BlockPromptDisclosure({
+  initiallyOpen,
+  labels,
+  block,
+  onSavePrompt
+}: {
+  initiallyOpen: boolean;
+  labels: TaskWorkspaceLabels;
+  block: TaskWorkspace["blocks"][number];
+  onSavePrompt: (input: TaskWorkspacePromptSaveInput) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(initiallyOpen);
+
+  return (
+    <details
+      className="group rounded-lg border border-border/80"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      open={open}
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-3 p-3 outline-none hover:bg-app-hover focus-visible:ring-2 focus-visible:ring-ring/40 [&::-webkit-details-marker]:hidden">
+        <ChevronRightIcon
+          aria-hidden="true"
+          className="size-4 shrink-0 transition-transform group-open:rotate-90"
+        />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium">{block.title}</div>
+          <div className="mt-1 truncate font-mono text-xs text-text-muted">
+            {block.ref} · {block.effectiveExecutor ?? labels.unavailable}
+          </div>
+        </div>
+        <Badge variant="outline">{block.status}</Badge>
+      </summary>
+      <div className="border-t border-border/80 p-4">
+        <TaskWorkspaceBlockPrompts
+          block={block}
+          labels={labels.promptLabels}
+          onSave={onSavePrompt}
+        />
+      </div>
+    </details>
   );
 }
 
@@ -94,10 +140,16 @@ export function TaskWorkspaceOverview({
 }
 
 export function TaskWorkspaceOverviewPanel({
+  focusedBlockRef,
   labels,
+  onSaveBlockPrompt,
+  onSaveTaskPrompt,
   workspace
 }: {
+  focusedBlockRef: string | null;
   labels: TaskWorkspaceLabels;
+  onSaveBlockPrompt: (blockRef: string, input: TaskWorkspacePromptSaveInput) => Promise<void>;
+  onSaveTaskPrompt: (input: TaskWorkspacePromptSaveInput) => Promise<void>;
   workspace: TaskWorkspace;
 }) {
   const runs = activeRuns(workspace);
@@ -105,96 +157,107 @@ export function TaskWorkspaceOverviewPanel({
 
   return (
     <article
-      className="mx-auto w-full max-w-5xl space-y-8 p-6 sm:p-8"
+      className="h-full min-h-0 w-full overflow-y-auto [scrollbar-gutter:stable]"
       data-testid="task-workspace-overview-panel"
     >
-      <header className="space-y-2 border-b border-border/80 pb-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">{labels.overview}</Badge>
-          <Badge variant="secondary">{labels.taskStatus[workspace.task.status]}</Badge>
-        </div>
-        <h1 className="text-2xl font-semibold tracking-tight">{workspace.task.title}</h1>
-        <p className="font-mono text-xs text-text-muted">{workspace.task.taskId}</p>
-      </header>
+      <div className="mx-auto w-full max-w-5xl space-y-8 p-6 sm:p-8">
+        <header className="space-y-2 border-b border-border/80 pb-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline">{labels.overview}</Badge>
+            <Badge variant="secondary">{labels.taskStatus[workspace.task.status]}</Badge>
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight">{workspace.task.title}</h1>
+          <p className="font-mono text-xs text-text-muted">{workspace.task.taskId}</p>
+        </header>
 
-      <section className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-lg border border-border/80 p-4 lg:col-span-2">
-          <h2 className="text-sm font-semibold">{labels.activeRuns(runs.length)}</h2>
-          {runs.length === 0 ? (
-            <p className="mt-3 text-sm text-text-muted">{labels.noActiveRuns}</p>
+        <section className="grid gap-4 lg:grid-cols-3">
+          <div className="rounded-lg border border-border/80 p-4 lg:col-span-2">
+            <h2 className="text-sm font-semibold">{labels.activeRuns(runs.length)}</h2>
+            {runs.length === 0 ? (
+              <p className="mt-3 text-sm text-text-muted">{labels.noActiveRuns}</p>
+            ) : (
+              <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                {runs.map((run) => (
+                  <li className="rounded-md bg-app-panel p-3" key={run.recordId}>
+                    <div className="truncate text-sm font-medium">{run.blockTitle}</div>
+                    <div className="mt-1 truncate font-mono text-xs text-text-muted">
+                      {run.agent ?? labels.unavailable} · {run.runId}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="rounded-lg border border-border/80 p-4">
+            <h2 className="text-sm font-semibold">{labels.dependencies}</h2>
+            <div className="mt-3 text-2xl font-semibold tabular-nums">
+              {workspace.dependencyProgress.percent}%
+            </div>
+            <p className="mt-1 text-xs text-text-muted">
+              {labels.dependencyProgress(
+                workspace.dependencyProgress.completed,
+                workspace.dependencyProgress.total,
+                workspace.dependencyProgress.percent
+              )}
+            </p>
+            <progress
+              aria-label={labels.dependencies}
+              className="mt-3 h-2 w-full accent-primary"
+              max={100}
+              value={workspace.dependencyProgress.percent}
+            />
+          </div>
+        </section>
+
+        <section className="space-y-3">
+          <TaskWorkspaceTaskPrompt
+            labels={labels.promptLabels}
+            onSave={onSaveTaskPrompt}
+            task={workspace.task}
+          />
+        </section>
+
+        <section>
+          <h2 className="text-sm font-semibold">{labels.acceptanceCriteria}</h2>
+          {workspace.task.acceptance.length === 0 ? (
+            <p className="mt-3 text-sm text-text-muted">{labels.unavailable}</p>
           ) : (
-            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-              {runs.map((run) => (
-                <li className="rounded-md bg-app-panel p-3" key={run.recordId}>
-                  <div className="truncate text-sm font-medium">{run.blockTitle}</div>
-                  <div className="mt-1 truncate font-mono text-xs text-text-muted">
-                    {run.agent ?? labels.unavailable} · {run.runId}
-                  </div>
+            <ol className="mt-3 space-y-2">
+              {workspace.task.acceptance.map((criterion, index) => (
+                <li className="flex gap-3 text-sm" key={`${index}:${criterion}`}>
+                  <span className="font-mono text-xs text-text-muted">{index + 1}.</span>
+                  <span>{criterion}</span>
                 </li>
               ))}
-            </ul>
+            </ol>
           )}
-        </div>
-        <div className="rounded-lg border border-border/80 p-4">
-          <h2 className="text-sm font-semibold">{labels.dependencies}</h2>
-          <div className="mt-3 text-2xl font-semibold tabular-nums">
-            {workspace.dependencyProgress.percent}%
+        </section>
+
+        <section>
+          <h2 className="text-sm font-semibold">{labels.blocks}</h2>
+          <div className="mt-3 space-y-3">
+            {workspace.blocks.map((block) => {
+              const initiallyOpen = block.ref === focusedBlockRef || workspace.blocks.length === 1;
+              return (
+                <BlockPromptDisclosure
+                  block={block}
+                  initiallyOpen={initiallyOpen}
+                  key={`${block.ref}:${initiallyOpen}`}
+                  labels={labels}
+                  onSavePrompt={(input) => onSaveBlockPrompt(block.ref, input)}
+                />
+              );
+            })}
           </div>
-          <p className="mt-1 text-xs text-text-muted">
-            {labels.dependencyProgress(
-              workspace.dependencyProgress.completed,
-              workspace.dependencyProgress.total,
-              workspace.dependencyProgress.percent
-            )}
+        </section>
+
+        <section className="rounded-lg border border-border/80 p-4">
+          <h2 className="text-sm font-semibold">{labels.latestArtifact}</h2>
+          <p className="mt-2 break-all font-mono text-xs text-text-muted">
+            {latestArtifact ?? labels.noArtifact}
           </p>
-          <progress
-            aria-label={labels.dependencies}
-            className="mt-3 h-2 w-full accent-primary"
-            max={100}
-            value={workspace.dependencyProgress.percent}
-          />
-        </div>
-      </section>
-
-      <section>
-        <h2 className="text-sm font-semibold">{labels.acceptanceCriteria}</h2>
-        {workspace.task.acceptance.length === 0 ? (
-          <p className="mt-3 text-sm text-text-muted">{labels.unavailable}</p>
-        ) : (
-          <ol className="mt-3 space-y-2">
-            {workspace.task.acceptance.map((criterion, index) => (
-              <li className="flex gap-3 text-sm" key={`${index}:${criterion}`}>
-                <span className="font-mono text-xs text-text-muted">{index + 1}.</span>
-                <span>{criterion}</span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
-
-      <section>
-        <h2 className="text-sm font-semibold">{labels.blocks}</h2>
-        <div className="mt-3 divide-y divide-border/80 rounded-lg border border-border/80">
-          {workspace.blocks.map((block) => (
-            <div className="flex items-center justify-between gap-4 p-3" key={block.ref}>
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium">{block.title}</div>
-                <div className="mt-1 truncate font-mono text-xs text-text-muted">
-                  {block.ref} · {block.effectiveExecutor ?? labels.unavailable}
-                </div>
-              </div>
-              <Badge variant="outline">{block.status}</Badge>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-border/80 p-4">
-        <h2 className="text-sm font-semibold">{labels.latestArtifact}</h2>
-        <p className="mt-2 break-all font-mono text-xs text-text-muted">
-          {latestArtifact ?? labels.noArtifact}
-        </p>
-      </section>
+        </section>
+      </div>
     </article>
   );
 }

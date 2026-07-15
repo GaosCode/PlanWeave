@@ -35,6 +35,8 @@ function taskWorkspaceFixture(input: GetTaskWorkspaceInput): GetTaskWorkspaceRes
       title: "Task workspace",
       status: "planned",
       executor: null,
+      promptMarkdown: "# Task workspace",
+      promptMissing: false,
       acceptance: []
     },
     dependencyProgress: {

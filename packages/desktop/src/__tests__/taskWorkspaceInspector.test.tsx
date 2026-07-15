@@ -69,6 +69,19 @@ const labels: TaskWorkspaceInspectorLabels = {
   options: "Options",
   overview: "Inspector overview",
   permission: "Permission",
+  promptLabels: {
+    blockPrompt: "Block prompt",
+    disabled: "Disabled",
+    effectivePrompt: "Effective prompt",
+    empty: "Empty",
+    included: "Included",
+    missing: "Missing",
+    promptSources: "Prompt sources",
+    savePrompt: "Save Prompt",
+    saved: "Saved",
+    saving: "Saving",
+    taskPrompt: "Task prompt"
+  },
   promptFile: "Prompt file",
   protocolDetails: "Protocol details",
   reasoning: "Reasoning",
@@ -102,6 +115,7 @@ function renderInspector(
   const props: React.ComponentProps<typeof TaskWorkspaceInspector> = {
     inspectorCollapsed: false,
     inspectorWidth: 360,
+    focusedBlock: fixture.selectedRun.block,
     labels,
     runnerModel: fixture.selectedRecord.runnerReadModel,
     selectedRecord: fixture.selectedRecord,
@@ -115,7 +129,7 @@ function renderInspector(
 }
 
 describe("TaskWorkspaceInspector", () => {
-  it("renders only typed record files, artifacts, and selected-run actual configuration", async () => {
+  it("renders authoritative prompts with typed record files and selected-run configuration", async () => {
     const user = userEvent.setup();
     renderInspector();
 
@@ -130,6 +144,13 @@ describe("TaskWorkspaceInspector", () => {
     expect(screen.getByText("/projects/demo/prompts/run.md")).toBeInTheDocument();
     expect(screen.getAllByText("/projects/demo/results/implementation.md")).toHaveLength(2);
     expect(screen.getByText("implementation.md")).toBeInTheDocument();
+    expect(screen.getByLabelText("Task prompt")).toHaveTextContent("Task source prompt.");
+    expect(screen.getByLabelText("Block prompt")).toHaveTextContent("Block source prompt.");
+    expect(screen.getByLabelText("Effective prompt")).toHaveTextContent(
+      "Task prompt and block prompt rendered together."
+    );
+    expect(screen.getByText("Task Node Prompt: Included")).toBeInTheDocument();
+    expect(screen.getByText("Block Prompt: Included")).toBeInTheDocument();
 
     const protocolSummary = screen.getByText("Protocol details");
     expect(protocolSummary.closest("details")).not.toHaveAttribute("open");
@@ -138,6 +159,51 @@ describe("TaskWorkspaceInspector", () => {
     expect(screen.getByText("Model selection")).toBeInTheDocument();
     expect(screen.getByText("Reasoning level")).toBeInTheDocument();
     expect(screen.queryByText(/\{"/)).not.toBeInTheDocument();
+  });
+
+  it("keeps Task and focused Block prompts visible without a selected run", () => {
+    const fixture = taskWorkspaceInspectorFixture();
+    renderInspector({
+      focusedBlock: fixture.selectedRun.block,
+      runnerModel: null,
+      selectedRecord: null,
+      selectedRun: null
+    });
+
+    expect(screen.getByLabelText("Task prompt")).toHaveTextContent("Task source prompt.");
+    expect(screen.getByLabelText("Block prompt")).toHaveTextContent("Block source prompt.");
+    expect(screen.getByLabelText("Effective prompt")).toHaveTextContent(
+      "Rendered inspector prompt"
+    );
+    expect(screen.getAllByText("No selected run")).toHaveLength(2);
+  });
+
+  it("marks missing Task and Block prompt files instead of showing invented content", () => {
+    const fixture = taskWorkspaceInspectorFixture();
+    const focusedBlock = {
+      ...fixture.selectedRun.block,
+      promptMarkdown: "",
+      promptMissing: true
+    };
+    renderInspector({
+      focusedBlock,
+      selectedRun: null,
+      selectedRecord: null,
+      workspace: {
+        ...fixture.workspace,
+        task: {
+          ...fixture.workspace.task,
+          promptMarkdown: "",
+          promptMissing: true
+        },
+        blocks: [focusedBlock],
+        selectedRecordId: null
+      }
+    });
+
+    expect(screen.getAllByText("Missing")).toHaveLength(2);
+    expect(screen.getByLabelText("Task prompt")).toBeEmptyDOMElement();
+    expect(screen.getByLabelText("Block prompt")).toBeEmptyDOMElement();
   });
 
   it("omits raw events while keeping files, artifacts, usage, and deferred diagnostics", async () => {
@@ -249,6 +315,7 @@ describe("TaskWorkspaceInspector", () => {
       <TaskWorkspaceInspector
         inspectorCollapsed={false}
         inspectorWidth={360}
+        focusedBlock={fixture.selectedRun.block}
         labels={labels}
         selectedRecord={staleRecord}
         selectedRun={fixture.selectedRun}
@@ -264,6 +331,7 @@ describe("TaskWorkspaceInspector", () => {
       <TaskWorkspaceInspector
         inspectorCollapsed
         inspectorWidth={360}
+        focusedBlock={fixture.selectedRun.block}
         labels={labels}
         selectedRecord={fixture.selectedRecord}
         selectedRun={fixture.selectedRun}

@@ -215,6 +215,30 @@ export function taskWorkspaceInspectorFixture(
     title: "Implement inspector",
     status: "completed",
     effectiveExecutor: "codex",
+    promptMarkdown: "# Implement inspector\n\nBlock source prompt.",
+    promptMissing: false,
+    promptSurfaceMarkdown:
+      "# Rendered inspector prompt\n\nTask prompt and block prompt rendered together.",
+    promptSources: [
+      {
+        kind: "taskNode",
+        label: "Task Node Prompt",
+        included: true,
+        empty: false,
+        missing: false,
+        disabledReason: null,
+        preview: "Build the right inspector"
+      },
+      {
+        kind: "block",
+        label: "Block Prompt",
+        included: true,
+        empty: false,
+        missing: false,
+        disabledReason: null,
+        preview: "Implement inspector"
+      }
+    ],
     dependencies: {
       total: 0,
       completed: 0,
@@ -233,6 +257,8 @@ export function taskWorkspaceInspectorFixture(
       title: "Build the right inspector",
       status: "implemented",
       executor: "codex",
+      promptMarkdown: "# Build the right inspector\n\nTask source prompt.",
+      promptMissing: false,
       acceptance: []
     },
     dependencyProgress: {

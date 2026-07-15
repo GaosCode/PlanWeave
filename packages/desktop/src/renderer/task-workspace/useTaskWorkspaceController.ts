@@ -22,10 +22,14 @@ import type {
 type TaskWorkspaceApi = Pick<
   DesktopBridgeApi,
   | "getRunRecord"
+  | "getBlockDetail"
+  | "getTaskDetail"
   | "getTaskWorkspace"
   | "onAutoRunChanged"
   | "onRuntimeStateChanged"
   | "subscribeRunnerRecord"
+  | "updateBlockPrompt"
+  | "updateTaskPrompt"
 >;
 
 type WorkspaceLoad = {
@@ -52,6 +56,13 @@ const idleRecordLoad: RecordLoad = { error: null, key: "", record: null, status:
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function graphEditError(result: Awaited<ReturnType<DesktopBridgeApi["updateTaskPrompt"]>>): string {
+  return (
+    result.diagnostics.map((diagnostic) => diagnostic.message).join("\n") ||
+    "The prompt could not be saved."
+  );
 }
 
 function navigationKey(navigation: TaskWorkspaceNavigationIdentity): string {
@@ -379,6 +390,76 @@ export function useTaskWorkspaceController(options: {
     [history.replaceTaskWorkspaceTarget, navigation]
   );
 
+  const saveTaskPrompt = useCallback<TaskWorkspaceController["saveTaskPrompt"]>(
+    async ({ baseMarkdown, markdown }) => {
+      if (!api || !navigation) {
+        throw new Error("Cannot save a Task prompt without a Task Workspace bridge and identity.");
+      }
+      const canvasRef = {
+        projectRoot: navigation.projectRoot,
+        canvasId: navigation.canvasId
+      };
+      const current = await api.getTaskDetail(canvasRef, navigation.taskId);
+      if (current.taskId !== navigation.taskId) {
+        throw new Error("The loaded Task prompt does not match this Task Workspace.");
+      }
+      if (current.promptMarkdown !== baseMarkdown) {
+        throw new Error(
+          "The Task prompt changed outside this editor. Reload the page and merge your changes before saving."
+        );
+      }
+      if (current.graphVersion === undefined || current.promptHash === undefined) {
+        throw new Error(
+          "The Task prompt cannot be saved safely because its revision is unavailable."
+        );
+      }
+      const result = await api.updateTaskPrompt(canvasRef, navigation.taskId, markdown, {
+        baseGraphVersion: current.graphVersion,
+        basePromptHash: current.promptHash
+      });
+      if (!result.ok) {
+        throw new Error(graphEditError(result));
+      }
+      setRefreshVersion((value) => value + 1);
+    },
+    [api, navigation]
+  );
+
+  const saveBlockPrompt = useCallback<TaskWorkspaceController["saveBlockPrompt"]>(
+    async (blockRef, { baseMarkdown, markdown }) => {
+      if (!api || !navigation) {
+        throw new Error("Cannot save a Block prompt without a Task Workspace bridge and identity.");
+      }
+      const canvasRef = {
+        projectRoot: navigation.projectRoot,
+        canvasId: navigation.canvasId
+      };
+      const current = await api.getBlockDetail(canvasRef, blockRef);
+      if (current.ref !== blockRef || current.taskId !== navigation.taskId) {
+        throw new Error("The loaded Block prompt does not belong to this Task Workspace.");
+      }
+      if (current.promptMarkdown !== baseMarkdown) {
+        throw new Error(
+          "The Block prompt changed outside this editor. Reload the page and merge your changes before saving."
+        );
+      }
+      if (current.graphVersion === undefined || current.promptHash === undefined) {
+        throw new Error(
+          "The Block prompt cannot be saved safely because its revision is unavailable."
+        );
+      }
+      const result = await api.updateBlockPrompt(canvasRef, blockRef, markdown, {
+        baseGraphVersion: current.graphVersion,
+        basePromptHash: current.promptHash
+      });
+      if (!result.ok) {
+        throw new Error(graphEditError(result));
+      }
+      setRefreshVersion((value) => value + 1);
+    },
+    [api, navigation]
+  );
+
   const liveStatus = useMemo<TaskWorkspaceLiveStatus>(() => {
     if (!liveProjection.selectedRun) return "idle";
     if (recordLoad.status === "loading") return "loading";
@@ -415,6 +496,8 @@ export function useTaskWorkspaceController(options: {
       refresh: () => setRefreshVersion((current) => current + 1),
       returnToCanvas: history.returnToTaskWorkspaceSource,
       runnerModel: liveProjection.runnerModel,
+      saveBlockPrompt,
+      saveTaskPrompt,
       selectRun,
       selectedRecord,
       selectedRun: liveProjection.selectedRun,
@@ -431,6 +514,8 @@ export function useTaskWorkspaceController(options: {
       liveProjection,
       navigation,
       recordError,
+      saveBlockPrompt,
+      saveTaskPrompt,
       selectRun,
       selectedRecord,
       status

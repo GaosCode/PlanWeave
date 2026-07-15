@@ -163,6 +163,8 @@ describe("Task Workspace run projection", () => {
         title: "Live projection",
         status: "in_progress",
         executor: "codex",
+        promptMarkdown: "# Live projection",
+        promptMissing: false,
         acceptance: []
       },
       dependencyProgress: {
@@ -181,6 +183,10 @@ describe("Task Workspace run projection", () => {
           title: "Implement",
           status: "in_progress",
           effectiveExecutor: "codex",
+          promptMarkdown: "# Implement",
+          promptMissing: false,
+          promptSurfaceMarkdown: "# Rendered implement prompt",
+          promptSources: [],
           dependencies: {
             total: 0,
             completed: 0,
