@@ -1,71 +1,104 @@
 import { appendFile, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { normalizeAcpSessionNotification } from "../autoRun/acpEventNormalization.js";
-import { AcpEventPublisher } from "../autoRun/acpEventPublisher.js";
 import {
   AcpEventStore,
   AcpEventStoreLimitError,
   AcpEventStoreOpenError
 } from "../autoRun/acpEventStore.js";
-import { AcpEventReadModel, AcpEventReadModelRegistry } from "../autoRun/acpEventReadModel.js";
+import {
+  createDefaultAcpEventRetentionPolicy,
+  DefaultAcpEventRetentionPolicy
+} from "../autoRun/acpEventRetentionPolicy.js";
+import { AcpEventReadModel } from "../autoRun/acpEventReadModel.js";
 import {
   encodeNormalizedRunnerEvent,
-  normalizedRunnerEventSchema,
+  RUNNER_EVENT_MAX_ENCODED_BYTES,
+  RUNNER_EVENT_MAX_MESSAGE_BYTES,
   type NormalizedRunnerEvent
 } from "../autoRun/normalizedEventContract.js";
-import {
-  replayNormalizedRunnerEvents,
-  runnerEventCursorSchema
-} from "../autoRun/runnerEventReplay.js";
+import { replayNormalizedRunnerEvents } from "../autoRun/runnerEventReplay.js";
 import { runnerIdentitySchema, runnerRunIdentitySchema } from "../autoRun/runnerContractSchemas.js";
-import {
-  AcpProjectionAccumulator,
-  projectAcpConversation
-} from "../autoRun/acpConversationProjection.js";
+import { projectAcpConversation } from "../autoRun/acpConversationProjection.js";
 import { writeAcpConversationProjection } from "../autoRun/acpConversationPersistence.js";
+import { event, identity, projectionEvent } from "./acpEvents.helpers.js";
 
-function identity(runId = "RUN-001") {
+const finalEvidenceSlotCount = 3;
+const finalEvidenceReserveBytes = RUNNER_EVENT_MAX_ENCODED_BYTES * finalEvidenceSlotCount;
+
+const acpRunner = () =>
+  runnerIdentitySchema.parse({
+    version: "planweave.runner/v1",
+    runnerKind: "acp",
+    agentId: "codex"
+  });
+
+function ordinaryMessage(messageId: string, content = "x"): NormalizedRunnerEvent["body"] {
+  return {
+    kind: "message",
+    role: "assistant",
+    messageId,
+    chunk: false,
+    content,
+    redaction: { classes: [], replaced: 0 }
+  };
+}
+
+function lifecycleBody(message: string): NormalizedRunnerEvent["body"] {
+  return { kind: "lifecycle", state: "running", message };
+}
+
+function artifactBody(relativePath = "report.md"): NormalizedRunnerEvent["body"] {
+  return {
+    kind: "artifact",
+    artifact: {
+      version: "planweave.runner/v1",
+      kind: "implementation",
+      relativePath,
+      sha256: "a".repeat(64),
+      sizeBytes: 12,
+      mediaType: "text/markdown"
+    }
+  };
+}
+
+function terminalBody(diagnostic: string | null = null): NormalizedRunnerEvent["body"] {
+  return {
+    kind: "terminal",
+    outcome: {
+      version: "planweave.runner/v1",
+      state: "succeeded",
+      exitCode: 0,
+      finishedAt: "2026-07-11T00:00:01.000Z",
+      diagnostic,
+      artifactValidated: true
+    }
+  };
+}
+
+function maximumRunnerIdentity() {
+  const taskId = "T".repeat(256);
+  const blockId = "B".repeat(256);
+  const runId = "R".repeat(256);
   return runnerRunIdentitySchema.parse({
-    projectId: "project-1",
-    canvasId: "default",
-    taskId: "T-004",
-    blockId: "B-001",
-    claimRef: "T-004#B-001",
+    projectId: "P".repeat(256),
+    canvasId: "C".repeat(256),
+    taskId,
+    blockId,
+    claimRef: `${taskId}#${blockId}`,
     runId,
     runOwner: "executor",
-    runSessionId: null,
-    desktopRunId: null,
+    runSessionId: "S".repeat(256),
+    desktopRunId: "D".repeat(256),
     executorRunId: runId
   });
 }
 
-function event(sequence: number, runId = "RUN-001"): NormalizedRunnerEvent {
-  return normalizedRunnerEventSchema.parse({
-    version: "planweave.runner-event/v1",
-    sequence,
-    timestamp: "2026-07-11T00:00:00.000Z",
-    identity: identity(runId),
-    runner: { version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" },
-    correlation: { sessionId: "session-1" },
-    body: { kind: "lifecycle", state: "running", message: `event ${sequence}` }
-  });
-}
-
-function projectionEvent(
-  sequence: number,
-  body: NormalizedRunnerEvent["body"]
-): NormalizedRunnerEvent {
-  return normalizedRunnerEventSchema.parse({
-    version: "planweave.runner-event/v1",
-    sequence,
-    timestamp: `2026-07-11T00:00:${String(sequence).padStart(2, "0")}.000Z`,
-    identity: identity(),
-    runner: { version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" },
-    correlation: { sessionId: "session-1" },
-    body
-  });
+function retentionBoundaryCount(events: readonly NormalizedRunnerEvent[]): number {
+  return events.filter((e) => e.body.kind === "diagnostic" && e.body.code === "retention_boundary")
+    .length;
 }
 
 describe("ACP event normalization", () => {
@@ -496,11 +529,12 @@ describe("ACP event store and projection", () => {
           artifactValidated: true
         }
       })
-    ).resolves.toMatchObject({ sequence: 2 });
+    ).resolves.toBeUndefined();
     expect(projectionAttempts).toBe(1);
     await expect(store.drain()).resolves.toBeUndefined();
     expect(projectionAttempts).toBe(2);
     expect(await readFile(store.eventsPath, "utf8")).toContain('"sequence":1');
+    expect(await readFile(store.eventsPath, "utf8")).toContain('"sequence":2');
     expect(store.snapshot().diagnostics).toContainEqual(
       expect.objectContaining({
         code: "conversation_projection_failed",
@@ -570,9 +604,10 @@ describe("ACP event store and projection", () => {
       }
     });
     await store.open();
-    await expect(store.append(event(1).body)).resolves.toMatchObject({ sequence: 1 });
+    await expect(store.append(event(1).body)).resolves.toBeUndefined();
     expect(store.snapshot().events).toHaveLength(1);
-    await expect(store.append(event(2).body)).resolves.toMatchObject({ sequence: 2 });
+    await expect(store.append(event(2).body)).resolves.toBeUndefined();
+    expect(store.snapshot().events.at(-1)?.sequence).toBe(2);
   });
 
   it("poisons a partial normalized append and forbids unsafe retry", async () => {
@@ -604,26 +639,475 @@ describe("ACP event store and projection", () => {
     );
   });
 
-  it("fails closed with structured retention diagnostics for raw and normalized limits", async () => {
-    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-limits-"));
+  it("hard-rejects an ordinary drop when a legacy hard-full log cannot persist its boundary", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-hard-count-"));
+    await writeFile(
+      join(runDir, "events.ndjson"),
+      Array.from({ length: 6 }, (_, index) => encodeNormalizedRunnerEvent(event(index + 1))).join(
+        ""
+      ),
+      "utf8"
+    );
+    const policy = createDefaultAcpEventRetentionPolicy({
+      maxEvents: 6,
+      reserveEvents: 3,
+      maxBytes: 1_000_000,
+      reserveBytes: finalEvidenceReserveBytes
+    });
     const store = new AcpEventStore({
       runDir,
       identity: identity(),
-      maxProtocolBytes: 8,
-      maxEventBytes: 8,
-      runner: runnerIdentitySchema.parse({
-        version: "planweave.runner/v1",
-        runnerKind: "acp",
-        agentId: "codex"
-      })
+      runner: acpRunner(),
+      retentionPolicy: policy
     });
     await store.open();
-    await expect(
-      store.appendProtocol("agent_to_client", { value: "too large" })
-    ).rejects.toMatchObject({
-      diagnostic: { code: "retention_truncation" }
+    await expect(store.append(ordinaryMessage("overflow"))).rejects.toMatchObject({
+      diagnostic: expect.objectContaining({ code: "retention_truncation" })
     });
-    await expect(store.append(event(1).body)).rejects.toBeInstanceOf(AcpEventStoreLimitError);
+    expect(store.snapshot().events).toHaveLength(6);
+    expect(retentionBoundaryCount(store.snapshot().events)).toBe(0);
+    const disk = await readFile(store.eventsPath, "utf8");
+    expect(disk.trim().split("\n").length).toBe(6);
+  });
+
+  it("persists boundary, artifact, and terminal inside the combined reserve", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-artifact-terminal-"));
+    const policy = createDefaultAcpEventRetentionPolicy({
+      maxEvents: 6,
+      reserveEvents: 3,
+      maxBytes: 1_000_000,
+      reserveBytes: finalEvidenceReserveBytes
+    });
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: acpRunner(),
+      retentionPolicy: policy
+    });
+    await store.open();
+    for (let i = 0; i < 3; i += 1) {
+      await store.append(ordinaryMessage(`m${i}`));
+    }
+    await store.append(ordinaryMessage("overflow"));
+    await store.append(artifactBody());
+    await store.append(terminalBody());
+    expect(store.snapshot().events.map((e) => e.body.kind)).toEqual([
+      "message",
+      "message",
+      "message",
+      "diagnostic",
+      "artifact",
+      "terminal"
+    ]);
+    expect(retentionBoundaryCount(store.snapshot().events)).toBe(1);
+  });
+
+  it("persists maximum-schema final evidence with a maximum runner identity", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-max-final-evidence-"));
+    const policy = createDefaultAcpEventRetentionPolicy({
+      maxEvents: finalEvidenceSlotCount,
+      reserveEvents: finalEvidenceSlotCount,
+      maxBytes: finalEvidenceReserveBytes,
+      reserveBytes: finalEvidenceReserveBytes
+    });
+    const store = new AcpEventStore({
+      runDir,
+      identity: maximumRunnerIdentity(),
+      runner: acpRunner(),
+      retentionPolicy: policy
+    });
+    await store.open();
+
+    await store.append(ordinaryMessage("dropped"));
+    await store.append(artifactBody("a".repeat(1_024)));
+    await store.append(terminalBody("x".repeat(8_192)));
+
+    expect(store.snapshot().events.map((persistedEvent) => persistedEvent.body.kind)).toEqual([
+      "diagnostic",
+      "artifact",
+      "terminal"
+    ]);
+    expect((await store.sizes()).eventBytes).toBeLessThanOrEqual(finalEvidenceReserveBytes);
+  });
+
+  it("protects terminal count budget from late lifecycle after artifact", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-artifact-terminal-fit-"));
+    const policy = createDefaultAcpEventRetentionPolicy({
+      maxEvents: 6,
+      reserveEvents: 3,
+      maxBytes: 1_000_000,
+      reserveBytes: finalEvidenceReserveBytes
+    });
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: acpRunner(),
+      retentionPolicy: policy
+    });
+    await store.open();
+    for (let i = 0; i < 3; i += 1) {
+      await store.append(ordinaryMessage(`m${i}`));
+    }
+    await store.append(ordinaryMessage("overflow"));
+    await store.append(artifactBody());
+    await expect(store.append(lifecycleBody("late-control"))).rejects.toBeInstanceOf(
+      AcpEventStoreLimitError
+    );
+    await store.append(terminalBody());
+    expect(store.snapshot().events.map((e) => e.body.kind)).toEqual([
+      "message",
+      "message",
+      "message",
+      "diagnostic",
+      "artifact",
+      "terminal"
+    ]);
+  });
+
+  it("triggers ordinary soft boundary by event count without growing after drop", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-soft-count-"));
+    const policy = createDefaultAcpEventRetentionPolicy({
+      maxEvents: 10,
+      reserveEvents: 3,
+      maxBytes: 1_000_000,
+      reserveBytes: finalEvidenceReserveBytes
+    });
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: acpRunner(),
+      retentionPolicy: policy
+    });
+    await store.open();
+    // ordinary soft = 7
+    for (let i = 0; i < 7; i += 1) {
+      await store.append(ordinaryMessage(`m${i}`));
+    }
+    expect(store.snapshot().events).toHaveLength(7);
+    await store.append(ordinaryMessage("overflow"));
+    const afterBoundary = store.snapshot();
+    expect(afterBoundary.events).toHaveLength(8);
+    expect(retentionBoundaryCount(afterBoundary.events)).toBe(1);
+    const lengthBeforeDrops = afterBoundary.events.length;
+    for (let i = 0; i < 3; i += 1) {
+      await expect(store.append(ordinaryMessage(`drop-${i}`))).resolves.toBeUndefined();
+    }
+    expect(store.snapshot().events).toHaveLength(lengthBeforeDrops);
+    expect(retentionBoundaryCount(store.snapshot().events)).toBe(1);
+
+    // Non-final control cannot consume the artifact/terminal pair that remains in reserve.
+    await expect(store.append(lifecycleBody("after-boundary"))).rejects.toBeInstanceOf(
+      AcpEventStoreLimitError
+    );
+  });
+
+  it("triggers ordinary soft boundary by event bytes independently of count", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-soft-bytes-"));
+    const ordinaryByteHeadroom = 1_600;
+    const policy = createDefaultAcpEventRetentionPolicy({
+      maxEvents: 1_000,
+      reserveEvents: 3,
+      maxBytes: finalEvidenceReserveBytes + ordinaryByteHeadroom,
+      reserveBytes: finalEvidenceReserveBytes
+    });
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: acpRunner(),
+      retentionPolicy: policy
+    });
+    await store.open();
+    // One encoded message is a few hundred bytes, so the small headroom is bytes-driven.
+    let wrote = 0;
+    for (let i = 0; i < 20; i += 1) {
+      await store.append(ordinaryMessage(`m${i}`, "y".repeat(40)));
+      wrote = store.snapshot().events.filter((e) => e.body.kind === "message").length;
+      if (retentionBoundaryCount(store.snapshot().events) === 1) break;
+    }
+    expect(retentionBoundaryCount(store.snapshot().events)).toBe(1);
+    expect(wrote).toBeGreaterThan(0);
+    const lengthAtBoundary = store.snapshot().events.length;
+    await store.append(ordinaryMessage("after-soft-bytes", "z".repeat(40)));
+    expect(store.snapshot().events).toHaveLength(lengthAtBoundary);
+  });
+
+  it("writes a single protocol soft boundary and stops growing ordinary protocol", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-protocol-soft-"));
+    const policy = createDefaultAcpEventRetentionPolicy({
+      maxEvents: 100,
+      reserveEvents: 3,
+      maxBytes: 1_000_000,
+      reserveBytes: finalEvidenceReserveBytes,
+      protocolReserveBytes: 256
+    });
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: acpRunner(),
+      retentionPolicy: policy,
+      maxProtocolBytes: 2_048
+    });
+    await store.open();
+    await store.append(ordinaryMessage("seed"));
+    await store.appendProtocol("agent_to_client", { p: "X".repeat(2_000) });
+    expect(retentionBoundaryCount(store.snapshot().events)).toBe(1);
+    const eventsAfterBoundary = store.snapshot().events.length;
+    const protocolSizeAfter = (await store.sizes()).protocolBytes;
+    for (let i = 0; i < 3; i += 1) {
+      await store.appendProtocol("client_to_agent", { x: i, pad: "y".repeat(100) });
+    }
+    expect(store.snapshot().events).toHaveLength(eventsAfterBoundary);
+    expect(retentionBoundaryCount(store.snapshot().events)).toBe(1);
+    expect((await store.sizes()).protocolBytes).toBe(protocolSizeAfter);
+
+    const reopened = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: acpRunner(),
+      retentionPolicy: policy,
+      maxProtocolBytes: 2_048
+    });
+    await reopened.open();
+    await reopened.appendProtocol("client_to_agent", { small: true });
+    expect((await reopened.sizes()).protocolBytes).toBe(protocolSizeAfter);
+    expect(retentionBoundaryCount(reopened.snapshot().events)).toBe(1);
+  });
+
+  it("protects terminal byte budget from a late control after artifact", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-terminal-byte-reserve-"));
+    const maxBytes = finalEvidenceReserveBytes + 3_000;
+    const policy = createDefaultAcpEventRetentionPolicy({
+      maxEvents: 100,
+      reserveEvents: 3,
+      maxBytes,
+      reserveBytes: finalEvidenceReserveBytes
+    });
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: acpRunner(),
+      retentionPolicy: policy
+    });
+    await store.open();
+    for (let i = 0; i < 3; i += 1) {
+      await store.append(ordinaryMessage(`m${i}`));
+    }
+    await store.append(ordinaryMessage("overflow"));
+    await store.append(artifactBody());
+    let lateControlError: unknown;
+    for (let index = 0; index < 20; index += 1) {
+      try {
+        await store.append(lifecycleBody("x".repeat(RUNNER_EVENT_MAX_MESSAGE_BYTES)));
+      } catch (error) {
+        lateControlError = error;
+        break;
+      }
+    }
+    expect(lateControlError).toBeInstanceOf(AcpEventStoreLimitError);
+    await store.append(terminalBody());
+    expect(store.snapshot().events.at(-1)?.body.kind).toBe("terminal");
+    expect((await store.sizes()).eventBytes).toBeLessThanOrEqual(maxBytes);
+  });
+
+  it("inherits maxEvents/maxEventBytes into the default policy when policy is not injected", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-options-policy-"));
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: acpRunner(),
+      maxEvents: 5,
+      maxEventBytes: 1_100_000
+    });
+    await store.open();
+    await store.append(lifecycleBody("L0"));
+    await store.append(lifecycleBody("L1"));
+    await expect(store.append(lifecycleBody("L2"))).rejects.toBeInstanceOf(AcpEventStoreLimitError);
+    expect(store.snapshot().events).toHaveLength(2);
+  });
+
+  it("keeps live and reopen retention diagnostics equivalent for store and read model", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-diag-parity-"));
+    const policy = createDefaultAcpEventRetentionPolicy({
+      maxEvents: 10,
+      reserveEvents: 3,
+      maxBytes: 1_000_000,
+      reserveBytes: finalEvidenceReserveBytes
+    });
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: acpRunner(),
+      retentionPolicy: policy
+    });
+    await store.open();
+    for (let i = 0; i < 9; i += 1) {
+      await store.append(ordinaryMessage(`m${i}`));
+    }
+    const liveDiagnostics = store.diagnosticsSnapshot();
+    expect(liveDiagnostics.map((d) => d.code)).toContain("retention_boundary");
+    const liveReadModel = new AcpEventReadModel(store).replay();
+    expect(liveReadModel.diagnostics.map((d) => d.code)).toContain("retention_boundary");
+    expect(liveReadModel.cursor.afterSequence).toBe(store.snapshot().events.at(-1)?.sequence);
+
+    const reopened = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: acpRunner(),
+      retentionPolicy: policy
+    });
+    await reopened.open();
+    const reopenDiagnostics = reopened.diagnosticsSnapshot();
+    expect(reopenDiagnostics.map((d) => d.code)).toEqual(liveDiagnostics.map((d) => d.code));
+    const reopenReadModel = new AcpEventReadModel(reopened).replay();
+    expect(reopenReadModel.diagnostics.map((d) => d.code)).toEqual(
+      liveReadModel.diagnostics.map((d) => d.code)
+    );
+    expect(reopenReadModel.cursor.afterSequence).toBe(liveReadModel.cursor.afterSequence);
+    expect(reopened.snapshot().events.map((e) => e.sequence)).toEqual(
+      store.snapshot().events.map((e) => e.sequence)
+    );
+  });
+
+  it("does not mark boundary committed when durable boundary append fails (ENOSPC)", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-boundary-enospc-"));
+    // ordinary soft=1 (maxEvents=4, reserve=3)
+    const policy = createDefaultAcpEventRetentionPolicy({
+      maxEvents: 4,
+      reserveEvents: 3,
+      maxBytes: 1_000_000,
+      reserveBytes: finalEvidenceReserveBytes
+    });
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      runner: acpRunner(),
+      retentionPolicy: policy,
+      appendText: async (path, data, options) => {
+        if (String(data).includes("retention_boundary")) {
+          const err: NodeJS.ErrnoException = new Error("ENOSPC");
+          err.code = "ENOSPC";
+          throw err;
+        }
+        return appendFile(path, data, options);
+      }
+    });
+    await store.open();
+    await expect(store.append(ordinaryMessage("m1"))).resolves.toBeUndefined();
+    expect(store.snapshot().events.at(-1)?.sequence).toBe(1);
+    await expect(store.append(ordinaryMessage("m2"))).rejects.toThrow(/ENOSPC/);
+    // Must not enter dropped/observed pseudo-success: next ordinary also fails, disk has no boundary.
+    await expect(store.append(ordinaryMessage("m3"))).rejects.toThrow(/ENOSPC/);
+    expect(store.snapshot().events).toHaveLength(1);
+    expect(store.diagnosticsSnapshot().map((d) => d.code)).not.toContain("retention_boundary");
+    const disk = await readFile(store.eventsPath, "utf8");
+    expect(disk).not.toContain("retention_boundary");
+    expect(disk.trim().split("\n")).toHaveLength(1);
+  });
+
+  it("real appendText ENOSPC (I/O) is not swallowed by retention policy and fails closed", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-enospc-"));
+    const policy = createDefaultAcpEventRetentionPolicy({
+      maxEvents: 10_000,
+      maxBytes: 2 * 1024 * 1024
+    });
+    const store = new AcpEventStore({
+      runDir,
+      identity: identity(),
+      retentionPolicy: policy,
+      appendText: async () => {
+        const err: NodeJS.ErrnoException = new Error("ENOSPC");
+        err.code = "ENOSPC";
+        throw err;
+      },
+      runner: acpRunner()
+    });
+    await store.open();
+    await expect(store.append(ordinaryMessage("hi"))).rejects.toThrow(/ENOSPC/);
+    await expect(store.append(ordinaryMessage("hi-2"))).rejects.toThrow(/ENOSPC/);
+  });
+
+  it("policy unit: projected hard budget and artifact terminal pair are authoritative", () => {
+    const policy = new DefaultAcpEventRetentionPolicy({
+      maxEvents: 6,
+      reserveEvents: 3,
+      maxBytes: finalEvidenceReserveBytes,
+      reserveBytes: finalEvidenceReserveBytes
+    });
+    const baseBudget = {
+      eventCount: 5,
+      byteCount: 100,
+      ordinaryEventCount: 4,
+      ordinaryByteCount: 80,
+      boundaryWritten: false,
+      hasArtifact: false,
+      hasTerminal: false
+    };
+    expect(policy.decideEventAdmission(ordinaryMessage("x"), 50, baseBudget).action).toBe(
+      "drop_ordinary"
+    );
+    expect(policy.decideEventAdmission(artifactBody(), 50, baseBudget).action).toBe("hard_reject");
+    expect(policy.decideEventAdmission(terminalBody(), 50, baseBudget).action).toBe("persist");
+    expect(
+      policy.decideBoundaryAdmission(50, {
+        eventCount: 6,
+        byteCount: 100,
+        ordinaryEventCount: 4,
+        ordinaryByteCount: 80,
+        boundaryWritten: false,
+        hasArtifact: false,
+        hasTerminal: false
+      }).action
+    ).toBe("skip");
+    expect(
+      policy.decideBoundaryAdmission(50, {
+        eventCount: 3,
+        byteCount: 100,
+        ordinaryEventCount: 3,
+        ordinaryByteCount: 80,
+        boundaryWritten: false,
+        hasArtifact: false,
+        hasTerminal: false
+      }).action
+    ).toBe("persist");
+  });
+
+  it("fails fast when a small policy cannot reserve boundary, artifact, and terminal", () => {
+    expect(
+      () =>
+        new DefaultAcpEventRetentionPolicy({
+          maxEvents: 6,
+          reserveEvents: 2,
+          maxBytes: finalEvidenceReserveBytes,
+          reserveBytes: finalEvidenceReserveBytes
+        })
+    ).toThrow(/boundary, artifact, and terminal slots/);
+    expect(
+      () =>
+        new DefaultAcpEventRetentionPolicy({
+          maxEvents: 6,
+          reserveEvents: 3,
+          maxBytes: 1_000,
+          reserveBytes: 2
+        })
+    ).toThrow(/boundary, artifact, and terminal bytes/);
+    expect(() =>
+      createDefaultAcpEventRetentionPolicy({
+        maxEvents: 6,
+        maxBytes: 1_000
+      })
+    ).toThrow(/normalized event line contract/);
+    expect(() =>
+      createDefaultAcpEventRetentionPolicy({
+        maxEvents: 3,
+        reserveEvents: 3,
+        maxBytes: 2_400,
+        reserveBytes: 2_400
+      })
+    ).toThrow(/normalized event line contract/);
+    const defaultPolicy = createDefaultAcpEventRetentionPolicy();
+    expect(Math.floor(defaultPolicy.reserveBytes / finalEvidenceSlotCount)).toBeGreaterThanOrEqual(
+      RUNNER_EVENT_MAX_ENCODED_BYTES
+    );
   });
 
   it.each([
@@ -673,481 +1157,5 @@ describe("ACP replay diagnostics", () => {
         "partial_line"
       ])
     );
-  });
-});
-
-describe("ACP event publisher", () => {
-  it("atomically replays then delivers live events once and tears down at terminal", async () => {
-    const publisher = new AcpEventPublisher();
-    publisher.seed([event(1)]);
-    const received: number[] = [];
-    const subscription = publisher.subscribe(0, async (item) => {
-      received.push(item.sequence);
-    });
-    publisher.publish(event(1));
-    publisher.publish(event(2));
-    publisher.publish(
-      normalizedRunnerEventSchema.parse({
-        ...event(3),
-        body: {
-          kind: "terminal",
-          outcome: {
-            version: "planweave.runner/v1",
-            state: "succeeded",
-            exitCode: 0,
-            finishedAt: "2026-07-11T00:00:01.000Z",
-            diagnostic: null,
-            artifactValidated: true
-          }
-        }
-      })
-    );
-    await subscription.closed;
-    expect(received).toEqual([1, 2, 3]);
-    expect(publisher.subscriberCount).toBe(0);
-  });
-
-  it("isolates concurrent runs and unsubscribes bounded slow subscribers", async () => {
-    const diagnostics: string[] = [];
-    const first = new AcpEventPublisher(1, (code) => diagnostics.push(code));
-    const second = new AcpEventPublisher();
-    let release = (): void => undefined;
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const subscription = first.subscribe(0, () => blocked);
-    const other: string[] = [];
-    second.subscribe(0, (item) => {
-      other.push(item.identity.runId);
-    });
-    first.publish(event(1));
-    first.publish(event(2));
-    second.publish(event(1, "RUN-002"));
-    release();
-    await subscription.closed;
-    expect(first.subscriberCount).toBe(0);
-    expect(other).toEqual(["RUN-002"]);
-    expect(diagnostics).toEqual(["subscriber_backpressure"]);
-  });
-
-  it("supports explicit unsubscribe", async () => {
-    const publisher = new AcpEventPublisher();
-    const subscription = publisher.subscribe(0, () => undefined);
-    subscription.unsubscribe();
-    await subscription.closed;
-    expect(publisher.subscriberCount).toBe(0);
-  });
-
-  it("replays a seeded terminal and closes without retaining the subscriber", async () => {
-    const terminal = normalizedRunnerEventSchema.parse({
-      ...event(2),
-      body: {
-        kind: "terminal",
-        outcome: {
-          version: "planweave.runner/v1",
-          state: "succeeded",
-          exitCode: 0,
-          finishedAt: "2026-07-11T00:00:01.000Z",
-          diagnostic: null,
-          artifactValidated: true
-        }
-      }
-    });
-    const publisher = new AcpEventPublisher();
-    publisher.seed([event(1), terminal]);
-    const received: number[] = [];
-    const subscription = publisher.subscribe(0, (item) => {
-      received.push(item.sequence);
-    });
-    await subscription.closed;
-    expect(received).toEqual([1, 2]);
-    expect(publisher.subscriberCount).toBe(0);
-  });
-
-  it("keeps an explicit conversation subscriber open after executor terminal", async () => {
-    const terminal = normalizedRunnerEventSchema.parse({
-      ...event(2),
-      body: {
-        kind: "terminal",
-        outcome: {
-          version: "planweave.runner/v1",
-          state: "succeeded",
-          exitCode: 0,
-          finishedAt: "2026-07-11T00:00:01.000Z",
-          diagnostic: null,
-          artifactValidated: true
-        }
-      }
-    });
-    const publisher = new AcpEventPublisher();
-    publisher.seed([event(1), terminal]);
-    const received: number[] = [];
-    const subscription = publisher.subscribe(
-      2,
-      (item) => {
-        received.push(item.sequence);
-      },
-      {
-        keepOpenAfterTerminal: true
-      }
-    );
-
-    publisher.publish(event(3));
-    await Promise.resolve();
-    subscription.unsubscribe();
-    await subscription.closed;
-
-    expect(received).toEqual([3]);
-    expect(publisher.subscriberCount).toBe(0);
-  });
-
-  it("captures subscriber rejection, closes it, and avoids an unhandled chain", async () => {
-    const diagnostics: string[] = [];
-    const publisher = new AcpEventPublisher(10, (code) => {
-      diagnostics.push(code);
-    });
-    const subscription = publisher.subscribe(0, async () => {
-      throw new Error("consumer failed");
-    });
-    publisher.publish(event(1));
-    await subscription.closed;
-    await publisher.drainDiagnostics();
-    expect(diagnostics).toEqual(["subscriber_callback_failed"]);
-    expect(publisher.subscriberCount).toBe(0);
-  });
-
-  it("isolates a diagnostic sink failure and reports later subscriber failures", async () => {
-    let attempts = 0;
-    const publisher = new AcpEventPublisher(10, async () => {
-      attempts += 1;
-      if (attempts === 1) throw new Error("diagnostic sink unavailable");
-    });
-    const first = publisher.subscribe(0, async () => {
-      throw new Error("first subscriber failed");
-    });
-    publisher.publish(event(1));
-    await first.closed;
-    await publisher.drainDiagnostics();
-
-    const second = publisher.subscribe(1, async () => {
-      throw new Error("second subscriber failed");
-    });
-    publisher.publish(event(2));
-    await second.closed;
-    await publisher.drainDiagnostics();
-
-    expect(attempts).toBe(2);
-    expect(publisher.diagnostics).toContainEqual(
-      expect.objectContaining({
-        code: "diagnostic_sink_failed"
-      })
-    );
-  });
-
-  it("keeps healthy subscribers and later events flowing after one subscriber fails", async () => {
-    const publisher = new AcpEventPublisher();
-    const failed = publisher.subscribe(0, async () => {
-      throw new Error("subscriber-local failure");
-    });
-    const received: number[] = [];
-    const healthy = publisher.subscribe(0, (item) => {
-      received.push(item.sequence);
-    });
-    publisher.publish(event(1));
-    await failed.closed;
-    publisher.publish(event(2));
-    healthy.unsubscribe();
-    await healthy.closed;
-    await publisher.drainDiagnostics();
-    expect(received).toEqual([1, 2]);
-    expect(publisher.diagnostics).toContainEqual(
-      expect.objectContaining({
-        code: "subscriber_callback_failed"
-      })
-    );
-  });
-
-  it("persists backpressure diagnostics through the store sink", async () => {
-    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-backpressure-"));
-    const publisher = new AcpEventPublisher(1);
-    const store = new AcpEventStore({
-      runDir,
-      identity: identity(),
-      publisher,
-      runner: runnerIdentitySchema.parse({
-        version: "planweave.runner/v1",
-        runnerKind: "acp",
-        agentId: "codex"
-      })
-    });
-    await store.open();
-    let release = (): void => undefined;
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const subscription = publisher.subscribe(0, () => blocked);
-    await store.append(event(1).body);
-    await store.append(event(2).body);
-    release();
-    await subscription.closed;
-    await store.drain();
-    expect(await readFile(store.eventsPath, "utf8")).toContain("subscriber_backpressure");
-  });
-
-  it("keeps the run healthy when one subscriber diagnostic cannot be persisted", async () => {
-    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-diagnostic-sink-failure-"));
-    let failDiagnostic = true;
-    const publisher = new AcpEventPublisher();
-    const store = new AcpEventStore({
-      runDir,
-      identity: identity(),
-      publisher,
-      runner: runnerIdentitySchema.parse({
-        version: "planweave.runner/v1",
-        runnerKind: "acp",
-        agentId: "codex"
-      }),
-      appendText: async (path, data, options) => {
-        if (failDiagnostic && String(data).includes("subscriber_callback_failed")) {
-          failDiagnostic = false;
-          throw new Error("diagnostic append unavailable");
-        }
-        await appendFile(path, data, options);
-      }
-    });
-    await store.open();
-    const failed = publisher.subscribe(0, async () => {
-      throw new Error("subscriber-local failure");
-    });
-    await store.append(event(1).body);
-    await failed.closed;
-    await expect(store.drain()).resolves.toBeUndefined();
-    expect(store.snapshot().diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ code: "subscriber_callback_failed" }),
-        expect.objectContaining({ code: "publisher_failed" })
-      ])
-    );
-
-    const laterFailure = publisher.subscribe(1, async () => {
-      throw new Error("later subscriber-local failure");
-    });
-    await store.append(event(2).body);
-    await laterFailure.closed;
-    await expect(store.drain()).resolves.toBeUndefined();
-    expect(await readFile(store.eventsPath, "utf8")).toContain("subscriber_callback_failed");
-  });
-});
-
-describe("ACP production read model", () => {
-  async function createReadModel() {
-    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-cursor-"));
-    const registry = new AcpEventReadModelRegistry();
-    const model = await registry.create({
-      runDir,
-      identity: identity(),
-      runner: runnerIdentitySchema.parse({
-        version: "planweave.runner/v1",
-        runnerKind: "acp",
-        agentId: "codex"
-      })
-    });
-    return { model, registry, runDir };
-  }
-
-  it("gives runtime consumers replay, projection, diagnostics, and live events without ACP parsing", async () => {
-    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-read-model-"));
-    const registry = new AcpEventReadModelRegistry();
-    const model = await registry.create({
-      runDir,
-      identity: identity(),
-      runner: runnerIdentitySchema.parse({
-        version: "planweave.runner/v1",
-        runnerKind: "acp",
-        agentId: "codex"
-      })
-    });
-    await model.store.append({
-      kind: "message",
-      role: "assistant",
-      messageId: "m-1",
-      chunk: true,
-      content: "replayed",
-      redaction: { classes: [], replaced: 0 }
-    });
-    const replay = model.replay();
-    expect(replay).toMatchObject({
-      events: [expect.objectContaining({ sequence: 1 })],
-      conversation: [expect.objectContaining({ content: "replayed" })],
-      diagnostics: []
-    });
-    expect(model.replay(replay.cursor).events).toEqual([]);
-    const live: number[] = [];
-    const subscription = model.subscribe(1, (item) => {
-      live.push(item.sequence);
-    });
-    await model.store.append(event(2).body);
-    subscription.unsubscribe();
-    await subscription.closed;
-    expect(live).toEqual([2]);
-    expect(registry.get(runDir)).toBe(model);
-  });
-
-  it("rejects a cursor with foreign canonical identity", async () => {
-    const { model } = await createReadModel();
-    await model.store.append(event(1).body);
-    const cursor = model.replay().cursor;
-    if (!cursor.canonicalIdentity) throw new Error("Expected a canonical cursor identity.");
-    const foreign = runnerEventCursorSchema.parse({
-      ...cursor,
-      canonicalIdentity: {
-        ...cursor.canonicalIdentity,
-        identity: { ...cursor.canonicalIdentity.identity, projectId: "foreign-project" }
-      }
-    });
-    expect(() => model.replay(foreign)).toThrow("canonical identity does not match");
-  });
-
-  it("rejects a foreign canonical cursor before the first event", async () => {
-    const { model } = await createReadModel();
-    const cursor = model.replay().cursor;
-    if (!cursor.canonicalIdentity)
-      throw new Error("Expected the store canonical identity on an empty replay.");
-    const foreign = runnerEventCursorSchema.parse({
-      ...cursor,
-      canonicalIdentity: {
-        ...cursor.canonicalIdentity,
-        runner: { ...cursor.canonicalIdentity.runner, agentId: "claude-code" }
-      }
-    });
-    expect(() => model.replay(foreign)).toThrow("canonical identity does not match");
-  });
-
-  it("keeps an empty-store matching future cursor stable", async () => {
-    const { model } = await createReadModel();
-    const initial = model.replay();
-    expect(initial.events).toEqual([]);
-    expect(initial.cursor).toMatchObject({ afterSequence: 0, terminal: false });
-    expect(initial.cursor.canonicalIdentity).toEqual(model.store.canonicalIdentity());
-    const future = runnerEventCursorSchema.parse({ ...initial.cursor, afterSequence: 999 });
-    const replay = model.replay(future);
-    expect(replay.events).toEqual([]);
-    expect(replay.cursor).toEqual(future);
-  });
-
-  it("keeps an empty-store matching terminal cursor stable", async () => {
-    const { model } = await createReadModel();
-    const initial = model.replay().cursor;
-    const terminal = runnerEventCursorSchema.parse({
-      ...initial,
-      afterSequence: 7,
-      terminal: true
-    });
-    const first = model.replay(terminal);
-    const second = model.replay(first.cursor);
-    expect(first.events).toEqual([]);
-    expect(first.cursor).toEqual(terminal);
-    expect(second.events).toEqual([]);
-    expect(second.cursor).toEqual(terminal);
-  });
-
-  it("preserves a future cursor high-water mark", async () => {
-    const { model } = await createReadModel();
-    await model.store.append(event(1).body);
-    const current = model.replay().cursor;
-    const future = { ...current, afterSequence: 999 };
-    const replay = model.replay(future);
-    expect(replay.events).toEqual([]);
-    expect(replay.cursor.afterSequence).toBe(999);
-  });
-
-  it("keeps terminal cursors stable and monotonic", async () => {
-    const { model } = await createReadModel();
-    await model.store.append(event(1).body);
-    await model.store.append({
-      kind: "terminal",
-      outcome: {
-        version: "planweave.runner/v1",
-        state: "succeeded",
-        exitCode: 0,
-        finishedAt: "2026-07-11T00:00:01.000Z",
-        diagnostic: null,
-        artifactValidated: true
-      }
-    });
-    const terminal = model.replay();
-    expect(terminal.cursor).toMatchObject({ afterSequence: 2, terminal: true });
-    const next = model.replay(terminal.cursor);
-    expect(next.events).toEqual([]);
-    expect(next.cursor).toEqual(terminal.cursor);
-    const future = model.replay({ ...terminal.cursor, afterSequence: 999 });
-    expect(future.cursor).toMatchObject({ afterSequence: 999, terminal: true });
-  });
-
-  it("delivers continuous cursor replays monotonically without duplicates", async () => {
-    const { model } = await createReadModel();
-    await model.store.append(event(1).body);
-    const first = model.replay();
-    await model.store.append(event(2).body);
-    const second = model.replay(first.cursor);
-    const third = model.replay(second.cursor);
-    expect(first.events.map((item) => item.sequence)).toEqual([1]);
-    expect(second.events.map((item) => item.sequence)).toEqual([2]);
-    expect(third.events).toEqual([]);
-    expect([
-      first.cursor.afterSequence,
-      second.cursor.afterSequence,
-      third.cursor.afterSequence
-    ]).toEqual([1, 2, 2]);
-  });
-});
-
-describe("ACP incremental read projection", () => {
-  it("processes live events linearly without reparsing the normalized log", async () => {
-    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-linear-read-"));
-    const projectionSizes: number[] = [];
-    const store = new AcpEventStore({
-      runDir,
-      identity: identity(),
-      runner: runnerIdentitySchema.parse({
-        version: "planweave.runner/v1",
-        runnerKind: "acp",
-        agentId: "codex"
-      }),
-      writeConversationProjection: async (_runDir, events) => {
-        projectionSizes.push(events.length);
-      }
-    });
-    await store.open();
-    const model = new AcpEventReadModel(store);
-    const parseSpy = vi.spyOn(store, "normalizedContent");
-    const appendSpy = vi.spyOn(AcpProjectionAccumulator.prototype, "append");
-    let cursor = runnerEventCursorSchema.parse({
-      version: "planweave.runner-event-cursor/v1",
-      runId: "RUN-001",
-      afterSequence: 0,
-      canonicalIdentity: null,
-      terminal: false
-    });
-    const subscription = model.subscribe(
-      0,
-      () => {
-        cursor = model.replay(cursor).cursor;
-      },
-      { keepOpenAfterTerminal: true }
-    );
-
-    for (let sequence = 1; sequence <= 200; sequence += 1) {
-      await store.append(event(sequence).body, { sessionId: "session-1" });
-    }
-    await vi.waitFor(() => expect(cursor.afterSequence).toBe(200));
-    subscription.unsubscribe();
-    await subscription.closed;
-    expect(projectionSizes).toEqual([]);
-    await store.drain();
-
-    expect(parseSpy).not.toHaveBeenCalled();
-    expect(appendSpy.mock.calls.length).toBeLessThanOrEqual(400);
-    expect(projectionSizes).toEqual([200]);
   });
 });

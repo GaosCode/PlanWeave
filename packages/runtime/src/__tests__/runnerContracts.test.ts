@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  RUNNER_EVENT_MAX_ENCODED_BYTES,
   RUNNER_EVENT_MAX_LINE_BYTES,
   RUNNER_EVENT_MAX_MESSAGE_BYTES,
   RUNNER_EVENT_RETENTION_MAX_BYTES,
@@ -254,6 +255,12 @@ describe("runner identity and capability contracts", () => {
 });
 
 describe("runner event redaction and UTF-8 limits", () => {
+  it("derives the encoded JSONL record limit from the shared line contract", () => {
+    expect(RUNNER_EVENT_MAX_ENCODED_BYTES).toBe(
+      RUNNER_EVENT_MAX_LINE_BYTES + Buffer.byteLength("\n")
+    );
+  });
+
   it.each([
     ["Authorization: Basic dXNlcjpwYXNz", ["dXNlcjpwYXNz"]],
     ["Authorization: Bearer abc.def.ghi", ["abc.def.ghi"]],
@@ -371,6 +378,22 @@ describe("normalized runner event replay", () => {
     expect(next.events).toEqual([]);
     expect(next.terminal).toBe(true);
     expect(next.nextCursor.canonicalIdentity).toEqual(first.nextCursor.canonicalIdentity);
+  });
+
+  it("accepts an append-only chunk that continues an existing cursor", () => {
+    const initial = replayNormalizedRunnerEvents({
+      content: encoded(event(1)),
+      runId: "RUN-001"
+    });
+    const appended = replayNormalizedRunnerEvents({
+      content: encoded(event(2)),
+      runId: "RUN-001",
+      cursor: initial.nextCursor,
+      canonicalIdentity: initial.nextCursor.canonicalIdentity ?? undefined
+    });
+
+    expect(appended.events.map((item) => item.sequence)).toEqual([2]);
+    expect(appended.diagnostics).toEqual([]);
   });
 
   it("distinguishes an unknown initial gap from an explicit retention boundary", () => {

@@ -2,9 +2,8 @@ import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { AcpCorrelation, RunnerIdentity, RunnerRunIdentity } from "./runnerContractSchemas.js";
 import {
-  RUNNER_EVENT_RETENTION_MAX_BYTES,
-  RUNNER_EVENT_RETENTION_MAX_EVENTS,
   encodeNormalizedRunnerEvent,
+  normalizedDiagnosticBody,
   normalizedRunnerEventSchema,
   type NormalizedRunnerEvent
 } from "./normalizedEventContract.js";
@@ -16,6 +15,12 @@ import {
 } from "./runnerEventReplay.js";
 import { writeAcpConversationProjection } from "./acpConversationPersistence.js";
 import { AcpEventPublisher } from "./acpEventPublisher.js";
+import {
+  createDefaultAcpEventRetentionPolicy,
+  projectPersistedRetentionDiagnostics,
+  type AcpEventRetentionPolicy,
+  type AcpRetentionBudgetSnapshot
+} from "./acpEventRetentionPolicy.js";
 
 export type AcpEventStoreOptions = {
   runDir: string;
@@ -25,6 +30,7 @@ export type AcpEventStoreOptions = {
   maxProtocolBytes?: number;
   maxEventBytes?: number;
   maxEvents?: number;
+  retentionPolicy?: AcpEventRetentionPolicy;
   appendText?: typeof appendFile;
   writeConversationProjection?: typeof writeAcpConversationProjection;
 };
@@ -59,6 +65,13 @@ export class AcpEventStore {
   private opened = false;
   private readonly appendText: typeof appendFile;
   private readonly writeConversationProjection: typeof writeAcpConversationProjection;
+  private readonly policy: AcpEventRetentionPolicy;
+  private boundaryWritten = false;
+  private protocolSoftExceeded = false;
+  private ordinaryEventCount = 0;
+  private ordinaryByteCount = 0;
+  private hasArtifact = false;
+  private hasTerminal = false;
 
   constructor(private readonly options: AcpEventStoreOptions) {
     this.protocolPath = join(options.runDir, "protocol.ndjson");
@@ -66,6 +79,14 @@ export class AcpEventStore {
     this.appendText = options.appendText ?? appendFile;
     this.writeConversationProjection =
       options.writeConversationProjection ?? writeAcpConversationProjection;
+    // Default policy inherits legacy maxEvents/maxEventBytes so options remain a single truth source
+    // when retentionPolicy is not injected explicitly.
+    this.policy =
+      options.retentionPolicy ??
+      createDefaultAcpEventRetentionPolicy({
+        maxEvents: options.maxEvents,
+        maxBytes: options.maxEventBytes
+      });
     this.publisher = options.publisher ?? new AcpEventPublisher();
     this.publisher.setDiagnosticSink(async (code, message) => {
       const diagnostic = { code, line: null, message } satisfies RunnerEventReplayDiagnostic;
@@ -113,6 +134,41 @@ export class AcpEventStore {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
+    // Recompute ordinary budget usage, terminal flag, and boundary from persisted events only.
+    // Persisted cursor/sequence represents disk content exclusively.
+    let oCount = 0;
+    let oBytes = 0;
+    let sawBoundary = false;
+    let sawArtifact = false;
+    let sawTerminal = false;
+    for (const ev of this.events) {
+      const encodedLen = Buffer.byteLength(encodeNormalizedRunnerEvent(ev));
+      if (this.policy.classify(ev.body) === "ordinary") {
+        oCount += 1;
+        oBytes += encodedLen;
+      }
+      if (ev.body.kind === "diagnostic" && ev.body.code === "retention_boundary") {
+        sawBoundary = true;
+      }
+      if (ev.body.kind === "terminal") {
+        sawTerminal = true;
+      }
+      if (ev.body.kind === "artifact") {
+        sawArtifact = true;
+      }
+    }
+    this.ordinaryEventCount = oCount;
+    this.ordinaryByteCount = oBytes;
+    this.boundaryWritten = sawBoundary;
+    this.hasArtifact = sawArtifact;
+    this.hasTerminal = sawTerminal;
+    // A durable boundary is the cross-process saturation latch. Once present, reopening must
+    // not resume ordinary protocol persistence merely because a dropped frame left a 0-byte file.
+    this.protocolSoftExceeded =
+      sawBoundary ||
+      this.protocolBytes >= this.policy.getProtocolByteLimit(this.options.maxProtocolBytes);
+    // Reopen diagnostic contract matches live: project persisted retention boundary diagnostics.
+    this.diagnostics.push(...projectPersistedRetentionDiagnostics(this.events));
     this.opened = true;
     return replay.diagnostics;
   }
@@ -124,38 +180,36 @@ export class AcpEventStore {
       payload
     });
     const encoded = `${JSON.stringify(redacted)}\n`;
+    const encodedLen = Buffer.byteLength(encoded);
     return this.serial(async () => {
-      if (
-        this.protocolBytes + Buffer.byteLength(encoded) >
-        (this.options.maxProtocolBytes ?? RUNNER_EVENT_RETENTION_MAX_BYTES)
-      ) {
-        throw new AcpEventStoreLimitError({
-          code: "retention_truncation",
-          line: null,
-          message: "ACP protocol log byte retention limit reached; raw envelope was not persisted."
-        });
+      const decision = this.policy.decideProtocolAdmission(
+        this.protocolBytes,
+        encodedLen,
+        {
+          boundaryWritten: this.boundaryWritten,
+          protocolSoftExceeded: this.protocolSoftExceeded
+        },
+        this.options.maxProtocolBytes
+      );
+      if (decision.action === "drop") {
+        this.protocolSoftExceeded = true;
+        if (decision.shouldWriteBoundary) {
+          await this.commitRetentionBoundaryIfAllowed("protocol envelope saturation");
+        }
+        // Drop ordinary protocol; do not throw, do not terminate task. Boundary is observable when committed.
+        return;
       }
       await this.appendText(this.protocolPath, encoded, "utf8");
-      this.protocolBytes += Buffer.byteLength(encoded);
+      this.protocolBytes += encodedLen;
     });
   }
 
-  append(
-    body: NormalizedRunnerEvent["body"],
-    correlation?: AcpCorrelation
-  ): Promise<NormalizedRunnerEvent> {
+  append(body: NormalizedRunnerEvent["body"], correlation?: AcpCorrelation): Promise<void> {
     return this.serial(async () => {
-      if (
-        this.events.length >= (this.options.maxEvents ?? RUNNER_EVENT_RETENTION_MAX_EVENTS) ||
-        this.bytes >= (this.options.maxEventBytes ?? RUNNER_EVENT_RETENTION_MAX_BYTES)
-      ) {
-        throw new AcpEventStoreLimitError({
-          code: "retention_truncation",
-          line: null,
-          message: "ACP normalized event retention limit reached; event was not persisted."
-        });
-      }
-      const event = normalizedRunnerEventSchema.parse({
+      const isOrdinary = this.policy.classify(body) === "ordinary";
+
+      // Build candidate for projected-length admission (sequence only advances on durable persist).
+      const candidate = normalizedRunnerEventSchema.parse({
         version: "planweave.runner-event/v1",
         sequence: this.sequence + 1,
         timestamp: new Date().toISOString(),
@@ -164,31 +218,51 @@ export class AcpEventStore {
         correlation,
         body
       });
-      const encoded = encodeNormalizedRunnerEvent(event);
-      if (
-        this.bytes + Buffer.byteLength(encoded) >
-        (this.options.maxEventBytes ?? RUNNER_EVENT_RETENTION_MAX_BYTES)
-      ) {
+      const encoded = encodeNormalizedRunnerEvent(candidate);
+      const encodedLen = Buffer.byteLength(encoded);
+      const decision = this.policy.decideEventAdmission(body, encodedLen, this.budgetSnapshot());
+
+      if (decision.action === "drop_ordinary") {
+        if (decision.shouldWriteBoundary) {
+          await this.commitRetentionBoundaryIfAllowed(decision.reason);
+        }
+        // Drop ordinary event: do not persist, publish, or advance persisted sequence.
+        // append is command-style; durable boundary evidence exposes the drop to readers.
+        return;
+      }
+
+      if (decision.action === "hard_reject") {
         throw new AcpEventStoreLimitError({
           code: "retention_truncation",
           line: null,
-          message: "ACP normalized event byte retention limit reached; event was not persisted."
+          message: decision.reason
         });
       }
+
       await this.appendNormalizedText(encoded);
-      this.sequence = event.sequence;
-      this.bytes += Buffer.byteLength(encoded);
-      this.events.push(event);
+      this.sequence = candidate.sequence;
+      this.bytes += encodedLen;
+      this.events.push(candidate);
+      if (isOrdinary) {
+        this.ordinaryEventCount += 1;
+        this.ordinaryByteCount += encodedLen;
+      }
+      if (candidate.body.kind === "terminal") {
+        this.hasTerminal = true;
+      }
+      if (candidate.body.kind === "artifact") {
+        this.hasArtifact = true;
+      }
       this.conversationProjectionDirty = true;
       try {
-        this.publisher.publish(event);
+        this.publisher.publish(candidate);
       } catch (error) {
         await this.recordDerivedFailure("publisher_failed", error);
       }
-      if (event.body.kind === "terminal") {
+      if (candidate.body.kind === "terminal") {
         await this.flushConversationProjection();
       }
-      return event;
+      return;
     });
   }
 
@@ -239,6 +313,69 @@ export class AcpEventStore {
   }
   canonicalIdentity(): CanonicalRunnerEventIdentity {
     return { identity: this.options.identity, runner: this.options.runner };
+  }
+
+  private budgetSnapshot(): AcpRetentionBudgetSnapshot {
+    return {
+      eventCount: this.events.length,
+      byteCount: this.bytes,
+      ordinaryEventCount: this.ordinaryEventCount,
+      ordinaryByteCount: this.ordinaryByteCount,
+      boundaryWritten: this.boundaryWritten,
+      hasArtifact: this.hasArtifact,
+      hasTerminal: this.hasTerminal
+    };
+  }
+
+  /**
+   * Attempt a single durable retention_boundary diagnostic when policy allows.
+   * boundaryWritten is set only after durable commit succeeds.
+   * I/O failures propagate so callers do not enter a dropped/observed pseudo-success state.
+   */
+  private async commitRetentionBoundaryIfAllowed(reason: string): Promise<void> {
+    const message = redactRunnerEventText(
+      `retention boundary at sequence ${this.sequence}; ordinary data dropped (${reason}); control evidence (lifecycle, artifact, terminal, diagnostic, interaction, session config) continues using reserve. See events.ndjson for boundary.`
+    ).text;
+    const body = normalizedDiagnosticBody("retention_boundary", message);
+    const boundaryEvent = normalizedRunnerEventSchema.parse({
+      version: "planweave.runner-event/v1",
+      sequence: this.sequence + 1,
+      timestamp: new Date().toISOString(),
+      identity: this.options.identity,
+      runner: this.options.runner,
+      body
+    });
+    const encoded = encodeNormalizedRunnerEvent(boundaryEvent);
+    const encodedLen = Buffer.byteLength(encoded);
+    const admission = this.policy.decideBoundaryAdmission(encodedLen, this.budgetSnapshot());
+    if (admission.action === "skip") {
+      if (admission.reason === "hard_exhausted") {
+        throw new AcpEventStoreLimitError({
+          code: "retention_truncation",
+          line: null,
+          message:
+            "ACP event retention hard budget is exhausted; ordinary data cannot be dropped without a durable retention boundary."
+        });
+      }
+      return;
+    }
+    // Durable append first; only then mark boundary committed / observed.
+    await this.appendNormalizedText(encoded);
+    this.sequence = boundaryEvent.sequence;
+    this.bytes += encodedLen;
+    this.events.push(boundaryEvent);
+    this.boundaryWritten = true;
+    this.conversationProjectionDirty = true;
+    try {
+      this.publisher.publish(boundaryEvent);
+    } catch (error) {
+      await this.recordDerivedFailure("publisher_failed", error);
+    }
+    this.diagnostics.push({
+      code: "retention_boundary",
+      line: null,
+      message: body.message
+    });
   }
 
   async drain(): Promise<void> {
@@ -328,13 +465,22 @@ export class AcpEventStore {
       body: { kind: "diagnostic", code, message }
     });
     const encoded = encodeNormalizedRunnerEvent(diagnostic);
+    const encodedLen = Buffer.byteLength(encoded);
+    const admission = this.policy.decideEventAdmission(
+      diagnostic.body,
+      encodedLen,
+      this.budgetSnapshot()
+    );
+    if (admission.action !== "persist") {
+      return;
+    }
     try {
       await this.appendNormalizedText(encoded);
     } catch {
       return;
     }
     this.sequence = diagnostic.sequence;
-    this.bytes += Buffer.byteLength(encoded);
+    this.bytes += encodedLen;
     this.events.push(diagnostic);
     if (code !== "publisher_failed") this.publisher.publish(diagnostic);
   }

@@ -24,6 +24,9 @@ import {
 } from "./acpSessionConfiguration.js";
 
 export const RUNNER_EVENT_MAX_LINE_BYTES = 256 * 1_024;
+const RUNNER_EVENT_RECORD_DELIMITER = "\n";
+export const RUNNER_EVENT_MAX_ENCODED_BYTES =
+  RUNNER_EVENT_MAX_LINE_BYTES + utf8ByteLength(RUNNER_EVENT_RECORD_DELIMITER);
 export const RUNNER_EVENT_MAX_MESSAGE_BYTES = 64 * 1_024;
 export const RUNNER_EVENT_RETENTION_MAX_BYTES = 32 * 1_024 * 1_024;
 export const RUNNER_EVENT_RETENTION_MAX_EVENTS = 100_000;
@@ -279,7 +282,7 @@ export function encodeNormalizedRunnerEvent(event: NormalizedRunnerEvent): strin
       `Normalized runner event exceeds the ${RUNNER_EVENT_MAX_LINE_BYTES}-byte UTF-8 line limit.`
     );
   }
-  return `${line}\n`;
+  return `${line}${RUNNER_EVENT_RECORD_DELIMITER}`;
 }
 
 export {

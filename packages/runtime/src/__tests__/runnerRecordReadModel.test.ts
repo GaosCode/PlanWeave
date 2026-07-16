@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -25,6 +25,8 @@ const metadata = {
   executorRunId: "RUN-001",
   sessionId: "session-1"
 };
+const retentionBoundaryMessage =
+  "Ordinary ACP events were dropped at the configured retention boundary.";
 
 function activeHandle(
   runDir: string,
@@ -163,6 +165,17 @@ function configurationEvent(sequence: number, body: unknown) {
   });
 }
 
+function retentionBoundaryEvent(sequence: number) {
+  return normalizedRunnerEventSchema.parse({
+    ...event(sequence, "message"),
+    body: {
+      kind: "diagnostic",
+      code: "retention_boundary",
+      message: retentionBoundaryMessage
+    }
+  });
+}
+
 describe("runner record read model", () => {
   it("replays authoritative session configuration from persisted events", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-record-config-"));
@@ -242,6 +255,52 @@ describe("runner record read model", () => {
     });
     expect(result?.events.map((item) => item.sequence)).toEqual([1, 2]);
     expect(result?.diagnostics).toEqual([]);
+  });
+
+  it("keeps offline cursor retention evidence aligned across events and projections", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-retained-record-"));
+    const message = event(1, "message");
+    const boundary = retentionBoundaryEvent(2);
+    const terminal = event(3, "terminal");
+    await writeFile(
+      join(runDir, "events.ndjson"),
+      `${JSON.stringify(message)}\n${JSON.stringify(boundary)}\n${JSON.stringify(terminal)}\n`,
+      "utf8"
+    );
+
+    const consumer = await consumeRunnerRecordReadModel({
+      runDir,
+      metadata,
+      cursor: {
+        version: "planweave.runner-event-cursor/v1",
+        runId: "RUN-001",
+        afterSequence: 1,
+        canonicalIdentity: null,
+        terminal: false
+      }
+    });
+
+    expect(consumer.subscription).toBeNull();
+    expect(
+      consumer.snapshot?.events.map((persistedEvent) => ({
+        sequence: persistedEvent.sequence,
+        kind: persistedEvent.body.kind
+      }))
+    ).toEqual([
+      { sequence: 2, kind: "diagnostic" },
+      { sequence: 3, kind: "terminal" }
+    ]);
+    expect(consumer.snapshot?.timeline).toEqual([
+      expect.objectContaining({ sequence: 1, kind: "message", content: "message 1" })
+    ]);
+    expect(consumer.snapshot?.diagnostics).toEqual([
+      {
+        code: "retention_boundary",
+        line: null,
+        message: retentionBoundaryMessage
+      }
+    ]);
+    expect(consumer.snapshot?.cursor).toMatchObject({ afterSequence: 3, terminal: true });
   });
 
   it("surfaces missing, corrupt, and partial logs as diagnostics", async () => {
@@ -426,6 +485,57 @@ describe("runner record read model", () => {
     } finally {
       acpEventReadModels.release(runDir);
     }
+  });
+
+  it("follows a persisted running record when its in-memory read model is unavailable", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "planweave-acp-persisted-live-record-"));
+    const unicodeMessage = normalizedRunnerEventSchema.parse({
+      ...event(2, "message"),
+      body: {
+        ...event(2, "message").body,
+        content: "消息 2"
+      }
+    });
+    const messageBytes = Buffer.from(JSON.stringify(unicodeMessage));
+    const unicodeStart = messageBytes.indexOf(Buffer.from("消息"));
+    expect(unicodeStart).toBeGreaterThan(0);
+    const splitInsideUnicode = unicodeStart + 1;
+    await writeFile(
+      join(runDir, "events.ndjson"),
+      Buffer.concat([
+        Buffer.from(`${JSON.stringify(event(1, "message"))}\n`),
+        messageBytes.subarray(0, splitInsideUnicode)
+      ])
+    );
+    const live: Array<{ sequences: number[]; terminal: boolean }> = [];
+    const consumer = await consumeRunnerRecordReadModel({
+      runDir,
+      metadata: { ...metadata, status: "running" },
+      subscriber: (snapshot) => {
+        live.push({
+          sequences: snapshot.events.map((item) => item.sequence),
+          terminal: snapshot.terminal
+        });
+      }
+    });
+
+    expect(consumer.snapshot?.events.map((item) => item.sequence)).toEqual([1]);
+    expect(consumer.subscription).not.toBeNull();
+    await appendFile(
+      join(runDir, "events.ndjson"),
+      Buffer.concat([
+        messageBytes.subarray(splitInsideUnicode),
+        Buffer.from(`\n${JSON.stringify(event(3, "terminal"))}\n`)
+      ])
+    );
+
+    await vi.waitFor(() => expect(live).toContainEqual({ sequences: [2, 3], terminal: true }), {
+      timeout: 2_000
+    });
+    await expect(consumer.subscription?.closed).resolves.toMatchObject({
+      reason: "terminal",
+      lastSequence: 3
+    });
   });
 
   it("keeps a completed prompt-capable record subscribed for later conversation turns", async () => {

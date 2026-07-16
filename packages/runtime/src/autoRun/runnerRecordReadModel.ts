@@ -5,9 +5,10 @@ import { activeAgentRunRegistry } from "./activeAgentRunRegistry.js";
 import { acpEventReadModels } from "./acpEventReadModel.js";
 import type { AcpEventSubscription } from "./acpEventPublisher.js";
 import type { AcpEventReadModel } from "./acpEventReadModel.js";
-import { projectAcpConversation, projectAcpTimeline } from "./acpConversationProjection.js";
+import { AcpProjectionAccumulator } from "./acpConversationProjection.js";
 import type { NormalizedRunnerEvent } from "./normalizedEventContract.js";
 import { isLegacyUnsupportedSessionUpdateDiagnostic } from "./acpLegacyDiagnosticCompatibility.js";
+import { projectPersistedRetentionDiagnostics } from "./acpEventRetentionPolicy.js";
 import { redactRunnerEventText } from "./runnerEventRedaction.js";
 import {
   replayNormalizedRunnerEvents,
@@ -29,6 +30,7 @@ import {
   taskIdSchema
 } from "./runnerContractSchemas.js";
 import { projectAcpActualSessionConfiguration } from "./acpSessionConfiguration.js";
+import { subscribePersistedRunnerEvents } from "./persistedRunnerEventSubscription.js";
 import {
   desktopAgentPromptIdentitySchema,
   runnerRecordReadModelSchema,
@@ -59,6 +61,17 @@ function diagnostic(
   return { code, line: null, message };
 }
 
+function mergeReplayDiagnostics(
+  existing: readonly RunnerEventReplayDiagnostic[],
+  incoming: readonly RunnerEventReplayDiagnostic[]
+): RunnerEventReplayDiagnostic[] {
+  const merged = new Map<string, RunnerEventReplayDiagnostic>();
+  for (const item of [...existing, ...incoming]) {
+    merged.set(`${item.code}\0${item.line ?? ""}\0${item.message}`, item);
+  }
+  return [...merged.values()];
+}
+
 function visibleEvents(events: readonly NormalizedRunnerEvent[]): NormalizedRunnerEvent[] {
   return events.filter((event) => !isLegacyUnsupportedSessionUpdateDiagnostic(event));
 }
@@ -86,7 +99,8 @@ const runnerRecordMetadataSchema = z
     runSessionId: runSessionIdSchema.nullable().optional(),
     desktopRunId: desktopRunIdSchema.nullable().optional(),
     executorRunId: executorRunIdSchema.nullable().optional(),
-    sessionId: acpSessionIdSchema.nullable().optional()
+    sessionId: acpSessionIdSchema.nullable().optional(),
+    status: z.enum(["running", "completed", "failed", "cancelled", "timed_out"]).optional()
   })
   .passthrough();
 
@@ -528,9 +542,10 @@ function subscribeActiveModel(options: {
       unsubscribeInteraction();
       eventSubscription.unsubscribe();
     },
-    closed: eventSubscription.closed.then(async () => {
+    closed: eventSubscription.closed.then(async (closeResult) => {
       unsubscribeInteraction();
       await updateChain.catch(() => undefined);
+      return closeResult;
     })
   };
 }
@@ -625,9 +640,13 @@ export async function consumeRunnerRecordReadModel(options: {
   }
 
   let content = "";
+  let completeContentByteOffset = 0;
   const boundaryDiagnostics: RunnerEventReplayDiagnostic[] = [];
   try {
-    content = await readFile(join(options.runDir, "events.ndjson"), "utf8");
+    const persistedContent = await readFile(join(options.runDir, "events.ndjson"));
+    content = persistedContent.toString("utf8");
+    const finalNewline = persistedContent.lastIndexOf(0x0a);
+    completeContentByteOffset = finalNewline < 0 ? 0 : finalNewline + 1;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       boundaryDiagnostics.push(
@@ -654,29 +673,93 @@ export async function consumeRunnerRecordReadModel(options: {
   const completeReplay = options.cursor
     ? replayNormalizedRunnerEvents({ content, runId: selected.runId })
     : replay;
+  // Authoritative read-model seam: project persisted retention_boundary events into diagnostics
+  // so reopen/cursor consumers match live store diagnosticsSnapshot() without UI-specific fallbacks.
+  const retentionDiagnostics = projectPersistedRetentionDiagnostics(completeReplay.events);
+  const projection = new AcpProjectionAccumulator();
+  for (const event of visibleEvents(completeReplay.events)) projection.append(event);
+  const allEvents = [...completeReplay.events];
+  const diagnostics = [...boundaryDiagnostics, ...replay.diagnostics, ...retentionDiagnostics];
+  let followedDiagnostics = diagnostics;
+  const snapshot = runnerRecordReadModelSchema.parse({
+    events: visibleEvents(replay.events),
+    ...projection.snapshot(),
+    diagnostics,
+    cursor: replay.nextCursor,
+    terminal: replay.terminal,
+    actualConfiguration: projectAcpActualSessionConfiguration(completeReplay.events),
+    ...interactionState(
+      options.runDir,
+      selected,
+      completeReplay.nextCursor,
+      completeReplay.events,
+      undefined,
+      options.promptIdentity,
+      options.promptContinuationAvailable,
+      options.promptInFlight,
+      options.promptUnavailableReason
+    )
+  });
+  const persistedSubscriber = options.subscriber;
+  const canFollowPersistedLog =
+    persistedSubscriber !== undefined && selected.status === "running" && !snapshot.terminal;
+  const persistedAuthority = canFollowPersistedLog
+    ? selectedRecordCanonicalIdentity(selected, completeReplay.nextCursor)
+    : null;
+  const subscription =
+    persistedAuthority && persistedSubscriber
+      ? subscribePersistedRunnerEvents({
+          canonicalIdentity: persistedAuthority,
+          cursor: completeReplay.nextCursor,
+          eventsPath: join(options.runDir, "events.ndjson"),
+          initialByteOffset: completeContentByteOffset,
+          onUpdate: async (update) => {
+            allEvents.push(...update.events);
+            for (const event of visibleEvents(update.events)) projection.append(event);
+            const projected = projection.snapshot();
+            followedDiagnostics = mergeReplayDiagnostics(followedDiagnostics, [
+              ...update.diagnostics,
+              ...projectPersistedRetentionDiagnostics(allEvents)
+            ]);
+            await persistedSubscriber(
+              runnerRecordReadModelSchema.parse({
+                events: visibleEvents(update.events),
+                ...projected,
+                diagnostics: followedDiagnostics,
+                cursor: update.cursor,
+                terminal: update.terminal,
+                actualConfiguration: projectAcpActualSessionConfiguration(allEvents),
+                ...interactionState(
+                  options.runDir,
+                  selected,
+                  update.cursor,
+                  allEvents,
+                  undefined,
+                  options.promptIdentity,
+                  options.promptContinuationAvailable,
+                  options.promptInFlight,
+                  options.promptUnavailableReason
+                )
+              })
+            );
+          }
+        })
+      : null;
   return {
-    snapshot: runnerRecordReadModelSchema.parse({
-      events: visibleEvents(replay.events),
-      conversation: projectAcpConversation(visibleEvents(completeReplay.events)),
-      timeline: projectAcpTimeline(visibleEvents(completeReplay.events)),
-      diagnostics: [...boundaryDiagnostics, ...replay.diagnostics],
-      cursor: replay.nextCursor,
-      terminal: replay.terminal,
-      actualConfiguration: projectAcpActualSessionConfiguration(completeReplay.events),
-      ...interactionState(
-        options.runDir,
-        selected,
-        completeReplay.nextCursor,
-        completeReplay.events,
-        undefined,
-        options.promptIdentity,
-        options.promptContinuationAvailable,
-        options.promptInFlight,
-        options.promptUnavailableReason
-      )
-    }),
-    subscription: null
+    snapshot,
+    subscription
   };
+}
+
+function selectedRecordCanonicalIdentity(
+  selected: SelectedRecordIdentity,
+  cursor: RunnerEventCursor
+) {
+  const canonical = cursor.canonicalIdentity;
+  if (!canonical) {
+    throw new Error(`Persisted ACP record '${selected.claimRef}' has no canonical event identity.`);
+  }
+  return canonical;
 }
 
 export async function readRunnerRecordReadModelForArtifact(

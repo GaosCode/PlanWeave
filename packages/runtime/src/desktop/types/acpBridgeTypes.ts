@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  acpEventSubscriptionCloseResultSchema,
+  type AcpEventSubscriptionCloseResult
+} from "../../autoRun/acpEventPublisher.js";
 import { runnerEventCursorSchema } from "../../autoRun/runnerEventReplay.js";
 import { runnerRecordReadModelSchema } from "../../autoRun/runnerRecordReadModelContract.js";
 import {
@@ -30,13 +34,28 @@ export type DesktopRunnerRecordSubscriptionInput = z.infer<
   typeof desktopRunnerRecordSubscriptionInputSchema
 >;
 
-export const desktopRunnerRecordSubscriptionPushSchema = z
+export const desktopRunnerRecordSubscriptionSnapshotPushSchema = z
   .object({
+    kind: z.literal("snapshot"),
     subscriptionId: nonEmptyStringSchema.max(256),
     updateSequence: z.number().int().positive(),
     snapshot: runnerRecordReadModelSchema
   })
   .strict();
+
+export const desktopRunnerRecordSubscriptionClosedPushSchema = z
+  .object({
+    kind: z.literal("closed"),
+    subscriptionId: nonEmptyStringSchema.max(256),
+    updateSequence: z.number().int().positive(),
+    close: acpEventSubscriptionCloseResultSchema
+  })
+  .strict();
+
+export const desktopRunnerRecordSubscriptionPushSchema = z.discriminatedUnion("kind", [
+  desktopRunnerRecordSubscriptionSnapshotPushSchema,
+  desktopRunnerRecordSubscriptionClosedPushSchema
+]);
 export type DesktopRunnerRecordSubscriptionPush = z.infer<
   typeof desktopRunnerRecordSubscriptionPushSchema
 >;
@@ -47,10 +66,17 @@ export type DesktopRunnerRecordSubscriptionStart = {
   snapshot: RunnerRecordReadModel | null;
 };
 
-export type DesktopRunnerRecordSubscriptionUpdate = Omit<
-  DesktopRunnerRecordSubscriptionPush,
-  "subscriptionId"
->;
+export type DesktopRunnerRecordSubscriptionUpdate =
+  | {
+      kind: "snapshot";
+      updateSequence: number;
+      snapshot: RunnerRecordReadModel;
+    }
+  | {
+      kind: "closed";
+      updateSequence: number;
+      close: AcpEventSubscriptionCloseResult;
+    };
 
 export const desktopAgentSessionActionIdentitySchema = runnerSessionActionIdentitySchema;
 export type DesktopAgentSessionActionIdentity = z.infer<

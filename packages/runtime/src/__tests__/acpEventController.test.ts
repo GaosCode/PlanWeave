@@ -9,11 +9,15 @@ import {
   type AcpConnection
 } from "../autoRun/acpConnection.js";
 import { AcpEventReadModelRegistry } from "../autoRun/acpEventReadModel.js";
-import { AcpEventStore } from "../autoRun/acpEventStore.js";
+import { AcpEventStore, AcpEventStoreLimitError } from "../autoRun/acpEventStore.js";
+import { createDefaultAcpEventRetentionPolicy } from "../autoRun/acpEventRetentionPolicy.js";
+import { RUNNER_EVENT_MAX_ENCODED_BYTES } from "../autoRun/normalizedEventContract.js";
 import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
 import { ActiveAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
+const retentionEvidenceBucketCount = 3;
+const retentionReserveBytes = RUNNER_EVENT_MAX_ENCODED_BYTES * retentionEvidenceBucketCount;
 
 function run(root: string, scenario: string): AcpSessionRun {
   return {
@@ -31,6 +35,64 @@ function run(root: string, scenario: string): AcpSessionRun {
     projectId: "project-1",
     canvasId: "default"
   };
+}
+
+function connectWithCleanupFailure(
+  options: Parameters<typeof createAcpConnection>[0],
+  failureMessage = "cleanup failed after artifact verification",
+  afterDispose: () => void = () => undefined
+): AcpConnection {
+  const connection = createAcpConnection(options);
+  return new Proxy(connection, {
+    get(target, property) {
+      if (property === "dispose") {
+        return async () => {
+          await target.dispose();
+          afterDispose();
+          throw new Error(failureMessage);
+        };
+      }
+      const value = Reflect.get(target, property);
+      if (typeof value === "function") {
+        return value.bind(target);
+      }
+      return value;
+    }
+  });
+}
+
+function nestedErrorMessages(error: unknown): string[] {
+  if (error instanceof AggregateError) {
+    return error.errors.flatMap(nestedErrorMessages);
+  }
+  return [error instanceof Error ? error.message : String(error)];
+}
+
+function retentionPolicyForArtifactLog(calibrationLines: string[]) {
+  const calibrationEvents = calibrationLines.map(
+    (line) => JSON.parse(line) as { sequence: number; body: { kind: string } }
+  );
+  const artifactIndex = calibrationEvents.findIndex((event) => event.body.kind === "artifact");
+  const calibrationArtifact = calibrationEvents[artifactIndex];
+  if (!calibrationArtifact) {
+    throw new Error("Calibration run did not persist an artifact event.");
+  }
+  const bytesBeforeArtifact = Buffer.byteLength(
+    `${calibrationLines.slice(0, artifactIndex).join("\n")}\n`
+  );
+  const bytesThroughArtifact = Buffer.byteLength(
+    `${calibrationLines.slice(0, artifactIndex + 1).join("\n")}\n`
+  );
+  const evidenceBytes = retentionReserveBytes / retentionEvidenceBucketCount;
+  return createDefaultAcpEventRetentionPolicy({
+    maxEvents: calibrationArtifact.sequence + retentionEvidenceBucketCount - 1,
+    reserveEvents: retentionEvidenceBucketCount,
+    maxBytes: Math.max(
+      bytesBeforeArtifact + retentionReserveBytes,
+      bytesThroughArtifact + evidenceBytes * (retentionEvidenceBucketCount - 1)
+    ),
+    reserveBytes: retentionReserveBytes
+  });
 }
 
 describe("ACP event controller durability and producers", () => {
@@ -274,25 +336,7 @@ describe("ACP event controller durability and producers", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-artifact-cleanup-"));
     const readModels = new AcpEventReadModelRegistry();
     const registry = new ActiveAgentRunRegistry();
-    const controller = new AcpSessionController(
-      registry,
-      (options) => {
-        const connection = createAcpConnection(options);
-        return new Proxy(connection, {
-          get(target, property) {
-            if (property === "dispose") {
-              return async () => {
-                await target.dispose();
-                throw new Error("cleanup failed after artifact verification");
-              };
-            }
-            const value = Reflect.get(target, property);
-            return typeof value === "function" ? value.bind(target) : value;
-          }
-        });
-      },
-      readModels
-    );
+    const controller = new AcpSessionController(registry, connectWithCleanupFailure, readModels);
 
     await expect(
       controller.execute(run(root, "artifact-implementation"), { timeoutMs: 1_000 })
@@ -317,6 +361,88 @@ describe("ACP event controller durability and producers", () => {
     expect(metadata).toContain('"artifactReference"');
     expect(metadata).toContain("cleanup failed after artifact verification");
     expect(registry.size).toBe(0);
+  });
+
+  it("aggregates primary, cleanup, and drain failures without losing finalization causes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-aggregate-failures-"));
+    let cleanupStarted = false;
+    let drainAttempts = 0;
+    const readModels = new AcpEventReadModelRegistry((options) => {
+      const store = new AcpEventStore(options);
+      const drain = store.drain.bind(store);
+      store.drain = async () => {
+        await drain();
+        if (cleanupStarted) {
+          drainAttempts += 1;
+          throw new Error("DRAIN_MARKER");
+        }
+      };
+      return store;
+    });
+    const controller = new AcpSessionController(
+      new ActiveAgentRunRegistry(),
+      (options) =>
+        connectWithCleanupFailure(options, "CLEANUP_MARKER", () => {
+          cleanupStarted = true;
+        }),
+      readModels
+    );
+
+    const failure = await controller
+      .execute(run(root, "protocol-error"), { timeoutMs: 1000 })
+      .catch((error: unknown) => error);
+    const messages = nestedErrorMessages(failure);
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect(failure instanceof AggregateError && failure.errors).toHaveLength(3);
+    expect(failure instanceof AggregateError && failure.errors[0]).toBeInstanceOf(Error);
+    expect(messages).toContain("CLEANUP_MARKER");
+    expect(messages).toContain("DRAIN_MARKER");
+    expect(drainAttempts).toBe(1);
+  });
+
+  it("still persists terminal when retention rejects a late diagnostic after artifact", async () => {
+    const calibrationRoot = await mkdtemp(join(tmpdir(), "planweave-acp-retention-calibration-"));
+    const calibrationController = new AcpSessionController(
+      new ActiveAgentRunRegistry(),
+      connectWithCleanupFailure,
+      new AcpEventReadModelRegistry()
+    );
+    await expect(
+      calibrationController.execute(run(calibrationRoot, "artifact-implementation"), {
+        timeoutMs: 1000
+      })
+    ).rejects.toThrow("Runner terminal cleanup did not complete cleanly");
+    const calibrationLines = (await readFile(join(calibrationRoot, "events.ndjson"), "utf8"))
+      .trim()
+      .split("\n");
+    const policy = retentionPolicyForArtifactLog(calibrationLines);
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-retention-terminal-"));
+    const readModels = new AcpEventReadModelRegistry(
+      (options) => new AcpEventStore({ ...options, retentionPolicy: policy })
+    );
+    const controller = new AcpSessionController(
+      new ActiveAgentRunRegistry(),
+      connectWithCleanupFailure,
+      readModels
+    );
+
+    const failure = await controller
+      .execute(run(root, "artifact-implementation"), { timeoutMs: 1000 })
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect(
+      failure instanceof AggregateError &&
+        failure.errors.some((error) => error instanceof AcpEventStoreLimitError)
+    ).toBe(true);
+    const events = readModels.get(root)?.replay(0).events ?? [];
+    const boundedArtifactIndex = events.findIndex((event) => event.body.kind === "artifact");
+    expect(events.slice(boundedArtifactIndex + 1).map((event) => event.body.kind)).toEqual([
+      "terminal"
+    ]);
+    expect(events.at(-1)).toMatchObject({
+      body: { kind: "terminal", outcome: { reason: "failed", artifactValidated: true } }
+    });
   });
 
   it("persists a structured timeout reason only after the ACP session reaches running", async () => {

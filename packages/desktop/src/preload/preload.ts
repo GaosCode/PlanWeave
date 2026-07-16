@@ -35,7 +35,7 @@ let lastSmokeRevealPath: string | null = null;
 let runnerRecordSubscriptionSequence = 0;
 
 function runnerRecordSubscriptionIsTerminal(
-  snapshot: DesktopRunnerRecordSubscriptionPush["snapshot"]
+  snapshot: Extract<DesktopRunnerRecordSubscriptionPush, { kind: "snapshot" }>["snapshot"]
 ): boolean {
   return (
     snapshot.terminal &&
@@ -76,7 +76,21 @@ const api: DesktopBridgeApi = {
     let active = true;
     const listener = (_event: IpcRendererEvent, payload: DesktopRunnerRecordSubscriptionPush) => {
       if (!active || payload.subscriptionId !== subscriptionId) return;
-      callback({ updateSequence: payload.updateSequence, snapshot: payload.snapshot });
+      if (payload.kind === "closed") {
+        active = false;
+        ipcRenderer.off(runnerRecordEventChannel, listener);
+        callback({
+          kind: "closed",
+          updateSequence: payload.updateSequence,
+          close: payload.close
+        });
+        return;
+      }
+      callback({
+        kind: "snapshot",
+        updateSequence: payload.updateSequence,
+        snapshot: payload.snapshot
+      });
       if (runnerRecordSubscriptionIsTerminal(payload.snapshot)) {
         active = false;
         ipcRenderer.off(runnerRecordEventChannel, listener);

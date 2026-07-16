@@ -100,7 +100,8 @@ describe("provider-free ACP Desktop E2E", () => {
         metadata,
         subscriber: (snapshot) =>
           bridgeListener?.({
-            updateSequence: snapshot.cursor.afterSequence,
+            kind: "snapshot",
+            updateSequence: Math.max(1, snapshot.cursor.afterSequence),
             snapshot
           })
       });
@@ -148,7 +149,8 @@ describe("provider-free ACP Desktop E2E", () => {
       });
       if (!reopened) throw new Error("Expected reopened ACP read model.");
       bridgeListener?.({
-        updateSequence: reopened.cursor.afterSequence,
+        kind: "snapshot",
+        updateSequence: Math.max(1, reopened.cursor.afterSequence),
         snapshot: reopened
       });
       expect(await screen.findByText(/implementation: report.md/)).toBeInTheDocument();

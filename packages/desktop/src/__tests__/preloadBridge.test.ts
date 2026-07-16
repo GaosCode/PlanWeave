@@ -146,6 +146,8 @@ describe("preload bridge invocation", () => {
     );
     expect(Object.keys(api).filter((method) => method.includes("TaskWorkspace"))).toEqual([
       "getTaskWorkspace",
+      "listTaskWorkspaceRuns",
+      "getTaskWorkspaceRunDetail",
       "retryTaskWorkspaceRun"
     ]);
   });
@@ -395,6 +397,7 @@ describe("preload bridge invocation", () => {
     const start = await startPromise;
     const listener = electronMock.ipcRenderer.on.mock.calls[0]?.[1] as IpcRendererListener;
     const update = {
+      kind: "snapshot" as const,
       updateSequence: 1,
       snapshot: { terminal: false, events: [{ sequence: 2 }] }
     };

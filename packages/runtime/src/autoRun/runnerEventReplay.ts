@@ -284,14 +284,23 @@ export function replayNormalizedRunnerEvents(options: RunnerEventReplayOptions):
       continue;
     }
     if (previous === null && event.sequence > 1) {
+      const continuesCursor = cursor !== null && event.sequence === afterSequence + 1;
       const retainedBoundary = options.retainedFromSequence === event.sequence;
-      diagnostics.push({
-        code: retainedBoundary ? "retention_boundary" : "initial_sequence_gap",
-        line: lineNumber,
-        message: retainedBoundary
-          ? `Replay begins at retained sequence ${event.sequence}.`
-          : `Replay begins at sequence ${event.sequence}; earlier events are unavailable.`
-      });
+      if (!continuesCursor) {
+        diagnostics.push({
+          code: retainedBoundary
+            ? "retention_boundary"
+            : cursor !== null
+              ? "sequence_gap"
+              : "initial_sequence_gap",
+          line: lineNumber,
+          message: retainedBoundary
+            ? `Replay begins at retained sequence ${event.sequence}.`
+            : cursor !== null
+              ? `Sequence gap between ${afterSequence} and ${event.sequence}.`
+              : `Replay begins at sequence ${event.sequence}; earlier events are unavailable.`
+        });
+      }
     } else if (previous !== null && event.sequence !== previous + 1) {
       diagnostics.push({
         code: "sequence_gap",

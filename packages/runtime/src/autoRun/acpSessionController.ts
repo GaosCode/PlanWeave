@@ -208,6 +208,7 @@ export class AcpSessionController {
       timeoutMs?: number;
       interactionBroker?: RunnerInteractionBroker;
       sessionDefaults?: DesktopAcpSessionDefaults;
+      onMetadataPersisted?: () => void | Promise<void>;
     }
   ): Promise<ExecutorAdapterResult> {
     await mkdir(run.runDir, { recursive: true });
@@ -317,6 +318,7 @@ export class AcpSessionController {
         conversationMarkdown: "conversation.md"
       }
     });
+    await options?.onMetadataPersisted?.();
     heartbeatTimer = setInterval(() => {
       void writeState("running");
     }, 5_000);
@@ -885,15 +887,20 @@ export class AcpSessionController {
       const cancelled = cancelledBeforeCleanup || handle?.lifecycleState === "cancelled";
       const cleanupFailed = cleanupError !== undefined || (cleanupAttempted && !cleanupCompleted);
       const status: TerminalStatus = timedOut ? "timed_out" : cancelled ? "cancelled" : "failed";
-      let eventLogError: unknown;
-      try {
-        if (eventStore && !cancelled)
+      const eventLogErrors: unknown[] = [];
+      if (eventStore && !cancelled) {
+        try {
           await eventStore.append({
             kind: "diagnostic",
             code: "protocol_error",
             message
           });
-        if (eventStore)
+        } catch (caught) {
+          eventLogErrors.push(caught);
+        }
+      }
+      if (eventStore) {
+        try {
           await eventStore.append({
             kind: "terminal",
             outcome: {
@@ -907,9 +914,14 @@ export class AcpSessionController {
               artifactValidated: validatedArtifactReference !== null
             }
           });
-        if (eventStore) await eventStore.drain();
-      } catch (caught) {
-        eventLogError = caught;
+        } catch (caught) {
+          eventLogErrors.push(caught);
+        }
+        try {
+          await eventStore.drain();
+        } catch (caught) {
+          eventLogErrors.push(caught);
+        }
       }
       await writeState(status, {
         failureReason: message,
@@ -919,11 +931,13 @@ export class AcpSessionController {
           ? { artifactReference: validatedArtifactReference, executionOutcome: "succeeded" }
           : {})
       });
-      if (cleanupError !== undefined) {
-        throw new AggregateError([error, cleanupError], message);
+      const finalizationErrors: unknown[] = [];
+      if (cleanupError !== undefined && cleanupError !== error) {
+        finalizationErrors.push(cleanupError);
       }
-      if (eventLogError !== undefined && eventLogError !== error) {
-        throw new AggregateError([error, eventLogError], message);
+      finalizationErrors.push(...eventLogErrors.filter((caught) => caught !== error));
+      if (finalizationErrors.length > 0) {
+        throw new AggregateError([error, ...finalizationErrors], message);
       }
       if (cancelled && !(error instanceof ExecutorCancelledError)) {
         throw new ExecutorCancelledError(message);

@@ -185,8 +185,18 @@ describe("runner record desktop bridge", () => {
     const webContents = sender(1);
     let receive: ((snapshot: ReturnType<typeof readModel>) => void) | null = null;
     const unsubscribe = vi.fn();
-    let close!: () => void;
-    const closed = new Promise<void>((resolve) => {
+    let close!: (result: {
+      reason: string;
+      lastSequence: number;
+      recoverable: boolean;
+      message: string;
+    }) => void;
+    const closed = new Promise<{
+      reason: string;
+      lastSequence: number;
+      recoverable: boolean;
+      message: string;
+    }>((resolve) => {
       close = resolve;
     });
     runtimeMock.subscribeRunRecord.mockImplementation(
@@ -208,29 +218,195 @@ describe("runner record desktop bridge", () => {
 
     expect(start.snapshot.events.map((event) => event.sequence)).toEqual([1]);
     expect(
-      webContents.send.mock.calls.map((call) => call[1].snapshot.cursor.afterSequence)
+      webContents.send.mock.calls
+        .filter((call) => call[1].kind === "snapshot")
+        .map((call) => call[1].snapshot.cursor.afterSequence)
     ).toEqual([2, 3]);
-    expect(webContents.send.mock.calls.map((call) => call[1].updateSequence)).toEqual([1, 2]);
+    expect(
+      webContents.send.mock.calls
+        .filter((call) => call[1].kind === "snapshot")
+        .map((call) => call[1].updateSequence)
+    ).toEqual([1, 2]);
     expect(webContents.send).toHaveBeenCalledWith(
       runnerRecordEventChannel,
-      expect.objectContaining({ subscriptionId: "subscription-1" })
+      expect.objectContaining({ kind: "snapshot", subscriptionId: "subscription-1" })
     );
-    close();
+    close({
+      reason: "terminal",
+      lastSequence: 3,
+      recoverable: false,
+      message: "ACP event subscription closed after terminal event."
+    });
     await closed;
+    await vi.waitFor(() => {
+      expect(webContents.send).toHaveBeenCalledWith(
+        runnerRecordEventChannel,
+        expect.objectContaining({
+          kind: "closed",
+          subscriptionId: "subscription-1",
+          close: expect.objectContaining({ reason: "terminal", recoverable: false })
+        })
+      );
+    });
+  });
+
+  it("surfaces not_subscribable for non-terminal snapshot with null subscription", async () => {
+    const webContents = sender(1);
+    const nonTerminal = readModel([runnerEvent(1)]);
+    expect(nonTerminal.terminal).toBe(false);
+    runtimeMock.subscribeRunRecord.mockResolvedValue({
+      snapshot: {
+        ...nonTerminal,
+        diagnostics: [
+          {
+            code: "identity_mismatch",
+            line: null,
+            message: "Runner event identity does not match selected record."
+          }
+        ]
+      },
+      subscription: null
+    });
+    const handler = electronMock.handlers.get(runnerRecordSubscribeChannel);
+    const start = (await handler?.({ sender: webContents }, input)) as {
+      snapshot: { terminal: boolean; cursor: { afterSequence: number } };
+    };
+
+    expect(start.snapshot.terminal).toBe(false);
+    expect(start.snapshot.cursor.afterSequence).toBe(1);
+    await vi.waitFor(() => {
+      expect(webContents.send).toHaveBeenCalledWith(
+        runnerRecordEventChannel,
+        expect.objectContaining({
+          kind: "closed",
+          subscriptionId: "subscription-1",
+          close: expect.objectContaining({
+            reason: "not_subscribable",
+            recoverable: false,
+            lastSequence: 1,
+            message: expect.stringContaining("identity")
+          })
+        })
+      );
+    });
+    // Must not be forged as a silent terminal end.
+    expect(
+      webContents.send.mock.calls.some(
+        (call) => call[1]?.kind === "closed" && call[1]?.close?.reason === "terminal"
+      )
+    ).toBe(false);
+  });
+
+  it("still closes as terminal when snapshot is terminal and subscription is null", async () => {
+    const webContents = sender(1);
+    const terminalSnapshot = readModel([runnerEvent(1), runnerEvent(2, "terminal")]);
+    expect(terminalSnapshot.terminal).toBe(true);
+    runtimeMock.subscribeRunRecord.mockResolvedValue({
+      snapshot: terminalSnapshot,
+      subscription: null
+    });
+    const handler = electronMock.handlers.get(runnerRecordSubscribeChannel);
+    await handler?.({ sender: webContents }, input);
+
+    await vi.waitFor(() => {
+      expect(webContents.send).toHaveBeenCalledWith(
+        runnerRecordEventChannel,
+        expect.objectContaining({
+          kind: "closed",
+          close: expect.objectContaining({
+            reason: "terminal",
+            recoverable: false,
+            lastSequence: 2
+          })
+        })
+      );
+    });
+  });
+
+  it("pushes recoverable closed before releasing ownership", async () => {
+    const webContents = sender(1);
+    const unsubscribe = vi.fn();
+    let close!: (result: {
+      reason: string;
+      lastSequence: number;
+      recoverable: boolean;
+      message: string;
+    }) => void;
+    const closed = new Promise<{
+      reason: string;
+      lastSequence: number;
+      recoverable: boolean;
+      message: string;
+    }>((resolve) => {
+      close = resolve;
+    });
+    runtimeMock.subscribeRunRecord.mockResolvedValue({
+      snapshot: readModel([runnerEvent(1)]),
+      subscription: { unsubscribe, closed }
+    });
+    const handler = electronMock.handlers.get(runnerRecordSubscribeChannel);
+    await handler?.({ sender: webContents }, input);
+
+    close({
+      reason: "subscriber_backpressure",
+      lastSequence: 1,
+      recoverable: true,
+      message: "Subscriber exceeded pending capacity."
+    });
+    await closed;
+    await vi.waitFor(() => {
+      expect(webContents.send).toHaveBeenCalledWith(
+        runnerRecordEventChannel,
+        expect.objectContaining({
+          kind: "closed",
+          subscriptionId: "subscription-1",
+          updateSequence: 1,
+          close: expect.objectContaining({
+            reason: "subscriber_backpressure",
+            recoverable: true,
+            lastSequence: 1
+          })
+        })
+      );
+    });
+    // Publisher already closed the runtime subscription; bridge must not force a second unsubscribe.
+    expect(unsubscribe).toHaveBeenCalledTimes(0);
   });
 
   it("unsubscribes deterministically and tears down on window destruction", async () => {
     const unsubscribeFirst = vi.fn();
     const unsubscribeSecond = vi.fn();
     const listeners: Array<(snapshot: ReturnType<typeof readModel>) => void> = [];
+    let closeFirst!: (result: {
+      reason: string;
+      lastSequence: number;
+      recoverable: boolean;
+      message: string;
+    }) => void;
+    const closedFirst = new Promise<{
+      reason: string;
+      lastSequence: number;
+      recoverable: boolean;
+      message: string;
+    }>((resolve) => {
+      closeFirst = resolve;
+    });
     runtimeMock.subscribeRunRecord
       .mockImplementationOnce(async (_workspace, _recordId, _cursor, listener) => {
         listeners.push(listener);
         return {
           snapshot: null,
           subscription: {
-            unsubscribe: unsubscribeFirst,
-            closed: new Promise<void>(() => undefined)
+            unsubscribe: () => {
+              unsubscribeFirst();
+              closeFirst({
+                reason: "explicit_unsubscribe",
+                lastSequence: 0,
+                recoverable: false,
+                message: "unsubscribed"
+              });
+            },
+            closed: closedFirst
           }
         };
       })
@@ -240,7 +416,7 @@ describe("runner record desktop bridge", () => {
           snapshot: null,
           subscription: {
             unsubscribe: unsubscribeSecond,
-            closed: new Promise<void>(() => undefined)
+            closed: new Promise(() => undefined)
           }
         };
       });
@@ -252,6 +428,17 @@ describe("runner record desktop bridge", () => {
     await subscribeHandler?.({ sender: second }, { ...input, subscriptionId: "subscription-2" });
 
     await unsubscribeHandler?.({ sender: first }, "subscription-1");
+    await closedFirst;
+    await vi.waitFor(() => {
+      expect(first.send).toHaveBeenCalledWith(
+        runnerRecordEventChannel,
+        expect.objectContaining({
+          kind: "closed",
+          subscriptionId: "subscription-1",
+          close: expect.objectContaining({ reason: "explicit_unsubscribe" })
+        })
+      );
+    });
     second.destroy();
     listeners[0]?.(readModel([runnerEvent(2, "terminal")]));
     listeners[1]?.(readModel([runnerEvent(2)]));
@@ -259,7 +446,6 @@ describe("runner record desktop bridge", () => {
     expect(unsubscribeFirst).toHaveBeenCalledTimes(1);
     expect(first.removeListener).toHaveBeenCalledTimes(1);
     expect(unsubscribeSecond).toHaveBeenCalledTimes(1);
-    expect(first.send).not.toHaveBeenCalled();
     expect(second.send).not.toHaveBeenCalled();
   });
 
@@ -270,7 +456,7 @@ describe("runner record desktop bridge", () => {
         listeners.push(listener);
         return {
           snapshot: null,
-          subscription: { unsubscribe: vi.fn(), closed: new Promise<void>(() => undefined) }
+          subscription: { unsubscribe: vi.fn(), closed: new Promise(() => undefined) }
         };
       }
     );
@@ -284,6 +470,14 @@ describe("runner record desktop bridge", () => {
     listeners[1]?.(readModel([runnerEvent(2)]));
     expect(first.send).toHaveBeenCalledTimes(1);
     expect(second.send).toHaveBeenCalledTimes(1);
+    expect(first.send.mock.calls[0]?.[1]).toMatchObject({
+      kind: "snapshot",
+      subscriptionId: "subscription-1"
+    });
+    expect(second.send.mock.calls[0]?.[1]).toMatchObject({
+      kind: "snapshot",
+      subscriptionId: "subscription-2"
+    });
 
     const destroyed = sender(3);
     destroyed.destroy();

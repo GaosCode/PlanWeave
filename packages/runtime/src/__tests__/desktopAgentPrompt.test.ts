@@ -456,8 +456,12 @@ describe("Desktop ACP prompt continuation", () => {
       runDir: prepared.runDir,
       metadata: prepared.metadata
     });
-    let resolveUnderlying = (): void => undefined;
-    const underlyingClosed = new Promise<void>((resolve) => {
+    let resolveUnderlying = (
+      _result: import("../autoRun/acpEventPublisher.js").AcpEventSubscriptionCloseResult
+    ): void => undefined;
+    const underlyingClosed = new Promise<
+      import("../autoRun/acpEventPublisher.js").AcpEventSubscriptionCloseResult
+    >((resolve) => {
       resolveUnderlying = resolve;
     });
     const underlyingUnsubscribe = vi.fn();
@@ -492,7 +496,12 @@ describe("Desktop ACP prompt continuation", () => {
     expect(unsubscribeTurn).toHaveBeenCalledOnce();
     expect(underlyingUnsubscribe).toHaveBeenCalledOnce();
     expect(wrapperClosed).toBe(false);
-    resolveUnderlying();
+    resolveUnderlying({
+      reason: "explicit_unsubscribe",
+      lastSequence: 0,
+      recoverable: false,
+      message: "ACP event subscription was unsubscribed."
+    });
     await consumer.subscription?.closed;
     expect(wrapperClosed).toBe(true);
   });

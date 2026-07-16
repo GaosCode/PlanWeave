@@ -2,6 +2,10 @@ import { basename, dirname } from "node:path";
 import { z } from "zod";
 import { acpConversationTurns } from "../autoRun/acpConversationTurn.js";
 import { acpEventReadModels } from "../autoRun/acpEventReadModel.js";
+import {
+  createAcpEventSubscriptionCloseResult,
+  type AcpEventSubscriptionCloseResult
+} from "../autoRun/acpEventPublisher.js";
 import { activeAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { builtinAgentProfiles, resolveAgentDefinition } from "../autoRun/agentRegistry.js";
 import { requireAcpLaunch } from "../autoRun/acpLaunch.js";
@@ -333,9 +337,9 @@ export async function consumeAcpPromptRunRecord(
   });
   if (!options.context.available) return consumer;
   let closed = false;
-  let resolveClosed = (): void => undefined;
+  let resolveClosed = (_result: AcpEventSubscriptionCloseResult): void => undefined;
   let refreshTail = Promise.resolve();
-  const closedPromise = new Promise<void>((resolve) => {
+  const closedPromise = new Promise<AcpEventSubscriptionCloseResult>((resolve) => {
     resolveClosed = resolve;
   });
   const unsubscribeTurn = dependencies.subscribeTurn(options.context.runDir, () => {
@@ -353,18 +357,42 @@ export async function consumeAcpPromptRunRecord(
     refreshTail = refresh.catch(() => undefined);
     return refresh;
   });
-  const close = (): void => {
+  const settleClosed = async (
+    preferred: AcpEventSubscriptionCloseResult | undefined
+  ): Promise<void> => {
+    const fallback = preferred ?? createAcpEventSubscriptionCloseResult("explicit_unsubscribe", 0);
+    const underlyingClosed = consumer.subscription?.closed ?? Promise.resolve(fallback);
+    const [underlying] = await Promise.allSettled([underlyingClosed, refreshTail]);
+    if (preferred) {
+      resolveClosed(preferred);
+      return;
+    }
+    if (underlying.status === "fulfilled" && underlying.value && typeof underlying.value === "object") {
+      resolveClosed(underlying.value);
+      return;
+    }
+    resolveClosed(fallback);
+  };
+  const close = (preferred?: AcpEventSubscriptionCloseResult): void => {
     if (closed) return;
     closed = true;
     unsubscribeTurn();
-    consumer.subscription?.unsubscribe();
-    const underlyingClosed = consumer.subscription?.closed ?? Promise.resolve();
-    void Promise.allSettled([underlyingClosed, refreshTail]).then(() => resolveClosed());
+    // Prefer the publisher close reason when the underlying subscription ended first.
+    // Explicit outer unsubscribe still calls underlying unsubscribe, which resolves the same reason.
+    if (!preferred) {
+      consumer.subscription?.unsubscribe();
+    } else if (consumer.subscription) {
+      // Underlying already closed; still invoke unsubscribe for idempotent cleanup.
+      consumer.subscription.unsubscribe();
+    }
+    void settleClosed(preferred);
   };
-  if (consumer.subscription) void consumer.subscription.closed.then(close);
+  if (consumer.subscription) {
+    void consumer.subscription.closed.then((result) => close(result));
+  }
   return {
     snapshot: consumer.snapshot,
-    subscription: { unsubscribe: close, closed: closedPromise }
+    subscription: { unsubscribe: () => close(), closed: closedPromise }
   };
 }
 

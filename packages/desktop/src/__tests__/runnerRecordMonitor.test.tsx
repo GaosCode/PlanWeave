@@ -517,12 +517,14 @@ describe("ACP runner record monitor", () => {
     expect(screen.queryByText("duplicate")).not.toBeInTheDocument();
     act(() =>
       push?.({
+        kind: "snapshot",
         updateSequence: 1,
         snapshot: current
       })
     );
     act(() =>
       push?.({
+        kind: "snapshot",
         updateSequence: 2,
         snapshot: model([
           event(1, "message", "first"),
@@ -556,6 +558,7 @@ describe("ACP runner record monitor", () => {
 
     act(() =>
       push?.({
+        kind: "snapshot",
         updateSequence: 1,
         snapshot: model([event(2, "message", "early live")])
       })
@@ -664,12 +667,19 @@ describe("ACP runner record monitor", () => {
       />
     );
 
-    act(() => push?.({ updateSequence: 1, snapshot: model([interaction], activeInteraction) }));
+    act(() =>
+      push?.({
+        kind: "snapshot",
+        updateSequence: 1,
+        snapshot: model([interaction], activeInteraction)
+      })
+    );
     expect((await screen.findAllByText("Allow reading the project?")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Action required").length).toBeGreaterThan(0);
 
     act(() =>
       push?.({
+        kind: "snapshot",
         updateSequence: 2,
         snapshot: model([interaction], {
           persisted: true,
@@ -684,6 +694,7 @@ describe("ACP runner record monitor", () => {
 
     act(() =>
       push?.({
+        kind: "snapshot",
         updateSequence: 3,
         snapshot: model([interaction, event(2, "terminal", "done")], {
           persisted: true,
@@ -780,6 +791,7 @@ describe("ACP runner record monitor", () => {
     });
     act(() =>
       push?.({
+        kind: "snapshot",
         updateSequence: 1,
         snapshot: model([elicitation], {
           persisted: true,
