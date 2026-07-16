@@ -45,17 +45,41 @@ export function TaskWorkspaceConversation(
       props.liveStatus === "loading"
         ? t("taskWorkspaceLoadingSelectedRun")
         : (props.recordError ?? t("taskWorkspaceRecordUnavailable"));
-    return <ConversationState message={message} role={props.recordError ? "alert" : undefined} />;
+    return (
+      <ConversationState
+        detailKind={props.recordError ? "error" : "loading"}
+        message={message}
+        recordId={selectedRun.item.run.record.recordId}
+        recordReady={false}
+        role={props.recordError ? "alert" : undefined}
+      />
+    );
   }
   if (selectedRecord.recordId !== selectedRun.item.run.record.recordId) {
-    return <ConversationState message={t("taskWorkspaceRecordMismatch")} role="alert" />;
+    return (
+      <ConversationState
+        detailKind="error"
+        message={t("taskWorkspaceRecordMismatch")}
+        recordId={selectedRun.item.run.record.recordId}
+        recordReady={false}
+        role="alert"
+      />
+    );
   }
   const runnerKind = selectedRun.item.run.metadata.runnerKind;
   if (runnerKind === "cli") {
     return <TaskWorkspaceCliRun api={api} canvasRef={canvasRef} record={selectedRecord} t={t} />;
   }
   if (runnerKind !== "acp") {
-    return <ConversationState message={t("taskWorkspaceUnsupportedTransport")} role="alert" />;
+    return (
+      <ConversationState
+        detailKind="unsupported"
+        message={t("taskWorkspaceUnsupportedTransport")}
+        recordId={selectedRecord.recordId}
+        recordReady
+        role="alert"
+      />
+    );
   }
   if (!runnerModel) {
     return <AcpConversationUnavailable props={props} selectedRun={selectedRun} t={t} />;
@@ -82,21 +106,52 @@ function AcpConversationUnavailable({
   selectedRun: NonNullable<TaskWorkspaceConversationSlotProps["selectedRun"]>;
   t: ReturnType<typeof createTranslator>;
 }) {
+  const recordId = selectedRun.item.run.record.recordId;
   const error = props.recordError ?? props.subscriptionError;
   if (error || props.liveStatus === "error") {
-    return <ConversationState message={error ?? t("taskWorkspaceAcpLoadFailed")} role="alert" />;
+    return (
+      <ConversationState
+        detailKind="error"
+        message={error ?? t("taskWorkspaceAcpLoadFailed")}
+        recordId={recordId}
+        recordReady={false}
+        role="alert"
+      />
+    );
   }
   if (props.liveStatus === "loading") {
-    return <ConversationState message={t("taskWorkspaceAcpLoading")} />;
+    return (
+      <ConversationState
+        detailKind="loading"
+        message={t("taskWorkspaceAcpLoading")}
+        recordId={recordId}
+        recordReady={false}
+      />
+    );
   }
   if (props.liveStatus === "live") {
-    return <ConversationState message={t("taskWorkspaceAcpLiveModelUnavailable")} role="alert" />;
+    return (
+      <ConversationState
+        detailKind="error"
+        message={t("taskWorkspaceAcpLiveModelUnavailable")}
+        recordId={recordId}
+        recordReady={false}
+        role="alert"
+      />
+    );
   }
   const message =
     props.liveUnavailableReason ??
     selectedRun.item.run.capabilities.prompt.reason ??
     t("taskWorkspaceAcpUnavailable");
-  return <ConversationState message={message} />;
+  return (
+    <ConversationState
+      detailKind="unavailable"
+      message={message}
+      recordId={recordId}
+      recordReady
+    />
+  );
 }
 
 function AcpRunConversation({
@@ -161,6 +216,8 @@ function AcpRunConversation({
   return (
     <section
       className="flex h-full min-h-0 flex-col overflow-hidden"
+      data-record-id={recordId}
+      data-record-ready="true"
       data-testid="task-workspace-acp-conversation"
     >
       <div className="shrink-0 px-5 pt-5">
@@ -315,9 +372,28 @@ function ArtifactFileTypeIcon({ path }: { path: string }) {
   );
 }
 
-function ConversationState({ message, role }: { message: string; role?: "alert" }) {
+function ConversationState({
+  detailKind,
+  message,
+  recordId,
+  recordReady,
+  role
+}: {
+  detailKind?: "error" | "loading" | "unavailable" | "unsupported";
+  message: string;
+  recordId?: string;
+  recordReady?: boolean;
+  role?: "alert";
+}) {
   return (
-    <section className="flex h-full items-center justify-center p-6" role={role}>
+    <section
+      className="flex h-full items-center justify-center p-6"
+      data-detail-kind={detailKind}
+      data-record-id={recordId}
+      data-record-ready={recordReady === undefined ? undefined : recordReady ? "true" : "false"}
+      data-testid="task-workspace-run-detail"
+      role={role}
+    >
       <p
         className={
           role === "alert"

@@ -29,7 +29,7 @@ export function TaskWorkspaceExecutorSelect({
   compact?: boolean;
   executorName: string | null;
   executorOptions: readonly string[];
-  inheritLabel: string;
+  inheritLabel?: string;
   label: string;
   labels: { saved: string; saving: string };
   onSave: (executorName: string | null) => Promise<void>;
@@ -37,31 +37,36 @@ export function TaskWorkspaceExecutorSelect({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<ExecutorSaveStatus>("idle");
-  const selectedValue = executorName
-    ? executorOptionName(executorName, packageExecutorNames)
-    : inheritExecutorValue;
+  const selectedValue = executorOptionName(
+    executorName ?? (inheritLabel ? inheritExecutorValue : "manual"),
+    packageExecutorNames
+  );
+  const [displayedValue, setDisplayedValue] = useState(selectedValue);
   const options = useMemo(
     () =>
       executorOptionNames({
-        currentExecutorNames: executorName ? [executorName] : [],
+        currentExecutorNames: executorName ? [executorName] : inheritLabel ? [] : ["manual"],
         executorOptions,
         literalExecutorNames: packageExecutorNames
       }),
-    [executorName, executorOptions, packageExecutorNames]
+    [executorName, executorOptions, inheritLabel, packageExecutorNames]
   );
 
   useEffect(() => {
+    setDisplayedValue(selectedValue);
     setError(null);
     setStatus("idle");
-  }, [executorName]);
+  }, [selectedValue]);
 
   const save = async (value: string) => {
+    setDisplayedValue(value);
     setError(null);
     setStatus("saving");
     try {
       await onSave(value === inheritExecutorValue ? null : value);
       setStatus("saved");
     } catch (caught: unknown) {
+      setDisplayedValue(selectedValue);
       setError(caught instanceof Error ? caught.message : String(caught));
       setStatus("error");
     }
@@ -78,7 +83,7 @@ export function TaskWorkspaceExecutorSelect({
       <Select
         disabled={status === "saving"}
         onValueChange={(value) => void save(value)}
-        value={selectedValue}
+        value={displayedValue}
       >
         <SelectTrigger
           aria-label={label}
@@ -89,7 +94,9 @@ export function TaskWorkspaceExecutorSelect({
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            <SelectItem value={inheritExecutorValue}>{inheritLabel}</SelectItem>
+            {inheritLabel ? (
+              <SelectItem value={inheritExecutorValue}>{inheritLabel}</SelectItem>
+            ) : null}
             {options.map((executor) => (
               <SelectItem key={executor} value={executor}>
                 {executor}

@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import type { TaskWorkspaceAnnotation } from "@planweave-ai/runtime";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { VerticalResizeHandle } from "../../components/VerticalResizeHandle";
+import { LiveRunElapsedText } from "../LiveDurationText";
 import { taskWorkspacePanelMaxWidth, taskWorkspacePanelMinWidth } from "../useTaskWorkspaceLayout";
 import { TaskWorkspaceOverview } from "./TaskWorkspaceOverview";
 import { projectTaskWorkspaceTimeline } from "./timelineProjection";
@@ -14,6 +15,7 @@ import type {
   TimelineRunStatus
 } from "./types";
 import { useTimelineResize } from "./useTimelineResize";
+import { useTimelineWindow } from "./useTimelineWindow";
 
 const statusClasses: Record<TimelineRunStatus, string> = {
   active: "border-primary/50 bg-primary/10 text-primary",
@@ -129,10 +131,17 @@ function TimelineRunOption({
     run.item.run.metadata.adapter ??
     labels.unavailable;
   const startedAt = run.startedAt ? labels.formatDateTime(run.startedAt) : labels.unavailable;
-  const elapsed =
-    run.item.run.duration.wallClockMs === null
-      ? labels.unavailable
-      : labels.formatDuration(run.item.run.duration.wallClockMs);
+  // Leaf owns the clock: only this text node re-renders on the 1 Hz tick.
+  const elapsed = (
+    <LiveRunElapsedText
+      active={run.active}
+      finishedAt={run.finishedAt}
+      formatDuration={labels.formatDuration}
+      startedAt={run.startedAt}
+      unavailable={labels.unavailable}
+      wallClockMs={run.item.run.duration.wallClockMs}
+    />
+  );
   return (
     <button
       aria-label={labels.run(run.blockTitle, run.retryIndex)}
@@ -142,9 +151,12 @@ function TimelineRunOption({
         "hover:bg-app-hover focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40",
         selected && "border-primary/40 bg-primary/10"
       )}
+      data-block-ref={run.blockRef}
       data-record-id={run.recordId}
       data-retry={run.isRetry || undefined}
+      data-run-id={run.runId}
       data-status={run.status}
+      data-testid="task-workspace-run-summary"
       data-wave-id={run.executionWave?.waveId}
       onClick={onSelect}
       onFocus={onFocus}
@@ -191,7 +203,11 @@ function TimelineRunOption({
 }
 
 export function TaskWorkspaceTimeline({
+  hasMoreRuns = false,
   labels,
+  loadMoreRuns,
+  loadMoreRunsError = null,
+  loadingMoreRuns = false,
   selectRun,
   selectedRun,
   setTimelineWidth,
@@ -202,6 +218,7 @@ export function TaskWorkspaceTimeline({
   const selectedRecordId = selectedRun?.item.run.record.recordId ?? null;
   const recordIds = useMemo(() => projection.runs.map((run) => run.recordId), [projection.runs]);
   const [focusedRecordId, setFocusedRecordId] = useState<string | null>(null);
+  const pendingFocusRecordId = useRef<string | null>(null);
   const optionRefs = useRef(new Map<string, HTMLButtonElement>());
   const effectiveFocusedRecordId = effectiveFocusRecord(
     focusedRecordId,
@@ -209,10 +226,45 @@ export function TaskWorkspaceTimeline({
     recordIds
   );
   const resize = useTimelineResize({ setTimelineWidth, timelineWidth });
+  const timelineWindow = useTimelineWindow(recordIds.length);
+  const visibleRuns = projection.runs.slice(timelineWindow.start, timelineWindow.end);
+
+  useEffect(() => {
+    const pending = pendingFocusRecordId.current;
+    if (!pending) return;
+    const option = optionRefs.current.get(pending);
+    if (option) {
+      pendingFocusRecordId.current = null;
+      option.focus();
+    }
+  }, [timelineWindow.end, timelineWindow.start]);
+
+  useEffect(() => {
+    if (focusedRecordId && !recordIds.includes(focusedRecordId)) {
+      setFocusedRecordId(null);
+      pendingFocusRecordId.current = null;
+    }
+    const anchorRecordId = effectiveFocusedRecordId;
+    if (!anchorRecordId) return;
+    const anchorIndex = recordIds.indexOf(anchorRecordId);
+    if (anchorIndex < 0) return;
+    if (!optionRefs.current.has(anchorRecordId)) {
+      pendingFocusRecordId.current = anchorRecordId;
+    }
+    timelineWindow.ensureIndexVisible(anchorIndex);
+  }, [effectiveFocusedRecordId, focusedRecordId, recordIds, timelineWindow.ensureIndexVisible]);
 
   const focusRecord = (recordId: string) => {
     setFocusedRecordId(recordId);
-    optionRefs.current.get(recordId)?.focus();
+    const index = recordIds.indexOf(recordId);
+    if (index < 0) return;
+    const option = optionRefs.current.get(recordId);
+    if (option) {
+      option.focus();
+      return;
+    }
+    pendingFocusRecordId.current = recordId;
+    timelineWindow.ensureIndexVisible(index);
   };
 
   const handleListKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -250,32 +302,72 @@ export function TaskWorkspaceTimeline({
       <div
         aria-label={labels.timeline}
         className="space-y-3"
+        data-testid="task-workspace-run-list"
         onKeyDown={handleListKeyDown}
+        onScroll={timelineWindow.onScroll}
         role="listbox"
+        style={timelineWindow.windowed ? { maxHeight: 720, overflowY: "auto" } : undefined}
       >
-        {projection.runs.map((run) => (
-          <TimelineRunOption
-            focused={run.recordId === effectiveFocusedRecordId}
-            key={run.recordId}
-            labels={labels}
-            onFocus={() => setFocusedRecordId(run.recordId)}
-            onSelect={() => selectRun({ blockRef: run.blockRef, recordId: run.recordId })}
-            register={(element) => {
-              if (element) {
-                optionRefs.current.set(run.recordId, element);
-              } else {
-                optionRefs.current.delete(run.recordId);
-              }
-            }}
-            run={run}
-            selected={run.recordId === selectedRecordId}
-          />
-        ))}
+        {timelineWindow.beforeHeight > 0 ? (
+          <div aria-hidden="true" style={{ height: timelineWindow.beforeHeight }} />
+        ) : null}
+        {visibleRuns.map((run, visibleIndex) => {
+          const absoluteIndex = timelineWindow.start + visibleIndex;
+          return (
+            <div
+              key={run.recordId}
+              role="presentation"
+              style={timelineWindow.windowed ? { height: 108 } : undefined}
+            >
+              <TimelineRunOption
+                focused={run.recordId === effectiveFocusedRecordId}
+                labels={labels}
+                onFocus={() => setFocusedRecordId(run.recordId)}
+                onSelect={() => selectRun({ blockRef: run.blockRef, recordId: run.recordId })}
+                register={(element) => {
+                  if (element) {
+                    optionRefs.current.set(run.recordId, element);
+                  } else {
+                    optionRefs.current.delete(run.recordId);
+                  }
+                }}
+                run={run}
+                selected={run.recordId === selectedRecordId}
+              />
+              <span className="sr-only">
+                {absoluteIndex + 1} / {recordIds.length}
+              </span>
+            </div>
+          );
+        })}
+        {timelineWindow.afterHeight > 0 ? (
+          <div aria-hidden="true" style={{ height: timelineWindow.afterHeight }} />
+        ) : null}
         {projection.blocks.flatMap((block) =>
           block.annotations.map((annotation) => (
             <AnnotationNote annotation={annotation} key={annotation.annotationId} labels={labels} />
           ))
         )}
+        {hasMoreRuns && loadMoreRuns ? (
+          <div className="pt-1">
+            <button
+              className="w-full rounded-md border border-border bg-surface-muted px-2 py-1.5 text-xs font-medium text-text transition-colors hover:bg-app-hover focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60"
+              data-testid="task-workspace-load-more-runs"
+              disabled={loadingMoreRuns}
+              onClick={() => {
+                void loadMoreRuns();
+              }}
+              type="button"
+            >
+              {loadingMoreRuns ? labels.loadingMore : labels.loadMore}
+            </button>
+            {loadMoreRunsError ? (
+              <p className="mt-1 text-xs text-destructive" role="alert">
+                {loadMoreRunsError}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   }

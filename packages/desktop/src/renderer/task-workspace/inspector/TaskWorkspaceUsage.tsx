@@ -2,6 +2,7 @@ import type { TaskWorkspace } from "@planweave-ai/runtime";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useId } from "react";
 import type { TaskWorkspaceSelectedRun } from "../contracts";
+import { LiveAgentTimeText, LiveRunElapsedText, LiveTaskWallClockText } from "../LiveDurationText";
 import { clampedContextUsagePercent, contextUsagePercent } from "./formatters";
 
 export type TaskWorkspaceUsageLabels = {
@@ -90,6 +91,23 @@ export function TaskWorkspaceUsageDetails({
   const snapshot = run?.usage.currentContext ?? null;
   const wallClock = workspace?.duration.wallClock ?? null;
   const agentTime = workspace?.duration.agentTime ?? null;
+  const runWallClock =
+    selectedRun !== null ? (
+      <LiveRunElapsedText
+        active={selectedRun.item.active}
+        finishedAt={selectedRun.item.run.duration.finishedAt}
+        formatDuration={labels.formatDuration}
+        startedAt={selectedRun.item.run.duration.startedAt}
+        unavailable={labels.unavailable}
+        wallClockMs={selectedRun.item.run.duration.wallClockMs}
+      />
+    ) : (
+      <UnavailableValue reason={labels.unavailable} unavailable={labels.unavailable} />
+    );
+  const runWallClockUnavailable =
+    selectedRun === null ||
+    (selectedRun.item.run.duration.startedAt === null &&
+      selectedRun.item.run.duration.wallClockMs === null);
 
   return (
     <div className="space-y-3 text-xs">
@@ -173,13 +191,13 @@ export function TaskWorkspaceUsageDetails({
           <Metric
             label={labels.runWallClock}
             value={
-              run?.duration.wallClockMs !== null && run?.duration.wallClockMs !== undefined ? (
-                labels.formatDuration(run.duration.wallClockMs)
-              ) : (
+              runWallClockUnavailable ? (
                 <UnavailableValue
                   reason={run?.duration.unavailableReason ?? labels.unavailable}
                   unavailable={labels.unavailable}
                 />
+              ) : (
+                runWallClock
               )
             }
           />
@@ -212,8 +230,13 @@ export function TaskWorkspaceUsageDetails({
           <Metric
             label={labels.taskWallClock}
             value={
-              wallClock?.available ? (
-                labels.formatDuration(wallClock.totalMs)
+              wallClock?.available ||
+              (workspace !== null && workspace.activeRecordIds.length > 0) ? (
+                <LiveTaskWallClockText
+                  formatDuration={labels.formatDuration}
+                  unavailable={labels.unavailable}
+                  workspace={workspace}
+                />
               ) : (
                 <UnavailableValue
                   reason={wallClock?.unavailableReason ?? labels.unavailable}
@@ -225,18 +248,14 @@ export function TaskWorkspaceUsageDetails({
           <Metric
             label={labels.agentTime}
             value={
-              agentTime && agentTime.availability !== "unavailable" ? (
-                <span>
-                  {labels.formatDuration(agentTime.totalMs)}
-                  {agentTime.availability === "partial" ? (
-                    <span className="mt-0.5 block text-[10px] font-normal text-text-muted">
-                      {labels.partialAgentTime(
-                        agentTime.includedRunCount,
-                        agentTime.missingRunCount
-                      )}
-                    </span>
-                  ) : null}
-                </span>
+              (agentTime && agentTime.availability !== "unavailable") ||
+              (workspace !== null && workspace.activeRecordIds.length > 0) ? (
+                <LiveAgentTimeText
+                  formatDuration={labels.formatDuration}
+                  partialLabel={labels.partialAgentTime}
+                  unavailable={labels.unavailable}
+                  workspace={workspace}
+                />
               ) : (
                 <UnavailableValue
                   reason={agentTime?.reason ?? labels.unavailable}

@@ -55,10 +55,13 @@ function BlockPromptDisclosure({
   return (
     <details
       className="group rounded-lg border border-border/80"
+      data-block-ref={block.ref}
+      data-block-status={block.status}
+      data-testid="task-workspace-block-summary"
       onToggle={(event) => setOpen(event.currentTarget.open)}
       open={open}
     >
-      <summary className="flex cursor-pointer list-none items-center gap-3 p-3 outline-none hover:bg-app-hover focus-visible:ring-2 focus-visible:ring-ring/40 [&::-webkit-details-marker]:hidden">
+      <summary className="grid cursor-pointer list-none grid-cols-[1rem_minmax(0,1fr)_12rem_5.5rem] items-center gap-3 overflow-hidden p-3 outline-none hover:bg-app-hover focus-visible:ring-2 focus-visible:ring-ring/40 [&::-webkit-details-marker]:hidden">
         <ChevronRightIcon
           aria-hidden="true"
           className="size-4 shrink-0 transition-transform group-open:rotate-90"
@@ -68,7 +71,7 @@ function BlockPromptDisclosure({
           <div className="mt-1 truncate font-mono text-xs text-text-muted">{block.ref}</div>
         </div>
         <TaskWorkspaceExecutorSelect
-          className="w-48 shrink-0"
+          className="w-full min-w-0"
           compact
           executorName={block.executor}
           executorOptions={executorOptions}
@@ -78,7 +81,9 @@ function BlockPromptDisclosure({
           onSave={onSaveExecutor}
           packageExecutorNames={packageExecutorNames}
         />
-        <Badge variant="outline">{block.status}</Badge>
+        <Badge className="min-w-0 max-w-full justify-self-center truncate" variant="outline">
+          {block.status}
+        </Badge>
       </summary>
       <div className="border-t border-border/80 p-4">
         <TaskWorkspaceBlockPrompts
@@ -197,7 +202,6 @@ export function TaskWorkspaceOverviewPanel({
           <TaskWorkspaceExecutorSelect
             executorName={workspace.task.executor}
             executorOptions={executorOptions}
-            inheritLabel={labels.inheritCanvasExecutor}
             label={labels.taskExecutor}
             labels={{ saved: labels.executorSaved, saving: labels.executorSaving }}
             onSave={onSaveTaskExecutor}

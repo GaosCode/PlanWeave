@@ -79,21 +79,33 @@ export type TaskWorkspaceShellProps = {
 export function TaskWorkspaceStateShell({
   children,
   labels,
-  onReturnToCanvas
+  onReturnToCanvas,
+  status,
+  taskId = null
 }: {
   children: ReactNode;
   labels: TaskWorkspaceLabels;
   onReturnToCanvas: () => void;
+  status: "idle" | "loading" | "error";
+  taskId?: string | null;
 }) {
   useTaskWorkspaceReturnShortcut(onReturnToCanvas);
 
   return (
     <section
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app-shell text-text"
+      data-task-id={taskId ?? undefined}
       data-testid="task-workspace-shell"
+      data-workspace-status={status}
     >
       <header className="app-drag-region flex min-h-11 shrink-0 items-center border-b border-border/80 bg-app-topbar py-1.5 pr-3 pl-[124px]">
-        <Button className="app-no-drag" size="sm" variant="ghost" onClick={onReturnToCanvas}>
+        <Button
+          className="app-no-drag"
+          data-testid="task-workspace-back"
+          size="sm"
+          variant="ghost"
+          onClick={onReturnToCanvas}
+        >
           <ArrowLeftIcon data-icon="inline-start" />
           {labels.backToCanvas}
         </Button>
@@ -136,7 +148,9 @@ export function TaskWorkspaceShell({
   return (
     <section
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app-shell text-text"
+      data-task-id={workspace.task.taskId}
       data-testid="task-workspace-shell"
+      data-workspace-status="ready"
     >
       <TaskWorkspaceHeader
         headerAction={headerAction}

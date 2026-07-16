@@ -63,21 +63,36 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
 
   if (controller.status === "idle") {
     return (
-      <TaskWorkspaceStateShell labels={labels} onReturnToCanvas={controller.returnToCanvas}>
+      <TaskWorkspaceStateShell
+        labels={labels}
+        onReturnToCanvas={controller.returnToCanvas}
+        status="idle"
+        taskId={controller.navigation?.taskId ?? null}
+      >
         <EmptySlot title={labels.noTask} description={labels.noTask} />
       </TaskWorkspaceStateShell>
     );
   }
   if (controller.status === "loading") {
     return (
-      <TaskWorkspaceStateShell labels={labels} onReturnToCanvas={controller.returnToCanvas}>
+      <TaskWorkspaceStateShell
+        labels={labels}
+        onReturnToCanvas={controller.returnToCanvas}
+        status="loading"
+        taskId={controller.navigation?.taskId ?? null}
+      >
         <EmptySlot title={labels.loading} description={labels.loading} />
       </TaskWorkspaceStateShell>
     );
   }
   if (controller.status === "error" || !controller.workspace) {
     return (
-      <TaskWorkspaceStateShell labels={labels} onReturnToCanvas={controller.returnToCanvas}>
+      <TaskWorkspaceStateShell
+        labels={labels}
+        onReturnToCanvas={controller.returnToCanvas}
+        status="error"
+        taskId={controller.navigation?.taskId ?? null}
+      >
         <section className="flex h-full items-center justify-center p-6" role="alert">
           <p className="max-w-xl text-sm text-destructive">{controller.error ?? labels.noTask}</p>
         </section>
@@ -87,6 +102,10 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
 
   const timelineProps = {
     getRunScrollTop: controller.getRunScrollTop,
+    hasMoreRuns: controller.hasMoreRuns,
+    loadMoreRuns: controller.loadMoreRuns,
+    loadMoreRunsError: controller.loadMoreRunsError,
+    loadingMoreRuns: controller.loadingMoreRuns,
     onRunScrollTopChange: controller.onRunScrollTopChange,
     selectRun: controller.selectRun,
     selectedRun: controller.selectedRun,

@@ -36,7 +36,12 @@ export function TaskWorkspaceHeader({
         className="app-no-drag flex h-full min-w-0 items-center justify-end gap-1 overflow-hidden border-r border-b border-border/80 pr-2 pl-[124px]"
         data-testid="task-workspace-header-timeline"
       >
-        <Button size="sm" variant="ghost" onClick={onReturnToCanvas}>
+        <Button
+          data-testid="task-workspace-back"
+          size="sm"
+          variant="ghost"
+          onClick={onReturnToCanvas}
+        >
           <ArrowLeftIcon data-icon="inline-start" />
           {labels.backToCanvas}
         </Button>
@@ -57,6 +62,8 @@ export function TaskWorkspaceHeader({
       >
         <div
           className="flex h-6 min-w-0 items-center gap-2 pl-4"
+          data-task-id={workspace.task.taskId}
+          data-task-title={workspace.task.title}
           data-testid="task-workspace-title-block"
         >
           <span className="truncate text-sm leading-5 font-medium">{workspace.task.title}</span>

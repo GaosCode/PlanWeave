@@ -66,6 +66,8 @@ export interface TaskWorkspaceTimelineLabels {
   formatDateTime: (value: string) => string;
   formatDuration: (milliseconds: number) => string;
   latestArtifact: string;
+  loadMore: string;
+  loadingMore: string;
   noActiveRuns: string;
   noArtifact: string;
   overview: string;

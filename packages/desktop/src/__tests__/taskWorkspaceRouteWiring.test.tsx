@@ -33,8 +33,12 @@ function readyTaskWorkspace(
     error: null,
     executorOptions: ["manual", "codex", "claude-code", "pi"],
     getRunScrollTop: vi.fn(() => 0),
+    hasMoreRuns: false,
     liveStatus: "live",
     liveUnavailableReason: null,
+    loadMoreRuns: vi.fn(async () => undefined),
+    loadMoreRunsError: null,
+    loadingMoreRuns: false,
     navigation: {
       projectRoot: "/projects/demo",
       canvasId: "canvas-main",
@@ -124,7 +128,14 @@ describe("Task Workspace route wiring", () => {
       "Task prompt and block prompt rendered together."
     );
     expect(screen.getByTestId("task-workspace-shell")).toHaveClass("min-w-0");
-    expect(screen.queryByTestId("task-workspace-run-summary")).not.toBeInTheDocument();
+    expect(screen.getByTestId("task-workspace-run-summary")).toHaveAttribute(
+      "data-record-id",
+      "T-001#B-001::RUN-001"
+    );
+    expect(screen.getByTestId("task-workspace-run-summary")).toHaveAttribute(
+      "data-status",
+      "completed"
+    );
     expect(
       within(screen.getByTestId("task-workspace-header")).queryByRole("button", { name: "Stop" })
     ).not.toBeInTheDocument();

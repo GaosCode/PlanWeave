@@ -75,6 +75,10 @@ export function TaskWorkspaceCliRun({
   return (
     <section
       className="mx-auto flex h-full w-full max-w-5xl flex-col gap-4 overflow-y-auto p-5 pb-[calc(var(--task-workspace-composer-height,0px)+1.25rem)]"
+      data-display-source={record.displayMarkdownSource}
+      data-record-id={record.recordId}
+      data-record-ready="true"
+      data-run-id={record.runId}
       data-testid="task-workspace-cli-run"
     >
       <header className="flex flex-wrap items-center justify-between gap-3">

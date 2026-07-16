@@ -31,6 +31,7 @@ import {
   cleanupRendererTestEnvironment,
   stubSelectLayoutApis
 } from "./helpers/rendererTestEnvironment";
+import { deferred } from "./helpers/desktopProjectFixtures";
 import { taskWorkspaceInspectorFixture } from "./helpers/taskWorkspaceInspectorFixture";
 
 afterEach(cleanupRendererTestEnvironment);
@@ -55,8 +56,7 @@ const labels: TaskWorkspaceLabels = {
   expandTimeline: "Expand timeline",
   formatDuration: (milliseconds) => `${milliseconds / 1_000}s`,
   inspector: "Inspector",
-  inheritCanvasExecutor: "Inherit canvas default",
-  inheritTaskExecutor: "Inherit Task / canvas",
+  inheritTaskExecutor: "Inherit Task",
   latestArtifact: "Latest artifact",
   loading: "Loading",
   liveUnavailable: "Live unavailable",
@@ -160,8 +160,12 @@ function controller(patch: Partial<TaskWorkspaceController> = {}): TaskWorkspace
     error: null,
     executorOptions: ["manual", "codex", "claude-code", "pi"],
     getRunScrollTop: () => 0,
+    hasMoreRuns: false,
     liveStatus: "idle",
     liveUnavailableReason: null,
+    loadMoreRuns: vi.fn(async () => undefined),
+    loadMoreRunsError: null,
+    loadingMoreRuns: false,
     navigation: {
       projectRoot: "/projects/demo",
       canvasId: "canvas-main",
@@ -217,6 +221,18 @@ describe("Task Workspace shell", () => {
     );
   });
 
+  it("shows manual for a Task without an explicit executor and does not expose canvas inheritance", () => {
+    render(<TaskWorkspaceRoute controller={controller()} labels={labels} />);
+
+    const taskExecutor = screen.getByLabelText("Task executor");
+    expect(taskExecutor).toHaveTextContent("manual");
+    fireEvent.click(taskExecutor);
+    expect(screen.getByRole("option", { name: "manual" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: /inherit canvas default/i })
+    ).not.toBeInTheDocument();
+  });
+
   it("edits Task and Block executors from the overview while preserving current custom values", async () => {
     const fixture = taskWorkspaceInspectorFixture();
     const saveTaskExecutor = vi.fn(async () => undefined);
@@ -248,9 +264,37 @@ describe("Task Workspace shell", () => {
     fireEvent.click(screen.getByRole("option", { name: "claude-code" }));
     expect(saveTaskExecutor).toHaveBeenCalledWith("claude-code");
 
-    fireEvent.click(screen.getByLabelText("Block executor"));
-    fireEvent.click(screen.getByRole("option", { name: "Inherit Task / canvas" }));
+    const blockExecutor = screen.getByLabelText("Block executor");
+    const blockSummary = blockExecutor.closest("summary");
+    if (!blockSummary) {
+      throw new Error("Block executor must remain inside its Block summary row.");
+    }
+    expect(blockSummary).toHaveClass("grid", "grid-cols-[1rem_minmax(0,1fr)_12rem_5.5rem]");
+    expect(within(blockSummary).getByText(block.status)).toHaveClass(
+      "max-w-full",
+      "justify-self-center",
+      "truncate"
+    );
+
+    fireEvent.click(blockExecutor);
+    fireEvent.click(screen.getByRole("option", { name: "Inherit Task" }));
     expect(saveBlockExecutor).toHaveBeenCalledWith(block.ref, null);
+  });
+
+  it("keeps a newly selected Task executor visible while its save is pending", async () => {
+    const pendingSave = deferred<void>();
+    const saveTaskExecutor = vi.fn(() => pendingSave.promise);
+    render(<TaskWorkspaceRoute controller={controller({ saveTaskExecutor })} labels={labels} />);
+
+    const taskExecutor = screen.getByLabelText("Task executor");
+    fireEvent.click(taskExecutor);
+    fireEvent.click(screen.getByRole("option", { name: "codex" }));
+
+    expect(taskExecutor).toHaveTextContent("codex");
+    expect(taskExecutor).toBeDisabled();
+
+    pendingSave.resolve(undefined);
+    await waitFor(() => expect(taskExecutor).not.toBeDisabled());
   });
 
   it("keeps executor edit failures visible beside the selector", async () => {

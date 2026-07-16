@@ -37,6 +37,8 @@ const labels: TaskWorkspaceTimelineLabels = {
   formatDateTime: (value) => value,
   formatDuration: (milliseconds) => `${milliseconds}ms`,
   latestArtifact: "Latest artifact",
+  loadMore: "Load older runs",
+  loadingMore: "Loading older runs…",
   noActiveRuns: "No active runs",
   noArtifact: "No artifact",
   overview: "Task overview",
@@ -134,6 +136,31 @@ describe("TaskWorkspaceTimeline", () => {
     expect(selectRun).toHaveBeenCalledWith(null);
   });
 
+  it("exposes load-more control when hasMoreRuns is true", async () => {
+    const fixture = timelineProps();
+    const loadMoreRuns = vi.fn(async () => undefined);
+    const user = userEvent.setup();
+    render(
+      <TaskWorkspaceTimeline
+        getRunScrollTop={() => 0}
+        hasMoreRuns
+        labels={labels}
+        loadMoreRuns={loadMoreRuns}
+        loadMoreRunsError={null}
+        loadingMoreRuns={false}
+        onRunScrollTopChange={vi.fn()}
+        selectRun={vi.fn()}
+        selectedRun={{ block: fixture.firstBlock, item: fixture.first }}
+        setTimelineWidth={fixture.setTimelineWidth}
+        timelineWidth={280}
+        workspace={fixture.workspace}
+      />
+    );
+
+    await user.click(screen.getByTestId("task-workspace-load-more-runs"));
+    expect(loadMoreRuns).toHaveBeenCalledOnce();
+  });
+
   it("supports Arrow, Home, End and Enter without selecting during focus movement", async () => {
     const fixture = timelineProps();
     const selectRun = vi.fn();
@@ -177,6 +204,147 @@ describe("TaskWorkspaceTimeline", () => {
       blockRef: fixture.firstBlock.ref,
       recordId: fixture.first.run.record.recordId
     });
+  });
+
+  it("windows more than 200 runs while preserving keyboard selection and load-more", async () => {
+    const runs = Array.from({ length: 250 }, (_, index) =>
+      timelineRunFixture("T-001#B-001", `RUN-${String(index + 1).padStart(3, "0")}`, {
+        retryIndex: index + 1,
+        selected: index === 0
+      })
+    );
+    const block = timelineBlockFixture({ blockId: "B-001", runs, title: "Implementation" });
+    const workspace = timelineWorkspaceFixture([block]);
+    const selectRun = vi.fn();
+    const loadMoreRuns = vi.fn(async () => undefined);
+    const user = userEvent.setup();
+
+    render(
+      <TaskWorkspaceTimeline
+        getRunScrollTop={() => 0}
+        hasMoreRuns
+        labels={labels}
+        loadMoreRuns={loadMoreRuns}
+        onRunScrollTopChange={vi.fn()}
+        selectRun={selectRun}
+        selectedRun={{ block, item: runs[0]! }}
+        setTimelineWidth={vi.fn()}
+        timelineWidth={280}
+        workspace={workspace}
+      />
+    );
+
+    expect(screen.getAllByRole("option")).toHaveLength(80);
+    expect(screen.getByTestId("task-workspace-load-more-runs")).toBeInTheDocument();
+
+    screen.getAllByRole("option")[0]?.focus();
+    await user.keyboard("{End}");
+    expect(document.activeElement).toHaveAttribute("data-run-id", "RUN-250");
+    expect(screen.getAllByRole("option")).toHaveLength(80);
+    await user.keyboard("{Enter}");
+    expect(selectRun).toHaveBeenLastCalledWith({
+      blockRef: "T-001#B-001",
+      recordId: "T-001#B-001::RUN-250"
+    });
+
+    await user.click(screen.getByTestId("task-workspace-load-more-runs"));
+    expect(loadMoreRuns).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the selected and focused run anchored when 50 newer rows are prepended", async () => {
+    const originalRuns = Array.from({ length: 200 }, (_, index) =>
+      timelineRunFixture("T-001#B-001", `RUN-${String(index + 1).padStart(3, "0")}`, {
+        retryIndex: index + 1,
+        selected: index === 199
+      })
+    );
+    const originalBlock = timelineBlockFixture({ blockId: "B-001", runs: originalRuns });
+    const selected = originalRuns[199]!;
+    const props = {
+      getRunScrollTop: () => 0,
+      labels,
+      onRunScrollTopChange: vi.fn(),
+      selectRun: vi.fn(),
+      setTimelineWidth: vi.fn(),
+      timelineWidth: 280
+    };
+    const { rerender } = render(
+      <TaskWorkspaceTimeline
+        {...props}
+        selectedRun={{ block: originalBlock, item: selected }}
+        workspace={timelineWorkspaceFixture([originalBlock])}
+      />
+    );
+    const selectedOption = screen.getByRole("option", { name: "B-001 run 200" });
+    selectedOption.focus();
+
+    const newerRuns = Array.from({ length: 50 }, (_, index) =>
+      timelineRunFixture("T-001#B-001", `RUN-${String(index + 201).padStart(3, "0")}`, {
+        retryIndex: index + 201
+      })
+    );
+    const expandedBlock = timelineBlockFixture({
+      blockId: "B-001",
+      runs: [...newerRuns, ...originalRuns]
+    });
+    rerender(
+      <TaskWorkspaceTimeline
+        {...props}
+        selectedRun={{ block: expandedBlock, item: selected }}
+        workspace={timelineWorkspaceFixture([expandedBlock])}
+      />
+    );
+
+    const anchored = await screen.findByRole("option", { name: "B-001 run 200" });
+    expect(anchored).toHaveAttribute("aria-selected", "true");
+    expect(document.activeElement).toBe(anchored);
+    expect(screen.getAllByRole("option")).toHaveLength(80);
+  });
+
+  it("falls back to the selected run when focused history is stale after a workspace switch", async () => {
+    const firstRuns = Array.from({ length: 250 }, (_, index) =>
+      timelineRunFixture("T-001#B-001", `RUN-${String(index + 1).padStart(3, "0")}`, {
+        retryIndex: index + 1
+      })
+    );
+    const firstBlock = timelineBlockFixture({ blockId: "B-001", runs: firstRuns });
+    const props = {
+      getRunScrollTop: () => 0,
+      labels,
+      onRunScrollTopChange: vi.fn(),
+      selectRun: vi.fn(),
+      setTimelineWidth: vi.fn(),
+      timelineWidth: 280
+    };
+    const { rerender } = render(
+      <TaskWorkspaceTimeline
+        {...props}
+        selectedRun={{ block: firstBlock, item: firstRuns[0]! }}
+        workspace={timelineWorkspaceFixture([firstBlock])}
+      />
+    );
+    screen.getAllByRole("option")[0]!.focus();
+
+    const secondRuns = Array.from({ length: 250 }, (_, index) =>
+      timelineRunFixture("T-001#B-002", `RUN-${String(index + 1).padStart(3, "0")}`, {
+        retryIndex: index + 1,
+        selected: index === 249
+      })
+    );
+    const secondBlock = timelineBlockFixture({ blockId: "B-002", runs: secondRuns });
+    const selected = secondRuns[249]!;
+    rerender(
+      <TaskWorkspaceTimeline
+        {...props}
+        selectedRun={{ block: secondBlock, item: selected }}
+        workspace={timelineWorkspaceFixture([secondBlock])}
+      />
+    );
+
+    const selectedOption = await screen.findByRole("option", { name: "B-002 run 250" });
+    expect(selectedOption).toHaveAttribute("aria-selected", "true");
+    expect(selectedOption).toHaveAttribute("tabindex", "0");
+    expect(screen.getAllByRole("option").filter((option) => option.tabIndex === 0)).toHaveLength(1);
   });
 
   it("resizes through the authoritative layout setter with pointer and keyboard input", () => {
