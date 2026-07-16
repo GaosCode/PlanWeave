@@ -327,6 +327,34 @@ describe("Task Workspace shell", () => {
     expect(conversation).toHaveBeenCalledOnce();
   });
 
+  it("keeps a newly routed Feedback run out of Task Overview before loading state propagates", () => {
+    const conversation = vi.fn(
+      (props: TaskWorkspaceConversationSlotProps) => (
+        <div role="status">Conversation status: {props.liveStatus}</div>
+      )
+    );
+    render(
+      <TaskWorkspaceRoute
+        controller={controller({
+          liveStatus: "idle",
+          navigation: {
+            projectRoot: "/projects/demo",
+            canvasId: "canvas-main",
+            taskId: "T-001",
+            blockRef: "T-001#R-001",
+            recordId: "FE-001::RUN-001",
+            source: { view: "graph" }
+          }
+        })}
+        labels={labels}
+        slots={{ conversation }}
+      />
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Conversation status: loading");
+    expect(screen.queryByTestId("task-workspace-overview-panel")).not.toBeInTheDocument();
+  });
+
   it("gives the Task Overview its own vertical scroll viewport", () => {
     render(<TaskWorkspaceRoute controller={controller()} labels={labels} />);
 

@@ -220,7 +220,7 @@ export function useAppViewHistory(
     }
 
     const handlePopState = (event: PopStateEvent) => {
-      const next = readHistoryState(event.state);
+      const next = readHistoryState(event.state, fallbackRoute);
       if (next.status === "invalid") {
         setHistoryError(next.message);
         return;

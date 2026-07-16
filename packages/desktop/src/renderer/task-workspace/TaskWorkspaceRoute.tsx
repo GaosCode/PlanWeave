@@ -235,17 +235,16 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
     selectedRun: controller.selectedRun,
     workspace: controller.workspace
   };
-  const routedRunLoading =
-    !controller.selectedRun &&
-    Boolean(controller.navigation?.recordId) &&
-    controller.liveStatus === "loading";
+  const routedRunPending = !controller.selectedRun && Boolean(controller.navigation?.recordId);
   const timeline: ReactNode = slots.timeline?.(timelineProps) ?? (
     <EmptySlot title={labels.timeline} description={labels.noRuns} />
   );
   const conversation: ReactNode = controller.selectedAnnotation ? (
     <TaskWorkspaceAnnotationDetail labels={labels} selected={controller.selectedAnnotation} />
-  ) : routedRunLoading ? (
-    (slots.conversation?.(conversationProps) ?? (
+  ) : routedRunPending && controller.recordError ? (
+    <SlotError title={labels.conversation} message={controller.recordError} />
+  ) : routedRunPending ? (
+    (slots.conversation?.({ ...conversationProps, liveStatus: "loading" }) ?? (
       <EmptySlot title={labels.conversation} description={labels.loading} />
     ))
   ) : !controller.selectedRun ? (

@@ -33,6 +33,23 @@ describe("app view history", () => {
     expect(readAppViewHistoryAvailability()).toEqual({ canGoBack: false, canGoForward: true });
   });
 
+  it("restores the fallback route from an empty browser history entry", () => {
+    window.history.replaceState(null, "", "/");
+    const { result } = renderHook(() => useAppViewHistory("graph"));
+
+    act(() => {
+      result.current[1]("canvas-map");
+    });
+    expect(result.current[0]).toBe("canvas-map");
+
+    act(() => {
+      window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+    });
+
+    expect(result.current[0]).toBe("graph");
+    expect(result.current[2].historyError).toBeNull();
+  });
+
   it("stores a strict Task Workspace route and restores its graph source", async () => {
     window.history.replaceState(null, "", "/");
     const { result } = renderHook(() => useAppViewHistory("graph"));
