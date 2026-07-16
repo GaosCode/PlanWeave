@@ -46,6 +46,43 @@ const terminalAppIds = new Set<DesktopTerminalAppId>(
   terminalApps.map((terminalApp) => terminalApp.appId)
 );
 
+/** Process-local TTL for successful terminal-app detection (open -Ra + icons). */
+export const TERMINAL_APP_DETECTION_TTL_MS = 5 * 60 * 1000;
+
+type TerminalAppDetectionDeps = {
+  now: () => number;
+  detect: () => Promise<DesktopTerminalAppDetection[]>;
+};
+
+type TerminalAppDetectionCache = {
+  expiresAt: number;
+  inFlight: Promise<readonly DesktopTerminalAppDetection[]> | null;
+  value: readonly DesktopTerminalAppDetection[] | null;
+};
+
+let terminalAppDetectionDeps: TerminalAppDetectionDeps = {
+  now: () => Date.now(),
+  detect: detectTerminalAppsUncached
+};
+
+let terminalAppDetectionCache: TerminalAppDetectionCache = {
+  expiresAt: 0,
+  inFlight: null,
+  value: null
+};
+
+function cloneTerminalAppDetections(
+  apps: readonly DesktopTerminalAppDetection[]
+): DesktopTerminalAppDetection[] {
+  return apps.map((app) => ({ ...app }));
+}
+
+function snapshotTerminalAppDetections(
+  apps: readonly DesktopTerminalAppDetection[]
+): readonly DesktopTerminalAppDetection[] {
+  return Object.freeze(apps.map((app) => Object.freeze({ ...app })));
+}
+
 function execFileVoid(command: string, args: string[], timeout = 2_000): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile(command, args, { timeout, maxBuffer: 64 * 1024 }, (error) => {
@@ -145,8 +182,68 @@ async function detectTerminalApp(terminalApp: TerminalApp): Promise<DesktopTermi
   }
 }
 
-export async function detectTerminalApps(): Promise<DesktopTerminalAppDetection[]> {
+async function detectTerminalAppsUncached(): Promise<DesktopTerminalAppDetection[]> {
   return Promise.all(terminalApps.map(detectTerminalApp));
+}
+
+/**
+ * Detect installed terminal apps with a process-local success TTL and in-flight dedupe.
+ * Failures are not cached; empty successful results are cached as normal detections.
+ */
+export async function detectTerminalApps(): Promise<DesktopTerminalAppDetection[]> {
+  const { now, detect } = terminalAppDetectionDeps;
+  const currentTime = now();
+  if (terminalAppDetectionCache.value && currentTime < terminalAppDetectionCache.expiresAt) {
+    return cloneTerminalAppDetections(terminalAppDetectionCache.value);
+  }
+  if (terminalAppDetectionCache.inFlight) {
+    return terminalAppDetectionCache.inFlight.then(cloneTerminalAppDetections);
+  }
+
+  let inFlight!: Promise<readonly DesktopTerminalAppDetection[]>;
+  inFlight = detect()
+    .then((apps) => {
+      const snapshot = snapshotTerminalAppDetections(apps);
+      terminalAppDetectionCache = {
+        expiresAt: now() + TERMINAL_APP_DETECTION_TTL_MS,
+        inFlight: null,
+        value: snapshot
+      };
+      return snapshot;
+    })
+    .catch((error: unknown) => {
+      if (terminalAppDetectionCache.inFlight === inFlight) {
+        terminalAppDetectionCache = {
+          ...terminalAppDetectionCache,
+          inFlight: null
+        };
+      }
+      throw error;
+    });
+  terminalAppDetectionCache = {
+    ...terminalAppDetectionCache,
+    inFlight
+  };
+  return inFlight.then(cloneTerminalAppDetections);
+}
+
+export function resetTerminalAppDetectionCacheForTests(): void {
+  terminalAppDetectionCache = {
+    expiresAt: 0,
+    inFlight: null,
+    value: null
+  };
+  terminalAppDetectionDeps = {
+    now: () => Date.now(),
+    detect: detectTerminalAppsUncached
+  };
+}
+
+export function setTerminalAppDetectionDepsForTests(deps: Partial<TerminalAppDetectionDeps>): void {
+  terminalAppDetectionDeps = {
+    now: deps.now ?? terminalAppDetectionDeps.now,
+    detect: deps.detect ?? terminalAppDetectionDeps.detect
+  };
 }
 
 export async function assertTerminalAppAvailable(

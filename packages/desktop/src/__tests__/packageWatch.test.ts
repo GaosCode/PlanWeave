@@ -1,253 +1,38 @@
-import { mkdtemp, mkdir, rm, unlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { desktopBridgeInvokeChannels, packageFileChangedChannel } from "../shared/ipcChannels";
+import {
+  advanceAndFlush,
+  cleanupPackageWatchTempRoots,
+  createDeferred,
+  createWebContents,
+  createWorkspace,
+  emitNativeWatcherErrors,
+  flushDebounce,
+  flushMicrotasks,
+  forcePollingBackend,
+  getPackageWatchMocks,
+  registerAndWatch,
+  resetPackageWatchTestState,
+  unwatch,
+  wait,
+  waitForPollAndDebounce
+} from "./support/packageWatchTestHarness";
 
-type RegisteredHandler = (
-  event: { sender: TestWebContents },
-  ref: { projectRoot: string; canvasId?: string | null }
-) => unknown;
-type WatchCallback = (eventType: string, filename: string | Buffer | null) => void;
+const { electronMock, fsMock, fsPromisesMock, runtimeMock } = getPackageWatchMocks();
 
-type TestWebContents = {
-  id: number;
-  send: ReturnType<typeof vi.fn>;
-  isDestroyed: () => boolean;
-  once: ReturnType<typeof vi.fn>;
-  removeListener: ReturnType<typeof vi.fn>;
-};
-
-type TestWorkspace = {
-  rootPath: string;
-  workspaceRoot: string;
-  packageDir: string;
-  manifestFile: string;
-  projectPromptFile: string;
-};
-
-const electronMock = vi.hoisted(() => {
-  const handlers = new Map<string, RegisteredHandler>();
-  return {
-    handlers,
-    ipcMain: {
-      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
-        handlers.set(channel, handler);
-      })
-    }
-  };
-});
-
-const fsMock = vi.hoisted(() => {
-  const watchers: Array<{
-    rootPath: string;
-    options: { recursive?: boolean };
-    callback: WatchCallback;
-    close: ReturnType<typeof vi.fn>;
-  }> = [];
-  return {
-    watchers,
-    watch: vi.fn((rootPath: string, options: { recursive?: boolean }, callback: WatchCallback) => {
-      const watcher = {
-        rootPath,
-        options,
-        callback,
-        close: vi.fn()
-      };
-      watchers.push(watcher);
-      return watcher;
-    })
-  };
-});
-
-const fsPromisesMock = vi.hoisted(() => {
-  const state = {
-    readFilePaths: [] as string[]
-  };
-  return {
-    state,
-    reset() {
-      state.readFilePaths = [];
-    }
-  };
-});
-
-const runtimeMock = vi.hoisted(() => {
-  const state = {
-    workspace: null as TestWorkspace | null
-  };
-  return {
-    state,
-    resolveTaskCanvasWorkspace: vi.fn(async () => {
-      if (!state.workspace) {
-        throw new Error("Test workspace is not configured.");
-      }
-      return state.workspace;
-    })
-  };
-});
-
-vi.mock("electron", () => ({
-  ipcMain: electronMock.ipcMain
-}));
-
-vi.mock("node:fs", async () => {
-  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
-  return {
-    ...actual,
-    watch: fsMock.watch
-  };
-});
-
-vi.mock("node:fs/promises", async () => {
-  const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
-  return {
-    ...actual,
-    readFile: vi.fn(async (...args: Parameters<typeof actual.readFile>) => {
-      const target = args[0];
-      if (typeof target === "string") {
-        fsPromisesMock.state.readFilePaths.push(target);
-      } else if (Buffer.isBuffer(target)) {
-        fsPromisesMock.state.readFilePaths.push(target.toString("utf8"));
-      } else {
-        fsPromisesMock.state.readFilePaths.push(String(target));
-      }
-      return actual.readFile(...args);
-    })
-  };
-});
-
-vi.mock("@planweave-ai/runtime", () => {
-  return {
-    resolveTaskCanvasWorkspace: runtimeMock.resolveTaskCanvasWorkspace
-  };
-});
-
-const tempRoots: string[] = [];
-
-async function createWorkspace(): Promise<TestWorkspace> {
-  const rootPath = await mkdtemp(join(tmpdir(), "planweave-package-watch-"));
-  tempRoots.push(rootPath);
-  const packageDir = join(rootPath, "package");
-  const nodesDir = join(packageDir, "nodes", "T-001", "blocks");
-  const projectPromptFile = join(rootPath, "policy", "project-prompt.md");
-  await mkdir(nodesDir, { recursive: true });
-  await mkdir(join(rootPath, "policy"), { recursive: true });
-  await writeFile(
-    join(packageDir, "manifest.json"),
-    JSON.stringify({ version: "plan-package/v1" }),
-    "utf8"
-  );
-  await writeFile(join(packageDir, "nodes", "T-001", "prompt.md"), "task prompt\n", "utf8");
-  await writeFile(join(nodesDir, "B-001.prompt.md"), "block prompt\n", "utf8");
-  await writeFile(projectPromptFile, "project prompt\n", "utf8");
-  return {
-    rootPath,
-    workspaceRoot: rootPath,
-    packageDir,
-    manifestFile: join(packageDir, "manifest.json"),
-    projectPromptFile
-  };
-}
-
-function createWebContents(id = 1): TestWebContents {
-  return {
-    id,
-    send: vi.fn(),
-    isDestroyed: () => false,
-    once: vi.fn(),
-    removeListener: vi.fn()
-  };
-}
-
-function createDeferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-  reject: (reason?: unknown) => void;
-} {
-  let resolveDeferred!: (value: T) => void;
-  let rejectDeferred!: (reason?: unknown) => void;
-  const promise = new Promise<T>((resolve, reject) => {
-    resolveDeferred = resolve;
-    rejectDeferred = reject;
-  });
-  return {
-    promise,
-    resolve: resolveDeferred,
-    reject: rejectDeferred
-  };
-}
-
-async function registerAndWatch(
-  webContents: TestWebContents,
-  workspace: TestWorkspace
-): Promise<void> {
-  runtimeMock.state.workspace = workspace;
-  const { registerPackageWatchHandlers } = await import("../main/packageWatch");
-  registerPackageWatchHandlers();
-  const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.watchPackageFiles);
-  expect(handler).toBeDefined();
-  await handler?.(
-    { sender: webContents },
-    { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
-  );
-}
-
-async function unwatch(webContents: TestWebContents, workspace: TestWorkspace): Promise<void> {
-  const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.unwatchPackageFiles);
-  expect(handler).toBeDefined();
-  await handler?.(
-    { sender: webContents },
-    { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
-  );
-}
-
-async function flushDebounce(): Promise<void> {
-  await vi.advanceTimersByTimeAsync(150);
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-async function waitForPollAndDebounce(): Promise<void> {
-  await wait(1250);
-  await wait(250);
-}
-
-describe("package file watcher", () => {
+describe("package file watcher: controller lifecycle", () => {
   beforeEach(() => {
     vi.resetModules();
-    vi.useFakeTimers();
-    electronMock.handlers.clear();
-    electronMock.ipcMain.handle.mockClear();
-    fsMock.watchers.length = 0;
-    fsMock.watch.mockClear();
-    fsMock.watch.mockReset();
-    fsMock.watch.mockImplementation(
-      (rootPath: string, options: { recursive?: boolean }, callback: WatchCallback) => {
-        const watcher = {
-          rootPath,
-          options,
-          callback,
-          close: vi.fn()
-        };
-        fsMock.watchers.push(watcher);
-        return watcher;
-      }
-    );
-    fsPromisesMock.reset();
-    runtimeMock.state.workspace = null;
-    runtimeMock.resolveTaskCanvasWorkspace.mockClear();
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"]
+    });
+    resetPackageWatchTestState();
   });
 
   afterEach(async () => {
     vi.useRealTimers();
-    await Promise.all(
-      tempRoots.splice(0).map((rootPath) => rm(rootPath, { recursive: true, force: true }))
-    );
+    await cleanupPackageWatchTempRoots();
   });
 
   it("uses native recursive fs.watch when it can be created", async () => {
@@ -308,11 +93,7 @@ describe("package file watcher", () => {
     await registerAndWatch(webContents, workspace);
 
     expect(fsMock.watch).toHaveBeenCalledTimes(1);
-    await writeFile(
-      join(workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"),
-      "changed block prompt\n",
-      "utf8"
-    );
+    await writePromptChange(workspace);
     await waitForPollAndDebounce();
 
     expect(webContents.send).toHaveBeenCalledWith(
@@ -321,83 +102,6 @@ describe("package file watcher", () => {
         paths: ["package/nodes/T-001/blocks/B-001.prompt.md"],
         changedPathCount: 1,
         backendKind: "polling"
-      })
-    );
-  });
-
-  it("detects size-changing prompt edits from polling snapshots without content hashing", async () => {
-    vi.useRealTimers();
-    const workspace = await createWorkspace();
-    const webContents = createWebContents();
-    fsMock.watch.mockImplementationOnce(() => {
-      throw new Error("recursive watch unsupported");
-    });
-
-    await registerAndWatch(webContents, workspace);
-    const promptPath = join(workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md");
-    await writeFile(promptPath, "changed block prompt with a longer body\n", "utf8");
-    await waitForPollAndDebounce();
-
-    expect(webContents.send).toHaveBeenCalledWith(
-      packageFileChangedChannel,
-      expect.objectContaining({
-        paths: ["package/nodes/T-001/blocks/B-001.prompt.md"],
-        backendKind: "polling"
-      })
-    );
-  });
-
-  it("skips markdown content reads on unchanged polling ticks", async () => {
-    vi.useRealTimers();
-    const workspace = await createWorkspace();
-    const webContents = createWebContents();
-    fsMock.watch.mockImplementationOnce(() => {
-      throw new Error("recursive watch unsupported");
-    });
-
-    await registerAndWatch(webContents, workspace);
-    // Baseline snapshot may still touch other APIs; content reads for poll fingerprints must stay at zero.
-    fsPromisesMock.reset();
-
-    // Two full poll intervals over an unchanged package: mtime/size fingerprints must not read file bodies.
-    await wait(1250);
-    await wait(1250);
-
-    const markdownContentReads = fsPromisesMock.state.readFilePaths.filter((path) =>
-      path.endsWith(".md")
-    );
-    expect(markdownContentReads).toHaveLength(0);
-    expect(webContents.send).not.toHaveBeenCalled();
-  });
-
-  it("reports added and deleted deep prompt files from polling snapshots", async () => {
-    vi.useRealTimers();
-    const workspace = await createWorkspace();
-    const webContents = createWebContents();
-    fsMock.watch.mockImplementationOnce(() => {
-      throw new Error("recursive watch unsupported");
-    });
-
-    await registerAndWatch(webContents, workspace);
-    const newPrompt = join(workspace.packageDir, "nodes", "T-001", "blocks", "B-002.prompt.md");
-    await writeFile(newPrompt, "new block prompt\n", "utf8");
-    await waitForPollAndDebounce();
-
-    expect(webContents.send).toHaveBeenLastCalledWith(
-      packageFileChangedChannel,
-      expect.objectContaining({
-        paths: ["package/nodes/T-001/blocks/B-002.prompt.md"]
-      })
-    );
-
-    webContents.send.mockClear();
-    await unlink(newPrompt);
-    await waitForPollAndDebounce();
-
-    expect(webContents.send).toHaveBeenCalledWith(
-      packageFileChangedChannel,
-      expect.objectContaining({
-        paths: ["package/nodes/T-001/blocks/B-002.prompt.md"]
       })
     );
   });
@@ -480,6 +184,7 @@ describe("package file watcher", () => {
     const pollingWebContents = createWebContents(2);
     await registerAndWatch(pollingWebContents, pollingWorkspace);
     await unwatch(pollingWebContents, pollingWorkspace);
+    const { writeFile } = await import("node:fs/promises");
     await writeFile(
       join(pollingWorkspace.packageDir, "nodes", "T-001", "prompt.md"),
       "changed after unwatch\n",
@@ -516,7 +221,7 @@ describe("package file watcher", () => {
   it("single-flights concurrent watches for the same webContents and key", async () => {
     const workspace = await createWorkspace();
     const webContents = createWebContents();
-    const deferredWorkspace = createDeferred<TestWorkspace>();
+    const deferredWorkspace = createDeferred<typeof workspace>();
     runtimeMock.state.workspace = workspace;
     runtimeMock.resolveTaskCanvasWorkspace.mockImplementationOnce(() => deferredWorkspace.promise);
     const { registerPackageWatchHandlers } = await import("../main/packageWatch");
@@ -558,7 +263,7 @@ describe("package file watcher", () => {
   it("closes the backend without a destroyed listener when unwatch cancels a pending watch", async () => {
     const workspace = await createWorkspace();
     const webContents = createWebContents();
-    const deferredWorkspace = createDeferred<TestWorkspace>();
+    const deferredWorkspace = createDeferred<typeof workspace>();
     runtimeMock.state.workspace = workspace;
     runtimeMock.resolveTaskCanvasWorkspace.mockImplementationOnce(() => deferredWorkspace.promise);
     const { registerPackageWatchHandlers } = await import("../main/packageWatch");
@@ -598,7 +303,7 @@ describe("package file watcher", () => {
   it("cleans pending subscribers when pending watch creation fails", async () => {
     const workspace = await createWorkspace();
     const webContents = createWebContents();
-    const deferredWorkspace = createDeferred<TestWorkspace>();
+    const deferredWorkspace = createDeferred<typeof workspace>();
     runtimeMock.state.workspace = workspace;
     runtimeMock.resolveTaskCanvasWorkspace.mockImplementationOnce(() => deferredWorkspace.promise);
     const { registerPackageWatchHandlers } = await import("../main/packageWatch");
@@ -619,4 +324,192 @@ describe("package file watcher", () => {
     expect(webContents.once).toHaveBeenCalledTimes(1);
     expect(fsMock.watchers.length).toBeGreaterThan(0);
   });
+
+  it("on native runtime error after start, keeps subscribers, closes native, switches to exactly one poller and updates backendKind", async () => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+
+    await registerAndWatch(webContents, workspace);
+
+    expect(fsMock.watch).toHaveBeenCalled();
+    const nativeWatchers = [...fsMock.watchers];
+    expect(nativeWatchers.length).toBeGreaterThan(0);
+
+    emitNativeWatcherErrors(nativeWatchers, new Error("native watcher runtime failure"));
+    // Drain polling baseline I/O (real fs) + kickoff timers under fake clock.
+    await flushMicrotasks();
+    await advanceAndFlush(700);
+    await flushDebounce();
+
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(
+      join(workspace.packageDir, "nodes", "T-001", "prompt.md"),
+      "native errored then polling edit\n",
+      "utf8"
+    );
+    await advanceAndFlush(2200);
+    await flushDebounce();
+
+    const calls = webContents.send.mock.calls.filter((c) => c[0] === packageFileChangedChannel);
+    expect(calls.length).toBeGreaterThan(0);
+    const lastPayload = calls[calls.length - 1][1];
+    expect(lastPayload.backendKind).toBe("polling");
+
+    for (const w of nativeWatchers) {
+      expect(w.close).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("concurrent or repeated native errors produce at most one poller; old generation late changes are ignored", async () => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+
+    await registerAndWatch(webContents, workspace);
+
+    const nativeWs = [...fsMock.watchers];
+    expect(nativeWs.length).toBeGreaterThan(1);
+
+    // Snapshot handlers before close/removeAllListeners; hold polling bootstrap so install is delayed.
+    const allErrorHandlers = nativeWs.flatMap((w) => [...w.errorHandlers]);
+    expect(allErrorHandlers.length).toBeGreaterThan(0);
+    const deferredStat = createDeferred<void>();
+    fsPromisesMock.state.holdStatPromise = deferredStat.promise;
+
+    for (const handler of allErrorHandlers) {
+      handler(new Error("err1"));
+    }
+    for (const handler of allErrorHandlers) {
+      handler(new Error("err2"));
+    }
+    await flushMicrotasks();
+
+    // Late native generation change while failover is pending — must not publish.
+    webContents.send.mockClear();
+    nativeWs[0]?.callback("change", "nodes/T-001/prompt.md");
+    await flushDebounce();
+    expect(webContents.send).not.toHaveBeenCalled();
+
+    for (const w of nativeWs) {
+      expect(w.close).toHaveBeenCalledTimes(1);
+    }
+    // No additional native watchers created by repeated errors.
+    expect(fsMock.watchers.length).toBe(nativeWs.length);
+
+    deferredStat.resolve();
+    fsPromisesMock.state.holdStatPromise = null;
+    // Allow polling baseline + kickoff install to finish under fake timers + real fs.
+    await advanceAndFlush(700);
+    await flushDebounce();
+
+    webContents.send.mockClear();
+    // Old native path still ignored after poller is live.
+    nativeWs[0]?.callback("change", "nodes/T-001/prompt.md");
+    await flushDebounce();
+    expect(webContents.send).not.toHaveBeenCalled();
+
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(
+      join(workspace.packageDir, "manifest.json"),
+      JSON.stringify({ version: "plan-package/v1", bumped: true }),
+      "utf8"
+    );
+    await advanceAndFlush(2200);
+    await flushDebounce();
+
+    const pollingCalls = webContents.send.mock.calls.filter(
+      (c) => c[0] === packageFileChangedChannel
+    );
+    expect(pollingCalls.length).toBeGreaterThan(0);
+    expect(pollingCalls[pollingCalls.length - 1][1].backendKind).toBe("polling");
+
+    // Still exactly one close per native watcher; no second native generation.
+    for (const w of nativeWs) {
+      expect(w.close).toHaveBeenCalledTimes(1);
+    }
+    expect(fsMock.watchers.length).toBe(nativeWs.length);
+  });
+
+  it("native error then immediate unwatch closes each native watcher once; delayed poller closes with zero timers and no late publish", async () => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+
+    await registerAndWatch(webContents, workspace);
+    const nativeWs = [...fsMock.watchers];
+    expect(nativeWs.length).toBeGreaterThan(0);
+
+    // Delay polling backend start (fingerprint baseline uses stat).
+    const deferredStat = createDeferred<void>();
+    fsPromisesMock.state.holdStatPromise = deferredStat.promise;
+
+    emitNativeWatcherErrors(nativeWs, new Error("native runtime failure during failover"));
+    await flushMicrotasks();
+
+    // Last subscriber leaves while polling Promise is still pending.
+    await unwatch(webContents, workspace);
+    await flushMicrotasks();
+
+    for (const w of nativeWs) {
+      expect(w.close).toHaveBeenCalledTimes(1);
+    }
+
+    webContents.send.mockClear();
+    deferredStat.resolve();
+    fsPromisesMock.state.holdStatPromise = null;
+    await flushMicrotasks();
+    await advanceAndFlush(30_000);
+    await flushDebounce();
+
+    expect(webContents.send).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+
+    // Native close remains exactly once even after delayed poller settle path runs.
+    for (const w of nativeWs) {
+      expect(w.close).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("last subscriber leave stops native watchers and polling timers with zero active timers", async () => {
+    const nativeWorkspace = await createWorkspace();
+    const w1 = createWebContents(1);
+    await registerAndWatch(w1, nativeWorkspace);
+    await unwatch(w1, nativeWorkspace);
+
+    for (const watcher of fsMock.watchers) {
+      expect(watcher.close).toHaveBeenCalled();
+    }
+    expect(vi.getTimerCount()).toBe(0);
+
+    vi.resetModules();
+    electronMock.handlers.clear();
+    fsMock.watchers.length = 0;
+    fsMock.watch.mockClear();
+    forcePollingBackend();
+
+    const pollWs = await createWorkspace();
+    const w2 = createWebContents(2);
+    await registerAndWatch(w2, pollWs);
+    await flushMicrotasks();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    await unwatch(w2, pollWs);
+    await flushMicrotasks();
+    expect(vi.getTimerCount()).toBe(0);
+
+    const { writeFile } = await import("node:fs/promises");
+    const afterPath = join(pollWs.packageDir, "nodes", "T-001", "prompt.md");
+    await writeFile(afterPath, "after last unwatch\n", "utf8");
+    await advanceAndFlush(30_000);
+    await flushDebounce();
+    expect(w2.send).not.toHaveBeenCalled();
+  });
 });
+
+async function writePromptChange(
+  workspace: Awaited<ReturnType<typeof createWorkspace>>
+): Promise<void> {
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(
+    join(workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md"),
+    "changed block prompt\n",
+    "utf8"
+  );
+}

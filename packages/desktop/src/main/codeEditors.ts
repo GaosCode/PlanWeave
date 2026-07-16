@@ -99,6 +99,42 @@ const detectedMacApplicationPaths = new Map<DesktopDevelopmentToolId, string>();
 const executableOutputLine = /\r?\n/u;
 const detectionOptions = { timeout: 2_000, maxBuffer: 64 * 1024 } as const;
 const applicationPathDetectionOptions = { timeout: 5_000, maxBuffer: 256 * 1024 } as const;
+/** Process-local TTL for successful development-tool detection (mdfind/path/icon/terminal). */
+export const DEVELOPMENT_TOOL_DETECTION_TTL_MS = 5 * 60 * 1000;
+
+type DevelopmentToolDetectionDeps = {
+  now: () => number;
+  detect: () => Promise<DesktopDevelopmentToolDetection[]>;
+};
+
+type DevelopmentToolDetectionCache = {
+  expiresAt: number;
+  inFlight: Promise<readonly DesktopDevelopmentToolDetection[]> | null;
+  value: readonly DesktopDevelopmentToolDetection[] | null;
+};
+
+let developmentToolDetectionDeps: DevelopmentToolDetectionDeps = {
+  now: () => Date.now(),
+  detect: detectDevelopmentToolsUncached
+};
+
+let developmentToolDetectionCache: DevelopmentToolDetectionCache = {
+  expiresAt: 0,
+  inFlight: null,
+  value: null
+};
+
+function cloneDevelopmentToolDetections(
+  tools: readonly DesktopDevelopmentToolDetection[]
+): DesktopDevelopmentToolDetection[] {
+  return tools.map((tool) => ({ ...tool }));
+}
+
+function snapshotDevelopmentToolDetections(
+  tools: readonly DesktopDevelopmentToolDetection[]
+): readonly DesktopDevelopmentToolDetection[] {
+  return Object.freeze(tools.map((tool) => Object.freeze({ ...tool })));
+}
 
 function execFileVoid(
   command: string,
@@ -312,7 +348,7 @@ async function detectApplicationTool(
   }
 }
 
-export async function detectDevelopmentTools(): Promise<DesktopDevelopmentToolDetection[]> {
+async function detectDevelopmentToolsUncached(): Promise<DesktopDevelopmentToolDetection[]> {
   const [applications, terminals] = await Promise.all([
     Promise.all(applicationTools.map(detectApplicationTool)),
     process.platform === "darwin" ? detectTerminalApps() : Promise.resolve([])
@@ -340,6 +376,115 @@ export async function detectDevelopmentTools(): Promise<DesktopDevelopmentToolDe
   });
 }
 
+/**
+ * Detect installed development tools with a process-local success TTL and in-flight dedupe.
+ * Failures are not cached; callers receive immutable copies of the success snapshot.
+ */
+export async function detectDevelopmentTools(): Promise<DesktopDevelopmentToolDetection[]> {
+  const { now, detect } = developmentToolDetectionDeps;
+  const currentTime = now();
+  if (
+    developmentToolDetectionCache.value &&
+    currentTime < developmentToolDetectionCache.expiresAt
+  ) {
+    return cloneDevelopmentToolDetections(developmentToolDetectionCache.value);
+  }
+  if (developmentToolDetectionCache.inFlight) {
+    return developmentToolDetectionCache.inFlight.then(cloneDevelopmentToolDetections);
+  }
+
+  let inFlight!: Promise<readonly DesktopDevelopmentToolDetection[]>;
+  inFlight = detect()
+    .then((tools) => {
+      const snapshot = snapshotDevelopmentToolDetections(tools);
+      developmentToolDetectionCache = {
+        expiresAt: now() + DEVELOPMENT_TOOL_DETECTION_TTL_MS,
+        inFlight: null,
+        value: snapshot
+      };
+      return snapshot;
+    })
+    .catch((error: unknown) => {
+      if (developmentToolDetectionCache.inFlight === inFlight) {
+        developmentToolDetectionCache = {
+          ...developmentToolDetectionCache,
+          inFlight: null
+        };
+      }
+      throw error;
+    });
+  developmentToolDetectionCache = {
+    ...developmentToolDetectionCache,
+    inFlight
+  };
+  return inFlight.then(cloneDevelopmentToolDetections);
+}
+
+export function resetDevelopmentToolDetectionCacheForTests(): void {
+  developmentToolDetectionCache = {
+    expiresAt: 0,
+    inFlight: null,
+    value: null
+  };
+  detectedMacApplicationPaths.clear();
+  developmentToolDetectionDeps = {
+    now: () => Date.now(),
+    detect: detectDevelopmentToolsUncached
+  };
+}
+
+export function setDevelopmentToolDetectionDepsForTests(
+  deps: Partial<DevelopmentToolDetectionDeps>
+): void {
+  developmentToolDetectionDeps = {
+    now: deps.now ?? developmentToolDetectionDeps.now,
+    detect: deps.detect ?? developmentToolDetectionDeps.detect
+  };
+}
+
+export function setDetectedMacApplicationPathForTests(
+  toolId: DesktopDevelopmentToolId,
+  applicationPath: string | null
+): void {
+  if (applicationPath === null) {
+    detectedMacApplicationPaths.delete(toolId);
+    return;
+  }
+  detectedMacApplicationPaths.set(toolId, applicationPath);
+}
+
+async function assertPathAvailable(path: string, label: string): Promise<void> {
+  try {
+    await access(path);
+  } catch {
+    throw new Error(`${label} is no longer available at ${path}.`);
+  }
+}
+
+async function resolveLaunchApplicationPath(tool: ApplicationTool): Promise<string> {
+  if (process.platform === "darwin") {
+    const cachedPath = detectedMacApplicationPaths.get(tool.toolId);
+    if (cachedPath) {
+      try {
+        await access(cachedPath);
+        return cachedPath;
+      } catch {
+        detectedMacApplicationPaths.delete(tool.toolId);
+      }
+    }
+    const applicationPath = await resolveApplicationPath(tool);
+    await assertPathAvailable(applicationPath, tool.label);
+    detectedMacApplicationPaths.set(tool.toolId, applicationPath);
+    return applicationPath;
+  }
+  if (!tool.executableName) {
+    throw new Error(`${tool.label} is not supported on this platform.`);
+  }
+  const executablePath = await resolveApplicationPath(tool);
+  await assertPathAvailable(executablePath, tool.label);
+  return executablePath;
+}
+
 export async function openProjectInDevelopmentTool(
   rootPath: string,
   toolId: DesktopDevelopmentToolId
@@ -359,15 +504,10 @@ export async function openProjectInDevelopmentTool(
     return;
   }
   if (process.platform === "darwin") {
-    const applicationPath =
-      detectedMacApplicationPaths.get(tool.toolId) ?? (await resolveApplicationPath(tool));
-    detectedMacApplicationPaths.set(tool.toolId, applicationPath);
+    const applicationPath = await resolveLaunchApplicationPath(tool);
     await execFileVoid("/usr/bin/open", ["-a", applicationPath, rootPath]);
     return;
   }
-  if (!tool.executableName) {
-    throw new Error(`${tool.label} is not supported on this platform.`);
-  }
-  const executablePath = await resolveApplicationPath(tool);
+  const executablePath = await resolveLaunchApplicationPath(tool);
   await execFileVoid(executablePath, [rootPath]);
 }
