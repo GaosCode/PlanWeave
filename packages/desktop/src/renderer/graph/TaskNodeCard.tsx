@@ -144,6 +144,7 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
           )}
           data-resource-highlighted={resourceHighlighted ? "true" : "false"}
           data-dimmed={dimmed ? "true" : "false"}
+          data-task-id={task.taskId}
           data-testid="task-node-card"
           size="sm"
           style={

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultDesktopSettings } from "../shared/desktopSettings";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { project, projectSnapshot } from "./helpers/desktopProjectFixtures";
+import { reviewPipeline } from "./helpers/graphFixtures";
 import {
   cleanupRendererTestEnvironment,
   stubSelectLayoutApis
@@ -68,6 +69,8 @@ describe("Auto Run diagnostics integration", () => {
         .fn()
         .mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
       watchPackageFiles: vi.fn().mockResolvedValue(undefined),
+      // Contract is Promise<DesktopReviewPipeline>; null defaults crash pipeline.steps on App load.
+      getReviewPipeline: vi.fn().mockResolvedValue(reviewPipeline),
       getLatestAutoRunSummaryWithDiagnostics: vi.fn().mockResolvedValue({
         state: null,
         diagnostics: [diagnostic]
@@ -92,7 +95,10 @@ describe("Auto Run diagnostics integration", () => {
         canvasId: "canvas-main"
       })
     );
-    await userEvent.click(screen.getByRole("button", { name: "View desktop diagnostics" }));
+    const diagnosticsTrigger = await screen.findByRole("button", {
+      name: "View desktop diagnostics"
+    });
+    await userEvent.click(diagnosticsTrigger);
 
     expect(screen.getByTestId("runtime-diagnostics-section")).toHaveTextContent(
       "Runtime diagnostics (1)"

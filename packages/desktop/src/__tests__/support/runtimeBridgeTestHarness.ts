@@ -137,6 +137,116 @@ const runtimeMock = vi.hoisted(() => {
     })),
     getGraphViewModel: vi.fn(async (workspace: unknown) => ({ workspace })),
     getTaskWorkspace: vi.fn<GetTaskWorkspace>(async (input) => taskWorkspaceFixture(input)),
+    listTaskWorkspaceRuns: vi.fn(async (input: { projectRoot: string; canvasId: string; taskId: string }) => ({
+      version: "planweave.task-workspace-runs-page/v1" as const,
+      projectRoot: input.projectRoot,
+      canvasId: input.canvasId,
+      taskId: input.taskId,
+      limit: 50,
+      items: [],
+      nextCursor: null
+    })),
+    getTaskWorkspaceRunDetail: vi.fn(async (input: {
+      projectRoot: string;
+      canvasId: string;
+      taskId: string;
+      recordId: string;
+    }) => ({
+      version: "planweave.task-workspace-run-detail/v1" as const,
+      projectRoot: input.projectRoot,
+      canvasId: input.canvasId,
+      taskId: input.taskId,
+      blockRef: input.recordId.split("::")[0] ?? "T-001#B-001",
+      item: {
+        retryIndex: 1,
+        active: false,
+        selected: true,
+        waitingInteraction: { active: false as const, count: 0 as const, kinds: [] },
+        run: {
+          version: "planweave.task-workspace-run/v1",
+          kind: "block",
+          record: {
+            recordId: input.recordId,
+            ref: input.recordId.split("::")[0] ?? "T-001#B-001",
+            taskId: input.taskId,
+            blockId: "B-001",
+            runId: input.recordId.split("::")[1] ?? "RUN-001"
+          },
+          runIdentity: {
+            projectId: "project-1",
+            canvasId: input.canvasId,
+            taskId: input.taskId,
+            blockId: "B-001",
+            claimRef: input.recordId.split("::")[0] ?? "T-001#B-001",
+            runId: input.recordId.split("::")[1] ?? "RUN-001",
+            runOwner: "executor",
+            runSessionId: null,
+            desktopRunId: null,
+            executorRunId: input.recordId.split("::")[1] ?? "RUN-001"
+          },
+          metadata: {
+            executor: null,
+            adapter: null,
+            runnerKind: null,
+            agentId: null,
+            executionCwd: null,
+            projectRoot: null,
+            agentSessionId: null,
+            tmuxSessionId: null,
+            exitCode: null,
+            terminalState: null
+          },
+          executionWaveId: null,
+          duration: {
+            startedAt: null,
+            finishedAt: null,
+            calculatedAt: "2026-07-13T00:00:00.000Z",
+            wallClockMs: null,
+            unavailableReason: "Unavailable."
+          },
+          usage: {
+            currentContext: null,
+            runTokens: { available: false, totalTokens: null, reason: "Unavailable." },
+            taskTokens: { available: false, totalTokens: null, reason: "Unavailable." }
+          },
+          actualConfiguration: { available: false, reason: "Unavailable." },
+          capabilities: {
+            prompt: { available: false, reason: "Unavailable.", identity: null, inFlight: false },
+            cancel: { available: false, reason: "Unavailable.", identity: null },
+            retry: { available: false, reason: "Unavailable.", identity: null },
+            resume: { available: false, reason: "Unavailable.", identity: null }
+          }
+        }
+      },
+      record: {
+        recordId: input.recordId,
+        ref: input.recordId.split("::")[0] ?? "T-001#B-001",
+        taskId: input.taskId,
+        blockId: "B-001",
+        runId: input.recordId.split("::")[1] ?? "RUN-001",
+        executor: null,
+        adapter: null,
+        executionCwd: null,
+        projectRoot: input.projectRoot,
+        agentSessionId: null,
+        codexSessionId: null,
+        tmuxSessionId: null,
+        exitCode: null,
+        startedAt: null,
+        finishedAt: null,
+        promptPath: null,
+        reportPath: null,
+        metadataPath: "/tmp/metadata.json",
+        stdoutSummary: "",
+        stderrSummary: "",
+        promptMarkdown: "",
+        reportMarkdown: "",
+        displayMarkdown: "",
+        displayMarkdownSource: "none" as const,
+        metadata: {},
+        runnerReadModel: null
+      }
+    })),
     retryTaskWorkspaceRun: vi.fn(async (identity: unknown) => ({ identity })),
     getTaskFileManagerPath: vi.fn(async () => "/tmp/project/package/shared/P00.md"),
     getRunRecord: vi.fn(async () => ({
@@ -276,6 +386,8 @@ vi.mock("@planweave-ai/runtime", async () => {
     getDesktopRuntimeRefresh: runtimeMock.getDesktopRuntimeRefresh,
     getGraphViewModel: runtimeMock.getGraphViewModel,
     getTaskWorkspace: runtimeMock.getTaskWorkspace,
+    listTaskWorkspaceRuns: runtimeMock.listTaskWorkspaceRuns,
+    getTaskWorkspaceRunDetail: runtimeMock.getTaskWorkspaceRunDetail,
     retryTaskWorkspaceRun: runtimeMock.retryTaskWorkspaceRun,
     getTaskFileManagerPath: runtimeMock.getTaskFileManagerPath,
     getRunRecord: runtimeMock.getRunRecord,
@@ -339,6 +451,8 @@ export async function resetRuntimeBridgeMocks(): Promise<void> {
   runtimeMock.getDesktopRuntimeRefresh.mockClear();
   runtimeMock.getGraphViewModel.mockClear();
   runtimeMock.getTaskWorkspace.mockClear();
+  runtimeMock.listTaskWorkspaceRuns.mockClear();
+  runtimeMock.getTaskWorkspaceRunDetail.mockClear();
   runtimeMock.retryTaskWorkspaceRun.mockClear();
   runtimeMock.getTaskFileManagerPath.mockClear();
   runtimeMock.getRunRecord.mockClear();

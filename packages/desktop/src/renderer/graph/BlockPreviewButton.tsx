@@ -33,7 +33,10 @@ export function BlockPreviewButton({
       <ContextMenuTrigger asChild>
         <button
           className="flex h-7 items-center justify-between gap-2 rounded-md border bg-background px-2 text-left text-xs hover:bg-muted data-[selected=true]:border-foreground"
+          data-block-id={block.blockId}
+          data-block-ref={block.ref}
           data-selected={isSelected}
+          data-testid="task-node-block"
           type="button"
           onClick={(event) => {
             event.stopPropagation();

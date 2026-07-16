@@ -3,6 +3,10 @@ import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Event as ElectronEvent, WebContentsConsoleMessageEventParams } from "electron";
 import { runSmokeCheck } from "./smoke.js";
+import {
+  isRendererUncaughtConsoleMessage,
+  rendererUncaughtSmokeEvent
+} from "./smokeFailureGate.js";
 import { applyLiquidGlassToWindow, windowBackgroundColor } from "./windowAppearance.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -107,8 +111,24 @@ export async function createWindow(options: {
       "console-message",
       (details: ElectronEvent<WebContentsConsoleMessageEventParams>) => {
         console.log(
-          JSON.stringify({ event: "PLANWEAVE_DESKTOP_RENDERER_CONSOLE", message: details.message })
+          JSON.stringify({
+            event: "PLANWEAVE_DESKTOP_RENDERER_CONSOLE",
+            level: details.level,
+            message: details.message,
+            sourceId: details.sourceId,
+            lineNumber: details.lineNumber
+          })
         );
+        if (isRendererUncaughtConsoleMessage(details)) {
+          console.error(
+            JSON.stringify({
+              event: rendererUncaughtSmokeEvent,
+              message: details.message,
+              sourceId: details.sourceId,
+              lineNumber: details.lineNumber
+            })
+          );
+        }
       }
     );
     window.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {

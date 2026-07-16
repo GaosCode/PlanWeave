@@ -3,6 +3,7 @@ import { cp, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { initWorkspace } from "@planweave-ai/runtime";
+import { assertSmokeProcess } from "./smokeProcessGate.js";
 
 const mainEntry = resolve(process.cwd(), "dist", "main", "main.js");
 const electronBin = resolve(process.cwd(), "node_modules", ".bin", "electron");
@@ -58,7 +59,8 @@ const child = spawn(smokeCommand, smokeArgs, {
     PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR: smokeUserData,
     PLANWEAVE_DESKTOP_SMOKE: "1"
   },
-  stdio: ["ignore", "pipe", "pipe"]
+  stdio: ["ignore", "pipe", "pipe"],
+  detached: process.platform !== "win32"
 });
 
 let output = "";
@@ -75,19 +77,7 @@ child.stderr.on("data", (chunk: Buffer) => {
   process.stderr.write(text);
 });
 
-const timeout = setTimeout(() => {
-  child.kill("SIGTERM");
-  console.error("Electron smoke timed out.");
-  process.exit(1);
-}, 15_000);
-
-child.on("exit", (code) => {
-  clearTimeout(timeout);
-  if (code !== 0) {
-    process.exit(code ?? 1);
-  }
-  if (!output.includes("PLANWEAVE_DESKTOP_SMOKE_READY")) {
-    console.error("Electron smoke did not report readiness.");
-    process.exit(1);
-  }
+await assertSmokeProcess(child, () => output, {
+  timeoutMs: 30_000,
+  terminationGraceMs: 2_000
 });

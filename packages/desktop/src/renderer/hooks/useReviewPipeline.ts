@@ -68,6 +68,11 @@ export function useReviewPipeline({
         if (cancelled) {
           return;
         }
+        if (!pipeline) {
+          setReviewPipeline(null);
+          setReviewDraft([]);
+          return;
+        }
         setReviewPipeline(pipeline);
         setReviewDraft(pipeline.steps);
         setReviewDefaultCyclesDraft(pipeline.packageDefaults.maxFeedbackCycles);
@@ -166,6 +171,12 @@ export function useReviewPipeline({
         return;
       }
       const pipeline = await bridge.getReviewPipeline(canvas, reviewTaskId);
+      if (!pipeline) {
+        setReviewPipeline(null);
+        setReviewDraft([]);
+        await reloadCurrentCanvas();
+        return;
+      }
       setReviewPipeline(pipeline);
       setReviewDraft(pipeline.steps);
       await reloadCurrentCanvas();

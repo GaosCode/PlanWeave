@@ -168,6 +168,8 @@ export function CanvasTreeItem({
                 }
                 aria-current={isGraphCanvas ? "page" : undefined}
                 className="h-8 w-full min-w-0 max-w-full flex-1 justify-between gap-2 overflow-hidden rounded-md px-2 text-xs text-text-muted hover:bg-surface-muted hover:text-text-strong data-[variant=secondary]:border-state-selected/25 data-[variant=secondary]:bg-state-selected-surface data-[variant=secondary]:text-text-strong data-[variant=secondary]:shadow-sm [&_svg]:size-4"
+                data-canvas-id={canvas.canvasId}
+                data-testid={`canvas-select-${canvas.canvasId}`}
                 title={firstError ? firstError.message : undefined}
                 variant={isGraphCanvas ? "secondary" : "ghost"}
                 onClick={() => onCanvasSelect(project, canvas.canvasId)}

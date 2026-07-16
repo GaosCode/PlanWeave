@@ -84,6 +84,15 @@ async function runSmokeWorkflow(window: BrowserWindow): Promise<Record<string, u
       if (state.currentExecutor !== "manual") {
         throw new Error("Desktop Auto Run did not expose the current executor.");
       }
+      // Stop the API-started Auto Run so the later renderer UI path can start a clean run
+      // without colliding with an active session, while preserving created run records.
+      if (state.runId && !["completed", "stopped", "failed"].includes(state.phase)) {
+        state = await api.stopAutoRun(state.runId);
+        for (let attempt = 0; attempt < 30 && !["completed", "stopped", "failed"].includes(state.phase); attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          state = await api.getAutoRunState(state.runId);
+        }
+      }
       return {
         taskId: task.taskId,
         filteredSearchCount: filteredSearch.length,
@@ -122,11 +131,11 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
         target.scrollIntoView({ block: "center", inline: "center" });
         target.focus?.();
         if (typeof PointerEvent === "function") {
-          target.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, buttons: 1, pointerId: 1, pointerType: "mouse" }));
-          target.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, buttons: 0, pointerId: 1, pointerType: "mouse" }));
+          target.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, buttons: 1, pointerId: 1, pointerType: "mouse", view: window }));
+          target.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, buttons: 0, pointerId: 1, pointerType: "mouse", view: window }));
         }
-        target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, buttons: 1 }));
-        target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, buttons: 0 }));
+        target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, buttons: 1, view: window }));
+        target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, buttons: 0, view: window }));
         target.click();
         await wait(120);
       };
@@ -320,6 +329,240 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       const revealedRecordPath = await waitForSmokeRevealPath(recordActionPath);
       covered.push("open-mini-run-panel");
       covered.push("open-latest-auto-run-record");
+
+      // Shared Task Workspace UI scenario (dev + packaged use this same path).
+      const taskWorkspaceDiagnostics = () => {
+        const shell = document.querySelector('[data-testid="task-workspace-shell"]');
+        const selectedRun = document.querySelector(
+          '[data-testid="task-workspace-run-summary"][aria-selected="true"]'
+        );
+        const detail =
+          document.querySelector('[data-testid="task-workspace-cli-run"]') ??
+          document.querySelector('[data-testid="task-workspace-acp-conversation"]');
+        const alert = document.querySelector('[role="alert"]');
+        let view = "other";
+        if (shell) {
+          view = "task-workspace";
+        } else if (document.querySelector("[data-graph-surface]")) {
+          view = "graph";
+        }
+        return {
+          view,
+          taskId: shell instanceof HTMLElement ? shell.getAttribute("data-task-id") : null,
+          workspaceStatus:
+            shell instanceof HTMLElement ? shell.getAttribute("data-workspace-status") : null,
+          recordId:
+            selectedRun instanceof HTMLElement
+              ? selectedRun.getAttribute("data-record-id")
+              : detail instanceof HTMLElement
+                ? detail.getAttribute("data-record-id")
+                : null,
+          errorState:
+            shell instanceof HTMLElement && shell.getAttribute("data-workspace-status") === "error"
+              ? textOf(alert).slice(0, 240)
+              : alert instanceof HTMLElement
+                ? textOf(alert).slice(0, 240)
+                : null
+        };
+      };
+      const withTaskWorkspaceContext = (message) => {
+        return message + " | diagnostics: " + JSON.stringify(taskWorkspaceDiagnostics());
+      };
+      const waitForTaskWorkspaceReady = async (taskId) => {
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+          const shell = document.querySelector(
+            '[data-testid="task-workspace-shell"][data-workspace-status="ready"][data-task-id="' +
+              taskId +
+              '"]'
+          );
+          if (shell && visible(shell)) {
+            return shell;
+          }
+          const errorShell = document.querySelector(
+            '[data-testid="task-workspace-shell"][data-workspace-status="error"]'
+          );
+          if (errorShell && visible(errorShell)) {
+            throw new Error(
+              withTaskWorkspaceContext("Task Workspace entered error state while waiting for ready")
+            );
+          }
+          await wait(100);
+        }
+        throw new Error(
+          withTaskWorkspaceContext("Timed out waiting for Task Workspace ready state for " + taskId)
+        );
+      };
+      const waitForRunDetailReady = async () => {
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+          const detail = document.querySelector(
+            [
+              '[data-testid="task-workspace-cli-run"][data-record-ready="true"]',
+              '[data-testid="task-workspace-acp-conversation"][data-record-ready="true"]',
+              '[data-testid="task-workspace-run-detail"][data-record-ready="true"]'
+            ].join(", ")
+          );
+          if (detail && visible(detail)) {
+            return detail;
+          }
+          const errorShell = document.querySelector(
+            '[data-testid="task-workspace-shell"][data-workspace-status="error"]'
+          );
+          if (errorShell && visible(errorShell)) {
+            throw new Error(
+              withTaskWorkspaceContext("Task Workspace entered error state while waiting for run detail")
+            );
+          }
+          await wait(100);
+        }
+        throw new Error(withTaskWorkspaceContext("Timed out waiting for Task Workspace run detail ready"));
+      };
+
+      const fixtureTaskId = "T-001";
+      const fixtureBlockRef = "T-001#B-001";
+      // Close mini Auto Run popover so it does not intercept graph pointer events.
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await wait(100);
+      // Graph filtering reuses the Search view query. Clear it so fixture T-001 is visible again.
+      await clickByTestId("sidebar-search");
+      await waitForSelector('[data-testid="search-query-input"]', "search input before Task Workspace");
+      const clearSearchInput = document.querySelector('[data-testid="search-query-input"]');
+      if (!(clearSearchInput instanceof HTMLElement)) {
+        throw new Error(withTaskWorkspaceContext("Search input was unavailable while clearing graph filter"));
+      }
+      dispatchTextInput(clearSearchInput, "");
+      covered.push("clear-graph-search-filter");
+      await clickByTestId("canvas-select-default");
+      await waitForSelector("[data-graph-surface]", "graph surface before Task Workspace");
+      const waitForFixtureBlock = async () => {
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+          const card = document.querySelector(
+            '[data-testid="task-node-card"][data-task-id="' + fixtureTaskId + '"]'
+          );
+          const block =
+            card instanceof HTMLElement
+              ? card.querySelector(
+                  '[data-testid="task-node-block"][data-block-ref="' + fixtureBlockRef + '"]'
+                )
+              : null;
+          if (block instanceof HTMLElement) {
+            // ReactFlow nodes can sit outside the current viewport; scroll and click anyway.
+            block.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+            return block;
+          }
+          await wait(100);
+        }
+        const availableTaskIds = [...document.querySelectorAll('[data-testid="task-node-card"]')]
+          .map((element) => element.getAttribute("data-task-id"))
+          .filter(Boolean)
+          .join(", ");
+        throw new Error(
+          withTaskWorkspaceContext(
+            "Fixture block button was not found for " +
+              fixtureBlockRef +
+              " | available task cards: " +
+              (availableTaskIds || "(none)")
+          )
+        );
+      };
+      const blockButton = await waitForFixtureBlock();
+      await clickElement(blockButton);
+      covered.push("open-task-workspace-from-graph-block");
+      await waitForTaskWorkspaceReady(fixtureTaskId);
+      covered.push("task-workspace-ready");
+
+      const titleBlock = document.querySelector('[data-testid="task-workspace-title-block"]');
+      if (
+        !(titleBlock instanceof HTMLElement) ||
+        titleBlock.getAttribute("data-task-id") !== fixtureTaskId ||
+        !titleBlock.getAttribute("data-task-title")
+      ) {
+        throw new Error(
+          withTaskWorkspaceContext("Task Workspace title block did not expose stable task attributes")
+        );
+      }
+      covered.push("task-workspace-title");
+
+      const overviewEntry = document.querySelector('[data-testid="task-workspace-overview-entry"]');
+      if (overviewEntry instanceof HTMLElement && visible(overviewEntry)) {
+        await clickElement(overviewEntry);
+      }
+      const blockSummaries = document.querySelectorAll(
+        '[data-testid="task-workspace-block-summary"][data-block-ref]'
+      );
+      if (blockSummaries.length === 0) {
+        // Auto-selected run keeps overview collapsed; block identity is still on the opened graph block
+        // and on timeline run summaries once runs are listed.
+        const runWithBlock = document.querySelector(
+          '[data-testid="task-workspace-run-summary"][data-block-ref="' + fixtureBlockRef + '"]'
+        );
+        if (!(runWithBlock instanceof HTMLElement)) {
+          throw new Error(
+            withTaskWorkspaceContext(
+              "Task Workspace did not expose block summaries or run summaries for " + fixtureBlockRef
+            )
+          );
+        }
+      }
+      covered.push("task-workspace-block-summaries");
+
+      const runSummaries = document.querySelectorAll('[data-testid="task-workspace-run-summary"]');
+      if (runSummaries.length === 0) {
+        throw new Error(
+          withTaskWorkspaceContext(
+            "Task Workspace timeline did not expose any run summaries from Auto Run records"
+          )
+        );
+      }
+      const firstRun = runSummaries[0];
+      if (!(firstRun instanceof HTMLElement)) {
+        throw new Error(withTaskWorkspaceContext("First Task Workspace run summary was not an element"));
+      }
+      const selectedRecordId = firstRun.getAttribute("data-record-id");
+      const selectedRunStatus = firstRun.getAttribute("data-status");
+      if (!selectedRecordId || !selectedRunStatus) {
+        throw new Error(
+          withTaskWorkspaceContext("Run summary missing data-record-id or data-status attributes")
+        );
+      }
+      await clickElement(firstRun);
+      covered.push("select-task-workspace-run");
+      const detail = await waitForRunDetailReady();
+      const detailRecordId = detail.getAttribute("data-record-id");
+      if (detailRecordId !== selectedRecordId) {
+        throw new Error(
+          withTaskWorkspaceContext(
+            "Run detail record id " +
+              detailRecordId +
+              " did not match selected summary " +
+              selectedRecordId
+          )
+        );
+      }
+      const selectedSummary = document.querySelector(
+        '[data-testid="task-workspace-run-summary"][data-record-id="' +
+          selectedRecordId +
+          '"][aria-selected="true"]'
+      );
+      if (!(selectedSummary instanceof HTMLElement)) {
+        throw new Error(
+          withTaskWorkspaceContext("Selected run summary did not reflect aria-selected=true")
+        );
+      }
+      covered.push("task-workspace-run-detail");
+
+      await clickByTestId("task-workspace-back");
+      await waitForSelector("[data-graph-surface]", "graph surface after Task Workspace return");
+      await waitForSelector("[data-auto-run-control]", "Floating Auto Run control after Task Workspace return");
+      const returnedTaskCard = document.querySelector(
+        '[data-testid="task-node-card"][data-task-id="' + fixtureTaskId + '"]'
+      );
+      if (!(returnedTaskCard instanceof HTMLElement) || !visible(returnedTaskCard)) {
+        throw new Error(
+          withTaskWorkspaceContext("Graph task card was unavailable after returning from Task Workspace")
+        );
+      }
+      covered.push("return-graph-from-task-workspace");
+
       await clickByTestId("sidebar-todo");
       await waitForText("ready");
       covered.push("open-todo");
@@ -327,6 +570,13 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
         covered,
         autoRunPhase,
         revealedRecordPath,
+        taskWorkspace: {
+          taskId: fixtureTaskId,
+          blockRef: fixtureBlockRef,
+          recordId: selectedRecordId,
+          runStatus: selectedRunStatus,
+          detailTestId: detail.getAttribute("data-testid")
+        },
         uiSmokeTaskVisible: (document.body.textContent ?? "").includes("UI Smoke Task")
       };
     })()
