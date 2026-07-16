@@ -306,6 +306,19 @@ export const taskWorkspaceSchema = z
   .strict()
   .superRefine((value, context) => {
     const runItems = value.blocks.flatMap((block) => block.runs);
+    // Header responses may omit runs (loaded via listTaskWorkspaceRuns). When runs
+    // are present (client-composed or tests), selection/active must stay consistent.
+    if (runItems.length === 0) {
+      const activeRecordIds = new Set(value.activeRecordIds);
+      if (activeRecordIds.size !== value.activeRecordIds.length) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["activeRecordIds"],
+          message: "Active record ids must not contain duplicates."
+        });
+      }
+      return;
+    }
     const recordIds = new Set(runItems.map((item) => item.run.record.recordId));
     const selectedItems = runItems.filter((item) => item.selected);
     if (

@@ -40,6 +40,23 @@ export {
   saveCanvasMapLayout
 } from "./canvasGraphApi.js";
 export {
+  defaultCanvasMapLayout,
+  reconcileCanvasMapLayoutWithProject
+} from "./canvasMapLayout.js";
+export {
+  CANVAS_MAP_LAYOUT_VERSION,
+  CanvasMapLayoutError,
+  canvasMapLayoutFileSchema,
+  canvasMapLayoutNodeSchema,
+  parseCanvasMapLayoutFile
+} from "./types/canvasMapLayoutSchema.js";
+export type {
+  CanvasMapLayoutErrorCode,
+  CanvasMapLayoutIssue,
+  DesktopCanvasMapLayout,
+  DesktopCanvasMapLayoutNode
+} from "./types/canvasMapLayoutSchema.js";
+export {
   addBlock,
   addDependencyEdge,
   addTaskNode,
@@ -150,9 +167,22 @@ export {
   desktopAgentPromptTextSchema,
   desktopAgentActionValueSchema,
   desktopRunnerRecordSubscriptionInputSchema,
-  desktopRunnerRecordSubscriptionPushSchema
+  desktopRunnerRecordSubscriptionPushSchema,
+  desktopRunnerRecordSubscriptionSnapshotPushSchema,
+  desktopRunnerRecordSubscriptionClosedPushSchema
 } from "./types/acpBridgeTypes.js";
 export type * from "./types/acpBridgeTypes.js";
+export {
+  acpEventSubscriptionCloseReasonSchema,
+  acpEventSubscriptionCloseResultSchema,
+  acpEventSubscriptionCloseRecoverable,
+  createAcpEventSubscriptionCloseResult
+} from "../autoRun/acpEventPublisher.js";
+export type {
+  AcpEventSubscription,
+  AcpEventSubscriptionCloseReason,
+  AcpEventSubscriptionCloseResult
+} from "../autoRun/acpEventPublisher.js";
 export {
   isFailedAutoRunTerminalPhase,
   isTerminalAutoRunPhase,
@@ -174,10 +204,15 @@ export {
   getFeedbackRecords,
   getReviewAttempts,
   getRunRecord,
+  getRunRecordIndex,
+  getRunRecordIndexEntry,
+  listBlockMainRunIndexes,
+  listBlockRunDirectoryIds,
   listBlockRunRecords,
   listTaskFeedbackRecords,
   listTaskFeedbackRunRecords,
   resolveRunRecordArtifactPath,
+  runIndexAsProjectionRecord,
   sendAgentPrompt,
   subscribeRunRecord
 } from "./recordsApi.js";
@@ -192,7 +227,12 @@ export {
   projectTaskWorkspaceClockSnapshot,
   projectTaskWorkspaceLiveSnapshot
 } from "./taskWorkspaceLiveProjection.js";
-export { getTaskWorkspace } from "./taskWorkspaceApi.js";
+export { composeTaskWorkspaceRuns } from "./taskWorkspaceCompose.js";
+export {
+  getTaskWorkspace,
+  getTaskWorkspaceRunDetail,
+  listTaskWorkspaceRuns
+} from "./taskWorkspaceApi.js";
 export {
   TASK_WORKSPACE_RESUME_UNAVAILABLE_REASON,
   TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON,
@@ -225,4 +265,17 @@ export {
   taskWorkspaceWaitingInteractionSchema,
   taskWorkspaceWallClockSchema
 } from "./types/taskWorkspaceAggregateTypes.js";
+export {
+  TASK_WORKSPACE_RUNS_DEFAULT_LIMIT,
+  TASK_WORKSPACE_RUNS_MAX_LIMIT,
+  desktopRunRecordSchema,
+  taskWorkspaceHeaderInputSchema,
+  taskWorkspaceListRunsInputSchema,
+  taskWorkspaceRunDetailInputSchema,
+  taskWorkspaceRunDetailRecordIdentitySchema,
+  taskWorkspaceRunDetailSchema,
+  taskWorkspaceRunListItemSchema,
+  taskWorkspaceRunsCursorSchema,
+  taskWorkspaceRunsPageSchema
+} from "./types/taskWorkspaceQueryTypes.js";
 export type * from "./types.js";

@@ -68,6 +68,12 @@ import type {
 import type { ArtifactReference } from "../../autoRun/runnerContractSchemas.js";
 import type { AgentFamily, RunnerTransport } from "../../types.js";
 import type { TaskWorkspace, TaskWorkspaceInput } from "./taskWorkspaceAggregateTypes.js";
+import type {
+  TaskWorkspaceListRunsInput,
+  TaskWorkspaceRunDetail,
+  TaskWorkspaceRunDetailInput,
+  TaskWorkspaceRunsPage
+} from "./taskWorkspaceQueryTypes.js";
 import type { TaskWorkspaceRetryIdentity } from "./taskWorkspaceTypes.js";
 
 export type DesktopAgentKind = AgentFamily;
@@ -276,16 +282,21 @@ export type DesktopBridgeApi = {
   getProjectOverview(projectRoot: string): Promise<DesktopProjectSummary>;
   getCanvasGraphViewModel(projectRoot: string): Promise<DesktopCanvasGraphViewModel>;
   getCanvasMapLayout(projectRoot: string): Promise<DesktopCanvasMapLayout>;
-  saveCanvasMapLayout(
-    projectRoot: string,
-    layout: DesktopCanvasMapLayout
-  ): Promise<DesktopCanvasMapLayout>;
+  /**
+   * Transport payload is untrusted. Callers may pass a structured layout object;
+   * main/runtime must Zod-parse before write (see saveCanvasMapLayout runtime API).
+   */
+  saveCanvasMapLayout(projectRoot: string, layout: unknown): Promise<DesktopCanvasMapLayout>;
   resetCanvasMapLayout(projectRoot: string): Promise<DesktopCanvasMapLayout>;
   getDesktopProjectSnapshot(ref: DesktopCanvasReference): Promise<DesktopProjectSnapshot>;
   getDesktopGraphDiagnostics(ref: DesktopCanvasReference): Promise<DesktopGraphDiagnostics>;
   getGraphViewModel(ref: DesktopCanvasReference): Promise<DesktopGraphViewModel>;
   getTaskDetail(ref: DesktopCanvasReference, taskId: string): Promise<DesktopTaskDetail>;
   getTaskWorkspace(input: TaskWorkspaceInput): Promise<TaskWorkspace>;
+  listTaskWorkspaceRuns(input: TaskWorkspaceListRunsInput): Promise<TaskWorkspaceRunsPage>;
+  getTaskWorkspaceRunDetail(
+    input: TaskWorkspaceRunDetailInput
+  ): Promise<TaskWorkspaceRunDetail>;
   retryTaskWorkspaceRun(identity: TaskWorkspaceRetryIdentity): Promise<DesktopAutoRunState>;
   getBlockDetail(ref: DesktopCanvasReference, blockRef: string): Promise<DesktopBlockDetail>;
   getTaskExecutionOrder(

@@ -35,6 +35,7 @@ export {
   runtimeSchemaTopicOrder
 } from "./schemaDocs/index.js";
 export { loadPackage } from "./package/loadPackage.js";
+export { migrateBlockRunIndexes } from "./autoRun/blockRunIndex.js";
 export { editBlock, editTask } from "./package/manifestEdit.js";
 export { readMarkdown } from "./package/readMarkdown.js";
 export { resolvePackagePath, PackagePathError } from "./package/resolvePackagePath.js";
@@ -100,6 +101,8 @@ export type { PendingImportTransaction } from "./package/importRecovery.js";
 export {
   compileProjectGraph,
   createCanvasWorkspace,
+  createProjectCanvas,
+  duplicateProjectCanvas,
   applyDefaultCanvasWorkspaceMigration,
   detectDefaultCanvasWorkspaceMigration,
   defaultCanvasProjectGraph,
@@ -117,7 +120,10 @@ export {
 } from "./projectGraph/index.js";
 export type {
   CreateCanvasWorkspaceOptions,
-  CreateCanvasWorkspaceResult
+  CreateCanvasWorkspaceResult,
+  CreateProjectCanvasInput,
+  DuplicateProjectCanvasInput,
+  ProjectCanvasMutationResult
 } from "./projectGraph/index.js";
 export {
   addEdge,
@@ -276,6 +282,7 @@ export {
 } from "./autoRun/runnerContractSchemas.js";
 export type * from "./autoRun/runnerContractSchemas.js";
 export {
+  RUNNER_EVENT_MAX_ENCODED_BYTES,
   RUNNER_EVENT_MAX_LINE_BYTES,
   RUNNER_EVENT_MAX_MESSAGE_BYTES,
   RUNNER_EVENT_RETENTION_MAX_BYTES,
@@ -315,6 +322,19 @@ export { AcpEventPublisher } from "./autoRun/acpEventPublisher.js";
 export type * from "./autoRun/acpEventPublisher.js";
 export { AcpEventStore } from "./autoRun/acpEventStore.js";
 export type * from "./autoRun/acpEventStore.js";
+export {
+  createDefaultAcpEventRetentionPolicy,
+  projectPersistedRetentionDiagnostics,
+  type AcpEventRetentionPolicy,
+  type AcpEventAdmissionDecision,
+  type AcpBoundaryAdmissionDecision,
+  type AcpProtocolAdmissionDecision,
+  type AcpRetentionBudgetSnapshot,
+  type AcpEventRetentionPolicyOverrides,
+  ACP_EVENT_RETENTION_RESERVE_BYTES,
+  ACP_EVENT_RETENTION_RESERVE_EVENTS,
+  ACP_PROTOCOL_RETENTION_RESERVE_BYTES
+} from "./autoRun/acpEventRetentionPolicy.js";
 export {
   AcpEventReadModel,
   AcpEventReadModelRegistry,
@@ -483,14 +503,31 @@ export {
   validateGraphEdit
 } from "./desktop/index.js";
 export {
+  CANVAS_MAP_LAYOUT_VERSION,
+  CanvasMapLayoutError,
+  canvasMapLayoutFileSchema,
+  canvasMapLayoutNodeSchema,
+  defaultCanvasMapLayout,
+  parseCanvasMapLayoutFile,
+  reconcileCanvasMapLayoutWithProject
+} from "./desktop/index.js";
+export {
   desktopAgentActionIdentitySchema,
   desktopAgentPromptIdentitySchema,
   desktopAgentPromptTextSchema,
   desktopAgentSessionActionIdentitySchema,
   desktopAgentActionValueSchema,
   desktopRunnerRecordSubscriptionInputSchema,
-  desktopRunnerRecordSubscriptionPushSchema
+  desktopRunnerRecordSubscriptionPushSchema,
+  desktopRunnerRecordSubscriptionSnapshotPushSchema,
+  desktopRunnerRecordSubscriptionClosedPushSchema
 } from "./desktop/types/acpBridgeTypes.js";
+export {
+  acpEventSubscriptionCloseReasonSchema,
+  acpEventSubscriptionCloseResultSchema,
+  acpEventSubscriptionCloseRecoverable,
+  createAcpEventSubscriptionCloseResult
+} from "./autoRun/acpEventPublisher.js";
 export {
   acpRunnerSchema,
   agentFamilySchema,
@@ -540,17 +577,31 @@ export {
   taskWorkspaceUnavailableTokenAccountingSchema
 } from "./desktop/index.js";
 export {
+  composeTaskWorkspaceRuns,
   getTaskWorkspace,
+  getTaskWorkspaceRunDetail,
+  listTaskWorkspaceRuns,
   retryTaskWorkspaceRun,
+  TASK_WORKSPACE_RUNS_DEFAULT_LIMIT,
+  TASK_WORKSPACE_RUNS_MAX_LIMIT,
   TASK_WORKSPACE_TASK_COST_UNAVAILABLE_REASON,
   taskWorkspaceAgentTimeSchema,
   taskWorkspaceAnnotationSchema,
   taskWorkspaceBlockSchema,
   taskWorkspaceCostAccountingSchema,
   taskWorkspaceDependencyProgressSchema,
+  taskWorkspaceHeaderInputSchema,
   taskWorkspaceInputSchema,
   taskWorkspaceLatestArtifactSchema,
+  desktopRunRecordSchema,
+  taskWorkspaceListRunsInputSchema,
+  taskWorkspaceRunDetailInputSchema,
+  taskWorkspaceRunDetailRecordIdentitySchema,
+  taskWorkspaceRunDetailSchema,
   taskWorkspaceRunItemSchema,
+  taskWorkspaceRunListItemSchema,
+  taskWorkspaceRunsCursorSchema,
+  taskWorkspaceRunsPageSchema,
   taskWorkspaceSchema,
   taskWorkspaceWaitingInteractionSchema,
   taskWorkspaceWallClockSchema

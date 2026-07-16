@@ -69,6 +69,7 @@ import type {
   TaskResultIndex
 } from "../types.js";
 import { listRunSessions } from "./repository.js";
+import { removeBlockRunFromIndex } from "../autoRun/blockRunIndex.js";
 import type { RunSessionPhase, RunSessionState } from "./types.js";
 
 export const RETENTION_DOCTOR_THRESHOLD = 200;
@@ -795,6 +796,9 @@ export async function applyPrunePlan(
       if (!(await optionalStat(absolutePath))) {
         skipped.push({ ...item, skipReason: "path no longer exists" });
         continue;
+      }
+      if (item.kind === "run") {
+        await removeBlockRunFromIndex(dirname(absolutePath), item.id);
       }
       await rm(absolutePath, { recursive: true, force: false });
       deleted.push(item);

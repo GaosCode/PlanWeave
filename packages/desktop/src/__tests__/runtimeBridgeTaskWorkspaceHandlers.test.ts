@@ -134,35 +134,113 @@ describe("Task Workspace runtime bridge", () => {
     expect(runtimeMock.getTaskWorkspace).not.toHaveBeenCalled();
   });
 
-  it("rejects a Runtime response with an invalid selected record identity", async () => {
+  it("rejects a Runtime runs page whose limit exceeds the hard upper bound", async () => {
     const { runtimeMock } = getRuntimeBridgeMocks();
-    const handler = registeredHandler(desktopBridgeInvokeChannels.getTaskWorkspace);
-    const input = { projectRoot: "/tmp/project", canvasId: "canvas-a", taskId: "T-001" };
-    const validResult = await handler(null, input);
-    runtimeMock.getTaskWorkspace.mockResolvedValueOnce({
-      ...taskWorkspaceSchema.parse(validResult),
-      selectedRecordId: "T-001#B-001::RUN-MISSING"
-    });
+    const handler = registeredHandler(desktopBridgeInvokeChannels.listTaskWorkspaceRuns);
+    const input = {
+      projectRoot: "/tmp/project",
+      canvasId: "canvas-a",
+      taskId: "T-001",
+      limit: 101
+    };
 
-    await expect(handler(null, input)).rejects.toThrow(
-      "Task Workspace request failed: invalid Runtime response: selectedRecordId"
-    );
+    await expect(handler(null, input)).rejects.toThrow(/Task Workspace runs request failed/i);
+    expect(runtimeMock.listTaskWorkspaceRuns).not.toHaveBeenCalled();
   });
 
-  it("surfaces a selectedRecordId that does not belong to the Task as a readable error", async () => {
+  it("rejects a Runtime run-detail response with mismatched record identity", async () => {
     const { runtimeMock } = getRuntimeBridgeMocks();
-    const handler = registeredHandler(desktopBridgeInvokeChannels.getTaskWorkspace);
-    const input = { projectRoot: "/tmp/project", canvasId: "canvas-a", taskId: "T-001" };
-    const validResult = taskWorkspaceSchema.parse(await handler(null, input));
-    const invalidResult = taskWorkspaceSchema.safeParse({
-      ...validResult,
-      selectedRecordId: "T-001#B-001::RUN-MISSING"
+    const handler = registeredHandler(desktopBridgeInvokeChannels.getTaskWorkspaceRunDetail);
+    const input = {
+      projectRoot: "/tmp/project",
+      canvasId: "canvas-a",
+      taskId: "T-001",
+      recordId: "T-001#B-001::RUN-001"
+    };
+    runtimeMock.getTaskWorkspaceRunDetail.mockResolvedValueOnce({
+      version: "planweave.task-workspace-run-detail/v1",
+      projectRoot: "/tmp/project",
+      canvasId: "canvas-a",
+      taskId: "T-001",
+      blockRef: "T-001#B-001",
+      item: {
+        retryIndex: 1,
+        active: false,
+        selected: true,
+        waitingInteraction: { active: false, count: 0, kinds: [] },
+        run: {
+          version: "planweave.task-workspace-run/v1",
+          kind: "block",
+          record: {
+            recordId: "T-001#B-001::RUN-OTHER",
+            ref: "T-001#B-001",
+            taskId: "T-001",
+            blockId: "B-001",
+            runId: "RUN-OTHER"
+          },
+          runIdentity: {
+            projectId: "project-1",
+            canvasId: "canvas-a",
+            taskId: "T-001",
+            blockId: "B-001",
+            claimRef: "T-001#B-001",
+            runId: "RUN-OTHER",
+            runOwner: "executor",
+            runSessionId: null,
+            desktopRunId: null,
+            executorRunId: "RUN-OTHER"
+          },
+          metadata: {
+            executor: null,
+            adapter: null,
+            runnerKind: null,
+            agentId: null,
+            executionCwd: null,
+            projectRoot: null,
+            agentSessionId: null,
+            tmuxSessionId: null,
+            exitCode: null,
+            terminalState: null
+          },
+          executionWaveId: null,
+          duration: {
+            startedAt: null,
+            finishedAt: null,
+            calculatedAt: "2026-07-13T00:00:00.000Z",
+            wallClockMs: null,
+            unavailableReason: "Unavailable."
+          },
+          usage: {
+            currentContext: null,
+            runTokens: { available: false, totalTokens: null, reason: "Unavailable." },
+            taskTokens: { available: false, totalTokens: null, reason: "Unavailable." }
+          },
+          actualConfiguration: { available: false, reason: "Unavailable." },
+          capabilities: {
+            prompt: { available: false, reason: "Unavailable.", identity: null, inFlight: false },
+            cancel: { available: false, reason: "Unavailable.", identity: null },
+            retry: { available: false, reason: "Unavailable.", identity: null },
+            resume: { available: false, reason: "Unavailable.", identity: null }
+          }
+        }
+      },
+      record: {
+        recordId: "T-001#B-001::RUN-OTHER",
+        ref: "T-001#B-001",
+        taskId: "T-001",
+        blockId: "B-001",
+        runId: "RUN-OTHER",
+        promptMarkdown: "",
+        reportMarkdown: "",
+        displayMarkdown: "",
+        displayMarkdownSource: "none",
+        metadata: {},
+        runnerReadModel: null
+      }
     });
-    if (invalidResult.success) throw new Error("Expected an invalid selected record identity.");
-    runtimeMock.getTaskWorkspace.mockRejectedValueOnce(invalidResult.error);
 
     await expect(handler(null, input)).rejects.toThrow(
-      "Task Workspace request failed: selectedRecordId: Selected record id"
+      /Task Workspace run detail request failed|invalid Runtime response|recordId/i
     );
   });
 

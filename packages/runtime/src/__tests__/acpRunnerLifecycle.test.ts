@@ -19,12 +19,18 @@ import { createLiveOwnership } from "../autoRun/liveControl.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 import { startAutoRun, stopAutoRun } from "../desktop/runApi.js";
+import {
+  getTaskWorkspace,
+  listTaskWorkspaceRuns
+} from "../desktop/taskWorkspaceApi.js";
 import { activeAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { trustCommand } from "../taskManager/hookTrustStore.js";
 import { ACP_MOCK_OPERATION_TIMEOUT_MS } from "./support/acpMockHarness.js";
 import { DEFAULT_EXECUTOR_TIMEOUT_MS } from "../autoRun/executorShared.js";
 import { executionWaveIdSchema } from "../autoRun/runnerContractSchemas.js";
+import { recordBlockRunInIndex } from "../autoRun/blockRunIndex.js";
 import { readJsonFile } from "../json.js";
+import { claimNext } from "../taskManager/index.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 
@@ -829,6 +835,79 @@ describe("AcpRunner claim routing", () => {
     } finally {
       codexAgentDefinition.acp.launch = previousLaunch;
     }
+  });
+
+  it("publishes an active ACP block run before execution settles", async () => {
+    const { root, init } = await createTestWorkspace();
+    await claimNext({ projectRoot: init.workspace });
+    let releaseIndex!: () => void;
+    const indexRelease = new Promise<void>((resolve) => {
+      releaseIndex = resolve;
+    });
+    let announceIndex!: () => void;
+    const indexPublished = new Promise<void>((resolve) => {
+      announceIndex = resolve;
+    });
+    let firstRecord = true;
+    const runner = createAcpRunner({
+      recordBlockRun: async (runRoot, runId, options) => {
+        await recordBlockRunInIndex(runRoot, runId, options);
+        if (!firstRecord) return;
+        firstRecord = false;
+        announceIndex();
+        await indexRelease;
+      }
+    });
+    const execution = runner.runBlock(
+      {
+        projectRoot: init.workspace,
+        claim: {
+          kind: "block",
+          ref: "T-001#B-001",
+          taskId: "T-001",
+          blockId: "B-001",
+          blockType: "implementation",
+          effectiveExecutor: "codex-acp"
+        },
+        prompt: "implement",
+        executorName: "codex-acp",
+        profile,
+        profileSource: "builtin"
+      },
+      definition("artifact-implementation")
+    );
+    let settled = false;
+    void execution.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    await indexPublished;
+    const workspace = await getTaskWorkspace({
+      projectRoot: root,
+      canvasId: "default",
+      taskId: "T-001"
+    });
+    const runs = await listTaskWorkspaceRuns({
+      projectRoot: root,
+      canvasId: "default",
+      taskId: "T-001"
+    });
+    expect(settled).toBe(false);
+    const liveRun = runs.items.find((item) => item.run.duration.finishedAt === null);
+    if (!liveRun) throw new Error("Expected the indexed ACP run to remain unfinished.");
+    expect(workspace.activeRecordIds).toContain(liveRun.run.record.recordId);
+    expect(liveRun).toMatchObject({
+      active: true,
+      run: { metadata: { runnerKind: "acp" } }
+    });
+
+    releaseIndex();
+    await expect(execution).resolves.toMatchObject({ kind: "block", runnerKind: "acp" });
   });
 
   it("submits a validated ACP final artifact through the TaskManager pipeline", async () => {

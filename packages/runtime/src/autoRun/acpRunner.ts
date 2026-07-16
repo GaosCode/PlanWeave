@@ -1,4 +1,5 @@
 import type { AcpAgentRunner } from "./agentRunner.js";
+import { dirname } from "node:path";
 import { z } from "zod";
 import { runnerProfileMismatch } from "./agentRunner.js";
 import {
@@ -26,6 +27,8 @@ import {
 import { assertAcpLaunchTrusted } from "./acpLaunch.js";
 import { executorRuntimeLimits } from "./executorShared.js";
 import { selectedDesktopAcpSessionDefaults } from "./desktopAgentSettings.js";
+import { optionalStat } from "../fs/optionalFile.js";
+import { recordBlockRunInIndex } from "./blockRunIndex.js";
 
 function unavailableMessage(agent: string): string {
   return `ACP runner for agent '${agent}' is not implemented; PlanWeave will not fall back to CLI.`;
@@ -114,9 +117,11 @@ function preflightPhaseFromError(error: unknown): AcpPreflightPhase {
 export function createAcpRunner(options?: {
   probe?: AcpPreflightProbe;
   sessionController?: AcpSessionController;
+  recordBlockRun?: typeof recordBlockRunInIndex;
 }): AcpAgentRunner {
   const probe = options?.probe ?? probeInstalledAcpAgent;
   const sessionController = options?.sessionController ?? new AcpSessionController();
+  const recordBlockRun = options?.recordBlockRun ?? recordBlockRunInIndex;
   return {
     transport: "acp",
     availability(definition) {
@@ -366,8 +371,9 @@ export function createAcpRunner(options?: {
         ref: input.claim.ref,
         prompt: input.prompt
       });
-      return sessionController.execute(
-        {
+      try {
+        return await sessionController.execute(
+          {
           kind: input.claim.blockType === "review" ? "review" : "implementation",
           identity: {
             scope: prepared.runDir,
@@ -396,11 +402,18 @@ export function createAcpRunner(options?: {
           signal: input.runtime?.signal,
           timeoutMs: input.runtime?.timeoutMs ?? executorRuntimeLimits(input.profile).timeoutMs,
           interactionBroker: input.runtime?.interactionBroker,
+          onMetadataPersisted: () =>
+            recordBlockRun(dirname(prepared.runDir), prepared.runId),
           sessionDefaults: input.runtime?.desktopRunId
             ? selectedDesktopAcpSessionDefaults(definition.agent)
             : undefined
+          }
+        );
+      } finally {
+        if (await optionalStat(prepared.metadataPath)) {
+          await recordBlockRun(dirname(prepared.runDir), prepared.runId);
         }
-      );
+      }
     },
     async runFeedback(input, definition) {
       if (input.profile.runner.transport !== "acp" || input.profile.agent !== definition.agent) {

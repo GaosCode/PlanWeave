@@ -38,7 +38,7 @@ export function prepareAcpFeedbackRun(input: {
 async function prepare(
   runRoot: string,
   workspace: ProjectWorkspace,
-  prompt: string
+  prompt: string,
 ): Promise<PreparedAcpRun> {
   const runId = await allocateRunId(runRoot);
   const runDir = join(runRoot, runId);

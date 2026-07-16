@@ -4,13 +4,22 @@ import { dirname, join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import { normalizedRunnerEventSchema } from "../autoRun/normalizedEventContract.js";
 import {
+  recordBlockRunArtifactInIndex,
+  recordBlockRunInIndex
+} from "../autoRun/blockRunIndex.js";
+import {
+  composeTaskWorkspaceRuns,
   getTaskWorkspace,
+  getTaskWorkspaceRunDetail,
+  listTaskWorkspaceRuns,
   retryTaskWorkspaceRun,
   duplicateTaskCanvas,
   resolveTaskCanvasWorkspace,
   selectTaskCanvas,
   shutdownDesktopAutoRuns,
-  startAutoRun
+  startAutoRun,
+  type TaskWorkspace,
+  type TaskWorkspaceInput
 } from "../desktop/index.js";
 import { readState, writeState } from "../state.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
@@ -20,6 +29,43 @@ afterEach(async () => {
   delete process.env.PLANWEAVE_HOME;
   delete process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
 });
+
+async function loadComposedTaskWorkspace(
+  input: TaskWorkspaceInput,
+  options: { now?: Date } = {}
+): Promise<TaskWorkspace> {
+  const header = await getTaskWorkspace(input, options);
+  const page = await listTaskWorkspaceRuns(
+    {
+      projectRoot: input.projectRoot,
+      canvasId: input.canvasId,
+      taskId: input.taskId
+    },
+    { now: options.now, selectedRecordId: header.selectedRecordId }
+  );
+  let composed = composeTaskWorkspaceRuns(header, page.items, options);
+  const selectedId = composed.selectedRecordId;
+  if (selectedId) {
+    const detail = await getTaskWorkspaceRunDetail(
+      {
+        projectRoot: input.projectRoot,
+        canvasId: input.canvasId,
+        taskId: input.taskId,
+        recordId: selectedId
+      },
+      { now: options.now, selectedRecordId: selectedId }
+    );
+    composed = composeTaskWorkspaceRuns(
+      composed,
+      [
+        ...page.items.filter((item) => item.run.record.recordId !== selectedId),
+        { blockRef: detail.blockRef, ...detail.item }
+      ],
+      options
+    );
+  }
+  return composed;
+}
 
 async function writeBlockRun(options: {
   resultsDir: string;
@@ -31,15 +77,16 @@ async function writeBlockRun(options: {
   executionWaveId?: string;
 }): Promise<void> {
   const ref = `T-001#${options.blockId}`;
-  const runDir = join(
+  const runsRoot = join(
     options.resultsDir,
     "T-001",
     "blocks",
     options.blockId,
-    "runs",
-    options.runId
+    "runs"
   );
+  const runDir = join(runsRoot, options.runId);
   await mkdir(runDir, { recursive: true });
+  await recordBlockRunInIndex(runsRoot, options.runId);
   await writeJsonFile(join(runDir, "metadata.json"), {
     runId: options.runId,
     ref,
@@ -52,6 +99,7 @@ async function writeBlockRun(options: {
   });
   if (options.report !== undefined) {
     await writeFile(join(runDir, "report.md"), options.report, "utf8");
+    await recordBlockRunArtifactInIndex(runsRoot, options.runId);
   }
 }
 
@@ -138,7 +186,7 @@ describe("desktop Task Workspace retry", () => {
     state.currentRefs = [];
     await writeState(init.workspace.stateFile, state);
 
-    const workspace = await getTaskWorkspace({
+    const workspace = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001",
@@ -165,7 +213,7 @@ describe("desktop Task Workspace retry", () => {
 
     state.blocks["T-001#B-001"] = { status: "ready", blockedReason: null };
     await writeState(init.workspace.stateFile, state);
-    const notBlocked = await getTaskWorkspace({
+    const notBlocked = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001",
@@ -187,7 +235,7 @@ describe("desktop Task Workspace retry", () => {
       projectId: init.workspace.id,
       runId: "RUN-002"
     });
-    const historical = await getTaskWorkspace({
+    const historical = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001",
@@ -201,7 +249,7 @@ describe("desktop Task Workspace retry", () => {
       runId: "RUN-002",
       terminalState: "succeeded"
     });
-    const succeeded = await getTaskWorkspace({
+    const succeeded = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001",
@@ -215,7 +263,7 @@ describe("desktop Task Workspace retry", () => {
       runId: "RUN-002",
       terminalState: "cancelled"
     });
-    const cancelled = await getTaskWorkspace({
+    const cancelled = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001",
@@ -242,7 +290,7 @@ describe("desktop Task Workspace retry", () => {
     state.blocks["T-001#B-001"] = { status: "blocked", blockedReason: "executor failed" };
     state.currentRefs = [];
     await writeState(init.workspace.stateFile, state);
-    const before = await getTaskWorkspace({
+    const before = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001",
@@ -290,7 +338,7 @@ describe("desktop Task Workspace retry", () => {
     state.blocks["T-001#B-001"] = { status: "blocked", blockedReason: "executor failed" };
     await writeState(init.workspace.stateFile, state);
 
-    const workspace = await getTaskWorkspace({
+    const workspace = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001",
@@ -321,7 +369,7 @@ describe("desktop Task Workspace retry", () => {
     await writeState(init.workspace.stateFile, state);
     await startAutoRun(root, "default", { kind: "block", blockRef: "T-002#B-001" });
 
-    const workspace = await getTaskWorkspace({
+    const workspace = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001",
@@ -348,7 +396,7 @@ describe("desktop Task Workspace retry", () => {
     const state = await readState(init.workspace.stateFile);
     state.blocks["T-001#B-001"] = { status: "blocked", blockedReason: "executor failed" };
     await writeState(init.workspace.stateFile, state);
-    const before = await getTaskWorkspace({
+    const before = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001",
@@ -384,7 +432,7 @@ describe("desktop Task Workspace retry", () => {
     const state = await readState(init.workspace.stateFile);
     state.blocks["T-001#B-001"] = { status: "blocked", blockedReason: "executor failed" };
     await writeState(init.workspace.stateFile, state);
-    const before = await getTaskWorkspace({
+    const before = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001",
@@ -442,7 +490,7 @@ describe("desktop Task Workspace retry", () => {
     await writeState(init.workspace.stateFile, defaultState);
     await selectTaskCanvas(root, "default");
 
-    const before = await getTaskWorkspace({
+    const before = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: targetCanvas.canvasId,
       taskId: "T-001",
@@ -480,7 +528,7 @@ describe("desktop Task Workspace retry", () => {
     const state = await readState(init.workspace.stateFile);
     state.blocks["T-001#B-001"] = { status: "blocked", blockedReason: "executor failed" };
     await writeState(init.workspace.stateFile, state);
-    const before = await getTaskWorkspace({
+    const before = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001",
@@ -520,7 +568,7 @@ describe("desktop Task Workspace retry", () => {
     const state = await readState(init.workspace.stateFile);
     state.blocks["T-001#B-001"] = { status: "blocked", blockedReason: "executor failed" };
     await writeState(init.workspace.stateFile, state);
-    const before = await getTaskWorkspace({
+    const before = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001",

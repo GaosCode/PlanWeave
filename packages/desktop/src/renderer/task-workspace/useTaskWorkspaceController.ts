@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  projectTaskWorkspaceClockSnapshot,
+  composeTaskWorkspaceRuns,
   projectTaskWorkspaceLiveSnapshot
 } from "@planweave-ai/runtime/browser";
-import type { DesktopBridgeApi, DesktopRunRecord, TaskWorkspace } from "@planweave-ai/runtime";
+import type {
+  DesktopBridgeApi,
+  DesktopRunRecord,
+  TaskWorkspace,
+  TaskWorkspaceRunListItem,
+  TaskWorkspaceRunsCursor
+} from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
 import type { AppViewHistoryController } from "../hooks/useAppViewHistory";
 import { useRunnerRecordMonitor } from "../hooks/useRunnerRecordMonitor";
@@ -20,11 +26,12 @@ import { useTaskWorkspaceExecutorActions } from "./useTaskWorkspaceExecutorActio
 
 type TaskWorkspaceApi = Pick<
   DesktopBridgeApi,
-  | "getRunRecord"
   | "getBlockDetail"
   | "getGraphViewModel"
   | "getTaskDetail"
   | "getTaskWorkspace"
+  | "getTaskWorkspaceRunDetail"
+  | "listTaskWorkspaceRuns"
   | "onAutoRunChanged"
   | "onRuntimeStateChanged"
   | "subscribeRunnerRecord"
@@ -128,11 +135,16 @@ export function useTaskWorkspaceController(options: {
   const [workspaceLoad, setWorkspaceLoad] = useState<WorkspaceLoad>(idleWorkspaceLoad);
   const [recordLoad, setRecordLoad] = useState<RecordLoad>(idleRecordLoad);
   const [overviewSelected, setOverviewSelected] = useState(false);
-  const [clockNowMs, setClockNowMs] = useState(() => Date.now());
+  const [hasMoreRuns, setHasMoreRuns] = useState(false);
+  const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
+  const [loadMoreRunsError, setLoadMoreRunsError] = useState<string | null>(null);
   const workspaceRequest = useRef(0);
   const recordRequest = useRef(0);
   const overviewSelectedRef = useRef(false);
   const runScrollPositions = useRef(new Map<string, number>());
+  const runItemsRef = useRef<TaskWorkspaceRunListItem[]>([]);
+  const nextCursorRef = useRef<TaskWorkspaceRunsCursor | null>(null);
+  const loadingMoreRef = useRef(false);
   const key = navigation ? navigationKey(navigation) : "";
   const taskAuthorityKey = navigation
     ? JSON.stringify([navigation.projectRoot, navigation.canvasId, navigation.taskId])
@@ -165,13 +177,18 @@ export function useTaskWorkspaceController(options: {
       });
       return;
     }
-    setWorkspaceLoad({
-      error: null,
-      executorOptions: [],
-      key,
-      packageExecutorNames: [],
-      status: "loading",
-      workspace: null
+    setWorkspaceLoad((current) => {
+      if (current.key === key && current.workspace) {
+        return { ...current, error: null };
+      }
+      return {
+        error: null,
+        executorOptions: [],
+        key,
+        packageExecutorNames: [],
+        status: "loading",
+        workspace: null
+      };
     });
     const canvasRef = {
       projectRoot: navigation.projectRoot,
@@ -183,9 +200,13 @@ export function useTaskWorkspaceController(options: {
         taskId: navigation.taskId,
         selectedRecordId: navigation.recordId ?? null
       }),
+      api.listTaskWorkspaceRuns({
+        ...canvasRef,
+        taskId: navigation.taskId
+      }),
       api.getGraphViewModel(canvasRef)
     ])
-      .then(([workspace, graph]) => {
+      .then(([header, runsPage, graph]) => {
         if (workspaceRequest.current !== request) {
           return;
         }
@@ -200,10 +221,9 @@ export function useTaskWorkspaceController(options: {
           });
           return;
         }
-        const selected = initialRunForNavigation(workspace, navigation);
         if (
           navigation.blockRef &&
-          !workspace.blocks.some((block) => block.ref === navigation.blockRef)
+          !header.blocks.some((block) => block.ref === navigation.blockRef)
         ) {
           setWorkspaceLoad({
             error: `Block '${navigation.blockRef}' is unavailable for task '${navigation.taskId}'.`,
@@ -215,17 +235,21 @@ export function useTaskWorkspaceController(options: {
           });
           return;
         }
-        if (navigation.recordId && !selected) {
-          setWorkspaceLoad({
-            error: `Run record '${navigation.recordId}' does not belong to block '${navigation.blockRef}'.`,
-            executorOptions: [],
-            key,
-            packageExecutorNames: [],
-            status: "error",
-            workspace: null
-          });
-          return;
-        }
+        const selectedHint = navigation.recordId ?? header.selectedRecordId;
+        const pageItems: TaskWorkspaceRunListItem[] = runsPage.items.map((item) => ({
+          ...item,
+          selected: selectedHint !== null && item.run.record.recordId === selectedHint
+        }));
+        const workspace = composeTaskWorkspaceRuns(header, pageItems);
+        runItemsRef.current = pageItems;
+        nextCursorRef.current = runsPage.nextCursor;
+        setHasMoreRuns(runsPage.nextCursor !== null);
+        setLoadMoreRunsError(null);
+        setLoadingMoreRuns(false);
+        loadingMoreRef.current = false;
+        const selected = initialRunForNavigation(workspace, navigation);
+        // Missing selection on the first page is OK when navigating to an older record;
+        // getTaskWorkspaceRunDetail validates ownership when the record is selected.
         if (!navigation.recordId && selected && !overviewSelectedRef.current) {
           history.replaceTaskWorkspaceTarget(
             taskWorkspaceNavigationTargetSchema.parse({
@@ -272,29 +296,33 @@ export function useTaskWorkspaceController(options: {
     return findRun(workspace, navigation.blockRef, navigation.recordId);
   }, [navigation?.blockRef, navigation?.recordId, workspace]);
   const selectedRun = overviewSelected ? null : routedSelectedRun;
-  const selectedRecordKey = selectedRun?.item.run.record.recordId ?? "";
-  const selectedBlockRef = selectedRun?.block.ref ?? "";
+  const selectedRecordKey = navigation?.recordId ?? selectedRun?.item.run.record.recordId ?? "";
+  const selectedBlockRef = navigation?.blockRef ?? selectedRun?.block.ref ?? "";
 
   useEffect(() => {
     const request = ++recordRequest.current;
-    if (!api || !navigation || !selectedRun) {
+    if (!api || !navigation || !selectedRecordKey || overviewSelected) {
       setRecordLoad(idleRecordLoad);
       return;
     }
     setRecordLoad({ error: null, key: selectedRecordKey, record: null, status: "loading" });
     void api
-      .getRunRecord(
-        { projectRoot: navigation.projectRoot, canvasId: navigation.canvasId },
-        selectedRecordKey
-      )
-      .then((record) => {
+      .getTaskWorkspaceRunDetail({
+        projectRoot: navigation.projectRoot,
+        canvasId: navigation.canvasId,
+        taskId: navigation.taskId,
+        recordId: selectedRecordKey
+      })
+      .then((detail) => {
         if (recordRequest.current !== request) {
           return;
         }
+        const record: DesktopRunRecord = detail.record;
         if (
           record.recordId !== selectedRecordKey ||
-          record.ref !== selectedBlockRef ||
-          record.taskId !== navigation.taskId
+          record.ref !== (selectedBlockRef || record.ref) ||
+          record.taskId !== navigation.taskId ||
+          detail.taskId !== navigation.taskId
         ) {
           setRecordLoad({
             error: "Selected run record does not match its Task Workspace navigation identity.",
@@ -304,6 +332,24 @@ export function useTaskWorkspaceController(options: {
           });
           return;
         }
+        // Merge detail projection into composed workspace runs for capabilities/live projection.
+        const listItem: TaskWorkspaceRunListItem = {
+          blockRef: detail.blockRef,
+          ...detail.item
+        };
+        const without = runItemsRef.current.filter(
+          (item) => item.run.record.recordId !== listItem.run.record.recordId
+        );
+        runItemsRef.current = [...without, listItem];
+        setWorkspaceLoad((current) => {
+          if (!current.workspace || current.key !== key) {
+            return current;
+          }
+          return {
+            ...current,
+            workspace: composeTaskWorkspaceRuns(current.workspace, runItemsRef.current)
+          };
+        });
         setRecordLoad({
           error: null,
           key: selectedRecordKey,
@@ -324,9 +370,11 @@ export function useTaskWorkspaceController(options: {
       });
   }, [
     api,
+    key,
     navigation?.canvasId,
     navigation?.projectRoot,
     navigation?.taskId,
+    overviewSelected,
     selectedBlockRef,
     selectedRecordKey
   ]);
@@ -345,15 +393,9 @@ export function useTaskWorkspaceController(options: {
     recordId: selectedRecord?.recordId ?? null
   });
 
-  useEffect(() => {
-    setClockNowMs(Date.now());
-    if (!workspace || workspace.activeRecordIds.length === 0) {
-      return;
-    }
-    const timer = window.setInterval(() => setClockNowMs(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [workspace?.activeRecordIds.join("\0")]);
-
+  // Clock ticks must not rebuild the Task Workspace aggregate. Live duration/relative
+  // labels subscribe via useTaskWorkspaceClock in leaf components only.
+  // Live runner model merges still re-project when monitor.model changes (data, not clock).
   const liveProjection = useMemo(() => {
     if (!workspace) {
       return {
@@ -363,21 +405,27 @@ export function useTaskWorkspaceController(options: {
         workspace: null
       };
     }
+    if (!selectedRun || !monitor.model) {
+      return {
+        error: null as string | null,
+        runnerModel: null,
+        selectedRun,
+        workspace
+      };
+    }
     try {
-      const now = new Date(clockNowMs);
-      const projectedWorkspace =
-        selectedRun && monitor.model
-          ? projectTaskWorkspaceLiveSnapshot({
-              workspace,
-              recordId: selectedRun.item.run.record.recordId,
-              model: monitor.model,
-              now
-            })
-          : projectTaskWorkspaceClockSnapshot(workspace, now);
-      const projectedSelectedRun = selectedRun
-        ? findRun(projectedWorkspace, selectedRun.block.ref, selectedRun.item.run.record.recordId)
-        : null;
-      if (selectedRun && !projectedSelectedRun) {
+      const projectedWorkspace = projectTaskWorkspaceLiveSnapshot({
+        workspace,
+        recordId: selectedRun.item.run.record.recordId,
+        model: monitor.model,
+        now: new Date()
+      });
+      const projectedSelectedRun = findRun(
+        projectedWorkspace,
+        selectedRun.block.ref,
+        selectedRun.item.run.record.recordId
+      );
+      if (!projectedSelectedRun) {
         throw new Error(
           `Projected Task Workspace record '${selectedRun.item.run.record.recordId}' is unavailable.`
         );
@@ -396,7 +444,7 @@ export function useTaskWorkspaceController(options: {
         workspace
       };
     }
-  }, [clockNowMs, monitor.model, selectedRun, workspace]);
+  }, [monitor.model, selectedRun, workspace]);
 
   useEffect(() => {
     if (!api || !navigation) {
@@ -441,6 +489,60 @@ export function useTaskWorkspaceController(options: {
     },
     [history.replaceTaskWorkspaceTarget, navigation]
   );
+
+  const loadMoreRuns = useCallback(async () => {
+    if (!api || !navigation || !nextCursorRef.current || loadingMoreRef.current) {
+      return;
+    }
+    const cursor = nextCursorRef.current;
+    const request = workspaceRequest.current;
+    loadingMoreRef.current = true;
+    setLoadingMoreRuns(true);
+    setLoadMoreRunsError(null);
+    try {
+      const page = await api.listTaskWorkspaceRuns({
+        projectRoot: navigation.projectRoot,
+        canvasId: navigation.canvasId,
+        taskId: navigation.taskId,
+        cursor
+      });
+      if (workspaceRequest.current !== request) {
+        return;
+      }
+      const selectedHint = navigation.recordId ?? null;
+      const existingIds = new Set(
+        runItemsRef.current.map((item) => item.run.record.recordId)
+      );
+      const appended: TaskWorkspaceRunListItem[] = page.items
+        .filter((item) => !existingIds.has(item.run.record.recordId))
+        .map((item) => ({
+          ...item,
+          selected: selectedHint !== null && item.run.record.recordId === selectedHint
+        }));
+      runItemsRef.current = [...runItemsRef.current, ...appended];
+      nextCursorRef.current = page.nextCursor;
+      setHasMoreRuns(page.nextCursor !== null);
+      setWorkspaceLoad((current) => {
+        if (!current.workspace || current.key !== key) {
+          return current;
+        }
+        return {
+          ...current,
+          workspace: composeTaskWorkspaceRuns(current.workspace, runItemsRef.current)
+        };
+      });
+    } catch (error: unknown) {
+      if (workspaceRequest.current !== request) {
+        return;
+      }
+      setLoadMoreRunsError(errorMessage(error));
+    } finally {
+      if (workspaceRequest.current === request) {
+        loadingMoreRef.current = false;
+        setLoadingMoreRuns(false);
+      }
+    }
+  }, [api, key, navigation]);
 
   const saveTaskPrompt = useCallback<TaskWorkspaceController["saveTaskPrompt"]>(
     async ({ baseMarkdown, markdown }) => {
@@ -519,14 +621,24 @@ export function useTaskWorkspaceController(options: {
   });
 
   const liveStatus = useMemo<TaskWorkspaceLiveStatus>(() => {
-    if (!liveProjection.selectedRun) return "idle";
+    if (overviewSelected || !selectedRecordKey) return "idle";
     if (recordLoad.status === "loading") return "loading";
     if (recordLoad.status === "error" || monitor.subscriptionError || liveProjection.error) {
       return "error";
     }
+    if (!liveProjection.selectedRun) {
+      return recordLoad.status === "ready" ? "loading" : "idle";
+    }
     if (selectedRecord && !selectedRecord.runnerReadModel) return "unavailable";
     return liveProjection.runnerModel ? "live" : "loading";
-  }, [liveProjection, monitor.subscriptionError, recordLoad.status, selectedRecord]);
+  }, [
+    liveProjection,
+    monitor.subscriptionError,
+    overviewSelected,
+    recordLoad.status,
+    selectedRecord,
+    selectedRecordKey
+  ]);
   const liveUnavailableReason =
     liveStatus === "unavailable"
       ? (liveProjection.selectedRun?.item.run.capabilities.prompt.reason ??
@@ -545,8 +657,12 @@ export function useTaskWorkspaceController(options: {
       error,
       executorOptions,
       getRunScrollTop: (recordId) => runScrollPositions.current.get(recordId) ?? 0,
+      hasMoreRuns,
       liveStatus,
       liveUnavailableReason,
+      loadMoreRuns,
+      loadMoreRunsError,
+      loadingMoreRuns,
       navigation,
       onRunScrollTopChange: (recordId, scrollTop) => {
         runScrollPositions.current.set(recordId, Math.max(0, scrollTop));
@@ -570,9 +686,13 @@ export function useTaskWorkspaceController(options: {
     [
       error,
       executorOptions,
+      hasMoreRuns,
       history.returnToTaskWorkspaceSource,
       liveStatus,
       liveUnavailableReason,
+      loadMoreRuns,
+      loadMoreRunsError,
+      loadingMoreRuns,
       monitor.subscriptionError,
       liveProjection,
       navigation,

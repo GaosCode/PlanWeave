@@ -35,6 +35,7 @@ describe("planweave CLI command registration", () => {
         "run-session",
         "executors",
         "run-status",
+        "run-index",
         "canvas",
         "project-graph",
         "graph",
@@ -107,6 +108,9 @@ describe("planweave CLI command registration", () => {
       expect.arrayContaining(["--force", "--reason", "--json"])
     );
     expect(commandOptionLongs("status")).toContain("--json");
+    expect(subcommandOptionLongs("run-index", "migrate")).toEqual(
+      expect.arrayContaining(["--canvas", "--all-canvases", "--json"])
+    );
     expect(commandOptionLongs("status")).toContain("--canvas");
     expect(commandOptionLongs("use")).toEqual(
       expect.arrayContaining(["--source-root", "--clear", "--json"])

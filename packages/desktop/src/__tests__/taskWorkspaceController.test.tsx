@@ -18,6 +18,7 @@ import {
 } from "../renderer/taskWorkspaceNavigation";
 import { useTaskWorkspaceController } from "../renderer/task-workspace/useTaskWorkspaceController";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
+import { deferred } from "./helpers/desktopProjectFixtures";
 
 afterEach(cleanupRendererTestEnvironment);
 
@@ -144,17 +145,21 @@ function projectedRun(runId: string): TaskWorkspaceRun {
   };
 }
 
-function workspace(selectedRecordId: string): TaskWorkspace {
-  const runs = ["RUN-001", "RUN-002"].map((runId, index) => {
+function runItems(selectedRecordId: string | null) {
+  return ["RUN-001", "RUN-002"].map((runId, index) => {
     const run = projectedRun(runId);
     return {
+      blockRef: "T-001#B-001" as const,
       retryIndex: index + 1,
       active: false,
-      selected: run.record.recordId === selectedRecordId,
+      selected: selectedRecordId !== null && run.record.recordId === selectedRecordId,
       waitingInteraction: { active: false as const, count: 0 as const, kinds: [] },
       run
     };
   });
+}
+
+function workspaceHeader(selectedRecordId: string | null): TaskWorkspace {
   return {
     version: "planweave.task-workspace/v1",
     project: { projectId: "project-1", projectRoot: "/projects/demo", canvasId: "canvas-main" },
@@ -195,7 +200,7 @@ function workspace(selectedRecordId: string): TaskWorkspace {
           status: "not_applicable",
           blockers: []
         },
-        runs,
+        runs: [],
         annotations: []
       }
     ],
@@ -215,7 +220,7 @@ function workspace(selectedRecordId: string): TaskWorkspace {
         availability: "unavailable",
         totalMs: null,
         includedRunCount: 0,
-        missingRunCount: 2,
+        missingRunCount: 0,
         reason: "Unavailable."
       }
     },
@@ -223,6 +228,19 @@ function workspace(selectedRecordId: string): TaskWorkspace {
       taskTokens: { available: false, totalTokens: null, reason: "Unavailable." },
       taskCost: { available: false, totals: null, reason: "Unavailable." }
     }
+  };
+}
+
+function workspace(selectedRecordId: string): TaskWorkspace {
+  const header = workspaceHeader(selectedRecordId);
+  return {
+    ...header,
+    blocks: header.blocks.map((block) => ({
+      ...block,
+      runs: runItems(selectedRecordId)
+        .filter((item) => item.blockRef === block.ref)
+        .map(({ blockRef: _blockRef, ...item }) => item)
+    }))
   };
 }
 
@@ -286,8 +304,36 @@ function controllerApi(options: { readModel: (recordId: string) => RunnerRecordR
       reviewGate: null
     })),
     getTaskWorkspace: vi.fn(async (input: { selectedRecordId?: string | null }) =>
-      workspace(input.selectedRecordId ?? "T-001#B-001::RUN-001")
+      workspaceHeader(input.selectedRecordId ?? "T-001#B-001::RUN-001")
     ),
+    listTaskWorkspaceRuns: vi.fn(async () => ({
+      version: "planweave.task-workspace-runs-page/v1" as const,
+      projectRoot: "/projects/demo",
+      canvasId: "canvas-main",
+      taskId: "T-001",
+      limit: 50,
+      items: runItems("T-001#B-001::RUN-001"),
+      nextCursor: null
+    })),
+    getTaskWorkspaceRunDetail: vi.fn(async (input: { recordId: string }) => {
+      const runId = input.recordId.split("::")[1] ?? "RUN-001";
+      const run = projectedRun(runId);
+      return {
+        version: "planweave.task-workspace-run-detail/v1" as const,
+        projectRoot: "/projects/demo",
+        canvasId: "canvas-main",
+        taskId: "T-001",
+        blockRef: "T-001#B-001",
+        item: {
+          retryIndex: runId === "RUN-002" ? 2 : 1,
+          active: false,
+          selected: true,
+          waitingInteraction: { active: false as const, count: 0 as const, kinds: [] },
+          run
+        },
+        record: record(input.recordId, options.readModel(input.recordId))
+      };
+    }),
     getGraphViewModel: vi.fn(async () => ({
       projectId: "project-1",
       projectTitle: "Demo",
@@ -344,9 +390,6 @@ function controllerApi(options: { readModel: (recordId: string) => RunnerRecordR
       acceptance: [],
       blockOrder: ["T-001#B-001"]
     })),
-    getRunRecord: vi.fn(async (_ref: unknown, recordId: string) =>
-      record(recordId, options.readModel(recordId))
-    ),
     subscribeRunnerRecord: vi.fn<DesktopBridgeApi["subscribeRunnerRecord"]>(async (input) => {
       const unsubscribe = vi.fn(async () => undefined);
       unsubscribes.set(input.recordId, unsubscribe);
@@ -406,6 +449,32 @@ function useControllerHarness(
 }
 
 describe("Task Workspace selected run controller", () => {
+  it("keeps the loaded workspace mounted while an executor refresh is pending", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const initialWorkspace = workspaceHeader("T-001#B-001::RUN-001");
+    const refreshedWorkspace = {
+      ...initialWorkspace,
+      task: { ...initialWorkspace.task, executor: "claude-code" }
+    };
+    const pendingRefresh = deferred<TaskWorkspace>();
+    api.getTaskWorkspace
+      .mockResolvedValueOnce(initialWorkspace)
+      .mockImplementationOnce(() => pendingRefresh.promise);
+    const { result } = renderHook(() => useControllerHarness(api));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await result.current.saveTaskExecutor("claude-code");
+    });
+    await waitFor(() => expect(api.getTaskWorkspace).toHaveBeenCalledTimes(2));
+
+    expect(result.current.status).toBe("ready");
+    expect(result.current.workspace?.task.executor).toBe(initialWorkspace.task.executor);
+
+    pendingRefresh.resolve(refreshedWorkspace);
+    await waitFor(() => expect(result.current.workspace?.task.executor).toBe("claude-code"));
+  });
+
   it("saves a Task executor without changing Block overrides", async () => {
     const { api } = controllerApi({ readModel: () => null });
     const { result } = renderHook(() => useControllerHarness(api));
@@ -529,15 +598,19 @@ describe("Task Workspace selected run controller", () => {
     const { api } = controllerApi({ readModel: () => null });
     const firstRecordId = "T-001#B-001::RUN-001";
     const secondRecordId = "T-001#B-001::RUN-002";
-    const aggregate = workspace(firstRecordId);
     api.getTaskWorkspace.mockResolvedValue({
-      ...aggregate,
+      ...workspaceHeader(null),
       activeRecordIds: [firstRecordId, secondRecordId],
-      selectedRecordId: null,
-      blocks: aggregate.blocks.map((block) => ({
-        ...block,
-        runs: block.runs.map((item) => ({ ...item, active: true, selected: false }))
-      }))
+      selectedRecordId: null
+    });
+    api.listTaskWorkspaceRuns.mockResolvedValue({
+      version: "planweave.task-workspace-runs-page/v1",
+      projectRoot: "/projects/demo",
+      canvasId: "canvas-main",
+      taskId: "T-001",
+      limit: 50,
+      items: runItems(null).map((item) => ({ ...item, active: true, selected: false })),
+      nextCursor: null
     });
     const taskNavigation = taskWorkspaceNavigationIdentity(
       {
@@ -552,7 +625,7 @@ describe("Task Workspace selected run controller", () => {
     await waitFor(() => expect(result.current.status).toBe("ready"));
     expect(result.current.selectedRun).toBeNull();
     expect(result.current.workspace?.activeRecordIds).toEqual([firstRecordId, secondRecordId]);
-    expect(api.getRunRecord).not.toHaveBeenCalled();
+    expect(api.getTaskWorkspaceRunDetail).not.toHaveBeenCalled();
   });
 
   it("does not let a refresh steal an explicitly selected Task Overview", async () => {
@@ -585,7 +658,7 @@ describe("Task Workspace selected run controller", () => {
     await waitFor(() => expect(result.current.status).toBe("error"));
     expect(result.current.error).toBe("Block 'T-001#B-404' is unavailable for task 'T-001'.");
     expect(result.current.workspace).toBeNull();
-    expect(api.getRunRecord).not.toHaveBeenCalled();
+    expect(api.getTaskWorkspaceRunDetail).not.toHaveBeenCalled();
   });
 
   it("uses history as selected-run state and releases the old live subscription", async () => {
@@ -622,7 +695,9 @@ describe("Task Workspace selected run controller", () => {
 
   it("keeps a rejected selected record load as an explicit route error", async () => {
     const { api } = controllerApi({ readModel: () => null });
-    api.getRunRecord.mockRejectedValueOnce(new Error("Run record could not be read."));
+    api.getTaskWorkspaceRunDetail.mockRejectedValueOnce(
+      new Error("Run record could not be read.")
+    );
     const { result } = renderHook(() => useControllerHarness(api));
 
     await waitFor(() => expect(result.current.recordError).toBe("Run record could not be read."));
@@ -633,11 +708,113 @@ describe("Task Workspace selected run controller", () => {
     expect(result.current.selectedRun).not.toBeNull();
   });
 
+  it("loads additional run pages through listTaskWorkspaceRuns with nextCursor", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const listItem = (runId: string, retryIndex: number, selected: boolean) => ({
+      blockRef: "T-001#B-001" as const,
+      retryIndex,
+      active: false,
+      selected,
+      waitingInteraction: { active: false as const, count: 0 as const, kinds: [] as [] },
+      run: projectedRun(runId)
+    });
+    api.getTaskWorkspace.mockResolvedValue(workspaceHeader("T-001#B-001::RUN-050"));
+    api.listTaskWorkspaceRuns
+      .mockResolvedValueOnce({
+        version: "planweave.task-workspace-runs-page/v1",
+        projectRoot: "/projects/demo",
+        canvasId: "canvas-main",
+        taskId: "T-001",
+        limit: 50,
+        items: [
+          listItem("RUN-050", 50, true),
+          listItem("RUN-049", 49, false)
+        ],
+        nextCursor: {
+          version: "planweave.task-workspace-runs-cursor/v2",
+          taskId: "T-001",
+          canvasId: "canvas-main",
+          orderedAt: "2026-07-13T00:00:00.000Z",
+          recordId: "T-001#B-001::RUN-049"
+        }
+      })
+      .mockResolvedValueOnce({
+        version: "planweave.task-workspace-runs-page/v1",
+        projectRoot: "/projects/demo",
+        canvasId: "canvas-main",
+        taskId: "T-001",
+        limit: 50,
+        items: [listItem("RUN-001", 1, false)],
+        nextCursor: null
+      });
+    api.getTaskWorkspaceRunDetail.mockImplementation(async (input: { recordId: string }) => {
+      const runId = input.recordId.split("::")[1] ?? "RUN-050";
+      const run = projectedRun(runId);
+      return {
+        version: "planweave.task-workspace-run-detail/v1" as const,
+        projectRoot: "/projects/demo",
+        canvasId: "canvas-main",
+        taskId: "T-001",
+        blockRef: "T-001#B-001",
+        item: {
+          retryIndex: Number(runId.replace("RUN-", "")) || 1,
+          active: false,
+          selected: true,
+          waitingInteraction: { active: false as const, count: 0 as const, kinds: [] },
+          run
+        },
+        record: record(input.recordId, null)
+      };
+    });
+
+    const nav = navigation("T-001#B-001::RUN-050");
+    const { result } = renderHook(() => useControllerHarness(api, nav));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.error).toBeNull();
+    expect(result.current.hasMoreRuns).toBe(true);
+    expect(result.current.workspace?.blocks[0]?.runs).toHaveLength(2);
+
+    await act(async () => {
+      await result.current.loadMoreRuns();
+    });
+
+    await waitFor(() => expect(result.current.hasMoreRuns).toBe(false));
+    expect(api.listTaskWorkspaceRuns).toHaveBeenCalledTimes(2);
+    expect(api.listTaskWorkspaceRuns).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        cursor: {
+          version: "planweave.task-workspace-runs-cursor/v2",
+          taskId: "T-001",
+          canvasId: "canvas-main",
+          orderedAt: "2026-07-13T00:00:00.000Z",
+          recordId: "T-001#B-001::RUN-049"
+        }
+      })
+    );
+    expect(result.current.workspace?.blocks[0]?.runs.map((run) => run.run.record.runId)).toEqual(
+      expect.arrayContaining(["RUN-050", "RUN-049", "RUN-001"])
+    );
+  });
+
   it("rejects a selected record whose response identity differs from navigation", async () => {
     const { api } = controllerApi({ readModel: () => null });
-    api.getRunRecord.mockResolvedValueOnce({
-      ...record("T-001#B-001::RUN-001", null),
-      taskId: "T-OTHER"
+    api.getTaskWorkspaceRunDetail.mockResolvedValueOnce({
+      version: "planweave.task-workspace-run-detail/v1",
+      projectRoot: "/projects/demo",
+      canvasId: "canvas-main",
+      taskId: "T-001",
+      blockRef: "T-001#B-001",
+      item: {
+        retryIndex: 1,
+        active: false,
+        selected: true,
+        waitingInteraction: { active: false, count: 0, kinds: [] },
+        run: projectedRun("RUN-001")
+      },
+      record: {
+        ...record("T-001#B-001::RUN-001", null),
+        taskId: "T-OTHER"
+      }
     });
     const { result } = renderHook(() => useControllerHarness(api));
 

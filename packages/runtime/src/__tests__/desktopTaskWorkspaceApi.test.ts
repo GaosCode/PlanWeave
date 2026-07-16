@@ -3,14 +3,22 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import {
+  recordBlockRunArtifactInIndex,
+  recordBlockRunInIndex
+} from "../autoRun/blockRunIndex.js";
+import {
+  composeTaskWorkspaceRuns,
   getTaskWorkspace,
+  listTaskWorkspaceRuns,
   taskWorkspaceAgentTimeSchema,
   taskWorkspaceAnnotationSchema,
   taskWorkspaceDependencyProgressSchema,
   taskWorkspaceInputSchema,
   taskWorkspaceSchema,
   taskWorkspaceWaitingInteractionSchema,
-  taskWorkspaceWallClockSchema
+  taskWorkspaceWallClockSchema,
+  type TaskWorkspace,
+  type TaskWorkspaceInput
 } from "../desktop/index.js";
 import { readState, writeState } from "../state.js";
 import { claimNext, submitBlockResult, submitReviewResult } from "../taskManager/index.js";
@@ -26,6 +34,23 @@ afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
   delete process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
 });
+
+/** Header + first run page composed for tests that assert timeline run rows. */
+async function loadComposedTaskWorkspace(
+  input: TaskWorkspaceInput,
+  options: { now?: Date } = {}
+): Promise<TaskWorkspace> {
+  const header = await getTaskWorkspace(input, options);
+  const page = await listTaskWorkspaceRuns(
+    {
+      projectRoot: input.projectRoot,
+      canvasId: input.canvasId,
+      taskId: input.taskId
+    },
+    { now: options.now, selectedRecordId: header.selectedRecordId }
+  );
+  return composeTaskWorkspaceRuns(header, page.items, options);
+}
 
 function parallelManifest(): PlanPackageManifest {
   const manifest = basicManifest({ parallel: true, maxConcurrent: 2 });
@@ -53,14 +78,14 @@ async function writeBlockRun(options: {
   executionWaveId?: string;
 }): Promise<void> {
   const ref = `T-001#${options.blockId}`;
-  const runDir = join(
+  const runsRoot = join(
     options.resultsDir,
     "T-001",
     "blocks",
     options.blockId,
-    "runs",
-    options.runId
+    "runs"
   );
+  const runDir = join(runsRoot, options.runId);
   await mkdir(runDir, { recursive: true });
   await writeJsonFile(join(runDir, "metadata.json"), {
     runId: options.runId,
@@ -72,8 +97,10 @@ async function writeBlockRun(options: {
     executionWaveId: options.executionWaveId,
     exitCode: options.finishedAt ? 0 : null
   });
+  await recordBlockRunInIndex(runsRoot, options.runId);
   if (options.report !== undefined) {
     await writeFile(join(runDir, "report.md"), options.report, "utf8");
+    await recordBlockRunArtifactInIndex(runsRoot, options.runId);
   }
 }
 
@@ -122,7 +149,7 @@ describe("desktop Task Workspace aggregate API", () => {
       finishedAt: "2026-07-13T00:00:25.000Z"
     });
 
-    const workspace = await getTaskWorkspace(
+    const workspace = await loadComposedTaskWorkspace(
       { projectRoot: root, canvasId: "default", taskId: "T-001" },
       { now: new Date("2026-07-13T00:01:00.000Z") }
     );
@@ -197,6 +224,7 @@ describe("desktop Task Workspace aggregate API", () => {
     expect(workspace.task.executor).toBe("codex");
     expect(implementation).toMatchObject({ executor: "pi", effectiveExecutor: "pi" });
     expect(review).toMatchObject({ executor: null, effectiveExecutor: "codex" });
+    expect(implementation?.runs).toEqual([]);
   });
 
   it("marks only the latest unfinished current-ref run active and defaults selection to it", async () => {
@@ -217,7 +245,7 @@ describe("desktop Task Workspace aggregate API", () => {
       finishedAt: null
     });
 
-    const workspace = await getTaskWorkspace(
+    const workspace = await loadComposedTaskWorkspace(
       { projectRoot: root, canvasId: "default", taskId: "T-001" },
       { now: new Date("2026-07-13T00:00:11.000Z") }
     );
@@ -276,7 +304,7 @@ describe("desktop Task Workspace aggregate API", () => {
       finishedAt: null
     });
 
-    const workspace = await getTaskWorkspace(
+    const workspace = await loadComposedTaskWorkspace(
       { projectRoot: root, canvasId: "default", taskId: "T-001" },
       { now: new Date("2026-07-13T00:00:05.000Z") }
     );
@@ -288,7 +316,7 @@ describe("desktop Task Workspace aggregate API", () => {
     ).toHaveLength(0);
   });
 
-  it("uses numeric run ordinals when start times are missing or mixed", async () => {
+  it("uses persisted chronology with a deterministic numeric fallback when timestamps are missing", async () => {
     const { root, init } = await createTestWorkspace();
     await writeBlockRun({
       resultsDir: init.workspace.resultsDir,
@@ -301,14 +329,14 @@ describe("desktop Task Workspace aggregate API", () => {
       runId: "RUN-2"
     });
 
-    const undated = await getTaskWorkspace({
+    const undated = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001"
     });
     expect(undated.blocks[0]?.runs.map((item) => item.run.record.runId)).toEqual([
-      "RUN-2",
-      "RUN-10"
+      "RUN-10",
+      "RUN-2"
     ]);
     expect(undated.selectedRecordId).toBe("T-001#B-001::RUN-10");
 
@@ -319,17 +347,17 @@ describe("desktop Task Workspace aggregate API", () => {
       startedAt: "2026-07-13T00:00:00.000Z",
       finishedAt: "2026-07-13T00:00:01.000Z"
     });
-    const mixed = await getTaskWorkspace({
+    const mixed = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001"
     });
     expect(mixed.blocks[0]?.runs.map((item) => item.run.record.runId)).toEqual([
+      "RUN-10",
       "RUN-2",
-      "RUN-3",
-      "RUN-10"
+      "RUN-3"
     ]);
-    expect(mixed.selectedRecordId).toBe("T-001#B-001::RUN-10");
+    expect(mixed.selectedRecordId).toBe("T-001#B-001::RUN-3");
   });
 
   it("keeps review attempts, feedback, and feedback runs as explicitly unassociated annotations", async () => {
@@ -359,7 +387,7 @@ describe("desktop Task Workspace aggregate API", () => {
     });
     await writeFile(join(feedbackRunDir, "feedback-report.md"), "Feedback applied.\n", "utf8");
 
-    const workspace = await getTaskWorkspace({
+    const workspace = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001"
@@ -403,7 +431,7 @@ describe("desktop Task Workspace aggregate API", () => {
       finishedAt: "2026-07-13T00:00:02.000Z"
     });
 
-    const workspace = await getTaskWorkspace({
+    const workspace = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001"
@@ -603,8 +631,15 @@ describe("desktop Task Workspace aggregate API", () => {
       }).success
     ).toBe(false);
 
-    const { root } = await createTestWorkspace();
-    const workspace = await getTaskWorkspace({
+    const { root, init } = await createTestWorkspace();
+    await writeBlockRun({
+      resultsDir: init.workspace.resultsDir,
+      blockId: "B-001",
+      runId: "RUN-001",
+      startedAt: "2026-07-13T00:00:00.000Z",
+      finishedAt: "2026-07-13T00:00:01.000Z"
+    });
+    const workspace = await loadComposedTaskWorkspace({
       projectRoot: root,
       canvasId: "default",
       taskId: "T-001"
@@ -617,7 +652,7 @@ describe("desktop Task Workspace aggregate API", () => {
     ).toBe(false);
   });
 
-  it("rejects an ACP canonical identity from a different project", async () => {
+  it("rejects an ACP canonical identity from a different project on detail load", async () => {
     const { root, init } = await createTestWorkspace();
     await writeBlockRun({
       resultsDir: init.workspace.resultsDir,
@@ -669,8 +704,14 @@ describe("desktop Task Workspace aggregate API", () => {
       "utf8"
     );
 
+    const { getTaskWorkspaceRunDetail } = await import("../desktop/index.js");
     await expect(
-      getTaskWorkspace({ projectRoot: root, canvasId: "default", taskId: "T-001" })
-    ).rejects.toThrow("does not match Task Workspace record");
+      getTaskWorkspaceRunDetail({
+        projectRoot: root,
+        canvasId: "default",
+        taskId: "T-001",
+        recordId: "T-001#B-001::RUN-ACP-001"
+      })
+    ).rejects.toThrow(/does not match|canonical/i);
   });
 });

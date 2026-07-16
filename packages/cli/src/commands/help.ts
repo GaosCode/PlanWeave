@@ -112,6 +112,8 @@ export const planweaveHelpTopics: HelpTopic[] = [
     commands: [
       "doctor",
       "doctor --repair",
+      "run-index migrate --canvas <canvasId>",
+      "run-index migrate --all-canvases",
       "mark-blocked <ref> --reason <reason>",
       "unblock <ref> --reason <reason>",
       "mark-diverged <ref> --reason <reason>",
@@ -120,6 +122,7 @@ export const planweaveHelpTopics: HelpTopic[] = [
     ],
     notes: [
       "Doctor checks state/results consistency; it is not a general Plan Package repair tool.",
+      "Run-index migration rebuilds every implementation and review block index in the selected canvas scope.",
       "Use doctor --repair only for narrow, evidence-backed runtime drift.",
       "retry-review edits one exact review block and resets max-cycle completion state for another attempt.",
       "Fix bad dependencies, unsafe parallelization, missing prompts, or review-gate design through exact Plan Package edits."

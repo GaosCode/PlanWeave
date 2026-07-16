@@ -57,7 +57,6 @@ export type TaskWorkspaceLabels = {
   expandTimeline: string;
   formatDuration: (milliseconds: number) => string;
   inspector: string;
-  inheritCanvasExecutor: string;
   inheritTaskExecutor: string;
   latestArtifact: string;
   loading: string;
@@ -86,8 +85,13 @@ export type TaskWorkspaceController = {
   error: string | null;
   executorOptions: string[];
   getRunScrollTop: (recordId: string) => number;
+  /** True when listTaskWorkspaceRuns returned a nextCursor that has not been exhausted. */
+  hasMoreRuns: boolean;
   liveStatus: TaskWorkspaceLiveStatus;
   liveUnavailableReason: string | null;
+  loadMoreRuns: () => Promise<void>;
+  loadMoreRunsError: string | null;
+  loadingMoreRuns: boolean;
   navigation: TaskWorkspaceNavigationIdentity | null;
   onRunScrollTopChange: (recordId: string, scrollTop: number) => void;
   packageExecutorNames: string[];
@@ -109,7 +113,14 @@ export type TaskWorkspaceController = {
 
 export type TaskWorkspaceTimelineSlotProps = Pick<
   TaskWorkspaceController,
-  "getRunScrollTop" | "onRunScrollTopChange" | "selectRun" | "selectedRun"
+  | "getRunScrollTop"
+  | "hasMoreRuns"
+  | "loadMoreRuns"
+  | "loadMoreRunsError"
+  | "loadingMoreRuns"
+  | "onRunScrollTopChange"
+  | "selectRun"
+  | "selectedRun"
 > &
   Pick<TaskWorkspaceLayout, "setTimelineWidth" | "timelineWidth"> & {
     workspace: TaskWorkspace;

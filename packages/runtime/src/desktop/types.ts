@@ -7,3 +7,4 @@ export type * from "./types/runTypes.js";
 export type * from "./types/bridgeTypes.js";
 export type * from "./types/taskWorkspaceTypes.js";
 export type * from "./types/taskWorkspaceAggregateTypes.js";
+export type * from "./types/taskWorkspaceQueryTypes.js";

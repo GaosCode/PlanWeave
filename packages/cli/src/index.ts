@@ -38,6 +38,7 @@ import { registerResetCommand } from "./commands/reset.js";
 import { registerRunSessionsCommands } from "./commands/runSessions.js";
 import { registerExecutorsCommand } from "./commands/executors.js";
 import { registerRunStatusCommand } from "./commands/runStatus.js";
+import { registerRunIndexCommand } from "./commands/runIndex.js";
 import { registerHelpCommand } from "./commands/help.js";
 import { registerSchemaCommand } from "./commands/schema.js";
 import { registerMcpCommand } from "./commands/mcp.js";
@@ -91,6 +92,7 @@ export function createProgram(): Command {
   registerRunSessionsCommands(program);
   registerExecutorsCommand(program);
   registerRunStatusCommand(program);
+  registerRunIndexCommand(program);
   registerSchemaCommand(program);
   registerMcpCommand(program);
   registerTrustCommand(program);

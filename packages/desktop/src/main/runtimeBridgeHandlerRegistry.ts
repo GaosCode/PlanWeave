@@ -44,6 +44,8 @@ import {
   getTaskFileManagerPath,
   getTaskExecutionOrder,
   getTaskWorkspace,
+  getTaskWorkspaceRunDetail,
+  listTaskWorkspaceRuns,
   retryTaskWorkspaceRun,
   getTodoGroups,
   initOrOpenProject,
@@ -110,7 +112,6 @@ import type {
   DesktopAutoRunOptions,
   DesktopAutoRunScope,
   DesktopBridgeApi,
-  DesktopCanvasMapLayout,
   DesktopCanvasReference,
   DesktopGraphEditResult,
   DesktopLayout,
@@ -120,7 +121,9 @@ import type {
   DesktopRuntimeResetOptions,
   GraphEditResult,
   TaskWorkspace,
-  TaskWorkspaceInput
+  TaskWorkspaceInput,
+  TaskWorkspaceRunDetail,
+  TaskWorkspaceRunsPage
 } from "@planweave-ai/runtime";
 import {
   desktopAgentActionIdentitySchema,
@@ -129,7 +132,11 @@ import {
   desktopAgentSessionActionIdentitySchema,
   desktopAgentActionValueSchema,
   taskWorkspaceInputSchema,
+  taskWorkspaceListRunsInputSchema,
   taskWorkspaceRetryIdentitySchema,
+  taskWorkspaceRunDetailInputSchema,
+  taskWorkspaceRunDetailSchema,
+  taskWorkspaceRunsPageSchema,
   taskWorkspaceSchema
 } from "@planweave-ai/runtime";
 import type { DesktopBridgeMainInvokeMethod } from "../shared/ipcChannels.js";
@@ -247,6 +254,81 @@ async function invokeTaskWorkspace(input: unknown) {
         ? error.message
         : "unknown Runtime error";
     throw new Error(`Task Workspace request failed: ${message}`);
+  }
+}
+
+function assertTaskWorkspaceScopeIdentity(
+  input: { projectRoot: string; canvasId: string; taskId: string },
+  result: { projectRoot: string; canvasId: string; taskId: string },
+  label: string
+): void {
+  const identityFields = [
+    ["projectRoot", result.projectRoot, input.projectRoot],
+    ["canvasId", result.canvasId, input.canvasId],
+    ["taskId", result.taskId, input.taskId]
+  ] as const;
+  for (const [path, actual, expected] of identityFields) {
+    if (actual !== expected) {
+      throw new Error(
+        `invalid Runtime response identity: ${path} '${actual}' does not match request '${expected}'.`
+      );
+    }
+  }
+  void label;
+}
+
+async function invokeTaskWorkspaceRuns(input: unknown): Promise<TaskWorkspaceRunsPage> {
+  const parsedInput = taskWorkspaceListRunsInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    throw new Error(
+      `Task Workspace runs request failed: ${validationFailureMessage(parsedInput.error)}`
+    );
+  }
+  try {
+    const result = await listTaskWorkspaceRuns(parsedInput.data);
+    const parsedResult = taskWorkspaceRunsPageSchema.safeParse(result);
+    if (!parsedResult.success) {
+      throw new Error(`invalid Runtime response: ${validationFailureMessage(parsedResult.error)}`);
+    }
+    assertTaskWorkspaceScopeIdentity(parsedInput.data, parsedResult.data, "runs page");
+    return parsedResult.data;
+  } catch (error) {
+    const message = isValidationFailure(error)
+      ? validationFailureMessage(error)
+      : error instanceof Error && error.message.trim()
+        ? error.message
+        : "unknown Runtime error";
+    throw new Error(`Task Workspace runs request failed: ${message}`);
+  }
+}
+
+async function invokeTaskWorkspaceRunDetail(input: unknown): Promise<TaskWorkspaceRunDetail> {
+  const parsedInput = taskWorkspaceRunDetailInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    throw new Error(
+      `Task Workspace run detail request failed: ${validationFailureMessage(parsedInput.error)}`
+    );
+  }
+  try {
+    const result = await getTaskWorkspaceRunDetail(parsedInput.data);
+    const parsedResult = taskWorkspaceRunDetailSchema.safeParse(result);
+    if (!parsedResult.success) {
+      throw new Error(`invalid Runtime response: ${validationFailureMessage(parsedResult.error)}`);
+    }
+    assertTaskWorkspaceScopeIdentity(parsedInput.data, parsedResult.data, "run detail");
+    if (parsedResult.data.record.recordId !== parsedInput.data.recordId) {
+      throw new Error(
+        `invalid Runtime response identity: record.recordId '${parsedResult.data.record.recordId}' does not match request '${parsedInput.data.recordId}'.`
+      );
+    }
+    return parsedResult.data;
+  } catch (error) {
+    const message = isValidationFailure(error)
+      ? validationFailureMessage(error)
+      : error instanceof Error && error.message.trim()
+        ? error.message
+        : "unknown Runtime error";
+    throw new Error(`Task Workspace run detail request failed: ${message}`);
   }
 }
 
@@ -475,7 +557,8 @@ export const runtimeBridgeHandlers = {
   getProjectOverview: (_event, projectRoot) => getProjectOverview(projectRoot),
   getCanvasGraphViewModel: (_event, projectRoot) => getCanvasGraphViewModel(projectRoot),
   getCanvasMapLayout: (_event, projectRoot) => getCanvasMapLayout(projectRoot),
-  saveCanvasMapLayout: (_event, projectRoot, layout: DesktopCanvasMapLayout) =>
+  // IPC payload is untrusted; runtime saveCanvasMapLayout parses with Zod.
+  saveCanvasMapLayout: (_event, projectRoot: string, layout: unknown) =>
     saveCanvasMapLayout(projectRoot, layout),
   resetCanvasMapLayout: (_event, projectRoot) => resetCanvasMapLayout(projectRoot),
   getDesktopProjectSnapshot: (_event, ref) => getDesktopProjectSnapshot(ref),
@@ -487,6 +570,8 @@ export const runtimeBridgeHandlers = {
   getTaskDetail: async (_event, ref, taskId) =>
     getTaskDetail(await resolveDesktopCanvasReference(ref), taskId),
   getTaskWorkspace: (_event, input) => invokeTaskWorkspace(input),
+  listTaskWorkspaceRuns: (_event, input) => invokeTaskWorkspaceRuns(input),
+  getTaskWorkspaceRunDetail: (_event, input) => invokeTaskWorkspaceRunDetail(input),
   retryTaskWorkspaceRun: (_event, identity) =>
     retryTaskWorkspaceRun(taskWorkspaceRetryIdentitySchema.parse(identity)),
   getBlockDetail: async (_event, ref, blockRef) =>

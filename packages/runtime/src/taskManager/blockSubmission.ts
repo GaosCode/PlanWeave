@@ -8,6 +8,10 @@ import {
 } from "../autoRun/artifactReferenceContract.js";
 import type { ArtifactReference } from "../autoRun/runnerContractSchemas.js";
 import { allocateRunId } from "../autoRun/executorShared.js";
+import {
+  recordBlockRunArtifactInIndex,
+  recordBlockRunInIndex
+} from "../autoRun/blockRunIndex.js";
 import { optionalReaddir } from "../fs/optionalFile.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
@@ -187,6 +191,9 @@ async function submitBlockResultArtifact(
       artifact
     );
     if (persistedRunId) {
+      const persistedRunRoot = join(workspace.resultsDir, taskId, "blocks", blockId, "runs");
+      await recordBlockRunInIndex(persistedRunRoot, persistedRunId);
+      await recordBlockRunArtifactInIndex(persistedRunRoot, persistedRunId);
       await updateTaskIndex(workspace, taskId, (index) => ({
         ...index,
         latestRunByBlock: {
@@ -247,6 +254,8 @@ async function submitBlockResultArtifact(
       ...(artifactReference ? { artifactReference } : {}),
       sourceReportPath: options.reportPath
     });
+    await recordBlockRunInIndex(runRoot, runId);
+    await recordBlockRunArtifactInIndex(runRoot, runId);
     await updateTaskIndex(workspace, taskId, (index) => ({
       ...index,
       latestRunByBlock: {

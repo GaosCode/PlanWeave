@@ -40,6 +40,7 @@ import {
   queueLiveAcpPrompt,
   resolveAcpPromptContext
 } from "./acpPromptApi.js";
+import { compareRunDirectoriesNewestFirst } from "./autoRunIdReservations.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import { desktopAgentPromptTextSchema } from "./types/acpBridgeTypes.js";
 import {
@@ -109,13 +110,23 @@ async function listDirectories(path: string): Promise<string[]> {
   );
 }
 
-function blockRunRoot(resultsDir: string, blockRef: string): string {
+export function blockRunRoot(resultsDir: string, blockRef: string): string {
   const { taskId, blockId } = parseBlockRef(blockRef);
   return join(resultsDir, taskId, "blocks", blockId, "runs");
 }
 
+async function listBlockRunIds(resultsDir: string, blockRef: string): Promise<string[]> {
+  return (await listDirectories(blockRunRoot(resultsDir, blockRef))).filter(
+    (runId) => !runId.startsWith(".")
+  );
+}
+
 function feedbackRunRoot(resultsDir: string): string {
   return join(resultsDir, "feedback-runs");
+}
+
+async function listFeedbackRunIds(resultsDir: string): Promise<string[]> {
+  return (await listDirectories(feedbackRunRoot(resultsDir))).filter((runId) => !runId.startsWith("."));
 }
 
 function assertContainedPath(root: string, candidate: string): void {
@@ -275,11 +286,20 @@ function verdictField(value: unknown): ReviewVerdict | null {
   return value === "passed" || value === "needs_changes" ? value : null;
 }
 
-async function runRecordSummary(options: {
+export type DesktopRunRecordIndexEntry = {
+  summary: DesktopBlockRunRecordSummary;
+  metadata: Record<string, unknown>;
+};
+
+/**
+ * Lightweight block-run index entry: metadata + path existence only.
+ * Does not read prompt/stdout/stderr/events content.
+ */
+async function runRecordIndex(options: {
   resultsDir: string;
   blockRef: string;
   runId: string;
-}): Promise<DesktopBlockRunRecordSummary> {
+}): Promise<DesktopRunRecordIndexEntry> {
   const { taskId, blockId } = parseBlockRef(options.blockRef);
   const runDir = join(blockRunRoot(options.resultsDir, options.blockRef), options.runId);
   const metadataPath = join(runDir, "metadata.json");
@@ -287,52 +307,159 @@ async function runRecordSummary(options: {
     ? await readJsonFile<Record<string, unknown>>(metadataPath)
     : {};
   const adapter = adapterField(metadata);
-  const stdout = await readOptionalFile(join(runDir, "stdout.md"));
-  const stderr = await readOptionalFile(join(runDir, "stderr.log"));
   const promptPath = join(runDir, "prompt.md");
   const reportPath = join(runDir, finalArtifactRelativePath("implementation"));
-  const updateTimes = await runFileUpdateTimes(runDir, metadataPath);
+  const metadataUpdatedAt = await fileUpdatedAt(metadataPath);
   return {
-    recordId: runRecordId(options.blockRef, options.runId),
-    kind: "block",
-    ref: options.blockRef,
-    taskId,
-    blockId,
-    runId: options.runId,
-    executor: stringField(metadata, "executor"),
-    adapter,
-    executionCwd: stringField(metadata, "executionCwd"),
-    projectRoot: stringField(metadata, "projectRoot"),
-    agentSessionId: firstStringField(metadata, [
-      "agentSessionId",
-      "codexSessionId",
-      "opencodeSessionId",
-      "sessionId",
-      "session_id",
-      "threadId",
-      "thread_id"
-    ]),
-    codexSessionId: stringField(metadata, "codexSessionId"),
-    tmuxSessionId: firstStringField(metadata, ["tmuxSessionId", "tmuxSessionName"]),
-    tmuxAttachCommand: stringField(metadata, "tmuxAttachCommand"),
-    tmuxReadOnlyAttachCommand: stringField(metadata, "tmuxReadOnlyAttachCommand"),
-    exitCode: numberField(metadata, "exitCode"),
-    startedAt: stringField(metadata, "startedAt"),
-    finishedAt: stringField(metadata, "finishedAt"),
-    promptPath: (await exists(promptPath)) ? promptPath : null,
-    reportPath: (await exists(reportPath)) ? reportPath : null,
-    metadataPath,
+    metadata,
+    summary: {
+      recordId: runRecordId(options.blockRef, options.runId),
+      kind: "block",
+      ref: options.blockRef,
+      taskId,
+      blockId,
+      runId: options.runId,
+      executor: stringField(metadata, "executor"),
+      adapter,
+      executionCwd: stringField(metadata, "executionCwd"),
+      projectRoot: stringField(metadata, "projectRoot"),
+      agentSessionId: firstStringField(metadata, [
+        "agentSessionId",
+        "codexSessionId",
+        "opencodeSessionId",
+        "sessionId",
+        "session_id",
+        "threadId",
+        "thread_id"
+      ]),
+      codexSessionId: stringField(metadata, "codexSessionId"),
+      tmuxSessionId: firstStringField(metadata, ["tmuxSessionId", "tmuxSessionName"]),
+      tmuxAttachCommand: stringField(metadata, "tmuxAttachCommand"),
+      tmuxReadOnlyAttachCommand: stringField(metadata, "tmuxReadOnlyAttachCommand"),
+      exitCode: numberField(metadata, "exitCode"),
+      startedAt: stringField(metadata, "startedAt"),
+      finishedAt: stringField(metadata, "finishedAt"),
+      promptPath: (await exists(promptPath)) ? promptPath : null,
+      reportPath: (await exists(reportPath)) ? reportPath : null,
+      metadataPath,
+      metadataUpdatedAt,
+      stdoutUpdatedAt: null,
+      stderrUpdatedAt: null,
+      heartbeatPath: null,
+      heartbeatUpdatedAt: null,
+      heartbeatStatus: null,
+      heartbeatPid: null,
+      lastHeartbeatAt: null,
+      lastActivityAt: metadataUpdatedAt,
+      lastOutputAt: null,
+      stdoutSummary: "",
+      stderrSummary: ""
+    }
+  };
+}
+
+async function runRecordSummary(options: {
+  resultsDir: string;
+  blockRef: string;
+  runId: string;
+}): Promise<DesktopBlockRunRecordSummary> {
+  const { summary, metadata } = await runRecordIndex(options);
+  const runDir = join(blockRunRoot(options.resultsDir, options.blockRef), options.runId);
+  const stdout = await readOptionalFile(join(runDir, "stdout.md"));
+  const stderr = await readOptionalFile(join(runDir, "stderr.log"));
+  const updateTimes = await runFileUpdateTimes(runDir, summary.metadataPath);
+  return {
+    ...summary,
     ...updateTimes,
-    stdoutSummary: outputSummaryForRecord(adapter, stdout, ""),
+    stdoutSummary: outputSummaryForRecord(adapterField(metadata), stdout, ""),
     stderrSummary: cleanOutputSummary(stderr)
   };
 }
 
-async function feedbackRunRecordSummary(options: {
+/** Read metadata-only index for a run without heavy content I/O. */
+export async function getRunRecordIndex(
+  projectRoot: PackageWorkspaceRef,
+  recordId: string
+): Promise<DesktopBlockRunRecordSummary> {
+  return (await getRunRecordIndexEntry(projectRoot, recordId)).summary;
+}
+
+/** Metadata-only index plus parsed metadata object (one metadata.json read). */
+export async function getRunRecordIndexEntry(
+  projectRoot: PackageWorkspaceRef,
+  recordId: string
+): Promise<DesktopRunRecordIndexEntry> {
+  const { workspace } = await loadPackage(projectRoot);
+  return getRunRecordIndexEntryFromWorkspace(workspace, recordId);
+}
+
+export async function getRunRecordIndexEntryFromWorkspace(
+  workspace: ProjectWorkspace,
+  recordId: string
+): Promise<DesktopRunRecordIndexEntry> {
+  const parsed = parseRunRecordId(recordId);
+  if (parsed.kind === "block") {
+    return runRecordIndex({
+      resultsDir: workspace.resultsDir,
+      blockRef: parsed.blockRef,
+      runId: parsed.runId
+    });
+  }
+  return feedbackRunRecordIndex({
+    resultsDir: workspace.resultsDir,
+    feedbackId: parsed.feedbackId,
+    runId: parsed.runId
+  });
+}
+
+/**
+ * List block run directory ids only (readdir). No metadata or content reads.
+ * Newest-first by run directory name.
+ */
+export async function listBlockRunDirectoryIds(
+  projectRoot: PackageWorkspaceRef,
+  blockRef: string
+): Promise<string[]> {
+  const { workspace } = await loadPackage(projectRoot);
+  const runIds = await listBlockRunIds(workspace.resultsDir, blockRef);
+  return [...runIds].sort((left, right) => {
+    const byDesktop = compareRunDirectoriesNewestFirst(left, right);
+    if (byDesktop !== 0) return byDesktop;
+    return right.localeCompare(left, undefined, { numeric: true });
+  });
+}
+
+/** Metadata-only summaries for a selected set of main runs (no stdout/stderr/prompt bodies). */
+export async function listBlockMainRunIndexes(
+  projectRoot: PackageWorkspaceRef,
+  blockRef: string,
+  runIds?: readonly string[]
+): Promise<DesktopRunRecordIndexEntry[]> {
+  const { workspace } = await loadPackage(projectRoot);
+  const ids = runIds ?? (await listBlockRunDirectoryIds(workspace, blockRef));
+  return Promise.all(
+    ids.map((runId) => runRecordIndex({ resultsDir: workspace.resultsDir, blockRef, runId }))
+  );
+}
+
+/** Attach empty heavy fields so index rows can feed Task Workspace run projection. */
+export function runIndexAsProjectionRecord(entry: DesktopRunRecordIndexEntry): DesktopRunRecord {
+  return {
+    ...entry.summary,
+    promptMarkdown: "",
+    reportMarkdown: "",
+    displayMarkdown: "",
+    displayMarkdownSource: "none",
+    metadata: entry.metadata,
+    runnerReadModel: null
+  };
+}
+
+async function feedbackRunRecordIndex(options: {
   resultsDir: string;
   feedbackId: string;
   runId: string;
-}): Promise<DesktopBlockRunRecordSummary> {
+}): Promise<DesktopRunRecordIndexEntry> {
   const runDir = join(feedbackRunRoot(options.resultsDir), options.runId);
   const metadataPath = join(runDir, "metadata.json");
   const metadata = (await exists(metadataPath))
@@ -350,47 +477,75 @@ async function feedbackRunRecordSummary(options: {
   }
   const { taskId, blockId } = parseBlockRef(sourceReviewBlockRef);
   const adapter = adapterField(metadata);
-  const stdout = await readOptionalFile(join(runDir, "stdout.md"));
-  const stderr = await readOptionalFile(join(runDir, "stderr.log"));
   const promptPath = (await exists(join(runDir, "prompt.md")))
     ? join(runDir, "prompt.md")
     : join(runDir, "feedback.md");
   const reportPath = join(runDir, finalArtifactRelativePath("feedback"));
-  const updateTimes = await runFileUpdateTimes(runDir, metadataPath);
+  const metadataUpdatedAt = await fileUpdatedAt(metadataPath);
   return {
-    recordId: feedbackRunRecordId(feedbackId, options.runId),
-    kind: "feedback",
-    ref: sourceReviewBlockRef,
-    feedbackId,
-    sourceReviewBlockRef,
-    taskId,
-    blockId,
-    runId: options.runId,
-    executor: stringField(metadata, "executor"),
-    adapter,
-    executionCwd: stringField(metadata, "executionCwd"),
-    projectRoot: stringField(metadata, "projectRoot"),
-    agentSessionId: firstStringField(metadata, [
-      "agentSessionId",
-      "codexSessionId",
-      "opencodeSessionId",
-      "sessionId",
-      "session_id",
-      "threadId",
-      "thread_id"
-    ]),
-    codexSessionId: stringField(metadata, "codexSessionId"),
-    tmuxSessionId: firstStringField(metadata, ["tmuxSessionId", "tmuxSessionName"]),
-    tmuxAttachCommand: stringField(metadata, "tmuxAttachCommand"),
-    tmuxReadOnlyAttachCommand: stringField(metadata, "tmuxReadOnlyAttachCommand"),
-    exitCode: numberField(metadata, "exitCode"),
-    startedAt: stringField(metadata, "startedAt"),
-    finishedAt: stringField(metadata, "finishedAt"),
-    promptPath: (await exists(promptPath)) ? promptPath : null,
-    reportPath: (await exists(reportPath)) ? reportPath : null,
-    metadataPath,
+    metadata,
+    summary: {
+      recordId: feedbackRunRecordId(feedbackId, options.runId),
+      kind: "feedback",
+      ref: sourceReviewBlockRef,
+      feedbackId,
+      sourceReviewBlockRef,
+      taskId,
+      blockId,
+      runId: options.runId,
+      executor: stringField(metadata, "executor"),
+      adapter,
+      executionCwd: stringField(metadata, "executionCwd"),
+      projectRoot: stringField(metadata, "projectRoot"),
+      agentSessionId: firstStringField(metadata, [
+        "agentSessionId",
+        "codexSessionId",
+        "opencodeSessionId",
+        "sessionId",
+        "session_id",
+        "threadId",
+        "thread_id"
+      ]),
+      codexSessionId: stringField(metadata, "codexSessionId"),
+      tmuxSessionId: firstStringField(metadata, ["tmuxSessionId", "tmuxSessionName"]),
+      tmuxAttachCommand: stringField(metadata, "tmuxAttachCommand"),
+      tmuxReadOnlyAttachCommand: stringField(metadata, "tmuxReadOnlyAttachCommand"),
+      exitCode: numberField(metadata, "exitCode"),
+      startedAt: stringField(metadata, "startedAt"),
+      finishedAt: stringField(metadata, "finishedAt"),
+      promptPath: (await exists(promptPath)) ? promptPath : null,
+      reportPath: (await exists(reportPath)) ? reportPath : null,
+      metadataPath,
+      metadataUpdatedAt,
+      stdoutUpdatedAt: null,
+      stderrUpdatedAt: null,
+      heartbeatPath: null,
+      heartbeatUpdatedAt: null,
+      heartbeatStatus: null,
+      heartbeatPid: null,
+      lastHeartbeatAt: null,
+      lastActivityAt: metadataUpdatedAt,
+      lastOutputAt: null,
+      stdoutSummary: "",
+      stderrSummary: ""
+    }
+  };
+}
+
+async function feedbackRunRecordSummary(options: {
+  resultsDir: string;
+  feedbackId: string;
+  runId: string;
+}): Promise<DesktopBlockRunRecordSummary> {
+  const { summary, metadata } = await feedbackRunRecordIndex(options);
+  const runDir = join(feedbackRunRoot(options.resultsDir), options.runId);
+  const stdout = await readOptionalFile(join(runDir, "stdout.md"));
+  const stderr = await readOptionalFile(join(runDir, "stderr.log"));
+  const updateTimes = await runFileUpdateTimes(runDir, summary.metadataPath);
+  return {
+    ...summary,
     ...updateTimes,
-    stdoutSummary: outputSummaryForRecord(adapter, stdout, ""),
+    stdoutSummary: outputSummaryForRecord(adapterField(metadata), stdout, ""),
     stderrSummary: cleanOutputSummary(stderr)
   };
 }
@@ -399,7 +554,7 @@ async function feedbackRunRecordSummariesForBlock(
   resultsDir: string,
   blockRef: string
 ): Promise<DesktopBlockRunRecordSummary[]> {
-  const runIds = await listDirectories(feedbackRunRoot(resultsDir));
+  const runIds = await listFeedbackRunIds(resultsDir);
   const records = await Promise.all(
     runIds.map(async (runId) => {
       const metadataPath = join(feedbackRunRoot(resultsDir), runId, "metadata.json");
@@ -445,7 +600,7 @@ export async function listTaskFeedbackRunRecords(
 ): Promise<DesktopBlockRunRecordSummary[]> {
   const scope = await resolveTaskFeedbackScope(projectRoot, canvasId, taskId);
   const { workspace } = scope;
-  const runIds = await listDirectories(feedbackRunRoot(workspace.resultsDir));
+  const runIds = await listFeedbackRunIds(workspace.resultsDir);
   const records = await Promise.all(
     runIds.map(async (runId) => {
       const metadataPath = join(feedbackRunRoot(workspace.resultsDir), runId, "metadata.json");
@@ -478,11 +633,14 @@ export async function listTaskFeedbackRunRecords(
       if (sourceTaskId !== scope.taskId) {
         return null;
       }
-      return feedbackRunRecordSummary({
+      // Task-scoped feedback listing is metadata/path index only. Heavy stdout/stderr
+      // content belongs to getRunRecord / selected-run detail, not header annotation paths.
+      const entry = await feedbackRunRecordIndex({
         resultsDir: workspace.resultsDir,
         feedbackId: metadata.feedbackId,
         runId
       });
+      return entry.summary;
     })
   );
   return records
@@ -537,7 +695,7 @@ export async function listBlockMainRunRecords(
   blockRef: string
 ): Promise<DesktopBlockRunRecordSummary[]> {
   const { workspace } = await loadPackage(projectRoot);
-  const runIds = await listDirectories(blockRunRoot(workspace.resultsDir, blockRef));
+  const runIds = await listBlockRunIds(workspace.resultsDir, blockRef);
   return (
     await Promise.all(
       runIds.map((runId) => runRecordSummary({ resultsDir: workspace.resultsDir, blockRef, runId }))
