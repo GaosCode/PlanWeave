@@ -207,18 +207,10 @@ export type DesktopCanvasGraphViewModel = {
   health: DesktopCanvasHealth;
 };
 
-export type DesktopCanvasMapLayoutNode = {
-  canvasId: string;
-  x: number;
-  y: number;
-};
-
-export type DesktopCanvasMapLayout = {
-  version: "desktop-canvas-map-layout/v1";
-  projectId: string;
-  nodes: DesktopCanvasMapLayoutNode[];
-  updatedAt: string;
-};
+export type {
+  DesktopCanvasMapLayout,
+  DesktopCanvasMapLayoutNode
+} from "./canvasMapLayoutSchema.js";
 
 export type DesktopTaskDetail = {
   taskId: string;

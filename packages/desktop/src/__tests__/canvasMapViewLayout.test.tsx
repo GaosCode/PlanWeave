@@ -115,8 +115,12 @@ beforeEach(() => {
   useCanvasMapMock.mockReturnValue({
     canvasGraph,
     canvasMapLayout: null,
+    layoutDirty: false,
+    layoutPending: null,
     loadCanvasMap: vi.fn().mockResolvedValue(undefined),
+    persistedCanvasMapLayout: null,
     resetCanvasMapLayout: vi.fn().mockResolvedValue(undefined),
+    retrySaveCanvasMapLayout: vi.fn().mockResolvedValue(undefined),
     saveCanvasMapLayoutFromNodes: vi.fn().mockResolvedValue(undefined),
     selectedCanvas: canvasGraph.canvases[0],
     selectedMapCanvasId: "default",
@@ -163,8 +167,12 @@ describe("CanvasMapView agent scope layout", () => {
     useCanvasMapMock.mockReturnValue({
       canvasGraph,
       canvasMapLayout: null,
+      layoutDirty: false,
+      layoutPending: null,
       loadCanvasMap,
+      persistedCanvasMapLayout: null,
       resetCanvasMapLayout: vi.fn().mockResolvedValue(undefined),
+      retrySaveCanvasMapLayout: vi.fn().mockResolvedValue(undefined),
       saveCanvasMapLayoutFromNodes: vi.fn().mockResolvedValue(undefined),
       selectedCanvas: canvasGraph.canvases[0],
       selectedMapCanvasId: "default",
@@ -203,8 +211,12 @@ describe("CanvasMapView agent scope layout", () => {
     useCanvasMapMock.mockReturnValue({
       canvasGraph,
       canvasMapLayout: null,
+      layoutDirty: false,
+      layoutPending: null,
       loadCanvasMap,
+      persistedCanvasMapLayout: null,
       resetCanvasMapLayout: vi.fn().mockResolvedValue(undefined),
+      retrySaveCanvasMapLayout: vi.fn().mockResolvedValue(undefined),
       saveCanvasMapLayoutFromNodes: vi.fn().mockResolvedValue(undefined),
       selectedCanvas: canvasGraph.canvases[0],
       selectedMapCanvasId: "default",
@@ -237,8 +249,12 @@ describe("CanvasMapView agent scope layout", () => {
     useCanvasMapMock.mockReturnValue({
       canvasGraph,
       canvasMapLayout: null,
+      layoutDirty: false,
+      layoutPending: null,
       loadCanvasMap,
+      persistedCanvasMapLayout: null,
       resetCanvasMapLayout: vi.fn().mockResolvedValue(undefined),
+      retrySaveCanvasMapLayout: vi.fn().mockResolvedValue(undefined),
       saveCanvasMapLayoutFromNodes: vi.fn().mockResolvedValue(undefined),
       selectedCanvas: canvasGraph.canvases[0],
       selectedMapCanvasId: "default",
@@ -302,5 +318,52 @@ describe("CanvasMapView agent scope layout", () => {
 
     expect(reactFlowRenderNodes).toHaveLength(1);
     expect(reactFlowRenderNodes[0]?.length).toBe(1);
+  });
+
+  it("shows a persistent unsaved layout status with retry after a dirty save failure", async () => {
+    const retrySaveCanvasMapLayout = vi.fn().mockResolvedValue(undefined);
+    useCanvasMapMock.mockReturnValue({
+      canvasGraph,
+      canvasMapLayout: null,
+      layoutDirty: true,
+      layoutPending: null,
+      loadCanvasMap: vi.fn().mockResolvedValue(undefined),
+      persistedCanvasMapLayout: null,
+      resetCanvasMapLayout: vi.fn().mockResolvedValue(undefined),
+      retrySaveCanvasMapLayout,
+      saveCanvasMapLayoutFromNodes: vi.fn().mockResolvedValue(undefined),
+      selectedCanvas: canvasGraph.canvases[0],
+      selectedMapCanvasId: "default",
+      setSelectedMapCanvasId: vi.fn()
+    });
+
+    renderCanvasMapView();
+
+    expect(screen.getByTestId("canvas-map-layout-status")).toHaveTextContent("Unsaved layout");
+    expect(screen.getByTestId("canvas-map-layout-dirty-badge")).toHaveTextContent("Unsaved layout");
+    fireEvent.click(screen.getByTestId("canvas-map-layout-retry-save"));
+    await waitFor(() => expect(retrySaveCanvasMapLayout).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows saving pending status without a retry action", () => {
+    useCanvasMapMock.mockReturnValue({
+      canvasGraph,
+      canvasMapLayout: null,
+      layoutDirty: true,
+      layoutPending: "save",
+      loadCanvasMap: vi.fn().mockResolvedValue(undefined),
+      persistedCanvasMapLayout: null,
+      resetCanvasMapLayout: vi.fn().mockResolvedValue(undefined),
+      retrySaveCanvasMapLayout: vi.fn().mockResolvedValue(undefined),
+      saveCanvasMapLayoutFromNodes: vi.fn().mockResolvedValue(undefined),
+      selectedCanvas: canvasGraph.canvases[0],
+      selectedMapCanvasId: "default",
+      setSelectedMapCanvasId: vi.fn()
+    });
+
+    renderCanvasMapView();
+
+    expect(screen.getByTestId("canvas-map-layout-status")).toHaveTextContent("Saving layout");
+    expect(screen.queryByTestId("canvas-map-layout-retry-save")).toBeNull();
   });
 });

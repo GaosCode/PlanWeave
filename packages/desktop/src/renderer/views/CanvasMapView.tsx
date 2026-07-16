@@ -141,8 +141,11 @@ export function CanvasMapView({
   const {
     canvasGraph,
     canvasMapLayout,
+    layoutDirty,
+    layoutPending,
     loadCanvasMap,
     resetCanvasMapLayout,
+    retrySaveCanvasMapLayout,
     saveCanvasMapLayoutFromNodes,
     selectedCanvas,
     selectedMapCanvasId,
@@ -405,9 +408,49 @@ export function CanvasMapView({
     );
   }
 
+  const layoutStatusLabel =
+    layoutPending === "save"
+      ? t("canvasMapLayoutSaving")
+      : layoutPending === "reset"
+        ? t("canvasMapLayoutResetting")
+        : layoutPending === "load"
+          ? t("canvasMapLayoutLoading")
+          : layoutDirty
+            ? t("canvasMapLayoutUnsaved")
+            : null;
+  const showLayoutStatus = layoutStatusLabel !== null;
+  const showRetrySave = layoutDirty && layoutPending === null;
+
   return (
     <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_minmax(0,320px)]">
       <div className="relative min-h-0">
+        {showLayoutStatus ? (
+          <div
+            className="pointer-events-none absolute top-3 left-1/2 z-20 w-[min(420px,calc(100%-1.5rem))] -translate-x-1/2"
+            data-testid="canvas-map-layout-status"
+          >
+            <div
+              className={`pointer-events-auto flex items-center gap-2 rounded-md border px-3 py-2 text-xs shadow-sm ${
+                layoutDirty && layoutPending === null
+                  ? "border-amber-500/40 bg-background text-amber-700 dark:text-amber-300"
+                  : "border-border/80 bg-background text-text-muted"
+              }`}
+              role="status"
+            >
+              <span className="min-w-0 flex-1">{layoutStatusLabel}</span>
+              {showRetrySave ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  data-testid="canvas-map-layout-retry-save"
+                  onClick={() => void retrySaveCanvasMapLayout()}
+                >
+                  {t("canvasMapLayoutRetrySave")}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         <ReactFlow
           nodes={nodes}
           edges={styledEdges}
@@ -452,6 +495,14 @@ export function CanvasMapView({
           <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">
             <GitBranchIcon className="size-4 shrink-0" aria-hidden="true" />
             <span className="truncate">{t("canvasMap")}</span>
+            {layoutDirty ? (
+              <span
+                className="truncate text-xs font-normal text-amber-700 dark:text-amber-300"
+                data-testid="canvas-map-layout-dirty-badge"
+              >
+                {t("canvasMapLayoutUnsaved")}
+              </span>
+            ) : null}
           </div>
           <Button
             size="icon-sm"
