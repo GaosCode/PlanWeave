@@ -193,6 +193,24 @@ function controller(patch: Partial<TaskWorkspaceController> = {}): TaskWorkspace
 }
 
 describe("Task Workspace shell", () => {
+  it("uses a stable workspace-shaped skeleton while the initial data loads", () => {
+    render(
+      <TaskWorkspaceRoute
+        controller={controller({ status: "loading", workspace: null })}
+        labels={labels}
+      />
+    );
+
+    const loadingState = screen.getByRole("status", { name: "Loading" });
+    expect(loadingState).toHaveAttribute("aria-busy", "true");
+    expect(loadingState).toHaveClass("motion-reduce:animate-none");
+    expect(screen.getByRole("heading", { name: "Loading" })).toHaveClass("sr-only");
+    expect(screen.getAllByText("Loading")).toHaveLength(1);
+    expect(screen.getByTestId("task-workspace-loading-timeline")).toBeInTheDocument();
+    expect(screen.getByTestId("task-workspace-loading-main")).toBeInTheDocument();
+    expect(screen.getByTestId("task-workspace-loading-inspector")).toBeInTheDocument();
+  });
+
   it("renders Task Overview as the main panel without a run composer", () => {
     const conversation = vi.fn((_props: TaskWorkspaceConversationSlotProps) => null);
     const composer = vi.fn(() => null);
