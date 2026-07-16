@@ -109,7 +109,7 @@ function readHistoryState(state: unknown, fallbackRoute?: AppHistoryRoute): Hist
       ? { status: "ready", state: canonical.data }
       : invalidHistoryState(canonical.error);
   }
-  const legacy = legacyAppHistoryStateSchema.safeParse(state);
+  const legacy = legacyAppHistoryStateSchema.safeParse(record);
   if (!legacy.success) {
     return invalidHistoryState(legacy.error);
   }
@@ -194,9 +194,7 @@ export function useAppViewHistory(
     [fallbackRoute, initialRead]
   );
   const [historyState, setHistoryState] = useState(initialState);
-  const [historyError, setHistoryError] = useState<string | null>(
-    initialRead.status === "invalid" ? initialRead.message : null
-  );
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const historyStateRef = useRef(historyState);
 
   const commitState = useCallback((next: AppHistoryState) => {
@@ -216,7 +214,9 @@ export function useAppViewHistory(
       );
       commitState(normalized);
     } else {
-      setHistoryError(current.message);
+      console.warn(current.message);
+      const recovered = writeHistoryState("replace", fallbackRoute, 0, 0);
+      commitState(recovered);
     }
 
     const handlePopState = (event: PopStateEvent) => {

@@ -1,17 +1,22 @@
 /* @vitest-environment jsdom */
 
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appHistoryRouteSchema,
   readAppViewHistoryAvailability,
   useAppViewHistory
 } from "../renderer/hooks/useAppViewHistory";
 
+afterEach(() => vi.restoreAllMocks());
+
 describe("app view history", () => {
   it("keeps forward navigation available after returning to a previous app view", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     window.history.replaceState(null, "", "/");
     const { result } = renderHook(() => useAppViewHistory("graph"));
+
+    expect(warn).not.toHaveBeenCalled();
 
     act(() => {
       result.current[1]("canvas-map");
@@ -115,9 +120,11 @@ describe("app view history", () => {
     expect(window.history.state).not.toHaveProperty("planweaveAppView");
   });
 
-  it("does not revive a valid legacy view when the canonical route is invalid", () => {
+  it("recovers an invalid startup route without reviving legacy navigation state", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     window.history.replaceState(
       {
+        retainedState: "keep",
         planweaveRoute: { view: "not-a-view" },
         planweaveAppView: "canvas-map",
         planweaveHistoryIndex: 1,
@@ -130,11 +137,15 @@ describe("app view history", () => {
     const { result } = renderHook(() => useAppViewHistory("graph"));
 
     expect(result.current[0]).toBe("graph");
-    expect(result.current[2].historyError).toContain("invalid PlanWeave route");
+    expect(result.current[2].historyError).toBeNull();
     expect(window.history.state).toMatchObject({
-      planweaveRoute: { view: "not-a-view" },
-      planweaveAppView: "canvas-map"
+      retainedState: "keep",
+      planweaveRoute: { view: "graph" },
+      planweaveHistoryIndex: 0,
+      planweaveHistoryMaxIndex: 0
     });
+    expect(window.history.state).not.toHaveProperty("planweaveAppView");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("invalid PlanWeave route"));
   });
 
   it("rejects graph snapshots on non-graph history routes", () => {
