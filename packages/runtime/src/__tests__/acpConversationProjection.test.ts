@@ -193,6 +193,80 @@ describe("ACP conversation projection", () => {
     expect(projectAcpTimeline([call, absent, cleared])[0]).toMatchObject({ output: null });
   });
 
+  it("projects standard ACP tool content as display output ahead of raw output", () => {
+    const base = {
+      version: "planweave.runner-event/v1" as const,
+      timestamp: "2026-07-11T00:00:00.000Z",
+      identity: {
+        projectId: "project-1",
+        canvasId: "canvas-a",
+        taskId: "T-001",
+        blockId: "B-001",
+        claimRef: "T-001#B-001",
+        runId: "RUN-001",
+        runOwner: "executor" as const,
+        runSessionId: null,
+        desktopRunId: null,
+        executorRunId: "RUN-001"
+      },
+      runner: {
+        version: "planweave.runner/v1" as const,
+        runnerKind: "acp" as const,
+        agentId: "codex" as const
+      }
+    };
+    const redaction = { classes: [], replaced: 0 } as const;
+    const initialDiff = JSON.stringify([
+      { type: "diff", path: "/workspace/new.ts", oldText: null, newText: "export {};\n" }
+    ]);
+    const updatedDiff = JSON.stringify([
+      {
+        type: "diff",
+        path: "/workspace/existing.ts",
+        oldText: "const value = 1;\n",
+        newText: "const value = 2;\n"
+      }
+    ]);
+    const timeline = projectAcpTimeline([
+      normalizedRunnerEventSchema.parse({
+        ...base,
+        sequence: 1,
+        body: {
+          kind: "tool_call",
+          callId: "create-file",
+          title: "Create file",
+          toolKind: null,
+          status: "in_progress",
+          content: { content: initialDiff, redaction },
+          rawInput: { content: '{"path":"/workspace/new.ts"}', redaction },
+          rawOutput: { content: '{"created":true}', redaction }
+        }
+      }),
+      normalizedRunnerEventSchema.parse({
+        ...base,
+        sequence: 2,
+        body: {
+          kind: "tool_update",
+          callId: "edit-file",
+          title: "Edit file",
+          toolKind: "execute",
+          status: "completed",
+          content: { content: updatedDiff, redaction },
+          rawOutput: { content: '{"updated":true}', redaction }
+        }
+      })
+    ]);
+
+    expect(timeline).toEqual([
+      expect.objectContaining({
+        callId: "create-file",
+        input: '{"path":"/workspace/new.ts"}',
+        output: initialDiff
+      }),
+      expect.objectContaining({ callId: "edit-file", input: null, output: updatedDiff })
+    ]);
+  });
+
   it("keeps an artifact at its normalized event position in the timeline", () => {
     const base = {
       version: "planweave.runner-event/v1" as const,

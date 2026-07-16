@@ -6,7 +6,30 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { createTranslator } from "../i18n";
 import { useConversationAutoScroll } from "../hooks/useConversationAutoScroll";
+import { AcpToolDiff, parseAcpToolDiff } from "./AcpToolDiff";
 import { SafeMarkdown } from "./SafeMarkdown";
+
+const PROMPT_COLLAPSE_CHARACTER_THRESHOLD = 1_200;
+const PROMPT_COLLAPSE_LINE_THRESHOLD = 12;
+const PROMPT_PREVIEW_CHARACTERS = 900;
+const PROMPT_PREVIEW_LINES = 10;
+
+function isLongPrompt(content: string): boolean {
+  return (
+    content.length > PROMPT_COLLAPSE_CHARACTER_THRESHOLD ||
+    content.split("\n").length > PROMPT_COLLAPSE_LINE_THRESHOLD
+  );
+}
+
+function promptPreview(content: string): string {
+  const linePreview = content.split("\n").slice(0, PROMPT_PREVIEW_LINES).join("\n");
+  const characters = Array.from(linePreview);
+  const preview =
+    characters.length > PROMPT_PREVIEW_CHARACTERS
+      ? characters.slice(0, PROMPT_PREVIEW_CHARACTERS).join("")
+      : linePreview;
+  return `${preview.trimEnd()}\n…`;
+}
 
 function readablePayload(value: string | null): string | null {
   if (value === null) return null;
@@ -161,7 +184,7 @@ const MessageCard = memo(
       return user ? (
         <article className="flex justify-end">
           <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-muted px-4 py-2.5 text-sm">
-            <div className="whitespace-pre-wrap break-words">{item.content}</div>
+            <UserPromptContent content={item.content} t={t} />
           </div>
         </article>
       ) : (
@@ -191,7 +214,7 @@ const MessageCard = memo(
             }
           >
             {user ? (
-              <div className="whitespace-pre-wrap break-words">{item.content}</div>
+              <UserPromptContent content={item.content} t={t} />
             ) : (
               <SafeMarkdown markdown={item.content} />
             )}
@@ -208,6 +231,39 @@ const MessageCard = memo(
     previous.t === next.t
 );
 
+function UserPromptContent({
+  content,
+  t
+}: {
+  content: string;
+  t: ReturnType<typeof createTranslator>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const collapsible = isLongPrompt(content);
+  const displayedContent = collapsible && !expanded ? promptPreview(content) : content;
+
+  return (
+    <>
+      <div className="whitespace-pre-wrap break-words" data-testid="acp-user-prompt-content">
+        {displayedContent}
+      </div>
+      {collapsible ? (
+        <button
+          aria-expanded={expanded}
+          className="mt-2 flex w-full items-center justify-between gap-3 border-t border-current/15 pt-2 text-left text-xs font-medium opacity-75 outline-none transition-opacity hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
+          onClick={() => setExpanded((current) => !current)}
+          type="button"
+        >
+          <span>{expanded ? t("acpCollapsePrompt") : t("acpShowFullPrompt")}</span>
+          <ChevronRightIcon
+            className={`size-3.5 shrink-0 transition-transform motion-reduce:transition-none ${expanded ? "rotate-90" : ""}`}
+          />
+        </button>
+      ) : null}
+    </>
+  );
+}
+
 const ToolCard = memo(
   function ToolCard({
     presentation,
@@ -220,8 +276,9 @@ const ToolCard = memo(
   }) {
     const input = readablePayload(tool.input);
     const output = readablePayload(tool.output);
+    const diff = parseAcpToolDiff(tool.output) ?? parseAcpToolDiff(tool.input);
     if (presentation === "workspace") {
-      return <WorkspaceToolRow input={input} output={output} tool={tool} t={t} />;
+      return <WorkspaceToolRow diff={diff} input={input} output={output} tool={tool} t={t} />;
     }
     return (
       <details className="group ml-10 rounded-lg border bg-background shadow-sm">
@@ -232,10 +289,16 @@ const ToolCard = memo(
             {tool.status ?? t("acpToolPending")}
           </Badge>
         </summary>
-        {input || output ? (
+        {diff || input || output ? (
           <div className="space-y-3 border-t px-3 py-3 text-xs">
-            {input ? <ToolPayload label={t("acpToolInput")} value={input} /> : null}
-            {output ? <ToolPayload label={t("acpToolOutput")} value={output} /> : null}
+            {diff ? (
+              <AcpToolDiff diffs={diff} />
+            ) : (
+              <>
+                {input ? <ToolPayload label={t("acpToolInput")} value={input} /> : null}
+                {output ? <ToolPayload label={t("acpToolOutput")} value={output} /> : null}
+              </>
+            )}
           </div>
         ) : null}
       </details>
@@ -252,18 +315,20 @@ const ToolCard = memo(
 );
 
 function WorkspaceToolRow({
+  diff,
   input,
   output,
   tool,
   t
 }: {
+  diff: ReturnType<typeof parseAcpToolDiff>;
   input: string | null;
   output: string | null;
   tool: Extract<AcpTimelineItem, { kind: "tool" }>;
   t: ReturnType<typeof createTranslator>;
 }) {
   const [open, setOpen] = useState(false);
-  const expandable = Boolean(input || output);
+  const expandable = Boolean(diff || input || output);
   const status = tool.status ?? t("acpToolPending");
 
   return (
@@ -297,12 +362,22 @@ function WorkspaceToolRow({
         >
           <div className="min-h-0 overflow-hidden">
             <div className="ml-1.5 mt-1 space-y-3 border-l border-border/80 py-1 pl-4">
-              {input ? (
-                <ToolPayload label={t("acpToolInput")} presentation="workspace" value={input} />
-              ) : null}
-              {output ? (
-                <ToolPayload label={t("acpToolOutput")} presentation="workspace" value={output} />
-              ) : null}
+              {diff ? (
+                <AcpToolDiff diffs={diff} />
+              ) : (
+                <>
+                  {input ? (
+                    <ToolPayload label={t("acpToolInput")} presentation="workspace" value={input} />
+                  ) : null}
+                  {output ? (
+                    <ToolPayload
+                      label={t("acpToolOutput")}
+                      presentation="workspace"
+                      value={output}
+                    />
+                  ) : null}
+                </>
+              )}
             </div>
           </div>
         </div>

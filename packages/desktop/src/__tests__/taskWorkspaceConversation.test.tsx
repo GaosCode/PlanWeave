@@ -100,7 +100,39 @@ describe("Task Workspace conversation", () => {
     expect(container.querySelector(".lucide-user")).not.toBeInTheDocument();
     expect(screen.queryByText("Agent")).not.toBeInTheDocument();
     expect(screen.queryByText("You")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show full prompt" })).not.toBeInTheDocument();
     expect(screen.getByTestId("task-workspace-conversation-content")).toHaveClass("max-w-3xl");
+  });
+
+  it("collapses long user prompts by default and expands them on demand", async () => {
+    const user = userEvent.setup();
+    const prompt = Array.from(
+      { length: 14 },
+      (_, index) => `Prompt section ${index + 1}${index === 13 ? " — final instruction" : ""}`
+    ).join("\n");
+    const model = readModel({
+      timeline: [{ sequence: 1, timestamp, kind: "message", role: "user", content: prompt }]
+    });
+    render(
+      <TaskWorkspaceConversation
+        {...conversationProps(selection({ model }), model)}
+        api={null}
+        t={t}
+      />
+    );
+
+    const trigger = screen.getByRole("button", { name: "Show full prompt" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByTestId("acp-user-prompt-content")).toHaveTextContent("Prompt section 10");
+    expect(screen.queryByText(/final instruction/)).not.toBeInTheDocument();
+
+    await user.click(trigger);
+
+    expect(screen.getByText(/final instruction/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Collapse prompt" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
   });
 
   it("aligns the composer with the conversation column and masks with the conversation layer", () => {
@@ -293,6 +325,102 @@ describe("Task Workspace conversation", () => {
     expect(screen.getByText("{}")).toBeInTheDocument();
     expect(screen.getByText("[]")).toBeInTheDocument();
     expect(screen.getByText("Empty string")).toBeInTheDocument();
+  });
+
+  it("renders standard ACP diff content independently of agent-specific tool kinds", () => {
+    const model = readModel({
+      timeline: [
+        {
+          sequence: 1,
+          timestamp,
+          kind: "tool",
+          callId: "edit-file",
+          title: "Edit `/projects/demo/src/example.ts`",
+          toolKind: "execute",
+          status: "completed",
+          input: JSON.stringify({
+            variant: "SearchReplace",
+            file_path: "/projects/demo/src/example.ts"
+          }),
+          output: JSON.stringify([
+            {
+              path: "/projects/demo/src/example.ts",
+              oldText: "const value = 1;\n",
+              newText: "const value = 2;\n",
+              _meta: { old_line: 44, new_line: 44 },
+              type: "diff"
+            }
+          ])
+        }
+      ]
+    });
+    const { container } = render(
+      <TaskWorkspaceConversation
+        {...conversationProps(selection({ model }), model)}
+        api={null}
+        t={t}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Edit `\/projects\/demo\/src\/example.ts`/ })
+    );
+
+    const diff = screen.getByTestId("acp-tool-diff");
+    expect(diff).toHaveTextContent("example.ts");
+    expect(diff).toHaveTextContent("+1");
+    expect(diff).toHaveTextContent("-1");
+    expect(diff.querySelectorAll('[data-diff-line="deletion"]')).toHaveLength(1);
+    expect(diff.querySelectorAll('[data-diff-line="addition"]')).toHaveLength(1);
+    expect(diff).toHaveTextContent("44");
+    expect(
+      container.querySelector('[data-diff-line="addition"] .text-violet-700')
+    ).toHaveTextContent("const");
+    expect(screen.queryByText("Input")).not.toBeInTheDocument();
+    expect(screen.queryByText("Output")).not.toBeInTheDocument();
+  });
+
+  it("renders a new-file ACP diff from initial tool content", () => {
+    const model = readModel({
+      timeline: [
+        {
+          sequence: 1,
+          timestamp,
+          kind: "tool",
+          callId: "create-file",
+          title: "Create `/projects/demo/src/new-file.ts`",
+          toolKind: null,
+          status: "completed",
+          input: JSON.stringify([
+            {
+              path: "/projects/demo/src/new-file.ts",
+              oldText: null,
+              newText: "export const created = true;\n",
+              type: "diff"
+            }
+          ]),
+          output: null
+        }
+      ]
+    });
+    render(
+      <TaskWorkspaceConversation
+        {...conversationProps(selection({ model }), model)}
+        api={null}
+        t={t}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Create `\/projects\/demo\/src\/new-file.ts`/ })
+    );
+
+    const diff = screen.getByTestId("acp-tool-diff");
+    expect(diff).toHaveTextContent("new-file.ts");
+    expect(diff).toHaveTextContent("+1");
+    expect(diff).toHaveTextContent("-0");
+    expect(diff.querySelectorAll('[data-diff-line="addition"]')).toHaveLength(1);
+    expect(diff.querySelectorAll('[data-diff-line="deletion"]')).toHaveLength(0);
   });
 
   it("responds to the selected runnerModel permission request with its exact identity", () => {

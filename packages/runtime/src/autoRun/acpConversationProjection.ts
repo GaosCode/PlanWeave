@@ -184,8 +184,8 @@ export class AcpProjectionAccumulator {
     this.timelineMessage = null;
     if (body.kind === "tool_call") {
       const existing = this.tools.get(body.callId);
-      const rawInput = body.rawInput?.content ?? body.content?.content ?? null;
-      const rawOutput = body.rawOutput?.content ?? null;
+      const rawInput = body.rawInput?.content ?? null;
+      const displayOutput = body.content?.content ?? body.rawOutput?.content ?? null;
       if (existing) {
         const previous = this.timelineItems[existing.index];
         if (!previous || previous.kind !== "tool")
@@ -196,7 +196,7 @@ export class AcpProjectionAccumulator {
           toolKind: existing.kindSet ? previous.toolKind : (body.toolKind ?? null),
           status: existing.statusSet ? previous.status : body.status,
           input: existing.inputSet ? previous.input : rawInput,
-          output: existing.outputSet ? previous.output : rawOutput
+          output: existing.outputSet ? previous.output : displayOutput
         };
       } else {
         this.timelineItems.push({
@@ -208,15 +208,15 @@ export class AcpProjectionAccumulator {
           toolKind: body.toolKind ?? null,
           status: body.status,
           input: rawInput,
-          output: rawOutput
+          output: displayOutput
         });
         this.tools.set(body.callId, {
           index: this.timelineItems.length - 1,
           titleSet: true,
           kindSet: body.toolKind !== undefined,
           statusSet: true,
-          inputSet: body.rawInput !== undefined || body.content !== null,
-          outputSet: body.rawOutput !== undefined
+          inputSet: body.rawInput !== undefined,
+          outputSet: body.content !== null || body.rawOutput !== undefined
         });
       }
     } else if (body.kind === "tool_update") {
@@ -227,11 +227,9 @@ export class AcpProjectionAccumulator {
       const hasInput = body.rawInput !== undefined;
       const hasRawOutput = body.rawOutput !== undefined;
       const hasContent = body.content !== undefined;
-      const replacementOutput = hasRawOutput
-        ? (body.rawOutput?.content ?? null)
-        : hasContent
-          ? (body.content?.content ?? null)
-          : undefined;
+      const replacementOutput =
+        body.content?.content ??
+        (hasRawOutput ? (body.rawOutput?.content ?? null) : hasContent ? null : undefined);
       if (!existing) {
         this.timelineItems.push({
           sequence: event.sequence,

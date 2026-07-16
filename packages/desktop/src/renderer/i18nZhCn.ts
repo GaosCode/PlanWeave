@@ -657,6 +657,8 @@ export const zhCnCatalog = {
   acpJumpToLatest: "回到最新消息",
   acpRoleUser: "你",
   acpRoleAssistant: "Agent",
+  acpShowFullPrompt: "显示完整提示词",
+  acpCollapsePrompt: "收起提示词",
   acpToolInput: "输入",
   acpToolOutput: "输出",
   acpToolPending: "等待中",

@@ -689,6 +689,8 @@ export const enCatalog = {
   acpJumpToLatest: "Jump to latest",
   acpRoleUser: "You",
   acpRoleAssistant: "Agent",
+  acpShowFullPrompt: "Show full prompt",
+  acpCollapsePrompt: "Collapse prompt",
   acpToolInput: "Input",
   acpToolOutput: "Output",
   acpToolPending: "pending",
