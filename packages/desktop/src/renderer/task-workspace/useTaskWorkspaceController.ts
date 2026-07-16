@@ -87,14 +87,16 @@ function graphEditError(result: Awaited<ReturnType<DesktopBridgeApi["updateTaskP
   );
 }
 
-function navigationKey(navigation: TaskWorkspaceNavigationIdentity): string {
+function taskWorkspaceAuthorityKey(navigation: TaskWorkspaceNavigationIdentity): string {
   return JSON.stringify([
     navigation.projectRoot,
     navigation.canvasId,
-    navigation.taskId,
-    navigation.blockRef ?? null,
-    navigation.recordId ?? null
+    navigation.taskId
   ]);
+}
+
+function taskWorkspaceRecordKey(authorityKey: string, recordId: string): string {
+  return `${authorityKey}\u0000${recordId}`;
 }
 
 function findRun(
@@ -153,21 +155,21 @@ export function useTaskWorkspaceController(options: {
   const [loadMoreRunsError, setLoadMoreRunsError] = useState<string | null>(null);
   const workspaceRequest = useRef(0);
   const recordRequest = useRef(0);
+  const recordLoads = useRef(new Map<string, RecordLoad>());
   const overviewSelectedRef = useRef(false);
   const runScrollPositions = useRef(new Map<string, number>());
   const runItemsRef = useRef<TaskWorkspaceRunListItem[]>([]);
   const nextCursorRef = useRef<TaskWorkspaceRunsCursor | null>(null);
   const loadingMoreRef = useRef(false);
-  const key = navigation ? navigationKey(navigation) : "";
-  const taskAuthorityKey = navigation
-    ? JSON.stringify([navigation.projectRoot, navigation.canvasId, navigation.taskId])
-    : "";
+  const navigationRef = useRef(navigation);
+  navigationRef.current = navigation;
+  const key = navigation ? taskWorkspaceAuthorityKey(navigation) : "";
 
   useEffect(() => {
     overviewSelectedRef.current = false;
     setOverviewSelected(false);
     setSelectedAnnotationIdentity(null);
-  }, [taskAuthorityKey]);
+  }, [key]);
 
   useEffect(() => {
     overviewSelectedRef.current = false;
@@ -177,8 +179,8 @@ export function useTaskWorkspaceController(options: {
 
   useEffect(() => {
     const request = ++workspaceRequest.current;
-    if (!navigation) {
-      setWorkspaceLoad(idleWorkspaceLoad);
+    const requestedNavigation = navigationRef.current;
+    if (!requestedNavigation) {
       return;
     }
     if (!api) {
@@ -206,18 +208,18 @@ export function useTaskWorkspaceController(options: {
       };
     });
     const canvasRef = {
-      projectRoot: navigation.projectRoot,
-      canvasId: navigation.canvasId
+      projectRoot: requestedNavigation.projectRoot,
+      canvasId: requestedNavigation.canvasId
     };
     void Promise.all([
       api.getTaskWorkspace({
         ...canvasRef,
-        taskId: navigation.taskId,
-        selectedRecordId: navigation.recordId ?? null
+        taskId: requestedNavigation.taskId,
+        selectedRecordId: requestedNavigation.recordId ?? null
       }),
       api.listTaskWorkspaceRuns({
         ...canvasRef,
-        taskId: navigation.taskId
+        taskId: requestedNavigation.taskId
       }),
       api.getGraphViewModel(canvasRef)
     ])
@@ -225,9 +227,16 @@ export function useTaskWorkspaceController(options: {
         if (workspaceRequest.current !== request) {
           return;
         }
-        if (!graph.tasks.some((task) => task.taskId === navigation.taskId)) {
+        const currentNavigation = navigationRef.current;
+        if (
+          !currentNavigation ||
+          taskWorkspaceAuthorityKey(currentNavigation) !== key
+        ) {
+          return;
+        }
+        if (!graph.tasks.some((task) => task.taskId === currentNavigation.taskId)) {
           setWorkspaceLoad({
-            error: `Task '${navigation.taskId}' is unavailable in the current graph view.`,
+            error: `Task '${currentNavigation.taskId}' is unavailable in the current graph view.`,
             executorOptions: [],
             key,
             packageExecutorNames: [],
@@ -237,11 +246,11 @@ export function useTaskWorkspaceController(options: {
           return;
         }
         if (
-          navigation.blockRef &&
-          !header.blocks.some((block) => block.ref === navigation.blockRef)
+          currentNavigation.blockRef &&
+          !header.blocks.some((block) => block.ref === currentNavigation.blockRef)
         ) {
           setWorkspaceLoad({
-            error: `Block '${navigation.blockRef}' is unavailable for task '${navigation.taskId}'.`,
+            error: `Block '${currentNavigation.blockRef}' is unavailable for task '${currentNavigation.taskId}'.`,
             executorOptions: [],
             key,
             packageExecutorNames: [],
@@ -250,7 +259,7 @@ export function useTaskWorkspaceController(options: {
           });
           return;
         }
-        const selectedHint = navigation.recordId ?? header.selectedRecordId;
+        const selectedHint = currentNavigation.recordId ?? header.selectedRecordId;
         const pageItems: TaskWorkspaceRunListItem[] = runsPage.items.map((item) => ({
           ...item,
           selected: selectedHint !== null && item.run.record.recordId === selectedHint
@@ -262,20 +271,19 @@ export function useTaskWorkspaceController(options: {
         setLoadMoreRunsError(null);
         setLoadingMoreRuns(false);
         loadingMoreRef.current = false;
-        const selected = initialRunForNavigation(workspace, navigation);
+        const selected = initialRunForNavigation(workspace, currentNavigation);
         // Missing selection on the first page is OK when navigating to an older record;
         // getTaskWorkspaceRunDetail validates ownership when the record is selected.
-        if (!navigation.recordId && selected && !overviewSelectedRef.current) {
+        if (!currentNavigation.recordId && selected && !overviewSelectedRef.current) {
           history.replaceTaskWorkspaceTarget(
             taskWorkspaceNavigationTargetSchema.parse({
-              projectRoot: navigation.projectRoot,
-              canvasId: navigation.canvasId,
-              taskId: navigation.taskId,
+              projectRoot: currentNavigation.projectRoot,
+              canvasId: currentNavigation.canvasId,
+              taskId: currentNavigation.taskId,
               blockRef: selected.block.ref,
               recordId: selected.item.run.record.recordId
             })
           );
-          return;
         }
         setWorkspaceLoad({
           error: null,
@@ -299,7 +307,7 @@ export function useTaskWorkspaceController(options: {
           workspace: null
         });
       });
-  }, [api, history.replaceTaskWorkspaceTarget, key, navigation, refreshVersion]);
+  }, [api, history.replaceTaskWorkspaceTarget, key, refreshVersion]);
 
   const workspace = workspaceLoad.key === key ? workspaceLoad.workspace : null;
   const executorOptions = workspaceLoad.key === key ? workspaceLoad.executorOptions : [];
@@ -310,18 +318,24 @@ export function useTaskWorkspaceController(options: {
     }
     return findRun(workspace, navigation.blockRef, navigation.recordId);
   }, [navigation?.blockRef, navigation?.recordId, workspace]);
+  const visibleRecordLoad = navigation?.recordId
+    ? recordLoad.key === navigation.recordId
+      ? recordLoad
+      : (recordLoads.current.get(taskWorkspaceRecordKey(key, navigation.recordId)) ??
+        idleRecordLoad)
+    : idleRecordLoad;
   const detailSelectedRun = useMemo(() => {
     if (
       !workspace ||
-      recordLoad.key !== navigation?.recordId ||
-      !recordLoad.blockRef ||
-      !recordLoad.item
+      visibleRecordLoad.key !== navigation?.recordId ||
+      !visibleRecordLoad.blockRef ||
+      !visibleRecordLoad.item
     ) {
       return null;
     }
-    const block = workspace.blocks.find((candidate) => candidate.ref === recordLoad.blockRef);
-    return block ? { block, item: recordLoad.item } : null;
-  }, [navigation?.recordId, recordLoad.blockRef, recordLoad.item, recordLoad.key, workspace]);
+    const block = workspace.blocks.find((candidate) => candidate.ref === visibleRecordLoad.blockRef);
+    return block ? { block, item: visibleRecordLoad.item } : null;
+  }, [navigation?.recordId, visibleRecordLoad, workspace]);
   const selectedAnnotation = useMemo(() => {
     if (!workspace || !selectedAnnotationIdentity) return null;
     const block = workspace.blocks.find(
@@ -346,14 +360,18 @@ export function useTaskWorkspaceController(options: {
       setRecordLoad(idleRecordLoad);
       return;
     }
-    setRecordLoad({
-      blockRef: null,
-      error: null,
-      item: null,
-      key: selectedRecordKey,
-      record: null,
-      status: "loading"
-    });
+    const cacheKey = taskWorkspaceRecordKey(key, selectedRecordKey);
+    const cachedLoad = recordLoads.current.get(cacheKey) ?? null;
+    setRecordLoad(
+      cachedLoad ?? {
+        blockRef: null,
+        error: null,
+        item: null,
+        key: selectedRecordKey,
+        record: null,
+        status: "loading"
+      }
+    );
     void api
       .getTaskWorkspaceRunDetail({
         projectRoot: navigation.projectRoot,
@@ -372,6 +390,7 @@ export function useTaskWorkspaceController(options: {
           record.taskId !== navigation.taskId ||
           detail.taskId !== navigation.taskId
         ) {
+          recordLoads.current.delete(cacheKey);
           setRecordLoad({
             blockRef: null,
             error: "Selected run record does not match its Task Workspace navigation identity.",
@@ -403,25 +422,27 @@ export function useTaskWorkspaceController(options: {
             };
           });
         }
-        setRecordLoad({
+        const loadedRecord: RecordLoad = {
           blockRef: detail.blockRef,
           error: null,
           item: detail.item,
           key: selectedRecordKey,
           record,
           status: "ready"
-        });
+        };
+        recordLoads.current.set(cacheKey, loadedRecord);
+        setRecordLoad(loadedRecord);
       })
       .catch((error: unknown) => {
         if (recordRequest.current !== request) {
           return;
         }
         setRecordLoad({
-          blockRef: null,
+          blockRef: cachedLoad?.blockRef ?? null,
           error: errorMessage(error),
-          item: null,
+          item: cachedLoad?.item ?? null,
           key: selectedRecordKey,
-          record: null,
+          record: cachedLoad?.record ?? null,
           status: "error"
         });
       });
@@ -436,7 +457,8 @@ export function useTaskWorkspaceController(options: {
     selectedRecordKey
   ]);
 
-  const selectedRecord = recordLoad.key === selectedRecordKey ? recordLoad.record : null;
+  const selectedRecord =
+    visibleRecordLoad.key === selectedRecordKey ? visibleRecordLoad.record : null;
   const initialModel = selectedRecord?.runnerReadModel ?? null;
   const canvasRef = useMemo(
     () =>
@@ -512,11 +534,11 @@ export function useTaskWorkspaceController(options: {
   }, [monitor.model, selectedRun, workspace]);
 
   useEffect(() => {
-    if (!api || !navigation) {
+    if (!api || !canvasRef) {
       return;
     }
     const matchesCanvas = (event: { projectRoot: string; canvasId: string | null }) =>
-      event.projectRoot === navigation.projectRoot && event.canvasId === navigation.canvasId;
+      event.projectRoot === canvasRef.projectRoot && event.canvasId === canvasRef.canvasId;
     const refreshFromEvent = () => setRefreshVersion((current) => current + 1);
     const removeRuntimeListener = api.onRuntimeStateChanged((event) => {
       if (matchesCanvas(event)) refreshFromEvent();
@@ -528,7 +550,7 @@ export function useTaskWorkspaceController(options: {
       removeRuntimeListener();
       removeAutoRunListener();
     };
-  }, [api, navigation]);
+  }, [api, canvasRef]);
 
   const selectRun = useCallback<TaskWorkspaceController["selectRun"]>(
     (selection) => {
@@ -693,20 +715,21 @@ export function useTaskWorkspaceController(options: {
 
   const liveStatus = useMemo<TaskWorkspaceLiveStatus>(() => {
     if (overviewSelected || !selectedRecordKey) return "idle";
-    if (recordLoad.status === "loading") return "loading";
-    if (recordLoad.status === "error" || monitor.subscriptionError || liveProjection.error) {
+    if (visibleRecordLoad.status === "loading") return "loading";
+    if (visibleRecordLoad.status === "error") {
       return "error";
     }
     if (!liveProjection.selectedRun) {
-      return recordLoad.status === "ready" ? "loading" : "idle";
+      return "loading";
     }
+    if (monitor.subscriptionError || liveProjection.error) return "error";
     if (selectedRecord && !selectedRecord.runnerReadModel) return "unavailable";
     return liveProjection.runnerModel ? "live" : "loading";
   }, [
     liveProjection,
     monitor.subscriptionError,
     overviewSelected,
-    recordLoad.status,
+    visibleRecordLoad.status,
     selectedRecord,
     selectedRecordKey
   ]);
@@ -716,7 +739,8 @@ export function useTaskWorkspaceController(options: {
         "This run has no live RunnerRecordReadModel.")
       : null;
   const status = workspaceLoad.key === key ? workspaceLoad.status : navigation ? "loading" : "idle";
-  const recordError = recordLoad.key === selectedRecordKey ? recordLoad.error : null;
+  const recordError =
+    visibleRecordLoad.key === selectedRecordKey ? visibleRecordLoad.error : null;
   const error =
     history.historyError ??
     (workspaceLoad.key === key ? workspaceLoad.error : null) ??

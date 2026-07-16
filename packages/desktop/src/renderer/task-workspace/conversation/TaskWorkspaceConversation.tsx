@@ -39,7 +39,17 @@ export function TaskWorkspaceConversation(
   const { api = bridge, runnerModel, selectedRecord, selectedRun, t } = props;
   const { canvasRef } = props;
 
-  if (!selectedRun) return <ConversationState message={t("taskWorkspaceNoConversation")} />;
+  if (!selectedRun) {
+    return props.liveStatus === "loading" ? (
+      <ConversationState
+        detailKind="loading"
+        message={t("taskWorkspaceLoadingSelectedRun")}
+        recordReady={false}
+      />
+    ) : (
+      <ConversationState message={t("taskWorkspaceNoConversation")} />
+    );
+  }
   if (!selectedRecord) {
     const message =
       props.liveStatus === "loading"

@@ -11,6 +11,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import {
+  TaskWorkspaceCancelRunControllerScope,
   TaskWorkspaceComposer,
   TaskWorkspaceConversation
 } from "../renderer/task-workspace/conversation";
@@ -50,6 +51,44 @@ function retrySelection(runId: string) {
 }
 
 describe("Task Workspace conversation", () => {
+  it("keeps the workspace subtree mounted when cancel controls become unavailable", () => {
+    const model = readModel();
+    const selectedRun = selection({ model });
+    const { rerender } = render(
+      <TaskWorkspaceCancelRunControllerScope api={null} model={model} selectedRun={selectedRun}>
+        {() => <div data-testid="workspace-subtree" />}
+      </TaskWorkspaceCancelRunControllerScope>
+    );
+    const subtree = screen.getByTestId("workspace-subtree");
+    subtree.scrollTop = 240;
+
+    rerender(
+      <TaskWorkspaceCancelRunControllerScope api={null} model={null} selectedRun={null}>
+        {() => <div data-testid="workspace-subtree" />}
+      </TaskWorkspaceCancelRunControllerScope>
+    );
+
+    expect(screen.getByTestId("workspace-subtree")).toBe(subtree);
+    expect(screen.getByTestId("workspace-subtree")).toHaveProperty("scrollTop", 240);
+  });
+
+  it("shows the routed record loading state before its selected run detail arrives", () => {
+    render(
+      <TaskWorkspaceConversation
+        {...conversationProps(selection(), null, {
+          liveStatus: "loading",
+          selectedRecord: null,
+          selectedRun: null
+        })}
+        api={null}
+        t={t}
+      />
+    );
+
+    expect(screen.getByText("Loading the selected run…")).toBeInTheDocument();
+    expect(screen.queryByText("No conversation selected")).not.toBeInTheDocument();
+  });
+
   it("uses a flat Codex-style presentation without role chrome or structured-item indentation", () => {
     const model = readModel({
       timeline: [

@@ -22,7 +22,7 @@ const unavailableCancelRunController: TaskWorkspaceCancelRunController = {
   inFlight: false
 };
 
-function AvailableCancelRunController({
+export function TaskWorkspaceCancelRunControllerScope({
   api,
   children,
   model,
@@ -30,10 +30,11 @@ function AvailableCancelRunController({
 }: {
   api: CancelRunApi | null;
   children: (controller: TaskWorkspaceCancelRunController) => ReactNode;
-  model: RunnerRecordReadModel;
-  selectedRun: TaskWorkspaceSelectedRun;
+  model: RunnerRecordReadModel | null;
+  selectedRun: TaskWorkspaceSelectedRun | null;
 }) {
   const interventions = useRunnerInterventions({ api, model });
+  if (!model || !selectedRun) return children(unavailableCancelRunController);
   const selectedCapability = selectedRun.item.run.capabilities.cancel;
   const liveCapability = model.intervention.cancel;
   const identity = sameSessionActionIdentity(liveCapability.identity, selectedCapability.identity)
@@ -49,25 +50,6 @@ function AvailableCancelRunController({
     },
     inFlight: interventions.cancelInFlight
   });
-}
-
-export function TaskWorkspaceCancelRunControllerScope({
-  api,
-  children,
-  model,
-  selectedRun
-}: {
-  api: CancelRunApi | null;
-  children: (controller: TaskWorkspaceCancelRunController) => ReactNode;
-  model: RunnerRecordReadModel | null;
-  selectedRun: TaskWorkspaceSelectedRun | null;
-}) {
-  if (!model || !selectedRun) return children(unavailableCancelRunController);
-  return (
-    <AvailableCancelRunController api={api} model={model} selectedRun={selectedRun}>
-      {children}
-    </AvailableCancelRunController>
-  );
 }
 
 export function TaskWorkspaceCancelRunAction({

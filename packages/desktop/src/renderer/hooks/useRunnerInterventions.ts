@@ -27,17 +27,18 @@ function identityKey(
 
 export function useRunnerInterventions(options: {
   api: Partial<RunnerInterventionApi> | null;
-  model: RunnerRecordReadModel;
+  model: RunnerRecordReadModel | null;
 }) {
   const { api, model } = options;
   const mounted = useRef(true);
   const activeOperations = useRef(new Set<string>());
   const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set());
   const [actionError, setActionError] = useState<string | null>(null);
-  const contextKey =
-    model.intervention.cancel.identity?.scope ??
-    model.interaction.activeRequests[0]?.identity.scope ??
-    `${model.cursor.runId}\0${model.cursor.canonicalIdentity?.identity.claimRef ?? ""}`;
+  const contextKey = model
+    ? (model.intervention.cancel.identity?.scope ??
+      model.interaction.activeRequests[0]?.identity.scope ??
+      `${model.cursor.runId}\0${model.cursor.canonicalIdentity?.identity.claimRef ?? ""}`)
+    : "runner-unavailable";
   const contextKeyRef = useRef(contextKey);
   contextKeyRef.current = contextKey;
 
@@ -50,9 +51,12 @@ export function useRunnerInterventions(options: {
 
   useEffect(() => {
     const authoritativeKeys = new Set(
-      model.interaction.activeRequests.map((request) => identityKey("request", request.identity))
+      model?.interaction.activeRequests.map((request) =>
+        identityKey("request", request.identity)
+      ) ?? []
     );
     if (
+      model &&
       !model.terminal &&
       model.intervention.cancel.available &&
       model.intervention.cancel.identity
@@ -113,7 +117,7 @@ export function useRunnerInterventions(options: {
   return {
     actionError,
     cancel,
-    cancelInFlight: model.intervention.cancel.identity
+    cancelInFlight: model?.intervention.cancel.identity
       ? inFlight.has(identityKey("cancel", model.intervention.cancel.identity))
       : false,
     requestInFlight: (identity: DesktopAgentActionIdentity) =>

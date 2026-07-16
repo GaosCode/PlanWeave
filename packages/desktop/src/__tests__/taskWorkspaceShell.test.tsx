@@ -302,6 +302,31 @@ describe("Task Workspace shell", () => {
     expect(composer).not.toHaveBeenCalled();
   });
 
+  it("does not fall back to Task Overview while a routed Feedback run is loading", () => {
+    const conversation = vi.fn(() => <div role="status">Loading selected run</div>);
+    render(
+      <TaskWorkspaceRoute
+        controller={controller({
+          liveStatus: "loading",
+          navigation: {
+            projectRoot: "/projects/demo",
+            canvasId: "canvas-main",
+            taskId: "T-001",
+            blockRef: "T-001#R-001",
+            recordId: "FE-001::RUN-001",
+            source: { view: "graph" }
+          }
+        })}
+        labels={labels}
+        slots={{ conversation }}
+      />
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Loading selected run");
+    expect(screen.queryByTestId("task-workspace-overview-panel")).not.toBeInTheDocument();
+    expect(conversation).toHaveBeenCalledOnce();
+  });
+
   it("gives the Task Overview its own vertical scroll viewport", () => {
     render(<TaskWorkspaceRoute controller={controller()} labels={labels} />);
 
