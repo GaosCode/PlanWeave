@@ -5,16 +5,20 @@ import {
   readFile,
   readdir,
   realpath,
+  rename,
   rm,
   stat,
   writeFile
 } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearSourceDefaultProject,
   createTaskCanvas,
+  getCanvasMapLayout,
   getSourceDefaultProject,
   initManagedProject,
   initOrOpenProject,
@@ -25,6 +29,7 @@ import {
   renameProject,
   removeProject,
   resolveSourceDefaultProjectRoot,
+  saveCanvasMapLayout,
   setSourceDefaultProject,
   unlinkProjectSourceRoot
 } from "../desktop/index.js";
@@ -46,6 +51,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     readFile: vi.fn(actual.readFile),
     readdir: vi.fn(actual.readdir),
     realpath: vi.fn(actual.realpath),
+    rename: vi.fn(actual.rename),
     stat: vi.fn(actual.stat)
   };
 });
@@ -57,6 +63,7 @@ beforeEach(async () => {
   vi.mocked(readFile).mockImplementation((path, options) => actualFs.readFile(path, options));
   vi.mocked(readdir).mockImplementation((path, options) => actualFs.readdir(path, options));
   vi.mocked(realpath).mockImplementation((path, options) => actualFs.realpath(path, options));
+  vi.mocked(rename).mockImplementation((oldPath, newPath) => actualFs.rename(oldPath, newPath));
   vi.mocked(stat).mockImplementation((path, options) => actualFs.stat(path, options));
 });
 
@@ -173,6 +180,9 @@ describe("desktop project API", () => {
     });
     await expect(access(project.workspaceRoot)).rejects.toThrow();
     await expect(access(nextWorkspaceRoot)).resolves.toBeUndefined();
+    await expect(
+      access(join(nextWorkspaceRoot, ".planweave-canvas-map-layout.lock"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
     await expect(openProject({ projectId: nextProjectId })).resolves.toMatchObject({
       projectId: nextProjectId,
       name: nextName,
@@ -223,6 +233,186 @@ describe("desktop project API", () => {
       sourceRoot: resolvedSourceRoot
     });
     await expect(resolveSourceDefaultProjectRoot(sourceRoot)).resolves.toBe(nextWorkspaceRoot);
+  });
+
+  it("serializes save then rename so layout coordinates survive projectId rewrite", async () => {
+    const { home: testHome } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const project = await initManagedProject("Managed Layout Rename");
+    await writeJsonFile(join(project.workspaceRoot, "desktop", "canvas-map-layout.json"), {
+      version: "desktop-canvas-map-layout/v1",
+      projectId: project.projectId,
+      nodes: [{ canvasId: "default", x: 11, y: 22 }],
+      updatedAt: "2026-06-20T00:00:00.000Z"
+    });
+
+    const nextName = "Managed Layout Rename Target";
+    const nextProjectId = createManagedProjectId(nextName);
+    const nextWorkspaceRoot = join(testHome, "projects", nextProjectId);
+
+    const savePromise = saveCanvasMapLayout(project.rootPath, {
+      version: "desktop-canvas-map-layout/v1",
+      projectId: project.projectId,
+      nodes: [{ canvasId: "default", x: 99, y: 88 }],
+      updatedAt: "2026-07-01T00:00:00.000Z"
+    });
+    const renamePromise = renameProject(project.projectId, nextName);
+    await Promise.all([savePromise, renamePromise]);
+
+    await expect(
+      readJsonFile<{ projectId: string; nodes: Array<{ canvasId: string; x: number; y: number }> }>(
+        join(nextWorkspaceRoot, "desktop", "canvas-map-layout.json")
+      )
+    ).resolves.toMatchObject({
+      projectId: nextProjectId,
+      nodes: [{ canvasId: "default", x: 99, y: 88 }]
+    });
+    await expect(getCanvasMapLayout(nextWorkspaceRoot)).resolves.toMatchObject({
+      projectId: nextProjectId,
+      nodes: [{ canvasId: "default", x: 99, y: 88 }]
+    });
+  });
+
+  it("admits rename before a save targeting the future managed workspace", async () => {
+    const { home: testHome } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const project = await initManagedProject("Managed Rename First");
+    const nextName = "Managed Rename First Target";
+    const nextProjectId = createManagedProjectId(nextName);
+    const nextWorkspaceRoot = join(testHome, "projects", nextProjectId);
+
+    const renamePromise = renameProject(project.projectId, nextName);
+    const savePromise = saveCanvasMapLayout(nextWorkspaceRoot, {
+      version: "desktop-canvas-map-layout/v1",
+      projectId: nextProjectId,
+      nodes: [{ canvasId: "default", x: 123, y: 456 }],
+      updatedAt: "2026-07-01T00:00:00.000Z"
+    });
+    await Promise.all([renamePromise, savePromise]);
+
+    await expect(getCanvasMapLayout(nextWorkspaceRoot)).resolves.toMatchObject({
+      projectId: nextProjectId,
+      nodes: [{ canvasId: "default", x: 123, y: 456 }]
+    });
+    await expect(access(project.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("waits for an external owner of the stable old-root lock before moving a workspace", async () => {
+    const { home: testHome } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const project = await initManagedProject("Managed External Lock");
+    await saveCanvasMapLayout(project.workspaceRoot, {
+      version: "desktop-canvas-map-layout/v1",
+      projectId: project.projectId,
+      nodes: [{ canvasId: "default", x: 17, y: 27 }],
+      updatedAt: "2026-07-01T00:00:00.000Z"
+    });
+    const { canvasMapLayoutDiskLockPath } = await import("../desktop/canvasMapLayout.js");
+    const { resolveProjectWorkspace } = await import("../project.js");
+    const workspace = await resolveProjectWorkspace(project.workspaceRoot);
+    const oldLockPath = canvasMapLayoutDiskLockPath(workspace);
+    await mkdir(dirname(oldLockPath), { recursive: true });
+    const holderScript = [
+      "const fs=require('node:fs');",
+      "const path=process.argv[1];",
+      "fs.mkdirSync(path);",
+      "fs.writeFileSync(path + '/holder.json', JSON.stringify({pid:process.pid,acquiredAt:new Date().toISOString(),operation:'external-layout-owner'}));",
+      "const release=()=>{fs.rmSync(path,{recursive:true,force:true});process.exit(0)};",
+      "process.on('SIGTERM',release);",
+      "process.stdout.write('locked\\n');",
+      "setInterval(()=>{},1000);"
+    ].join("");
+    const holder = spawn(process.execPath, ["-e", holderScript, oldLockPath], {
+      stdio: ["ignore", "pipe", "inherit"]
+    });
+    await once(holder.stdout, "data");
+    expect(holder.exitCode).toBeNull();
+    await expect(access(oldLockPath)).resolves.toBeUndefined();
+
+    const nextName = "Managed External Lock Target";
+    const nextProjectId = createManagedProjectId(nextName);
+    const nextWorkspaceRoot = join(testHome, "projects", nextProjectId);
+    const renamePromise = renameProject(project.projectId, nextName);
+    try {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 75));
+      expect(holder.exitCode).toBeNull();
+      await expect(access(oldLockPath)).resolves.toBeUndefined();
+      await expect(access(project.workspaceRoot)).resolves.toBeUndefined();
+      await expect(access(nextWorkspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      const holderExit = once(holder, "exit");
+      holder.kill("SIGTERM");
+      await holderExit;
+    }
+    await renamePromise;
+
+    const nextWorkspace = await resolveProjectWorkspace(nextWorkspaceRoot);
+    await expect(access(project.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(nextWorkspaceRoot)).resolves.toBeUndefined();
+    await expect(getCanvasMapLayout(nextWorkspaceRoot)).resolves.toMatchObject({
+      projectId: nextProjectId,
+      nodes: [{ canvasId: "default", x: 17, y: 27 }]
+    });
+    await expect(access(oldLockPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(canvasMapLayoutDiskLockPath(nextWorkspace))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
+  it("rolls a moved workspace back without leaking stable old/new layout locks", async () => {
+    const { home: testHome } = await createTestWorkspace();
+    process.env.PLANWEAVE_HOME = testHome;
+    const project = await initManagedProject("Managed Rollback Lock");
+    await saveCanvasMapLayout(project.workspaceRoot, {
+      version: "desktop-canvas-map-layout/v1",
+      projectId: project.projectId,
+      nodes: [{ canvasId: "default", x: 31, y: 41 }],
+      updatedAt: "2026-07-01T00:00:00.000Z"
+    });
+    const nextName = "Managed Rollback Lock Target";
+    const nextProjectId = createManagedProjectId(nextName);
+    const nextWorkspaceRoot = join(testHome, "projects", nextProjectId);
+    const { canvasMapLayoutDiskLockPath } = await import("../desktop/canvasMapLayout.js");
+    const { resolveProjectWorkspace } = await import("../project.js");
+    const previousWorkspace = await resolveProjectWorkspace(project.workspaceRoot);
+    const nextWorkspace = {
+      ...previousWorkspace,
+      id: nextProjectId,
+      rootPath: nextWorkspaceRoot,
+      workspaceRoot: nextWorkspaceRoot
+    };
+    let failNextProjectWrite = true;
+    vi.mocked(rename).mockImplementation(async (oldPath, newPath) => {
+      if (newPath === join(nextWorkspaceRoot, "project.json") && failNextProjectWrite) {
+        failNextProjectWrite = false;
+        throw new Error("simulated identity rewrite failure");
+      }
+      return actualFs.rename(oldPath, newPath);
+    });
+
+    await expect(renameProject(project.projectId, nextName)).rejects.toThrow(
+      "simulated identity rewrite failure"
+    );
+
+    await expect(access(project.workspaceRoot)).resolves.toBeUndefined();
+    await expect(access(nextWorkspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      access(join(project.workspaceRoot, ".planweave-canvas-map-layout.lock"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(openProject({ projectId: project.projectId })).resolves.toMatchObject({
+      projectId: project.projectId,
+      rootPath: project.workspaceRoot
+    });
+    await expect(getCanvasMapLayout(project.workspaceRoot)).resolves.toMatchObject({
+      projectId: project.projectId,
+      nodes: [{ canvasId: "default", x: 31, y: 41 }]
+    });
+    await expect(access(canvasMapLayoutDiskLockPath(previousWorkspace))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    await expect(access(canvasMapLayoutDiskLockPath(nextWorkspace))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
   });
 
   it("does not overwrite another managed project when a rename target already exists", async () => {
@@ -314,14 +504,37 @@ describe("desktop project API", () => {
   it("materializes missing formal project graphs when opening existing legacy projects", async () => {
     const { init, root } = await createTestWorkspace();
     await rm(projectGraphPath(init.workspace));
-    const second = await createTaskCanvas(root, { name: "Legacy second canvas" });
+    await mkdir(join(init.workspace.workspaceRoot, "desktop"), { recursive: true });
+    await writeJsonFile(join(init.workspace.workspaceRoot, "desktop", "canvases.json"), {
+      version: "desktop-canvases/v1",
+      canvases: [
+        {
+          canvasId: "default",
+          name: "Test Plan",
+          packageDir: "package",
+          stateFile: "state.json",
+          resultsDir: "results",
+          createdAt: "2020-01-01T00:00:00.000Z",
+          updatedAt: "2020-01-01T00:00:00.000Z"
+        },
+        {
+          canvasId: "legacy-second",
+          name: "Legacy second canvas",
+          packageDir: "canvases/legacy-second/package",
+          stateFile: "canvases/legacy-second/state.json",
+          resultsDir: "canvases/legacy-second/results",
+          createdAt: "2020-01-01T00:00:00.000Z",
+          updatedAt: "2020-01-01T00:00:00.000Z"
+        }
+      ]
+    });
 
     await expect(loadProjectGraph(root)).resolves.toMatchObject({
       source: "legacy_registry",
       manifest: {
         canvases: [
           expect.objectContaining({ id: "default" }),
-          expect.objectContaining({ id: second.canvasId })
+          expect.objectContaining({ id: "legacy-second" })
         ]
       }
     });
@@ -335,7 +548,7 @@ describe("desktop project API", () => {
       manifest: {
         canvases: [
           expect.objectContaining({ id: "default" }),
-          expect.objectContaining({ id: second.canvasId })
+          expect.objectContaining({ id: "legacy-second" })
         ]
       }
     });

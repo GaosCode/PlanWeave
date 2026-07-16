@@ -118,7 +118,8 @@ function managedProjectSummary(
 
 export async function listTaskCanvases(projectRoot: string): Promise<DesktopTaskCanvasSummary[]> {
   try {
-    return (await createProjectCanvasStore(projectRoot)).list();
+    // Await list() inside try so store open/load rejections are converted to diagnostics.
+    return await (await createProjectCanvasStore(projectRoot)).list();
   } catch (error) {
     return [projectGraphDiagnosticCanvas(projectGraphReadDiagnostics(error))];
   }

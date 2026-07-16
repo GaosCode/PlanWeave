@@ -27,6 +27,11 @@ import {
   readActiveTaskCanvasSelection,
   writeActiveTaskCanvasSelection
 } from "./canvasSelectionStore.js";
+import {
+  reassignCanvasMapLayoutProjectId,
+  withCanvasMapLayoutDiskLocks,
+  withCanvasMapLayoutRelocationMutation
+} from "./canvasMapLayout.js";
 import { invalidateDesktopProjectProjection } from "./graph/projectProjectionModel.js";
 import { updateSourceDefaultProjectReference } from "./sourceDefaultProject.js";
 
@@ -283,13 +288,9 @@ async function rewriteManagedProjectIdentityFiles(
   project: ProjectMetadata
 ): Promise<void> {
   await writeJsonFile(workspace.projectFile, project);
-  await Promise.all([
-    rewriteJsonProjectId(join(workspace.workspaceRoot, "desktop", "layout.json"), project.id),
-    rewriteJsonProjectId(
-      join(workspace.workspaceRoot, "desktop", "canvas-map-layout.json"),
-      project.id
-    )
-  ]);
+  await rewriteJsonProjectId(join(workspace.workspaceRoot, "desktop", "layout.json"), project.id);
+  // canvas-map-layout is schema-owned; caller holds the layout mutation boundary.
+  await reassignCanvasMapLayoutProjectId(workspace, project.id);
 }
 
 async function rewriteManagedProjectFiles(
@@ -328,7 +329,13 @@ async function renameManagedProject(
   );
 
   if (nextProjectId === previousProjectId) {
-    await rewriteManagedProjectFiles(nextWorkspace, nextProject);
+    await withCanvasMapLayoutDiskLocks(
+      [nextWorkspace],
+      "rename-project-canvas-map-layout",
+      async () => {
+        await rewriteManagedProjectFiles(nextWorkspace, nextProject);
+      }
+    );
     return projectSummary(nextProject, nextWorkspaceRoot);
   }
 
@@ -342,42 +349,48 @@ async function renameManagedProject(
     previousWorkspaceRoot
   );
   const previousTitleSnapshot = await readSingleCanvasTitleSnapshot(previousWorkspace);
-  let moved = false;
-  try {
-    await rename(previousWorkspaceRoot, nextWorkspaceRoot);
-    moved = true;
-    await rewriteManagedProjectFiles(nextWorkspace, nextProject);
-    await updateSourceDefaultProjectReference(previousProjectId, {
-      projectId: nextProjectId,
-      projectRoot: nextWorkspaceRoot
-    });
-  } catch (error) {
-    if (moved) {
+  await withCanvasMapLayoutDiskLocks(
+    [previousWorkspace, nextWorkspace],
+    "rename-project-canvas-map-layout",
+    async () => {
+      let moved = false;
       try {
-        await writeJsonFile(join(nextWorkspaceRoot, "project.json"), {
-          ...previousProject,
-          id: previousProjectId,
-          kind: "managed",
-          rootPath: previousWorkspaceRoot,
-          sourceRoot: previousProject.sourceRoot ?? null
+        await rename(previousWorkspaceRoot, nextWorkspaceRoot);
+        moved = true;
+        await rewriteManagedProjectFiles(nextWorkspace, nextProject);
+        await updateSourceDefaultProjectReference(previousProjectId, {
+          projectId: nextProjectId,
+          projectRoot: nextWorkspaceRoot
         });
-        await rename(nextWorkspaceRoot, previousWorkspaceRoot);
-        await rewriteManagedProjectIdentityFiles(previousWorkspace, {
-          ...previousProject,
-          id: previousProjectId,
-          kind: "managed",
-          rootPath: previousWorkspaceRoot,
-          sourceRoot: previousProject.sourceRoot ?? null
-        });
-        await restoreSingleCanvasTitleSnapshot(previousWorkspace, previousTitleSnapshot);
-      } catch (rollbackError) {
-        throw new Error(
-          `Project rename failed: ${errorMessage(error)}; rollback failed: ${errorMessage(rollbackError)}`
-        );
+      } catch (error) {
+        if (moved) {
+          try {
+            await writeJsonFile(join(nextWorkspaceRoot, "project.json"), {
+              ...previousProject,
+              id: previousProjectId,
+              kind: "managed",
+              rootPath: previousWorkspaceRoot,
+              sourceRoot: previousProject.sourceRoot ?? null
+            });
+            await rename(nextWorkspaceRoot, previousWorkspaceRoot);
+            await rewriteManagedProjectIdentityFiles(previousWorkspace, {
+              ...previousProject,
+              id: previousProjectId,
+              kind: "managed",
+              rootPath: previousWorkspaceRoot,
+              sourceRoot: previousProject.sourceRoot ?? null
+            });
+            await restoreSingleCanvasTitleSnapshot(previousWorkspace, previousTitleSnapshot);
+          } catch (rollbackError) {
+            throw new Error(
+              `Project rename failed: ${errorMessage(error)}; rollback failed: ${errorMessage(rollbackError)}`
+            );
+          }
+        }
+        throw error;
       }
     }
-    throw error;
-  }
+  );
 
   return projectSummary(nextProject, nextWorkspaceRoot);
 }
@@ -390,19 +403,36 @@ export async function renameProject(
   if (!nextName) {
     throw new Error("Project name is required.");
   }
-  const entry = await readRegisteredProject(projectId);
-  if (!entry) {
-    throw new Error(`Project '${projectId}' does not exist.`);
-  }
-  if (entry.project.kind === "managed") {
-    return renameManagedProject(entry, nextName);
-  }
-  const nextProject: ProjectMetadata = {
-    ...entry.project,
-    name: nextName
-  };
-  await writeJsonFile(entry.projectFile, nextProject);
-  return projectSummary(nextProject, entry.workspaceRoot);
+  return withCanvasMapLayoutRelocationMutation(
+    async () => {
+      const entry = await readRegisteredProject(projectId);
+      if (!entry) {
+        throw new Error(`Project '${projectId}' does not exist.`);
+      }
+      return {
+        ...projectWorkspacePaths({
+          id: entry.project.id,
+          kind: entry.project.kind === "managed" ? "managed" : "external",
+          rootPath: entry.project.rootPath,
+          sourceRoot: entry.project.sourceRoot ?? null,
+          planweaveHome: resolvePlanweaveHome(),
+          workspaceRoot: entry.workspaceRoot
+        }),
+        entry
+      };
+    },
+    async ({ entry }) => {
+      if (entry.project.kind === "managed") {
+        return renameManagedProject(entry, nextName);
+      }
+      const nextProject: ProjectMetadata = {
+        ...entry.project,
+        name: nextName
+      };
+      await writeJsonFile(entry.projectFile, nextProject);
+      return projectSummary(nextProject, entry.workspaceRoot);
+    }
+  );
 }
 
 export async function initOrOpenProject(rootPath: string): Promise<DesktopProjectSummary> {

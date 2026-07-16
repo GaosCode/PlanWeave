@@ -1,3 +1,4 @@
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { loadProjectGraph } from "./loadProjectGraph.js";
 import { projectGraphPath, writeProjectGraph } from "./loadProjectGraph.js";
 import { PlanWeaveWorkspaceNotInitializedError } from "../errors.js";
@@ -25,7 +26,13 @@ async function requireMaterializeProjectWorkspace(projectRoot: string) {
   }
 }
 
-export async function materializeProjectGraph(
+/**
+ * Materialize under an already-held project mutation lock (or any caller that
+ * serializes project graph writes). Loads the authoritative source and writes
+ * `project-graph.json` when missing. Re-exported load/write stay free of lock
+ * ownership so this primitive can reenter from create/duplicate.
+ */
+export async function materializeProjectGraphUnlocked(
   projectRoot: string
 ): Promise<MaterializeProjectGraphResult> {
   const workspace = await requireMaterializeProjectWorkspace(projectRoot);
@@ -52,4 +59,23 @@ export async function materializeProjectGraph(
     source: loaded.source,
     canvasCount: loaded.manifest.canvases.length
   };
+}
+
+/**
+ * Public materialize entry: same project mutation lock as create/duplicate so a
+ * stale first-write cannot race past a concurrent canvas mutation and overwrite
+ * a fresher graph.
+ *
+ * Nested calls from `createProjectCanvas` / `duplicateProjectCanvas` reenter via
+ * the advisory lock AsyncLocalStorage without double-locking.
+ */
+export async function materializeProjectGraph(
+  projectRoot: string
+): Promise<MaterializeProjectGraphResult> {
+  const workspace = await requireMaterializeProjectWorkspace(projectRoot);
+  return withProjectMutationLock(
+    workspace.workspaceRoot,
+    () => materializeProjectGraphUnlocked(projectRoot),
+    { operation: "materialize-project-graph" }
+  );
 }

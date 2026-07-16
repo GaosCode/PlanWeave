@@ -2,6 +2,17 @@ export { compileProjectGraph } from "./compileProjectGraph.js";
 export { canonicalCanvasWorkspacePaths, canonicalProjectCanvasNode } from "./canonicalWorkspace.js";
 export { createCanvasWorkspace } from "./createCanvasWorkspace.js";
 export {
+  createProjectCanvas,
+  duplicateProjectCanvas,
+  nextDefaultDesktopCanvasTitle,
+  toCreateCanvasWorkspaceResult
+} from "./projectCanvasMutation.js";
+export {
+  populateDuplicatedCanvasWorkspace,
+  writeEmptyCanvasWorkspace,
+  writeManifestTitle
+} from "./canvasWorkspaceContent.js";
+export {
   applyDefaultCanvasWorkspaceMigration,
   canonicalDefaultCanvasWorkspacePaths,
   detectDefaultCanvasWorkspaceMigration,
@@ -39,6 +50,13 @@ export type {
   CreateCanvasWorkspaceOptions,
   CreateCanvasWorkspaceResult
 } from "./createCanvasWorkspace.js";
+export type {
+  CanvasIdAllocationMode,
+  CreateProjectCanvasInput,
+  DuplicateProjectCanvasInput,
+  ProjectCanvasMutationPorts,
+  ProjectCanvasMutationResult
+} from "./projectCanvasMutation.js";
 export type { MaterializeProjectGraphResult } from "./materializeProjectGraph.js";
 export type {
   DefaultCanvasWorkspaceMigrationAction,

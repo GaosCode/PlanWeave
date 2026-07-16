@@ -275,10 +275,32 @@ describe("project graph loader", () => {
   });
 
   it("derives a legacy graph from desktop/canvases.json with a warning", async () => {
-    const { root } = await createTestWorkspace();
-    const loadedBeforeLegacy = await loadProjectGraph(root);
-    await rm(projectGraphPath(loadedBeforeLegacy.workspace));
-    const secondCanvas = await createTaskCanvas(root, { name: "Second canvas" });
+    const { root, init } = await createTestWorkspace();
+    await rm(projectGraphPath(init.workspace));
+    await mkdir(join(init.workspace.workspaceRoot, "desktop"), { recursive: true });
+    await writeJsonFile(join(init.workspace.workspaceRoot, "desktop", "canvases.json"), {
+      version: "desktop-canvases/v1",
+      canvases: [
+        {
+          canvasId: "default",
+          name: "Test Plan",
+          packageDir: "package",
+          stateFile: "state.json",
+          resultsDir: "results",
+          createdAt: "2020-01-01T00:00:00.000Z",
+          updatedAt: "2020-01-01T00:00:00.000Z"
+        },
+        {
+          canvasId: "second",
+          name: "Second canvas",
+          packageDir: "canvases/second/package",
+          stateFile: "canvases/second/state.json",
+          resultsDir: "canvases/second/results",
+          createdAt: "2020-01-01T00:00:00.000Z",
+          updatedAt: "2020-01-01T00:00:00.000Z"
+        }
+      ]
+    });
 
     const loaded = await loadProjectGraph(root);
 
@@ -286,10 +308,7 @@ describe("project graph loader", () => {
     expect(loaded.diagnostics.map((warning) => warning.code)).toContain(
       "project_graph_missing_legacy_registry_used"
     );
-    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual([
-      "default",
-      secondCanvas.canvasId
-    ]);
+    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default", "second"]);
     expect(loaded.manifest.canvases[0]).toMatchObject({
       id: "default",
       packageDir: "canvases/default/package",

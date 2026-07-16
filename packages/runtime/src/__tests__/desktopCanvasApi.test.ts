@@ -314,25 +314,17 @@ describe("desktop task canvas API", () => {
       ]);
       await expect(access(stalePrompt)).rejects.toThrow();
 
-      if (mode === "project_graph") {
-        const loaded = await loadProjectGraph(root);
-        expect(loaded.source).toBe("project_graph");
-        expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual([
-          "default",
-          created.canvasId
-        ]);
-      } else {
-        const registry = await readJsonFile<{
-          canvases: Array<{ canvasId: string; name: string }>;
-        }>(join(init.workspace.workspaceRoot, "desktop", "canvases.json"));
-        expect(
-          registry.canvases.map((canvas) => ({ canvasId: canvas.canvasId, name: canvas.name }))
-        ).toEqual([
-          { canvasId: "default", name: "Test Plan" },
-          { canvasId: created.canvasId, name: "Shared plan" }
-        ]);
-        await expect(access(projectGraphPath(init.workspace))).rejects.toThrow();
-      }
+      // Create/duplicate always materialize project-graph.json under the coordinator lock,
+      // even when the workspace started without one (legacy_registry mode).
+      const loaded = await loadProjectGraph(root);
+      expect(loaded.source).toBe("project_graph");
+      expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual([
+        "default",
+        created.canvasId
+      ]);
+      expect(loaded.manifest.canvases.find((canvas) => canvas.id === created.canvasId)?.title).toBe(
+        "Shared plan"
+      );
     });
   });
 
@@ -465,15 +457,13 @@ describe("desktop task canvas API", () => {
     await expect(readdir(join(home, "projects"))).resolves.toEqual(projectsBefore);
   });
 
-  it("duplicates legacy registry canvases and records the new canvas", async () => {
+  it("duplicates from a missing project-graph workspace and records the new canvas in project-graph.json", async () => {
     const { root, init } = await createTestWorkspace();
     await rm(projectGraphPath(init.workspace));
 
     const duplicated = await duplicateTaskCanvas(root, "default", { name: "Legacy duplicate" });
     const duplicatedWorkspace = await resolveTaskCanvasWorkspace(root, duplicated.canvasId);
-    const registry = await readJsonFile<{ canvases: Array<{ canvasId: string; name: string }> }>(
-      join(init.workspace.workspaceRoot, "desktop", "canvases.json")
-    );
+    const loaded = await loadProjectGraph(root);
     const duplicatedManifest = await readJsonFile<{ project: { title: string } }>(
       duplicatedWorkspace.manifestFile
     );
@@ -483,11 +473,12 @@ describe("desktop task canvas API", () => {
       name: "Legacy duplicate",
       taskCount: 1
     });
-    expect(registry.canvases.map((canvas) => canvas.canvasId)).toEqual([
+    expect(loaded.source).toBe("project_graph");
+    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual([
       "default",
       duplicated.canvasId
     ]);
-    expect(registry.canvases.find((canvas) => canvas.canvasId === duplicated.canvasId)?.name).toBe(
+    expect(loaded.manifest.canvases.find((canvas) => canvas.id === duplicated.canvasId)?.title).toBe(
       "Legacy duplicate"
     );
     expect(duplicatedManifest.project.title).toBe("Legacy duplicate");
@@ -844,20 +835,19 @@ describe("desktop task canvas API", () => {
     expect(manifest.project.title).toBe("Renamed formal canvas");
   });
 
-  it("renames legacy registry canvases and their package manifest titles", async () => {
+  it("renames canvases created after materializing from a missing project-graph", async () => {
     const { root, init } = await createTestWorkspace();
     await rm(projectGraphPath(init.workspace));
     const created = await createTaskCanvas(root, { name: "Original legacy canvas" });
 
     const renamed = await renameTaskCanvas(root, created.canvasId, "Renamed legacy canvas");
-    const registry = await readJsonFile<{ canvases: Array<{ canvasId: string; name: string }> }>(
-      join(init.workspace.workspaceRoot, "desktop", "canvases.json")
-    );
+    const loaded = await loadProjectGraph(root);
     const workspace = await resolveTaskCanvasWorkspace(root, created.canvasId);
     const manifest = await readJsonFile<{ project: { title: string } }>(workspace.manifestFile);
 
     expect(renamed).toMatchObject({ canvasId: created.canvasId, name: "Renamed legacy canvas" });
-    expect(registry.canvases.find((canvas) => canvas.canvasId === created.canvasId)?.name).toBe(
+    expect(loaded.source).toBe("project_graph");
+    expect(loaded.manifest.canvases.find((canvas) => canvas.id === created.canvasId)?.title).toBe(
       "Renamed legacy canvas"
     );
     expect(manifest.project.title).toBe("Renamed legacy canvas");
@@ -903,7 +893,7 @@ describe("desktop task canvas API", () => {
     ).resolves.toEqual([]);
   });
 
-  it("quarantines legacy canvas workspaces when removing non-default canvases", async () => {
+  it("quarantines canvas workspaces when removing non-default canvases after materialize", async () => {
     const { root, init } = await createTestWorkspace();
     await rm(projectGraphPath(init.workspace));
     const created = await createTaskCanvas(root, { name: "Legacy removable" });
@@ -913,14 +903,11 @@ describe("desktop task canvas API", () => {
     const quarantineEntries = await readdir(
       join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine")
     );
-    const registry = await readJsonFile<Record<string, unknown>>(
-      join(init.workspace.workspaceRoot, "desktop", "canvases.json")
-    );
+    const loaded = await loadProjectGraph(root);
 
     expect(remaining.map((canvas) => canvas.canvasId)).toEqual(["default"]);
-    expect(registry).toMatchObject({
-      canvases: [expect.objectContaining({ canvasId: "default" })]
-    });
+    expect(loaded.source).toBe("project_graph");
+    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default"]);
     await expect(access(canvasRoot)).rejects.toThrow();
     expect(quarantineEntries).toHaveLength(1);
     await expect(
@@ -962,30 +949,32 @@ describe("desktop task canvas API", () => {
     await expect(access(staleNodePrompt)).rejects.toThrow();
   });
 
-  it("restores legacy canvas workspace on write failure", async () => {
+  it("restores canvas workspace on graph write failure after materialize-from-missing", async () => {
     const { root, init } = await createTestWorkspace();
     await rm(projectGraphPath(init.workspace));
     const created = await createTaskCanvas(root, { name: "Rollback" });
     const canvasRoot = join(init.workspace.workspaceRoot, "canvases", created.canvasId);
-    const desktopRoot = join(init.workspace.workspaceRoot, "desktop");
-    await mkdir(join(desktopRoot, "canvas-quarantine"), { recursive: true });
+    await mkdir(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine"), {
+      recursive: true
+    });
 
     try {
-      await chmod(desktopRoot, 0o555);
+      await chmod(init.workspace.workspaceRoot, 0o555);
       await expect(removeTaskCanvas(root, created.canvasId)).rejects.toThrow();
     } finally {
-      await chmod(desktopRoot, 0o755);
+      await chmod(init.workspace.workspaceRoot, 0o755);
     }
 
-    const registry = await readJsonFile<{ canvases: Array<{ canvasId: string }> }>(
-      join(desktopRoot, "canvases.json")
-    );
-    expect(registry.canvases.map((canvas) => canvas.canvasId)).toEqual([
+    const loaded = await loadProjectGraph(root);
+    expect(loaded.source).toBe("project_graph");
+    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual([
       "default",
       created.canvasId
     ]);
     await expect(access(join(canvasRoot, "package", "manifest.json"))).resolves.toBeUndefined();
-    await expect(readdir(join(desktopRoot, "canvas-quarantine"))).resolves.toEqual([]);
+    await expect(
+      readdir(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine"))
+    ).resolves.toEqual([]);
   });
 
   it("rejects resetting a formal root canvas while project graph dependencies reference it", async () => {

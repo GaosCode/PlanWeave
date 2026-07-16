@@ -78,7 +78,30 @@ describe("project graph schema", () => {
   it("derives a legacy project graph when project-graph.json is missing", async () => {
     const { root, init } = await createTestWorkspace();
     await rm(projectGraphPath(init.workspace));
-    const second = await createTaskCanvas(root, { name: "Second plan" });
+    await mkdir(join(init.workspace.workspaceRoot, "desktop"), { recursive: true });
+    await writeJsonFile(join(init.workspace.workspaceRoot, "desktop", "canvases.json"), {
+      version: "desktop-canvases/v1",
+      canvases: [
+        {
+          canvasId: "default",
+          name: "Test Plan",
+          packageDir: "package",
+          stateFile: "state.json",
+          resultsDir: "results",
+          createdAt: "2020-01-01T00:00:00.000Z",
+          updatedAt: "2020-01-01T00:00:00.000Z"
+        },
+        {
+          canvasId: "second",
+          name: "Second plan",
+          packageDir: "canvases/second/package",
+          stateFile: "canvases/second/state.json",
+          resultsDir: "canvases/second/results",
+          createdAt: "2020-01-01T00:00:00.000Z",
+          updatedAt: "2020-01-01T00:00:00.000Z"
+        }
+      ]
+    });
 
     const loaded = await loadProjectGraph(root);
 
@@ -86,10 +109,7 @@ describe("project graph schema", () => {
     expect(loaded.diagnostics).toEqual([
       expect.objectContaining({ code: "project_graph_missing_legacy_registry_used" })
     ]);
-    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual([
-      "default",
-      second.canvasId
-    ]);
+    expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default", "second"]);
   });
 
   it("loads a formal project graph when present", async () => {
