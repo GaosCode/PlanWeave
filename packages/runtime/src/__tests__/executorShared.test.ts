@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -276,6 +276,77 @@ process.stdout.write("trigger");
     expect((await stat(heartbeatPath)).size).toBe(sizeAfterReject);
   });
 
+  it("rejects when an async stdout callback fails after the child has already closed", async () => {
+    const runDir = await tempRunDir();
+    const stdoutPath = join(runDir, "stdout.md");
+    const heartbeatPath = executorHeartbeatPath(stdoutPath);
+    const startedAt = Date.now();
+
+    await expect(
+      execWithStreaming({
+        command: process.execPath,
+        // Exit immediately after writing so close settles while the callback is still pending.
+        args: ["-e", "process.stdout.write('trigger');"],
+        cwd: runDir,
+        stdin: "",
+        stdoutPath,
+        stderrPath: join(runDir, "stderr.log"),
+        timeoutMs: 5000,
+        maxStdoutBytes: 1024,
+        maxStderrBytes: 1024,
+        onStdout: async () => {
+          await sleep(150);
+          throw new Error("late callback failed");
+        }
+      })
+    ).rejects.toThrow("late callback failed");
+
+    expect(Date.now() - startedAt).toBeLessThan(3000);
+    await expect(
+      readFile(heartbeatPath, "utf8").then(
+        (content) => JSON.parse(content) as Record<string, unknown>
+      )
+    ).resolves.toMatchObject({
+      status: "failed",
+      exitCode: 1,
+      error: expect.stringContaining("late callback failed")
+    });
+  });
+
+  it("rejects when heartbeat finalization fails instead of hanging", async () => {
+    const runDir = await tempRunDir();
+    const stdoutPath = join(runDir, "stdout.md");
+    const heartbeatPath = executorHeartbeatPath(stdoutPath);
+    const startedAt = Date.now();
+
+    const running = execWithStreaming({
+      command: process.execPath,
+      args: [
+        "-e",
+        // Stay alive briefly so the parent can replace heartbeat.json with a directory.
+        "setTimeout(() => {}, 80);"
+      ],
+      cwd: runDir,
+      stdin: "",
+      stdoutPath,
+      stderrPath: join(runDir, "stderr.log"),
+      timeoutMs: 5000,
+      maxStdoutBytes: 1024,
+      maxStderrBytes: 1024,
+      heartbeatIntervalMs: 0
+    });
+    const rejection = running.catch((error: unknown) => error);
+
+    await waitForFile(heartbeatPath);
+    await unlink(heartbeatPath);
+    await mkdir(heartbeatPath);
+
+    await expect(rejection).resolves.toMatchObject({
+      message: expect.stringMatching(/EISDIR|illegal operation on a directory|directory/i)
+    });
+    expect(Date.now() - startedAt).toBeLessThan(3000);
+  });
+
   it("rejects and terminates when a stdout write stream errors", async () => {
     const runDir = await tempRunDir();
     const stdoutPath = join(runDir, "stdout-dir");
@@ -364,4 +435,161 @@ process.stdout.write("trigger");
     await expect(readFile(stdoutPath, "utf8")).resolves.toBe("hello stdout");
     await expect(readFile(stderrPath, "utf8")).resolves.toBe("hello stderr");
   });
+
+  /**
+   * Integration: root exits on SIGTERM quickly, grandchild ignores SIGTERM.
+   * Executor settlement must await force reap so the grandchild is dead when the promise settles.
+   */
+  async function writeGrandchildTreeScripts(runDir: string): Promise<{
+    parentScript: string;
+    grandchildPidPath: string;
+    heartbeatPath: string;
+  }> {
+    const grandchildPidPath = join(runDir, "grandchild.pid");
+    const heartbeatPath = join(runDir, "gc-heartbeat.txt");
+    const grandchildScript = join(runDir, "grandchild.js");
+    const parentScript = join(runDir, "parent.js");
+    await writeFile(
+      grandchildScript,
+      `
+const fs = require("node:fs");
+process.on("SIGTERM", () => {});
+fs.writeFileSync(${JSON.stringify(grandchildPidPath)}, String(process.pid));
+fs.writeFileSync(${JSON.stringify(heartbeatPath)}, "start");
+setInterval(() => fs.appendFileSync(${JSON.stringify(heartbeatPath)}, "x"), 40);
+`,
+      "utf8"
+    );
+    await writeFile(
+      parentScript,
+      `
+const { spawn } = require("node:child_process");
+const g = spawn(process.execPath, [${JSON.stringify(grandchildScript)}], { stdio: "ignore" });
+g.unref();
+// Root responds to SIGTERM by exiting; grandchild stays in the process group.
+process.on("SIGTERM", () => process.exit(0));
+setInterval(() => {}, 100);
+`,
+      "utf8"
+    );
+    return { parentScript, grandchildPidPath, heartbeatPath };
+  }
+
+  async function waitForPidFile(path: string): Promise<number> {
+    // Allow extra headroom under full-suite CPU contention (spawn can lag).
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      try {
+        const text = (await readFile(path, "utf8")).trim();
+        if (text.length > 0) {
+          const pid = Number.parseInt(text, 10);
+          if (Number.isInteger(pid) && pid > 0) {
+            return pid;
+          }
+        }
+      } catch {
+        // not yet
+      }
+      await sleep(20);
+    }
+    throw new Error(`Timed out waiting for pid file: ${path}`);
+  }
+
+  function processIsAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function waitUntilDead(pid: number, timeoutMs = 3_000): Promise<void> {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      if (!processIsAlive(pid)) {
+        return;
+      }
+      await sleep(20);
+    }
+    throw new Error(`Process ${String(pid)} still observable after ${String(timeoutMs)}ms.`);
+  }
+
+  it.runIf(process.platform !== "win32")(
+    "execWithStreaming awaits tree force before settle when a SIGTERM-resistant grandchild outlives the root",
+    async () => {
+      const runDir = await tempRunDir();
+      const { parentScript, grandchildPidPath, heartbeatPath } =
+        await writeGrandchildTreeScripts(runDir);
+      const stdoutPath = join(runDir, "stdout.md");
+
+      const startedAt = Date.now();
+      // Timeout must outlive grandchild spawn under parallel suite load; keep grace-after-timeout semantics.
+      const timeoutMs = 1_500;
+      const running = execWithStreaming({
+        command: process.execPath,
+        args: [parentScript],
+        cwd: runDir,
+        stdin: "",
+        stdoutPath,
+        stderrPath: join(runDir, "stderr.log"),
+        timeoutMs,
+        maxStdoutBytes: 1024,
+        maxStderrBytes: 1024
+      });
+
+      const grandchildPid = await waitForPidFile(grandchildPidPath);
+      expect(processIsAlive(grandchildPid)).toBe(true);
+
+      const result = await running;
+      expect(result).toMatchObject({ timedOut: true, exitCode: 124 });
+      // Settlement must not precede force; default grace is 500ms after timeout.
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(timeoutMs + 500);
+
+      // Heartbeat must stop at settle time (force completed); pid may briefly remain as a zombie.
+      const sizeAfterSettle = (await readFile(heartbeatPath)).byteLength;
+      await sleep(150);
+      expect((await readFile(heartbeatPath)).byteLength).toBe(sizeAfterSettle);
+      await waitUntilDead(grandchildPid);
+
+      const heartbeat = executorHeartbeatPath(stdoutPath);
+      await expect(
+        readFile(heartbeat, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>)
+      ).resolves.toMatchObject({
+        status: "finished",
+        timedOut: true,
+        finishedAt: expect.any(String)
+      });
+    }
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "execWithStdin awaits tree force before settle when a SIGTERM-resistant grandchild outlives the root",
+    async () => {
+      const runDir = await tempRunDir();
+      const { parentScript, grandchildPidPath, heartbeatPath } =
+        await writeGrandchildTreeScripts(runDir);
+
+      const startedAt = Date.now();
+      const timeoutMs = 1_500;
+      const running = execWithStdin({
+        command: process.execPath,
+        args: [parentScript],
+        cwd: runDir,
+        stdin: "",
+        timeoutMs
+      });
+
+      const grandchildPid = await waitForPidFile(grandchildPidPath);
+      expect(processIsAlive(grandchildPid)).toBe(true);
+
+      const result = await running;
+      expect(result).toMatchObject({ timedOut: true, exitCode: 124 });
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(timeoutMs + 500);
+
+      const sizeAfterSettle = (await readFile(heartbeatPath)).byteLength;
+      await sleep(150);
+      expect((await readFile(heartbeatPath)).byteLength).toBe(sizeAfterSettle);
+      await waitUntilDead(grandchildPid);
+    }
+  );
 });

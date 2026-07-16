@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { createWriteStream, constants } from "node:fs";
 import type { WriteStream } from "node:fs";
 import { access, mkdir, open, readFile, writeFile } from "node:fs/promises";
@@ -7,6 +6,11 @@ import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
+import {
+  DEFAULT_PROCESS_TREE_GRACE_MS,
+  spawnManagedProcess,
+  type ManagedProcessTree
+} from "../process/managedProcessTree.js";
 import { isCommandTrusted, untrustedExecutorCommandError } from "../taskManager/hookTrustStore.js";
 import type {
   ClaimResult,
@@ -17,6 +21,7 @@ import type {
 } from "../types.js";
 import type { ExecutionWaveId } from "./runnerContractSchemas.js";
 import { runCommandInTmux, type TmuxSessionInfo } from "./tmuxExecutor.js";
+import { recordBlockRunInIndex } from "./blockRunIndex.js";
 
 export type BlockClaim = Extract<ClaimResult, { kind: "block" }>;
 export type FeedbackClaim = Extract<ClaimResult, { kind: "feedback" }>;
@@ -25,7 +30,8 @@ export const DEFAULT_EXECUTOR_TIMEOUT_MS = 30 * 60 * 1000;
 export const DEFAULT_EXECUTOR_MAX_STDOUT_BYTES = 10 * 1024 * 1024;
 export const DEFAULT_EXECUTOR_MAX_STDERR_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_EXECUTOR_HEARTBEAT_INTERVAL_MS = 5 * 1000;
-export const EXECUTOR_FORCE_KILL_GRACE_MS = 500;
+/** @deprecated Prefer DEFAULT_PROCESS_TREE_GRACE_MS; kept as the executor-facing alias. */
+export const EXECUTOR_FORCE_KILL_GRACE_MS = DEFAULT_PROCESS_TREE_GRACE_MS;
 
 export class ExecutorCancelledError extends Error {
   constructor(message = "Executor cancelled.") {
@@ -118,19 +124,6 @@ export function executorLimitFailureMessage(input: {
   return `Executor '${input.executorName}' exceeded ${input.limitExceeded.stream} output limit of ${input.limitExceeded.limitBytes} bytes; partial output was preserved.`;
 }
 
-function terminateChildWithFallback(
-  child: ReturnType<typeof spawn>,
-  forceKillTimeout: { value: ReturnType<typeof setTimeout> | undefined }
-): void {
-  child.kill("SIGTERM");
-  if (!forceKillTimeout.value) {
-    forceKillTimeout.value = setTimeout(() => {
-      child.kill("SIGKILL");
-    }, EXECUTOR_FORCE_KILL_GRACE_MS);
-    forceKillTimeout.value.unref();
-  }
-}
-
 function clearTimer(timer: { value: ReturnType<typeof setTimeout> | undefined }): void {
   if (timer.value) {
     clearTimeout(timer.value);
@@ -140,6 +133,45 @@ function clearTimer(timer: { value: ReturnType<typeof setTimeout> | undefined })
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Attach process-tree termination failure while preserving the primary timeout/limit/cancel error. */
+export function withProcessTreeTerminationCause(primary: Error, terminationError: unknown): Error {
+  const termMessage = errorText(terminationError);
+  const combined = new Error(`${primary.message} (process tree termination failed: ${termMessage})`, {
+    cause: terminationError
+  });
+  combined.name = primary.name;
+  return combined;
+}
+
+/**
+ * Tracks a single tree.terminate() promise for an executor invocation.
+ * Callers must await completion before finishing heartbeat/streams or resolving/rejecting.
+ */
+function createExecutorTermination(tree: ManagedProcessTree): {
+  readonly started: boolean;
+  start(reason: string): void;
+  awaitIfStarted(): Promise<void>;
+} {
+  let promise: Promise<void> | undefined;
+  return {
+    get started() {
+      return promise !== undefined;
+    },
+    start(reason: string): void {
+      if (promise) {
+        return;
+      }
+      // Share one terminate promise; rejections stay on the promise for awaitIfStarted.
+      promise = tree.terminate(reason).then(() => undefined);
+    },
+    async awaitIfStarted(): Promise<void> {
+      if (promise) {
+        await promise;
+      }
+    }
+  };
 }
 
 export function executorHeartbeatPath(stdoutPath: string): string {
@@ -262,7 +294,9 @@ export async function nextRunId(runRoot: string): Promise<string> {
 }
 
 /** Reserve a RUN-* directory atomically via exclusive mkdir. */
-export async function allocateRunId(runRoot: string): Promise<string> {
+export async function allocateRunId(
+  runRoot: string
+): Promise<string> {
   await mkdir(runRoot, { recursive: true });
   for (let attempt = 1; attempt <= 1000; attempt++) {
     const existing = await optionalReaddir(runRoot, { withFileTypes: true });
@@ -328,6 +362,7 @@ export async function prepareBlockRun(options: {
     agentSessionId: null,
     codexSessionId: null
   });
+  await recordBlockRunInIndex(runRoot, runId);
   return { runId, runDir, promptPath, metadataPath, startedAt };
 }
 
@@ -400,32 +435,95 @@ export async function execWithStdin(options: {
   const maxStdoutBytes = options.maxStdoutBytes ?? DEFAULT_EXECUTOR_MAX_STDOUT_BYTES;
   const maxStderrBytes = options.maxStderrBytes ?? DEFAULT_EXECUTOR_MAX_STDERR_BYTES;
   return new Promise((resolve, reject) => {
-    const child = spawn(options.command, options.args, {
+    const { child, tree } = spawnManagedProcess({
+      command: options.command,
+      args: options.args,
       cwd: options.cwd,
       env: options.env ? { ...process.env, ...options.env } : process.env,
-      stdio: ["pipe", "pipe", "pipe"]
+      graceMs: EXECUTOR_FORCE_KILL_GRACE_MS
     });
+    const termination = createExecutorTermination(tree);
     let stdout = "";
     let stderr = "";
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let timedOut = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;
-    const forceKillTimeout: { value: ReturnType<typeof setTimeout> | undefined } = {
-      value: undefined
-    };
     const runtimeTimeout: { value: ReturnType<typeof setTimeout> | undefined } = {
       value: undefined
     };
     let settled = false;
+    let settling = false;
     let limitExceeded: ExecutorOutputLimitExceeded | undefined;
+    let closeCode: number | null = null;
 
-    const terminateChild = (): void => {
-      terminateChildWithFallback(child, forceKillTimeout);
+    const clearSettlementTimers = (): void => {
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = undefined;
+      }
+      clearTimer(runtimeTimeout);
+    };
+
+    const buildResult = (): StdinCommandResult => ({
+      stdout,
+      stderr,
+      exitCode: limitExceeded ? 1 : timedOut ? 124 : (closeCode ?? 1),
+      timedOut,
+      limitExceeded
+    });
+
+    const primaryTerminationError = (fallbackMessage: string): Error => {
+      if (timedOut) {
+        return new Error(
+          `Executor timed out after ${String(options.timeoutMs ?? DEFAULT_EXECUTOR_TIMEOUT_MS)}ms.`
+        );
+      }
+      if (limitExceeded) {
+        return new Error(
+          executorLimitFailureMessage({ executorName: "execWithStdin", limitExceeded })
+        );
+      }
+      return new Error(fallbackMessage);
+    };
+
+    const settleWithTermination = (work: () => void | Promise<void>): void => {
+      if (settled || settling) {
+        return;
+      }
+      settling = true;
+      clearSettlementTimers();
+      void (async () => {
+        try {
+          await termination.awaitIfStarted();
+          if (settled) {
+            return;
+          }
+          settled = true;
+          await work();
+        } catch (terminationError) {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          const primary = primaryTerminationError("Managed process tree termination failed.");
+          reject(withProcessTreeTerminationCause(primary, terminationError));
+        }
+      })();
+    };
+
+    const settleReject = (error: unknown): void => {
+      if (settled || settling) {
+        return;
+      }
+      termination.start("error");
+      settleWithTermination(() => {
+        reject(error);
+      });
     };
 
     const writeBoundedOutput = (streamName: "stdout" | "stderr", chunk: Buffer): void => {
-      if (limitExceeded) {
+      if (limitExceeded || settled || settling) {
         return;
       }
       const currentBytes = streamName === "stdout" ? stdoutBytes : stderrBytes;
@@ -452,21 +550,10 @@ export async function execWithStdin(options: {
         stderr += marker;
       }
       limitExceeded = { stream: streamName, limitBytes };
-      terminateChild();
-    };
-
-    const settleReject = (error: unknown): void => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-      clearTimer(runtimeTimeout);
-      clearTimer(forceKillTimeout);
-      terminateChild();
-      reject(error);
+      termination.start(`${streamName}-limit`);
+      settleWithTermination(() => {
+        resolve(buildResult());
+      });
     };
 
     child.stdout.on("data", (chunk: Buffer) => writeBoundedOutput("stdout", chunk));
@@ -478,26 +565,28 @@ export async function execWithStdin(options: {
     if (options.timeoutMs) {
       timeout = setTimeout(() => {
         timedOut = true;
-        terminateChild();
+        termination.start("timeout");
+        settleWithTermination(() => {
+          resolve(buildResult());
+        });
       }, options.timeoutMs);
       runtimeTimeout.value = timeout;
     }
     child.on("close", (code) => {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-      clearTimer(runtimeTimeout);
-      clearTimer(forceKillTimeout);
-      if (settled) {
+      closeCode = code;
+      if (settled || settling) {
         return;
       }
-      settled = true;
-      resolve({
-        stdout,
-        stderr,
-        exitCode: limitExceeded ? 1 : timedOut ? 124 : (code ?? 1),
-        timedOut,
-        limitExceeded
+      // Normal exit (no timeout/limit/cancel termination): settle immediately.
+      // Forced paths settle only after termination promise completes.
+      if (termination.started) {
+        settleWithTermination(() => {
+          resolve(buildResult());
+        });
+        return;
+      }
+      settleWithTermination(() => {
+        resolve(buildResult());
       });
     });
     try {
@@ -584,11 +673,14 @@ export async function execWithStreaming(options: {
   return new Promise((resolve, reject) => {
     const stdoutStream = createWriteStream(options.stdoutPath, { flags: "w" });
     const stderrStream = createWriteStream(options.stderrPath, { flags: "w" });
-    const child = spawn(options.command, options.args, {
+    const { child, tree } = spawnManagedProcess({
+      command: options.command,
+      args: options.args,
       cwd: options.cwd,
       env: options.env ? { ...process.env, ...options.env } : process.env,
-      stdio: ["pipe", "pipe", "pipe"]
+      graceMs: EXECUTOR_FORCE_KILL_GRACE_MS
     });
+    const termination = createExecutorTermination(tree);
     const heartbeat = startExecutorHeartbeat({
       path: executorHeartbeatPath(options.stdoutPath),
       pid: child.pid ?? null,
@@ -596,18 +688,18 @@ export async function execWithStreaming(options: {
     });
     let timedOut = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;
-    const forceKillTimeout: { value: ReturnType<typeof setTimeout> | undefined } = {
-      value: undefined
-    };
     let stdout = "";
     let stderr = "";
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let settled = false;
+    let settling = false;
     let streamsClosed = false;
     let callbackError: unknown;
     let limitExceeded: ExecutorOutputLimitExceeded | undefined;
     let callbackChain = Promise.resolve();
+    let closeCode: number | null = null;
+
     const closeStreams = (): void => {
       if (streamsClosed) {
         return;
@@ -617,34 +709,162 @@ export async function execWithStreaming(options: {
       stderrStream.destroy();
     };
 
-    const terminateChild = (): void => {
-      terminateChildWithFallback(child, forceKillTimeout);
+    const clearSettlementTimers = (): void => {
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = undefined;
+      }
+    };
+
+    const buildResult = (): StreamingCommandResult => ({
+      stdoutPath: options.stdoutPath,
+      stderrPath: options.stderrPath,
+      stdout,
+      stderr,
+      exitCode: limitExceeded ? 1 : timedOut ? 124 : (closeCode ?? 1),
+      timedOut,
+      limitExceeded
+    });
+
+    const primaryTerminationError = (fallbackMessage: string): Error => {
+      if (callbackError instanceof Error) {
+        return callbackError;
+      }
+      if (callbackError !== undefined) {
+        return new Error(errorText(callbackError));
+      }
+      if (options.signal?.aborted) {
+        return new ExecutorCancelledError();
+      }
+      if (timedOut) {
+        return new Error(`Executor timed out after ${String(timeoutMs)}ms.`);
+      }
+      if (limitExceeded) {
+        return new Error(
+          executorLimitFailureMessage({ executorName: "execWithStreaming", limitExceeded })
+        );
+      }
+      return new Error(fallbackMessage);
+    };
+
+    const finishStreamsAndHeartbeat = async (getOutcome: () => {
+      status: "finished" | "failed";
+      exitCode: number;
+      error: string | null;
+    }): Promise<void> => {
+      if (!streamsClosed) {
+        await Promise.all([
+          finishWriteStream(stdoutStream),
+          finishWriteStream(stderrStream),
+          callbackChain
+        ]);
+      } else {
+        await callbackChain.catch(() => undefined);
+      }
+      const outcome = getOutcome();
+      await heartbeat.finish({
+        status: outcome.status,
+        finishedAt: new Date().toISOString(),
+        exitCode: outcome.exitCode,
+        timedOut,
+        error: outcome.error
+      });
+    };
+
+    const settleWithTermination = (work: () => void | Promise<void>): void => {
+      if (settled || settling) {
+        return;
+      }
+      settling = true;
+      clearSettlementTimers();
+      options.signal?.removeEventListener("abort", onAbort);
+      void (async () => {
+        // Termination await and finalization work fail independently.
+        // `settled` means the outer promise was resolve/reject'd (or is about to be).
+        try {
+          // Complete grace→force (and confirm tree exit) before heartbeat finish / resolve.
+          await termination.awaitIfStarted();
+        } catch (terminationError) {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          const primary = primaryTerminationError("Managed process tree termination failed.");
+          const combined = withProcessTreeTerminationCause(primary, terminationError);
+          closeStreams();
+          try {
+            await heartbeat.finish({
+              status: "failed",
+              finishedAt: new Date().toISOString(),
+              exitCode: 1,
+              timedOut,
+              error: errorText(combined)
+            });
+          } catch {
+            // Heartbeat write failure must not hide the termination failure.
+          }
+          reject(combined);
+          return;
+        }
+
+        if (settled) {
+          return;
+        }
+
+        try {
+          await work();
+          settled = true;
+        } catch (finalizationError) {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          closeStreams();
+          try {
+            await heartbeat.finish({
+              status: "failed",
+              finishedAt: new Date().toISOString(),
+              exitCode: 1,
+              timedOut,
+              error: errorText(finalizationError)
+            });
+          } catch {
+            // Best-effort heartbeat after stream/finalization failure.
+          }
+          reject(finalizationError);
+        }
+      })();
     };
 
     const onAbort = (): void => {
-      terminateChild();
+      termination.start("abort");
+      settleWithTermination(async () => {
+        closeStreams();
+        await finishStreamsAndHeartbeat(() => ({
+          status: "failed",
+          exitCode: 1,
+          error: errorText(new ExecutorCancelledError())
+        }));
+        reject(new ExecutorCancelledError());
+      });
     };
 
     options.signal?.addEventListener("abort", onAbort, { once: true });
 
     const settleReject = (error: unknown): void => {
-      if (settled) {
+      if (settled || settling) {
         return;
       }
-      settled = true;
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-      terminateChild();
-      closeStreams();
-      void heartbeat.finish({
-        status: "failed",
-        finishedAt: new Date().toISOString(),
-        exitCode: 1,
-        timedOut,
-        error: errorText(error)
+      termination.start("error");
+      settleWithTermination(async () => {
+        closeStreams();
+        await finishStreamsAndHeartbeat(() => ({
+          status: "failed",
+          exitCode: 1,
+          error: errorText(error)
+        }));
+        reject(error);
       });
-      reject(error);
     };
 
     const enqueueCallback = (
@@ -657,13 +877,30 @@ export async function execWithStreaming(options: {
       callbackChain = callbackChain
         .then(() => callback(chunk))
         .catch((error: unknown) => {
-          callbackError = error;
-          terminateChild();
+          // Always record the first callback failure so normal-close finalization can
+          // reject even when settlement already started (child exited before the async callback).
+          // Higher-priority timeout/cancel/limit paths intentionally ignore callbackError.
+          if (callbackError === undefined) {
+            callbackError = error;
+          }
+          if (settled || settling) {
+            return;
+          }
+          termination.start("callback-error");
+          settleWithTermination(async () => {
+            closeStreams();
+            await finishStreamsAndHeartbeat(() => ({
+              status: "failed",
+              exitCode: 1,
+              error: errorText(error)
+            }));
+            reject(error);
+          });
         });
     };
 
     const writeBoundedOutput = (streamName: "stdout" | "stderr", chunk: Buffer): void => {
-      if (limitExceeded) {
+      if (limitExceeded || settled || settling) {
         return;
       }
       const stream = streamName === "stdout" ? stdoutStream : stderrStream;
@@ -706,7 +943,15 @@ export async function execWithStreaming(options: {
         stderr += marker;
       }
       limitExceeded = { stream: streamName, limitBytes };
-      terminateChild();
+      termination.start(`${streamName}-limit`);
+      settleWithTermination(async () => {
+        await finishStreamsAndHeartbeat(() => ({
+          status: "finished",
+          exitCode: 1,
+          error: null
+        }));
+        resolve(buildResult());
+      });
     };
 
     stdoutStream.on("error", settleReject);
@@ -718,49 +963,43 @@ export async function execWithStreaming(options: {
     if (timeoutMs) {
       timeout = setTimeout(() => {
         timedOut = true;
-        terminateChild();
-      }, timeoutMs);
-    }
-    child.on("close", (code) => {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-      clearTimer(forceKillTimeout);
-      options.signal?.removeEventListener("abort", onAbort);
-      if (settled) {
-        return;
-      }
-      settled = true;
-      Promise.all([finishWriteStream(stdoutStream), finishWriteStream(stderrStream), callbackChain])
-        .then(async () => {
-          await heartbeat.finish({
-            status: callbackError ? "failed" : "finished",
-            finishedAt: new Date().toISOString(),
-            exitCode: callbackError || limitExceeded ? 1 : timedOut ? 124 : (code ?? 1),
-            timedOut,
-            error: callbackError ? errorText(callbackError) : null
-          });
-        })
-        .then(() => {
-          if (callbackError) {
-            reject(callbackError);
-            return;
-          }
+        termination.start("timeout");
+        settleWithTermination(async () => {
+          await finishStreamsAndHeartbeat(() => ({
+            status: "finished",
+            exitCode: 124,
+            error: null
+          }));
           if (options.signal?.aborted) {
             reject(new ExecutorCancelledError());
             return;
           }
-          resolve({
-            stdoutPath: options.stdoutPath,
-            stderrPath: options.stderrPath,
-            stdout,
-            stderr,
-            exitCode: limitExceeded ? 1 : timedOut ? 124 : (code ?? 1),
-            timedOut,
-            limitExceeded
-          });
-        })
-        .catch(reject);
+          resolve(buildResult());
+        });
+      }, timeoutMs);
+    }
+    child.on("close", (code) => {
+      closeCode = code;
+      if (settled || settling) {
+        return;
+      }
+      // Normal exit, or late close after termination was already requested elsewhere.
+      settleWithTermination(async () => {
+        await finishStreamsAndHeartbeat(() => ({
+          status: callbackError ? "failed" : "finished",
+          exitCode: callbackError || limitExceeded ? 1 : timedOut ? 124 : (code ?? 1),
+          error: callbackError ? errorText(callbackError) : null
+        }));
+        if (callbackError) {
+          reject(callbackError);
+          return;
+        }
+        if (options.signal?.aborted) {
+          reject(new ExecutorCancelledError());
+          return;
+        }
+        resolve(buildResult());
+      });
     });
     try {
       child.stdin.end(options.stdin);

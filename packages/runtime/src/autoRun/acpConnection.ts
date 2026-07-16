@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { isAbsolute } from "node:path";
 import { Readable, Writable } from "node:stream";
 import {
@@ -32,6 +32,10 @@ import {
   type TerminalOutputResponse,
   type Stream
 } from "@agentclientprotocol/sdk";
+import {
+  spawnManagedProcess,
+  type ManagedProcessTree
+} from "../process/managedProcessTree.js";
 import type { LivePendingOperationHandle } from "./liveControl.js";
 
 export class AcpOperationTimeoutError extends Error {
@@ -283,6 +287,7 @@ class SubprocessAcpConnection implements AcpConnection {
   readonly stderr: string[] = [];
   readonly closed: Promise<void>;
   private readonly process: ChildProcessWithoutNullStreams;
+  private readonly processTree: ManagedProcessTree;
   private readonly sdk: ClientSideConnection;
   private readonly options: CreateAcpConnectionOptions;
   private capabilities: AgentCapabilities | undefined;
@@ -307,12 +312,15 @@ class SubprocessAcpConnection implements AcpConnection {
   constructor(options: CreateAcpConnectionOptions) {
     validateSpawnOptions(options);
     this.options = options;
-    this.process = spawn(options.launch.command, [...options.launch.args], {
+    const managed = spawnManagedProcess({
+      command: options.launch.command,
+      args: options.launch.args,
       cwd: options.cwd,
       env: { ...options.env },
-      shell: false,
-      stdio: ["pipe", "pipe", "pipe"]
+      graceMs: options.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS
     });
+    this.process = managed.child;
+    this.processTree = managed.tree;
     this.process.stderr.setEncoding("utf8");
     this.process.stderr.on("data", (chunk: string) => {
       this.stderr.push(chunk);
@@ -492,11 +500,11 @@ class SubprocessAcpConnection implements AcpConnection {
     if (!this.process.stdin.destroyed && !this.process.stdin.writableEnded)
       this.process.stdin.end();
     if (await this.waitForExit()) return;
-    this.process.kill("SIGTERM");
-    if (await this.waitForExit()) return;
-    this.process.kill("SIGKILL");
+    await this.processTree.terminate("acp-dispose");
     if (!(await this.waitForExit())) {
-      throw new Error(`ACP process ${String(this.process.pid)} did not exit after SIGKILL.`);
+      throw new Error(
+        `ACP process ${String(this.process.pid)} did not exit after process-tree termination.`
+      );
     }
   }
 

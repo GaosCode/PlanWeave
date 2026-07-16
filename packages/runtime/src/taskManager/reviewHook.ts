@@ -1,5 +1,8 @@
-import { spawn } from "node:child_process";
 import { z } from "zod";
+import {
+  DEFAULT_PROCESS_TREE_GRACE_MS,
+  spawnManagedProcess
+} from "../process/managedProcessTree.js";
 import type {
   ManifestReviewBlock,
   ManifestTaskNode,
@@ -11,6 +14,7 @@ import { isCommandTrusted, untrustedHookCommandError } from "./hookTrustStore.js
 export const REVIEW_HOOK_TIMEOUT_MS = 60_000;
 export const REVIEW_HOOK_STDOUT_LIMIT_BYTES = 1_048_576;
 export const REVIEW_HOOK_STDERR_LIMIT_BYTES = 1_048_576;
+export const REVIEW_HOOK_FORCE_KILL_GRACE_MS = DEFAULT_PROCESS_TREE_GRACE_MS;
 
 const reviewHookOutputSchema = z
   .object({
@@ -52,39 +56,83 @@ function appendLimitedChunk(options: {
   return { nextBytes, exceeded: true };
 }
 
+function withReviewHookTerminationCause(primary: Error, terminationError: unknown): Error {
+  const termMessage =
+    terminationError instanceof Error ? terminationError.message : String(terminationError);
+  const combined = new Error(`${primary.message} (process tree termination failed: ${termMessage})`, {
+    cause: terminationError
+  });
+  combined.name = primary.name;
+  return combined;
+}
+
 export async function runReviewHookProcess(options: ReviewHookProcessOptions): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    const child = spawn(options.command, options.args, {
+    const { child, tree } = spawnManagedProcess({
+      command: options.command,
+      args: options.args,
       cwd: options.cwd,
-      stdio: ["pipe", "pipe", "pipe"]
+      graceMs: REVIEW_HOOK_FORCE_KILL_GRACE_MS
     });
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let settled = false;
+    let settling = false;
+    let terminationPromise: Promise<unknown> | undefined;
 
-    const timer = setTimeout(() => {
-      settle("reject", new Error(`Review hook timed out after ${options.limits.timeoutMs}ms.`));
-      child.kill();
-    }, options.limits.timeoutMs);
+    const startTermination = (reason: string): void => {
+      terminationPromise ??= tree.terminate(reason);
+    };
 
-    function settle(kind: "resolve", value: string): void;
-    function settle(kind: "reject", value: Error): void;
-    function settle(kind: "resolve" | "reject", value: string | Error): void {
-      if (settled) {
+    const settleAfterTermination = (kind: "resolve" | "reject", value: string | Error): void => {
+      if (settled || settling) {
         return;
       }
-      settled = true;
+      settling = true;
       clearTimeout(timer);
-      if (kind === "resolve") {
-        resolve(typeof value === "string" ? value : value.message);
-      } else {
-        reject(value instanceof Error ? value : new Error(value));
-      }
-    }
+      void (async () => {
+        try {
+          if (terminationPromise) {
+            await terminationPromise;
+          }
+          if (settled) {
+            return;
+          }
+          settled = true;
+          if (kind === "resolve") {
+            resolve(typeof value === "string" ? value : value.message);
+          } else {
+            reject(value instanceof Error ? value : new Error(String(value)));
+          }
+        } catch (terminationError) {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          const primary =
+            value instanceof Error
+              ? value
+              : new Error(typeof value === "string" ? value : String(value));
+          // Keep the primary timeout/limit/cancel error and attach termination failure.
+          reject(withReviewHookTerminationCause(primary, terminationError));
+        }
+      })();
+    };
+
+    const timer = setTimeout(() => {
+      startTermination("timeout");
+      settleAfterTermination(
+        "reject",
+        new Error(`Review hook timed out after ${options.limits.timeoutMs}ms.`)
+      );
+    }, options.limits.timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer | string) => {
+      if (settled || settling) {
+        return;
+      }
       const result = appendLimitedChunk({
         chunks: stdoutChunks,
         currentBytes: stdoutBytes,
@@ -93,15 +141,18 @@ export async function runReviewHookProcess(options: ReviewHookProcessOptions): P
       });
       stdoutBytes = result.nextBytes;
       if (result.exceeded) {
-        settle(
+        startTermination("stdout-limit");
+        settleAfterTermination(
           "reject",
           new Error(`Review hook stdout exceeded ${options.limits.stdoutLimitBytes} bytes.`)
         );
-        child.kill();
       }
     });
 
     child.stderr.on("data", (chunk: Buffer | string) => {
+      if (settled || settling) {
+        return;
+      }
       const result = appendLimitedChunk({
         chunks: stderrChunks,
         currentBytes: stderrBytes,
@@ -110,37 +161,43 @@ export async function runReviewHookProcess(options: ReviewHookProcessOptions): P
       });
       stderrBytes = result.nextBytes;
       if (result.exceeded) {
-        settle(
+        startTermination("stderr-limit");
+        settleAfterTermination(
           "reject",
           new Error(`Review hook stderr exceeded ${options.limits.stderrLimitBytes} bytes.`)
         );
-        child.kill();
       }
     });
 
     child.on("error", (error) => {
-      settle("reject", error);
+      settleAfterTermination("reject", error);
     });
 
     child.stdin.on("error", (error) => {
-      settle("reject", new Error(`Review hook stdin failed: ${error.message}`));
-      child.kill();
+      startTermination("stdin-error");
+      settleAfterTermination(
+        "reject",
+        new Error(`Review hook stdin failed: ${error.message}`)
+      );
     });
 
     child.on("close", (code) => {
+      if (settled || settling) {
+        return;
+      }
       if (code === 0) {
-        settle("resolve", Buffer.concat(stdoutChunks).toString("utf8"));
+        settleAfterTermination("resolve", Buffer.concat(stdoutChunks).toString("utf8"));
         return;
       }
       if (stderrBytes > options.limits.stderrLimitBytes) {
-        settle(
+        settleAfterTermination(
           "reject",
           new Error(`Review hook stderr exceeded ${options.limits.stderrLimitBytes} bytes.`)
         );
         return;
       }
       const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
-      settle("reject", new Error(stderr || `hook exited with code ${code}`));
+      settleAfterTermination("reject", new Error(stderr || `hook exited with code ${code}`));
     });
 
     child.stdin.end(options.stdin);

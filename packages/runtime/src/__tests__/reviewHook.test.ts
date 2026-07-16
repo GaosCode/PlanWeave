@@ -248,4 +248,27 @@ describe("review hook execution boundary", () => {
       })
     ).rejects.toThrow("Review hook timed out after 25ms.");
   });
+
+  it("awaits process-tree termination on timeout before rejecting", async () => {
+    const startedAt = Date.now();
+    await expect(
+      runReviewHookProcess({
+        command: process.execPath,
+        args: [
+          "-e",
+          "process.on('SIGTERM', () => {}); setInterval(() => {}, 100);"
+        ],
+        cwd: process.cwd(),
+        stdin: "{}",
+        limits: {
+          timeoutMs: 40,
+          stdoutLimitBytes: 1024,
+          stderrLimitBytes: 1024
+        }
+      })
+    ).rejects.toThrow("Review hook timed out after 40ms.");
+    // Grace is 500ms; rejection must not race ahead of force.
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(400);
+    expect(Date.now() - startedAt).toBeLessThan(5000);
+  });
 });
