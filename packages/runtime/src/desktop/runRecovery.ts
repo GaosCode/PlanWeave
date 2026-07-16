@@ -6,8 +6,7 @@ import type {
   DesktopAutoRunScope,
   DesktopAutoRunState
 } from "./types.js";
-
-const persistedInFlightPhases: DesktopAutoRunPhase[] = ["running", "pausing"];
+import { isInFlightAutoRunPhase } from "./autoRunPhasePolicy.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -215,7 +214,8 @@ export function recoverPersistedAutoRunState(
   state: DesktopAutoRunState,
   hasActiveLoop: boolean
 ): DesktopAutoRunState {
-  if (hasActiveLoop || !persistedInFlightPhases.includes(state.phase)) {
+  // In-flight phase classification is policy-owned; hasActiveLoop is only process evidence.
+  if (hasActiveLoop || !isInFlightAutoRunPhase(state.phase)) {
     return state;
   }
   const interruptedPhase = state.phase;

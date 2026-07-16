@@ -18,7 +18,7 @@ import {
 import { loadPackage } from "../package/loadPackage.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
-import type { PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
+import type { PackageWorkspaceRef, ProjectWorkspace, ValidationIssue } from "../types.js";
 import type {
   DesktopAutoRunEventLog,
   DesktopAutoRunEventListener,
@@ -42,10 +42,19 @@ import {
 import {
   nextPersistedAutoRunId,
   listPersistedAutoRunStatesWithDiagnostics,
+  listRunDirectories,
   readLatestPersistedAutoRunState,
   readPersistedAutoRunEventLog,
   writePersistedAutoRunState
 } from "./runStateRepository.js";
+import {
+  mutateAutoRunTransition,
+  inspectPendingTransitionsForWorkspace,
+  recoverAllPendingTransitions,
+  recoverPendingTransition,
+  type SessionSummaryBuilder,
+  type TransitionDiagnostic
+} from "./autoRunTransition.js";
 import {
   claimRef,
   claimRefs,
@@ -64,7 +73,6 @@ import { formatDesktopDiagnostic } from "./graph/desktopDiagnostics.js";
 import {
   appendRunSessionEvent,
   createRunSession,
-  getRunSession,
   resetRuntimeState,
   updateRunSession
 } from "../runSessions/index.js";
@@ -75,6 +83,11 @@ import {
   readLatestAutoRunStatePointer,
   writeLatestAutoRunStatePointer
 } from "./runStatePointer.js";
+import {
+  isInFlightAutoRunPhase,
+  isNonTerminalAutoRunPhase,
+  isRecoverableAutoRunPhase
+} from "./autoRunPhasePolicy.js";
 
 const runs = new Map<string, DesktopAutoRunState>();
 const runWorkspaces = new Map<string, ProjectWorkspace>();
@@ -90,13 +103,6 @@ const runLoopOperations = new Map<string, DesktopRunLoopOperation>();
 const runAbortControllers = new Map<string, AbortController>();
 const runCliAbortControllers = new Map<string, AbortController>();
 const autoRunEventListeners = new Set<DesktopAutoRunEventListener>();
-const finalRunSessionEventTypes = new Set([
-  "session_completed",
-  "session_manual",
-  "session_blocked",
-  "session_failed",
-  "session_stopped"
-]);
 const desktopInteractionBroker: RunnerInteractionBroker = {
   mode: "interactive",
   requestAvailable: () => undefined
@@ -110,46 +116,48 @@ function normalizeAutoRunOptions(options?: DesktopAutoRunOptions): Required<Desk
   };
 }
 
+const buildAutoRunSessionSummary: SessionSummaryBuilder = async (workspace, state, eventType) =>
+  autoRunSessionSummary(workspace, state, stopReasonForAutoRunEvent(eventType));
+
+function transitionValidationIssue(diagnostic: TransitionDiagnostic): ValidationIssue {
+  return {
+    code: diagnostic.code,
+    message: diagnostic.message,
+    ...(diagnostic.path ? { path: diagnostic.path } : {}),
+    ...(diagnostic.transitionId ? { transitionId: diagnostic.transitionId } : {})
+  };
+}
+
 async function setState(
   runId: string,
   patch: Partial<DesktopAutoRunState>,
   eventType?: string,
-  data: Record<string, unknown> = {}
+  data: Record<string, unknown> = {},
+  shouldApply: (authority: DesktopAutoRunState) => boolean = () => true
 ): Promise<DesktopAutoRunState> {
   const current = runs.get(runId);
   if (!current) {
     throw new Error(`Auto Run '${runId}' does not exist.`);
   }
-  const previousPhase = current.phase;
-  const next = withExplanation({ ...current, ...patch, updatedAt: now() });
-  const immediateVisibility = eventType === "pause_requested" || eventType === "run_stopped";
-  if (immediateVisibility) {
-    runs.set(runId, next);
+  const workspace = await workspaceForAutoRunState(current);
+  const mutation = await mutateAutoRunTransition({
+    workspace,
+    runId,
+    memoryState: current,
+    eventType: eventType ?? "phase_change",
+    data,
+    buildSessionSummary: buildAutoRunSessionSummary,
+    mutate: (authority) =>
+      shouldApply(authority)
+        ? withExplanation({ ...authority, ...patch, updatedAt: now() })
+        : null
+  });
+  runs.set(runId, mutation.state);
+  if (mutation.applied && mutation.eventType) {
+    emitAutoRunChanged(mutation.state, mutation.eventType);
   }
-  await writePersistedAutoRunState(next);
-  let changedEventType: string | null = null;
-  if (eventType || previousPhase !== next.phase) {
-    const resolvedEventType = eventType ?? "phase_change";
-    await appendAutoRunEvent(next, resolvedEventType, {
-      previousPhase,
-      nextPhase: next.phase,
-      ...data
-    });
-    changedEventType = resolvedEventType;
-  }
-  if (!immediateVisibility) {
-    runs.set(runId, next);
-  }
-  if (changedEventType) {
-    await syncRunSessionForAutoRunState(next, changedEventType, {
-      previousPhase,
-      nextPhase: next.phase,
-      ...data
-    });
-    emitAutoRunChanged(next, changedEventType);
-  }
-  releaseRunResources(runId, next);
-  return next;
+  releaseRunResources(runId, mutation.state);
+  return mutation.state;
 }
 
 async function workspaceForAutoRunState(state: DesktopAutoRunState): Promise<ProjectWorkspace> {
@@ -169,26 +177,6 @@ function runSessionPhaseForAutoRunPhase(phase: DesktopAutoRunPhase): RunSessionP
     return phase;
   }
   return "running";
-}
-
-function isRunSessionTerminalPhase(phase: RunSessionPhase): boolean {
-  return phase === "completed" || phase === "blocked" || phase === "failed" || phase === "stopped";
-}
-
-function finalRunSessionEventType(phase: RunSessionPhase): string | null {
-  if (phase === "completed") {
-    return "session_completed";
-  }
-  if (phase === "blocked") {
-    return "session_blocked";
-  }
-  if (phase === "failed") {
-    return "session_failed";
-  }
-  if (phase === "stopped") {
-    return "session_stopped";
-  }
-  return null;
 }
 
 async function autoRunSessionSummary(
@@ -234,50 +222,6 @@ async function appendDesktopRunSessionEvent(
     stepCount: state.stepCount,
     ...data
   });
-}
-
-async function syncRunSessionForAutoRunState(
-  state: DesktopAutoRunState,
-  eventType: string,
-  data: Record<string, unknown> = {}
-): Promise<void> {
-  if (!state.runSessionId) {
-    return;
-  }
-  const workspace = await workspaceForAutoRunState(state);
-  const phase = runSessionPhaseForAutoRunPhase(state.phase);
-  const finishedAt = isRunSessionTerminalPhase(phase) ? state.updatedAt : undefined;
-  await updateRunSession(workspace, state.runSessionId, {
-    phase,
-    ...(finishedAt ? { finishedAt } : {}),
-    autoRun: await autoRunSessionSummary(workspace, state, stopReasonForAutoRunEvent(eventType)),
-    latestRecordId: state.latestRecordId,
-    latestRecordPath: state.latestRecordPath,
-    error: state.error
-  });
-  await appendRunSessionEvent(workspace, state.runSessionId, eventType, {
-    phase,
-    desktopRunId: state.runId,
-    autoRunPhase: state.phase,
-    stepCount: state.stepCount,
-    currentRef: state.currentRef,
-    latestRecordId: state.latestRecordId,
-    latestRecordPath: state.latestRecordPath,
-    error: state.error,
-    ...data
-  });
-  const finalEventType = finalRunSessionEventType(phase);
-  if (finalEventType) {
-    const detail = await getRunSession(workspace, state.runSessionId);
-    if (!detail.events.some((event) => finalRunSessionEventTypes.has(event.type))) {
-      await appendRunSessionEvent(workspace, state.runSessionId, finalEventType, {
-        phase,
-        finishedAt,
-        desktopRunId: state.runId,
-        stepCount: state.stepCount
-      });
-    }
-  }
 }
 
 function withExplanation(
@@ -492,16 +436,12 @@ function launchRunLoop(runId: string): void {
 }
 
 function canRehydratePersistedRun(state: DesktopAutoRunState): boolean {
-  return state.phase === "paused" || state.phase === "manual";
+  return isRecoverableAutoRunPhase(state.phase);
 }
 
 function isRunIdConflictProtected(state: DesktopAutoRunState): boolean {
-  return (
-    state.phase === "running" ||
-    state.phase === "pausing" ||
-    state.phase === "paused" ||
-    state.phase === "manual"
-  );
+  // Ownership comes from phase policy; activeLoops is process evidence, not a second rule set.
+  return isNonTerminalAutoRunPhase(state.phase);
 }
 
 function sameAutoRunTarget(
@@ -521,15 +461,14 @@ async function stopResetTargetAutoRuns(
     [...runs.values()]
       .filter(
         (run) =>
-          sameAutoRunTarget(run, projectRoot, canvasId) &&
-          (run.phase === "paused" || run.phase === "manual")
+          sameAutoRunTarget(run, projectRoot, canvasId) && isRecoverableAutoRunPhase(run.phase)
       )
       .map((run) => run.runId)
   );
   if (
     latest &&
     sameAutoRunTarget(latest, projectRoot, canvasId) &&
-    (latest.phase === "paused" || latest.phase === "manual")
+    isRecoverableAutoRunPhase(latest.phase)
   ) {
     runIds.add(latest.runId);
   }
@@ -537,7 +476,7 @@ async function stopResetTargetAutoRuns(
   const stoppedRunIds: string[] = [];
   for (const runId of runIds) {
     const current = runs.get(runId);
-    if (!current || (current.phase !== "paused" && current.phase !== "manual")) {
+    if (!current || !isRecoverableAutoRunPhase(current.phase)) {
       continue;
     }
     await stopAutoRun(runId);
@@ -551,7 +490,8 @@ function activeResetTargetAutoRunIds(projectRoot: string, canvasId: string | nul
     .filter(
       (run) =>
         sameAutoRunTarget(run, projectRoot, canvasId) &&
-        (run.phase === "running" || run.phase === "pausing" || activeLoops.has(run.runId))
+        // activeLoops is runtime loop evidence only; phase ownership stays in the policy.
+        (isInFlightAutoRunPhase(run.phase) || activeLoops.has(run.runId))
     )
     .map((run) => run.runId)
     .sort();
@@ -645,7 +585,7 @@ export async function initializeAutoRunUnderCanvasLock(
   stepLimit = 20,
   options?: DesktopAutoRunOptions
 ): Promise<DesktopAutoRunState> {
-  if (await hasAutoRunInWorkspace(workspace, ["running", "pausing"])) {
+  if (await hasAutoRunInWorkspace(workspace)) {
     throw new Error("Cannot start Auto Run while another Auto Run is active.");
   }
   const { manifest } = await loadPackage(workspace);
@@ -769,14 +709,18 @@ export function launchInitializedAutoRun(runId: string): void {
 }
 
 export async function pauseAutoRun(runId: string): Promise<DesktopAutoRunState> {
-  const state = runs.get(runId);
-  if (!state) {
+  if (!runs.has(runId)) {
     throw new Error(`Auto Run '${runId}' does not exist.`);
   }
-  if (state.phase === "running") {
-    return cloneAutoRunState(await setState(runId, { phase: "pausing" }, "pause_requested"));
-  }
-  return cloneAutoRunState(state);
+  return cloneAutoRunState(
+    await setState(
+      runId,
+      { phase: "pausing" },
+      "pause_requested",
+      {},
+      (authority) => authority.phase === "running"
+    )
+  );
 }
 
 export async function resumeAutoRun(runId: string): Promise<DesktopAutoRunState> {
@@ -784,17 +728,20 @@ export async function resumeAutoRun(runId: string): Promise<DesktopAutoRunState>
   if (!current) {
     throw new Error(`Auto Run '${runId}' does not exist.`);
   }
-  if (current.phase !== "paused" && current.phase !== "pausing") {
-    return cloneAutoRunState(current);
-  }
   if (!runAbortControllers.has(runId)) {
     runAbortControllers.set(runId, new AbortController());
   }
   if (!runCliAbortControllers.has(runId)) {
     runCliAbortControllers.set(runId, new AbortController());
   }
-  const state = await setState(runId, { phase: "running", error: null }, "run_resumed");
-  launchRunLoop(runId);
+  const state = await setState(
+    runId,
+    { phase: "running", error: null },
+    "run_resumed",
+    {},
+    (authority) => authority.phase === "paused" || authority.phase === "pausing"
+  );
+  if (state.phase === "running") launchRunLoop(runId);
   return cloneAutoRunState(state);
 }
 
@@ -820,10 +767,9 @@ export async function stopAutoRun(runId: string): Promise<DesktopAutoRunState> {
     }
     const loopOperation = runLoopOperations.get(runId);
     runAbortControllers.get(runId)?.abort(new Error("Desktop Auto Run stopped."));
-    const killed =
-      latest.phase === "running" || latest.phase === "pausing"
-        ? await killTmuxSessionsForRun(runId)
-        : [];
+    const killed = isInFlightAutoRunPhase(latest.phase)
+      ? await killTmuxSessionsForRun(runId)
+      : [];
     await shutdownDesktopAgentRun(runId, "Desktop Auto Run stopped.");
     let stopped: DesktopAutoRunState | undefined;
     let terminalError: unknown;
@@ -991,15 +937,73 @@ export async function getLatestAutoRunSummaryWithDiagnostics(
       (run.projectRoot === projectRoot || run.projectRoot === workspace.rootPath) &&
       run.canvasId === normalizedCanvasId
   });
+
+  // Always recover pending transitions before returning — memory hits must not skip healing.
+  const recoveryTargets = new Set<string>();
+  if (latest) recoveryTargets.add(latest.runId);
+  if (persistedLatest) recoveryTargets.add(persistedLatest.runId);
+  // Also scan for unreadable/incomplete intents on other runs (start-gate / diagnostics).
+  try {
+    const remaining = await recoverAllPendingTransitions(
+      workspace,
+      () => listRunDirectories(workspace),
+      (rid) => runs.get(rid) ?? null,
+      {
+        buildSessionSummary: buildAutoRunSessionSummary,
+        onRecoveredAuthority: (authority) => runs.set(authority.runId, authority)
+      }
+    );
+    for (const d of remaining) {
+      diagnostics.push(transitionValidationIssue(d));
+    }
+  } catch (e) {
+    diagnostics.push({
+      code: "auto_run_transition_recovery_error",
+      message: `Transition recovery error: ${e instanceof Error ? e.message : String(e)}`
+    });
+  }
+  // Targeted recover for known latest (covers race where directory list lagged)
+  for (const runId of recoveryTargets) {
+    try {
+      const rec = await recoverPendingTransition(
+        workspace,
+        runId,
+        (rid) => runs.get(rid) ?? null,
+        { buildSessionSummary: buildAutoRunSessionSummary }
+      );
+      if (rec.recovered && rec.authorityState) {
+        runs.set(runId, rec.authorityState);
+      }
+      for (const d of rec.diagnostics) {
+        if (!diagnostics.some((x) => x.code === d.code && x.message === d.message)) {
+          diagnostics.push(transitionValidationIssue(d));
+        }
+      }
+    } catch (e) {
+      diagnostics.push({
+        code: "auto_run_transition_recovery_error",
+        message: `Transition recovery error for '${runId}': ${e instanceof Error ? e.message : String(e)}`
+      });
+    }
+  }
+
   if (latest) {
-    return { state: cloneAutoRunState(latest), diagnostics };
+    return { state: cloneAutoRunState(runs.get(latest.runId) ?? latest), diagnostics };
   }
   if (!persistedLatest) {
     return { state: null, diagnostics };
   }
-  const state = canRehydratePersistedRun(persistedLatest)
-    ? rehydratePersistedRun(persistedLatest, workspace)
-    : persistedLatest;
+  // Re-read after recovery so process-interrupt derivation runs after intent healing.
+  const { state: refreshed } = await readLatestPersistedAutoRunState(workspace, {
+    hasActiveLoop: (runId) => activeLoops.has(runId),
+    matches: (run) =>
+      (run.projectRoot === projectRoot || run.projectRoot === workspace.rootPath) &&
+      run.canvasId === normalizedCanvasId
+  });
+  const display = refreshed ?? persistedLatest;
+  const state = canRehydratePersistedRun(display)
+    ? rehydratePersistedRun(display, workspace)
+    : display;
   return { state: cloneAutoRunState(state), diagnostics };
 }
 
@@ -1015,13 +1019,41 @@ export async function hasNonTerminalAutoRunForTarget(
   canvasId?: string | null
 ): Promise<boolean> {
   const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
-  return hasAutoRunInWorkspace(workspace, ["running", "pausing", "paused", "manual"]);
+  return hasAutoRunInWorkspace(workspace);
 }
 
-async function hasAutoRunInWorkspace(
-  workspace: ProjectWorkspace,
-  blockingPhases: DesktopAutoRunPhase[]
-): Promise<boolean> {
+/**
+ * Whether the workspace already has a non-terminal Auto Run that owns it.
+ * Phase ownership is decided solely by {@link isNonTerminalAutoRunPhase}.
+ * `activeLoops` is additional in-process loop evidence and must not redefine phase meaning.
+ */
+async function hasAutoRunInWorkspace(workspace: ProjectWorkspace): Promise<boolean> {
+  // Pending transition evidence must be inspected before any other start-gate result so
+  // diagnostics retain the transition identity even when authority state is unreadable.
+  const remaining = await recoverAllPendingTransitions(
+    workspace,
+    () => listRunDirectories(workspace),
+    (rid) => runs.get(rid) ?? null,
+    {
+      buildSessionSummary: buildAutoRunSessionSummary,
+      onRecoveredAuthority: (authority) => runs.set(authority.runId, authority)
+    }
+  );
+  const blocking = remaining.filter(
+    (d) =>
+      d.code === "auto_run_pending_transition_unreadable" ||
+      d.code === "auto_run_pending_transition_incomplete" ||
+      d.code === "auto_run_authority_state_unreadable" ||
+      d.code.includes("heal_failed")
+  );
+  if (blocking.length > 0) {
+    throw new Error(
+      `Cannot start Auto Run because pending transition evidence is unreadable or unrecovered: ${blocking
+        .map((d) => d.message)
+        .join("; ")}`
+    );
+  }
+
   const targetStateFile = resolve(workspace.stateFile);
   if (
     [...runs.values()].some((run) => {
@@ -1029,7 +1061,7 @@ async function hasAutoRunInWorkspace(
       return (
         runWorkspace !== undefined &&
         resolve(runWorkspace.stateFile) === targetStateFile &&
-        (blockingPhases.includes(run.phase) || activeLoops.has(run.runId))
+        (isNonTerminalAutoRunPhase(run.phase) || activeLoops.has(run.runId))
       );
     })
   ) {
@@ -1045,7 +1077,8 @@ async function hasAutoRunInWorkspace(
         .join("; ")}`
     );
   }
-  return persisted.states.some((state) => blockingPhases.includes(state.phase));
+
+  return persisted.states.some((state) => isNonTerminalAutoRunPhase(state.phase));
 }
 
 export async function getDesktopRuntimeRefresh(

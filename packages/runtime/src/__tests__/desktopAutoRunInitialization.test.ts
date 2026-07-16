@@ -60,6 +60,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 import {
   getLatestAutoRunSummary,
+  resetDesktopRuntimeState,
   shutdownDesktopAutoRuns,
   startAutoRun,
   stopAutoRun
@@ -142,6 +143,185 @@ describe("desktop Auto Run initialization", () => {
     );
 
     await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(true);
+  });
+
+  it.each([
+    "paused",
+    "manual"
+  ] as const)(
+    "rejects a second start while a persisted %s Auto Run still owns the workspace",
+    async (phase) => {
+      const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
+      await writePersistedAutoRunState(
+        persistedAutoRunState(init.workspace, {
+          runId: "DESKTOP-RUN-0001",
+          phase
+        })
+      );
+
+      await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(true);
+      await expect(startAutoRun(root, null, { kind: "project" }, 0, noTmux)).rejects.toThrow(
+        /Cannot start Auto Run while another Auto Run is active/
+      );
+
+      // Rehydrate via summary so stop can target the recoverable run.
+      const summary = await getLatestAutoRunSummary(root, null);
+      expect(summary).toMatchObject({ runId: "DESKTOP-RUN-0001", phase });
+      if (!summary) {
+        throw new Error("Expected recoverable Auto Run summary");
+      }
+      startedRunIds.add(summary.runId);
+      await stopAutoRun(summary.runId);
+
+      await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(false);
+      const started = await startAutoRun(root, null, { kind: "project" }, 0, noTmux);
+      startedRunIds.add(started.runId);
+      expect(started.phase).toBe("running");
+    }
+  );
+
+  it("rejects a second start while an in-memory paused Auto Run owns the workspace", async () => {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-codex", {
+        adapter: "codex-exec",
+        command: process.execPath,
+        args: [
+          "-e",
+          "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.log('ownership paused ' + input.split('\\n')[0]); });"
+        ]
+      })
+      .withDefaultExecutor("fake-codex")
+      .build();
+    const { root } = await createTestWorkspace(manifest);
+    const started = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
+    startedRunIds.add(started.runId);
+    await waitForDesktopAutoRun(started.runId, (state) => state.phase === "paused");
+
+    await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(true);
+    await expect(startAutoRun(root, null, { kind: "project" }, 0, noTmux)).rejects.toThrow(
+      /Cannot start Auto Run while another Auto Run is active/
+    );
+
+    await stopAutoRun(started.runId);
+    await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(false);
+    const afterStop = await startAutoRun(root, null, { kind: "project" }, 0, noTmux);
+    startedRunIds.add(afterStop.runId);
+    expect(afterStop.phase).toBe("running");
+  });
+
+  it("rejects a second start while an in-memory manual Auto Run owns the workspace", async () => {
+    const { root } = await createTestWorkspace(
+      manifestTestBuilder().withDefaultExecutor("manual").build()
+    );
+    const started = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
+    startedRunIds.add(started.runId);
+    await waitForDesktopAutoRun(started.runId, (state) => state.phase === "manual");
+
+    await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(true);
+    await expect(startAutoRun(root, null, { kind: "project" }, 0, noTmux)).rejects.toThrow(
+      /Cannot start Auto Run while another Auto Run is active/
+    );
+
+    await stopAutoRun(started.runId);
+    await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(false);
+    const afterStop = await startAutoRun(root, null, { kind: "project" }, 0, noTmux);
+    startedRunIds.add(afterStop.runId);
+    expect(afterStop.phase).toBe("running");
+  });
+
+  it("rejects a second start when both persisted and in-memory recoverable ownership exist", async () => {
+    const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
+    await writePersistedAutoRunState(
+      persistedAutoRunState(init.workspace, {
+        runId: "DESKTOP-RUN-0001",
+        phase: "paused",
+        updatedAt: "2026-05-23T00:00:01.000Z"
+      })
+    );
+    // Rehydrate the persisted recoverable run into memory, then keep it paused.
+    const rehydrated = await getLatestAutoRunSummary(root, null);
+    expect(rehydrated).toMatchObject({ runId: "DESKTOP-RUN-0001", phase: "paused" });
+    if (!rehydrated) {
+      throw new Error("Expected rehydrated paused Auto Run");
+    }
+    startedRunIds.add(rehydrated.runId);
+
+    await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(true);
+    await expect(startAutoRun(root, null, { kind: "project" }, 0, noTmux)).rejects.toThrow(
+      /Cannot start Auto Run while another Auto Run is active/
+    );
+  });
+
+  it("allows a new Auto Run after stop releases a recoverable paused owner", async () => {
+    const manifest = manifestTestBuilder()
+      .withExecutor("fake-codex", {
+        adapter: "codex-exec",
+        command: process.execPath,
+        args: [
+          "-e",
+          "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.log('stop release ' + input.split('\\n')[0]); });"
+        ]
+      })
+      .withDefaultExecutor("fake-codex")
+      .build();
+    const { root } = await createTestWorkspace(manifest);
+    const first = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
+    startedRunIds.add(first.runId);
+    await waitForDesktopAutoRun(first.runId, (state) => state.phase === "paused");
+
+    await expect(startAutoRun(root, null, { kind: "project" }, 0, noTmux)).rejects.toThrow(
+      /Cannot start Auto Run while another Auto Run is active/
+    );
+
+    await stopAutoRun(first.runId);
+    await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(false);
+    const second = await startAutoRun(root, null, { kind: "project" }, 0, noTmux);
+    startedRunIds.add(second.runId);
+    expect(second.phase).toBe("running");
+  });
+
+  it("allows a new Auto Run after force-reset stops an in-memory manual owner", async () => {
+    const { root } = await createTestWorkspace(
+      manifestTestBuilder().withDefaultExecutor("manual").build()
+    );
+    const first = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
+    startedRunIds.add(first.runId);
+    await waitForDesktopAutoRun(first.runId, (state) => state.phase === "manual");
+
+    await expect(startAutoRun(root, null, { kind: "project" }, 0, noTmux)).rejects.toThrow(
+      /Cannot start Auto Run while another Auto Run is active/
+    );
+
+    const reset = await resetDesktopRuntimeState(root, null, {
+      force: true,
+      reason: "clear recoverable auto run for ownership policy test"
+    });
+    expect(reset.stoppedAutoRunIds).toContain(first.runId);
+
+    await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(false);
+    const started = await startAutoRun(root, null, { kind: "project" }, 0, noTmux);
+    startedRunIds.add(started.runId);
+    expect(started.phase).toBe("running");
+  });
+
+  it.each([
+    "completed",
+    "blocked",
+    "failed",
+    "stopped"
+  ] as const)("allows a new Auto Run when the only persisted owner is terminal %s", async (phase) => {
+    const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
+    await writePersistedAutoRunState(
+      persistedAutoRunState(init.workspace, {
+        runId: "DESKTOP-RUN-0001",
+        phase
+      })
+    );
+
+    await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(false);
+    const started = await startAutoRun(root, null, { kind: "project" }, 0, noTmux);
+    startedRunIds.add(started.runId);
+    expect(started.phase).toBe("running");
   });
 
   it.each([

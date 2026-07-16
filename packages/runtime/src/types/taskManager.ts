@@ -196,7 +196,9 @@ export type DoctorIssue = {
     | "stale_current_ref"
     | "orphan_result"
     | "index_state_mismatch"
-    | "retention_threshold_exceeded";
+    | "retention_threshold_exceeded"
+    | "auto_run_pending_transition_unreadable"
+    | "auto_run_pending_transition_incomplete";
   message: string;
   /** Defaults to error. Warnings do not fail doctor `ok`. */
   severity?: "error" | "warning";
@@ -204,6 +206,7 @@ export type DoctorIssue = {
   ref?: string;
   taskId?: string;
   path?: string;
+  transitionId?: string;
   stateRunId?: string | null;
   indexRunId?: string | null;
   count?: number;
@@ -227,6 +230,7 @@ export type ProjectDoctorIssue = {
   source: ProjectDoctorIssueSource;
   canvasId?: string;
   path?: string;
+  transitionId?: string;
   repaired?: boolean;
   ref?: string;
   taskId?: string;

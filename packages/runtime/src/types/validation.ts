@@ -2,6 +2,7 @@ export type ValidationIssue = {
   code: string;
   message: string;
   path?: string;
+  transitionId?: string;
 };
 
 export type ValidationSummaryGroup = {

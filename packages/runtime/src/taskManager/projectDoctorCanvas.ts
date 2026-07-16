@@ -104,6 +104,7 @@ export function canvasDoctorIssue(
     message: issue.message,
     canvasId,
     path: canvasDoctorIssuePath(workspace, manifest, issue),
+    ...(issue.transitionId ? { transitionId: issue.transitionId } : {}),
     repaired: issue.repaired,
     ref: issue.ref,
     taskId: issue.taskId,
@@ -267,6 +268,7 @@ export function uniqueProjectDoctorIssues(issues: ProjectDoctorIssue[]): Project
       issue.path ?? "",
       issue.ref ?? "",
       issue.taskId ?? "",
+      issue.transitionId ?? "",
       issue.stateRunId ?? "",
       issue.indexRunId ?? ""
     ].join("\u0000");

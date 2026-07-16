@@ -2,14 +2,18 @@ export type {
   PersistedAutoRunStateReadDiagnostic,
   PersistedAutoRunStateReadResult,
   PersistedAutoRunStateListResult,
-  LatestPersistedAutoRunStateResult
+  LatestPersistedAutoRunStateResult,
+  RawPersistedAutoRunStateReadResult
 } from "./runStatePersistence.js";
 export {
   nextPersistedAutoRunId,
+  readRawPersistedAutoRunState,
+  readRawPersistedAutoRunStateResult,
   readPersistedAutoRunState,
   readPersistedAutoRunStateWithDiagnostics,
   listPersistedAutoRunStates,
   listPersistedAutoRunStatesWithDiagnostics,
+  listRunDirectories,
   writePersistedAutoRunState,
   readPersistedAutoRunEventLog
 } from "./runStatePersistence.js";

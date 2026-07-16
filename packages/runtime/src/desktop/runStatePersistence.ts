@@ -323,11 +323,26 @@ export async function nextPersistedAutoRunId(
   }
 }
 
-export async function readPersistedAutoRunState(
+/**
+ * Discriminated raw authority state read for transition recovery.
+ * - absent: no state.json (ENOENT)
+ * - ok: valid normalized state (no process-interrupt derivation)
+ * - unreadable: JSON damage, schema invalid, or read I/O failure (fail-closed)
+ */
+export type RawPersistedAutoRunStateReadResult =
+  | { status: "absent"; path: string }
+  | { status: "ok"; state: DesktopAutoRunState }
+  | {
+      status: "unreadable";
+      diagnostic: PersistedAutoRunStateReadDiagnostic;
+      /** Original read failure, when unreadability came from the filesystem boundary. */
+      cause?: unknown;
+    };
+
+export async function readRawPersistedAutoRunStateResult(
   workspace: ProjectWorkspace,
-  runId: string,
-  options: { hasActiveLoop?: boolean } = {}
-): Promise<DesktopAutoRunState | null> {
+  runId: string
+): Promise<RawPersistedAutoRunStateReadResult> {
   const runRoot = autoRunRoot(workspace, runId);
   const statePath = join(runRoot, "state.json");
   const eventLogPath = join(runRoot, "events.ndjson");
@@ -336,14 +351,72 @@ export async function readPersistedAutoRunState(
     raw = await readJsonFile<unknown>(statePath);
   } catch (error) {
     if (isNodeFileNotFoundError(error)) {
-      return null;
+      return { status: "absent", path: statePath };
     }
     if (error instanceof SyntaxError) {
-      return null;
+      return {
+        status: "unreadable",
+        diagnostic: autoRunStateDiagnostic(
+          "auto_run_state_invalid_json",
+          `Auto Run state '${statePath}' is not valid JSON: ${error.message}`,
+          statePath
+        )
+      };
     }
-    throw error;
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      status: "unreadable",
+      diagnostic: autoRunStateDiagnostic(
+        "auto_run_state_read_failed",
+        `Failed to read Auto Run state '${statePath}': ${detail}`,
+        statePath
+      ),
+      cause: error
+    };
   }
   const state = normalizePersistedAutoRunState(raw, { statePath, eventLogPath });
+  if (!state) {
+    return {
+      status: "unreadable",
+      diagnostic: autoRunStateDiagnostic(
+        "auto_run_state_invalid",
+        `Auto Run state '${statePath}' is not a valid persisted Auto Run state.`,
+        statePath
+      )
+    };
+  }
+  return { status: "ok", state };
+}
+
+/**
+ * Read persisted Auto Run state without process-interrupt derivation.
+ * Returns null for absent or unreadable state; rethrows unexpected failures via Result mapping.
+ * Prefer {@link readRawPersistedAutoRunStateResult} when recovery must distinguish unreadable.
+ */
+export async function readRawPersistedAutoRunState(
+  workspace: ProjectWorkspace,
+  runId: string
+): Promise<DesktopAutoRunState | null> {
+  const result = await readRawPersistedAutoRunStateResult(workspace, runId);
+  if (result.status === "ok") {
+    return result.state;
+  }
+  if (result.status === "absent") {
+    return null;
+  }
+  // Preserve historical throw for non-parse I/O failures; invalid json/schema → null.
+  if (result.diagnostic.code === "auto_run_state_read_failed") {
+    throw result.cause;
+  }
+  return null;
+}
+
+export async function readPersistedAutoRunState(
+  workspace: ProjectWorkspace,
+  runId: string,
+  options: { hasActiveLoop?: boolean } = {}
+): Promise<DesktopAutoRunState | null> {
+  const state = await readRawPersistedAutoRunState(workspace, runId);
   return state ? recoverPersistedAutoRunState(state, options.hasActiveLoop ?? false) : null;
 }
 

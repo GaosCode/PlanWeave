@@ -872,6 +872,12 @@ describe("desktop auto run API", () => {
       stepCount: 1
     });
 
+    // paused still owns the workspace; a second scoped Auto Run must not start until released.
+    await expect(
+      startAutoRun(root, null, { kind: "block", blockRef: "T-001#B-001" }, 1, noTmux)
+    ).rejects.toThrow(/Cannot start Auto Run while another Auto Run is active/);
+    await stopAutoRun(taskRun.runId);
+
     const blockRun = await startAutoRun(
       root,
       null,

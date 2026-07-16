@@ -9,6 +9,7 @@ import {
 } from "../projectGraph/index.js";
 import { DEFAULT_CANVAS_WORKSPACE_STALE_THRESHOLD_MS } from "../projectGraph/canvasWorkspaceRecovery.js";
 import { runProjectDoctor } from "../taskManager/index.js";
+import { writePendingTransitionIntent } from "../desktop/autoRunTransition.js";
 import type { ProjectGraphManifest } from "../projectGraph/index.js";
 import type { PlanPackageManifest, RuntimeState } from "../types.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
@@ -76,6 +77,47 @@ async function ageCanvasRecoveryDirectory(path: string): Promise<void> {
 }
 
 describe("runProjectDoctor", () => {
+  it("preserves pending Auto Run transition identity in project diagnostics", async () => {
+    const { root, init } = await createTestWorkspace();
+    const transitionId = "transition-project-doctor";
+    await writeJsonFile(projectGraphPath(init.workspace), singleCanvasProjectGraph());
+    await writePendingTransitionIntent(init.workspace, {
+      version: 2,
+      transitionId,
+      runId: "DESKTOP-RUN-0001",
+      previousPhase: "running",
+      nextPhase: "paused",
+      eventType: "pause_completed",
+      previousAuthority: {
+        phase: "running",
+        stepCount: 0,
+        currentRef: null,
+        updatedAt: "2026-07-15T23:59:59.000Z"
+      },
+      expectedAuthority: {
+        phase: "paused",
+        stepCount: 0,
+        currentRef: null,
+        updatedAt: "2026-07-16T00:00:00.000Z"
+      },
+      data: {},
+      createdAt: "2026-07-16T00:00:00.000Z"
+    });
+
+    const report = await runProjectDoctor({ projectRoot: root });
+
+    expect(report.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "auto_run_pending_transition_incomplete",
+          source: "canvas_doctor",
+          canvasId: "default",
+          transitionId
+        })
+      ])
+    );
+  });
+
   it("reports project graph diagnostics", async () => {
     const { root, init } = await createTestWorkspace();
     const graph = singleCanvasProjectGraph();

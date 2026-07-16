@@ -3,16 +3,16 @@ import { dirname, join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import type { ProjectWorkspace } from "../types.js";
 import type { DesktopAutoRunEvent, DesktopAutoRunState } from "./types.js";
+import { isInFlightAutoRunPhase } from "./autoRunPhasePolicy.js";
 
 export function now(): string {
   return new Date().toISOString();
 }
 
 export function cloneAutoRunState(state: DesktopAutoRunState): DesktopAutoRunState {
-  const endTime =
-    state.phase === "running" || state.phase === "pausing"
-      ? Date.now()
-      : Date.parse(state.updatedAt);
+  const endTime = isInFlightAutoRunPhase(state.phase)
+    ? Date.now()
+    : Date.parse(state.updatedAt);
   return {
     ...state,
     elapsedMs: Math.max(0, endTime - Date.parse(state.startedAt)),

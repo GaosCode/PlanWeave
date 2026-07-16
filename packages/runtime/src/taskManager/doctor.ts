@@ -1,4 +1,5 @@
 import { dirname, join } from "node:path";
+import { inspectPendingTransitionsForWorkspace } from "../autoRun/pendingTransitionIntent.js";
 import { optionalStat } from "../fs/optionalFile.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
@@ -204,6 +205,23 @@ export async function runDoctor(options: {
           `Results/run-session artifact count is ${retention.total} (threshold ${RETENTION_DOCTOR_THRESHOLD}). ` +
           `Preview with \`planweave run-sessions prune --older-than 30d --dry-run\` then delete with \`--force --reason <text>\`.`
       });
+    }
+
+    // Auto Run pending-transition fail-closed checks (shared inspect path with latest/start gate).
+    // Healing runs via desktop getLatest/start gate (recoverAllPendingTransitions); doctor reports only.
+    for (const d of await inspectPendingTransitionsForWorkspace(workspace)) {
+      if (
+        d.code === "auto_run_pending_transition_unreadable" ||
+        d.code === "auto_run_pending_transition_incomplete"
+      ) {
+        issues.push({
+          code: d.code,
+          message: d.message,
+          path: d.path,
+          ...(d.transitionId ? { transitionId: d.transitionId } : {}),
+          repaired: false
+        });
+      }
     }
 
     return {
