@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { isNodeFileNotFoundError } from "../fs/optionalFile.js";
+import { REVIEW_RESULT_CONTENT_GUIDANCE } from "../taskManager/reviewResultContract.js";
 
 export type ReviewResultContractInput = {
   resultPath: string;
@@ -41,6 +42,8 @@ export function appendReviewResultFileInstruction(
       2
     ),
     "```",
+    "",
+    REVIEW_RESULT_CONTENT_GUIDANCE,
     "",
     "You may print a human-readable review report to stdout. PlanWeave will parse only the JSON file above, not stdout."
   ].join("\n");

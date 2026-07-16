@@ -34,6 +34,8 @@ describe("renderPrompt", () => {
 
     expect(prompt).toContain("Required Review Result JSON");
     expect(prompt).toContain('"reviewBlockRef": "T-001#R-001"');
+    expect(prompt).toContain("Write `content` as concise Markdown.");
+    expect(prompt).toContain("each actionable finding on its own paragraph with `[P0]`");
     expect(prompt).not.toContain("Suggested Implementation Report Format");
     expect(prompt).toContain("planweave submit-review --canvas default T-001#R-001 --result");
   });

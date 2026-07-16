@@ -27,6 +27,7 @@ import { readJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { readState } from "../state.js";
 import { reviewResultSchema } from "../taskManager/reviewResultContract.js";
+import { readFeedbackArtifact } from "../taskManager/feedbackArtifacts.js";
 import {
   type ExecutorIntegrationName,
   type PackageWorkspaceRef,
@@ -68,6 +69,10 @@ async function exists(path: string): Promise<boolean> {
 async function readOptionalFile(path: string): Promise<string> {
   return (await optionalReadFile(path, "utf8")) ?? "";
 }
+
+const reviewAttemptMetadataSchema = z
+  .object({ reviewedAt: z.string().datetime().optional() })
+  .passthrough();
 
 async function verifyRunArtifactMetadata(
   runDir: string,
@@ -126,7 +131,9 @@ function feedbackRunRoot(resultsDir: string): string {
 }
 
 async function listFeedbackRunIds(resultsDir: string): Promise<string[]> {
-  return (await listDirectories(feedbackRunRoot(resultsDir))).filter((runId) => !runId.startsWith("."));
+  return (await listDirectories(feedbackRunRoot(resultsDir))).filter(
+    (runId) => !runId.startsWith(".")
+  );
 }
 
 function assertContainedPath(root: string, candidate: string): void {
@@ -656,27 +663,41 @@ export async function listTaskFeedbackRecords(
   const scope = await resolveTaskFeedbackScope(projectRoot, canvasId, taskId);
   const { taskIds, workspace } = scope;
   const state = await readState(workspace.stateFile);
-  return Object.entries(state.feedback)
-    .flatMap(([feedbackId, feedback]) => {
+  const records = await Promise.all(
+    Object.entries(state.feedback).map(async ([feedbackId, feedback]) => {
       const sourceTaskId = parseBlockRef(feedback.sourceReviewBlockRef).taskId;
       if (sourceTaskId === scope.taskId) {
-        return [
-          {
-            feedbackId,
-            sourceReviewBlockRef: feedback.sourceReviewBlockRef,
-            status: feedback.status,
-            latestSubmissionId: feedback.latestSubmissionId,
-            content: feedback.content
-          }
-        ];
+        const artifactPath = join(
+          workspace.resultsDir,
+          scope.taskId,
+          "feedback",
+          feedbackId,
+          "feedback.json"
+        );
+        const artifact = (await exists(artifactPath))
+          ? await readFeedbackArtifact(workspace, scope.taskId, feedbackId)
+          : null;
+        return {
+          feedbackId,
+          sourceReviewBlockRef: feedback.sourceReviewBlockRef,
+          status: feedback.status,
+          latestSubmissionId: feedback.latestSubmissionId,
+          content: feedback.content,
+          sourceReviewAttemptId: artifact?.sourceReviewAttemptId ?? null,
+          createdAt: artifact?.createdAt ?? null,
+          resolvedAt: artifact?.resolvedAt ?? null
+        };
       }
       if (!taskIds.has(sourceTaskId)) {
         throw new Error(
           `State feedback '${feedbackId}' sourceReviewBlockRef '${feedback.sourceReviewBlockRef}' identifies missing Task '${sourceTaskId}' in canvas '${scope.canvasId}'.`
         );
       }
-      return [];
+      return null;
     })
+  );
+  return records
+    .filter((record): record is DesktopFeedbackRecord => record !== null)
     .sort((left, right) => compareIdsNewestFirst(left.feedbackId, right.feedbackId));
 }
 
@@ -886,6 +907,7 @@ export async function getReviewAttempts(
       const metadata = (await exists(metadataPath))
         ? await readJsonFile<Record<string, unknown>>(metadataPath)
         : {};
+      const parsedMetadata = reviewAttemptMetadataSchema.parse(metadata);
       const artifact = await verifyRunArtifactMetadata(attemptDir, metadata, ["review"]);
       let result: Record<string, unknown>;
       if (artifact.kind === "verified") {
@@ -910,7 +932,9 @@ export async function getReviewAttempts(
         verdict: verdictField(result.verdict),
         resultPath,
         metadataPath,
-        contentPreview: content.trim().slice(0, 400)
+        content,
+        contentPreview: content.trim().slice(0, 400),
+        reviewedAt: parsedMetadata.reviewedAt ?? null
       };
     })
   );
@@ -922,14 +946,32 @@ export async function getFeedbackRecords(
 ): Promise<DesktopFeedbackRecord[]> {
   const { workspace } = await loadPackage(projectRoot);
   const state = await readState(workspace.stateFile);
-  return Object.entries(state.feedback)
-    .filter(([, feedback]) => feedback.sourceReviewBlockRef === blockRef)
-    .sort(([leftId], [rightId]) => compareIdsNewestFirst(leftId, rightId))
-    .map(([feedbackId, feedback]) => ({
-      feedbackId,
-      sourceReviewBlockRef: feedback.sourceReviewBlockRef,
-      status: feedback.status,
-      latestSubmissionId: feedback.latestSubmissionId,
-      content: feedback.content
-    }));
+  const records = await Promise.all(
+    Object.entries(state.feedback)
+      .filter(([, feedback]) => feedback.sourceReviewBlockRef === blockRef)
+      .sort(([leftId], [rightId]) => compareIdsNewestFirst(leftId, rightId))
+      .map(async ([feedbackId, feedback]) => {
+        const artifactPath = join(
+          workspace.resultsDir,
+          parseBlockRef(blockRef).taskId,
+          "feedback",
+          feedbackId,
+          "feedback.json"
+        );
+        const artifact = (await exists(artifactPath))
+          ? await readFeedbackArtifact(workspace, parseBlockRef(blockRef).taskId, feedbackId)
+          : null;
+        return {
+          feedbackId,
+          sourceReviewBlockRef: feedback.sourceReviewBlockRef,
+          status: feedback.status,
+          latestSubmissionId: feedback.latestSubmissionId,
+          content: feedback.content,
+          sourceReviewAttemptId: artifact?.sourceReviewAttemptId ?? null,
+          createdAt: artifact?.createdAt ?? null,
+          resolvedAt: artifact?.resolvedAt ?? null
+        };
+      })
+  );
+  return records;
 }

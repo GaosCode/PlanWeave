@@ -2,13 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../json.js";
-import {
-  recordBlockRunArtifactInIndex,
-  recordBlockRunInIndex
-} from "../autoRun/blockRunIndex.js";
+import { recordBlockRunArtifactInIndex, recordBlockRunInIndex } from "../autoRun/blockRunIndex.js";
 import {
   composeTaskWorkspaceRuns,
   getTaskWorkspace,
+  getTaskWorkspaceRunDetail,
   listTaskWorkspaceRuns,
   taskWorkspaceAgentTimeSchema,
   taskWorkspaceAnnotationSchema,
@@ -78,13 +76,7 @@ async function writeBlockRun(options: {
   executionWaveId?: string;
 }): Promise<void> {
   const ref = `T-001#${options.blockId}`;
-  const runsRoot = join(
-    options.resultsDir,
-    "T-001",
-    "blocks",
-    options.blockId,
-    "runs"
-  );
+  const runsRoot = join(options.resultsDir, "T-001", "blocks", options.blockId, "runs");
   const runDir = join(runsRoot, options.runId);
   await mkdir(runDir, { recursive: true });
   await writeJsonFile(join(runDir, "metadata.json"), {
@@ -360,7 +352,7 @@ describe("desktop Task Workspace aggregate API", () => {
     expect(mixed.selectedRecordId).toBe("T-001#B-001::RUN-3");
   });
 
-  it("keeps review attempts, feedback, and feedback runs as explicitly unassociated annotations", async () => {
+  it("groups each feedback run with its source review attempt without duplicate feedback rows", async () => {
     const { root, init } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
     await submitBlockResult({
@@ -395,25 +387,33 @@ describe("desktop Task Workspace aggregate API", () => {
     const review = workspace.blocks.find((block) => block.type === "review");
 
     expect(review?.runs.every((item) => item.run.kind === "block")).toBe(true);
-    expect(review?.annotations).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: "review_attempt",
-          associatedRunRecordId: null,
-          verdict: "needs_changes"
-        }),
-        expect.objectContaining({
-          kind: "feedback",
-          associatedRunRecordId: null,
-          contentPreview: "Please revise this work."
-        }),
-        expect.objectContaining({
-          kind: "feedback_run",
-          associatedRunRecordId: null,
-          recordId: "FE-001::RUN-FEEDBACK-001"
-        })
-      ])
-    );
+    expect(review?.annotations.map((annotation) => annotation.kind)).toEqual([
+      "review_attempt",
+      "feedback_run"
+    ]);
+    expect(review?.annotations[0]).toMatchObject({
+      kind: "review_attempt",
+      associatedRunRecordId: null,
+      content: "Please revise this work.",
+      verdict: "needs_changes"
+    });
+    expect(review?.annotations[1]).toMatchObject({
+      kind: "feedback_run",
+      associatedRunRecordId: "FE-001::RUN-FEEDBACK-001",
+      recordId: "FE-001::RUN-FEEDBACK-001",
+      contentPreview: "Please revise this work."
+    });
+
+    const feedbackDetail = await getTaskWorkspaceRunDetail({
+      projectRoot: root,
+      canvasId: "default",
+      taskId: "T-001",
+      recordId: "FE-001::RUN-FEEDBACK-001"
+    });
+    expect(feedbackDetail.blockRef).toBe("T-001#R-001");
+    expect(feedbackDetail.item.run.kind).toBe("feedback");
+    expect(feedbackDetail.item.run.capabilities.prompt.available).toBe(false);
+    expect(feedbackDetail.record.reportMarkdown).toContain("Feedback applied.");
   });
 
   it("reports partial duration without inventing zero and rejects invalid input or foreign selection", async () => {

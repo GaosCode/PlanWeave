@@ -4,6 +4,7 @@ import {
   projectAcpConversation,
   projectAcpTimeline
 } from "../autoRun/acpConversationProjection.js";
+import { FINAL_ARTIFACT_MARKER } from "../autoRun/finalArtifactEnvelope.js";
 
 describe("ACP conversation projection", () => {
   it("projects renderer-safe conversation and tool items from normalized events", () => {
@@ -325,6 +326,30 @@ describe("ACP conversation projection", () => {
       expect.objectContaining({ sequence: 2, kind: "artifact", artifact: artifact.body.artifact }),
       expect.objectContaining({ sequence: 3, kind: "message", content: "Follow-up turn" })
     ]);
+
+    const envelope = `${FINAL_ARTIFACT_MARKER}${JSON.stringify({
+      version: "planweave.runner-artifact/v1",
+      artifact: {
+        kind: "implementation",
+        ref: "T-001#B-001",
+        taskId: "T-001",
+        reportMarkdown: "Implemented."
+      }
+    })}`;
+    const consumedEvents = [message(1, `Visible summary.\n${envelope}`), artifact];
+    expect(projectAcpConversation(consumedEvents)).toEqual([
+      expect.objectContaining({ kind: "message", content: "Visible summary." })
+    ]);
+    expect(projectAcpTimeline(consumedEvents)).toEqual([
+      expect.objectContaining({ kind: "message", content: "Visible summary." }),
+      expect.objectContaining({ kind: "artifact" })
+    ]);
+
+    const malformed = `${FINAL_ARTIFACT_MARKER}{bad json}`;
+    expect(projectAcpTimeline([message(1, malformed), artifact])[0]).toMatchObject({
+      kind: "message",
+      content: malformed
+    });
   });
 
   it("coalesces an out-of-order tool update with its later tool call", () => {

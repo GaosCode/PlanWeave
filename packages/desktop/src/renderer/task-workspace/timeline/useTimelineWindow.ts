@@ -3,7 +3,7 @@ import type { UIEvent } from "react";
 
 export const timelineWindowThreshold = 200;
 export const timelineWindowSize = 80;
-const timelineRowExtent = 120;
+const timelineRowExtent = 128;
 const timelineOverscan = 8;
 
 function clampStart(start: number, count: number): number {
@@ -47,6 +47,7 @@ export function useTimelineWindow(recordCount: number) {
       end,
       ensureIndexVisible,
       onScroll,
+      rowExtent: timelineRowExtent,
       start,
       windowed
     }),

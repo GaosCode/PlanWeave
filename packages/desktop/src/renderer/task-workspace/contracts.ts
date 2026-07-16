@@ -2,6 +2,7 @@ import type {
   DesktopRunRecord,
   RunnerRecordReadModel,
   TaskWorkspace,
+  TaskWorkspaceAnnotation,
   TaskWorkspaceBlock
 } from "@planweave-ai/runtime";
 import type { ReactNode } from "react";
@@ -13,6 +14,11 @@ export type TaskWorkspaceRunItem = TaskWorkspaceBlock["runs"][number];
 export type TaskWorkspaceSelectedRun = {
   block: TaskWorkspaceBlock;
   item: TaskWorkspaceRunItem;
+};
+
+export type TaskWorkspaceSelectedAnnotation = {
+  annotation: TaskWorkspaceAnnotation;
+  block: TaskWorkspaceBlock;
 };
 
 export type TaskWorkspaceLoadStatus = "idle" | "loading" | "ready" | "error";
@@ -42,6 +48,8 @@ export type TaskWorkspaceLabels = {
   acceptanceCriteria: string;
   activeRuns: (count: number) => string;
   agent: string;
+  annotationKinds: Record<TaskWorkspaceAnnotation["kind"], string>;
+  annotationResult: string;
   backToCanvas: string;
   blockExecutor: string;
   blocks: string;
@@ -55,6 +63,8 @@ export type TaskWorkspaceLabels = {
   executorSaved: string;
   executorSaving: string;
   expandTimeline: string;
+  feedbackStatus: Record<"dismissed" | "in_progress" | "open" | "resolved", string>;
+  formatDateTime: (value: string) => string;
   formatDuration: (milliseconds: number) => string;
   inspector: string;
   inheritTaskExecutor: string;
@@ -73,6 +83,7 @@ export type TaskWorkspaceLabels = {
   permission: string;
   promptLabels: TaskWorkspacePromptLabels;
   reasoning: string;
+  reviewVerdict: Record<"needs_changes" | "passed", string>;
   runStatus: Record<"active" | "cancelled" | "completed" | "failed" | "waiting", string>;
   status: string;
   taskExecutor: string;
@@ -104,6 +115,8 @@ export type TaskWorkspaceController = {
   saveTaskExecutor: (executorName: string | null) => Promise<void>;
   saveTaskPrompt: (input: TaskWorkspacePromptSaveInput) => Promise<void>;
   selectRun: (selection: { blockRef: string; recordId: string } | null) => void;
+  selectAnnotation: (selection: { blockRef: string; annotationId: string }) => void;
+  selectedAnnotation: TaskWorkspaceSelectedAnnotation | null;
   selectedRecord: DesktopRunRecord | null;
   selectedRun: TaskWorkspaceSelectedRun | null;
   status: TaskWorkspaceLoadStatus;
@@ -120,6 +133,8 @@ export type TaskWorkspaceTimelineSlotProps = Pick<
   | "loadingMoreRuns"
   | "onRunScrollTopChange"
   | "selectRun"
+  | "selectAnnotation"
+  | "selectedAnnotation"
   | "selectedRun"
 > &
   Pick<TaskWorkspaceLayout, "setTimelineWidth" | "timelineWidth"> & {

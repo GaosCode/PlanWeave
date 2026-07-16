@@ -129,8 +129,20 @@ async function annotationsForReviewBlock(
   feedbackRecords: DesktopFeedbackRecord[]
 ): Promise<TaskWorkspaceAnnotation[]> {
   const attempts = await getReviewAttempts(workspace, ref);
-  return [
-    ...attempts.map(
+  const orderedAttempts = [...attempts].sort((left, right) => {
+    const leftAt = left.reviewedAt ? Date.parse(left.reviewedAt) : Number.MAX_SAFE_INTEGER;
+    const rightAt = right.reviewedAt ? Date.parse(right.reviewedAt) : Number.MAX_SAFE_INTEGER;
+    return leftAt - rightAt || left.attemptId.localeCompare(right.attemptId);
+  });
+  const attemptOrder = new Map(
+    orderedAttempts.map((attempt, index) => [attempt.attemptId, index] as const)
+  );
+  const feedbackById = new Map(feedbackRecords.map((feedback) => [feedback.feedbackId, feedback]));
+  const matchedFeedbackIds = new Set(
+    feedbackRunSummaries.flatMap((record) => (record.feedbackId ? [record.feedbackId] : []))
+  );
+  const annotations: TaskWorkspaceAnnotation[] = [
+    ...orderedAttempts.map(
       (attempt): TaskWorkspaceAnnotation => ({
         kind: "review_attempt",
         annotationId: `review:${attempt.attemptId}`,
@@ -138,40 +150,79 @@ async function annotationsForReviewBlock(
         associatedRunRecordId: null,
         attemptId: attempt.attemptId,
         verdict: attempt.verdict,
-        contentPreview: attempt.contentPreview
+        content: attempt.content,
+        contentPreview: attempt.contentPreview,
+        reviewedAt: attempt.reviewedAt
       })
     ),
-    ...feedbackRecords.map(
-      (feedback): TaskWorkspaceAnnotation => ({
-        kind: "feedback",
-        annotationId: `feedback:${feedback.feedbackId}`,
-        sourceReviewBlockRef: feedback.sourceReviewBlockRef,
-        associatedRunRecordId: null,
-        feedbackId: feedback.feedbackId,
-        status: feedback.status,
-        latestSubmissionId: feedback.latestSubmissionId,
-        contentPreview: feedback.content.trim().slice(0, 400)
-      })
-    ),
+    ...feedbackRecords
+      .filter((feedback) => !matchedFeedbackIds.has(feedback.feedbackId))
+      .map(
+        (feedback): TaskWorkspaceAnnotation => ({
+          kind: "feedback",
+          annotationId: `feedback:${feedback.feedbackId}`,
+          sourceReviewBlockRef: feedback.sourceReviewBlockRef,
+          associatedRunRecordId: null,
+          feedbackId: feedback.feedbackId,
+          sourceReviewAttemptId: feedback.sourceReviewAttemptId,
+          status: feedback.status,
+          latestSubmissionId: feedback.latestSubmissionId,
+          content: feedback.content,
+          contentPreview: feedback.content.trim().slice(0, 400),
+          createdAt: feedback.createdAt
+        })
+      ),
     ...feedbackRunSummaries.map((record): TaskWorkspaceAnnotation => {
       if (record.sourceReviewBlockRef !== ref) {
         throw new Error(
           `Feedback run '${record.recordId}' does not identify review block '${ref}' as its source.`
         );
       }
+      const feedback = record.feedbackId ? feedbackById.get(record.feedbackId) : undefined;
       return {
         kind: "feedback_run",
         annotationId: record.recordId,
         sourceReviewBlockRef: record.sourceReviewBlockRef!,
-        associatedRunRecordId: null,
+        associatedRunRecordId: record.recordId,
         recordId: record.recordId,
         feedbackId: record.feedbackId ?? null,
+        sourceReviewAttemptId: feedback?.sourceReviewAttemptId ?? null,
+        status: feedback?.status ?? null,
+        contentPreview: feedback?.content.trim().slice(0, 400) ?? "",
         startedAt: record.startedAt,
         finishedAt: record.finishedAt,
         reportPath: record.reportPath
       };
     })
   ];
+  const sortKey = (annotation: TaskWorkspaceAnnotation) => {
+    const attemptId =
+      annotation.kind === "review_attempt"
+        ? annotation.attemptId
+        : annotation.sourceReviewAttemptId;
+    const cycle =
+      attemptId === null || !attemptOrder.has(attemptId)
+        ? Number.MAX_SAFE_INTEGER
+        : attemptOrder.get(attemptId)!;
+    const phase = annotation.kind === "review_attempt" ? 0 : 1;
+    const timestamp =
+      annotation.kind === "review_attempt"
+        ? annotation.reviewedAt
+        : annotation.kind === "feedback"
+          ? annotation.createdAt
+          : annotation.startedAt;
+    return [cycle, phase, timestamp ? Date.parse(timestamp) : Number.MAX_SAFE_INTEGER] as const;
+  };
+  return annotations.sort((left, right) => {
+    const leftKey = sortKey(left);
+    const rightKey = sortKey(right);
+    return (
+      leftKey[0] - rightKey[0] ||
+      leftKey[1] - rightKey[1] ||
+      leftKey[2] - rightKey[2] ||
+      left.annotationId.localeCompare(right.annotationId)
+    );
+  });
 }
 
 function dependencyProgress(
@@ -211,8 +262,7 @@ function artifactFromIndexEntry(entry: DesktopRunRecordIndexEntry) {
   if (record.reportPath === null && rawReference === undefined) {
     return null;
   }
-  const reference =
-    rawReference === undefined ? null : artifactReferenceSchema.parse(rawReference);
+  const reference = rawReference === undefined ? null : artifactReferenceSchema.parse(rawReference);
   return {
     recordId: record.recordId,
     blockRef: record.ref,
@@ -228,10 +278,7 @@ function artifactFromIndexEntry(entry: DesktopRunRecordIndexEntry) {
  * Preserves “latest available artifact may be older than the page window” semantics
  * without loading run content.
  */
-async function findLatestArtifact(
-  workspace: ProjectWorkspace,
-  locators: readonly RunLocator[]
-) {
+async function findLatestArtifact(workspace: ProjectWorkspace, locators: readonly RunLocator[]) {
   for (const locator of locators) {
     const entry = await getRunRecordIndexEntryFromWorkspace(workspace, locator.recordId);
     const artifact = artifactFromIndexEntry(entry);
@@ -282,22 +329,28 @@ async function queryTaskRunLocators(
       };
     })
   );
-  let merged = (await Promise.all(
-    batches.map(async (batch) => Promise.all(
-      batch.entries.map(async (entry): Promise<RunLocator> => {
-        const recordId = runRecordId(batch.blockRef, entry.runId);
-        const recordEntry = await getRunRecordIndexEntryFromWorkspace(workspace, recordId);
-        return {
-          blockRef: batch.blockRef,
-          runId: entry.runId,
-          recordId,
-          orderedAtMs: Date.parse(entry.orderedAt),
-          retryIndex: entry.retryIndex,
-          entry: recordEntry
-        };
-      })
-    ))
-  )).flat().sort(compareRunLocatorsNewestFirst);
+  let merged = (
+    await Promise.all(
+      batches.map(async (batch) =>
+        Promise.all(
+          batch.entries.map(async (entry): Promise<RunLocator> => {
+            const recordId = runRecordId(batch.blockRef, entry.runId);
+            const recordEntry = await getRunRecordIndexEntryFromWorkspace(workspace, recordId);
+            return {
+              blockRef: batch.blockRef,
+              runId: entry.runId,
+              recordId,
+              orderedAtMs: Date.parse(entry.orderedAt),
+              retryIndex: entry.retryIndex,
+              entry: recordEntry
+            };
+          })
+        )
+      )
+    )
+  )
+    .flat()
+    .sort(compareRunLocatorsNewestFirst);
   if (cursor) {
     const parsedCursor = parseRunRecordId(cursor.recordId);
     if (parsedCursor.kind !== "block") {
@@ -310,9 +363,7 @@ async function queryTaskRunLocators(
       orderedAtMs: Date.parse(cursor.orderedAt),
       retryIndex: 1
     };
-    merged = merged.filter(
-      (locator) => compareRunLocatorsNewestFirst(locator, cursorLocator) > 0
-    );
+    merged = merged.filter((locator) => compareRunLocatorsNewestFirst(locator, cursorLocator) > 0);
   }
   const locators = merged.slice(0, limit);
   return {
@@ -456,32 +507,44 @@ export async function getTaskWorkspace(
       summary: await indexedBlockSummary(workspace, detail.ref)
     }))
   );
-  const headLocators = (await Promise.all(blockIndexSummaries.map(async ({ blockRef, summary }): Promise<RunLocator | null> => {
-    if (!summary.head) return null;
-    const recordId = runRecordId(blockRef, summary.head.runId);
-    const entry = await getRunRecordIndexEntryFromWorkspace(workspace, recordId);
-    return {
-      blockRef,
-      runId: summary.head.runId,
-      recordId,
-      orderedAtMs: Date.parse(summary.head.orderedAt),
-      retryIndex: summary.head.retryIndex,
-      entry
-    } satisfies RunLocator;
-  }))).filter((locator): locator is RunLocator => locator !== null)
+  const headLocators = (
+    await Promise.all(
+      blockIndexSummaries.map(async ({ blockRef, summary }): Promise<RunLocator | null> => {
+        if (!summary.head) return null;
+        const recordId = runRecordId(blockRef, summary.head.runId);
+        const entry = await getRunRecordIndexEntryFromWorkspace(workspace, recordId);
+        return {
+          blockRef,
+          runId: summary.head.runId,
+          recordId,
+          orderedAtMs: Date.parse(summary.head.orderedAt),
+          retryIndex: summary.head.retryIndex,
+          entry
+        } satisfies RunLocator;
+      })
+    )
+  )
+    .filter((locator): locator is RunLocator => locator !== null)
     .sort(compareRunLocatorsNewestFirst);
   const explicitSelection = input.selectedRecordId ?? null;
   if (explicitSelection !== null) {
     const parsedSelection = parseRunRecordId(explicitSelection);
-    if (parsedSelection.kind !== "block" || !blockRefSet.has(parsedSelection.blockRef)) {
+    const validBlockSelection =
+      parsedSelection.kind === "block" && blockRefSet.has(parsedSelection.blockRef);
+    const validFeedbackSelection =
+      parsedSelection.kind === "feedback" &&
+      taskFeedbackRunSummaries.some((summary) => summary.recordId === explicitSelection);
+    if (!validBlockSelection && !validFeedbackSelection) {
       throw new Error(
         `Selected Task Workspace record '${explicitSelection}' does not belong to task '${input.taskId}'.`
       );
     }
-    await readBlockRunIndexEntry(
-      runRootForBlock(workspace, parsedSelection.blockRef),
-      parsedSelection.runId
-    );
+    if (parsedSelection.kind === "block") {
+      await readBlockRunIndexEntry(
+        runRootForBlock(workspace, parsedSelection.blockRef),
+        parsedSelection.runId
+      );
+    }
   }
   const selectedRecordId =
     explicitSelection ??
@@ -491,21 +554,33 @@ export async function getTaskWorkspace(
         ? null
         : (headLocators[0]?.recordId ?? null));
 
-  const artifactLocators = (await Promise.all(blockIndexSummaries.map(async ({ blockRef, summary }): Promise<RunLocator | null> => {
-    if (!summary.latestArtifactRunId) return null;
-    const recordId = runRecordId(blockRef, summary.latestArtifactRunId);
-    const entry = await getRunRecordIndexEntryFromWorkspace(workspace, recordId);
-    return {
-      blockRef,
-      runId: summary.latestArtifactRunId,
-      recordId,
-      orderedAtMs: Date.parse(summary.latestArtifactRunId === summary.head?.runId
-        ? summary.head.orderedAt
-        : (await readBlockRunIndexEntry(runRootForBlock(workspace, blockRef), summary.latestArtifactRunId)).orderedAt),
-      retryIndex: 1,
-      entry
-    } satisfies RunLocator;
-  }))).filter((locator): locator is RunLocator => locator !== null)
+  const artifactLocators = (
+    await Promise.all(
+      blockIndexSummaries.map(async ({ blockRef, summary }): Promise<RunLocator | null> => {
+        if (!summary.latestArtifactRunId) return null;
+        const recordId = runRecordId(blockRef, summary.latestArtifactRunId);
+        const entry = await getRunRecordIndexEntryFromWorkspace(workspace, recordId);
+        return {
+          blockRef,
+          runId: summary.latestArtifactRunId,
+          recordId,
+          orderedAtMs: Date.parse(
+            summary.latestArtifactRunId === summary.head?.runId
+              ? summary.head.orderedAt
+              : (
+                  await readBlockRunIndexEntry(
+                    runRootForBlock(workspace, blockRef),
+                    summary.latestArtifactRunId
+                  )
+                ).orderedAt
+          ),
+          retryIndex: 1,
+          entry
+        } satisfies RunLocator;
+      })
+    )
+  )
+    .filter((locator): locator is RunLocator => locator !== null)
     .sort(compareRunLocatorsNewestFirst);
   const latestArtifact = await findLatestArtifact(workspace, artifactLocators);
 
@@ -647,7 +722,8 @@ export async function listTaskWorkspaceRuns(
       if (!detail) {
         throw new Error(`Block '${locator.blockRef}' is missing from task '${input.taskId}'.`);
       }
-      const entry = locator.entry ?? await getRunRecordIndexEntryFromWorkspace(workspace, locator.recordId);
+      const entry =
+        locator.entry ?? (await getRunRecordIndexEntryFromWorkspace(workspace, locator.recordId));
       return projectSummaryRunItem({
         workspace,
         canvasId: input.canvasId,
@@ -689,38 +765,55 @@ export async function getTaskWorkspaceRunDetail(
 
   const workspace = await resolveTaskCanvasWorkspace(input.projectRoot, input.canvasId);
   const parsed = parseRunRecordId(input.recordId);
-  if (parsed.kind !== "block") {
-    throw new Error(
-      `Task Workspace run detail only supports block runs; got '${input.recordId}'.`
-    );
-  }
   const taskDetail = await getTaskDetail(workspace, input.taskId);
-  if (!taskDetail.blockOrder.includes(parsed.blockRef)) {
-    throw new Error(
-      `Selected Task Workspace record '${input.recordId}' does not belong to task '${input.taskId}'.`
-    );
-  }
-
-  const [blockDetail, record, hasActiveAutoRun, executionStatus] = await Promise.all([
-    getBlockDetail(workspace, parsed.blockRef),
+  const [record, hasActiveAutoRun, executionStatus] = await Promise.all([
     getRunRecord(workspace, input.recordId),
     hasNonTerminalAutoRunForTarget(input.projectRoot, input.canvasId),
     getExecutionStatus({ projectRoot: workspace })
   ]);
-  if (record.taskId !== input.taskId) {
+  const sourceBlockRef = parsed.kind === "block" ? parsed.blockRef : record.sourceReviewBlockRef;
+  if (
+    sourceBlockRef === null ||
+    sourceBlockRef === undefined ||
+    record.taskId !== input.taskId ||
+    !taskDetail.blockOrder.includes(sourceBlockRef)
+  ) {
     throw new Error(
       `Selected Task Workspace record '${input.recordId}' does not belong to task '${input.taskId}'.`
     );
   }
+  const blockDetail = await getBlockDetail(workspace, sourceBlockRef);
+  if (parsed.kind === "feedback" && blockDetail.type !== "review") {
+    throw new Error(
+      `Feedback run '${input.recordId}' source '${sourceBlockRef}' must identify a Review Block.`
+    );
+  }
 
-  const [blockIndexEntry, blockIndexSummary] = await Promise.all([
-    readBlockRunIndexEntry(runRootForBlock(workspace, parsed.blockRef), parsed.runId),
-    indexedBlockSummary(workspace, parsed.blockRef)
-  ]);
-  const latestRecordId = blockIndexSummary.head
-    ? runRecordId(parsed.blockRef, blockIndexSummary.head.runId)
-    : null;
-  const retryIndex = blockIndexEntry.retryIndex;
+  let retryIndex = 1;
+  let latestRecordId: string | null = null;
+  if (parsed.kind === "block") {
+    const [blockIndexEntry, blockIndexSummary] = await Promise.all([
+      readBlockRunIndexEntry(runRootForBlock(workspace, parsed.blockRef), parsed.runId),
+      indexedBlockSummary(workspace, parsed.blockRef)
+    ]);
+    latestRecordId = blockIndexSummary.head
+      ? runRecordId(parsed.blockRef, blockIndexSummary.head.runId)
+      : null;
+    retryIndex = blockIndexEntry.retryIndex;
+  } else {
+    const feedbackRuns = (
+      await listTaskFeedbackRunRecords(input.projectRoot, input.canvasId, input.taskId)
+    )
+      .filter((summary) => summary.feedbackId === parsed.feedbackId)
+      .reverse();
+    const feedbackIndex = feedbackRuns.findIndex((summary) => summary.recordId === input.recordId);
+    if (feedbackIndex < 0) {
+      throw new Error(
+        `Selected Task Workspace record '${input.recordId}' does not belong to task '${input.taskId}'.`
+      );
+    }
+    retryIndex = feedbackIndex + 1;
+  }
 
   const blockDetails = await Promise.all(
     taskDetail.blockOrder.map((ref) => getBlockDetail(workspace, ref))
@@ -732,27 +825,34 @@ export async function getTaskWorkspaceRunDetail(
     currentRefs: executionStatus.currentRefs
   });
   const selectedRecordId = options.selectedRecordId ?? input.recordId;
-  const active = activeRecordIds.includes(record.recordId);
+  const active =
+    parsed.kind === "block"
+      ? activeRecordIds.includes(record.recordId)
+      : record.finishedAt === null && hasActiveAutoRun;
 
   const projected = projectTaskWorkspaceRun({
-    record,
+    record: { ...record, kind: parsed.kind },
     runIdentity: canonicalTaskWorkspaceRunIdentity({
       workspace,
       canvasId: input.canvasId,
       record
     }),
     now,
-    retry: evaluateTaskWorkspaceRetry({
-      workspace,
-      canvasId: input.canvasId,
-      taskId: input.taskId,
-      block: blockDetail,
-      record,
-      selectedRecordId,
-      latestRecordId,
-      hasActiveRun: hasActiveAutoRun || activeRecordIds.length > 0,
-      dependenciesSatisfied: dependencyProgress(blockDetail, detailsByRef).blockers.length === 0
-    })
+    retry:
+      parsed.kind === "block"
+        ? evaluateTaskWorkspaceRetry({
+            workspace,
+            canvasId: input.canvasId,
+            taskId: input.taskId,
+            block: blockDetail,
+            record,
+            selectedRecordId,
+            latestRecordId,
+            hasActiveRun: hasActiveAutoRun || activeRecordIds.length > 0,
+            dependenciesSatisfied:
+              dependencyProgress(blockDetail, detailsByRef).blockers.length === 0
+          })
+        : undefined
   });
 
   const waiting = record.runnerReadModel?.interaction.activeRequests ?? [];
@@ -770,7 +870,7 @@ export async function getTaskWorkspaceRunDetail(
     projectRoot: workspace.rootPath,
     canvasId: input.canvasId,
     taskId: input.taskId,
-    blockRef: parsed.blockRef,
+    blockRef: sourceBlockRef,
     item: {
       retryIndex,
       active,

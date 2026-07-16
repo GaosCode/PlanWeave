@@ -4,6 +4,7 @@ import type {
   TaskWorkspaceLabels,
   TaskWorkspaceSlotRenderers
 } from "./contracts";
+import { TaskWorkspaceAnnotationDetail } from "./TaskWorkspaceAnnotationDetail";
 import { TaskWorkspaceShell, TaskWorkspaceStateShell } from "./TaskWorkspaceShell";
 import { TaskWorkspaceOverviewPanel } from "./timeline/TaskWorkspaceOverview";
 import { useTaskWorkspaceLayout } from "./useTaskWorkspaceLayout";
@@ -190,7 +191,9 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
     loadMoreRunsError: controller.loadMoreRunsError,
     loadingMoreRuns: controller.loadingMoreRuns,
     onRunScrollTopChange: controller.onRunScrollTopChange,
+    selectAnnotation: controller.selectAnnotation,
     selectRun: controller.selectRun,
+    selectedAnnotation: controller.selectedAnnotation,
     selectedRun: controller.selectedRun,
     setTimelineWidth: layout.setTimelineWidth,
     timelineWidth: layout.timelineWidth,
@@ -209,6 +212,7 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
   };
   const inspectorProps = {
     focusedBlock:
+      controller.selectedAnnotation?.block ??
       controller.selectedRun?.block ??
       (controller.navigation?.blockRef
         ? (controller.workspace.blocks.find(
@@ -234,7 +238,9 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
   const timeline: ReactNode = slots.timeline?.(timelineProps) ?? (
     <EmptySlot title={labels.timeline} description={labels.noRuns} />
   );
-  const conversation: ReactNode = !controller.selectedRun ? (
+  const conversation: ReactNode = controller.selectedAnnotation ? (
+    <TaskWorkspaceAnnotationDetail labels={labels} selected={controller.selectedAnnotation} />
+  ) : !controller.selectedRun ? (
     <TaskWorkspaceOverviewPanel
       executorOptions={controller.executorOptions}
       focusedBlockRef={controller.navigation?.blockRef ?? null}

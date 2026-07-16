@@ -56,6 +56,7 @@ export interface TaskWorkspaceTimelineLabels {
   agent: string;
   activeRuns: (count: number) => string;
   annotationKinds: Record<TaskWorkspaceAnnotation["kind"], string>;
+  feedbackStatus: Record<"dismissed" | "in_progress" | "open" | "resolved", string>;
   completed: string;
   cancelled: string;
   dependencies: string;
@@ -74,6 +75,7 @@ export interface TaskWorkspaceTimelineLabels {
   parallelWave: (waveId: string, index: number, total: number) => string;
   resizeTimeline: string;
   retry: (retryIndex: number) => string;
+  reviewVerdict: Record<"needs_changes" | "passed", string>;
   run: (blockTitle: string, retryIndex: number) => string;
   runId: string;
   running: string;

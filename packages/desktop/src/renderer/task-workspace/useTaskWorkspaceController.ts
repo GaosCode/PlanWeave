@@ -51,7 +51,9 @@ type WorkspaceLoad = {
 };
 
 type RecordLoad = {
+  blockRef: string | null;
   error: string | null;
+  item: TaskWorkspaceSelectedRun["item"] | null;
   key: string;
   record: DesktopRunRecord | null;
   status: "idle" | "loading" | "ready" | "error";
@@ -65,7 +67,14 @@ const idleWorkspaceLoad: WorkspaceLoad = {
   status: "idle",
   workspace: null
 };
-const idleRecordLoad: RecordLoad = { error: null, key: "", record: null, status: "idle" };
+const idleRecordLoad: RecordLoad = {
+  blockRef: null,
+  error: null,
+  item: null,
+  key: "",
+  record: null,
+  status: "idle"
+};
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -135,6 +144,10 @@ export function useTaskWorkspaceController(options: {
   const [workspaceLoad, setWorkspaceLoad] = useState<WorkspaceLoad>(idleWorkspaceLoad);
   const [recordLoad, setRecordLoad] = useState<RecordLoad>(idleRecordLoad);
   const [overviewSelected, setOverviewSelected] = useState(false);
+  const [selectedAnnotationIdentity, setSelectedAnnotationIdentity] = useState<{
+    annotationId: string;
+    blockRef: string;
+  } | null>(null);
   const [hasMoreRuns, setHasMoreRuns] = useState(false);
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
   const [loadMoreRunsError, setLoadMoreRunsError] = useState<string | null>(null);
@@ -153,11 +166,13 @@ export function useTaskWorkspaceController(options: {
   useEffect(() => {
     overviewSelectedRef.current = false;
     setOverviewSelected(false);
+    setSelectedAnnotationIdentity(null);
   }, [taskAuthorityKey]);
 
   useEffect(() => {
     overviewSelectedRef.current = false;
     setOverviewSelected(false);
+    setSelectedAnnotationIdentity(null);
   }, [navigation?.blockRef, navigation?.recordId]);
 
   useEffect(() => {
@@ -295,9 +310,35 @@ export function useTaskWorkspaceController(options: {
     }
     return findRun(workspace, navigation.blockRef, navigation.recordId);
   }, [navigation?.blockRef, navigation?.recordId, workspace]);
-  const selectedRun = overviewSelected ? null : routedSelectedRun;
-  const selectedRecordKey = navigation?.recordId ?? selectedRun?.item.run.record.recordId ?? "";
-  const selectedBlockRef = navigation?.blockRef ?? selectedRun?.block.ref ?? "";
+  const detailSelectedRun = useMemo(() => {
+    if (
+      !workspace ||
+      recordLoad.key !== navigation?.recordId ||
+      !recordLoad.blockRef ||
+      !recordLoad.item
+    ) {
+      return null;
+    }
+    const block = workspace.blocks.find((candidate) => candidate.ref === recordLoad.blockRef);
+    return block ? { block, item: recordLoad.item } : null;
+  }, [navigation?.recordId, recordLoad.blockRef, recordLoad.item, recordLoad.key, workspace]);
+  const selectedAnnotation = useMemo(() => {
+    if (!workspace || !selectedAnnotationIdentity) return null;
+    const block = workspace.blocks.find(
+      (candidate) => candidate.ref === selectedAnnotationIdentity.blockRef
+    );
+    const annotation = block?.annotations.find(
+      (candidate) => candidate.annotationId === selectedAnnotationIdentity.annotationId
+    );
+    return block && annotation ? { annotation, block } : null;
+  }, [selectedAnnotationIdentity, workspace]);
+  const selectedRun =
+    overviewSelected || selectedAnnotation ? null : (routedSelectedRun ?? detailSelectedRun);
+  const selectedRecordKey = selectedAnnotation
+    ? ""
+    : (navigation?.recordId ?? selectedRun?.item.run.record.recordId ?? "");
+  const selectedBlockRef =
+    selectedAnnotation?.block.ref ?? navigation?.blockRef ?? selectedRun?.block.ref ?? "";
 
   useEffect(() => {
     const request = ++recordRequest.current;
@@ -305,7 +346,14 @@ export function useTaskWorkspaceController(options: {
       setRecordLoad(idleRecordLoad);
       return;
     }
-    setRecordLoad({ error: null, key: selectedRecordKey, record: null, status: "loading" });
+    setRecordLoad({
+      blockRef: null,
+      error: null,
+      item: null,
+      key: selectedRecordKey,
+      record: null,
+      status: "loading"
+    });
     void api
       .getTaskWorkspaceRunDetail({
         projectRoot: navigation.projectRoot,
@@ -325,33 +373,40 @@ export function useTaskWorkspaceController(options: {
           detail.taskId !== navigation.taskId
         ) {
           setRecordLoad({
+            blockRef: null,
             error: "Selected run record does not match its Task Workspace navigation identity.",
+            item: null,
             key: selectedRecordKey,
             record: null,
             status: "error"
           });
           return;
         }
-        // Merge detail projection into composed workspace runs for capabilities/live projection.
-        const listItem: TaskWorkspaceRunListItem = {
-          blockRef: detail.blockRef,
-          ...detail.item
-        };
-        const without = runItemsRef.current.filter(
-          (item) => item.run.record.recordId !== listItem.run.record.recordId
-        );
-        runItemsRef.current = [...without, listItem];
-        setWorkspaceLoad((current) => {
-          if (!current.workspace || current.key !== key) {
-            return current;
-          }
-          return {
-            ...current,
-            workspace: composeTaskWorkspaceRuns(current.workspace, runItemsRef.current)
+        if (detail.item.run.kind === "block") {
+          // Block details refine the paged summary. Feedback details remain a selected
+          // annotation and must not be inserted into the Block run pagination model.
+          const listItem: TaskWorkspaceRunListItem = {
+            blockRef: detail.blockRef,
+            ...detail.item
           };
-        });
+          const without = runItemsRef.current.filter(
+            (item) => item.run.record.recordId !== listItem.run.record.recordId
+          );
+          runItemsRef.current = [...without, listItem];
+          setWorkspaceLoad((current) => {
+            if (!current.workspace || current.key !== key) {
+              return current;
+            }
+            return {
+              ...current,
+              workspace: composeTaskWorkspaceRuns(current.workspace, runItemsRef.current)
+            };
+          });
+        }
         setRecordLoad({
+          blockRef: detail.blockRef,
           error: null,
+          item: detail.item,
           key: selectedRecordKey,
           record,
           status: "ready"
@@ -362,7 +417,9 @@ export function useTaskWorkspaceController(options: {
           return;
         }
         setRecordLoad({
+          blockRef: null,
           error: errorMessage(error),
+          item: null,
           key: selectedRecordKey,
           record: null,
           status: "error"
@@ -409,6 +466,14 @@ export function useTaskWorkspaceController(options: {
       return {
         error: null as string | null,
         runnerModel: null,
+        selectedRun,
+        workspace
+      };
+    }
+    if (selectedRun.item.run.kind === "feedback") {
+      return {
+        error: null,
+        runnerModel: monitor.model,
         selectedRun,
         workspace
       };
@@ -471,12 +536,14 @@ export function useTaskWorkspaceController(options: {
         throw new Error("Cannot select a run without a Task Workspace navigation identity.");
       }
       if (selection === null) {
+        setSelectedAnnotationIdentity(null);
         overviewSelectedRef.current = true;
         setOverviewSelected(true);
         return;
       }
       overviewSelectedRef.current = false;
       setOverviewSelected(false);
+      setSelectedAnnotationIdentity(null);
       history.replaceTaskWorkspaceTarget(
         taskWorkspaceNavigationTargetSchema.parse({
           projectRoot: navigation.projectRoot,
@@ -489,6 +556,12 @@ export function useTaskWorkspaceController(options: {
     },
     [history.replaceTaskWorkspaceTarget, navigation]
   );
+
+  const selectAnnotation = useCallback<TaskWorkspaceController["selectAnnotation"]>((selection) => {
+    overviewSelectedRef.current = false;
+    setOverviewSelected(false);
+    setSelectedAnnotationIdentity(selection);
+  }, []);
 
   const loadMoreRuns = useCallback(async () => {
     if (!api || !navigation || !nextCursorRef.current || loadingMoreRef.current) {
@@ -510,9 +583,7 @@ export function useTaskWorkspaceController(options: {
         return;
       }
       const selectedHint = navigation.recordId ?? null;
-      const existingIds = new Set(
-        runItemsRef.current.map((item) => item.run.record.recordId)
-      );
+      const existingIds = new Set(runItemsRef.current.map((item) => item.run.record.recordId));
       const appended: TaskWorkspaceRunListItem[] = page.items
         .filter((item) => !existingIds.has(item.run.record.recordId))
         .map((item) => ({
@@ -676,7 +747,9 @@ export function useTaskWorkspaceController(options: {
       saveBlockPrompt,
       saveTaskExecutor,
       saveTaskPrompt,
+      selectAnnotation,
       selectRun,
+      selectedAnnotation,
       selectedRecord,
       selectedRun: liveProjection.selectedRun,
       status,
@@ -703,7 +776,9 @@ export function useTaskWorkspaceController(options: {
       saveBlockPrompt,
       saveTaskExecutor,
       saveTaskPrompt,
+      selectAnnotation,
       selectRun,
+      selectedAnnotation,
       selectedRecord,
       status
     ]

@@ -114,6 +114,18 @@ describe("final artifact envelope codec", () => {
     });
   });
 
+  it("requires concise Markdown structure for review artifact content", () => {
+    const instruction = finalArtifactPromptInstruction({
+      kind: "review",
+      ref: "T-002#R-003",
+      taskId: "T-002"
+    });
+
+    expect(instruction).toContain("Write `content` as concise Markdown.");
+    expect(instruction).toContain("each actionable finding on its own paragraph with `[P0]`");
+    expect(instruction).toContain("`## Verification`");
+  });
+
   it("accepts a unique complete marker after provider text with or without a trailing newline", () => {
     const envelope = implementationArtifactEnvelope({
       ref: expected.ref,

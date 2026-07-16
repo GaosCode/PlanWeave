@@ -59,42 +59,62 @@ export const taskWorkspaceRunItemSchema = z
   })
   .strict();
 
-const annotationBaseSchema = z
-  .object({
-    annotationId: nonEmptyStringSchema.max(1_024),
-    sourceReviewBlockRef: nonEmptyStringSchema.max(513),
-    associatedRunRecordId: z.null()
-  })
-  .strict();
+const annotationIdentityShape = {
+  annotationId: nonEmptyStringSchema.max(1_024),
+  sourceReviewBlockRef: nonEmptyStringSchema.max(513)
+};
 
 export const taskWorkspaceAnnotationSchema = z.discriminatedUnion("kind", [
-  annotationBaseSchema
-    .extend({
+  z
+    .object({
+      ...annotationIdentityShape,
       kind: z.literal("review_attempt"),
+      associatedRunRecordId: z.null(),
       attemptId: nonEmptyStringSchema.max(256),
       verdict: z.enum(reviewVerdicts).nullable(),
-      contentPreview: z.string().max(400)
+      content: z.string(),
+      contentPreview: z.string().max(400),
+      reviewedAt: z.string().datetime().nullable()
     })
     .strict(),
-  annotationBaseSchema
-    .extend({
+  z
+    .object({
+      ...annotationIdentityShape,
       kind: z.literal("feedback"),
+      associatedRunRecordId: z.null(),
       feedbackId: nonEmptyStringSchema.max(256),
+      sourceReviewAttemptId: nonEmptyStringSchema.max(256).nullable(),
       status: z.enum(feedbackStatuses),
       latestSubmissionId: nonEmptyStringSchema.max(256).nullable(),
-      contentPreview: z.string().max(400)
+      content: z.string(),
+      contentPreview: z.string().max(400),
+      createdAt: z.string().datetime().nullable()
     })
     .strict(),
-  annotationBaseSchema
-    .extend({
+  z
+    .object({
+      ...annotationIdentityShape,
       kind: z.literal("feedback_run"),
+      associatedRunRecordId: nonEmptyStringSchema.max(1_024),
       recordId: nonEmptyStringSchema.max(1_024),
       feedbackId: nonEmptyStringSchema.max(256).nullable(),
+      sourceReviewAttemptId: nonEmptyStringSchema.max(256).nullable(),
+      status: z.enum(feedbackStatuses).nullable(),
+      contentPreview: z.string().max(400),
       startedAt: z.string().datetime().nullable(),
       finishedAt: z.string().datetime().nullable(),
       reportPath: nonEmptyStringSchema.nullable()
     })
     .strict()
+    .superRefine((value, context) => {
+      if (value.associatedRunRecordId !== value.recordId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["associatedRunRecordId"],
+          message: "Feedback run annotation must associate its own persisted recordId."
+        });
+      }
+    })
 ]);
 
 export const taskWorkspaceDependencyProgressSchema = z

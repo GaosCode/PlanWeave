@@ -695,9 +695,7 @@ describe("Task Workspace selected run controller", () => {
 
   it("keeps a rejected selected record load as an explicit route error", async () => {
     const { api } = controllerApi({ readModel: () => null });
-    api.getTaskWorkspaceRunDetail.mockRejectedValueOnce(
-      new Error("Run record could not be read.")
-    );
+    api.getTaskWorkspaceRunDetail.mockRejectedValueOnce(new Error("Run record could not be read."));
     const { result } = renderHook(() => useControllerHarness(api));
 
     await waitFor(() => expect(result.current.recordError).toBe("Run record could not be read."));
@@ -726,10 +724,7 @@ describe("Task Workspace selected run controller", () => {
         canvasId: "canvas-main",
         taskId: "T-001",
         limit: 50,
-        items: [
-          listItem("RUN-050", 50, true),
-          listItem("RUN-049", 49, false)
-        ],
+        items: [listItem("RUN-050", 50, true), listItem("RUN-049", 49, false)],
         nextCursor: {
           version: "planweave.task-workspace-runs-cursor/v2",
           taskId: "T-001",
@@ -827,5 +822,89 @@ describe("Task Workspace selected run controller", () => {
     expect(result.current.liveStatus).toBe("error");
     expect(result.current.selectedRecord).toBeNull();
     expect(api.subscribeRunnerRecord).not.toHaveBeenCalled();
+  });
+
+  it("keeps a selected feedback detail outside block pagination and exposes its ACP record", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const runId = "RUN-FEEDBACK-001";
+    const recordId = `FE-001::${runId}`;
+    const feedbackRun: TaskWorkspaceRun = {
+      ...projectedRun(runId),
+      kind: "feedback",
+      record: {
+        ...projectedRun(runId).record,
+        recordId
+      }
+    };
+    api.getTaskWorkspaceRunDetail.mockResolvedValueOnce({
+      version: "planweave.task-workspace-run-detail/v1",
+      projectRoot: "/projects/demo",
+      canvasId: "canvas-main",
+      taskId: "T-001",
+      blockRef: "T-001#B-001",
+      item: {
+        retryIndex: 1,
+        active: false,
+        selected: true,
+        waitingInteraction: { active: false, count: 0, kinds: [] },
+        run: feedbackRun
+      },
+      record: {
+        ...record(recordId, null),
+        kind: "feedback",
+        feedbackId: "FE-001",
+        sourceReviewBlockRef: "T-001#B-001"
+      }
+    });
+
+    const { result } = renderHook(() => useControllerHarness(api, navigation(recordId)));
+
+    await waitFor(() => expect(result.current.selectedRun?.item.run.kind).toBe("feedback"));
+    expect(result.current.selectedRecord?.recordId).toBe(recordId);
+    expect(result.current.workspace?.blocks[0]?.runs).toHaveLength(2);
+    expect(api.subscribeRunnerRecord).not.toHaveBeenCalled();
+  });
+
+  it("selects a native review annotation without inventing an ACP record", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const annotation = {
+      annotationId: "review-attempt:A-001",
+      associatedRunRecordId: null,
+      attemptId: "A-001",
+      content: "The write path still needs serialization.",
+      contentPreview: "The write path still needs serialization.",
+      kind: "review_attempt" as const,
+      reviewedAt: "2026-07-13T00:00:02.000Z",
+      sourceReviewBlockRef: "T-001#R-001",
+      verdict: "needs_changes" as const
+    };
+    const annotatedWorkspace = workspaceHeader("T-001#B-001::RUN-001");
+    const implementationBlock = annotatedWorkspace.blocks[0];
+    if (!implementationBlock) {
+      throw new Error("Expected the controller fixture to contain an implementation Block.");
+    }
+    annotatedWorkspace.blocks.push({
+      ...implementationBlock,
+      ref: "T-001#R-001",
+      blockId: "R-001",
+      type: "review",
+      title: "Review",
+      annotations: [annotation]
+    });
+    api.getTaskWorkspace.mockResolvedValueOnce(annotatedWorkspace);
+
+    const { result } = renderHook(() => useControllerHarness(api));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    act(() => {
+      result.current.selectAnnotation({
+        annotationId: annotation.annotationId,
+        blockRef: annotation.sourceReviewBlockRef
+      });
+    });
+
+    await waitFor(() => expect(result.current.selectedAnnotation?.annotation).toEqual(annotation));
+    expect(result.current.selectedRun).toBeNull();
+    expect(result.current.selectedRecord).toBeNull();
   });
 });

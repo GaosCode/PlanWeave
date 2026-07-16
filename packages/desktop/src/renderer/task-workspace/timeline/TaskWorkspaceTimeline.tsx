@@ -65,26 +65,80 @@ function nextRecordIndex(key: string, currentIndex: number, runCount: number): n
   }
 }
 
-function AnnotationNote({
+function annotationStatus(
+  annotation: TaskWorkspaceAnnotation,
+  labels: TaskWorkspaceTimelineLabels
+): string | null {
+  if (annotation.kind === "review_attempt") {
+    return annotation.verdict ? labels.reviewVerdict[annotation.verdict] : labels.unavailable;
+  }
+  if (annotation.status) return labels.feedbackStatus[annotation.status];
+  return annotation.finishedAt ? labels.completed : labels.running;
+}
+
+function TimelineAnnotationOption({
   annotation,
-  labels
+  labels,
+  onSelect,
+  selected
 }: {
   annotation: TaskWorkspaceAnnotation;
   labels: TaskWorkspaceTimelineLabels;
+  onSelect: () => void;
+  selected: boolean;
 }) {
-  let preview: ReactNode = null;
-  if ("contentPreview" in annotation && annotation.contentPreview) {
-    preview = <div className="mt-0.5 line-clamp-2">{annotation.contentPreview}</div>;
-  }
+  const occurredAt =
+    annotation.kind === "review_attempt"
+      ? annotation.reviewedAt
+      : annotation.kind === "feedback"
+        ? annotation.createdAt
+        : annotation.startedAt;
+  const identity =
+    annotation.kind === "review_attempt"
+      ? annotation.attemptId
+      : annotation.kind === "feedback"
+        ? annotation.feedbackId
+        : annotation.recordId;
   return (
-    <div
-      className="ml-2 border-l-2 border-border px-2 py-1 text-xs text-text-muted"
+    <button
+      aria-pressed={selected}
+      className={cn(
+        "w-full cursor-pointer rounded-xl border border-border/75 bg-background/65 px-3.5 py-3 text-left outline-none transition-colors",
+        "hover:bg-app-hover focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40",
+        selected && "border-primary/50 bg-primary/5 ring-1 ring-primary/15"
+      )}
       data-annotation-kind={annotation.kind}
-      role="note"
+      data-record-id={annotation.associatedRunRecordId ?? undefined}
+      onClick={onSelect}
+      type="button"
     >
-      <div className="font-medium text-text">{labels.annotationKinds[annotation.kind]}</div>
-      {preview}
-    </div>
+      <span className="flex items-center justify-between gap-2">
+        <span className="truncate text-sm font-semibold text-text">
+          {labels.annotationKinds[annotation.kind]}
+        </span>
+        <Badge className="h-6 shrink-0 px-2 text-xs" variant="outline">
+          {annotationStatus(annotation, labels)}
+        </Badge>
+      </span>
+      {annotation.contentPreview ? (
+        <span
+          className="mt-2.5 block max-h-10 overflow-hidden text-xs leading-5 text-text-muted [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
+          data-testid="task-workspace-annotation-preview"
+        >
+          {annotation.contentPreview}
+        </span>
+      ) : null}
+      <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs leading-4 text-text-muted">
+        <dt>{labels.annotationKinds[annotation.kind]}</dt>
+        <dd className="truncate font-mono" title={identity}>
+          {identity}
+        </dd>
+        <dt>{labels.startedAt}</dt>
+        <dd className="truncate" title={occurredAt ?? labels.unavailable}>
+          {occurredAt ? labels.formatDateTime(occurredAt) : labels.unavailable}
+        </dd>
+      </dl>
+    </button>
   );
 }
 
@@ -111,12 +165,16 @@ function TimelineRunOption({
   }
   let retryBadge: ReactNode = null;
   if (run.isRetry) {
-    retryBadge = <Badge variant="secondary">{labels.retry(run.retryIndex)}</Badge>;
+    retryBadge = (
+      <Badge className="h-4 px-1 text-[9px]" variant="secondary">
+        {labels.retry(run.retryIndex)}
+      </Badge>
+    );
   }
   let waveBadge: ReactNode = null;
   if (run.executionWave) {
     waveBadge = (
-      <Badge variant="outline">
+      <Badge className="h-4 px-1 text-[9px]" variant="outline">
         {labels.parallelWave(
           run.executionWave.waveId,
           run.executionWave.index,
@@ -147,9 +205,9 @@ function TimelineRunOption({
       aria-label={labels.run(run.blockTitle, run.retryIndex)}
       aria-selected={selected}
       className={cn(
-        "w-full cursor-pointer rounded-md border border-transparent px-2 py-2 text-left outline-none transition-colors",
+        "w-full cursor-pointer rounded-xl border border-border/75 bg-background/65 px-3.5 py-3 text-left outline-none transition-colors",
         "hover:bg-app-hover focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40",
-        selected && "border-primary/40 bg-primary/10"
+        selected && "border-primary/50 bg-primary/5 ring-1 ring-primary/15"
       )}
       data-block-ref={run.blockRef}
       data-record-id={run.recordId}
@@ -171,18 +229,21 @@ function TimelineRunOption({
       type="button"
     >
       <span className="flex items-center justify-between gap-2">
-        <span className="truncate text-xs font-medium">
+        <span className="truncate text-sm font-semibold">
           {labels.run(run.blockTitle, run.retryIndex)}
         </span>
-        <Badge className={statusClasses[run.status]} variant="outline">
+        <Badge
+          className={cn("h-6 shrink-0 px-2 text-xs", statusClasses[run.status])}
+          variant="outline"
+        >
           {statusLabel(run.status, labels)}
         </Badge>
       </span>
-      <span className="mt-1 flex flex-wrap gap-1">
+      <span className="mt-1.5 flex flex-wrap gap-1 empty:hidden">
         {retryBadge}
         {waveBadge}
       </span>
-      <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[10px] text-text-muted">
+      <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs leading-4 text-text-muted">
         <dt>{labels.agent}</dt>
         <dd className="truncate" title={agent}>
           {agent}
@@ -208,7 +269,9 @@ export function TaskWorkspaceTimeline({
   loadMoreRuns,
   loadMoreRunsError = null,
   loadingMoreRuns = false,
+  selectAnnotation,
   selectRun,
+  selectedAnnotation,
   selectedRun,
   setTimelineWidth,
   timelineWidth,
@@ -291,6 +354,18 @@ export function TaskWorkspaceTimeline({
     }
   };
 
+  const selectTimelineAnnotation = (annotation: TaskWorkspaceAnnotation) => {
+    const recordId = annotation.associatedRunRecordId;
+    if (recordId) {
+      selectRun({ blockRef: annotation.sourceReviewBlockRef, recordId });
+      return;
+    }
+    selectAnnotation({
+      blockRef: annotation.sourceReviewBlockRef,
+      annotationId: annotation.annotationId
+    });
+  };
+
   const isEmpty =
     projection.runs.length === 0 &&
     projection.blocks.every((block) => block.annotations.length === 0);
@@ -317,7 +392,7 @@ export function TaskWorkspaceTimeline({
             <div
               key={run.recordId}
               role="presentation"
-              style={timelineWindow.windowed ? { height: 108 } : undefined}
+              style={timelineWindow.windowed ? { height: timelineWindow.rowExtent } : undefined}
             >
               <TimelineRunOption
                 focused={run.recordId === effectiveFocusedRecordId}
@@ -345,7 +420,18 @@ export function TaskWorkspaceTimeline({
         ) : null}
         {projection.blocks.flatMap((block) =>
           block.annotations.map((annotation) => (
-            <AnnotationNote annotation={annotation} key={annotation.annotationId} labels={labels} />
+            <TimelineAnnotationOption
+              annotation={annotation}
+              key={annotation.annotationId}
+              labels={labels}
+              onSelect={() => selectTimelineAnnotation(annotation)}
+              selected={
+                annotation.associatedRunRecordId
+                  ? annotation.associatedRunRecordId === selectedRecordId
+                  : selectedAnnotation?.annotation.annotationId === annotation.annotationId &&
+                    selectedAnnotation.block.ref === annotation.sourceReviewBlockRef
+              }
+            />
           ))
         )}
         {hasMoreRuns && loadMoreRuns ? (
@@ -377,7 +463,7 @@ export function TaskWorkspaceTimeline({
       <TaskWorkspaceOverview
         labels={labels}
         onSelect={() => selectRun(null)}
-        selected={selectedRun === null}
+        selected={selectedRun === null && selectedAnnotation === null}
         workspace={workspace}
       />
       <section className="p-3">

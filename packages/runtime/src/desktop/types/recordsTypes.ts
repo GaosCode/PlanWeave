@@ -56,7 +56,9 @@ export type DesktopReviewAttemptSummary = {
   verdict: ReviewVerdict | null;
   resultPath: string;
   metadataPath: string;
+  content: string;
   contentPreview: string;
+  reviewedAt: string | null;
 };
 
 export type DesktopFeedbackRecord = {
@@ -65,4 +67,7 @@ export type DesktopFeedbackRecord = {
   status: FeedbackStatus;
   latestSubmissionId: string | null;
   content: string;
+  sourceReviewAttemptId: string | null;
+  createdAt: string | null;
+  resolvedAt: string | null;
 };

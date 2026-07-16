@@ -13,6 +13,7 @@ import { buildExecutionStatus } from "./executionStatus.js";
 import { renderProjectCanvasContext } from "./projectCanvasContext.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "./runtimeContext.js";
 import { getBlock, getTask, requiredImplementationRefs } from "./selectors.js";
+import { REVIEW_RESULT_CONTENT_GUIDANCE } from "./reviewResultContract.js";
 import {
   type PromptSourceKind,
   type PromptSourceSummary,
@@ -263,7 +264,9 @@ export async function renderPromptSurface(options: {
             null,
             2
           ),
-          "```"
+          "```",
+          "",
+          REVIEW_RESULT_CONTENT_GUIDANCE
         ].join("\n")
       : "";
   const implementationReportGuidance =

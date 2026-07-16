@@ -10,7 +10,7 @@ import {
 } from "../../autoRun/runnerContractSchemas.js";
 import { desktopAgentPromptIdentitySchema } from "../../autoRun/runnerRecordReadModelContract.js";
 import { acpActualSessionConfigurationSchema } from "../../autoRun/acpSessionConfiguration.js";
-import { parseRunRecordId, runRecordId } from "../runRecordIdentity.js";
+import { feedbackRunRecordId, parseRunRecordId, runRecordId } from "../runRecordIdentity.js";
 
 export const TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON =
   "Retry is unavailable for this persisted run.";
@@ -224,7 +224,7 @@ export const taskWorkspaceRunMetadataSchema = z
 export const taskWorkspaceRunSchema = z
   .object({
     version: z.literal("planweave.task-workspace-run/v1"),
-    kind: z.literal("block"),
+    kind: z.enum(["block", "feedback"]),
     record: taskWorkspaceRunRecordIdentitySchema,
     runIdentity: runnerRunIdentitySchema,
     metadata: taskWorkspaceRunMetadataSchema,
@@ -239,23 +239,29 @@ export const taskWorkspaceRunSchema = z
     const { record, runIdentity: identity } = value;
     try {
       const parsedRecordId = parseRunRecordId(record.recordId);
-      if (
-        parsedRecordId.kind !== "block" ||
-        parsedRecordId.blockRef !== record.ref ||
-        parsedRecordId.runId !== record.runId ||
-        record.recordId !== runRecordId(record.ref, record.runId)
-      ) {
+      const validBlockRecord =
+        value.kind === "block" &&
+        parsedRecordId.kind === "block" &&
+        parsedRecordId.blockRef === record.ref &&
+        parsedRecordId.runId === record.runId &&
+        record.recordId === runRecordId(record.ref, record.runId);
+      const validFeedbackRecord =
+        value.kind === "feedback" &&
+        parsedRecordId.kind === "feedback" &&
+        parsedRecordId.runId === record.runId &&
+        record.recordId === feedbackRunRecordId(parsedRecordId.feedbackId, record.runId);
+      if (!validBlockRecord && !validFeedbackRecord) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["record", "recordId"],
-          message: "Block recordId must equal '<blockRef>::<runId>'."
+          message: "Run recordId must match its declared block or feedback kind."
         });
       }
     } catch {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["record", "recordId"],
-        message: "Block recordId must use the canonical '<blockRef>::<runId>' format."
+        message: "Run recordId must use the canonical '<ref>::<runId>' format."
       });
     }
     if (
@@ -305,6 +311,13 @@ export const taskWorkspaceRunSchema = z
       });
     }
     const retryIdentity = value.capabilities.retry.identity;
+    if (value.kind === "feedback" && retryIdentity !== null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["capabilities", "retry", "identity"],
+        message: "Feedback runs cannot expose the Block retry action."
+      });
+    }
     if (
       retryIdentity !== null &&
       (retryIdentity.projectId !== identity.projectId ||

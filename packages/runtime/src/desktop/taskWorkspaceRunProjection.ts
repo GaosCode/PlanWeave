@@ -21,13 +21,15 @@ const TASK_WORKSPACE_PROMPT_READ_MODEL_UNAVAILABLE_REASON =
   "Send follow-up is unavailable because this run has no RunnerRecordReadModel capability.";
 const TASK_WORKSPACE_CANCEL_READ_MODEL_UNAVAILABLE_REASON =
   "Stop current run is unavailable because this run has no RunnerRecordReadModel capability.";
+const TASK_WORKSPACE_FEEDBACK_PROMPT_UNAVAILABLE_REASON =
+  "Send follow-up is unavailable for persisted feedback runs.";
 const TASK_WORKSPACE_DURATION_UNAVAILABLE_REASON =
   "Run wall-clock duration is unavailable because startedAt is missing.";
 
 const taskWorkspaceProjectionRecordSchema = z
   .object({
     recordId: z.string().min(1).max(1_024),
-    kind: z.literal("block"),
+    kind: z.enum(["block", "feedback"]),
     ref: z.string().min(3).max(513),
     taskId: z.string().min(1).max(256),
     blockId: z.string().min(1).max(256),
@@ -113,21 +115,34 @@ export function projectTaskWorkspaceCurrentContextUsage(
 
 function projectCapabilities(
   readModel: DesktopRunRecord["runnerReadModel"],
-  retry: TaskWorkspaceRun["capabilities"]["retry"] | undefined
+  retry: TaskWorkspaceRun["capabilities"]["retry"] | undefined,
+  kind: "block" | "feedback"
 ): TaskWorkspaceRun["capabilities"] {
   return {
-    prompt: readModel?.intervention.prompt ?? {
-      available: false,
-      reason: TASK_WORKSPACE_PROMPT_READ_MODEL_UNAVAILABLE_REASON,
-      identity: null,
-      inFlight: false
-    },
+    prompt:
+      kind === "feedback"
+        ? {
+            available: false,
+            reason: TASK_WORKSPACE_FEEDBACK_PROMPT_UNAVAILABLE_REASON,
+            identity: null,
+            inFlight: false
+          }
+        : (readModel?.intervention.prompt ?? {
+            available: false,
+            reason: TASK_WORKSPACE_PROMPT_READ_MODEL_UNAVAILABLE_REASON,
+            identity: null,
+            inFlight: false
+          }),
     cancel: readModel?.intervention.cancel ?? {
       available: false,
       reason: TASK_WORKSPACE_CANCEL_READ_MODEL_UNAVAILABLE_REASON,
       identity: null
     },
-    retry: retry ?? {
+    retry: kind === "feedback" ? {
+      available: false,
+      reason: TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON,
+      identity: null
+    } : retry ?? {
       available: false,
       reason: TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON,
       identity: null
@@ -205,7 +220,7 @@ export function projectTaskWorkspaceRun(options: {
 
   return taskWorkspaceRunSchema.parse({
     version: "planweave.task-workspace-run/v1",
-    kind: "block",
+    kind: record.kind,
     record: {
       recordId: record.recordId,
       ref: record.ref,
@@ -241,6 +256,6 @@ export function projectTaskWorkspaceRun(options: {
       reason:
         "Actual session configuration is unavailable because this run has no ACP RunnerRecordReadModel."
     },
-    capabilities: projectCapabilities(record.runnerReadModel, options.retry)
+    capabilities: projectCapabilities(record.runnerReadModel, options.retry, record.kind)
   });
 }

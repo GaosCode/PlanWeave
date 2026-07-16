@@ -202,10 +202,13 @@ export function reviewAnnotationFixture(
     return {
       annotationId: "feedback:F-001",
       associatedRunRecordId: null,
+      content: "Address the missing edge case.",
       contentPreview: "Address the missing edge case.",
       feedbackId: "F-001",
       kind,
       latestSubmissionId: null,
+      createdAt: startedAt,
+      sourceReviewAttemptId: "A-001",
       sourceReviewBlockRef: blockRef,
       status: "open"
     };
@@ -213,22 +216,27 @@ export function reviewAnnotationFixture(
   if (kind === "feedback_run") {
     return {
       annotationId: "feedback-run:RUN-F-001",
-      associatedRunRecordId: null,
+      associatedRunRecordId: "F-001::RUN-F-001",
+      contentPreview: "Address the missing edge case.",
       feedbackId: "F-001",
       finishedAt,
       kind,
-      recordId: `${blockRef}::RUN-F-001`,
+      recordId: "F-001::RUN-F-001",
       reportPath: "results/feedback.md",
+      sourceReviewAttemptId: "A-001",
       sourceReviewBlockRef: blockRef,
-      startedAt
+      startedAt,
+      status: "open"
     };
   }
   return {
     annotationId: "review-attempt:A-001",
     associatedRunRecordId: null,
     attemptId: "A-001",
+    content: "Review passed.",
     contentPreview: "Review passed.",
     kind,
+    reviewedAt: startedAt,
     sourceReviewBlockRef: blockRef,
     verdict: "passed"
   };

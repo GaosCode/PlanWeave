@@ -1,17 +1,22 @@
 import { join } from "node:path";
+import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../json.js";
-import type { FeedbackStatus, ProjectWorkspace } from "../types.js";
+import { feedbackStatuses, type ProjectWorkspace } from "../types.js";
 
-export type FeedbackArtifact = {
-  feedbackId: string;
-  sourceReviewBlockRef: string;
-  content: string;
-  sourceReviewAttemptId: string;
-  status: FeedbackStatus;
-  createdAt: string;
-  latestSubmissionId?: string | null;
-  resolvedAt?: string;
-};
+export const feedbackArtifactSchema = z
+  .object({
+    feedbackId: z.string().min(1),
+    sourceReviewBlockRef: z.string().min(1),
+    content: z.string(),
+    sourceReviewAttemptId: z.string().min(1),
+    status: z.enum(feedbackStatuses),
+    createdAt: z.string().datetime(),
+    latestSubmissionId: z.string().min(1).nullable().optional(),
+    resolvedAt: z.string().datetime().optional()
+  })
+  .strict();
+
+export type FeedbackArtifact = z.infer<typeof feedbackArtifactSchema>;
 
 function feedbackArtifactPath(
   workspace: ProjectWorkspace,
@@ -26,7 +31,18 @@ export async function writeFeedbackArtifact(
   taskId: string,
   artifact: FeedbackArtifact
 ): Promise<void> {
-  await writeJsonFile(feedbackArtifactPath(workspace, taskId, artifact.feedbackId), artifact);
+  const parsed = feedbackArtifactSchema.parse(artifact);
+  await writeJsonFile(feedbackArtifactPath(workspace, taskId, parsed.feedbackId), parsed);
+}
+
+export async function readFeedbackArtifact(
+  workspace: ProjectWorkspace,
+  taskId: string,
+  feedbackId: string
+): Promise<FeedbackArtifact> {
+  return feedbackArtifactSchema.parse(
+    await readJsonFile<unknown>(feedbackArtifactPath(workspace, taskId, feedbackId))
+  );
 }
 
 export async function patchFeedbackArtifact(
@@ -37,7 +53,7 @@ export async function patchFeedbackArtifact(
     Partial<Pick<FeedbackArtifact, "latestSubmissionId" | "resolvedAt">>
 ): Promise<void> {
   const path = feedbackArtifactPath(workspace, taskId, feedbackId);
-  const current = await readJsonFile<FeedbackArtifact>(path);
+  const current = feedbackArtifactSchema.parse(await readJsonFile<unknown>(path));
   await writeJsonFile(path, {
     ...current,
     ...patch

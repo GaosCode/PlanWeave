@@ -33,6 +33,11 @@ import {
 } from "./helpers/rendererTestEnvironment";
 import { deferred } from "./helpers/desktopProjectFixtures";
 import { taskWorkspaceInspectorFixture } from "./helpers/taskWorkspaceInspectorFixture";
+import {
+  reviewAnnotationFixture,
+  timelineBlockFixture,
+  timelineWorkspaceFixture
+} from "./helpers/taskWorkspaceTimelineFixture";
 
 afterEach(cleanupRendererTestEnvironment);
 beforeEach(stubSelectLayoutApis);
@@ -41,6 +46,12 @@ const labels: TaskWorkspaceLabels = {
   acceptanceCriteria: "Acceptance criteria",
   activeRuns: (count) => `Active runs: ${count}`,
   agent: "Agent",
+  annotationKinds: {
+    feedback: "Feedback",
+    feedback_run: "Feedback run",
+    review_attempt: "Review attempt"
+  },
+  annotationResult: "Result",
   backToCanvas: "Back to canvas",
   blockExecutor: "Block executor",
   blocks: "Blocks",
@@ -54,6 +65,13 @@ const labels: TaskWorkspaceLabels = {
   executorSaved: "Executor saved",
   executorSaving: "Saving executor",
   expandTimeline: "Expand timeline",
+  feedbackStatus: {
+    dismissed: "Dismissed",
+    in_progress: "In progress",
+    open: "Open",
+    resolved: "Resolved"
+  },
+  formatDateTime: (value) => value,
   formatDuration: (milliseconds) => `${milliseconds / 1_000}s`,
   inspector: "Inspector",
   inheritTaskExecutor: "Inherit Task",
@@ -84,6 +102,10 @@ const labels: TaskWorkspaceLabels = {
     taskPrompt: "Task prompt"
   },
   reasoning: "Reasoning",
+  reviewVerdict: {
+    needs_changes: "Needs changes",
+    passed: "Passed"
+  },
   runStatus: {
     active: "Running",
     cancelled: "Cancelled",
@@ -182,7 +204,9 @@ function controller(patch: Partial<TaskWorkspaceController> = {}): TaskWorkspace
     saveBlockPrompt: vi.fn(async () => undefined),
     saveTaskExecutor: vi.fn(async () => undefined),
     saveTaskPrompt: vi.fn(async () => undefined),
+    selectAnnotation: vi.fn(),
     selectRun: vi.fn(),
+    selectedAnnotation: null,
     selectedRecord: null,
     selectedRun: null,
     status: "ready",
@@ -227,6 +251,55 @@ describe("Task Workspace shell", () => {
     expect(conversation).not.toHaveBeenCalled();
     expect(composer).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Task prompt")).toHaveValue("# Build Task Workspace");
+  });
+
+  it("renders a native review result in the main panel without an ACP composer", () => {
+    const annotation = {
+      ...reviewAnnotationFixture("T-001#R-001"),
+      content: [
+        "[P1] The mutation coordinator still needs a serialized write path.",
+        "",
+        "P2 — Add a failure-path regression test for the staging cleanup.",
+        "",
+        "已运行：runtime typecheck and focused tests passed."
+      ].join("\n")
+    };
+    const block = timelineBlockFixture({
+      annotations: [annotation],
+      blockId: "R-001",
+      title: "Review project canvas mutations",
+      type: "review"
+    });
+    const reviewWorkspace = timelineWorkspaceFixture([block]);
+    const composer = vi.fn(() => null);
+    const conversation = vi.fn((_props: TaskWorkspaceConversationSlotProps) => null);
+
+    render(
+      <TaskWorkspaceRoute
+        controller={controller({
+          selectedAnnotation: { annotation, block },
+          workspace: reviewWorkspace
+        })}
+        labels={labels}
+        slots={{ composer, conversation }}
+      />
+    );
+
+    expect(screen.getByTestId("task-workspace-annotation-detail")).toHaveTextContent(
+      "The mutation coordinator still needs a serialized write path."
+    );
+    expect(screen.getByTestId("task-workspace-annotation-detail")).toHaveTextContent(
+      "runtime typecheck and focused tests passed."
+    );
+    expect(document.querySelector('[data-review-priority="P1"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-review-priority="P2"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-review-section="verification"]')).toBeInTheDocument();
+    expect(screen.getByText("Review attempt")).toBeInTheDocument();
+    expect(screen.getByText("Passed")).toBeInTheDocument();
+    expect(screen.queryByTestId("task-workspace-overview-panel")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("task-workspace-composer-slot")).not.toBeInTheDocument();
+    expect(conversation).not.toHaveBeenCalled();
+    expect(composer).not.toHaveBeenCalled();
   });
 
   it("gives the Task Overview its own vertical scroll viewport", () => {

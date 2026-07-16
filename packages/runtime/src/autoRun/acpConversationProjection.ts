@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { NormalizedRunnerEvent } from "./normalizedEventContract.js";
 import { artifactReferenceSchema } from "./runnerContractSchemas.js";
+import { FINAL_ARTIFACT_MARKER, finalArtifactEnvelopeSchema } from "./finalArtifactEnvelope.js";
 
 export const acpConversationItemSchema = z
   .object({
@@ -94,6 +95,25 @@ function projectionItem(event: NormalizedRunnerEvent): AcpConversationItem | nul
   return null;
 }
 
+function visibleAssistantContentAfterArtifact(
+  content: string,
+  artifactKind: "implementation" | "review" | "feedback"
+): string | null {
+  const markerIndex = content.lastIndexOf(FINAL_ARTIFACT_MARKER);
+  if (markerIndex < 0) return null;
+  const serialized = content.slice(markerIndex + FINAL_ARTIFACT_MARKER.length).trim();
+  const parsedJson = (() => {
+    try {
+      return JSON.parse(serialized) as unknown;
+    } catch {
+      return null;
+    }
+  })();
+  const envelope = finalArtifactEnvelopeSchema.safeParse(parsedJson);
+  if (!envelope.success || envelope.data.artifact.kind !== artifactKind) return null;
+  return content.slice(0, markerIndex).trimEnd();
+}
+
 export class AcpProjectionAccumulator {
   private readonly conversationItems: AcpConversationItem[] = [];
   private conversationMessage: {
@@ -118,6 +138,52 @@ export class AcpProjectionAccumulator {
     role: "assistant" | "user";
     messageId: string | null;
   } | null = null;
+
+  private consumeFinalArtifactEnvelope(
+    artifactKind: "implementation" | "review" | "feedback"
+  ): void {
+    let conversationIndex = -1;
+    for (let index = this.conversationItems.length - 1; index >= 0; index -= 1) {
+      const candidate = this.conversationItems[index];
+      if (candidate?.kind === "message" && candidate.role === "assistant") {
+        conversationIndex = index;
+        break;
+      }
+    }
+    if (conversationIndex >= 0) {
+      const item = this.conversationItems[conversationIndex]!;
+      const visible = visibleAssistantContentAfterArtifact(item.content, artifactKind);
+      if (visible !== null) {
+        if (visible.length === 0 && conversationIndex === this.conversationItems.length - 1) {
+          this.conversationItems.pop();
+        } else {
+          this.conversationItems[conversationIndex] = { ...item, content: visible };
+        }
+      }
+    }
+    let timelineIndex = -1;
+    for (let index = this.timelineItems.length - 1; index >= 0; index -= 1) {
+      const candidate = this.timelineItems[index];
+      if (candidate?.kind === "message" && candidate.role === "assistant") {
+        timelineIndex = index;
+        break;
+      }
+    }
+    if (timelineIndex >= 0) {
+      const item = this.timelineItems[timelineIndex]!;
+      if (item.kind !== "message") throw new Error("ACP timeline assistant projection is invalid.");
+      const visible = visibleAssistantContentAfterArtifact(item.content, artifactKind);
+      if (visible !== null) {
+        if (visible.length === 0 && timelineIndex === this.timelineItems.length - 1) {
+          this.timelineItems.pop();
+        } else {
+          this.timelineItems[timelineIndex] = { ...item, content: visible };
+        }
+      }
+    }
+    this.conversationMessage = null;
+    this.timelineMessage = null;
+  }
 
   append(event: NormalizedRunnerEvent): void {
     const item = projectionItem(event);
@@ -276,6 +342,7 @@ export class AcpProjectionAccumulator {
         content: body.content
       });
     } else if (body.kind === "artifact") {
+      this.consumeFinalArtifactEnvelope(body.artifact.kind);
       this.timelineItems.push({
         sequence: event.sequence,
         timestamp: event.timestamp,

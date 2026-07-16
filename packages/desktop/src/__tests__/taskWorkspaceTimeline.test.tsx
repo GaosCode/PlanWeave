@@ -34,6 +34,12 @@ const labels: TaskWorkspaceTimelineLabels = {
   elapsed: "Elapsed",
   empty: "No timeline runs",
   failed: "Failed",
+  feedbackStatus: {
+    dismissed: "Dismissed",
+    in_progress: "In progress",
+    open: "Open",
+    resolved: "Resolved"
+  },
   formatDateTime: (value) => value,
   formatDuration: (milliseconds) => `${milliseconds}ms`,
   latestArtifact: "Latest artifact",
@@ -45,6 +51,10 @@ const labels: TaskWorkspaceTimelineLabels = {
   parallelWave: (waveId, index, total) => `${waveId} ${index}/${total}`,
   resizeTimeline: "Resize timeline",
   retry: (retryIndex) => `Retry ${retryIndex}`,
+  reviewVerdict: {
+    needs_changes: "Needs changes",
+    passed: "Passed"
+  },
   run: (blockTitle, retryIndex) => `${blockTitle} run ${retryIndex}`,
   runId: "Run ID",
   running: "Running",
@@ -131,6 +141,7 @@ describe("TaskWorkspaceTimeline", () => {
     expect(options[2]).toHaveAttribute("data-status", "active");
     expect(options[0]).toHaveTextContent("Agentcodex");
     expect(options[0]).toHaveTextContent("Run IDRUN-001");
+    expect(options[0]).toHaveTextContent("Started2026-07-13T00:00:00.000Z");
     expect(options[0]).toHaveTextContent("Elapsed5000ms");
     fireEvent.click(screen.getByTestId("task-workspace-overview-entry"));
     expect(selectRun).toHaveBeenCalledWith(null);
@@ -385,10 +396,15 @@ describe("TaskWorkspaceTimeline", () => {
     expect(fixture.setTimelineWidth).toHaveBeenLastCalledWith(264);
   });
 
-  it("renders Review Block annotations as notes and exposes an empty state", () => {
+  it("opens persisted feedback runs while keeping native review annotations local", () => {
     const reviewRef = "T-001#R-001";
+    const selectAnnotation = vi.fn();
+    const selectRun = vi.fn();
     const reviewBlock = timelineBlockFixture({
-      annotations: [reviewAnnotationFixture(reviewRef, "feedback")],
+      annotations: [
+        reviewAnnotationFixture(reviewRef),
+        reviewAnnotationFixture(reviewRef, "feedback_run")
+      ],
       blockId: "R-001",
       type: "review"
     });
@@ -397,7 +413,9 @@ describe("TaskWorkspaceTimeline", () => {
         getRunScrollTop={() => 0}
         labels={labels}
         onRunScrollTopChange={vi.fn()}
-        selectRun={vi.fn()}
+        selectAnnotation={selectAnnotation}
+        selectRun={selectRun}
+        selectedAnnotation={null}
         selectedRun={null}
         setTimelineWidth={vi.fn()}
         timelineWidth={280}
@@ -405,7 +423,59 @@ describe("TaskWorkspaceTimeline", () => {
       />
     );
 
-    expect(screen.getByRole("note")).toHaveTextContent("Feedback");
+    const review = screen.getByRole("button", { name: /Review attempt/i });
+    const feedbackRun = screen.getByRole("button", { name: /Feedback run/i });
+    expect(review).toHaveClass("rounded-xl", "border", "bg-background/65");
+    expect(feedbackRun).toHaveClass("rounded-xl", "border", "bg-background/65");
+    expect(review).toHaveTextContent("Review attemptA-001");
+    expect(review).toHaveTextContent("Started2026-07-13T00:00:00.000Z");
+    expect(review).toHaveTextContent("Review passed.");
+    expect(screen.getAllByTestId("task-workspace-annotation-preview")[0]).toHaveClass(
+      "max-h-10",
+      "overflow-hidden",
+      "[-webkit-line-clamp:2]"
+    );
+
+    fireEvent.click(review);
+    expect(selectAnnotation).toHaveBeenCalledWith({
+      annotationId: "review-attempt:A-001",
+      blockRef: reviewRef
+    });
+    expect(selectRun).not.toHaveBeenCalled();
+
+    const selectedReview = reviewBlock.annotations[0];
+    if (!selectedReview) {
+      throw new Error("Expected the timeline fixture to contain a Review annotation.");
+    }
+    rerender(
+      <TaskWorkspaceTimeline
+        getRunScrollTop={() => 0}
+        labels={labels}
+        onRunScrollTopChange={vi.fn()}
+        selectAnnotation={selectAnnotation}
+        selectRun={selectRun}
+        selectedAnnotation={{ annotation: selectedReview, block: reviewBlock }}
+        selectedRun={null}
+        setTimelineWidth={vi.fn()}
+        timelineWidth={280}
+        workspace={timelineWorkspaceFixture([reviewBlock])}
+      />
+    );
+    expect(screen.getByRole("button", { name: /Review attempt/i })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    const selectedReviewOption = screen.getByRole("button", { name: /Review attempt/i });
+    expect(selectedReviewOption).toHaveTextContent("Review passed.");
+    expect(selectedReviewOption.querySelector("[data-testid='task-workspace-annotation-preview']"))
+      .toHaveClass("max-h-10", "overflow-hidden", "[-webkit-line-clamp:2]");
+    expect(screen.getByTestId("task-workspace-overview-entry")).not.toHaveAttribute("aria-current");
+
+    fireEvent.click(screen.getByRole("button", { name: /Feedback run/i }));
+    expect(selectRun).toHaveBeenCalledWith({
+      blockRef: reviewRef,
+      recordId: "F-001::RUN-F-001"
+    });
     expect(screen.queryAllByRole("option")).toHaveLength(0);
 
     rerender(
@@ -413,7 +483,9 @@ describe("TaskWorkspaceTimeline", () => {
         getRunScrollTop={() => 0}
         labels={labels}
         onRunScrollTopChange={vi.fn()}
+        selectAnnotation={vi.fn()}
         selectRun={vi.fn()}
+        selectedAnnotation={null}
         selectedRun={null}
         setTimelineWidth={vi.fn()}
         timelineWidth={280}

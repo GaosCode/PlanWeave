@@ -99,6 +99,12 @@ export function taskWorkspaceLabels(t: Translator): TaskWorkspaceLabels {
     acceptanceCriteria: t("acceptanceCriteria"),
     activeRuns: (count) => interpolate(t("taskWorkspaceActiveRuns"), { count }),
     agent: t("agent"),
+    annotationKinds: {
+      feedback: t("taskWorkspaceAnnotationFeedback"),
+      feedback_run: t("taskWorkspaceAnnotationFeedbackRun"),
+      review_attempt: t("taskWorkspaceAnnotationReviewAttempt")
+    },
+    annotationResult: t("taskWorkspaceAnnotationResult"),
     backToCanvas: t("taskWorkspaceBackToCanvas"),
     blockExecutor: t("taskWorkspaceBlockExecutor"),
     blocks: t("blocks"),
@@ -113,6 +119,17 @@ export function taskWorkspaceLabels(t: Translator): TaskWorkspaceLabels {
     executorSaved: t("taskWorkspaceExecutorSaved"),
     executorSaving: t("taskWorkspaceExecutorSaving"),
     expandTimeline: t("taskWorkspaceExpandTimeline"),
+    feedbackStatus: {
+      dismissed: t("taskWorkspaceFeedbackDismissed"),
+      in_progress: t("taskWorkspaceFeedbackInProgress"),
+      open: t("taskWorkspaceFeedbackOpen"),
+      resolved: t("taskWorkspaceFeedbackResolved")
+    },
+    formatDateTime: (value) =>
+      new Intl.DateTimeFormat(locale(t), {
+        dateStyle: "medium",
+        timeStyle: "medium"
+      }).format(new Date(value)),
     formatDuration: (milliseconds) => formatDuration(t, milliseconds),
     inspector: t("taskWorkspaceInspector"),
     inheritTaskExecutor: t("taskWorkspaceInheritTaskExecutor"),
@@ -131,6 +148,10 @@ export function taskWorkspaceLabels(t: Translator): TaskWorkspaceLabels {
     permission: t("taskWorkspacePermission"),
     promptLabels: promptLabels(t),
     reasoning: t("taskWorkspaceReasoning"),
+    reviewVerdict: {
+      needs_changes: t("taskWorkspaceReviewNeedsChanges"),
+      passed: t("taskWorkspaceReviewPassed")
+    },
     runStatus: {
       active: t("taskWorkspaceRunning"),
       cancelled: t("taskWorkspaceCancelled"),
@@ -160,6 +181,12 @@ export function taskWorkspaceTimelineLabels(t: Translator): TaskWorkspaceTimelin
       feedback_run: t("taskWorkspaceAnnotationFeedbackRun"),
       review_attempt: t("taskWorkspaceAnnotationReviewAttempt")
     },
+    feedbackStatus: {
+      dismissed: t("taskWorkspaceFeedbackDismissed"),
+      in_progress: t("taskWorkspaceFeedbackInProgress"),
+      open: t("taskWorkspaceFeedbackOpen"),
+      resolved: t("taskWorkspaceFeedbackResolved")
+    },
     cancelled: t("taskWorkspaceCancelled"),
     completed: t("taskWorkspaceCompleted"),
     dependencies: t("dependencies"),
@@ -188,6 +215,10 @@ export function taskWorkspaceTimelineLabels(t: Translator): TaskWorkspaceTimelin
       }),
     resizeTimeline: t("taskWorkspaceResizeTimeline"),
     retry: (retryIndex) => interpolate(t("taskWorkspaceRetry"), { retryIndex }),
+    reviewVerdict: {
+      needs_changes: t("taskWorkspaceReviewNeedsChanges"),
+      passed: t("taskWorkspaceReviewPassed")
+    },
     run: (blockTitle, retryIndex) =>
       interpolate(t("taskWorkspaceRunLabel"), {
         blockTitle,

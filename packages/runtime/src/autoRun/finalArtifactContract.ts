@@ -1,69 +1,26 @@
-import { z } from "zod";
-import { reviewResultSchema, type ReviewResult } from "../taskManager/reviewResultContract.js";
+import {
+  REVIEW_RESULT_CONTENT_GUIDANCE,
+  type ReviewResult
+} from "../taskManager/reviewResultContract.js";
 import {
   RUNNER_ARTIFACT_MAX_CONTENT_BYTES,
   materializeArtifactBytes
 } from "./artifactReferenceContract.js";
 import type { ArtifactReference } from "./runnerContractSchemas.js";
-
-export const FINAL_ARTIFACT_MARKER = "PLANWEAVE_FINAL_ARTIFACT ";
+import {
+  FINAL_ARTIFACT_MARKER,
+  finalArtifactEnvelopeSchema,
+  type FinalArtifact,
+  type FinalArtifactEnvelope
+} from "./finalArtifactEnvelope.js";
+export {
+  FINAL_ARTIFACT_MARKER,
+  finalArtifactEnvelopeSchema,
+  type FinalArtifact,
+  type FinalArtifactEnvelope
+} from "./finalArtifactEnvelope.js";
 export const FINAL_ARTIFACT_MAX_LINE_BYTES = 1 * 1_024 * 1_024;
 export const FINAL_ARTIFACT_MAX_CONTENT_BYTES = RUNNER_ARTIFACT_MAX_CONTENT_BYTES;
-
-const implementationArtifactSchema = z
-  .object({
-    kind: z.literal("implementation"),
-    ref: z.string().min(1),
-    taskId: z.string().min(1),
-    reportMarkdown: z
-      .string()
-      .refine((value) => value.trim().length > 0, "Report must not be blank.")
-  })
-  .strict();
-const reviewArtifactSchema = z
-  .object({
-    kind: z.literal("review"),
-    ref: z.string().min(1),
-    taskId: z.string().min(1),
-    reviewResult: reviewResultSchema
-  })
-  .strict()
-  .superRefine((artifact, context) => {
-    if (
-      artifact.reviewResult.reviewBlockRef !== artifact.ref ||
-      artifact.reviewResult.taskId !== artifact.taskId
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["reviewResult"],
-        message: "Review result identity must match the artifact ref and taskId."
-      });
-    }
-  });
-const feedbackArtifactSchema = z
-  .object({
-    kind: z.literal("feedback"),
-    feedbackId: z.string().min(1),
-    sourceReviewBlockRef: z.string().min(1),
-    taskId: z.string().min(1),
-    reportMarkdown: z
-      .string()
-      .refine((value) => value.trim().length > 0, "Report must not be blank.")
-  })
-  .strict();
-
-export const finalArtifactEnvelopeSchema = z
-  .object({
-    version: z.literal("planweave.runner-artifact/v1"),
-    artifact: z.discriminatedUnion("kind", [
-      implementationArtifactSchema,
-      reviewArtifactSchema,
-      feedbackArtifactSchema
-    ])
-  })
-  .strict();
-export type FinalArtifactEnvelope = z.infer<typeof finalArtifactEnvelopeSchema>;
-export type FinalArtifact = FinalArtifactEnvelope["artifact"];
 
 export function finalArtifactRelativePath(kind: FinalArtifact["kind"]): string {
   if (kind === "review") return "review-result.json";
@@ -132,8 +89,11 @@ export function finalArtifactPromptInstruction(expected: ExpectedFinalArtifactId
     "After completing the assigned work, your final response MUST contain exactly one PLANWEAVE_FINAL_ARTIFACT marker followed by one JSON object. Put it on a standalone final line when possible; the transport may omit the trailing newline.",
     `Use this exact envelope and identity: ${FINAL_ARTIFACT_MARKER}${JSON.stringify(finalArtifactPromptTemplate(expected))}`,
     `Replace ${contentField} with your agent-authored, non-empty result.${reviewInstruction}`,
+    expected.kind === "review" ? REVIEW_RESULT_CONTENT_GUIDANCE : "",
     "Do not use a Markdown fence, do not emit text after the JSON object, and do not emit more than one PLANWEAVE_FINAL_ARTIFACT marker."
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export type FinalArtifactContractErrorCode =

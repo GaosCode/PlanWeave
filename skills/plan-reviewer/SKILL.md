@@ -61,3 +61,4 @@ If key evidence is missing, ask the coordinator for it instead of guessing.
 ```
 
 For `passed`, cite evidence. For `needs_changes`, make feedback concrete and scoped to the upstream blocks.
+Write `content` as concise Markdown. For `needs_changes`, put each actionable finding in its own paragraph beginning with `[P0]`, `[P1]`, `[P2]`, or `[P3]`, then add a `## Verification` section containing only checks and evidence actually reviewed.
