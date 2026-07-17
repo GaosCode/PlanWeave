@@ -22,6 +22,12 @@ import {
   blockRunIndexV5PointerSchema,
   type BlockRunIndexEntry
 } from "../autoRun/blockRunIndexSchema.js";
+import {
+  maintainBlockRunIndex,
+  mutateBlockRunIndex,
+  readBlockRunIndexSnapshot,
+  replaceBlockRunIndexWithV5
+} from "../autoRun/blockRunIndexStorage.js";
 import { writeJsonFile } from "../json.js";
 
 const temporaryRoots: string[] = [];
@@ -238,6 +244,41 @@ describe("block run index version compatibility", () => {
   });
 });
 
+describe("block run index v5 manifest invariants", () => {
+  it.each([
+    {
+      label: "empty total with non-empty state",
+      override: { total: 0 }
+    },
+    {
+      label: "non-empty total without pages or root",
+      override: { pageCount: 0, rootNodeId: null, head: null, latestArtifact: null }
+    },
+    {
+      label: "page count below the minimum required by total",
+      override: { total: BLOCK_RUN_INDEX_PAGE_SIZE + 1, pageCount: 1 }
+    },
+    {
+      label: "page count above total",
+      override: { total: 1, pageCount: 2 }
+    }
+  ])("rejects $label through every public query entry", async ({ override }) => {
+    const runRoot = await temporaryRunRoot("v5-invalid-manifest");
+    await replaceBlockRunIndexWithV5(runRoot, null, entries);
+    const indexRoot = join(runRoot, ".planweave-task-workspace-run-index");
+    const pointer = blockRunIndexV5PointerSchema.parse(
+      JSON.parse(await readFile(join(indexRoot, "current.json"), "utf8")) as unknown
+    );
+    const manifestPath = join(indexRoot, "generations", pointer.currentGeneration, "manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+    await writeJsonFile(manifestPath, { ...manifest, ...override });
+
+    await expect(requireBlockRunIndex(runRoot)).rejects.toThrow();
+    await expect(readBlockRunIndexView(runRoot, { limit: 1 })).rejects.toThrow();
+    await expect(readBlockRunIndexSummary(runRoot)).rejects.toThrow();
+  });
+});
+
 describe("block run index v4 integrity", () => {
   it("fails closed when a v4 page checksum does not match its entries", async () => {
     const runRoot = await temporaryRunRoot("checksum");
@@ -402,9 +443,63 @@ describe("block run index v4 mutations", () => {
     await writeJsonFile(join(orphanGeneration, "manifest.json"), { orphan: true });
     await writeJsonFile(orphanObject, { orphan: true });
 
-    await recordBlockRunInIndex(runRoot, "RUN-002");
+    await maintainBlockRunIndex(runRoot);
+    await maintainBlockRunIndex(runRoot);
     await expect(access(orphanGeneration)).rejects.toThrow();
     await expect(access(orphanObject)).rejects.toThrow();
     expect(await readdir(join(current.indexRoot, "generations"))).toHaveLength(2);
+  });
+
+  it("retires only G0-exclusive COW objects after G0 rotates out", async () => {
+    const runRoot = await temporaryRunRoot("bounded-retirement");
+    const firstPage = Array.from({ length: BLOCK_RUN_INDEX_PAGE_SIZE }, (_, index) => {
+      const retryIndex = index + 1;
+      const runId = `RUN-${String(retryIndex).padStart(3, "0")}`;
+      return {
+        runId,
+        retryIndex,
+        orderedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, retryIndex)).toISOString(),
+        stableIdentity: `T-001#B-001::${runId}`,
+        hasArtifact: false
+      } satisfies BlockRunIndexEntry;
+    });
+    await replaceBlockRunIndexWithV5(runRoot, null, firstPage);
+    const generation0 = await readCurrentV5Manifest(runRoot);
+    const generation0Root = generation0.manifest.rootNodeId;
+    if (!generation0Root) throw new Error("Expected a G0 root node.");
+    const sharedPageObjectId = blockRunIndexPageObjectId(firstPage);
+
+    const snapshot0 = await readBlockRunIndexSnapshot(runRoot);
+    if (snapshot0?.version !== 5) throw new Error("Expected a G0 v5 snapshot.");
+    const entry65 = {
+      runId: "RUN-065",
+      orderedAt: new Date(Date.UTC(2026, 0, 1, 0, 1, 5)).toISOString(),
+      stableIdentity: "T-001#B-001::RUN-065",
+      hasArtifact: false
+    };
+    await mutateBlockRunIndex(runRoot, snapshot0, { kind: "upsert", entry: entry65 });
+    const generation1 = await readCurrentV5Manifest(runRoot);
+
+    const snapshot1 = await readBlockRunIndexSnapshot(runRoot);
+    if (snapshot1?.version !== 5) throw new Error("Expected a G1 v5 snapshot.");
+    await mutateBlockRunIndex(runRoot, snapshot1, {
+      kind: "upsert",
+      entry: {
+        runId: "RUN-066",
+        orderedAt: new Date(Date.UTC(2026, 0, 1, 0, 1, 6)).toISOString(),
+        stableIdentity: "T-001#B-001::RUN-066",
+        hasArtifact: false
+      }
+    });
+    const generation2 = await readCurrentV5Manifest(runRoot);
+
+    expect(generation2.pointer.previousGeneration).toBe(generation1.pointer.currentGeneration);
+    expect(await readdir(join(generation2.indexRoot, "generations"))).toHaveLength(2);
+    await expect(
+      access(join(generation2.indexRoot, "nodes", `${generation0Root}.json`))
+    ).rejects.toThrow();
+    await expect(
+      access(join(generation2.indexRoot, "objects", `${sharedPageObjectId}.json`))
+    ).resolves.toBeUndefined();
   });
 });

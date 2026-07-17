@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { BlockRunIndexEntry } from "../autoRun/blockRunIndexSchema.js";
 import {
   maintainBlockRunIndex,
+  mutateBlockRunIndex,
   readAllBlockRunIndexEntries,
   readBlockRunIndexSnapshot,
   replaceBlockRunIndexWithV5,
@@ -15,6 +16,7 @@ const temporaryRoots: string[] = [];
 const faultPoints: readonly BlockRunIndexStorageFaultPoint[] = [
   "page-write",
   "tree-node-write",
+  "retirement-write",
   "manifest-write",
   "before-pointer-write",
   "after-pointer-write",
@@ -58,14 +60,27 @@ describe("block run index v5 crash recovery", () => {
 
     const reached: BlockRunIndexStorageFaultPoint[] = [];
     await expect(
-      replaceBlockRunIndexWithV5(runRoot, second, [...secondEntries, entry(3)], {
-        instrumentation: {
-          atFaultPoint(candidate) {
-            reached.push(candidate);
-            if (candidate === point) throw new Error(`injected:${point}`);
+      mutateBlockRunIndex(
+        runRoot,
+        second,
+        {
+          kind: "upsert",
+          entry: {
+            runId: entry(3).runId,
+            orderedAt: entry(3).orderedAt,
+            stableIdentity: entry(3).stableIdentity,
+            hasArtifact: false
+          }
+        },
+        {
+          instrumentation: {
+            atFaultPoint(candidate) {
+              reached.push(candidate);
+              if (candidate === point) throw new Error(`injected:${point}`);
+            }
           }
         }
-      })
+      )
     ).rejects.toThrow();
     expect(reached).toContain(point);
 

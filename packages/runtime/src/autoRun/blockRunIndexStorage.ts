@@ -17,22 +17,31 @@ import {
   blockRunIndexV4PointerSchema,
   blockRunIndexV5ManifestSchema,
   blockRunIndexV5PointerSchema,
+  blockRunIndexV5RetirementSchema,
   compareBlockRunChronology,
   type BlockRunIndexEntry,
   type BlockRunIndexV4Manifest,
   type BlockRunIndexV4PageDescriptor,
   type BlockRunIndexV4Pointer,
   type BlockRunIndexV5Manifest,
-  type BlockRunIndexV5Pointer
+  type BlockRunIndexV5Pointer,
+  type BlockRunIndexV5Retirement
 } from "./blockRunIndexSchema.js";
 import {
   buildBlockRunIndexV5Tree,
+  blockRunIndexV5TreeReferencesObject,
   readAllBlockRunIndexV5Descriptors,
   readBlockRunIndexV5DescriptorAt,
   readBlockRunIndexV5TreeNode,
-  updateBlockRunIndexV5Tree,
-  type BlockRunIndexV5TreeBuild
+  type BlockRunIndexV5TreeBuild,
+  type BlockRunIndexV5TreeNode
 } from "./blockRunIndexV5Tree.js";
+import {
+  planBlockRunIndexV5Mutation,
+  type BlockRunIndexMutation
+} from "./blockRunIndexV5Mutation.js";
+
+export type { BlockRunIndexMutation } from "./blockRunIndexV5Mutation.js";
 
 const indexDirectoryName = ".planweave-task-workspace-run-index";
 const supportedPointerSchema = z.union([
@@ -50,13 +59,19 @@ export type BlockRunIndexPublishStage =
 export type BlockRunIndexStorageFaultPoint =
   | "page-write"
   | "tree-node-write"
+  | "retirement-write"
   | "manifest-write"
   | "before-pointer-write"
   | "after-pointer-write"
   | "generation-gc"
   | "object-gc";
 
-export type BlockRunIndexStorageWriteKind = "page" | "tree-node" | "manifest" | "pointer";
+export type BlockRunIndexStorageWriteKind =
+  | "page"
+  | "tree-node"
+  | "retirement"
+  | "manifest"
+  | "pointer";
 
 export interface BlockRunIndexStorageInstrumentation {
   atFaultPoint?: (point: BlockRunIndexStorageFaultPoint) => void | Promise<void>;
@@ -98,22 +113,6 @@ export type BlockRunIndexReadSnapshot =
   | BlockRunIndexV4ReadSnapshot
   | BlockRunIndexV5ReadSnapshot;
 
-export type BlockRunIndexMutation =
-  | {
-      kind: "upsert";
-      entry: Omit<BlockRunIndexEntry, "retryIndex">;
-    }
-  | {
-      kind: "markArtifact";
-      cursor: Pick<BlockRunIndexEntry, "orderedAt" | "stableIdentity">;
-      runId: string;
-    }
-  | {
-      kind: "remove";
-      cursor: Pick<BlockRunIndexEntry, "orderedAt" | "stableIdentity">;
-      runId: string;
-    };
-
 export class BlockRunIndexPartialMaintenanceError extends Error {
   readonly code = "BLOCK_RUN_INDEX_PARTIAL_MAINTENANCE";
   readonly mutationCommitted = true;
@@ -136,13 +135,15 @@ export class BlockRunIndexSnapshotChangedError extends Error {
 interface GenerationDraft {
   manifest: {
     total: number;
+    pageCount: number;
     maxRetryIndex: number;
     head: BlockRunIndexEntry | null;
     latestArtifact: BlockRunIndexEntry | null;
-    pages: BlockRunIndexV4PageDescriptor[];
   };
   newPages: Map<string, readonly BlockRunIndexEntry[]>;
   tree?: BlockRunIndexV5TreeBuild;
+  sourcePages?: BlockRunIndexV4PageDescriptor[];
+  retirement?: BlockRunIndexV5Retirement;
 }
 
 function indexRoot(runRoot: string): string {
@@ -159,6 +160,10 @@ function v4ManifestPath(runRoot: string, generation: string): string {
 
 function objectPath(runRoot: string, objectId: string): string {
   return join(indexRoot(runRoot), "objects", `${objectId}.json`);
+}
+
+function retirementPath(runRoot: string, generation: string): string {
+  return join(indexRoot(runRoot), "generations", generation, "retirement.json");
 }
 
 async function readParsed<T>(path: string, schema: z.ZodType<T>): Promise<T | null> {
@@ -535,6 +540,65 @@ async function garbageCollect(
   }
 }
 
+async function incrementallyMaintainPublishedGeneration(
+  runRoot: string,
+  pointer: BlockRunIndexV5Pointer,
+  currentManifest: BlockRunIndexV5Manifest,
+  previousManifest: BlockRunIndexV5Manifest,
+  options: BlockRunIndexStorageOptions
+): Promise<void> {
+  const generationsRoot = join(indexRoot(runRoot), "generations");
+  await options.instrumentation?.atFaultPoint?.("generation-gc");
+  for (const entry of (await optionalReaddir(generationsRoot, { withFileTypes: true })) ?? []) {
+    if (
+      !entry.isDirectory() ||
+      entry.name === pointer.currentGeneration ||
+      entry.name === pointer.previousGeneration
+    ) {
+      continue;
+    }
+    await rm(join(generationsRoot, entry.name), { recursive: true, force: true });
+  }
+
+  const retirement = await readParsed(
+    retirementPath(runRoot, previousManifest.generation),
+    blockRunIndexV5RetirementSchema
+  );
+  await options.instrumentation?.atFaultPoint?.("object-gc");
+  if (retirement) {
+    const cache = new Map<string, BlockRunIndexV5TreeNode>();
+    for (const candidate of retirement.objects) {
+      const referencedByCurrent = await blockRunIndexV5TreeReferencesObject(
+        indexRoot(runRoot),
+        currentManifest.rootNodeId,
+        candidate,
+        cache
+      );
+      const referencedByPrevious = await blockRunIndexV5TreeReferencesObject(
+        indexRoot(runRoot),
+        previousManifest.rootNodeId,
+        candidate,
+        cache
+      );
+      if (referencedByCurrent || referencedByPrevious) continue;
+      const directory = candidate.level === -1 ? "objects" : "nodes";
+      await rm(join(indexRoot(runRoot), directory, `${candidate.objectId}.json`), {
+        force: true
+      });
+    }
+  }
+
+  const publishedPointer = blockRunIndexV5PointerSchema.parse(
+    JSON.parse((await optionalReadFile(pointerPath(runRoot), "utf8")) ?? "null") as unknown
+  );
+  if (
+    publishedPointer.currentGeneration !== pointer.currentGeneration ||
+    publishedPointer.previousGeneration !== pointer.previousGeneration
+  ) {
+    throw indexContractError(runRoot, "pointer changed during locked incremental maintenance");
+  }
+}
+
 export async function maintainBlockRunIndex(
   runRoot: string,
   options: BlockRunIndexStorageOptions = {}
@@ -562,15 +626,6 @@ export async function maintainBlockRunIndex(
   );
 }
 
-async function maintainCommittedMutation(runRoot: string): Promise<void> {
-  try {
-    await maintainBlockRunIndex(runRoot);
-  } catch (error) {
-    if (error instanceof BlockRunIndexPartialMaintenanceError) throw error;
-    throw new BlockRunIndexPartialMaintenanceError(runRoot, error);
-  }
-}
-
 async function publishGeneration(
   runRoot: string,
   previous: BlockRunIndexReadSnapshot | null,
@@ -583,7 +638,7 @@ async function publishGeneration(
   for (const [objectId, entries] of draft.newPages) {
     await writePageObject(runRoot, objectId, entries, options);
   }
-  const tree = draft.tree ?? buildBlockRunIndexV5Tree(draft.manifest.pages);
+  const tree = draft.tree ?? buildBlockRunIndexV5Tree(draft.sourcePages ?? []);
   for (const [objectId, node] of tree.nodes) {
     const path = join(indexRoot(runRoot), "nodes", `${objectId}.json`);
     if (await optionalStat(path)) {
@@ -598,6 +653,15 @@ async function publishGeneration(
     });
     await readBlockRunIndexV5TreeNode(indexRoot(runRoot), objectId);
   }
+  if (draft.retirement) {
+    const retirement = blockRunIndexV5RetirementSchema.parse(draft.retirement);
+    await options.instrumentation?.atFaultPoint?.("retirement-write");
+    await writeJsonFile(retirementPath(runRoot, generation), retirement);
+    options.instrumentation?.recordWrite?.({
+      kind: "retirement",
+      payloadBytes: Buffer.byteLength(`${JSON.stringify(retirement, null, 2)}\n`, "utf8")
+    });
+  }
   await options.afterStage?.("pages-written");
   const manifest = blockRunIndexV5ManifestSchema.parse({
     version: 5,
@@ -606,7 +670,7 @@ async function publishGeneration(
     treeFanout: BLOCK_RUN_INDEX_TREE_FANOUT,
     treeDepth: BLOCK_RUN_INDEX_TREE_DEPTH,
     total: draft.manifest.total,
-    pageCount: draft.manifest.pages.length,
+    pageCount: draft.manifest.pageCount,
     maxRetryIndex: draft.manifest.maxRetryIndex,
     head: draft.manifest.head,
     latestArtifact: draft.manifest.latestArtifact,
@@ -633,6 +697,16 @@ async function publishGeneration(
   await options.instrumentation?.atFaultPoint?.("after-pointer-write");
   await options.afterStage?.("published");
   try {
+    if (draft.retirement && previous?.version === 5) {
+      await incrementallyMaintainPublishedGeneration(
+        runRoot,
+        pointer,
+        manifest,
+        previous.manifest,
+        options
+      );
+      return;
+    }
     const closure = await verifyV5LiveClosure(runRoot, pointer);
     await garbageCollect(
       runRoot,
@@ -660,12 +734,13 @@ function fullGenerationDraft(rawEntries: readonly BlockRunIndexEntry[]): Generat
   return {
     manifest: {
       total: entries.length,
+      pageCount: pages.length,
       maxRetryIndex: entries.reduce((max, entry) => Math.max(max, entry.retryIndex), 0),
       head: entries.at(-1) ?? null,
-      latestArtifact: entries.filter((entry) => entry.hasArtifact).at(-1) ?? null,
-      pages
+      latestArtifact: entries.filter((entry) => entry.hasArtifact).at(-1) ?? null
     },
-    newPages
+    newPages,
+    sourcePages: pages
   };
 }
 
@@ -678,197 +753,23 @@ export async function replaceBlockRunIndexWithV5(
   await publishGeneration(runRoot, previous, fullGenerationDraft(entries), options);
 }
 
-function targetPageIndex(
-  pages: readonly BlockRunIndexV4PageDescriptor[],
-  cursor: Pick<BlockRunIndexEntry, "orderedAt" | "stableIdentity">
-): number {
-  let low = 0;
-  let high = pages.length - 1;
-  let result = pages.length;
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    const page = pages[middle];
-    if (!page) break;
-    if (compareBlockRunChronology(page.last, cursor) >= 0) {
-      result = middle;
-      high = middle - 1;
-    } else {
-      low = middle + 1;
-    }
-  }
-  return Math.min(result, pages.length - 1);
-}
-
-function draftPage(
-  entries: readonly BlockRunIndexEntry[],
-  newPages: Map<string, readonly BlockRunIndexEntry[]>
-): BlockRunIndexV4PageDescriptor {
-  const descriptor = pageDescriptor(entries);
-  newPages.set(descriptor.objectId, entries);
-  return descriptor;
-}
-
 async function mutateV5(
   runRoot: string,
   snapshot: BlockRunIndexV5ReadSnapshot,
   mutation: BlockRunIndexMutation,
   options: BlockRunIndexStorageOptions
 ): Promise<boolean> {
-  const manifest = {
-    ...snapshot.manifest,
-    pages: await readAllBlockRunIndexV5Descriptors(indexRoot(runRoot), snapshot.manifest.rootNodeId)
-  };
-  const mutationRunId = mutation.kind === "upsert" ? mutation.entry.runId : mutation.runId;
-  if (manifest.pages.length === 0) {
-    if (mutation.kind !== "upsert") {
-      if (mutation.kind === "markArtifact") {
-        throw new Error(`Run '${mutation.runId}' is missing from the block run index.`);
-      }
-      await maintainCommittedMutation(runRoot);
-      return false;
-    }
-    const entry = { ...mutation.entry, retryIndex: manifest.maxRetryIndex + 1 };
-    await publishGeneration(runRoot, snapshot, fullGenerationDraft([entry]), options);
-    return true;
-  }
-
-  const cursor = mutation.kind === "upsert" ? mutation.entry : mutation.cursor;
-  const pageIndex = targetPageIndex(manifest.pages, cursor);
-  const pageEntries = await snapshot.readPage(pageIndex);
-  const existingIndex = pageEntries.findIndex((entry) => entry.runId === mutationRunId);
-  if (mutation.kind === "markArtifact" && existingIndex < 0) {
-    throw new Error(`Run '${mutation.runId}' is missing from the block run index.`);
-  }
-  if (mutation.kind === "remove" && existingIndex < 0) {
-    await maintainCommittedMutation(runRoot);
-    return false;
-  }
-
-  const pages = [...manifest.pages];
-  const previousPageCount = pages.length;
-  const newPages = new Map<string, readonly BlockRunIndexEntry[]>();
-  let maxRetryIndex = manifest.maxRetryIndex;
-  let head = manifest.head;
-  let latestArtifact = manifest.latestArtifact;
-
-  if (mutation.kind === "remove") {
-    const removed = pageEntries[existingIndex];
-    if (!removed) throw new Error(`Run '${mutation.runId}' is missing from the block run index.`);
-    const remaining = pageEntries.filter((entry) => entry.runId !== mutation.runId);
-    if (remaining.length === 0) pages.splice(pageIndex, 1);
-    else pages.splice(pageIndex, 1, draftPage(remaining, newPages));
-    if (head?.runId === removed.runId) {
-      if (remaining.length > 0 && pageIndex === pages.length - 1) head = remaining.at(-1) ?? null;
-      else if (pages.length === 0) head = null;
-      else {
-        const tail = pages.at(-1);
-        if (tail) {
-          const tailEntries =
-            newPages.get(tail.objectId) ?? (await readV4PageObject(runRoot, tail));
-          head = tailEntries.at(-1) ?? null;
-        } else head = null;
-      }
-    }
-    if (latestArtifact?.runId === removed.runId) {
-      latestArtifact = await findLatestArtifactForRunRoot(runRoot, pages, newPages);
-    }
-  } else {
-    let updatedEntries: BlockRunIndexEntry[] | null = null;
-    if (existingIndex >= 0) {
-      const existing = pageEntries[existingIndex];
-      if (!existing) throw new Error(`Run '${mutationRunId}' is missing from the block run index.`);
-      const hasArtifact =
-        existing.hasArtifact || mutation.kind === "markArtifact" || mutation.entry.hasArtifact;
-      if (hasArtifact === existing.hasArtifact) {
-        await maintainCommittedMutation(runRoot);
-        return false;
-      }
-      updatedEntries = [...pageEntries];
-      updatedEntries[existingIndex] = { ...existing, hasArtifact };
-      if (!latestArtifact || compareBlockRunChronology(existing, latestArtifact) > 0) {
-        latestArtifact = updatedEntries[existingIndex] ?? latestArtifact;
-      }
-    } else {
-      if (mutation.kind !== "upsert") throw new Error("Unexpected block run index mutation.");
-      maxRetryIndex += 1;
-      const entry: BlockRunIndexEntry = { ...mutation.entry, retryIndex: maxRetryIndex };
-      const isSequentialFullAppend =
-        pageIndex === pages.length - 1 &&
-        pageEntries.length === BLOCK_RUN_INDEX_PAGE_SIZE &&
-        compareBlockRunChronology(entry, pageEntries.at(-1) ?? entry) > 0;
-      if (isSequentialFullAppend) {
-        pages.push(draftPage([entry], newPages));
-      } else {
-        updatedEntries = [...pageEntries, entry].sort(compareBlockRunChronology);
-        if (updatedEntries.length <= BLOCK_RUN_INDEX_PAGE_SIZE) {
-          pages.splice(pageIndex, 1, draftPage(updatedEntries, newPages));
-        } else {
-          const splitAt = Math.ceil(updatedEntries.length / 2);
-          pages.splice(
-            pageIndex,
-            1,
-            draftPage(updatedEntries.slice(0, splitAt), newPages),
-            draftPage(updatedEntries.slice(splitAt), newPages)
-          );
-        }
-      }
-      if (!head || compareBlockRunChronology(entry, head) > 0) head = entry;
-      if (
-        entry.hasArtifact &&
-        (!latestArtifact || compareBlockRunChronology(entry, latestArtifact) > 0)
-      ) {
-        latestArtifact = entry;
-      }
-    }
-    if (existingIndex >= 0) {
-      if (!updatedEntries) throw new Error(`Run '${mutationRunId}' could not be updated.`);
-      pages.splice(pageIndex, 1, draftPage(updatedEntries, newPages));
-    }
-  }
-
-  if (!snapshot.manifest.rootNodeId) {
-    throw indexContractError(runRoot, "v5 manifest root is missing");
-  }
-  const replacementCount = pages.length - previousPageCount + 1;
-  const tree = await updateBlockRunIndexV5Tree(
-    indexRoot(runRoot),
-    snapshot.manifest.rootNodeId,
-    pageIndex,
-    pages.slice(pageIndex, pageIndex + replacementCount)
-  );
-  await publishGeneration(
-    runRoot,
-    snapshot,
+  const plan = await planBlockRunIndexV5Mutation(
     {
-      manifest: {
-        total: pages.reduce((total, page) => total + page.count, 0),
-        maxRetryIndex,
-        head,
-        latestArtifact,
-        pages
-      },
-      newPages,
-      tree
+      indexRoot: indexRoot(runRoot),
+      manifest: snapshot.manifest,
+      readPage: (descriptor) => readV4PageObject(runRoot, descriptor)
     },
-    options
+    mutation
   );
+  if (plan.kind === "unchanged") return false;
+  await publishGeneration(runRoot, snapshot, plan.draft, options);
   return true;
-}
-
-async function findLatestArtifactForRunRoot(
-  runRoot: string,
-  pages: readonly BlockRunIndexV4PageDescriptor[],
-  newPages: Map<string, readonly BlockRunIndexEntry[]>
-): Promise<BlockRunIndexEntry | null> {
-  for (let pageIndex = pages.length - 1; pageIndex >= 0; pageIndex -= 1) {
-    const descriptor = pages[pageIndex];
-    if (!descriptor) continue;
-    const entries =
-      newPages.get(descriptor.objectId) ?? (await readV4PageObject(runRoot, descriptor));
-    const artifact = entries.filter((entry) => entry.hasArtifact).at(-1);
-    if (artifact) return artifact;
-  }
-  return null;
 }
 
 function mutateEntries(

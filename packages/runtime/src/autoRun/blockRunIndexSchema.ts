@@ -157,6 +157,56 @@ export const blockRunIndexV5ManifestSchema = z
     latestArtifact: blockRunIndexEntrySchema.nullable(),
     rootNodeId: pageObjectIdSchema.nullable()
   })
+  .strict()
+  .superRefine((manifest, context) => {
+    const emptyFieldsAgree =
+      manifest.pageCount === 0 &&
+      manifest.rootNodeId === null &&
+      manifest.head === null &&
+      manifest.latestArtifact === null;
+    if (manifest.total === 0) {
+      if (!emptyFieldsAgree) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "An empty block run index must have zero pages and null root, head, and latest artifact."
+        });
+      }
+      return;
+    }
+    if (manifest.pageCount === 0 || manifest.rootNodeId === null || manifest.head === null) {
+      context.addIssue({
+        code: "custom",
+        message: "A non-empty block run index must have pages, a root node, and a head entry."
+      });
+    }
+    const minimumPageCount = Math.ceil(manifest.total / BLOCK_RUN_INDEX_PAGE_SIZE);
+    if (manifest.pageCount < minimumPageCount || manifest.pageCount > manifest.total) {
+      context.addIssue({
+        code: "custom",
+        message: `Block run index pageCount must be between ${String(minimumPageCount)} and total ${String(manifest.total)}.`
+      });
+    }
+  });
+
+export const blockRunIndexV5RetiredObjectSchema = z
+  .object({
+    objectId: pageObjectIdSchema,
+    level: z
+      .number()
+      .int()
+      .min(-1)
+      .max(BLOCK_RUN_INDEX_TREE_DEPTH - 1),
+    first: blockRunLogicalCursorSchema,
+    last: blockRunLogicalCursorSchema
+  })
+  .strict();
+
+export const blockRunIndexV5RetirementSchema = z
+  .object({
+    version: z.literal(1),
+    objects: z.array(blockRunIndexV5RetiredObjectSchema).max(BLOCK_RUN_INDEX_TREE_DEPTH + 1)
+  })
   .strict();
 
 export type BlockRunIndexEntry = z.infer<typeof blockRunIndexEntrySchema>;
@@ -171,6 +221,8 @@ export type BlockRunIndexV5Leaf = z.infer<typeof blockRunIndexV5LeafSchema>;
 export type BlockRunIndexV5Internal = z.infer<typeof blockRunIndexV5InternalSchema>;
 export type BlockRunIndexV5Root = z.infer<typeof blockRunIndexV5RootSchema>;
 export type BlockRunIndexV5Manifest = z.infer<typeof blockRunIndexV5ManifestSchema>;
+export type BlockRunIndexV5RetiredObject = z.infer<typeof blockRunIndexV5RetiredObjectSchema>;
+export type BlockRunIndexV5Retirement = z.infer<typeof blockRunIndexV5RetirementSchema>;
 
 export function compareBlockRunChronology(
   left: BlockRunLogicalCursor,

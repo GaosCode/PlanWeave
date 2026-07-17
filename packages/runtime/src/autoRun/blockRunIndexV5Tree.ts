@@ -13,6 +13,7 @@ import {
   type BlockRunIndexV4PageDescriptor,
   type BlockRunIndexV5Internal,
   type BlockRunIndexV5Leaf,
+  type BlockRunIndexV5RetiredObject,
   type BlockRunIndexV5Root,
   type BlockRunIndexV5TreeChild
 } from "./blockRunIndexSchema.js";
@@ -25,6 +26,12 @@ export type BlockRunIndexV5TreeNode =
 export interface BlockRunIndexV5TreeBuild {
   rootNodeId: string | null;
   nodes: ReadonlyMap<string, BlockRunIndexV5TreeNode>;
+  retiredObjects?: readonly BlockRunIndexV5RetiredObject[];
+}
+
+export interface BlockRunIndexV5DescriptorLocation {
+  pageIndex: number;
+  descriptor: BlockRunIndexV4PageDescriptor;
 }
 
 export function assertBlockRunIndexV5PageCapacity(pageCount: number): void {
@@ -49,10 +56,7 @@ function chunks<T>(values: readonly T[]): T[][] {
 
 function splitOverflow<T>(values: readonly T[]): T[][] {
   if (values.length <= BLOCK_RUN_INDEX_TREE_FANOUT) return values.length === 0 ? [] : [[...values]];
-  return [
-    values.slice(0, BLOCK_RUN_INDEX_TREE_FANOUT),
-    values.slice(BLOCK_RUN_INDEX_TREE_FANOUT)
-  ];
+  return [values.slice(0, BLOCK_RUN_INDEX_TREE_FANOUT), values.slice(BLOCK_RUN_INDEX_TREE_FANOUT)];
 }
 
 function cursorRef(
@@ -105,6 +109,22 @@ function refForNode(node: BlockRunIndexV5TreeNode): BlockRunIndexV5TreeChild {
     first.first,
     last.last
   );
+}
+
+function retiredObjectForNode(node: BlockRunIndexV5TreeNode): BlockRunIndexV5RetiredObject {
+  const reference = refForNode(node);
+  const level =
+    node.kind === "root"
+      ? BLOCK_RUN_INDEX_TREE_DEPTH - 1
+      : node.kind === "internal"
+        ? node.level
+        : 0;
+  return {
+    objectId: node.objectId,
+    level,
+    first: reference.first,
+    last: reference.last
+  };
 }
 
 function assertDescriptorOrder(descriptors: readonly BlockRunIndexV4PageDescriptor[]): void {
@@ -282,6 +302,95 @@ export async function readBlockRunIndexV5DescriptorAt(
   return descriptor;
 }
 
+export async function locateBlockRunIndexV5Descriptor(
+  indexRoot: string,
+  rootNodeId: string,
+  cursor: BlockRunIndexV4PageDescriptor["first"]
+): Promise<BlockRunIndexV5DescriptorLocation> {
+  let pageIndex = 0;
+  const selectChild = (children: readonly BlockRunIndexV5TreeChild[]) => {
+    const childIndex = children.findIndex(
+      (candidate) => compareBlockRunChronology(candidate.last, cursor) >= 0
+    );
+    const selectedIndex = childIndex < 0 ? children.length - 1 : childIndex;
+    const child = children[selectedIndex];
+    if (!child) throw new Error("Block run index v5 tree node has no selectable child.");
+    for (let index = 0; index < selectedIndex; index += 1) {
+      const preceding = children[index];
+      if (!preceding) throw new Error("Block run index v5 tree child is missing.");
+      pageIndex += preceding.pageCount;
+    }
+    return child;
+  };
+
+  const root = await readBlockRunIndexV5TreeNode(indexRoot, rootNodeId);
+  if (root.kind !== "root") throw new Error("Block run index v5 root node is invalid.");
+  let child = selectChild(root.children);
+  let node = await readBlockRunIndexV5TreeNode(indexRoot, child.objectId);
+  for (let level = BLOCK_RUN_INDEX_TREE_DEPTH - 2; level >= 1; level -= 1) {
+    if (node.kind !== "internal" || node.level !== level) {
+      throw new Error("Block run index v5 internal tree level is invalid.");
+    }
+    child = selectChild(node.children);
+    node = await readBlockRunIndexV5TreeNode(indexRoot, child.objectId);
+  }
+  if (node.kind !== "leaf") throw new Error("Block run index v5 leaf level is invalid.");
+  const descriptorIndex = node.descriptors.findIndex(
+    (candidate) => compareBlockRunChronology(candidate.last, cursor) >= 0
+  );
+  const selectedIndex = descriptorIndex < 0 ? node.descriptors.length - 1 : descriptorIndex;
+  const descriptor = node.descriptors[selectedIndex];
+  if (!descriptor) throw new Error("Block run index v5 leaf has no selectable descriptor.");
+  return { pageIndex: pageIndex + selectedIndex, descriptor };
+}
+
+function rangeContains(
+  container: Pick<BlockRunIndexV5TreeChild, "first" | "last">,
+  candidate: Pick<BlockRunIndexV5RetiredObject, "first" | "last">
+): boolean {
+  return (
+    compareBlockRunChronology(container.first, candidate.first) <= 0 &&
+    compareBlockRunChronology(container.last, candidate.last) >= 0
+  );
+}
+
+export async function blockRunIndexV5TreeReferencesObject(
+  indexRoot: string,
+  rootNodeId: string | null,
+  candidate: BlockRunIndexV5RetiredObject,
+  cache: Map<string, BlockRunIndexV5TreeNode> = new Map()
+): Promise<boolean> {
+  if (rootNodeId === null) return false;
+  if (candidate.level === BLOCK_RUN_INDEX_TREE_DEPTH - 1) {
+    return rootNodeId === candidate.objectId;
+  }
+  const readNode = async (objectId: string): Promise<BlockRunIndexV5TreeNode> => {
+    const cached = cache.get(objectId);
+    if (cached) return cached;
+    const node = await readBlockRunIndexV5TreeNode(indexRoot, objectId);
+    cache.set(objectId, node);
+    return node;
+  };
+  const visit = async (objectId: string): Promise<boolean> => {
+    const node = await readNode(objectId);
+    if (node.kind === "leaf") {
+      if (candidate.level !== -1) return false;
+      return node.descriptors.some((descriptor) => descriptor.objectId === candidate.objectId);
+    }
+    const childLevel = node.kind === "root" ? BLOCK_RUN_INDEX_TREE_DEPTH - 2 : node.level - 1;
+    if (candidate.level === childLevel) {
+      return node.children.some((child) => child.objectId === candidate.objectId);
+    }
+    if (candidate.level > childLevel) return false;
+    for (const child of node.children) {
+      if (!rangeContains(child, candidate)) continue;
+      if (await visit(child.objectId)) return true;
+    }
+    return false;
+  };
+  return visit(rootNodeId);
+}
+
 export async function updateBlockRunIndexV5Tree(
   indexRoot: string,
   rootNodeId: string,
@@ -322,6 +431,10 @@ export async function updateBlockRunIndexV5Tree(
     node = await readBlockRunIndexV5TreeNode(indexRoot, child.objectId);
   }
   if (node.kind !== "leaf") throw new Error("Block run index v5 leaf level is invalid.");
+  const retiredObjects = [
+    ...parents.map((parent) => retiredObjectForNode(parent.node)),
+    retiredObjectForNode(node)
+  ];
   const nextDescriptors = [...node.descriptors];
   nextDescriptors.splice(remaining, 1, ...replacement);
   const nodes = new Map<string, BlockRunIndexV5TreeNode>();
@@ -336,7 +449,7 @@ export async function updateBlockRunIndexV5Tree(
     children.splice(parent.childIndex, 1, ...refs);
     const parentNode = parent.node;
     if (parentNode.kind === "root") {
-      if (children.length === 0) return { rootNodeId: null, nodes };
+      if (children.length === 0) return { rootNodeId: null, nodes, retiredObjects };
       if (children.length > BLOCK_RUN_INDEX_TREE_FANOUT) {
         throw new Error(
           `Block run index v5 supports at most ${String(BLOCK_RUN_INDEX_MAX_PAGES)} pages.`
@@ -344,7 +457,7 @@ export async function updateBlockRunIndexV5Tree(
       }
       const next = rootNode(children);
       nodes.set(next.objectId, next);
-      return { rootNodeId: next.objectId, nodes };
+      return { rootNodeId: next.objectId, nodes, retiredObjects };
     }
     refs = splitOverflow(children).map((group) => {
       const next = internalNode(parentNode.level, group);

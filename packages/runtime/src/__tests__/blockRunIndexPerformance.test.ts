@@ -65,6 +65,7 @@ describe("block run index v5 storage performance", () => {
       const writes: Record<BlockRunIndexStorageWriteKind, { count: number; bytes: number }> = {
         page: { count: 0, bytes: 0 },
         "tree-node": { count: 0, bytes: 0 },
+        retirement: { count: 0, bytes: 0 },
         manifest: { count: 0, bytes: 0 },
         pointer: { count: 0, bytes: 0 }
       };
@@ -112,6 +113,7 @@ describe("block run index v5 storage performance", () => {
       expect(writes.page.bytes).toBeLessThan(firstHalfPageBytes * linearPayloadRatioLimit);
       expect(writes.manifest.count).toBe(runCount + 1);
       expect(writes.pointer.count).toBe(runCount + 1);
+      expect(writes.retirement.count).toBe(runCount);
       const totalPayloadBytes = Object.values(writes).reduce(
         (total, write) => total + write.bytes,
         0
@@ -128,12 +130,13 @@ describe("block run index v5 storage performance", () => {
         2 * (Math.ceil(expectedPages / BLOCK_RUN_INDEX_PAGE_SIZE) + BLOCK_RUN_INDEX_TREE_DEPTH)
       );
       const metrics = await directoryMetrics(indexRoot);
-      expect(metrics.files).toBe(expectedPages + liveNodeCount + 4);
+      expect(metrics.files).toBe(expectedPages + liveNodeCount + 6);
       expect(metrics.bytes).toBeLessThan(maxIndexBytes);
 
       const beforeAppend = {
         page: writes.page.count,
         treeNode: writes["tree-node"].count,
+        retirement: writes.retirement.count,
         manifest: writes.manifest.count,
         pointer: writes.pointer.count
       };
@@ -155,6 +158,7 @@ describe("block run index v5 storage performance", () => {
       );
       expect(writes.page.count - beforeAppend.page).toBe(1);
       expect(writes["tree-node"].count - beforeAppend.treeNode).toBe(BLOCK_RUN_INDEX_TREE_DEPTH);
+      expect(writes.retirement.count - beforeAppend.retirement).toBe(1);
       expect(writes.manifest.count - beforeAppend.manifest).toBe(1);
       expect(writes.pointer.count - beforeAppend.pointer).toBe(1);
 
