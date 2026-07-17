@@ -7,10 +7,7 @@ import {
   type AdvisoryLockFs,
   withAdvisoryDirectoryLock
 } from "../fs/advisoryDirectoryLock.js";
-import {
-  DEFAULT_CANVAS_LOCK_OPERATION,
-  withCanvasLock
-} from "../fs/withCanvasLock.js";
+import { DEFAULT_CANVAS_LOCK_OPERATION, withCanvasLock } from "../fs/withCanvasLock.js";
 import { optionalStat } from "../fs/optionalFile.js";
 
 const tempDirs: string[] = [];
@@ -85,7 +82,8 @@ function createMemoryFs(seed: Map<string, string | "dir"> = new Map()): {
       return value;
     },
     async rename(from, to) {
-      if (!store.has(from) || store.has(to)) throw nodeFileError(store.has(to) ? "EEXIST" : "ENOENT");
+      if (!store.has(from) || store.has(to))
+        throw nodeFileError(store.has(to) ? "EEXIST" : "ENOENT");
       const moved = [...store.entries()].filter(
         ([key]) => key === from || key.startsWith(`${from}/`) || key.startsWith(`${from}\\`)
       );
@@ -576,10 +574,12 @@ describe("advisory directory lock", () => {
       operation: "replacement-owner",
       ownerToken: "replacement-token"
     };
-    const mem = createMemoryFs(new Map([
-      [lockPath, "dir"],
-      [holderPath, `${JSON.stringify(staleHolder)}\n`]
-    ]));
+    const mem = createMemoryFs(
+      new Map([
+        [lockPath, "dir"],
+        [holderPath, `${JSON.stringify(staleHolder)}\n`]
+      ])
+    );
     mem.fs.optionalStat = async () => ({ mtimeMs: 1_000_000 });
     const originalRename = mem.fs.rename;
     let replacedBeforeFence = false;
@@ -592,23 +592,27 @@ describe("advisory directory lock", () => {
     };
 
     let perf = 0;
-    await expect(withAdvisoryDirectoryLock(
-      {
-        lockPath,
-        operation: "stale-reclaimer",
-        timeoutMs: 80,
-        staleMs: 60_000,
-        retryDelayMs: 1,
-        isPidAlive: () => false,
-        fs: mem.fs,
-        clock: {
-          nowMs: () => 1_120_000,
-          performanceNow: () => (perf += 30),
-          delay: async () => { perf += 30; }
-        }
-      },
-      async () => undefined
-    )).rejects.toThrow(/Timed out/);
+    await expect(
+      withAdvisoryDirectoryLock(
+        {
+          lockPath,
+          operation: "stale-reclaimer",
+          timeoutMs: 80,
+          staleMs: 60_000,
+          retryDelayMs: 1,
+          isPidAlive: () => false,
+          fs: mem.fs,
+          clock: {
+            nowMs: () => 1_120_000,
+            performanceNow: () => (perf += 30),
+            delay: async () => {
+              perf += 30;
+            }
+          }
+        },
+        async () => undefined
+      )
+    ).rejects.toThrow(/Timed out/);
 
     expect(JSON.parse(mem.store.get(holderPath) as string)).toMatchObject({
       ownerToken: "replacement-token"

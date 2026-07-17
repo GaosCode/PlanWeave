@@ -138,15 +138,18 @@ function projectCapabilities(
       reason: TASK_WORKSPACE_CANCEL_READ_MODEL_UNAVAILABLE_REASON,
       identity: null
     },
-    retry: kind === "feedback" ? {
-      available: false,
-      reason: TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON,
-      identity: null
-    } : retry ?? {
-      available: false,
-      reason: TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON,
-      identity: null
-    },
+    retry:
+      kind === "feedback"
+        ? {
+            available: false,
+            reason: TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON,
+            identity: null
+          }
+        : (retry ?? {
+            available: false,
+            reason: TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON,
+            identity: null
+          }),
     resume: {
       available: false,
       reason: TASK_WORKSPACE_RESUME_UNAVAILABLE_REASON,

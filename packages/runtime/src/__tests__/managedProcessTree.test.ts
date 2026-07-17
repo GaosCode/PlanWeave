@@ -296,11 +296,7 @@ describe("platform adapters", () => {
 
   it("maps taskkill not-found (non-zero + dead root) to success and access-denied to EPERM", async () => {
     const spawnWithExit = (exitCode: number) =>
-      ((
-        _command: string,
-        _args: readonly string[],
-        _options: unknown
-      ) => {
+      ((_command: string, _args: readonly string[], _options: unknown) => {
         const handlers: { close?: (code: number | null) => void; error?: (error: Error) => void } =
           {};
         queueMicrotask(() => handlers.close?.(exitCode));

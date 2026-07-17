@@ -19,10 +19,7 @@ import { createLiveOwnership } from "../autoRun/liveControl.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 import { startAutoRun, stopAutoRun } from "../desktop/runApi.js";
-import {
-  getTaskWorkspace,
-  listTaskWorkspaceRuns
-} from "../desktop/taskWorkspaceApi.js";
+import { getTaskWorkspace, listTaskWorkspaceRuns } from "../desktop/taskWorkspaceApi.js";
 import { activeAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { trustCommand } from "../taskManager/hookTrustStore.js";
 import { ACP_MOCK_OPERATION_TIMEOUT_MS } from "./support/acpMockHarness.js";

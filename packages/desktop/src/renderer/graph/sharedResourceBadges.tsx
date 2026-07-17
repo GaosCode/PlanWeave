@@ -9,10 +9,7 @@ import {
   PopoverTrigger
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import {
-  SHARED_RESOURCE_OVERFLOW_LIMIT,
-  sharedResourceColor
-} from "./sharedResourceColors";
+import { SHARED_RESOURCE_OVERFLOW_LIMIT, sharedResourceColor } from "./sharedResourceColors";
 
 export type SharedResourceBadgeLabels = {
   sharedResource: string;
@@ -118,7 +115,11 @@ export function SharedResourceBadges({
                 <span className="truncate">{name}</span>
               </button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-64" onClick={(event) => event.stopPropagation()}>
+            <PopoverContent
+              align="start"
+              className="w-64"
+              onClick={(event) => event.stopPropagation()}
+            >
               <PopoverHeader>
                 <PopoverTitle className="flex items-center gap-2">
                   <ResourceDot active={active} name={name} />

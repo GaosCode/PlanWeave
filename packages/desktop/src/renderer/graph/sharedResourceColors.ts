@@ -5,13 +5,10 @@ export type SharedResourceColor = {
   halo: string;
 };
 
-const SHARED_RESOURCE_PALETTE: SharedResourceColor[] = Array.from(
-  { length: 12 },
-  (_, index) => ({
-    dot: `var(--shared-resource-color-${index})`,
-    halo: `var(--shared-resource-color-${index}-halo)`
-  })
-);
+const SHARED_RESOURCE_PALETTE: SharedResourceColor[] = Array.from({ length: 12 }, (_, index) => ({
+  dot: `var(--shared-resource-color-${index})`,
+  halo: `var(--shared-resource-color-${index}-halo)`
+}));
 
 function hashSharedResourceName(name: string): number {
   let hash = 0;
@@ -22,7 +19,5 @@ function hashSharedResourceName(name: string): number {
 }
 
 export function sharedResourceColor(name: string): SharedResourceColor {
-  return SHARED_RESOURCE_PALETTE[
-    hashSharedResourceName(name) % SHARED_RESOURCE_PALETTE.length
-  ]!;
+  return SHARED_RESOURCE_PALETTE[hashSharedResourceName(name) % SHARED_RESOURCE_PALETTE.length]!;
 }

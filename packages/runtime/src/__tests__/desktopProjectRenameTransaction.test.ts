@@ -197,9 +197,7 @@ describe("desktop project rename transaction", () => {
         "external writer ready barrier"
       );
       expect(writerOutput).toContain(`"projectId":"${nextProjectId}"`);
-      expect(writerOutput).toContain(
-        `"lockPath":"${canvasMapLayoutDiskLockPath(nextWorkspace)}"`
-      );
+      expect(writerOutput).toContain(`"lockPath":"${canvasMapLayoutDiskLockPath(nextWorkspace)}"`);
       expect(writerOutput).not.toContain("writer-result:");
 
       dependencyReleased = true;

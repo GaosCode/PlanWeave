@@ -3,10 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { writeJsonFile } from "../json.js";
 import { normalizedRunnerEventSchema } from "../autoRun/normalizedEventContract.js";
-import {
-  recordBlockRunArtifactInIndex,
-  recordBlockRunInIndex
-} from "../autoRun/blockRunIndex.js";
+import { recordBlockRunArtifactInIndex, recordBlockRunInIndex } from "../autoRun/blockRunIndex.js";
 import {
   composeTaskWorkspaceRuns,
   getTaskWorkspace,
@@ -77,13 +74,7 @@ async function writeBlockRun(options: {
   executionWaveId?: string;
 }): Promise<void> {
   const ref = `T-001#${options.blockId}`;
-  const runsRoot = join(
-    options.resultsDir,
-    "T-001",
-    "blocks",
-    options.blockId,
-    "runs"
-  );
+  const runsRoot = join(options.resultsDir, "T-001", "blocks", options.blockId, "runs");
   const runDir = join(runsRoot, options.runId);
   await mkdir(runDir, { recursive: true });
   await recordBlockRunInIndex(runsRoot, options.runId);

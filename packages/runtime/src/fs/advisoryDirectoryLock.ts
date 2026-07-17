@@ -107,20 +107,25 @@ type HolderReadResult =
   | { status: "invalid"; detail: string; identity: string }
   | { status: "error"; detail: string; identity: string };
 
-async function readHolder(
-  lockPath: string,
-  fsAdapter: AdvisoryLockFs
-): Promise<HolderReadResult> {
+async function readHolder(lockPath: string, fsAdapter: AdvisoryLockFs): Promise<HolderReadResult> {
   const holderPath = join(lockPath, HOLDER_FILE_NAME);
   let rawText: string;
   try {
     rawText = await fsAdapter.readFile(holderPath, "utf8");
   } catch (error) {
     if (isErrno(error, "ENOENT") || isErrno(error, "ENOTDIR")) {
-      return { status: "missing", detail: `holder file missing at ${holderPath}`, identity: "missing" };
+      return {
+        status: "missing",
+        detail: `holder file missing at ${holderPath}`,
+        identity: "missing"
+      };
     }
     const message = error instanceof Error ? error.message : String(error);
-    return { status: "error", detail: `holder file unreadable at ${holderPath}: ${message}`, identity: `error:${message}` };
+    return {
+      status: "error",
+      detail: `holder file unreadable at ${holderPath}: ${message}`,
+      identity: `error:${message}`
+    };
   }
 
   let raw: unknown;
@@ -128,16 +133,28 @@ async function readHolder(
     raw = JSON.parse(rawText);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { status: "invalid", detail: `holder JSON invalid at ${holderPath}: ${message}`, identity: `raw:${rawText}` };
+    return {
+      status: "invalid",
+      detail: `holder JSON invalid at ${holderPath}: ${message}`,
+      identity: `raw:${rawText}`
+    };
   }
 
   if (!raw || typeof raw !== "object") {
-    return { status: "invalid", detail: `holder JSON is not an object at ${holderPath}`, identity: `raw:${rawText}` };
+    return {
+      status: "invalid",
+      detail: `holder JSON is not an object at ${holderPath}`,
+      identity: `raw:${rawText}`
+    };
   }
 
   const record = raw as Partial<LockHolder>;
   if (typeof record.pid !== "number" || !Number.isFinite(record.pid)) {
-    return { status: "invalid", detail: `holder pid missing or invalid at ${holderPath}`, identity: `raw:${rawText}` };
+    return {
+      status: "invalid",
+      detail: `holder pid missing or invalid at ${holderPath}`,
+      identity: `raw:${rawText}`
+    };
   }
   if (typeof record.acquiredAt !== "string" || record.acquiredAt.trim() === "") {
     return {
@@ -156,9 +173,10 @@ async function readHolder(
 
   return {
     status: "ok",
-    identity: typeof record.ownerToken === "string" && record.ownerToken !== ""
-      ? `token:${record.ownerToken}`
-      : `raw:${rawText}`,
+    identity:
+      typeof record.ownerToken === "string" && record.ownerToken !== ""
+        ? `token:${record.ownerToken}`
+        : `raw:${rawText}`,
     holder: {
       pid: record.pid,
       acquiredAt: record.acquiredAt,

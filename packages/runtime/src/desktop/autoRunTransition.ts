@@ -28,11 +28,7 @@ import {
   readRawPersistedAutoRunStateResult,
   writePersistedAutoRunState
 } from "./runStateRepository.js";
-import {
-  appendRunSessionEvent,
-  getRunSession,
-  updateRunSession
-} from "../runSessions/index.js";
+import { appendRunSessionEvent, getRunSession, updateRunSession } from "../runSessions/index.js";
 import type { DesktopAutoRunPhase, DesktopAutoRunState } from "./types.js";
 import type { RunSessionAutoRunSummary, RunSessionPhase } from "../runSessions/index.js";
 
@@ -178,13 +174,15 @@ export function generateTransitionId(): string {
   return randomUUID();
 }
 
-const committedTransitionSchema = z.object({
-  version: z.literal(1),
-  transitionId: z.string().min(1),
-  runId: z.string().min(1),
-  expectedAuthority: autoRunExpectedAuthoritySchema,
-  authority: z.record(z.string(), z.unknown())
-}).strict();
+const committedTransitionSchema = z
+  .object({
+    version: z.literal(1),
+    transitionId: z.string().min(1),
+    runId: z.string().min(1),
+    expectedAuthority: autoRunExpectedAuthoritySchema,
+    authority: z.record(z.string(), z.unknown())
+  })
+  .strict();
 
 function committedTransitionPath(
   workspace: ProjectWorkspace,
@@ -555,7 +553,13 @@ async function recoverPendingTransitionUnlocked(
         transitionId: intent.transitionId,
         runId
       });
-      return { recovered: false, authorityState: authority, applied, diagnostics, unreadable: false };
+      return {
+        recovered: false,
+        authorityState: authority,
+        applied,
+        diagnostics,
+        unreadable: false
+      };
     }
   }
 
@@ -637,13 +641,7 @@ async function recoverPendingTransitionUnlocked(
 
   if (authority.runSessionId) {
     try {
-      await projectSessionForTransition(
-        workspace,
-        authority,
-        intent,
-        sessionBuilder,
-        adapters
-      );
+      await projectSessionForTransition(workspace, authority, intent, sessionBuilder, adapters);
       applied.push("session");
     } catch (e) {
       diagnostics.push({
@@ -791,7 +789,10 @@ export async function mutateAutoRunTransition(
   input: MutateAutoRunTransitionInput
 ): Promise<MutateAutoRunTransitionResult> {
   return withTransitionSeam(input.workspace, input.runId, async () => {
-    const authority = await recoverAndReadAuthorityUnlocked({ ...input, memoryState: input.memoryState });
+    const authority = await recoverAndReadAuthorityUnlocked({
+      ...input,
+      memoryState: input.memoryState
+    });
     const next = input.mutate(authority);
     if (next === null) {
       return { state: authority, applied: false, transitionId: null, eventType: null };

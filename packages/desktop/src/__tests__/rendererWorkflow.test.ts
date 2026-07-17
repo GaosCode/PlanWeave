@@ -67,8 +67,14 @@ describe("desktop renderer workflow guardrails", () => {
   it("keeps Task Workspace smoke selectors on stable data attributes rather than locale text", async () => {
     const [shellSource, headerSource, timelineSource, blockButtonSource, cardSource] =
       await Promise.all([
-        readFile(resolve(sourceDir, "renderer", "task-workspace", "TaskWorkspaceShell.tsx"), "utf8"),
-        readFile(resolve(sourceDir, "renderer", "task-workspace", "TaskWorkspaceHeader.tsx"), "utf8"),
+        readFile(
+          resolve(sourceDir, "renderer", "task-workspace", "TaskWorkspaceShell.tsx"),
+          "utf8"
+        ),
+        readFile(
+          resolve(sourceDir, "renderer", "task-workspace", "TaskWorkspaceHeader.tsx"),
+          "utf8"
+        ),
         readFile(
           resolve(sourceDir, "renderer", "task-workspace", "timeline", "TaskWorkspaceTimeline.tsx"),
           "utf8"

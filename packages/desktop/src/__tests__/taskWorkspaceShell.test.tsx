@@ -363,11 +363,9 @@ describe("Task Workspace shell", () => {
   });
 
   it("keeps a newly routed Feedback run out of Task Overview before loading state propagates", () => {
-    const conversation = vi.fn(
-      (props: TaskWorkspaceConversationSlotProps) => (
-        <div role="status">Conversation status: {props.liveStatus}</div>
-      )
-    );
+    const conversation = vi.fn((props: TaskWorkspaceConversationSlotProps) => (
+      <div role="status">Conversation status: {props.liveStatus}</div>
+    ));
     render(
       <TaskWorkspaceRoute
         controller={controller({

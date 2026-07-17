@@ -59,9 +59,12 @@ function appendLimitedChunk(options: {
 function withReviewHookTerminationCause(primary: Error, terminationError: unknown): Error {
   const termMessage =
     terminationError instanceof Error ? terminationError.message : String(terminationError);
-  const combined = new Error(`${primary.message} (process tree termination failed: ${termMessage})`, {
-    cause: terminationError
-  });
+  const combined = new Error(
+    `${primary.message} (process tree termination failed: ${termMessage})`,
+    {
+      cause: terminationError
+    }
+  );
   combined.name = primary.name;
   return combined;
 }
@@ -175,10 +178,7 @@ export async function runReviewHookProcess(options: ReviewHookProcessOptions): P
 
     child.stdin.on("error", (error) => {
       startTermination("stdin-error");
-      settleAfterTermination(
-        "reject",
-        new Error(`Review hook stdin failed: ${error.message}`)
-      );
+      settleAfterTermination("reject", new Error(`Review hook stdin failed: ${error.message}`));
     });
 
     child.on("close", (code) => {

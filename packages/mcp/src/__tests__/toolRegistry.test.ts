@@ -30,17 +30,13 @@ describe("PlanWeave MCP tool registry", () => {
     [
       "bulk_update_blocks",
       {
-        updates: [
-          { blockRef: "T-001#B-001", sharedResources: ["api"], locks: ["legacy"] }
-        ]
+        updates: [{ blockRef: "T-001#B-001", sharedResources: ["api"], locks: ["legacy"] }]
       }
     ],
     [
       "bulk_update_parallel_policy",
       {
-        blocks: [
-          { blockRef: "T-001#B-001", sharedResources: ["api"], exclusive: true }
-        ]
+        blocks: [{ blockRef: "T-001#B-001", sharedResources: ["api"], exclusive: true }]
       }
     ]
   ] as const)("rejects removed fields at the registered %s boundary", async (name, args) => {

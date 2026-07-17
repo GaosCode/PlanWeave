@@ -26,11 +26,7 @@ import {
 } from "../desktop/runStateRepository.js";
 import { appendAutoRunEvent } from "../desktop/runStateStore.js";
 import type { DesktopAutoRunState } from "../desktop/types.js";
-import {
-  appendRunSessionEvent,
-  getRunSession,
-  updateRunSession
-} from "../runSessions/index.js";
+import { appendRunSessionEvent, getRunSession, updateRunSession } from "../runSessions/index.js";
 import { runDoctor } from "../taskManager/index.js";
 import type { ProjectWorkspace } from "../types.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
@@ -342,9 +338,9 @@ describe("Auto Run transition coordinator recovery", () => {
     );
 
     const latest = await getLatestAutoRunSummaryWithDiagnostics(root, null);
-    expect(
-      latest.diagnostics.some((d) => d.code === "auto_run_authority_state_unreadable")
-    ).toBe(true);
+    expect(latest.diagnostics.some((d) => d.code === "auto_run_authority_state_unreadable")).toBe(
+      true
+    );
 
     await expect(startAutoRun(root, null, { kind: "project" }, 1, noTmux)).rejects.toThrow(
       /unreadable|unrecovered|pending transition/i
@@ -477,9 +473,9 @@ describe("Auto Run transition coordinator recovery", () => {
       healed.diagnostics.some((d) => d.code === "auto_run_pending_transition_incomplete")
     ).toBe(false);
     const afterHeal = await runDoctor({ projectRoot: root });
-    expect(
-      afterHeal.issues.some((i) => i.code === "auto_run_pending_transition_incomplete")
-    ).toBe(false);
+    expect(afterHeal.issues.some((i) => i.code === "auto_run_pending_transition_incomplete")).toBe(
+      false
+    );
 
     const events = await listAutoRunEvents(root, null, run.runId);
     const matching = events.events.filter(
@@ -584,8 +580,7 @@ describe("Auto Run transition coordinator recovery", () => {
       expect(session.session.phase).toBe("running");
       expect(session.session.autoRun?.stepCount).toBe(next.stepCount);
       const phaseEvents = session.events.filter(
-        (e) =>
-          e.type === eventType && (e as { transitionId?: string }).transitionId === tid
+        (e) => e.type === eventType && (e as { transitionId?: string }).transitionId === tid
       );
       expect(phaseEvents.length).toBe(1);
     }
@@ -719,11 +714,13 @@ describe("Auto Run transition coordinator recovery", () => {
     expect(committed.eventType).toBe("run_stopped");
     const events = await listAutoRunEvents(root, null, run.runId);
     const healed = events.events.filter(
-      (e) => (e.data as { transitionId?: string } | undefined)?.transitionId === healable.transitionId
+      (e) =>
+        (e.data as { transitionId?: string } | undefined)?.transitionId === healable.transitionId
     );
     expect(healed.length).toBe(1);
     const newOnes = events.events.filter(
-      (e) => (e.data as { transitionId?: string } | undefined)?.transitionId === committed.transitionId
+      (e) =>
+        (e.data as { transitionId?: string } | undefined)?.transitionId === committed.transitionId
     );
     expect(newOnes.length).toBe(1);
   });
@@ -772,7 +769,9 @@ describe("Auto Run transition coordinator recovery", () => {
     expect(failed.recovered).toBe(false);
     expect(failed.authorityState?.phase).toBe("paused");
     expect(
-      failed.diagnostics.some((diagnostic) => diagnostic.code === "auto_run_transition_event_heal_failed")
+      failed.diagnostics.some(
+        (diagnostic) => diagnostic.code === "auto_run_transition_event_heal_failed"
+      )
     ).toBe(true);
     expect((await getAutoRunState(run.runId)).phase).toBe("running");
     expect((await readPendingTransitionIntentResult(init.workspace, run.runId)).status).toBe("ok");
@@ -916,7 +915,9 @@ describe("Auto Run transition coordinator recovery", () => {
             pending.intent.transitionId
       )
     ).toHaveLength(1);
-    expect((await readPendingTransitionIntentResult(init.workspace, run.runId)).status).toBe("absent");
+    expect((await readPendingTransitionIntentResult(init.workspace, run.runId)).status).toBe(
+      "absent"
+    );
   });
 
   it("keeps recovery evidence when the session event log is corrupt after projection", async () => {

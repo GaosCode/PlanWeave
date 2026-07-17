@@ -81,20 +81,19 @@ describe("Task Workspace render benchmark (1k/10k counters)", () => {
     { corpus: 1_000, loaded: TASK_WORKSPACE_RUNS_DEFAULT_LIMIT },
     { corpus: 10_000, loaded: TASK_WORKSPACE_RUNS_DEFAULT_LIMIT },
     { corpus: 10_000, loaded: TASK_WORKSPACE_RUNS_MAX_LIMIT }
-  ])(
-    "bounds timeline DOM rows to loaded page size for corpus=$corpus loaded=$loaded",
-    ({ loaded }) => {
-      const workspace = buildLoadedWorkspace(loaded, /* activeEvery */ 25);
-      const measured = measureTimelineProjection(workspace);
+  ])("bounds timeline DOM rows to loaded page size for corpus=$corpus loaded=$loaded", ({
+    loaded
+  }) => {
+    const workspace = buildLoadedWorkspace(loaded, /* activeEvery */ 25);
+    const measured = measureTimelineProjection(workspace);
 
-      expect(measured.runCount).toBe(loaded);
-      expect(measured.domRows).toBe(loaded);
-      expect(measured.domRows).toBeLessThanOrEqual(VIRTUALIZATION_DOM_ROW_THRESHOLD);
-      expect(measured.projectionCalls).toBe(2);
-      expect(measured.createdRows).toBe(loaded * 2);
-      expect(measured.sameRunIds).toBe(true);
-    }
-  );
+    expect(measured.runCount).toBe(loaded);
+    expect(measured.domRows).toBe(loaded);
+    expect(measured.domRows).toBeLessThanOrEqual(VIRTUALIZATION_DOM_ROW_THRESHOLD);
+    expect(measured.projectionCalls).toBe(2);
+    expect(measured.createdRows).toBe(loaded * 2);
+    expect(measured.sameRunIds).toBe(true);
+  });
 
   it("records multi-page append growth that requires the product window", () => {
     // Reasonable continuous pagination: default 50 × 3 pages = 150 DOM rows (< 200).
@@ -111,7 +110,6 @@ describe("Task Workspace render benchmark (1k/10k counters)", () => {
     const overThreshold = buildLoadedWorkspace(VIRTUALIZATION_DOM_ROW_THRESHOLD + 1);
     const overMeasured = measureTimelineProjection(overThreshold);
     expect(overMeasured.domRows).toBeGreaterThan(VIRTUALIZATION_DOM_ROW_THRESHOLD);
-
   });
 
   it("keeps timeline projection pure and free of clock inputs", () => {

@@ -21,12 +21,7 @@ export function canvasMapLayoutPath(workspace: ProjectWorkspace): string {
 
 export function canvasMapLayoutDiskLockPath(workspace: ProjectWorkspace): string {
   const workspaceIdentity = createHash("sha256").update(workspace.id).digest("hex");
-  return join(
-    workspace.planweaveHome,
-    "locks",
-    LAYOUT_DISK_LOCKS_DIR,
-    `${workspaceIdentity}.lock`
-  );
+  return join(workspace.planweaveHome, "locks", LAYOUT_DISK_LOCKS_DIR, `${workspaceIdentity}.lock`);
 }
 
 export function defaultCanvasMapLayoutNodes(canvasIds: string[]): DesktopCanvasMapLayoutNode[] {
@@ -165,10 +160,7 @@ async function withCanvasMapLayoutMutationLock<T>(
  * Admit mutations before their first await and resolve aliases to the canonical workspace id.
  * Relocations keep admission through completion so they cannot invalidate a later resolver.
  */
-async function withCanvasMapLayoutMutationAdmission<
-  ResolvedWorkspace extends ProjectWorkspace,
-  T
->(
+async function withCanvasMapLayoutMutationAdmission<ResolvedWorkspace extends ProjectWorkspace, T>(
   resolveWorkspace: () => Promise<ResolvedWorkspace>,
   fn: (workspace: ResolvedWorkspace) => Promise<T>,
   holdAdmissionUntilComplete: boolean

@@ -8,10 +8,7 @@ import {
 } from "../autoRun/artifactReferenceContract.js";
 import type { ArtifactReference } from "../autoRun/runnerContractSchemas.js";
 import { allocateRunId } from "../autoRun/executorShared.js";
-import {
-  recordBlockRunArtifactInIndex,
-  recordBlockRunInIndex
-} from "../autoRun/blockRunIndex.js";
+import { recordBlockRunArtifactInIndex, recordBlockRunInIndex } from "../autoRun/blockRunIndex.js";
 import { optionalReaddir } from "../fs/optionalFile.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";

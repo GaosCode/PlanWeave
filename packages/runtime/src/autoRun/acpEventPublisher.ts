@@ -89,11 +89,10 @@ export function createAcpEventSubscriptionCloseResult(
   lastSequence: number,
   message?: string
 ): AcpEventSubscriptionCloseResult {
-  const safeSequence = Number.isFinite(lastSequence) && lastSequence >= 0 ? Math.floor(lastSequence) : 0;
+  const safeSequence =
+    Number.isFinite(lastSequence) && lastSequence >= 0 ? Math.floor(lastSequence) : 0;
   const rawMessage =
-    message && message.trim().length > 0
-      ? message.trim()
-      : CLOSE_REASON_DEFAULT_MESSAGE[reason];
+    message && message.trim().length > 0 ? message.trim() : CLOSE_REASON_DEFAULT_MESSAGE[reason];
   return acpEventSubscriptionCloseResultSchema.parse({
     reason,
     lastSequence: safeSequence,
@@ -103,7 +102,10 @@ export function createAcpEventSubscriptionCloseResult(
 }
 
 function sanitizeCloseMessage(message: string): string {
-  const withoutControl = message.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+  const withoutControl = message
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (withoutControl.length <= CLOSE_MESSAGE_MAX_LENGTH) return withoutControl;
   return withoutControl.slice(0, CLOSE_MESSAGE_MAX_LENGTH);
 }

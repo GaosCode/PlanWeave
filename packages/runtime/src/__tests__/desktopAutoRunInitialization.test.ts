@@ -148,37 +148,34 @@ describe("desktop Auto Run initialization", () => {
   it.each([
     "paused",
     "manual"
-  ] as const)(
-    "rejects a second start while a persisted %s Auto Run still owns the workspace",
-    async (phase) => {
-      const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-      await writePersistedAutoRunState(
-        persistedAutoRunState(init.workspace, {
-          runId: "DESKTOP-RUN-0001",
-          phase
-        })
-      );
+  ] as const)("rejects a second start while a persisted %s Auto Run still owns the workspace", async (phase) => {
+    const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
+    await writePersistedAutoRunState(
+      persistedAutoRunState(init.workspace, {
+        runId: "DESKTOP-RUN-0001",
+        phase
+      })
+    );
 
-      await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(true);
-      await expect(startAutoRun(root, null, { kind: "project" }, 0, noTmux)).rejects.toThrow(
-        /Cannot start Auto Run while another Auto Run is active/
-      );
+    await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(true);
+    await expect(startAutoRun(root, null, { kind: "project" }, 0, noTmux)).rejects.toThrow(
+      /Cannot start Auto Run while another Auto Run is active/
+    );
 
-      // Rehydrate via summary so stop can target the recoverable run.
-      const summary = await getLatestAutoRunSummary(root, null);
-      expect(summary).toMatchObject({ runId: "DESKTOP-RUN-0001", phase });
-      if (!summary) {
-        throw new Error("Expected recoverable Auto Run summary");
-      }
-      startedRunIds.add(summary.runId);
-      await stopAutoRun(summary.runId);
-
-      await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(false);
-      const started = await startAutoRun(root, null, { kind: "project" }, 0, noTmux);
-      startedRunIds.add(started.runId);
-      expect(started.phase).toBe("running");
+    // Rehydrate via summary so stop can target the recoverable run.
+    const summary = await getLatestAutoRunSummary(root, null);
+    expect(summary).toMatchObject({ runId: "DESKTOP-RUN-0001", phase });
+    if (!summary) {
+      throw new Error("Expected recoverable Auto Run summary");
     }
-  );
+    startedRunIds.add(summary.runId);
+    await stopAutoRun(summary.runId);
+
+    await expect(hasNonTerminalAutoRunForTarget(root, null)).resolves.toBe(false);
+    const started = await startAutoRun(root, null, { kind: "project" }, 0, noTmux);
+    startedRunIds.add(started.runId);
+    expect(started.phase).toBe("running");
+  });
 
   it("rejects a second start while an in-memory paused Auto Run owns the workspace", async () => {
     const manifest = manifestTestBuilder()

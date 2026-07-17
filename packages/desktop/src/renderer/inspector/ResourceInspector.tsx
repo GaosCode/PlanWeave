@@ -60,10 +60,7 @@ export function ResourceInspector({
   t
 }: ResourceInspectorProps) {
   const color = sharedResourceColor(resourceGroup.name);
-  const rows = useMemo(
-    () => buildMemberRows(graph, resourceGroup),
-    [graph, resourceGroup]
-  );
+  const rows = useMemo(() => buildMemberRows(graph, resourceGroup), [graph, resourceGroup]);
   const overlap = resourceGroup.activeBlockRefs.length > 1;
 
   return (

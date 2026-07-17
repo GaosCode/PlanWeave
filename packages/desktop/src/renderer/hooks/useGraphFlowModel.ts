@@ -11,11 +11,7 @@ import type {
   DesktopReviewAttemptSummary,
   RunnerTransport
 } from "@planweave-ai/runtime";
-import {
-  graphEdges,
-  graphNodes,
-  type GraphSharedResourceUiState
-} from "../graph/flowModel";
+import { graphEdges, graphNodes, type GraphSharedResourceUiState } from "../graph/flowModel";
 import { taskNodeLabels } from "../graph/taskNodeLabels";
 import type { createTranslator } from "../i18n";
 import type { AppFlowNode, TaskNodeData } from "../types";

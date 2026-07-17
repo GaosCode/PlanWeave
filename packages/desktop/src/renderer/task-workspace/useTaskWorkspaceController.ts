@@ -88,11 +88,7 @@ function graphEditError(result: Awaited<ReturnType<DesktopBridgeApi["updateTaskP
 }
 
 function taskWorkspaceAuthorityKey(navigation: TaskWorkspaceNavigationIdentity): string {
-  return JSON.stringify([
-    navigation.projectRoot,
-    navigation.canvasId,
-    navigation.taskId
-  ]);
+  return JSON.stringify([navigation.projectRoot, navigation.canvasId, navigation.taskId]);
 }
 
 function taskWorkspaceRecordKey(authorityKey: string, recordId: string): string {
@@ -228,10 +224,7 @@ export function useTaskWorkspaceController(options: {
           return;
         }
         const currentNavigation = navigationRef.current;
-        if (
-          !currentNavigation ||
-          taskWorkspaceAuthorityKey(currentNavigation) !== key
-        ) {
+        if (!currentNavigation || taskWorkspaceAuthorityKey(currentNavigation) !== key) {
           return;
         }
         if (!graph.tasks.some((task) => task.taskId === currentNavigation.taskId)) {
@@ -333,7 +326,9 @@ export function useTaskWorkspaceController(options: {
     ) {
       return null;
     }
-    const block = workspace.blocks.find((candidate) => candidate.ref === visibleRecordLoad.blockRef);
+    const block = workspace.blocks.find(
+      (candidate) => candidate.ref === visibleRecordLoad.blockRef
+    );
     return block ? { block, item: visibleRecordLoad.item } : null;
   }, [navigation?.recordId, visibleRecordLoad, workspace]);
   const selectedAnnotation = useMemo(() => {
@@ -743,8 +738,7 @@ export function useTaskWorkspaceController(options: {
         "This run has no live RunnerRecordReadModel.")
       : null;
   const status = workspaceLoad.key === key ? workspaceLoad.status : navigation ? "loading" : "idle";
-  const recordError =
-    visibleRecordLoad.key === selectedRecordKey ? visibleRecordLoad.error : null;
+  const recordError = visibleRecordLoad.key === selectedRecordKey ? visibleRecordLoad.error : null;
   const error =
     history.historyError ??
     (workspaceLoad.key === key ? workspaceLoad.error : null) ??

@@ -1,8 +1,4 @@
-import {
-  spawn,
-  type ChildProcessWithoutNullStreams,
-  type SpawnOptions
-} from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptions } from "node:child_process";
 
 /** Default grace between graceful and force termination (matches executor force-kill grace). */
 export const DEFAULT_PROCESS_TREE_GRACE_MS = 500;
@@ -384,7 +380,9 @@ export function spawnManagedProcess(options: SpawnManagedProcessOptions): Manage
   const adapter = options.adapter ?? defaultAdapter;
   const graceMs = options.graceMs ?? DEFAULT_PROCESS_TREE_GRACE_MS;
   if (!Number.isFinite(graceMs) || graceMs < 0) {
-    throw new Error(`Managed process graceMs must be a non-negative number; got ${String(graceMs)}`);
+    throw new Error(
+      `Managed process graceMs must be a non-negative number; got ${String(graceMs)}`
+    );
   }
 
   const spawnOptions = adapter.configureSpawn({
@@ -398,7 +396,11 @@ export function spawnManagedProcess(options: SpawnManagedProcessOptions): Manage
     throw new Error("Managed process spawn refuses shell:true.");
   }
 
-  const child = spawn(options.command, [...options.args], spawnOptions) as ChildProcessWithoutNullStreams;
+  const child = spawn(
+    options.command,
+    [...options.args],
+    spawnOptions
+  ) as ChildProcessWithoutNullStreams;
   const pid = child.pid;
   if (pid === undefined) {
     // Spawn may still emit 'error' asynchronously for missing binaries; expose a fail-closed tree.

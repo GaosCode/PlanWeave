@@ -32,10 +32,7 @@ import {
   type TerminalOutputResponse,
   type Stream
 } from "@agentclientprotocol/sdk";
-import {
-  spawnManagedProcess,
-  type ManagedProcessTree
-} from "../process/managedProcessTree.js";
+import { spawnManagedProcess, type ManagedProcessTree } from "../process/managedProcessTree.js";
 import type { LivePendingOperationHandle } from "./liveControl.js";
 
 export class AcpOperationTimeoutError extends Error {

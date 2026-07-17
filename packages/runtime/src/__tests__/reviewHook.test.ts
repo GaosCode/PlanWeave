@@ -254,10 +254,7 @@ describe("review hook execution boundary", () => {
     await expect(
       runReviewHookProcess({
         command: process.execPath,
-        args: [
-          "-e",
-          "process.on('SIGTERM', () => {}); setInterval(() => {}, 100);"
-        ],
+        args: ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 100);"],
         cwd: process.cwd(),
         stdin: "{}",
         limits: {

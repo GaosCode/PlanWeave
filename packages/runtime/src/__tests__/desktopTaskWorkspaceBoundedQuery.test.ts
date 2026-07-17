@@ -61,7 +61,10 @@ describe("block run index crash recovery", () => {
       runId: failedStage === "published" ? "RUN-002" : "RUN-001"
     });
     await recordBlockRunInIndex(runRoot, "RUN-002");
-    await expect(readBlockRunIndexHead(runRoot)).resolves.toMatchObject({ runId: "RUN-002", retryIndex: 2 });
+    await expect(readBlockRunIndexHead(runRoot)).resolves.toMatchObject({
+      runId: "RUN-002",
+      retryIndex: 2
+    });
   });
 
   it("explicitly migrates legacy runs and recovers the latest report artifact", async () => {
@@ -133,7 +136,10 @@ async function writeLightRun(options: {
     finishedAt,
     exitCode: finishedAt === null ? null : 0
   });
-  await recordBlockRunInIndex(join(options.resultsDir, "T-001", "blocks", options.blockId, "runs"), options.runId);
+  await recordBlockRunInIndex(
+    join(options.resultsDir, "T-001", "blocks", options.blockId, "runs"),
+    options.runId
+  );
   if (options.heavy) {
     await writeFile(join(runDir, "prompt.md"), "HEAVY_PROMPT_CONTENT\n".repeat(20), "utf8");
     await writeFile(join(runDir, "stdout.md"), "HEAVY_STDOUT_CONTENT\n".repeat(20), "utf8");
@@ -279,7 +285,7 @@ describe("Task Workspace bounded query contract", () => {
           taskId: "T-001",
           canvasId: "default",
           orderedAt: "2026-07-13T00:00:00.000Z",
-          recordId: "T-OTHER#B-999::RUN-002",
+          recordId: "T-OTHER#B-999::RUN-002"
         }
       })
     ).rejects.toThrow(/does not belong to task 'T-001'/);
@@ -295,7 +301,7 @@ describe("Task Workspace bounded query contract", () => {
           taskId: "T-001",
           canvasId: "default",
           orderedAt: "2026-07-13T00:00:00.000Z",
-          recordId: "T-001#B-999::RUN-002",
+          recordId: "T-001#B-999::RUN-002"
         }
       })
     ).rejects.toThrow(/does not belong to task 'T-001'/);
@@ -355,7 +361,7 @@ describe("Task Workspace bounded query contract", () => {
         taskId: "T-001",
         canvasId: "default",
         orderedAt: "2026-07-13T00:00:00.000Z",
-        recordId: "T-001#B-001::RUN-002",
+        recordId: "T-001#B-001::RUN-002"
       }
     });
     expect(pageAfterDelete.items.map((item) => item.run.record.runId)).toEqual(["RUN-001"]);
@@ -372,7 +378,7 @@ describe("Task Workspace bounded query contract", () => {
         taskId: "T-001",
         canvasId: "default",
         orderedAt: "2026-07-13T00:00:00.000Z",
-        recordId: "T-001#B-001::RUN-002",
+        recordId: "T-001#B-001::RUN-002"
       }
     });
     expect(pageAfterDeleteAgain.items.map((item) => item.run.record.recordId)).toEqual(
@@ -640,7 +646,8 @@ describe("Task Workspace bounded query contract", () => {
     const jsonSpy = vi.spyOn(jsonFile, "readJsonFile");
     const packageSpy = vi.spyOn(packageLoader, "loadPackage");
     const ioCounts = () => ({
-      metadata: jsonSpy.mock.calls.filter(([path]) => String(path).endsWith("metadata.json")).length,
+      metadata: jsonSpy.mock.calls.filter(([path]) => String(path).endsWith("metadata.json"))
+        .length,
       packages: packageSpy.mock.calls.length,
       readdir: readdirSpy.mock.calls.length,
       stat: statSpy.mock.calls.length
@@ -706,8 +713,10 @@ describe("Task Workspace bounded query contract", () => {
     expect(distant.items[0]?.run.record.runId).toBe("RUN-04999");
     const indexPageReads = readFileSpy.mock.calls.filter(([path]) => {
       const text = String(path);
-      return text.includes(".planweave-task-workspace-run-index/generations/") &&
-        /page-\d+\.json$/.test(text);
+      return (
+        text.includes(".planweave-task-workspace-run-index/generations/") &&
+        /page-\d+\.json$/.test(text)
+      );
     });
     expect(indexPageReads.length).toBeLessThanOrEqual(12);
 
@@ -727,9 +736,7 @@ describe("Task Workspace bounded query contract", () => {
       );
     });
     expect(heavyReads).toHaveLength(0);
-    expect(
-      readdirSpy.mock.calls.filter(([path]) => String(path) === runsRoot)
-    ).toHaveLength(0);
+    expect(readdirSpy.mock.calls.filter(([path]) => String(path) === runsRoot)).toHaveLength(0);
 
     // Payload entry count is page-bounded, not total-history-bounded.
     expect(page.items.length).toBeLessThanOrEqual(TASK_WORKSPACE_RUNS_DEFAULT_LIMIT);
@@ -772,15 +779,7 @@ describe("Task Workspace bounded query contract", () => {
       });
     }
     await writeFile(
-      join(
-        init.workspace.resultsDir,
-        "T-001",
-        "blocks",
-        "B-001",
-        "runs",
-        "RUN-001",
-        "report.md"
-      ),
+      join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "report.md"),
       "# oldest report\n",
       "utf8"
     );

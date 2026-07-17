@@ -11,9 +11,9 @@ function createLifecycle(lockGranted: boolean) {
     onSecondInstance: vi.fn((listener: () => void) => {
       secondInstanceListener = listener;
     }),
-    getPrimaryWindow: vi.fn<() =>
-      | { isMinimized(): boolean; restore(): void; focus(): void }
-      | undefined>(() => undefined),
+    getPrimaryWindow: vi.fn<
+      () => { isMinimized(): boolean; restore(): void; focus(): void } | undefined
+    >(() => undefined),
     startPrimary
   };
   return { lifecycle, quit, startPrimary, secondInstanceListener: () => secondInstanceListener };

@@ -32,11 +32,7 @@ const fallbackSlugPrefix = "canvas";
 export type CanvasIdAllocationMode = "slug-from-title" | "random";
 
 export type ProjectCanvasMutationPorts = {
-  withLock?<T>(
-    projectWorkspaceRoot: string,
-    operation: string,
-    fn: () => Promise<T>
-  ): Promise<T>;
+  withLock?<T>(projectWorkspaceRoot: string, operation: string, fn: () => Promise<T>): Promise<T>;
   loadGraph?(workspace: ProjectWorkspace): Promise<LoadedProjectGraph>;
   writeGraph?(
     workspace: ProjectWorkspace,
@@ -46,10 +42,7 @@ export type ProjectCanvasMutationPorts = {
     projectWorkspace: ProjectWorkspace,
     options: { canvasId: string; finalRoot: string }
   ): Promise<StagedCanvasWorkspaceWrite>;
-  commit?(
-    projectWorkspace: ProjectWorkspace,
-    staged: StagedCanvasWorkspaceWrite
-  ): Promise<void>;
+  commit?(projectWorkspace: ProjectWorkspace, staged: StagedCanvasWorkspaceWrite): Promise<void>;
   removeStaging?(projectWorkspace: ProjectWorkspace, path: string): Promise<void>;
   quarantine?(
     projectWorkspace: ProjectWorkspace,
@@ -180,10 +173,7 @@ async function nextAvailableCanvasId(input: {
 }): Promise<string> {
   let suffix = 1;
   let candidate = input.baseId;
-  while (
-    input.existingIds.has(candidate) ||
-    (await pathExists(input.finalRootForId(candidate)))
-  ) {
+  while (input.existingIds.has(candidate) || (await pathExists(input.finalRootForId(candidate)))) {
     suffix += 1;
     candidate = `${input.baseId}-${suffix}`;
     assertValidCanvasId(candidate);
@@ -213,9 +203,9 @@ function nextDuplicatedCanvasName(
   return `${copyName} ${index}`;
 }
 
-function resolvePorts(ports: ProjectCanvasMutationPorts = {}): Required<
-  Omit<ProjectCanvasMutationPorts, "activateCanvas">
-> &
+function resolvePorts(
+  ports: ProjectCanvasMutationPorts = {}
+): Required<Omit<ProjectCanvasMutationPorts, "activateCanvas">> &
   Pick<ProjectCanvasMutationPorts, "activateCanvas"> {
   return {
     withLock:
@@ -321,10 +311,7 @@ function mutationResult(input: {
   };
 }
 
-function resolveCreateTitle(
-  input: CreateProjectCanvasInput,
-  existingTitles: string[]
-): string {
+function resolveCreateTitle(input: CreateProjectCanvasInput, existingTitles: string[]): string {
   const provided = input.title?.trim();
   if (provided) {
     return provided;
@@ -371,10 +358,8 @@ export async function createProjectCanvas(
       baseId,
       existingIds,
       finalRootForId(id) {
-        return projectCanvasWorkspace(
-          loaded.workspace,
-          canonicalProjectCanvasNode({ id, title })
-        ).workspaceRoot;
+        return projectCanvasWorkspace(loaded.workspace, canonicalProjectCanvasNode({ id, title }))
+          .workspaceRoot;
       }
     });
     const canvas = canonicalProjectCanvasNode({ id: canvasId, title });
@@ -410,10 +395,8 @@ export async function createProjectCanvas(
       baseId,
       existingIds,
       finalRootForId(id) {
-        return projectCanvasWorkspace(
-          loaded.workspace,
-          canonicalProjectCanvasNode({ id, title })
-        ).workspaceRoot;
+        return projectCanvasWorkspace(loaded.workspace, canonicalProjectCanvasNode({ id, title }))
+          .workspaceRoot;
       }
     });
     const canvas = canonicalProjectCanvasNode({ id: canvasId, title });
@@ -500,10 +483,8 @@ export async function duplicateProjectCanvas(
       baseId,
       existingIds,
       finalRootForId(id) {
-        return projectCanvasWorkspace(
-          loaded.workspace,
-          canonicalProjectCanvasNode({ id, title })
-        ).workspaceRoot;
+        return projectCanvasWorkspace(loaded.workspace, canonicalProjectCanvasNode({ id, title }))
+          .workspaceRoot;
       }
     });
     const canvas = canonicalProjectCanvasNode({ id: canvasId, title });
@@ -550,9 +531,7 @@ export async function duplicateProjectCanvas(
 }
 
 /** Map mutation result into the public CLI createCanvasWorkspace DTO shape. */
-export function toCreateCanvasWorkspaceResult(
-  result: ProjectCanvasMutationResult
-): {
+export function toCreateCanvasWorkspaceResult(result: ProjectCanvasMutationResult): {
   canvasId: string;
   title: string;
   created: boolean;

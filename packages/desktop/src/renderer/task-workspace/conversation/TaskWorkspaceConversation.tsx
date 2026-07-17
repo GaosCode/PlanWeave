@@ -155,12 +155,7 @@ function AcpConversationUnavailable({
     selectedRun.item.run.capabilities.prompt.reason ??
     t("taskWorkspaceAcpUnavailable");
   return (
-    <ConversationState
-      detailKind="unavailable"
-      message={message}
-      recordId={recordId}
-      recordReady
-    />
+    <ConversationState detailKind="unavailable" message={message} recordId={recordId} recordReady />
   );
 }
 

@@ -268,9 +268,7 @@ function largeDagManifest(): string {
             title: `Implement ${title.toLowerCase()}`,
             prompt: `nodes/${id}/blocks/B-001.prompt.md`,
             depends_on: [],
-            ...(id === "T-005"
-              ? { parallel: { sharedResources: ["desktop-ui"] } }
-              : {})
+            ...(id === "T-005" ? { parallel: { sharedResources: ["desktop-ui"] } } : {})
           },
           {
             id: "R-001",

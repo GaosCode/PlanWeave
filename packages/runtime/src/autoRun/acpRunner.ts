@@ -374,39 +374,38 @@ export function createAcpRunner(options?: {
       try {
         return await sessionController.execute(
           {
-          kind: input.claim.blockType === "review" ? "review" : "implementation",
-          identity: {
-            scope: prepared.runDir,
-            executorRunId: prepared.runId,
-            claimRef: input.claim.ref,
-            desktopRunId: input.runtime?.desktopRunId,
-            runSessionId: input.runtime?.runSessionId
+            kind: input.claim.blockType === "review" ? "review" : "implementation",
+            identity: {
+              scope: prepared.runDir,
+              executorRunId: prepared.runId,
+              claimRef: input.claim.ref,
+              desktopRunId: input.runtime?.desktopRunId,
+              runSessionId: input.runtime?.runSessionId
+            },
+            runDir: prepared.runDir,
+            metadataPath: prepared.metadataPath,
+            prompt: input.prompt,
+            cwd: prepared.cwd,
+            launch,
+            authenticationHints: definition.acp.authentication,
+            executorName: input.executorName,
+            agentId: definition.agent,
+            taskId: input.claim.taskId,
+            metadataIdentity: {
+              blockId: input.claim.blockId,
+              ...(input.executionWaveId ? { executionWaveId: input.executionWaveId } : {})
+            },
+            projectId: prepared.projectId,
+            canvasId: prepared.canvasId
           },
-          runDir: prepared.runDir,
-          metadataPath: prepared.metadataPath,
-          prompt: input.prompt,
-          cwd: prepared.cwd,
-          launch,
-          authenticationHints: definition.acp.authentication,
-          executorName: input.executorName,
-          agentId: definition.agent,
-          taskId: input.claim.taskId,
-          metadataIdentity: {
-            blockId: input.claim.blockId,
-            ...(input.executionWaveId ? { executionWaveId: input.executionWaveId } : {})
-          },
-          projectId: prepared.projectId,
-          canvasId: prepared.canvasId
-        },
-        {
-          signal: input.runtime?.signal,
-          timeoutMs: input.runtime?.timeoutMs ?? executorRuntimeLimits(input.profile).timeoutMs,
-          interactionBroker: input.runtime?.interactionBroker,
-          onMetadataPersisted: () =>
-            recordBlockRun(dirname(prepared.runDir), prepared.runId),
-          sessionDefaults: input.runtime?.desktopRunId
-            ? selectedDesktopAcpSessionDefaults(definition.agent)
-            : undefined
+          {
+            signal: input.runtime?.signal,
+            timeoutMs: input.runtime?.timeoutMs ?? executorRuntimeLimits(input.profile).timeoutMs,
+            interactionBroker: input.runtime?.interactionBroker,
+            onMetadataPersisted: () => recordBlockRun(dirname(prepared.runDir), prepared.runId),
+            sessionDefaults: input.runtime?.desktopRunId
+              ? selectedDesktopAcpSessionDefaults(definition.agent)
+              : undefined
           }
         );
       } finally {

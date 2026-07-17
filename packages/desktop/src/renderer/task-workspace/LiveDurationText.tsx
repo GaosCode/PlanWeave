@@ -106,10 +106,7 @@ export function LiveTaskWallClockText({
     }
     return formatDuration(workspace.duration.wallClock.totalMs);
   }
-  const totalMs = selectTaskWallClockTotalMs(
-    collectWorkspaceRunDurationInputs(workspace),
-    nowMs
-  );
+  const totalMs = selectTaskWallClockTotalMs(collectWorkspaceRunDurationInputs(workspace), nowMs);
   if (totalMs === null) {
     return unavailable;
   }
@@ -170,10 +167,7 @@ export function LiveAgentTimeText({
       </span>
     );
   }
-  const agent = selectAgentTimeTotalMs(
-    collectWorkspaceRunDurationInputs(workspace).runs,
-    nowMs
-  );
+  const agent = selectAgentTimeTotalMs(collectWorkspaceRunDurationInputs(workspace).runs, nowMs);
   if (agent.totalMs === null) {
     return unavailable;
   }

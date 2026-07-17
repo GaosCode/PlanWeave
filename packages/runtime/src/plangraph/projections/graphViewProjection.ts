@@ -130,7 +130,7 @@ function blockPreview(
     promptMissing: block.promptRef.contentHash.length === 0,
     exceptionReason: currentStatus.reason,
     // Filled by desktop graph enrichment from claim readiness.
-    dispatchable: false,
+    dispatchable: false
   };
 }
 

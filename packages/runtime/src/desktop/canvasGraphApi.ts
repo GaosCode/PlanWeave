@@ -59,9 +59,12 @@ async function withProjectCanvasMapLayoutMutation<T>(
   operation: string,
   fn: (workspace: ProjectWorkspace) => Promise<T>
 ): Promise<T> {
-  return withCanvasMapLayoutMutation(() => resolveProjectWorkspace(projectRoot), async (workspace) => {
-    return withCanvasMapLayoutDiskLock(workspace, operation, () => fn(workspace));
-  });
+  return withCanvasMapLayoutMutation(
+    () => resolveProjectWorkspace(projectRoot),
+    async (workspace) => {
+      return withCanvasMapLayoutDiskLock(workspace, operation, () => fn(workspace));
+    }
+  );
 }
 
 export async function getCanvasGraphViewModel(
@@ -82,10 +85,14 @@ export async function getCanvasGraphViewModel(
 }
 
 export async function getCanvasMapLayout(projectRoot: string): Promise<DesktopCanvasMapLayout> {
-  return withProjectCanvasMapLayoutMutation(projectRoot, "get-canvas-map-layout", async (workspace) => {
-    const { projectId, canvasIds } = await canvasIdsForProject(projectRoot);
-    return readCanvasMapLayoutFromDisk(workspace, projectId, canvasIds);
-  });
+  return withProjectCanvasMapLayoutMutation(
+    projectRoot,
+    "get-canvas-map-layout",
+    async (workspace) => {
+      const { projectId, canvasIds } = await canvasIdsForProject(projectRoot);
+      return readCanvasMapLayoutFromDisk(workspace, projectId, canvasIds);
+    }
+  );
 }
 
 export async function saveCanvasMapLayout(

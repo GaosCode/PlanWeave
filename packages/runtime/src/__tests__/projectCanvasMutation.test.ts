@@ -68,15 +68,13 @@ describe("project canvas mutation coordinator", () => {
     expect(createdA.canvasId).not.toBe(createdB.canvasId);
     const loaded = await loadProjectGraph(root);
     const ids = loaded.manifest.canvases.map((canvas) => canvas.id).sort();
-    expect(ids).toEqual(
-      ["default", createdA.canvasId, createdB.canvasId].sort()
-    );
-    expect(await pathExists(join(init.workspace.workspaceRoot, "canvases", createdA.canvasId))).toBe(
-      true
-    );
-    expect(await pathExists(join(init.workspace.workspaceRoot, "canvases", createdB.canvasId))).toBe(
-      true
-    );
+    expect(ids).toEqual(["default", createdA.canvasId, createdB.canvasId].sort());
+    expect(
+      await pathExists(join(init.workspace.workspaceRoot, "canvases", createdA.canvasId))
+    ).toBe(true);
+    expect(
+      await pathExists(join(init.workspace.workspaceRoot, "canvases", createdB.canvasId))
+    ).toBe(true);
   });
 
   it("serializes CLI create and Desktop create so both graph nodes survive", async () => {
@@ -346,9 +344,9 @@ describe("project canvas mutation coordinator", () => {
     expect(
       await pathExists(join(init.workspace.workspaceRoot, "canvases", "stage-fail-canvas"))
     ).toBe(false);
-    expect(await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-staging"))).toEqual(
-      []
-    );
+    expect(
+      await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-staging"))
+    ).toEqual([]);
     expect(
       await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine"))
     ).toEqual([]);
@@ -380,9 +378,9 @@ describe("project canvas mutation coordinator", () => {
       (name) => name.startsWith(".project-graph.json") && name.endsWith(".tmp")
     );
     expect(leftoverTemps).toEqual([]);
-    expect(await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-staging"))).toEqual(
-      []
-    );
+    expect(
+      await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-staging"))
+    ).toEqual([]);
     expect(
       await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine"))
     ).toEqual([]);
@@ -428,9 +426,9 @@ describe("project canvas mutation coordinator", () => {
     expect(
       await pathExists(join(init.workspace.workspaceRoot, "canvases", "graph-rename-fail"))
     ).toBe(false);
-    expect(await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-staging"))).toEqual(
-      []
-    );
+    expect(
+      await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-staging"))
+    ).toEqual([]);
     expect(
       await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine"))
     ).toEqual([]);
@@ -473,9 +471,9 @@ describe("project canvas mutation coordinator", () => {
     expect(
       await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine"))
     ).toEqual([]);
-    expect(await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-staging"))).toEqual(
-      []
-    );
+    expect(
+      await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-staging"))
+    ).toEqual([]);
   });
 
   it("keeps durable graph and final canvas when post-success step fails after graph write", async () => {
@@ -512,9 +510,9 @@ describe("project canvas mutation coordinator", () => {
     expect(
       await pathExists(join(init.workspace.workspaceRoot, "canvases", "post-success-cleanup"))
     ).toBe(true);
-    expect(await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-staging"))).toEqual(
-      []
-    );
+    expect(
+      await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-staging"))
+    ).toEqual([]);
     expect(
       await listDirNames(join(init.workspace.workspaceRoot, "desktop", "canvas-quarantine"))
     ).toEqual([]);
@@ -577,14 +575,11 @@ describe("project mutation without pre-existing project-graph.json", () => {
     expect(loaded.source).toBe("project_graph");
     expect(canvasIdsFromGraph(loaded.manifest)).toEqual(successIds);
 
-    const finalDirs = new Set(
-      await listDirNames(join(init.workspace.workspaceRoot, "canvases"))
-    );
+    const finalDirs = new Set(await listDirNames(join(init.workspace.workspaceRoot, "canvases")));
     expect(finalDirs.has(cliResult.canvasId)).toBe(true);
     expect(finalDirs.has(desktopResult.canvasId)).toBe(true);
     const orphanCandidates = [...finalDirs].filter(
-      (name) =>
-        name !== "default" && name !== cliResult.canvasId && name !== desktopResult.canvasId
+      (name) => name !== "default" && name !== cliResult.canvasId && name !== desktopResult.canvasId
     );
     expect(orphanCandidates).toEqual([]);
 
@@ -679,11 +674,11 @@ describe("project mutation lock integration with real temp dirs", () => {
     expect(ids.has(parsedA.canvasId)).toBe(true);
     expect(ids.has(parsedB.canvasId)).toBe(true);
     expect(ids.has("default")).toBe(true);
-    expect(
-      await pathExists(join(init.workspace.workspaceRoot, "canvases", parsedA.canvasId))
-    ).toBe(true);
-    expect(
-      await pathExists(join(init.workspace.workspaceRoot, "canvases", parsedB.canvasId))
-    ).toBe(true);
+    expect(await pathExists(join(init.workspace.workspaceRoot, "canvases", parsedA.canvasId))).toBe(
+      true
+    );
+    expect(await pathExists(join(init.workspace.workspaceRoot, "canvases", parsedB.canvasId))).toBe(
+      true
+    );
   });
 });

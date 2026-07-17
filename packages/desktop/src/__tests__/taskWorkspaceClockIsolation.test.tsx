@@ -259,10 +259,7 @@ function record(recordId: string, readModel: RunnerRecordReadModel | null): Desk
   };
 }
 
-function controllerApi(options: {
-  active: boolean;
-  readModel: RunnerRecordReadModel | null;
-}) {
+function controllerApi(options: { active: boolean; readModel: RunnerRecordReadModel | null }) {
   const run = projectedRun("RUN-001", options.active);
   const api = {
     getBlockDetail: vi.fn(async () => ({

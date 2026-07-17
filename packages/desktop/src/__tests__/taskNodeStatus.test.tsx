@@ -56,5 +56,4 @@ describe("task node status visuals", () => {
     expect(className).toContain("ring-state-failed/15");
     expect(className).toContain("outline-state-selected");
   });
-
 });

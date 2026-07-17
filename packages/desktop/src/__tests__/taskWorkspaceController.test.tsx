@@ -488,9 +488,7 @@ describe("Task Workspace selected run controller", () => {
     );
     const { result } = renderHook(() => useControllerHarness(api, directNavigation));
 
-    await waitFor(() =>
-      expect(result.current.navigation?.recordId).toBe("T-001#B-001::RUN-002")
-    );
+    await waitFor(() => expect(result.current.navigation?.recordId).toBe("T-001#B-001::RUN-002"));
 
     expect(result.current.status).toBe("ready");
     expect(result.current.workspace?.task.taskId).toBe("T-001");
@@ -506,7 +504,11 @@ describe("Task Workspace selected run controller", () => {
     const taskNavigation = navigation();
     const { result, rerender } = renderHook(
       ({ currentNavigation }) => useControlledNavigationHarness(api, currentNavigation),
-      { initialProps: { currentNavigation: taskNavigation as TaskWorkspaceNavigationIdentity | null } }
+      {
+        initialProps: {
+          currentNavigation: taskNavigation as TaskWorkspaceNavigationIdentity | null
+        }
+      }
     );
     await waitFor(() => expect(result.current.status).toBe("ready"));
 
@@ -741,9 +743,7 @@ describe("Task Workspace selected run controller", () => {
       };
     });
     const feedbackRecordId = "FE-001::RUN-FEEDBACK-001";
-    const feedbackDetail = deferred<
-      Awaited<ReturnType<typeof api.getTaskWorkspaceRunDetail>>
-    >();
+    const feedbackDetail = deferred<Awaited<ReturnType<typeof api.getTaskWorkspaceRunDetail>>>();
     const getRunDetail = api.getTaskWorkspaceRunDetail.getMockImplementation();
     if (!getRunDetail) {
       throw new Error("Expected the controller API fixture to provide run detail loading.");

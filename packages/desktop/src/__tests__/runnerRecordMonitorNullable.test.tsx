@@ -255,9 +255,9 @@ describe("nullable runner record monitoring", () => {
         await vi.advanceTimersByTimeAsync(250);
       });
       expect(subscribeRunnerRecord).toHaveBeenCalledTimes(2);
-      expect(subscribeRunnerRecord.mock.calls.map((call) => call[0].cursor?.afterSequence)).toEqual([
-        1, 2
-      ]);
+      expect(subscribeRunnerRecord.mock.calls.map((call) => call[0].cursor?.afterSequence)).toEqual(
+        [1, 2]
+      );
 
       // Stale generation updateSequence must not pollute the new subscription generation.
       await act(async () => {

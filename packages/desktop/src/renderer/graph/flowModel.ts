@@ -204,9 +204,7 @@ export function graphNodes(
     : null;
   const activeMembers = new Set(activeGroup?.memberTaskIds ?? []);
   const activeResourceNames = new Set(
-    resourceGroups
-      .filter((group) => group.activeBlockRefs.length > 0)
-      .map((group) => group.name)
+    resourceGroups.filter((group) => group.activeBlockRefs.length > 0).map((group) => group.name)
   );
   const taskNodes: TaskFlowNode[] = graph.tasks.map((task, index) => {
     const saved = layoutByNode.get(task.taskId);
@@ -215,8 +213,7 @@ export function graphNodes(
       y: defaultLayoutOrigin.y + Math.floor(index / 3) * defaultLayoutRowGap
     };
     const sharedResources = task.sharedResources;
-    const resourceHighlighted =
-      resourceUi.activeResource != null && activeMembers.has(task.taskId);
+    const resourceHighlighted = resourceUi.activeResource != null && activeMembers.has(task.taskId);
     const dimmed = resourceUi.activeResource != null && !activeMembers.has(task.taskId);
     return {
       id: task.taskId,

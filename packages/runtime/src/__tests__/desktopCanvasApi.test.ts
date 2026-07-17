@@ -478,9 +478,9 @@ describe("desktop task canvas API", () => {
       "default",
       duplicated.canvasId
     ]);
-    expect(loaded.manifest.canvases.find((canvas) => canvas.id === duplicated.canvasId)?.title).toBe(
-      "Legacy duplicate"
-    );
+    expect(
+      loaded.manifest.canvases.find((canvas) => canvas.id === duplicated.canvasId)?.title
+    ).toBe("Legacy duplicate");
     expect(duplicatedManifest.project.title).toBe("Legacy duplicate");
     await expect(
       readFile(

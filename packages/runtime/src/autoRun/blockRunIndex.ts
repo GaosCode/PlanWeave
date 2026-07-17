@@ -11,28 +11,34 @@ import type { PackageWorkspaceRef } from "../types.js";
 const PAGE_SIZE = 64;
 const indexDirectoryName = ".planweave-task-workspace-run-index";
 const pointerSchema = z.object({ version: z.literal(3), generation: z.string().min(1) }).strict();
-const entrySchema = z.object({
-  runId: z.string().min(1),
-  retryIndex: z.number().int().positive(),
-  orderedAt: z.string().datetime({ offset: true }),
-  stableIdentity: z.string().min(1),
-  hasArtifact: z.boolean()
-}).strict();
-const manifestSchema = z.object({
-  version: z.literal(3),
-  generation: z.string().min(1),
-  pageSize: z.literal(PAGE_SIZE),
-  total: z.number().int().nonnegative(),
-  headPage: z.number().int().nonnegative(),
-  head: entrySchema.nullable(),
-  latestArtifact: entrySchema.nullable()
-}).strict();
-const pageSchema = z.object({
-  version: z.literal(3),
-  generation: z.string().min(1),
-  page: z.number().int().positive(),
-  entries: z.array(entrySchema).max(PAGE_SIZE)
-}).strict();
+const entrySchema = z
+  .object({
+    runId: z.string().min(1),
+    retryIndex: z.number().int().positive(),
+    orderedAt: z.string().datetime({ offset: true }),
+    stableIdentity: z.string().min(1),
+    hasArtifact: z.boolean()
+  })
+  .strict();
+const manifestSchema = z
+  .object({
+    version: z.literal(3),
+    generation: z.string().min(1),
+    pageSize: z.literal(PAGE_SIZE),
+    total: z.number().int().nonnegative(),
+    headPage: z.number().int().nonnegative(),
+    head: entrySchema.nullable(),
+    latestArtifact: entrySchema.nullable()
+  })
+  .strict();
+const pageSchema = z
+  .object({
+    version: z.literal(3),
+    generation: z.string().min(1),
+    page: z.number().int().positive(),
+    entries: z.array(entrySchema).max(PAGE_SIZE)
+  })
+  .strict();
 
 type Manifest = z.infer<typeof manifestSchema>;
 type Snapshot = { generation: string; manifest: Manifest };
@@ -79,11 +85,15 @@ async function readSnapshot(runRoot: string): Promise<Snapshot | null> {
   const raw = JSON.parse(text) as unknown;
   const pointer = pointerSchema.safeParse(raw);
   if (!pointer.success) {
-    throw new Error(`Block run index at '${runRoot}' uses an obsolete or invalid generation contract; run 'planweave run-index migrate'.`);
+    throw new Error(
+      `Block run index at '${runRoot}' uses an obsolete or invalid generation contract; run 'planweave run-index migrate'.`
+    );
   }
   const manifest = await readParsed(manifestPath(runRoot, pointer.data.generation), manifestSchema);
   if (!manifest || manifest.generation !== pointer.data.generation) {
-    throw new Error(`Block run index generation '${pointer.data.generation}' is incomplete at '${runRoot}'.`);
+    throw new Error(
+      `Block run index generation '${pointer.data.generation}' is incomplete at '${runRoot}'.`
+    );
   }
   return { generation: pointer.data.generation, manifest };
 }
@@ -157,20 +167,25 @@ async function writeSnapshot(
 function blockRefFromRunRoot(runRoot: string): string {
   const blockId = basename(dirname(runRoot));
   const taskId = basename(dirname(dirname(dirname(runRoot))));
-  if (!taskId || !blockId) throw new Error(`Cannot derive block identity from run root '${runRoot}'.`);
+  if (!taskId || !blockId)
+    throw new Error(`Cannot derive block identity from run root '${runRoot}'.`);
   return `${taskId}#${blockId}`;
 }
 
-async function readRunFacts(runRoot: string, runId: string): Promise<{
+async function readRunFacts(
+  runRoot: string,
+  runId: string
+): Promise<{
   orderedAt: string;
   stableIdentity: string;
   hasArtifact: boolean;
 }> {
   const runDir = join(runRoot, runId);
   const metadataText = await optionalReadFile(join(runDir, "metadata.json"), "utf8");
-  const metadata = metadataText === null
-    ? null
-    : z.record(z.string(), z.unknown()).parse(JSON.parse(metadataText) as unknown);
+  const metadata =
+    metadataText === null
+      ? null
+      : z.record(z.string(), z.unknown()).parse(JSON.parse(metadataText) as unknown);
   const candidates = [metadata?.startedAt, metadata?.submittedAt, metadata?.finishedAt];
   let orderedAt: string | null = null;
   for (const candidate of candidates) {
@@ -188,12 +203,13 @@ async function readRunFacts(runRoot: string, runId: string): Promise<{
       orderedAt = new Date(stat.mtimeMs).toISOString();
     }
   }
-  const ref = typeof metadata?.ref === "string" && metadata.ref !== ""
-    ? metadata.ref
-    : blockRefFromRunRoot(runRoot);
-  const hasArtifact = Boolean(
-    await optionalStat(join(runDir, "report.md"))
-  ) || Boolean(metadata?.artifactReference && typeof metadata.artifactReference === "object");
+  const ref =
+    typeof metadata?.ref === "string" && metadata.ref !== ""
+      ? metadata.ref
+      : blockRefFromRunRoot(runRoot);
+  const hasArtifact =
+    Boolean(await optionalStat(join(runDir, "report.md"))) ||
+    Boolean(metadata?.artifactReference && typeof metadata.artifactReference === "object");
   return { orderedAt, stableIdentity: `${ref}::${runId}`, hasArtifact };
 }
 
@@ -241,7 +257,10 @@ export async function rebuildBlockRunIndex(
 ): Promise<void> {
   await mkdir(runRoot, { recursive: true });
   await withAdvisoryDirectoryLock(
-    { lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"), operation: "rebuild-block-run-index" },
+    {
+      lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"),
+      operation: "rebuild-block-run-index"
+    },
     () => migrateExistingRuns(runRoot, options)
   );
 }
@@ -252,7 +271,10 @@ export async function initializeBlockRunIndex(
 ): Promise<void> {
   await mkdir(runRoot, { recursive: true });
   await withAdvisoryDirectoryLock(
-    { lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"), operation: "initialize-block-run-index" },
+    {
+      lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"),
+      operation: "initialize-block-run-index"
+    },
     async () => {
       if (!(await readSnapshot(runRoot))) await migrateExistingRuns(runRoot, options);
     }
@@ -266,7 +288,10 @@ export async function recordBlockRunInIndex(
 ): Promise<void> {
   await mkdir(runRoot, { recursive: true });
   await withAdvisoryDirectoryLock(
-    { lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"), operation: "record-block-run-index" },
+    {
+      lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"),
+      operation: "record-block-run-index"
+    },
     async () => {
       let snapshot = await readSnapshot(runRoot);
       if (!snapshot) {
@@ -285,7 +310,9 @@ export async function recordBlockRunInIndex(
 
 export async function requireBlockRunIndex(runRoot: string): Promise<void> {
   if (!(await readSnapshot(runRoot))) {
-    throw new Error(`Task Workspace run index is missing at '${runRoot}'. Create or migrate the index before querying history.`);
+    throw new Error(
+      `Task Workspace run index is missing at '${runRoot}'. Create or migrate the index before querying history.`
+    );
   }
 }
 
@@ -366,7 +393,9 @@ export async function readBlockRunIndexEntry(
 ): Promise<BlockRunIndexEntry> {
   const snapshot = await readSnapshot(runRoot);
   if (!snapshot) throw new Error(`Block run index is missing at '${runRoot}'.`);
-  const entry = (await readAllEntries(runRoot, snapshot)).find((candidate) => candidate.runId === runId);
+  const entry = (await readAllEntries(runRoot, snapshot)).find(
+    (candidate) => candidate.runId === runId
+  );
   if (!entry) throw new Error(`Run '${runId}' is missing from the block run index.`);
   return entry;
 }
@@ -377,7 +406,10 @@ export async function recordBlockRunArtifactInIndex(
   options: BlockRunIndexWriteOptions = {}
 ): Promise<void> {
   await withAdvisoryDirectoryLock(
-    { lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"), operation: "record-block-run-artifact-index" },
+    {
+      lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"),
+      operation: "record-block-run-artifact-index"
+    },
     async () => {
       const snapshot = await readSnapshot(runRoot);
       if (!snapshot) throw new Error(`Block run index is missing at '${runRoot}'.`);
@@ -393,7 +425,10 @@ export async function recordBlockRunArtifactInIndex(
 
 export async function removeBlockRunFromIndex(runRoot: string, runId: string): Promise<void> {
   await withAdvisoryDirectoryLock(
-    { lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"), operation: "remove-block-run-index" },
+    {
+      lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"),
+      operation: "remove-block-run-index"
+    },
     async () => {
       let snapshot = await readSnapshot(runRoot);
       if (!snapshot) {
@@ -403,7 +438,10 @@ export async function removeBlockRunFromIndex(runRoot: string, runId: string): P
       if (!snapshot) throw new Error(`Block run index is missing at '${runRoot}'.`);
       const entries = await readAllEntries(runRoot, snapshot);
       if (!entries.some((entry) => entry.runId === runId)) return;
-      await writeSnapshot(runRoot, entries.filter((entry) => entry.runId !== runId));
+      await writeSnapshot(
+        runRoot,
+        entries.filter((entry) => entry.runId !== runId)
+      );
     }
   );
 }

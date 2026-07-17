@@ -367,7 +367,11 @@ export async function consumeAcpPromptRunRecord(
       resolveClosed(preferred);
       return;
     }
-    if (underlying.status === "fulfilled" && underlying.value && typeof underlying.value === "object") {
+    if (
+      underlying.status === "fulfilled" &&
+      underlying.value &&
+      typeof underlying.value === "object"
+    ) {
       resolveClosed(underlying.value);
       return;
     }

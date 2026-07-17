@@ -76,9 +76,7 @@ describe("Task Workspace live duration selectors", () => {
         wallClockMs: 3_000
       }
     ];
-    expect(
-      selectTaskWallClockTotalMs({ activeRecordIds: ["r1"], runs }, nowMs)
-    ).toBe(8_000);
+    expect(selectTaskWallClockTotalMs({ activeRecordIds: ["r1"], runs }, nowMs)).toBe(8_000);
     expect(selectAgentTimeTotalMs(runs, nowMs)).toEqual({
       totalMs: 11_000,
       includedRunCount: 2,

@@ -34,10 +34,9 @@ describe("useSharedResourceHighlight", () => {
   });
 
   it("increments the transition epoch when active members change", async () => {
-    const { result, rerender } = renderHook(
-      ({ graph }) => useSharedResourceHighlight(graph),
-      { initialProps: { graph: graphWithActiveRefs([]) } }
-    );
+    const { result, rerender } = renderHook(({ graph }) => useSharedResourceHighlight(graph), {
+      initialProps: { graph: graphWithActiveRefs([]) }
+    });
 
     rerender({ graph: graphWithActiveRefs(["T-ALPHA#B-001"]) });
 

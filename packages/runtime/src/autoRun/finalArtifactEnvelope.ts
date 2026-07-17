@@ -8,7 +8,9 @@ const implementationArtifactSchema = z
     kind: z.literal("implementation"),
     ref: z.string().min(1),
     taskId: z.string().min(1),
-    reportMarkdown: z.string().refine((value) => value.trim().length > 0, "Report must not be blank.")
+    reportMarkdown: z
+      .string()
+      .refine((value) => value.trim().length > 0, "Report must not be blank.")
   })
   .strict();
 
@@ -39,7 +41,9 @@ const feedbackArtifactSchema = z
     feedbackId: z.string().min(1),
     sourceReviewBlockRef: z.string().min(1),
     taskId: z.string().min(1),
-    reportMarkdown: z.string().refine((value) => value.trim().length > 0, "Report must not be blank.")
+    reportMarkdown: z
+      .string()
+      .refine((value) => value.trim().length > 0, "Report must not be blank.")
   })
   .strict();
 

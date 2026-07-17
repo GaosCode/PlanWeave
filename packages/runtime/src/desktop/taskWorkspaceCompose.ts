@@ -1,7 +1,4 @@
-import {
-  taskWorkspaceSchema,
-  type TaskWorkspace
-} from "./types/taskWorkspaceAggregateTypes.js";
+import { taskWorkspaceSchema, type TaskWorkspace } from "./types/taskWorkspaceAggregateTypes.js";
 import type { TaskWorkspaceRunListItem } from "./types/taskWorkspaceQueryTypes.js";
 import { projectTaskWorkspaceDuration } from "./taskWorkspaceDurationProjection.js";
 
@@ -19,9 +16,7 @@ export function composeTaskWorkspaceRuns(
     byBlock.set(item.blockRef, list);
   }
   const preferredSelected =
-    workspace.selectedRecordId ??
-    items.find((item) => item.selected)?.run.record.recordId ??
-    null;
+    workspace.selectedRecordId ?? items.find((item) => item.selected)?.run.record.recordId ?? null;
   const blocks = workspace.blocks.map((block) => {
     const blockItems = (byBlock.get(block.ref) ?? []).slice().sort((left, right) => {
       const byRetry = left.retryIndex - right.retryIndex;

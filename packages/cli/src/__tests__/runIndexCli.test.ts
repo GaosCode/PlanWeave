@@ -22,7 +22,8 @@ describe("run-index CLI canvas scope", () => {
     expect(active.canvases.map((canvas) => canvas.canvasId)).toEqual(["default"]);
 
     const selected = JSON.parse(
-      (await runCli([...rootArgs, "run-index", "migrate", "--canvas", "secondary", "--json"], env)).stdout
+      (await runCli([...rootArgs, "run-index", "migrate", "--canvas", "secondary", "--json"], env))
+        .stdout
     ) as { canvases: Array<{ canvasId: string }> };
     expect(selected.canvases.map((canvas) => canvas.canvasId)).toEqual(["secondary"]);
 

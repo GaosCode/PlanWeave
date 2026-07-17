@@ -553,7 +553,9 @@ setInterval(() => {}, 100);
 
       const heartbeat = executorHeartbeatPath(stdoutPath);
       await expect(
-        readFile(heartbeat, "utf8").then((content) => JSON.parse(content) as Record<string, unknown>)
+        readFile(heartbeat, "utf8").then(
+          (content) => JSON.parse(content) as Record<string, unknown>
+        )
       ).resolves.toMatchObject({
         status: "finished",
         timedOut: true,

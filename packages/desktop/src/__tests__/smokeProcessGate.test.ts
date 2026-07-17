@@ -1,10 +1,7 @@
 import { EventEmitter } from "node:events";
 import { spawn, type ChildProcess } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import {
-  assertSmokeProcess,
-  waitForSmokeProcess
-} from "../../scripts/smokeProcessGate.js";
+import { assertSmokeProcess, waitForSmokeProcess } from "../../scripts/smokeProcessGate.js";
 
 describe("desktop smoke process hard gate", () => {
   it("settles within the hard budget when a process tree ignores SIGTERM and holds stdout", async () => {

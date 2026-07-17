@@ -30,12 +30,12 @@ describe("desktop smoke failure gate", () => {
       })
     ].join("\n");
     expect(smokeOutputFailure(output)).toContain("injected");
-    expect(
-      smokeOutputFailure(JSON.stringify({ event: "PLANWEAVE_DESKTOP_LOAD_FAILED" }))
-    ).toBe("PLANWEAVE_DESKTOP_LOAD_FAILED");
-    expect(
-      smokeOutputFailure(JSON.stringify({ event: "PLANWEAVE_DESKTOP_RENDERER_GONE" }))
-    ).toBe("PLANWEAVE_DESKTOP_RENDERER_GONE");
+    expect(smokeOutputFailure(JSON.stringify({ event: "PLANWEAVE_DESKTOP_LOAD_FAILED" }))).toBe(
+      "PLANWEAVE_DESKTOP_LOAD_FAILED"
+    );
+    expect(smokeOutputFailure(JSON.stringify({ event: "PLANWEAVE_DESKTOP_RENDERER_GONE" }))).toBe(
+      "PLANWEAVE_DESKTOP_RENDERER_GONE"
+    );
   });
 
   it("ignores ordinary renderer console output and malformed lines", () => {

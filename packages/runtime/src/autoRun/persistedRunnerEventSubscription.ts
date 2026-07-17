@@ -147,11 +147,7 @@ export function subscribePersistedRunnerEvents(options: {
       return;
     }
     if (diagnostics.some((diagnostic) => diagnostic.code === "identity_mismatch")) {
-      close(
-        "not_subscribable",
-        "Persisted runner event identity changed while subscribed.",
-        false
-      );
+      close("not_subscribable", "Persisted runner event identity changed while subscribed.", false);
       return;
     }
     if (replay.terminal) close("terminal", undefined, false);

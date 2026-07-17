@@ -73,7 +73,9 @@ export class CanvasMapLayoutError extends Error {
     }));
     const detail =
       issues.length > 0
-        ? issues.map((issue) => (issue.path ? `${issue.path}: ${issue.message}` : issue.message)).join("; ")
+        ? issues
+            .map((issue) => (issue.path ? `${issue.path}: ${issue.message}` : issue.message))
+            .join("; ")
         : error.message;
     return new CanvasMapLayoutError({
       code: "canvas_map_layout_invalid",
@@ -93,7 +95,11 @@ export class CanvasMapLayoutError extends Error {
     });
   }
 
-  static projectMismatch(filePath: string, fileProjectId: string, expectedProjectId: string): CanvasMapLayoutError {
+  static projectMismatch(
+    filePath: string,
+    fileProjectId: string,
+    expectedProjectId: string
+  ): CanvasMapLayoutError {
     return new CanvasMapLayoutError({
       code: "canvas_map_layout_project_mismatch",
       path: filePath,

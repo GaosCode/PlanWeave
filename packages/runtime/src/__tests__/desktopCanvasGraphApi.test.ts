@@ -424,7 +424,9 @@ describe("desktop canvas graph API", () => {
       { canvasId: "default", x: 11, y: 22 },
       { canvasId: secondCanvas.canvasId, x: 460, y: 80 }
     ]);
-    await expect(readFile(layoutPath, "utf8")).resolves.toBe(`${JSON.stringify(onDisk, null, 2)}\n`);
+    await expect(readFile(layoutPath, "utf8")).resolves.toBe(
+      `${JSON.stringify(onDisk, null, 2)}\n`
+    );
   });
 
   it("rejects save input with non-finite coordinates, project mismatch, or non-ISO updatedAt without writing", async () => {
@@ -496,7 +498,9 @@ describe("desktop canvas graph API", () => {
       .mockRejectedValueOnce(new Error("projection unavailable"));
 
     await expect(resetCanvasMapLayout(root)).rejects.toThrow("projection unavailable");
-    await expect(readFile(layoutPath, "utf8")).resolves.toBe(`${JSON.stringify(onDisk, null, 2)}\n`);
+    await expect(readFile(layoutPath, "utf8")).resolves.toBe(
+      `${JSON.stringify(onDisk, null, 2)}\n`
+    );
     spy.mockRestore();
   });
 
@@ -560,7 +564,9 @@ describe("desktop canvas graph API", () => {
     releaseFirstResolve();
     await Promise.all([first, second]);
 
-    await expect(readJsonFile<{ nodes: Array<{ x: number; y: number }> }>(layoutPath)).resolves.toMatchObject({
+    await expect(
+      readJsonFile<{ nodes: Array<{ x: number; y: number }> }>(layoutPath)
+    ).resolves.toMatchObject({
       nodes: [{ x: 20, y: 20 }]
     });
   });

@@ -281,10 +281,7 @@ describe("TaskWorkspaceTimeline", () => {
       timelineWidth: 280
     };
     const { rerender } = render(
-      <TaskWorkspaceTimeline
-        {...props}
-        workspace={timelineWorkspaceFixture([originalBlock])}
-      />
+      <TaskWorkspaceTimeline {...props} workspace={timelineWorkspaceFixture([originalBlock])} />
     );
     const selectedOption = screen.getByRole("option", { name: "B-001 run 200" });
     selectedOption.focus();
@@ -299,10 +296,7 @@ describe("TaskWorkspaceTimeline", () => {
       runs: [...newerRuns, ...originalRuns]
     });
     rerender(
-      <TaskWorkspaceTimeline
-        {...props}
-        workspace={timelineWorkspaceFixture([expandedBlock])}
-      />
+      <TaskWorkspaceTimeline {...props} workspace={timelineWorkspaceFixture([expandedBlock])} />
     );
 
     const anchored = await screen.findByRole("option", { name: "B-001 run 200" });
@@ -328,10 +322,7 @@ describe("TaskWorkspaceTimeline", () => {
       timelineWidth: 280
     };
     const { rerender } = render(
-      <TaskWorkspaceTimeline
-        {...props}
-        workspace={timelineWorkspaceFixture([firstBlock])}
-      />
+      <TaskWorkspaceTimeline {...props} workspace={timelineWorkspaceFixture([firstBlock])} />
     );
     screen.getAllByRole("option")[0]!.focus();
 
@@ -466,8 +457,9 @@ describe("TaskWorkspaceTimeline", () => {
     );
     const selectedReviewOption = screen.getByRole("button", { name: /Review attempt/i });
     expect(selectedReviewOption).toHaveTextContent("Review passed.");
-    expect(selectedReviewOption.querySelector("[data-testid='task-workspace-annotation-preview']"))
-      .toHaveClass("max-h-10", "overflow-hidden", "[-webkit-line-clamp:2]");
+    expect(
+      selectedReviewOption.querySelector("[data-testid='task-workspace-annotation-preview']")
+    ).toHaveClass("max-h-10", "overflow-hidden", "[-webkit-line-clamp:2]");
     expect(screen.getByTestId("task-workspace-overview-entry")).not.toHaveAttribute("aria-current");
 
     fireEvent.click(screen.getByRole("button", { name: /Feedback run/i }));
@@ -495,9 +487,7 @@ describe("TaskWorkspaceTimeline", () => {
       "aria-pressed",
       "true"
     );
-    expect(screen.getByTestId("task-workspace-overview-entry")).not.toHaveAttribute(
-      "aria-current"
-    );
+    expect(screen.getByTestId("task-workspace-overview-entry")).not.toHaveAttribute("aria-current");
 
     rerender(
       <TaskWorkspaceTimeline

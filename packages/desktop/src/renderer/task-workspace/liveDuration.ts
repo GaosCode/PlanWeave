@@ -95,23 +95,21 @@ export function selectAgentTimeTotalMs(
   return { totalMs, includedRunCount, missingRunCount };
 }
 
-export function collectWorkspaceRunDurationInputs(
-  workspace: {
-    activeRecordIds: readonly string[];
-    blocks: readonly {
-      runs: readonly {
-        active: boolean;
-        run: {
-          duration: {
-            finishedAt: string | null;
-            startedAt: string | null;
-            wallClockMs: number | null;
-          };
+export function collectWorkspaceRunDurationInputs(workspace: {
+  activeRecordIds: readonly string[];
+  blocks: readonly {
+    runs: readonly {
+      active: boolean;
+      run: {
+        duration: {
+          finishedAt: string | null;
+          startedAt: string | null;
+          wallClockMs: number | null;
         };
-      }[];
+      };
     }[];
-  }
-): LiveTaskWallClockInput {
+  }[];
+}): LiveTaskWallClockInput {
   const runs = workspace.blocks.flatMap((block) =>
     block.runs.map((item) => ({
       active: item.active,

@@ -30,8 +30,7 @@ export async function withCanvasLock<T>(
   options?: WithCanvasLockOptions
 ): Promise<T> {
   const provided = options?.operation?.trim();
-  const operation =
-    provided && provided.length > 0 ? provided : DEFAULT_CANVAS_LOCK_OPERATION;
+  const operation = provided && provided.length > 0 ? provided : DEFAULT_CANVAS_LOCK_OPERATION;
 
   return withAdvisoryDirectoryLock(
     {

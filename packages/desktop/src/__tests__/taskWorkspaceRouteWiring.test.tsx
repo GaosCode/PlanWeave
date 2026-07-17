@@ -92,10 +92,7 @@ describe("Task Workspace route wiring", () => {
     expect(
       await screen.findByRole("heading", { name: "taskWorkspaceLoading" })
     ).toBeInTheDocument();
-    expect(screen.getByTestId("task-workspace-loading-state")).toHaveAttribute(
-      "aria-busy",
-      "true"
-    );
+    expect(screen.getByTestId("task-workspace-loading-state")).toHaveAttribute("aria-busy", "true");
     expect(screen.getAllByText("taskWorkspaceLoading")).toHaveLength(1);
     expect(screen.queryByTestId("graph-route")).not.toBeInTheDocument();
     expect(container.querySelector(".app-drag-region")).toBeInTheDocument();

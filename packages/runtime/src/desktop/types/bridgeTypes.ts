@@ -294,9 +294,7 @@ export type DesktopBridgeApi = {
   getTaskDetail(ref: DesktopCanvasReference, taskId: string): Promise<DesktopTaskDetail>;
   getTaskWorkspace(input: TaskWorkspaceInput): Promise<TaskWorkspace>;
   listTaskWorkspaceRuns(input: TaskWorkspaceListRunsInput): Promise<TaskWorkspaceRunsPage>;
-  getTaskWorkspaceRunDetail(
-    input: TaskWorkspaceRunDetailInput
-  ): Promise<TaskWorkspaceRunDetail>;
+  getTaskWorkspaceRunDetail(input: TaskWorkspaceRunDetailInput): Promise<TaskWorkspaceRunDetail>;
   retryTaskWorkspaceRun(identity: TaskWorkspaceRetryIdentity): Promise<DesktopAutoRunState>;
   getBlockDetail(ref: DesktopCanvasReference, blockRef: string): Promise<DesktopBlockDetail>;
   getTaskExecutionOrder(

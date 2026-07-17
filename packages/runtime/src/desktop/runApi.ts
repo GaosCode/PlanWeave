@@ -148,9 +148,7 @@ async function setState(
     data,
     buildSessionSummary: buildAutoRunSessionSummary,
     mutate: (authority) =>
-      shouldApply(authority)
-        ? withExplanation({ ...authority, ...patch, updatedAt: now() })
-        : null
+      shouldApply(authority) ? withExplanation({ ...authority, ...patch, updatedAt: now() }) : null
   });
   runs.set(runId, mutation.state);
   if (mutation.applied && mutation.eventType) {
@@ -767,9 +765,7 @@ export async function stopAutoRun(runId: string): Promise<DesktopAutoRunState> {
     }
     const loopOperation = runLoopOperations.get(runId);
     runAbortControllers.get(runId)?.abort(new Error("Desktop Auto Run stopped."));
-    const killed = isInFlightAutoRunPhase(latest.phase)
-      ? await killTmuxSessionsForRun(runId)
-      : [];
+    const killed = isInFlightAutoRunPhase(latest.phase) ? await killTmuxSessionsForRun(runId) : [];
     await shutdownDesktopAgentRun(runId, "Desktop Auto Run stopped.");
     let stopped: DesktopAutoRunState | undefined;
     let terminalError: unknown;
@@ -965,12 +961,9 @@ export async function getLatestAutoRunSummaryWithDiagnostics(
   // Targeted recover for known latest (covers race where directory list lagged)
   for (const runId of recoveryTargets) {
     try {
-      const rec = await recoverPendingTransition(
-        workspace,
-        runId,
-        (rid) => runs.get(rid) ?? null,
-        { buildSessionSummary: buildAutoRunSessionSummary }
-      );
+      const rec = await recoverPendingTransition(workspace, runId, (rid) => runs.get(rid) ?? null, {
+        buildSessionSummary: buildAutoRunSessionSummary
+      });
       if (rec.recovered && rec.authorityState) {
         runs.set(runId, rec.authorityState);
       }

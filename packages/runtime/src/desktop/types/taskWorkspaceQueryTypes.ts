@@ -45,9 +45,7 @@ export const taskWorkspaceRunsCursorSchema = z
         code: z.ZodIssueCode.custom,
         path: ["recordId"],
         message:
-          error instanceof Error
-            ? error.message
-            : `Cursor recordId '${value.recordId}' is invalid.`
+          error instanceof Error ? error.message : `Cursor recordId '${value.recordId}' is invalid.`
       });
     }
   });

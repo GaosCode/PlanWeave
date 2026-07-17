@@ -138,9 +138,12 @@ function errorText(error: unknown): string {
 /** Attach process-tree termination failure while preserving the primary timeout/limit/cancel error. */
 export function withProcessTreeTerminationCause(primary: Error, terminationError: unknown): Error {
   const termMessage = errorText(terminationError);
-  const combined = new Error(`${primary.message} (process tree termination failed: ${termMessage})`, {
-    cause: terminationError
-  });
+  const combined = new Error(
+    `${primary.message} (process tree termination failed: ${termMessage})`,
+    {
+      cause: terminationError
+    }
+  );
   combined.name = primary.name;
   return combined;
 }
@@ -294,9 +297,7 @@ export async function nextRunId(runRoot: string): Promise<string> {
 }
 
 /** Reserve a RUN-* directory atomically via exclusive mkdir. */
-export async function allocateRunId(
-  runRoot: string
-): Promise<string> {
+export async function allocateRunId(runRoot: string): Promise<string> {
   await mkdir(runRoot, { recursive: true });
   for (let attempt = 1; attempt <= 1000; attempt++) {
     const existing = await optionalReaddir(runRoot, { withFileTypes: true });
@@ -747,11 +748,13 @@ export async function execWithStreaming(options: {
       return new Error(fallbackMessage);
     };
 
-    const finishStreamsAndHeartbeat = async (getOutcome: () => {
-      status: "finished" | "failed";
-      exitCode: number;
-      error: string | null;
-    }): Promise<void> => {
+    const finishStreamsAndHeartbeat = async (
+      getOutcome: () => {
+        status: "finished" | "failed";
+        exitCode: number;
+        error: string | null;
+      }
+    ): Promise<void> => {
       if (!streamsClosed) {
         await Promise.all([
           finishWriteStream(stdoutStream),

@@ -10,9 +10,7 @@ export function now(): string {
 }
 
 export function cloneAutoRunState(state: DesktopAutoRunState): DesktopAutoRunState {
-  const endTime = isInFlightAutoRunPhase(state.phase)
-    ? Date.now()
-    : Date.parse(state.updatedAt);
+  const endTime = isInFlightAutoRunPhase(state.phase) ? Date.now() : Date.parse(state.updatedAt);
   return {
     ...state,
     elapsedMs: Math.max(0, endTime - Date.parse(state.startedAt)),
