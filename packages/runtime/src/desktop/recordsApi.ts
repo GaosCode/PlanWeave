@@ -31,11 +31,10 @@ import { readFeedbackArtifact } from "../taskManager/feedbackArtifacts.js";
 import type {
   ExecutorIntegrationName,
   PackageWorkspaceRef,
-  PlanPackageManifest,
   ProjectWorkspace,
-  ReviewVerdict,
-  RuntimeState
+  ReviewVerdict
 } from "../types.js";
+import type { RuntimeContext } from "../taskManager/runtimeContext.js";
 import {
   acpPromptReadOptions,
   consumeAcpPromptRunRecord,
@@ -605,14 +604,9 @@ const taskFeedbackRunMetadataSchema = z
   })
   .passthrough();
 
-type TaskFeedbackPackageSnapshot = {
-  workspace: ProjectWorkspace;
-  manifest: PlanPackageManifest;
-};
+type TaskFeedbackPackageSnapshot = Pick<RuntimeContext, "workspace" | "manifest">;
 
-type TaskFeedbackStateSnapshot = TaskFeedbackPackageSnapshot & {
-  state: RuntimeState;
-};
+type TaskFeedbackStateSnapshot = Pick<RuntimeContext, "workspace" | "manifest" | "rawState">;
 
 function taskFeedbackScopeFromSnapshot(
   snapshot: TaskFeedbackPackageSnapshot,
@@ -719,7 +713,7 @@ export async function listTaskFeedbackRecords(
   return listTaskFeedbackRecordsFromSnapshot(
     {
       ...snapshot,
-      state: await readState(snapshot.workspace.stateFile)
+      rawState: await readState(snapshot.workspace.stateFile)
     },
     canvasId,
     taskId
@@ -734,7 +728,7 @@ export async function listTaskFeedbackRecordsFromSnapshot(
   const scope = taskFeedbackScopeFromSnapshot(snapshot, canvasId, taskId);
   const { taskIds, workspace } = scope;
   const records = await Promise.all(
-    Object.entries(snapshot.state.feedback).map(async ([feedbackId, feedback]) => {
+    Object.entries(snapshot.rawState.feedback).map(async ([feedbackId, feedback]) => {
       const sourceTaskId = parseBlockRef(feedback.sourceReviewBlockRef).taskId;
       if (sourceTaskId === scope.taskId) {
         const artifactPath = join(

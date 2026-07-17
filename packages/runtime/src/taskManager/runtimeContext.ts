@@ -15,6 +15,9 @@ export type RuntimeContext = {
   workspace: ProjectWorkspace;
   manifest: PlanPackageManifest;
   graph: CompiledExecutionGraph;
+  /** Schema-validated state file before manifest reconciliation. */
+  rawState: RuntimeState;
+  /** Runtime state reconciled to the loaded manifest. */
   state: RuntimeState;
 };
 
@@ -48,7 +51,7 @@ async function loadRuntimeContext(options: RuntimeOptions): Promise<{
   const rawState = await readState(workspace.stateFile);
   const derivedState = ensureStateForManifest(manifest, rawState);
   return {
-    context: { workspace, manifest, graph, state: derivedState },
+    context: { workspace, manifest, graph, rawState, state: derivedState },
     rawState,
     derivedState
   };

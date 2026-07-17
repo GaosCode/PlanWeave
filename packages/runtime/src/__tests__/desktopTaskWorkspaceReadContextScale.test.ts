@@ -25,6 +25,7 @@ import * as packageLoader from "../package/loadPackage.js";
 import * as planGraphRepository from "../plangraph/packageRepository.js";
 import * as projectGraphLoader from "../projectGraph/loadProjectGraph.js";
 import * as projectGraphAggregation from "../projectGraph/runtimeAggregation.js";
+import * as stateStore from "../state.js";
 import * as executionStatus from "../taskManager/executionStatus.js";
 import * as projectGraphClaimGuard from "../taskManager/projectGraphClaimGuard.js";
 import * as runtimeContext from "../taskManager/runtimeContext.js";
@@ -42,6 +43,7 @@ type ExpensiveCallCounts = {
   contextFactory: number;
   session: number;
   runtime: number;
+  stateRead: number;
   packageLoad: number;
   compile: number;
   taskCompile: number;
@@ -100,6 +102,7 @@ async function measureWorkspaceRequest(blockCount: number): Promise<ExpensiveCal
   const contextFactory = vi.spyOn(taskWorkspaceReadContext, "createTaskWorkspaceReadContext");
   const session = vi.spyOn(graphSession, "createExecutionGraphSession");
   const runtime = vi.spyOn(runtimeContext, "loadRuntimeReadonly");
+  const stateRead = vi.spyOn(stateStore, "readState");
   const packageLoad = vi.spyOn(packageLoader, "loadPackage");
   const compileTaskGraph = vi.spyOn(taskGraphCompiler, "compileTaskGraph");
   const compilePackageGraph = vi.spyOn(taskGraphCompiler, "compilePackageGraph");
@@ -135,6 +138,7 @@ async function measureWorkspaceRequest(blockCount: number): Promise<ExpensiveCal
     contextFactory: contextFactory.mock.calls.length,
     session: session.mock.calls.length,
     runtime: runtime.mock.calls.length,
+    stateRead: stateRead.mock.calls.length,
     packageLoad: packageLoad.mock.calls.length,
     compile: compilePackageGraph.mock.calls.length,
     taskCompile: compileTaskGraph.mock.calls.length,
@@ -158,6 +162,7 @@ describe("Task Workspace read-context scaling", () => {
       contextFactory: 1,
       session: 1,
       runtime: 1,
+      stateRead: 1,
       packageLoad: 1,
       compile: 1,
       taskCompile: 1,
@@ -190,6 +195,7 @@ describe("Task Workspace read-context scaling", () => {
     const contextFactory = vi.spyOn(taskWorkspaceReadContext, "createTaskWorkspaceReadContext");
     const session = vi.spyOn(graphSession, "createExecutionGraphSession");
     const runtime = vi.spyOn(runtimeContext, "loadRuntimeReadonly");
+    const stateRead = vi.spyOn(stateStore, "readState");
     const packageLoad = vi.spyOn(packageLoader, "loadPackage");
     const compileTaskGraph = vi.spyOn(taskGraphCompiler, "compileTaskGraph");
     const compilePackageGraph = vi.spyOn(taskGraphCompiler, "compilePackageGraph");
@@ -207,6 +213,7 @@ describe("Task Workspace read-context scaling", () => {
       contextFactory,
       session,
       runtime,
+      stateRead,
       packageLoad,
       compileTaskGraph,
       compilePackageGraph,
