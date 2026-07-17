@@ -10,10 +10,10 @@ import { optionalStat } from "../fs/optionalFile.js";
 import { buildBlockDetailsForTask, buildTaskDetail } from "./graph/readModel.js";
 import {
   getReviewAttempts,
-  getRunRecord,
+  getRunRecordFromWorkspace,
   getRunRecordIndexEntryFromWorkspace,
-  listTaskFeedbackRecords,
-  listTaskFeedbackRunRecords,
+  listTaskFeedbackRecordsFromSnapshot,
+  listTaskFeedbackRunRecordsFromSnapshot,
   runIndexAsProjectionRecord,
   type DesktopRunRecordIndexEntry,
   blockRunRoot
@@ -466,8 +466,8 @@ export async function getTaskWorkspace(
 
   // Feedback annotations use metadata/path index only — never stdout/stderr content.
   const [taskFeedbackRunSummaries, taskFeedbackRecords] = await Promise.all([
-    listTaskFeedbackRunRecords(input.projectRoot, input.canvasId, input.taskId),
-    listTaskFeedbackRecords(input.projectRoot, input.canvasId, input.taskId)
+    listTaskFeedbackRunRecordsFromSnapshot(readContext.runtime, input.canvasId, input.taskId),
+    listTaskFeedbackRecordsFromSnapshot(readContext.runtime, input.canvasId, input.taskId)
   ]);
   for (const source of [...taskFeedbackRunSummaries, ...taskFeedbackRecords]) {
     const detail = detailsByRef.get(source.sourceReviewBlockRef ?? "");
@@ -776,7 +776,7 @@ export async function getTaskWorkspaceRunDetail(
   const [taskDetail, blockDetails, record, hasActiveAutoRun] = await Promise.all([
     buildTaskDetail(readContext, input.taskId),
     buildBlockDetailsForTask(readContext, input.taskId),
-    getRunRecord(workspace, input.recordId),
+    getRunRecordFromWorkspace(workspace, input.recordId),
     hasNonTerminalAutoRunForTarget(input.projectRoot, input.canvasId)
   ]);
   const detailsByRef = new Map(blockDetails.map((detail) => [detail.ref, detail]));
@@ -814,7 +814,11 @@ export async function getTaskWorkspaceRunDetail(
     retryIndex = blockIndexEntry.retryIndex;
   } else {
     const feedbackRuns = (
-      await listTaskFeedbackRunRecords(input.projectRoot, input.canvasId, input.taskId)
+      await listTaskFeedbackRunRecordsFromSnapshot(
+        readContext.runtime,
+        input.canvasId,
+        input.taskId
+      )
     )
       .filter((summary) => summary.feedbackId === parsed.feedbackId)
       .reverse();

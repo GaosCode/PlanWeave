@@ -36,8 +36,12 @@ async function loadRuntimeContext(options: RuntimeOptions): Promise<{
   rawState: RuntimeState;
   derivedState: RuntimeState;
 }> {
-  const { workspace, manifest: packageManifest } = await loadPackage(options.projectRoot);
   const session = options.session ?? (await createExecutionGraphSession(options.projectRoot));
+  const loadedPackage =
+    options.session && typeof options.projectRoot !== "string"
+      ? { workspace: options.projectRoot, manifest: session.fileSnapshot.manifest }
+      : await loadPackage(options.projectRoot);
+  const { workspace, manifest: packageManifest } = loadedPackage;
   await drainGraphReadQueue(session);
   const manifest = options.session ? session.fileSnapshot.manifest : packageManifest;
   const graph = session.graph;

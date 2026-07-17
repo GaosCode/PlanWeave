@@ -89,6 +89,12 @@ describe("Task Workspace read-context snapshot", () => {
     const promptPath = join(init.workspace.packageDir, "nodes/T-001/blocks/B-001.prompt.md");
     await rename(promptPath, `${promptPath}.before-request`);
     const context = await createTaskWorkspaceReadContext({ projectRoot: root });
+    expect(
+      context.planGraphPackage.promptReadFailuresByPath.get("nodes/T-001/blocks/B-001.prompt.md")
+    ).toEqual({
+      kind: "missing",
+      path: "nodes/T-001/blocks/B-001.prompt.md"
+    });
 
     await writeFile(promptPath, "# created after request snapshot\n", "utf8");
 
@@ -106,21 +112,17 @@ describe("Task Workspace read-context snapshot", () => {
     expect((await buildBlockDetail(nextContext, "T-001#B-001")).promptHash).not.toBe("");
   });
 
-  it("keeps a failed prompt read missing until a later request recovers it", async () => {
+  it("propagates a failed prompt read and allows a later request to recover", async () => {
     const { root, init } = await createTestWorkspace(basicManifest());
     const promptPath = join(init.workspace.packageDir, "nodes/T-001/blocks/B-001.prompt.md");
     await rename(promptPath, `${promptPath}.before-failure`);
     await mkdir(promptPath);
-    const context = await createTaskWorkspaceReadContext({ projectRoot: root });
+    await expect(createTaskWorkspaceReadContext({ projectRoot: root })).rejects.toMatchObject({
+      code: "EISDIR"
+    });
 
     await rename(promptPath, `${promptPath}.failed-directory`);
     await writeFile(promptPath, "# recovered after request snapshot\n", "utf8");
-
-    await expect(buildBlockDetail(context, "T-001#B-001")).resolves.toMatchObject({
-      promptMarkdown: "",
-      promptHash: "",
-      promptMissing: true
-    });
 
     const nextContext = await createTaskWorkspaceReadContext({ projectRoot: root });
     const recovered = await buildBlockDetail(nextContext, "T-001#B-001");

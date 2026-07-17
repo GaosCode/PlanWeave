@@ -31,8 +31,10 @@ import { readFeedbackArtifact } from "../taskManager/feedbackArtifacts.js";
 import type {
   ExecutorIntegrationName,
   PackageWorkspaceRef,
+  PlanPackageManifest,
   ProjectWorkspace,
-  ReviewVerdict
+  ReviewVerdict,
+  RuntimeState
 } from "../types.js";
 import {
   acpPromptReadOptions,
@@ -603,16 +605,42 @@ const taskFeedbackRunMetadataSchema = z
   })
   .passthrough();
 
-async function resolveTaskFeedbackScope(projectRoot: string, canvasId: string, taskId: string) {
+type TaskFeedbackPackageSnapshot = {
+  workspace: ProjectWorkspace;
+  manifest: PlanPackageManifest;
+};
+
+type TaskFeedbackStateSnapshot = TaskFeedbackPackageSnapshot & {
+  state: RuntimeState;
+};
+
+function taskFeedbackScopeFromSnapshot(
+  snapshot: TaskFeedbackPackageSnapshot,
+  canvasId: string,
+  taskId: string
+) {
   const parsedCanvasId = canvasIdSchema.parse(canvasId);
   const parsedTaskId = taskIdSchema.parse(taskId);
-  const workspace = await resolveTaskCanvasWorkspace(projectRoot, parsedCanvasId);
-  const { manifest } = await loadPackage(workspace);
-  const taskIds = new Set(manifest.nodes.map((node) => node.id));
+  const taskIds = new Set(snapshot.manifest.nodes.map((node) => node.id));
   if (!taskIds.has(parsedTaskId)) {
     throw new Error(`Task '${parsedTaskId}' does not exist in canvas '${parsedCanvasId}'.`);
   }
-  return { canvasId: parsedCanvasId, taskId: parsedTaskId, taskIds, workspace };
+  return {
+    canvasId: parsedCanvasId,
+    taskId: parsedTaskId,
+    taskIds,
+    workspace: snapshot.workspace
+  };
+}
+
+async function resolveTaskFeedbackPackageSnapshot(
+  projectRoot: string,
+  canvasId: string
+): Promise<TaskFeedbackPackageSnapshot> {
+  const parsedCanvasId = canvasIdSchema.parse(canvasId);
+  const workspace = await resolveTaskCanvasWorkspace(projectRoot, parsedCanvasId);
+  const { manifest } = await loadPackage(workspace);
+  return { workspace, manifest };
 }
 
 export async function listTaskFeedbackRunRecords(
@@ -620,7 +648,19 @@ export async function listTaskFeedbackRunRecords(
   canvasId: string,
   taskId: string
 ): Promise<DesktopBlockRunRecordSummary[]> {
-  const scope = await resolveTaskFeedbackScope(projectRoot, canvasId, taskId);
+  return listTaskFeedbackRunRecordsFromSnapshot(
+    await resolveTaskFeedbackPackageSnapshot(projectRoot, canvasId),
+    canvasId,
+    taskId
+  );
+}
+
+export async function listTaskFeedbackRunRecordsFromSnapshot(
+  snapshot: TaskFeedbackPackageSnapshot,
+  canvasId: string,
+  taskId: string
+): Promise<DesktopBlockRunRecordSummary[]> {
+  const scope = taskFeedbackScopeFromSnapshot(snapshot, canvasId, taskId);
   const { workspace } = scope;
   const runIds = await listFeedbackRunIds(workspace.resultsDir);
   const records = await Promise.all(
@@ -675,11 +715,26 @@ export async function listTaskFeedbackRecords(
   canvasId: string,
   taskId: string
 ): Promise<DesktopFeedbackRecord[]> {
-  const scope = await resolveTaskFeedbackScope(projectRoot, canvasId, taskId);
+  const snapshot = await resolveTaskFeedbackPackageSnapshot(projectRoot, canvasId);
+  return listTaskFeedbackRecordsFromSnapshot(
+    {
+      ...snapshot,
+      state: await readState(snapshot.workspace.stateFile)
+    },
+    canvasId,
+    taskId
+  );
+}
+
+export async function listTaskFeedbackRecordsFromSnapshot(
+  snapshot: TaskFeedbackStateSnapshot,
+  canvasId: string,
+  taskId: string
+): Promise<DesktopFeedbackRecord[]> {
+  const scope = taskFeedbackScopeFromSnapshot(snapshot, canvasId, taskId);
   const { taskIds, workspace } = scope;
-  const state = await readState(workspace.stateFile);
   const records = await Promise.all(
-    Object.entries(state.feedback).map(async ([feedbackId, feedback]) => {
+    Object.entries(snapshot.state.feedback).map(async ([feedbackId, feedback]) => {
       const sourceTaskId = parseBlockRef(feedback.sourceReviewBlockRef).taskId;
       if (sourceTaskId === scope.taskId) {
         const artifactPath = join(
@@ -743,8 +798,15 @@ export async function getRunRecord(
   projectRoot: PackageWorkspaceRef,
   recordId: string
 ): Promise<DesktopRunRecord> {
-  const parsed = parseRunRecordId(recordId);
   const { workspace } = await loadPackage(projectRoot);
+  return getRunRecordFromWorkspace(workspace, recordId);
+}
+
+export async function getRunRecordFromWorkspace(
+  workspace: ProjectWorkspace,
+  recordId: string
+): Promise<DesktopRunRecord> {
+  const parsed = parseRunRecordId(recordId);
   const summary =
     parsed.kind === "block"
       ? await runRecordSummary({

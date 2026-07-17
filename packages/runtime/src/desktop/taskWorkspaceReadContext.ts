@@ -1,9 +1,13 @@
+import { resolve } from "node:path";
 import { createExecutionGraphSession } from "../graph/session.js";
 import {
   loadPlanGraphPackage,
   type LoadedPlanGraphPackage
 } from "../plangraph/packageRepository.js";
-import { loadProjectCanvasRuntimeAggregation } from "../projectGraph/runtimeAggregation.js";
+import {
+  loadProjectCanvasRuntimeAggregation,
+  runtimeSnapshotFromGraphState
+} from "../projectGraph/runtimeAggregation.js";
 import {
   createPromptSourceReader,
   type PromptSourceReader
@@ -44,10 +48,28 @@ async function createTaskWorkspaceReadContext(options: {
   }
   const session = options.session ?? (await createExecutionGraphSession(workspace));
   const runtime = await loadRuntimeReadonly({ projectRoot: workspace, session });
-  const projectAggregation = await loadProjectCanvasRuntimeAggregation(workspace);
+  const projectAggregation = await loadProjectCanvasRuntimeAggregation(workspace, {
+    runtimeSnapshotsByPackageDir: new Map([
+      [resolve(workspace.packageDir), runtimeSnapshotFromGraphState(runtime.graph, runtime.state)]
+    ]),
+    packageSnapshotsByPackageDir: new Map([
+      [resolve(workspace.packageDir), { manifest: runtime.manifest, graph: runtime.graph }]
+    ])
+  });
   const claimGuard = createProjectGraphClaimGuardFromAggregation(runtime, projectAggregation);
   const status = await buildExecutionStatus(runtime, { claimGuard });
-  const planGraphPackage = await loadPlanGraphPackage(workspace);
+  const planGraphPackage = await loadPlanGraphPackage(workspace, {
+    snapshot: {
+      workspace,
+      manifest: runtime.manifest,
+      compiledGraph: runtime.graph
+    }
+  });
+  for (const failure of planGraphPackage.promptReadFailuresByPath.values()) {
+    if (failure.kind === "read_error") {
+      throw failure.error;
+    }
+  }
   const promptSourceReader = createPromptSourceReader(workspace);
   const promptPolicy = await promptSourceReader.readProjectPromptPolicy();
   await Promise.all([

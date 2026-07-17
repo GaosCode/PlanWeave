@@ -9,7 +9,7 @@ import type {
   TaskStatus,
   ValidationIssue
 } from "../types.js";
-import { compileProjectGraph } from "./compileProjectGraph.js";
+import { compileProjectGraph, type ProjectCanvasPackageSnapshot } from "./compileProjectGraph.js";
 import { loadProjectGraph, loadProjectGraphForWorkspace } from "./loadProjectGraph.js";
 import { projectCanvasWorkspace } from "./projectGraphWorkspace.js";
 import type {
@@ -48,6 +48,8 @@ type ProjectCanvasRuntimeAggregationOptions = {
     workspace: ProjectWorkspace,
     canvasId: string
   ) => Promise<ProjectCanvasRuntimeSnapshot>;
+  runtimeSnapshotsByPackageDir?: ReadonlyMap<string, ProjectCanvasRuntimeSnapshot>;
+  packageSnapshotsByPackageDir?: ReadonlyMap<string, ProjectCanvasPackageSnapshot>;
 };
 
 function emptyRuntimeSnapshot(): ProjectCanvasRuntimeSnapshot {
@@ -129,7 +131,9 @@ export async function loadProjectCanvasRuntimeAggregation(
     typeof projectRootOrWorkspace === "string"
       ? await loadProjectGraph(projectRootOrWorkspace)
       : await loadProjectGraphForWorkspace(projectRootOrWorkspace);
-  const graph = await compileProjectGraph(loaded);
+  const graph = await compileProjectGraph(loaded, {
+    packageSnapshotsByPackageDir: options.packageSnapshotsByPackageDir
+  });
   const orderedCanvasIds = projectCanvasExecutionOrder(graph);
   const notes = [
     "Project graph dependencies gate ready queues; canvases without upstream blockers may run in parallel.",
@@ -159,10 +163,9 @@ export async function loadProjectCanvasRuntimeAggregation(
     }
     let runtimeSnapshot = emptyRuntimeSnapshot();
     try {
-      runtimeSnapshot = await (options.loadRuntimeSnapshot ?? canvasRuntimeSnapshot)(
-        workspace,
-        canvasId
-      );
+      runtimeSnapshot =
+        options.runtimeSnapshotsByPackageDir?.get(resolve(workspace.packageDir)) ??
+        (await (options.loadRuntimeSnapshot ?? canvasRuntimeSnapshot)(workspace, canvasId));
     } catch (caught) {
       notes.push(
         `Error: ${canvasId}: ${caught instanceof Error ? caught.message : String(caught)}`

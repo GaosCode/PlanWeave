@@ -1,6 +1,12 @@
+import { resolve } from "node:path";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
-import type { PlanPackageManifest, ProjectWorkspace, ValidationIssue } from "../types.js";
+import type {
+  CompiledExecutionGraph,
+  PlanPackageManifest,
+  ProjectWorkspace,
+  ValidationIssue
+} from "../types.js";
 import { findCycle, reachable } from "./graphAlgorithms.js";
 import {
   parseProjectTaskRefKey,
@@ -98,14 +104,25 @@ type CanvasReadResult = {
   error?: ValidationIssue;
 };
 
+export type ProjectCanvasPackageSnapshot = {
+  manifest: PlanPackageManifest;
+  graph: CompiledExecutionGraph;
+};
+
+type CompileProjectGraphOptions = {
+  packageSnapshotsByPackageDir?: ReadonlyMap<string, ProjectCanvasPackageSnapshot>;
+};
+
 async function readCanvasPackage(
   projectWorkspace: ProjectWorkspace,
-  canvas: ProjectCanvasNode
+  canvas: ProjectCanvasNode,
+  options: CompileProjectGraphOptions
 ): Promise<CanvasReadResult> {
   try {
-    const packageManifest = (await loadPackage(projectCanvasWorkspace(projectWorkspace, canvas)))
-      .manifest;
-    const graph = compileTaskGraph(packageManifest);
+    const workspace = projectCanvasWorkspace(projectWorkspace, canvas);
+    const snapshot = options.packageSnapshotsByPackageDir?.get(resolve(workspace.packageDir));
+    const packageManifest = snapshot?.manifest ?? (await loadPackage(workspace)).manifest;
+    const graph = snapshot?.graph ?? compileTaskGraph(packageManifest);
     const taskIdsInManifestOrder = [...graph.taskNodesInManifestOrder];
     return {
       canvas,
@@ -129,7 +146,8 @@ async function readCanvasPackage(
 }
 
 export async function compileProjectGraph(
-  loaded: LoadedProjectGraph
+  loaded: LoadedProjectGraph,
+  options: CompileProjectGraphOptions = {}
 ): Promise<CompiledProjectGraph> {
   const { workspace, manifest, source } = loaded;
   const errors: ValidationIssue[] = [];
@@ -213,7 +231,7 @@ export async function compileProjectGraph(
 
   const taskIdsByCanvas = new Map<string, Set<string>>();
   const canvasPackageResults = await Promise.all(
-    manifest.canvases.map((canvas) => readCanvasPackage(workspace, canvas))
+    manifest.canvases.map((canvas) => readCanvasPackage(workspace, canvas, options))
   );
   for (const result of canvasPackageResults) {
     if (result.error) {

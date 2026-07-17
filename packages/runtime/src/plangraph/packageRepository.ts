@@ -7,7 +7,12 @@ import { loadPackage } from "../package/loadPackage.js";
 import { buildPlanGraph } from "./domain/buildPlanGraph.js";
 import { promptPreview, sha256Hex, stableJson } from "./hash.js";
 import type { PlanPackageGraphMutation } from "../graph/mutation.js";
-import type { PackageWorkspaceRef, PlanPackageManifest, ProjectWorkspace } from "../types.js";
+import type {
+  CompiledExecutionGraph,
+  PackageWorkspaceRef,
+  PlanPackageManifest,
+  ProjectWorkspace
+} from "../types.js";
 import type { PlanGraphCommandDiagnostic } from "./commands.js";
 import type { PlanGraph, PromptIndexEntry } from "./domain/types.js";
 
@@ -16,7 +21,41 @@ export type LoadedPlanGraphPackage = {
   manifest: PlanPackageManifest;
   graph: PlanGraph;
   promptMarkdownByPath: Map<string, string>;
+  promptReadFailuresByPath: Map<string, PlanGraphPromptReadFailure>;
 };
+
+export type PlanGraphPromptReadFailure =
+  | { kind: "missing"; path: string }
+  | { kind: "read_error"; path: string; error: Error };
+
+export type PlanGraphPackageSnapshot = {
+  workspace: ProjectWorkspace;
+  manifest: PlanPackageManifest;
+  compiledGraph: CompiledExecutionGraph;
+};
+
+type PromptReadFailureResult = {
+  diagnostic: PlanGraphCommandDiagnostic;
+  failure: PlanGraphPromptReadFailure;
+};
+
+function promptReadFailure(packagePath: string, error: unknown): PromptReadFailureResult {
+  const readableError =
+    error instanceof Error
+      ? error
+      : new Error(`Prompt '${packagePath}' could not be read: ${String(error)}`);
+  const missing = "code" in readableError && readableError.code === "ENOENT";
+  return {
+    diagnostic: {
+      code: "prompt_read_failed",
+      message: readableError.message,
+      path: packagePath
+    },
+    failure: missing
+      ? { kind: "missing", path: packagePath }
+      : { kind: "read_error", path: packagePath, error: readableError }
+  };
+}
 
 function blockRef(taskId: string, blockId: string): string {
   return `${taskId}#${blockId}`;
@@ -27,9 +66,7 @@ async function readPromptEntry(options: {
   ownerKind: "task" | "block";
   ownerRef: string;
   packagePath: string;
-}): Promise<
-  { entry: PromptIndexEntry; markdown: string } | { diagnostic: PlanGraphCommandDiagnostic }
-> {
+}): Promise<{ entry: PromptIndexEntry; markdown: string } | PromptReadFailureResult> {
   try {
     const absolutePath = await resolvePackagePath(options.packageDir, options.packagePath);
     const markdown = await readFile(absolutePath, "utf8");
@@ -44,16 +81,7 @@ async function readPromptEntry(options: {
       }
     };
   } catch (error) {
-    return {
-      diagnostic: {
-        code: "prompt_read_failed",
-        message:
-          error instanceof Error
-            ? error.message
-            : `Prompt '${options.packagePath}' could not be read.`,
-        path: options.packagePath
-      }
-    };
+    return promptReadFailure(options.packagePath, error);
   }
 }
 
@@ -63,11 +91,13 @@ async function readPromptIndex(
 ): Promise<{
   promptIndex: Map<string, PromptIndexEntry>;
   promptMarkdownByPath: Map<string, string>;
+  promptReadFailuresByPath: Map<string, PlanGraphPromptReadFailure>;
   diagnostics: PlanGraphCommandDiagnostic[];
 }> {
   const promptIndex = new Map<string, PromptIndexEntry>();
   const promptMarkdownByPath = new Map<string, string>();
   const diagnostics: PlanGraphCommandDiagnostic[] = [];
+  const promptReadFailuresByPath = new Map<string, PlanGraphPromptReadFailure>();
 
   for (const node of manifest.nodes) {
     if (node.type !== "task") {
@@ -84,6 +114,7 @@ async function readPromptIndex(
       promptMarkdownByPath.set(node.prompt, taskPrompt.markdown);
     } else {
       diagnostics.push(taskPrompt.diagnostic);
+      promptReadFailuresByPath.set(node.prompt, taskPrompt.failure);
     }
 
     for (const block of node.blocks) {
@@ -99,11 +130,12 @@ async function readPromptIndex(
         promptMarkdownByPath.set(block.prompt, blockPrompt.markdown);
       } else {
         diagnostics.push(blockPrompt.diagnostic);
+        promptReadFailuresByPath.set(block.prompt, blockPrompt.failure);
       }
     }
   }
 
-  return { promptIndex, promptMarkdownByPath, diagnostics };
+  return { promptIndex, promptMarkdownByPath, promptReadFailuresByPath, diagnostics };
 }
 
 async function readPromptMetadataEntry(options: {
@@ -111,7 +143,7 @@ async function readPromptMetadataEntry(options: {
   ownerKind: "task" | "block";
   ownerRef: string;
   packagePath: string;
-}): Promise<{ entry: PromptIndexEntry } | { diagnostic: PlanGraphCommandDiagnostic }> {
+}): Promise<{ entry: PromptIndexEntry } | PromptReadFailureResult> {
   try {
     const absolutePath = await resolvePackagePath(options.packageDir, options.packagePath);
     const metadata = await stat(absolutePath);
@@ -132,16 +164,7 @@ async function readPromptMetadataEntry(options: {
       }
     };
   } catch (error) {
-    return {
-      diagnostic: {
-        code: "prompt_read_failed",
-        message:
-          error instanceof Error
-            ? error.message
-            : `Prompt '${options.packagePath}' could not be read.`,
-        path: options.packagePath
-      }
-    };
+    return promptReadFailure(options.packagePath, error);
   }
 }
 
@@ -150,10 +173,12 @@ async function readPromptMetadataIndex(
   packageDir: string
 ): Promise<{
   promptIndex: Map<string, PromptIndexEntry>;
+  promptReadFailuresByPath: Map<string, PlanGraphPromptReadFailure>;
   diagnostics: PlanGraphCommandDiagnostic[];
 }> {
   const promptIndex = new Map<string, PromptIndexEntry>();
   const diagnostics: PlanGraphCommandDiagnostic[] = [];
+  const promptReadFailuresByPath = new Map<string, PlanGraphPromptReadFailure>();
 
   for (const node of manifest.nodes) {
     if (node.type !== "task") {
@@ -169,6 +194,7 @@ async function readPromptMetadataIndex(
       promptIndex.set(node.prompt, taskPrompt.entry);
     } else {
       diagnostics.push(taskPrompt.diagnostic);
+      promptReadFailuresByPath.set(node.prompt, taskPrompt.failure);
     }
 
     for (const block of node.blocks) {
@@ -183,11 +209,12 @@ async function readPromptMetadataIndex(
         promptIndex.set(block.prompt, blockPrompt.entry);
       } else {
         diagnostics.push(blockPrompt.diagnostic);
+        promptReadFailuresByPath.set(block.prompt, blockPrompt.failure);
       }
     }
   }
 
-  return { promptIndex, diagnostics };
+  return { promptIndex, promptReadFailuresByPath, diagnostics };
 }
 
 function packageFingerprint(
@@ -215,14 +242,23 @@ export function graphVersionFromPackageFingerprint(fingerprint: string): string 
 }
 
 export async function loadPlanGraphPackage(
-  projectRoot: PackageWorkspaceRef
+  projectRoot: PackageWorkspaceRef,
+  options: { snapshot?: PlanGraphPackageSnapshot } = {}
 ): Promise<LoadedPlanGraphPackage> {
+  if (options.snapshot) {
+    return loadPlanGraphPackageFromSnapshot(options.snapshot);
+  }
   const { workspace, manifest } = await loadPackage(projectRoot);
   const compiledGraph = await compilePackageGraph(manifest, workspace.packageDir);
-  const { promptIndex, promptMarkdownByPath, diagnostics } = await readPromptIndex(
-    manifest,
-    workspace.packageDir
-  );
+  return loadPlanGraphPackageFromSnapshot({ workspace, manifest, compiledGraph });
+}
+
+export async function loadPlanGraphPackageFromSnapshot(
+  input: PlanGraphPackageSnapshot
+): Promise<LoadedPlanGraphPackage> {
+  const { workspace, manifest, compiledGraph } = input;
+  const { promptIndex, promptMarkdownByPath, promptReadFailuresByPath, diagnostics } =
+    await readPromptIndex(manifest, workspace.packageDir);
   const fingerprint = `pkg-${packageFingerprint(manifest, promptMarkdownByPath)}`;
   const graph = buildPlanGraph({
     manifest,
@@ -232,7 +268,7 @@ export async function loadPlanGraphPackage(
     promptIndex,
     diagnostics
   });
-  return { workspace, manifest, graph, promptMarkdownByPath };
+  return { workspace, manifest, graph, promptMarkdownByPath, promptReadFailuresByPath };
 }
 
 export async function loadPlanGraphPackageMetadata(
@@ -242,7 +278,7 @@ export async function loadPlanGraphPackageMetadata(
   const compiledGraph = await compilePackageGraph(manifest, workspace.packageDir, {
     validatePromptContents: false
   });
-  const { promptIndex, diagnostics } = await readPromptMetadataIndex(
+  const { promptIndex, promptReadFailuresByPath, diagnostics } = await readPromptMetadataIndex(
     manifest,
     workspace.packageDir
   );
@@ -255,7 +291,13 @@ export async function loadPlanGraphPackageMetadata(
     promptIndex,
     diagnostics
   });
-  return { workspace, manifest, graph, promptMarkdownByPath: new Map() };
+  return {
+    workspace,
+    manifest,
+    graph,
+    promptMarkdownByPath: new Map(),
+    promptReadFailuresByPath
+  };
 }
 
 export async function commitPlanGraphPackageMutation(options: {
