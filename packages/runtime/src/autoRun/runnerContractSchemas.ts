@@ -228,7 +228,7 @@ export const runnerSessionActionIdentitySchema = z
   .object({
     scope: z.string().min(1).max(4_096),
     executorRunId: executorRunIdSchema,
-    desktopRunId: desktopRunIdSchema,
+    desktopRunId: desktopRunIdSchema.nullable(),
     runSessionId: runSessionIdSchema,
     claimRef: claimRefSchema,
     sessionId: acpSessionIdSchema

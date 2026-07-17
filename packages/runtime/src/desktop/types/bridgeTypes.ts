@@ -60,6 +60,7 @@ import type {
   DesktopAgentSessionActionIdentity,
   DesktopAgentPromptIdentity,
   DesktopAgentActionValue,
+  AgentRunControlRespondOutcome,
   DesktopPendingAgentRequest,
   DesktopRunnerRecordSubscriptionInput,
   DesktopRunnerRecordSubscriptionStart,
@@ -456,6 +457,12 @@ export type DesktopBridgeApi = {
     identity: DesktopAgentActionIdentity
   ): Promise<DesktopPendingAgentRequest[]>;
   respondToAgentRequest(
+    ref: DesktopCanvasReference,
+    recordId: string,
+    identity: DesktopAgentActionIdentity,
+    outcome: AgentRunControlRespondOutcome
+  ): Promise<void>;
+  respondToAgentAuthenticationRequest(
     identity: DesktopAgentActionIdentity,
     value: DesktopAgentActionValue
   ): Promise<void>;
@@ -468,7 +475,11 @@ export type DesktopBridgeApi = {
     decision: RunnerPermissionInteractionDecision,
     audit: RunnerInteractionAudit
   ): Promise<RespondToRunnerInteractionResult>;
-  cancelAgentRun(identity: DesktopAgentSessionActionIdentity): Promise<void>;
+  cancelAgentRun(
+    ref: DesktopCanvasReference,
+    recordId: string,
+    identity: DesktopAgentSessionActionIdentity
+  ): Promise<void>;
   sendAgentPrompt(identity: DesktopAgentPromptIdentity, text: string): Promise<void>;
   startAutoRun(
     ref: DesktopCanvasReference,

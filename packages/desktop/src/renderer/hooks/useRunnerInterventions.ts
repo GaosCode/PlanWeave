@@ -4,8 +4,8 @@ import {
   runnerInteractionIpcErrorSchema
 } from "@planweave-ai/runtime/browser";
 import type {
+  AgentRunControlRespondOutcome,
   DesktopAgentActionIdentity,
-  DesktopAgentActionValue,
   DesktopAgentSessionActionIdentity,
   DesktopBridgeApi,
   DesktopCanvasReference,
@@ -240,8 +240,8 @@ export function useRunnerInterventions(options: {
   );
 
   const respond = useCallback(
-    (identity: DesktopAgentActionIdentity, value: DesktopAgentActionValue) => {
-      if (!api?.respondToAgentRequest) {
+    (identity: DesktopAgentActionIdentity, outcome: AgentRunControlRespondOutcome) => {
+      if (!api?.respondToAgentRequest || !canvasRef || !recordId) {
         setActionError({
           code: "interaction_owner_unavailable",
           message: "Desktop ACP intervention bridge is unavailable.",
@@ -250,16 +250,16 @@ export function useRunnerInterventions(options: {
         return;
       }
       void execute(identityKey("request", identity), () =>
-        api.respondToAgentRequest!(identity, value)
+        api.respondToAgentRequest!(canvasRef, recordId, identity, outcome)
       );
     },
-    [api, execute]
+    [api, canvasRef, execute, recordId]
   );
 
   const respondPermission = useCallback(
     (identity: DesktopAgentActionIdentity | RunnerInteractionIdentity, optionId: string) => {
       if (isRunnerRecordLiveActionIdentity(identity)) {
-        respond(identity, optionId);
+        respond(identity, { kind: "select", optionId });
         return;
       }
       if (
@@ -302,7 +302,11 @@ export function useRunnerInterventions(options: {
   );
 
   const cancelPermission = useCallback(
-    (identity: RunnerInteractionIdentity) => {
+    (identity: DesktopAgentActionIdentity | RunnerInteractionIdentity) => {
+      if (isRunnerRecordLiveActionIdentity(identity)) {
+        respond(identity, { kind: "cancel" });
+        return;
+      }
       if (
         !api?.respondToRunnerInteraction ||
         !api.listPendingRunnerInteractions ||
@@ -341,12 +345,12 @@ export function useRunnerInterventions(options: {
         }
       );
     },
-    [api, canvasRef, execute, recordId]
+    [api, canvasRef, execute, recordId, respond]
   );
 
   const cancel = useCallback(
     (identity: DesktopAgentSessionActionIdentity) => {
-      if (!api?.cancelAgentRun) {
+      if (!api?.cancelAgentRun || !canvasRef || !recordId) {
         setActionError({
           code: "interaction_owner_unavailable",
           message: "Desktop ACP cancellation bridge is unavailable.",
@@ -354,9 +358,11 @@ export function useRunnerInterventions(options: {
         });
         return;
       }
-      void execute(identityKey("cancel", identity), () => api.cancelAgentRun!(identity));
+      void execute(identityKey("cancel", identity), () =>
+        api.cancelAgentRun!(canvasRef, recordId, identity)
+      );
     },
-    [api, execute]
+    [api, canvasRef, execute, recordId]
   );
 
   return {

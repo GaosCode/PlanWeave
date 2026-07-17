@@ -1,12 +1,23 @@
 import { cp, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { PersistentRunnerInteractionStore } from "../../../runtime/src/autoRun/runnerInteractionStore.js";
 import { writeJsonFile } from "../../../runtime/src/json.js";
+import { AgentRunControlOwnerProcess } from "../../../runtime/src/__tests__/support/agentRunControlProcessHarness.js";
 import { repoRoot, runCli, runCliExpectFailure } from "./support/cliTestHarness.js";
 
 const ownerLeaseId = "11111111-1111-4111-8111-111111111111";
+const owners = new Set<AgentRunControlOwnerProcess>();
+
+afterEach(async () => {
+  await Promise.all(
+    [...owners].map(async (owner) => {
+      owners.delete(owner);
+      await owner.terminate();
+    })
+  );
+});
 
 async function createPendingInteraction() {
   const home = await mkdtemp(join(tmpdir(), "planweave-interaction-cli-"));
@@ -31,6 +42,14 @@ async function createPendingInteraction() {
     ownerLeaseId,
     ownerGeneration: 1
   } as const;
+  const controlIdentity = {
+    scope: runDir,
+    executorRunId: identity.executorRunId,
+    desktopRunId: null,
+    runSessionId: "CLI-SESSION-001",
+    claimRef: identity.claimRef,
+    sessionId: identity.sessionId
+  };
   await writeJsonFile(join(runDir, "metadata.json"), {
     runnerKind: "acp",
     runId: identity.executorRunId,
@@ -42,7 +61,9 @@ async function createPendingInteraction() {
     ownerLeaseId,
     ownerGeneration: 1,
     status: "running",
-    desktopRunId: null
+    desktopRunId: controlIdentity.desktopRunId,
+    runSessionId: controlIdentity.runSessionId,
+    claimRef: controlIdentity.claimRef
   });
   await writeJsonFile(join(runDir, "heartbeat.json"), {
     status: "running",
@@ -67,6 +88,13 @@ async function createPendingInteraction() {
       { optionId: "reject_once", label: "Reject once", decision: "deny" }
     ]
   });
+  const { owner } = await AgentRunControlOwnerProcess.start(runDir, controlIdentity);
+  owners.add(owner);
+  owner.send({ kind: "add_request", requestKind: "permission", requestId: identity.requestId });
+  await owner.waitFor(
+    (message) => message.kind === "request_ready" && message.requestId === identity.requestId,
+    "CLI fixture permission request"
+  );
   return { env, identity, runDir };
 }
 
@@ -190,7 +218,9 @@ describe("interaction CLI commands", () => {
       ownerLeaseId,
       ownerGeneration: 1,
       status: "completed",
-      desktopRunId: null
+      desktopRunId: null,
+      runSessionId: "CLI-SESSION-001",
+      claimRef: terminal.identity.claimRef
     });
     const terminalFailure = await runCliExpectFailure(
       [...respondArgs(terminal.identity), "--cancel", "--reason", "run ended"],

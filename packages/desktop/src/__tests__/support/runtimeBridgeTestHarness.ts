@@ -287,6 +287,7 @@ const runtimeMock = vi.hoisted(() => {
     listDesktopPendingAgentRequests: vi.fn(async () => []),
     listPendingRunnerInteractions: vi.fn(async () => []),
     respondToDesktopAgentRequest: vi.fn(async () => undefined),
+    respondToDesktopAgentAuthenticationRequest: vi.fn(async () => undefined),
     respondToRunnerInteractionAction: vi.fn(async (_ref, action, decision, audit) => ({
       version: "planweave.runner-interaction-response-receipt/v1" as const,
       identity: {
@@ -419,6 +420,8 @@ vi.mock("@planweave-ai/runtime", async () => {
     listDesktopPendingAgentRequests: runtimeMock.listDesktopPendingAgentRequests,
     listPendingRunnerInteractions: runtimeMock.listPendingRunnerInteractions,
     respondToDesktopAgentRequest: runtimeMock.respondToDesktopAgentRequest,
+    respondToDesktopAgentAuthenticationRequest:
+      runtimeMock.respondToDesktopAgentAuthenticationRequest,
     respondToRunnerInteractionAction: runtimeMock.respondToRunnerInteractionAction,
     cancelDesktopAgentRun: runtimeMock.cancelDesktopAgentRun,
     listPendingImportRecoveries: runtimeMock.listPendingImportRecoveries,

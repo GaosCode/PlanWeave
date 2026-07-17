@@ -4,7 +4,7 @@ import {
   runnerSessionActionIdentitySchema
 } from "./runnerContractSchemas.js";
 import { utf8ByteLength } from "./runnerEventRedaction.js";
-import { runnerPermissionOptionIdSchema } from "./runnerInteractionContract.js";
+import { runnerPermissionInteractionDecisionSchema } from "./runnerInteractionContract.js";
 
 /**
  * Cross-process control is a transport to the current live owner, not a durable
@@ -103,7 +103,7 @@ const elicitationDeclinedOutcomeSchema = z.object({ action: z.literal("decline")
 const elicitationCancelledOutcomeSchema = z.object({ action: z.literal("cancel") }).strict();
 
 export const agentRunControlRespondOutcomeSchema = z.union([
-  runnerPermissionOptionIdSchema,
+  runnerPermissionInteractionDecisionSchema,
   elicitationAcceptedOutcomeSchema,
   elicitationDeclinedOutcomeSchema,
   elicitationCancelledOutcomeSchema

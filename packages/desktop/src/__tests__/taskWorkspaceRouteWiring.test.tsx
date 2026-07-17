@@ -173,7 +173,11 @@ describe("Task Workspace route wiring", () => {
     });
     await userEvent.click(stop);
     await waitFor(() =>
-      expect(cancelAgentRun).toHaveBeenCalledWith(model.intervention.cancel.identity)
+      expect(cancelAgentRun).toHaveBeenCalledWith(
+        { projectRoot: "/projects/demo", canvasId: "canvas-main" },
+        selectedRun.item.run.record.recordId,
+        model.intervention.cancel.identity
+      )
     );
   });
 

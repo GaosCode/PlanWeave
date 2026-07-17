@@ -1,5 +1,5 @@
 import type {
-  DesktopAgentActionValue,
+  AgentRunControlRespondOutcome,
   DesktopAgentSessionActionIdentity,
   DesktopBridgeApi,
   DesktopCanvasReference,
@@ -143,8 +143,9 @@ export function TaskWorkspaceInteractionCards({
             inFlight={interventions.requestInFlight(request.identity)}
             key={request.interactionId}
             onCancel={
-              persistedPermissionIdentity
-                ? () => interventions.cancelPermission(persistedPermissionIdentity)
+              request.kind === "permission" && (liveIdentity || persistedPermissionIdentity)
+                ? () =>
+                    interventions.cancelPermission(liveIdentity ?? persistedPermissionIdentity!)
                 : null
             }
             onElicitationRespond={
@@ -180,7 +181,7 @@ function InteractionCard({
   disabledReason: string | null;
   inFlight: boolean;
   onCancel: (() => void) | null;
-  onElicitationRespond: ((value: DesktopAgentActionValue) => void) | null;
+  onElicitationRespond: ((value: Extract<AgentRunControlRespondOutcome, { action: string }>) => void) | null;
   onPermissionRespond: ((optionId: string) => void) | null;
   request: InteractionRequest;
   t: ReturnType<typeof createTranslator>;

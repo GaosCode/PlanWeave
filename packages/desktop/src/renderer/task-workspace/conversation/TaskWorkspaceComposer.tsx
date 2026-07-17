@@ -26,6 +26,7 @@ type ComposerApi = Partial<
 export function TaskWorkspaceComposer({
   accessory,
   api = bridge,
+  canvasRef = null,
   cancelController,
   liveStatus,
   refresh,
@@ -35,6 +36,7 @@ export function TaskWorkspaceComposer({
 }: Omit<TaskWorkspaceComposerSlotProps, "workspace"> & {
   accessory?: ReactNode;
   api?: ComposerApi | null;
+  canvasRef?: import("@planweave-ai/runtime").DesktopCanvasReference | null;
   cancelController?: TaskWorkspaceCancelRunController;
   t: ReturnType<typeof createTranslator>;
 }) {
@@ -91,7 +93,12 @@ export function TaskWorkspaceComposer({
     );
   }
   return (
-    <TaskWorkspaceCancelRunControllerScope api={api} model={runnerModel} selectedRun={selectedRun}>
+    <TaskWorkspaceCancelRunControllerScope
+      api={api}
+      canvasRef={canvasRef}
+      model={runnerModel}
+      selectedRun={selectedRun}
+    >
       {(localCancelController) => (
         <AcpComposer
           accessory={actionAccessory}

@@ -87,9 +87,23 @@ describe("agent run control contract", () => {
         ...commandEnvelope(),
         kind: "respond",
         identity: requestIdentityFixture(),
-        outcome: "allow-once"
+        outcome: { kind: "select", optionId: "allow-once" }
       }).kind
     ).toBe("respond");
+    expect(
+      agentRunControlCommandSchema.parse({
+        ...commandEnvelope(),
+        kind: "cancel",
+        identity: { ...sessionIdentityFixture(), desktopRunId: null }
+      }).identity.desktopRunId
+    ).toBeNull();
+    expect(
+      agentRunControlCommandSchema.safeParse({
+        ...commandEnvelope(),
+        kind: "cancel",
+        identity: { ...sessionIdentityFixture(), desktopRunId: undefined }
+      }).success
+    ).toBe(false);
   });
 
   it("accepts bounded Unix and Windows endpoint descriptors", () => {
@@ -173,7 +187,7 @@ describe("agent run control contract", () => {
         ...commandEnvelope(),
         kind: "respond",
         identity: persistedMailboxIdentity,
-        outcome: "allow-once"
+        outcome: { kind: "select", optionId: "allow-once" }
       }).success
     ).toBe(false);
     expect(
@@ -188,7 +202,7 @@ describe("agent run control contract", () => {
         ...commandEnvelope(),
         kind: "respond",
         identity: { ...requestIdentityFixture(), requestId: undefined },
-        outcome: "allow-once"
+        outcome: { kind: "select", optionId: "allow-once" }
       }).success
     ).toBe(false);
   });
@@ -235,7 +249,8 @@ describe("agent run control contract", () => {
 
   it("accepts only supported permission and elicitation outcomes", () => {
     const outcomes = [
-      "allow-once",
+      { kind: "select", optionId: "allow-once" },
+      { kind: "cancel" },
       { action: "accept", content: { answer: "yes" } },
       { action: "decline" },
       { action: "cancel" }
@@ -252,6 +267,7 @@ describe("agent run control contract", () => {
     }
 
     for (const outcome of [
+      "allow-once",
       { outcome: "approved" },
       { outcome: "selected" },
       { outcome: "cancelled", optionId: "unexpected" },

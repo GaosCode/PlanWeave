@@ -1,15 +1,12 @@
-import { mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, rm, symlink } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AGENT_RUN_CONTROL_PROTOCOL_VERSION,
   agentRunControlLeaseIdSchema,
   type AgentRunControlAction
 } from "../autoRun/agentRunControlContract.js";
-import {
-  executeDesktopAgentRunControl,
-  executeDesktopAgentRunControlAtScope
-} from "../desktop/agentRunControlApi.js";
+import { executeDesktopAgentRunControl } from "../desktop/agentRunControlApi.js";
 import { desktopAgentRunControlResponseSchema } from "../desktop/types/agentRunControlTypes.js";
 import { writeJsonFile } from "../json.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
@@ -49,7 +46,11 @@ describe("desktop agent run control application API", () => {
   it.each([
     { kind: "cancel" as const },
     { kind: "follow_up" as const, prompt: "Continue with the verification." },
-    { kind: "respond" as const, requestId: "permission-1", outcome: "allow" }
+    {
+      kind: "respond" as const,
+      requestId: "permission-1",
+      outcome: { kind: "select" as const, optionId: "allow" }
+    }
   ])("resolves and executes the canonical $kind command", async (actionCase) => {
     const fixture = await applicationFixture();
     const action: AgentRunControlAction =
@@ -128,37 +129,61 @@ describe("desktop agent run control application API", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("validates canonical scope metadata before direct cancel routing", async () => {
+  it("rejects cross-canvas and arbitrary metadata routing before locator execution", async () => {
     const fixture = await applicationFixture();
-    const execute = vi.fn(async () => ({
-      version: AGENT_RUN_CONTROL_PROTOCOL_VERSION,
-      ok: true as const,
-      commandId,
-      acceptedAt: "2026-07-17T07:00:00.000Z",
-      ownerPid: 9876,
-      leaseId,
-      result: { status: "delivered" as const, deliveredAt: "2026-07-17T07:00:01.000Z" }
-    }));
+    const execute = vi.fn();
 
     await expect(
-      executeDesktopAgentRunControlAtScope(
-        { kind: "cancel", identity: fixture.identity },
+      executeDesktopAgentRunControl(
+        {
+          ref: { projectRoot: fixture.root, canvasId: "another-canvas" },
+          recordId: "T-001#B-001::RUN-001",
+          action: { kind: "cancel", identity: fixture.identity }
+        },
         { locator: { execute } }
       )
-    ).resolves.toMatchObject({ ok: true });
-    expect(execute).toHaveBeenCalledWith(fixture.runDir, {
-      kind: "cancel",
-      identity: fixture.identity
-    });
+    ).resolves.toMatchObject({ ok: false, code: "not_active" });
 
+    const arbitraryRunDir = join(fixture.root, "arbitrary-run");
+    await mkdir(arbitraryRunDir);
+    const arbitraryIdentity = { ...fixture.identity, scope: arbitraryRunDir };
+    await writeJsonFile(join(arbitraryRunDir, "metadata.json"), arbitraryIdentity);
     await expect(
-      executeDesktopAgentRunControlAtScope(
+      executeDesktopAgentRunControl(
         {
-          kind: "cancel",
-          identity: { ...fixture.identity, desktopRunId: "DESKTOP-RUN-OTHER" }
+          ref: { projectRoot: fixture.root, canvasId: "default" },
+          recordId: "T-001#B-001::RUN-001",
+          action: { kind: "cancel", identity: arbitraryIdentity }
         },
         { locator: { execute } }
       )
     ).resolves.toMatchObject({ ok: false, code: "invalid_identity" });
+    expect(execute).not.toHaveBeenCalled();
   });
+
+  it.runIf(process.platform !== "win32")(
+    "rejects a run reached through a parent-directory symlink",
+    async () => {
+      const fixture = await applicationFixture();
+      const execute = vi.fn();
+      const runsDir = dirname(fixture.runDir);
+      const externalRunsDir = join(fixture.root, "external-runs");
+      await rm(runsDir, { recursive: true });
+      await mkdir(join(externalRunsDir, "RUN-001"), { recursive: true });
+      await writeJsonFile(join(externalRunsDir, "RUN-001", "metadata.json"), fixture.identity);
+      await symlink(externalRunsDir, runsDir, "dir");
+
+      await expect(
+        executeDesktopAgentRunControl(
+          {
+            ref: { projectRoot: fixture.root, canvasId: "default" },
+            recordId: "T-001#B-001::RUN-001",
+            action: { kind: "cancel", identity: fixture.identity }
+          },
+          { locator: { execute } }
+        )
+      ).resolves.toMatchObject({ ok: false, code: "invalid_identity" });
+      expect(execute).not.toHaveBeenCalled();
+    }
+  );
 });

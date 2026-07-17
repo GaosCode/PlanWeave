@@ -20,8 +20,9 @@ import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import {
   assertDesktopAgentRunControlAccepted,
-  executeDesktopAgentRunControlAtScope
+  executeDesktopAgentRunControl
 } from "./agentRunControlApi.js";
+import type { AgentRunControlRespondOutcome } from "../autoRun/agentRunControlContract.js";
 import type { PackageWorkspaceRef, ProjectWorkspace, ValidationIssue } from "../types.js";
 import type {
   DesktopAutoRunEventLog,
@@ -396,21 +397,38 @@ export function listDesktopPendingAgentRequests(identity: ActiveAgentRunActionId
 }
 
 export function respondToDesktopAgentRequest(
+  ref: DesktopCanvasReference,
+  recordId: string,
+  identity: ActiveAgentRunActionIdentity,
+  outcome: AgentRunControlRespondOutcome
+): Promise<void> {
+  return executeDesktopAgentRunControl({
+    ref,
+    recordId,
+    action: { kind: "respond", identity, outcome }
+  }).then(assertDesktopAgentRunControlAccepted);
+}
+
+export function respondToDesktopAgentAuthenticationRequest(
   identity: ActiveAgentRunActionIdentity,
   value: JsonRpcValue
 ): Promise<void> {
-  if (identity.desktopRunId === undefined) {
-    return Promise.reject(new Error("Desktop interaction requires an exact desktopRunId."));
+  if (identity.desktopRunId == null) {
+    return Promise.reject(new Error("Desktop authentication requires an exact desktopRunId."));
   }
-  return activeAgentRunRegistry.respond(identity, value);
+  return activeAgentRunRegistry.respondAuthentication(identity, value);
 }
 
 export function cancelDesktopAgentRun(
+  ref: DesktopCanvasReference,
+  recordId: string,
   identity: ActiveAgentRunSessionActionIdentity
 ): Promise<void> {
-  return executeDesktopAgentRunControlAtScope({ kind: "cancel", identity }).then(
-    assertDesktopAgentRunControlAccepted
-  );
+  return executeDesktopAgentRunControl({
+    ref,
+    recordId,
+    action: { kind: "cancel", identity }
+  }).then(assertDesktopAgentRunControlAccepted);
 }
 
 function launchRunLoop(runId: string): void {

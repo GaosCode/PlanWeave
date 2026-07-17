@@ -79,6 +79,7 @@ import {
   resolveTaskCanvasWorkspace,
   resumeAutoRun,
   respondToDesktopAgentRequest,
+  respondToDesktopAgentAuthenticationRequest,
   respondToRunnerInteractionAction,
   sendAgentPrompt,
   rollbackPendingImportRecovery,
@@ -135,6 +136,7 @@ import {
   desktopAgentPromptTextSchema,
   desktopAgentSessionActionIdentitySchema,
   desktopAgentActionValueSchema,
+  agentRunControlRespondOutcomeSchema,
   runnerInteractionActionIdentitySchema,
   runnerInteractionAuditSchema,
   runnerInteractionCanvasRefSchema,
@@ -654,8 +656,15 @@ export const runtimeBridgeHandlers = {
       return listPendingRunnerInteractionsResultSchema.parse(runnerInteractionFailure(error));
     }
   },
-  respondToAgentRequest: (_event, identity, value) =>
+  respondToAgentRequest: (_event, ref, recordId, identity, outcome) =>
     respondToDesktopAgentRequest(
+      ref,
+      recordId,
+      desktopAgentActionIdentitySchema.parse(identity),
+      agentRunControlRespondOutcomeSchema.parse(outcome)
+    ),
+  respondToAgentAuthenticationRequest: (_event, identity, value) =>
+    respondToDesktopAgentAuthenticationRequest(
       desktopAgentActionIdentitySchema.parse(identity),
       desktopAgentActionValueSchema.parse(value)
     ),
@@ -674,8 +683,12 @@ export const runtimeBridgeHandlers = {
       return respondToRunnerInteractionResultSchema.parse(runnerInteractionFailure(error));
     }
   },
-  cancelAgentRun: (_event, identity) =>
-    cancelDesktopAgentRun(desktopAgentSessionActionIdentitySchema.parse(identity)),
+  cancelAgentRun: (_event, ref, recordId, identity) =>
+    cancelDesktopAgentRun(
+      ref,
+      recordId,
+      desktopAgentSessionActionIdentitySchema.parse(identity)
+    ),
   sendAgentPrompt: (_event, identity, text) =>
     sendAgentPrompt(
       desktopAgentPromptIdentitySchema.parse(identity),

@@ -159,6 +159,7 @@ export {
   pauseAutoRun,
   resetDesktopRuntimeState,
   respondToDesktopAgentRequest,
+  respondToDesktopAgentAuthenticationRequest,
   resumeAutoRun,
   shutdownDesktopAutoRuns,
   startAutoRun,

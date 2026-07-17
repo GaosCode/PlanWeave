@@ -128,7 +128,8 @@ function startEventStream(env: NodeJS.ProcessEnv) {
 }
 
 async function waitForRequired(
-  events: RunEvent[]
+  events: RunEvent[],
+  diagnostics: () => string
 ): Promise<Extract<RunEvent, { type: "interaction_required" }>> {
   const deadline = Date.now() + childTimeoutMs;
   while (Date.now() < deadline) {
@@ -139,7 +140,7 @@ async function waitForRequired(
     if (event) return event;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  throw new Error("Timed out waiting for interaction_required.");
+  throw new Error(`Timed out waiting for interaction_required. ${diagnostics()}`);
 }
 
 async function waitForFile(path: string): Promise<void> {
@@ -160,7 +161,10 @@ describe("run --event-stream", () => {
     const fixture = await initializeRun("permission-secret");
     const run = startEventStream(fixture.env);
     try {
-      const event = await waitForRequired(run.events);
+      const event = await waitForRequired(
+        run.events,
+        () => `exit=${String(run.child.exitCode)} stderr=${run.stderr()}`
+      );
       expect(run.child.exitCode).toBeNull();
       const selectedOption = event.interaction.options[0];
       if (!selectedOption) throw new Error("Expected an advertised permission option.");
@@ -185,7 +189,13 @@ describe("run --event-stream", () => {
               "--json"
             ],
             fixture.env
-          )
+          ).catch((error: unknown) => {
+            const failure = error as { stdout?: string; stderr?: string };
+            throw new Error(
+              `Interaction response CLI failed. stdout=${failure.stdout ?? ""} stderr=${failure.stderr ?? ""}`,
+              { cause: error }
+            );
+          })
         ).stdout
       );
       expect(receipt).toMatchObject({ decisionSource: "arbitrary-coordinator" });

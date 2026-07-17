@@ -112,7 +112,7 @@ describe("Desktop runner interaction file-backed integration", () => {
             runSessionId,
             requestId: identity.requestId
           });
-          expect(outcome).toBe("allow_once");
+          expect(outcome).toEqual(decision);
           await store.createResponse({
             version: "planweave.runner-interaction-response/v1",
             identity,

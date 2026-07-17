@@ -55,7 +55,12 @@ describe("Task Workspace conversation", () => {
     const model = readModel();
     const selectedRun = selection({ model });
     const { rerender } = render(
-      <TaskWorkspaceCancelRunControllerScope api={null} model={model} selectedRun={selectedRun}>
+      <TaskWorkspaceCancelRunControllerScope
+        api={null}
+        canvasRef={null}
+        model={model}
+        selectedRun={selectedRun}
+      >
         {() => <div data-testid="workspace-subtree" />}
       </TaskWorkspaceCancelRunControllerScope>
     );
@@ -63,7 +68,7 @@ describe("Task Workspace conversation", () => {
     subtree.scrollTop = 240;
 
     rerender(
-      <TaskWorkspaceCancelRunControllerScope api={null} model={null} selectedRun={null}>
+      <TaskWorkspaceCancelRunControllerScope api={null} canvasRef={null} model={null} selectedRun={null}>
         {() => <div data-testid="workspace-subtree" />}
       </TaskWorkspaceCancelRunControllerScope>
     );
@@ -513,8 +518,10 @@ describe("Task Workspace conversation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
     expect(respondToAgentRequest).toHaveBeenCalledWith(
+      { projectRoot: "/projects/demo", canvasId: "canvas-main" },
+      recordId,
       model.interaction.activeRequests[0]!.identity,
-      "approve-once"
+      { kind: "select", optionId: "approve-once" }
     );
   });
 
@@ -563,6 +570,8 @@ describe("Task Workspace conversation", () => {
     fireEvent.change(screen.getByLabelText(/Release channel/), { target: { value: "stable" } });
     fireEvent.click(screen.getByRole("button", { name: "Submit response" }));
     expect(respondToAgentRequest).toHaveBeenCalledWith(
+      { projectRoot: "/projects/demo", canvasId: "canvas-main" },
+      recordId,
       model.interaction.activeRequests[0]!.identity,
       { action: "accept", content: { channel: "stable" } }
     );
@@ -690,6 +699,7 @@ describe("Task Workspace conversation", () => {
       <TaskWorkspaceComposer
         accessory={<span>Authoritative usage</span>}
         api={{ cancelAgentRun, sendAgentPrompt }}
+        canvasRef={{ projectRoot: "/projects/demo", canvasId: "canvas-main" }}
         liveStatus="live"
         runnerModel={model}
         selectedRun={selectedRun}
@@ -710,7 +720,11 @@ describe("Task Workspace conversation", () => {
       )
     );
     fireEvent.click(screen.getByRole("button", { name: "Cancel run" }));
-    expect(cancelAgentRun).toHaveBeenCalledWith(model.intervention.cancel.identity);
+    expect(cancelAgentRun).toHaveBeenCalledWith(
+      { projectRoot: "/projects/demo", canvasId: "canvas-main" },
+      recordId,
+      model.intervention.cancel.identity
+    );
     expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /continue session/i })).not.toBeInTheDocument();
     expect(screen.getByText("Authoritative usage")).toBeInTheDocument();

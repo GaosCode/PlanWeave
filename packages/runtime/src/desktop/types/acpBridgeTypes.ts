@@ -4,6 +4,10 @@ import {
   type AcpEventSubscriptionCloseResult
 } from "../../autoRun/acpEventPublisher.js";
 import { runnerEventCursorSchema } from "../../autoRun/runnerEventReplay.js";
+import {
+  agentRunControlRespondOutcomeSchema,
+  type AgentRunControlRespondOutcome
+} from "../../autoRun/agentRunControlContract.js";
 import { runnerRecordReadModelSchema } from "../../autoRun/runnerRecordReadModelContract.js";
 import {
   runnerInteractionActionIdentitySchema,
@@ -154,6 +158,9 @@ export type DesktopAgentActionIdentity = z.infer<typeof desktopAgentActionIdenti
 
 export const desktopAgentActionValueSchema = z.json();
 export type DesktopAgentActionValue = z.infer<typeof desktopAgentActionValueSchema>;
+
+export { agentRunControlRespondOutcomeSchema };
+export type { AgentRunControlRespondOutcome };
 
 export type DesktopPendingAgentRequest = {
   requestId: string;

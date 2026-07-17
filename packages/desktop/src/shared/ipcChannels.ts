@@ -118,6 +118,7 @@ export const desktopBridgeInvokeChannels = {
   startAutoRun: "planweave:startAutoRun",
   stopAutoRun: "planweave:stopAutoRun",
   respondToAgentRequest: "planweave:respondToAgentRequest",
+  respondToAgentAuthenticationRequest: "planweave:respondToAgentAuthenticationRequest",
   respondToRunnerInteraction: "planweave:respondToRunnerInteraction",
   testExecutorProfile: "planweave:testExecutorProfile",
   unblockBlock: "planweave:unblockBlock",

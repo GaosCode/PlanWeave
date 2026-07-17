@@ -197,11 +197,13 @@ export function RunnerRecordMonitor({
                           {option.label}
                         </Button>
                       ))}
-                      {persistedPermissionIdentity ? (
+                      {liveIdentity || persistedPermissionIdentity ? (
                         <Button
-                          disabled={interventions.requestInFlight(persistedPermissionIdentity)}
+                          disabled={interventions.requestInFlight(request.identity)}
                           onClick={() =>
-                            interventions.cancelPermission(persistedPermissionIdentity)
+                            interventions.cancelPermission(
+                              liveIdentity ?? persistedPermissionIdentity!
+                            )
                           }
                           size="xs"
                           variant="outline"

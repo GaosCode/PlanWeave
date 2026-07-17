@@ -500,20 +500,32 @@ describe("runner record desktop bridge", () => {
     runtimeMock.listDesktopPendingAgentRequests.mockResolvedValue([{ requestId: "permission-1" }]);
     const list = electronMock.handlers.get(desktopBridgeInvokeChannels.listPendingAgentRequests);
     const respond = electronMock.handlers.get(desktopBridgeInvokeChannels.respondToAgentRequest);
+    const authenticate = electronMock.handlers.get(
+      desktopBridgeInvokeChannels.respondToAgentAuthenticationRequest
+    );
     const cancel = electronMock.handlers.get(desktopBridgeInvokeChannels.cancelAgentRun);
+    const ref = { projectRoot: "/tmp/project", canvasId: "canvas-a" };
+    const recordId = "T-001#B-001::RUN-001";
 
     await expect(list?.({}, identity)).resolves.toEqual([{ requestId: "permission-1" }]);
-    await respond?.({}, identity, { optionId: "allow" });
+    await respond?.({}, ref, recordId, identity, { kind: "select", optionId: "allow" });
+    await authenticate?.({}, identity, { token: "credential" });
     const { requestId: _requestId, ...sessionIdentity } = identity;
-    await cancel?.({}, sessionIdentity);
+    await cancel?.({}, ref, recordId, sessionIdentity);
 
     expect(runtimeMock.listDesktopPendingAgentRequests).toHaveBeenCalledWith(identity);
-    expect(runtimeMock.respondToDesktopAgentRequest).toHaveBeenCalledWith(identity, {
-      optionId: "allow"
+    expect(runtimeMock.respondToDesktopAgentRequest).toHaveBeenCalledWith(
+      ref,
+      recordId,
+      identity,
+      { kind: "select", optionId: "allow" }
+    );
+    expect(runtimeMock.respondToDesktopAgentAuthenticationRequest).toHaveBeenCalledWith(identity, {
+      token: "credential"
     });
-    expect(runtimeMock.cancelDesktopAgentRun).toHaveBeenCalledWith(sessionIdentity);
+    expect(runtimeMock.cancelDesktopAgentRun).toHaveBeenCalledWith(ref, recordId, sessionIdentity);
     expect(() => list?.({}, { ...identity, desktopRunId: "" })).toThrow();
-    expect(() => cancel?.({}, { ...sessionIdentity, runSessionId: "" })).toThrow();
+    expect(() => cancel?.({}, ref, recordId, { ...sessionIdentity, runSessionId: "" })).toThrow();
   });
 
   it("routes canvas-scoped persisted interaction responses and validates the receipt", async () => {

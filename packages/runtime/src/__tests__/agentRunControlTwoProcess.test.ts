@@ -193,7 +193,7 @@ describe("agent run control two-process integration", () => {
         leaseId: descriptor.leaseId,
         kind: "respond",
         identity: { ...fixture.identity, requestId: "permission-allow" },
-        outcome: "allow"
+        outcome: { kind: "select", optionId: "allow" }
       });
       await expect(firstClient.execute(allowCommand)).resolves.toMatchObject({
         ok: true,
@@ -214,7 +214,7 @@ describe("agent run control two-process integration", () => {
         ...allowCommand,
         commandId: globalThis.crypto.randomUUID(),
         identity: { ...fixture.identity, requestId: "permission-deny" },
-        outcome: "deny"
+        outcome: { kind: "select", optionId: "deny" }
       });
       await expect(rebuiltClient.execute(denyCommand)).resolves.toMatchObject({
         ok: true,
@@ -225,6 +225,29 @@ describe("agent run control two-process integration", () => {
         "permission deny delivery"
       );
       expect(denied.value).toBe("deny");
+
+      owner.send({ kind: "add_request", requestKind: "permission", requestId: "permission-cancel" });
+      await owner.waitFor(
+        (message) => message.kind === "request_ready" && message.requestId === "permission-cancel",
+        "cancelled permission request"
+      );
+      await expect(
+        rebuiltClient.execute(
+          agentRunControlCommandSchema.parse({
+            ...allowCommand,
+            commandId: globalThis.crypto.randomUUID(),
+            identity: { ...fixture.identity, requestId: "permission-cancel" },
+            outcome: { kind: "cancel" }
+          })
+        )
+      ).resolves.toMatchObject({ ok: true, result: { status: "delivered" } });
+      const permissionCancellation = await owner.waitFor(
+        deliveryFor("reject", "permission-cancel"),
+        "permission cancellation delivery"
+      );
+      expect(permissionCancellation.reason).toBe(
+        "Permission request was cancelled through runner control."
+      );
 
       owner.send({ kind: "add_request", requestKind: "elicitation", requestId: "elicitation-1" });
       await owner.waitFor(
@@ -278,7 +301,7 @@ describe("agent run control two-process integration", () => {
         applicationAction(fixture, {
           kind: "respond",
           identity: { ...fixture.identity, requestId: "missing-request" },
-          outcome: "allow"
+          outcome: { kind: "select", optionId: "allow" }
         })
       ).resolves.toMatchObject({ ok: false, code: "request_not_pending" });
 
@@ -311,7 +334,7 @@ describe("agent run control two-process integration", () => {
         applicationAction(fixture, {
           kind: "respond",
           identity: { ...fixture.identity, requestId: "denied-request" },
-          outcome: "allow"
+          outcome: { kind: "select", optionId: "allow" }
         })
       ).resolves.toMatchObject({ ok: false, code: "capability_denied" });
 
@@ -377,7 +400,7 @@ describe("agent run control two-process integration", () => {
         kind: "respond",
         commandId: globalThis.crypto.randomUUID(),
         identity: { ...fixture.identity, requestId: "split-request" },
-        outcome: "allow"
+        outcome: { kind: "select", optionId: "allow" }
       });
       await expect(rawRequest(descriptor, splitCommand, 2)).resolves.toMatchObject({
         ok: true,
@@ -398,7 +421,7 @@ describe("agent run control two-process integration", () => {
         kind: "respond",
         commandId: globalThis.crypto.randomUUID(),
         identity: { ...fixture.identity, requestId: "duplicate-request" },
-        outcome: "deny"
+        outcome: { kind: "select", optionId: "deny" }
       });
       const [firstReceipt, secondReceipt] = await Promise.all([
         new AgentRunControlClient(descriptor, { timeoutMs: 1000 }).execute(duplicateCommand),
@@ -423,7 +446,7 @@ describe("agent run control two-process integration", () => {
         kind: "respond",
         commandId: globalThis.crypto.randomUUID(),
         identity: { ...fixture.identity, requestId: "disconnect-request" },
-        outcome: "allow"
+        outcome: { kind: "select", optionId: "allow" }
       });
       const disconnected = createConnection(descriptor.address);
       await once(disconnected, "connect");

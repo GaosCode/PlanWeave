@@ -129,7 +129,7 @@ describe("agent run control locator", () => {
     }).execute("/path/without/descriptor", {
       kind: "respond",
       identity: { ...identity, requestId: "permission-1" },
-      outcome: "allow"
+      outcome: { kind: "select", optionId: "allow" }
     });
     expect(response).toMatchObject({ ok: true, result: { status: "delivered" } });
     expect(respond).toHaveBeenCalledWith("allow");

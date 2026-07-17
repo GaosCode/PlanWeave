@@ -394,7 +394,7 @@ async function respondAtRunDirectory(
   }
   const metadata = z
     .object({
-      desktopRunId: z.string().min(1),
+      desktopRunId: z.string().min(1).nullable(),
       runSessionId: z.string().min(1),
       executorRunId: z.string().min(1),
       claimRef: z.string().min(1),
@@ -422,7 +422,7 @@ async function respondAtRunDirectory(
         sessionId: metadata.data.sessionId,
         requestId: identity.requestId
       }),
-      outcome: decision.kind === "select" ? decision.optionId : { action: "cancel" }
+      outcome: decision
     }
   });
   if (!response.ok) {

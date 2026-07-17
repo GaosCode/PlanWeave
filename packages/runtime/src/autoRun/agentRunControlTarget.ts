@@ -171,7 +171,30 @@ export function createActiveAgentRunControlTarget(options: {
         );
       }
       try {
-        await options.registry.respond(parsed.data, outcome);
+        if (request.kind === "permission") {
+          if (!("kind" in outcome)) {
+            throw new AgentRunControlTargetError(
+              "protocol_mismatch",
+              "Permission interaction requires a permission decision."
+            );
+          }
+          if (outcome.kind === "cancel") {
+            await options.registry.rejectRequest(
+              parsed.data,
+              "Permission request was cancelled through runner control."
+            );
+          } else {
+            await options.registry.respond(parsed.data, outcome.optionId);
+          }
+        } else {
+          if (!("action" in outcome)) {
+            throw new AgentRunControlTargetError(
+              "protocol_mismatch",
+              "Elicitation interaction requires an elicitation outcome."
+            );
+          }
+          await options.registry.respond(parsed.data, outcome);
+        }
         return delivered();
       } catch (error) {
         if (error instanceof AgentRunControlTargetError) throw error;

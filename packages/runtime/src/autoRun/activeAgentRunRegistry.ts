@@ -1,6 +1,7 @@
 import type { SessionNotification } from "@agentclientprotocol/sdk";
 import type { AcpConnection } from "./acpConnection.js";
 import {
+  rejectPendingRunnerRequest,
   respondToPendingRunnerRequest,
   type JsonRpcValue,
   type LiveOwnership,
@@ -17,7 +18,7 @@ import type { AgentRunControlLeaseId } from "./agentRunControlContract.js";
 
 export type ActiveAgentRunIdentity = {
   scope: string;
-  desktopRunId?: string;
+  desktopRunId?: string | null;
   runSessionId?: string;
   executorRunId: string;
   claimRef: string;
@@ -182,6 +183,43 @@ export class ActiveAgentRunRegistry {
       !handle.control.interventionCapabilities.elicitationPreview
     ) {
       throw new Error("Preview elicitation is not negotiated for this Desktop ACP session.");
+    }
+    await respondToPendingRunnerRequest({
+      control: handle.control,
+      ownership: handle.ownership,
+      requestId: identity.requestId,
+      value
+    });
+  }
+
+  async rejectRequest(identity: ActiveAgentRunActionIdentity, reason: string): Promise<void> {
+    const handle = this.resolveAction(identity);
+    if (!handle)
+      throw new Error(`Active ACP executor run '${identity.executorRunId}' does not exist.`);
+    const request = handle.control.pendingRequests.get(identity.requestId);
+    if (!request) throw new Error(`Live runner request '${identity.requestId}' does not exist.`);
+    if (request.kind === "authentication") {
+      throw new Error("Authentication intervention is not supported by the Desktop runner.");
+    }
+    await rejectPendingRunnerRequest({
+      control: handle.control,
+      ownership: handle.ownership,
+      requestId: identity.requestId,
+      reason
+    });
+  }
+
+  async respondAuthentication(
+    identity: ActiveAgentRunActionIdentity,
+    value: JsonRpcValue
+  ): Promise<void> {
+    const handle = this.resolveAction(identity);
+    if (!handle)
+      throw new Error(`Active ACP executor run '${identity.executorRunId}' does not exist.`);
+    const request = handle.control.pendingRequests.get(identity.requestId);
+    if (!request) throw new Error(`Live runner request '${identity.requestId}' does not exist.`);
+    if (request.kind !== "authentication") {
+      throw new Error("Only authentication interactions use the local response path.");
     }
     await respondToPendingRunnerRequest({
       control: handle.control,
@@ -376,12 +414,14 @@ export class ActiveAgentRunRegistry {
     return this.lookupExact(identity);
   }
 
-  private assertActionIdentity<T extends Record<string, string>>(
-    identity: T,
-    fields: readonly (keyof T)[]
+  private assertActionIdentity(
+    identity: object,
+    fields: readonly string[]
   ): void {
     for (const field of fields) {
-      if (typeof identity[field] !== "string" || identity[field].length === 0) {
+      const value = Reflect.get(identity, field) as unknown;
+      if (field === "desktopRunId" && value === null) continue;
+      if (typeof value !== "string" || value.length === 0) {
         throw new Error(`Active ACP action requires a non-empty ${String(field)}.`);
       }
     }
@@ -417,8 +457,18 @@ export class ActiveAgentRunRegistry {
     terminalState: RunnerTerminalState,
     artifactValidated: boolean
   ): Promise<boolean> {
-    await handle.beforeRemove?.();
-    if (!this.handles.delete(handle)) return false;
+    const failures: unknown[] = [];
+    try {
+      await handle.beforeRemove?.();
+    } catch (error) {
+      failures.push(error);
+    }
+    if (!this.handles.delete(handle)) {
+      if (failures.length > 0) {
+        throw new AggregateError(failures, "Active ACP pre-removal cleanup did not complete.");
+      }
+      return false;
+    }
     const promptQueue = this.promptQueues.get(handle);
     if (promptQueue) {
       const failure = new Error(reason);
@@ -443,25 +493,32 @@ export class ActiveAgentRunRegistry {
       });
       handle.lifecycleState = cancelling.state;
     }
-    await executeRunnerLifecycleTransition({
-      transition: {
-        from: handle.lifecycleState,
-        to: terminalState,
-        cause: "normal",
-        ownership: handle.ownership,
-        outcome: {
-          version: "planweave.runner/v1",
-          state: terminalState,
-          reason: terminalState === "succeeded" ? "completed" : terminalState,
-          exitCode: terminalState === "succeeded" ? 0 : null,
-          finishedAt: new Date().toISOString(),
-          diagnostic: terminalState === "succeeded" ? null : reason,
-          artifactValidated
-        }
-      },
-      live: { kind: "present", control: handle.control, cleanupReason: reason }
-    });
+    try {
+      await executeRunnerLifecycleTransition({
+        transition: {
+          from: handle.lifecycleState,
+          to: terminalState,
+          cause: "normal",
+          ownership: handle.ownership,
+          outcome: {
+            version: "planweave.runner/v1",
+            state: terminalState,
+            reason: terminalState === "succeeded" ? "completed" : terminalState,
+            exitCode: terminalState === "succeeded" ? 0 : null,
+            finishedAt: new Date().toISOString(),
+            diagnostic: terminalState === "succeeded" ? null : reason,
+            artifactValidated
+          }
+        },
+        live: { kind: "present", control: handle.control, cleanupReason: reason }
+      });
+    } catch (error) {
+      failures.push(error);
+    }
     handle.lifecycleState = terminalState;
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Active ACP run removal did not complete cleanly.");
+    }
     return true;
   }
 }

@@ -1,4 +1,8 @@
-import type { DesktopBridgeApi, RunnerRecordReadModel } from "@planweave-ai/runtime";
+import type {
+  DesktopBridgeApi,
+  DesktopCanvasReference,
+  RunnerRecordReadModel
+} from "@planweave-ai/runtime";
 import { SquareIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -24,16 +28,23 @@ const unavailableCancelRunController: TaskWorkspaceCancelRunController = {
 
 export function TaskWorkspaceCancelRunControllerScope({
   api,
+  canvasRef,
   children,
   model,
   selectedRun
 }: {
   api: CancelRunApi | null;
+  canvasRef: DesktopCanvasReference | null;
   children: (controller: TaskWorkspaceCancelRunController) => ReactNode;
   model: RunnerRecordReadModel | null;
   selectedRun: TaskWorkspaceSelectedRun | null;
 }) {
-  const interventions = useRunnerInterventions({ api, model });
+  const interventions = useRunnerInterventions({
+    api,
+    canvasRef,
+    model,
+    recordId: selectedRun?.item.run.record.recordId ?? null
+  });
   if (!model || !selectedRun) return children(unavailableCancelRunController);
   const selectedCapability = selectedRun.item.run.capabilities.cancel;
   const liveCapability = model.intervention.cancel;

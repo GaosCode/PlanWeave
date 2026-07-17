@@ -169,11 +169,11 @@ export function persistedInteractionHistory(
   };
 }
 
-export async function respondToPendingRunnerRequest(options: {
+async function settlePendingRunnerRequest(options: {
   control: RunnerLiveControl;
   ownership: LiveOwnership;
   requestId: string;
-  value: JsonRpcValue;
+  settle: (request: LivePendingRequestHandle) => Promise<void>;
 }): Promise<void> {
   assertLiveOwnership(options.control.ownership, options.ownership);
   if (cleanupByControl.has(options.control)) {
@@ -190,7 +190,7 @@ export async function respondToPendingRunnerRequest(options: {
     throw new Error(`Live runner request '${options.requestId}' was already answered.`);
   }
   respondingRequests.add(request);
-  const response = Promise.resolve().then(() => request.respond(options.value));
+  const response = Promise.resolve().then(() => options.settle(request));
   respondingRequestPromises.set(request, response);
   try {
     await response;
@@ -204,6 +204,30 @@ export async function respondToPendingRunnerRequest(options: {
   } finally {
     respondingRequestPromises.delete(request);
   }
+}
+
+export function respondToPendingRunnerRequest(options: {
+  control: RunnerLiveControl;
+  ownership: LiveOwnership;
+  requestId: string;
+  value: JsonRpcValue;
+}): Promise<void> {
+  return settlePendingRunnerRequest({
+    ...options,
+    settle: (request) => request.respond(options.value)
+  });
+}
+
+export function rejectPendingRunnerRequest(options: {
+  control: RunnerLiveControl;
+  ownership: LiveOwnership;
+  requestId: string;
+  reason: string;
+}): Promise<void> {
+  return settlePendingRunnerRequest({
+    ...options,
+    settle: (request) => request.reject(options.reason)
+  });
 }
 
 async function boundedGrace(ms: number): Promise<void> {

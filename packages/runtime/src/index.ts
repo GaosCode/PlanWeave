@@ -524,6 +524,7 @@ export {
   resetDesktopRuntimeState,
   resumeAutoRun,
   respondToDesktopAgentRequest,
+  respondToDesktopAgentAuthenticationRequest,
   rollbackPendingImportRecovery,
   resetCanvasMapLayout,
   resetDesktopLayout,

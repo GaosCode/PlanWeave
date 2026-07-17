@@ -100,12 +100,73 @@ describe("active agent run control target", () => {
     });
 
     await expect(
-      target.respond({ ...identity, requestId: "permission-1" }, "allow")
+      target.respond(
+        { ...identity, requestId: "permission-1" },
+        { kind: "select", optionId: "allow" }
+      )
     ).resolves.toEqual({
       status: "delivered",
       deliveredAt: "2026-07-17T07:00:01.000Z"
     });
     expect(item.request?.respond).toHaveBeenCalledWith("allow");
+    await registry.remove(item.handle, "test complete");
+  });
+
+  it("settles a permission cancellation through the pending request reject path", async () => {
+    const registry = new ActiveAgentRunRegistry();
+    const item = fixture();
+    registry.register(item.handle);
+    const target = createActiveAgentRunControlTarget({
+      registry,
+      handle: item.handle,
+      identity
+    });
+
+    await expect(
+      target.respond({ ...identity, requestId: "permission-1" }, { kind: "cancel" })
+    ).resolves.toMatchObject({ status: "delivered" });
+    expect(item.request?.reject).toHaveBeenCalledWith(
+      "Permission request was cancelled through runner control."
+    );
+    expect(item.request?.respond).not.toHaveBeenCalled();
+    await expect(
+      target.respond({ ...identity, requestId: "permission-1" }, { kind: "cancel" })
+    ).rejects.toMatchObject({ code: "delivery_failed" });
+    await registry.remove(item.handle, "test complete");
+  });
+
+  it("keeps authentication on the explicit local-registry response path", async () => {
+    const authentication: LivePendingRequestHandle = {
+      requestId: "authentication-1",
+      interactionId: "authentication-1",
+      kind: "authentication",
+      requestedAt: "2026-07-17T07:00:00.000Z",
+      summary: "Authenticate the ACP client.",
+      respond: vi.fn(async () => undefined),
+      reject: vi.fn(async () => undefined)
+    };
+    const registry = new ActiveAgentRunRegistry();
+    const item = fixture({ request: authentication });
+    registry.register(item.handle);
+    const target = createActiveAgentRunControlTarget({
+      registry,
+      handle: item.handle,
+      identity
+    });
+
+    await expect(
+      target.respond(
+        { ...identity, requestId: "authentication-1" },
+        { kind: "select", optionId: "browser" }
+      )
+    ).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(
+      registry.respondAuthentication(
+        { ...identity, requestId: "authentication-1" },
+        { methodId: "browser" }
+      )
+    ).resolves.toBeUndefined();
+    expect(authentication.respond).toHaveBeenCalledWith({ methodId: "browser" });
     await registry.remove(item.handle, "test complete");
   });
 
@@ -172,7 +233,10 @@ describe("active agent run control target", () => {
       identity
     });
     await expect(
-      missingTarget.respond({ ...identity, requestId: "missing" }, "allow")
+      missingTarget.respond(
+        { ...identity, requestId: "missing" },
+        { kind: "select", optionId: "allow" }
+      )
     ).rejects.toMatchObject({ code: "request_not_pending" });
     await missingRegistry.remove(missing.handle, "test complete");
 
@@ -185,7 +249,10 @@ describe("active agent run control target", () => {
       identity
     });
     await expect(
-      deniedTarget.respond({ ...identity, requestId: "permission-1" }, "allow")
+      deniedTarget.respond(
+        { ...identity, requestId: "permission-1" },
+        { kind: "select", optionId: "allow" }
+      )
     ).rejects.toMatchObject({ code: "capability_denied" });
     await deniedRegistry.remove(denied.handle, "test complete");
 
@@ -210,7 +277,10 @@ describe("active agent run control target", () => {
       identity
     });
     await expect(
-      failedTarget.respond({ ...identity, requestId: "permission-1" }, "allow")
+      failedTarget.respond(
+        { ...identity, requestId: "permission-1" },
+        { kind: "select", optionId: "allow" }
+      )
     ).rejects.toMatchObject({ code: "delivery_failed" });
     await failedRegistry.remove(failed.handle, "test complete");
   });

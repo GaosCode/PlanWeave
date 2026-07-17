@@ -301,6 +301,8 @@ export class AcpSessionController {
         projectId: run.projectId,
         canvasId: run.canvasId,
         ...run.identity,
+        desktopRunId: run.identity.desktopRunId ?? null,
+        runSessionId: run.identity.runSessionId ?? null,
         ...run.metadataIdentity
       }
     });
@@ -313,16 +315,33 @@ export class AcpSessionController {
       await ownerState.update(status, patch);
     };
     const prepareControlRemoval = async (): Promise<void> => {
-      await controlServer?.requestShutdown();
-      await ownerState.setControlAvailability(unavailableAgentRunControlSummary("owner_terminal"));
+      const results = await Promise.allSettled([
+        controlServer?.requestShutdown(),
+        ownerState.setControlAvailability(unavailableAgentRunControlSummary("owner_terminal"))
+      ]);
+      const failures = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : []
+      );
+      if (failures.length > 0) {
+        throw new AggregateError(
+          failures,
+          "ACP control endpoint could not prepare for owner removal."
+        );
+      }
     };
     const stopControlEndpoint = (): Promise<void> => {
       if (controlStopPromise) return controlStopPromise;
       controlStopPromise = (async () => {
-        await controlServer?.stop();
-        await ownerState.setControlAvailability(
-          unavailableAgentRunControlSummary("owner_terminal")
+        const results = await Promise.allSettled([
+          controlServer?.stop(),
+          ownerState.setControlAvailability(unavailableAgentRunControlSummary("owner_terminal"))
+        ]);
+        const failures = results.flatMap((result) =>
+          result.status === "rejected" ? [result.reason] : []
         );
+        if (failures.length > 0) {
+          throw new AggregateError(failures, "ACP control endpoint could not stop cleanly.");
+        }
       })();
       return controlStopPromise;
     };
@@ -332,11 +351,19 @@ export class AcpSessionController {
       terminalState: "succeeded" | "failed" | "cancelled",
       artifactValidated = false
     ): Promise<void> => {
-      await prepareControlRemoval();
+      const failures: unknown[] = [];
       try {
         await this.registry.remove(ownedHandle, reason, terminalState, artifactValidated);
-      } finally {
+      } catch (error) {
+        failures.push(error);
+      }
+      try {
         await stopControlEndpoint();
+      } catch (error) {
+        failures.push(error);
+      }
+      if (failures.length > 0) {
+        throw new AggregateError(failures, "ACP owner cleanup did not complete cleanly.");
       }
     };
     await writeState("running", {
@@ -539,7 +566,7 @@ export class AcpSessionController {
         1
       );
       handle = {
-        identity: { ...run.identity },
+        identity: { ...run.identity, desktopRunId: run.identity.desktopRunId ?? null },
         connection,
         abortController,
         eventSink,
@@ -679,12 +706,12 @@ export class AcpSessionController {
         agentSessionId: session.sessionId,
         capabilities: initialized.agentCapabilities ?? {}
       });
-      if (run.identity.desktopRunId && run.identity.runSessionId) {
+      if (run.identity.runSessionId) {
         try {
           const identity = runnerSessionActionIdentitySchema.parse({
             scope: run.identity.scope,
             executorRunId: run.identity.executorRunId,
-            desktopRunId: run.identity.desktopRunId,
+            desktopRunId: run.identity.desktopRunId ?? null,
             runSessionId: run.identity.runSessionId,
             claimRef: run.identity.claimRef,
             sessionId: session.sessionId

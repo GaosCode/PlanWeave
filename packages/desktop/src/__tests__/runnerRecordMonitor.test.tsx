@@ -886,6 +886,7 @@ describe("ACP runner record monitor", () => {
     const rendered = render(
       <RunnerRecordMonitor
         api={bridgeApi}
+        canvasRef={{ projectRoot: "/tmp/project", canvasId: "default" }}
         initialModel={model([], active)}
         recordId="T-001#B-001::RUN-001"
         t={createTranslator("en")}
@@ -896,7 +897,12 @@ describe("ACP runner record monitor", () => {
     fireEvent.click(allow);
     fireEvent.click(allow);
     expect(respondToAgentRequest).toHaveBeenCalledTimes(1);
-    expect(respondToAgentRequest).toHaveBeenCalledWith(actionIdentity("permission-1"), "allow");
+    expect(respondToAgentRequest).toHaveBeenCalledWith(
+      { projectRoot: "/tmp/project", canvasId: "default" },
+      "T-001#B-001::RUN-001",
+      actionIdentity("permission-1"),
+      { kind: "select", optionId: "allow" }
+    );
     expect(allow).toBeDisabled();
     await act(async () => resolveResponse());
     expect(screen.getByRole("button", { name: "Allow" })).toBeDisabled();
@@ -904,6 +910,7 @@ describe("ACP runner record monitor", () => {
     rendered.rerender(
       <RunnerRecordMonitor
         api={bridgeApi}
+        canvasRef={{ projectRoot: "/tmp/project", canvasId: "default" }}
         initialModel={model([], {
           persisted: true,
           active: false,
@@ -927,6 +934,7 @@ describe("ACP runner record monitor", () => {
     render(
       <RunnerRecordMonitor
         api={api({ respondToAgentRequest, cancelAgentRun })}
+        canvasRef={{ projectRoot: "/tmp/project", canvasId: "default" }}
         initialModel={model(
           [],
           {
@@ -958,15 +966,21 @@ describe("ACP runner record monitor", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel run" }));
-    expect(cancelAgentRun).toHaveBeenCalledWith(sessionIdentity);
+    expect(cancelAgentRun).toHaveBeenCalledWith(
+      { projectRoot: "/tmp/project", canvasId: "default" },
+      "T-001#B-001::RUN-001",
+      sessionIdentity
+    );
     fireEvent.change(screen.getByLabelText("Preview elicitation response (JSON)"), {
       target: { value: '{"region":"eu"}' }
     });
     fireEvent.click(screen.getByRole("button", { name: "Submit response" }));
-    expect(respondToAgentRequest).toHaveBeenCalledWith(requestIdentity, {
-      action: "accept",
-      content: { region: "eu" }
-    });
+    expect(respondToAgentRequest).toHaveBeenCalledWith(
+      { projectRoot: "/tmp/project", canvasId: "default" },
+      "T-001#B-001::RUN-001",
+      requestIdentity,
+      { action: "accept", content: { region: "eu" } }
+    );
   });
 
   it("does not subscribe terminal replay and tears down a live subscription on unmount", async () => {

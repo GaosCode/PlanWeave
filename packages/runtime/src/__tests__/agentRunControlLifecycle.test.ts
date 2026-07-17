@@ -16,6 +16,7 @@ import {
   agentRunControlDescriptorPath,
   readAgentRunControlDescriptor
 } from "../autoRun/agentRunControlEndpoint.js";
+import { AcpOwnerStateWriter } from "../autoRun/acpOwnerState.js";
 import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
@@ -204,6 +205,39 @@ describe("agent run control controller lifecycle", () => {
     await expectEndpointClosed(root, descriptor.address);
     await expect(registry.shutdown()).resolves.toBeUndefined();
     await expect(registry.shutdown()).resolves.toBeUndefined();
+  });
+
+  it("still removes the live owner and endpoint when terminal availability persistence fails", async () => {
+    const originalSetControlAvailability = AcpOwnerStateWriter.prototype.setControlAvailability;
+    const persistence = vi
+      .spyOn(AcpOwnerStateWriter.prototype, "setControlAvailability")
+      .mockImplementation(async function (summary) {
+        if (summary.controlUnavailableReason === "owner_terminal") {
+          throw new Error("owner-state terminal write failed");
+        }
+        return originalSetControlAvailability.call(this, summary);
+      });
+    const root = await mkdtemp(join(tmpdir(), "planweave-control-owner-state-failure-"));
+    const registry = new ActiveAgentRunRegistry();
+    const shutdown = new AbortController();
+    try {
+      const execution = new AcpSessionController(registry).execute(
+        controllerRun(root, "long-prompt"),
+        { signal: shutdown.signal, timeoutMs: 2_000 }
+      );
+      const descriptor = await liveDescriptor(root);
+      shutdown.abort(new Error("test terminal shutdown"));
+
+      await expect(execution).rejects.toThrow("cleanup: owner-state terminal write failed");
+      await expectEndpointClosed(root, descriptor.address);
+      expect(registry.size).toBe(0);
+      await expect(registry.shutdown()).resolves.toBeUndefined();
+      expect(persistence).toHaveBeenCalledWith(
+        expect.objectContaining({ controlUnavailableReason: "owner_terminal" })
+      );
+    } finally {
+      persistence.mockRestore();
+    }
   });
 
   it.runIf(process.platform !== "win32")(
