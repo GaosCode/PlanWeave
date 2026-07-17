@@ -334,6 +334,7 @@
         "agentRunControlLifecycle.test.ts",
         "agentRunControlLocator.test.ts",
         "agentRunControlServer.test.ts",
+        "agentRunControlTwoProcess.test.ts",
         "autoRunArtifactIdentity.test.ts",
         "autoRunCodexExecutor.test.ts",
         "autoRunExecutorProfiles.test.ts",
