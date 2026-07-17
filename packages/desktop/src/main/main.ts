@@ -14,6 +14,7 @@ import { registerRuntimeBridgeHandlers } from "./runtimeBridgeHandlers.js";
 import { registerRuntimeStateWatchHandlers } from "./runtimeStateWatch.js";
 import { registerWindowAppearanceHandlers } from "./windowAppearance.js";
 import { createWindow } from "./window.js";
+import { runPackagedStartupSmoke } from "./smoke.js";
 import { startSingleInstanceLifecycle } from "./singleInstanceLifecycle.js";
 
 const isDev = process.env.PLANWEAVE_DESKTOP_DEV_SERVER_URL !== undefined;
@@ -60,9 +61,9 @@ startSingleInstanceLifecycle({
 
     app.whenReady().then(() => {
       void (async () => {
-        await createWindow({ isDev, isSmoke, isStartupSmoke });
+        const window = await createWindow({ isDev, isSmoke, isStartupSmoke });
         if (isStartupSmoke) {
-          console.log(JSON.stringify({ event: "PLANWEAVE_DESKTOP_STARTUP_SMOKE_READY" }));
+          console.log(JSON.stringify(await runPackagedStartupSmoke(window)));
           app.exit(0);
           return;
         }

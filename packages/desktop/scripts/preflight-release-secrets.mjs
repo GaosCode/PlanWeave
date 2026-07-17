@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { resolve } from "node:path";
+import { accessSync, constants, statSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const requiredSecrets = {
@@ -26,6 +27,21 @@ export function assertReleaseSecrets(platform, environment = process.env) {
   });
   if (missing.length > 0) {
     throw new Error(`Missing required ${platform} release secrets: ${missing.join(", ")}`);
+  }
+
+  if (platform === "mac") {
+    const apiKeyPath = environment.APPLE_API_KEY.trim();
+    if (!isAbsolute(apiKeyPath)) {
+      throw new Error("APPLE_API_KEY must be an absolute path to a readable regular .p8 file.");
+    }
+    try {
+      if (!statSync(apiKeyPath).isFile()) {
+        throw new Error("not a regular file");
+      }
+      accessSync(apiKeyPath, constants.R_OK);
+    } catch {
+      throw new Error("APPLE_API_KEY must be an absolute path to a readable regular .p8 file.");
+    }
   }
 
   return names;

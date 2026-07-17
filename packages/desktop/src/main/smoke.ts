@@ -1,5 +1,93 @@
 import { app, BrowserWindow } from "electron";
 import { writeFile } from "node:fs/promises";
+import { z } from "zod";
+
+export const packagedStartupSmokeEvent = "PLANWEAVE_DESKTOP_STARTUP_SMOKE_READY";
+
+const packagedStartupSmokeResultSchema = z
+  .object({
+    event: z.literal(packagedStartupSmokeEvent),
+    rendererLoaded: z.literal(true),
+    runtimeBridgeAvailable: z.literal(true),
+    isolatedProjectCount: z.literal(0),
+    appUpdateBridgeAvailable: z.literal(true),
+    appUpdateDelivery: z.enum(["in-app", "github-releases"]),
+    appVersion: z.string().min(1),
+    metadataVerified: z.literal(true)
+  })
+  .strict();
+
+export type PackagedStartupSmokeResult = z.infer<typeof packagedStartupSmokeResultSchema>;
+
+type PackagedStartupSmokeWindow = {
+  webContents: {
+    executeJavaScript(script: string): Promise<unknown>;
+  };
+};
+
+export async function runPackagedStartupSmoke(
+  window: PackagedStartupSmokeWindow
+): Promise<PackagedStartupSmokeResult> {
+  const rawResult = await window.webContents.executeJavaScript(`
+    (async () => {
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      let rendererLoaded = false;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const root = document.getElementById("root");
+        if (document.readyState === "complete" && root instanceof HTMLElement && root.childElementCount > 0) {
+          rendererLoaded = true;
+          break;
+        }
+        await wait(50);
+      }
+      if (!rendererLoaded) {
+        throw new Error("Packaged renderer did not mount into the application window.");
+      }
+
+      const runtimeBridge = window.planweave;
+      if (!runtimeBridge || typeof runtimeBridge.listProjects !== "function") {
+        throw new Error("Packaged runtime bridge is unavailable.");
+      }
+      const projects = await runtimeBridge.listProjects();
+      if (!Array.isArray(projects)) {
+        throw new Error("Packaged runtime bridge returned an invalid project list.");
+      }
+      if (projects.length !== 0) {
+        throw new Error("Packaged startup smoke did not use the isolated PLANWEAVE_HOME.");
+      }
+
+      const appUpdateBridge = window.planweaveAppUpdate;
+      if (!appUpdateBridge || typeof appUpdateBridge.getAppUpdateState !== "function") {
+        throw new Error("Packaged app-update bridge is unavailable.");
+      }
+      const appUpdateState = await appUpdateBridge.getAppUpdateState();
+      if (!appUpdateState || typeof appUpdateState !== "object") {
+        throw new Error("Packaged app-update bridge returned an invalid state.");
+      }
+      if (appUpdateState.status === "error" || appUpdateState.status === "unsupported") {
+        throw new Error("Packaged build metadata verification failed: " + String(appUpdateState.error));
+      }
+      if (appUpdateState.delivery !== "in-app" && appUpdateState.delivery !== "github-releases") {
+        throw new Error("Packaged app-update delivery is invalid.");
+      }
+      if (typeof appUpdateState.currentVersion !== "string" || appUpdateState.currentVersion.length === 0) {
+        throw new Error("Packaged app-update metadata did not expose the current version.");
+      }
+
+      return {
+        event: ${JSON.stringify(packagedStartupSmokeEvent)},
+        rendererLoaded: true,
+        runtimeBridgeAvailable: true,
+        isolatedProjectCount: projects.length,
+        appUpdateBridgeAvailable: true,
+        appUpdateDelivery: appUpdateState.delivery,
+        appVersion: appUpdateState.currentVersion,
+        metadataVerified: true
+      };
+    })()
+  `);
+  return packagedStartupSmokeResultSchema.parse(rawResult);
+}
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

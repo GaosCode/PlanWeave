@@ -182,6 +182,11 @@ describe("app update handlers", () => {
   it("on unverified macOS opens GitHub Releases instead of downloading or installing", async () => {
     Object.defineProperty(process, "platform", { configurable: true, value: "darwin" });
     electronMock.app.isPackaged = true;
+    buildMetadataMock.loadDesktopBuildMetadata.mockReturnValue({
+      signedDistribution: false,
+      channel: "development",
+      version: "0.1.1"
+    });
     const send = vi.fn();
     electronMock.windows.push({ webContents: { isDestroyed: () => false, send } });
 
@@ -211,6 +216,11 @@ describe("app update handlers", () => {
   it("on signed or non-mac platforms keeps the in-app download/install path", async () => {
     Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
     electronMock.app.isPackaged = true;
+    buildMetadataMock.loadDesktopBuildMetadata.mockReturnValue({
+      signedDistribution: true,
+      channel: "release",
+      version: "0.1.1"
+    });
     updaterMock.autoUpdater.downloadUpdate.mockResolvedValue(undefined);
 
     const { downloadAppUpdate, installAppUpdate, registerAppUpdateHandlers } = await import(
@@ -265,14 +275,16 @@ describe("app update handlers", () => {
     expect(electronMock.shell.openExternal).not.toHaveBeenCalled();
   });
 
-  it("fails closed when packaged macOS metadata is corrupt", async () => {
+  it("fails closed through the app-update bridge when packaged metadata is missing or corrupt", async () => {
     Object.defineProperty(process, "platform", { configurable: true, value: "darwin" });
     electronMock.app.isPackaged = true;
     buildMetadataMock.loadDesktopBuildMetadata.mockImplementation(() => {
       throw new Error("Desktop build metadata failed validation.");
     });
 
-    const { downloadAppUpdate, registerAppUpdateHandlers } = await import("../main/appUpdate");
+    const { downloadAppUpdate, getAppUpdateState, registerAppUpdateHandlers } = await import(
+      "../main/appUpdate"
+    );
     registerAppUpdateHandlers();
     updaterMock.emit("update-available", {
       version: "0.1.3",
@@ -280,9 +292,13 @@ describe("app update handlers", () => {
       releaseName: null
     });
 
+    const bridgeState = getAppUpdateState();
+    expect(bridgeState.status).toBe("error");
+    expect(bridgeState.error).toMatch(/metadata failed validation/i);
+
     const state = await downloadAppUpdate();
-    expect(state.delivery).toBe("github-releases");
-    expect(electronMock.shell.openExternal).toHaveBeenCalledWith(PLANWEAVE_DESKTOP_RELEASES_URL);
+    expect(state.status).toBe("error");
+    expect(electronMock.shell.openExternal).not.toHaveBeenCalled();
     expect(updaterMock.autoUpdater.downloadUpdate).not.toHaveBeenCalled();
   });
 });

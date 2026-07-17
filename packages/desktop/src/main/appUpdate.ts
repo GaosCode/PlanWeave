@@ -137,6 +137,23 @@ function ensurePackaged(): boolean {
   return app.isPackaged;
 }
 
+function metadataFailureState(): AppUpdateState | null {
+  if (!app.isPackaged) {
+    return null;
+  }
+  currentBuildMetadata();
+  if (buildMetadataState.status !== "failed") {
+    return null;
+  }
+  return setState({
+    status: "error",
+    checkedAt: state.checkedAt,
+    error: buildMetadataState.error.message,
+    progress: null,
+    update: latestUpdateInfo
+  });
+}
+
 function configureAutoUpdater(): void {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
@@ -145,12 +162,27 @@ function configureAutoUpdater(): void {
 }
 
 export function getAppUpdateState(): AppUpdateState {
+  const failureState = metadataFailureState();
+  if (failureState) {
+    return failureState;
+  }
+  if (app.isPackaged) {
+    state = {
+      ...state,
+      delivery: currentDelivery(),
+      currentVersion: app.getVersion()
+    };
+  }
   return state;
 }
 
 export async function checkForAppUpdate(): Promise<AppUpdateState> {
   if (!ensurePackaged()) {
     return unsupportedState();
+  }
+  const failureState = metadataFailureState();
+  if (failureState) {
+    return failureState;
   }
   if (
     state.status === "checking" ||
@@ -187,6 +219,10 @@ export async function checkForAppUpdate(): Promise<AppUpdateState> {
 export async function downloadAppUpdate(): Promise<AppUpdateState> {
   if (!ensurePackaged()) {
     return unsupportedState();
+  }
+  const failureState = metadataFailureState();
+  if (failureState) {
+    return failureState;
   }
   if (currentDelivery() === "github-releases") {
     if (!latestUpdateInfo || state.status !== "available") {
@@ -252,6 +288,10 @@ export async function downloadAppUpdate(): Promise<AppUpdateState> {
 export async function installAppUpdate(): Promise<AppUpdateState> {
   if (!ensurePackaged()) {
     return unsupportedState();
+  }
+  const failureState = metadataFailureState();
+  if (failureState) {
+    return failureState;
   }
   if (currentDelivery() === "github-releases") {
     return setState({

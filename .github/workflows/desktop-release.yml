@@ -75,12 +75,25 @@ jobs:
       - name: Generate release build metadata
         run: pnpm --dir packages/desktop exec tsx scripts/generate-build-metadata.ts --channel release --signed-distribution ${{ matrix.signedDistribution }}
 
+      - name: Materialize macOS notarization API key
+        if: matrix.releasePlatform == 'mac'
+        shell: bash
+        env:
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          key_path="${RUNNER_TEMP}/planweave-notarization-key.p8"
+          umask 077
+          printf '%s' "${APPLE_API_KEY_BASE64}" | base64 -D > "${key_path}"
+          chmod 600 "${key_path}"
+          test -s "${key_path}"
+          printf 'APPLE_API_KEY=%s\n' "${key_path}" >> "${GITHUB_ENV}"
+
       - name: Preflight macOS release secrets
         if: matrix.releasePlatform == 'mac'
         env:
           CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: node packages/desktop/scripts/preflight-release-secrets.mjs --platform mac
@@ -101,10 +114,14 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: pnpm --dir packages/desktop exec electron-builder --config electron-builder.release.cjs ${{ matrix.builderArgs }} --publish never
+
+      - name: Remove macOS notarization API key
+        if: always() && matrix.releasePlatform == 'mac'
+        shell: bash
+        run: rm -f -- "${RUNNER_TEMP}/planweave-notarization-key.p8"
 
       - name: Build signed Windows installers with OV PFX
         if: matrix.releasePlatform == 'win'

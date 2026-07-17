@@ -16,6 +16,32 @@ const requiredAsarEntries = [
   "/node_modules/ms"
 ];
 const startupErrorPattern = /MODULE_NOT_FOUND|Cannot find module|Uncaught Exception/i;
+const startupReadyEvent = "PLANWEAVE_DESKTOP_STARTUP_SMOKE_READY";
+
+function hasVerifiedStartupMarker(output) {
+  for (const line of output.split(/\r?\n/)) {
+    let payload;
+    try {
+      payload = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (
+      payload?.event === startupReadyEvent &&
+      payload.rendererLoaded === true &&
+      payload.runtimeBridgeAvailable === true &&
+      payload.isolatedProjectCount === 0 &&
+      payload.appUpdateBridgeAvailable === true &&
+      (payload.appUpdateDelivery === "in-app" || payload.appUpdateDelivery === "github-releases") &&
+      typeof payload.appVersion === "string" &&
+      payload.appVersion.length > 0 &&
+      payload.metadataVerified === true
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 async function pathExists(path) {
   await access(path);
@@ -180,7 +206,7 @@ async function smokeLaunch(executablePath, platform) {
       const text = chunk.toString();
       output += text;
       process.stdout.write(text);
-      if (output.includes("PLANWEAVE_DESKTOP_STARTUP_SMOKE_READY")) {
+      if (hasVerifiedStartupMarker(output)) {
         ready = true;
         finish(0);
       }

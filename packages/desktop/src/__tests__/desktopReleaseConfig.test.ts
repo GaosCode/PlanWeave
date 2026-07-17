@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -75,7 +76,7 @@ describe("desktop release configuration", () => {
     ]);
     for (const source of entitlements) {
       expect(source).toContain("com.apple.security.cs.allow-jit");
-      expect(source).toContain("com.apple.security.cs.allow-unsigned-executable-memory");
+      expect(source).not.toContain("com.apple.security.cs.allow-unsigned-executable-memory");
       expect(source).not.toContain("com.apple.security.get-task-allow");
     }
   });
@@ -99,6 +100,38 @@ describe("desktop release configuration", () => {
         "CSC_KEY_PASSWORD, APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER"
       )
     });
+  });
+
+  it("requires APPLE_API_KEY to be an absolute readable regular file", async () => {
+    const environment = {
+      CSC_LINK: "present",
+      CSC_KEY_PASSWORD: "present",
+      APPLE_API_KEY: "inline-base64-key-content",
+      APPLE_API_KEY_ID: "present",
+      APPLE_API_ISSUER: "present"
+    };
+    await expect(
+      execFileAsync(process.execPath, [preflightPath, "--platform", "mac"], {
+        cwd: repoRoot,
+        env: environment
+      })
+    ).rejects.toMatchObject({
+      stderr: expect.stringContaining("absolute path to a readable regular .p8 file")
+    });
+
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), "planweave-apple-key-test-"));
+    const apiKeyPath = join(temporaryDirectory, "AuthKey_TEST.p8");
+    try {
+      await writeFile(apiKeyPath, "test-key-content", { mode: 0o600 });
+      const result = await execFileAsync(process.execPath, [preflightPath, "--platform", "mac"], {
+        cwd: repoRoot,
+        env: { ...environment, APPLE_API_KEY: apiKeyPath }
+      });
+      expect(result.stdout).toContain("Release secret preflight passed for mac");
+      expect(result.stdout).not.toContain(apiKeyPath);
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
   });
 
   it("accepts complete placeholder credentials without logging their values", async () => {
@@ -148,7 +181,14 @@ describe("desktop release configuration", () => {
     const upload = workflow.indexOf("name: Upload desktop artifacts");
     const publishJob = workflow.indexOf("\n  publish:");
 
-    expect(workflow).toContain("APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}");
+    expect(workflow).toContain("APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY }}");
+    expect(workflow).toContain('key_path="${RUNNER_TEMP}/planweave-notarization-key.p8"');
+    expect(workflow).toContain('base64 -D > "${key_path}"');
+    expect(workflow).toContain('chmod 600 "${key_path}"');
+    expect(workflow).toContain("printf 'APPLE_API_KEY=%s\\n'");
+    expect(workflow).not.toMatch(/APPLE_API_KEY:\s*\$\{\{\s*secrets\./);
+    expect(workflow).toContain("if: always() && matrix.releasePlatform == 'mac'");
+    expect(workflow).toContain('rm -f -- "${RUNNER_TEMP}/planweave-notarization-key.p8"');
     expect(workflow).toContain("packages/desktop/release/verification-*.txt");
     expect(macVerification).toBeGreaterThan(-1);
     expect(windowsVerification).toBeGreaterThan(-1);
@@ -159,11 +199,19 @@ describe("desktop release configuration", () => {
   });
 
   it("keeps platform verification fail closed and free of signing secrets", async () => {
-    const [macVerifier, windowsVerifier] = await Promise.all([
+    const [packagedVerifier, macVerifier, windowsVerifier] = await Promise.all([
+      readFile(resolve(desktopRoot, "scripts/verify-packaged-app.mjs"), "utf8"),
       readFile(resolve(desktopRoot, "scripts/verify-macos-release.mjs"), "utf8"),
       readFile(resolve(desktopRoot, "scripts/verify-windows-release.ps1"), "utf8")
     ]);
 
+    expect(packagedVerifier).toContain("hasVerifiedStartupMarker(output)");
+    expect(packagedVerifier).toContain("payload.runtimeBridgeAvailable === true");
+    expect(packagedVerifier).toContain("payload.appUpdateBridgeAvailable === true");
+    expect(packagedVerifier).toContain("payload.metadataVerified === true");
+    expect(packagedVerifier).not.toContain(
+      'output.includes("PLANWEAVE_DESKTOP_STARTUP_SMOKE_READY")'
+    );
     expect(macVerifier).toContain('"--verify", "--deep", "--strict", "--verbose=2"');
     expect(macVerifier).toContain('"stapler", "validate"');
     expect(macVerifier).toContain("PLANWEAVE_PACKAGED_APP_PATH");
