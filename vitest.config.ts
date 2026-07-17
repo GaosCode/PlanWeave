@@ -1,6 +1,8 @@
 import { defineConfig } from "vitest/config";
 import { resolve } from "node:path";
 
+const allTestFiles = ["packages/**/*.test.ts", "packages/**/*.test.tsx"];
+
 /**
  * File parallelism is enabled with a bounded worker pool. Isolation notes:
  * - PLANWEAVE_HOME: vitest.setup.ts clears it after each test so files sharing a
@@ -11,17 +13,21 @@ import { resolve } from "node:path";
  *   forks pool each file gets its own process, and session names include a
  *   runDir hash, so no serial carve-out is required.
  */
-export default defineConfig({
-  resolve: {
-    alias: {
-      "@": resolve("packages", "desktop", "src", "renderer")
+export function createVitestConfig(include: string[]) {
+  return defineConfig({
+    resolve: {
+      alias: {
+        "@": resolve("packages", "desktop", "src", "renderer")
+      }
+    },
+    test: {
+      include,
+      exclude: ["**/node_modules/**", "**/dist/**"],
+      setupFiles: ["./vitest.setup.ts"],
+      maxWorkers: 4,
+      testTimeout: 10_000
     }
-  },
-  test: {
-    include: ["packages/**/*.test.ts", "packages/**/*.test.tsx"],
-    exclude: ["**/node_modules/**", "**/dist/**"],
-    setupFiles: ["./vitest.setup.ts"],
-    maxWorkers: 4,
-    testTimeout: 10_000
-  }
-});
+  });
+}
+
+export default createVitestConfig(allTestFiles);

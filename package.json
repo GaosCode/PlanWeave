@@ -33,7 +33,10 @@
     "prepare": "husky",
     "publish:npm": "pnpm -r --filter @planweave-ai/runtime --filter @planweave-ai/mcp --filter @planweave-ai/cli publish --access public",
     "sync:versions": "node scripts/sync-version-metadata.mjs",
-    "test": "vitest run"
+    "check:test-suites": "node scripts/check-test-suite-classification.mjs",
+    "test": "vitest run",
+    "test:platform": "pnpm check:test-suites && vitest run --config vitest.platform.config.ts",
+    "test:unit": "pnpm check:test-suites && vitest run --config vitest.unit.config.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.3",
