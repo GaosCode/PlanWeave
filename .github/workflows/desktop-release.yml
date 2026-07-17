@@ -74,6 +74,9 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: node packages/desktop/scripts/preflight-release-secrets.mjs --platform mac
 
       - name: Preflight Windows release secrets
@@ -92,6 +95,9 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: pnpm --dir packages/desktop exec electron-builder --config electron-builder.release.cjs ${{ matrix.builderArgs }} --publish never
 
       - name: Build signed Windows installers with OV PFX
@@ -109,14 +115,6 @@ jobs:
         if: matrix.artifactName == 'linux-x64'
         run: xvfb-run -a node packages/desktop/scripts/verify-packaged-app.mjs
 
-      - name: Verify Windows packaged startup
-        if: matrix.artifactName == 'windows-x64'
-        run: node packages/desktop/scripts/verify-packaged-app.mjs
-
-      - name: Verify macOS packaged startup
-        if: matrix.artifactName == 'macos-universal'
-        run: node packages/desktop/scripts/verify-packaged-app.mjs
-
       - name: Verify macOS universal binary
         if: matrix.artifactName == 'macos-universal'
         run: |
@@ -126,6 +124,15 @@ jobs:
           lipo -info "${app_binary}" | tee /tmp/planweave-lipo.txt
           grep -Eq 'x86_64|x64' /tmp/planweave-lipo.txt
           grep -q 'arm64' /tmp/planweave-lipo.txt
+
+      - name: Verify notarized macOS release and installed startup
+        if: matrix.releasePlatform == 'mac'
+        run: node packages/desktop/scripts/verify-macos-release.mjs
+
+      - name: Verify signed Windows release and installed startup
+        if: matrix.releasePlatform == 'win'
+        shell: pwsh
+        run: ./packages/desktop/scripts/verify-windows-release.ps1
 
       - name: Upload desktop artifacts
         uses: actions/upload-artifact@v4
@@ -139,6 +146,7 @@ jobs:
             packages/desktop/release/*.dmg
             packages/desktop/release/*.exe
             packages/desktop/release/*.tar.gz
+            packages/desktop/release/verification-*.txt
             packages/desktop/release/*.yml
             !packages/desktop/release/builder-debug.yml
             packages/desktop/release/*.zip

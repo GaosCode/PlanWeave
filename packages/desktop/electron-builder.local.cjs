@@ -5,7 +5,8 @@ module.exports = {
   },
   mac: {
     identity: null,
-    forceCodeSigning: false
+    forceCodeSigning: false,
+    hardenedRuntime: false
   },
   win: {
     forceCodeSigning: false,

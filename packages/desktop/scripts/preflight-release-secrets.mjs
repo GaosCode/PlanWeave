@@ -4,7 +4,13 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const requiredSecrets = {
-  mac: ["CSC_LINK", "CSC_KEY_PASSWORD"],
+  mac: [
+    "CSC_LINK",
+    "CSC_KEY_PASSWORD",
+    "APPLE_API_KEY",
+    "APPLE_API_KEY_ID",
+    "APPLE_API_ISSUER"
+  ],
   win: ["WIN_CSC_LINK", "WIN_CSC_KEY_PASSWORD"]
 };
 

@@ -32,7 +32,7 @@ describe("desktop release configuration", () => {
     expect(packageJson.build.mac).not.toHaveProperty("identity");
     expect(localConfig).toMatchObject({
       artifactName: expect.stringContaining("development-unsigned"),
-      mac: { identity: null, forceCodeSigning: false },
+      mac: { identity: null, forceCodeSigning: false, hardenedRuntime: false },
       win: { forceCodeSigning: false, signExecutable: false }
     });
   });
@@ -52,6 +52,27 @@ describe("desktop release configuration", () => {
     expect(JSON.stringify(releaseConfig)).not.toContain("certificatePassword");
   });
 
+  it("enables hardened macOS signing and notarization with explicit entitlements", async () => {
+    const { default: releaseConfig } = await loadConfig("electron-builder.release.cjs");
+
+    expect(releaseConfig.mac).toEqual({
+      forceCodeSigning: true,
+      hardenedRuntime: true,
+      notarize: true,
+      entitlements: "build/entitlements.mac.plist",
+      entitlementsInherit: "build/entitlements.mac.inherit.plist"
+    });
+    const entitlements = await Promise.all([
+      readFile(resolve(desktopRoot, "build/entitlements.mac.plist"), "utf8"),
+      readFile(resolve(desktopRoot, "build/entitlements.mac.inherit.plist"), "utf8")
+    ]);
+    for (const source of entitlements) {
+      expect(source).toContain("com.apple.security.cs.allow-jit");
+      expect(source).toContain("com.apple.security.cs.allow-unsigned-executable-memory");
+      expect(source).not.toContain("com.apple.security.get-task-allow");
+    }
+  });
+
   it("fails closed before packaging when either platform signing secret is missing", async () => {
     await expect(
       execFileAsync(process.execPath, [preflightPath, "--platform", "win"], {
@@ -67,7 +88,9 @@ describe("desktop release configuration", () => {
         env: { CSC_LINK: "present" }
       })
     ).rejects.toMatchObject({
-      stderr: expect.stringContaining("CSC_KEY_PASSWORD")
+      stderr: expect.stringContaining(
+        "CSC_KEY_PASSWORD, APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER"
+      )
     });
   });
 
@@ -102,5 +125,39 @@ describe("desktop release configuration", () => {
     expect(workflow).toContain("--config electron-builder.release.cjs");
     expect(workflow).toContain("secrets.WINDOWS_OV_PFX");
     expect(workflow).not.toContain("azureSignOptions");
+  });
+
+  it("gates artifact upload on platform verification of the actual release installers", async () => {
+    const workflow = await readFile(resolve(repoRoot, ".github/workflows/desktop-release.yml"), "utf8");
+    const macVerification = workflow.indexOf("verify-macos-release.mjs");
+    const windowsVerification = workflow.indexOf("verify-windows-release.ps1");
+    const upload = workflow.indexOf("name: Upload desktop artifacts");
+    const publishJob = workflow.indexOf("\n  publish:");
+
+    expect(workflow).toContain("APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}");
+    expect(workflow).toContain("packages/desktop/release/verification-*.txt");
+    expect(macVerification).toBeGreaterThan(-1);
+    expect(windowsVerification).toBeGreaterThan(-1);
+    expect(macVerification).toBeLessThan(upload);
+    expect(windowsVerification).toBeLessThan(upload);
+    expect(workflow).toContain("needs: build");
+    expect(workflow.slice(publishJob)).toContain("needs: verify-assets");
+  });
+
+  it("keeps platform verification fail closed and free of signing secrets", async () => {
+    const [macVerifier, windowsVerifier] = await Promise.all([
+      readFile(resolve(desktopRoot, "scripts/verify-macos-release.mjs"), "utf8"),
+      readFile(resolve(desktopRoot, "scripts/verify-windows-release.ps1"), "utf8")
+    ]);
+
+    expect(macVerifier).toContain('"--verify", "--deep", "--strict", "--verbose=2"');
+    expect(macVerifier).toContain('"stapler", "validate"');
+    expect(macVerifier).toContain("PLANWEAVE_PACKAGED_APP_PATH");
+    expect(windowsVerifier).toContain('"verify", "/pa", "/all", "/v", "/tw"');
+    expect(windowsVerifier).toContain('"/S", "/D=$installDir"');
+    expect(windowsVerifier).toContain("Remove-Item -LiteralPath $installDir -Recurse -Force");
+    for (const source of [macVerifier, windowsVerifier]) {
+      expect(source).not.toMatch(/CSC_KEY_PASSWORD|WIN_CSC_LINK|APPLE_API_KEY/);
+    }
   });
 });
