@@ -1,13 +1,24 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as taskGraphCompiler from "../graph/compileTaskGraph.js";
 import * as graphSession from "../graph/session.js";
+import * as packageLoader from "../package/loadPackage.js";
 import * as planGraphRepository from "../plangraph/packageRepository.js";
 import * as executionStatus from "../taskManager/executionStatus.js";
 import * as projectGraphClaimGuard from "../taskManager/projectGraphClaimGuard.js";
 import * as runtimeContext from "../taskManager/runtimeContext.js";
 import * as canvasApi from "../desktop/canvasApi.js";
+import {
+  buildBlockDetail,
+  buildBlockDetailsForTask,
+  buildTaskDetail,
+  getBlockDetail,
+  getTaskDetail,
+  renderPromptSurfaceFromContext
+} from "../desktop/graph/readModel.js";
 import { createTaskWorkspaceReadContext } from "../desktop/taskWorkspaceReadContext.js";
+import { renderPromptSurface } from "../taskManager/promptRenderer.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 
 afterEach(() => {
@@ -91,5 +102,44 @@ describe("TaskWorkspaceReadContext", () => {
     await expect(
       promptSourceReader.readPackagePrompt("nodes/T-001/missing.prompt.md")
     ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("keeps context-aware detail builders equivalent to public wrappers", async () => {
+    const { root } = await createTestWorkspace(basicManifest());
+    const context = await createTaskWorkspaceReadContext({ projectRoot: root });
+
+    const taskDetail = await buildTaskDetail(context, "T-001");
+    const blockDetail = await buildBlockDetail(context, "T-001#B-001");
+    const blockDetails = await buildBlockDetailsForTask(context, "T-001");
+
+    await expect(getTaskDetail(root, "T-001")).resolves.toEqual(taskDetail);
+    await expect(getBlockDetail(root, "T-001#B-001")).resolves.toEqual(blockDetail);
+    expect(blockDetails.find((detail) => detail.ref === "T-001#B-001")).toEqual(blockDetail);
+    await expect(renderPromptSurfaceFromContext(context, "T-001#B-001")).resolves.toEqual({
+      markdown: blockDetail.promptSurfaceMarkdown,
+      sources: blockDetail.promptSources
+    });
+    await expect(renderPromptSurface({ projectRoot: root, ref: "T-001#B-001" })).resolves.toEqual({
+      markdown: blockDetail.promptSurfaceMarkdown,
+      sources: blockDetail.promptSources
+    });
+  });
+
+  it("reuses request dependencies and memoizes project canvas context", async () => {
+    const { root } = await createTestWorkspace(basicManifest());
+    const context = await createTaskWorkspaceReadContext({ projectRoot: root });
+    const loadPackage = vi.spyOn(packageLoader, "loadPackage");
+    const compileTaskGraph = vi.spyOn(taskGraphCompiler, "compileTaskGraph");
+    const buildStatus = vi.spyOn(executionStatus, "buildExecutionStatus");
+    const loadPlanGraph = vi.spyOn(planGraphRepository, "loadPlanGraphPackage");
+
+    await buildTaskDetail(context, "T-001");
+    await buildBlockDetailsForTask(context, "T-001");
+    await renderPromptSurfaceFromContext(context, "T-001#B-001");
+
+    expect(loadPackage).toHaveBeenCalledTimes(1);
+    expect(compileTaskGraph).toHaveBeenCalledTimes(1);
+    expect(buildStatus).not.toHaveBeenCalled();
+    expect(loadPlanGraph).not.toHaveBeenCalled();
   });
 });

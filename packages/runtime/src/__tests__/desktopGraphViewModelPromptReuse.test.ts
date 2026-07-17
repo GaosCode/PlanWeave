@@ -160,7 +160,7 @@ describe("desktop graph view model prompt reuse", () => {
     expect(counts.totalPromptRelatedReads).toBeGreaterThan(0);
   });
 
-  it("still loads full block prompt bodies on demand for inspector detail", async () => {
+  it("reuses the PlanGraph block prompt body for inspector detail", async () => {
     const { root, init } = await createTestWorkspace();
     promptReadObservations.paths = [];
     promptReadObservations.optionalFileCalls = 0;
@@ -169,7 +169,7 @@ describe("desktop graph view model prompt reuse", () => {
     const counts = classifyPromptReads(promptReadObservations.paths, init.workspace.packageDir);
 
     expect(detail.promptMarkdown).toContain("T-001#B-001");
-    expect(promptReadObservations.optionalFileCalls).toBeGreaterThan(0);
+    expect(promptReadObservations.optionalFileCalls).toBe(0);
     expect(counts.blockBodyReads).toBeGreaterThan(0);
   });
 });

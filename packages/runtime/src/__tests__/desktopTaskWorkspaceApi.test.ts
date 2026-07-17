@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../json.js";
+import * as readModel from "../desktop/graph/readModel.js";
+import * as taskWorkspaceReadContext from "../desktop/taskWorkspaceReadContext.js";
 import { recordBlockRunArtifactInIndex, recordBlockRunInIndex } from "../autoRun/blockRunIndex.js";
 import {
   composeTaskWorkspaceRuns,
@@ -29,6 +31,7 @@ import {
 } from "./promptTestHelpers.js";
 
 afterEach(() => {
+  vi.restoreAllMocks();
   delete process.env.PLANWEAVE_HOME;
   delete process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
 });
@@ -217,6 +220,46 @@ describe("desktop Task Workspace aggregate API", () => {
     expect(implementation).toMatchObject({ executor: "pi", effectiveExecutor: "pi" });
     expect(review).toMatchObject({ executor: null, effectiveExecutor: "codex" });
     expect(implementation?.runs).toEqual([]);
+  });
+
+  it("creates one read context per workspace request without calling public detail wrappers", async () => {
+    const { root, init } = await createTestWorkspace();
+    await writeFeedbackRun({
+      resultsDir: init.workspace.resultsDir,
+      runId: "RUN-CONTEXT-001",
+      feedbackId: "FE-CONTEXT-001",
+      sourceReviewBlockRef: "T-001#R-001",
+      taskId: "T-001"
+    });
+    const createContext = vi.spyOn(taskWorkspaceReadContext, "createTaskWorkspaceReadContext");
+    const publicTaskDetail = vi.spyOn(readModel, "getTaskDetail");
+    const publicBlockDetail = vi.spyOn(readModel, "getBlockDetail");
+    const expectContextAwareRequest = () => {
+      expect(createContext).toHaveBeenCalledTimes(1);
+      expect(publicTaskDetail).not.toHaveBeenCalled();
+      expect(publicBlockDetail).not.toHaveBeenCalled();
+      createContext.mockClear();
+      publicTaskDetail.mockClear();
+      publicBlockDetail.mockClear();
+    };
+
+    await getTaskWorkspace({ projectRoot: root, canvasId: "default", taskId: "T-001" });
+    expectContextAwareRequest();
+
+    await listTaskWorkspaceRuns({
+      projectRoot: root,
+      canvasId: "default",
+      taskId: "T-001"
+    });
+    expectContextAwareRequest();
+
+    await getTaskWorkspaceRunDetail({
+      projectRoot: root,
+      canvasId: "default",
+      taskId: "T-001",
+      recordId: "FE-CONTEXT-001::RUN-CONTEXT-001"
+    });
+    expectContextAwareRequest();
   });
 
   it("marks only the latest unfinished current-ref run active and defaults selection to it", async () => {

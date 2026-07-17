@@ -1,5 +1,4 @@
 import { artifactReferenceSchema } from "../autoRun/runnerContractSchemas.js";
-import { getExecutionStatus } from "../taskManager/executionStatus.js";
 import type { ProjectWorkspace } from "../types.js";
 import {
   readBlockRunIndexEntry,
@@ -8,8 +7,7 @@ import {
   type BlockRunLogicalCursor
 } from "../autoRun/blockRunIndex.js";
 import { optionalStat } from "../fs/optionalFile.js";
-import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
-import { getBlockDetail, getTaskDetail } from "./graph/readModel.js";
+import { buildBlockDetailsForTask, buildTaskDetail } from "./graph/readModel.js";
 import {
   getReviewAttempts,
   getRunRecord,
@@ -53,6 +51,7 @@ import {
   type TaskWorkspaceRunsPage
 } from "./types/taskWorkspaceQueryTypes.js";
 import { TASK_WORKSPACE_TASK_TOKENS_UNAVAILABLE_REASON } from "./types/taskWorkspaceTypes.js";
+import { createTaskWorkspaceReadContext } from "./taskWorkspaceReadContext.js";
 import type {
   DesktopBlockDetail,
   DesktopBlockRunRecordSummary,
@@ -452,14 +451,16 @@ export async function getTaskWorkspace(
   const input = taskWorkspaceInputSchema.parse(rawInput);
   const now = options.now ?? new Date();
   if (!Number.isFinite(now.getTime())) throw new Error("Task Workspace now must be a valid Date.");
-  const workspace = await resolveTaskCanvasWorkspace(input.projectRoot, input.canvasId);
-  const [taskDetail, executionStatus] = await Promise.all([
-    getTaskDetail(workspace, input.taskId),
-    getExecutionStatus({ projectRoot: workspace })
+  const readContext = await createTaskWorkspaceReadContext({
+    projectRoot: input.projectRoot,
+    canvasId: input.canvasId
+  });
+  const { workspace } = readContext.runtime;
+  const executionStatus = readContext.status;
+  const [taskDetail, blockDetails] = await Promise.all([
+    buildTaskDetail(readContext, input.taskId),
+    buildBlockDetailsForTask(readContext, input.taskId)
   ]);
-  const blockDetails = await Promise.all(
-    taskDetail.blockOrder.map((ref) => getBlockDetail(workspace, ref))
-  );
   const detailsByRef = new Map(blockDetails.map((detail) => [detail.ref, detail]));
   const blockRefSet = new Set(blockDetails.map((detail) => detail.ref));
 
@@ -682,15 +683,17 @@ export async function listTaskWorkspaceRuns(
   const now = options.now ?? new Date();
   if (!Number.isFinite(now.getTime())) throw new Error("Task Workspace now must be a valid Date.");
 
-  const workspace = await resolveTaskCanvasWorkspace(input.projectRoot, input.canvasId);
-  const [taskDetail, executionStatus, hasActiveAutoRun] = await Promise.all([
-    getTaskDetail(workspace, input.taskId),
-    getExecutionStatus({ projectRoot: workspace }),
+  const readContext = await createTaskWorkspaceReadContext({
+    projectRoot: input.projectRoot,
+    canvasId: input.canvasId
+  });
+  const { workspace } = readContext.runtime;
+  const executionStatus = readContext.status;
+  const [taskDetail, blockDetails, hasActiveAutoRun] = await Promise.all([
+    buildTaskDetail(readContext, input.taskId),
+    buildBlockDetailsForTask(readContext, input.taskId),
     hasNonTerminalAutoRunForTarget(input.projectRoot, input.canvasId)
   ]);
-  const blockDetails = await Promise.all(
-    taskDetail.blockOrder.map((ref) => getBlockDetail(workspace, ref))
-  );
   const detailsByRef = new Map(blockDetails.map((detail) => [detail.ref, detail]));
   const blockRefSet = new Set(blockDetails.map((detail) => detail.ref));
 
@@ -763,14 +766,20 @@ export async function getTaskWorkspaceRunDetail(
   const now = options.now ?? new Date();
   if (!Number.isFinite(now.getTime())) throw new Error("Task Workspace now must be a valid Date.");
 
-  const workspace = await resolveTaskCanvasWorkspace(input.projectRoot, input.canvasId);
+  const readContext = await createTaskWorkspaceReadContext({
+    projectRoot: input.projectRoot,
+    canvasId: input.canvasId
+  });
+  const { workspace } = readContext.runtime;
+  const executionStatus = readContext.status;
   const parsed = parseRunRecordId(input.recordId);
-  const taskDetail = await getTaskDetail(workspace, input.taskId);
-  const [record, hasActiveAutoRun, executionStatus] = await Promise.all([
+  const [taskDetail, blockDetails, record, hasActiveAutoRun] = await Promise.all([
+    buildTaskDetail(readContext, input.taskId),
+    buildBlockDetailsForTask(readContext, input.taskId),
     getRunRecord(workspace, input.recordId),
-    hasNonTerminalAutoRunForTarget(input.projectRoot, input.canvasId),
-    getExecutionStatus({ projectRoot: workspace })
+    hasNonTerminalAutoRunForTarget(input.projectRoot, input.canvasId)
   ]);
+  const detailsByRef = new Map(blockDetails.map((detail) => [detail.ref, detail]));
   const sourceBlockRef = parsed.kind === "block" ? parsed.blockRef : record.sourceReviewBlockRef;
   if (
     sourceBlockRef === null ||
@@ -782,7 +791,10 @@ export async function getTaskWorkspaceRunDetail(
       `Selected Task Workspace record '${input.recordId}' does not belong to task '${input.taskId}'.`
     );
   }
-  const blockDetail = await getBlockDetail(workspace, sourceBlockRef);
+  const blockDetail = detailsByRef.get(sourceBlockRef);
+  if (!blockDetail) {
+    throw new Error(`Block '${sourceBlockRef}' is missing from task '${input.taskId}'.`);
+  }
   if (parsed.kind === "feedback" && blockDetail.type !== "review") {
     throw new Error(
       `Feedback run '${input.recordId}' source '${sourceBlockRef}' must identify a Review Block.`
@@ -815,10 +827,6 @@ export async function getTaskWorkspaceRunDetail(
     retryIndex = feedbackIndex + 1;
   }
 
-  const blockDetails = await Promise.all(
-    taskDetail.blockOrder.map((ref) => getBlockDetail(workspace, ref))
-  );
-  const detailsByRef = new Map(blockDetails.map((detail) => [detail.ref, detail]));
   const activeRecordIds = await resolveActiveRecordIds({
     workspace,
     blockRefs: new Set(taskDetail.blockOrder),

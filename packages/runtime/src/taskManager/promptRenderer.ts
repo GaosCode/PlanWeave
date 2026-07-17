@@ -1,16 +1,15 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isNodeFileNotFoundError } from "../fs/optionalFile.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
-import { resolvePackagePath } from "../package/resolvePackagePath.js";
-import { resolvePlanweaveHome } from "../paths.js";
-import { loadPlanGraphPackage } from "../plangraph/packageRepository.js";
+import {
+  loadPlanGraphPackage,
+  type LoadedPlanGraphPackage
+} from "../plangraph/packageRepository.js";
 import { buildAgentClaimMarkdown } from "../plangraph/projections/agentContextProjection.js";
-import { readProjectPromptPolicy } from "../projectPromptPolicy.js";
 import type { ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
 import { canvasCommandFlagForWorkspace } from "./canvasCommandScope.js";
-import { buildExecutionStatus } from "./executionStatus.js";
-import { renderProjectCanvasContext } from "./projectCanvasContext.js";
+import { buildExecutionStatus, type ExecutionStatus } from "./executionStatus.js";
+import { renderProjectCanvasContext, type ProjectCanvasContext } from "./projectCanvasContext.js";
+import { createPromptSourceReader, type PromptSourceReader } from "./promptSourceReader.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "./runtimeContext.js";
 import { getBlock, getTask, requiredImplementationRefs } from "./selectors.js";
 import { REVIEW_RESULT_CONTENT_GUIDANCE } from "./reviewResultContract.js";
@@ -26,32 +25,33 @@ export {
 } from "./promptContracts.js";
 export type { PromptSourceKind, PromptSourceSummary, PromptSurface } from "./promptContracts.js";
 
+interface PromptRenderContext {
+  runtime: RuntimeContext;
+  status: ExecutionStatus;
+  planGraphPackage: LoadedPlanGraphPackage;
+  promptSourceReader: PromptSourceReader;
+  projectCanvasContextReader: (taskId: string) => Promise<ProjectCanvasContext>;
+}
+
+function createProjectCanvasContextReader(runtime: RuntimeContext) {
+  const contexts = new Map<string, Promise<ProjectCanvasContext>>();
+  return (taskId: string) => {
+    const existing = contexts.get(taskId);
+    if (existing) {
+      return existing;
+    }
+    const pending = renderProjectCanvasContext(runtime, taskId);
+    contexts.set(taskId, pending);
+    return pending;
+  };
+}
+
 function renderNodeList(title: string, lines: string[]): string {
   return [
     `## ${title}`,
     "",
     lines.length > 0 ? lines.map((line) => `- ${line}`).join("\n") : "- None."
   ].join("\n");
-}
-
-async function readPromptFile(
-  path: string,
-  options: { allowMissing: boolean }
-): Promise<{ markdown: string; missing: boolean }> {
-  try {
-    return {
-      markdown: await readFile(path, "utf8"),
-      missing: false
-    };
-  } catch (error) {
-    if (options.allowMissing && isNodeFileNotFoundError(error)) {
-      return {
-        markdown: "",
-        missing: true
-      };
-    }
-    throw error;
-  }
 }
 
 function promptSourcePreview(markdown: string): string {
@@ -77,21 +77,10 @@ function promptSourceSummary(input: {
   };
 }
 
-async function latestReportSnippet(path: string): Promise<string> {
-  try {
-    const content = await readFile(path, "utf8");
-    return content.trim().slice(0, 400) || "(empty)";
-  } catch (error) {
-    if (isNodeFileNotFoundError(error)) {
-      return "(unavailable)";
-    }
-    throw error;
-  }
-}
-
 async function renderLatestImplementationReports(
   context: RuntimeContext,
-  taskId: string
+  taskId: string,
+  promptSourceReader: PromptSourceReader
 ): Promise<string[]> {
   const lines: string[] = [];
   for (const ref of requiredImplementationRefs(context.graph, taskId)) {
@@ -109,14 +98,17 @@ async function renderLatestImplementationReports(
       lastRunId,
       "report.md"
     );
-    lines.push(`${ref} ${lastRunId}: ${await latestReportSnippet(reportPath)}`);
+    lines.push(
+      `${ref} ${lastRunId}: ${await promptSourceReader.readLatestReportSnippet(reportPath)}`
+    );
   }
   return lines;
 }
 
 async function renderFocusedReviewLines(
   context: RuntimeContext,
-  reviewBlockRef: string
+  reviewBlockRef: string,
+  promptSourceReader: PromptSourceReader
 ): Promise<string[]> {
   const feedbackEntry = Object.entries(context.state.feedback)
     .filter(
@@ -143,7 +135,7 @@ async function renderFocusedReviewLines(
   );
   return [
     `Previous review feedback: ${feedback.content}`,
-    `Feedback handling report (${feedback.latestSubmissionId}): ${await latestReportSnippet(submissionPath)}`,
+    `Feedback handling report (${feedback.latestSubmissionId}): ${await promptSourceReader.readLatestReportSnippet(submissionPath)}`,
     "Focus: verify that the previous feedback items were resolved without regressing accepted work."
   ];
 }
@@ -164,40 +156,67 @@ export async function renderPromptSurface(options: {
   includeSubmissionInstructions?: boolean;
   allowMissingPromptSources?: boolean;
 }): Promise<PromptSurface> {
-  const context = await loadRuntimeReadonly(options);
-  const { workspace, graph, manifest, state } = context;
-  const { taskId } = parseBlockRef(options.ref);
+  const runtime = await loadRuntimeReadonly(options);
+  const context: PromptRenderContext = {
+    runtime,
+    status: await buildExecutionStatus(runtime),
+    planGraphPackage: await loadPlanGraphPackage(runtime.workspace),
+    promptSourceReader: createPromptSourceReader(runtime.workspace),
+    projectCanvasContextReader: createProjectCanvasContextReader(runtime)
+  };
+  return renderPromptSurfaceFromContext(context, options.ref, {
+    includeSubmissionInstructions: options.includeSubmissionInstructions,
+    allowMissingPromptSources: options.allowMissingPromptSources
+  });
+}
+
+function readPackagePromptFromContext(
+  context: PromptRenderContext,
+  packagePath: string,
+  allowMissing: boolean
+) {
+  const markdown = context.planGraphPackage.promptMarkdownByPath.get(packagePath);
+  if (markdown !== undefined) {
+    return { markdown, missing: false };
+  }
+  return context.promptSourceReader.readPackagePrompt(packagePath, { allowMissing });
+}
+
+export async function renderPromptSurfaceFromContext(
+  context: PromptRenderContext,
+  ref: string,
+  options: {
+    includeSubmissionInstructions?: boolean;
+    allowMissingPromptSources?: boolean;
+  } = {}
+): Promise<PromptSurface> {
+  const { runtime, status, planGraphPackage, promptSourceReader, projectCanvasContextReader } =
+    context;
+  const { workspace, graph, manifest, state } = runtime;
+  const { taskId } = parseBlockRef(ref);
   const task = getTask(graph, taskId);
-  const block = getBlock(graph, options.ref);
-  const promptPolicy = await readProjectPromptPolicy(workspace);
+  const block = getBlock(graph, ref);
+  const promptPolicy = await promptSourceReader.readProjectPromptPolicy();
   const allowMissingPromptSources = options.allowMissingPromptSources ?? false;
   const globalPrompt = promptPolicy.includeGlobalPrompt
-    ? await readPromptFile(join(resolvePlanweaveHome(), "config", "global-prompt.md"), {
-        allowMissing: true
-      })
+    ? await promptSourceReader.readGlobalPrompt()
     : { markdown: "", missing: false };
-  const projectPrompt = await readPromptFile(workspace.projectPromptFile, { allowMissing: true });
-  const taskPrompt = await readPromptFile(
-    await resolvePackagePath(workspace.packageDir, task.prompt, {
-      requireExisting: !allowMissingPromptSources
-    }),
-    {
-      allowMissing: allowMissingPromptSources
-    }
+  const projectPrompt = await promptSourceReader.readProjectPrompt();
+  const taskPrompt = await readPackagePromptFromContext(
+    context,
+    task.prompt,
+    allowMissingPromptSources
   );
-  const blockPrompt = await readPromptFile(
-    await resolvePackagePath(workspace.packageDir, block.prompt, {
-      requireExisting: !allowMissingPromptSources
-    }),
-    {
-      allowMissing: allowMissingPromptSources
-    }
+  const blockPrompt = await readPackagePromptFromContext(
+    context,
+    block.prompt,
+    allowMissingPromptSources
   );
-  const projectCanvasContext = await renderProjectCanvasContext(context, taskId);
+  const projectCanvasContext = await projectCanvasContextReader(taskId);
   const planGraphContext = buildAgentClaimMarkdown({
-    graph: (await loadPlanGraphPackage(workspace)).graph,
-    ref: options.ref,
-    status: await buildExecutionStatus(context)
+    graph: planGraphPackage.graph,
+    ref,
+    status
   });
   const promptSources = [
     promptSourceSummary({
@@ -238,16 +257,20 @@ export async function renderPromptSurface(options: {
       missing: blockPrompt.missing
     })
   ];
-  const dependencyLines = (graph.blockDependenciesByRef.get(options.ref) ?? []).map(
+  const dependencyLines = (graph.blockDependenciesByRef.get(ref) ?? []).map(
     (dependency) => `${dependency}: ${state.blocks[dependency]?.status ?? "planned"}`
   );
-  const sharedResourceLines = (graph.sharedResourcesByBlockRef.get(options.ref) ?? []).map(
+  const sharedResourceLines = (graph.sharedResourcesByBlockRef.get(ref) ?? []).map(
     (resource) =>
       `${resource} (coordination hint only; it does not reserve the resource or block parallel work)`
   );
-  const latestImplementationReports = await renderLatestImplementationReports(context, taskId);
+  const latestImplementationReports = await renderLatestImplementationReports(
+    runtime,
+    taskId,
+    promptSourceReader
+  );
   const focusedReviewLines =
-    block.type === "review" ? await renderFocusedReviewLines(context, options.ref) : [];
+    block.type === "review" ? await renderFocusedReviewLines(runtime, ref, promptSourceReader) : [];
   const reviewSchema =
     block.type === "review"
       ? [
@@ -256,7 +279,7 @@ export async function renderPromptSurface(options: {
           "```json",
           JSON.stringify(
             {
-              reviewBlockRef: options.ref,
+              reviewBlockRef: ref,
               taskId,
               verdict: "passed | needs_changes",
               content: "review summary and requested changes"
@@ -284,8 +307,8 @@ export async function renderPromptSurface(options: {
   const canvasFlag = await canvasCommandFlagForWorkspace(workspace);
   const submitInstruction =
     block.type === "review"
-      ? `Submit review with \`planweave submit-review${canvasFlag} ${options.ref} --result review-result.json\`.`
-      : `Submit result with \`planweave submit-result${canvasFlag} ${options.ref} --report implementation.md\`.`;
+      ? `Submit review with \`planweave submit-review${canvasFlag} ${ref} --result review-result.json\`.`
+      : `Submit result with \`planweave submit-result${canvasFlag} ${ref} --report implementation.md\`.`;
   const sections = [
     `# ${task.id}#${block.id}: ${block.title}`,
     promptPolicy.includeGlobalPrompt ? "## PlanWeave Global Prompt" : "",
@@ -303,7 +326,7 @@ export async function renderPromptSurface(options: {
     renderNodeList("Task Acceptance", task.acceptance),
     renderNodeList("Execution Context", [
       `Task status: ${state.tasks[taskId]?.status ?? "planned"}`,
-      `Block status: ${state.blocks[options.ref]?.status ?? "planned"}`,
+      `Block status: ${state.blocks[ref]?.status ?? "planned"}`,
       `Completion policy: ${manifest.review.completionPolicy}`
     ]),
     renderNodeList("Dependency / Block Status", dependencyLines),
@@ -325,3 +348,6 @@ export async function renderPromptSurface(options: {
     sources: promptSources
   };
 }
+
+export { createProjectCanvasContextReader };
+export type { PromptRenderContext };

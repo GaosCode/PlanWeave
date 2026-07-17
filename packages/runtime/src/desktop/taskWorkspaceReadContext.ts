@@ -9,7 +9,8 @@ import {
   type ProjectGraphClaimGuard
 } from "../taskManager/projectGraphClaimGuard.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "../taskManager/runtimeContext.js";
-import type { ExecutionGraphSession } from "../types.js";
+import { createProjectCanvasContextReader } from "../taskManager/promptRenderer.js";
+import type { ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import {
   createTaskWorkspacePromptSourceReader,
@@ -22,14 +23,18 @@ interface TaskWorkspaceReadContext {
   planGraphPackage: LoadedPlanGraphPackage;
   claimGuard: ProjectGraphClaimGuard;
   promptSourceReader: TaskWorkspacePromptSourceReader;
+  projectCanvasContextReader: ReturnType<typeof createProjectCanvasContextReader>;
 }
 
 async function createTaskWorkspaceReadContext(options: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   canvasId?: string | null;
   session?: ExecutionGraphSession;
 }): Promise<TaskWorkspaceReadContext> {
-  const workspace = await resolveTaskCanvasWorkspace(options.projectRoot, options.canvasId);
+  let workspace = options.projectRoot;
+  if (typeof workspace === "string") {
+    workspace = await resolveTaskCanvasWorkspace(workspace, options.canvasId);
+  }
   const session = options.session ?? (await createExecutionGraphSession(workspace));
   const runtime = await loadRuntimeReadonly({ projectRoot: workspace, session });
   const claimGuard = await createProjectGraphClaimGuard(runtime);
@@ -41,7 +46,8 @@ async function createTaskWorkspaceReadContext(options: {
     status,
     planGraphPackage,
     claimGuard,
-    promptSourceReader: createTaskWorkspacePromptSourceReader(workspace)
+    promptSourceReader: createTaskWorkspacePromptSourceReader(workspace),
+    projectCanvasContextReader: createProjectCanvasContextReader(runtime)
   };
 }
 

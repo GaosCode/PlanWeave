@@ -3,7 +3,7 @@ import { parseBlockRef } from "../../graph/compileTaskGraph.js";
 import { compileTaskGraph } from "../../graph/compileTaskGraph.js";
 import { loadPackage } from "../../package/loadPackage.js";
 import { resolvePackagePath } from "../../package/resolvePackagePath.js";
-import { getExecutionStatus, renderPromptSurface } from "../../taskManager/index.js";
+import { renderPromptSurfaceFromContext as renderPromptSurfaceWithContext } from "../../taskManager/promptRenderer.js";
 import { buildExecutionStatus, type ExecutionStatus } from "../../taskManager/executionStatus.js";
 import { buildClaimReadiness, type ClaimReadiness } from "../../taskManager/claimReadiness.js";
 import {
@@ -23,7 +23,11 @@ import type {
   DesktopTaskExecutionOrder
 } from "../types.js";
 import { getDirtyPromptRefs } from "../fileSyncApi.js";
-import { getBlock, getTask, readOptionalFile, sortBlockRefsForTask } from "./graphHelpers.js";
+import {
+  createTaskWorkspaceReadContext,
+  type TaskWorkspaceReadContext
+} from "../taskWorkspaceReadContext.js";
+import { getBlock, getTask, sortBlockRefsForTask } from "./graphHelpers.js";
 import { enrichGraphViewModelSharedResources } from "./sharedResourceViewModel.js";
 
 export type DesktopGraphViewModelContext = RuntimeContext & {
@@ -204,31 +208,57 @@ export async function getGraphViewModel(
   return buildGraphViewModel(await loadDesktopGraphViewModelContext(projectRoot));
 }
 
-export async function getTaskDetail(
-  projectRoot: PackageWorkspaceRef,
+async function promptBodyFromContext(context: TaskWorkspaceReadContext, packagePath: string) {
+  const markdown = context.planGraphPackage.promptMarkdownByPath.get(packagePath);
+  if (markdown !== undefined) {
+    return { markdown, missing: false };
+  }
+  return context.promptSourceReader.readPackagePrompt(packagePath, { allowMissing: true });
+}
+
+function planGraphTaskForContext(context: TaskWorkspaceReadContext, taskId: string) {
+  const task = context.planGraphPackage.graph.tasks.get(taskId);
+  if (!task) {
+    throw new Error(`Task '${taskId}' is missing from the request PlanGraph.`);
+  }
+  return task;
+}
+
+function planGraphBlockForContext(context: TaskWorkspaceReadContext, ref: string) {
+  const block = context.planGraphPackage.graph.blocks.get(ref);
+  if (!block) {
+    throw new Error(`Block '${ref}' is missing from the request PlanGraph.`);
+  }
+  return block;
+}
+
+export async function buildTaskDetail(
+  context: TaskWorkspaceReadContext,
   taskId: string
 ): Promise<DesktopTaskDetail> {
-  const { workspace, manifest } = await loadPackage(projectRoot);
-  const graph = compileTaskGraph(manifest);
-  const planGraphPackage = await loadPlanGraphPackage(workspace);
+  const { graph } = context.runtime;
   const task = getTask(graph, taskId);
-  const status = await getExecutionStatus({ projectRoot });
-  const prompt = await readOptionalFile(
-    await resolvePackagePath(workspace.packageDir, task.prompt),
-    task.prompt
-  );
+  const planGraphTask = planGraphTaskForContext(context, taskId);
+  const prompt = await promptBodyFromContext(context, task.prompt);
   return {
     taskId,
-    graphVersion: planGraphPackage.graph.graphVersion,
+    graphVersion: context.planGraphPackage.graph.graphVersion,
     title: task.title,
-    status: status.tasks.find((item) => item.taskId === taskId)?.status ?? "planned",
+    status: context.status.tasks.find((item) => item.taskId === taskId)?.status ?? "planned",
     executor: task.executor ?? null,
     promptMarkdown: prompt.markdown,
-    promptHash: planGraphPackage.graph.tasks.get(taskId)?.promptRef.contentHash ?? "",
+    promptHash: planGraphTask.promptRef.contentHash,
     promptMissing: prompt.missing,
     acceptance: task.acceptance,
     blockOrder: sortBlockRefsForTask(graph, taskId)
   };
+}
+
+export async function getTaskDetail(
+  projectRoot: PackageWorkspaceRef,
+  taskId: string
+): Promise<DesktopTaskDetail> {
+  return buildTaskDetail(await createTaskWorkspaceReadContext({ projectRoot }), taskId);
 }
 
 export async function getTaskFileManagerPath(
@@ -257,31 +287,26 @@ export async function getTaskExecutionOrder(
   };
 }
 
-export async function getBlockDetail(
-  projectRoot: PackageWorkspaceRef,
+export function renderPromptSurfaceFromContext(context: TaskWorkspaceReadContext, ref: string) {
+  return renderPromptSurfaceWithContext(context, ref, { allowMissingPromptSources: true });
+}
+
+export async function buildBlockDetail(
+  context: TaskWorkspaceReadContext,
   ref: string
 ): Promise<DesktopBlockDetail> {
-  const { workspace, manifest } = await loadPackage(projectRoot);
-  const graph = compileTaskGraph(manifest);
-  const planGraphPackage = await loadPlanGraphPackage(workspace);
+  const { graph, manifest } = context.runtime;
   const { taskId, blockId } = parseBlockRef(ref);
   const task = getTask(graph, taskId);
   const block = getBlock(graph, ref);
-  const status = await getExecutionStatus({ projectRoot });
-  const blockStatus = status.blocks.find((item) => item.ref === ref);
-  const claimHint = status.claimHints.find((item) => item.ref === ref);
-  const prompt = await readOptionalFile(
-    await resolvePackagePath(workspace.packageDir, block.prompt),
-    block.prompt
-  );
-  const promptSurface = await renderPromptSurface({
-    projectRoot,
-    ref,
-    allowMissingPromptSources: true
-  });
+  const planGraphBlock = planGraphBlockForContext(context, ref);
+  const blockStatus = context.status.blocks.find((item) => item.ref === ref);
+  const claimHint = context.status.claimHints.find((item) => item.ref === ref);
+  const prompt = await promptBodyFromContext(context, block.prompt);
+  const promptSurface = await renderPromptSurfaceFromContext(context, ref);
   return {
     ref,
-    graphVersion: planGraphPackage.graph.graphVersion,
+    graphVersion: context.planGraphPackage.graph.graphVersion,
     taskId,
     blockId,
     type: block.type,
@@ -291,7 +316,7 @@ export async function getBlockDetail(
     effectiveExecutor:
       block.executor ?? task.executor ?? manifest.execution.defaultExecutor ?? null,
     promptMarkdown: prompt.markdown,
-    promptHash: planGraphPackage.graph.blocks.get(ref)?.promptRef.contentHash ?? "",
+    promptHash: planGraphBlock.promptRef.contentHash,
     promptMissing: prompt.missing,
     promptSurfaceMarkdown: promptSurface.markdown,
     promptSources: promptSurface.sources,
@@ -302,4 +327,21 @@ export async function getBlockDetail(
     exceptionReason: blockStatus?.reason ?? null,
     reviewGate: claimHint?.reviewGate ?? null
   };
+}
+
+export async function buildBlockDetailsForTask(
+  context: TaskWorkspaceReadContext,
+  taskId: string
+): Promise<DesktopBlockDetail[]> {
+  getTask(context.runtime.graph, taskId);
+  return Promise.all(
+    sortBlockRefsForTask(context.runtime.graph, taskId).map((ref) => buildBlockDetail(context, ref))
+  );
+}
+
+export async function getBlockDetail(
+  projectRoot: PackageWorkspaceRef,
+  ref: string
+): Promise<DesktopBlockDetail> {
+  return buildBlockDetail(await createTaskWorkspaceReadContext({ projectRoot }), ref);
 }
