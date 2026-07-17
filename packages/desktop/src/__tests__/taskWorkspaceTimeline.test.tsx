@@ -120,7 +120,7 @@ describe("TaskWorkspaceTimeline", () => {
         labels={labels}
         onRunScrollTopChange={vi.fn()}
         selectRun={selectRun}
-        selectedRun={{ block: fixture.firstBlock, item: fixture.first }}
+        selectedRecordId={fixture.first.run.record.recordId}
         setTimelineWidth={fixture.setTimelineWidth}
         timelineWidth={280}
         workspace={fixture.workspace}
@@ -161,7 +161,7 @@ describe("TaskWorkspaceTimeline", () => {
         loadingMoreRuns={false}
         onRunScrollTopChange={vi.fn()}
         selectRun={vi.fn()}
-        selectedRun={{ block: fixture.firstBlock, item: fixture.first }}
+        selectedRecordId={fixture.first.run.record.recordId}
         setTimelineWidth={fixture.setTimelineWidth}
         timelineWidth={280}
         workspace={fixture.workspace}
@@ -182,7 +182,7 @@ describe("TaskWorkspaceTimeline", () => {
         labels={labels}
         onRunScrollTopChange={vi.fn()}
         selectRun={selectRun}
-        selectedRun={{ block: fixture.firstBlock, item: fixture.first }}
+        selectedRecordId={fixture.first.run.record.recordId}
         setTimelineWidth={fixture.setTimelineWidth}
         timelineWidth={280}
         workspace={fixture.workspace}
@@ -238,7 +238,7 @@ describe("TaskWorkspaceTimeline", () => {
         loadMoreRuns={loadMoreRuns}
         onRunScrollTopChange={vi.fn()}
         selectRun={selectRun}
-        selectedRun={{ block, item: runs[0]! }}
+        selectedRecordId={runs[0]!.run.record.recordId}
         setTimelineWidth={vi.fn()}
         timelineWidth={280}
         workspace={workspace}
@@ -276,13 +276,13 @@ describe("TaskWorkspaceTimeline", () => {
       labels,
       onRunScrollTopChange: vi.fn(),
       selectRun: vi.fn(),
+      selectedRecordId: selected.run.record.recordId,
       setTimelineWidth: vi.fn(),
       timelineWidth: 280
     };
     const { rerender } = render(
       <TaskWorkspaceTimeline
         {...props}
-        selectedRun={{ block: originalBlock, item: selected }}
         workspace={timelineWorkspaceFixture([originalBlock])}
       />
     );
@@ -301,7 +301,6 @@ describe("TaskWorkspaceTimeline", () => {
     rerender(
       <TaskWorkspaceTimeline
         {...props}
-        selectedRun={{ block: expandedBlock, item: selected }}
         workspace={timelineWorkspaceFixture([expandedBlock])}
       />
     );
@@ -324,13 +323,13 @@ describe("TaskWorkspaceTimeline", () => {
       labels,
       onRunScrollTopChange: vi.fn(),
       selectRun: vi.fn(),
+      selectedRecordId: firstRuns[0]!.run.record.recordId,
       setTimelineWidth: vi.fn(),
       timelineWidth: 280
     };
     const { rerender } = render(
       <TaskWorkspaceTimeline
         {...props}
-        selectedRun={{ block: firstBlock, item: firstRuns[0]! }}
         workspace={timelineWorkspaceFixture([firstBlock])}
       />
     );
@@ -347,7 +346,7 @@ describe("TaskWorkspaceTimeline", () => {
     rerender(
       <TaskWorkspaceTimeline
         {...props}
-        selectedRun={{ block: secondBlock, item: selected }}
+        selectedRecordId={selected.run.record.recordId}
         workspace={timelineWorkspaceFixture([secondBlock])}
       />
     );
@@ -366,7 +365,7 @@ describe("TaskWorkspaceTimeline", () => {
         labels={labels}
         onRunScrollTopChange={vi.fn()}
         selectRun={vi.fn()}
-        selectedRun={null}
+        selectedRecordId={null}
         setTimelineWidth={fixture.setTimelineWidth}
         timelineWidth={280}
         workspace={fixture.workspace}
@@ -416,7 +415,7 @@ describe("TaskWorkspaceTimeline", () => {
         selectAnnotation={selectAnnotation}
         selectRun={selectRun}
         selectedAnnotation={null}
-        selectedRun={null}
+        selectedRecordId={null}
         setTimelineWidth={vi.fn()}
         timelineWidth={280}
         workspace={timelineWorkspaceFixture([reviewBlock])}
@@ -455,7 +454,7 @@ describe("TaskWorkspaceTimeline", () => {
         selectAnnotation={selectAnnotation}
         selectRun={selectRun}
         selectedAnnotation={{ annotation: selectedReview, block: reviewBlock }}
-        selectedRun={null}
+        selectedRecordId={null}
         setTimelineWidth={vi.fn()}
         timelineWidth={280}
         workspace={timelineWorkspaceFixture([reviewBlock])}
@@ -483,10 +482,32 @@ describe("TaskWorkspaceTimeline", () => {
         getRunScrollTop={() => 0}
         labels={labels}
         onRunScrollTopChange={vi.fn()}
+        selectAnnotation={selectAnnotation}
+        selectRun={selectRun}
+        selectedAnnotation={null}
+        selectedRecordId="F-001::RUN-F-001"
+        setTimelineWidth={vi.fn()}
+        timelineWidth={280}
+        workspace={timelineWorkspaceFixture([reviewBlock])}
+      />
+    );
+    expect(screen.getByRole("button", { name: /Feedback run/i })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByTestId("task-workspace-overview-entry")).not.toHaveAttribute(
+      "aria-current"
+    );
+
+    rerender(
+      <TaskWorkspaceTimeline
+        getRunScrollTop={() => 0}
+        labels={labels}
+        onRunScrollTopChange={vi.fn()}
         selectAnnotation={vi.fn()}
         selectRun={vi.fn()}
         selectedAnnotation={null}
-        selectedRun={null}
+        selectedRecordId={null}
         setTimelineWidth={vi.fn()}
         timelineWidth={280}
         workspace={timelineWorkspaceFixture([])}

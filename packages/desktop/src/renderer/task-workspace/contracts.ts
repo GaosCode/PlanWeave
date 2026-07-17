@@ -118,6 +118,8 @@ export type TaskWorkspaceController = {
   selectAnnotation: (selection: { blockRef: string; annotationId: string }) => void;
   selectedAnnotation: TaskWorkspaceSelectedAnnotation | null;
   selectedRecord: DesktopRunRecord | null;
+  /** The history-backed run target, available before its detail projection finishes loading. */
+  selectedRecordId: string | null;
   selectedRun: TaskWorkspaceSelectedRun | null;
   status: TaskWorkspaceLoadStatus;
   subscriptionError: string | null;
@@ -135,7 +137,7 @@ export type TaskWorkspaceTimelineSlotProps = Pick<
   | "selectRun"
   | "selectAnnotation"
   | "selectedAnnotation"
-  | "selectedRun"
+  | "selectedRecordId"
 > &
   Pick<TaskWorkspaceLayout, "setTimelineWidth" | "timelineWidth"> & {
     workspace: TaskWorkspace;

@@ -194,7 +194,7 @@ export function TaskWorkspaceRoute({ controller, labels, slots = {} }: TaskWorks
     selectAnnotation: controller.selectAnnotation,
     selectRun: controller.selectRun,
     selectedAnnotation: controller.selectedAnnotation,
-    selectedRun: controller.selectedRun,
+    selectedRecordId: controller.selectedRecordId,
     setTimelineWidth: layout.setTimelineWidth,
     timelineWidth: layout.timelineWidth,
     workspace: controller.workspace

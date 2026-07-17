@@ -709,10 +709,12 @@ describe("Task Workspace selected run controller", () => {
 
     act(() => result.current.selectRun(null));
     expect(result.current.selectedRun).toBeNull();
+    expect(result.current.selectedRecordId).toBeNull();
     act(() => result.current.refresh());
 
     await waitFor(() => expect(api.getTaskWorkspace).toHaveBeenCalledTimes(2));
     expect(result.current.selectedRun).toBeNull();
+    expect(result.current.selectedRecordId).toBeNull();
     expect(result.current.navigation?.recordId).toBe("T-001#B-001::RUN-001");
   });
 
@@ -769,6 +771,8 @@ describe("Task Workspace selected run controller", () => {
     );
     await waitFor(() => expect(result.current.liveStatus).toBe("loading"));
 
+    expect(result.current.selectedRecordId).toBe(feedbackRecordId);
+    expect(result.current.selectedRun).toBeNull();
     expect(observedStatuses).not.toContain("idle");
     expect(observedStatuses).not.toContain("error");
   });

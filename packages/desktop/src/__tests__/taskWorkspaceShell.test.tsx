@@ -210,6 +210,7 @@ function controller(patch: Partial<TaskWorkspaceController> = {}): TaskWorkspace
     selectRun: vi.fn(),
     selectedAnnotation: null,
     selectedRecord: null,
+    selectedRecordId: null,
     selectedRun: null,
     status: "ready",
     subscriptionError: null,
@@ -659,6 +660,7 @@ describe("Task Workspace shell", () => {
         controller={controller({
           getRunScrollTop,
           onRunScrollTopChange,
+          selectedRecordId: fixture.selectedRun.item.run.record.recordId,
           selectedRun: fixture.selectedRun,
           workspace: fixture.workspace
         })}
@@ -673,6 +675,7 @@ describe("Task Workspace shell", () => {
     expect(timelineProps).toMatchObject({
       getRunScrollTop,
       onRunScrollTopChange,
+      selectedRecordId: fixture.selectedRun.item.run.record.recordId,
       timelineWidth: initialTimelineWidth
     });
     expect(conversationProps).toMatchObject({ getRunScrollTop, onRunScrollTopChange });

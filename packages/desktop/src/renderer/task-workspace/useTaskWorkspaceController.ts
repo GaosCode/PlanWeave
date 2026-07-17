@@ -348,6 +348,10 @@ export function useTaskWorkspaceController(options: {
   }, [selectedAnnotationIdentity, workspace]);
   const selectedRun =
     overviewSelected || selectedAnnotation ? null : (routedSelectedRun ?? detailSelectedRun);
+  const selectedRecordId =
+    overviewSelected || selectedAnnotation
+      ? null
+      : (navigation?.recordId ?? selectedRun?.item.run.record.recordId ?? null);
   const selectedRecordKey = selectedAnnotation
     ? ""
     : (navigation?.recordId ?? selectedRun?.item.run.record.recordId ?? "");
@@ -775,6 +779,7 @@ export function useTaskWorkspaceController(options: {
       selectRun,
       selectedAnnotation,
       selectedRecord,
+      selectedRecordId,
       selectedRun: liveProjection.selectedRun,
       status,
       subscriptionError: monitor.subscriptionError,
@@ -803,6 +808,7 @@ export function useTaskWorkspaceController(options: {
       selectAnnotation,
       selectRun,
       selectedAnnotation,
+      selectedRecordId,
       selectedRecord,
       status
     ]

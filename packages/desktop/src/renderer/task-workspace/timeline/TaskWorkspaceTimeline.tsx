@@ -272,13 +272,12 @@ export function TaskWorkspaceTimeline({
   selectAnnotation,
   selectRun,
   selectedAnnotation,
-  selectedRun,
+  selectedRecordId,
   setTimelineWidth,
   timelineWidth,
   workspace
 }: TaskWorkspaceTimelineProps) {
   const projection = useMemo(() => projectTaskWorkspaceTimeline(workspace), [workspace]);
-  const selectedRecordId = selectedRun?.item.run.record.recordId ?? null;
   const recordIds = useMemo(() => projection.runs.map((run) => run.recordId), [projection.runs]);
   const [focusedRecordId, setFocusedRecordId] = useState<string | null>(null);
   const pendingFocusRecordId = useRef<string | null>(null);
@@ -463,7 +462,7 @@ export function TaskWorkspaceTimeline({
       <TaskWorkspaceOverview
         labels={labels}
         onSelect={() => selectRun(null)}
-        selected={selectedRun === null && selectedAnnotation === null}
+        selected={selectedRecordId === null && selectedAnnotation === null}
         workspace={workspace}
       />
       <section className="p-3">
