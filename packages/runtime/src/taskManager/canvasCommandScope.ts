@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { loadProjectGraphForWorkspace, projectCanvasWorkspace } from "../projectGraph/index.js";
-import type { ProjectCanvasNode } from "../projectGraph/index.js";
+import type { LoadedProjectGraph, ProjectCanvasNode } from "../projectGraph/index.js";
 import type { ProjectWorkspace } from "../types.js";
 
 export function canvasCommandFlag(canvasId: string | null): string {
@@ -25,6 +25,13 @@ export async function commandCanvasIdForWorkspace(
   workspace: ProjectWorkspace
 ): Promise<string | null> {
   const loaded = await loadProjectGraphForWorkspace(workspace);
+  return commandCanvasIdForLoadedProjectGraph(workspace, loaded);
+}
+
+export function commandCanvasIdForLoadedProjectGraph(
+  workspace: ProjectWorkspace,
+  loaded: LoadedProjectGraph
+): string | null {
   const canvas = findCurrentProjectCanvasByPackageDir(
     loaded.workspace,
     workspace,
@@ -41,4 +48,11 @@ export async function commandCanvasIdForWorkspace(
 
 export async function canvasCommandFlagForWorkspace(workspace: ProjectWorkspace): Promise<string> {
   return canvasCommandFlag(await commandCanvasIdForWorkspace(workspace));
+}
+
+export function canvasCommandFlagForLoadedProjectGraph(
+  workspace: ProjectWorkspace,
+  loaded: LoadedProjectGraph
+): string {
+  return canvasCommandFlag(commandCanvasIdForLoadedProjectGraph(workspace, loaded));
 }

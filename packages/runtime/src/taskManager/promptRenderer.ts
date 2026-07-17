@@ -6,9 +6,14 @@ import {
 } from "../plangraph/packageRepository.js";
 import { buildAgentClaimMarkdown } from "../plangraph/projections/agentContextProjection.js";
 import type { ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
-import { canvasCommandFlagForWorkspace } from "./canvasCommandScope.js";
+import { loadProjectCanvasRuntimeAggregation } from "../projectGraph/runtimeAggregation.js";
+import { canvasCommandFlagForLoadedProjectGraph } from "./canvasCommandScope.js";
 import { buildExecutionStatus, type ExecutionStatus } from "./executionStatus.js";
-import { renderProjectCanvasContext, type ProjectCanvasContext } from "./projectCanvasContext.js";
+import {
+  renderProjectCanvasContextFromSnapshot,
+  type ProjectCanvasContext
+} from "./projectCanvasContext.js";
+import { createProjectGraphClaimGuardFromAggregation } from "./projectGraphClaimGuard.js";
 import { createPromptSourceReader, type PromptSourceReader } from "./promptSourceReader.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "./runtimeContext.js";
 import { getBlock, getTask, requiredImplementationRefs } from "./selectors.js";
@@ -30,29 +35,9 @@ interface PromptRenderContext {
   status: ExecutionStatus;
   planGraphPackage: LoadedPlanGraphPackage;
   promptSourceReader: PromptSourceReader;
-  projectCanvasContextReader: (taskId: string) => Promise<ProjectCanvasContext>;
-  canvasCommandFlagReader: () => Promise<string>;
-}
-
-function createProjectCanvasContextReader(runtime: RuntimeContext) {
-  const contexts = new Map<string, Promise<ProjectCanvasContext>>();
-  return (taskId: string) => {
-    const existing = contexts.get(taskId);
-    if (existing) {
-      return existing;
-    }
-    const pending = renderProjectCanvasContext(runtime, taskId);
-    contexts.set(taskId, pending);
-    return pending;
-  };
-}
-
-function createCanvasCommandFlagReader(workspace: RuntimeContext["workspace"]) {
-  let commandFlag: Promise<string> | undefined;
-  return () => {
-    commandFlag ??= canvasCommandFlagForWorkspace(workspace);
-    return commandFlag;
-  };
+  projectCanvasContextRenderer: (taskId: string) => ProjectCanvasContext;
+  canvasCommandFlag: string;
+  packagePromptSnapshotMode: "frozen" | "refresh-missing";
 }
 
 function renderNodeList(title: string, lines: string[]): string {
@@ -166,13 +151,24 @@ export async function renderPromptSurface(options: {
   allowMissingPromptSources?: boolean;
 }): Promise<PromptSurface> {
   const runtime = await loadRuntimeReadonly(options);
+  const projectAggregation = await loadProjectCanvasRuntimeAggregation(runtime.workspace);
+  const claimGuard = createProjectGraphClaimGuardFromAggregation(runtime, projectAggregation);
+  const [status, planGraphPackage] = await Promise.all([
+    buildExecutionStatus(runtime, { claimGuard }),
+    loadPlanGraphPackage(runtime.workspace)
+  ]);
   const context: PromptRenderContext = {
     runtime,
-    status: await buildExecutionStatus(runtime),
-    planGraphPackage: await loadPlanGraphPackage(runtime.workspace),
+    status,
+    planGraphPackage,
     promptSourceReader: createPromptSourceReader(runtime.workspace),
-    projectCanvasContextReader: createProjectCanvasContextReader(runtime),
-    canvasCommandFlagReader: createCanvasCommandFlagReader(runtime.workspace)
+    projectCanvasContextRenderer: (taskId) =>
+      renderProjectCanvasContextFromSnapshot(runtime, projectAggregation, taskId),
+    canvasCommandFlag: canvasCommandFlagForLoadedProjectGraph(
+      runtime.workspace,
+      projectAggregation.loaded
+    ),
+    packagePromptSnapshotMode: "refresh-missing"
   };
   return renderPromptSurfaceFromContext(context, options.ref, {
     includeSubmissionInstructions: options.includeSubmissionInstructions,
@@ -188,6 +184,12 @@ function readPackagePromptFromContext(
   const markdown = context.planGraphPackage.promptMarkdownByPath.get(packagePath);
   if (markdown !== undefined) {
     return { markdown, missing: false };
+  }
+  if (context.packagePromptSnapshotMode === "frozen") {
+    if (allowMissing) {
+      return { markdown: "", missing: true };
+    }
+    throw new Error(`Prompt '${packagePath}' is missing from the request PlanGraph snapshot.`);
   }
   return context.promptSourceReader.readPackagePrompt(packagePath, { allowMissing });
 }
@@ -205,8 +207,8 @@ export async function renderPromptSurfaceFromContext(
     status,
     planGraphPackage,
     promptSourceReader,
-    projectCanvasContextReader,
-    canvasCommandFlagReader
+    projectCanvasContextRenderer,
+    canvasCommandFlag
   } = context;
   const { workspace, graph, manifest, state } = runtime;
   const { taskId } = parseBlockRef(ref);
@@ -228,7 +230,7 @@ export async function renderPromptSurfaceFromContext(
     block.prompt,
     allowMissingPromptSources
   );
-  const projectCanvasContext = await projectCanvasContextReader(taskId);
+  const projectCanvasContext = projectCanvasContextRenderer(taskId);
   const planGraphContext = buildAgentClaimMarkdown({
     graph: planGraphPackage.graph,
     ref,
@@ -320,11 +322,10 @@ export async function renderPromptSurfaceFromContext(
         ].join("\n")
       : "";
   const includeSubmissionInstructions = options.includeSubmissionInstructions ?? true;
-  const canvasFlag = await canvasCommandFlagReader();
   const submitInstruction =
     block.type === "review"
-      ? `Submit review with \`planweave submit-review${canvasFlag} ${ref} --result review-result.json\`.`
-      : `Submit result with \`planweave submit-result${canvasFlag} ${ref} --report implementation.md\`.`;
+      ? `Submit review with \`planweave submit-review${canvasCommandFlag} ${ref} --result review-result.json\`.`
+      : `Submit result with \`planweave submit-result${canvasCommandFlag} ${ref} --report implementation.md\`.`;
   const sections = [
     `# ${task.id}#${block.id}: ${block.title}`,
     promptPolicy.includeGlobalPrompt ? "## PlanWeave Global Prompt" : "",
@@ -365,5 +366,4 @@ export async function renderPromptSurfaceFromContext(
   };
 }
 
-export { createCanvasCommandFlagReader, createProjectCanvasContextReader };
 export type { PromptRenderContext };

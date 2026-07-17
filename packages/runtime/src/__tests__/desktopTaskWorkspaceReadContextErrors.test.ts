@@ -32,7 +32,12 @@ describe("Task Workspace read-context error propagation", () => {
   it("propagates claim-guard failures unchanged", async () => {
     const { root } = await createTestWorkspace(basicManifest());
     const failure = new Error("claim guard failed");
-    vi.spyOn(projectGraphClaimGuard, "createProjectGraphClaimGuard").mockRejectedValueOnce(failure);
+    vi.spyOn(
+      projectGraphClaimGuard,
+      "createProjectGraphClaimGuardFromAggregation"
+    ).mockImplementationOnce(() => {
+      throw failure;
+    });
 
     await expect(createTaskWorkspaceReadContext({ projectRoot: root })).rejects.toBe(failure);
   });

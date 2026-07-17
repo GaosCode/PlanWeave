@@ -24,6 +24,7 @@ import * as graphSession from "../graph/session.js";
 import * as packageLoader from "../package/loadPackage.js";
 import * as planGraphRepository from "../plangraph/packageRepository.js";
 import * as projectGraphLoader from "../projectGraph/loadProjectGraph.js";
+import * as projectGraphAggregation from "../projectGraph/runtimeAggregation.js";
 import * as executionStatus from "../taskManager/executionStatus.js";
 import * as projectGraphClaimGuard from "../taskManager/projectGraphClaimGuard.js";
 import * as runtimeContext from "../taskManager/runtimeContext.js";
@@ -46,6 +47,7 @@ type ExpensiveCallCounts = {
   status: number;
   planGraph: number;
   projectGraphLoad: number;
+  projectAggregation: number;
   claimGuard: number;
 };
 
@@ -103,7 +105,14 @@ async function measureWorkspaceRequest(blockCount: number): Promise<ExpensiveCal
   const status = vi.spyOn(executionStatus, "buildExecutionStatus");
   const planGraph = vi.spyOn(planGraphRepository, "loadPlanGraphPackage");
   const projectGraphLoad = vi.spyOn(projectGraphLoader, "loadProjectGraphForWorkspace");
-  const claimGuard = vi.spyOn(projectGraphClaimGuard, "createProjectGraphClaimGuard");
+  const projectAggregation = vi.spyOn(
+    projectGraphAggregation,
+    "loadProjectCanvasRuntimeAggregation"
+  );
+  const claimGuard = vi.spyOn(
+    projectGraphClaimGuard,
+    "createProjectGraphClaimGuardFromAggregation"
+  );
 
   const workspace = await getTaskWorkspace({
     projectRoot: root,
@@ -130,6 +139,7 @@ async function measureWorkspaceRequest(blockCount: number): Promise<ExpensiveCal
     status: status.mock.calls.length,
     planGraph: planGraph.mock.calls.length,
     projectGraphLoad: projectGraphLoad.mock.calls.length,
+    projectAggregation: projectAggregation.mock.calls.length,
     claimGuard: claimGuard.mock.calls.length
   };
   vi.restoreAllMocks();
@@ -148,6 +158,8 @@ describe("Task Workspace read-context scaling", () => {
       runtime: 1,
       status: 1,
       planGraph: 1,
+      projectGraphLoad: 1,
+      projectAggregation: 1,
       claimGuard: 1
     });
     expect(sixtyFourBlocks).toEqual(oneBlock);
@@ -171,11 +183,27 @@ describe("Task Workspace read-context scaling", () => {
     await recordBlockRunInIndex(runRoot, "RUN-001");
 
     const contextFactory = vi.spyOn(taskWorkspaceReadContext, "createTaskWorkspaceReadContext");
+    const session = vi.spyOn(graphSession, "createExecutionGraphSession");
     const runtime = vi.spyOn(runtimeContext, "loadRuntimeReadonly");
+    const projectAggregation = vi.spyOn(
+      projectGraphAggregation,
+      "loadProjectCanvasRuntimeAggregation"
+    );
     const status = vi.spyOn(executionStatus, "buildExecutionStatus");
     const planGraph = vi.spyOn(planGraphRepository, "loadPlanGraphPackage");
-    const claimGuard = vi.spyOn(projectGraphClaimGuard, "createProjectGraphClaimGuard");
-    const spies = [contextFactory, runtime, status, planGraph, claimGuard];
+    const claimGuard = vi.spyOn(
+      projectGraphClaimGuard,
+      "createProjectGraphClaimGuardFromAggregation"
+    );
+    const spies = [
+      contextFactory,
+      session,
+      runtime,
+      projectAggregation,
+      status,
+      planGraph,
+      claimGuard
+    ];
     const expectOneContext = async (request: () => Promise<unknown>) => {
       await request();
       for (const spy of spies) {

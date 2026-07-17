@@ -1,6 +1,7 @@
 import { compileProjectGraph, loadProjectGraphForWorkspace } from "../projectGraph/index.js";
 import type {
   CompiledProjectGraph,
+  LoadedProjectGraph,
   ProjectGraphSource,
   ProjectTaskRef
 } from "../projectGraph/index.js";
@@ -11,6 +12,11 @@ export type ProjectCanvasContext = {
   markdown: string;
   missing: boolean;
   disabledReason: string | null;
+};
+
+type ProjectCanvasContextSnapshot = {
+  loaded: LoadedProjectGraph;
+  graph: CompiledProjectGraph;
 };
 
 function projectGraphSourceLabel(source: ProjectGraphSource): string {
@@ -42,6 +48,15 @@ export async function renderProjectCanvasContext(
 ): Promise<ProjectCanvasContext> {
   const loaded = await loadProjectGraphForWorkspace(context.workspace);
   const graph = await compileProjectGraph(loaded);
+  return renderProjectCanvasContextFromSnapshot(context, { loaded, graph }, taskId);
+}
+
+export function renderProjectCanvasContextFromSnapshot(
+  context: RuntimeContext,
+  snapshot: ProjectCanvasContextSnapshot,
+  taskId: string
+): ProjectCanvasContext {
+  const { loaded, graph } = snapshot;
   if (graph.diagnostics.errors.length > 0) {
     throw new Error(
       [

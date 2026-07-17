@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { writeJsonFile } from "../json.js";
@@ -82,5 +82,52 @@ describe("Task Workspace read-context snapshot", () => {
     expect(nextBlock.promptSources).toContainEqual(
       expect.objectContaining({ kind: "global", included: false })
     );
+  });
+
+  it("does not pair a newly created prompt body with an older missing hash", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest());
+    const promptPath = join(init.workspace.packageDir, "nodes/T-001/blocks/B-001.prompt.md");
+    await rename(promptPath, `${promptPath}.before-request`);
+    const context = await createTaskWorkspaceReadContext({ projectRoot: root });
+
+    await writeFile(promptPath, "# created after request snapshot\n", "utf8");
+
+    await expect(buildBlockDetail(context, "T-001#B-001")).resolves.toMatchObject({
+      promptMarkdown: "",
+      promptHash: "",
+      promptMissing: true
+    });
+
+    const nextContext = await createTaskWorkspaceReadContext({ projectRoot: root });
+    await expect(buildBlockDetail(nextContext, "T-001#B-001")).resolves.toMatchObject({
+      promptMarkdown: "# created after request snapshot\n",
+      promptMissing: false
+    });
+    expect((await buildBlockDetail(nextContext, "T-001#B-001")).promptHash).not.toBe("");
+  });
+
+  it("keeps a failed prompt read missing until a later request recovers it", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest());
+    const promptPath = join(init.workspace.packageDir, "nodes/T-001/blocks/B-001.prompt.md");
+    await rename(promptPath, `${promptPath}.before-failure`);
+    await mkdir(promptPath);
+    const context = await createTaskWorkspaceReadContext({ projectRoot: root });
+
+    await rename(promptPath, `${promptPath}.failed-directory`);
+    await writeFile(promptPath, "# recovered after request snapshot\n", "utf8");
+
+    await expect(buildBlockDetail(context, "T-001#B-001")).resolves.toMatchObject({
+      promptMarkdown: "",
+      promptHash: "",
+      promptMissing: true
+    });
+
+    const nextContext = await createTaskWorkspaceReadContext({ projectRoot: root });
+    const recovered = await buildBlockDetail(nextContext, "T-001#B-001");
+    expect(recovered).toMatchObject({
+      promptMarkdown: "# recovered after request snapshot\n",
+      promptMissing: false
+    });
+    expect(recovered.promptHash).not.toBe("");
   });
 });

@@ -5,6 +5,8 @@ import * as taskGraphCompiler from "../graph/compileTaskGraph.js";
 import * as graphSession from "../graph/session.js";
 import * as packageLoader from "../package/loadPackage.js";
 import * as planGraphRepository from "../plangraph/packageRepository.js";
+import * as projectGraphLoader from "../projectGraph/loadProjectGraph.js";
+import * as projectGraphAggregation from "../projectGraph/runtimeAggregation.js";
 import * as executionStatus from "../taskManager/executionStatus.js";
 import * as projectGraphClaimGuard from "../taskManager/projectGraphClaimGuard.js";
 import * as runtimeContext from "../taskManager/runtimeContext.js";
@@ -33,7 +35,14 @@ describe("TaskWorkspaceReadContext", () => {
     const resolveWorkspace = vi.spyOn(canvasApi, "resolveTaskCanvasWorkspace");
     const createSession = vi.spyOn(graphSession, "createExecutionGraphSession");
     const loadRuntime = vi.spyOn(runtimeContext, "loadRuntimeReadonly");
-    const createClaimGuard = vi.spyOn(projectGraphClaimGuard, "createProjectGraphClaimGuard");
+    const loadProjectAggregation = vi.spyOn(
+      projectGraphAggregation,
+      "loadProjectCanvasRuntimeAggregation"
+    );
+    const createClaimGuard = vi.spyOn(
+      projectGraphClaimGuard,
+      "createProjectGraphClaimGuardFromAggregation"
+    );
     const buildStatus = vi.spyOn(executionStatus, "buildExecutionStatus");
     const loadPlanGraph = vi.spyOn(planGraphRepository, "loadPlanGraphPackage");
 
@@ -45,6 +54,7 @@ describe("TaskWorkspaceReadContext", () => {
     expect(resolveWorkspace).toHaveBeenCalledTimes(1);
     expect(createSession).toHaveBeenCalledTimes(1);
     expect(loadRuntime).toHaveBeenCalledTimes(1);
+    expect(loadProjectAggregation).toHaveBeenCalledTimes(1);
     expect(createClaimGuard).toHaveBeenCalledTimes(1);
     expect(buildStatus).toHaveBeenCalledTimes(1);
     expect(loadPlanGraph).toHaveBeenCalledTimes(1);
@@ -125,21 +135,23 @@ describe("TaskWorkspaceReadContext", () => {
     });
   });
 
-  it("reuses request dependencies and memoizes project canvas context", async () => {
+  it("projects from the frozen context without additional graph loads", async () => {
     const { root } = await createTestWorkspace(basicManifest());
     const context = await createTaskWorkspaceReadContext({ projectRoot: root });
     const loadPackage = vi.spyOn(packageLoader, "loadPackage");
     const compileTaskGraph = vi.spyOn(taskGraphCompiler, "compileTaskGraph");
     const buildStatus = vi.spyOn(executionStatus, "buildExecutionStatus");
     const loadPlanGraph = vi.spyOn(planGraphRepository, "loadPlanGraphPackage");
+    const loadProjectGraph = vi.spyOn(projectGraphLoader, "loadProjectGraphForWorkspace");
 
     await buildTaskDetail(context, "T-001");
     await buildBlockDetailsForTask(context, "T-001");
     await renderPromptSurfaceFromContext(context, "T-001#B-001");
 
-    expect(loadPackage).toHaveBeenCalledTimes(1);
-    expect(compileTaskGraph).toHaveBeenCalledTimes(1);
+    expect(loadPackage).not.toHaveBeenCalled();
+    expect(compileTaskGraph).not.toHaveBeenCalled();
     expect(buildStatus).not.toHaveBeenCalled();
     expect(loadPlanGraph).not.toHaveBeenCalled();
+    expect(loadProjectGraph).not.toHaveBeenCalled();
   });
 });

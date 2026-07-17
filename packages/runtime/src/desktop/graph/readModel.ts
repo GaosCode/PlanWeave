@@ -208,12 +208,12 @@ export async function getGraphViewModel(
   return buildGraphViewModel(await loadDesktopGraphViewModelContext(projectRoot));
 }
 
-async function promptBodyFromContext(context: TaskWorkspaceReadContext, packagePath: string) {
+function promptBodyFromContext(context: TaskWorkspaceReadContext, packagePath: string) {
   const markdown = context.planGraphPackage.promptMarkdownByPath.get(packagePath);
   if (markdown !== undefined) {
     return { markdown, missing: false };
   }
-  return context.promptSourceReader.readPackagePrompt(packagePath, { allowMissing: true });
+  return { markdown: "", missing: true };
 }
 
 function planGraphTaskForContext(context: TaskWorkspaceReadContext, taskId: string) {

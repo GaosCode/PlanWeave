@@ -3,31 +3,34 @@ import {
   loadPlanGraphPackage,
   type LoadedPlanGraphPackage
 } from "../plangraph/packageRepository.js";
+import { loadProjectCanvasRuntimeAggregation } from "../projectGraph/runtimeAggregation.js";
+import {
+  createPromptSourceReader,
+  type PromptSourceReader
+} from "../taskManager/promptSourceReader.js";
+import { canvasCommandFlagForLoadedProjectGraph } from "../taskManager/canvasCommandScope.js";
 import { buildExecutionStatus, type ExecutionStatus } from "../taskManager/executionStatus.js";
 import {
-  createProjectGraphClaimGuard,
+  createProjectGraphClaimGuardFromAggregation,
   type ProjectGraphClaimGuard
 } from "../taskManager/projectGraphClaimGuard.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "../taskManager/runtimeContext.js";
 import {
-  createCanvasCommandFlagReader,
-  createProjectCanvasContextReader
-} from "../taskManager/promptRenderer.js";
+  renderProjectCanvasContextFromSnapshot,
+  type ProjectCanvasContext
+} from "../taskManager/projectCanvasContext.js";
 import type { ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
-import {
-  createTaskWorkspacePromptSourceReader,
-  type TaskWorkspacePromptSourceReader
-} from "./taskWorkspacePromptSourceReader.js";
 
 interface TaskWorkspaceReadContext {
   runtime: RuntimeContext;
   status: ExecutionStatus;
   planGraphPackage: LoadedPlanGraphPackage;
   claimGuard: ProjectGraphClaimGuard;
-  promptSourceReader: TaskWorkspacePromptSourceReader;
-  projectCanvasContextReader: ReturnType<typeof createProjectCanvasContextReader>;
-  canvasCommandFlagReader: ReturnType<typeof createCanvasCommandFlagReader>;
+  promptSourceReader: PromptSourceReader;
+  projectCanvasContextRenderer: (taskId: string) => ProjectCanvasContext;
+  canvasCommandFlag: string;
+  packagePromptSnapshotMode: "frozen";
 }
 
 async function createTaskWorkspaceReadContext(options: {
@@ -41,10 +44,11 @@ async function createTaskWorkspaceReadContext(options: {
   }
   const session = options.session ?? (await createExecutionGraphSession(workspace));
   const runtime = await loadRuntimeReadonly({ projectRoot: workspace, session });
-  const claimGuard = await createProjectGraphClaimGuard(runtime);
+  const projectAggregation = await loadProjectCanvasRuntimeAggregation(workspace);
+  const claimGuard = createProjectGraphClaimGuardFromAggregation(runtime, projectAggregation);
   const status = await buildExecutionStatus(runtime, { claimGuard });
   const planGraphPackage = await loadPlanGraphPackage(workspace);
-  const promptSourceReader = createTaskWorkspacePromptSourceReader(workspace);
+  const promptSourceReader = createPromptSourceReader(workspace);
   const promptPolicy = await promptSourceReader.readProjectPromptPolicy();
   await Promise.all([
     promptSourceReader.readProjectPrompt(),
@@ -57,8 +61,10 @@ async function createTaskWorkspaceReadContext(options: {
     planGraphPackage,
     claimGuard,
     promptSourceReader,
-    projectCanvasContextReader: createProjectCanvasContextReader(runtime),
-    canvasCommandFlagReader: createCanvasCommandFlagReader(workspace)
+    projectCanvasContextRenderer: (taskId) =>
+      renderProjectCanvasContextFromSnapshot(runtime, projectAggregation, taskId),
+    canvasCommandFlag: canvasCommandFlagForLoadedProjectGraph(workspace, projectAggregation.loaded),
+    packagePromptSnapshotMode: "frozen"
   };
 }
 
