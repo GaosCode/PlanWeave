@@ -23,6 +23,7 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
+    environment: desktop-release
     strategy:
       fail-fast: false
       matrix:
@@ -31,6 +32,7 @@ jobs:
             runner: macos-26
             builderArgs: --mac dmg zip --universal
             artifactName: macos-universal
+            releasePlatform: mac
           - name: Linux x64
             runner: ubuntu-latest
             builderArgs: --linux AppImage deb tar.gz --x64
@@ -39,6 +41,7 @@ jobs:
             runner: windows-latest
             builderArgs: --win nsis zip --x64
             artifactName: windows-x64
+            releasePlatform: win
 
     steps:
       - name: Checkout
@@ -66,10 +69,37 @@ jobs:
       - name: Build desktop app
         run: pnpm --dir packages/desktop build
 
-      - name: Build desktop installers
+      - name: Preflight macOS release secrets
+        if: matrix.releasePlatform == 'mac'
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
+        run: node packages/desktop/scripts/preflight-release-secrets.mjs --platform mac
+
+      - name: Preflight Windows release secrets
+        if: matrix.releasePlatform == 'win'
+        env:
+          WIN_CSC_LINK: ${{ secrets.WINDOWS_OV_PFX }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_OV_PFX_PASSWORD }}
+        run: node packages/desktop/scripts/preflight-release-secrets.mjs --platform win
+
+      - name: Build unsigned Linux installers
+        if: matrix.artifactName == 'linux-x64'
         run: pnpm --dir packages/desktop exec electron-builder ${{ matrix.builderArgs }} --publish never
+
+      - name: Build signed macOS installers
+        if: matrix.releasePlatform == 'mac'
+        env:
+          CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
+        run: pnpm --dir packages/desktop exec electron-builder --config electron-builder.release.cjs ${{ matrix.builderArgs }} --publish never
+
+      - name: Build signed Windows installers with OV PFX
+        if: matrix.releasePlatform == 'win'
+        env:
+          WIN_CSC_LINK: ${{ secrets.WINDOWS_OV_PFX }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_OV_PFX_PASSWORD }}
+        run: pnpm --dir packages/desktop exec electron-builder --config electron-builder.release.cjs ${{ matrix.builderArgs }} --publish never
 
       - name: Install Linux smoke dependencies
         if: matrix.artifactName == 'linux-x64'
