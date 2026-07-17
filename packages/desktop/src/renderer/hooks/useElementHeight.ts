@@ -1,15 +1,18 @@
-import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useLayoutEffect, useState, type RefCallback } from "react";
 
 export function useElementHeight<T extends HTMLElement>(): {
   height: number;
-  ref: RefObject<T | null>;
+  ref: RefCallback<T>;
 } {
-  const ref = useRef<T>(null);
+  const [element, setElement] = useState<T | null>(null);
   const [height, setHeight] = useState(0);
+  const ref = useCallback<RefCallback<T>>((node) => setElement(node), []);
 
   useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) return;
+    if (!element) {
+      setHeight(0);
+      return;
+    }
 
     const updateHeight = () => {
       const nextHeight = element.getBoundingClientRect().height;
@@ -22,7 +25,7 @@ export function useElementHeight<T extends HTMLElement>(): {
     const observer = new ResizeObserver(updateHeight);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [element]);
 
   return { height, ref };
 }

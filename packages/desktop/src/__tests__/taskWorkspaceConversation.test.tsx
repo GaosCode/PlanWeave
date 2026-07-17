@@ -174,7 +174,7 @@ describe("Task Workspace conversation", () => {
     );
   });
 
-  it("aligns the composer with the conversation column and masks with the conversation layer", () => {
+  it("aligns the composer with the conversation column without a rectangular overlay mask", () => {
     const model = readModel();
     render(
       <>
@@ -198,9 +198,27 @@ describe("Task Workspace conversation", () => {
 
     expect(viewport).toHaveClass("px-5", "[scrollbar-gutter:stable_both-edges]");
     expect(conversation).toHaveClass("mx-auto", "w-full", "max-w-3xl");
-    expect(composer).toHaveClass("w-full", "px-5", "before:top-2", "before:bg-app-canvas");
+    expect(composer).toHaveClass("w-full", "px-5");
+    expect(composer.className).not.toContain("before:");
     expect(composer).not.toHaveClass("max-w-3xl", "px-4", "bg-background");
     expect(composerSurface).toHaveClass("mx-auto", "w-full", "max-w-3xl");
+  });
+
+  it("uses only the rounded surface to cover conversation content when ACP is unavailable", () => {
+    render(
+      <TaskWorkspaceComposer
+        {...conversationProps(selection({ active: false, model: null }), null)}
+        api={null}
+        t={t}
+      />
+    );
+
+    const composer = screen.getByTestId("task-workspace-composer-unavailable");
+    expect(composer.className).not.toContain("before:");
+    expect(screen.getByTestId("task-workspace-composer-unavailable-surface")).toHaveClass(
+      "rounded-lg",
+      "bg-background"
+    );
   });
 
   it("reuses the projected ACP timeline for safe wide-screen Markdown", () => {

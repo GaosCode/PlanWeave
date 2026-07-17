@@ -154,7 +154,7 @@ function AcpComposer({
 
   return (
     <section
-      className="pointer-events-auto relative w-full px-5 pt-2 pb-4 before:absolute before:inset-x-0 before:top-2 before:bottom-0 before:bg-app-canvas"
+      className="pointer-events-auto w-full px-5 pt-2 pb-4"
       data-testid="task-workspace-composer"
     >
       <div
@@ -211,10 +211,13 @@ function AcpComposer({
 function ComposerUnavailable({ accessory, reason }: { accessory?: ReactNode; reason: string }) {
   return (
     <section
-      className="pointer-events-auto relative w-full px-5 pt-2 pb-4 before:absolute before:inset-x-0 before:top-2 before:bottom-0 before:bg-app-canvas"
+      className="pointer-events-auto w-full px-5 pt-2 pb-4"
       data-testid="task-workspace-composer-unavailable"
     >
-      <div className="relative z-10 mx-auto flex w-full max-w-3xl items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+      <div
+        className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2"
+        data-testid="task-workspace-composer-unavailable-surface"
+      >
         <p className="text-xs text-muted-foreground">{reason}</p>
         {accessory}
       </div>

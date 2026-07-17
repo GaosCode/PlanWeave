@@ -12,7 +12,9 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { TaskWorkspace } from "@planweave-ai/runtime";
+import { type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useElementHeight } from "../renderer/hooks/useElementHeight";
 import type {
   TaskWorkspaceConversationSlotProps,
   TaskWorkspaceController,
@@ -217,6 +219,38 @@ function controller(patch: Partial<TaskWorkspaceController> = {}): TaskWorkspace
 }
 
 describe("Task Workspace shell", () => {
+  it("measures a composer that mounts after the workspace shell", () => {
+    const rect = {
+      bottom: 96,
+      height: 96,
+      left: 0,
+      right: 300,
+      top: 0,
+      width: 300,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    } as DOMRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rect);
+
+    function DelayedMeasurement({ children }: { children: ReactNode }) {
+      const measured = useElementHeight<HTMLDivElement>();
+      return (
+        <div>
+          <output data-testid="measured-height">{measured.height}</output>
+          {children ? <div ref={measured.ref}>{children}</div> : null}
+        </div>
+      );
+    }
+
+    const { rerender } = render(<DelayedMeasurement>{null}</DelayedMeasurement>);
+    expect(screen.getByTestId("measured-height")).toHaveTextContent("0");
+
+    rerender(<DelayedMeasurement>Late composer</DelayedMeasurement>);
+
+    expect(screen.getByTestId("measured-height")).toHaveTextContent("96");
+  });
+
   it("uses a stable workspace-shaped skeleton while the initial data loads", () => {
     render(
       <TaskWorkspaceRoute
