@@ -37,10 +37,10 @@ jobs:
         run: npx --yes pnpm@11.4.0 --pm-on-fail=ignore audit --audit-level=high
 
       # cli/desktop/mcp resolve @planweave-ai/runtime (and desktop also mcp) from
-      # package exports that point at dist/. Build once before typecheck; do not
-      # embed build inside the typecheck script.
+      # package exports that point at dist/. The root build prepares shared
+      # dependencies once, then builds CLI and Desktop in parallel.
       - name: Build packages
-        run: pnpm -r build
+        run: pnpm build
 
       # Distinct from typecheck so style/format failures are easy to spot in CI logs.
       - name: Biome check
@@ -50,4 +50,6 @@ jobs:
         run: pnpm lint
 
       - name: Run tests
-        run: pnpm test
+        # GitHub-hosted runners can time out process-spawning integration tests
+        # when the repository-wide suite uses the local four-worker default.
+        run: pnpm exec vitest run --maxWorkers=2
