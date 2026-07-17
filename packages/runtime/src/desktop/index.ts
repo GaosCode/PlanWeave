@@ -120,6 +120,15 @@ export {
   probeDesktopAgentCapabilities
 } from "./agentCapabilityApi.js";
 export { listPendingImportRecoveries, rollbackPendingImportRecovery } from "./importRecoveryApi.js";
+export { executeDesktopAgentRunControl } from "./agentRunControlApi.js";
+export type { DesktopAgentRunControlApiOptions } from "./agentRunControlApi.js";
+export {
+  desktopAgentRunControlErrorSchema,
+  desktopAgentRunControlInputSchema,
+  desktopAgentRunControlResponseSchema,
+  desktopAgentRunControlSuccessSchema
+} from "./types/agentRunControlTypes.js";
+export type * from "./types/agentRunControlTypes.js";
 export {
   applyCanvasLaneLayout,
   getDesktopLayout,

@@ -225,6 +225,7 @@ export class AcpSessionController {
     const heartbeatPath = join(run.runDir, "heartbeat.json");
     const startedAt = new Date().toISOString();
     const ownerLeaseId = randomUUID();
+    const agentRunControlLeaseId = agentRunControlLeaseIdSchema.parse(ownerLeaseId);
     const ownerGeneration = 1;
     let output = "";
     let connection: AcpConnection | null = null;
@@ -531,6 +532,7 @@ export class AcpSessionController {
         eventSink,
         ownership,
         lifecycleState: "initializing",
+        agentRunControlLeaseId,
         control: {
           ownership,
           process: {
@@ -676,7 +678,7 @@ export class AcpSessionController {
           });
           controlServer = new AgentRunControlServer({
             runDir: run.runDir,
-            leaseId: agentRunControlLeaseIdSchema.parse(ownerLeaseId),
+            leaseId: agentRunControlLeaseId,
             target: createActiveAgentRunControlTarget({ registry: this.registry, handle, identity })
           });
           handle.beforeRemove = prepareControlRemoval;

@@ -165,6 +165,12 @@ export const agentRunControlCommandSchema = z
     }
   });
 
+export const agentRunControlActionSchema = z.discriminatedUnion("kind", [
+  agentRunControlCancelCommandSchema.omit({ version: true, commandId: true, leaseId: true }),
+  agentRunControlFollowUpCommandSchema.omit({ version: true, commandId: true, leaseId: true }),
+  agentRunControlRespondCommandSchema.omit({ version: true, commandId: true, leaseId: true })
+]);
+
 export const agentRunControlReceiptResultSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("accepted") }).strict(),
   z
@@ -234,6 +240,7 @@ export type AgentRunControlEndpointDescriptor = z.infer<
 >;
 export type AgentRunControlRespondOutcome = z.infer<typeof agentRunControlRespondOutcomeSchema>;
 export type AgentRunControlCommand = z.infer<typeof agentRunControlCommandSchema>;
+export type AgentRunControlAction = z.infer<typeof agentRunControlActionSchema>;
 export type AgentRunControlReceiptResult = z.infer<typeof agentRunControlReceiptResultSchema>;
 export type AgentRunControlSuccessReceipt = z.infer<typeof agentRunControlSuccessReceiptSchema>;
 export type AgentRunControlErrorCode = z.infer<typeof agentRunControlErrorCodeSchema>;

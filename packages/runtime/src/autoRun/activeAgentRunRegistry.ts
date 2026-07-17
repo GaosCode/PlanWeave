@@ -13,6 +13,7 @@ import type {
   RunnerSessionActionIdentity,
   RunnerTerminalState
 } from "./runnerContractSchemas.js";
+import type { AgentRunControlLeaseId } from "./agentRunControlContract.js";
 
 export type ActiveAgentRunIdentity = {
   scope: string;
@@ -31,6 +32,7 @@ export type ActiveAgentRunHandle = {
   ownership: LiveOwnership;
   control: RunnerLiveControl;
   lifecycleState: RunnerLifecycleState;
+  agentRunControlLeaseId?: AgentRunControlLeaseId;
   beforeRemove?: () => Promise<void>;
 };
 

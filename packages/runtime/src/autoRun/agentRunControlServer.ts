@@ -2,12 +2,7 @@ import { chmod } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import {
   AGENT_RUN_CONTROL_MAX_FRAME_BYTES,
-  AGENT_RUN_CONTROL_PROTOCOL_VERSION,
-  agentRunControlCommandIdSchema,
-  agentRunControlCommandSchema,
-  agentRunControlErrorResponseSchema,
   agentRunControlLeaseIdSchema,
-  agentRunControlSuccessReceiptSchema,
   type AgentRunControlCommand,
   type AgentRunControlCommandId,
   type AgentRunControlEndpointDescriptor,
@@ -16,6 +11,12 @@ import {
   type AgentRunControlResponse
 } from "./agentRunControlContract.js";
 import {
+  agentRunControlErrorResponse,
+  dispatchAgentRunControlCommand,
+  parseAgentRunControlCommand,
+  validateAgentRunControlLease
+} from "./agentRunControlExecution.js";
+import {
   allocateAgentRunControlEndpoint,
   createAgentRunControlEndpointDescriptor,
   publishAgentRunControlDescriptor,
@@ -23,7 +24,7 @@ import {
   revokeAgentRunControlDescriptor,
   type AgentRunControlEndpointAllocation
 } from "./agentRunControlEndpoint.js";
-import { AgentRunControlTargetError, type AgentRunControlTarget } from "./agentRunControlTarget.js";
+import type { AgentRunControlTarget } from "./agentRunControlTarget.js";
 
 export const AGENT_RUN_CONTROL_DEFAULT_IDLE_TIMEOUT_MS = 15_000;
 export const AGENT_RUN_CONTROL_DEFAULT_MAX_CONCURRENT_REQUESTS = 16;
@@ -90,18 +91,6 @@ function listen(server: Server, address: string): Promise<void> {
     server.once("listening", onListening);
     server.listen(address);
   });
-}
-
-function parsedCommandId(value: unknown): AgentRunControlCommandId | null {
-  if (typeof value !== "object" || value === null || !("commandId" in value)) return null;
-  const parsed = agentRunControlCommandIdSchema.safeParse(value.commandId);
-  return parsed.success ? parsed.data : null;
-}
-
-function schemaErrorCode(issues: readonly { path: PropertyKey[] }[]): AgentRunControlErrorCode {
-  return issues.some((issue) => issue.path[0] === "identity")
-    ? "invalid_identity"
-    : "protocol_mismatch";
 }
 
 export class AgentRunControlServer {
@@ -300,30 +289,18 @@ export class AgentRunControlServer {
     } catch {
       return this.error(null, "protocol_mismatch", "Control frame is not valid UTF-8 JSON.");
     }
-    const commandId = parsedCommandId(decoded);
-    const parsed = agentRunControlCommandSchema.safeParse(decoded);
-    if (!parsed.success) {
-      return this.error(
-        commandId,
-        schemaErrorCode(parsed.error.issues),
-        "Control command does not match the protocol contract."
-      );
-    }
-    if (parsed.data.leaseId !== this.leaseId) {
-      return this.error(
-        parsed.data.commandId,
-        "stale_lease",
-        "Control command lease is not owned by this endpoint."
-      );
-    }
+    const parsed = parseAgentRunControlCommand(decoded);
+    if (!parsed.success) return parsed.response;
+    const leaseError = validateAgentRunControlLease(parsed.command, this.leaseId);
+    if (leaseError) return leaseError;
     if (!this.accepting) {
       return this.error(
-        parsed.data.commandId,
+        parsed.command.commandId,
         "not_active",
         "Control endpoint is no longer accepting commands."
       );
     }
-    return this.executeCommand(parsed.data);
+    return this.executeCommand(parsed.command);
   }
 
   private executeCommand(command: AgentRunControlCommand): Promise<AgentRunControlResponse> {
@@ -359,7 +336,13 @@ export class AgentRunControlServer {
     const acceptedAt = this.now().toISOString();
     this.inFlightRequests += 1;
     const entryState = { settled: false };
-    const response = this.dispatch(command, acceptedAt).finally(() => {
+    const response = dispatchAgentRunControlCommand({
+      command,
+      target: this.options.target,
+      leaseId: this.leaseId,
+      ownerPid: this.ownerPid,
+      acceptedAt
+    }).finally(() => {
       entryState.settled = true;
       this.inFlightRequests -= 1;
     });
@@ -372,38 +355,6 @@ export class AgentRunControlServer {
     };
     this.commandCache.set(command.commandId, entry);
     return entry.response;
-  }
-
-  private async dispatch(
-    command: AgentRunControlCommand,
-    acceptedAt: string
-  ): Promise<AgentRunControlResponse> {
-    try {
-      const result =
-        command.kind === "cancel"
-          ? await this.options.target.cancel(command.identity)
-          : command.kind === "respond"
-            ? await this.options.target.respond(command.identity, command.outcome)
-            : await this.options.target.followUp(command.identity, command.prompt);
-      return agentRunControlSuccessReceiptSchema.parse({
-        version: AGENT_RUN_CONTROL_PROTOCOL_VERSION,
-        ok: true,
-        commandId: command.commandId,
-        acceptedAt,
-        ownerPid: this.ownerPid,
-        leaseId: this.leaseId,
-        result
-      });
-    } catch (error) {
-      if (error instanceof AgentRunControlTargetError) {
-        return this.error(command.commandId, error.code, error.message);
-      }
-      return this.error(
-        command.commandId,
-        "delivery_failed",
-        "Live owner failed while delivering the control command."
-      );
-    }
   }
 
   private reserveCacheEntry(): boolean {
@@ -420,13 +371,7 @@ export class AgentRunControlServer {
     code: AgentRunControlErrorCode,
     message: string
   ): AgentRunControlResponse {
-    return agentRunControlErrorResponseSchema.parse({
-      version: AGENT_RUN_CONTROL_PROTOCOL_VERSION,
-      ok: false,
-      commandId,
-      code,
-      message
-    });
+    return agentRunControlErrorResponse(commandId, code, message);
   }
 
   private async stopOnce(): Promise<void> {

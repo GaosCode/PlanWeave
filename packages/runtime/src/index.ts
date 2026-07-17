@@ -282,6 +282,30 @@ export {
 } from "./autoRun/runnerContractSchemas.js";
 export type * from "./autoRun/runnerContractSchemas.js";
 export {
+  AGENT_RUN_CONTROL_DEFAULT_CLIENT_TIMEOUT_MS,
+  AgentRunControlClient
+} from "./autoRun/agentRunControlClient.js";
+export type * from "./autoRun/agentRunControlClient.js";
+export {
+  AGENT_RUN_CONTROL_MAX_FOLLOW_UP_BYTES,
+  AGENT_RUN_CONTROL_MAX_FRAME_BYTES,
+  AGENT_RUN_CONTROL_PROTOCOL_VERSION,
+  agentRunControlActionSchema,
+  agentRunControlCommandIdSchema,
+  agentRunControlCommandSchema,
+  agentRunControlEndpointDescriptorSchema,
+  agentRunControlErrorCodeSchema,
+  agentRunControlErrorResponseSchema,
+  agentRunControlLeaseIdSchema,
+  agentRunControlReceiptResultSchema,
+  agentRunControlRespondOutcomeSchema,
+  agentRunControlResponseSchema,
+  agentRunControlSuccessReceiptSchema
+} from "./autoRun/agentRunControlContract.js";
+export type * from "./autoRun/agentRunControlContract.js";
+export { AgentRunControlLocator } from "./autoRun/agentRunControlLocator.js";
+export type * from "./autoRun/agentRunControlLocator.js";
+export {
   RUNNER_EVENT_MAX_ENCODED_BYTES,
   RUNNER_EVENT_MAX_LINE_BYTES,
   RUNNER_EVENT_MAX_MESSAGE_BYTES,
@@ -483,6 +507,7 @@ export {
   addCanvasDependency,
   addCrossTaskDependency,
   cancelDesktopAgentRun,
+  executeDesktopAgentRunControl,
   renameProject,
   renameTaskCanvas,
   removeBlock,
@@ -539,6 +564,12 @@ export {
   updateReviewPipeline,
   bulkApplyReviewPipeline,
   validateGraphEdit
+} from "./desktop/index.js";
+export {
+  desktopAgentRunControlErrorSchema,
+  desktopAgentRunControlInputSchema,
+  desktopAgentRunControlResponseSchema,
+  desktopAgentRunControlSuccessSchema
 } from "./desktop/index.js";
 export {
   CANVAS_MAP_LAYOUT_VERSION,
