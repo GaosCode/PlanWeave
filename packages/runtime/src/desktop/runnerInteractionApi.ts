@@ -5,6 +5,7 @@ import {
   runnerInteractionActionIdentitySchema,
   runnerInteractionIdentitySchema,
   runnerInteractionIdentityMatches,
+  runnerInteractionResponseReceiptSchema,
   runnerPermissionInteractionDecisionSchema,
   type RunnerInteractionErrorCode,
   type RunnerInteractionActionIdentity,
@@ -13,6 +14,7 @@ import {
   type RunnerInteractionSnapshot,
   type RunnerPermissionInteractionDecision
 } from "../autoRun/runnerInteractionContract.js";
+import { runnerRequestActionIdentitySchema } from "../autoRun/runnerContractSchemas.js";
 import {
   projectRunnerInteractionAvailability,
   readRunnerInteractionMailboxProjection,
@@ -29,6 +31,7 @@ import { loadPackage } from "../package/loadPackage.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import { blockRunRoot } from "./recordsApi.js";
 import { parseRunRecordId, type ParsedRunRecordId } from "./runRecordIdentity.js";
+import { executeDesktopAgentRunControl } from "./agentRunControlApi.js";
 import {
   runnerInteractionAuditSchema,
   runnerInteractionCanvasRefSchema,
@@ -55,6 +58,12 @@ export class RunnerInteractionApiError extends Error {
     this.name = "RunnerInteractionApiError";
   }
 }
+
+export type RunnerInteractionApiOptions = {
+  now?: () => Date;
+  freshnessThresholdMs?: number;
+  executeControl?: typeof executeDesktopAgentRunControl;
+};
 
 function canvasIdForResultsDir(resultsDir: string): string {
   return basename(dirname(resultsDir));
@@ -321,7 +330,7 @@ export async function respondToRunnerInteraction(
   rawIdentity: RunnerInteractionIdentity,
   rawDecision: RunnerPermissionInteractionDecision,
   rawAudit: RunnerInteractionAudit,
-  options: { now?: () => Date; freshnessThresholdMs?: number } = {}
+  options: RunnerInteractionApiOptions = {}
 ): Promise<RunnerInteractionResponseReceipt> {
   return apiBoundary(async () => {
     const ref = runnerInteractionCanvasRefSchema.parse(rawRef);
@@ -330,17 +339,28 @@ export async function respondToRunnerInteraction(
     const audit = runnerInteractionAuditSchema.parse(rawAudit);
     const scope = await existingRunDirectories(ref);
     const runDir = await locateRunDirectory(scope, identity);
-    return respondAtRunDirectory(scope, runDir, identity, decision, audit, options);
+    return respondAtRunDirectory(
+      ref,
+      `${identity.claimRef}::${identity.executorRunId}`,
+      scope,
+      runDir,
+      identity,
+      decision,
+      audit,
+      options
+    );
   });
 }
 
 async function respondAtRunDirectory(
+  ref: RunnerInteractionCanvasRef,
+  recordId: string,
   scope: Awaited<ReturnType<typeof existingRunDirectories>>,
   runDir: string,
   identity: RunnerInteractionIdentity,
   decision: RunnerPermissionInteractionDecision,
   audit: RunnerInteractionAudit,
-  options: { now?: () => Date; freshnessThresholdMs?: number }
+  options: RunnerInteractionApiOptions
 ): Promise<RunnerInteractionResponseReceipt> {
   const [metadataInput, heartbeatInput, snapshot] = await Promise.all([
     readJsonFile<unknown>(join(runDir, "metadata.json")),
@@ -362,13 +382,74 @@ async function respondAtRunDirectory(
     thresholdMs: options.freshnessThresholdMs
   });
   if (!availability.available) throw availabilityError(availability.reason!);
-  return await new PersistentRunnerInteractionStore(runDir).createResponse({
-    version: "planweave.runner-interaction-response/v1",
+  const selectedOption =
+    decision.kind === "select"
+      ? (snapshot.request.options.find((option) => option.optionId === decision.optionId) ?? null)
+      : null;
+  if (decision.kind === "select" && selectedOption === null) {
+    throw new RunnerInteractionApiError(
+      "interaction_option_not_advertised",
+      "Runner interaction decision did not select an advertised option."
+    );
+  }
+  const metadata = z
+    .object({
+      desktopRunId: z.string().min(1),
+      runSessionId: z.string().min(1),
+      executorRunId: z.string().min(1),
+      claimRef: z.string().min(1),
+      sessionId: z.string().min(1)
+    })
+    .passthrough()
+    .safeParse(metadataInput);
+  if (!metadata.success) {
+    throw new RunnerInteractionApiError(
+      "interaction_contract_invalid",
+      "Runner interaction metadata cannot form an exact control identity."
+    );
+  }
+  const response = await (options.executeControl ?? executeDesktopAgentRunControl)({
+    ref,
+    recordId,
+    action: {
+      kind: "respond",
+      identity: runnerRequestActionIdentitySchema.parse({
+        scope: runDir,
+        executorRunId: metadata.data.executorRunId,
+        desktopRunId: metadata.data.desktopRunId,
+        runSessionId: metadata.data.runSessionId,
+        claimRef: metadata.data.claimRef,
+        sessionId: metadata.data.sessionId,
+        requestId: identity.requestId
+      }),
+      outcome: decision.kind === "select" ? decision.optionId : { action: "cancel" }
+    }
+  });
+  if (!response.ok) {
+    const code: RunnerInteractionErrorCode =
+      response.code === "request_not_pending"
+        ? "interaction_already_answered"
+        : response.code === "stale_lease" || response.code === "not_owner"
+          ? "interaction_owner_replaced"
+          : response.code === "not_active" ||
+              response.code === "delivery_failed" ||
+              response.code === "capability_denied"
+            ? "interaction_owner_unavailable"
+            : response.code === "invalid_identity"
+              ? "interaction_identity_mismatch"
+              : "interaction_contract_invalid";
+    throw new RunnerInteractionApiError(code, response.message, {
+      controlCode: response.code,
+      commandId: response.commandId
+    });
+  }
+  return runnerInteractionResponseReceiptSchema.parse({
+    version: "planweave.runner-interaction-response-receipt/v1",
     identity,
+    acceptedAt: response.acceptedAt,
     decision,
-    respondedAt: (options.now ?? (() => new Date()))().toISOString(),
-    decisionSource: audit.decisionSource,
-    reason: audit.reason
+    selectedOption,
+    decisionSource: audit.decisionSource
   });
 }
 
@@ -377,7 +458,7 @@ export async function respondToRunnerInteractionAction(
   rawAction: RunnerInteractionActionIdentity,
   rawDecision: RunnerPermissionInteractionDecision,
   rawAudit: RunnerInteractionAudit,
-  options: { now?: () => Date; freshnessThresholdMs?: number } = {}
+  options: RunnerInteractionApiOptions = {}
 ): Promise<RunnerInteractionResponseReceipt> {
   return apiBoundary(async () => {
     const ref = runnerInteractionCanvasRefSchema.parse(rawRef);
@@ -406,6 +487,15 @@ export async function respondToRunnerInteractionAction(
         "Runner interaction owner lease was replaced."
       );
     }
-    return respondAtRunDirectory(scope, runDir, identity, decision, audit, options);
+    return respondAtRunDirectory(
+      ref,
+      action.recordId,
+      scope,
+      runDir,
+      identity,
+      decision,
+      audit,
+      options
+    );
   });
 }

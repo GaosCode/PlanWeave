@@ -326,6 +326,19 @@ export class AcpSessionController {
       })();
       return controlStopPromise;
     };
+    const removeControlHandle = async (
+      ownedHandle: ActiveAgentRunHandle,
+      reason: string,
+      terminalState: "succeeded" | "failed" | "cancelled",
+      artifactValidated = false
+    ): Promise<void> => {
+      await prepareControlRemoval();
+      try {
+        await this.registry.remove(ownedHandle, reason, terminalState, artifactValidated);
+      } finally {
+        await stopControlEndpoint();
+      }
+    };
     await writeState("running", {
       sessionId: null,
       capabilities: null,
@@ -770,8 +783,7 @@ export class AcpSessionController {
         await eventStore.drain();
       }
       cleanupAttempted = true;
-      await stopControlEndpoint();
-      await this.registry.remove(
+      await removeControlHandle(
         handle,
         "ACP claim completed and released live ownership.",
         "succeeded",
@@ -838,8 +850,7 @@ export class AcpSessionController {
         cleanupAttempted = true;
         try {
           if (handle && handleRegistered) {
-            await stopControlEndpoint();
-            await this.registry.remove(
+            await removeControlHandle(
               handle,
               "ACP claim failed and released live ownership.",
               cancelledBeforeCleanup ? "cancelled" : "failed"

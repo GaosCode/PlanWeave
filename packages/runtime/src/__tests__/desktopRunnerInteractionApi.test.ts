@@ -2,7 +2,7 @@ import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   type RunnerInteractionApiError,
   listPendingRunnerInteractions,
@@ -21,6 +21,12 @@ const acpFixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.me
 const apiWorker = fileURLToPath(
   new URL("./support/runnerInteractionApiWorker.ts", import.meta.url)
 );
+const acceptedControl = vi.fn(async () => ({
+  ok: true as const,
+  commandId: "44444444-4444-4444-8444-444444444444",
+  acceptedAt: now.toISOString(),
+  result: { status: "delivered" as const, deliveredAt: now.toISOString() }
+}));
 
 async function createPendingRun(options: { feedbackId?: string } = {}) {
   const { root, init } = await createTestWorkspace();
@@ -51,7 +57,9 @@ async function createPendingRun(options: { feedbackId?: string } = {}) {
     ownerLeaseId: lease,
     ownerGeneration: 1,
     status: "running",
-    desktopRunId: null
+    desktopRunId: "AUTO-RUN-001",
+    runSessionId: "SESSION-001",
+    claimRef: identity.claimRef
   });
   await writeJsonFile(join(runDir, "heartbeat.json"), {
     status: "running",
@@ -95,6 +103,7 @@ describe("desktop runner interaction API", () => {
       kind: "implementation",
       identity: {
         scope: runDir,
+        desktopRunId: "AUTO-RUN-001",
         runSessionId: "SESSION-001",
         executorRunId: "RUN-001",
         claimRef: "T-001#B-001"
@@ -142,7 +151,7 @@ describe("desktop runner interaction API", () => {
     expect(output).toContain('"decisionSource":"runtime-worker"');
   }, 15_000);
 
-  it("lists and responds to a canonical canvas interaction without a live registry owner", async () => {
+  it("lists but does not report success when the owner endpoint is unavailable", async () => {
     const fixture = await createPendingRun();
     await expect(
       listPendingRunnerInteractions({ projectRoot: fixture.root, canvasId: "default" })
@@ -156,7 +165,12 @@ describe("desktop runner interaction API", () => {
         { decisionSource: "scheduler-alpha", reason: null },
         { now: () => now }
       )
-    ).resolves.toMatchObject({ selectedOption: { decision: "approve" } });
+    ).rejects.toMatchObject<RunnerInteractionApiError>({
+      code: "interaction_owner_unavailable"
+    });
+    await expect(
+      new PersistentRunnerInteractionStore(fixture.runDir).readSnapshot(fixture.identity.requestId)
+    ).resolves.toMatchObject({ status: "pending", response: null });
   });
 
   it("rejects stale owners, then accepts the same lease after heartbeat recovery", async () => {
@@ -197,7 +211,15 @@ describe("desktop runner interaction API", () => {
       runnerLifecycle: "waiting_interaction",
       pendingInteractionIds: [fixture.identity.requestId]
     });
-    await expect(respond()).resolves.toMatchObject({ selectedOption: { decision: "deny" } });
+    await expect(
+      respondToRunnerInteraction(
+        { projectRoot: fixture.root, canvasId: "default" },
+        fixture.identity,
+        { kind: "select", optionId: "reject_once" },
+        { decisionSource: "scheduler-alpha", reason: "Not approved" },
+        { now: () => now, executeControl: acceptedControl }
+      )
+    ).resolves.toMatchObject({ selectedOption: { decision: "deny" } });
   });
 
   it("rejects a replaced owner lease before creating a response", async () => {
@@ -233,6 +255,15 @@ describe("desktop runner interaction API", () => {
       ownerLeaseId: lease
     };
     const audit = { decisionSource: "planweave-desktop", reason: null };
+    const executeControl = vi
+      .fn()
+      .mockResolvedValueOnce(await acceptedControl())
+      .mockResolvedValueOnce({
+        ok: false,
+        commandId: "55555555-5555-4555-8555-555555555555",
+        code: "request_not_pending",
+        message: "Request is no longer pending."
+      });
 
     await expect(
       respondToRunnerInteractionAction(
@@ -240,7 +271,7 @@ describe("desktop runner interaction API", () => {
         action,
         { kind: "select", optionId: "allow_once" },
         audit,
-        { now: () => now }
+        { now: () => now, executeControl }
       )
     ).resolves.toMatchObject({ selectedOption: { decision: "approve" } });
     await expect(
@@ -251,7 +282,8 @@ describe("desktop runner interaction API", () => {
         {
           ...audit,
           reason: "No longer needed"
-        }
+        },
+        { executeControl }
       )
     ).rejects.toMatchObject<RunnerInteractionApiError>({
       code: "interaction_already_answered"

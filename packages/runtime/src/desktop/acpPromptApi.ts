@@ -6,7 +6,6 @@ import {
   createAcpEventSubscriptionCloseResult,
   type AcpEventSubscriptionCloseResult
 } from "../autoRun/acpEventPublisher.js";
-import { activeAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { builtinAgentProfiles, resolveAgentDefinition } from "../autoRun/agentRegistry.js";
 import { requireAcpLaunch } from "../autoRun/acpLaunch.js";
 import { DEFAULT_EXECUTOR_TIMEOUT_MS, workspaceExecutionCwd } from "../autoRun/executorShared.js";
@@ -37,6 +36,10 @@ import {
   type ExecutorProfile,
   type ProjectWorkspace
 } from "../types.js";
+import {
+  assertDesktopAgentRunControlAccepted,
+  executeDesktopAgentRunControl
+} from "./agentRunControlApi.js";
 
 const acpPromptMetadataBaseSchema = z
   .object({
@@ -126,22 +129,6 @@ export function resolveAcpPromptContext(options: {
       available: false,
       reason: "ACP record identity does not match its persisted metadata."
     };
-  }
-  if (liveMetadata.success) {
-    const registered = activeAgentRunRegistry.lookupExact({
-      scope: options.runDir,
-      executorRunId: metadata.executorRunId,
-      desktopRunId: liveMetadata.data.desktopRunId,
-      runSessionId: liveMetadata.data.runSessionId,
-      claimRef: metadata.claimRef,
-      sessionId: metadata.sessionId
-    });
-    if (!registered) {
-      return {
-        available: false,
-        reason: "No live owned ACP session is available for this run record."
-      };
-    }
   }
   const identity = desktopAgentPromptIdentitySchema.parse({
     ref: {
@@ -422,7 +409,7 @@ export async function continueAcpPrompt(options: {
   });
 }
 
-export function queueLiveAcpPrompt(options: {
+export async function queueLiveAcpPrompt(options: {
   context: Extract<AcpPromptContext, { available: true }> & { mode: "live" };
   text: string;
 }): Promise<void> {
@@ -432,15 +419,21 @@ export function queueLiveAcpPrompt(options: {
       new Error("Live ACP prompt requires exact Desktop run/session identity.")
     );
   }
-  return activeAgentRunRegistry.queuePrompt(
-    runnerSessionActionIdentitySchema.parse({
-      scope: options.context.runDir,
-      executorRunId: metadata.executorRunId,
-      desktopRunId: metadata.desktopRunId,
-      runSessionId: metadata.runSessionId,
-      claimRef: metadata.claimRef,
-      sessionId: metadata.sessionId
-    }),
-    options.text
-  );
+  const response = await executeDesktopAgentRunControl({
+    ref: options.context.identity.ref,
+    recordId: options.context.identity.recordId,
+    action: {
+      kind: "follow_up",
+      identity: runnerSessionActionIdentitySchema.parse({
+        scope: options.context.runDir,
+        executorRunId: metadata.executorRunId,
+        desktopRunId: metadata.desktopRunId,
+        runSessionId: metadata.runSessionId,
+        claimRef: metadata.claimRef,
+        sessionId: metadata.sessionId
+      }),
+      prompt: options.text
+    }
+  });
+  assertDesktopAgentRunControlAccepted(response);
 }

@@ -31,6 +31,7 @@ export const AGENT_RUN_CONTROL_DEFAULT_MAX_CONCURRENT_REQUESTS = 16;
 export const AGENT_RUN_CONTROL_DEFAULT_COMMAND_CACHE_SIZE = 256;
 
 const FRAME_HEADER_BYTES = 4;
+const MAX_BUFFERED_FRAME_BYTES = 2 * (AGENT_RUN_CONTROL_MAX_FRAME_BYTES + FRAME_HEADER_BYTES);
 const UNIX_SOCKET_MODE = 0o600;
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -215,6 +216,7 @@ export class AgentRunControlServer {
 
     const terminate = (): void => {
       terminal = true;
+      socket.resume();
       socket.end();
     };
 
@@ -237,30 +239,33 @@ export class AgentRunControlServer {
       processing = true;
       this.processingSockets.add(socket);
       socket.setTimeout(0);
-      const response = await this.executePayload(payload);
-      if (!socket.destroyed) {
-        await new Promise<void>((resolve) => {
-          socket.write(frame(response), () => resolve());
-        });
+      socket.pause();
+      try {
+        const response = await this.executePayload(payload);
+        if (!socket.destroyed) {
+          await new Promise<void>((resolve) => {
+            socket.write(frame(response), () => resolve());
+          });
+        }
+      } finally {
+        processing = false;
+        this.processingSockets.delete(socket);
       }
-      processing = false;
-      this.processingSockets.delete(socket);
       if (!this.accepting) {
         terminate();
         return;
       }
-      if (!terminal && !socket.destroyed) socket.setTimeout(this.idleTimeoutMs);
+      if (!terminal && !socket.destroyed) {
+        socket.setTimeout(this.idleTimeoutMs);
+        socket.resume();
+      }
       await pump();
     };
 
     socket.on("data", (chunk) => {
       if (terminal) return;
       buffered = Buffer.concat([buffered, chunk]);
-      if (
-        buffered.byteLength > AGENT_RUN_CONTROL_MAX_FRAME_BYTES + FRAME_HEADER_BYTES &&
-        (buffered.byteLength < FRAME_HEADER_BYTES ||
-          buffered.readUInt32BE(0) > AGENT_RUN_CONTROL_MAX_FRAME_BYTES)
-      ) {
+      if (buffered.byteLength > MAX_BUFFERED_FRAME_BYTES) {
         writeProtocolError("Control frame exceeds the protocol limit.");
         return;
       }

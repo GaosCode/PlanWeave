@@ -6,8 +6,12 @@ import {
   agentRunControlLeaseIdSchema,
   type AgentRunControlAction
 } from "../autoRun/agentRunControlContract.js";
-import { executeDesktopAgentRunControl } from "../desktop/agentRunControlApi.js";
+import {
+  executeDesktopAgentRunControl,
+  executeDesktopAgentRunControlAtScope
+} from "../desktop/agentRunControlApi.js";
 import { desktopAgentRunControlResponseSchema } from "../desktop/types/agentRunControlTypes.js";
+import { writeJsonFile } from "../json.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 
 const roots: string[] = [];
@@ -29,6 +33,7 @@ async function applicationFixture() {
     claimRef: "T-001#B-001",
     sessionId: "acp-session-1"
   };
+  await writeJsonFile(join(runDir, "metadata.json"), identity);
   return { root, runDir, identity };
 }
 
@@ -121,5 +126,39 @@ describe("desktop agent run control application API", () => {
     );
     expect(escaped).toMatchObject({ ok: false, code: "invalid_identity" });
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("validates canonical scope metadata before direct cancel routing", async () => {
+    const fixture = await applicationFixture();
+    const execute = vi.fn(async () => ({
+      version: AGENT_RUN_CONTROL_PROTOCOL_VERSION,
+      ok: true as const,
+      commandId,
+      acceptedAt: "2026-07-17T07:00:00.000Z",
+      ownerPid: 9876,
+      leaseId,
+      result: { status: "delivered" as const, deliveredAt: "2026-07-17T07:00:01.000Z" }
+    }));
+
+    await expect(
+      executeDesktopAgentRunControlAtScope(
+        { kind: "cancel", identity: fixture.identity },
+        { locator: { execute } }
+      )
+    ).resolves.toMatchObject({ ok: true });
+    expect(execute).toHaveBeenCalledWith(fixture.runDir, {
+      kind: "cancel",
+      identity: fixture.identity
+    });
+
+    await expect(
+      executeDesktopAgentRunControlAtScope(
+        {
+          kind: "cancel",
+          identity: { ...fixture.identity, desktopRunId: "DESKTOP-RUN-OTHER" }
+        },
+        { locator: { execute } }
+      )
+    ).resolves.toMatchObject({ ok: false, code: "invalid_identity" });
   });
 });

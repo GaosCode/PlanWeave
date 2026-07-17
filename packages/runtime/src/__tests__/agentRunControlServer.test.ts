@@ -218,6 +218,40 @@ describe("agent run control server", () => {
     }
   });
 
+  it("bounds pipelined bytes while the first command is blocked", async () => {
+    const runDir = await temporaryRoot("pipeline-bound");
+    let release!: (result: { status: "delivered"; deliveredAt: string }) => void;
+    const delivery = new Promise<{ status: "delivered"; deliveredAt: string }>((resolve) => {
+      release = resolve;
+    });
+    const target = targetFixture();
+    target.cancel = vi.fn(() => delivery);
+    const server = new AgentRunControlServer({ runDir, leaseId, target });
+    const descriptor = await server.start();
+    const socket = createConnection(descriptor.address);
+    await once(socket, "connect");
+    socket.resume();
+    socket.write(requestFrame(cancelCommand("44444444-4444-4444-8444-444444444444")));
+    await vi.waitFor(() => expect(target.cancel).toHaveBeenCalledTimes(1));
+
+    const oversizedHeader = Buffer.alloc(4);
+    oversizedHeader.writeUInt32BE(AGENT_RUN_CONTROL_MAX_FRAME_BYTES + 1, 0);
+    socket.write(Buffer.concat([oversizedHeader, Buffer.alloc(AGENT_RUN_CONTROL_MAX_FRAME_BYTES)]));
+    const closed = once(socket, "close");
+    release({ status: "delivered", deliveredAt: "2026-07-17T07:00:01.000Z" });
+
+    await expect(
+      Promise.race([
+        closed.then(() => "closed"),
+        new Promise<string>((resolve) => setTimeout(() => resolve("timeout"), 1_000))
+      ])
+    ).resolves.toBe("closed");
+    expect(target.cancel).toHaveBeenCalledTimes(1);
+    expect(target.followUp).not.toHaveBeenCalled();
+    await server.stop();
+    await server.stop();
+  });
+
   it("closes idle connections and removes descriptor and Unix socket on idempotent stop", async () => {
     const runDir = await temporaryRoot("teardown");
     const server = new AgentRunControlServer({

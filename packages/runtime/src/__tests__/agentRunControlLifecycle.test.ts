@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ActiveAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import {
   agentRunControlCancelCommandSchema,
+  agentRunControlFollowUpCommandSchema,
   agentRunControlResponseSchema,
   type AgentRunControlCommand,
   type AgentRunControlResponse
@@ -163,6 +164,43 @@ describe("agent run control controller lifecycle", () => {
     );
     expect(response).toMatchObject({ ok: true, result: { status: "delivered" } });
     await expect(execution).rejects.toMatchObject({ name: "AbortError" });
+    await expectEndpointClosed(root, descriptor.address);
+    await expect(registry.shutdown()).resolves.toBeUndefined();
+    await expect(registry.shutdown()).resolves.toBeUndefined();
+  });
+
+  it("rejects a queued follow-up before awaiting fatal endpoint teardown", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-control-fatal-queue-"));
+    const registry = new ActiveAgentRunRegistry();
+    const shutdown = new AbortController();
+    const execution = new AcpSessionController(registry).execute(
+      controllerRun(root, "long-prompt"),
+      { signal: shutdown.signal, timeoutMs: 2_000 }
+    );
+    const descriptor = await liveDescriptor(root);
+    const followUp = sendCommand(
+      descriptor.address,
+      agentRunControlFollowUpCommandSchema.parse({
+        version: "planweave.agent-run-control/v1",
+        commandId: "33333333-3333-4333-8333-333333333333",
+        leaseId: descriptor.leaseId,
+        kind: "follow_up",
+        identity: {
+          scope: root,
+          desktopRunId: "AUTO-RUN-001",
+          runSessionId: "SESSION-001",
+          executorRunId: "RUN-001",
+          claimRef: "T-001#B-001",
+          sessionId: "mock-session-1"
+        },
+        prompt: "queued while the initial turn is still running"
+      })
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    shutdown.abort(new Error("fatal owner shutdown"));
+
+    await expect(followUp).resolves.toMatchObject({ ok: false, code: "delivery_failed" });
+    await expect(execution).rejects.toThrow();
     await expectEndpointClosed(root, descriptor.address);
     await expect(registry.shutdown()).resolves.toBeUndefined();
     await expect(registry.shutdown()).resolves.toBeUndefined();

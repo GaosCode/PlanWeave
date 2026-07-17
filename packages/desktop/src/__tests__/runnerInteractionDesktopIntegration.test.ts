@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { PersistentRunnerInteractionChannel } from "../../../runtime/src/autoRun/persistentRunnerInteractionChannel";
 import { PersistentRunnerInteractionStore } from "../../../runtime/src/autoRun/runnerInteractionStore";
+import { AgentRunControlServer } from "../../../runtime/src/autoRun/agentRunControlServer";
 import { writeJsonFile } from "../../../runtime/src/json";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers";
 import { createDesktopBridgeInvokeApi } from "../preload/bridgeInvocation";
@@ -44,6 +45,8 @@ describe("Desktop runner interaction file-backed integration", () => {
     };
     const decision = { kind: "select" as const, optionId: "allow_once" };
     const audit = { decisionSource: "planweave-desktop", reason: null };
+    const desktopRunId = "AUTO-RUN-001";
+    const runSessionId = "SESSION-001";
     await mkdir(runDir, { recursive: true });
     await writeJsonFile(join(runDir, "metadata.json"), {
       runnerKind: "acp",
@@ -57,7 +60,9 @@ describe("Desktop runner interaction file-backed integration", () => {
       sessionId: identity.sessionId,
       ownerLeaseId,
       ownerGeneration: 1,
-      status: "running"
+      status: "running",
+      desktopRunId,
+      runSessionId
     });
     const writeHeartbeat = async (waiting: boolean) =>
       writeJsonFile(join(runDir, "heartbeat.json"), {
@@ -73,8 +78,9 @@ describe("Desktop runner interaction file-backed integration", () => {
       });
     await writeHeartbeat(false);
 
+    const store = new PersistentRunnerInteractionStore(runDir);
     const channel = new PersistentRunnerInteractionChannel({
-      store: new PersistentRunnerInteractionStore(runDir),
+      store,
       publishPending: async () => undefined,
       publishResult: async () => undefined,
       setWaiting: async (_requestId, waiting) => writeHeartbeat(waiting),
@@ -93,6 +99,33 @@ describe("Desktop runner interaction file-backed integration", () => {
       },
       { signal: abortController.signal, deadline: new Date(now.getTime() + 5_000) }
     );
+    const controlServer = new AgentRunControlServer({
+      runDir,
+      leaseId: ownerLeaseId,
+      target: {
+        cancel: async () => ({ status: "delivered", deliveredAt: new Date().toISOString() }),
+        followUp: async () => ({ status: "accepted" }),
+        respond: async (requestIdentity, outcome) => {
+          expect(requestIdentity).toMatchObject({
+            scope: runDir,
+            desktopRunId,
+            runSessionId,
+            requestId: identity.requestId
+          });
+          expect(outcome).toBe("allow_once");
+          await store.createResponse({
+            version: "planweave.runner-interaction-response/v1",
+            identity,
+            decision,
+            respondedAt: new Date().toISOString(),
+            decisionSource: audit.decisionSource,
+            reason: audit.reason
+          });
+          return { status: "delivered", deliveredAt: new Date().toISOString() };
+        }
+      }
+    });
+    await controlServer.start();
 
     const bridge = createDesktopBridgeInvokeApi(async (channelName, ...args) => {
       if (channelName === desktopBridgeInvokeChannels.listPendingRunnerInteractions) {
@@ -139,6 +172,7 @@ describe("Desktop runner interaction file-backed integration", () => {
     } finally {
       abortController.abort();
       await ownerContinuation.catch(() => undefined);
+      await controlServer.stop();
     }
   });
 });

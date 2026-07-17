@@ -18,6 +18,10 @@ import {
 import { loadPackage } from "../package/loadPackage.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
+import {
+  assertDesktopAgentRunControlAccepted,
+  executeDesktopAgentRunControlAtScope
+} from "./agentRunControlApi.js";
 import type { PackageWorkspaceRef, ProjectWorkspace, ValidationIssue } from "../types.js";
 import type {
   DesktopAutoRunEventLog,
@@ -404,7 +408,9 @@ export function respondToDesktopAgentRequest(
 export function cancelDesktopAgentRun(
   identity: ActiveAgentRunSessionActionIdentity
 ): Promise<void> {
-  return activeAgentRunRegistry.cancel(identity);
+  return executeDesktopAgentRunControlAtScope({ kind: "cancel", identity }).then(
+    assertDesktopAgentRunControlAccepted
+  );
 }
 
 function launchRunLoop(runId: string): void {
