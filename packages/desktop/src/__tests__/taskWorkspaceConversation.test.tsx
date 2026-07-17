@@ -403,7 +403,7 @@ describe("Task Workspace conversation", () => {
             {
               path: "/projects/demo/src/example.ts",
               oldText: "const value = 1;\n",
-              newText: "const value = 2;\n",
+              newText: "const value = `\\_\\_\\_`;\n",
               _meta: { old_line: 44, new_line: 44 },
               type: "diff"
             }
@@ -433,6 +433,9 @@ describe("Task Workspace conversation", () => {
     expect(
       container.querySelector('[data-diff-line="addition"] .text-violet-700')
     ).toHaveTextContent("const");
+    expect(
+      container.querySelector('[data-diff-line="addition"] .text-amber-700')
+    ).toHaveTextContent("`\\_\\_\\_`");
     expect(screen.queryByText("Input")).not.toBeInTheDocument();
     expect(screen.queryByText("Output")).not.toBeInTheDocument();
   });

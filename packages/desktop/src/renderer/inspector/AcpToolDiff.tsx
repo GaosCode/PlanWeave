@@ -209,7 +209,7 @@ function fileName(path: string): string {
 
 function highlightedLine(text: string): ReactNode[] {
   const tokens = text.split(
-    /(\/\/.*$|#[^"'`]*$|\/\*[\s\S]*?\*\/|`(?:\\.|[^`])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?\b|\b[A-Za-z_$][\w$]*\b)/g
+    /(\/\/.*$|#[^"'`]*$|\/\*[\s\S]*?\*\/|`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?\b|\b[A-Za-z_$][\w$]*\b)/g
   );
   return tokens.filter(Boolean).map((token, index) => {
     let className = "";
