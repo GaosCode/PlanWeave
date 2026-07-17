@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   runnerInteractionClientLabelSchema,
   runnerInteractionIdentityMatches,
+  runnerInteractionOwnerResultSchema,
   runnerInteractionResponseReceiptSchema,
+  runnerInteractionSettlementSchema,
   runnerInteractionSnapshotSchema,
   runnerPermissionInteractionRequestSchema,
   runnerPermissionInteractionResponseSchema
@@ -40,6 +42,17 @@ function responseFixture() {
     respondedAt: "2026-07-17T04:01:00.000Z",
     decisionSource: "scheduler-alpha",
     reason: null
+  };
+}
+
+function ownerResultFixture() {
+  return {
+    version: "planweave.runner-interaction-owner-result/v1",
+    identity: requestFixture().identity,
+    outcome: "expired",
+    reason: "deadline",
+    recordedAt: "2026-07-17T04:01:00.000Z",
+    message: "Permission request deadline elapsed."
   };
 }
 
@@ -86,6 +99,17 @@ describe("runner interaction contract", () => {
       runnerPermissionInteractionResponseSchema.parse({
         ...responseFixture(),
         decision: { kind: "select", optionId: "allow=once/../✓", permanent: true }
+      })
+    ).toThrow();
+    expect(() =>
+      runnerInteractionOwnerResultSchema.parse({ ...ownerResultFixture(), unknown: true })
+    ).toThrow();
+    expect(() =>
+      runnerInteractionSettlementSchema.parse({
+        version: "planweave.runner-interaction-settlement/v1",
+        kind: "owner_result",
+        ownerResult: ownerResultFixture(),
+        unknown: true
       })
     ).toThrow();
   });

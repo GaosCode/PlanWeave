@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  runnerInteractionOwnerResultSchema,
   runnerPermissionInteractionRequestSchema,
   runnerPermissionInteractionResponseSchema
 } from "../autoRun/runnerInteractionContract.js";
@@ -68,6 +69,20 @@ function responseFixture(
   });
 }
 
+function ownerResultFixture(
+  request = requestFixture(),
+  reason: "deadline" | "aborted" = "deadline"
+) {
+  return runnerInteractionOwnerResultSchema.parse({
+    version: "planweave.runner-interaction-owner-result/v1",
+    identity: request.identity,
+    outcome: "expired",
+    reason,
+    recordedAt: "2026-07-17T04:01:00.000Z",
+    message: `Permission request expired: ${reason}.`
+  });
+}
+
 function interactionDir(runDir: string, requestId = "permission:1"): string {
   return join(runDir, "interactions", Buffer.from(requestId).toString("base64url"));
 }
@@ -96,9 +111,12 @@ describe("persistent runner interaction store", () => {
     const directoryMode = (await lstat(interactionDir(runDir))).mode & 0o777;
     const requestMode = (await lstat(join(interactionDir(runDir), "request.json"))).mode & 0o777;
     const responseMode = (await lstat(join(interactionDir(runDir), "response.json"))).mode & 0o777;
+    const settlementMode =
+      (await lstat(join(interactionDir(runDir), "settlement.json"))).mode & 0o777;
     expect(directoryMode).toBe(0o700);
     expect(requestMode).toBe(0o600);
     expect(responseMode).toBe(0o600);
+    expect(settlementMode).toBe(0o600);
   });
 
   it("reports immutable request conflict, response conflict, identity mismatch, and invalid option", async () => {
@@ -130,6 +148,84 @@ describe("persistent runner interaction store", () => {
         respondedAt: "2026-07-17T04:01:00.000Z",
         decisionSource: "test-client"
       }
+    });
+  });
+
+  it("validates owner results immediately and keeps duplicate content idempotent", async () => {
+    const runDir = await createRunDir();
+    const store = new PersistentRunnerInteractionStore(runDir);
+    const request = requestFixture();
+    await store.createRequest(request);
+    const ownerResult = ownerResultFixture(request);
+
+    await expect(store.createOwnerResult(ownerResult)).resolves.toEqual(ownerResult);
+    await expect(store.createOwnerResult(ownerResult)).resolves.toEqual(ownerResult);
+    await expect(
+      store.createOwnerResult(ownerResultFixture(request, "aborted"))
+    ).rejects.toMatchObject({
+      code: "interaction_already_answered",
+      details: { winnerKind: "owner_result" }
+    });
+    await expect(store.readSnapshot(request.identity.requestId)).resolves.toMatchObject({
+      status: "expired",
+      response: null,
+      ownerResult
+    });
+  });
+
+  it("rejects corrupted or mismatched canonical owner results during createOwnerResult", async () => {
+    const corruptedRunDir = await createRunDir();
+    const corruptedStore = new PersistentRunnerInteractionStore(corruptedRunDir);
+    const request = requestFixture();
+    await corruptedStore.createRequest(request);
+    const corruptedPath = join(interactionDir(corruptedRunDir), "owner-result.json");
+    await writeFile(corruptedPath, "{broken json\n", { encoding: "utf8", mode: 0o600 });
+    await expect(
+      corruptedStore.createOwnerResult(ownerResultFixture(request))
+    ).rejects.toMatchObject({
+      code: "interaction_contract_invalid"
+    });
+
+    const mismatchRunDir = await createRunDir();
+    const mismatchStore = new PersistentRunnerInteractionStore(mismatchRunDir);
+    await mismatchStore.createRequest(request);
+    const mismatchPath = join(interactionDir(mismatchRunDir), "owner-result.json");
+    await writeFile(
+      mismatchPath,
+      `${JSON.stringify({
+        ...ownerResultFixture(request),
+        identity: { ...request.identity, ownerGeneration: 2 }
+      })}\n`,
+      { encoding: "utf8", mode: 0o600 }
+    );
+    await expect(
+      mismatchStore.createOwnerResult(ownerResultFixture(request))
+    ).rejects.toMatchObject({
+      code: "interaction_identity_mismatch"
+    });
+  });
+
+  it("settles response and owner result conflicts in both directions", async () => {
+    const responseRunDir = await createRunDir();
+    const responseStore = new PersistentRunnerInteractionStore(responseRunDir);
+    const responseRequest = requestFixture();
+    await responseStore.createRequest(responseRequest);
+    await responseStore.createResponse(responseFixture(responseRequest));
+    await expect(
+      responseStore.createOwnerResult(ownerResultFixture(responseRequest))
+    ).rejects.toMatchObject({
+      code: "interaction_already_answered",
+      details: { winnerKind: "response" }
+    });
+
+    const ownerRunDir = await createRunDir();
+    const ownerStore = new PersistentRunnerInteractionStore(ownerRunDir);
+    const ownerRequest = requestFixture();
+    await ownerStore.createRequest(ownerRequest);
+    await ownerStore.createOwnerResult(ownerResultFixture(ownerRequest));
+    await expect(ownerStore.createResponse(responseFixture(ownerRequest))).rejects.toMatchObject({
+      code: "interaction_already_answered",
+      details: { winnerKind: "owner_result" }
     });
   });
 
@@ -351,5 +447,86 @@ describe("persistent runner interaction store", () => {
     expect(outcomes.filter(({ kind }) => kind === "accepted")).toHaveLength(1);
     expect(outcomes.filter(({ code }) => code === "interaction_already_answered")).toHaveLength(1);
     await expect(store.readSnapshot("permission:1")).resolves.toMatchObject({ status: "answered" });
+  });
+
+  it.each([
+    "response",
+    "owner_result"
+  ] as const)("uses one settlement CAS when %s wins across two controlled child processes", async (winnerKind) => {
+    const runDir = await createRunDir();
+    const store = new PersistentRunnerInteractionStore(runDir);
+    const request = requestFixture();
+    await store.createRequest(request);
+    const modulePath = pathToFileURL(
+      join(dirname(fileURLToPath(import.meta.url)), "../autoRun/runnerInteractionStore.ts")
+    ).href;
+    const childSource = `
+        import { access, writeFile } from "node:fs/promises";
+        import { PersistentRunnerInteractionStore, RunnerInteractionStoreError } from ${JSON.stringify(modulePath)};
+        const [runDir, operation, role, gatePath, encodedValue] = process.argv.slice(-5);
+        if (role === "loser") {
+          while (true) {
+            try { await access(gatePath); break; }
+            catch { await new Promise((resolve) => setTimeout(resolve, 5)); }
+          }
+        }
+        const store = new PersistentRunnerInteractionStore(runDir);
+        try {
+          if (operation === "response") await store.createResponse(JSON.parse(encodedValue));
+          else await store.createOwnerResult(JSON.parse(encodedValue));
+          if (role === "winner") await writeFile(gatePath, "claimed", { mode: 0o600 });
+          process.stdout.write(JSON.stringify({ kind: "accepted", operation }));
+        } catch (error) {
+          if (error instanceof RunnerInteractionStoreError) {
+            process.stdout.write(JSON.stringify({
+              kind: "rejected",
+              operation,
+              code: error.code,
+              winnerKind: error.details?.winnerKind
+            }));
+          } else throw error;
+        }
+      `;
+    const gatePath = join(runDir, `${winnerKind}.claimed`);
+    const response = responseFixture(request);
+    const ownerResult = ownerResultFixture(request);
+    const loserKind = winnerKind === "response" ? "owner_result" : "response";
+    const invoke = (operation: "response" | "owner_result", role: "winner" | "loser") =>
+      execFileAsync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "-e",
+          childSource,
+          runDir,
+          operation,
+          role,
+          gatePath,
+          JSON.stringify(operation === "response" ? response : ownerResult)
+        ],
+        { cwd: join(dirname(fileURLToPath(import.meta.url)), "../../../..") }
+      );
+
+    const [winner, loser] = await Promise.all([
+      invoke(winnerKind, "winner"),
+      invoke(loserKind, "loser")
+    ]);
+    expect(JSON.parse(winner.stdout)).toEqual({ kind: "accepted", operation: winnerKind });
+    expect(JSON.parse(loser.stdout)).toEqual({
+      kind: "rejected",
+      operation: loserKind,
+      code: "interaction_already_answered",
+      winnerKind
+    });
+    await expect(store.readSnapshot(request.identity.requestId)).resolves.toMatchObject({
+      status: winnerKind === "response" ? "answered" : "expired"
+    });
+    const loserCanonical = join(
+      interactionDir(runDir),
+      loserKind === "response" ? "response.json" : "owner-result.json"
+    );
+    await expect(readFile(loserCanonical, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
