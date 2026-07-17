@@ -21,6 +21,12 @@ export const runnerInteractionSnapshotVersionSchema = z.literal(
 export const runnerInteractionResponseReceiptVersionSchema = z.literal(
   "planweave.runner-interaction-response-receipt/v1"
 );
+export const runnerInteractionOwnerResultVersionSchema = z.literal(
+  "planweave.runner-interaction-owner-result/v1"
+);
+export const runnerInteractionSettlementVersionSchema = z.literal(
+  "planweave.runner-interaction-settlement/v1"
+);
 
 const nonEmptySafeTextSchema = (maxBytes: number, fieldName: string) =>
   safeRunnerEventTextSchema(maxBytes, fieldName).refine(
@@ -141,6 +147,36 @@ export type RunnerPermissionInteractionResponse = z.infer<
   typeof runnerPermissionInteractionResponseSchema
 >;
 
+export const runnerInteractionOwnerResultSchema = z
+  .object({
+    version: runnerInteractionOwnerResultVersionSchema,
+    identity: runnerInteractionIdentitySchema,
+    outcome: z.literal("expired"),
+    reason: z.enum(["establishment_failed", "aborted", "deadline", "terminal_cleanup"]),
+    recordedAt: z.string().datetime(),
+    message: nonEmptySafeTextSchema(4_096, "Runner interaction owner result message")
+  })
+  .strict();
+export type RunnerInteractionOwnerResult = z.infer<typeof runnerInteractionOwnerResultSchema>;
+
+export const runnerInteractionSettlementSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      version: runnerInteractionSettlementVersionSchema,
+      kind: z.literal("response"),
+      response: runnerPermissionInteractionResponseSchema
+    })
+    .strict(),
+  z
+    .object({
+      version: runnerInteractionSettlementVersionSchema,
+      kind: z.literal("owner_result"),
+      ownerResult: runnerInteractionOwnerResultSchema
+    })
+    .strict()
+]);
+export type RunnerInteractionSettlement = z.infer<typeof runnerInteractionSettlementSchema>;
+
 export const runnerInteractionErrorCodeSchema = z.enum([
   "interaction_contract_invalid",
   "interaction_request_conflict",
@@ -157,17 +193,30 @@ export const runnerInteractionSnapshotSchema = z
   .object({
     version: runnerInteractionSnapshotVersionSchema,
     interactionId: acpRequestIdSchema,
-    status: z.enum(["pending", "answered"]),
+    status: z.enum(["pending", "answered", "expired"]),
     request: runnerPermissionInteractionRequestSchema,
-    response: runnerPermissionInteractionResponseSchema.nullable()
+    response: runnerPermissionInteractionResponseSchema.nullable(),
+    ownerResult: runnerInteractionOwnerResultSchema.nullable().default(null)
   })
   .strict()
   .superRefine((snapshot, context) => {
-    if ((snapshot.status === "pending") !== (snapshot.response === null)) {
+    const expectedStatus = snapshot.response
+      ? "answered"
+      : snapshot.ownerResult
+        ? "expired"
+        : "pending";
+    if (snapshot.status !== expectedStatus) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["status"],
         message: "Interaction snapshot status must match response presence."
+      });
+    }
+    if (snapshot.response && snapshot.ownerResult) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ownerResult"],
+        message: "Interaction snapshot cannot contain both a client response and owner result."
       });
     }
     if (snapshot.interactionId !== snapshot.request.identity.requestId) {

@@ -280,7 +280,7 @@ describe("ACP event controller durability and producers", () => {
         new AcpEventReadModelRegistry()
       );
       await expect(controller.execute(run(root, scenario), { timeoutMs: 500 })).rejects.toThrow(
-        "Final artifact marker was not found"
+        scenario === "permission" ? "timed out" : "Final artifact marker was not found"
       );
       const events = await readFile(join(root, "events.ndjson"), "utf8");
       expect(events).toContain('"kind":"interaction"');

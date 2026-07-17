@@ -124,7 +124,7 @@ export type CreateAcpConnectionOptions = {
   shutdownGraceMs?: number;
 };
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+export const DEFAULT_ACP_OPERATION_TIMEOUT_MS = 30_000;
 const DEFAULT_SHUTDOWN_GRACE_MS = 100;
 
 function validateSpawnOptions(options: CreateAcpConnectionOptions): void {
@@ -446,7 +446,8 @@ class SubprocessAcpConnection implements AcpConnection {
     options: AcpOperationOptions | undefined
   ): Promise<T> {
     if (this.terminalError) throw this.terminalError;
-    const timeoutMs = options?.timeoutMs ?? this.options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const timeoutMs =
+      options?.timeoutMs ?? this.options.defaultTimeoutMs ?? DEFAULT_ACP_OPERATION_TIMEOUT_MS;
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
       throw new Error(`ACP ${name} timeout must be a positive integer.`);
     }

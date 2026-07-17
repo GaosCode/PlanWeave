@@ -150,7 +150,7 @@ const interactionResultEventBodySchema = z
     requestId: acpRequestIdSchema,
     interactionId: z.string().min(1).max(256),
     interactionKind: pendingInteractionKindSchema,
-    outcome: z.enum(["approved", "denied", "submitted", "cancelled"]),
+    outcome: z.enum(["approved", "denied", "submitted", "cancelled", "expired"]),
     message: persistedMessageSchema
   })
   .strict();
@@ -178,6 +178,9 @@ export const runnerDiagnosticCodeSchema = z.enum([
   "subscriber_callback_failed",
   "conversation_projection_failed",
   "publisher_failed",
+  "interaction_persistence_failed",
+  "interaction_response_invalid",
+  "interaction_observer_failed",
   "protocol_error"
 ]);
 const diagnosticEventBodySchema = z

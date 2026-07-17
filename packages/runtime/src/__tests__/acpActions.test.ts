@@ -242,18 +242,19 @@ describe("ACP live actions", () => {
     expect(events).toContain('"actionable":false');
   });
 
-  it("persists the headless permission cancellation result before continuing", async () => {
+  it("keeps a brokerless permission pending until the operation deadline", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-headless-permission-"));
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
     await expect(
       controller.execute(controllerRun(root, "permission-secret"), {
-        timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS
+        timeoutMs: 1_000
       })
-    ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+    ).rejects.toThrow("timed out");
     const events = await readFile(join(root, "events.ndjson"), "utf8");
     expect(events).toContain('"interactionKind":"permission"');
-    expect(events).toContain('"outcome":"cancelled"');
-    expect(events).toContain("headless default-deny policy");
+    expect(events).toContain('"status":"pending"');
+    expect(events).toContain('"outcome":"expired"');
+    expect(events).not.toContain("headless default-deny policy");
   });
 
   it("advertises preview elicitation only for an explicit interactive broker", async () => {
@@ -315,12 +316,12 @@ describe("ACP live actions", () => {
       protocols.push(await readFile(join(root, "protocol.ndjson"), "utf8"));
     }
     expect(summaries).toHaveLength(2);
-    expect(summaries[0]).toContain("token=opaque-action-id");
+    expect(summaries[0]).not.toContain("token=opaque-action-id");
     expect(summaries.join(" ")).not.toContain("super-secret");
     expect(summaries.join(" ")).not.toContain("secret-token");
     expect(summaries.join(" ")).not.toContain("raw-secret");
     expect(summaries.join(" ")).toContain("[REDACTED:CREDENTIAL]");
-    for (const summary of summaries) expect(() => JSON.parse(summary)).not.toThrow();
+    expect(summaries[0]).toContain("Permission requested for:");
     expect(protocols.join(" ")).toContain("token=opaque-action-id");
     expect(protocols.join(" ")).not.toContain("super-secret");
     expect(protocols.join(" ")).not.toContain("secret-token");

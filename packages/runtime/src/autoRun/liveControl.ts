@@ -39,6 +39,7 @@ export type LivePendingRequestHandle =
   | (LivePendingRequestBase & {
       readonly kind: "permission";
       readonly permissionOptions: readonly LivePermissionOption[];
+      expire?: (reason: string) => Promise<void>;
     })
   | (LivePendingRequestBase & {
       readonly kind: "elicitation";
@@ -235,7 +236,11 @@ async function performRunnerCleanup(
       if (settledRequests.has(request)) return;
       respondingRequests.add(request);
       try {
-        await request.reject(reason);
+        if (request.kind === "permission" && request.expire) {
+          await request.expire(reason);
+        } else {
+          await request.reject(reason);
+        }
         settledRequests.add(request);
         const ids = settledRequestIds.get(control) ?? new Set<string>();
         ids.add(request.requestId);

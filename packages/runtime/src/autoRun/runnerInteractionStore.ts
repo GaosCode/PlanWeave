@@ -5,12 +5,16 @@ import type { ZodType } from "zod";
 import {
   type RunnerInteractionErrorCode,
   type RunnerInteractionRequest,
+  type RunnerInteractionOwnerResult,
   type RunnerInteractionResponseReceipt,
+  type RunnerInteractionSettlement,
   type RunnerInteractionSnapshot,
   type RunnerPermissionInteractionResponse,
   type RunnerPermissionOption,
   runnerInteractionRequestSchema,
+  runnerInteractionOwnerResultSchema,
   runnerInteractionResponseReceiptSchema,
+  runnerInteractionSettlementSchema,
   runnerInteractionSnapshotSchema,
   runnerInteractionIdentityMatches,
   runnerPermissionInteractionResponseSchema
@@ -210,6 +214,27 @@ function validateResponseForRequest(
   return selectedOption;
 }
 
+function validateSettlementForRequest(
+  request: RunnerInteractionRequest,
+  settlement: RunnerInteractionSettlement
+): void {
+  if (settlement.kind === "response") {
+    validateResponseForRequest(request, settlement.response);
+    return;
+  }
+  if (!runnerInteractionIdentityMatches(request.identity, settlement.ownerResult.identity)) {
+    throw new RunnerInteractionStoreError(
+      "interaction_identity_mismatch",
+      "Runner interaction owner result identity does not exactly match its request."
+    );
+  }
+}
+
+export interface RunnerInteractionSettlementResult {
+  accepted: boolean;
+  winner: RunnerInteractionSettlement;
+}
+
 export class PersistentRunnerInteractionStore {
   constructor(readonly runDir: string) {}
 
@@ -255,24 +280,13 @@ export class PersistentRunnerInteractionStore {
       "Runner interaction request"
     );
     const selectedOption = validateResponseForRequest(request, response);
-
-    const responsePath = join(interactionDir, "response.json");
-    const publication = await publishPrivateJsonExclusive(responsePath, response);
-    if (publication === "exists") {
-      const existing = await readPrivateJson(
-        responsePath,
-        runnerPermissionInteractionResponseSchema,
-        "Runner interaction response"
-      );
-      validateResponseForRequest(request, existing);
-      throw new RunnerInteractionStoreError(
-        "interaction_already_answered",
-        "Runner interaction already has an immutable response.",
-        {
-          respondedAt: existing.respondedAt,
-          decisionSource: existing.decisionSource
-        }
-      );
+    const settlement = await this.settle(interactionDir, request, {
+      version: "planweave.runner-interaction-settlement/v1",
+      kind: "response",
+      response
+    });
+    if (!settlement.accepted || settlement.winner.kind !== "response") {
+      throw this.alreadySettledError(settlement.winner);
     }
 
     return parseContract(
@@ -289,6 +303,61 @@ export class PersistentRunnerInteractionStore {
     );
   }
 
+  async createOwnerResult(
+    resultInput: RunnerInteractionOwnerResult
+  ): Promise<RunnerInteractionOwnerResult> {
+    const result = parseContract(
+      runnerInteractionOwnerResultSchema,
+      resultInput,
+      "Runner interaction owner result"
+    );
+    const interactionDir = await this.resolveExistingInteractionDirectory(
+      result.identity.requestId
+    );
+    const request = await readPrivateJson(
+      join(interactionDir, "request.json"),
+      runnerInteractionRequestSchema,
+      "Runner interaction request"
+    );
+    validateSettlementForRequest(request, {
+      version: "planweave.runner-interaction-settlement/v1",
+      kind: "owner_result",
+      ownerResult: result
+    });
+    const settlement = await this.settleOwnerResultForRequest(interactionDir, request, result);
+    if (
+      settlement.winner.kind === "owner_result" &&
+      canonicalJson(settlement.winner.ownerResult) === canonicalJson(result)
+    ) {
+      return settlement.winner.ownerResult;
+    }
+    throw this.alreadySettledError(settlement.winner);
+  }
+
+  async settleOwnerResult(
+    resultInput: RunnerInteractionOwnerResult
+  ): Promise<RunnerInteractionSettlementResult> {
+    const result = parseContract(
+      runnerInteractionOwnerResultSchema,
+      resultInput,
+      "Runner interaction owner result"
+    );
+    const interactionDir = await this.resolveExistingInteractionDirectory(
+      result.identity.requestId
+    );
+    const request = await readPrivateJson(
+      join(interactionDir, "request.json"),
+      runnerInteractionRequestSchema,
+      "Runner interaction request"
+    );
+    validateSettlementForRequest(request, {
+      version: "planweave.runner-interaction-settlement/v1",
+      kind: "owner_result",
+      ownerResult: result
+    });
+    return this.settleOwnerResultForRequest(interactionDir, request, result);
+  }
+
   async readSnapshot(interactionId: string): Promise<RunnerInteractionSnapshot> {
     const interactionDir = await this.resolveExistingInteractionDirectory(interactionId);
     const request = await readPrivateJson(
@@ -299,18 +368,18 @@ export class PersistentRunnerInteractionStore {
     if (request.identity.requestId !== interactionId) {
       throw contractError("Runner interaction directory identity");
     }
-    const response = await this.readOptionalResponse(interactionDir);
-    if (response !== null) {
-      validateResponseForRequest(request, response);
-    }
+    const settlement = await this.readSettlement(interactionDir, request);
+    const response = settlement?.kind === "response" ? settlement.response : null;
+    const ownerResult = settlement?.kind === "owner_result" ? settlement.ownerResult : null;
     return parseContract(
       runnerInteractionSnapshotSchema,
       {
         version: "planweave.runner-interaction-snapshot/v1",
         interactionId: request.identity.requestId,
-        status: response === null ? "pending" : "answered",
+        status: response ? "answered" : ownerResult ? "expired" : "pending",
         request,
-        response
+        response,
+        ownerResult
       },
       "Runner interaction snapshot"
     );
@@ -339,17 +408,182 @@ export class PersistentRunnerInteractionStore {
       if (!entry.isDirectory()) continue;
       const interactionDir = join(interactionsDir, entry.name);
       await assertPrivateDirectory(interactionDir);
-      const request = await readPrivateJson(
-        join(interactionDir, "request.json"),
-        runnerInteractionRequestSchema,
-        "Runner interaction request"
-      );
+      let request: RunnerInteractionRequest;
+      try {
+        request = await readPrivateJson(
+          join(interactionDir, "request.json"),
+          runnerInteractionRequestSchema,
+          "Runner interaction request"
+        );
+      } catch (error) {
+        if (errnoCode(error) === "ENOENT") continue;
+        throw error;
+      }
       if (encodedInteractionId(request.identity.requestId) !== entry.name) {
         throw contractError("Runner interaction directory identity");
       }
       snapshots.push(await this.readSnapshot(request.identity.requestId));
     }
     return snapshots;
+  }
+
+  private async settleOwnerResultForRequest(
+    interactionDir: string,
+    request: RunnerInteractionRequest,
+    result: RunnerInteractionOwnerResult
+  ): Promise<RunnerInteractionSettlementResult> {
+    return this.settle(interactionDir, request, {
+      version: "planweave.runner-interaction-settlement/v1",
+      kind: "owner_result",
+      ownerResult: result
+    });
+  }
+
+  private async settle(
+    interactionDir: string,
+    request: RunnerInteractionRequest,
+    proposed: RunnerInteractionSettlement
+  ): Promise<RunnerInteractionSettlementResult> {
+    const settlementPath = join(interactionDir, "settlement.json");
+    let winner = await this.readOptionalSettlement(interactionDir);
+    let accepted = false;
+    if (winner === null) {
+      const legacy = await this.readLegacySettlement(interactionDir, request);
+      const candidate = legacy ?? proposed;
+      const publication = await publishPrivateJsonExclusive(settlementPath, candidate);
+      if (publication === "created") {
+        winner = candidate;
+        accepted = legacy === null;
+      } else {
+        winner = await readPrivateJson(
+          settlementPath,
+          runnerInteractionSettlementSchema,
+          "Runner interaction settlement"
+        );
+      }
+    }
+    validateSettlementForRequest(request, winner);
+    await this.materializeSettlement(interactionDir, request, winner);
+    return { accepted, winner };
+  }
+
+  private async readSettlement(
+    interactionDir: string,
+    request: RunnerInteractionRequest
+  ): Promise<RunnerInteractionSettlement | null> {
+    const settlement =
+      (await this.readOptionalSettlement(interactionDir)) ??
+      (await this.readLegacySettlement(interactionDir, request));
+    if (settlement === null) return null;
+    validateSettlementForRequest(request, settlement);
+    await this.validateMaterializedSettlement(interactionDir, request, settlement);
+    return settlement;
+  }
+
+  private async readLegacySettlement(
+    interactionDir: string,
+    request: RunnerInteractionRequest
+  ): Promise<RunnerInteractionSettlement | null> {
+    const [response, ownerResult] = await Promise.all([
+      this.readOptionalResponse(interactionDir),
+      this.readOptionalOwnerResult(interactionDir)
+    ]);
+    if (response && ownerResult) {
+      throw contractError("Runner interaction settlement");
+    }
+    if (response) {
+      validateResponseForRequest(request, response);
+      return {
+        version: "planweave.runner-interaction-settlement/v1",
+        kind: "response",
+        response
+      };
+    }
+    if (ownerResult) {
+      validateSettlementForRequest(request, {
+        version: "planweave.runner-interaction-settlement/v1",
+        kind: "owner_result",
+        ownerResult
+      });
+      return {
+        version: "planweave.runner-interaction-settlement/v1",
+        kind: "owner_result",
+        ownerResult
+      };
+    }
+    return null;
+  }
+
+  private async materializeSettlement(
+    interactionDir: string,
+    request: RunnerInteractionRequest,
+    settlement: RunnerInteractionSettlement
+  ): Promise<void> {
+    const targetPath = join(
+      interactionDir,
+      settlement.kind === "response" ? "response.json" : "owner-result.json"
+    );
+    const target = settlement.kind === "response" ? settlement.response : settlement.ownerResult;
+    await publishPrivateJsonExclusive(targetPath, target);
+    await this.validateMaterializedSettlement(interactionDir, request, settlement, true);
+  }
+
+  private async validateMaterializedSettlement(
+    interactionDir: string,
+    request: RunnerInteractionRequest,
+    settlement: RunnerInteractionSettlement,
+    requireTarget = false
+  ): Promise<void> {
+    const [response, ownerResult] = await Promise.all([
+      this.readOptionalResponse(interactionDir),
+      this.readOptionalOwnerResult(interactionDir)
+    ]);
+    if (settlement.kind === "response") {
+      if (ownerResult) throw contractError("Runner interaction settlement");
+      if (response) {
+        validateResponseForRequest(request, response);
+        if (canonicalJson(response) !== canonicalJson(settlement.response)) {
+          throw contractError("Runner interaction response settlement");
+        }
+      } else if (requireTarget) {
+        throw contractError("Runner interaction response settlement");
+      }
+      return;
+    }
+    if (response) throw contractError("Runner interaction settlement");
+    if (ownerResult) {
+      validateSettlementForRequest(request, settlement);
+      if (canonicalJson(ownerResult) !== canonicalJson(settlement.ownerResult)) {
+        throw contractError("Runner interaction owner result settlement");
+      }
+    } else if (requireTarget) {
+      throw contractError("Runner interaction owner result settlement");
+    }
+  }
+
+  private alreadySettledError(
+    settlement: RunnerInteractionSettlement
+  ): RunnerInteractionStoreError {
+    if (settlement.kind === "response") {
+      return new RunnerInteractionStoreError(
+        "interaction_already_answered",
+        "Runner interaction already has an immutable response.",
+        {
+          respondedAt: settlement.response.respondedAt,
+          decisionSource: settlement.response.decisionSource,
+          winnerKind: "response"
+        }
+      );
+    }
+    return new RunnerInteractionStoreError(
+      "interaction_already_answered",
+      "Runner interaction was already expired by its owner.",
+      {
+        respondedAt: settlement.ownerResult.recordedAt,
+        decisionSource: "run-owner",
+        winnerKind: "owner_result"
+      }
+    );
   }
 
   private async canonicalRunRoot(): Promise<string> {
@@ -420,6 +654,36 @@ export class PersistentRunnerInteractionStore {
         responsePath,
         runnerPermissionInteractionResponseSchema,
         "Runner interaction response"
+      );
+    } catch (error) {
+      if (errnoCode(error) === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  private async readOptionalSettlement(
+    interactionDir: string
+  ): Promise<RunnerInteractionSettlement | null> {
+    try {
+      return await readPrivateJson(
+        join(interactionDir, "settlement.json"),
+        runnerInteractionSettlementSchema,
+        "Runner interaction settlement"
+      );
+    } catch (error) {
+      if (errnoCode(error) === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  private async readOptionalOwnerResult(
+    interactionDir: string
+  ): Promise<RunnerInteractionOwnerResult | null> {
+    try {
+      return await readPrivateJson(
+        join(interactionDir, "owner-result.json"),
+        runnerInteractionOwnerResultSchema,
+        "Runner interaction owner result"
       );
     } catch (error) {
       if (errnoCode(error) === "ENOENT") return null;

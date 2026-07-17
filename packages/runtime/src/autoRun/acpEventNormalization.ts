@@ -43,6 +43,14 @@ export function normalizeAcpPermissionHistory(
   const summary = normalizedRedactedContent(
     request.toolCall.title ?? `Permission requested for ${request.toolCall.toolCallId}.`
   );
+  return normalizeAcpPermissionHistorySummary(summary.content, requestId, requestedAt);
+}
+
+export function normalizeAcpPermissionHistorySummary(
+  summary: string,
+  requestId: string,
+  requestedAt: string
+): AcpNormalizedEventBody {
   return {
     kind: "interaction",
     interaction: persistedPendingInteractionSchema.parse({
@@ -51,8 +59,8 @@ export function normalizeAcpPermissionHistory(
       requestId,
       kind: "permission",
       requestedAt,
-      summary: summary.content,
-      status: "cancelled",
+      summary,
+      status: "pending",
       actionable: false,
       nonActionableReason: "persisted_history"
     })
