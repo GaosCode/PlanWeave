@@ -9,7 +9,10 @@ import {
   type ProjectGraphClaimGuard
 } from "../taskManager/projectGraphClaimGuard.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "../taskManager/runtimeContext.js";
-import { createProjectCanvasContextReader } from "../taskManager/promptRenderer.js";
+import {
+  createCanvasCommandFlagReader,
+  createProjectCanvasContextReader
+} from "../taskManager/promptRenderer.js";
 import type { ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import {
@@ -24,6 +27,7 @@ interface TaskWorkspaceReadContext {
   claimGuard: ProjectGraphClaimGuard;
   promptSourceReader: TaskWorkspacePromptSourceReader;
   projectCanvasContextReader: ReturnType<typeof createProjectCanvasContextReader>;
+  canvasCommandFlagReader: ReturnType<typeof createCanvasCommandFlagReader>;
 }
 
 async function createTaskWorkspaceReadContext(options: {
@@ -40,14 +44,21 @@ async function createTaskWorkspaceReadContext(options: {
   const claimGuard = await createProjectGraphClaimGuard(runtime);
   const status = await buildExecutionStatus(runtime, { claimGuard });
   const planGraphPackage = await loadPlanGraphPackage(workspace);
+  const promptSourceReader = createTaskWorkspacePromptSourceReader(workspace);
+  const promptPolicy = await promptSourceReader.readProjectPromptPolicy();
+  await Promise.all([
+    promptSourceReader.readProjectPrompt(),
+    promptPolicy.includeGlobalPrompt ? promptSourceReader.readGlobalPrompt() : Promise.resolve()
+  ]);
 
   return {
     runtime,
     status,
     planGraphPackage,
     claimGuard,
-    promptSourceReader: createTaskWorkspacePromptSourceReader(workspace),
-    projectCanvasContextReader: createProjectCanvasContextReader(runtime)
+    promptSourceReader,
+    projectCanvasContextReader: createProjectCanvasContextReader(runtime),
+    canvasCommandFlagReader: createCanvasCommandFlagReader(workspace)
   };
 }
 

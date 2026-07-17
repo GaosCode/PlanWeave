@@ -31,6 +31,7 @@ interface PromptRenderContext {
   planGraphPackage: LoadedPlanGraphPackage;
   promptSourceReader: PromptSourceReader;
   projectCanvasContextReader: (taskId: string) => Promise<ProjectCanvasContext>;
+  canvasCommandFlagReader: () => Promise<string>;
 }
 
 function createProjectCanvasContextReader(runtime: RuntimeContext) {
@@ -43,6 +44,14 @@ function createProjectCanvasContextReader(runtime: RuntimeContext) {
     const pending = renderProjectCanvasContext(runtime, taskId);
     contexts.set(taskId, pending);
     return pending;
+  };
+}
+
+function createCanvasCommandFlagReader(workspace: RuntimeContext["workspace"]) {
+  let commandFlag: Promise<string> | undefined;
+  return () => {
+    commandFlag ??= canvasCommandFlagForWorkspace(workspace);
+    return commandFlag;
   };
 }
 
@@ -162,7 +171,8 @@ export async function renderPromptSurface(options: {
     status: await buildExecutionStatus(runtime),
     planGraphPackage: await loadPlanGraphPackage(runtime.workspace),
     promptSourceReader: createPromptSourceReader(runtime.workspace),
-    projectCanvasContextReader: createProjectCanvasContextReader(runtime)
+    projectCanvasContextReader: createProjectCanvasContextReader(runtime),
+    canvasCommandFlagReader: createCanvasCommandFlagReader(runtime.workspace)
   };
   return renderPromptSurfaceFromContext(context, options.ref, {
     includeSubmissionInstructions: options.includeSubmissionInstructions,
@@ -190,8 +200,14 @@ export async function renderPromptSurfaceFromContext(
     allowMissingPromptSources?: boolean;
   } = {}
 ): Promise<PromptSurface> {
-  const { runtime, status, planGraphPackage, promptSourceReader, projectCanvasContextReader } =
-    context;
+  const {
+    runtime,
+    status,
+    planGraphPackage,
+    promptSourceReader,
+    projectCanvasContextReader,
+    canvasCommandFlagReader
+  } = context;
   const { workspace, graph, manifest, state } = runtime;
   const { taskId } = parseBlockRef(ref);
   const task = getTask(graph, taskId);
@@ -304,7 +320,7 @@ export async function renderPromptSurfaceFromContext(
         ].join("\n")
       : "";
   const includeSubmissionInstructions = options.includeSubmissionInstructions ?? true;
-  const canvasFlag = await canvasCommandFlagForWorkspace(workspace);
+  const canvasFlag = await canvasCommandFlagReader();
   const submitInstruction =
     block.type === "review"
       ? `Submit review with \`planweave submit-review${canvasFlag} ${ref} --result review-result.json\`.`
@@ -349,5 +365,5 @@ export async function renderPromptSurfaceFromContext(
   };
 }
 
-export { createProjectCanvasContextReader };
+export { createCanvasCommandFlagReader, createProjectCanvasContextReader };
 export type { PromptRenderContext };
