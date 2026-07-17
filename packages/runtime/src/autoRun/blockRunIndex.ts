@@ -7,43 +7,26 @@ import { optionalReadFile, optionalReaddir, optionalStat } from "../fs/optionalF
 import { writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import type { PackageWorkspaceRef } from "../types.js";
+import {
+  BLOCK_RUN_INDEX_PAGE_SIZE,
+  blockRunIndexEntrySchema,
+  blockRunIndexV3ManifestSchema,
+  blockRunIndexV3PageSchema,
+  blockRunIndexV3PointerSchema,
+  type BlockRunIndexEntry,
+  type BlockRunLogicalCursor
+} from "./blockRunIndexSchema.js";
+import { readBlockRunIndexSnapshot } from "./blockRunIndexStorage.js";
 
-const PAGE_SIZE = 64;
+const PAGE_SIZE = BLOCK_RUN_INDEX_PAGE_SIZE;
 const indexDirectoryName = ".planweave-task-workspace-run-index";
-const pointerSchema = z.object({ version: z.literal(3), generation: z.string().min(1) }).strict();
-const entrySchema = z
-  .object({
-    runId: z.string().min(1),
-    retryIndex: z.number().int().positive(),
-    orderedAt: z.string().datetime({ offset: true }),
-    stableIdentity: z.string().min(1),
-    hasArtifact: z.boolean()
-  })
-  .strict();
-const manifestSchema = z
-  .object({
-    version: z.literal(3),
-    generation: z.string().min(1),
-    pageSize: z.literal(PAGE_SIZE),
-    total: z.number().int().nonnegative(),
-    headPage: z.number().int().nonnegative(),
-    head: entrySchema.nullable(),
-    latestArtifact: entrySchema.nullable()
-  })
-  .strict();
-const pageSchema = z
-  .object({
-    version: z.literal(3),
-    generation: z.string().min(1),
-    page: z.number().int().positive(),
-    entries: z.array(entrySchema).max(PAGE_SIZE)
-  })
-  .strict();
+const pointerSchema = blockRunIndexV3PointerSchema;
+const manifestSchema = blockRunIndexV3ManifestSchema;
+const pageSchema = blockRunIndexV3PageSchema;
 
 type Manifest = z.infer<typeof manifestSchema>;
 type Snapshot = { generation: string; manifest: Manifest };
-export type BlockRunIndexEntry = z.infer<typeof entrySchema>;
-export type BlockRunLogicalCursor = Pick<BlockRunIndexEntry, "orderedAt" | "stableIdentity">;
+export type { BlockRunIndexEntry, BlockRunLogicalCursor } from "./blockRunIndexSchema.js";
 export type BlockRunIndexWriteStage =
   | "generation-created"
   | "pages-written"
@@ -309,7 +292,7 @@ export async function recordBlockRunInIndex(
 }
 
 export async function requireBlockRunIndex(runRoot: string): Promise<void> {
-  if (!(await readSnapshot(runRoot))) {
+  if (!(await readBlockRunIndexSnapshot(runRoot))) {
     throw new Error(
       `Task Workspace run index is missing at '${runRoot}'. Create or migrate the index before querying history.`
     );
@@ -325,18 +308,18 @@ export async function readBlockRunIndexView(
   head: BlockRunIndexEntry | null;
   latestArtifact: BlockRunIndexEntry | null;
 }> {
-  const snapshot = await readSnapshot(runRoot);
+  const snapshot = await readBlockRunIndexSnapshot(runRoot);
   if (!snapshot) throw new Error(`Block run index is missing at '${runRoot}'.`);
-  let startPage = snapshot.manifest.headPage;
+  let startPage = snapshot.pageCount - 1;
   if (options.before && startPage > 0) {
-    let low = 1;
+    let low = 0;
     let high = startPage;
-    let newestEligiblePage = 0;
+    let newestEligiblePage = -1;
     while (low <= high) {
       const middle = Math.floor((low + high) / 2);
-      const page = await readPage(runRoot, snapshot, middle);
-      const first = page.entries[0];
-      const last = page.entries.at(-1);
+      const entries = await snapshot.readPage(middle);
+      const first = entries[0];
+      const last = entries.at(-1);
       if (!first || !last) {
         throw new Error(`Block run index page ${middle} is empty at '${runRoot}'.`);
       }
@@ -357,12 +340,12 @@ export async function readBlockRunIndexView(
   const newestFirst: BlockRunIndexEntry[] = [];
   for (
     let pageNumber = startPage;
-    pageNumber > 0 && newestFirst.length <= options.limit;
+    pageNumber >= 0 && newestFirst.length <= options.limit;
     pageNumber -= 1
   ) {
-    const page = await readPage(runRoot, snapshot, pageNumber);
-    for (let index = page.entries.length - 1; index >= 0; index -= 1) {
-      const entry = page.entries[index]!;
+    const entries = await snapshot.readPage(pageNumber);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const entry = entries[index]!;
       if (options.before && compareBlockRunChronology(entry, options.before) >= 0) continue;
       newestFirst.push(entry);
       if (newestFirst.length > options.limit) break;
@@ -371,8 +354,8 @@ export async function readBlockRunIndexView(
   return {
     entries: newestFirst.slice(0, options.limit),
     hasMore: newestFirst.length > options.limit,
-    head: snapshot.manifest.head,
-    latestArtifact: snapshot.manifest.latestArtifact
+    head: snapshot.head,
+    latestArtifact: snapshot.latestArtifact
   };
 }
 
@@ -391,13 +374,15 @@ export async function readBlockRunIndexEntry(
   runRoot: string,
   runId: string
 ): Promise<BlockRunIndexEntry> {
-  const snapshot = await readSnapshot(runRoot);
+  const snapshot = await readBlockRunIndexSnapshot(runRoot);
   if (!snapshot) throw new Error(`Block run index is missing at '${runRoot}'.`);
-  const entry = (await readAllEntries(runRoot, snapshot)).find(
-    (candidate) => candidate.runId === runId
-  );
-  if (!entry) throw new Error(`Run '${runId}' is missing from the block run index.`);
-  return entry;
+  for (let pageIndex = 0; pageIndex < snapshot.pageCount; pageIndex += 1) {
+    const entry = (await snapshot.readPage(pageIndex)).find(
+      (candidate) => candidate.runId === runId
+    );
+    if (entry) return entry;
+  }
+  throw new Error(`Run '${runId}' is missing from the block run index.`);
 }
 
 export async function recordBlockRunArtifactInIndex(
