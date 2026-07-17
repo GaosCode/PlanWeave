@@ -37,6 +37,7 @@ import {
 } from "./finalArtifactContract.js";
 import {
   activeAgentRunRegistry,
+  throwAgentRunCleanupFailures,
   type ActiveAgentRunHandle,
   type ActiveAgentRunIdentity,
   type ActiveAgentRunRegistry
@@ -362,9 +363,7 @@ export class AcpSessionController {
       } catch (error) {
         failures.push(error);
       }
-      if (failures.length > 0) {
-        throw new AggregateError(failures, "ACP owner cleanup did not complete cleanly.");
-      }
+      throwAgentRunCleanupFailures(failures, "Runner terminal cleanup did not complete cleanly.");
     };
     await writeState("running", {
       sessionId: null,

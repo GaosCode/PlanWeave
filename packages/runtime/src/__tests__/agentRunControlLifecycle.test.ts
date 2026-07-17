@@ -106,6 +106,13 @@ async function expectEndpointClosed(root: string, address: string): Promise<void
   ).resolves.toBeUndefined();
 }
 
+function nestedErrorMessages(error: unknown): string[] {
+  if (error instanceof AggregateError) {
+    return [error.message, ...error.errors.flatMap(nestedErrorMessages)];
+  }
+  return error instanceof Error ? [error.message] : [String(error)];
+}
+
 describe("agent run control controller lifecycle", () => {
   it("publishes only while live and tears down on completed and fatal runs", async () => {
     for (const [scenario, succeeds] of [
@@ -209,11 +216,17 @@ describe("agent run control controller lifecycle", () => {
 
   it("still removes the live owner and endpoint when terminal availability persistence fails", async () => {
     const originalSetControlAvailability = AcpOwnerStateWriter.prototype.setControlAvailability;
+    let terminalWriteAttempts = 0;
     const persistence = vi
       .spyOn(AcpOwnerStateWriter.prototype, "setControlAvailability")
       .mockImplementation(async function (summary) {
         if (summary.controlUnavailableReason === "owner_terminal") {
-          throw new Error("owner-state terminal write failed");
+          terminalWriteAttempts += 1;
+          let failureMessage = "owner-state stop failed";
+          if (terminalWriteAttempts === 1) {
+            failureMessage = "owner-state prepare failed";
+          }
+          throw new Error(failureMessage);
         }
         return originalSetControlAvailability.call(this, summary);
       });
@@ -228,7 +241,12 @@ describe("agent run control controller lifecycle", () => {
       const descriptor = await liveDescriptor(root);
       shutdown.abort(new Error("test terminal shutdown"));
 
-      await expect(execution).rejects.toThrow("cleanup: owner-state terminal write failed");
+      const failure = await execution.catch((error: unknown) => error);
+      const messages = nestedErrorMessages(failure);
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(messages).toContain("owner-state prepare failed");
+      expect(messages).toContain("owner-state stop failed");
+      expect(terminalWriteAttempts).toBe(2);
       await expectEndpointClosed(root, descriptor.address);
       expect(registry.size).toBe(0);
       await expect(registry.shutdown()).resolves.toBeUndefined();

@@ -69,6 +69,15 @@ function key(scope: string, value: string): string {
   return `${scope}\0${value}`;
 }
 
+export function throwAgentRunCleanupFailures(
+  failures: readonly unknown[],
+  aggregateMessage: string
+): void {
+  if (failures.length === 0) return;
+  if (failures.length === 1) throw failures[0];
+  throw new AggregateError(failures, aggregateMessage);
+}
+
 export class ActiveAgentRunRegistry {
   private readonly handles = new Set<ActiveAgentRunHandle>();
   private readonly indexes = new Map<IdentityKind, Map<string, ActiveAgentRunHandle>>(
@@ -464,9 +473,7 @@ export class ActiveAgentRunRegistry {
       failures.push(error);
     }
     if (!this.handles.delete(handle)) {
-      if (failures.length > 0) {
-        throw new AggregateError(failures, "Active ACP pre-removal cleanup did not complete.");
-      }
+      throwAgentRunCleanupFailures(failures, "Active ACP pre-removal cleanup did not complete.");
       return false;
     }
     const promptQueue = this.promptQueues.get(handle);
@@ -516,9 +523,7 @@ export class ActiveAgentRunRegistry {
       failures.push(error);
     }
     handle.lifecycleState = terminalState;
-    if (failures.length > 0) {
-      throw new AggregateError(failures, "Active ACP run removal did not complete cleanly.");
-    }
+    throwAgentRunCleanupFailures(failures, "Active ACP run removal did not complete cleanly.");
     return true;
   }
 }

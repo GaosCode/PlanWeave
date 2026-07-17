@@ -171,6 +171,63 @@ describe("ActiveAgentRunRegistry", () => {
       "Runner terminal cleanup did not complete cleanly"
     );
   });
+
+  it("rethrows a single pre-removal failure after completing live cleanup", async () => {
+    const registry = new ActiveAgentRunRegistry();
+    const closed: string[] = [];
+    const failing = handle("/live/single-failure", "RUN-001", "session-1", closed);
+    const preparationFailure = new Error("owner preparation failed");
+    failing.beforeRemove = async () => {
+      throw preparationFailure;
+    };
+    registry.register(failing);
+
+    await expect(registry.remove(failing, "done")).rejects.toBe(preparationFailure);
+    expect(closed).toEqual(["done"]);
+    expect(registry.size).toBe(0);
+  });
+
+  it("rethrows a single pre-removal failure for an already absent handle", async () => {
+    const registry = new ActiveAgentRunRegistry();
+    const closed: string[] = [];
+    const absent = handle("/live/absent", "RUN-001", "session-1", closed);
+    const preparationFailure = new Error("absent owner preparation failed");
+    absent.beforeRemove = async () => {
+      throw preparationFailure;
+    };
+
+    await expect(registry.remove(absent, "done")).rejects.toBe(preparationFailure);
+    expect(closed).toEqual([]);
+    expect(registry.size).toBe(0);
+    await absent.connection.dispose();
+  });
+
+  it("aggregates independent pre-removal and live cleanup failures", async () => {
+    const registry = new ActiveAgentRunRegistry();
+    const closed: string[] = [];
+    const failing = handle("/live/multiple-failures", "RUN-001", "session-1", closed);
+    const preparationFailure = new Error("owner preparation failed");
+    failing.beforeRemove = async () => {
+      throw preparationFailure;
+    };
+    failing.control.connection.close = async (reason) => {
+      closed.push(reason);
+      await failing.connection.dispose();
+      throw new Error("live cleanup failed");
+    };
+    registry.register(failing);
+
+    const failure = await registry.remove(failing, "done").catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect(failure instanceof AggregateError && failure.errors).toHaveLength(2);
+    expect(failure instanceof AggregateError && failure.errors[0]).toBe(preparationFailure);
+    expect(failure instanceof AggregateError && failure.errors[1]).toMatchObject({
+      message: "Runner terminal cleanup did not complete cleanly."
+    });
+    expect(closed).toEqual(["done"]);
+    expect(registry.size).toBe(0);
+  });
 });
 
 describe("AcpSessionController lifecycle", () => {
