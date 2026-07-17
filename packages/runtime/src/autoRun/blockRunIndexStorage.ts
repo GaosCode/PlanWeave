@@ -5,6 +5,8 @@ import { optionalReadFile, optionalReaddir, optionalStat } from "../fs/optionalF
 import { writeJsonFile } from "../json.js";
 import {
   BLOCK_RUN_INDEX_PAGE_SIZE,
+  BLOCK_RUN_INDEX_TREE_DEPTH,
+  BLOCK_RUN_INDEX_TREE_FANOUT,
   blockRunIndexPageChecksum,
   blockRunIndexPageObjectId,
   blockRunIndexV3ManifestSchema,
@@ -13,17 +15,30 @@ import {
   blockRunIndexV4ManifestSchema,
   blockRunIndexV4PageSchema,
   blockRunIndexV4PointerSchema,
+  blockRunIndexV5ManifestSchema,
+  blockRunIndexV5PointerSchema,
   compareBlockRunChronology,
   type BlockRunIndexEntry,
   type BlockRunIndexV4Manifest,
   type BlockRunIndexV4PageDescriptor,
-  type BlockRunIndexV4Pointer
+  type BlockRunIndexV4Pointer,
+  type BlockRunIndexV5Manifest,
+  type BlockRunIndexV5Pointer
 } from "./blockRunIndexSchema.js";
+import {
+  buildBlockRunIndexV5Tree,
+  readAllBlockRunIndexV5Descriptors,
+  readBlockRunIndexV5DescriptorAt,
+  readBlockRunIndexV5TreeNode,
+  updateBlockRunIndexV5Tree,
+  type BlockRunIndexV5TreeBuild
+} from "./blockRunIndexV5Tree.js";
 
 const indexDirectoryName = ".planweave-task-workspace-run-index";
 const supportedPointerSchema = z.union([
   blockRunIndexV3PointerSchema,
-  blockRunIndexV4PointerSchema
+  blockRunIndexV4PointerSchema,
+  blockRunIndexV5PointerSchema
 ]);
 
 export type BlockRunIndexPublishStage =
@@ -32,8 +47,25 @@ export type BlockRunIndexPublishStage =
   | "before-publish"
   | "published";
 
+export type BlockRunIndexStorageFaultPoint =
+  | "page-write"
+  | "tree-node-write"
+  | "manifest-write"
+  | "before-pointer-write"
+  | "after-pointer-write"
+  | "generation-gc"
+  | "object-gc";
+
+export type BlockRunIndexStorageWriteKind = "page" | "tree-node" | "manifest" | "pointer";
+
+export interface BlockRunIndexStorageInstrumentation {
+  atFaultPoint?: (point: BlockRunIndexStorageFaultPoint) => void | Promise<void>;
+  recordWrite?(write: { kind: BlockRunIndexStorageWriteKind; payloadBytes: number }): void;
+}
+
 export interface BlockRunIndexStorageOptions {
   afterStage?: (stage: BlockRunIndexPublishStage) => void | Promise<void>;
+  instrumentation?: BlockRunIndexStorageInstrumentation;
 }
 
 interface BlockRunIndexReadSnapshotBase {
@@ -55,7 +87,16 @@ export interface BlockRunIndexV4ReadSnapshot extends BlockRunIndexReadSnapshotBa
   manifest: BlockRunIndexV4Manifest;
 }
 
-export type BlockRunIndexReadSnapshot = BlockRunIndexV3ReadSnapshot | BlockRunIndexV4ReadSnapshot;
+export interface BlockRunIndexV5ReadSnapshot extends BlockRunIndexReadSnapshotBase {
+  version: 5;
+  pointer: BlockRunIndexV5Pointer;
+  manifest: BlockRunIndexV5Manifest;
+}
+
+export type BlockRunIndexReadSnapshot =
+  | BlockRunIndexV3ReadSnapshot
+  | BlockRunIndexV4ReadSnapshot
+  | BlockRunIndexV5ReadSnapshot;
 
 export type BlockRunIndexMutation =
   | {
@@ -93,8 +134,15 @@ export class BlockRunIndexSnapshotChangedError extends Error {
 }
 
 interface GenerationDraft {
-  manifest: Omit<BlockRunIndexV4Manifest, "version" | "generation" | "pageSize">;
+  manifest: {
+    total: number;
+    maxRetryIndex: number;
+    head: BlockRunIndexEntry | null;
+    latestArtifact: BlockRunIndexEntry | null;
+    pages: BlockRunIndexV4PageDescriptor[];
+  };
   newPages: Map<string, readonly BlockRunIndexEntry[]>;
+  tree?: BlockRunIndexV5TreeBuild;
 }
 
 function indexRoot(runRoot: string): string {
@@ -133,7 +181,7 @@ function sameCursor(
 function pageDescriptor(entries: readonly BlockRunIndexEntry[]): BlockRunIndexV4PageDescriptor {
   const first = entries[0];
   const last = entries.at(-1);
-  if (!first || !last) throw new Error("Cannot describe an empty block run index page.");
+  if (!(first && last)) throw new Error("Cannot describe an empty block run index page.");
   return {
     objectId: blockRunIndexPageObjectId(entries),
     count: entries.length,
@@ -166,6 +214,29 @@ async function readV4Manifest(
   return manifest;
 }
 
+async function readV5Manifest(
+  runRoot: string,
+  generation: string
+): Promise<BlockRunIndexV5Manifest> {
+  const manifest = await readParsed(
+    v4ManifestPath(runRoot, generation),
+    blockRunIndexV5ManifestSchema
+  );
+  if (!manifest || manifest.generation !== generation) {
+    throw indexContractError(runRoot, `generation '${generation}' is incomplete`);
+  }
+  if ((manifest.total === 0) !== (manifest.rootNodeId === null)) {
+    throw indexContractError(runRoot, "v5 manifest root does not match its total");
+  }
+  if ((manifest.total === 0) !== (manifest.head === null)) {
+    throw indexContractError(runRoot, "v5 manifest head does not match its total");
+  }
+  if (manifest.latestArtifact && !manifest.latestArtifact.hasArtifact) {
+    throw indexContractError(runRoot, "v5 manifest latestArtifact is not an artifact entry");
+  }
+  return manifest;
+}
+
 async function readV4PageObject(
   runRoot: string,
   descriptor: BlockRunIndexV4PageDescriptor
@@ -187,7 +258,7 @@ async function readV4PageObject(
   }
   const first = page.entries[0];
   const last = page.entries.at(-1);
-  if (!first || !last) {
+  if (!(first && last)) {
     throw indexContractError(runRoot, `page object '${descriptor.objectId}' is empty`);
   }
   if (
@@ -247,6 +318,47 @@ export async function readBlockRunIndexSnapshot(
     };
   }
 
+  if (pointer.version === 5) {
+    const manifest = await readV5Manifest(runRoot, pointer.currentGeneration);
+    return {
+      version: 5,
+      pointer,
+      manifest,
+      total: manifest.total,
+      pageCount: manifest.pageCount,
+      head: manifest.head,
+      latestArtifact: manifest.latestArtifact,
+      async readPage(pageIndex) {
+        if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= manifest.pageCount) {
+          throw indexContractError(runRoot, `page index ${pageIndex} is out of bounds`);
+        }
+        if (!manifest.rootNodeId) {
+          throw indexContractError(runRoot, "v5 manifest root is missing");
+        }
+        try {
+          const descriptor = await readBlockRunIndexV5DescriptorAt(
+            root,
+            manifest.rootNodeId,
+            pageIndex
+          );
+          return await readV4PageObject(runRoot, descriptor);
+        } catch (error) {
+          const latestPointerText = await optionalReadFile(pointerPath(runRoot), "utf8");
+          const latestPointer = latestPointerText
+            ? blockRunIndexV5PointerSchema.safeParse(JSON.parse(latestPointerText) as unknown)
+            : null;
+          if (
+            latestPointer?.success &&
+            latestPointer.data.currentGeneration !== pointer.currentGeneration
+          ) {
+            throw new BlockRunIndexSnapshotChangedError(runRoot);
+          }
+          throw error;
+        }
+      }
+    };
+  }
+
   const manifest = await readV4Manifest(runRoot, pointer.currentGeneration);
   return {
     version: 4,
@@ -298,18 +410,25 @@ export async function readAllBlockRunIndexEntries(
 async function writePageObject(
   runRoot: string,
   objectId: string,
-  entries: readonly BlockRunIndexEntry[]
+  entries: readonly BlockRunIndexEntry[],
+  options: BlockRunIndexStorageOptions
 ): Promise<void> {
   const path = objectPath(runRoot, objectId);
   if (await optionalStat(path)) {
     await readV4PageObject(runRoot, pageDescriptor(entries));
     return;
   }
-  await writeJsonFile(path, {
+  const page = {
     version: 4,
     objectId,
     checksum: blockRunIndexPageChecksum(entries),
     entries
+  };
+  await options.instrumentation?.atFaultPoint?.("page-write");
+  await writeJsonFile(path, page);
+  options.instrumentation?.recordWrite?.({
+    kind: "page",
+    payloadBytes: Buffer.byteLength(`${JSON.stringify(page, null, 2)}\n`, "utf8")
   });
   await readV4PageObject(runRoot, pageDescriptor(entries));
 }
@@ -335,31 +454,80 @@ async function verifyLiveClosure(
   return manifests;
 }
 
+async function verifyV5LiveClosure(
+  runRoot: string,
+  pointer: BlockRunIndexV5Pointer
+): Promise<{
+  generations: Set<string>;
+  objects: Set<string>;
+  nodes: Set<string>;
+}> {
+  const generations = new Set<string>();
+  const objects = new Set<string>();
+  const nodes = new Set<string>();
+  for (const generation of [pointer.currentGeneration, pointer.previousGeneration]) {
+    if (generation === null || generations.has(generation)) continue;
+    const manifest = await readV5Manifest(runRoot, generation);
+    const descriptors = await readAllBlockRunIndexV5Descriptors(
+      indexRoot(runRoot),
+      manifest.rootNodeId,
+      nodes
+    );
+    if (
+      descriptors.length !== manifest.pageCount ||
+      descriptors.reduce((total, descriptor) => total + descriptor.count, 0) !== manifest.total
+    ) {
+      throw indexContractError(runRoot, `generation '${generation}' tree totals are invalid`);
+    }
+    for (const descriptor of descriptors) {
+      if (!(await optionalStat(objectPath(runRoot, descriptor.objectId)))) {
+        throw indexContractError(
+          runRoot,
+          `generation '${generation}' references missing page object '${descriptor.objectId}'`
+        );
+      }
+      objects.add(descriptor.objectId);
+    }
+    generations.add(generation);
+  }
+  return { generations, objects, nodes };
+}
+
 async function garbageCollect(
   runRoot: string,
-  pointer: BlockRunIndexV4Pointer,
-  liveManifests: Map<string, BlockRunIndexV4Manifest>
+  pointer: BlockRunIndexV4Pointer | BlockRunIndexV5Pointer,
+  liveGenerations: Set<string>,
+  liveObjects: Set<string>,
+  liveNodes: Set<string>,
+  options: BlockRunIndexStorageOptions
 ): Promise<void> {
-  const liveGenerations = new Set(liveManifests.keys());
   const generationsRoot = join(indexRoot(runRoot), "generations");
+  await options.instrumentation?.atFaultPoint?.("generation-gc");
   for (const entry of (await optionalReaddir(generationsRoot, { withFileTypes: true })) ?? []) {
     if (!entry.isDirectory() || liveGenerations.has(entry.name)) continue;
     await rm(join(generationsRoot, entry.name), { recursive: true, force: true });
   }
-  const liveObjects = new Set(
-    [...liveManifests.values()].flatMap((manifest) => manifest.pages.map((page) => page.objectId))
-  );
   const objectsRoot = join(indexRoot(runRoot), "objects");
+  await options.instrumentation?.atFaultPoint?.("object-gc");
   for (const entry of (await optionalReaddir(objectsRoot, { withFileTypes: true })) ?? []) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    if (!(entry.isFile() && entry.name.endsWith(".json"))) continue;
     const objectId = entry.name.slice(0, -".json".length);
     if (liveObjects.has(objectId)) continue;
     await rm(join(objectsRoot, entry.name), { force: true });
   }
-  const publishedPointer = blockRunIndexV4PointerSchema.parse(
+  const nodesRoot = join(indexRoot(runRoot), "nodes");
+  for (const entry of (await optionalReaddir(nodesRoot, { withFileTypes: true })) ?? []) {
+    if (!(entry.isFile() && entry.name.endsWith(".json"))) continue;
+    const objectId = entry.name.slice(0, -".json".length);
+    if (liveNodes.has(objectId)) continue;
+    await rm(join(nodesRoot, entry.name), { force: true });
+  }
+  const publishedPointer = supportedPointerSchema.parse(
     JSON.parse((await optionalReadFile(pointerPath(runRoot), "utf8")) ?? "null") as unknown
   );
   if (
+    publishedPointer.version !== pointer.version ||
+    !("currentGeneration" in publishedPointer) ||
     publishedPointer.currentGeneration !== pointer.currentGeneration ||
     publishedPointer.previousGeneration !== pointer.previousGeneration
   ) {
@@ -367,12 +535,31 @@ async function garbageCollect(
   }
 }
 
-export async function maintainBlockRunIndex(runRoot: string): Promise<void> {
+export async function maintainBlockRunIndex(
+  runRoot: string,
+  options: BlockRunIndexStorageOptions = {}
+): Promise<void> {
   const pointerText = await optionalReadFile(pointerPath(runRoot), "utf8");
   if (pointerText === null) return;
-  const pointer = blockRunIndexV4PointerSchema.parse(JSON.parse(pointerText) as unknown);
-  const manifests = await verifyLiveClosure(runRoot, pointer);
-  await garbageCollect(runRoot, pointer, manifests);
+  const pointer = supportedPointerSchema.parse(JSON.parse(pointerText) as unknown);
+  if (pointer.version === 3) return;
+  if (pointer.version === 4) {
+    const manifests = await verifyLiveClosure(runRoot, pointer);
+    const objects = new Set(
+      [...manifests.values()].flatMap((manifest) => manifest.pages.map((page) => page.objectId))
+    );
+    await garbageCollect(runRoot, pointer, new Set(manifests.keys()), objects, new Set(), options);
+    return;
+  }
+  const closure = await verifyV5LiveClosure(runRoot, pointer);
+  await garbageCollect(
+    runRoot,
+    pointer,
+    closure.generations,
+    closure.objects,
+    closure.nodes,
+    options
+  );
 }
 
 async function maintainCommittedMutation(runRoot: string): Promise<void> {
@@ -394,27 +581,67 @@ async function publishGeneration(
   await mkdir(join(indexRoot(runRoot), "generations", generation), { recursive: true });
   await options.afterStage?.("generation-created");
   for (const [objectId, entries] of draft.newPages) {
-    await writePageObject(runRoot, objectId, entries);
+    await writePageObject(runRoot, objectId, entries, options);
+  }
+  const tree = draft.tree ?? buildBlockRunIndexV5Tree(draft.manifest.pages);
+  for (const [objectId, node] of tree.nodes) {
+    const path = join(indexRoot(runRoot), "nodes", `${objectId}.json`);
+    if (await optionalStat(path)) {
+      await readBlockRunIndexV5TreeNode(indexRoot(runRoot), objectId);
+      continue;
+    }
+    await options.instrumentation?.atFaultPoint?.("tree-node-write");
+    await writeJsonFile(path, node);
+    options.instrumentation?.recordWrite?.({
+      kind: "tree-node",
+      payloadBytes: Buffer.byteLength(`${JSON.stringify(node, null, 2)}\n`, "utf8")
+    });
+    await readBlockRunIndexV5TreeNode(indexRoot(runRoot), objectId);
   }
   await options.afterStage?.("pages-written");
-  const manifest = blockRunIndexV4ManifestSchema.parse({
-    version: 4,
+  const manifest = blockRunIndexV5ManifestSchema.parse({
+    version: 5,
     generation,
     pageSize: BLOCK_RUN_INDEX_PAGE_SIZE,
-    ...draft.manifest
+    treeFanout: BLOCK_RUN_INDEX_TREE_FANOUT,
+    treeDepth: BLOCK_RUN_INDEX_TREE_DEPTH,
+    total: draft.manifest.total,
+    pageCount: draft.manifest.pages.length,
+    maxRetryIndex: draft.manifest.maxRetryIndex,
+    head: draft.manifest.head,
+    latestArtifact: draft.manifest.latestArtifact,
+    rootNodeId: tree.rootNodeId
   });
+  await options.instrumentation?.atFaultPoint?.("manifest-write");
   await writeJsonFile(v4ManifestPath(runRoot, generation), manifest);
-  await options.afterStage?.("before-publish");
-  const pointer = blockRunIndexV4PointerSchema.parse({
-    version: 4,
-    currentGeneration: generation,
-    previousGeneration: previous?.version === 4 ? previous.pointer.currentGeneration : null
+  options.instrumentation?.recordWrite?.({
+    kind: "manifest",
+    payloadBytes: Buffer.byteLength(`${JSON.stringify(manifest, null, 2)}\n`, "utf8")
   });
+  await options.afterStage?.("before-publish");
+  const pointer = blockRunIndexV5PointerSchema.parse({
+    version: 5,
+    currentGeneration: generation,
+    previousGeneration: previous?.version === 5 ? previous.pointer.currentGeneration : null
+  });
+  await options.instrumentation?.atFaultPoint?.("before-pointer-write");
   await writeJsonFile(pointerPath(runRoot), pointer);
+  options.instrumentation?.recordWrite?.({
+    kind: "pointer",
+    payloadBytes: Buffer.byteLength(`${JSON.stringify(pointer, null, 2)}\n`, "utf8")
+  });
+  await options.instrumentation?.atFaultPoint?.("after-pointer-write");
   await options.afterStage?.("published");
   try {
-    const liveManifests = await verifyLiveClosure(runRoot, pointer);
-    await garbageCollect(runRoot, pointer, liveManifests);
+    const closure = await verifyV5LiveClosure(runRoot, pointer);
+    await garbageCollect(
+      runRoot,
+      pointer,
+      closure.generations,
+      closure.objects,
+      closure.nodes,
+      options
+    );
   } catch (error) {
     throw new BlockRunIndexPartialMaintenanceError(runRoot, error);
   }
@@ -442,7 +669,7 @@ function fullGenerationDraft(rawEntries: readonly BlockRunIndexEntry[]): Generat
   };
 }
 
-export async function replaceBlockRunIndexWithV4(
+export async function replaceBlockRunIndexWithV5(
   runRoot: string,
   previous: BlockRunIndexReadSnapshot | null,
   entries: readonly BlockRunIndexEntry[],
@@ -481,13 +708,16 @@ function draftPage(
   return descriptor;
 }
 
-async function mutateV4(
+async function mutateV5(
   runRoot: string,
-  snapshot: BlockRunIndexV4ReadSnapshot,
+  snapshot: BlockRunIndexV5ReadSnapshot,
   mutation: BlockRunIndexMutation,
   options: BlockRunIndexStorageOptions
 ): Promise<boolean> {
-  const { manifest } = snapshot;
+  const manifest = {
+    ...snapshot.manifest,
+    pages: await readAllBlockRunIndexV5Descriptors(indexRoot(runRoot), snapshot.manifest.rootNodeId)
+  };
   const mutationRunId = mutation.kind === "upsert" ? mutation.entry.runId : mutation.runId;
   if (manifest.pages.length === 0) {
     if (mutation.kind !== "upsert") {
@@ -515,6 +745,7 @@ async function mutateV4(
   }
 
   const pages = [...manifest.pages];
+  const previousPageCount = pages.length;
   const newPages = new Map<string, readonly BlockRunIndexEntry[]>();
   let maxRetryIndex = manifest.maxRetryIndex;
   let head = manifest.head;
@@ -531,19 +762,18 @@ async function mutateV4(
       else if (pages.length === 0) head = null;
       else {
         const tail = pages.at(-1);
-        if (!tail) head = null;
-        else {
+        if (tail) {
           const tailEntries =
             newPages.get(tail.objectId) ?? (await readV4PageObject(runRoot, tail));
           head = tailEntries.at(-1) ?? null;
-        }
+        } else head = null;
       }
     }
     if (latestArtifact?.runId === removed.runId) {
       latestArtifact = await findLatestArtifactForRunRoot(runRoot, pages, newPages);
     }
   } else {
-    let updatedEntries: BlockRunIndexEntry[];
+    let updatedEntries: BlockRunIndexEntry[] | null = null;
     if (existingIndex >= 0) {
       const existing = pageEntries[existingIndex];
       if (!existing) throw new Error(`Run '${mutationRunId}' is missing from the block run index.`);
@@ -590,9 +820,22 @@ async function mutateV4(
         latestArtifact = entry;
       }
     }
-    if (existingIndex >= 0) pages.splice(pageIndex, 1, draftPage(updatedEntries!, newPages));
+    if (existingIndex >= 0) {
+      if (!updatedEntries) throw new Error(`Run '${mutationRunId}' could not be updated.`);
+      pages.splice(pageIndex, 1, draftPage(updatedEntries, newPages));
+    }
   }
 
+  if (!snapshot.manifest.rootNodeId) {
+    throw indexContractError(runRoot, "v5 manifest root is missing");
+  }
+  const replacementCount = pages.length - previousPageCount + 1;
+  const tree = await updateBlockRunIndexV5Tree(
+    indexRoot(runRoot),
+    snapshot.manifest.rootNodeId,
+    pageIndex,
+    pages.slice(pageIndex, pageIndex + replacementCount)
+  );
   await publishGeneration(
     runRoot,
     snapshot,
@@ -604,7 +847,8 @@ async function mutateV4(
         latestArtifact,
         pages
       },
-      newPages
+      newPages,
+      tree
     },
     options
   );
@@ -664,7 +908,7 @@ export async function mutateBlockRunIndex(
   mutation: BlockRunIndexMutation,
   options: BlockRunIndexStorageOptions = {}
 ): Promise<boolean> {
-  if (snapshot.version === 4) return mutateV4(runRoot, snapshot, mutation, options);
+  if (snapshot.version === 5) return mutateV5(runRoot, snapshot, mutation, options);
   const entries = await readAllBlockRunIndexEntries(snapshot);
   const next = mutateEntries(entries, mutation);
   await publishGeneration(runRoot, snapshot, fullGenerationDraft(next), options);

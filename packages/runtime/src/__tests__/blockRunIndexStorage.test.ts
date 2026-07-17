@@ -18,6 +18,8 @@ import {
   blockRunIndexV4ManifestSchema,
   blockRunIndexV4PageSchema,
   blockRunIndexV4PointerSchema,
+  blockRunIndexV5ManifestSchema,
+  blockRunIndexV5PointerSchema,
   type BlockRunIndexEntry
 } from "../autoRun/blockRunIndexSchema.js";
 import { writeJsonFile } from "../json.js";
@@ -141,12 +143,12 @@ async function writeRunMetadata(runRoot: string, runId: string, startedAt: strin
   });
 }
 
-async function readCurrentV4Manifest(runRoot: string) {
+async function readCurrentV5Manifest(runRoot: string) {
   const indexRoot = join(runRoot, ".planweave-task-workspace-run-index");
-  const pointer = blockRunIndexV4PointerSchema.parse(
+  const pointer = blockRunIndexV5PointerSchema.parse(
     JSON.parse(await readFile(join(indexRoot, "current.json"), "utf8")) as unknown
   );
-  const manifest = blockRunIndexV4ManifestSchema.parse(
+  const manifest = blockRunIndexV5ManifestSchema.parse(
     JSON.parse(
       await readFile(
         join(indexRoot, "generations", pointer.currentGeneration, "manifest.json"),
@@ -264,7 +266,7 @@ describe("block run index v4 mutations", () => {
     await writeRunMetadata(runRoot, "RUN-004", "2026-07-17T04:00:00.000Z");
 
     await recordBlockRunInIndex(runRoot, "RUN-004");
-    let current = await readCurrentV4Manifest(runRoot);
+    let current = await readCurrentV5Manifest(runRoot);
     expect(current.pointer.previousGeneration).toBeNull();
     expect(current.manifest.maxRetryIndex).toBe(4);
     expect(await readdir(join(current.indexRoot, "generations"))).toEqual([
@@ -274,12 +276,27 @@ describe("block run index v4 mutations", () => {
     await removeBlockRunFromIndex(runRoot, "RUN-004");
     await writeRunMetadata(runRoot, "RUN-005", "2026-07-17T05:00:00.000Z");
     await recordBlockRunInIndex(runRoot, "RUN-005");
-    current = await readCurrentV4Manifest(runRoot);
+    current = await readCurrentV5Manifest(runRoot);
     await expect(readBlockRunIndexEntry(runRoot, "RUN-005")).resolves.toMatchObject({
       retryIndex: 5
     });
     expect(current.manifest.maxRetryIndex).toBe(5);
     expect(await readdir(join(current.indexRoot, "generations"))).toHaveLength(2);
+  });
+
+  it("migrates a readable v4 index to v5 on first mutation", async () => {
+    const runRoot = await temporaryRunRoot("v4-migration-mutation");
+    await writeV4Fixture(runRoot);
+    await writeRunMetadata(runRoot, "RUN-004", "2026-07-17T04:00:00.000Z");
+
+    await recordBlockRunInIndex(runRoot, "RUN-004");
+
+    const current = await readCurrentV5Manifest(runRoot);
+    expect(current.pointer.previousGeneration).toBeNull();
+    expect(current.manifest.total).toBe(4);
+    await expect(readBlockRunIndexEntry(runRoot, "RUN-004")).resolves.toMatchObject({
+      retryIndex: 4
+    });
   });
 
   it("inserts out-of-order runs without changing public chronology", async () => {
@@ -307,12 +324,12 @@ describe("block run index v4 mutations", () => {
       );
       await recordBlockRunInIndex(runRoot, runId);
     }
-    const beforeAppend = await readCurrentV4Manifest(runRoot);
+    const beforeAppend = await readCurrentV5Manifest(runRoot);
     const beforeAppendObjects = new Set(await readdir(join(beforeAppend.indexRoot, "objects")));
     const appendedRunId = `RUN-${String(BLOCK_RUN_INDEX_PAGE_SIZE + 2).padStart(3, "0")}`;
     await writeRunMetadata(runRoot, appendedRunId, "2026-01-01T01:02:00.000Z");
     await recordBlockRunInIndex(runRoot, appendedRunId);
-    const afterAppend = await readCurrentV4Manifest(runRoot);
+    const afterAppend = await readCurrentV5Manifest(runRoot);
     const afterAppendObjects = new Set(await readdir(join(afterAppend.indexRoot, "objects")));
     expect(
       [...afterAppendObjects].filter((object) => !beforeAppendObjects.has(object))
@@ -320,7 +337,7 @@ describe("block run index v4 mutations", () => {
 
     const beforeArtifactObjects = afterAppendObjects;
     await recordBlockRunArtifactInIndex(runRoot, "RUN-001");
-    const afterArtifact = await readCurrentV4Manifest(runRoot);
+    const afterArtifact = await readCurrentV5Manifest(runRoot);
     const afterArtifactObjects = new Set(await readdir(join(afterArtifact.indexRoot, "objects")));
     expect(
       [...afterArtifactObjects].filter((object) => !beforeArtifactObjects.has(object))
@@ -357,14 +374,14 @@ describe("block run index v4 mutations", () => {
     await recordBlockRunInIndex(runRoot, "RUN-001");
     await writeRunMetadata(runRoot, "RUN-002", "2026-07-17T02:00:00.000Z");
     await recordBlockRunInIndex(runRoot, "RUN-002");
-    const current = await readCurrentV4Manifest(runRoot);
+    const current = await readCurrentV5Manifest(runRoot);
     expect(current.pointer.previousGeneration).not.toBeNull();
     for (const generation of [
       current.pointer.currentGeneration,
       current.pointer.previousGeneration
     ]) {
       if (generation === null) continue;
-      const manifest = blockRunIndexV4ManifestSchema.parse(
+      const manifest = blockRunIndexV5ManifestSchema.parse(
         JSON.parse(
           await readFile(
             join(current.indexRoot, "generations", generation, "manifest.json"),
@@ -372,9 +389,9 @@ describe("block run index v4 mutations", () => {
           )
         ) as unknown
       );
-      for (const page of manifest.pages) {
+      for (const objectId of manifest.rootNodeId ? [manifest.rootNodeId] : []) {
         await expect(
-          access(join(current.indexRoot, "objects", `${page.objectId}.json`))
+          access(join(current.indexRoot, "nodes", `${objectId}.json`))
         ).resolves.toBeUndefined();
       }
     }

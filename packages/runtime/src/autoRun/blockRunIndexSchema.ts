@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 export const BLOCK_RUN_INDEX_PAGE_SIZE = 64;
+export const BLOCK_RUN_INDEX_TREE_FANOUT = 64;
+export const BLOCK_RUN_INDEX_TREE_DEPTH = 5;
+export const BLOCK_RUN_INDEX_MAX_PAGES = BLOCK_RUN_INDEX_TREE_FANOUT ** BLOCK_RUN_INDEX_TREE_DEPTH;
 
 export const blockRunIndexEntrySchema = z
   .object({
@@ -85,19 +88,96 @@ export const blockRunIndexV4PageSchema = z
   })
   .strict();
 
+export const blockRunIndexV5PointerSchema = z
+  .object({
+    version: z.literal(5),
+    currentGeneration: z.string().min(1),
+    previousGeneration: z.string().min(1).nullable()
+  })
+  .strict();
+
+export const blockRunIndexV5TreeChildSchema = z
+  .object({
+    objectId: pageObjectIdSchema,
+    pageCount: z.number().int().positive(),
+    first: blockRunLogicalCursorSchema,
+    last: blockRunLogicalCursorSchema
+  })
+  .strict();
+
+export const blockRunIndexV5LeafSchema = z
+  .object({
+    version: z.literal(5),
+    kind: z.literal("leaf"),
+    objectId: pageObjectIdSchema,
+    checksum: checksumSchema,
+    descriptors: z
+      .array(blockRunIndexV4PageDescriptorSchema)
+      .min(1)
+      .max(BLOCK_RUN_INDEX_TREE_FANOUT)
+  })
+  .strict();
+
+export const blockRunIndexV5InternalSchema = z
+  .object({
+    version: z.literal(5),
+    kind: z.literal("internal"),
+    level: z
+      .number()
+      .int()
+      .min(1)
+      .max(BLOCK_RUN_INDEX_TREE_DEPTH - 2),
+    objectId: pageObjectIdSchema,
+    checksum: checksumSchema,
+    children: z.array(blockRunIndexV5TreeChildSchema).min(1).max(BLOCK_RUN_INDEX_TREE_FANOUT)
+  })
+  .strict();
+
+export const blockRunIndexV5RootSchema = z
+  .object({
+    version: z.literal(5),
+    kind: z.literal("root"),
+    objectId: pageObjectIdSchema,
+    checksum: checksumSchema,
+    children: z.array(blockRunIndexV5TreeChildSchema).min(1).max(BLOCK_RUN_INDEX_TREE_FANOUT)
+  })
+  .strict();
+
+export const blockRunIndexV5ManifestSchema = z
+  .object({
+    version: z.literal(5),
+    generation: z.string().min(1),
+    pageSize: z.literal(BLOCK_RUN_INDEX_PAGE_SIZE),
+    treeFanout: z.literal(BLOCK_RUN_INDEX_TREE_FANOUT),
+    treeDepth: z.literal(BLOCK_RUN_INDEX_TREE_DEPTH),
+    total: z.number().int().nonnegative(),
+    pageCount: z.number().int().nonnegative().max(BLOCK_RUN_INDEX_MAX_PAGES),
+    maxRetryIndex: z.number().int().nonnegative(),
+    head: blockRunIndexEntrySchema.nullable(),
+    latestArtifact: blockRunIndexEntrySchema.nullable(),
+    rootNodeId: pageObjectIdSchema.nullable()
+  })
+  .strict();
+
 export type BlockRunIndexEntry = z.infer<typeof blockRunIndexEntrySchema>;
 export type BlockRunLogicalCursor = z.infer<typeof blockRunLogicalCursorSchema>;
 export type BlockRunIndexV3Manifest = z.infer<typeof blockRunIndexV3ManifestSchema>;
 export type BlockRunIndexV4Pointer = z.infer<typeof blockRunIndexV4PointerSchema>;
 export type BlockRunIndexV4PageDescriptor = z.infer<typeof blockRunIndexV4PageDescriptorSchema>;
 export type BlockRunIndexV4Manifest = z.infer<typeof blockRunIndexV4ManifestSchema>;
+export type BlockRunIndexV5Pointer = z.infer<typeof blockRunIndexV5PointerSchema>;
+export type BlockRunIndexV5TreeChild = z.infer<typeof blockRunIndexV5TreeChildSchema>;
+export type BlockRunIndexV5Leaf = z.infer<typeof blockRunIndexV5LeafSchema>;
+export type BlockRunIndexV5Internal = z.infer<typeof blockRunIndexV5InternalSchema>;
+export type BlockRunIndexV5Root = z.infer<typeof blockRunIndexV5RootSchema>;
+export type BlockRunIndexV5Manifest = z.infer<typeof blockRunIndexV5ManifestSchema>;
 
 export function compareBlockRunChronology(
   left: BlockRunLogicalCursor,
   right: BlockRunLogicalCursor
 ): number {
   const byTime = Date.parse(left.orderedAt) - Date.parse(right.orderedAt);
-  return byTime !== 0 ? byTime : left.stableIdentity.localeCompare(right.stableIdentity);
+  return byTime === 0 ? left.stableIdentity.localeCompare(right.stableIdentity) : byTime;
 }
 
 export function blockRunIndexPageChecksum(entries: readonly BlockRunIndexEntry[]): string {
@@ -113,4 +193,12 @@ export function blockRunIndexPageChecksum(entries: readonly BlockRunIndexEntry[]
 
 export function blockRunIndexPageObjectId(entries: readonly BlockRunIndexEntry[]): string {
   return `sha256-${blockRunIndexPageChecksum(entries)}`;
+}
+
+export function blockRunIndexTreeNodeChecksum(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+export function blockRunIndexTreeNodeObjectId(value: unknown): string {
+  return `sha256-${blockRunIndexTreeNodeChecksum(value)}`;
 }

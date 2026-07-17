@@ -15,7 +15,7 @@ import {
   maintainBlockRunIndex,
   mutateBlockRunIndex,
   readBlockRunIndexSnapshot,
-  replaceBlockRunIndexWithV4,
+  replaceBlockRunIndexWithV5,
   type BlockRunIndexPublishStage,
   type BlockRunIndexReadSnapshot
 } from "./blockRunIndexStorage.js";
@@ -35,7 +35,7 @@ function sortEntries(entries: readonly BlockRunIndexEntry[]): BlockRunIndexEntry
 function blockRefFromRunRoot(runRoot: string): string {
   const blockId = basename(dirname(runRoot));
   const taskId = basename(dirname(dirname(dirname(runRoot))));
-  if (!taskId || !blockId)
+  if (!(taskId && blockId))
     throw new Error(`Cannot derive block identity from run root '${runRoot}'.`);
   return `${taskId}#${blockId}`;
 }
@@ -97,7 +97,7 @@ async function migrateExistingRuns(
     ...fact
   }));
   const sorted = sortEntries(entries).map((entry, index) => ({ ...entry, retryIndex: index + 1 }));
-  await replaceBlockRunIndexWithV4(runRoot, previous, sorted, options);
+  await replaceBlockRunIndexWithV5(runRoot, previous, sorted, options);
 }
 
 export async function migrateBlockRunIndexes(projectRoot: PackageWorkspaceRef): Promise<{
@@ -150,7 +150,7 @@ export async function initializeBlockRunIndex(
     async () => {
       const snapshot = await readBlockRunIndexSnapshot(runRoot);
       if (!snapshot) await migrateExistingRuns(runRoot, null, options);
-      else if (snapshot.version === 4) await maintainBlockRunIndex(runRoot);
+      else if (snapshot.version !== 3) await maintainBlockRunIndex(runRoot);
     }
   );
 }
@@ -225,7 +225,7 @@ async function readBlockRunIndexViewOnce(
       const entries = await snapshot.readPage(middle);
       const first = entries[0];
       const last = entries.at(-1);
-      if (!first || !last) {
+      if (!(first && last)) {
         throw new Error(`Block run index page ${middle} is empty at '${runRoot}'.`);
       }
       if (compareBlockRunChronology(last, options.before) < 0) {

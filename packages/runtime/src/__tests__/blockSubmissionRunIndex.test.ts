@@ -2,15 +2,15 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  blockRunIndexV4ManifestSchema,
-  blockRunIndexV4PointerSchema
+  blockRunIndexV5ManifestSchema,
+  blockRunIndexV5PointerSchema
 } from "../autoRun/blockRunIndexSchema.js";
 import { readJsonFile } from "../json.js";
 import { claimNext, submitBlockResult } from "../taskManager/index.js";
 import { createTestWorkspace, writeReport } from "./promptTestHelpers.js";
 
 describe("block submission run index", () => {
-  it("publishes one v4 generation containing the run and its artifact", async () => {
+  it("publishes one v5 generation containing the run and its artifact", async () => {
     const { root, init } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
 
@@ -28,10 +28,10 @@ describe("block submission run index", () => {
       "runs",
       ".planweave-task-workspace-run-index"
     );
-    const pointer = blockRunIndexV4PointerSchema.parse(
+    const pointer = blockRunIndexV5PointerSchema.parse(
       await readJsonFile(join(indexRoot, "current.json"))
     );
-    const manifest = blockRunIndexV4ManifestSchema.parse(
+    const manifest = blockRunIndexV5ManifestSchema.parse(
       await readJsonFile(join(indexRoot, "generations", pointer.currentGeneration, "manifest.json"))
     );
 
