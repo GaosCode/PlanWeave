@@ -1,3 +1,5 @@
+import type { DesktopBuildMetadata } from "./buildMetadata.js";
+
 export type AppUpdateInfo = {
   version: string;
   releaseDate?: string | null;
@@ -13,8 +15,8 @@ export type AppUpdateProgress = {
 
 /**
  * How the user obtains an update once one is available.
- * - `in-app`: electron-updater download + quitAndInstall (Windows/Linux, and signed macOS).
- * - `github-releases`: open GitHub Releases only — unsigned macOS cannot complete in-app install.
+ * - `in-app`: electron-updater download + quitAndInstall (Windows/Linux, and verified release macOS).
+ * - `github-releases`: open GitHub Releases only — other macOS builds cannot complete in-app install.
  */
 export type AppUpdateDelivery = "in-app" | "github-releases";
 
@@ -23,13 +25,18 @@ export const PLANWEAVE_DESKTOP_RELEASES_URL =
 
 /**
  * Resolve whether this process may promise in-app install.
- * macOS defaults to external Releases until a signed channel sets PLANWEAVE_DESKTOP_CODE_SIGNED=1.
+ * macOS defaults to external Releases unless packaged metadata proves a signed release build.
  */
 export function resolveAppUpdateDelivery(options: {
   platform: NodeJS.Platform;
-  codeSigned: boolean;
+  buildMetadata: DesktopBuildMetadata | null;
 }): AppUpdateDelivery {
-  if (options.platform === "darwin" && !options.codeSigned) {
+  if (
+    options.platform === "darwin" &&
+    (!options.buildMetadata ||
+      !options.buildMetadata.signedDistribution ||
+      options.buildMetadata.channel !== "release")
+  ) {
     return "github-releases";
   }
   return "in-app";

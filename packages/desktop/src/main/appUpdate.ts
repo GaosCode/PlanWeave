@@ -7,6 +7,8 @@ import {
   appUpdateInvokeChannels,
   resolveAppUpdateDelivery
 } from "../shared/appUpdate.js";
+import type { DesktopBuildMetadata } from "../shared/buildMetadata.js";
+import { loadDesktopBuildMetadata } from "./buildMetadata.js";
 
 type UpdaterUpdateInfo = {
   version: string;
@@ -24,25 +26,54 @@ type UpdaterProgressInfo = {
 const { autoUpdater } = electronUpdater as { autoUpdater: AppUpdater };
 
 let latestUpdateInfo: AppUpdateInfo | null = null;
-let state: AppUpdateState = createBaseState("idle");
+let buildMetadataState:
+  | { status: "unread" }
+  | { status: "loaded"; metadata: DesktopBuildMetadata }
+  | { status: "failed"; error: Error } = { status: "unread" };
+let state: AppUpdateState = createBaseState("idle", null);
 
 function nowIso(): string {
   return new Date().toISOString();
 }
 
+function currentBuildMetadata(): DesktopBuildMetadata | null {
+  if (!app.isPackaged) {
+    return null;
+  }
+  if (buildMetadataState.status === "loaded") {
+    return buildMetadataState.metadata;
+  }
+  if (buildMetadataState.status === "failed") {
+    return null;
+  }
+  try {
+    const metadata = loadDesktopBuildMetadata(process.resourcesPath, app.getVersion());
+    buildMetadataState = { status: "loaded", metadata };
+    return metadata;
+  } catch (error) {
+    const normalized = error instanceof Error ? error : new Error(String(error));
+    buildMetadataState = { status: "failed", error: normalized };
+    console.error(normalized.message);
+    return null;
+  }
+}
+
 function currentDelivery() {
   return resolveAppUpdateDelivery({
     platform: process.platform,
-    codeSigned: process.env.PLANWEAVE_DESKTOP_CODE_SIGNED === "1"
+    buildMetadata: currentBuildMetadata()
   });
 }
 
-function createBaseState(status: "idle" | "checking" | "not-available"): AppUpdateState {
+function createBaseState(
+  status: "idle" | "checking" | "not-available",
+  buildMetadata: DesktopBuildMetadata | null
+): AppUpdateState {
   return {
     status,
     checkedAt: null,
     currentVersion: app.getVersion(),
-    delivery: currentDelivery(),
+    delivery: resolveAppUpdateDelivery({ platform: process.platform, buildMetadata }),
     error: null,
     progress: null,
     update: null,
@@ -227,7 +258,7 @@ export async function installAppUpdate(): Promise<AppUpdateState> {
       status: "error",
       checkedAt: state.checkedAt,
       error:
-        "In-app install is not available for unsigned macOS builds. Download from GitHub Releases.",
+        "In-app install requires a verified signed macOS release build. Download from GitHub Releases.",
       progress: null,
       update: latestUpdateInfo
     });
@@ -291,7 +322,7 @@ export function registerAppUpdateHandlers(): void {
     if (!latestUpdateInfo) {
       return;
     }
-    // Unsigned macOS never starts an in-app download; ignore stray progress events.
+    // macOS builds without verified signed release metadata never start an in-app download.
     if (currentDelivery() === "github-releases") {
       return;
     }
@@ -304,7 +335,7 @@ export function registerAppUpdateHandlers(): void {
     });
   });
   autoUpdater.on("update-downloaded", (info: UpdaterUpdateInfo) => {
-    // Unsigned macOS never starts an in-app download; ignore stray download events.
+    // macOS builds without verified signed release metadata never start an in-app download.
     if (currentDelivery() === "github-releases") {
       return;
     }

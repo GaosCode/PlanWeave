@@ -299,7 +299,9 @@ PlanWeave Desktop provides a visual task canvas, task workspaces, Auto Run contr
   <img src="readme/assets/planweave-desktop-canvas.png" width="860" alt="PlanWeave desktop canvas showing an agent task graph with implementation and review blocks." />
 </p>
 
-Install a packaged build from [GitHub Releases](https://github.com/GaosCode/PlanWeave/releases). Current desktop installers are unsigned. macOS may show an unidentified developer warning, and Windows may show an unknown publisher or SmartScreen warning. On macOS, open the app with **Right Click -> Open** and confirm the prompt.
+Install packaged builds from [GitHub Releases](https://github.com/GaosCode/PlanWeave/releases). Artifacts produced by the protected Desktop Release workflow must pass macOS Developer ID signing, notarization, stapling and installed-app checks, or Windows Authenticode signing, timestamp and installed-app checks, before publication. Local `dist:*` and `pack:*` commands remain explicitly unsigned development builds.
+
+On Windows, a valid OV signature displays a verified publisher but does not guarantee that Microsoft Defender SmartScreen will suppress reputation warnings; new files or certificates may still need to build reputation. On macOS, in-app installation is enabled only when packaged build metadata verifies a signed release-channel distribution. See the [Desktop release runbook](docs/desktop-release-runbook.md) for artifact verification, credential rotation and failure diagnosis.
 
 For repository layout, source setup, tests, and packaging commands, see [Development](DEVELOPMENT.md).
 

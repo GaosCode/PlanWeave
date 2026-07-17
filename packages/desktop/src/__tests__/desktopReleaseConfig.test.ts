@@ -20,13 +20,14 @@ describe("desktop release configuration", () => {
   it("keeps local pack and dist commands explicitly unsigned", async () => {
     const packageJson = JSON.parse(await readFile(resolve(desktopRoot, "package.json"), "utf8")) as {
       scripts: Record<string, string>;
-      build: { mac: Record<string, unknown> };
+      build: { mac: Record<string, unknown>; extraResources: Array<Record<string, unknown>> };
     };
     const { default: localConfig } = await loadConfig("electron-builder.local.cjs");
 
     for (const [name, command] of Object.entries(packageJson.scripts)) {
       if (name.startsWith("pack:") || name.startsWith("dist:")) {
         expect(command).toContain("--config electron-builder.local.cjs");
+        expect(command).toContain("pnpm build:metadata:local");
       }
     }
     expect(packageJson.build.mac).not.toHaveProperty("identity");
@@ -35,6 +36,12 @@ describe("desktop release configuration", () => {
       mac: { identity: null, forceCodeSigning: false, hardenedRuntime: false },
       win: { forceCodeSigning: false, signExecutable: false }
     });
+    expect(packageJson.build.extraResources).toEqual([
+      {
+        from: "build/generated/planweave-build-metadata.json",
+        to: "planweave-build-metadata.json"
+      }
+    ]);
   });
 
   it("uses only the OV PFX Authenticode provider for Windows release signing", async () => {
@@ -116,12 +123,19 @@ describe("desktop release configuration", () => {
     const winPreflight = workflow.indexOf("preflight-release-secrets.mjs --platform win");
     const macBuild = workflow.indexOf("Build signed macOS installers");
     const winBuild = workflow.indexOf("Build signed Windows installers with OV PFX");
+    const metadata = workflow.indexOf("Generate release build metadata");
 
     expect(workflow).toContain("environment: desktop-release");
     expect(macPreflight).toBeGreaterThan(-1);
     expect(winPreflight).toBeGreaterThan(-1);
     expect(macPreflight).toBeLessThan(macBuild);
     expect(winPreflight).toBeLessThan(winBuild);
+    expect(metadata).toBeGreaterThan(-1);
+    expect(metadata).toBeLessThan(macBuild);
+    expect(metadata).toBeLessThan(winBuild);
+    expect(workflow).toContain("--channel release --signed-distribution ${{ matrix.signedDistribution }}");
+    expect(workflow).toContain('signedDistribution: "true"');
+    expect(workflow).toContain('signedDistribution: "false"');
     expect(workflow).toContain("--config electron-builder.release.cjs");
     expect(workflow).toContain("secrets.WINDOWS_OV_PFX");
     expect(workflow).not.toContain("azureSignOptions");

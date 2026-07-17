@@ -27,14 +27,15 @@
     "build:workspace": "tsc -p tsconfig.json && tsc -p tsconfig.main.json --noEmit && node scripts/build-electron.mjs && vite build",
     "dev": "vite --host 127.0.0.1",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit",
-    "dist:all": "pnpm build && electron-builder --config electron-builder.local.cjs --mac dmg zip --linux AppImage deb tar.gz --win nsis zip --publish never",
-    "dist:linux": "pnpm build && electron-builder --config electron-builder.local.cjs --linux AppImage deb tar.gz --publish never",
-    "dist:mac": "pnpm build && electron-builder --config electron-builder.local.cjs --mac dmg zip --publish never",
-    "dist:win": "pnpm build && electron-builder --config electron-builder.local.cjs --win nsis zip --publish never",
-    "pack:all": "pnpm build && electron-builder --config electron-builder.local.cjs --mac --linux --win --dir --publish never",
-    "pack:linux": "pnpm build && electron-builder --config electron-builder.local.cjs --linux --dir --publish never",
-    "pack:mac": "pnpm build && electron-builder --config electron-builder.local.cjs --mac --dir --publish never",
-    "pack:win": "pnpm build && electron-builder --config electron-builder.local.cjs --win --dir --publish never",
+    "build:metadata:local": "tsx scripts/generate-build-metadata.ts --channel development --signed-distribution false",
+    "dist:all": "pnpm build && pnpm build:metadata:local && electron-builder --config electron-builder.local.cjs --mac dmg zip --linux AppImage deb tar.gz --win nsis zip --publish never",
+    "dist:linux": "pnpm build && pnpm build:metadata:local && electron-builder --config electron-builder.local.cjs --linux AppImage deb tar.gz --publish never",
+    "dist:mac": "pnpm build && pnpm build:metadata:local && electron-builder --config electron-builder.local.cjs --mac dmg zip --publish never",
+    "dist:win": "pnpm build && pnpm build:metadata:local && electron-builder --config electron-builder.local.cjs --win nsis zip --publish never",
+    "pack:all": "pnpm build && pnpm build:metadata:local && electron-builder --config electron-builder.local.cjs --mac --linux --win --dir --publish never",
+    "pack:linux": "pnpm build && pnpm build:metadata:local && electron-builder --config electron-builder.local.cjs --linux --dir --publish never",
+    "pack:mac": "pnpm build && pnpm build:metadata:local && electron-builder --config electron-builder.local.cjs --mac --dir --publish never",
+    "pack:win": "pnpm build && pnpm build:metadata:local && electron-builder --config electron-builder.local.cjs --win --dir --publish never",
     "release:all": "node -e \"console.error('Desktop releases must use the manual GitHub Actions Desktop Release workflow. Use dist:* for local build-only artifacts.'); process.exit(1)\"",
     "release:linux": "node -e \"console.error('Desktop releases must use the manual GitHub Actions Desktop Release workflow. Use dist:* for local build-only artifacts.'); process.exit(1)\"",
     "release:mac": "node -e \"console.error('Desktop releases must use the manual GitHub Actions Desktop Release workflow. Use dist:* for local build-only artifacts.'); process.exit(1)\"",
@@ -92,6 +93,12 @@
     "files": [
       "dist/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/generated/planweave-build-metadata.json",
+        "to": "planweave-build-metadata.json"
+      }
     ],
     "asarUnpack": [
       "**/node_modules/electron-liquid-glass/**"

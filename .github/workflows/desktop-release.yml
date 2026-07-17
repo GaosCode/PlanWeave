@@ -33,15 +33,18 @@ jobs:
             builderArgs: --mac dmg zip --universal
             artifactName: macos-universal
             releasePlatform: mac
+            signedDistribution: "true"
           - name: Linux x64
             runner: ubuntu-latest
             builderArgs: --linux AppImage deb tar.gz --x64
             artifactName: linux-x64
+            signedDistribution: "false"
           - name: Windows x64
             runner: windows-latest
             builderArgs: --win nsis zip --x64
             artifactName: windows-x64
             releasePlatform: win
+            signedDistribution: "true"
 
     steps:
       - name: Checkout
@@ -68,6 +71,9 @@ jobs:
 
       - name: Build desktop app
         run: pnpm --dir packages/desktop build
+
+      - name: Generate release build metadata
+        run: pnpm --dir packages/desktop exec tsx scripts/generate-build-metadata.ts --channel release --signed-distribution ${{ matrix.signedDistribution }}
 
       - name: Preflight macOS release secrets
         if: matrix.releasePlatform == 'mac'

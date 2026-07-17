@@ -5,6 +5,7 @@ import {
   appUpdateInvokeChannels,
   resolveAppUpdateDelivery
 } from "../shared/appUpdate";
+import type { DesktopBuildMetadata } from "../shared/buildMetadata";
 
 type RegisteredHandler = (event: unknown, ...args: unknown[]) => unknown;
 type UpdaterListener = (...args: unknown[]) => void;
@@ -60,6 +61,11 @@ const updaterMock = vi.hoisted(() => {
   };
 });
 
+const buildMetadataMock = vi.hoisted(() => ({
+  loadDesktopBuildMetadata:
+    vi.fn<(resourcesPath: string, expectedVersion: string) => DesktopBuildMetadata>()
+}));
+
 vi.mock("electron", () => ({
   app: electronMock.app,
   BrowserWindow: electronMock.BrowserWindow,
@@ -74,21 +80,39 @@ vi.mock("electron-updater", () => ({
   autoUpdater: updaterMock.autoUpdater
 }));
 
+vi.mock("../main/buildMetadata", () => buildMetadataMock);
+
 describe("resolveAppUpdateDelivery", () => {
-  it("uses github-releases on unsigned macOS and in-app elsewhere or when signed", () => {
-    expect(resolveAppUpdateDelivery({ platform: "darwin", codeSigned: false })).toBe(
+  const signedRelease: DesktopBuildMetadata = {
+    signedDistribution: true,
+    channel: "release",
+    version: "0.1.1"
+  };
+
+  it("requires verified signed release metadata for in-app delivery on macOS", () => {
+    expect(resolveAppUpdateDelivery({ platform: "darwin", buildMetadata: null })).toBe(
       "github-releases"
     );
-    expect(resolveAppUpdateDelivery({ platform: "darwin", codeSigned: true })).toBe("in-app");
-    expect(resolveAppUpdateDelivery({ platform: "win32", codeSigned: false })).toBe("in-app");
-    expect(resolveAppUpdateDelivery({ platform: "linux", codeSigned: false })).toBe("in-app");
+    expect(
+      resolveAppUpdateDelivery({
+        platform: "darwin",
+        buildMetadata: {
+          signedDistribution: false,
+          channel: "development",
+          version: "0.1.1"
+        }
+      })
+    ).toBe("github-releases");
+    expect(
+      resolveAppUpdateDelivery({ platform: "darwin", buildMetadata: signedRelease })
+    ).toBe("in-app");
+    expect(resolveAppUpdateDelivery({ platform: "win32", buildMetadata: null })).toBe("in-app");
+    expect(resolveAppUpdateDelivery({ platform: "linux", buildMetadata: null })).toBe("in-app");
   });
 });
 
 describe("app update handlers", () => {
   const originalPlatform = process.platform;
-  const originalCodeSigned = process.env.PLANWEAVE_DESKTOP_CODE_SIGNED;
-
   beforeEach(() => {
     vi.resetModules();
     electronMock.handlers.clear();
@@ -103,16 +127,14 @@ describe("app update handlers", () => {
     updaterMock.autoUpdater.downloadUpdate.mockReset();
     updaterMock.autoUpdater.quitAndInstall.mockReset();
     updaterMock.autoUpdater.on.mockClear();
-    delete process.env.PLANWEAVE_DESKTOP_CODE_SIGNED;
+    buildMetadataMock.loadDesktopBuildMetadata.mockReset();
+    buildMetadataMock.loadDesktopBuildMetadata.mockImplementation(() => {
+      throw new Error("Desktop build metadata is missing.");
+    });
   });
 
   afterEach(() => {
     Object.defineProperty(process, "platform", { configurable: true, value: originalPlatform });
-    if (originalCodeSigned === undefined) {
-      delete process.env.PLANWEAVE_DESKTOP_CODE_SIGNED;
-    } else {
-      process.env.PLANWEAVE_DESKTOP_CODE_SIGNED = originalCodeSigned;
-    }
   });
 
   it("registers app update handlers outside the runtime bridge", async () => {
@@ -157,7 +179,7 @@ describe("app update handlers", () => {
     );
   });
 
-  it("on unsigned macOS opens GitHub Releases instead of downloading or installing", async () => {
+  it("on unverified macOS opens GitHub Releases instead of downloading or installing", async () => {
     Object.defineProperty(process, "platform", { configurable: true, value: "darwin" });
     electronMock.app.isPackaged = true;
     const send = vi.fn();
@@ -182,7 +204,7 @@ describe("app update handlers", () => {
 
     const installState = await installAppUpdate();
     expect(installState.status).toBe("error");
-    expect(installState.error).toMatch(/unsigned macOS/i);
+    expect(installState.error).toMatch(/verified signed macOS release/i);
     expect(updaterMock.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
   });
 
@@ -218,11 +240,15 @@ describe("app update handlers", () => {
     expect(updaterMock.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
   });
 
-  it("treats macOS as in-app when PLANWEAVE_DESKTOP_CODE_SIGNED=1", async () => {
+  it("treats macOS as in-app only when packaged metadata proves a signed release", async () => {
     Object.defineProperty(process, "platform", { configurable: true, value: "darwin" });
-    process.env.PLANWEAVE_DESKTOP_CODE_SIGNED = "1";
     electronMock.app.isPackaged = true;
     updaterMock.autoUpdater.downloadUpdate.mockResolvedValue(undefined);
+    buildMetadataMock.loadDesktopBuildMetadata.mockReturnValue({
+      signedDistribution: true,
+      channel: "release",
+      version: "0.1.1"
+    });
 
     const { downloadAppUpdate, registerAppUpdateHandlers } = await import("../main/appUpdate");
     registerAppUpdateHandlers();
@@ -237,5 +263,26 @@ describe("app update handlers", () => {
     expect(state.delivery).toBe("in-app");
     expect(updaterMock.autoUpdater.downloadUpdate).toHaveBeenCalledTimes(1);
     expect(electronMock.shell.openExternal).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when packaged macOS metadata is corrupt", async () => {
+    Object.defineProperty(process, "platform", { configurable: true, value: "darwin" });
+    electronMock.app.isPackaged = true;
+    buildMetadataMock.loadDesktopBuildMetadata.mockImplementation(() => {
+      throw new Error("Desktop build metadata failed validation.");
+    });
+
+    const { downloadAppUpdate, registerAppUpdateHandlers } = await import("../main/appUpdate");
+    registerAppUpdateHandlers();
+    updaterMock.emit("update-available", {
+      version: "0.1.3",
+      releaseDate: null,
+      releaseName: null
+    });
+
+    const state = await downloadAppUpdate();
+    expect(state.delivery).toBe("github-releases");
+    expect(electronMock.shell.openExternal).toHaveBeenCalledWith(PLANWEAVE_DESKTOP_RELEASES_URL);
+    expect(updaterMock.autoUpdater.downloadUpdate).not.toHaveBeenCalled();
   });
 });

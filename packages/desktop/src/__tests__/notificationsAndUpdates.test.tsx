@@ -107,7 +107,7 @@ describe("desktop renderer component interactions", () => {
     expect(onInstall).not.toHaveBeenCalled();
   });
 
-  it("offers GitHub Releases download on unsigned macOS delivery instead of in-app install", async () => {
+  it("offers GitHub Releases download when macOS delivery is not a verified signed release", async () => {
     const onDownload = vi.fn().mockResolvedValue(undefined);
     const onInstall = vi.fn().mockResolvedValue(undefined);
 
@@ -131,7 +131,7 @@ describe("desktop renderer component interactions", () => {
     );
 
     expect(screen.getByTestId("app-update-toast")).toBeInTheDocument();
-    expect(screen.getByText(/Unsigned macOS builds cannot auto-install/i)).toBeInTheDocument();
+    expect(screen.getByText(/not verified as a signed release/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start download" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Restart to install" })).not.toBeInTheDocument();
 
