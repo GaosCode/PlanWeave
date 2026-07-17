@@ -360,6 +360,27 @@ export {
 } from "./autoRun/runnerInteractionAvailability.js";
 export type * from "./autoRun/runnerInteractionAvailability.js";
 export {
+  createRunTerminalEvent,
+  createRunnerInteractionRequiredEvent,
+  createRunnerInteractionResolvedEvent,
+  runCompletedEventSchema,
+  runEventSchema,
+  runEventVersionSchema,
+  runFailedEventSchema,
+  runnerInteractionRequiredEventSchema,
+  runnerInteractionResolvedEventSchema
+} from "./autoRun/runnerInteractionObserver.js";
+export type * from "./autoRun/runnerInteractionObserver.js";
+export {
+  runnerInteractionClientLabelSchema,
+  runnerInteractionActionIdentitySchema,
+  runnerInteractionIdentitySchema,
+  runnerInteractionResponseReceiptSchema,
+  runnerInteractionSnapshotSchema,
+  runnerPermissionInteractionDecisionSchema
+} from "./autoRun/runnerInteractionContract.js";
+export type * from "./autoRun/runnerInteractionContract.js";
+export {
   acpTimelineItemSchema,
   projectAcpConversation,
   projectAcpTimeline
@@ -496,6 +517,7 @@ export {
   subscribeAutoRunEvents,
   listPendingRunnerInteractions,
   respondToRunnerInteraction,
+  respondToRunnerInteractionAction,
   runnerInteractionAuditSchema,
   runnerInteractionCanvasRefSchema,
   RunnerInteractionApiError,

@@ -429,7 +429,8 @@ export async function runWithSession(
         scope: options.scope,
         signal: options.signal,
         timeoutMs: options.timeoutMs,
-        runSessionId: session.sessionId
+        runSessionId: session.sessionId,
+        interactionObserver: options.interactionObserver
       });
       const stepStartTracker = (async () => {
         while (!stepSettled) {

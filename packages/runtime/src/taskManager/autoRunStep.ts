@@ -456,6 +456,7 @@ export async function runAutoRunStep(options: {
   desktopRunId?: string;
   runSessionId?: string;
   interactionBroker?: import("../autoRun/liveControl.js").RunnerInteractionBroker;
+  interactionObserver?: import("../autoRun/runnerInteractionObserver.js").RunnerInteractionObserver;
   parallel?: boolean;
   scope?: ClaimScope;
   session?: ExecutionGraphSession;
@@ -498,7 +499,8 @@ export async function runAutoRunStep(options: {
           timeoutMs: options.timeoutMs,
           desktopRunId: options.desktopRunId,
           runSessionId: options.runSessionId,
-          interactionBroker: options.interactionBroker
+          interactionBroker: options.interactionBroker,
+          interactionObserver: options.interactionObserver
         }
       });
     const settled = await Promise.allSettled(
@@ -564,7 +566,8 @@ export async function runAutoRunStep(options: {
         timeoutMs: options.timeoutMs,
         desktopRunId: options.desktopRunId,
         runSessionId: options.runSessionId,
-        interactionBroker: options.interactionBroker
+        interactionBroker: options.interactionBroker,
+        interactionObserver: options.interactionObserver
       }
     });
   if (claim.kind === "feedback") {

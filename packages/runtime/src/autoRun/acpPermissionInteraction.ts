@@ -15,6 +15,11 @@ import {
 } from "./runnerInteractionContract.js";
 import { PersistentRunnerInteractionStore } from "./runnerInteractionStore.js";
 import { redactRunnerEventText } from "./runnerEventRedaction.js";
+import {
+  createRunnerInteractionRequiredEvent,
+  createRunnerInteractionResolvedEvent,
+  type RunnerInteractionObserver
+} from "./runnerInteractionObserver.js";
 
 type PermissionInteractionContext = {
   runDir: string;
@@ -30,6 +35,7 @@ type PermissionInteractionContext = {
   signal: AbortSignal;
   deadline: () => Date | null;
   interactionBroker?: RunnerInteractionBroker;
+  interactionObserver?: RunnerInteractionObserver;
   setWaiting: (requestId: string, waiting: boolean) => Promise<void>;
   addPending: (request: LivePendingRequestHandle) => void;
   releasePending: (requestId: string) => void;
@@ -174,9 +180,13 @@ export function createPersistentAcpPermissionHandler(context: PermissionInteract
         }
       };
       context.addPending(pending);
-      await context.interactionBroker?.requestAvailable(pending);
+      await Promise.all([
+        context.interactionBroker?.requestAvailable(pending),
+        context.interactionObserver?.interactionRequired(
+          createRunnerInteractionRequiredEvent(request)
+        )
+      ]);
     },
-    notifyResolved: (request) => context.releasePending(request.identity.requestId),
     publishDiagnostic: async (code, message) => {
       await context.eventStore?.append({
         kind: "diagnostic",
@@ -210,12 +220,28 @@ export function createPersistentAcpPermissionHandler(context: PermissionInteract
         toolCallId: request.toolCall.toolCallId,
         options
       });
-      return sdkResponse(
-        await channel.requestPermission(persisted, {
-          signal: context.signal,
-          deadline: context.deadline()
-        })
-      );
+      const decision = await channel.requestPermission(persisted, {
+        signal: context.signal,
+        deadline: context.deadline()
+      });
+      const response = sdkResponse(decision);
+      context.releasePending(requestId);
+      try {
+        await context.interactionObserver?.interactionResolved(
+          createRunnerInteractionResolvedEvent(persisted, decision)
+        );
+      } catch (observerError) {
+        await context.eventStore?.append({
+          kind: "diagnostic",
+          code: "interaction_observer_failed",
+          message: redactRunnerEventText(
+            observerError instanceof Error
+              ? observerError.message
+              : "Runner interaction observer failed."
+          ).text
+        });
+      }
+      return response;
     } catch (error) {
       const failure =
         error instanceof RunnerInteractionChannelError

@@ -219,6 +219,7 @@ export {
 export {
   listPendingRunnerInteractions,
   respondToRunnerInteraction,
+  respondToRunnerInteractionAction,
   runnerInteractionAuditSchema,
   runnerInteractionCanvasRefSchema,
   RunnerInteractionApiError

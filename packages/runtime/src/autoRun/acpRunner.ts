@@ -402,6 +402,7 @@ export function createAcpRunner(options?: {
             signal: input.runtime?.signal,
             timeoutMs: input.runtime?.timeoutMs ?? executorRuntimeLimits(input.profile).timeoutMs,
             interactionBroker: input.runtime?.interactionBroker,
+            interactionObserver: input.runtime?.interactionObserver,
             onMetadataPersisted: () => recordBlockRun(dirname(prepared.runDir), prepared.runId),
             sessionDefaults: input.runtime?.desktopRunId
               ? selectedDesktopAcpSessionDefaults(definition.agent)
@@ -458,6 +459,7 @@ export function createAcpRunner(options?: {
           signal: input.runtime?.signal,
           timeoutMs: input.runtime?.timeoutMs ?? executorRuntimeLimits(input.profile).timeoutMs,
           interactionBroker: input.runtime?.interactionBroker,
+          interactionObserver: input.runtime?.interactionObserver,
           sessionDefaults: input.runtime?.desktopRunId
             ? selectedDesktopAcpSessionDefaults(definition.agent)
             : undefined

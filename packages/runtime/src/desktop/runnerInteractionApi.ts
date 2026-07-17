@@ -3,10 +3,12 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { z } from "zod";
 import {
   runnerInteractionClientLabelSchema,
+  runnerInteractionActionIdentitySchema,
   runnerInteractionIdentitySchema,
   runnerInteractionIdentityMatches,
   runnerPermissionInteractionDecisionSchema,
   type RunnerInteractionErrorCode,
+  type RunnerInteractionActionIdentity,
   type RunnerInteractionIdentity,
   type RunnerInteractionResponseReceipt,
   type RunnerInteractionSnapshot,
@@ -165,6 +167,46 @@ async function locateRunDirectory(
   return existing[0]!;
 }
 
+function parseActionRecordId(recordId: string): {
+  claimRef: string;
+  executorRunId: string;
+} {
+  const separator = recordId.lastIndexOf("::");
+  if (separator <= 0 || separator === recordId.length - 2) {
+    throw new RunnerInteractionApiError(
+      "interaction_contract_invalid",
+      "Runner interaction record id must contain a claim ref and executor run id."
+    );
+  }
+  const claimRef = recordId.slice(0, separator);
+  const executorRunId = recordId.slice(separator + 2);
+  parseBlockRef(claimRef);
+  return { claimRef, executorRunId };
+}
+
+async function locateRunDirectoryForAction(
+  scope: Awaited<ReturnType<typeof existingRunDirectories>>,
+  action: RunnerInteractionActionIdentity
+): Promise<string> {
+  const { claimRef, executorRunId } = parseActionRecordId(action.recordId);
+  const candidates = [
+    join(blockRunRoot(scope.resultsDir, claimRef), executorRunId),
+    join(scope.resultsDir, "feedback-runs", executorRunId)
+  ];
+  const existing = [];
+  for (const candidate of candidates) {
+    if ((await optionalStat(candidate))?.isDirectory()) existing.push(candidate);
+  }
+  if (existing.length !== 1) {
+    throw new RunnerInteractionApiError(
+      "interaction_not_found",
+      "Runner interaction canonical run record was not found."
+    );
+  }
+  await validateRunDirectory(scope.resultsDir, existing[0]!);
+  return existing[0]!;
+}
+
 export async function listPendingRunnerInteractions(
   rawRef: RunnerInteractionCanvasRef
 ): Promise<RunnerInteractionSnapshot[]> {
@@ -265,33 +307,78 @@ export async function respondToRunnerInteraction(
     const audit = runnerInteractionAuditSchema.parse(rawAudit);
     const scope = await existingRunDirectories(ref);
     const runDir = await locateRunDirectory(scope, identity);
-    const [metadataInput, heartbeatInput, snapshot] = await Promise.all([
-      readJsonFile<unknown>(join(runDir, "metadata.json")),
-      readJsonFile<unknown>(join(runDir, "heartbeat.json")),
-      new PersistentRunnerInteractionStore(runDir).readSnapshot(identity.requestId)
-    ]);
-    if (!runnerInteractionIdentityMatches(snapshot.request.identity, identity)) {
+    return respondAtRunDirectory(scope, runDir, identity, decision, audit, options);
+  });
+}
+
+async function respondAtRunDirectory(
+  scope: Awaited<ReturnType<typeof existingRunDirectories>>,
+  runDir: string,
+  identity: RunnerInteractionIdentity,
+  decision: RunnerPermissionInteractionDecision,
+  audit: RunnerInteractionAudit,
+  options: { now?: () => Date; freshnessThresholdMs?: number }
+): Promise<RunnerInteractionResponseReceipt> {
+  const [metadataInput, heartbeatInput, snapshot] = await Promise.all([
+    readJsonFile<unknown>(join(runDir, "metadata.json")),
+    readJsonFile<unknown>(join(runDir, "heartbeat.json")),
+    new PersistentRunnerInteractionStore(runDir).readSnapshot(identity.requestId)
+  ]);
+  if (!runnerInteractionIdentityMatches(snapshot.request.identity, identity)) {
+    throw new RunnerInteractionApiError(
+      "interaction_identity_mismatch",
+      "Runner interaction identity does not match the canonical request."
+    );
+  }
+  const availability = projectRunnerInteractionAvailability({
+    scope,
+    metadata: metadataInput,
+    heartbeat: heartbeatInput,
+    snapshot,
+    now: options.now,
+    thresholdMs: options.freshnessThresholdMs
+  });
+  if (!availability.available) throw availabilityError(availability.reason!);
+  return await new PersistentRunnerInteractionStore(runDir).createResponse({
+    version: "planweave.runner-interaction-response/v1",
+    identity,
+    decision,
+    respondedAt: (options.now ?? (() => new Date()))().toISOString(),
+    decisionSource: audit.decisionSource,
+    reason: audit.reason
+  });
+}
+
+export async function respondToRunnerInteractionAction(
+  rawRef: RunnerInteractionCanvasRef,
+  rawAction: RunnerInteractionActionIdentity,
+  rawDecision: RunnerPermissionInteractionDecision,
+  rawAudit: RunnerInteractionAudit,
+  options: { now?: () => Date; freshnessThresholdMs?: number } = {}
+): Promise<RunnerInteractionResponseReceipt> {
+  return apiBoundary(async () => {
+    const ref = runnerInteractionCanvasRefSchema.parse(rawRef);
+    const action = runnerInteractionActionIdentitySchema.parse(rawAction);
+    const decision = runnerPermissionInteractionDecisionSchema.parse(rawDecision);
+    const audit = runnerInteractionAuditSchema.parse(rawAudit);
+    const scope = await existingRunDirectories(ref);
+    const runDir = await locateRunDirectoryForAction(scope, action);
+    const snapshot = await new PersistentRunnerInteractionStore(runDir).readSnapshot(
+      action.requestId
+    );
+    const identity = snapshot.request.identity;
+    if (`${identity.claimRef}::${identity.executorRunId}` !== action.recordId) {
       throw new RunnerInteractionApiError(
         "interaction_identity_mismatch",
-        "Runner interaction identity does not match the canonical request."
+        "Runner interaction record id does not match the canonical request."
       );
     }
-    const availability = projectRunnerInteractionAvailability({
-      scope,
-      metadata: metadataInput,
-      heartbeat: heartbeatInput,
-      snapshot,
-      now: options.now,
-      thresholdMs: options.freshnessThresholdMs
-    });
-    if (!availability.available) throw availabilityError(availability.reason!);
-    return await new PersistentRunnerInteractionStore(runDir).createResponse({
-      version: "planweave.runner-interaction-response/v1",
-      identity,
-      decision,
-      respondedAt: (options.now ?? (() => new Date()))().toISOString(),
-      decisionSource: audit.decisionSource,
-      reason: audit.reason
-    });
+    if (identity.ownerLeaseId !== action.ownerLeaseId) {
+      throw new RunnerInteractionApiError(
+        "interaction_owner_replaced",
+        "Runner interaction owner lease was replaced."
+      );
+    }
+    return respondAtRunDirectory(scope, runDir, identity, decision, audit, options);
   });
 }

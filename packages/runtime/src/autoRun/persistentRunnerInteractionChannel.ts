@@ -43,10 +43,6 @@ type PersistentRunnerInteractionChannelOptions = {
   ) => Promise<void>;
   setWaiting: (requestId: string, waiting: boolean) => Promise<void>;
   notifyRequired?: (request: RunnerPermissionInteractionRequest) => void | Promise<void>;
-  notifyResolved?: (
-    request: RunnerPermissionInteractionRequest,
-    decision: RunnerPermissionChannelDecision
-  ) => void | Promise<void>;
   publishDiagnostic?: (code: string, message: string) => void | Promise<void>;
   pollIntervalMs?: number;
   now?: () => Date;
@@ -157,7 +153,6 @@ export class PersistentRunnerInteractionChannel implements RunnerInteractionChan
       );
     }
 
-    await this.notifyResolved(request, decision);
     return decision;
   }
 
@@ -252,20 +247,5 @@ export class PersistentRunnerInteractionChannel implements RunnerInteractionChan
           error instanceof Error ? error.message : "Runner interaction observer failed."
         );
       });
-  }
-
-  private async notifyResolved(
-    request: RunnerPermissionInteractionRequest,
-    decision: RunnerPermissionChannelDecision
-  ): Promise<void> {
-    if (!this.options.notifyResolved) return;
-    try {
-      await this.options.notifyResolved(request, decision);
-    } catch (error) {
-      await this.options.publishDiagnostic?.(
-        "interaction_observer_failed",
-        error instanceof Error ? error.message : "Runner interaction observer failed."
-      );
-    }
   }
 }

@@ -1,5 +1,12 @@
 import type { Command } from "commander";
-import { runWithSession, type ClaimScope } from "@planweave-ai/runtime";
+import {
+  createRunTerminalEvent,
+  runEventSchema,
+  runWithSession,
+  type ClaimScope,
+  type RunEvent,
+  type RunnerInteractionObserver
+} from "@planweave-ai/runtime";
 import {
   addCanvasOption,
   resolveCliPackageWorkspace,
@@ -24,6 +31,7 @@ export function registerRunCommand(program: Command): void {
       .option("--step-limit <n>", "maximum auto-run steps to execute")
       .option("--timeout <ms>", "bound each executor operation in milliseconds")
       .option("--json", "print JSON output")
+      .option("--event-stream", "print versioned NDJSON run events")
   ).action(
     async (
       options: {
@@ -39,12 +47,19 @@ export function registerRunCommand(program: Command): void {
         stepLimit?: string;
         timeout?: string;
         json?: boolean;
+        eventStream?: boolean;
       } & CanvasCommandOptions
     ) => {
+      if (options.json === true && options.eventStream === true) {
+        throw new Error("--event-stream cannot be combined with --json.");
+      }
       const projectRoot = await resolveCliPackageWorkspace(options);
       const abort = new AbortController();
       const onSigInt = (): void => abort.abort();
       process.once("SIGINT", onSigInt);
+      const interactionObserver = options.json
+        ? undefined
+        : createCliInteractionObserver(options.eventStream === true);
       const result = await runWithSession({
         projectRoot,
         reset: options.reset,
@@ -56,10 +71,13 @@ export function registerRunCommand(program: Command): void {
         scope: parseRunScope(options),
         stepLimit: parseStepLimit(options.stepLimit),
         timeoutMs: parsePositiveInteger(options.timeout, "--timeout"),
-        signal: abort.signal
+        signal: abort.signal,
+        interactionObserver
       }).finally(() => process.off("SIGINT", onSigInt));
 
-      if (options.json) {
+      if (options.eventStream) {
+        writeRunEvent(createRunTerminalEvent(result));
+      } else if (options.json) {
         console.log(JSON.stringify(result, null, 2));
       } else {
         console.log(formatRunResult(result));
@@ -70,6 +88,29 @@ export function registerRunCommand(program: Command): void {
       }
     }
   );
+}
+
+function writeRunEvent(event: RunEvent): void {
+  process.stdout.write(`${JSON.stringify(runEventSchema.parse(event))}\n`);
+}
+
+function createCliInteractionObserver(eventStream: boolean): RunnerInteractionObserver {
+  if (eventStream) {
+    return {
+      interactionRequired: writeRunEvent,
+      interactionResolved: writeRunEvent
+    };
+  }
+  return {
+    interactionRequired: () => {
+      console.log(
+        "Waiting for a permission decision; handle it in Task Workspace or with `planweave interaction respond`."
+      );
+    },
+    interactionResolved: () => {
+      console.log("Run owner consumed the permission decision; protocol response is ready.");
+    }
+  };
 }
 
 function parseRunScope(options: {

@@ -6,6 +6,7 @@ import type {
   PackageWorkspaceRef,
   RunnerTransport
 } from "../types.js";
+import type { RunnerInteractionObserver } from "../autoRun/runnerInteractionObserver.js";
 
 export type RunSessionKind = "run" | "reset";
 export type RunSessionTrigger = "manual" | "cron" | "desktop" | "api";
@@ -141,6 +142,7 @@ export type RunWithSessionOptions = {
   stepLimit?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
+  interactionObserver?: RunnerInteractionObserver;
 };
 
 export type RunWithSessionResult = {

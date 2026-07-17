@@ -34,6 +34,7 @@ import { registerPackageDraftCommand } from "./commands/packageDraft.js";
 import { registerPackageImportCommand } from "./commands/packageImport.js";
 import { registerImportRecoveryCommand } from "./commands/importRecovery.js";
 import { registerRunCommand } from "./commands/run.js";
+import { registerInteractionCommand } from "./commands/interaction.js";
 import { registerResetCommand } from "./commands/reset.js";
 import { registerRunSessionsCommands } from "./commands/runSessions.js";
 import { registerExecutorsCommand } from "./commands/executors.js";
@@ -89,6 +90,7 @@ export function createProgram(): Command {
   registerImportRecoveryCommand(program);
   registerResetCommand(program);
   registerRunCommand(program);
+  registerInteractionCommand(program);
   registerRunSessionsCommands(program);
   registerExecutorsCommand(program);
   registerRunStatusCommand(program);

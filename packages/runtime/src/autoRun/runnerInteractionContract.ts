@@ -66,6 +66,15 @@ export const runnerInteractionIdentitySchema = z
   .strict();
 export type RunnerInteractionIdentity = z.infer<typeof runnerInteractionIdentitySchema>;
 
+export const runnerInteractionActionIdentitySchema = z
+  .object({
+    recordId: z.string().min(1).max(2048),
+    requestId: acpRequestIdSchema,
+    ownerLeaseId: z.string().uuid()
+  })
+  .strict();
+export type RunnerInteractionActionIdentity = z.infer<typeof runnerInteractionActionIdentitySchema>;
+
 export const runnerPermissionDecisionSchema = z.enum(["approve", "deny"]);
 export type RunnerPermissionDecision = z.infer<typeof runnerPermissionDecisionSchema>;
 

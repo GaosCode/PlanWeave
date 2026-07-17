@@ -69,6 +69,7 @@ import { createAcpElicitationSettlement } from "./acpElicitationSettlement.js";
 import { createPersistentAcpPermissionHandler } from "./acpPermissionInteraction.js";
 import { AcpOwnerStateWriter } from "./acpOwnerState.js";
 import { RunnerInteractionChannelError } from "./persistentRunnerInteractionChannel.js";
+import type { RunnerInteractionObserver } from "./runnerInteractionObserver.js";
 import type { DesktopAcpSessionDefaults } from "./desktopAgentSettings.js";
 import {
   sessionConfigurationFromNewSession,
@@ -207,6 +208,7 @@ export class AcpSessionController {
       signal?: AbortSignal;
       timeoutMs?: number;
       interactionBroker?: RunnerInteractionBroker;
+      interactionObserver?: RunnerInteractionObserver;
       sessionDefaults?: DesktopAcpSessionDefaults;
       onMetadataPersisted?: () => void | Promise<void>;
     }
@@ -352,6 +354,7 @@ export class AcpSessionController {
         signal: abortController.signal,
         deadline: () => operationDeadline,
         interactionBroker: options?.interactionBroker,
+        interactionObserver: options?.interactionObserver,
         setWaiting: async (requestId, waiting) => {
           await ownerState.setInteractionWaiting(requestId, waiting);
           if (waiting && handle?.lifecycleState === "running") {

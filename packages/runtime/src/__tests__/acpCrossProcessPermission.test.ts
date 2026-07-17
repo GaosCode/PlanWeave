@@ -12,6 +12,11 @@ import {
 } from "../autoRun/runnerInteractionContract.js";
 import { PersistentRunnerInteractionStore } from "../autoRun/runnerInteractionStore.js";
 import { readJsonFile } from "../json.js";
+import {
+  runnerInteractionRequiredEventSchema,
+  runnerInteractionResolvedEventSchema,
+  type RunEvent
+} from "../autoRun/runnerInteractionObserver.js";
 
 const acpFixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const crossProcessWorker = fileURLToPath(
@@ -79,7 +84,7 @@ async function waitForRequest(store: PersistentRunnerInteractionStore) {
       expect(snapshots).toHaveLength(1);
       request = snapshots[0]?.request ?? null;
     },
-    { timeout: 3_000, interval: 10 }
+    { timeout: 3000, interval: 10 }
   );
   if (!request) throw new Error("Expected a persisted ACP permission request.");
   return request;
@@ -92,7 +97,7 @@ describe("ACP cross-process permission", () => {
   ] as const)("keeps %s pending until another store selects %s", async (scenario, optionId, outcome) => {
     const root = await mkdtemp(join(tmpdir(), `planweave-acp-cross-process-${scenario}-`));
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
-    const execution = controller.execute(run(root, scenario), { timeoutMs: 5_000 });
+    const execution = controller.execute(run(root, scenario), { timeoutMs: 5000 });
     const externalStore = new PersistentRunnerInteractionStore(root);
     const request = await waitForRequest(externalStore);
 
@@ -131,8 +136,8 @@ describe("ACP cross-process permission", () => {
 
     await expect(execution).resolves.toMatchObject({ kind: "block", exitCode: 0 });
     const protocol = await readFile(join(root, "protocol.ndjson"), "utf8");
-    expect(protocol.match(/\"method\":\"session\/prompt\"/g)).toHaveLength(1);
-    expect(protocol).toContain(`\"optionId\":\"${optionId}\"`);
+    expect(protocol.match(/"method":"session\/prompt"/g)).toHaveLength(1);
+    expect(protocol).toContain(`"optionId":"${optionId}"`);
     const events = await readFile(join(root, "events.ndjson"), "utf8");
     const pendingIndex = events.indexOf('"status":"pending"');
     const resultIndex = events.indexOf(`"outcome":"${outcome}"`);
@@ -154,11 +159,106 @@ describe("ACP cross-process permission", () => {
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
     await expect(
       controller.execute(run(root, "permission-secret"), {
-        timeoutMs: 5_000,
+        timeoutMs: 5000,
         interactionBroker: { mode: "interactive", requestAvailable: available }
       })
     ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
     expect(available).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifies a read-only observer after persistence and owner consumption", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-observer-"));
+    const store = new PersistentRunnerInteractionStore(root);
+    const observed: RunEvent[] = [];
+    const controller = new AcpSessionController(new ActiveAgentRunRegistry());
+    await expect(
+      controller.execute(run(root, "permission-secret"), {
+        timeoutMs: 5000,
+        interactionObserver: {
+          interactionRequired: async (event) => {
+            observed.push(runnerInteractionRequiredEventSchema.parse(event));
+            const snapshot = await store.readSnapshot(event.interaction.requestId);
+            expect(snapshot.status).toBe("pending");
+            await store.createResponse(
+              runnerPermissionInteractionResponseSchema.parse({
+                version: "planweave.runner-interaction-response/v1",
+                identity: snapshot.request.identity,
+                decision: { kind: "select", optionId: "token=opaque-action-id" },
+                respondedAt: new Date().toISOString(),
+                decisionSource: "observer-test-responder",
+                reason: null
+              })
+            );
+          },
+          interactionResolved: async (event) => {
+            await expect(store.readSnapshot(event.interaction.requestId)).resolves.toMatchObject({
+              status: "answered",
+              response: { decisionSource: "observer-test-responder" }
+            });
+            await expect(
+              readJsonFile<Record<string, unknown>>(join(root, "heartbeat.json"))
+            ).resolves.toMatchObject({
+              runnerLifecycle: "running",
+              pendingInteractionIds: []
+            });
+            await expect(readFile(join(root, "events.ndjson"), "utf8")).resolves.toContain(
+              '"kind":"interaction_result"'
+            );
+            observed.push(runnerInteractionResolvedEventSchema.parse(event));
+          }
+        }
+      })
+    ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+
+    expect(observed.map((event) => event.type)).toEqual([
+      "interaction_required",
+      "interaction_resolved"
+    ]);
+    expect(observed[0]).toMatchObject({
+      interaction: {
+        recordId: "T-001#B-001::RUN-001",
+        requestId: "permission:1",
+        options: [{ optionId: "token=opaque-action-id", decision: "approve" }]
+      }
+    });
+    expect(observed[1]).toMatchObject({
+      interaction: {
+        resolutionStage: "owner_consumed",
+        outcome: "approved",
+        selectedOption: { optionId: "token=opaque-action-id" }
+      }
+    });
+  });
+
+  it("records observer failure without cancelling the mailbox wait", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-observer-failure-"));
+    const store = new PersistentRunnerInteractionStore(root);
+    const controller = new AcpSessionController(new ActiveAgentRunRegistry());
+    await expect(
+      controller.execute(run(root, "permission-secret"), {
+        timeoutMs: 5000,
+        interactionObserver: {
+          interactionRequired: async (event) => {
+            const snapshot = await store.readSnapshot(event.interaction.requestId);
+            await store.createResponse(
+              runnerPermissionInteractionResponseSchema.parse({
+                version: "planweave.runner-interaction-response/v1",
+                identity: snapshot.request.identity,
+                decision: { kind: "select", optionId: "token=opaque-action-id" },
+                respondedAt: new Date().toISOString(),
+                decisionSource: "observer-failure-responder",
+                reason: null
+              })
+            );
+            throw new Error("observer unavailable");
+          },
+          interactionResolved: () => undefined
+        }
+      })
+    ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+    await expect(readFile(join(root, "events.ndjson"), "utf8")).resolves.toContain(
+      '"code":"interaction_observer_failed"'
+    );
   });
 
   it("expires an owner-aborted request without creating a client response", async () => {
@@ -166,7 +266,7 @@ describe("ACP cross-process permission", () => {
     const abortController = new AbortController();
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
     const execution = controller.execute(run(root, "permission-secret"), {
-      timeoutMs: 5_000,
+      timeoutMs: 5000,
       signal: abortController.signal
     });
     const store = new PersistentRunnerInteractionStore(root);
