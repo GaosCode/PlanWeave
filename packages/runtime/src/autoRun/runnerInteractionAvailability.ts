@@ -6,6 +6,7 @@ import {
   type RunnerInteractionSnapshot
 } from "./runnerInteractionContract.js";
 import { PersistentRunnerInteractionStore } from "./runnerInteractionStore.js";
+import { agentRunControlAvailabilitySummarySchema } from "./agentRunControlAvailability.js";
 
 export const RUNNER_OWNER_FRESHNESS_THRESHOLD_MS = 15_000;
 
@@ -34,6 +35,12 @@ export const runnerInteractionRunMetadataSchema = z
     canvasId: z.string().min(1),
     ownerLeaseId: z.string().uuid(),
     ownerGeneration: z.number().int().positive(),
+    controlAvailable: agentRunControlAvailabilitySummarySchema.shape.controlAvailable.optional(),
+    controlProtocolVersion:
+      agentRunControlAvailabilitySummarySchema.shape.controlProtocolVersion.optional(),
+    controlOwnerPid: agentRunControlAvailabilitySummarySchema.shape.controlOwnerPid.optional(),
+    controlUnavailableReason:
+      agentRunControlAvailabilitySummarySchema.shape.controlUnavailableReason.optional(),
     status: z.enum(["running", "completed", "failed", "cancelled", "timed_out"])
   })
   .passthrough();
@@ -49,7 +56,13 @@ export const runnerOwnerHeartbeatSchema = z
     ownerLeaseId: z.string().uuid(),
     ownerGeneration: z.number().int().positive(),
     runnerLifecycle: z.enum(["running", "waiting_interaction", "terminal"]),
-    pendingInteractionIds: z.array(z.string().min(1).max(256))
+    pendingInteractionIds: z.array(z.string().min(1).max(256)),
+    controlAvailable: agentRunControlAvailabilitySummarySchema.shape.controlAvailable.optional(),
+    controlProtocolVersion:
+      agentRunControlAvailabilitySummarySchema.shape.controlProtocolVersion.optional(),
+    controlOwnerPid: agentRunControlAvailabilitySummarySchema.shape.controlOwnerPid.optional(),
+    controlUnavailableReason:
+      agentRunControlAvailabilitySummarySchema.shape.controlUnavailableReason.optional()
   })
   .passthrough();
 export type RunnerOwnerHeartbeat = z.infer<typeof runnerOwnerHeartbeatSchema>;

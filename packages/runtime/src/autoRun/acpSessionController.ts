@@ -62,12 +62,20 @@ import {
 import {
   acpCorrelationSchema,
   runnerIdentitySchema,
-  runnerRunIdentitySchema
+  runnerRunIdentitySchema,
+  runnerSessionActionIdentitySchema
 } from "./runnerContractSchemas.js";
 import { acpEventReadModels, type AcpEventReadModelRegistry } from "./acpEventReadModel.js";
 import { createAcpElicitationSettlement } from "./acpElicitationSettlement.js";
 import { createPersistentAcpPermissionHandler } from "./acpPermissionInteraction.js";
 import { AcpOwnerStateWriter } from "./acpOwnerState.js";
+import {
+  availableAgentRunControlSummary,
+  unavailableAgentRunControlSummary
+} from "./agentRunControlAvailability.js";
+import { agentRunControlLeaseIdSchema } from "./agentRunControlContract.js";
+import { AgentRunControlServer } from "./agentRunControlServer.js";
+import { createActiveAgentRunControlTarget } from "./agentRunControlTarget.js";
 import { RunnerInteractionChannelError } from "./persistentRunnerInteractionChannel.js";
 import type { RunnerInteractionObserver } from "./runnerInteractionObserver.js";
 import type { DesktopAcpSessionDefaults } from "./desktopAgentSettings.js";
@@ -228,6 +236,8 @@ export class AcpSessionController {
     let validatedArtifactReference: Awaited<ReturnType<typeof materializeFinalArtifact>> | null =
       null;
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let controlServer: AgentRunControlServer | null = null;
+    let controlStopPromise: Promise<void> | null = null;
     const abortController = new AbortController();
     const blockId = run.metadataIdentity.blockId ?? run.identity.claimRef.split("#")[1];
     if (!blockId) throw new Error("ACP run is missing a block id for its event identity.");
@@ -279,6 +289,7 @@ export class AcpSessionController {
       ownerLeaseId,
       ownerGeneration,
       startedAt,
+      controlAvailability: unavailableAgentRunControlSummary("initializing"),
       metadata: {
         runId: run.identity.executorRunId,
         ref: run.identity.claimRef,
@@ -299,6 +310,20 @@ export class AcpSessionController {
       patch: Record<string, unknown> = {}
     ): Promise<void> => {
       await ownerState.update(status, patch);
+    };
+    const prepareControlRemoval = async (): Promise<void> => {
+      await controlServer?.requestShutdown();
+      await ownerState.setControlAvailability(unavailableAgentRunControlSummary("owner_terminal"));
+    };
+    const stopControlEndpoint = (): Promise<void> => {
+      if (controlStopPromise) return controlStopPromise;
+      controlStopPromise = (async () => {
+        await controlServer?.stop();
+        await ownerState.setControlAvailability(
+          unavailableAgentRunControlSummary("owner_terminal")
+        );
+      })();
+      return controlStopPromise;
     };
     await writeState("running", {
       sessionId: null,
@@ -634,16 +659,49 @@ export class AcpSessionController {
       }
       this.registry.bindSession(handle, session.sessionId);
       this.registry.transition(handle, "running");
-      if (eventStore)
-        await eventStore.append(
-          { kind: "lifecycle", state: "running", message: "ACP session is running." },
-          sessionCorrelation
-        );
       await writeState("running", {
         sessionId: session.sessionId,
         agentSessionId: session.sessionId,
         capabilities: initialized.agentCapabilities ?? {}
       });
+      if (run.identity.desktopRunId && run.identity.runSessionId) {
+        try {
+          const identity = runnerSessionActionIdentitySchema.parse({
+            scope: run.identity.scope,
+            executorRunId: run.identity.executorRunId,
+            desktopRunId: run.identity.desktopRunId,
+            runSessionId: run.identity.runSessionId,
+            claimRef: run.identity.claimRef,
+            sessionId: session.sessionId
+          });
+          controlServer = new AgentRunControlServer({
+            runDir: run.runDir,
+            leaseId: agentRunControlLeaseIdSchema.parse(ownerLeaseId),
+            target: createActiveAgentRunControlTarget({ registry: this.registry, handle, identity })
+          });
+          handle.beforeRemove = prepareControlRemoval;
+          const descriptor = await controlServer.start();
+          await ownerState.setControlAvailability(
+            availableAgentRunControlSummary(descriptor.ownerPid)
+          );
+        } catch {
+          await controlServer?.stop().catch(() => undefined);
+          controlServer = null;
+          handle.beforeRemove = undefined;
+          await ownerState.setControlAvailability(
+            unavailableAgentRunControlSummary("endpoint_start_failed")
+          );
+        }
+      } else {
+        await ownerState.setControlAvailability(
+          unavailableAgentRunControlSummary("identity_unavailable")
+        );
+      }
+      if (eventStore)
+        await eventStore.append(
+          { kind: "lifecycle", state: "running", message: "ACP session is running." },
+          sessionCorrelation
+        );
       const expected = expectedArtifact(run);
       const agentPrompt = `${run.prompt}\n\n${finalArtifactPromptInstruction(expected)}`;
       const activeConnection = connection;
@@ -710,6 +768,7 @@ export class AcpSessionController {
         await eventStore.drain();
       }
       cleanupAttempted = true;
+      await stopControlEndpoint();
       await this.registry.remove(
         handle,
         "ACP claim completed and released live ownership.",
@@ -777,6 +836,7 @@ export class AcpSessionController {
         cleanupAttempted = true;
         try {
           if (handle && handleRegistered) {
+            await stopControlEndpoint();
             await this.registry.remove(
               handle,
               "ACP claim failed and released live ownership.",
@@ -867,6 +927,7 @@ export class AcpSessionController {
       throw error;
     } finally {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
+      await stopControlEndpoint().catch(() => undefined);
       options?.signal?.removeEventListener("abort", relayAbort);
     }
   }

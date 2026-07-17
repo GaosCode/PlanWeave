@@ -12,6 +12,7 @@ import {
 } from "../autoRun/runnerInteractionContract.js";
 import { PersistentRunnerInteractionStore } from "../autoRun/runnerInteractionStore.js";
 import { AcpOwnerStateWriter } from "../autoRun/acpOwnerState.js";
+import { unavailableAgentRunControlSummary } from "../autoRun/agentRunControlAvailability.js";
 
 async function fixture() {
   const runDir = await mkdtemp(join(tmpdir(), "planweave-persistent-channel-"));
@@ -321,6 +322,7 @@ describe("AcpOwnerStateWriter", () => {
       ownerLeaseId: "11111111-1111-4111-8111-111111111111",
       ownerGeneration: 1,
       startedAt: "2026-07-17T00:00:00.000Z",
+      controlAvailability: unavailableAgentRunControlSummary("initializing", 1234),
       metadata: { runId: "RUN-001", sessionId: "session-1" },
       write: async (target, value) => {
         const record = value as Record<string, unknown>;
@@ -355,7 +357,10 @@ describe("AcpOwnerStateWriter", () => {
         ownerGeneration: 1,
         sessionId: "session-1",
         status: "failed",
-        pendingInteractionIds: []
+        pendingInteractionIds: [],
+        controlAvailable: false,
+        controlOwnerPid: 1234,
+        controlUnavailableReason: "initializing"
       });
     }
     expect(writes.at(-1)?.value.runnerLifecycle).toBe("terminal");

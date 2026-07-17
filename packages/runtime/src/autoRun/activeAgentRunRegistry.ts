@@ -31,6 +31,7 @@ export type ActiveAgentRunHandle = {
   ownership: LiveOwnership;
   control: RunnerLiveControl;
   lifecycleState: RunnerLifecycleState;
+  beforeRemove?: () => Promise<void>;
 };
 
 export type IdentityKind =
@@ -414,6 +415,7 @@ export class ActiveAgentRunRegistry {
     terminalState: RunnerTerminalState,
     artifactValidated: boolean
   ): Promise<boolean> {
+    await handle.beforeRemove?.();
     if (!this.handles.delete(handle)) return false;
     const promptQueue = this.promptQueues.get(handle);
     if (promptQueue) {

@@ -1,4 +1,8 @@
 import { writeJsonFile } from "../json.js";
+import {
+  agentRunControlAvailabilitySummarySchema,
+  type AgentRunControlAvailabilitySummary
+} from "./agentRunControlAvailability.js";
 
 function recoverOwnerStateQueue(_error: unknown): void {
   // The caller awaits the original operation; only the private serialization tail is recovered.
@@ -14,6 +18,7 @@ type AcpOwnerStateWriterOptions = {
   ownerLeaseId: string;
   ownerGeneration: number;
   startedAt: string;
+  controlAvailability: AgentRunControlAvailabilitySummary;
   metadata: Readonly<Record<string, unknown>>;
   write?: (path: string, value: unknown) => Promise<void>;
 };
@@ -23,6 +28,7 @@ export class AcpOwnerStateWriter {
   private pendingInteractionIds: string[] = [];
   private lifecycle: RunnerOwnerLifecycle = "running";
   private status: AcpOwnerStatus = "running";
+  private controlAvailability: AgentRunControlAvailabilitySummary;
   private writeChain = Promise.resolve();
   private readonly write: (path: string, value: unknown) => Promise<void>;
 
@@ -30,7 +36,15 @@ export class AcpOwnerStateWriter {
     if (!Number.isSafeInteger(options.ownerGeneration) || options.ownerGeneration < 1) {
       throw new Error("ACP owner generation must be a positive safe integer.");
     }
+    this.controlAvailability = agentRunControlAvailabilitySummarySchema.parse(
+      options.controlAvailability
+    );
     this.write = options.write ?? writeJsonFile;
+  }
+
+  async setControlAvailability(summary: AgentRunControlAvailabilitySummary): Promise<void> {
+    this.controlAvailability = agentRunControlAvailabilitySummarySchema.parse(summary);
+    await this.persist();
   }
 
   async update(
@@ -74,6 +88,7 @@ export class AcpOwnerStateWriter {
     const lifecycle = this.lifecycle;
     const pendingInteractionIds = [...this.pendingInteractionIds];
     const details = { ...this.details };
+    const controlAvailability = { ...this.controlAvailability };
     const operation = this.writeChain.catch(recoverOwnerStateQueue).then(async () => {
       const owner = {
         ownerLeaseId: this.options.ownerLeaseId,
@@ -89,6 +104,7 @@ export class AcpOwnerStateWriter {
           lastHeartbeatAt: now,
           finishedAt: status === "running" ? null : now,
           ...owner,
+          ...controlAvailability,
           ...details
         }),
         this.write(this.options.metadataPath, {
@@ -98,6 +114,7 @@ export class AcpOwnerStateWriter {
           startedAt: this.options.startedAt,
           finishedAt: status === "running" ? null : now,
           ...owner,
+          ...controlAvailability,
           ...details
         })
       ]);
