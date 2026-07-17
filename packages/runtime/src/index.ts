@@ -398,6 +398,7 @@ export type * from "./autoRun/runnerInteractionObserver.js";
 export {
   runnerInteractionClientLabelSchema,
   runnerInteractionActionIdentitySchema,
+  runnerInteractionErrorCodeSchema,
   runnerInteractionIdentitySchema,
   runnerInteractionResponseReceiptSchema,
   runnerInteractionSnapshotSchema,
@@ -586,6 +587,9 @@ export {
   desktopAgentPromptTextSchema,
   desktopAgentSessionActionIdentitySchema,
   desktopAgentActionValueSchema,
+  listPendingRunnerInteractionsResultSchema,
+  respondToRunnerInteractionResultSchema,
+  runnerInteractionIpcErrorSchema,
   desktopRunnerRecordSubscriptionInputSchema,
   desktopRunnerRecordSubscriptionPushSchema,
   desktopRunnerRecordSubscriptionSnapshotPushSchema,

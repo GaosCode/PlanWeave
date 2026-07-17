@@ -3,7 +3,7 @@ import type {
   DesktopCanvasReference,
   RunnerRecordReadModel
 } from "@planweave-ai/runtime";
-import { isRunnerRecordLiveActionIdentity } from "@planweave-ai/runtime";
+import { isRunnerRecordLiveActionIdentity } from "@planweave-ai/runtime/browser";
 import { useState } from "react";
 import { SendIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -14,13 +14,24 @@ import type { createTranslator } from "../i18n";
 import { useRunnerRecordMonitor } from "../hooks/useRunnerRecordMonitor";
 import { useRunnerInterventions } from "../hooks/useRunnerInterventions";
 import { useAgentPrompt } from "../hooks/useAgentPrompt";
+import {
+  runnerInteractionAvailabilityLabel,
+  runnerInteractionErrorLabel
+} from "../runnerInteractionPresentation";
 import { AcpConversationTimeline } from "./AcpConversationTimeline";
 
 type RunnerRecordMonitorProps = {
   api?:
     | (Pick<DesktopBridgeApi, "subscribeRunnerRecord" | "revealRunnerRecordArtifact"> &
         Partial<
-          Pick<DesktopBridgeApi, "cancelAgentRun" | "respondToAgentRequest" | "sendAgentPrompt">
+          Pick<
+            DesktopBridgeApi,
+            | "cancelAgentRun"
+            | "listPendingRunnerInteractions"
+            | "respondToAgentRequest"
+            | "respondToRunnerInteraction"
+            | "sendAgentPrompt"
+          >
         >)
     | null;
   canvasRef?: DesktopCanvasReference | null;
@@ -44,7 +55,12 @@ export function RunnerRecordMonitor({
     recordId
   });
   const actionApi = api === undefined ? bridge : api;
-  const interventions = useRunnerInterventions({ api: actionApi, model });
+  const interventions = useRunnerInterventions({
+    api: actionApi,
+    canvasRef,
+    model,
+    recordId
+  });
   const prompt = useAgentPrompt({
     api: actionApi,
     identity: model.intervention.prompt.identity,
@@ -120,61 +136,97 @@ export function RunnerRecordMonitor({
       ) : null}
       {interventions.actionError ? (
         <div className="rounded-md border border-destructive/40 p-2 text-xs text-destructive">
-          {t("acpActionError")}: {interventions.actionError}
+          {t("acpActionError")}: {runnerInteractionErrorLabel(interventions.actionError, t)}
+        </div>
+      ) : null}
+      {model.interaction.diagnostic ? (
+        <div
+          className="rounded-md border border-destructive/40 p-2 text-xs text-destructive"
+          data-testid="runner-interaction-diagnostic"
+        >
+          <div className="font-medium">{t("acpInteractionUnavailableContract")}</div>
+          <div>{model.interaction.diagnostic.message}</div>
         </div>
       ) : null}
       {model.interaction.activeRequests.length > 0 ? (
         <div className="space-y-2 rounded-md border p-2 text-xs">
           <div className="font-medium">{t("acpActions")}</div>
-          {model.interaction.activeRequests.map((request) => {
-            const liveIdentity = isRunnerRecordLiveActionIdentity(request.identity)
-              ? request.identity
-              : null;
-            const unavailableReason = liveIdentity
-              ? request.availability.available
-                ? null
-                : request.availability.reason
-              : t("acpInteractionStale");
-            return (
-              <div key={request.requestId} className="space-y-2 rounded border p-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge>{request.kind}</Badge>
-                  <span className="font-mono">{request.requestId}</span>
-                </div>
-                <div className="whitespace-pre-wrap break-words">{request.summary}</div>
-                {unavailableReason ? (
-                  <div className="text-muted-foreground">{unavailableReason}</div>
-                ) : request.kind === "permission" && liveIdentity ? (
-                  <div className="flex flex-wrap gap-2">
-                    {request.permissionOptions.map((option) => (
-                      <Button
-                        key={option.optionId}
-                        size="xs"
-                        variant={option.decision === "deny" ? "outline" : "default"}
-                        disabled={interventions.requestInFlight(liveIdentity)}
-                        onClick={() => interventions.respond(liveIdentity, option.optionId)}
-                      >
-                        {option.label}
-                      </Button>
-                    ))}
+          {model.interaction.activeRequests
+            .filter(
+              (request) =>
+                isRunnerRecordLiveActionIdentity(request.identity) ||
+                interventions.persistedRequestIsAuthoritative(request.identity)
+            )
+            .map((request) => {
+              const liveIdentity = isRunnerRecordLiveActionIdentity(request.identity)
+                ? request.identity
+                : null;
+              const persistedPermissionIdentity =
+                request.kind === "permission" && !liveIdentity && "ownerLeaseId" in request.identity
+                  ? request.identity
+                  : null;
+              const transientUnavailableReason = persistedPermissionIdentity
+                ? interventions.persistedRequestFailureReason(persistedPermissionIdentity)
+                : null;
+              const unavailableReason = runnerInteractionAvailabilityLabel(
+                transientUnavailableReason ??
+                  (request.availability.available ? null : request.availability.reason),
+                t
+              );
+              return (
+                <div key={request.requestId} className="space-y-2 rounded border p-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge>{request.kind}</Badge>
+                    <span className="font-mono">{request.requestId}</span>
                   </div>
-                ) : request.kind === "elicitation" && liveIdentity ? (
-                  <PreviewElicitationControl
-                    disabled={interventions.requestInFlight(liveIdentity)}
-                    onCancel={() => interventions.respond(liveIdentity, { action: "cancel" })}
-                    onSubmit={(content) =>
-                      interventions.respond(liveIdentity, {
-                        action: "accept",
-                        content
-                      })
-                    }
-                    schema={request.elicitationSchema}
-                    t={t}
-                  />
-                ) : null}
-              </div>
-            );
-          })}
+                  <div className="whitespace-pre-wrap break-words">{request.summary}</div>
+                  {unavailableReason ? (
+                    <div className="text-muted-foreground">{unavailableReason}</div>
+                  ) : request.kind === "permission" && !model.interaction.diagnostic ? (
+                    <div className="flex flex-wrap gap-2">
+                      {request.permissionOptions.map((option) => (
+                        <Button
+                          key={option.optionId}
+                          size="xs"
+                          variant={option.decision === "deny" ? "outline" : "default"}
+                          disabled={interventions.requestInFlight(request.identity)}
+                          onClick={() =>
+                            interventions.respondPermission(request.identity, option.optionId)
+                          }
+                        >
+                          {option.label}
+                        </Button>
+                      ))}
+                      {persistedPermissionIdentity ? (
+                        <Button
+                          disabled={interventions.requestInFlight(persistedPermissionIdentity)}
+                          onClick={() =>
+                            interventions.cancelPermission(persistedPermissionIdentity)
+                          }
+                          size="xs"
+                          variant="outline"
+                        >
+                          {t("acpCancelPermission")}
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : request.kind === "elicitation" && liveIdentity ? (
+                    <PreviewElicitationControl
+                      disabled={interventions.requestInFlight(liveIdentity)}
+                      onCancel={() => interventions.respond(liveIdentity, { action: "cancel" })}
+                      onSubmit={(content) =>
+                        interventions.respond(liveIdentity, {
+                          action: "accept",
+                          content
+                        })
+                      }
+                      schema={request.elicitationSchema}
+                      t={t}
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
         </div>
       ) : null}
       {diagnostics.length > 0 ? (

@@ -6,22 +6,26 @@ import {
   type RunnerInteractionSnapshot
 } from "./runnerInteractionContract.js";
 import { PersistentRunnerInteractionStore } from "./runnerInteractionStore.js";
+import {
+  runnerInteractionAvailabilityReasonSchema,
+  runnerInteractionContractDiagnosticIssueSchema,
+  runnerInteractionContractDiagnosticSchema,
+  type RunnerInteractionAvailabilityReason,
+  type RunnerInteractionContractDiagnostic
+} from "./runnerInteractionAvailabilityContract.js";
+
+export {
+  runnerInteractionAvailabilityReasonSchema,
+  runnerInteractionContractDiagnosticIssueSchema,
+  runnerInteractionContractDiagnosticSchema
+} from "./runnerInteractionAvailabilityContract.js";
+export type {
+  RunnerInteractionAvailabilityReason,
+  RunnerInteractionContractDiagnostic
+} from "./runnerInteractionAvailabilityContract.js";
 import { agentRunControlAvailabilitySummarySchema } from "./agentRunControlAvailability.js";
 
 export const RUNNER_OWNER_FRESHNESS_THRESHOLD_MS = 15_000;
-
-export const runnerInteractionAvailabilityReasonSchema = z.enum([
-  "answered",
-  "expired",
-  "owner_unavailable",
-  "owner_replaced",
-  "run_terminal",
-  "legacy_history",
-  "contract_invalid"
-]);
-export type RunnerInteractionAvailabilityReason = z.infer<
-  typeof runnerInteractionAvailabilityReasonSchema
->;
 
 export const runnerInteractionRunMetadataSchema = z
   .object({
@@ -84,24 +88,6 @@ export type RunnerInteractionMailboxProjection = {
   suppressAllRegistryPermissions: boolean;
   diagnostic: RunnerInteractionContractDiagnostic | null;
 };
-
-export const runnerInteractionContractDiagnosticIssueSchema = z
-  .object({
-    source: z.enum(["mailbox", "metadata", "heartbeat"]),
-    message: z.string().min(1).max(512)
-  })
-  .strict();
-
-export const runnerInteractionContractDiagnosticSchema = z
-  .object({
-    code: z.literal("contract_invalid"),
-    message: z.string().min(1).max(512),
-    issues: z.array(runnerInteractionContractDiagnosticIssueSchema).min(1)
-  })
-  .strict();
-export type RunnerInteractionContractDiagnostic = z.infer<
-  typeof runnerInteractionContractDiagnosticSchema
->;
 
 function contractDiagnostic(
   issues: RunnerInteractionContractDiagnostic["issues"]

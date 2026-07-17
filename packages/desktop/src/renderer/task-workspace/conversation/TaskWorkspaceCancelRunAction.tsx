@@ -43,7 +43,7 @@ export function TaskWorkspaceCancelRunControllerScope({
   const available = liveCapability.available && selectedCapability.available && identity !== null;
 
   return children({
-    actionError: interventions.actionError,
+    actionError: interventions.actionError?.message ?? null,
     available,
     cancel: () => {
       if (identity) interventions.cancel(identity);

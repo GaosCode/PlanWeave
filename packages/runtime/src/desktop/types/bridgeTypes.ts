@@ -75,6 +75,14 @@ import type {
   TaskWorkspaceRunsPage
 } from "./taskWorkspaceQueryTypes.js";
 import type { TaskWorkspaceRetryIdentity } from "./taskWorkspaceTypes.js";
+import type {
+  RunnerInteractionActionIdentity,
+  RunnerInteractionAudit,
+  RunnerInteractionCanvasRef,
+  ListPendingRunnerInteractionsResult,
+  RespondToRunnerInteractionResult,
+  RunnerPermissionInteractionDecision
+} from "./acpBridgeTypes.js";
 
 export type DesktopAgentKind = AgentFamily;
 
@@ -451,6 +459,15 @@ export type DesktopBridgeApi = {
     identity: DesktopAgentActionIdentity,
     value: DesktopAgentActionValue
   ): Promise<void>;
+  listPendingRunnerInteractions(
+    ref: RunnerInteractionCanvasRef
+  ): Promise<ListPendingRunnerInteractionsResult>;
+  respondToRunnerInteraction(
+    ref: RunnerInteractionCanvasRef,
+    action: RunnerInteractionActionIdentity,
+    decision: RunnerPermissionInteractionDecision,
+    audit: RunnerInteractionAudit
+  ): Promise<RespondToRunnerInteractionResult>;
   cancelAgentRun(identity: DesktopAgentSessionActionIdentity): Promise<void>;
   sendAgentPrompt(identity: DesktopAgentPromptIdentity, text: string): Promise<void>;
   startAutoRun(

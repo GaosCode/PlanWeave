@@ -285,7 +285,28 @@ const runtimeMock = vi.hoisted(() => {
       }
     })),
     listDesktopPendingAgentRequests: vi.fn(async () => []),
+    listPendingRunnerInteractions: vi.fn(async () => []),
     respondToDesktopAgentRequest: vi.fn(async () => undefined),
+    respondToRunnerInteractionAction: vi.fn(async (_ref, action, decision, audit) => ({
+      version: "planweave.runner-interaction-response-receipt/v1" as const,
+      identity: {
+        projectId: "project-1",
+        canvasId: "canvas-a",
+        claimRef: "T-001#B-001",
+        executorRunId: "RUN-001",
+        sessionId: "session-1",
+        requestId: action.requestId,
+        ownerLeaseId: action.ownerLeaseId,
+        ownerGeneration: 1
+      },
+      acceptedAt: "2026-07-17T00:00:00.000Z",
+      decision,
+      selectedOption:
+        decision.kind === "select"
+          ? { optionId: decision.optionId, label: "Allow once", decision: "approve" as const }
+          : null,
+      decisionSource: audit.decisionSource
+    })),
     cancelDesktopAgentRun: vi.fn(async () => undefined),
     listPendingImportRecoveries: vi.fn(async () => [
       {
@@ -396,7 +417,9 @@ vi.mock("@planweave-ai/runtime", async () => {
     getTaskFileManagerPath: runtimeMock.getTaskFileManagerPath,
     getRunRecord: runtimeMock.getRunRecord,
     listDesktopPendingAgentRequests: runtimeMock.listDesktopPendingAgentRequests,
+    listPendingRunnerInteractions: runtimeMock.listPendingRunnerInteractions,
     respondToDesktopAgentRequest: runtimeMock.respondToDesktopAgentRequest,
+    respondToRunnerInteractionAction: runtimeMock.respondToRunnerInteractionAction,
     cancelDesktopAgentRun: runtimeMock.cancelDesktopAgentRun,
     listPendingImportRecoveries: runtimeMock.listPendingImportRecoveries,
     resetDesktopRuntimeState: runtimeMock.resetDesktopRuntimeState,
@@ -461,7 +484,9 @@ export async function resetRuntimeBridgeMocks(): Promise<void> {
   runtimeMock.getTaskFileManagerPath.mockClear();
   runtimeMock.getRunRecord.mockClear();
   runtimeMock.listDesktopPendingAgentRequests.mockClear();
+  runtimeMock.listPendingRunnerInteractions.mockClear();
   runtimeMock.respondToDesktopAgentRequest.mockClear();
+  runtimeMock.respondToRunnerInteractionAction.mockClear();
   runtimeMock.cancelDesktopAgentRun.mockClear();
   runtimeMock.listPendingImportRecoveries.mockClear();
   runtimeMock.resetDesktopRuntimeState.mockClear();

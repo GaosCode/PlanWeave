@@ -3,6 +3,12 @@ export {
   claimRefSchema,
   taskIdSchema
 } from "./autoRun/runnerContractSchemas.js";
+export { isRunnerRecordLiveActionIdentity } from "./autoRun/runnerRecordReadModelContract.js";
+export {
+  listPendingRunnerInteractionsResultSchema,
+  respondToRunnerInteractionResultSchema,
+  runnerInteractionIpcErrorSchema
+} from "./desktop/types/acpBridgeTypes.js";
 export {
   acpEventSubscriptionCloseRecoverable,
   acpEventSubscriptionCloseReasonSchema,

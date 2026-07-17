@@ -1,8 +1,7 @@
-import { realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import {
-  runnerInteractionClientLabelSchema,
   runnerInteractionActionIdentitySchema,
   runnerInteractionIdentitySchema,
   runnerInteractionIdentityMatches,
@@ -29,22 +28,22 @@ import { readJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import { blockRunRoot } from "./recordsApi.js";
+import { parseRunRecordId, type ParsedRunRecordId } from "./runRecordIdentity.js";
+import {
+  runnerInteractionAuditSchema,
+  runnerInteractionCanvasRefSchema,
+  type RunnerInteractionAudit,
+  type RunnerInteractionCanvasRef
+} from "./types/acpBridgeTypes.js";
 
-export const runnerInteractionCanvasRefSchema = z
-  .object({
-    projectRoot: z.string().min(1),
-    canvasId: z.string().min(1).nullable().optional()
-  })
-  .strict();
-export type RunnerInteractionCanvasRef = z.infer<typeof runnerInteractionCanvasRefSchema>;
-
-export const runnerInteractionAuditSchema = z
-  .object({
-    decisionSource: runnerInteractionClientLabelSchema,
-    reason: z.string().min(1).max(4096).nullable()
-  })
-  .strict();
-export type RunnerInteractionAudit = z.infer<typeof runnerInteractionAuditSchema>;
+export {
+  runnerInteractionAuditSchema,
+  runnerInteractionCanvasRefSchema
+} from "./types/acpBridgeTypes.js";
+export type {
+  RunnerInteractionAudit,
+  RunnerInteractionCanvasRef
+} from "./types/acpBridgeTypes.js";
 
 export class RunnerInteractionApiError extends Error {
   constructor(
@@ -126,10 +125,17 @@ async function existingRunDirectories(ref: RunnerInteractionCanvasRef): Promise<
 
 async function validateRunDirectory(resultsDir: string, runDir: string): Promise<void> {
   try {
-    const [realResultsDir, realRunDir] = await Promise.all([
+    const [runEntry, realResultsDir, realRunDir] = await Promise.all([
+      lstat(runDir),
       realpath(resultsDir),
       realpath(runDir)
     ]);
+    if (!runEntry.isDirectory() || runEntry.isSymbolicLink()) {
+      throw new RunnerInteractionApiError(
+        "interaction_path_invalid",
+        "Runner interaction run path must be a canonical directory."
+      );
+    }
     assertContained(realResultsDir, realRunDir);
   } catch (error) {
     if (error instanceof RunnerInteractionApiError) throw error;
@@ -167,44 +173,61 @@ async function locateRunDirectory(
   return existing[0]!;
 }
 
-function parseActionRecordId(recordId: string): {
-  claimRef: string;
-  executorRunId: string;
-} {
-  const separator = recordId.lastIndexOf("::");
-  if (separator <= 0 || separator === recordId.length - 2) {
+function parseActionRecordId(recordId: string): ParsedRunRecordId {
+  let parsed: ParsedRunRecordId;
+  try {
+    parsed = parseRunRecordId(recordId);
+  } catch {
     throw new RunnerInteractionApiError(
       "interaction_contract_invalid",
-      "Runner interaction record id must contain a claim ref and executor run id."
+      "Runner interaction record id is invalid."
     );
   }
-  const claimRef = recordId.slice(0, separator);
-  const executorRunId = recordId.slice(separator + 2);
-  parseBlockRef(claimRef);
-  return { claimRef, executorRunId };
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(parsed.runId)) {
+    throw new RunnerInteractionApiError(
+      "interaction_contract_invalid",
+      "Runner interaction executor run id is invalid."
+    );
+  }
+  if (parsed.kind === "feedback" && !/^FE-[A-Za-z0-9._:-]+$/.test(parsed.feedbackId)) {
+    throw new RunnerInteractionApiError(
+      "interaction_contract_invalid",
+      "Runner interaction feedback record id is invalid."
+    );
+  }
+  return parsed;
 }
 
 async function locateRunDirectoryForAction(
   scope: Awaited<ReturnType<typeof existingRunDirectories>>,
   action: RunnerInteractionActionIdentity
 ): Promise<string> {
-  const { claimRef, executorRunId } = parseActionRecordId(action.recordId);
-  const candidates = [
-    join(blockRunRoot(scope.resultsDir, claimRef), executorRunId),
-    join(scope.resultsDir, "feedback-runs", executorRunId)
-  ];
-  const existing = [];
-  for (const candidate of candidates) {
-    if ((await optionalStat(candidate))?.isDirectory()) existing.push(candidate);
-  }
-  if (existing.length !== 1) {
+  const parsed = parseActionRecordId(action.recordId);
+  const candidate =
+    parsed.kind === "block"
+      ? join(blockRunRoot(scope.resultsDir, parsed.blockRef), parsed.runId)
+      : join(scope.resultsDir, "feedback-runs", parsed.runId);
+  if (!(await optionalStat(candidate))?.isDirectory()) {
     throw new RunnerInteractionApiError(
       "interaction_not_found",
       "Runner interaction canonical run record was not found."
     );
   }
-  await validateRunDirectory(scope.resultsDir, existing[0]!);
-  return existing[0]!;
+  await validateRunDirectory(scope.resultsDir, candidate);
+  if (parsed.kind === "feedback") {
+    const metadata = await readJsonFile<unknown>(join(candidate, "metadata.json"));
+    const feedbackIdentity = z
+      .object({ feedbackId: z.literal(parsed.feedbackId) })
+      .passthrough()
+      .safeParse(metadata);
+    if (!feedbackIdentity.success) {
+      throw new RunnerInteractionApiError(
+        "interaction_identity_mismatch",
+        "Runner interaction feedback identity does not match the canonical record."
+      );
+    }
+  }
+  return candidate;
 }
 
 export async function listPendingRunnerInteractions(
@@ -367,7 +390,11 @@ export async function respondToRunnerInteractionAction(
       action.requestId
     );
     const identity = snapshot.request.identity;
-    if (`${identity.claimRef}::${identity.executorRunId}` !== action.recordId) {
+    const parsedRecord = parseActionRecordId(action.recordId);
+    const recordMatches =
+      identity.executorRunId === parsedRecord.runId &&
+      (parsedRecord.kind === "feedback" || identity.claimRef === parsedRecord.blockRef);
+    if (!recordMatches) {
       throw new RunnerInteractionApiError(
         "interaction_identity_mismatch",
         "Runner interaction record id does not match the canonical request."

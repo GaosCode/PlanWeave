@@ -18,7 +18,7 @@ import {
 import {
   runnerInteractionAvailabilityReasonSchema,
   runnerInteractionContractDiagnosticSchema
-} from "./runnerInteractionAvailability.js";
+} from "./runnerInteractionAvailabilityContract.js";
 
 const runnerLiveActionAvailabilitySchema = z
   .object({

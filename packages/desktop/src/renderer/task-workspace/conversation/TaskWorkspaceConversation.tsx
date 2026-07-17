@@ -23,7 +23,9 @@ type ConversationApi = Partial<
     | "detectTerminalApps"
     | "getTerminalPreferences"
     | "openTerminal"
+    | "listPendingRunnerInteractions"
     | "respondToAgentRequest"
+    | "respondToRunnerInteraction"
     | "revealRunnerRecordArtifact"
     | "updateTerminalPreferences"
   >
@@ -228,7 +230,9 @@ function AcpRunConversation({
       <div className="shrink-0 px-5 pt-5">
         <TaskWorkspaceInteractionCards
           api={api}
+          canvasRef={canvasRef}
           model={model}
+          recordId={recordId}
           sessionIdentity={selectedRun.item.run.capabilities.cancel.identity}
           t={t}
         />

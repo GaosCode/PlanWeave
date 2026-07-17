@@ -3,6 +3,7 @@ import {
   normalizedRunnerEventSchema,
   projectAcpConversation,
   projectAcpTimeline,
+  RunnerInteractionApiError,
   runnerRecordReadModelSchema,
   type NormalizedRunnerEvent
 } from "@planweave-ai/runtime";
@@ -513,5 +514,70 @@ describe("runner record desktop bridge", () => {
     expect(runtimeMock.cancelDesktopAgentRun).toHaveBeenCalledWith(sessionIdentity);
     expect(() => list?.({}, { ...identity, desktopRunId: "" })).toThrow();
     expect(() => cancel?.({}, { ...sessionIdentity, runSessionId: "" })).toThrow();
+  });
+
+  it("routes canvas-scoped persisted interaction responses and validates the receipt", async () => {
+    const ref = { projectRoot: "/tmp/project", canvasId: "canvas-a" };
+    const action = {
+      recordId: "T-001#B-001::RUN-001",
+      requestId: "permission-1",
+      ownerLeaseId: "11111111-1111-4111-8111-111111111111"
+    };
+    const decision = { kind: "select" as const, optionId: "allow-once" };
+    const audit = { decisionSource: "planweave-desktop", reason: null };
+    const list = electronMock.handlers.get(
+      desktopBridgeInvokeChannels.listPendingRunnerInteractions
+    );
+    const respond = electronMock.handlers.get(
+      desktopBridgeInvokeChannels.respondToRunnerInteraction
+    );
+
+    await expect(list?.({}, ref)).resolves.toEqual({ ok: true, value: [] });
+    await expect(respond?.({}, ref, action, decision, audit)).resolves.toMatchObject({
+      ok: true,
+      value: {
+        version: "planweave.runner-interaction-response-receipt/v1",
+        decision,
+        decisionSource: "planweave-desktop"
+      }
+    });
+    expect(runtimeMock.listPendingRunnerInteractions).toHaveBeenCalledWith(ref);
+    expect(runtimeMock.respondToRunnerInteractionAction).toHaveBeenCalledWith(
+      ref,
+      action,
+      decision,
+      audit
+    );
+
+    runtimeMock.respondToRunnerInteractionAction.mockRejectedValueOnce(
+      new RunnerInteractionApiError("interaction_owner_replaced", "Runner owner was replaced.", {
+        ownerGeneration: 2
+      })
+    );
+    await expect(respond?.({}, ref, action, decision, audit)).resolves.toEqual({
+      ok: false,
+      error: {
+        code: "interaction_owner_replaced",
+        message: "Runner owner was replaced.",
+        details: { ownerGeneration: 2 }
+      }
+    });
+
+    await expect(list?.({}, { projectRoot: "", canvasId: "canvas-a" })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "interaction_contract_invalid" }
+    });
+    await expect(
+      respond?.({}, ref, { ...action, ownerLeaseId: "../escape" }, decision, audit)
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "interaction_contract_invalid" }
+    });
+    await expect(
+      respond?.({}, ref, action, decision, { ...audit, decisionSource: "bad source" })
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "interaction_contract_invalid" }
+    });
   });
 });

@@ -2,15 +2,20 @@ import type {
   DesktopAgentActionValue,
   DesktopAgentSessionActionIdentity,
   DesktopBridgeApi,
+  DesktopCanvasReference,
   RunnerRecordReadModel
 } from "@planweave-ai/runtime";
-import { isRunnerRecordLiveActionIdentity } from "@planweave-ai/runtime";
+import { isRunnerRecordLiveActionIdentity } from "@planweave-ai/runtime/browser";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { createTranslator } from "../../i18n";
 import { useRunnerInterventions } from "../../hooks/useRunnerInterventions";
+import {
+  runnerInteractionAvailabilityLabel,
+  runnerInteractionErrorLabel
+} from "../../runnerInteractionPresentation";
 import { sameSessionActionIdentity } from "./actionIdentity";
 
 type InteractionRequest = RunnerRecordReadModel["interaction"]["activeRequests"][number];
@@ -59,17 +64,35 @@ function elicitationFields(schema: unknown): ElicitationField[] | null {
 
 export function TaskWorkspaceInteractionCards({
   api,
+  canvasRef,
   model,
+  recordId,
   sessionIdentity,
   t
 }: {
-  api: Partial<Pick<DesktopBridgeApi, "cancelAgentRun" | "respondToAgentRequest">> | null;
+  api: Partial<
+    Pick<
+      DesktopBridgeApi,
+      | "cancelAgentRun"
+      | "listPendingRunnerInteractions"
+      | "respondToAgentRequest"
+      | "respondToRunnerInteraction"
+    >
+  > | null;
+  canvasRef: DesktopCanvasReference;
   model: RunnerRecordReadModel;
+  recordId: string;
   sessionIdentity: DesktopAgentSessionActionIdentity | null;
   t: ReturnType<typeof createTranslator>;
 }) {
-  const interventions = useRunnerInterventions({ api, model });
-  if (model.interaction.activeRequests.length === 0) return null;
+  const interventions = useRunnerInterventions({ api, canvasRef, model, recordId });
+  const visibleRequests = model.interaction.activeRequests.filter(
+    (request) =>
+      isRunnerRecordLiveActionIdentity(request.identity) ||
+      interventions.persistedRequestIsAuthoritative(request.identity)
+  );
+  if (visibleRequests.length === 0 && !model.interaction.diagnostic && !interventions.actionError)
+    return null;
 
   return (
     <section
@@ -83,25 +106,57 @@ export function TaskWorkspaceInteractionCards({
       </div>
       {interventions.actionError ? (
         <p className="text-xs text-destructive" role="alert">
-          {t("acpActionError")}: {interventions.actionError}
+          {t("acpActionError")}: {runnerInteractionErrorLabel(interventions.actionError, t)}
         </p>
       ) : null}
-      {model.interaction.activeRequests.map((request) => {
+      {model.interaction.diagnostic ? (
+        <div className="text-xs text-destructive" data-testid="runner-interaction-diagnostic">
+          <div className="font-medium">{t("acpInteractionUnavailableContract")}</div>
+          <div>{model.interaction.diagnostic.message}</div>
+        </div>
+      ) : null}
+      {visibleRequests.map((request) => {
         const liveIdentity = isRunnerRecordLiveActionIdentity(request.identity)
           ? request.identity
           : null;
+        const persistedPermissionIdentity =
+          request.kind === "permission" && !liveIdentity && "ownerLeaseId" in request.identity
+            ? request.identity
+            : null;
+        const transientUnavailableReason = persistedPermissionIdentity
+          ? interventions.persistedRequestFailureReason(persistedPermissionIdentity)
+          : null;
         return (
           <InteractionCard
+            cancelLabel={t("acpCancelPermission")}
             disabledReason={
-              !liveIdentity
-                ? t("acpInteractionStale")
-                : sameSessionActionIdentity(liveIdentity, sessionIdentity)
-                  ? null
-                  : t("taskWorkspaceRequestIdentityMismatch")
+              model.interaction.diagnostic
+                ? t("acpInteractionUnavailableContract")
+                : transientUnavailableReason
+                  ? runnerInteractionAvailabilityLabel(transientUnavailableReason, t)
+                  : liveIdentity && !sameSessionActionIdentity(liveIdentity, sessionIdentity)
+                    ? t("taskWorkspaceRequestIdentityMismatch")
+                    : liveIdentity || persistedPermissionIdentity
+                      ? null
+                      : t("acpInteractionStale")
             }
-            inFlight={liveIdentity ? interventions.requestInFlight(liveIdentity) : false}
+            inFlight={interventions.requestInFlight(request.identity)}
             key={request.interactionId}
-            onRespond={liveIdentity ? (value) => interventions.respond(liveIdentity, value) : null}
+            onCancel={
+              persistedPermissionIdentity
+                ? () => interventions.cancelPermission(persistedPermissionIdentity)
+                : null
+            }
+            onElicitationRespond={
+              request.kind === "elicitation" && liveIdentity
+                ? (value) => interventions.respond(liveIdentity, value)
+                : null
+            }
+            onPermissionRespond={
+              request.kind === "permission"
+                ? (optionId) => interventions.respondPermission(request.identity, optionId)
+                : null
+            }
             request={request}
             t={t}
           />
@@ -112,20 +167,29 @@ export function TaskWorkspaceInteractionCards({
 }
 
 function InteractionCard({
+  cancelLabel,
   disabledReason,
   inFlight,
-  onRespond,
+  onCancel,
+  onElicitationRespond,
+  onPermissionRespond,
   request,
   t
 }: {
+  cancelLabel: string;
   disabledReason: string | null;
   inFlight: boolean;
-  onRespond: ((value: DesktopAgentActionValue) => void) | null;
+  onCancel: (() => void) | null;
+  onElicitationRespond: ((value: DesktopAgentActionValue) => void) | null;
+  onPermissionRespond: ((optionId: string) => void) | null;
   request: InteractionRequest;
   t: ReturnType<typeof createTranslator>;
 }) {
   const unavailableReason =
-    disabledReason ?? (request.availability.available ? null : request.availability.reason);
+    disabledReason ??
+    (request.availability.available
+      ? null
+      : runnerInteractionAvailabilityLabel(request.availability.reason, t));
   return (
     <article className="space-y-3 rounded-lg border bg-background p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -136,13 +200,13 @@ function InteractionCard({
       {unavailableReason ? (
         <p className="text-xs text-muted-foreground">{unavailableReason}</p>
       ) : null}
-      {!unavailableReason && onRespond && request.kind === "permission" ? (
+      {!unavailableReason && onPermissionRespond && request.kind === "permission" ? (
         <div className="flex flex-wrap gap-2">
           {request.permissionOptions.map((option) => (
             <Button
               disabled={inFlight}
               key={option.optionId}
-              onClick={() => onRespond(option.optionId)}
+              onClick={() => onPermissionRespond(option.optionId)}
               size="sm"
               type="button"
               variant={option.decision === "deny" ? "outline" : "default"}
@@ -150,13 +214,24 @@ function InteractionCard({
               {inFlight ? t("acpActionPending") : option.label}
             </Button>
           ))}
+          {onCancel ? (
+            <Button
+              disabled={inFlight}
+              onClick={onCancel}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {inFlight ? t("acpActionPending") : cancelLabel}
+            </Button>
+          ) : null}
         </div>
       ) : null}
-      {!unavailableReason && onRespond && request.kind === "elicitation" ? (
+      {!unavailableReason && onElicitationRespond && request.kind === "elicitation" ? (
         <StructuredElicitation
           disabled={inFlight}
-          onCancel={() => onRespond({ action: "cancel" })}
-          onSubmit={(content) => onRespond({ action: "accept", content })}
+          onCancel={() => onElicitationRespond({ action: "cancel" })}
+          onSubmit={(content) => onElicitationRespond({ action: "accept", content })}
           schema={request.elicitationSchema}
           t={t}
         />

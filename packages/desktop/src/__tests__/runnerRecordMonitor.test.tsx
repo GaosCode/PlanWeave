@@ -919,54 +919,6 @@ describe("ACP runner record monitor", () => {
     );
   });
 
-  it("does not route persisted permission identities through the live response bridge", () => {
-    const respondToAgentRequest = vi.fn(async () => undefined);
-    const persistedModel = runnerRecordReadModelSchema.parse({
-      ...model([]),
-      actualConfiguration: { available: false, reason: "Unavailable in test." },
-      interaction: {
-        persisted: true,
-        active: true,
-        stale: false,
-        activeRequests: [
-          {
-            requestId: "permission-persisted",
-            interactionId: "permission-persisted",
-            kind: "permission",
-            requestedAt: "2026-07-11T00:00:00.000Z",
-            summary: "Allow persisted command?",
-            identity: {
-              projectId: "project-1",
-              canvasId: "default",
-              claimRef: "T-001#B-001",
-              executorRunId: "RUN-001",
-              sessionId: "session-1",
-              requestId: "permission-persisted",
-              ownerLeaseId: "11111111-1111-4111-8111-111111111111",
-              ownerGeneration: 1
-            },
-            availability: { available: true, reason: null },
-            permissionOptions: [
-              { optionId: "allow", label: "Allow persisted", decision: "approve" }
-            ]
-          }
-        ]
-      }
-    });
-    render(
-      <RunnerRecordMonitor
-        api={api({ respondToAgentRequest })}
-        initialModel={persistedModel}
-        recordId="T-001#B-001::RUN-001"
-        t={createTranslator("en")}
-      />
-    );
-
-    expect(screen.getByText("Persisted request (not actionable)")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Allow persisted" })).not.toBeInTheDocument();
-    expect(respondToAgentRequest).not.toHaveBeenCalled();
-  });
-
   it("routes exact cancellation and Preview elicitation through separate controls", () => {
     const respondToAgentRequest = vi.fn(async () => undefined);
     const cancelAgentRun = vi.fn(async () => undefined);

@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest";
 import {
   type RunnerInteractionApiError,
   listPendingRunnerInteractions,
-  respondToRunnerInteraction
+  respondToRunnerInteraction,
+  respondToRunnerInteractionAction
 } from "../desktop/runnerInteractionApi.js";
 import { PersistentRunnerInteractionStore } from "../autoRun/runnerInteractionStore.js";
 import { writeJsonFile } from "../json.js";
@@ -21,9 +22,11 @@ const apiWorker = fileURLToPath(
   new URL("./support/runnerInteractionApiWorker.ts", import.meta.url)
 );
 
-async function createPendingRun() {
+async function createPendingRun(options: { feedbackId?: string } = {}) {
   const { root, init } = await createTestWorkspace();
-  const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
+  const runDir = options.feedbackId
+    ? join(init.workspace.resultsDir, "feedback-runs", "RUN-001")
+    : join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
   await mkdir(runDir, { recursive: true });
   await chmod(runDir, 0o700);
   const identity = {
@@ -37,6 +40,7 @@ async function createPendingRun() {
     ownerGeneration: 1
   } as const;
   await writeJsonFile(join(runDir, "metadata.json"), {
+    ...(options.feedbackId ? { feedbackId: options.feedbackId } : {}),
     runnerKind: "acp",
     runId: "RUN-001",
     executorRunId: "RUN-001",
@@ -72,7 +76,14 @@ async function createPendingRun() {
       { optionId: "reject_once", label: "Reject", decision: "deny" }
     ]
   });
-  return { root, runDir, identity };
+  return {
+    root,
+    runDir,
+    identity,
+    recordId: options.feedbackId
+      ? `${options.feedbackId}::RUN-001`
+      : `${identity.claimRef}::RUN-001`
+  };
 }
 
 describe("desktop runner interaction API", () => {
@@ -209,6 +220,75 @@ describe("desktop runner interaction API", () => {
         { kind: "select", optionId: "allow_once" },
         { decisionSource: "scheduler-alpha", reason: null },
         { now: () => now }
+      )
+    ).rejects.toMatchObject<RunnerInteractionApiError>({ code: "interaction_owner_replaced" });
+  });
+
+  it("responds to a canonical feedback record and enforces action CAS identities", async () => {
+    const fixture = await createPendingRun({ feedbackId: "FE-001" });
+    const ref = { projectRoot: fixture.root, canvasId: "default" };
+    const action = {
+      recordId: fixture.recordId,
+      requestId: fixture.identity.requestId,
+      ownerLeaseId: lease
+    };
+    const audit = { decisionSource: "planweave-desktop", reason: null };
+
+    await expect(
+      respondToRunnerInteractionAction(
+        ref,
+        action,
+        { kind: "select", optionId: "allow_once" },
+        audit,
+        { now: () => now }
+      )
+    ).resolves.toMatchObject({ selectedOption: { decision: "approve" } });
+    await expect(
+      respondToRunnerInteractionAction(
+        ref,
+        action,
+        { kind: "cancel" },
+        {
+          ...audit,
+          reason: "No longer needed"
+        }
+      )
+    ).rejects.toMatchObject<RunnerInteractionApiError>({
+      code: "interaction_already_answered"
+    });
+  });
+
+  it("rejects feedback record, request, and lease identity mismatches with stable codes", async () => {
+    const fixture = await createPendingRun({ feedbackId: "FE-001" });
+    const ref = { projectRoot: fixture.root, canvasId: "default" };
+    const action = {
+      recordId: fixture.recordId,
+      requestId: fixture.identity.requestId,
+      ownerLeaseId: lease
+    };
+    const audit = { decisionSource: "planweave-desktop", reason: "Cancelled in test" };
+    await expect(
+      respondToRunnerInteractionAction(
+        ref,
+        { ...action, recordId: "FE-002::RUN-001" },
+        { kind: "cancel" },
+        audit
+      )
+    ).rejects.toMatchObject<RunnerInteractionApiError>({ code: "interaction_identity_mismatch" });
+    await expect(
+      respondToRunnerInteractionAction(
+        ref,
+        { ...action, requestId: "permission-other" },
+        { kind: "cancel" },
+        audit
+      )
+    ).rejects.toMatchObject<RunnerInteractionApiError>({ code: "interaction_not_found" });
+    await expect(
+      respondToRunnerInteractionAction(
+        ref,
+        { ...action, ownerLeaseId: "22222222-2222-4222-8222-222222222222" },
+        { kind: "cancel" },
+        audit
       )
     ).rejects.toMatchObject<RunnerInteractionApiError>({ code: "interaction_owner_replaced" });
   });
