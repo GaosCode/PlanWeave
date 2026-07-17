@@ -34,6 +34,24 @@ afterEach(() => {
 });
 
 describe("desktop records API", () => {
+  it("surfaces a malformed heartbeat as contract_invalid instead of a normal empty heartbeat", async () => {
+    const { root, init } = await createTestWorkspace();
+    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-BAD");
+    await mkdir(runDir, { recursive: true });
+    await writeJsonFile(join(runDir, "metadata.json"), {
+      runId: "RUN-BAD",
+      ref: "T-001#B-001",
+      taskId: "T-001",
+      blockId: "B-001",
+      runnerKind: "cli",
+      startedAt: "2026-07-17T00:00:00.000Z"
+    });
+    await writeFile(join(runDir, "heartbeat.json"), "{broken", "utf8");
+    await expect(listBlockRunRecords(root, "T-001#B-001")).resolves.toEqual([
+      expect.objectContaining({ heartbeatStatus: "contract_invalid" })
+    ]);
+  });
+
   it("enumerates feedback run and state records only for the requested Task", async () => {
     const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
     for (const item of [
@@ -212,7 +230,7 @@ describe("desktop records API", () => {
     await writeFile(join(feedbackRunDir, "feedback-report.md"), "Feedback resolved.\n", "utf8");
     await writeJsonFile(join(feedbackRunDir, "heartbeat.json"), {
       status: "finished",
-      pid: 12345,
+      pid: 12_345,
       lastHeartbeatAt: "2026-05-23T02:09:59.000Z",
       finishedAt: "2026-05-23T02:10:00.000Z",
       exitCode: 0
@@ -235,7 +253,7 @@ describe("desktop records API", () => {
         tmuxReadOnlyAttachCommand: "tmux attach-session -r -t planweave-feedback-RUN-001-abcd1234",
         lastOutputAt: expect.any(String),
         heartbeatStatus: "finished",
-        heartbeatPid: 12345,
+        heartbeatPid: 12_345,
         lastHeartbeatAt: "2026-05-23T02:09:59.000Z",
         lastActivityAt: expect.any(String),
         reportPath: expect.stringContaining("feedback-runs/RUN-001/feedback-report.md")

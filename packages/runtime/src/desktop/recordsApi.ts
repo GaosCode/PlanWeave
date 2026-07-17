@@ -28,11 +28,11 @@ import { loadPackage } from "../package/loadPackage.js";
 import { readState } from "../state.js";
 import { reviewResultSchema } from "../taskManager/reviewResultContract.js";
 import { readFeedbackArtifact } from "../taskManager/feedbackArtifacts.js";
-import {
-  type ExecutorIntegrationName,
-  type PackageWorkspaceRef,
-  type ProjectWorkspace,
-  type ReviewVerdict
+import type {
+  ExecutorIntegrationName,
+  PackageWorkspaceRef,
+  ProjectWorkspace,
+  ReviewVerdict
 } from "../types.js";
 import {
   acpPromptReadOptions,
@@ -137,7 +137,7 @@ async function listFeedbackRunIds(resultsDir: string): Promise<string[]> {
 }
 
 function assertContainedPath(root: string, candidate: string): void {
-  if (!isAbsolute(root) || !isAbsolute(candidate)) {
+  if (!(isAbsolute(root) && isAbsolute(candidate))) {
     throw new Error("ACP run record paths must be absolute.");
   }
   const nested = relative(resolve(root), resolve(candidate));
@@ -228,19 +228,34 @@ async function runFileUpdateTimes(
   const metadataUpdatedAt = await fileUpdatedAt(metadataPath);
   const heartbeatPath = join(runDir, "heartbeat.json");
   const heartbeatUpdatedAt = await fileUpdatedAt(heartbeatPath);
-  const heartbeat: Record<string, unknown> = heartbeatUpdatedAt
-    ? await readJsonFile<Record<string, unknown>>(heartbeatPath).catch(() => ({}))
-    : {};
+  let heartbeat: Record<string, unknown> | null = null;
+  let heartbeatContractInvalid = false;
+  if (heartbeatUpdatedAt) {
+    try {
+      const value = await readJsonFile<unknown>(heartbeatPath);
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        heartbeatContractInvalid = true;
+      } else {
+        heartbeat = value as Record<string, unknown>;
+      }
+    } catch {
+      heartbeatContractInvalid = true;
+    }
+  }
   const lastHeartbeatAt =
-    typeof heartbeat.lastHeartbeatAt === "string" ? heartbeat.lastHeartbeatAt : null;
+    typeof heartbeat?.lastHeartbeatAt === "string" ? heartbeat.lastHeartbeatAt : null;
   return {
     stdoutUpdatedAt,
     stderrUpdatedAt,
     metadataUpdatedAt,
     heartbeatPath: heartbeatUpdatedAt ? heartbeatPath : null,
     heartbeatUpdatedAt,
-    heartbeatStatus: typeof heartbeat.status === "string" ? heartbeat.status : null,
-    heartbeatPid: typeof heartbeat.pid === "number" ? heartbeat.pid : null,
+    heartbeatStatus: heartbeatContractInvalid
+      ? "contract_invalid"
+      : typeof heartbeat?.status === "string"
+        ? heartbeat.status
+        : null,
+    heartbeatPid: typeof heartbeat?.pid === "number" ? heartbeat.pid : null,
     lastHeartbeatAt,
     lastActivityAt: latestTimestamp(
       stdoutUpdatedAt,

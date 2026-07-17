@@ -343,11 +343,22 @@ export {
 export type * from "./autoRun/acpEventReadModel.js";
 export {
   consumeRunnerRecordReadModel,
+  isRunnerRecordLiveActionIdentity,
   readRunnerRecordReadModel,
   readRunnerRecordReadModelForArtifact,
   runnerRecordReadModelSchema
 } from "./autoRun/runnerRecordReadModel.js";
 export type * from "./autoRun/runnerRecordReadModel.js";
+export { observeRunnerRecordFiles } from "./autoRun/runnerRecordFileObserver.js";
+export {
+  projectRunnerInteractionAvailability,
+  readRunnerInteractionMailboxProjection,
+  runnerInteractionAvailabilityReasonSchema,
+  runnerInteractionRunMetadataSchema,
+  runnerOwnerHeartbeatSchema,
+  RUNNER_OWNER_FRESHNESS_THRESHOLD_MS
+} from "./autoRun/runnerInteractionAvailability.js";
+export type * from "./autoRun/runnerInteractionAvailability.js";
 export {
   acpTimelineItemSchema,
   projectAcpConversation,
@@ -483,6 +494,11 @@ export {
   sendAgentPrompt,
   subscribeRunRecord,
   subscribeAutoRunEvents,
+  listPendingRunnerInteractions,
+  respondToRunnerInteraction,
+  runnerInteractionAuditSchema,
+  runnerInteractionCanvasRefSchema,
+  RunnerInteractionApiError,
   updateBlockDependencies,
   updateBlockExecutor,
   updateBlockFields,

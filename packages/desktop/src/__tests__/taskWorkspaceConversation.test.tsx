@@ -518,6 +518,46 @@ describe("Task Workspace conversation", () => {
     );
   });
 
+  it("renders persisted permissions as unavailable without calling the live bridge", () => {
+    const model = readModel({
+      activeRequests: [
+        {
+          kind: "permission",
+          requestId: "permission-persisted",
+          interactionId: "interaction-persisted",
+          requestedAt: timestamp,
+          summary: "Allow the persisted operation?",
+          identity: {
+            projectId: "project-1",
+            canvasId: "default",
+            claimRef: "T-001#B-001",
+            executorRunId: "RUN-001",
+            sessionId: "ACP-SESSION-001",
+            requestId: "permission-persisted",
+            ownerLeaseId: "11111111-1111-4111-8111-111111111111",
+            ownerGeneration: 1
+          },
+          availability: { available: true, reason: null },
+          permissionOptions: [
+            { optionId: "approve-once", label: "Approve once", decision: "approve" }
+          ]
+        }
+      ]
+    });
+    const respondToAgentRequest = vi.fn(async () => undefined);
+    render(
+      <TaskWorkspaceConversation
+        {...conversationProps(selection({ model }), model)}
+        api={{ respondToAgentRequest }}
+        t={t}
+      />
+    );
+
+    expect(screen.getByText("Persisted request (not actionable)")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve once" })).not.toBeInTheDocument();
+    expect(respondToAgentRequest).not.toHaveBeenCalled();
+  });
+
   it("keeps elicitation and authentication requests in the high-priority interaction region", () => {
     const elicitationIdentity = activeIdentity("elicitation-1");
     const authenticationIdentity = activeIdentity("authentication-1");

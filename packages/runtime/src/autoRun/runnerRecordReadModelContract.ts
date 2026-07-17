@@ -11,11 +11,26 @@ import {
   runnerSessionActionIdentitySchema
 } from "./runnerContractSchemas.js";
 import { acpActualSessionConfigurationSchema } from "./acpSessionConfiguration.js";
+import {
+  runnerInteractionIdentitySchema,
+  runnerPermissionOptionSchema
+} from "./runnerInteractionContract.js";
+import {
+  runnerInteractionAvailabilityReasonSchema,
+  runnerInteractionContractDiagnosticSchema
+} from "./runnerInteractionAvailability.js";
 
-const runnerActionAvailabilitySchema = z
+const runnerLiveActionAvailabilitySchema = z
   .object({
     available: z.boolean(),
     reason: z.string().min(1).max(512).nullable()
+  })
+  .strict();
+
+export const runnerPersistedInteractionAvailabilitySchema = z
+  .object({
+    available: z.boolean(),
+    reason: runnerInteractionAvailabilityReasonSchema.nullable()
   })
   .strict();
 
@@ -34,47 +49,58 @@ export const desktopAgentPromptIdentitySchema = z
   })
   .strict();
 export type DesktopAgentPromptIdentity = z.infer<typeof desktopAgentPromptIdentitySchema>;
+export type RunnerRecordLiveActionIdentity = z.infer<typeof runnerRequestActionIdentitySchema>;
+
+export function isRunnerRecordLiveActionIdentity(
+  identity: unknown
+): identity is RunnerRecordLiveActionIdentity {
+  return runnerRequestActionIdentitySchema.safeParse(identity).success;
+}
 
 const runnerRecordActiveInteractionBaseSchema = z
   .object({
     requestId: z.string().min(1).max(256),
     interactionId: z.string().min(1).max(256),
     requestedAt: z.string().datetime(),
-    summary: safeRunnerEventTextSchema(4_096, "Active interaction summary").refine(
+    summary: safeRunnerEventTextSchema(4096, "Active interaction summary").refine(
       (value) => value.length > 0,
       "Active interaction summary must not be empty."
-    ),
-    identity: runnerRequestActionIdentitySchema,
-    availability: runnerActionAvailabilitySchema
+    )
   })
   .strict();
 
-const runnerRecordActiveInteractionSchema = z.discriminatedUnion("kind", [
-  runnerRecordActiveInteractionBaseSchema
-    .extend({
-      kind: z.literal("permission"),
-      permissionOptions: z
-        .array(
-          z
-            .object({
-              optionId: z.string().min(1).max(256),
-              label: safeRunnerEventTextSchema(512, "Permission option label"),
-              decision: z.enum(["approve", "deny"])
-            })
-            .strict()
-        )
-        .min(1)
-    })
-    .strict(),
+const runnerRecordActiveInteractionSchema = z.union([
+  z.union([
+    runnerRecordActiveInteractionBaseSchema
+      .extend({
+        kind: z.literal("permission"),
+        identity: runnerInteractionIdentitySchema,
+        permissionOptions: z.array(runnerPermissionOptionSchema).min(1),
+        availability: runnerPersistedInteractionAvailabilitySchema
+      })
+      .strict(),
+    runnerRecordActiveInteractionBaseSchema
+      .extend({
+        kind: z.literal("permission"),
+        identity: runnerRequestActionIdentitySchema,
+        permissionOptions: z.array(runnerPermissionOptionSchema).min(1),
+        availability: runnerLiveActionAvailabilitySchema
+      })
+      .strict()
+  ]),
   runnerRecordActiveInteractionBaseSchema
     .extend({
       kind: z.literal("elicitation"),
-      elicitationSchema: z.json()
+      identity: runnerRequestActionIdentitySchema,
+      elicitationSchema: z.json(),
+      availability: runnerLiveActionAvailabilitySchema
     })
     .strict(),
   runnerRecordActiveInteractionBaseSchema
     .extend({
-      kind: z.literal("authentication")
+      kind: z.literal("authentication"),
+      identity: runnerRequestActionIdentitySchema,
+      availability: runnerLiveActionAvailabilitySchema
     })
     .strict()
 ]);
@@ -90,13 +116,13 @@ export const runnerRecordReadModelSchema = z
     actualConfiguration: acpActualSessionConfigurationSchema,
     intervention: z
       .object({
-        prompt: runnerActionAvailabilitySchema
+        prompt: runnerLiveActionAvailabilitySchema
           .extend({
             identity: desktopAgentPromptIdentitySchema.nullable(),
             inFlight: z.boolean()
           })
           .strict(),
-        cancel: runnerActionAvailabilitySchema
+        cancel: runnerLiveActionAvailabilitySchema
           .extend({
             identity: runnerSessionActionIdentitySchema.nullable()
           })
@@ -108,7 +134,8 @@ export const runnerRecordReadModelSchema = z
         persisted: z.boolean(),
         active: z.boolean(),
         stale: z.boolean(),
-        activeRequests: z.array(runnerRecordActiveInteractionSchema)
+        activeRequests: z.array(runnerRecordActiveInteractionSchema),
+        diagnostic: runnerInteractionContractDiagnosticSchema.optional()
       })
       .strict()
   })

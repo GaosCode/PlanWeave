@@ -4,6 +4,7 @@ import type {
   DesktopBridgeApi,
   RunnerRecordReadModel
 } from "@planweave-ai/runtime";
+import { isRunnerRecordLiveActionIdentity } from "@planweave-ai/runtime";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -85,38 +86,46 @@ export function TaskWorkspaceInteractionCards({
           {t("acpActionError")}: {interventions.actionError}
         </p>
       ) : null}
-      {model.interaction.activeRequests.map((request) => (
-        <InteractionCard
-          disabled={!sameSessionActionIdentity(request.identity, sessionIdentity)}
-          inFlight={interventions.requestInFlight(request.identity)}
-          key={request.interactionId}
-          onRespond={(value) => interventions.respond(request.identity, value)}
-          request={request}
-          t={t}
-        />
-      ))}
+      {model.interaction.activeRequests.map((request) => {
+        const liveIdentity = isRunnerRecordLiveActionIdentity(request.identity)
+          ? request.identity
+          : null;
+        return (
+          <InteractionCard
+            disabledReason={
+              !liveIdentity
+                ? t("acpInteractionStale")
+                : sameSessionActionIdentity(liveIdentity, sessionIdentity)
+                  ? null
+                  : t("taskWorkspaceRequestIdentityMismatch")
+            }
+            inFlight={liveIdentity ? interventions.requestInFlight(liveIdentity) : false}
+            key={request.interactionId}
+            onRespond={liveIdentity ? (value) => interventions.respond(liveIdentity, value) : null}
+            request={request}
+            t={t}
+          />
+        );
+      })}
     </section>
   );
 }
 
 function InteractionCard({
-  disabled,
+  disabledReason,
   inFlight,
   onRespond,
   request,
   t
 }: {
-  disabled: boolean;
+  disabledReason: string | null;
   inFlight: boolean;
-  onRespond: (value: DesktopAgentActionValue) => void;
+  onRespond: ((value: DesktopAgentActionValue) => void) | null;
   request: InteractionRequest;
   t: ReturnType<typeof createTranslator>;
 }) {
-  const unavailableReason = disabled
-    ? t("taskWorkspaceRequestIdentityMismatch")
-    : request.availability.available
-      ? null
-      : request.availability.reason;
+  const unavailableReason =
+    disabledReason ?? (request.availability.available ? null : request.availability.reason);
   return (
     <article className="space-y-3 rounded-lg border bg-background p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -127,7 +136,7 @@ function InteractionCard({
       {unavailableReason ? (
         <p className="text-xs text-muted-foreground">{unavailableReason}</p>
       ) : null}
-      {!unavailableReason && request.kind === "permission" ? (
+      {!unavailableReason && onRespond && request.kind === "permission" ? (
         <div className="flex flex-wrap gap-2">
           {request.permissionOptions.map((option) => (
             <Button
@@ -143,7 +152,7 @@ function InteractionCard({
           ))}
         </div>
       ) : null}
-      {!unavailableReason && request.kind === "elicitation" ? (
+      {!unavailableReason && onRespond && request.kind === "elicitation" ? (
         <StructuredElicitation
           disabled={inFlight}
           onCancel={() => onRespond({ action: "cancel" })}

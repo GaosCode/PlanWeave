@@ -284,6 +284,8 @@ export class AcpSessionController {
         executor: run.executorName,
         agentId: run.agentId,
         runnerKind: "acp",
+        projectId: run.projectId,
+        canvasId: run.canvasId,
         ...run.identity,
         ...run.metadataIdentity
       }

@@ -114,6 +114,9 @@ describe("ACP cross-process permission", () => {
       executorRunId: "RUN-001",
       sessionId: "mock-session-1"
     });
+    await expect(
+      readJsonFile<Record<string, unknown>>(join(root, "metadata.json"))
+    ).resolves.toMatchObject({ projectId: "project-1", canvasId: "default" });
 
     await externalStore.createResponse(
       runnerPermissionInteractionResponseSchema.parse({

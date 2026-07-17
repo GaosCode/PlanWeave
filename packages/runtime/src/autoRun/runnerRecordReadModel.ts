@@ -30,7 +30,11 @@ import {
   taskIdSchema
 } from "./runnerContractSchemas.js";
 import { projectAcpActualSessionConfiguration } from "./acpSessionConfiguration.js";
-import { subscribePersistedRunnerEvents } from "./persistedRunnerEventSubscription.js";
+import { observeRunnerRecordFiles } from "./runnerRecordFileObserver.js";
+import {
+  readRunnerInteractionMailboxProjection,
+  type RunnerInteractionAvailability
+} from "./runnerInteractionAvailability.js";
 import {
   desktopAgentPromptIdentitySchema,
   runnerRecordReadModelSchema,
@@ -40,10 +44,12 @@ import {
 
 export {
   desktopAgentPromptIdentitySchema,
+  isRunnerRecordLiveActionIdentity,
   runnerRecordReadModelSchema
 } from "./runnerRecordReadModelContract.js";
 export type {
   DesktopAgentPromptIdentity,
+  RunnerRecordLiveActionIdentity,
   RunnerRecordReadModel
 } from "./runnerRecordReadModelContract.js";
 
@@ -83,6 +89,8 @@ export async function readRunnerRecordReadModel(options: {
   promptContinuationAvailable?: boolean;
   promptInFlight?: boolean;
   promptUnavailableReason?: string;
+  now?: () => Date;
+  ownerFreshnessThresholdMs?: number;
 }): Promise<RunnerRecordReadModel | null> {
   return (await consumeRunnerRecordReadModel(options)).snapshot;
 }
@@ -222,7 +230,12 @@ function failedIdentitySnapshot(options: {
           identity: null
         }
       },
-      interaction: { persisted: false, active: false, stale: false, activeRequests: [] }
+      interaction: {
+        persisted: false,
+        active: false,
+        stale: false,
+        activeRequests: []
+      }
     },
     subscription: null
   };
@@ -302,7 +315,7 @@ function interactionState(
         promptUnavailableReason
       );
     }
-    if (!canonical.desktopRunId || !canonical.runSessionId) {
+    if (!(canonical.desktopRunId && canonical.runSessionId)) {
       return unavailableIntervention(
         persisted,
         "Exact Desktop run/session identity is unavailable.",
@@ -390,13 +403,13 @@ function interactionState(
       ? null
       : promptIdentity === undefined
         ? (promptUnavailableReason ?? "Exact Desktop record identity is unavailable.")
-        : !livePromptAccepting
-          ? "The owned ACP session is finishing and no longer accepts conversation turns."
-          : promptBlockedByInteraction
+        : livePromptAccepting
+          ? promptBlockedByInteraction
             ? "Resolve the pending ACP permission or elicitation before sending a prompt."
             : livePromptInFlight
               ? "An ACP conversation turn is already queued or in progress."
-              : `ACP session is not prompt-capable in state '${registered.lifecycleState}'.`;
+              : `ACP session is not prompt-capable in state '${registered.lifecycleState}'.`
+          : "The owned ACP session is finishing and no longer accepts conversation turns.";
     return {
       intervention: {
         prompt: promptIdentity
@@ -471,6 +484,111 @@ function unavailableIntervention(
   };
 }
 
+async function mailboxInteractionState(options: {
+  runDir: string;
+  selected: SelectedRecordIdentity;
+  metadata: Record<string, unknown>;
+  terminal: boolean;
+  current: RunnerRecordReadModel["interaction"];
+  now?: () => Date;
+  ownerFreshnessThresholdMs?: number;
+}): Promise<RunnerRecordReadModel["interaction"]> {
+  const projection = await readRunnerInteractionMailboxProjection({
+    runDir: options.runDir,
+    scope: {
+      projectId: options.selected.projectId ?? "",
+      canvasId: options.selected.canvasId ?? ""
+    },
+    metadata: options.metadata,
+    runTerminal: options.terminal,
+    now: options.now,
+    thresholdMs: options.ownerFreshnessThresholdMs
+  });
+  if (projection.diagnostic) {
+    return {
+      persisted: true,
+      active: false,
+      stale: true,
+      activeRequests: [],
+      diagnostic: projection.diagnostic
+    };
+  }
+  const livePermissionRequestIds = new Set<string>(
+    options.current.activeRequests.flatMap((request) =>
+      request.kind === "permission" ? [request.requestId] : []
+    )
+  );
+  const livePreferredRequestIds = new Set<string>(
+    projection.interactions.flatMap((interaction) => {
+      const requestId = interaction.snapshot?.request.identity.requestId;
+      return interaction.available && requestId && livePermissionRequestIds.has(requestId)
+        ? [requestId]
+        : [];
+    })
+  );
+  const mailboxRequests = projection.interactions.flatMap(
+    (interaction: RunnerInteractionAvailability) => {
+      const snapshot = interaction.snapshot;
+      if (!snapshot || snapshot.status !== "pending") return [];
+      const request = snapshot.request;
+      if (livePreferredRequestIds.has(request.identity.requestId)) return [];
+      return [
+        {
+          requestId: request.identity.requestId,
+          interactionId: snapshot.interactionId,
+          requestedAt: request.requestedAt,
+          summary: request.summary,
+          identity: request.identity,
+          kind: "permission" as const,
+          permissionOptions: request.options,
+          availability: {
+            available: interaction.available,
+            reason: interaction.reason
+          }
+        }
+      ];
+    }
+  );
+  const activeRequests = [
+    ...options.current.activeRequests.filter(
+      (request) =>
+        request.kind !== "permission" ||
+        (!projection.suppressAllRegistryPermissions &&
+          (!projection.requestIds.has(request.requestId) ||
+            livePreferredRequestIds.has(request.requestId)))
+    ),
+    ...mailboxRequests
+  ];
+  return {
+    persisted: true,
+    active: activeRequests.some((request) => request.availability.available),
+    stale:
+      activeRequests.length === 0 ||
+      activeRequests.every((request) => !request.availability.available),
+    activeRequests
+  };
+}
+
+async function withMailboxProjection(
+  snapshot: RunnerRecordReadModel,
+  options: {
+    runDir: string;
+    selected: SelectedRecordIdentity;
+    metadata: Record<string, unknown>;
+    now?: () => Date;
+    ownerFreshnessThresholdMs?: number;
+  }
+): Promise<RunnerRecordReadModel> {
+  return runnerRecordReadModelSchema.parse({
+    ...snapshot,
+    interaction: await mailboxInteractionState({
+      ...options,
+      terminal: snapshot.terminal,
+      current: snapshot.interaction
+    })
+  });
+}
+
 function activeSnapshot(options: {
   model: AcpEventReadModel;
   runDir: string;
@@ -511,6 +629,7 @@ function subscribeActiveModel(options: {
   model: AcpEventReadModel;
   runDir: string;
   selected: SelectedRecordIdentity;
+  metadata: Record<string, unknown>;
   cursor?: RunnerEventCursor;
   promptIdentity?: DesktopAgentPromptIdentity;
   promptContinuationAvailable?: boolean;
@@ -518,10 +637,22 @@ function subscribeActiveModel(options: {
   promptUnavailableReason?: string;
   afterSequence: number;
   subscriber: RunnerRecordReadSubscriber;
+  now?: () => Date;
+  ownerFreshnessThresholdMs?: number;
 }): AcpEventSubscription {
   let updateChain = Promise.resolve();
   const emit = (): Promise<void> => {
-    updateChain = updateChain.then(() => options.subscriber(activeSnapshot(options)));
+    updateChain = updateChain.then(async () =>
+      options.subscriber(
+        await withMailboxProjection(activeSnapshot(options), {
+          runDir: options.runDir,
+          selected: options.selected,
+          metadata: options.metadata,
+          now: options.now,
+          ownerFreshnessThresholdMs: options.ownerFreshnessThresholdMs
+        })
+      )
+    );
     return updateChain;
   };
   const eventSubscription = options.model.subscribe(options.afterSequence, emit, {
@@ -559,6 +690,8 @@ export async function consumeRunnerRecordReadModel(options: {
   promptContinuationAvailable?: boolean;
   promptInFlight?: boolean;
   promptUnavailableReason?: string;
+  now?: () => Date;
+  ownerFreshnessThresholdMs?: number;
 }): Promise<RunnerRecordReadConsumer> {
   if (options.metadata.runnerKind !== "acp") {
     return { snapshot: null, subscription: null };
@@ -576,16 +709,25 @@ export async function consumeRunnerRecordReadModel(options: {
   if (activeModel) {
     let snapshot: RunnerRecordReadModel;
     try {
-      snapshot = activeSnapshot({
-        model: activeModel,
-        runDir: options.runDir,
-        selected,
-        ...(options.cursor ? { cursor: options.cursor } : {}),
-        ...(options.promptIdentity ? { promptIdentity: options.promptIdentity } : {}),
-        promptContinuationAvailable: options.promptContinuationAvailable,
-        promptInFlight: options.promptInFlight,
-        promptUnavailableReason: options.promptUnavailableReason
-      });
+      snapshot = await withMailboxProjection(
+        activeSnapshot({
+          model: activeModel,
+          runDir: options.runDir,
+          selected,
+          ...(options.cursor ? { cursor: options.cursor } : {}),
+          ...(options.promptIdentity ? { promptIdentity: options.promptIdentity } : {}),
+          promptContinuationAvailable: options.promptContinuationAvailable,
+          promptInFlight: options.promptInFlight,
+          promptUnavailableReason: options.promptUnavailableReason
+        }),
+        {
+          runDir: options.runDir,
+          selected,
+          metadata: options.metadata,
+          now: options.now,
+          ownerFreshnessThresholdMs: options.ownerFreshnessThresholdMs
+        }
+      );
     } catch {
       return failedIdentitySnapshot({
         cursor: typeof options.cursor === "object" ? options.cursor : undefined,
@@ -602,26 +744,38 @@ export async function consumeRunnerRecordReadModel(options: {
       model: activeModel,
       runDir: options.runDir,
       selected,
+      metadata: options.metadata,
       ...(options.cursor ? { cursor: options.cursor } : {}),
       afterSequence: snapshot.cursor.afterSequence,
       subscriber: options.subscriber,
       ...(options.promptIdentity ? { promptIdentity: options.promptIdentity } : {}),
       promptContinuationAvailable: options.promptContinuationAvailable,
       promptInFlight: options.promptInFlight,
-      promptUnavailableReason: options.promptUnavailableReason
+      promptUnavailableReason: options.promptUnavailableReason,
+      now: options.now,
+      ownerFreshnessThresholdMs: options.ownerFreshnessThresholdMs
     });
     let authoritativeSnapshot: RunnerRecordReadModel;
     try {
-      authoritativeSnapshot = activeSnapshot({
-        model: activeModel,
-        runDir: options.runDir,
-        selected,
-        ...(options.cursor ? { cursor: options.cursor } : {}),
-        ...(options.promptIdentity ? { promptIdentity: options.promptIdentity } : {}),
-        promptContinuationAvailable: options.promptContinuationAvailable,
-        promptInFlight: options.promptInFlight,
-        promptUnavailableReason: options.promptUnavailableReason
-      });
+      authoritativeSnapshot = await withMailboxProjection(
+        activeSnapshot({
+          model: activeModel,
+          runDir: options.runDir,
+          selected,
+          ...(options.cursor ? { cursor: options.cursor } : {}),
+          ...(options.promptIdentity ? { promptIdentity: options.promptIdentity } : {}),
+          promptContinuationAvailable: options.promptContinuationAvailable,
+          promptInFlight: options.promptInFlight,
+          promptUnavailableReason: options.promptUnavailableReason
+        }),
+        {
+          runDir: options.runDir,
+          selected,
+          metadata: options.metadata,
+          now: options.now,
+          ownerFreshnessThresholdMs: options.ownerFreshnessThresholdMs
+        }
+      );
     } catch {
       subscription.unsubscribe();
       return failedIdentitySnapshot({
@@ -640,13 +794,10 @@ export async function consumeRunnerRecordReadModel(options: {
   }
 
   let content = "";
-  let completeContentByteOffset = 0;
   const boundaryDiagnostics: RunnerEventReplayDiagnostic[] = [];
   try {
     const persistedContent = await readFile(join(options.runDir, "events.ndjson"));
     content = persistedContent.toString("utf8");
-    const finalNewline = persistedContent.lastIndexOf(0x0a);
-    completeContentByteOffset = finalNewline < 0 ? 0 : finalNewline + 1;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       boundaryDiagnostics.push(
@@ -678,88 +829,87 @@ export async function consumeRunnerRecordReadModel(options: {
   const retentionDiagnostics = projectPersistedRetentionDiagnostics(completeReplay.events);
   const projection = new AcpProjectionAccumulator();
   for (const event of visibleEvents(completeReplay.events)) projection.append(event);
-  const allEvents = [...completeReplay.events];
   const diagnostics = [...boundaryDiagnostics, ...replay.diagnostics, ...retentionDiagnostics];
-  let followedDiagnostics = diagnostics;
-  const snapshot = runnerRecordReadModelSchema.parse({
-    events: visibleEvents(replay.events),
-    ...projection.snapshot(),
-    diagnostics,
-    cursor: replay.nextCursor,
-    terminal: replay.terminal,
-    actualConfiguration: projectAcpActualSessionConfiguration(completeReplay.events),
-    ...interactionState(
-      options.runDir,
+  const snapshot = await withMailboxProjection(
+    runnerRecordReadModelSchema.parse({
+      events: visibleEvents(replay.events),
+      ...projection.snapshot(),
+      diagnostics,
+      cursor: replay.nextCursor,
+      terminal: replay.terminal,
+      actualConfiguration: projectAcpActualSessionConfiguration(completeReplay.events),
+      ...interactionState(
+        options.runDir,
+        selected,
+        completeReplay.nextCursor,
+        completeReplay.events,
+        undefined,
+        options.promptIdentity,
+        options.promptContinuationAvailable,
+        options.promptInFlight,
+        options.promptUnavailableReason
+      )
+    }),
+    {
+      runDir: options.runDir,
       selected,
-      completeReplay.nextCursor,
-      completeReplay.events,
-      undefined,
-      options.promptIdentity,
-      options.promptContinuationAvailable,
-      options.promptInFlight,
-      options.promptUnavailableReason
-    )
-  });
+      metadata: options.metadata,
+      now: options.now,
+      ownerFreshnessThresholdMs: options.ownerFreshnessThresholdMs
+    }
+  );
   const persistedSubscriber = options.subscriber;
   const canFollowPersistedLog =
     persistedSubscriber !== undefined && selected.status === "running" && !snapshot.terminal;
-  const persistedAuthority = canFollowPersistedLog
-    ? selectedRecordCanonicalIdentity(selected, completeReplay.nextCursor)
-    : null;
+  let followCursor = snapshot.cursor;
   const subscription =
-    persistedAuthority && persistedSubscriber
-      ? subscribePersistedRunnerEvents({
-          canonicalIdentity: persistedAuthority,
-          cursor: completeReplay.nextCursor,
-          eventsPath: join(options.runDir, "events.ndjson"),
-          initialByteOffset: completeContentByteOffset,
-          onUpdate: async (update) => {
-            allEvents.push(...update.events);
-            for (const event of visibleEvents(update.events)) projection.append(event);
-            const projected = projection.snapshot();
-            followedDiagnostics = mergeReplayDiagnostics(followedDiagnostics, [
-              ...update.diagnostics,
-              ...projectPersistedRetentionDiagnostics(allEvents)
-            ]);
-            await persistedSubscriber(
-              runnerRecordReadModelSchema.parse({
-                events: visibleEvents(update.events),
-                ...projected,
-                diagnostics: followedDiagnostics,
-                cursor: update.cursor,
-                terminal: update.terminal,
-                actualConfiguration: projectAcpActualSessionConfiguration(allEvents),
-                ...interactionState(
-                  options.runDir,
-                  selected,
-                  update.cursor,
-                  allEvents,
-                  undefined,
-                  options.promptIdentity,
-                  options.promptContinuationAvailable,
-                  options.promptInFlight,
-                  options.promptUnavailableReason
-                )
-              })
-            );
-          }
+    canFollowPersistedLog && persistedSubscriber
+      ? observeRunnerRecordFiles({
+          runDir: options.runDir,
+          refresh: async () => {
+            let refreshedMetadataValue: unknown = options.metadata;
+            try {
+              refreshedMetadataValue = JSON.parse(
+                await readFile(join(options.runDir, "metadata.json"), "utf8")
+              ) as unknown;
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+                throw error;
+              }
+            }
+            if (
+              typeof refreshedMetadataValue !== "object" ||
+              refreshedMetadataValue === null ||
+              Array.isArray(refreshedMetadataValue)
+            ) {
+              throw new Error("Persisted ACP runner metadata is invalid.");
+            }
+            const refreshedMetadata = refreshedMetadataValue as Record<string, unknown>;
+            const refreshed = await consumeRunnerRecordReadModel({
+              ...options,
+              metadata: refreshedMetadata,
+              cursor: followCursor,
+              subscriber: undefined
+            });
+            if (!refreshed.snapshot) {
+              throw new Error("Persisted ACP runner record is no longer readable.");
+            }
+            followCursor = refreshed.snapshot.cursor;
+            return {
+              value: refreshed.snapshot,
+              terminal:
+                refreshed.snapshot.terminal ||
+                (refreshedMetadata.status !== undefined && refreshedMetadata.status !== "running"),
+              sequence: refreshed.snapshot.cursor.afterSequence
+            };
+          },
+          onUpdate: persistedSubscriber
         })
       : null;
   return {
     snapshot,
     subscription
   };
-}
-
-function selectedRecordCanonicalIdentity(
-  selected: SelectedRecordIdentity,
-  cursor: RunnerEventCursor
-) {
-  const canonical = cursor.canonicalIdentity;
-  if (!canonical) {
-    throw new Error(`Persisted ACP record '${selected.claimRef}' has no canonical event identity.`);
-  }
-  return canonical;
 }
 
 export async function readRunnerRecordReadModelForArtifact(

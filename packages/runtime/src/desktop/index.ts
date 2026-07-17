@@ -217,6 +217,14 @@ export {
   subscribeRunRecord
 } from "./recordsApi.js";
 export {
+  listPendingRunnerInteractions,
+  respondToRunnerInteraction,
+  runnerInteractionAuditSchema,
+  runnerInteractionCanvasRefSchema,
+  RunnerInteractionApiError
+} from "./runnerInteractionApi.js";
+export type * from "./runnerInteractionApi.js";
+export {
   bulkApplyReviewPipeline,
   getReviewPipeline,
   updateReviewPipeline

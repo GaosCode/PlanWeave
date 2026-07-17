@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isRunnerRecordLiveActionIdentity } from "@planweave-ai/runtime";
 import type {
   DesktopAgentActionIdentity,
   DesktopAgentActionValue,
@@ -34,9 +35,14 @@ export function useRunnerInterventions(options: {
   const activeOperations = useRef(new Set<string>());
   const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set());
   const [actionError, setActionError] = useState<string | null>(null);
+  const firstLiveRequest = model?.interaction.activeRequests.find((request) =>
+    isRunnerRecordLiveActionIdentity(request.identity)
+  );
   const contextKey = model
     ? (model.intervention.cancel.identity?.scope ??
-      model.interaction.activeRequests[0]?.identity.scope ??
+      (firstLiveRequest && isRunnerRecordLiveActionIdentity(firstLiveRequest.identity)
+        ? firstLiveRequest.identity.scope
+        : undefined) ??
       `${model.cursor.runId}\0${model.cursor.canonicalIdentity?.identity.claimRef ?? ""}`)
     : "runner-unavailable";
   const contextKeyRef = useRef(contextKey);
@@ -51,8 +57,10 @@ export function useRunnerInterventions(options: {
 
   useEffect(() => {
     const authoritativeKeys = new Set(
-      model?.interaction.activeRequests.map((request) =>
-        identityKey("request", request.identity)
+      model?.interaction.activeRequests.flatMap((request) =>
+        isRunnerRecordLiveActionIdentity(request.identity)
+          ? [identityKey("request", request.identity)]
+          : []
       ) ?? []
     );
     if (

@@ -3,6 +3,7 @@ import type {
   DesktopCanvasReference,
   RunnerRecordReadModel
 } from "@planweave-ai/runtime";
+import { isRunnerRecordLiveActionIdentity } from "@planweave-ai/runtime";
 import { useState } from "react";
 import { SendIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -125,45 +126,55 @@ export function RunnerRecordMonitor({
       {model.interaction.activeRequests.length > 0 ? (
         <div className="space-y-2 rounded-md border p-2 text-xs">
           <div className="font-medium">{t("acpActions")}</div>
-          {model.interaction.activeRequests.map((request) => (
-            <div key={request.requestId} className="space-y-2 rounded border p-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge>{request.kind}</Badge>
-                <span className="font-mono">{request.requestId}</span>
-              </div>
-              <div className="whitespace-pre-wrap break-words">{request.summary}</div>
-              {!request.availability.available ? (
-                <div className="text-muted-foreground">{request.availability.reason}</div>
-              ) : request.kind === "permission" ? (
-                <div className="flex flex-wrap gap-2">
-                  {request.permissionOptions.map((option) => (
-                    <Button
-                      key={option.optionId}
-                      size="xs"
-                      variant={option.decision === "deny" ? "outline" : "default"}
-                      disabled={interventions.requestInFlight(request.identity)}
-                      onClick={() => interventions.respond(request.identity, option.optionId)}
-                    >
-                      {option.label}
-                    </Button>
-                  ))}
+          {model.interaction.activeRequests.map((request) => {
+            const liveIdentity = isRunnerRecordLiveActionIdentity(request.identity)
+              ? request.identity
+              : null;
+            const unavailableReason = liveIdentity
+              ? request.availability.available
+                ? null
+                : request.availability.reason
+              : t("acpInteractionStale");
+            return (
+              <div key={request.requestId} className="space-y-2 rounded border p-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge>{request.kind}</Badge>
+                  <span className="font-mono">{request.requestId}</span>
                 </div>
-              ) : request.kind === "elicitation" ? (
-                <PreviewElicitationControl
-                  disabled={interventions.requestInFlight(request.identity)}
-                  onCancel={() => interventions.respond(request.identity, { action: "cancel" })}
-                  onSubmit={(content) =>
-                    interventions.respond(request.identity, {
-                      action: "accept",
-                      content
-                    })
-                  }
-                  schema={request.elicitationSchema}
-                  t={t}
-                />
-              ) : null}
-            </div>
-          ))}
+                <div className="whitespace-pre-wrap break-words">{request.summary}</div>
+                {unavailableReason ? (
+                  <div className="text-muted-foreground">{unavailableReason}</div>
+                ) : request.kind === "permission" && liveIdentity ? (
+                  <div className="flex flex-wrap gap-2">
+                    {request.permissionOptions.map((option) => (
+                      <Button
+                        key={option.optionId}
+                        size="xs"
+                        variant={option.decision === "deny" ? "outline" : "default"}
+                        disabled={interventions.requestInFlight(liveIdentity)}
+                        onClick={() => interventions.respond(liveIdentity, option.optionId)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                ) : request.kind === "elicitation" && liveIdentity ? (
+                  <PreviewElicitationControl
+                    disabled={interventions.requestInFlight(liveIdentity)}
+                    onCancel={() => interventions.respond(liveIdentity, { action: "cancel" })}
+                    onSubmit={(content) =>
+                      interventions.respond(liveIdentity, {
+                        action: "accept",
+                        content
+                      })
+                    }
+                    schema={request.elicitationSchema}
+                    t={t}
+                  />
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       ) : null}
       {diagnostics.length > 0 ? (

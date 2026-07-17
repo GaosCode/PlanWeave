@@ -39,7 +39,7 @@ const opaqueAcpIdSchema = (fieldName: string) =>
     .string()
     .min(1)
     .refine(
-      (value) => utf8ByteLength(value) <= 1_024,
+      (value) => utf8ByteLength(value) <= 1024,
       `${fieldName} exceeds the 1024-byte UTF-8 limit.`
     );
 
@@ -72,7 +72,7 @@ export type RunnerPermissionDecision = z.infer<typeof runnerPermissionDecisionSc
 export const runnerPermissionOptionSchema = z
   .object({
     optionId: runnerPermissionOptionIdSchema,
-    label: nonEmptySafeTextSchema(1_024, "Permission option label"),
+    label: nonEmptySafeTextSchema(1024, "Permission option label"),
     decision: runnerPermissionDecisionSchema
   })
   .strict();
@@ -84,7 +84,7 @@ export const runnerPermissionInteractionRequestSchema = z
     kind: z.literal("permission"),
     identity: runnerInteractionIdentitySchema,
     requestedAt: z.string().datetime(),
-    summary: nonEmptySafeTextSchema(4_096, "Permission request summary"),
+    summary: nonEmptySafeTextSchema(4096, "Permission request summary"),
     toolCallId: runnerToolCallIdSchema,
     options: z.array(runnerPermissionOptionSchema).min(1).max(64)
   })
@@ -131,7 +131,7 @@ export const runnerPermissionInteractionResponseSchema = z
     decision: runnerPermissionInteractionDecisionSchema,
     respondedAt: z.string().datetime(),
     decisionSource: runnerInteractionClientLabelSchema,
-    reason: nonEmptySafeTextSchema(4_096, "Permission response reason").nullable()
+    reason: nonEmptySafeTextSchema(4096, "Permission response reason").nullable()
   })
   .strict()
   .superRefine((response, context) => {
@@ -154,7 +154,7 @@ export const runnerInteractionOwnerResultSchema = z
     outcome: z.literal("expired"),
     reason: z.enum(["establishment_failed", "aborted", "deadline", "terminal_cleanup"]),
     recordedAt: z.string().datetime(),
-    message: nonEmptySafeTextSchema(4_096, "Runner interaction owner result message")
+    message: nonEmptySafeTextSchema(4096, "Runner interaction owner result message")
   })
   .strict();
 export type RunnerInteractionOwnerResult = z.infer<typeof runnerInteractionOwnerResultSchema>;
@@ -182,6 +182,9 @@ export const runnerInteractionErrorCodeSchema = z.enum([
   "interaction_request_conflict",
   "interaction_already_answered",
   "interaction_identity_mismatch",
+  "interaction_owner_replaced",
+  "interaction_owner_unavailable",
+  "interaction_run_terminal",
   "interaction_option_not_advertised",
   "interaction_not_found",
   "interaction_path_invalid",
