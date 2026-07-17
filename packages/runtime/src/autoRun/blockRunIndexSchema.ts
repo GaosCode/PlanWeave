@@ -88,10 +88,27 @@ export const blockRunIndexV4PageSchema = z
 export type BlockRunIndexEntry = z.infer<typeof blockRunIndexEntrySchema>;
 export type BlockRunLogicalCursor = z.infer<typeof blockRunLogicalCursorSchema>;
 export type BlockRunIndexV3Manifest = z.infer<typeof blockRunIndexV3ManifestSchema>;
+export type BlockRunIndexV4Pointer = z.infer<typeof blockRunIndexV4PointerSchema>;
+export type BlockRunIndexV4PageDescriptor = z.infer<typeof blockRunIndexV4PageDescriptorSchema>;
 export type BlockRunIndexV4Manifest = z.infer<typeof blockRunIndexV4ManifestSchema>;
 
+export function compareBlockRunChronology(
+  left: BlockRunLogicalCursor,
+  right: BlockRunLogicalCursor
+): number {
+  const byTime = Date.parse(left.orderedAt) - Date.parse(right.orderedAt);
+  return byTime !== 0 ? byTime : left.stableIdentity.localeCompare(right.stableIdentity);
+}
+
 export function blockRunIndexPageChecksum(entries: readonly BlockRunIndexEntry[]): string {
-  return createHash("sha256").update(JSON.stringify(entries)).digest("hex");
+  const canonicalEntries = entries.map((entry) => ({
+    runId: entry.runId,
+    retryIndex: entry.retryIndex,
+    orderedAt: entry.orderedAt,
+    stableIdentity: entry.stableIdentity,
+    hasArtifact: entry.hasArtifact
+  }));
+  return createHash("sha256").update(JSON.stringify(canonicalEntries)).digest("hex");
 }
 
 export function blockRunIndexPageObjectId(entries: readonly BlockRunIndexEntry[]): string {
