@@ -12,7 +12,7 @@ examples           Example PlanWeave packages
 scripts            Repository checks
 skills             Agent skills distributed from this repository
 readme             README assets and localized README content
-archive            Historical planning material, not current implementation authority
+archive            Archived planning material
 ```
 
 ## Source Setup
@@ -96,29 +96,19 @@ planweave package import --from <draft> --dry-run --json
 planweave package import --from <draft> --apply --json
 ```
 
-## Dependency override rationale
-
-`pnpm-workspace.yaml` pins several transitive packages under `overrides`. These were introduced in `88972b61` (`fix(deps): resolve dependabot npm advisories`) to clear Dependabot/npm security advisories without waiting for every direct dependency to bump.
-
-| Override | Version | Rationale |
-|----------|---------|-----------|
-| `@babel/core` | `7.29.6` | Security pin from Dependabot advisories (transitive). |
-| `form-data` | `4.0.6` | Security pin from Dependabot advisories (transitive). |
-| `hono` | `4.12.25` | Security pin from Dependabot advisories (transitive). |
-| `js-yaml` | `4.2.0` | Security pin from Dependabot advisories (transitive). |
-| `tar` | `7.5.16` | Security pin from Dependabot advisories (transitive). |
-| `tmp` | `0.2.7` | Security pin from Dependabot advisories (transitive). |
-| `undici@^6.25.0` | `6.27.0` | Security pin for the undici 6.x range (transitive). |
-| `undici@^7.25.0` | `7.28.0` | Security pin for the undici 7.x range (transitive). |
-
-CI runs `pnpm audit --audit-level=high` on every PR/push so these pins cannot silently go stale. Prefer removing an override once upstream direct dependencies absorb the fixed version. Review this table quarterly (or whenever audit fails) and mark any unclear pin as **verify** rather than inventing a reason.
-
 ## Verification
 
 Run the full test suite:
 
 ```bash
 pnpm test
+```
+
+The CI test suite is also split into unit and platform-dependent groups:
+
+```bash
+pnpm test:unit
+pnpm test:platform
 ```
 
 Build the workspace:
@@ -141,7 +131,7 @@ pnpm --filter @planweave-ai/desktop smoke
 
 ## ACP Verification
 
-Run the deterministic ACP contract, CLI, and Desktop tests:
+Run the ACP contract, CLI, and Desktop tests:
 
 ```bash
 pnpm exec vitest run \
@@ -154,7 +144,7 @@ pnpm exec vitest run \
   packages/desktop/src/__tests__/acpDesktopMockE2E.test.tsx
 ```
 
-For live verification, use an isolated PlanWeave workspace with one block that submits an artifact and a second block that remains active beyond the cancellation timeout. Run the smoke command for each profile being verified:
+For live verification, run the smoke command for each configured profile:
 
 ```bash
 node scripts/acp-live-smoke.mjs --profile codex-acp --evidence /tmp/codex-acp.json
@@ -163,15 +153,13 @@ node scripts/acp-live-smoke.mjs --profile opencode-acp --evidence /tmp/opencode-
 node scripts/acp-live-smoke.mjs --profile pi-acp --evidence /tmp/pi-acp.json
 ```
 
-The command checks profile preflight, a successful artifact submission, ordered runner events, bounded cancellation, cleanup, canonical session identity, and stable replay. Use `--cancellation-timeout <ms>` when the selected agent needs a longer interval to enter the running state. Evidence files are written with mode `0600`.
+Use `--cancellation-timeout <ms>` when an agent needs longer to enter the running state.
 
-Grok also has a separate opt-in live smoke that talks directly to the installed ACP command. It is skipped by default, so the normal test suite and CI do not depend on Grok CLI or an account. Run it only after installing Grok CLI and completing any required login outside PlanWeave:
+Grok has a separate opt-in live smoke. Run it after installing Grok CLI and completing its login:
 
 ```bash
 PLANWEAVE_LIVE_GROK_ACP=1 pnpm exec vitest run packages/runtime/src/__tests__/acpGrokLiveSmoke.test.ts
 ```
-
-The smoke checks the local command/version, initialize, authentication using only an actually advertised `cached_token` method or an already-present `XAI_API_KEY`, session creation, and one minimal streamed prompt with a terminal response. It does not start login, a browser, or an authentication terminal; it cancels permission and elicitation requests, never invokes a tool on purpose, and does not print environment values or raw protocol payloads. If the agent requires user action or does not advertise a safe method, the smoke fails with a redacted stage/status instead of changing credentials. Session close is called only when the initialize response advertises it.
 
 ## Local Packaging
 
