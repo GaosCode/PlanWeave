@@ -2,6 +2,7 @@
 
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const allowedExtensions = new Set([".json", ".log", ".txt", ".xml"]);
 
@@ -9,7 +10,7 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function redacted(content) {
+export function redactCiText(content, sensitivePaths = []) {
   let result = content;
   const paths = new Set(
     [
@@ -17,11 +18,12 @@ function redacted(content) {
       process.env.GITHUB_WORKSPACE,
       process.env.RUNNER_TEMP,
       process.env.HOME,
-      process.env.USERPROFILE
+      process.env.USERPROFILE,
+      ...sensitivePaths
     ].filter((value) => typeof value === "string" && value.length > 1)
   );
   for (const path of [...paths].sort((left, right) => right.length - left.length)) {
-    result = result.replace(new RegExp(escapeRegExp(path), "g"), "<redacted-path>");
+    result = result.replace(new RegExp(escapeRegExp(path), "gi"), "<redacted-path>");
   }
 
   result = result
@@ -54,17 +56,23 @@ async function reportFiles(root) {
   return files;
 }
 
-const roots = process.argv.slice(2);
-if (roots.length === 0) {
-  throw new Error("Usage: redact-ci-test-artifacts.mjs <report-directory> [...directories]");
+async function main(roots) {
+  if (roots.length === 0) {
+    throw new Error("Usage: redact-ci-test-artifacts.mjs <report-directory> [...directories]");
+  }
+
+  let fileCount = 0;
+  for (const root of roots) {
+    for (const path of await reportFiles(resolve(root))) {
+      const content = await readFile(path, "utf8");
+      await writeFile(path, redactCiText(content), "utf8");
+      fileCount += 1;
+    }
+  }
+  console.log(`Redacted ${fileCount} CI test artifact file(s).`);
 }
 
-let fileCount = 0;
-for (const root of roots) {
-  for (const path of await reportFiles(resolve(root))) {
-    const content = await readFile(path, "utf8");
-    await writeFile(path, redacted(content), "utf8");
-    fileCount += 1;
-  }
+const invokedPath = process.argv[1];
+if (invokedPath && import.meta.url === pathToFileURL(resolve(invokedPath)).href) {
+  await main(process.argv.slice(2));
 }
-console.log(`Redacted ${fileCount} CI test artifact file(s).`);

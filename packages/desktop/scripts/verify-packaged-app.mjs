@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { listPackage } from "@electron/asar";
 import { spawnManagedProcess } from "@planweave-ai/runtime";
+import { redactCiText } from "../../../scripts/redact-ci-test-artifacts.mjs";
 
 const packageRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const repoRoot = resolve(packageRoot, "../..");
@@ -17,6 +18,63 @@ const requiredAsarEntries = [
 ];
 const startupErrorPattern = /MODULE_NOT_FOUND|Cannot find module|Uncaught Exception/i;
 const startupReadyEvent = "PLANWEAVE_DESKTOP_STARTUP_SMOKE_READY";
+const maxCapturedOutputBytes = 64 * 1024;
+const inheritedEnvironmentKeys = new Set([
+  "APPDATA",
+  "COMSPEC",
+  "DBUS_SESSION_BUS_ADDRESS",
+  "DISPLAY",
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "LOCALAPPDATA",
+  "PATH",
+  "PATHEXT",
+  "SYSTEMROOT",
+  "TEMP",
+  "TMP",
+  "TMPDIR",
+  "USERPROFILE",
+  "WAYLAND_DISPLAY",
+  "WINDIR",
+  "XAUTHORITY",
+  "XDG_RUNTIME_DIR"
+]);
+
+function buildSmokeEnvironment(smokeHome, smokeUserData) {
+  const environment = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && inheritedEnvironmentKeys.has(key.toUpperCase())) {
+      environment[key] = value;
+    }
+  }
+  return {
+    ...environment,
+    PLANWEAVE_HOME: smokeHome,
+    PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR: smokeUserData,
+    PLANWEAVE_DESKTOP_STARTUP_SMOKE: "1"
+  };
+}
+
+function appendBoundedOutput(output, chunk) {
+  const combined = output + chunk;
+  if (Buffer.byteLength(combined) <= maxCapturedOutputBytes) {
+    return combined;
+  }
+  return Buffer.from(combined).subarray(-maxCapturedOutputBytes).toString();
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function sanitizedDiagnostic(value, sensitivePaths = []) {
+  const configuredPaths = [
+    process.env.PLANWEAVE_PACKAGED_APP_PATH,
+    process.env.PLANWEAVE_CI_REPORT_PATH
+  ].filter((path) => typeof path === "string");
+  return redactCiText(value, [...configuredPaths, ...sensitivePaths]);
+}
 
 function hasVerifiedStartupMarker(output) {
   for (const line of output.split(/\r?\n/)) {
@@ -162,12 +220,7 @@ async function smokeLaunch(executablePath, platform) {
     command: executablePath,
     args: launchArgs,
     cwd: repoRoot,
-    env: {
-      ...process.env,
-      PLANWEAVE_HOME: smokeHome,
-      PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR: smokeUserData,
-      PLANWEAVE_DESKTOP_STARTUP_SMOKE: "1"
-    },
+    env: buildSmokeEnvironment(smokeHome, smokeUserData),
     graceMs: 1_000
   });
   child.stdin.end();
@@ -176,16 +229,13 @@ async function smokeLaunch(executablePath, platform) {
   let ready = false;
   child.stdout.on("data", (chunk) => {
     const text = chunk.toString();
-    output += text;
-    process.stdout.write(text);
+    output = appendBoundedOutput(output, text);
     if (hasVerifiedStartupMarker(output)) {
       ready = true;
     }
   });
   child.stderr.on("data", (chunk) => {
-    const text = chunk.toString();
-    output += text;
-    process.stderr.write(text);
+    output = appendBoundedOutput(output, chunk.toString());
   });
 
   const completion = new Promise((resolveCompletion) => {
@@ -200,43 +250,63 @@ async function smokeLaunch(executablePath, platform) {
     })
   ]);
   clearTimeout(timeout);
+  const sensitivePaths = [executablePath, smokeHome, smokeUserData];
+  const diagnosticOutput = () => sanitizedDiagnostic(output, sensitivePaths);
 
   if (outcome.kind === "timeout") {
     try {
       await tree.terminate("packaged startup smoke timeout");
     } catch (cleanupError) {
       throw new Error(
-        `Packaged app startup timed out and managed process-tree cleanup failed:\n${output}`,
-        { cause: cleanupError }
+        `Packaged app startup timed out and managed process-tree cleanup failed: ${sanitizedDiagnostic(errorMessage(cleanupError), sensitivePaths)}\n${diagnosticOutput()}`
       );
     }
-    throw new Error(`Packaged app did not exit normally before timeout:\n${output}`);
+    throw new Error(`Packaged app did not exit normally before timeout:\n${diagnosticOutput()}`);
   }
   if (outcome.kind === "error") {
     if (tree.isAlive()) {
       try {
         await tree.terminate("packaged startup smoke spawn failure");
       } catch (cleanupError) {
-        throw new Error("Packaged app failed to spawn and process-tree cleanup failed.", {
-          cause: new AggregateError([outcome.error, cleanupError])
-        });
+        throw new Error(
+          `Packaged app failed to spawn and process-tree cleanup failed: ${sanitizedDiagnostic(`${errorMessage(outcome.error)}; ${errorMessage(cleanupError)}`, sensitivePaths)}`
+        );
       }
     }
-    throw outcome.error;
+    throw new Error(
+      `Packaged app failed to spawn: ${sanitizedDiagnostic(errorMessage(outcome.error), sensitivePaths)}`
+    );
   }
 
   await tree.exited;
   if (startupErrorPattern.test(output)) {
-    throw new Error(`Packaged app emitted a startup module error:\n${output}`);
+    throw new Error(`Packaged app emitted a startup module error:\n${diagnosticOutput()}`);
   }
   if (outcome.code !== 0) {
     throw new Error(
-      `Packaged app exited with code ${String(outcome.code)}${outcome.signal ? ` (${outcome.signal})` : ""}:\n${output}`
+      `Packaged app exited with code ${String(outcome.code)}${outcome.signal ? ` (${outcome.signal})` : ""}:\n${diagnosticOutput()}`
     );
   }
   if (!ready) {
-    throw new Error(`Packaged app exited before reporting startup readiness:\n${output}`);
+    throw new Error(
+      `Packaged app exited before reporting startup readiness:\n${diagnosticOutput()}`
+    );
   }
+}
+
+function redactReportValue(value) {
+  if (typeof value === "string") {
+    return sanitizedDiagnostic(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(redactReportValue);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, redactReportValue(entry)])
+    );
+  }
+  return value;
 }
 
 async function writeCiReport(report) {
@@ -246,7 +316,11 @@ async function writeCiReport(report) {
   }
   const resolvedReportPath = isAbsolute(reportPath) ? reportPath : resolve(repoRoot, reportPath);
   await mkdir(dirname(resolvedReportPath), { recursive: true });
-  await writeFile(resolvedReportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  await writeFile(
+    resolvedReportPath,
+    `${JSON.stringify(redactReportValue(report), null, 2)}\n`,
+    "utf8"
+  );
 }
 
 let stage = "resolve-packaged-app";
@@ -271,11 +345,20 @@ try {
   });
   console.log("Packaged PlanWeave app smoke passed.");
 } catch (error) {
-  await writeCiReport({
-    schemaVersion: 1,
-    platform: reportPlatform,
-    status: "failed",
-    failedStage: stage
-  });
-  throw error;
+  const diagnostic = sanitizedDiagnostic(errorMessage(error));
+  try {
+    await writeCiReport({
+      schemaVersion: 1,
+      platform: reportPlatform,
+      status: "failed",
+      failedStage: stage,
+      diagnostic
+    });
+  } catch (reportError) {
+    console.error(
+      `Packaged smoke report write failed: ${sanitizedDiagnostic(errorMessage(reportError))}`
+    );
+  }
+  console.error(diagnostic);
+  process.exitCode = 1;
 }

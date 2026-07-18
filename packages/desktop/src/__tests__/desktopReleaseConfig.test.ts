@@ -293,6 +293,12 @@ describe("desktop release configuration", () => {
     expect(packagedVerifier).toContain('child.once("close"');
     expect(packagedVerifier).toContain("await tree.exited");
     expect(packagedVerifier).not.toContain('child.kill("SIGTERM")');
+    expect(packagedVerifier).toContain("buildSmokeEnvironment(smokeHome, smokeUserData)");
+    expect(packagedVerifier).toContain("maxCapturedOutputBytes");
+    expect(packagedVerifier).toContain("redactCiText");
+    expect(packagedVerifier).not.toContain("...process.env");
+    expect(packagedVerifier).not.toContain("process.stdout.write(text)");
+    expect(packagedVerifier).not.toContain("process.stderr.write(text)");
     const packagedStartupSection = packagedStartupSmoke.split("function wait(ms: number)")[0] ?? "";
     expect(packagedStartupSection).toContain('document.getElementById("root")');
     expect(packagedStartupSection).toContain('typeof runtimeBridge.listProjects !== "function"');
@@ -326,24 +332,23 @@ describe("desktop release configuration", () => {
     }
   });
 
-  it("anchors relative packaged smoke reports to the repository and preserves absolute paths", async () => {
+  it("anchors packaged smoke reports and redacts diagnostics before exposure", async () => {
     const reportDirectory = await mkdtemp(join(tmpdir(), "planweave-packaged-report-path-"));
     const verifierPath = resolve(desktopRoot, "scripts/verify-packaged-app.mjs");
     const relativeReportPath = resolve(reportDirectory, "relative.json");
     const absoluteReportPath = resolve(reportDirectory, "absolute.json");
-    const invokeVerifier = async (reportPath: string) => {
-      await expect(
-        execFileAsync(process.execPath, [verifierPath], {
-          cwd: desktopRoot,
-          env: {
-            ...process.env,
-            PLANWEAVE_PACKAGED_PLATFORM: "unsupported-test-platform",
-            PLANWEAVE_CI_REPORT_PATH: reportPath
-          }
-        })
-      ).rejects.toMatchObject({
-        stderr: expect.stringContaining("Unsupported packaged app platform")
-      });
+    const invokeVerifier = async (reportPath: string, platform = "unsupported-test-platform") => {
+      const result = await execFileAsync(process.execPath, [verifierPath], {
+        cwd: desktopRoot,
+        env: {
+          ...process.env,
+          PLANWEAVE_PACKAGED_PLATFORM: platform,
+          PLANWEAVE_CI_REPORT_PATH: reportPath
+        }
+      }).catch((error) => error as { stderr?: string });
+      const stderr = result.stderr ?? "";
+      expect(stderr).toContain("Unsupported packaged app platform");
+      return stderr;
     };
 
     try {
@@ -359,10 +364,16 @@ describe("desktop release configuration", () => {
         });
       }
 
+      const secret = "packaged-smoke-secret";
+      const stderr = await invokeVerifier(absoluteReportPath, `token=${secret}`);
+      const redactedReport = await readFile(absoluteReportPath, "utf8");
+      expect(stderr).toContain("token=[REDACTED]");
+      expect(stderr).not.toContain(secret);
+      expect(redactedReport).toContain("[REDACTED]");
+      expect(redactedReport).not.toContain(secret);
+
       const workflow = await readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
-      expect(workflow).toContain(
-        "PLANWEAVE_CI_REPORT_PATH: reports/windows-packaged-smoke.json"
-      );
+      expect(workflow).toContain("PLANWEAVE_CI_REPORT_PATH: reports/windows-packaged-smoke.json");
       expect(workflow).toContain("path: reports");
     } finally {
       await rm(reportDirectory, { recursive: true, force: true });
