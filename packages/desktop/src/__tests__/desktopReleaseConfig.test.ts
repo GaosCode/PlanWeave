@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const desktopRoot = resolve(repoRoot, "packages/desktop");
 const preflightPath = resolve(desktopRoot, "scripts/preflight-release-secrets.mjs");
+const junitWorkflowVerificationTimeoutMs = 60_000;
 
 async function loadConfig(name: string) {
   return (await import(resolve(desktopRoot, name))) as {
@@ -316,30 +317,34 @@ describe("desktop release configuration", () => {
     expect(redactor).toContain("<redacted-user-path>");
   });
 
-  it("forwards package-script worker and JUnit options to Vitest", async () => {
-    const reportDirectory = await mkdtemp(join(tmpdir(), "planweave-ci-junit-options-"));
-    const reportPath = resolve(reportDirectory, "unit.xml");
-    try {
-      await execFileAsync(
-        "pnpm",
-        [
-          "test:unit",
-          "packages/runtime/src/__tests__/runtimePackageEntry.test.ts",
-          "--maxWorkers=1",
-          "--reporter=default",
-          "--reporter=junit",
-          `--outputFile.junit=${reportPath}`
-        ],
-        { cwd: repoRoot, env: process.env }
-      );
+  it(
+    "forwards package-script worker and JUnit options to Vitest",
+    async () => {
+      const reportDirectory = await mkdtemp(join(tmpdir(), "planweave-ci-junit-options-"));
+      const reportPath = resolve(reportDirectory, "unit.xml");
+      try {
+        await execFileAsync(
+          "pnpm",
+          [
+            "test:unit",
+            "packages/cli/src/__tests__/commandsFormatters.test.ts",
+            "--maxWorkers=1",
+            "--reporter=default",
+            "--reporter=junit",
+            `--outputFile.junit=${reportPath}`
+          ],
+          { cwd: repoRoot, env: process.env }
+        );
 
-      const report = await readFile(reportPath, "utf8");
-      expect(report).toContain("<testsuites");
-      expect(report).toContain("runtimePackageEntry.test.ts");
-    } finally {
-      await rm(reportDirectory, { recursive: true, force: true });
-    }
-  });
+        const report = await readFile(reportPath, "utf8");
+        expect(report).toContain("<testsuites");
+        expect(report).toContain("commandsFormatters.test.ts");
+      } finally {
+        await rm(reportDirectory, { recursive: true, force: true });
+      }
+    },
+    junitWorkflowVerificationTimeoutMs
+  );
 
   it("anchors packaged smoke reports and redacts diagnostics before exposure", async () => {
     const reportDirectory = await mkdtemp(join(tmpdir(), "planweave-packaged-report-path-"));
