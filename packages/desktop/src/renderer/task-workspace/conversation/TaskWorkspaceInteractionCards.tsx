@@ -144,8 +144,7 @@ export function TaskWorkspaceInteractionCards({
             key={request.interactionId}
             onCancel={
               request.kind === "permission" && (liveIdentity || persistedPermissionIdentity)
-                ? () =>
-                    interventions.cancelPermission(liveIdentity ?? persistedPermissionIdentity!)
+                ? () => interventions.cancelPermission(liveIdentity ?? persistedPermissionIdentity!)
                 : null
             }
             onElicitationRespond={
@@ -181,7 +180,9 @@ function InteractionCard({
   disabledReason: string | null;
   inFlight: boolean;
   onCancel: (() => void) | null;
-  onElicitationRespond: ((value: Extract<AgentRunControlRespondOutcome, { action: string }>) => void) | null;
+  onElicitationRespond:
+    | ((value: Extract<AgentRunControlRespondOutcome, { action: string }>) => void)
+    | null;
   onPermissionRespond: ((optionId: string) => void) | null;
   request: InteractionRequest;
   t: ReturnType<typeof createTranslator>;

@@ -68,7 +68,12 @@ describe("Task Workspace conversation", () => {
     subtree.scrollTop = 240;
 
     rerender(
-      <TaskWorkspaceCancelRunControllerScope api={null} canvasRef={null} model={null} selectedRun={null}>
+      <TaskWorkspaceCancelRunControllerScope
+        api={null}
+        canvasRef={null}
+        model={null}
+        selectedRun={null}
+      >
         {() => <div data-testid="workspace-subtree" />}
       </TaskWorkspaceCancelRunControllerScope>
     );

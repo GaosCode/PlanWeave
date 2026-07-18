@@ -3,10 +3,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadDesktopBuildMetadata } from "../main/buildMetadata";
-import {
-  PLANWEAVE_BUILD_METADATA_FILE,
-  desktopBuildMetadataSchema
-} from "../shared/buildMetadata";
+import { PLANWEAVE_BUILD_METADATA_FILE, desktopBuildMetadataSchema } from "../shared/buildMetadata";
 import { generateBuildMetadata } from "../../scripts/generate-build-metadata";
 
 describe("desktop build metadata", () => {
@@ -20,9 +17,9 @@ describe("desktop build metadata", () => {
       outputPath
     });
 
-    expect(desktopBuildMetadataSchema.parse(JSON.parse(await readFile(outputPath, "utf8")))).toEqual(
-      metadata
-    );
+    expect(
+      desktopBuildMetadataSchema.parse(JSON.parse(await readFile(outputPath, "utf8")))
+    ).toEqual(metadata);
     expect(metadata).toMatchObject({
       channel: "development",
       signedDistribution: false,

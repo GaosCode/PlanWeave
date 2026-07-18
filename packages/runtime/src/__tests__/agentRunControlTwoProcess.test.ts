@@ -226,7 +226,11 @@ describe("agent run control two-process integration", () => {
       );
       expect(denied.value).toBe("deny");
 
-      owner.send({ kind: "add_request", requestKind: "permission", requestId: "permission-cancel" });
+      owner.send({
+        kind: "add_request",
+        requestKind: "permission",
+        requestId: "permission-cancel"
+      });
       await owner.waitFor(
         (message) => message.kind === "request_ready" && message.requestId === "permission-cancel",
         "cancelled permission request"

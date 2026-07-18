@@ -514,12 +514,10 @@ describe("runner record desktop bridge", () => {
     await cancel?.({}, ref, recordId, sessionIdentity);
 
     expect(runtimeMock.listDesktopPendingAgentRequests).toHaveBeenCalledWith(identity);
-    expect(runtimeMock.respondToDesktopAgentRequest).toHaveBeenCalledWith(
-      ref,
-      recordId,
-      identity,
-      { kind: "select", optionId: "allow" }
-    );
+    expect(runtimeMock.respondToDesktopAgentRequest).toHaveBeenCalledWith(ref, recordId, identity, {
+      kind: "select",
+      optionId: "allow"
+    });
     expect(runtimeMock.respondToDesktopAgentAuthenticationRequest).toHaveBeenCalledWith(identity, {
       token: "credential"
     });

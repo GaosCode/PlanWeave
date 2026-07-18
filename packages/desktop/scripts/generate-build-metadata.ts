@@ -12,12 +12,7 @@ import {
 } from "../src/shared/buildMetadata.js";
 
 const packageRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
-const defaultOutputPath = resolve(
-  packageRoot,
-  "build",
-  "generated",
-  PLANWEAVE_BUILD_METADATA_FILE
-);
+const defaultOutputPath = resolve(packageRoot, "build", "generated", PLANWEAVE_BUILD_METADATA_FILE);
 
 type GenerateBuildMetadataOptions = {
   channel: DesktopBuildMetadata["channel"];

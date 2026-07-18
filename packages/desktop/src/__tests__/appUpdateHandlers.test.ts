@@ -103,9 +103,9 @@ describe("resolveAppUpdateDelivery", () => {
         }
       })
     ).toBe("github-releases");
-    expect(
-      resolveAppUpdateDelivery({ platform: "darwin", buildMetadata: signedRelease })
-    ).toBe("in-app");
+    expect(resolveAppUpdateDelivery({ platform: "darwin", buildMetadata: signedRelease })).toBe(
+      "in-app"
+    );
     expect(resolveAppUpdateDelivery({ platform: "win32", buildMetadata: null })).toBe("in-app");
     expect(resolveAppUpdateDelivery({ platform: "linux", buildMetadata: null })).toBe("in-app");
   });

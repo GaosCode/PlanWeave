@@ -34,9 +34,7 @@ export function TaskWorkspaceAppRoute() {
     <TaskWorkspaceCancelRunControllerScope
       api={bridge}
       canvasRef={
-        navigation
-          ? { canvasId: navigation.canvasId, projectRoot: navigation.projectRoot }
-          : null
+        navigation ? { canvasId: navigation.canvasId, projectRoot: navigation.projectRoot } : null
       }
       model={taskWorkspace.runnerModel}
       selectedRun={taskWorkspace.selectedRun}

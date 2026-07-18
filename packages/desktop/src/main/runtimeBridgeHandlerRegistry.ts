@@ -630,7 +630,8 @@ export const runtimeBridgeHandlers = {
   recoverTaskWorkspaceAcpRun: (_event, identity, audit) =>
     recoverTaskWorkspaceAcpRun(
       taskWorkspaceAcpRecoveryIdentitySchema.parse(identity),
-      z.object({ source: z.string().min(1).max(128), reason: z.string().min(1).max(4_096) })
+      z
+        .object({ source: z.string().min(1).max(128), reason: z.string().min(1).max(4_096) })
         .strict()
         .parse(audit)
     ),
@@ -693,11 +694,7 @@ export const runtimeBridgeHandlers = {
     }
   },
   cancelAgentRun: (_event, ref, recordId, identity) =>
-    cancelDesktopAgentRun(
-      ref,
-      recordId,
-      desktopAgentSessionActionIdentitySchema.parse(identity)
-    ),
+    cancelDesktopAgentRun(ref, recordId, desktopAgentSessionActionIdentitySchema.parse(identity)),
   sendAgentPrompt: (_event, identity, text) =>
     sendAgentPrompt(
       desktopAgentPromptIdentitySchema.parse(identity),

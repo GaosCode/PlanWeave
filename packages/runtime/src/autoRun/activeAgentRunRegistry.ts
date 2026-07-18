@@ -421,10 +421,7 @@ export class ActiveAgentRunRegistry {
     return this.lookupExact(identity);
   }
 
-  private assertActionIdentity(
-    identity: object,
-    fields: readonly string[]
-  ): void {
+  private assertActionIdentity(identity: object, fields: readonly string[]): void {
     for (const field of fields) {
       const value = Reflect.get(identity, field) as unknown;
       if (field === "desktopRunId" && value === null) continue;
