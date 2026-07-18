@@ -5,6 +5,11 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$reportPath = Join-Path $ReleaseDir "verification-windows.txt"
+if (Test-Path -LiteralPath $reportPath -PathType Leaf) {
+  Remove-Item -LiteralPath $reportPath -Force
+}
+
 $packageRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $packageJson = Get-Content (Join-Path $packageRoot "package.json") -Raw | ConvertFrom-Json
 $installer = Join-Path $ReleaseDir "PlanWeave-$($packageJson.version)-win-x64.exe"
@@ -71,6 +76,8 @@ function Invoke-CheckedProcess {
 }
 
 $verificationFailure = $null
+$cleanupErrors = [System.Collections.Generic.List[object]]::new()
+$uninstallerVerified = $false
 try {
   Assert-ValidAuthenticodeSignature -ArtifactPath $installer
   Invoke-CheckedProcess -FilePath $installer -Arguments @("/S", "/D=$installDir") `
@@ -79,6 +86,11 @@ try {
     throw "Installed application executable was not found: $installedExe"
   }
   Assert-ValidAuthenticodeSignature -ArtifactPath $installedExe
+  if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
+    throw "Missing Windows release uninstaller: $uninstaller"
+  }
+  Assert-ValidAuthenticodeSignature -ArtifactPath $uninstaller
+  $uninstallerVerified = $true
 
   $previousPlatform = $env:PLANWEAVE_PACKAGED_PLATFORM
   $previousAppPath = $env:PLANWEAVE_PACKAGED_APP_PATH
@@ -92,17 +104,11 @@ try {
     $env:PLANWEAVE_PACKAGED_PLATFORM = $previousPlatform
     $env:PLANWEAVE_PACKAGED_APP_PATH = $previousAppPath
   }
-
-  $report.Add("Windows release verification passed.")
-  $report | Set-Content (Join-Path $ReleaseDir "verification-windows.txt") -Encoding utf8
 } catch {
   $verificationFailure = $_
-  throw
 } finally {
-  $cleanupErrors = [System.Collections.Generic.List[object]]::new()
-  if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
+  if ($uninstallerVerified -and (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
     try {
-      Assert-ValidAuthenticodeSignature -ArtifactPath $uninstaller
       Invoke-CheckedProcess -FilePath $uninstaller -Arguments @("/S", "_?=$installDir") `
         -Description "NSIS silent uninstall"
     } catch {
@@ -116,10 +122,17 @@ try {
       $cleanupErrors.Add($_)
     }
   }
-  if ($cleanupErrors.Count -gt 0) {
-    if ($null -eq $verificationFailure) {
-      throw "Windows release verification cleanup failed: $($cleanupErrors[0])"
-    }
-    Write-Error "Windows release verification cleanup failed after the verification error."
-  }
 }
+
+if ($null -ne $verificationFailure) {
+  if ($cleanupErrors.Count -gt 0) {
+    throw "Windows release verification failed: $($verificationFailure.Exception.Message) Cleanup also failed: $($cleanupErrors[0])"
+  }
+  throw $verificationFailure
+}
+if ($cleanupErrors.Count -gt 0) {
+  throw "Windows release verification cleanup failed: $($cleanupErrors[0])"
+}
+
+$report.Add("Windows release verification passed.")
+$report | Set-Content $reportPath -Encoding utf8

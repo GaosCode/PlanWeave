@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
@@ -12,6 +12,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
 const desktopRoot = resolve(repoRoot, "packages/desktop");
 const preflightPath = resolve(desktopRoot, "scripts/preflight-release-secrets.mjs");
 const junitWorkflowVerificationTimeoutMs = 60_000;
+const windowsReleaseProbeTimeoutMs = 30_000;
 
 async function loadConfig(name: string): Promise<Record<string, unknown>> {
   const desktopRequire = createRequire(resolve(desktopRoot, "package.json"));
@@ -315,28 +316,132 @@ describe("desktop release configuration", () => {
     }
   });
 
-  it("verifies the Windows uninstaller signature before executing it", async () => {
+  it("requires and verifies the Windows uninstaller before packaged startup", async () => {
     const windowsVerifier = await readFile(
       resolve(desktopRoot, "scripts/verify-windows-release.ps1"),
       "utf8"
     );
-    const uninstallBlock = windowsVerifier.slice(
-      windowsVerifier.indexOf("if (Test-Path -LiteralPath $uninstaller -PathType Leaf)")
+    const uninstallerValidation = windowsVerifier.indexOf(
+      "if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf))"
     );
-    const signatureVerification = uninstallBlock.indexOf(
+    const signatureVerification = windowsVerifier.indexOf(
       "Assert-ValidAuthenticodeSignature -ArtifactPath $uninstaller"
     );
-    const uninstallExecution = uninstallBlock.indexOf(
-      "Invoke-CheckedProcess -FilePath $uninstaller"
+    const packagedStartup = windowsVerifier.indexOf(
+      '(Join-Path $PSScriptRoot "verify-packaged-app.mjs")'
+    );
+    const finallyBlock = windowsVerifier.lastIndexOf("} finally {");
+    const verificationFailureHandling = windowsVerifier.indexOf(
+      "if ($null -ne $verificationFailure)",
+      finallyBlock
+    );
+    const cleanupBlock = windowsVerifier.slice(finallyBlock, verificationFailureHandling);
+    const cleanupFailureHandling = windowsVerifier.lastIndexOf("if ($cleanupErrors.Count -gt 0)");
+    const successReport = windowsVerifier.indexOf(
+      '$report.Add("Windows release verification passed.")'
     );
 
+    expect(uninstallerValidation).toBeGreaterThan(-1);
     expect(signatureVerification).toBeGreaterThan(-1);
-    expect(uninstallExecution).toBeGreaterThan(signatureVerification);
+    expect(signatureVerification).toBeGreaterThan(uninstallerValidation);
+    expect(packagedStartup).toBeGreaterThan(signatureVerification);
+    expect(finallyBlock).toBeGreaterThan(packagedStartup);
+    expect(verificationFailureHandling).toBeGreaterThan(finallyBlock);
+    expect(cleanupFailureHandling).toBeGreaterThan(verificationFailureHandling);
+    expect(successReport).toBeGreaterThan(cleanupFailureHandling);
+    expect(cleanupBlock).toContain("Invoke-CheckedProcess -FilePath $uninstaller");
+    expect(cleanupBlock).toContain(
+      "$uninstallerVerified -and (Test-Path -LiteralPath $uninstaller -PathType Leaf)"
+    );
+    expect(cleanupBlock).toContain("Remove-Item -LiteralPath $installDir -Recurse -Force");
+    expect(cleanupBlock).not.toContain(
+      "Assert-ValidAuthenticodeSignature -ArtifactPath $uninstaller"
+    );
     expect(
       occurrenceCount(windowsVerifier, "Assert-ValidAuthenticodeSignature -ArtifactPath")
     ).toBe(3);
     expect(windowsVerifier).toContain('"verify", "/pa", "/all", "/v", "/tw", $ArtifactPath');
   });
+
+  it.skipIf(process.platform !== "win32")(
+    "fails Windows release verification when installation omits the uninstaller",
+    async () => {
+      const temporaryDirectory = await mkdtemp(join(tmpdir(), "planweave-uninstaller-probe-"));
+      const releaseDirectory = join(temporaryDirectory, "release");
+      const runnerTemp = join(temporaryDirectory, "runner");
+      const programFiles = join(temporaryDirectory, "program-files-x86");
+      const signToolDirectory = join(
+        programFiles,
+        "Windows Kits",
+        "10",
+        "bin",
+        "10.0.0",
+        "x64"
+      );
+      const probeHookPath = join(temporaryDirectory, "release-probe.cjs");
+      const packageJson = JSON.parse(
+        await readFile(resolve(desktopRoot, "package.json"), "utf8")
+      ) as { version: string };
+      const installerPath = join(
+        releaseDirectory,
+        `PlanWeave-${packageJson.version}-win-x64.exe`
+      );
+      const signToolPath = join(signToolDirectory, "signtool.exe");
+      const reportPath = join(releaseDirectory, "verification-windows.txt");
+      const verifierPath = resolve(desktopRoot, "scripts/verify-windows-release.ps1");
+
+      const probeHook = `const fs = require("node:fs");
+const path = require("node:path");
+const executable = path.basename(process.execPath).toLowerCase();
+if (executable === "signtool.exe") process.exit(0);
+const installArgument = process.argv.find((argument) => argument.startsWith("/D="));
+if (installArgument) {
+  const installDirectory = installArgument.slice(3);
+  fs.mkdirSync(installDirectory, { recursive: true });
+  fs.copyFileSync(process.execPath, path.join(installDirectory, "PlanWeave.exe"));
+  process.exit(0);
+}
+process.exit(2);
+`;
+
+      try {
+        await Promise.all([
+          mkdir(releaseDirectory, { recursive: true }),
+          mkdir(runnerTemp, { recursive: true }),
+          mkdir(signToolDirectory, { recursive: true }),
+          writeFile(probeHookPath, probeHook),
+          writeFile(reportPath, "Windows release verification passed.\n")
+        ]);
+        await Promise.all([
+          copyFile(process.execPath, installerPath),
+          copyFile(process.execPath, signToolPath)
+        ]);
+
+        await expect(
+          execFileAsync(
+            "pwsh",
+            ["-NoLogo", "-NoProfile", "-File", verifierPath, "-ReleaseDir", releaseDirectory],
+            {
+              cwd: desktopRoot,
+              env: {
+                ...process.env,
+                "ProgramFiles(x86)": programFiles,
+                RUNNER_TEMP: runnerTemp,
+                NODE_OPTIONS: `--require "${probeHookPath.replaceAll('"', '\\"')}"`
+              },
+              timeout: windowsReleaseProbeTimeoutMs
+            }
+          )
+        ).rejects.toMatchObject({
+          stderr: expect.stringContaining("Missing Windows release uninstaller")
+        });
+        await expect(readFile(reportPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      } finally {
+        await rm(temporaryDirectory, { recursive: true, force: true });
+      }
+    },
+    windowsReleaseProbeTimeoutMs
+  );
 
   it("keeps unit, platform-matrix, and unsigned Windows packaged gates explicit", async () => {
     const [
