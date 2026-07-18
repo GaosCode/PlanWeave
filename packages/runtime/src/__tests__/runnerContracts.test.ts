@@ -256,21 +256,23 @@ describe("runner identity and capability contracts", () => {
 
   it("parses only versioned canonical runner next actions", () => {
     expect(
-      runnerNextActionsSchema.parse({
-        version: "planweave.runner-next-actions/v1",
-        actions: [
-          {
-            kind: "recover_acp_session",
-            sourceRecordId: "T-001#B-001::RUN-001",
-            sourceRunId: "RUN-001"
-          },
-          {
-            kind: "retry_new_session",
-            sourceRecordId: "T-001#B-001::RUN-001",
-            sourceRunId: "RUN-001"
-          }
-        ]
-      }).actions.map((action) => action.kind)
+      runnerNextActionsSchema
+        .parse({
+          version: "planweave.runner-next-actions/v1",
+          actions: [
+            {
+              kind: "recover_acp_session",
+              sourceRecordId: "T-001#B-001::RUN-001",
+              sourceRunId: "RUN-001"
+            },
+            {
+              kind: "retry_new_session",
+              sourceRecordId: "T-001#B-001::RUN-001",
+              sourceRunId: "RUN-001"
+            }
+          ]
+        })
+        .actions.map((action) => action.kind)
     ).toEqual(["recover_acp_session", "retry_new_session"]);
     expect(
       runnerNextActionsSchema.safeParse({

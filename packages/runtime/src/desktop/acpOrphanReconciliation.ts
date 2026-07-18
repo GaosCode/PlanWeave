@@ -116,17 +116,20 @@ async function synchronizeInterruptedAutoRun(
   }
 }
 
-export async function reconcileOrphanedAcpRun(options: {
-  projectRoot: string;
-  canvasId: string;
-  recordId: string;
-  now?: Date;
-  freshnessThresholdMs?: number;
-}, dependencies: {
-  isPidAlive?: (pid: number) => boolean;
-  probeControlEndpoint?: (address: string) => Promise<boolean>;
-  createEventStore?: (options: ConstructorParameters<typeof AcpEventStore>[0]) => AcpEventStore;
-} = {}): Promise<AcpOrphanReconciliationResult> {
+export async function reconcileOrphanedAcpRun(
+  options: {
+    projectRoot: string;
+    canvasId: string;
+    recordId: string;
+    now?: Date;
+    freshnessThresholdMs?: number;
+  },
+  dependencies: {
+    isPidAlive?: (pid: number) => boolean;
+    probeControlEndpoint?: (address: string) => Promise<boolean>;
+    createEventStore?: (options: ConstructorParameters<typeof AcpEventStore>[0]) => AcpEventStore;
+  } = {}
+): Promise<AcpOrphanReconciliationResult> {
   const now = options.now ?? new Date();
   if (!Number.isFinite(now.getTime())) throw new Error("ACP orphan reconciliation now is invalid.");
   const thresholdMs = options.freshnessThresholdMs ?? RUNNER_OWNER_FRESHNESS_THRESHOLD_MS;
@@ -174,11 +177,7 @@ export async function reconcileOrphanedAcpRun(options: {
     ) {
       return { status: "owner_active", recordId: record.recordId };
     }
-    const fence = new AcpOwnerWriteFence(
-      runDir,
-      metadata.ownerLeaseId,
-      metadata.ownerGeneration
-    );
+    const fence = new AcpOwnerWriteFence(runDir, metadata.ownerLeaseId, metadata.ownerGeneration);
     if (continuing && !(await fence.isClaimed())) {
       return { status: "not_applicable", recordId: record.recordId };
     }
@@ -278,7 +277,9 @@ export async function reconcileOrphanedAcpRun(options: {
       exitCode: 1
     });
 
-    const eventStore = (dependencies.createEventStore ?? ((storeOptions) => new AcpEventStore(storeOptions)))({
+    const eventStore = (
+      dependencies.createEventStore ?? ((storeOptions) => new AcpEventStore(storeOptions))
+    )({
       runDir,
       identity,
       runner: runnerIdentitySchema.parse({
@@ -312,8 +313,12 @@ export async function reconcileOrphanedAcpRun(options: {
           event.body.kind === "interaction_result" ? [event.body.interactionId] : []
         )
       );
-      if (settledInteractions.some((snapshot) => !confirmedInteractionIds.has(snapshot.interactionId))) {
-        throw new Error("ACP orphan reconciliation cannot terminalize before all interaction results are durable.");
+      if (
+        settledInteractions.some((snapshot) => !confirmedInteractionIds.has(snapshot.interactionId))
+      ) {
+        throw new Error(
+          "ACP orphan reconciliation cannot terminalize before all interaction results are durable."
+        );
       }
       await eventStore.append({
         kind: "diagnostic",

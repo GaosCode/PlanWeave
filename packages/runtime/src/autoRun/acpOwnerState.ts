@@ -97,28 +97,29 @@ export class AcpOwnerStateWriter {
         runnerLifecycle: lifecycle,
         pendingInteractionIds
       };
-      const persistBoth = async () => Promise.allSettled([
-        this.write(this.options.heartbeatPath, {
-          status,
-          pid: null,
-          startedAt: this.options.startedAt,
-          lastHeartbeatAt: now,
-          finishedAt: status === "running" ? null : now,
-          ...owner,
-          ...controlAvailability,
-          ...details
-        }),
-        this.write(this.options.metadataPath, {
-          ...this.options.metadata,
-          status,
-          outcome: status === "completed" ? "succeeded" : status,
-          startedAt: this.options.startedAt,
-          finishedAt: status === "running" ? null : now,
-          ...owner,
-          ...controlAvailability,
-          ...details
-        })
-      ]);
+      const persistBoth = async () =>
+        Promise.allSettled([
+          this.write(this.options.heartbeatPath, {
+            status,
+            pid: null,
+            startedAt: this.options.startedAt,
+            lastHeartbeatAt: now,
+            finishedAt: status === "running" ? null : now,
+            ...owner,
+            ...controlAvailability,
+            ...details
+          }),
+          this.write(this.options.metadataPath, {
+            ...this.options.metadata,
+            status,
+            outcome: status === "completed" ? "succeeded" : status,
+            startedAt: this.options.startedAt,
+            finishedAt: status === "running" ? null : now,
+            ...owner,
+            ...controlAvailability,
+            ...details
+          })
+        ]);
       const results = this.options.writeGuard
         ? await this.options.writeGuard(persistBoth)
         : await persistBoth();

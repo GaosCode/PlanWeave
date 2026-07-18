@@ -219,27 +219,29 @@ async function createOrphanFixture(
   });
   const interactionStore = new PersistentRunnerInteractionStore(runDir);
   for (const [index, interactionId] of interactionIds.entries()) {
-    await interactionStore.createRequest(runnerPermissionInteractionRequestSchema.parse({
-      version: "planweave.runner-interaction/v1",
-      kind: "permission",
-      identity: {
-        projectId: fixture.init.workspace.id,
-        canvasId: "default",
-        claimRef: "T-001#B-001",
-        executorRunId: runId,
-        sessionId: "source-session",
-        requestId: interactionId,
-        ownerLeaseId,
-        ownerGeneration: 1
-      },
-      requestedAt: "2026-07-17T00:00:01.000Z",
-      summary: "Run focused tests",
-      toolCallId: `tool-${index + 1}`,
-      options: [
-        { optionId: "allow", label: "Allow", decision: "approve" },
-        { optionId: "deny", label: "Deny", decision: "deny" }
-      ]
-    }));
+    await interactionStore.createRequest(
+      runnerPermissionInteractionRequestSchema.parse({
+        version: "planweave.runner-interaction/v1",
+        kind: "permission",
+        identity: {
+          projectId: fixture.init.workspace.id,
+          canvasId: "default",
+          claimRef: "T-001#B-001",
+          executorRunId: runId,
+          sessionId: "source-session",
+          requestId: interactionId,
+          ownerLeaseId,
+          ownerGeneration: 1
+        },
+        requestedAt: "2026-07-17T00:00:01.000Z",
+        summary: "Run focused tests",
+        toolCallId: `tool-${index + 1}`,
+        options: [
+          { optionId: "allow", label: "Allow", decision: "approve" },
+          { optionId: "deny", label: "Deny", decision: "deny" }
+        ]
+      })
+    );
   }
   const lifecycle = normalizedRunnerEventSchema.parse({
     version: "planweave.runner-event/v1",
@@ -334,11 +336,7 @@ describe("desktop Task Workspace ACP recovery", () => {
 
   it("fences an owner write that races with the reconciliation claim", async () => {
     const fixture = await createOrphanFixture();
-    const fence = new AcpOwnerWriteFence(
-      fixture.runDir,
-      "00000000-0000-4000-8000-000000000001",
-      1
-    );
+    const fence = new AcpOwnerWriteFence(fixture.runDir, "00000000-0000-4000-8000-000000000001", 1);
     let releaseRevalidation!: () => void;
     const revalidation = new Promise<void>((resolve) => {
       releaseRevalidation = resolve;
@@ -528,8 +526,8 @@ describe("desktop Task Workspace ACP recovery", () => {
           recordId: "T-001#B-001::RUN-001"
         },
         {
-        source: "recovery-integration",
-        reason: "Resume the orphaned mock ACP session."
+          source: "recovery-integration",
+          reason: "Resume the orphaned mock ACP session."
         }
       );
       expect(recoveryResult.nextActions.actions).toEqual([]);

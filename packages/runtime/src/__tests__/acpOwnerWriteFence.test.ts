@@ -104,48 +104,50 @@ describe("ACP durable owner write fence", () => {
     await expect(writer.heartbeat()).rejects.toThrow("fenced by canonical orphan reconciliation");
   });
 
-  it.each(["protocol", "ordinary", "terminal"] as const)(
-    "makes reconciliation wait for an in-flight actual %s write",
-    async (kind) => {
-      const runDir = await mkdtemp(join(tmpdir(), `planweave-event-inflight-${kind}-`));
-      const fence = new AcpOwnerWriteFence(runDir, leaseId, 1);
-      const writeStarted = deferred();
-      const releaseWrite = deferred();
-      const store = eventStore(runDir, fence, async (...args) => {
-        writeStarted.resolve();
-        await releaseWrite.promise;
-        return appendFile(...args);
+  it.each([
+    "protocol",
+    "ordinary",
+    "terminal"
+  ] as const)("makes reconciliation wait for an in-flight actual %s write", async (kind) => {
+    const runDir = await mkdtemp(join(tmpdir(), `planweave-event-inflight-${kind}-`));
+    const fence = new AcpOwnerWriteFence(runDir, leaseId, 1);
+    const writeStarted = deferred();
+    const releaseWrite = deferred();
+    const store = eventStore(runDir, fence, async (...args) => {
+      writeStarted.resolve();
+      await releaseWrite.promise;
+      return appendFile(...args);
+    });
+    await store.open();
+    const write = writeEvent(store, kind);
+    await writeStarted.promise;
+    let claimFinished = false;
+    const claim = fence
+      .claimAfter(async () => true, "2026-07-17T00:01:00.000Z")
+      .then((result) => {
+        claimFinished = true;
+        return result;
       });
-      await store.open();
-      const write = writeEvent(store, kind);
-      await writeStarted.promise;
-      let claimFinished = false;
-      const claim = fence
-        .claimAfter(async () => true, "2026-07-17T00:01:00.000Z")
-        .then((result) => {
-          claimFinished = true;
-          return result;
-        });
-      await new Promise((resolve) => setImmediate(resolve));
-      expect(claimFinished).toBe(false);
-      releaseWrite.resolve();
-      await expect(write).resolves.toBeUndefined();
-      await expect(claim).resolves.toBe(true);
-    }
-  );
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(claimFinished).toBe(false);
+    releaseWrite.resolve();
+    await expect(write).resolves.toBeUndefined();
+    await expect(claim).resolves.toBe(true);
+  });
 
-  it.each(["protocol", "ordinary", "terminal"] as const)(
-    "rejects an actual %s event write when the reconciliation claim wins",
-    async (kind) => {
-      const runDir = await mkdtemp(join(tmpdir(), `planweave-event-fence-${kind}-`));
-      const fence = new AcpOwnerWriteFence(runDir, leaseId, 1);
-      await fence.claimAfter(async () => true, "2026-07-17T00:01:00.000Z");
-      const store = eventStore(runDir, fence);
-      await store.open();
-      const write = writeEvent(store, kind);
-      await expect(write).rejects.toThrow("fenced by canonical orphan reconciliation");
-    }
-  );
+  it.each([
+    "protocol",
+    "ordinary",
+    "terminal"
+  ] as const)("rejects an actual %s event write when the reconciliation claim wins", async (kind) => {
+    const runDir = await mkdtemp(join(tmpdir(), `planweave-event-fence-${kind}-`));
+    const fence = new AcpOwnerWriteFence(runDir, leaseId, 1);
+    await fence.claimAfter(async () => true, "2026-07-17T00:01:00.000Z");
+    const store = eventStore(runDir, fence);
+    await store.open();
+    const write = writeEvent(store, kind);
+    await expect(write).rejects.toThrow("fenced by canonical orphan reconciliation");
+  });
 
   it("serializes sequence allocation under the lock and rejects all events after terminal", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "planweave-event-terminal-fence-"));

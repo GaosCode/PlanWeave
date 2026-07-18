@@ -169,10 +169,22 @@ export function selection(
       version: "planweave.runner-next-actions/v1",
       actions: [
         ...(options.recovery
-          ? [{ kind: "recover_acp_session" as const, sourceRecordId: recordId, sourceRunId: "RUN-001" }]
+          ? [
+              {
+                kind: "recover_acp_session" as const,
+                sourceRecordId: recordId,
+                sourceRunId: "RUN-001"
+              }
+            ]
           : []),
         ...(options.retry
-          ? [{ kind: "retry_new_session" as const, sourceRecordId: recordId, sourceRunId: "RUN-001" }]
+          ? [
+              {
+                kind: "retry_new_session" as const,
+                sourceRecordId: recordId,
+                sourceRunId: "RUN-001"
+              }
+            ]
           : [])
       ]
     },

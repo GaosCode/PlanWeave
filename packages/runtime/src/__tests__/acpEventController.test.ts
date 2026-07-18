@@ -593,7 +593,9 @@ describe("ACP event controller durability and producers", () => {
       .get(root)
       ?.replay(0)
       .events.find((event) => event.body.kind === "terminal");
-    expect(terminal?.body.kind === "terminal" ? terminal.body.outcome.nextActions?.actions : []).toEqual([
+    expect(
+      terminal?.body.kind === "terminal" ? terminal.body.outcome.nextActions?.actions : []
+    ).toEqual([
       {
         kind: "retry_new_session",
         sourceRecordId: "T-001#B-001::RUN-001",

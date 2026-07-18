@@ -288,20 +288,21 @@ export function projectTaskWorkspaceRun(options: {
         "Actual session configuration is unavailable because this run has no ACP RunnerRecordReadModel."
     },
     capabilities,
-    nextActions: terminalState?.kind === "terminal"
-      ? runnerNextActionsSchema.parse({
-          version: "planweave.runner-next-actions/v1",
-          actions: (terminalState.outcome.nextActions?.actions ?? []).filter((action) =>
-            action.kind === "recover_acp_session"
-              ? capabilities.recoverAcpSession.available
-              : capabilities.retry.available
-          )
-        })
-      : projectRunnerNextActions({
+    nextActions:
+      terminalState?.kind === "terminal"
+        ? runnerNextActionsSchema.parse({
+            version: "planweave.runner-next-actions/v1",
+            actions: (terminalState.outcome.nextActions?.actions ?? []).filter((action) =>
+              action.kind === "recover_acp_session"
+                ? capabilities.recoverAcpSession.available
+                : capabilities.retry.available
+            )
+          })
+        : projectRunnerNextActions({
             sourceRecordId: record.recordId,
             sourceRunId: record.runId,
             recoverAcpSession: false,
             retryNewSession: false
-        })
+          })
   });
 }

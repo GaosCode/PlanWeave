@@ -1,7 +1,4 @@
-import {
-  runnerNextActionsSchema,
-  type RunnerNextActions
-} from "./runnerContractSchemas.js";
+import { runnerNextActionsSchema, type RunnerNextActions } from "./runnerContractSchemas.js";
 
 export { runnerNextActionSchema, runnerNextActionsSchema } from "./runnerContractSchemas.js";
 export type { RunnerNextActions } from "./runnerContractSchemas.js";

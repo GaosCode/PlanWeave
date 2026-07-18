@@ -125,7 +125,9 @@ describe("ACP interruption recovery contract", () => {
 
     const multilingual = normalizeAcpRecoveryToolSummary("中文🙂".repeat(1_000));
     expect(utf8ByteLength(multilingual)).toBeLessThanOrEqual(4096);
-    expect(() => new TextDecoder("utf-8", { fatal: true }).decode(new TextEncoder().encode(multilingual))).not.toThrow();
+    expect(() =>
+      new TextDecoder("utf-8", { fatal: true }).decode(new TextEncoder().encode(multilingual))
+    ).not.toThrow();
   });
 
   it("redacts nested and repeatedly encoded recovery tool content before prompt rendering", () => {
@@ -170,10 +172,7 @@ describe("ACP interruption recovery contract", () => {
       ` \n\t${encodeJsonLayers({ OPENAI_API_KEY: depthSecret }, 5)}`
     );
     const oversized = normalizeAcpRecoveryToolSummary(
-      encodeJsonLayers(
-        { SERVICE_TOKEN: oversizedSecret, padding: "x".repeat(65_536) },
-        2
-      )
+      encodeJsonLayers({ SERVICE_TOKEN: oversizedSecret, padding: "x".repeat(65_536) }, 2)
     );
 
     expect(overDepth).toContain("[REDACTED:SENSITIVE_CONTENT]");

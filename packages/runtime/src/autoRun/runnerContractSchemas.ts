@@ -247,9 +247,7 @@ const runnerNextActionSourceFields = {
 };
 
 export const runnerNextActionSchema = z.discriminatedUnion("kind", [
-  z
-    .object({ kind: z.literal("recover_acp_session"), ...runnerNextActionSourceFields })
-    .strict(),
+  z.object({ kind: z.literal("recover_acp_session"), ...runnerNextActionSourceFields }).strict(),
   z.object({ kind: z.literal("retry_new_session"), ...runnerNextActionSourceFields }).strict()
 ]);
 export const runnerNextActionsSchema = z
@@ -260,7 +258,10 @@ export const runnerNextActionsSchema = z
   .strict()
   .superRefine((value, context) => {
     if (new Set(value.actions.map((action) => action.kind)).size !== value.actions.length) {
-      context.addIssue({ code: z.ZodIssueCode.custom, message: "Runner next actions must be unique." });
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Runner next actions must be unique."
+      });
     }
   });
 export type RunnerNextActions = z.infer<typeof runnerNextActionsSchema>;

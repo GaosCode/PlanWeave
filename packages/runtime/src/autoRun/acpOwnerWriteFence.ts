@@ -83,7 +83,9 @@ export class AcpOwnerWriteFence {
 
   private async hasClaim(): Promise<boolean> {
     try {
-      const claim = claimSchema.parse(JSON.parse(await readFile(this.claimPath, "utf8")) as unknown);
+      const claim = claimSchema.parse(
+        JSON.parse(await readFile(this.claimPath, "utf8")) as unknown
+      );
       if (
         claim.ownerLeaseId !== this.ownerLeaseId ||
         claim.ownerGeneration !== this.ownerGeneration
@@ -96,5 +98,4 @@ export class AcpOwnerWriteFence {
       throw error;
     }
   }
-
 }
