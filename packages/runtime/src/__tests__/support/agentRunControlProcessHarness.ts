@@ -56,14 +56,19 @@ export class AgentRunControlOwnerProcess {
 
   static async start(
     runDir: string,
-    identity: RunnerSessionActionIdentity
+    identity: RunnerSessionActionIdentity,
+    readyTimeoutMs = defaultTimeoutMs
   ): Promise<{
     owner: AgentRunControlOwnerProcess;
     descriptor: AgentRunControlEndpointDescriptor;
   }> {
     const owner = new AgentRunControlOwnerProcess(runDir, identity);
     try {
-      const ready = await owner.waitFor((message) => message.kind === "ready", "owner ready");
+      const ready = await owner.waitFor(
+        (message) => message.kind === "ready",
+        "owner ready",
+        readyTimeoutMs
+      );
       return {
         owner,
         descriptor: agentRunControlEndpointDescriptorSchema.parse(ready.descriptor)

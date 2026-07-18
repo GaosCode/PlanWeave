@@ -8,6 +8,8 @@ import { AgentRunControlOwnerProcess } from "../../../runtime/src/__tests__/supp
 import { repoRoot, runCli, runCliExpectFailure } from "./support/cliTestHarness.js";
 
 const ownerLeaseId = "11111111-1111-4111-8111-111111111111";
+const interactionCommandsTimeoutMs = 30_000;
+const interactionFixtureReadyTimeoutMs = 10_000;
 const owners = new Set<AgentRunControlOwnerProcess>();
 
 afterEach(async () => {
@@ -88,12 +90,17 @@ async function createPendingInteraction() {
       { optionId: "reject_once", label: "Reject once", decision: "deny" }
     ]
   });
-  const { owner } = await AgentRunControlOwnerProcess.start(runDir, controlIdentity);
+  const { owner } = await AgentRunControlOwnerProcess.start(
+    runDir,
+    controlIdentity,
+    interactionFixtureReadyTimeoutMs
+  );
   owners.add(owner);
   owner.send({ kind: "add_request", requestKind: "permission", requestId: identity.requestId });
   await owner.waitFor(
     (message) => message.kind === "request_ready" && message.requestId === identity.requestId,
-    "CLI fixture permission request"
+    "CLI fixture permission request",
+    interactionFixtureReadyTimeoutMs
   );
   return { env, identity, runDir };
 }
@@ -115,13 +122,17 @@ function respondArgs(identity: Awaited<ReturnType<typeof createPendingInteractio
 }
 
 describe("interaction CLI commands", () => {
-  it("registers interaction commands and the event-stream run option in help", async () => {
-    const env = { ...process.env };
-    const interactionHelp = (await runCli(["interaction", "--help"], env)).stdout;
-    expect(interactionHelp).toContain("list");
-    expect(interactionHelp).toContain("respond");
-    expect((await runCli(["run", "--help"], env)).stdout).toContain("--event-stream");
-  });
+  it(
+    "registers interaction commands and the event-stream run option in help",
+    async () => {
+      const env = { ...process.env };
+      const interactionHelp = (await runCli(["interaction", "--help"], env)).stdout;
+      expect(interactionHelp).toContain("list");
+      expect(interactionHelp).toContain("respond");
+      expect((await runCli(["run", "--help"], env)).stdout).toContain("--event-stream");
+    },
+    interactionCommandsTimeoutMs
+  );
 
   it("lists only actionable Runtime snapshots and accepts an advertised option", async () => {
     const fixture = await createPendingInteraction();
@@ -154,7 +165,7 @@ describe("interaction CLI commands", () => {
       ok: false,
       error: { code: "interaction_already_answered" }
     });
-  });
+  }, interactionCommandsTimeoutMs);
 
   it("returns stable codes for invalid options and replaced leases", async () => {
     const invalid = await createPendingInteraction();
@@ -181,7 +192,7 @@ describe("interaction CLI commands", () => {
     expect(JSON.parse(replacedLease.stdout)).toMatchObject({
       error: { code: "interaction_owner_replaced" }
     });
-  });
+  }, interactionCommandsTimeoutMs);
 
   it("returns stable codes for stale, terminal, and invalid persisted state", async () => {
     const stale = await createPendingInteraction();
@@ -241,7 +252,7 @@ describe("interaction CLI commands", () => {
     expect(JSON.parse(invalidFailure.stdout)).toMatchObject({
       error: { code: "interaction_contract_invalid" }
     });
-  });
+  }, interactionCommandsTimeoutMs);
 
   it("requires exactly one decision and a cancellation reason", async () => {
     const fixture = await createPendingInteraction();
@@ -256,5 +267,5 @@ describe("interaction CLI commands", () => {
       fixture.env
     );
     expect(missingReason.stderr).toContain("--cancel requires --reason");
-  });
+  }, interactionCommandsTimeoutMs);
 });
