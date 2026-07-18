@@ -113,6 +113,16 @@ function nestedErrorMessages(error: unknown): string[] {
   return error instanceof Error ? [error.message] : [String(error)];
 }
 
+function findAggregateError(error: unknown, message: string): AggregateError | null {
+  if (!(error instanceof AggregateError)) return null;
+  if (error.message === message) return error;
+  for (const nested of error.errors) {
+    const match = findAggregateError(nested, message);
+    if (match) return match;
+  }
+  return null;
+}
+
 describe("agent run control controller lifecycle", () => {
   it("publishes only while live and tears down on completed and fatal runs", async () => {
     for (const [scenario, succeeds] of [
@@ -217,35 +227,37 @@ describe("agent run control controller lifecycle", () => {
   it("still removes the live owner and endpoint when terminal availability persistence fails", async () => {
     const originalSetControlAvailability = AcpOwnerStateWriter.prototype.setControlAvailability;
     let terminalWriteAttempts = 0;
+    const preparationFailure = new Error("owner-state prepare failed");
+    const stopFailure = new Error("owner-state stop failed");
     const persistence = vi
       .spyOn(AcpOwnerStateWriter.prototype, "setControlAvailability")
       .mockImplementation(async function (summary) {
         if (summary.controlUnavailableReason === "owner_terminal") {
           terminalWriteAttempts += 1;
-          let failureMessage = "owner-state stop failed";
           if (terminalWriteAttempts === 1) {
-            failureMessage = "owner-state prepare failed";
+            throw preparationFailure;
           }
-          throw new Error(failureMessage);
+          throw stopFailure;
         }
         return originalSetControlAvailability.call(this, summary);
       });
     const root = await mkdtemp(join(tmpdir(), "planweave-control-owner-state-failure-"));
     const registry = new ActiveAgentRunRegistry();
-    const shutdown = new AbortController();
     try {
       const execution = new AcpSessionController(registry).execute(
-        controllerRun(root, "long-prompt"),
-        { signal: shutdown.signal, timeoutMs: 2_000 }
+        controllerRun(root, "delayed-artifact-implementation"),
+        { timeoutMs: 2_000 }
       );
       const descriptor = await liveDescriptor(root);
-      shutdown.abort(new Error("test terminal shutdown"));
 
       const failure = await execution.catch((error: unknown) => error);
       const messages = nestedErrorMessages(failure);
       expect(failure).toBeInstanceOf(AggregateError);
       expect(messages).toContain("owner-state prepare failed");
       expect(messages).toContain("owner-state stop failed");
+      expect(
+        findAggregateError(failure, "Runner terminal cleanup did not complete cleanly.")?.errors
+      ).toEqual([preparationFailure, stopFailure]);
       expect(terminalWriteAttempts).toBe(2);
       await expectEndpointClosed(root, descriptor.address);
       expect(registry.size).toBe(0);
@@ -253,6 +265,42 @@ describe("agent run control controller lifecycle", () => {
       expect(persistence).toHaveBeenCalledWith(
         expect.objectContaining({ controlUnavailableReason: "owner_terminal" })
       );
+    } finally {
+      persistence.mockRestore();
+    }
+  });
+
+  it.each([
+    ["prepare", 1],
+    ["stop", 2]
+  ] as const)("rethrows a single owner-state %s failure by identity", async (phase, failingAttempt) => {
+    const originalSetControlAvailability = AcpOwnerStateWriter.prototype.setControlAvailability;
+    const ownerStateFailure = new Error(`owner-state ${phase} failed`);
+    let terminalWriteAttempts = 0;
+    const persistence = vi
+      .spyOn(AcpOwnerStateWriter.prototype, "setControlAvailability")
+      .mockImplementation(async function (summary) {
+        if (summary.controlUnavailableReason === "owner_terminal") {
+          terminalWriteAttempts += 1;
+          if (terminalWriteAttempts === failingAttempt) {
+            throw ownerStateFailure;
+          }
+        }
+        return originalSetControlAvailability.call(this, summary);
+      });
+    const root = await mkdtemp(join(tmpdir(), `planweave-control-owner-${phase}-failure-`));
+    const registry = new ActiveAgentRunRegistry();
+    try {
+      const execution = new AcpSessionController(registry).execute(
+        controllerRun(root, "delayed-artifact-implementation"),
+        { timeoutMs: 2_000 }
+      );
+      const descriptor = await liveDescriptor(root);
+
+      await expect(execution).rejects.toBe(ownerStateFailure);
+      expect(terminalWriteAttempts).toBe(2);
+      await expectEndpointClosed(root, descriptor.address);
+      expect(registry.size).toBe(0);
     } finally {
       persistence.mockRestore();
     }

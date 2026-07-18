@@ -122,6 +122,17 @@ function handle(
   };
 }
 
+function cleanupTestHandle(
+  scope: string,
+  runId: string,
+  sessionId: string,
+  closed: string[]
+): ActiveAgentRunHandle {
+  const result = handle(scope, runId, sessionId, closed);
+  result.control.process.terminate = async () => undefined;
+  return result;
+}
+
 describe("ActiveAgentRunRegistry", () => {
   it("indexes concurrent identities, rejects collisions and cross-run lookup, and removes exactly once", async () => {
     const registry = new ActiveAgentRunRegistry();
@@ -165,17 +176,19 @@ describe("ActiveAgentRunRegistry", () => {
       throw new Error("cleanup failed");
     };
     registry.register(failing);
-    await expect(registry.shutdown()).rejects.toThrow("shutdown did not complete cleanly");
+    const shutdownFailure = await registry.shutdown().catch((error: unknown) => error);
     expect(registry.size).toBe(0);
-    await expect(registry.remove(failing, "again")).rejects.toThrow(
-      "Runner terminal cleanup did not complete cleanly"
-    );
+    const removalFailure = await registry.remove(failing, "again").catch((error: unknown) => error);
+    expect(shutdownFailure).toBe(removalFailure);
+    expect(removalFailure).toMatchObject({
+      message: "Runner terminal cleanup did not complete cleanly."
+    });
   });
 
   it("rethrows a single pre-removal failure after completing live cleanup", async () => {
     const registry = new ActiveAgentRunRegistry();
     const closed: string[] = [];
-    const failing = handle("/live/single-failure", "RUN-001", "session-1", closed);
+    const failing = cleanupTestHandle("/live/single-failure", "RUN-001", "session-1", closed);
     const preparationFailure = new Error("owner preparation failed");
     failing.beforeRemove = async () => {
       throw preparationFailure;
@@ -190,7 +203,7 @@ describe("ActiveAgentRunRegistry", () => {
   it("rethrows a single pre-removal failure for an already absent handle", async () => {
     const registry = new ActiveAgentRunRegistry();
     const closed: string[] = [];
-    const absent = handle("/live/absent", "RUN-001", "session-1", closed);
+    const absent = cleanupTestHandle("/live/absent", "RUN-001", "session-1", closed);
     const preparationFailure = new Error("absent owner preparation failed");
     absent.beforeRemove = async () => {
       throw preparationFailure;
@@ -205,7 +218,7 @@ describe("ActiveAgentRunRegistry", () => {
   it("aggregates independent pre-removal and live cleanup failures", async () => {
     const registry = new ActiveAgentRunRegistry();
     const closed: string[] = [];
-    const failing = handle("/live/multiple-failures", "RUN-001", "session-1", closed);
+    const failing = cleanupTestHandle("/live/multiple-failures", "RUN-001", "session-1", closed);
     const preparationFailure = new Error("owner preparation failed");
     failing.beforeRemove = async () => {
       throw preparationFailure;
@@ -226,6 +239,82 @@ describe("ActiveAgentRunRegistry", () => {
       message: "Runner terminal cleanup did not complete cleanly."
     });
     expect(closed).toEqual(["done"]);
+    expect(registry.size).toBe(0);
+  });
+
+  it("aggregates direct failures from independent handles during shutdown", async () => {
+    const registry = new ActiveAgentRunRegistry();
+    const closed: string[] = [];
+    const first = cleanupTestHandle("/live/shutdown-a", "RUN-001", "session-1", closed);
+    const second = cleanupTestHandle("/live/shutdown-b", "RUN-002", "session-2", closed);
+    const firstFailure = new Error("first shutdown preparation failed");
+    const secondFailure = new Error("second shutdown preparation failed");
+    first.beforeRemove = async () => {
+      throw firstFailure;
+    };
+    second.beforeRemove = async () => {
+      throw secondFailure;
+    };
+    registry.register(first);
+    registry.register(second);
+
+    const failure = await registry.shutdown().catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect(failure instanceof AggregateError && failure.errors).toEqual([
+      firstFailure,
+      secondFailure
+    ]);
+    expect(closed).toEqual(["PlanWeave runtime shutdown.", "PlanWeave runtime shutdown."]);
+    expect(registry.size).toBe(0);
+  });
+
+  it("rethrows a single Desktop-run shutdown failure by identity", async () => {
+    const registry = new ActiveAgentRunRegistry();
+    const closed: string[] = [];
+    const failing = cleanupTestHandle("/live/desktop-single", "RUN-001", "session-1", closed);
+    failing.identity.desktopRunId = "DESKTOP-RUN-001";
+    const preparationFailure = new Error("Desktop owner preparation failed");
+    failing.beforeRemove = async () => {
+      throw preparationFailure;
+    };
+    registry.register(failing);
+
+    await expect(registry.shutdownDesktopRun("DESKTOP-RUN-001", "Desktop shutdown")).rejects.toBe(
+      preparationFailure
+    );
+    expect(closed).toEqual(["Desktop shutdown"]);
+    expect(registry.size).toBe(0);
+  });
+
+  it("aggregates direct failures from matching Desktop runs", async () => {
+    const registry = new ActiveAgentRunRegistry();
+    const closed: string[] = [];
+    const first = cleanupTestHandle("/live/desktop-a", "RUN-001", "session-1", closed);
+    const second = cleanupTestHandle("/live/desktop-b", "RUN-002", "session-2", closed);
+    first.identity.desktopRunId = "DESKTOP-RUN-001";
+    second.identity.desktopRunId = "DESKTOP-RUN-001";
+    const firstFailure = new Error("first Desktop owner preparation failed");
+    const secondFailure = new Error("second Desktop owner preparation failed");
+    first.beforeRemove = async () => {
+      throw firstFailure;
+    };
+    second.beforeRemove = async () => {
+      throw secondFailure;
+    };
+    registry.register(first);
+    registry.register(second);
+
+    const failure = await registry
+      .shutdownDesktopRun("DESKTOP-RUN-001", "Desktop shutdown")
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect(failure instanceof AggregateError && failure.errors).toEqual([
+      firstFailure,
+      secondFailure
+    ]);
+    expect(closed).toEqual(["Desktop shutdown", "Desktop shutdown"]);
     expect(registry.size).toBe(0);
   });
 });

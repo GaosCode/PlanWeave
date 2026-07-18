@@ -323,12 +323,10 @@ export class AcpSessionController {
       const failures = results.flatMap((result) =>
         result.status === "rejected" ? [result.reason] : []
       );
-      if (failures.length > 0) {
-        throw new AggregateError(
-          failures,
-          "ACP control endpoint could not prepare for owner removal."
-        );
-      }
+      throwAgentRunCleanupFailures(
+        failures,
+        "ACP control endpoint could not prepare for owner removal."
+      );
     };
     const stopControlEndpoint = (): Promise<void> => {
       if (controlStopPromise) return controlStopPromise;
@@ -340,9 +338,7 @@ export class AcpSessionController {
         const failures = results.flatMap((result) =>
           result.status === "rejected" ? [result.reason] : []
         );
-        if (failures.length > 0) {
-          throw new AggregateError(failures, "ACP control endpoint could not stop cleanly.");
-        }
+        throwAgentRunCleanupFailures(failures, "ACP control endpoint could not stop cleanly.");
       })();
       return controlStopPromise;
     };

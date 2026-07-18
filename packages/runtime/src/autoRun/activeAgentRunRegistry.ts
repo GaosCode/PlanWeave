@@ -376,8 +376,7 @@ export class ActiveAgentRunRegistry {
     const failures = results.flatMap((result) =>
       result.status === "rejected" ? [result.reason] : []
     );
-    if (failures.length > 0)
-      throw new AggregateError(failures, "Active ACP run shutdown did not complete cleanly.");
+    throwAgentRunCleanupFailures(failures, "Active ACP run shutdown did not complete cleanly.");
   }
 
   async shutdownDesktopRun(desktopRunId: string, reason: string): Promise<void> {
@@ -388,8 +387,7 @@ export class ActiveAgentRunRegistry {
     const failures = results.flatMap((result) =>
       result.status === "rejected" ? [result.reason] : []
     );
-    if (failures.length > 0)
-      throw new AggregateError(failures, `ACP cleanup failed for Desktop run '${desktopRunId}'.`);
+    throwAgentRunCleanupFailures(failures, `ACP cleanup failed for Desktop run '${desktopRunId}'.`);
   }
 
   get size(): number {
