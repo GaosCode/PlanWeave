@@ -502,6 +502,73 @@ describe("ACP event controller durability and producers", () => {
         outcome: { reason: "timed_out", cleanup: { status: "succeeded" } }
       }
     });
+    const terminal = events[terminalIndex];
+    expect(
+      terminal?.body.kind === "terminal" ? terminal.body.outcome.nextActions?.actions : []
+    ).toEqual([
+      {
+        kind: "retry_new_session",
+        sourceRecordId: "T-001#B-001::RUN-001",
+        sourceRunId: "RUN-001"
+      }
+    ]);
+  });
+
+  it("loads the exact recovery session and never falls back to a new session", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-acp-recovery-load-"));
+    const loadFailure = new Error("scripted session/load failure");
+    const connection: AcpConnection = {
+      processId: 42,
+      pendingOperationCount: 0,
+      pendingOperations: new Map(),
+      stderr: [],
+      closed: Promise.resolve(),
+      initialize: vi.fn(async () => ({
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: true },
+        agentInfo: { name: "recovery-agent", version: "1.0.0" }
+      })),
+      newSession: vi.fn(async () => ({ sessionId: "unexpected-new-session" })),
+      loadSession: vi.fn(async () => {
+        throw loadFailure;
+      }),
+      prompt: vi.fn(),
+      cancel: vi.fn(async () => undefined),
+      closeSession: vi.fn(async () => ({})),
+      setSessionMode: vi.fn(async () => ({})),
+      setSessionConfigOption: vi.fn(async () => ({ configOptions: [] })),
+      dispose: vi.fn(async () => undefined)
+    };
+    const controller = new AcpSessionController(
+      new ActiveAgentRunRegistry(),
+      () => connection,
+      new AcpEventReadModelRegistry()
+    );
+    const recoveryRun = run(root, "recovery");
+    recoveryRun.sessionStart = {
+      kind: "load",
+      sessionId: "source-session",
+      recovery: {
+        version: "planweave.acp-recovery/v1",
+        kind: "session_load",
+        sourceRecordId: "T-001#B-001::RUN-000",
+        sourceRunId: "RUN-000",
+        sourceSessionId: "source-session",
+        sourceTerminalEventSequence: 8,
+        requestedAt: "2026-07-17T00:00:00.000Z",
+        requestedBy: "planweave-test"
+      }
+    };
+
+    await expect(controller.execute(recoveryRun, { timeoutMs: 1000 })).rejects.toThrow(
+      "scripted session/load failure"
+    );
+    expect(connection.loadSession).toHaveBeenCalledWith(
+      { sessionId: "source-session", cwd: root, mcpServers: [] },
+      expect.objectContaining({ timeoutMs: 1000 })
+    );
+    expect(connection.newSession).not.toHaveBeenCalled();
+    expect(connection.prompt).not.toHaveBeenCalled();
   });
 
   it("does not publish artifacts when execution fails before validation", async () => {
@@ -522,6 +589,17 @@ describe("ACP event controller durability and producers", () => {
         ?.replay(0)
         .events.some((event) => event.body.kind === "artifact")
     ).toBe(false);
+    const terminal = readModels
+      .get(root)
+      ?.replay(0)
+      .events.find((event) => event.body.kind === "terminal");
+    expect(terminal?.body.kind === "terminal" ? terminal.body.outcome.nextActions?.actions : []).toEqual([
+      {
+        kind: "retry_new_session",
+        sourceRecordId: "T-001#B-001::RUN-001",
+        sourceRunId: "RUN-001"
+      }
+    ]);
     const metadata = await readFile(join(root, "metadata.json"), "utf8");
     expect(metadata).not.toContain('"executionOutcome": "succeeded"');
   });

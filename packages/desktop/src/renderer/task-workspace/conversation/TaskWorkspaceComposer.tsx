@@ -15,11 +15,16 @@ import {
   TaskWorkspaceCancelRunControllerScope
 } from "./TaskWorkspaceCancelRunAction";
 import { TaskWorkspaceRetryRunAction } from "./TaskWorkspaceRetryRunAction";
+import { TaskWorkspaceRecoverAcpRunAction } from "./TaskWorkspaceRecoverAcpRunAction";
 
 type ComposerApi = Partial<
   Pick<
     DesktopBridgeApi,
-    "cancelAgentRun" | "respondToAgentRequest" | "retryTaskWorkspaceRun" | "sendAgentPrompt"
+    | "cancelAgentRun"
+    | "recoverTaskWorkspaceAcpRun"
+    | "respondToAgentRequest"
+    | "retryTaskWorkspaceRun"
+    | "sendAgentPrompt"
   >
 >;
 
@@ -46,6 +51,13 @@ export function TaskWorkspaceComposer({
   const actionAccessory = (
     <>
       {accessory}
+      <TaskWorkspaceRecoverAcpRunAction
+        api={api}
+        buttonLabel={t("taskWorkspaceRecoverAcpAction")}
+        errorLabel={t("acpActionError")}
+        onRecovered={refresh}
+        selectedRun={selectedRun}
+      />
       <TaskWorkspaceRetryRunAction
         api={api}
         buttonLabel={t("taskWorkspaceRetryAction")}

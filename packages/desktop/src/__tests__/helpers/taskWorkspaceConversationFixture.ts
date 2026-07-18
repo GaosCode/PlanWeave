@@ -104,6 +104,7 @@ export function selection(
   options: {
     active?: boolean;
     model?: RunnerRecordReadModel | null;
+    recovery?: boolean;
     retry?: boolean;
     runnerKind?: "acp" | "cli";
   } = {}
@@ -148,7 +149,7 @@ export function selection(
       agentSessionId: runnerKind === "acp" ? "ACP-SESSION-001" : null,
       tmuxSessionId: null,
       exitCode: null,
-      terminalState: options.retry ? "failed" : null
+      terminalState: options.retry || options.recovery ? "failed" : null
     },
     executionWaveId: null,
     duration: {
@@ -164,6 +165,17 @@ export function selection(
       taskTokens: { available: false, totalTokens: null, reason: "Unavailable." }
     },
     actualConfiguration: { available: false, reason: "Unavailable." },
+    nextActions: {
+      version: "planweave.runner-next-actions/v1",
+      actions: [
+        ...(options.recovery
+          ? [{ kind: "recover_acp_session" as const, sourceRecordId: recordId, sourceRunId: "RUN-001" }]
+          : []),
+        ...(options.retry
+          ? [{ kind: "retry_new_session" as const, sourceRecordId: recordId, sourceRunId: "RUN-001" }]
+          : [])
+      ]
+    },
     capabilities: {
       prompt,
       cancel,
@@ -185,6 +197,32 @@ export function selection(
             }
           }
         : { available: false, reason: "Retry API unavailable.", identity: null },
+      recoverAcpSession: options.recovery
+        ? {
+            available: true,
+            reason: null,
+            identity: {
+              version: "planweave.task-workspace-acp-recovery/v1",
+              projectId: "project-1",
+              projectRoot: "/projects/demo",
+              canvasId: "canvas-main",
+              taskId: "T-001",
+              blockId: "B-001",
+              claimRef: "T-001#B-001",
+              recordId,
+              runId: "RUN-001",
+              sessionId: "ACP-SESSION-001",
+              terminalEventSequence: 8,
+              agentId: "codex",
+              executorProfile: "codex-acp",
+              launch: { command: "codex-acp", args: ["--stdio"] }
+            }
+          }
+        : {
+            available: false,
+            reason: { code: "runner_not_acp", message: "ACP recovery unavailable." },
+            identity: null
+          },
       resume: { available: false, reason: "Resume API unavailable.", identity: null }
     }
   };

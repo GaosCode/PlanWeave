@@ -7,6 +7,7 @@ import type {
   DesktopAutoRunState
 } from "./types.js";
 import { isInFlightAutoRunPhase } from "./autoRunPhasePolicy.js";
+import { acpRunRecoveryExecutionSchema } from "../autoRun/acpRunRecovery.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -78,7 +79,12 @@ function normalizeOptions(value: unknown): Required<DesktopAutoRunOptions> | nul
   if (!isRecord(value) || typeof value.tmuxEnabled !== "boolean") {
     return null;
   }
-  return { tmuxEnabled: value.tmuxEnabled };
+  const recovery =
+    value.acpRecovery === null || value.acpRecovery === undefined
+      ? null
+      : acpRunRecoveryExecutionSchema.safeParse(value.acpRecovery);
+  if (recovery !== null && !recovery.success) return null;
+  return { tmuxEnabled: value.tmuxEnabled, acpRecovery: recovery?.data ?? null };
 }
 
 function validExplanation(value: unknown): AutoRunExplanation | null {

@@ -33,6 +33,7 @@ export type AcpEventStoreOptions = {
   retentionPolicy?: AcpEventRetentionPolicy;
   appendText?: typeof appendFile;
   writeConversationProjection?: typeof writeAcpConversationProjection;
+  writeGuard?: <T>(operation: () => Promise<T>) => Promise<T>;
 };
 
 export class AcpEventStoreLimitError extends Error {
@@ -182,6 +183,9 @@ export class AcpEventStore {
     const encoded = `${JSON.stringify(redacted)}\n`;
     const encodedLen = Buffer.byteLength(encoded);
     return this.serial(async () => {
+      if (this.hasTerminal) {
+        throw new Error("ACP owner event log is terminal and rejects further protocol events.");
+      }
       const decision = this.policy.decideProtocolAdmission(
         this.protocolBytes,
         encodedLen,
@@ -201,11 +205,14 @@ export class AcpEventStore {
       }
       await this.appendText(this.protocolPath, encoded, "utf8");
       this.protocolBytes += encodedLen;
-    });
+    }, true);
   }
 
   append(body: NormalizedRunnerEvent["body"], correlation?: AcpCorrelation): Promise<void> {
     return this.serial(async () => {
+      if (this.hasTerminal) {
+        throw new Error("ACP owner event log is terminal and rejects further events.");
+      }
       const isOrdinary = this.policy.classify(body) === "ordinary";
 
       // Build candidate for projected-length admission (sequence only advances on durable persist).
@@ -263,7 +270,7 @@ export class AcpEventStore {
         await this.flushConversationProjection();
       }
       return;
-    });
+    }, true);
   }
 
   async sizes(): Promise<{ protocolBytes: number; eventBytes: number }> {
@@ -379,19 +386,21 @@ export class AcpEventStore {
   }
 
   async drain(): Promise<void> {
-    await this.serial(() => this.flushConversationProjection());
+    await this.serial(() => this.flushConversationProjection(), true);
     await this.publisher.drainDiagnostics();
-    await this.serial(() => this.flushConversationProjection());
+    await this.serial(() => this.flushConversationProjection(), true);
     if (this.writeFailure !== undefined) throw this.writeFailure;
   }
 
-  private serial<T>(operation: () => Promise<T>): Promise<T> {
+  private serial<T>(operation: () => Promise<T>, requireWriteGuard = false): Promise<T> {
     if (!this.opened)
       return Promise.reject(new Error("ACP event store must be opened before append."));
     if (this.writeFailure !== undefined) return Promise.reject(this.writeFailure);
     const result = this.writeChain.then(() => {
       if (this.writeFailure !== undefined) throw this.writeFailure;
-      return operation();
+      return requireWriteGuard && this.options.writeGuard
+        ? this.options.writeGuard(operation)
+        : operation();
     });
     this.writeChain = result.then(
       () => undefined,

@@ -39,7 +39,8 @@ function normalizedBody(event: DesktopAutoRunLogEvent): NormalizedRunnerEvent["b
         exitCode: 0,
         finishedAt: event.timestamp ?? new Date(0).toISOString(),
         diagnostic: null,
-        artifactValidated: true
+        artifactValidated: true,
+        nextActions: { version: "planweave.runner-next-actions/v1", actions: [] }
       }
     };
   }
@@ -53,7 +54,8 @@ function normalizedBody(event: DesktopAutoRunLogEvent): NormalizedRunnerEvent["b
         exitCode: null,
         finishedAt: event.timestamp ?? new Date(0).toISOString(),
         diagnostic: `Legacy Desktop Auto Run phase '${event.phase}'.`,
-        artifactValidated: false
+        artifactValidated: false,
+        nextActions: { version: "planweave.runner-next-actions/v1", actions: [] }
       }
     };
   }
@@ -67,7 +69,8 @@ function normalizedBody(event: DesktopAutoRunLogEvent): NormalizedRunnerEvent["b
         exitCode: null,
         finishedAt: event.timestamp ?? new Date(0).toISOString(),
         diagnostic: "Legacy Desktop Auto Run was stopped.",
-        artifactValidated: false
+        artifactValidated: false,
+        nextActions: { version: "planweave.runner-next-actions/v1", actions: [] }
       }
     };
   }

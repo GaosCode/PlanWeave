@@ -75,7 +75,11 @@ import type {
   TaskWorkspaceRunDetailInput,
   TaskWorkspaceRunsPage
 } from "./taskWorkspaceQueryTypes.js";
-import type { TaskWorkspaceRetryIdentity } from "./taskWorkspaceTypes.js";
+import type {
+  TaskWorkspaceAcpRecoveryIdentity,
+  TaskWorkspaceRetryIdentity
+} from "./taskWorkspaceTypes.js";
+
 import type {
   RunnerInteractionActionIdentity,
   RunnerInteractionAudit,
@@ -84,6 +88,12 @@ import type {
   RespondToRunnerInteractionResult,
   RunnerPermissionInteractionDecision
 } from "./acpBridgeTypes.js";
+
+export type TaskWorkspaceAcpRecoveryActionResult = {
+  state: DesktopAutoRunState;
+  detail: TaskWorkspaceRunDetail;
+  nextActions: TaskWorkspaceRunDetail["item"]["run"]["nextActions"];
+};
 
 export type DesktopAgentKind = AgentFamily;
 
@@ -305,6 +315,10 @@ export type DesktopBridgeApi = {
   listTaskWorkspaceRuns(input: TaskWorkspaceListRunsInput): Promise<TaskWorkspaceRunsPage>;
   getTaskWorkspaceRunDetail(input: TaskWorkspaceRunDetailInput): Promise<TaskWorkspaceRunDetail>;
   retryTaskWorkspaceRun(identity: TaskWorkspaceRetryIdentity): Promise<DesktopAutoRunState>;
+  recoverTaskWorkspaceAcpRun(
+    identity: TaskWorkspaceAcpRecoveryIdentity,
+    audit: { source: string; reason: string }
+  ): Promise<TaskWorkspaceAcpRecoveryActionResult>;
   getBlockDetail(ref: DesktopCanvasReference, blockRef: string): Promise<DesktopBlockDetail>;
   getTaskExecutionOrder(
     ref: DesktopCanvasReference,

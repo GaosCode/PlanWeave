@@ -416,6 +416,23 @@ export {
 } from "./autoRun/runnerInteractionContract.js";
 export type * from "./autoRun/runnerInteractionContract.js";
 export {
+  acpLaunchIdentitySchema,
+  acpRecoveryInterruptionReasonSchema,
+  acpRunRecoveryExecutionSchema,
+  acpRunRecoveryLineageSchema,
+  acpRunRecoveryUnavailableReasonSchema,
+  acpSessionStartSchema,
+  evaluateAcpRunRecovery,
+  renderAcpRunRecoveryPrompt
+} from "./autoRun/acpRunRecovery.js";
+export type * from "./autoRun/acpRunRecovery.js";
+export {
+  projectRunnerNextActions,
+  runnerNextActionSchema,
+  runnerNextActionsSchema
+} from "./autoRun/runnerNextActions.js";
+export type { RunnerNextActions } from "./autoRun/runnerNextActions.js";
+export {
   acpTimelineItemSchema,
   projectAcpConversation,
   projectAcpTimeline
@@ -647,6 +664,9 @@ export {
   projectTaskWorkspaceClockSnapshot,
   projectTaskWorkspaceLiveSnapshot,
   projectTaskWorkspaceRun,
+  taskWorkspaceAcpRecoveryCapabilitySchema,
+  taskWorkspaceAcpRecoveryIdentitySchema,
+  taskWorkspaceAcpRecoveryUnavailableSchema,
   taskWorkspaceCancelCapabilitySchema,
   taskWorkspaceContextUsageSnapshotSchema,
   taskWorkspacePromptCapabilitySchema,
@@ -665,6 +685,9 @@ export {
   getTaskWorkspace,
   getTaskWorkspaceRunDetail,
   listTaskWorkspaceRuns,
+  reconcileOrphanedAcpRun,
+  recoverAcpRunByRecord,
+  recoverTaskWorkspaceAcpRun,
   retryTaskWorkspaceRun,
   TASK_WORKSPACE_RUNS_DEFAULT_LIMIT,
   TASK_WORKSPACE_RUNS_MAX_LIMIT,

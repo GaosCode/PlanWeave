@@ -755,6 +755,35 @@ describe("Task Workspace conversation", () => {
     expect(refresh).toHaveBeenCalledOnce();
   });
 
+  it("recovers an interrupted ACP session with the canonical capability identity", async () => {
+    const selectedRun = selection({ active: false, model: null, recovery: true });
+    const recoverTaskWorkspaceAcpRun = vi.fn(async () => undefined);
+    const refresh = vi.fn();
+    render(
+      <TaskWorkspaceComposer
+        api={{ recoverTaskWorkspaceAcpRun }}
+        liveStatus="unavailable"
+        refresh={refresh}
+        runnerModel={null}
+        selectedRun={selectedRun}
+        t={t}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Recover ACP session" }));
+
+    await vi.waitFor(() =>
+      expect(recoverTaskWorkspaceAcpRun).toHaveBeenCalledWith(
+        selectedRun.item.run.capabilities.recoverAcpSession.identity,
+        {
+          source: "planweave-desktop",
+          reason: "User requested recovery of an interrupted ACP session."
+        }
+      )
+    );
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
   it("does not keep a newly selected retry disabled while an older identity is pending", async () => {
     const first = retrySelection("RUN-001");
     const second = retrySelection("RUN-002");

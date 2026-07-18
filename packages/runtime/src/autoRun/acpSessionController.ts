@@ -70,6 +70,7 @@ import { acpEventReadModels, type AcpEventReadModelRegistry } from "./acpEventRe
 import { createAcpElicitationSettlement } from "./acpElicitationSettlement.js";
 import { createPersistentAcpPermissionHandler } from "./acpPermissionInteraction.js";
 import { AcpOwnerStateWriter } from "./acpOwnerState.js";
+import { AcpOwnerWriteFence } from "./acpOwnerWriteFence.js";
 import {
   availableAgentRunControlSummary,
   unavailableAgentRunControlSummary
@@ -82,9 +83,14 @@ import type { RunnerInteractionObserver } from "./runnerInteractionObserver.js";
 import type { DesktopAcpSessionDefaults } from "./desktopAgentSettings.js";
 import {
   sessionConfigurationFromNewSession,
-  sessionConfigurationFromProtocol,
   type AcpSessionConfiguration
 } from "./acpSessionConfiguration.js";
+import { acpSessionStartSchema, type AcpSessionStart } from "./acpRunRecovery.js";
+import { startAcpSession } from "./acpSessionStart.js";
+import { projectRunnerNextActions } from "./runnerNextActions.js";
+import { applyDesktopAcpSessionDefaults } from "./acpSessionDefaults.js";
+
+export { applyDesktopAcpSessionDefaults } from "./acpSessionDefaults.js";
 
 export type AcpSessionRunKind = "implementation" | "review" | "feedback";
 export type AcpSessionRun = {
@@ -102,6 +108,7 @@ export type AcpSessionRun = {
   metadataIdentity: Record<string, string>;
   projectId?: string;
   canvasId?: string;
+  sessionStart?: AcpSessionStart;
   terminalOutputHandler?: (
     request: TerminalOutputRequest
   ) => TerminalOutputResponse | Promise<TerminalOutputResponse>;
@@ -141,69 +148,6 @@ function expectedArtifact(run: AcpSessionRun): ExpectedFinalArtifactIdentity {
   return { kind: run.kind, ref: run.identity.claimRef, taskId: run.taskId };
 }
 
-export async function applyDesktopAcpSessionDefaults(options: {
-  agentId: AgentFamily;
-  defaults: DesktopAcpSessionDefaults;
-  connection: AcpConnection;
-  session: NewSessionResponse;
-  operation?: { signal?: AbortSignal; timeoutMs?: number };
-}): Promise<AcpSessionConfiguration> {
-  const defaults = options.defaults;
-  let advertised = options.session.configOptions ?? [];
-  let modes = options.session.modes;
-  const configuredEntries = Object.entries(defaults.configOptions);
-  for (const [configId, value] of configuredEntries) {
-    const config = advertised.find((candidate) => candidate.id === configId);
-    if (!config) {
-      throw new Error(
-        `ACP agent '${options.agentId}' did not advertise configured option '${configId}'.`
-      );
-    }
-    if (config.type === "boolean") {
-      if (typeof value !== "boolean") {
-        throw new Error(`ACP option '${configId}' requires a boolean value.`);
-      }
-      const response = await options.connection.setSessionConfigOption(
-        { sessionId: options.session.sessionId, configId, type: "boolean", value },
-        options.operation
-      );
-      advertised = response.configOptions;
-      continue;
-    }
-    if (typeof value !== "string") {
-      throw new Error(`ACP option '${configId}' requires a selected value id.`);
-    }
-    const available = config.options.flatMap((candidate) =>
-      "group" in candidate ? candidate.options : [candidate]
-    );
-    if (!available.some((candidate) => candidate.value === value)) {
-      throw new Error(`ACP option '${configId}' did not advertise configured value '${value}'.`);
-    }
-    const response = await options.connection.setSessionConfigOption(
-      { sessionId: options.session.sessionId, configId, value },
-      options.operation
-    );
-    advertised = response.configOptions;
-  }
-
-  const configuredProtocolMode = advertised.some(
-    (option) => option.category === "mode" && Object.hasOwn(defaults.configOptions, option.id)
-  );
-  if (defaults.modeId && !configuredProtocolMode) {
-    if (!modes?.availableModes.some((mode) => mode.id === defaults.modeId)) {
-      throw new Error(
-        `ACP agent '${options.agentId}' did not advertise configured session mode '${defaults.modeId}'.`
-      );
-    }
-    await options.connection.setSessionMode(
-      { sessionId: options.session.sessionId, modeId: defaults.modeId },
-      options.operation
-    );
-    modes = { ...modes, currentModeId: defaults.modeId };
-  }
-  return sessionConfigurationFromProtocol({ modes, configOptions: advertised });
-}
-
 export class AcpSessionController {
   constructor(
     private readonly registry: ActiveAgentRunRegistry = activeAgentRunRegistry,
@@ -228,9 +172,13 @@ export class AcpSessionController {
     const ownerLeaseId = randomUUID();
     const agentRunControlLeaseId = agentRunControlLeaseIdSchema.parse(ownerLeaseId);
     const ownerGeneration = 1;
+    const ownerWriteFence = new AcpOwnerWriteFence(run.runDir, ownerLeaseId, ownerGeneration);
+    const sessionStart = acpSessionStartSchema.parse(run.sessionStart ?? { kind: "new" });
     let output = "";
+    let executionPhase: "connecting" | "session" | "prompt" | "artifact" | "cleanup" = "connecting";
     let connection: AcpConnection | null = null;
     let initializedCapabilities: AgentCapabilities | undefined;
+    let initializedSessionId: string | null = null;
     let handle: ActiveAgentRunHandle | null = null;
     let handleRegistered = false;
     let cleanupAttempted = false;
@@ -266,7 +214,8 @@ export class AcpSessionController {
               version: "planweave.runner/v1",
               runnerKind: "acp",
               agentId: run.agentId
-            })
+            }),
+            writeGuard: (operation) => ownerWriteFence.withOwnerWrite(operation)
           })
         : null;
     const eventStore = eventModel?.store ?? null;
@@ -299,13 +248,18 @@ export class AcpSessionController {
         executor: run.executorName,
         agentId: run.agentId,
         runnerKind: "acp",
+        executorProfile: run.executorName,
+        acpLaunch: run.launch,
+        recovery: sessionStart.kind === "load" ? sessionStart.recovery : null,
+        recoveryInterruptionReason: null,
         projectId: run.projectId,
         canvasId: run.canvasId,
         ...run.identity,
         desktopRunId: run.identity.desktopRunId ?? null,
         runSessionId: run.identity.runSessionId ?? null,
         ...run.metadataIdentity
-      }
+      },
+      writeGuard: (operation) => ownerWriteFence.withOwnerWrite(operation)
     });
     const relayAbort = (): void => abortController.abort(options?.signal?.reason);
     options?.signal?.addEventListener("abort", relayAbort, { once: true });
@@ -660,10 +614,25 @@ export class AcpSessionController {
           state: "ready",
           message: "ACP runner is ready."
         });
-      const session = await connection.newSession(
-        { cwd: run.cwd, mcpServers: [] },
-        { signal: abortController.signal, timeoutMs: options?.timeoutMs }
-      );
+      executionPhase = "session";
+      const session: NewSessionResponse = await startAcpSession({
+        connection,
+        initializedCapabilities: initialized.agentCapabilities,
+        sessionStart,
+        cwd: run.cwd,
+        operation: { signal: abortController.signal, timeoutMs: options?.timeoutMs },
+        agentId: run.agentId,
+        onRecoveryLoaded: async (sessionId) => {
+          if (eventStore) {
+            await eventStore.append({
+              kind: "lifecycle",
+              state: "initializing",
+              message: `ACP recovery loaded source session '${sessionId}'.`
+            });
+          }
+        }
+      });
+      initializedSessionId = session.sessionId;
       const sessionCorrelation = acpCorrelationSchema.parse({ sessionId: session.sessionId });
       if (eventStore) {
         await eventStore.append(
@@ -745,6 +714,7 @@ export class AcpSessionController {
       operationDeadline = new Date(
         Date.now() + (options?.timeoutMs ?? DEFAULT_ACP_OPERATION_TIMEOUT_MS)
       );
+      executionPhase = "prompt";
       const response = await activeConnection.prompt(
         { sessionId: session.sessionId, prompt: [{ type: "text", text: agentPrompt }] },
         { signal: abortController.signal, timeoutMs: options?.timeoutMs }
@@ -790,6 +760,7 @@ export class AcpSessionController {
       });
       if (eventStore) await eventStore.drain();
       if (protocolObserverError !== undefined) throw protocolObserverError;
+      executionPhase = "artifact";
       const artifactRelative = finalArtifactRelativePath(run.kind);
       const artifactPath = join(run.runDir, artifactRelative);
       const envelope = extractFinalArtifactEnvelope(output, expected);
@@ -804,6 +775,7 @@ export class AcpSessionController {
         await eventStore.append({ kind: "artifact", artifact: artifactReference });
         await eventStore.drain();
       }
+      executionPhase = "cleanup";
       cleanupAttempted = true;
       await removeControlHandle(
         handle,
@@ -826,7 +798,13 @@ export class AcpSessionController {
               exitCode: 0,
               finishedAt: new Date().toISOString(),
               diagnostic: null,
-              artifactValidated: true
+              artifactValidated: true,
+              nextActions: projectRunnerNextActions({
+                sourceRecordId: `${run.identity.claimRef}::${run.identity.executorRunId}`,
+                sourceRunId: run.identity.executorRunId,
+                recoverAcpSession: false,
+                retryNewSession: false
+              })
             }
           },
           acpCorrelationSchema.parse({ sessionId: session.sessionId })
@@ -904,6 +882,20 @@ export class AcpSessionController {
       const cancelled = cancelledBeforeCleanup || handle?.lifecycleState === "cancelled";
       const cleanupFailed = cleanupError !== undefined || (cleanupAttempted && !cleanupCompleted);
       const status: TerminalStatus = timedOut ? "timed_out" : cancelled ? "cancelled" : "failed";
+      const transportInterrupted =
+        !(error instanceof RequestError) &&
+        !(error instanceof AcpAuthenticationRequiredError) &&
+        protocolObserverError === undefined &&
+        (executionPhase === "connecting" ||
+          executionPhase === "session" ||
+          executionPhase === "prompt");
+      const recoveryInterruptionReason = timedOut
+        ? "timed_out"
+        : cancelled
+          ? "recoverable_cancel"
+          : transportInterrupted
+            ? "transport_lost"
+            : null;
       const eventLogErrors: unknown[] = [];
       if (eventStore && !cancelled) {
         try {
@@ -928,7 +920,16 @@ export class AcpSessionController {
               exitCode: cancelled ? 130 : 1,
               finishedAt: new Date().toISOString(),
               diagnostic: message,
-              artifactValidated: validatedArtifactReference !== null
+              artifactValidated: validatedArtifactReference !== null,
+              nextActions: projectRunnerNextActions({
+                sourceRecordId: `${run.identity.claimRef}::${run.identity.executorRunId}`,
+                sourceRunId: run.identity.executorRunId,
+                recoverAcpSession:
+                  recoveryInterruptionReason !== null &&
+                  initializedSessionId !== null &&
+                  initializedCapabilities?.loadSession === true,
+                retryNewSession: true
+              })
             }
           });
         } catch (caught) {
@@ -943,6 +944,7 @@ export class AcpSessionController {
       await writeState(status, {
         failureReason: message,
         timedOut,
+        recoveryInterruptionReason,
         exitCode: cancelled ? 130 : 1,
         ...(validatedArtifactReference
           ? { artifactReference: validatedArtifactReference, executionOutcome: "succeeded" }

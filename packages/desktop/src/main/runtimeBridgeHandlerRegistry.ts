@@ -49,6 +49,7 @@ import {
   getTaskWorkspace,
   getTaskWorkspaceRunDetail,
   listTaskWorkspaceRuns,
+  recoverTaskWorkspaceAcpRun,
   retryTaskWorkspaceRun,
   getTodoGroups,
   initOrOpenProject,
@@ -147,6 +148,7 @@ import {
   taskWorkspaceInputSchema,
   taskWorkspaceListRunsInputSchema,
   taskWorkspaceRetryIdentitySchema,
+  taskWorkspaceAcpRecoveryIdentitySchema,
   taskWorkspaceRunDetailInputSchema,
   taskWorkspaceRunDetailSchema,
   taskWorkspaceRunsPageSchema,
@@ -625,6 +627,13 @@ export const runtimeBridgeHandlers = {
   getTaskWorkspaceRunDetail: (_event, input) => invokeTaskWorkspaceRunDetail(input),
   retryTaskWorkspaceRun: (_event, identity) =>
     retryTaskWorkspaceRun(taskWorkspaceRetryIdentitySchema.parse(identity)),
+  recoverTaskWorkspaceAcpRun: (_event, identity, audit) =>
+    recoverTaskWorkspaceAcpRun(
+      taskWorkspaceAcpRecoveryIdentitySchema.parse(identity),
+      z.object({ source: z.string().min(1).max(128), reason: z.string().min(1).max(4_096) })
+        .strict()
+        .parse(audit)
+    ),
   getBlockDetail: async (_event, ref, blockRef) =>
     getBlockDetail(await resolveDesktopCanvasReference(ref), blockRef),
   getTaskExecutionOrder: async (_event, ref, taskId) =>

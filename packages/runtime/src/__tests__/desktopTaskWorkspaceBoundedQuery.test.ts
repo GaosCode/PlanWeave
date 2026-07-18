@@ -125,7 +125,7 @@ async function writeLightRun(options: {
   const startedAt = options.startedAt ?? "2026-07-13T00:00:00.000Z";
   const finishedAt =
     options.finishedAt === undefined
-      ? new Date(Date.parse(startedAt) + 1_000).toISOString()
+      ? new Date(Date.parse(startedAt) + 1000).toISOString()
       : options.finishedAt;
   await writeJsonFile(join(runDir, "metadata.json"), {
     runId: options.runId,
@@ -740,7 +740,7 @@ describe("Task Workspace bounded query contract", () => {
 
     // Payload entry count is page-bounded, not total-history-bounded.
     expect(page.items.length).toBeLessThanOrEqual(TASK_WORKSPACE_RUNS_DEFAULT_LIMIT);
-    expect(JSON.stringify(page).length).toBeLessThan(JSON.stringify(page.items).length * 3 + 2_000);
+    expect(JSON.stringify(page).length).toBeLessThan(JSON.stringify(page.items).length * 3 + 2000);
   }, 120_000);
 
   it("fails closed without scanning legacy run history when the bounded index is missing", async () => {
@@ -917,6 +917,11 @@ describe("Task Workspace bounded query contract", () => {
             },
             cancel: { available: false, reason: "n/a", identity: null },
             retry: { available: false, reason: "n/a", identity: null },
+            recoverAcpSession: {
+              available: false,
+              reason: { code: "runner_not_acp", message: "n/a" },
+              identity: null
+            },
             resume: { available: false, reason: "n/a", identity: null }
           }
         }

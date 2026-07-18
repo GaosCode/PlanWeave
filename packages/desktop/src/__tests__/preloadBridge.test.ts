@@ -114,7 +114,7 @@ describe("preload bridge invocation", () => {
     expect(invoke).toHaveBeenCalledWith(desktopBridgeInvokeChannels.listProjects);
   });
 
-  it("exposes the Task Workspace query and retry methods and forwards their complete inputs", async () => {
+  it("exposes Task Workspace query, retry, and ACP recovery with exact identity and audit inputs", async () => {
     const result = { version: "planweave.task-workspace/v1" };
     const invoke = vi.fn<Parameters<typeof createDesktopBridgeInvokeApi>[0]>(async () => result);
     const api = createDesktopBridgeInvokeApi(invoke);
@@ -144,11 +144,35 @@ describe("preload bridge invocation", () => {
       desktopBridgeInvokeChannels.retryTaskWorkspaceRun,
       retryIdentity
     );
+    const recoveryIdentity = {
+      version: "planweave.task-workspace-acp-recovery/v1" as const,
+      projectId: "project-1",
+      projectRoot: "/tmp/project",
+      canvasId: "canvas-a" as const,
+      taskId: "T-001" as const,
+      blockId: "B-001",
+      claimRef: "T-001#B-001",
+      recordId: "T-001#B-001::RUN-001",
+      runId: "RUN-001",
+      sessionId: "session-1",
+      terminalEventSequence: 9,
+      agentId: "codex" as const,
+      executorProfile: "codex-acp",
+      launch: { command: "codex-acp", args: ["--stdio"] }
+    };
+    const audit = { source: "desktop", reason: "owner process exited" };
+    await api.recoverTaskWorkspaceAcpRun(recoveryIdentity, audit);
+    expect(invoke).toHaveBeenLastCalledWith(
+      desktopBridgeInvokeChannels.recoverTaskWorkspaceAcpRun,
+      recoveryIdentity,
+      audit
+    );
     expect(Object.keys(api).filter((method) => method.includes("TaskWorkspace"))).toEqual([
       "getTaskWorkspace",
       "listTaskWorkspaceRuns",
       "getTaskWorkspaceRunDetail",
-      "retryTaskWorkspaceRun"
+      "retryTaskWorkspaceRun",
+      "recoverTaskWorkspaceAcpRun"
     ]);
   });
 

@@ -42,11 +42,18 @@ describe("planweave CLI command registration", () => {
         "package-draft",
         "package",
         "import-recovery",
+        "recover-acp-run",
         "schema",
         "mcp",
         "trust",
         "help"
       ])
+    );
+  });
+
+  it("registers exact-source ACP recovery options", () => {
+    expect(commandOptionLongs("recover-acp-run")).toEqual(
+      expect.arrayContaining(["--record", "--source", "--reason", "--canvas", "--json"])
     );
   });
 

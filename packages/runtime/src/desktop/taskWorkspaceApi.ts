@@ -26,6 +26,7 @@ import {
   canonicalTaskWorkspaceRunIdentity,
   evaluateTaskWorkspaceRetry
 } from "./taskWorkspaceRetry.js";
+import { evaluateTaskWorkspaceAcpRecovery } from "./taskWorkspaceAcpRecovery.js";
 import {
   TASK_WORKSPACE_TASK_COST_UNAVAILABLE_REASON,
   taskWorkspaceInputSchema,
@@ -392,7 +393,7 @@ async function resolveActiveRecordIds(options: {
   return activeRecordIds;
 }
 
-function projectSummaryRunItem(options: {
+async function projectSummaryRunItem(options: {
   workspace: ProjectWorkspace;
   canvasId: TaskWorkspaceInput["canvasId"];
   taskId: TaskWorkspaceInput["taskId"];
@@ -405,7 +406,7 @@ function projectSummaryRunItem(options: {
   hasActiveRun: boolean;
   dependenciesSatisfied: boolean;
   now: Date;
-}): TaskWorkspaceRunListItem {
+}): Promise<TaskWorkspaceRunListItem> {
   const record = runIndexAsProjectionRecord(options.entry);
   if ((record.kind ?? "block") !== "block") {
     throw new Error(`Task Workspace list only supports block runs, got '${record.kind}'.`);
@@ -428,6 +429,18 @@ function projectSummaryRunItem(options: {
       latestRecordId: options.latestRecordId,
       hasActiveRun: options.hasActiveRun,
       dependenciesSatisfied: options.dependenciesSatisfied
+    }),
+    recoverAcpSession: await evaluateTaskWorkspaceAcpRecovery({
+      workspace: options.workspace,
+      canvasId: options.canvasId,
+      taskId: options.taskId,
+      block: options.block,
+      record: { ...record, kind: "block" },
+      selectedRecordId: options.selected ? record.recordId : null,
+      latestRecordId: options.latestRecordId,
+      hasActiveRun: options.hasActiveRun,
+      dependenciesSatisfied: options.dependenciesSatisfied,
+      newerRecoveryChild: false
     })
   });
   return {
@@ -863,6 +876,22 @@ export async function getTaskWorkspaceRunDetail(
             hasActiveRun: hasActiveAutoRun || activeRecordIds.length > 0,
             dependenciesSatisfied:
               dependencyProgress(blockDetail, detailsByRef).blockers.length === 0
+          })
+        : undefined,
+    recoverAcpSession:
+      parsed.kind === "block"
+        ? await evaluateTaskWorkspaceAcpRecovery({
+            workspace,
+            canvasId: input.canvasId,
+            taskId: input.taskId,
+            block: blockDetail,
+            record,
+            selectedRecordId,
+            latestRecordId,
+            hasActiveRun: hasActiveAutoRun || activeRecordIds.length > 0,
+            dependenciesSatisfied:
+              dependencyProgress(blockDetail, detailsByRef).blockers.length === 0,
+            newerRecoveryChild: false
           })
         : undefined
   });

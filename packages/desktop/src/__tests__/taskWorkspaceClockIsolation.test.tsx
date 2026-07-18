@@ -96,6 +96,7 @@ function projectedRun(runId: string, active: boolean): TaskWorkspaceRun {
       runTokens: { available: false, totalTokens: null, reason: "Unavailable." },
       taskTokens: { available: false, totalTokens: null, reason: "Unavailable." }
     },
+    nextActions: { version: "planweave.runner-next-actions/v1", actions: [] },
     capabilities: {
       prompt: {
         available: false,
@@ -105,6 +106,11 @@ function projectedRun(runId: string, active: boolean): TaskWorkspaceRun {
       },
       cancel: { available: false, reason: "No cancel capability.", identity: null },
       retry: { available: false, reason: "Retry unavailable.", identity: null },
+      recoverAcpSession: {
+        available: false,
+        reason: { code: "runner_not_acp", message: "ACP recovery unavailable." },
+        identity: null
+      },
       resume: { available: false, reason: "Resume unavailable.", identity: null }
     },
     actualConfiguration: { available: false, reason: "Unavailable." }

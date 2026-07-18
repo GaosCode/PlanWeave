@@ -79,10 +79,16 @@ export function timelineRunFixture(
       available: false,
       reason: "No authoritative ACP session configuration snapshot was recorded for this run."
     },
+    nextActions: { version: "planweave.runner-next-actions/v1", actions: [] },
     capabilities: {
       prompt: { available: false, reason: "Unavailable.", identity: null, inFlight: false },
       cancel: { available: false, reason: "Unavailable.", identity: null },
       retry: { available: false, reason: "Unavailable.", identity: null },
+      recoverAcpSession: {
+        available: false,
+        reason: { code: "runner_not_acp", message: "Unavailable." },
+        identity: null
+      },
       resume: { available: false, reason: "Unavailable.", identity: null }
     }
   });

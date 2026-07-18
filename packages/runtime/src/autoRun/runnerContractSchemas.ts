@@ -241,6 +241,30 @@ export const runnerRequestActionIdentitySchema = runnerSessionActionIdentitySche
   .strict();
 export type RunnerRequestActionIdentity = z.infer<typeof runnerRequestActionIdentitySchema>;
 
+const runnerNextActionSourceFields = {
+  sourceRecordId: z.string().min(1).max(2_048),
+  sourceRunId: executorRunIdSchema
+};
+
+export const runnerNextActionSchema = z.discriminatedUnion("kind", [
+  z
+    .object({ kind: z.literal("recover_acp_session"), ...runnerNextActionSourceFields })
+    .strict(),
+  z.object({ kind: z.literal("retry_new_session"), ...runnerNextActionSourceFields }).strict()
+]);
+export const runnerNextActionsSchema = z
+  .object({
+    version: z.literal("planweave.runner-next-actions/v1"),
+    actions: z.array(runnerNextActionSchema).max(2)
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (new Set(value.actions.map((action) => action.kind)).size !== value.actions.length) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Runner next actions must be unique." });
+    }
+  });
+export type RunnerNextActions = z.infer<typeof runnerNextActionsSchema>;
+
 export const terminalOutcomeSchema = z
   .object({
     version: runnerContractVersionSchema,
@@ -253,7 +277,8 @@ export const terminalOutcomeSchema = z
     exitCode: z.number().int().nullable(),
     finishedAt: z.string().datetime(),
     diagnostic: safeRunnerEventTextSchema(8_192, "Terminal diagnostic").nullable(),
-    artifactValidated: z.boolean()
+    artifactValidated: z.boolean(),
+    nextActions: runnerNextActionsSchema.optional()
   })
   .strict()
   .superRefine((value, context) => {

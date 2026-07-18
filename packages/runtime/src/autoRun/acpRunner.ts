@@ -29,6 +29,7 @@ import { executorRuntimeLimits } from "./executorShared.js";
 import { selectedDesktopAcpSessionDefaults } from "./desktopAgentSettings.js";
 import { optionalStat } from "../fs/optionalFile.js";
 import { recordBlockRunInIndex } from "./blockRunIndex.js";
+import { acpRunRecoveryExecutionSchema, renderAcpRunRecoveryPrompt } from "./acpRunRecovery.js";
 
 function unavailableMessage(agent: string): string {
   return `ACP runner for agent '${agent}' is not implemented; PlanWeave will not fall back to CLI.`;
@@ -366,10 +367,34 @@ export function createAcpRunner(options?: {
         definition,
         profileSource: input.profileSource
       });
+      const recovery = input.runtime?.acpRecovery
+        ? acpRunRecoveryExecutionSchema.parse(input.runtime.acpRecovery)
+        : null;
+      if (
+        recovery &&
+        (recovery.claimRef !== input.claim.ref ||
+          recovery.agentId !== definition.agent ||
+          recovery.executorProfile !== input.executorName ||
+          recovery.launch.command !== launch.command ||
+          recovery.launch.args.length !== launch.args.length ||
+          !recovery.launch.args.every((argument, index) => argument === launch.args[index]))
+      ) {
+        throw new Error(
+          "ACP recovery execution no longer matches the resolved claim/profile/launch."
+        );
+      }
+      const prompt = recovery
+        ? renderAcpRunRecoveryPrompt({
+            renderedPrompt: input.prompt,
+            lineage: recovery.lineage,
+            interruptionReason: recovery.interruptionReason,
+            lastToolStateSummary: recovery.lastToolStateSummary
+          })
+        : input.prompt;
       const prepared = await prepareAcpBlockRun({
         projectRoot: input.projectRoot,
         ref: input.claim.ref,
-        prompt: input.prompt
+        prompt
       });
       try {
         return await sessionController.execute(
@@ -384,7 +409,7 @@ export function createAcpRunner(options?: {
             },
             runDir: prepared.runDir,
             metadataPath: prepared.metadataPath,
-            prompt: input.prompt,
+            prompt,
             cwd: prepared.cwd,
             launch,
             authenticationHints: definition.acp.authentication,
@@ -396,7 +421,14 @@ export function createAcpRunner(options?: {
               ...(input.executionWaveId ? { executionWaveId: input.executionWaveId } : {})
             },
             projectId: prepared.projectId,
-            canvasId: prepared.canvasId
+            canvasId: prepared.canvasId,
+            sessionStart: recovery
+              ? {
+                  kind: "load",
+                  sessionId: recovery.lineage.sourceSessionId,
+                  recovery: recovery.lineage
+                }
+              : { kind: "new" }
           },
           {
             signal: input.runtime?.signal,

@@ -9,6 +9,7 @@ import type { BlockClaim, FeedbackClaim } from "./executorShared.js";
 import type { RunnerInteractionBroker } from "./liveControl.js";
 import type { RunnerInteractionObserver } from "./runnerInteractionObserver.js";
 import type { ExecutionWaveId } from "./runnerContractSchemas.js";
+import type { AcpRunRecoveryExecution } from "./acpRunRecovery.js";
 
 export type ExecutorRuntimeOptions = {
   tmuxEnabled?: boolean;
@@ -20,6 +21,7 @@ export type ExecutorRuntimeOptions = {
   runSessionId?: string;
   interactionBroker?: RunnerInteractionBroker;
   interactionObserver?: RunnerInteractionObserver;
+  acpRecovery?: AcpRunRecoveryExecution;
 };
 
 export type ExecutorBlockInput = {

@@ -9,6 +9,10 @@ const credentialLabelPattern =
   /\b(?:api[_-]?key|password|access[_-]?token|refresh[_-]?token|token)\s*[:=]\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\r\n,;]+)/gi;
 const jsonCredentialLabelPattern =
   /"(?:api[_-]?key|password|access[_-]?token|refresh[_-]?token|token)"\s*:\s*"(?:\\.|[^"\\])*"/gi;
+const environmentCredentialPattern =
+  /\b(?:export\s+)?(?:[A-Z_][A-Z0-9_]*_)?(?:API_KEY|TOKEN|SECRET|PASSWORD)\s*=\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\r\n,;]+)/gi;
+const jsonEnvironmentCredentialPattern =
+  /["'](?:[A-Z_][A-Z0-9_]*_)?(?:API_KEY|TOKEN|SECRET|PASSWORD)["']\s*:\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}]+)/gi;
 const sensitiveLabelPattern =
   /\b(?:client[_-]?secret|session[_-]?cookie|set-cookie|cookie)\s*[:=]\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\r\n,;]+)/gi;
 const standaloneAuthorizationPattern = /\b(?:basic|bearer)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
@@ -26,6 +30,11 @@ type RedactionRule = {
 
 const redactionRules: readonly RedactionRule[] = [
   {
+    pattern: jsonEnvironmentCredentialPattern,
+    classification: "credential",
+    replacement: '"credential":"[REDACTED:CREDENTIAL]"'
+  },
+  {
     pattern: jsonCredentialLabelPattern,
     classification: "credential",
     replacement: '"credential":"[REDACTED:CREDENTIAL]"'
@@ -37,6 +46,11 @@ const redactionRules: readonly RedactionRule[] = [
   },
   {
     pattern: authorizationPattern,
+    classification: "credential",
+    replacement: "[REDACTED:CREDENTIAL]"
+  },
+  {
+    pattern: environmentCredentialPattern,
     classification: "credential",
     replacement: "[REDACTED:CREDENTIAL]"
   },

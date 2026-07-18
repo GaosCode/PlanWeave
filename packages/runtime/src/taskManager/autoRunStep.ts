@@ -457,6 +457,7 @@ export async function runAutoRunStep(options: {
   runSessionId?: string;
   interactionBroker?: import("../autoRun/liveControl.js").RunnerInteractionBroker;
   interactionObserver?: import("../autoRun/runnerInteractionObserver.js").RunnerInteractionObserver;
+  acpRecovery?: import("../autoRun/acpRunRecovery.js").AcpRunRecoveryExecution;
   parallel?: boolean;
   scope?: ClaimScope;
   session?: ExecutionGraphSession;
@@ -500,7 +501,8 @@ export async function runAutoRunStep(options: {
           desktopRunId: options.desktopRunId,
           runSessionId: options.runSessionId,
           interactionBroker: options.interactionBroker,
-          interactionObserver: options.interactionObserver
+          interactionObserver: options.interactionObserver,
+          acpRecovery: options.acpRecovery
         }
       });
     const settled = await Promise.allSettled(
@@ -567,7 +569,8 @@ export async function runAutoRunStep(options: {
         desktopRunId: options.desktopRunId,
         runSessionId: options.runSessionId,
         interactionBroker: options.interactionBroker,
-        interactionObserver: options.interactionObserver
+        interactionObserver: options.interactionObserver,
+        acpRecovery: options.acpRecovery
       }
     });
   if (claim.kind === "feedback") {

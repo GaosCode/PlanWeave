@@ -512,7 +512,11 @@ export class ActiveAgentRunRegistry {
             exitCode: terminalState === "succeeded" ? 0 : null,
             finishedAt: new Date().toISOString(),
             diagnostic: terminalState === "succeeded" ? null : reason,
-            artifactValidated
+            artifactValidated,
+            nextActions: {
+              version: "planweave.runner-next-actions/v1",
+              actions: []
+            }
           }
         },
         live: { kind: "present", control: handle.control, cleanupReason: reason }

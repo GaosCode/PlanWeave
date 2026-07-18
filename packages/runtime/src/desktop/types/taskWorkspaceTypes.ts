@@ -10,7 +10,12 @@ import {
 } from "../../autoRun/runnerContractSchemas.js";
 import { desktopAgentPromptIdentitySchema } from "../../autoRun/runnerRecordReadModelContract.js";
 import { acpActualSessionConfigurationSchema } from "../../autoRun/acpSessionConfiguration.js";
+import { runnerNextActionsSchema } from "../../autoRun/runnerNextActions.js";
 import { feedbackRunRecordId, parseRunRecordId, runRecordId } from "../runRecordIdentity.js";
+import {
+  acpLaunchIdentitySchema,
+  acpRunRecoveryUnavailableReasonSchema
+} from "../../autoRun/acpRunRecovery.js";
 
 export const TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON =
   "Retry is unavailable for this persisted run.";
@@ -113,6 +118,72 @@ export const taskWorkspaceRetryCapabilitySchema = availabilityBaseSchema
   .strict()
   .superRefine(requireAvailableIdentity);
 
+export const taskWorkspaceAcpRecoveryIdentitySchema = z
+  .object({
+    version: z.literal("planweave.task-workspace-acp-recovery/v1"),
+    projectId: nonEmptyStringSchema.max(256),
+    projectRoot: nonEmptyStringSchema,
+    canvasId: canvasIdSchema,
+    taskId: taskIdSchema,
+    blockId: nonEmptyStringSchema.max(256),
+    claimRef: nonEmptyStringSchema.max(513),
+    recordId: nonEmptyStringSchema.max(1_024),
+    runId: nonEmptyStringSchema.max(256),
+    sessionId: nonEmptyStringSchema.max(1_024),
+    terminalEventSequence: z.number().int().positive(),
+    agentId: agentFamilySchema,
+    executorProfile: nonEmptyStringSchema.max(256),
+    launch: acpLaunchIdentitySchema
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.claimRef !== `${value.taskId}#${value.blockId}`) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["claimRef"],
+        message: "ACP recovery claimRef must equal '<taskId>#<blockId>'."
+      });
+    }
+    if (value.recordId !== runRecordId(value.claimRef, value.runId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["recordId"],
+        message: "ACP recovery recordId must equal '<claimRef>::<runId>'."
+      });
+    }
+  });
+
+export const taskWorkspaceAcpRecoveryUnavailableSchema = z
+  .object({
+    code: acpRunRecoveryUnavailableReasonSchema,
+    message: z.string().min(1).max(1_024)
+  })
+  .strict();
+
+export const taskWorkspaceAcpRecoveryCapabilitySchema = z
+  .object({
+    available: z.boolean(),
+    reason: taskWorkspaceAcpRecoveryUnavailableSchema.nullable(),
+    identity: taskWorkspaceAcpRecoveryIdentitySchema.nullable()
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.available && (value.identity === null || value.reason !== null)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["identity"],
+        message: "Available ACP recovery requires an identity and no unavailable reason."
+      });
+    }
+    if (!value.available && (value.identity !== null || value.reason === null)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["reason"],
+        message: "Unavailable ACP recovery requires a structured reason and no identity."
+      });
+    }
+  });
+
 const unavailableFutureActionSchema = z
   .object({
     available: z.literal(false),
@@ -126,6 +197,7 @@ export const taskWorkspaceRunCapabilitiesSchema = z
     prompt: taskWorkspacePromptCapabilitySchema,
     cancel: taskWorkspaceCancelCapabilitySchema,
     retry: taskWorkspaceRetryCapabilitySchema,
+    recoverAcpSession: taskWorkspaceAcpRecoveryCapabilitySchema,
     resume: unavailableFutureActionSchema
   })
   .strict();
@@ -232,7 +304,8 @@ export const taskWorkspaceRunSchema = z
     duration: taskWorkspaceRunDurationSchema,
     usage: taskWorkspaceRunUsageSchema,
     actualConfiguration: acpActualSessionConfigurationSchema,
-    capabilities: taskWorkspaceRunCapabilitiesSchema
+    capabilities: taskWorkspaceRunCapabilitiesSchema,
+    nextActions: runnerNextActionsSchema
   })
   .strict()
   .superRefine((value, context) => {
@@ -352,6 +425,12 @@ export type TaskWorkspacePromptCapability = z.infer<typeof taskWorkspacePromptCa
 export type TaskWorkspaceCancelCapability = z.infer<typeof taskWorkspaceCancelCapabilitySchema>;
 export type TaskWorkspaceRetryIdentity = z.infer<typeof taskWorkspaceRetryIdentitySchema>;
 export type TaskWorkspaceRetryCapability = z.infer<typeof taskWorkspaceRetryCapabilitySchema>;
+export type TaskWorkspaceAcpRecoveryIdentity = z.infer<
+  typeof taskWorkspaceAcpRecoveryIdentitySchema
+>;
+export type TaskWorkspaceAcpRecoveryCapability = z.infer<
+  typeof taskWorkspaceAcpRecoveryCapabilitySchema
+>;
 export type TaskWorkspaceRunCapabilities = z.infer<typeof taskWorkspaceRunCapabilitiesSchema>;
 export type TaskWorkspaceContextUsageSnapshot = z.infer<
   typeof taskWorkspaceContextUsageSnapshotSchema

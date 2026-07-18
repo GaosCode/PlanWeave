@@ -1,6 +1,7 @@
 import type { AutoRunExplanation } from "../../types.js";
 import type { ReviewVerdict, ValidationIssue } from "../../types.js";
 import type { ResetRuntimeStateResult, RunSessionState } from "../../runSessions/types.js";
+import type { AcpRunRecoveryExecution } from "../../autoRun/acpRunRecovery.js";
 
 export type DesktopAutoRunScope =
   | { kind: "project" }
@@ -20,6 +21,7 @@ export type DesktopAutoRunPhase =
 
 export type DesktopAutoRunOptions = {
   tmuxEnabled?: boolean;
+  acpRecovery?: AcpRunRecoveryExecution | null;
 };
 
 export type DesktopRuntimeResetOptions = {

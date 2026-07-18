@@ -117,7 +117,8 @@ type DesktopRunSessionStopReason = RunSessionAutoRunSummary["stopReason"];
 
 function normalizeAutoRunOptions(options?: DesktopAutoRunOptions): Required<DesktopAutoRunOptions> {
   return {
-    tmuxEnabled: options?.tmuxEnabled ?? true
+    tmuxEnabled: options?.tmuxEnabled ?? true,
+    acpRecovery: options?.acpRecovery ?? null
   };
 }
 
@@ -314,7 +315,8 @@ async function runLoop(runId: string): Promise<void> {
           runSessionId: current.runSessionId ?? undefined,
           signal: runAbortControllers.get(runId)?.signal,
           cliSignal: runCliAbortControllers.get(runId)?.signal,
-          interactionBroker: desktopInteractionBroker
+          interactionBroker: desktopInteractionBroker,
+          acpRecovery: current.options.acpRecovery ?? undefined
         });
         if (operation) operation.inFlight = false;
         invalidateDesktopProjectProjection(current.projectRoot);

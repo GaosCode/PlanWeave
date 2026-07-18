@@ -21,6 +21,7 @@ type AcpOwnerStateWriterOptions = {
   controlAvailability: AgentRunControlAvailabilitySummary;
   metadata: Readonly<Record<string, unknown>>;
   write?: (path: string, value: unknown) => Promise<void>;
+  writeGuard?: <T>(operation: () => Promise<T>) => Promise<T>;
 };
 
 export class AcpOwnerStateWriter {
@@ -96,7 +97,7 @@ export class AcpOwnerStateWriter {
         runnerLifecycle: lifecycle,
         pendingInteractionIds
       };
-      const results = await Promise.allSettled([
+      const persistBoth = async () => Promise.allSettled([
         this.write(this.options.heartbeatPath, {
           status,
           pid: null,
@@ -118,6 +119,9 @@ export class AcpOwnerStateWriter {
           ...details
         })
       ]);
+      const results = this.options.writeGuard
+        ? await this.options.writeGuard(persistBoth)
+        : await persistBoth();
       const failures = results.flatMap((result, index) =>
         result.status === "rejected"
           ? [

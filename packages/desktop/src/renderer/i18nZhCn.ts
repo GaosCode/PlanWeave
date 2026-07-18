@@ -731,6 +731,7 @@ export const zhCnCatalog = {
   taskWorkspaceResizeTimeline: "调整时间线宽度",
   taskWorkspaceRetry: "重试 {retryIndex}",
   taskWorkspaceRetryAction: "重试",
+  taskWorkspaceRecoverAcpAction: "恢复 ACP 会话",
   taskWorkspaceRunLabel: "{blockTitle} 第 {retryIndex} 次运行",
   taskWorkspaceRunId: "运行 ID",
   taskWorkspaceStartedAt: "开始时间",

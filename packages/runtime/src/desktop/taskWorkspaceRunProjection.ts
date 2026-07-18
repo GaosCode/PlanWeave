@@ -2,10 +2,12 @@ import { z } from "zod";
 import { runnerRecordReadModelSchema } from "../autoRun/runnerRecordReadModelContract.js";
 import {
   executionWaveIdSchema,
+  runnerNextActionsSchema,
   runnerRunIdentitySchema,
   type RunnerRunIdentity
 } from "../autoRun/runnerContractSchemas.js";
 import { agentFamilySchema, runnerTransportSchema } from "../types/executor.js";
+import { projectRunnerNextActions } from "../autoRun/runnerNextActions.js";
 import type { DesktopRunRecord } from "./types/recordsTypes.js";
 import {
   TASK_WORKSPACE_RESUME_UNAVAILABLE_REASON,
@@ -116,6 +118,7 @@ export function projectTaskWorkspaceCurrentContextUsage(
 function projectCapabilities(
   readModel: DesktopRunRecord["runnerReadModel"],
   retry: TaskWorkspaceRun["capabilities"]["retry"] | undefined,
+  recoverAcpSession: TaskWorkspaceRun["capabilities"]["recoverAcpSession"] | undefined,
   kind: "block" | "feedback"
 ): TaskWorkspaceRun["capabilities"] {
   return {
@@ -148,6 +151,24 @@ function projectCapabilities(
         : (retry ?? {
             available: false,
             reason: TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON,
+            identity: null
+          }),
+    recoverAcpSession:
+      kind === "feedback"
+        ? {
+            available: false,
+            reason: {
+              code: "runner_not_acp",
+              message: "ACP recovery is unavailable for persisted feedback runs."
+            },
+            identity: null
+          }
+        : (recoverAcpSession ?? {
+            available: false,
+            reason: {
+              code: "source_identity_invalid",
+              message: "ACP recovery is unavailable for this persisted run."
+            },
             identity: null
           }),
     resume: {
@@ -209,6 +230,7 @@ export function projectTaskWorkspaceRun(options: {
   runIdentity: RunnerRunIdentity;
   now: Date;
   retry?: TaskWorkspaceRun["capabilities"]["retry"];
+  recoverAcpSession?: TaskWorkspaceRun["capabilities"]["recoverAcpSession"];
 }): TaskWorkspaceRun {
   const record = taskWorkspaceProjectionRecordSchema.parse(options.record);
   const suppliedRunIdentity = runnerRunIdentitySchema.parse(options.runIdentity);
@@ -220,6 +242,12 @@ export function projectTaskWorkspaceRun(options: {
   const terminalState = [...(record.runnerReadModel?.events ?? [])]
     .reverse()
     .find((event) => event.body.kind === "terminal")?.body;
+  const capabilities = projectCapabilities(
+    record.runnerReadModel,
+    options.retry,
+    options.recoverAcpSession,
+    record.kind
+  );
 
   return taskWorkspaceRunSchema.parse({
     version: "planweave.task-workspace-run/v1",
@@ -259,6 +287,21 @@ export function projectTaskWorkspaceRun(options: {
       reason:
         "Actual session configuration is unavailable because this run has no ACP RunnerRecordReadModel."
     },
-    capabilities: projectCapabilities(record.runnerReadModel, options.retry, record.kind)
+    capabilities,
+    nextActions: terminalState?.kind === "terminal"
+      ? runnerNextActionsSchema.parse({
+          version: "planweave.runner-next-actions/v1",
+          actions: (terminalState.outcome.nextActions?.actions ?? []).filter((action) =>
+            action.kind === "recover_acp_session"
+              ? capabilities.recoverAcpSession.available
+              : capabilities.retry.available
+          )
+        })
+      : projectRunnerNextActions({
+            sourceRecordId: record.recordId,
+            sourceRunId: record.runId,
+            recoverAcpSession: false,
+            retryNewSession: false
+        })
   });
 }

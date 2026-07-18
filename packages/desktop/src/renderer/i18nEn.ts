@@ -770,6 +770,7 @@ export const enCatalog = {
   taskWorkspaceResizeTimeline: "Resize timeline",
   taskWorkspaceRetry: "Retry {retryIndex}",
   taskWorkspaceRetryAction: "Retry",
+  taskWorkspaceRecoverAcpAction: "Recover ACP session",
   taskWorkspaceRunLabel: "{blockTitle} run {retryIndex}",
   taskWorkspaceRunId: "Run ID",
   taskWorkspaceStartedAt: "Started",

@@ -147,7 +147,19 @@ export {
   getAutoRunRetrospective,
   getLatestAutoRunRetrospective
 } from "./autoRunRetrospectiveApi.js";
-export { retryTaskWorkspaceRun } from "./taskWorkspaceActionsApi.js";
+export {
+  recoverAcpRunByRecord,
+  recoverTaskWorkspaceAcpRun,
+  retryTaskWorkspaceRun
+} from "./taskWorkspaceActionsApi.js";
+export {
+  projectRunnerNextActions,
+  runnerNextActionSchema,
+  runnerNextActionsSchema
+} from "../autoRun/runnerNextActions.js";
+export type { RunnerNextActions } from "../autoRun/runnerNextActions.js";
+export { reconcileOrphanedAcpRun } from "./acpOrphanReconciliation.js";
+export type { AcpOrphanReconciliationResult } from "./acpOrphanReconciliation.js";
 export {
   cancelDesktopAgentRun,
   getDesktopRuntimeRefresh,
@@ -260,6 +272,9 @@ export {
   TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON,
   TASK_WORKSPACE_RUN_TOKENS_UNAVAILABLE_REASON,
   TASK_WORKSPACE_TASK_TOKENS_UNAVAILABLE_REASON,
+  taskWorkspaceAcpRecoveryCapabilitySchema,
+  taskWorkspaceAcpRecoveryIdentitySchema,
+  taskWorkspaceAcpRecoveryUnavailableSchema,
   taskWorkspaceCancelCapabilitySchema,
   taskWorkspaceContextUsageSnapshotSchema,
   taskWorkspacePromptCapabilitySchema,

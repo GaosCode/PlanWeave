@@ -118,6 +118,7 @@ export const planweaveHelpTopics: HelpTopic[] = [
       "unblock <ref> --reason <reason>",
       "mark-diverged <ref> --reason <reason>",
       "resolve-divergence <ref> --reason <reason>",
+      "recover-acp-run --record <record-id> --source <client-label> --reason <text> --json",
       "retry-review <review-block-ref> --max-feedback-cycles 3"
     ],
     notes: [
