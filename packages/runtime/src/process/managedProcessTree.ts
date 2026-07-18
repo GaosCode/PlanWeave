@@ -1,4 +1,20 @@
 import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptions } from "node:child_process";
+import {
+  createWindowsJobOwnership,
+  createWindowsProcessTreeAdapter,
+  resolveWindowsCommand,
+  windowsLauncherArgs,
+  windowsPowerShellPath
+} from "./windowsManagedProcess.js";
+
+export {
+  createWindowsProcessTreeAdapter,
+  windowsTaskKillArgs
+} from "./windowsManagedProcess.js";
+export type {
+  TaskKillSpawnFn,
+  WindowsProcessTreeAdapterOptions
+} from "./windowsManagedProcess.js";
 
 /** Default grace between graceful and force termination (matches executor force-kill grace). */
 export const DEFAULT_PROCESS_TREE_GRACE_MS = 500;
@@ -15,6 +31,7 @@ export type ProcessTerminationResult = {
  * Callers depend only on this lifecycle contract, not on child_process internals.
  */
 export type ManagedProcessTree = {
+  /** POSIX target pid; Windows managed launcher/Job owner pid. */
   readonly pid: number;
   /** Resolves when the root child exits; it does not prove that descendants have exited. */
   readonly exited: Promise<void>;
@@ -24,6 +41,7 @@ export type ManagedProcessTree = {
 };
 
 export type ManagedChildProcess = {
+  /** On Windows this proxies the target; child.pid identifies the managed launcher/owner. */
   readonly child: ChildProcessWithoutNullStreams;
   readonly tree: ManagedProcessTree;
 };
@@ -139,115 +157,6 @@ export function createPosixProcessTreeAdapter(): ProcessTreePlatformAdapter {
   };
 }
 
-/** Expose taskkill argv construction for Windows adapter unit tests (no process spawn). */
-export function windowsTaskKillArgs(pid: number, force: boolean): string[] {
-  assertSafeManagedPid(pid);
-  return force ? ["/pid", String(pid), "/t", "/f"] : ["/pid", String(pid), "/t"];
-}
-
-export type TaskKillSpawnFn = (
-  command: string,
-  args: readonly string[],
-  options: SpawnOptions
-) => ReturnType<typeof spawn>;
-
-export type WindowsProcessTreeAdapterOptions = {
-  /** Injectable spawn used only for taskkill (tests capture argv/shell). Default: node:child_process spawn. */
-  spawnTaskKill?: TaskKillSpawnFn;
-  /** Injectable liveness probe (tests). Default: process.kill(pid, 0) semantics. */
-  isAlive?: (pid: number) => boolean;
-};
-
-function windowsRootIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    const code = errnoCode(error);
-    if (code === "ESRCH") {
-      return false;
-    }
-    if (code === "EPERM") {
-      return true;
-    }
-    throw error;
-  }
-}
-
-/**
- * Run taskkill against a managed Windows tree root.
- * Shares argv construction with windowsTaskKillArgs; never enables shell.
- * Not-found (root already gone) resolves; access-denied / spawn failures reject.
- */
-function runTaskKill(
-  pid: number,
-  force: boolean,
-  options: {
-    spawnTaskKill: TaskKillSpawnFn;
-    isAlive: (pid: number) => boolean;
-  }
-): Promise<void> {
-  assertSafeManagedPid(pid);
-  const args = windowsTaskKillArgs(pid, force);
-  return new Promise((resolve, reject) => {
-    const child = options.spawnTaskKill("taskkill", args, {
-      stdio: "ignore",
-      windowsHide: true,
-      shell: false
-    });
-    child.once("error", (error) => {
-      reject(error);
-    });
-    child.once("close", (code) => {
-      if (code === 0 || code === null) {
-        resolve();
-        return;
-      }
-      // taskkill non-zero: distinguish already-gone (ESRCH-like) from permission/real failures.
-      let stillAlive: boolean;
-      try {
-        stillAlive = options.isAlive(pid);
-      } catch (error) {
-        reject(error);
-        return;
-      }
-      if (!stillAlive) {
-        resolve();
-        return;
-      }
-      reject(
-        Object.assign(
-          new Error(
-            `taskkill ${force ? "force" : "graceful"} failed for pid=${String(pid)} (exit ${String(code)}).`
-          ),
-          { code: "EPERM" }
-        )
-      );
-    });
-  });
-}
-
-export function createWindowsProcessTreeAdapter(
-  options: WindowsProcessTreeAdapterOptions = {}
-): ProcessTreePlatformAdapter {
-  const spawnTaskKill = options.spawnTaskKill ?? spawn;
-  const isAliveProbe = options.isAlive ?? windowsRootIsAlive;
-  return {
-    name: "windows",
-    configureSpawn(spawnOptions) {
-      // Do not detach into a new console group; taskkill /T walks the OS process tree from root pid.
-      return { ...spawnOptions, detached: false, shell: false, windowsHide: true };
-    },
-    signalGraceful(pid) {
-      return runTaskKill(pid, false, { spawnTaskKill, isAlive: isAliveProbe });
-    },
-    signalForce(pid) {
-      return runTaskKill(pid, true, { spawnTaskKill, isAlive: isAliveProbe });
-    },
-    isAlive: isAliveProbe
-  };
-}
-
 export function createFakeProcessTreeAdapter(
   options: FakeProcessTreeAdapterOptions = {}
 ): ProcessTreePlatformAdapter {
@@ -310,15 +219,30 @@ function createManagedProcessTree(options: {
       terminationPromise = (async (): Promise<ProcessTerminationResult> => {
         const rootWasAlive = isAlive();
 
+        if (!rootWasAlive) {
+          try {
+            await adapter.signalForce(pid);
+          } catch (error) {
+            if (errnoCode(error) !== "ESRCH") {
+              throw error;
+            }
+          }
+          await exited;
+          return { outcome: "already_exited", reason };
+        }
+
         try {
           await adapter.signalGraceful(pid);
         } catch (error) {
           const code = errnoCode(error);
-          if (code === "ESRCH") {
-            await exited;
-            return { outcome: "already_exited", reason };
+          if (code !== "ESRCH" && code !== "ECHILD") {
+            throw error;
           }
-          throw error;
+          // The root may exit between the liveness probe and taskkill. The named Job
+          // remains authoritative, so skip the grace delay and force it immediately.
+          await adapter.signalForce(pid);
+          await exited;
+          return { outcome: "graceful", reason };
         }
 
         // Fixed grace window so SIGTERM-resistant descendants can be force-reaped next.
@@ -334,11 +258,6 @@ function createManagedProcessTree(options: {
           if (code !== "ESRCH") {
             throw error;
           }
-        }
-
-        if (!rootWasAlive) {
-          await exited;
-          return { outcome: "already_exited", reason };
         }
 
         await Promise.race([
@@ -380,12 +299,24 @@ function createManagedProcessTree(options: {
  * stdio is always piped; shell is never enabled.
  */
 export function spawnManagedProcess(options: SpawnManagedProcessOptions): ManagedChildProcess {
-  const adapter = options.adapter ?? defaultAdapter;
+  let adapter = options.adapter ?? defaultAdapter;
   const graceMs = options.graceMs ?? DEFAULT_PROCESS_TREE_GRACE_MS;
   if (!Number.isFinite(graceMs) || graceMs < 0) {
     throw new Error(
       `Managed process graceMs must be a non-negative number; got ${String(graceMs)}`
     );
+  }
+
+  let command = options.command;
+  let args = [...options.args];
+  if (!options.adapter && adapter.name === "windows") {
+    const target = resolveWindowsCommand(options);
+    if (target) {
+      const job = createWindowsJobOwnership();
+      adapter = createWindowsProcessTreeAdapter({ job });
+      command = windowsPowerShellPath();
+      args = windowsLauncherArgs(job, target, options.args);
+    }
   }
 
   const spawnOptions = adapter.configureSpawn({
@@ -399,11 +330,7 @@ export function spawnManagedProcess(options: SpawnManagedProcessOptions): Manage
     throw new Error("Managed process spawn refuses shell:true.");
   }
 
-  const child = spawn(
-    options.command,
-    [...options.args],
-    spawnOptions
-  ) as ChildProcessWithoutNullStreams;
+  const child = spawn(command, args, spawnOptions) as ChildProcessWithoutNullStreams;
   const pid = child.pid;
   if (pid === undefined) {
     // Spawn may still emit 'error' asynchronously for missing binaries; expose a fail-closed tree.

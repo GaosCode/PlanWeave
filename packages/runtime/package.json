@@ -42,7 +42,7 @@
   },
   "sideEffects": false,
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node scripts/copy-windows-job-helper.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.contracts.json",
     "prepack": "pnpm build"
   },

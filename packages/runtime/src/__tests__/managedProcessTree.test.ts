@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   attachManagedProcessTree,
@@ -195,10 +196,7 @@ describe("managedProcessTree contract (fake adapter)", () => {
       outcome: "already_exited",
       reason: "dispose"
     });
-    expect(signals).toEqual([
-      { kind: "graceful", pid: 77_001 },
-      { kind: "force", pid: 77_001 }
-    ]);
+    expect(signals).toEqual([{ kind: "force", pid: 77_001 }]);
   });
 
   it("surfaces real EPERM from the graceful signal path", async () => {
@@ -227,6 +225,37 @@ describe("managedProcessTree contract (fake adapter)", () => {
     await expect(tree.terminate("cancel")).rejects.toMatchObject({ code: "EPERM" });
   });
 
+  it("forces immediately when the root exits between liveness and graceful signaling", async () => {
+    let alive = true;
+    let exitListener: (() => void) | undefined;
+    const signals: Array<{ kind: "graceful" | "force"; pid: number }> = [];
+    const child = {
+      exitCode: null,
+      signalCode: null,
+      once(event: string, listener: () => void) {
+        if (event === "exit") exitListener = listener;
+        return child;
+      }
+    } as unknown as ChildProcessWithoutNullStreams;
+    const adapter = createFakeProcessTreeAdapter({
+      signals,
+      isAlive: () => alive,
+      onGraceful: () => {
+        alive = false;
+        (child as { exitCode: number | null }).exitCode = 0;
+        exitListener?.();
+        throw Object.assign(new Error("root exited"), { code: "ECHILD" });
+      }
+    });
+    const tree = attachManagedProcessTree({ child, pid: 88_002, adapter, graceMs: 10_000 });
+
+    await expect(tree.terminate("race")).resolves.toEqual({ outcome: "graceful", reason: "race" });
+    expect(signals).toEqual([
+      { kind: "graceful", pid: 88_002 },
+      { kind: "force", pid: 88_002 }
+    ]);
+  });
+
   it("refuses invalid or self pids", () => {
     expect(() => windowsTaskKillArgs(-1, true)).toThrow("Invalid managed process pid");
     expect(() => windowsTaskKillArgs(process.pid, false)).toThrow(
@@ -251,7 +280,7 @@ describe("platform adapters", () => {
     expect(configured.detached).toBe(false);
   });
 
-  it("runs taskkill through the shared argv helper with shell:false (graceful and force)", async () => {
+  it("runs graceful taskkill through the shared argv helper with shell:false", async () => {
     const spawns: Array<{
       command: string;
       args: readonly string[];
@@ -285,22 +314,34 @@ describe("platform adapters", () => {
     });
 
     await adapter.signalGraceful(4_321);
-    await adapter.signalForce(4_321);
 
-    expect(spawns).toHaveLength(2);
+    expect(spawns).toHaveLength(1);
     expect(spawns[0]).toMatchObject({
       command: "taskkill",
       args: windowsTaskKillArgs(4_321, false),
       options: { shell: false, windowsHide: true, stdio: "ignore" }
     });
-    expect(spawns[1]).toMatchObject({
-      command: "taskkill",
-      args: windowsTaskKillArgs(4_321, true),
-      options: { shell: false, windowsHide: true, stdio: "ignore" }
-    });
   });
 
-  it("maps taskkill not-found (non-zero + dead root) to success and access-denied to EPERM", async () => {
+  it("always opens the owner-independent named Job even when root and marker are absent", async () => {
+    const terminated: string[] = [];
+    const adapter = createWindowsProcessTreeAdapter({
+      job: {
+        name: "Local\\PlanWeave-test",
+        markerPath: "/tmp/planweave-nonexistent-owner-marker",
+        helperPath: "windowsJobProcess.ps1"
+      },
+      isAlive: () => false,
+      terminateJob: (job) => {
+        terminated.push(job.name);
+      }
+    });
+
+    await adapter.signalForce(4_322);
+    expect(terminated).toEqual(["Local\\PlanWeave-test"]);
+  });
+
+  it("never treats taskkill root-not-found as proof that the managed tree is gone", async () => {
     const spawnWithExit = (exitCode: number) =>
       ((_command: string, _args: readonly string[], _options: unknown) => {
         const handlers: { close?: (code: number | null) => void; error?: (error: Error) => void } =
@@ -323,13 +364,13 @@ describe("platform adapters", () => {
       spawnTaskKill: spawnWithExit(128),
       isAlive: () => false
     });
-    await expect(notFound.signalGraceful(9_001)).resolves.toBeUndefined();
+    await expect(notFound.signalGraceful(9_001)).rejects.toMatchObject({ code: "ECHILD" });
 
     const denied = createWindowsProcessTreeAdapter({
       spawnTaskKill: spawnWithExit(1),
       isAlive: () => true
     });
-    await expect(denied.signalForce(9_002)).rejects.toMatchObject({ code: "EPERM" });
+    await expect(denied.signalGraceful(9_002)).rejects.toMatchObject({ code: "EPERM" });
 
     const spawnError = createWindowsProcessTreeAdapter({
       spawnTaskKill: ((_command, _args, _options) => {
@@ -380,55 +421,172 @@ describe("host process-tree grandchild termination", () => {
     }
   });
 
-  it.skipIf(process.platform === "win32")(
-    "reaps a surviving grandchild after the managed root exits first",
+  it.runIf(process.platform === "win32")(
+    "preserves Windows PATHEXT batch lookup, arguments, cwd, env, stdio, and exit code",
     async () => {
-      const dir = await mkdtemp(join(tmpdir(), "planweave-exited-root-tree-"));
+      const dir = await mkdtemp(join(tmpdir(), "planweave-windows-owner-contract-"));
+      const executable = join(dir, "planweave-path-probe.cmd");
+      const source =
+        "process.stdout.write(JSON.stringify({cwd:process.cwd(),env:process.env.PLANWEAVE_OWNER_PROBE,args:process.argv.slice(1)}));process.exit(23);";
+      await writeFile(
+        executable,
+        `@echo off\r\n"${process.execPath}" -e "${source}" %*\r\n`,
+        "utf8"
+      );
+      const probeArgs = ["plain", "space value", 'amp&pipe|percent%caret^quote"trail\\'];
+      const managed = spawnManagedProcess({
+        command: "planweave-path-probe",
+        args: probeArgs,
+        cwd: dir,
+        env: {
+          ...process.env,
+          PATH: `${dir};${process.env.PATH ?? ""}`,
+          PATHEXT: ".CMD;.EXE;.COM;.BAT",
+          PLANWEAVE_OWNER_PROBE: "ok"
+        }
+      });
+      trees.push(managed.tree);
+      let stdout = "";
+      managed.child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString("utf8");
+      });
+
+      const exitCode = await new Promise<number | null>((resolveExit, reject) => {
+        managed.child.once("error", reject);
+        managed.child.once("close", resolveExit);
+      });
+
+      expect(exitCode).toBe(23);
+      expect(JSON.parse(stdout)).toEqual({ cwd: dir, env: "ok", args: probeArgs });
+      expect(managed.child.pid).toBe(managed.tree.pid);
+    }
+  );
+
+  it.runIf(process.platform === "win32")(
+    "preserves child_process error semantics when the target executable cannot be resolved",
+    async () => {
+      const managed = spawnManagedProcess({
+        command: `planweave-missing-${Date.now()}`,
+        args: []
+      });
+
+      await expect(
+        new Promise<void>((_resolveError, reject) => {
+          managed.child.once("error", reject);
+        })
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      expect(managed.tree.pid).toBe(-1);
+    }
+  );
+
+  it.runIf(process.platform === "win32")(
+    "closes the named Job when the PlanWeave owner exits unexpectedly",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "planweave-windows-owner-exit-"));
+      const readyPath = join(dir, "ready.txt");
       const grandchildPidPath = join(dir, "grandchild.pid");
       const heartbeatPath = join(dir, "heartbeat.txt");
+      const runtimeEntry = pathToFileURL(
+        join(import.meta.dirname, "../process/managedProcessTree.ts")
+      ).href;
       const grandchildSource = `
 const fs = require("node:fs");
-process.on("SIGTERM", () => {});
 fs.writeFileSync(${JSON.stringify(grandchildPidPath)}, String(process.pid));
 fs.writeFileSync(${JSON.stringify(heartbeatPath)}, "start");
 setInterval(() => fs.appendFileSync(${JSON.stringify(heartbeatPath)}, "x"), 40);
 `;
-      const rootSource = `
+      const targetSource = `
 const { spawn } = require("node:child_process");
+const fs = require("node:fs");
 const child = spawn(process.execPath, ["-e", ${JSON.stringify(grandchildSource)}], { stdio: "ignore" });
 child.unref();
-setTimeout(() => process.exit(17), 50);
+fs.writeFileSync(${JSON.stringify(readyPath)}, "ready");
+setInterval(() => {}, 100);
 `;
-      const managed = spawnManagedProcess({
-        command: process.execPath,
-        args: ["-e", rootSource],
-        cwd: dir,
-        graceMs: 40
-      });
-      trees.push(managed.tree);
-      pids.push(managed.tree.pid);
+      const ownerSource = `
+const { spawnManagedProcess } = await import(${JSON.stringify(runtimeEntry)});
+spawnManagedProcess({ command: process.execPath, args: ["-e", ${JSON.stringify(targetSource)}], cwd: ${JSON.stringify(dir)} });
+const fs = await import("node:fs");
+while (!fs.existsSync(${JSON.stringify(grandchildPidPath)})) await new Promise((resolve) => setTimeout(resolve, 20));
+process.exit(91);
+`;
+      const owner = spawn(
+        process.execPath,
+        ["--import", "tsx", "--input-type=module", "-e", ownerSource],
+        {
+          cwd: import.meta.dirname,
+          stdio: "ignore"
+        }
+      );
 
       await waitUntil(async () => {
         try {
-          return (await readFile(grandchildPidPath, "utf8")).trim().length > 0;
+          return (await readFile(readyPath, "utf8")) === "ready";
         } catch {
           return false;
         }
       });
+      if (owner.exitCode === null && owner.signalCode === null) {
+        await new Promise<void>((resolveExit, reject) => {
+          owner.once("error", reject);
+          owner.once("close", () => resolveExit());
+        });
+      }
       const grandchildPid = Number.parseInt(await readFile(grandchildPidPath, "utf8"), 10);
       pids.push(grandchildPid);
-      await managed.tree.exited;
-      expect(managed.tree.isAlive()).toBe(false);
-      expect(isAlive(grandchildPid)).toBe(true);
-
-      await managed.tree.terminate("root exited before readiness");
-
       await waitUntil(() => !isAlive(grandchildPid));
       const sizeAfterExit = (await readFile(heartbeatPath)).byteLength;
       await sleep(120);
       expect((await readFile(heartbeatPath)).byteLength).toBe(sizeAfterExit);
     }
   );
+
+  it("reaps a surviving grandchild after the managed root exits first", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "planweave-exited-root-tree-"));
+    const grandchildPidPath = join(dir, "grandchild.pid");
+    const heartbeatPath = join(dir, "heartbeat.txt");
+    const grandchildSource = `
+const fs = require("node:fs");
+process.on("SIGTERM", () => {});
+fs.writeFileSync(${JSON.stringify(grandchildPidPath)}, String(process.pid));
+fs.writeFileSync(${JSON.stringify(heartbeatPath)}, "start");
+setInterval(() => fs.appendFileSync(${JSON.stringify(heartbeatPath)}, "x"), 40);
+`;
+    const rootSource = `
+const { spawn } = require("node:child_process");
+const child = spawn(process.execPath, ["-e", ${JSON.stringify(grandchildSource)}], { stdio: "ignore" });
+child.unref();
+setTimeout(() => process.exit(17), 50);
+`;
+    const managed = spawnManagedProcess({
+      command: process.execPath,
+      args: ["-e", rootSource],
+      cwd: dir,
+      graceMs: 40
+    });
+    trees.push(managed.tree);
+    pids.push(managed.tree.pid);
+
+    await waitUntil(async () => {
+      try {
+        return (await readFile(grandchildPidPath, "utf8")).trim().length > 0;
+      } catch {
+        return false;
+      }
+    });
+    const grandchildPid = Number.parseInt(await readFile(grandchildPidPath, "utf8"), 10);
+    pids.push(grandchildPid);
+    await managed.tree.exited;
+    expect(managed.tree.isAlive()).toBe(false);
+    expect(isAlive(grandchildPid)).toBe(true);
+
+    await managed.tree.terminate("root exited before readiness");
+
+    await waitUntil(() => !isAlive(grandchildPid));
+    const sizeAfterExit = (await readFile(heartbeatPath)).byteLength;
+    await sleep(120);
+    expect((await readFile(heartbeatPath)).byteLength).toBe(sizeAfterExit);
+  });
 
   it("kills a grandchild that direct root termination would leave behind", async () => {
     const dir = await mkdtemp(join(tmpdir(), "planweave-process-tree-"));
@@ -501,7 +659,14 @@ setInterval(() => {}, 100);
     const managedChildPid = Number.parseInt(await readFile(childPidPath, "utf8"), 10);
     const managedGrandchildPid = Number.parseInt(await readFile(grandchildPidPath, "utf8"), 10);
     pids.push(managedChildPid, managedGrandchildPid);
-    expect(managedChildPid).toBe(managed.tree.pid);
+    if (process.platform === "win32") {
+      // Windows exposes the stable Job owner/launcher pid; the target pid is deliberately
+      // different so the owner can outlive a root-first exit and retain the named Job.
+      expect(managedChildPid).not.toBe(managed.tree.pid);
+      expect(managed.child.pid).toBe(managed.tree.pid);
+    } else {
+      expect(managedChildPid).toBe(managed.tree.pid);
+    }
     expect(managedGrandchildPid).not.toBe(managedChildPid);
     expect(isAlive(managedGrandchildPid)).toBe(true);
 

@@ -68,6 +68,7 @@ describe("desktop release configuration", () => {
       "pnpm --filter @planweave-ai/runtime build"
     );
     expect(desktopScripts["build:standalone"]).toContain("pnpm build:workspace");
+    expect(desktopScripts["build:workspace"]).toContain("copy-windows-job-helper.mjs");
     expect(rootScripts.build).toContain(
       "@planweave-ai/cli --filter @planweave-ai/desktop build:workspace"
     );
@@ -104,6 +105,10 @@ describe("desktop release configuration", () => {
       {
         from: "build/generated/planweave-build-metadata.json",
         to: "planweave-build-metadata.json"
+      },
+      {
+        from: "../runtime/src/process/windowsJobProcess.ps1",
+        to: "planweave-windows-job-process.ps1"
       }
     ]);
   });
@@ -129,6 +134,10 @@ describe("desktop release configuration", () => {
         {
           from: "build/generated/planweave-build-metadata.json",
           to: "planweave-build-metadata.json"
+        },
+        {
+          from: "../runtime/src/process/windowsJobProcess.ps1",
+          to: "planweave-windows-job-process.ps1"
         }
       ],
       nsis: {
