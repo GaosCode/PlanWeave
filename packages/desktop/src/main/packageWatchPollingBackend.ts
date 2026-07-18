@@ -1,5 +1,6 @@
 import type { PackageWatchBackendHandle } from "./packageWatchBackend.js";
 import {
+  changedFingerprint,
   collectWatchedPackageFingerprints,
   diffWatchedPackageSnapshots,
   fingerprintIfPresent,
@@ -148,7 +149,6 @@ export async function startPollingPackageWatchBackend(
         return;
       }
       const previousSnapshot = lastSnapshot;
-      preserveContentHashes(previousSnapshot, nextSnapshot);
 
       const previousKeys = new Set(previousSnapshot.keys());
       const nextKeys = new Set(nextSnapshot.keys());
@@ -163,8 +163,14 @@ export async function startPollingPackageWatchBackend(
         }
       }
       // mtime/size edits on known files remain probe's job; inventory only discovers membership.
-      // Still merge metadata so probe baseline stays current without dropping hashes.
-      lastSnapshot = nextSnapshot;
+      // Preserve their prior fingerprints so inventory cannot advance the shared baseline before
+      // a concurrent probe has published the change. New paths start from inventory's fingerprint.
+      lastSnapshot = new Map(
+        [...nextSnapshot].map(([key, fingerprint]) => [
+          key,
+          previousSnapshot.get(key) ?? fingerprint
+        ])
+      );
       knownRelativePaths = new Set(nextKeys);
       inventoryBackoffMs = 0;
       inventoryNextAllowedAt = 0;
@@ -212,8 +218,14 @@ export async function startPollingPackageWatchBackend(
           continue;
         }
         const old = previousSnapshot.get(rel);
-        let changed = !old || old.mtimeMs !== newFp.mtimeMs || old.size !== newFp.size;
-        if (!changed && old?.hash && newFp.hash && old.hash !== newFp.hash) {
+        const current = lastSnapshot.get(rel);
+        // A deletion or incompatible probe/inventory commit after this sweep started owns the
+        // newer state. Equivalent fingerprints remain safe even if their object identity changed.
+        if (!old || !current || changedFingerprint(old, current)) {
+          continue;
+        }
+        let changed = old.mtimeMs !== newFp.mtimeMs || old.size !== newFp.size;
+        if (!changed && old.hash && newFp.hash && old.hash !== newFp.hash) {
           changed = true;
         }
         lastSnapshot.set(rel, newFp);

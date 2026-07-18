@@ -65,6 +65,7 @@ const fsPromisesMock = vi.hoisted(() => {
     readdirPaths: [] as string[],
     failStat: false,
     holdStatPromise: null as Promise<unknown> | null,
+    statHook: null as null | ((path: string) => Promise<void> | void),
     failReadFile: false,
     holdReadFilePromise: null as Promise<Buffer> | null,
     activeReadFiles: 0,
@@ -78,6 +79,7 @@ const fsPromisesMock = vi.hoisted(() => {
       state.readdirPaths = [];
       state.failStat = false;
       state.holdStatPromise = null;
+      state.statHook = null;
       state.failReadFile = false;
       state.holdReadFilePromise = null;
       state.activeReadFiles = 0;
@@ -166,12 +168,20 @@ vi.mock("node:fs/promises", async () => {
       return actual.readdir(...args);
     }),
     stat: vi.fn(async (...args: Parameters<typeof actual.stat>) => {
+      const target = args[0];
+      const pathText =
+        typeof target === "string"
+          ? target
+          : Buffer.isBuffer(target)
+            ? target.toString("utf8")
+            : String(target);
       if (fsPromisesMock.state.failStat) {
         throw new Error("simulated probe failure");
       }
       if (fsPromisesMock.state.holdStatPromise) {
         await fsPromisesMock.state.holdStatPromise;
       }
+      await fsPromisesMock.state.statHook?.(pathText);
       return actual.stat(...args);
     }),
     readFile: vi.fn(async (...args: Parameters<typeof actual.readFile>) => {

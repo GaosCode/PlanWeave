@@ -389,6 +389,90 @@ describe("package file watcher: polling SLA and resources", () => {
     }
   });
 
+  it("a stale hash sweep cannot resurrect a path removed by probe and inventory", async () => {
+    forcePollingBackend();
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    const target = join(workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md");
+    const releaseHashRead = createDeferred<Buffer>();
+    let targetReadStarted = false;
+
+    try {
+      await registerAndWatch(webContents, workspace);
+      fsPromisesMock.state.readFileHook = (path) => {
+        if (path === target) {
+          targetReadStarted = true;
+          return releaseHashRead.promise;
+        }
+      };
+
+      await advanceAndFlush(25_000);
+      expect(targetReadStarted).toBe(true);
+
+      await unlink(target);
+      await advanceAndFlush(5000);
+      await flushDebounce();
+      webContents.send.mockClear();
+
+      fsPromisesMock.state.readFileHook = null;
+      releaseHashRead.resolve(Buffer.from("block prompt\n"));
+      await flushMicrotasks();
+
+      await advanceAndFlush(10_000);
+      await flushDebounce();
+      expect(webContents.send).not.toHaveBeenCalled();
+    } finally {
+      fsPromisesMock.state.readFileHook = null;
+      releaseHashRead.resolve(Buffer.from("block prompt\n"));
+    }
+  });
+
+  it("a stale hash sweep cannot overwrite a fingerprint just published by probe", async () => {
+    forcePollingBackend();
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    const target = join(workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md");
+    const releaseHashRead = createDeferred<Buffer>();
+    let targetReadStarted = false;
+
+    try {
+      await registerAndWatch(webContents, workspace);
+      fsPromisesMock.state.readFileHook = (path) => {
+        if (path === target) {
+          targetReadStarted = true;
+          return releaseHashRead.promise;
+        }
+      };
+
+      await advanceAndFlush(25_000);
+      expect(targetReadStarted).toBe(true);
+
+      await writeFile(target, "changed while hash read is in flight\n", "utf8");
+      await advanceAndFlush(1000);
+      await flushDebounce();
+      expect(webContents.send).toHaveBeenCalledWith(
+        packageFileChangedChannel,
+        expect.objectContaining({
+          paths: expect.arrayContaining(["package/nodes/T-001/blocks/B-001.prompt.md"])
+        })
+      );
+      webContents.send.mockClear();
+
+      fsPromisesMock.state.readFileHook = null;
+      releaseHashRead.resolve(Buffer.from("block prompt\n"));
+      await flushMicrotasks();
+      await flushDebounce();
+      webContents.send.mockClear();
+
+      await advanceAndFlush(1000);
+      await flushDebounce();
+      expect(webContents.send).not.toHaveBeenCalled();
+    } finally {
+      fsPromisesMock.state.readFileHook = null;
+      releaseHashRead.resolve(Buffer.from("block prompt\n"));
+    }
+  });
+
   it("polling failures use deterministic bounded backoff and do not publish synthetic changes", async () => {
     forcePollingBackend();
     const workspace = await createWorkspace();
@@ -450,6 +534,57 @@ describe("package file watcher: polling SLA and resources", () => {
     } finally {
       fsPromisesMock.state.failStat = false;
       warnSpy.mockRestore();
+    }
+  });
+
+  it("inventory cannot consume a known-file edit before a concurrent probe publishes it", async () => {
+    forcePollingBackend();
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    const releaseProbeStat = createDeferred<void>();
+
+    try {
+      await registerAndWatch(webContents, workspace);
+      await advanceAndFlush(1200);
+      await flushDebounce();
+      webContents.send.mockClear();
+
+      let manifestStatCalls = 0;
+      fsPromisesMock.state.statHook = async (path) => {
+        if (path !== workspace.manifestFile) {
+          return;
+        }
+        manifestStatCalls += 1;
+        if (manifestStatCalls === 1) {
+          await releaseProbeStat.promise;
+        }
+      };
+
+      await writeFile(
+        workspace.manifestFile,
+        JSON.stringify({ version: "plan-package/v1", inventoryRace: true }),
+        "utf8"
+      );
+
+      await advanceAndFlush(8800);
+      expect(manifestStatCalls).toBeGreaterThanOrEqual(2);
+      expect(webContents.send).not.toHaveBeenCalled();
+
+      fsPromisesMock.state.statHook = null;
+      releaseProbeStat.resolve();
+      await flushMicrotasks();
+      await flushDebounce();
+
+      expect(webContents.send).toHaveBeenCalledWith(
+        packageFileChangedChannel,
+        expect.objectContaining({
+          paths: expect.arrayContaining(["package/manifest.json"]),
+          backendKind: "polling"
+        })
+      );
+    } finally {
+      fsPromisesMock.state.statHook = null;
+      releaseProbeStat.resolve();
     }
   });
 });
