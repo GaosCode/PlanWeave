@@ -327,7 +327,7 @@ describe("desktop release configuration", () => {
           "pnpm",
           [
             "test:unit",
-            "packages/cli/src/__tests__/commandsFormatters.test.ts",
+            "packages/runtime/src/__tests__/runnerInteractionContract.test.ts",
             "--maxWorkers=1",
             "--reporter=default",
             "--reporter=junit",
@@ -338,7 +338,7 @@ describe("desktop release configuration", () => {
 
         const report = await readFile(reportPath, "utf8");
         expect(report).toContain("<testsuites");
-        expect(report).toContain("commandsFormatters.test.ts");
+        expect(report).toContain("runnerInteractionContract.test.ts");
       } finally {
         await rm(reportDirectory, { recursive: true, force: true });
       }
