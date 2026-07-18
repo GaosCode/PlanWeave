@@ -315,6 +315,29 @@ describe("desktop release configuration", () => {
     }
   });
 
+  it("verifies the Windows uninstaller signature before executing it", async () => {
+    const windowsVerifier = await readFile(
+      resolve(desktopRoot, "scripts/verify-windows-release.ps1"),
+      "utf8"
+    );
+    const uninstallBlock = windowsVerifier.slice(
+      windowsVerifier.indexOf("if (Test-Path -LiteralPath $uninstaller -PathType Leaf)")
+    );
+    const signatureVerification = uninstallBlock.indexOf(
+      "Assert-ValidAuthenticodeSignature -ArtifactPath $uninstaller"
+    );
+    const uninstallExecution = uninstallBlock.indexOf(
+      "Invoke-CheckedProcess -FilePath $uninstaller"
+    );
+
+    expect(signatureVerification).toBeGreaterThan(-1);
+    expect(uninstallExecution).toBeGreaterThan(signatureVerification);
+    expect(
+      occurrenceCount(windowsVerifier, "Assert-ValidAuthenticodeSignature -ArtifactPath")
+    ).toBe(3);
+    expect(windowsVerifier).toContain('"verify", "/pa", "/all", "/v", "/tw", $ArtifactPath');
+  });
+
   it("keeps unit, platform-matrix, and unsigned Windows packaged gates explicit", async () => {
     const [
       workflow,

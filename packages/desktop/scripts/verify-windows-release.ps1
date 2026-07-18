@@ -46,6 +46,16 @@ function Invoke-CheckedNative {
   }
 }
 
+function Assert-ValidAuthenticodeSignature {
+  param(
+    [Parameter(Mandatory = $true)][string]$ArtifactPath
+  )
+
+  Invoke-CheckedNative -FilePath $signTool.FullName -Arguments @(
+    "verify", "/pa", "/all", "/v", "/tw", $ArtifactPath
+  )
+}
+
 function Invoke-CheckedProcess {
   param(
     [Parameter(Mandatory = $true)][string]$FilePath,
@@ -62,17 +72,13 @@ function Invoke-CheckedProcess {
 
 $verificationFailure = $null
 try {
-  Invoke-CheckedNative -FilePath $signTool.FullName -Arguments @(
-    "verify", "/pa", "/all", "/v", "/tw", $installer
-  )
+  Assert-ValidAuthenticodeSignature -ArtifactPath $installer
   Invoke-CheckedProcess -FilePath $installer -Arguments @("/S", "/D=$installDir") `
     -Description "NSIS silent install"
   if (-not (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
     throw "Installed application executable was not found: $installedExe"
   }
-  Invoke-CheckedNative -FilePath $signTool.FullName -Arguments @(
-    "verify", "/pa", "/all", "/v", "/tw", $installedExe
-  )
+  Assert-ValidAuthenticodeSignature -ArtifactPath $installedExe
 
   $previousPlatform = $env:PLANWEAVE_PACKAGED_PLATFORM
   $previousAppPath = $env:PLANWEAVE_PACKAGED_APP_PATH
@@ -96,6 +102,7 @@ try {
   $cleanupErrors = [System.Collections.Generic.List[object]]::new()
   if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
     try {
+      Assert-ValidAuthenticodeSignature -ArtifactPath $uninstaller
       Invoke-CheckedProcess -FilePath $uninstaller -Arguments @("/S", "_?=$installDir") `
         -Description "NSIS silent uninstall"
     } catch {
