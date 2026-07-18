@@ -360,10 +360,11 @@ describe("PlanWeave MCP OAuth server", () => {
   });
 
   it("accepts OpenAI tunnel resources and binds the token for local MCP access", async () => {
-    const baseUrl = await startOAuthServer();
+    const baseUrl = await startOAuthServer({ trustForwardedHeaders: true });
+    const publicOrigin = "https://tunnel-service.gateway.unified-0.internal.api.openai.org";
     const token = await createOAuthAccessToken(
       baseUrl,
-      "https://tunnel-service.gateway.unified-0.internal.api.openai.org/v1/mcp/tunnel_6a35ec951cf48191bf6b7b899cf8842e"
+      `${publicOrigin}/v1/mcp/tunnel_6a35ec951cf48191bf6b7b899cf8842e`
     );
 
     const response = await fetch(`${baseUrl}/mcp`, {
@@ -384,7 +385,8 @@ describe("PlanWeave MCP OAuth server", () => {
       headers: {
         accept: "application/json, text/event-stream",
         authorization: `Bearer ${token}`,
-        "content-type": "application/json"
+        "content-type": "application/json",
+        "x-forwarded-proto": "https"
       }
     });
 

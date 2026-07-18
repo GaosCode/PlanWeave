@@ -16,12 +16,16 @@ export type LocalMcpServerManagerOptions = {
   port?: number;
   maxRequestBodyBytes?: number;
   oauth?: McpOAuthConfig | ((planweaveHome: string) => McpOAuthConfig | undefined);
+  trustForwardedHeaders?: boolean;
 };
 
 export class LocalMcpServerManager {
   private server: Server | null = null;
   private options: Required<
-    Pick<LocalMcpServerManagerOptions, "host" | "maxRequestBodyBytes" | "port">
+    Pick<
+      LocalMcpServerManagerOptions,
+      "host" | "maxRequestBodyBytes" | "port" | "trustForwardedHeaders"
+    >
   > &
     Pick<LocalMcpServerManagerOptions, "oauth">;
   private status: LocalMcpServerStatus;
@@ -31,7 +35,8 @@ export class LocalMcpServerManager {
       host: options.host ?? defaultHost,
       maxRequestBodyBytes: options.maxRequestBodyBytes ?? defaultMaxRequestBodyBytes,
       port: options.port ?? defaultPort,
-      oauth: options.oauth
+      oauth: options.oauth,
+      trustForwardedHeaders: options.trustForwardedHeaders ?? false
     };
     this.status = nowStatus({
       phase: "stopped",
@@ -84,7 +89,8 @@ export class LocalMcpServerManager {
         port,
         token: input.token?.trim() || undefined,
         planweaveHomeFromEnv: Boolean(process.env.PLANWEAVE_HOME),
-        trustForwardedHeaders: input.trustForwardedHeaders ?? false
+        trustForwardedHeaders:
+          input.trustForwardedHeaders ?? this.options.trustForwardedHeaders
       };
       const { listenPlanweaveMcpServer } = await import("../server.js");
       this.server = await listenPlanweaveMcpServer(config);

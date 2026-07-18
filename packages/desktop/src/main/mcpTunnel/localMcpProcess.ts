@@ -11,7 +11,8 @@ export class LocalMcpServerManager extends BaseLocalMcpServerManager {
         accessTokenTtlMs: desktopOAuthAccessTokenTtlMs,
         clientStorePath: join(planweaveHome, "desktop", "mcp-oauth-clients.json"),
         tokenStorePath: join(planweaveHome, "desktop", "mcp-oauth-tokens.json")
-      })
+      }),
+      trustForwardedHeaders: true
     });
   }
 }

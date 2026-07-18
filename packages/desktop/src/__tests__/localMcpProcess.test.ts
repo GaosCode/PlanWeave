@@ -8,9 +8,10 @@ afterEach(() => {
 });
 
 describe("LocalMcpServerManager", () => {
-  it("starts the local MCP server with persistent OAuth token storage", async () => {
+  it("starts the tunnel MCP server with persistent OAuth and trusted proxy headers", async () => {
     type LocalMcpServerManagerOptions = {
       oauth?: (planweaveHome: string) => unknown;
+      trustForwardedHeaders?: boolean;
     };
     let capturedOptions: LocalMcpServerManagerOptions | null = null;
     const start = vi.fn(async () => ({
@@ -56,6 +57,7 @@ describe("LocalMcpServerManager", () => {
       clientStorePath: "/tmp/planweave-home/desktop/mcp-oauth-clients.json",
       tokenStorePath: "/tmp/planweave-home/desktop/mcp-oauth-tokens.json"
     });
+    expect(capturedOptions?.trustForwardedHeaders).toBe(true);
     expect(start).toHaveBeenCalled();
 
     await manager.stop();

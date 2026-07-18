@@ -149,9 +149,45 @@ describe("MCP request guards", () => {
     ).toEqual({ ok: false, error: "invalid_host" });
   });
 
+  it("ignores a forwarded protocol without a host from a trusted loopback proxy", () => {
+    expect(
+      guardRequest(
+        {
+          host: "127.0.0.1:8787",
+          "x-forwarded-proto": "https"
+        },
+        { ...defaultConfig, trustForwardedHeaders: true },
+        { remoteAddress: "127.0.0.1" }
+      )
+    ).toEqual({ ok: true });
+  });
+
+  it("rejects a protocol-only forwarded header outside the trusted proxy boundary", () => {
+    expect(
+      guardRequest(
+        {
+          host: "127.0.0.1:8787",
+          "x-forwarded-proto": "https"
+        },
+        defaultConfig,
+        { remoteAddress: "127.0.0.1" }
+      )
+    ).toEqual({ ok: false, error: "invalid_host" });
+    expect(
+      guardRequest(
+        {
+          host: "127.0.0.1:8787",
+          "x-forwarded-proto": "https"
+        },
+        { ...defaultConfig, trustForwardedHeaders: true },
+        { remoteAddress: "192.0.2.10" }
+      )
+    ).toEqual({ ok: false, error: "invalid_host" });
+  });
+
   it.each([
     { forwardedHost: "tunnel.example", forwardedProto: undefined },
-    { forwardedHost: undefined, forwardedProto: "https" },
+    { forwardedHost: undefined, forwardedProto: "ftp" },
     { forwardedHost: "tunnel.example,evil.example", forwardedProto: "https" },
     { forwardedHost: "tunnel.example", forwardedProto: "https,http" },
     { forwardedHost: "tunnel.example", forwardedProto: "ftp" },

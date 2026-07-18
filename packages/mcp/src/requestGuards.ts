@@ -115,7 +115,18 @@ function forwardedRequestOrigin(
   if (
     !config.trustForwardedHeaders ||
     !isLoopbackHost(config.host) ||
-    !isLoopbackPeer(req.socket.remoteAddress) ||
+    !isLoopbackPeer(req.socket.remoteAddress)
+  ) {
+    return { present: true, origin: null };
+  }
+  if (
+    forwardedHost === undefined &&
+    (forwardedProto === "http" || forwardedProto === "https")
+  ) {
+    // A trusted tunnel may forward only the original scheme; it cannot replace the authority.
+    return { present: false };
+  }
+  if (
     !forwardedHost ||
     !forwardedProto ||
     (forwardedProto !== "http" && forwardedProto !== "https")
