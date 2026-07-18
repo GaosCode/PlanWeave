@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   ubuntu-gate:
-    name: Ubuntu build, lint, and unit tests
+    name: Ubuntu build, lint, unit, and integration tests
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -62,16 +62,20 @@ jobs:
         timeout-minutes: 20
         run: pnpm test:unit --maxWorkers=2 --reporter=default --reporter=junit --outputFile.junit=reports/unit.xml
 
-      - name: Redact failed unit test report
+      - name: Run integration tests
+        timeout-minutes: 20
+        run: pnpm test:integration --maxWorkers=2 --reporter=default --reporter=junit --outputFile.junit=reports/integration.xml
+
+      - name: Redact failed Ubuntu test reports
         id: redact-unit
         if: failure()
         run: node scripts/redact-ci-test-artifacts.mjs reports
 
-      - name: Upload failed unit test report
+      - name: Upload failed Ubuntu test reports
         if: failure() && steps.redact-unit.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: unit-test-report-ubuntu
+          name: test-reports-ubuntu
           path: reports
           if-no-files-found: error
           retention-days: 7

@@ -442,7 +442,7 @@ process.exit(2);
     windowsReleaseProbeTimeoutMs
   );
 
-  it("keeps unit, platform-matrix, and unsigned Windows packaged gates explicit", async () => {
+  it("keeps unit, integration, platform-matrix, and unsigned Windows packaged gates explicit", async () => {
     const [
       workflow,
       desktopSmokeWorkflow,
@@ -464,9 +464,11 @@ process.exit(2);
 
     expect(workflow).toContain("group: ci-${{ github.workflow }}-${{ github.ref }}");
     expect(workflow).toContain("cancel-in-progress: true");
-    expect(workflow).toContain("name: Ubuntu build, lint, and unit tests");
+    expect(workflow).toContain("name: Ubuntu build, lint, unit, and integration tests");
     expect(workflow).toContain("pnpm test:unit --maxWorkers=2");
     expect(workflow).not.toContain("pnpm test:unit -- --maxWorkers=2");
+    expect(workflow).toContain("pnpm test:integration --maxWorkers=2");
+    expect(workflow).not.toContain("pnpm test:integration -- --maxWorkers=2");
     expect(workflow).toContain("name: Platform tests (${{ matrix.os }})");
     expect(workflow).toContain("- ubuntu-latest");
     expect(workflow).toContain("- windows-latest");
@@ -595,11 +597,16 @@ process.exit(2);
     }
   });
 
-  it("keeps real cross-process ACP coverage in the platform suite", async () => {
+  it("routes cross-process ACP coverage by Windows compatibility", async () => {
     const suiteManifest = JSON.parse(
       await readFile(resolve(repoRoot, "vitest.suites.json"), "utf8")
     ) as {
-      groups: Array<{ root: string; unit: string[]; platform: string[] }>;
+      groups: Array<{
+        root: string;
+        unit: string[];
+        integration: string[];
+        platform: string[];
+      }>;
     };
     const runtime = suiteManifest.groups.find(
       (group) => group.root === "packages/runtime/src/__tests__"
@@ -608,7 +615,10 @@ process.exit(2);
 
     expect(runtime?.platform).toContain("agentRunControlTwoProcess.test.ts");
     expect(runtime?.unit).not.toContain("agentRunControlTwoProcess.test.ts");
-    expect(cli?.platform).toContain("acpCliE2E.test.ts");
+    expect(runtime?.integration).toContain("acpCrossProcessPermission.test.ts");
+    expect(cli?.integration).toContain("acpCliE2E.test.ts");
+    expect(cli?.platform).not.toContain("acpCliE2E.test.ts");
+    expect(cli?.integration).toContain("cliEntrypoint.test.ts");
   });
 
   it("redacts credentials, descriptors, and user paths before CI artifact upload", async () => {

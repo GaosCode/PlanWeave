@@ -11,27 +11,30 @@ const testFilePattern = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
 const staticRelativeImportPattern =
   /\b(?:import|export)\s+(?:type\s+)?(?:[^;]*?\s+from\s+)?["'](\.{1,2}\/[^"']+)["']/g;
 const dynamicRelativeImportPattern = /\bimport\s*\(\s*["'](\.{1,2}\/[^"']+)["']\s*\)/g;
-const typeOnlyStaticPlatformImportPattern =
-  /\bimport\s+type\s+[^;]+?\s+from\s+["']node:(?:child_process|net|fs(?:\/promises)?)["'];?/g;
-const typeOnlyPlatformImportPattern =
-  /\btypeof\s+import\s*\(\s*["']node:(?:child_process|net|fs(?:\/promises)?)["']\s*\)/g;
+const typeOnlyStaticExternalImportPattern =
+  /\bimport\s+type\s+[^;]+?\s+from\s+["']node:(?:child_process|dgram|fs(?:\/promises)?|https?|net|tls)["'];?/g;
+const typeOnlyExternalImportPattern =
+  /\btypeof\s+import\s*\(\s*["']node:(?:child_process|dgram|fs(?:\/promises)?|https?|net|tls)["']\s*\)/g;
 const sourceExtensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
-const platformOnlySourcePatterns = [
-  /(?:from\s+|import\s*\()['"]node:(?:child_process|net|fs(?:\/promises)?)['"]/,
-  /\bprocess\.platform\b/,
+const externalApiPatterns = [
+  /(?:from\s+|import\s*\()['"]node:(?:child_process|dgram|fs(?:\/promises)?|https?|net|tls)['"]/,
   /\btaskkill\b/,
   /\bSIG(?:TERM|KILL)\b/,
   /\b(?:chmod|chmodSync|mkdtemp|mkdtempSync|rename|renameSync|rm|rmSync|symlink|symlinkSync|tmpdir|unlink|unlinkSync|watch|watchFile)\s*\(/
 ];
-const requiredPlatformTests = [
-  "packages/runtime/src/__tests__/managedProcessTree.test.ts",
-  "packages/runtime/src/__tests__/advisoryDirectoryLock.test.ts",
-  "packages/runtime/src/__tests__/blockRunIndexRecovery.test.ts",
-  "packages/runtime/src/__tests__/agentRunControlEndpoint.test.ts",
-  "packages/runtime/src/__tests__/agentRunControlLifecycle.test.ts",
+const curatedPlatformTests = [
+  "packages/desktop/src/__tests__/runtimeStateWatch.test.ts",
+  "packages/mcp/src/__tests__/oauth.test.ts",
+  "packages/mcp/src/__tests__/oauthRefresh.test.ts",
+  "packages/mcp/src/__tests__/requestGuards.test.ts",
+  "packages/mcp/src/__tests__/server.test.ts",
   "packages/runtime/src/__tests__/agentRunControlServer.test.ts",
-  "packages/runtime/src/__tests__/acpCrossProcessPermission.test.ts"
+  "packages/runtime/src/__tests__/agentRunControlTwoProcess.test.ts",
+  "packages/runtime/src/__tests__/blockRunIndexConcurrency.test.ts",
+  "packages/runtime/src/__tests__/managedProcessTree.test.ts",
+  "packages/runtime/src/__tests__/stateConcurrency.test.ts"
 ];
+const curatedPlatformTestSet = new Set(curatedPlatformTests);
 
 function trackedTestFiles() {
   return execFileSync("git", ["ls-files", "--cached", "--", "packages"], {
@@ -71,11 +74,11 @@ function relativeImports(source) {
   return imports;
 }
 
-function usesPlatformOnlyApi(source) {
+function usesExternalApi(source) {
   const executableSource = source
-    .replace(typeOnlyStaticPlatformImportPattern, "")
-    .replace(typeOnlyPlatformImportPattern, "");
-  return platformOnlySourcePatterns.some((pattern) => pattern.test(executableSource));
+    .replace(typeOnlyStaticExternalImportPattern, "")
+    .replace(typeOnlyExternalImportPattern, "");
+  return externalApiPatterns.some((pattern) => pattern.test(executableSource));
 }
 
 function importedFile(importer, specifier) {
@@ -103,7 +106,7 @@ function importedFile(importer, specifier) {
   );
 }
 
-function platformOnlyImportChain(testFile) {
+function externalApiImportChain(testFile) {
   const testPath = join(repositoryRoot, testFile);
   const visited = new Set();
 
@@ -114,7 +117,7 @@ function platformOnlyImportChain(testFile) {
     visited.add(file);
     const source = readFileSync(file, "utf8");
     const currentChain = [...chain, repositoryPath(file)];
-    if (usesPlatformOnlyApi(source)) {
+    if (usesExternalApi(source)) {
       return currentChain;
     }
     for (const specifier of relativeImports(source)) {
@@ -141,11 +144,12 @@ for (const group of manifest.groups) {
   if (
     typeof group.root !== "string" ||
     !Array.isArray(group.unit) ||
+    !Array.isArray(group.integration) ||
     !Array.isArray(group.platform)
   ) {
-    validationErrors.push("Each group must define root, unit, and platform.");
+    validationErrors.push("Each group must define root, unit, integration, and platform.");
   } else {
-    for (const suite of ["unit", "platform"]) {
+    for (const suite of ["unit", "integration", "platform"]) {
       for (const fileName of group[suite]) {
         if (typeof fileName !== "string" || fileName !== posix.basename(fileName)) {
           validationErrors.push(`${group.root}/${String(fileName)} must be a test file basename.`);
@@ -175,17 +179,22 @@ for (const file of assignments.keys()) {
     validationErrors.push(`${file} is listed but is not a tracked test file.`);
   }
 }
-for (const file of requiredPlatformTests) {
+for (const file of curatedPlatformTests) {
   if (assignments.get(file) !== "platform") {
     validationErrors.push(`${file} must remain in the platform suite.`);
   }
 }
 for (const [file, suite] of assignments) {
+  if (suite === "platform" && !curatedPlatformTestSet.has(file)) {
+    validationErrors.push(
+      `${file} is not curated for the platform matrix; assign it to integration instead.`
+    );
+  }
   if (suite === "unit" && trackedSet.has(file)) {
-    const importChain = platformOnlyImportChain(file);
+    const importChain = externalApiImportChain(file);
     if (importChain) {
       validationErrors.push(
-        `${file} uses platform-only APIs via ${importChain.join(" -> ")} but is assigned to unit.`
+        `${file} uses external APIs via ${importChain.join(" -> ")} but is assigned to unit.`
       );
     }
   }
@@ -196,7 +205,10 @@ if (validationErrors.length > 0) {
 }
 
 const unitCount = [...assignments.values()].filter((suite) => suite === "unit").length;
-const platformCount = assignments.size - unitCount;
+const integrationCount = [...assignments.values()].filter(
+  (suite) => suite === "integration"
+).length;
+const platformCount = assignments.size - unitCount - integrationCount;
 process.stdout.write(
-  `Test suite classification valid: ${unitCount} unit, ${platformCount} platform.\n`
+  `Test suite classification valid: ${unitCount} unit, ${integrationCount} integration, ${platformCount} platform.\n`
 );

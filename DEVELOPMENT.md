@@ -104,10 +104,12 @@ Run the full test suite:
 pnpm test
 ```
 
-The CI test suite is also split into unit and platform-dependent groups:
+The CI test suite is split into pure unit tests, Ubuntu-only integration tests, and
+platform-dependent tests that run on both Ubuntu and Windows:
 
 ```bash
 pnpm test:unit
+pnpm test:integration
 pnpm test:platform
 ```
 

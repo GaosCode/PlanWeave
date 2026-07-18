@@ -10,7 +10,7 @@
         "recoverAcpRunCommand.test.ts",
         "runStatusFollow.test.ts"
       ],
-      "platform": [
+      "integration": [
         "acpCliE2E.test.ts",
         "acpLiveSmoke.test.ts",
         "canvasCli.test.ts",
@@ -34,7 +34,8 @@
         "runStatusObservability.test.ts",
         "skillContract.test.ts",
         "testSuiteClassificationGuard.test.ts"
-      ]
+      ],
+      "platform": []
     },
     {
       "root": "packages/desktop/src/__tests__",
@@ -139,7 +140,7 @@
         "windowExternalLinks.test.ts",
         "workspaceTabsLazyRoutes.test.tsx"
       ],
-      "platform": [
+      "integration": [
         "acpDesktopMockE2E.test.tsx",
         "appUpdateHandlers.test.ts",
         "buildMetadata.test.ts",
@@ -167,9 +168,9 @@
         "runtimeBridgeTaskWorkspaceHandlers.test.ts",
         "runtimeBridgeTerminalHandlers.test.ts",
         "runtimeBrowserBoundary.test.ts",
-        "runtimeStateWatch.test.ts",
         "smokeProcessGate.test.ts"
-      ]
+      ],
+      "platform": ["runtimeStateWatch.test.ts"]
     },
     {
       "root": "packages/mcp/src/__tests__",
@@ -189,18 +190,20 @@
         "tools.write.test.ts",
         "tunnelSystemd.test.ts"
       ],
-      "platform": [
-        "oauth.test.ts",
+      "integration": [
         "oauthClientStore.test.ts",
-        "oauthRefresh.test.ts",
         "oauthTokenStore.test.ts",
-        "requestGuards.test.ts",
-        "server.test.ts",
         "toolPackageFiles.test.ts",
         "toolRuntime.test.ts",
         "tunnelConfigStore.test.ts",
         "tunnelRun.test.ts",
         "tunnelStatus.test.ts"
+      ],
+      "platform": [
+        "oauth.test.ts",
+        "oauthRefresh.test.ts",
+        "requestGuards.test.ts",
+        "server.test.ts"
       ]
     },
     {
@@ -253,7 +256,7 @@
         "taskStatus.test.ts",
         "validationSummary.test.ts"
       ],
-      "platform": [
+      "integration": [
         "acpActions.test.ts",
         "acpConnectionCleanup.test.ts",
         "acpCrossProcessPermission.test.ts",
@@ -275,8 +278,6 @@
         "agentRunControlEndpoint.test.ts",
         "agentRunControlLifecycle.test.ts",
         "agentRunControlLocator.test.ts",
-        "agentRunControlServer.test.ts",
-        "agentRunControlTwoProcess.test.ts",
         "agentRunnerRegistry.test.ts",
         "architectureBoundaries.test.ts",
         "autoRunLocalReviewExecutor.test.ts",
@@ -293,7 +294,6 @@
         "autoRunArtifactIdentity.test.ts",
         "autoRunCodexExecutor.test.ts",
         "autoRunExecutorProfiles.test.ts",
-        "blockRunIndexConcurrency.test.ts",
         "blockRunIndexPerformance.test.ts",
         "blockRunIndexRecovery.test.ts",
         "blockRunIndexStorage.test.ts",
@@ -355,7 +355,6 @@
         "initWorkspace.test.ts",
         "ioFailureVisibility.test.ts",
         "json.test.ts",
-        "managedProcessTree.test.ts",
         "manifestEdit.test.ts",
         "opencodeExecutor.test.ts",
         "opencodeSessionCapture.test.ts",
@@ -384,7 +383,6 @@
         "runSessionRetention.test.ts",
         "sharedResources.test.ts",
         "state.test.ts",
-        "stateConcurrency.test.ts",
         "step1BlockRuntime.test.ts",
         "submitResult.test.ts",
         "submitReview.test.ts",
@@ -394,6 +392,13 @@
         "tmuxExecutor.test.ts",
         "tmuxRunnerScript.test.ts",
         "validatePackage.test.ts"
+      ],
+      "platform": [
+        "agentRunControlServer.test.ts",
+        "agentRunControlTwoProcess.test.ts",
+        "blockRunIndexConcurrency.test.ts",
+        "managedProcessTree.test.ts",
+        "stateConcurrency.test.ts"
       ]
     }
   ]
