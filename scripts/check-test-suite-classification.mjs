@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { join, posix } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, extname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -8,12 +8,20 @@ const manifestPath = join(repositoryRoot, "vitest.suites.json");
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 const lineBreakPattern = /\r?\n/;
 const testFilePattern = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
+const staticRelativeImportPattern =
+  /\b(?:import|export)\s+(?:type\s+)?(?:[^;]*?\s+from\s+)?["'](\.{1,2}\/[^"']+)["']/g;
+const dynamicRelativeImportPattern = /\bimport\s*\(\s*["'](\.{1,2}\/[^"']+)["']\s*\)/g;
+const typeOnlyStaticPlatformImportPattern =
+  /\bimport\s+type\s+[^;]+?\s+from\s+["']node:(?:child_process|net|fs(?:\/promises)?)["'];?/g;
+const typeOnlyPlatformImportPattern =
+  /\btypeof\s+import\s*\(\s*["']node:(?:child_process|net|fs(?:\/promises)?)["']\s*\)/g;
+const sourceExtensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
 const platformOnlySourcePatterns = [
-  /(?:from\s+|import\s*\()['"]node:(?:child_process|net)['"]/,
+  /(?:from\s+|import\s*\()['"]node:(?:child_process|net|fs(?:\/promises)?)['"]/,
   /\bprocess\.platform\b/,
   /\btaskkill\b/,
   /\bSIG(?:TERM|KILL)\b/,
-  /\b(?:chmod|symlink|rename|unlink|watch)\s*\(/
+  /\b(?:chmod|chmodSync|mkdtemp|mkdtempSync|rename|renameSync|rm|rmSync|symlink|symlinkSync|tmpdir|unlink|unlinkSync|watch|watchFile)\s*\(/
 ];
 const requiredPlatformTests = [
   "packages/runtime/src/__tests__/managedProcessTree.test.ts",
@@ -40,6 +48,87 @@ function fail(diagnostics) {
     `Test suite classification is invalid:\n${diagnostics.map((error) => `- ${error}`).join("\n")}\n`
   );
   process.exit(1);
+}
+
+function repositoryPath(file) {
+  return relative(repositoryRoot, file).split(sep).join(posix.sep);
+}
+
+function isTestSupportFile(file) {
+  const pathParts = repositoryPath(file).split(posix.sep);
+  return pathParts.some(
+    (part, index) => part === "__tests__" && pathParts[index + 1] === "support"
+  );
+}
+
+function relativeImports(source) {
+  const imports = [];
+  for (const pattern of [staticRelativeImportPattern, dynamicRelativeImportPattern]) {
+    for (const match of source.matchAll(pattern)) {
+      imports.push(match[1]);
+    }
+  }
+  return imports;
+}
+
+function usesPlatformOnlyApi(source) {
+  const executableSource = source
+    .replace(typeOnlyStaticPlatformImportPattern, "")
+    .replace(typeOnlyPlatformImportPattern, "");
+  return platformOnlySourcePatterns.some((pattern) => pattern.test(executableSource));
+}
+
+function importedFile(importer, specifier) {
+  const target = resolve(dirname(importer), specifier);
+  const extension = extname(target);
+  const candidates = [target];
+  if (extension) {
+    const base = target.slice(0, -extension.length);
+    if ([".js", ".jsx", ".mjs", ".cjs"].includes(extension)) {
+      candidates.push(
+        ...sourceExtensions.map((candidateExtension) => `${base}${candidateExtension}`)
+      );
+    }
+  } else {
+    candidates.push(
+      ...sourceExtensions.map((candidateExtension) => `${target}${candidateExtension}`)
+    );
+    candidates.push(
+      ...sourceExtensions.map((candidateExtension) => join(target, `index${candidateExtension}`))
+    );
+  }
+  return candidates.find(
+    (candidate) =>
+      existsSync(candidate) && statSync(candidate).isFile() && isTestSupportFile(candidate)
+  );
+}
+
+function platformOnlyImportChain(testFile) {
+  const testPath = join(repositoryRoot, testFile);
+  const visited = new Set();
+
+  function visit(file, chain) {
+    if (visited.has(file)) {
+      return;
+    }
+    visited.add(file);
+    const source = readFileSync(file, "utf8");
+    const currentChain = [...chain, repositoryPath(file)];
+    if (usesPlatformOnlyApi(source)) {
+      return currentChain;
+    }
+    for (const specifier of relativeImports(source)) {
+      const imported = importedFile(file, specifier);
+      if (imported) {
+        const match = visit(imported, currentChain);
+        if (match) {
+          return match;
+        }
+      }
+    }
+  }
+
+  return visit(testPath, []);
 }
 
 const validationErrors = [];
@@ -93,9 +182,11 @@ for (const file of requiredPlatformTests) {
 }
 for (const [file, suite] of assignments) {
   if (suite === "unit" && trackedSet.has(file)) {
-    const source = readFileSync(join(repositoryRoot, file), "utf8");
-    if (platformOnlySourcePatterns.some((pattern) => pattern.test(source))) {
-      validationErrors.push(`${file} uses platform-only APIs but is assigned to unit.`);
+    const importChain = platformOnlyImportChain(file);
+    if (importChain) {
+      validationErrors.push(
+        `${file} uses platform-only APIs via ${importChain.join(" -> ")} but is assigned to unit.`
+      );
     }
   }
 }
