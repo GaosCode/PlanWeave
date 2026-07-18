@@ -51,6 +51,7 @@ export async function verifyMacRelease(options = {}) {
   const report = [];
   let attached = false;
   let failure;
+  let cleanupFailure;
 
   try {
     await runCommand(
@@ -108,7 +109,6 @@ export async function verifyMacRelease(options = {}) {
     await writeFile(resolve(releaseDir, "verification-macos.txt"), `${report.join("\n\n")}\n`);
   } catch (error) {
     failure = error;
-    throw error;
   } finally {
     const cleanupErrors = [];
     if (attached) {
@@ -121,10 +121,20 @@ export async function verifyMacRelease(options = {}) {
     await cleanupPath(mountDir, cleanupErrors);
     await cleanupPath(installRoot, cleanupErrors);
     if (cleanupErrors.length > 0) {
-      const cleanupError = new AggregateError(cleanupErrors, "Failed to clean macOS release smoke paths.");
-      if (!failure) throw cleanupError;
-      console.error(cleanupError.message);
+      cleanupFailure = new AggregateError(
+        cleanupErrors,
+        "Failed to clean macOS release smoke paths."
+      );
+      if (failure) {
+        console.error(cleanupFailure.message);
+      }
     }
+  }
+  if (failure) {
+    throw failure;
+  }
+  if (cleanupFailure) {
+    throw cleanupFailure;
   }
 }
 
