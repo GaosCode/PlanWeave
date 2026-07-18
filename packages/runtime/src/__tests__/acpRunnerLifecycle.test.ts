@@ -148,12 +148,7 @@ describe("ActiveAgentRunRegistry", () => {
     expect(() =>
       registry.lookup("sessionId", "/project-a/results/run", "session-1", "RUN-002")
     ).toThrow("different executor run");
-    const collision = registryIndexHandle(
-      "/project-a/results/run",
-      "RUN-001",
-      "session-1",
-      closed
-    );
+    const collision = registryIndexHandle("/project-a/results/run", "RUN-001", "session-1", closed);
     expect(() => registry.register(collision)).toThrow("collision");
     await expect(
       Promise.all([registry.remove(first, "done"), registry.remove(first, "again")])
