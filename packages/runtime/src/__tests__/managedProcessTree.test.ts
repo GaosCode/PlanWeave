@@ -167,7 +167,9 @@ describe("managedProcessTree contract (fake adapter)", () => {
   });
 
   it("treats already-exited trees as idempotent success", async () => {
+    const signals: Array<{ kind: "graceful" | "force"; pid: number }> = [];
     const adapter = createFakeProcessTreeAdapter({
+      signals,
       isAlive: () => false
     });
     const child = {
@@ -193,6 +195,10 @@ describe("managedProcessTree contract (fake adapter)", () => {
       outcome: "already_exited",
       reason: "dispose"
     });
+    expect(signals).toEqual([
+      { kind: "graceful", pid: 77_001 },
+      { kind: "force", pid: 77_001 }
+    ]);
   });
 
   it("surfaces real EPERM from the graceful signal path", async () => {
@@ -373,6 +379,56 @@ describe("host process-tree grandchild termination", () => {
       await forceReap(pid);
     }
   });
+
+  it.skipIf(process.platform === "win32")(
+    "reaps a surviving grandchild after the managed root exits first",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "planweave-exited-root-tree-"));
+      const grandchildPidPath = join(dir, "grandchild.pid");
+      const heartbeatPath = join(dir, "heartbeat.txt");
+      const grandchildSource = `
+const fs = require("node:fs");
+process.on("SIGTERM", () => {});
+fs.writeFileSync(${JSON.stringify(grandchildPidPath)}, String(process.pid));
+fs.writeFileSync(${JSON.stringify(heartbeatPath)}, "start");
+setInterval(() => fs.appendFileSync(${JSON.stringify(heartbeatPath)}, "x"), 40);
+`;
+      const rootSource = `
+const { spawn } = require("node:child_process");
+const child = spawn(process.execPath, ["-e", ${JSON.stringify(grandchildSource)}], { stdio: "ignore" });
+child.unref();
+setTimeout(() => process.exit(17), 50);
+`;
+      const managed = spawnManagedProcess({
+        command: process.execPath,
+        args: ["-e", rootSource],
+        cwd: dir,
+        graceMs: 40
+      });
+      trees.push(managed.tree);
+      pids.push(managed.tree.pid);
+
+      await waitUntil(async () => {
+        try {
+          return (await readFile(grandchildPidPath, "utf8")).trim().length > 0;
+        } catch {
+          return false;
+        }
+      });
+      const grandchildPid = Number.parseInt(await readFile(grandchildPidPath, "utf8"), 10);
+      pids.push(grandchildPid);
+      await managed.tree.exited;
+      expect(managed.tree.isAlive()).toBe(false);
+      expect(isAlive(grandchildPid)).toBe(true);
+
+      await managed.tree.terminate("root exited before readiness");
+
+      await waitUntil(() => !isAlive(grandchildPid));
+      const sizeAfterExit = (await readFile(heartbeatPath)).byteLength;
+      await sleep(120);
+      expect((await readFile(heartbeatPath)).byteLength).toBe(sizeAfterExit);
+    }
+  );
 
   it("kills a grandchild that direct root termination would leave behind", async () => {
     const dir = await mkdtemp(join(tmpdir(), "planweave-process-tree-"));

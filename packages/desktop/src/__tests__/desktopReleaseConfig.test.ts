@@ -366,6 +366,7 @@ describe("desktop release configuration", () => {
     expect(packageJson.scripts["smoke:packaged:win"]).not.toMatch(/^\s*[A-Z][A-Z0-9_]*=/);
     expect(packagedVerifier).toContain("spawnManagedProcess");
     expect(packagedVerifier).toContain('tree.terminate("packaged startup smoke timeout")');
+    expect(packagedVerifier).toContain('tree.terminate("packaged startup smoke early exit")');
     expect(packagedVerifier).toContain('tree.terminate("packaged startup smoke complete")');
     expect(packagedVerifier).toContain('termination.outcome === "already_exited"');
     expect(packagedVerifier).toContain("managedProcessTreeTerminated: true");

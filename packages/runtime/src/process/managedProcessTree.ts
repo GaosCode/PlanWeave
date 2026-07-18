@@ -308,10 +308,7 @@ function createManagedProcessTree(options: {
   const terminate = (reason: string): Promise<ProcessTerminationResult> => {
     if (!terminationPromise) {
       terminationPromise = (async (): Promise<ProcessTerminationResult> => {
-        if (!isAlive()) {
-          await exited;
-          return { outcome: "already_exited", reason };
-        }
+        const rootWasAlive = isAlive();
 
         try {
           await adapter.signalGraceful(pid);
@@ -337,6 +334,11 @@ function createManagedProcessTree(options: {
           if (code !== "ESRCH") {
             throw error;
           }
+        }
+
+        if (!rootWasAlive) {
+          await exited;
+          return { outcome: "already_exited", reason };
         }
 
         await Promise.race([

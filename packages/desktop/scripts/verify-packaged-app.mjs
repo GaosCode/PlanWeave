@@ -284,8 +284,16 @@ async function smokeLaunch(executablePath, platform) {
     );
   }
   if (outcome.kind === "close") {
+    const exitDetail = `code ${String(outcome.code)}${outcome.signal ? `, signal ${outcome.signal}` : ""}`;
+    try {
+      await tree.terminate("packaged startup smoke early exit");
+    } catch (cleanupError) {
+      throw new Error(
+        `Packaged app exited before reporting startup readiness (${exitDetail}) and managed process-tree cleanup failed: ${sanitizedDiagnostic(errorMessage(cleanupError), sensitivePaths)}\n${diagnosticOutput()}`
+      );
+    }
     throw new Error(
-      `Packaged app exited before reporting startup readiness (code ${String(outcome.code)}${outcome.signal ? `, signal ${outcome.signal}` : ""}):\n${diagnosticOutput()}`
+      `Packaged app exited before reporting startup readiness (${exitDetail}):\n${diagnosticOutput()}`
     );
   }
 
