@@ -2,31 +2,83 @@ import { execFile } from "node:child_process";
 import { chmod, cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { spawnManagedProcess } from "@planweave-ai/runtime";
+import { spawnManagedProcess, type ManagedProcessTree } from "@planweave-ai/runtime";
 import { expect } from "vitest";
 
 export const execFileAsync = promisify(execFile);
 export const repoRoot = resolve(import.meta.dirname, "../../../../..");
 export const cliWorkflowTimeoutMs = 120_000;
+const cliHarnessCleanupBudgetMs = 30_000;
+export const defaultCliHardTimeoutMs = cliWorkflowTimeoutMs - cliHarnessCleanupBudgetMs;
 
-export async function runCli(
-  args: string[],
-  env: NodeJS.ProcessEnv,
-  options: { hardTimeoutMs?: number } = {}
-): Promise<{ stdout: string; stderr: string }> {
-  const hardTimeoutMs = options.hardTimeoutMs;
-  if (hardTimeoutMs !== undefined && (!Number.isSafeInteger(hardTimeoutMs) || hardTimeoutMs <= 0)) {
-    throw new Error(`CLI test hardTimeoutMs must be a positive integer; got ${hardTimeoutMs}.`);
+export function resolveCliHardTimeoutMs(hardTimeoutMs?: number): number {
+  const resolved = hardTimeoutMs ?? defaultCliHardTimeoutMs;
+  if (!Number.isSafeInteger(resolved) || resolved <= 0) {
+    throw new Error(`CLI test hardTimeoutMs must be a positive integer; got ${resolved}.`);
   }
+  return resolved;
+}
 
-  const tsxCli = join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
-  const cliEntrypoint = join(repoRoot, "packages", "cli", "src", "index.ts");
+export class CliTestHardTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(options: {
+    timeoutMs: number;
+    stdout: string;
+    stderr: string;
+    cleanupError?: unknown;
+  }) {
+    const cleanupOutcome = options.cleanupError
+      ? "managed process-tree cleanup also failed"
+      : "its managed process tree was terminated";
+    super(
+      `PlanWeave CLI exceeded the ${options.timeoutMs}ms test-owned hard budget; ${cleanupOutcome}.\n${cliDiagnostic(options.stdout, options.stderr)}`,
+      options.cleanupError === undefined ? undefined : { cause: options.cleanupError }
+    );
+    this.name = "CliTestHardTimeoutError";
+    this.timeoutMs = options.timeoutMs;
+  }
+}
+
+export async function terminateTimedOutCliProcess(options: {
+  tree: ManagedProcessTree;
+  hardTimeoutMs: number;
+  stdout: string;
+  stderr: string;
+}): Promise<never> {
+  let cleanupError: unknown;
+  try {
+    await options.tree.terminate(`CLI test hard timeout after ${options.hardTimeoutMs}ms`);
+  } catch (error) {
+    cleanupError = error;
+  }
+  throw new CliTestHardTimeoutError({
+    timeoutMs: options.hardTimeoutMs,
+    stdout: options.stdout,
+    stderr: options.stderr,
+    cleanupError
+  });
+}
+
+export type ManagedTestCommandOptions = {
+  command: string;
+  args: string[];
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  hardTimeoutMs?: number;
+  graceMs?: number;
+};
+
+export async function runManagedTestCommand(
+  options: ManagedTestCommandOptions
+): Promise<{ stdout: string; stderr: string }> {
+  const hardTimeoutMs = resolveCliHardTimeoutMs(options.hardTimeoutMs);
   const managed = spawnManagedProcess({
-    command: process.execPath,
-    args: [tsxCli, cliEntrypoint, ...args],
-    cwd: repoRoot,
-    env,
-    graceMs: 500
+    command: options.command,
+    args: options.args,
+    cwd: options.cwd,
+    env: options.env,
+    graceMs: options.graceMs ?? 500
   });
   const { child, tree } = managed;
   let stdout = "";
@@ -52,29 +104,16 @@ export async function runCli(
   let cleanupAttempted = false;
 
   try {
-    const outcome =
-      hardTimeoutMs === undefined
-        ? await completion
-        : await Promise.race([
-            completion,
-            new Promise<{ kind: "timeout" }>((resolveTimeout) => {
-              timeout = setTimeout(() => resolveTimeout({ kind: "timeout" }), hardTimeoutMs);
-            })
-          ]);
+    const outcome = await Promise.race([
+      completion,
+      new Promise<{ kind: "timeout" }>((resolveTimeout) => {
+        timeout = setTimeout(() => resolveTimeout({ kind: "timeout" }), hardTimeoutMs);
+      })
+    ]);
 
     if (outcome.kind === "timeout") {
       cleanupAttempted = true;
-      try {
-        await tree.terminate(`CLI test hard timeout after ${hardTimeoutMs}ms`);
-      } catch (cleanupError) {
-        throw new Error(
-          `PlanWeave CLI exceeded the ${hardTimeoutMs}ms test-owned hard budget and process-tree cleanup failed.\n${cliDiagnostic(stdout, stderr)}`,
-          { cause: cleanupError }
-        );
-      }
-      throw new Error(
-        `PlanWeave CLI exceeded the ${hardTimeoutMs}ms test-owned hard budget; its managed process tree was terminated.\n${cliDiagnostic(stdout, stderr)}`
-      );
+      return terminateTimedOutCliProcess({ tree, hardTimeoutMs, stdout, stderr });
     }
     if (outcome.kind === "error") {
       throw outcome.error;
@@ -96,6 +135,22 @@ export async function runCli(
       await tree.terminate("CLI test harness cleanup");
     }
   }
+}
+
+export async function runCli(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  options: { hardTimeoutMs?: number } = {}
+): Promise<{ stdout: string; stderr: string }> {
+  const tsxCli = join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
+  const cliEntrypoint = join(repoRoot, "packages", "cli", "src", "index.ts");
+  return runManagedTestCommand({
+    command: process.execPath,
+    args: [tsxCli, cliEntrypoint, ...args],
+    cwd: repoRoot,
+    env,
+    hardTimeoutMs: options.hardTimeoutMs
+  });
 }
 
 function cliDiagnostic(stdout: string, stderr: string): string {

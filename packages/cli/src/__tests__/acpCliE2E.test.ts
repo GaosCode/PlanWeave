@@ -1,14 +1,19 @@
-import { chmod, copyFile, cp, link, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, copyFile, cp, link, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { spawnManagedProcess } from "@planweave-ai/runtime";
+import { spawnManagedProcess, type ManagedProcessTree } from "@planweave-ai/runtime";
 import { describe, expect, it } from "vitest";
 import {
+  CliTestHardTimeoutError,
   cliWorkflowTimeoutMs,
+  defaultCliHardTimeoutMs,
   repoRoot,
+  resolveCliHardTimeoutMs,
   runCli,
-  runCliExpectFailure
+  runCliExpectFailure,
+  runManagedTestCommand,
+  terminateTimedOutCliProcess
 } from "./support/cliTestHarness.js";
 
 const mockAgent = fileURLToPath(
@@ -133,7 +138,125 @@ async function waitForFileText(path: string, pattern: RegExp): Promise<void> {
   throw new Error(`Timed out waiting for ${pattern} in ${path}.`);
 }
 
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForProcessesToExit(pids: number[]): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (pids.every((pid) => !processIsAlive(pid))) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for managed CLI test processes to exit: ${pids.join(", ")}`);
+}
+
+function forceKillProcess(pid: number): void {
+  if (!processIsAlive(pid)) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // Best-effort cleanup after a failed process-tree assertion.
+  }
+}
+
 describe("ACP CLI end-to-end", () => {
+  it("uses one default hard budget below the enclosing Vitest timeout", () => {
+    expect(resolveCliHardTimeoutMs()).toBe(defaultCliHardTimeoutMs);
+    expect(defaultCliHardTimeoutMs).toBeLessThan(cliWorkflowTimeoutMs);
+    expect(resolveCliHardTimeoutMs(1_234)).toBe(1_234);
+  });
+
+  it("keeps the hard timeout primary when process-tree cleanup also fails", async () => {
+    const cleanupError = new Error("scripted cleanup failure");
+    const tree: ManagedProcessTree = {
+      pid: 42_424,
+      exited: Promise.resolve(),
+      isAlive: () => true,
+      terminate: async () => {
+        throw cleanupError;
+      }
+    };
+
+    let failure: unknown;
+    try {
+      await terminateTimedOutCliProcess({
+        tree,
+        hardTimeoutMs: 250,
+        stdout: "partial stdout",
+        stderr: "partial stderr"
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(CliTestHardTimeoutError);
+    if (!(failure instanceof CliTestHardTimeoutError)) {
+      throw new Error("Expected CliTestHardTimeoutError.");
+    }
+    expect(failure.timeoutMs).toBe(250);
+    expect(failure.message).toContain("exceeded the 250ms test-owned hard budget");
+    expect(failure.message).toContain("cleanup also failed");
+    expect(failure.cause).toBe(cleanupError);
+  });
+
+  it(
+    "terminates a hanging CLI test root and grandchild at the harness hard timeout",
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), "planweave-cli-hard-timeout-"));
+      const pidPath = join(directory, "processes.json");
+      const grandchildSource = [
+        'process.on("SIGTERM", () => {});',
+        "setInterval(() => {}, 1_000);"
+      ].join("\n");
+      const parentSource = [
+        'const { spawn } = require("node:child_process");',
+        'const { writeFileSync } = require("node:fs");',
+        `const grandchild = spawn(process.execPath, ["-e", ${JSON.stringify(grandchildSource)}], { stdio: "ignore" });`,
+        `writeFileSync(${JSON.stringify(pidPath)}, JSON.stringify({ root: process.pid, grandchild: grandchild.pid }));`,
+        'process.on("SIGTERM", () => {});',
+        "setInterval(() => {}, 1_000);"
+      ].join("\n");
+      let pids: { root: number; grandchild: number } | undefined;
+
+      try {
+        await expect(
+          runManagedTestCommand({
+            command: process.execPath,
+            args: ["-e", parentSource],
+            cwd: directory,
+            env: process.env,
+            hardTimeoutMs: 1_000,
+            graceMs: 100
+          })
+        ).rejects.toMatchObject({
+          name: "CliTestHardTimeoutError",
+          timeoutMs: 1_000,
+          message: expect.stringContaining("managed process tree was terminated")
+        });
+
+        pids = JSON.parse(await readFile(pidPath, "utf8")) as {
+          root: number;
+          grandchild: number;
+        };
+        await waitForProcessesToExit([pids.root, pids.grandchild]);
+        expect(processIsAlive(pids.root)).toBe(false);
+        expect(processIsAlive(pids.grandchild)).toBe(false);
+      } finally {
+        if (pids) {
+          forceKillProcess(pids.root);
+          forceKillProcess(pids.grandchild);
+        }
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+    cliWorkflowTimeoutMs
+  );
+
   it.each(Object.keys(acpProfiles) as Array<keyof typeof acpProfiles>)(
     "routes package-assigned %s through ACP and submits its artifact",
     async (profile) => {
