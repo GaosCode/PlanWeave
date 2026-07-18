@@ -60,7 +60,7 @@ jobs:
 
       - name: Run unit tests
         timeout-minutes: 20
-        run: pnpm test:unit -- --maxWorkers=2 --reporter=default --reporter=junit --outputFile.junit=reports/unit.xml
+        run: pnpm test:unit --maxWorkers=2 --reporter=default --reporter=junit --outputFile.junit=reports/unit.xml
 
       - name: Redact failed unit test report
         id: redact-unit
@@ -113,7 +113,7 @@ jobs:
 
       - name: Run platform tests
         timeout-minutes: 20
-        run: pnpm test:platform -- --maxWorkers=2 --reporter=default --reporter=junit --outputFile.junit=reports/platform.xml
+        run: pnpm test:platform --maxWorkers=2 --reporter=default --reporter=junit --outputFile.junit=reports/platform.xml
 
       - name: Redact failed platform test report
         id: redact-platform

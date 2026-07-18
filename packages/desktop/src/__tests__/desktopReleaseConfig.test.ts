@@ -262,11 +262,13 @@ describe("desktop release configuration", () => {
     expect(workflow).toContain("group: ci-${{ github.workflow }}-${{ github.ref }}");
     expect(workflow).toContain("cancel-in-progress: true");
     expect(workflow).toContain("name: Ubuntu build, lint, and unit tests");
-    expect(workflow).toContain("pnpm test:unit -- --maxWorkers=2");
+    expect(workflow).toContain("pnpm test:unit --maxWorkers=2");
+    expect(workflow).not.toContain("pnpm test:unit -- --maxWorkers=2");
     expect(workflow).toContain("name: Platform tests (${{ matrix.os }})");
     expect(workflow).toContain("- ubuntu-latest");
     expect(workflow).toContain("- windows-latest");
-    expect(workflow).toContain("pnpm test:platform -- --maxWorkers=2");
+    expect(workflow).toContain("pnpm test:platform --maxWorkers=2");
+    expect(workflow).not.toContain("pnpm test:platform -- --maxWorkers=2");
     expect(workflow).toContain("name: Windows unsigned packaged smoke");
     expect(workflow).toContain("pnpm --dir packages/desktop build");
     expect(workflow).toContain("pnpm --dir packages/desktop pack:win");
@@ -297,6 +299,31 @@ describe("desktop release configuration", () => {
     expect(packagedStartupSection).not.toMatch(/[\u3400-\u9fff]/);
     expect(redactor).toContain("descriptor|endpoint|hostname|password|secret|token");
     expect(redactor).toContain("<redacted-user-path>");
+  });
+
+  it("forwards package-script worker and JUnit options to Vitest", async () => {
+    const reportDirectory = await mkdtemp(join(tmpdir(), "planweave-ci-junit-options-"));
+    const reportPath = resolve(reportDirectory, "unit.xml");
+    try {
+      await execFileAsync(
+        "pnpm",
+        [
+          "test:unit",
+          "packages/runtime/src/__tests__/runtimePackageEntry.test.ts",
+          "--maxWorkers=1",
+          "--reporter=default",
+          "--reporter=junit",
+          `--outputFile.junit=${reportPath}`
+        ],
+        { cwd: repoRoot, env: process.env }
+      );
+
+      const report = await readFile(reportPath, "utf8");
+      expect(report).toContain("<testsuites");
+      expect(report).toContain("runtimePackageEntry.test.ts");
+    } finally {
+      await rm(reportDirectory, { recursive: true, force: true });
+    }
   });
 
   it("keeps real cross-process ACP coverage in the platform suite", async () => {
