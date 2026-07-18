@@ -6,4 +6,11 @@ describe("runtime package entry", () => {
 
     expect(runtime.subscribeRunRecord).toBeTypeOf("function");
   });
+
+  it("exports the canonical managed process tree launcher", async () => {
+    const runtime = await import("@planweave-ai/runtime");
+
+    expect(runtime.spawnManagedProcess).toBeTypeOf("function");
+    expect(runtime.createHostProcessTreeAdapter).toBeTypeOf("function");
+  });
 });

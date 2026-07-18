@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
-import { access, mkdtemp, readdir } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { listPackage } from "@electron/asar";
+import { spawnManagedProcess } from "@planweave-ai/runtime";
 
 const packageRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const repoRoot = resolve(packageRoot, "../..");
@@ -158,7 +158,9 @@ async function smokeLaunch(executablePath, platform) {
   const smokeHome = await mkdtemp(join(tmpdir(), "planweave-packaged-smoke-home-"));
   const smokeUserData = await mkdtemp(join(tmpdir(), "planweave-packaged-smoke-user-data-"));
   const launchArgs = platform === "linux" ? ["--no-sandbox"] : [];
-  const child = spawn(executablePath, launchArgs, {
+  const { child, tree } = spawnManagedProcess({
+    command: executablePath,
+    args: launchArgs,
     cwd: repoRoot,
     env: {
       ...process.env,
@@ -166,74 +168,114 @@ async function smokeLaunch(executablePath, platform) {
       PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR: smokeUserData,
       PLANWEAVE_DESKTOP_STARTUP_SMOKE: "1"
     },
-    stdio: ["ignore", "pipe", "pipe"]
+    graceMs: 1_000
   });
+  child.stdin.end();
 
   let output = "";
-  await new Promise((resolve, reject) => {
-    let settled = false;
-    let ready = false;
-
-    const finish = (code, reason = "exit") => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timeout);
-      child.kill("SIGTERM");
-      if (startupErrorPattern.test(output)) {
-        reject(new Error(`Packaged app emitted a startup module error:\n${output}`));
-        return;
-      }
-      if (reason === "timeout") {
-        reject(
-          new Error(`Packaged app did not report startup readiness before timeout:\n${output}`)
-        );
-        return;
-      }
-      if (code !== null && code !== 0) {
-        reject(new Error(`Packaged app exited with code ${code}:\n${output}`));
-        return;
-      }
-      if (!ready) {
-        reject(new Error(`Packaged app exited before reporting startup readiness:\n${output}`));
-        return;
-      }
-      resolve();
-    };
-
-    child.stdout.on("data", (chunk) => {
-      const text = chunk.toString();
-      output += text;
-      process.stdout.write(text);
-      if (hasVerifiedStartupMarker(output)) {
-        ready = true;
-        finish(0);
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      const text = chunk.toString();
-      output += text;
-      process.stderr.write(text);
-      if (startupErrorPattern.test(output)) {
-        finish(1);
-      }
-    });
-
-    const timeout = setTimeout(() => finish(null, "timeout"), 15_000);
-    child.on("exit", finish);
-    child.on("error", (error) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timeout);
-      reject(error);
-    });
+  let ready = false;
+  child.stdout.on("data", (chunk) => {
+    const text = chunk.toString();
+    output += text;
+    process.stdout.write(text);
+    if (hasVerifiedStartupMarker(output)) {
+      ready = true;
+    }
   });
+  child.stderr.on("data", (chunk) => {
+    const text = chunk.toString();
+    output += text;
+    process.stderr.write(text);
+  });
+
+  const completion = new Promise((resolveCompletion) => {
+    child.once("error", (error) => resolveCompletion({ kind: "error", error }));
+    child.once("close", (code, signal) => resolveCompletion({ kind: "close", code, signal }));
+  });
+  let timeout;
+  const outcome = await Promise.race([
+    completion,
+    new Promise((resolveTimeout) => {
+      timeout = setTimeout(() => resolveTimeout({ kind: "timeout" }), 30_000);
+    })
+  ]);
+  clearTimeout(timeout);
+
+  if (outcome.kind === "timeout") {
+    try {
+      await tree.terminate("packaged startup smoke timeout");
+    } catch (cleanupError) {
+      throw new Error(
+        `Packaged app startup timed out and managed process-tree cleanup failed:\n${output}`,
+        { cause: cleanupError }
+      );
+    }
+    throw new Error(`Packaged app did not exit normally before timeout:\n${output}`);
+  }
+  if (outcome.kind === "error") {
+    if (tree.isAlive()) {
+      try {
+        await tree.terminate("packaged startup smoke spawn failure");
+      } catch (cleanupError) {
+        throw new Error("Packaged app failed to spawn and process-tree cleanup failed.", {
+          cause: new AggregateError([outcome.error, cleanupError])
+        });
+      }
+    }
+    throw outcome.error;
+  }
+
+  await tree.exited;
+  if (startupErrorPattern.test(output)) {
+    throw new Error(`Packaged app emitted a startup module error:\n${output}`);
+  }
+  if (outcome.code !== 0) {
+    throw new Error(
+      `Packaged app exited with code ${String(outcome.code)}${outcome.signal ? ` (${outcome.signal})` : ""}:\n${output}`
+    );
+  }
+  if (!ready) {
+    throw new Error(`Packaged app exited before reporting startup readiness:\n${output}`);
+  }
 }
 
-const packagedApp = await resolvePackagedApp();
-await verifyAsarContents(packagedApp.appAsarPath);
-await smokeLaunch(packagedApp.executablePath, packagedApp.platform);
-console.log("Packaged PlanWeave app smoke passed.");
+async function writeCiReport(report) {
+  const reportPath = process.env.PLANWEAVE_CI_REPORT_PATH;
+  if (!reportPath) {
+    return;
+  }
+  const resolvedReportPath = resolve(reportPath);
+  await mkdir(dirname(resolvedReportPath), { recursive: true });
+  await writeFile(resolvedReportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+}
+
+let stage = "resolve-packaged-app";
+const reportPlatform = process.env.PLANWEAVE_PACKAGED_PLATFORM ?? process.platform;
+try {
+  const packagedApp = await resolvePackagedApp();
+  stage = "verify-asar";
+  await verifyAsarContents(packagedApp.appAsarPath);
+  stage = "verify-startup";
+  await smokeLaunch(packagedApp.executablePath, packagedApp.platform);
+  stage = "complete";
+  await writeCiReport({
+    schemaVersion: 1,
+    platform: reportPlatform,
+    status: "passed",
+    checks: {
+      asarRuntimeEntries: true,
+      strictStartupMarker: true,
+      rendererAndRuntimeBridge: true,
+      normalProcessExit: true
+    }
+  });
+  console.log("Packaged PlanWeave app smoke passed.");
+} catch (error) {
+  await writeCiReport({
+    schemaVersion: 1,
+    platform: reportPlatform,
+    status: "failed",
+    failedStage: stage
+  });
+  throw error;
+}

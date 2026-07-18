@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { chmod, cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { spawnManagedProcess } from "@planweave-ai/runtime";
 import { expect } from "vitest";
 
 export const execFileAsync = promisify(execFile);
@@ -10,16 +11,100 @@ export const cliWorkflowTimeoutMs = 120_000;
 
 export async function runCli(
   args: string[],
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  options: { hardTimeoutMs?: number } = {}
 ): Promise<{ stdout: string; stderr: string }> {
-  return execFileAsync(
-    "pnpm",
-    ["--silent", "--filter", "@planweave-ai/cli", "planweave", ...args],
-    {
-      cwd: repoRoot,
-      env
+  const hardTimeoutMs = options.hardTimeoutMs;
+  if (hardTimeoutMs !== undefined && (!Number.isSafeInteger(hardTimeoutMs) || hardTimeoutMs <= 0)) {
+    throw new Error(`CLI test hardTimeoutMs must be a positive integer; got ${hardTimeoutMs}.`);
+  }
+
+  const tsxCli = join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
+  const cliEntrypoint = join(repoRoot, "packages", "cli", "src", "index.ts");
+  const managed = spawnManagedProcess({
+    command: process.execPath,
+    args: [tsxCli, cliEntrypoint, ...args],
+    cwd: repoRoot,
+    env,
+    graceMs: 500
+  });
+  const { child, tree } = managed;
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  child.stdin.end();
+
+  const completion = new Promise<
+    | { kind: "close"; code: number | null; signal: NodeJS.Signals | null }
+    | { kind: "error"; error: Error }
+  >((resolveCompletion) => {
+    child.once("error", (error) => resolveCompletion({ kind: "error", error }));
+    child.once("close", (code, signal) => resolveCompletion({ kind: "close", code, signal }));
+  });
+  let timeout: NodeJS.Timeout | undefined;
+  let cleanupAttempted = false;
+
+  try {
+    const outcome =
+      hardTimeoutMs === undefined
+        ? await completion
+        : await Promise.race([
+            completion,
+            new Promise<{ kind: "timeout" }>((resolveTimeout) => {
+              timeout = setTimeout(() => resolveTimeout({ kind: "timeout" }), hardTimeoutMs);
+            })
+          ]);
+
+    if (outcome.kind === "timeout") {
+      cleanupAttempted = true;
+      try {
+        await tree.terminate(`CLI test hard timeout after ${hardTimeoutMs}ms`);
+      } catch (cleanupError) {
+        throw new Error(
+          `PlanWeave CLI exceeded the ${hardTimeoutMs}ms test-owned hard budget and process-tree cleanup failed.\n${cliDiagnostic(stdout, stderr)}`,
+          { cause: cleanupError }
+        );
+      }
+      throw new Error(
+        `PlanWeave CLI exceeded the ${hardTimeoutMs}ms test-owned hard budget; its managed process tree was terminated.\n${cliDiagnostic(stdout, stderr)}`
+      );
     }
-  );
+    if (outcome.kind === "error") {
+      throw outcome.error;
+    }
+    if (outcome.code !== 0) {
+      throw Object.assign(
+        new Error(
+          `PlanWeave CLI exited with code ${String(outcome.code)}${outcome.signal ? ` (${outcome.signal})` : ""}.`
+        ),
+        { code: outcome.code, stdout, stderr }
+      );
+    }
+    return { stdout, stderr };
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    if (!cleanupAttempted && tree.isAlive()) {
+      await tree.terminate("CLI test harness cleanup");
+    }
+  }
+}
+
+function cliDiagnostic(stdout: string, stderr: string): string {
+  const limit = 4_000;
+  const tail = (value: string): string =>
+    value.length <= limit
+      ? value
+      : `[truncated ${value.length - limit} chars]\n${value.slice(-limit)}`;
+  return `stdout:\n${tail(stdout) || "(empty)"}\nstderr:\n${tail(stderr) || "(empty)"}`;
 }
 
 export async function runShellCommand(
@@ -51,10 +136,11 @@ export function isCliFailure(error: unknown): error is CliFailure {
 
 export async function runCliExpectFailure(
   args: string[],
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  options: { hardTimeoutMs?: number } = {}
 ): Promise<CliFailure> {
   try {
-    await runCli(args, env);
+    await runCli(args, env, options);
   } catch (error) {
     if (isCliFailure(error)) {
       return error;

@@ -17,9 +17,15 @@ async function loadConfig(name: string) {
   };
 }
 
+function occurrenceCount(source: string, value: string): number {
+  return source.split(value).length - 1;
+}
+
 describe("desktop release configuration", () => {
   it("keeps local pack and dist commands explicitly unsigned", async () => {
-    const packageJson = JSON.parse(await readFile(resolve(desktopRoot, "package.json"), "utf8")) as {
+    const packageJson = JSON.parse(
+      await readFile(resolve(desktopRoot, "package.json"), "utf8")
+    ) as {
       scripts: Record<string, string>;
       build: { mac: Record<string, unknown>; extraResources: Array<Record<string, unknown>> };
     };
@@ -33,6 +39,10 @@ describe("desktop release configuration", () => {
     }
     expect(packageJson.build.mac).not.toHaveProperty("identity");
     expect(localConfig).toMatchObject({
+      appId: "dev.planweave.desktop",
+      productName: "PlanWeave",
+      directories: { output: "release" },
+      files: ["dist/**/*", "package.json"],
       artifactName: expect.stringContaining("development-unsigned"),
       mac: { identity: null, forceCodeSigning: false, hardenedRuntime: false },
       win: { forceCodeSigning: false, signExecutable: false }
@@ -151,7 +161,10 @@ describe("desktop release configuration", () => {
   });
 
   it("runs platform preflight before release-only builder config", async () => {
-    const workflow = await readFile(resolve(repoRoot, ".github/workflows/desktop-release.yml"), "utf8");
+    const workflow = await readFile(
+      resolve(repoRoot, ".github/workflows/desktop-release.yml"),
+      "utf8"
+    );
     const macPreflight = workflow.indexOf("preflight-release-secrets.mjs --platform mac");
     const winPreflight = workflow.indexOf("preflight-release-secrets.mjs --platform win");
     const macBuild = workflow.indexOf("Build signed macOS installers");
@@ -166,7 +179,9 @@ describe("desktop release configuration", () => {
     expect(metadata).toBeGreaterThan(-1);
     expect(metadata).toBeLessThan(macBuild);
     expect(metadata).toBeLessThan(winBuild);
-    expect(workflow).toContain("--channel release --signed-distribution ${{ matrix.signedDistribution }}");
+    expect(workflow).toContain(
+      "--channel release --signed-distribution ${{ matrix.signedDistribution }}"
+    );
     expect(workflow).toContain('signedDistribution: "true"');
     expect(workflow).toContain('signedDistribution: "false"');
     expect(workflow).toContain("--config electron-builder.release.cjs");
@@ -175,7 +190,10 @@ describe("desktop release configuration", () => {
   });
 
   it("gates artifact upload on platform verification of the actual release installers", async () => {
-    const workflow = await readFile(resolve(repoRoot, ".github/workflows/desktop-release.yml"), "utf8");
+    const workflow = await readFile(
+      resolve(repoRoot, ".github/workflows/desktop-release.yml"),
+      "utf8"
+    );
     const macVerification = workflow.indexOf("verify-macos-release.mjs");
     const windowsVerification = workflow.indexOf("verify-windows-release.ps1");
     const upload = workflow.indexOf("name: Upload desktop artifacts");
@@ -220,6 +238,120 @@ describe("desktop release configuration", () => {
     expect(windowsVerifier).toContain("Remove-Item -LiteralPath $installDir -Recurse -Force");
     for (const source of [macVerifier, windowsVerifier]) {
       expect(source).not.toMatch(/CSC_KEY_PASSWORD|WIN_CSC_LINK|APPLE_API_KEY/);
+    }
+  });
+
+  it("keeps unit, platform-matrix, and unsigned Windows packaged gates explicit", async () => {
+    const [
+      workflow,
+      desktopSmokeWorkflow,
+      packageSource,
+      packagedVerifier,
+      packagedStartupSmoke,
+      redactor
+    ] = await Promise.all([
+      readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8"),
+      readFile(resolve(repoRoot, ".github/workflows/desktop-smoke.yml"), "utf8"),
+      readFile(resolve(desktopRoot, "package.json"), "utf8"),
+      readFile(resolve(desktopRoot, "scripts/verify-packaged-app.mjs"), "utf8"),
+      readFile(resolve(desktopRoot, "src/main/smoke.ts"), "utf8"),
+      readFile(resolve(repoRoot, "scripts/redact-ci-test-artifacts.mjs"), "utf8")
+    ]);
+    const packageJson = JSON.parse(packageSource) as { scripts: Record<string, string> };
+
+    expect(workflow).toContain("group: ci-${{ github.workflow }}-${{ github.ref }}");
+    expect(workflow).toContain("cancel-in-progress: true");
+    expect(workflow).toContain("name: Ubuntu build, lint, and unit tests");
+    expect(workflow).toContain("pnpm test:unit -- --maxWorkers=2");
+    expect(workflow).toContain("name: Platform tests (${{ matrix.os }})");
+    expect(workflow).toContain("- ubuntu-latest");
+    expect(workflow).toContain("- windows-latest");
+    expect(workflow).toContain("pnpm test:platform -- --maxWorkers=2");
+    expect(workflow).toContain("name: Windows unsigned packaged smoke");
+    expect(workflow).toContain("pnpm --dir packages/desktop build");
+    expect(workflow).toContain("pnpm --dir packages/desktop pack:win");
+    expect(workflow).toContain("pnpm --dir packages/desktop smoke:packaged:win");
+    expect(workflow).toContain('CSC_IDENTITY_AUTO_DISCOVERY: "false"');
+    expect(workflow).toContain("PLANWEAVE_CI_REPORT_PATH: reports/windows-packaged-smoke.json");
+    expect(workflow).not.toContain("secrets.");
+    expect(occurrenceCount(workflow, "timeout-minutes:")).toBeGreaterThanOrEqual(7);
+    expect(occurrenceCount(workflow, "cache: pnpm")).toBe(3);
+    expect(occurrenceCount(workflow, "pnpm install --frozen-lockfile")).toBe(3);
+    expect(occurrenceCount(workflow, "node scripts/redact-ci-test-artifacts.mjs reports")).toBe(3);
+    expect(occurrenceCount(workflow, "actions/upload-artifact@v4")).toBe(3);
+    expect(workflow).toContain("if: failure() && steps.redact-unit.outcome == 'success'");
+    expect(workflow).toContain("if: failure() && steps.redact-platform.outcome == 'success'");
+    expect(workflow).toContain("if: failure() && steps.redact-packaged-smoke.outcome == 'success'");
+    expect(desktopSmokeWorkflow).not.toContain("windows-latest");
+
+    expect(packageJson.scripts["smoke:packaged:win"]).toBe("node scripts/verify-packaged-app.mjs");
+    expect(packageJson.scripts["smoke:packaged:win"]).not.toMatch(/^\s*[A-Z][A-Z0-9_]*=/);
+    expect(packagedVerifier).toContain("spawnManagedProcess");
+    expect(packagedVerifier).toContain('tree.terminate("packaged startup smoke timeout")');
+    expect(packagedVerifier).toContain('child.once("close"');
+    expect(packagedVerifier).toContain("await tree.exited");
+    expect(packagedVerifier).not.toContain('child.kill("SIGTERM")');
+    const packagedStartupSection = packagedStartupSmoke.split("function wait(ms: number)")[0] ?? "";
+    expect(packagedStartupSection).toContain('document.getElementById("root")');
+    expect(packagedStartupSection).toContain('typeof runtimeBridge.listProjects !== "function"');
+    expect(packagedStartupSection).not.toMatch(/[\u3400-\u9fff]/);
+    expect(redactor).toContain("descriptor|endpoint|hostname|password|secret|token");
+    expect(redactor).toContain("<redacted-user-path>");
+  });
+
+  it("keeps real cross-process ACP coverage in the platform suite", async () => {
+    const suiteManifest = JSON.parse(
+      await readFile(resolve(repoRoot, "vitest.suites.json"), "utf8")
+    ) as {
+      groups: Array<{ root: string; unit: string[]; platform: string[] }>;
+    };
+    const runtime = suiteManifest.groups.find(
+      (group) => group.root === "packages/runtime/src/__tests__"
+    );
+    const cli = suiteManifest.groups.find((group) => group.root === "packages/cli/src/__tests__");
+
+    expect(runtime?.platform).toContain("agentRunControlTwoProcess.test.ts");
+    expect(runtime?.unit).not.toContain("agentRunControlTwoProcess.test.ts");
+    expect(cli?.platform).toContain("acpCliE2E.test.ts");
+  });
+
+  it("redacts credentials, descriptors, and user paths before CI artifact upload", async () => {
+    const reportDirectory = await mkdtemp(join(tmpdir(), "planweave-ci-report-redaction-"));
+    const reportPath = resolve(reportDirectory, "failure.json");
+    try {
+      await writeFile(
+        reportPath,
+        JSON.stringify({
+          token: "test-token-value",
+          descriptor: "private-pipe-descriptor",
+          unixPath: "/Users/example/private/failure.xml",
+          windowsPath: "C:\\Users\\example\\private\\failure.xml"
+        }),
+        "utf8"
+      );
+      await writeFile(
+        resolve(reportDirectory, "failure.xml"),
+        '<testsuite hostname="private-builder.local" token="test-xml-token" />',
+        "utf8"
+      );
+      await execFileAsync(
+        process.execPath,
+        [resolve(repoRoot, "scripts/redact-ci-test-artifacts.mjs"), reportDirectory],
+        { cwd: repoRoot }
+      );
+      const redactedReport = await readFile(reportPath, "utf8");
+
+      expect(redactedReport).not.toContain("test-token-value");
+      expect(redactedReport).not.toContain("private-pipe-descriptor");
+      expect(redactedReport).not.toContain("/Users/example");
+      expect(redactedReport).not.toContain("C:\\Users\\example");
+      expect(redactedReport).toContain("[REDACTED]");
+      expect(redactedReport).toContain("<redacted-user-path>");
+      const redactedXml = await readFile(resolve(reportDirectory, "failure.xml"), "utf8");
+      expect(redactedXml).not.toContain("private-builder.local");
+      expect(redactedXml).not.toContain("test-xml-token");
+    } finally {
+      await rm(reportDirectory, { recursive: true, force: true });
     }
   });
 });

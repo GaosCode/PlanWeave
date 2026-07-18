@@ -1,4 +1,14 @@
 export { PlanWeaveWorkspaceNotInitializedError } from "./errors.js";
+export {
+  createHostProcessTreeAdapter,
+  spawnManagedProcess
+} from "./process/managedProcessTree.js";
+export type {
+  ManagedChildProcess,
+  ManagedProcessTree,
+  ProcessTerminationResult,
+  SpawnManagedProcessOptions
+} from "./process/managedProcessTree.js";
 export { readProjectPaths, resolvePlanweaveHome } from "./paths.js";
 export { createManagedProjectId, createProjectId } from "./projectId.js";
 export {

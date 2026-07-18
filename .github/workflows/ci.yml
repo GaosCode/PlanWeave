@@ -7,9 +7,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test-and-build:
+  ubuntu-gate:
+    name: Ubuntu build, lint, and unit tests
     runs-on: ubuntu-latest
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -49,7 +55,139 @@ jobs:
       - name: Lint and typecheck
         run: pnpm lint
 
-      - name: Run tests
-        # GitHub-hosted runners can time out process-spawning integration tests
-        # when the repository-wide suite uses the local four-worker default.
-        run: pnpm exec vitest run --maxWorkers=2
+      - name: Create test report directory
+        run: node -e "require('node:fs').mkdirSync('reports',{recursive:true})"
+
+      - name: Run unit tests
+        timeout-minutes: 20
+        run: pnpm test:unit -- --maxWorkers=2 --reporter=default --reporter=junit --outputFile.junit=reports/unit.xml
+
+      - name: Redact failed unit test report
+        id: redact-unit
+        if: failure()
+        run: node scripts/redact-ci-test-artifacts.mjs reports
+
+      - name: Upload failed unit test report
+        if: failure() && steps.redact-unit.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report-ubuntu
+          path: reports
+          if-no-files-found: error
+          retention-days: 7
+
+  platform-tests:
+    name: Platform tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Create test report directory
+        run: node -e "require('node:fs').mkdirSync('reports',{recursive:true})"
+
+      - name: Run platform tests
+        timeout-minutes: 20
+        run: pnpm test:platform -- --maxWorkers=2 --reporter=default --reporter=junit --outputFile.junit=reports/platform.xml
+
+      - name: Redact failed platform test report
+        id: redact-platform
+        if: failure()
+        run: node scripts/redact-ci-test-artifacts.mjs reports
+
+      - name: Upload failed platform test report
+        if: failure() && steps.redact-platform.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-test-report-${{ matrix.os }}
+          path: reports
+          if-no-files-found: error
+          retention-days: 7
+
+  windows-packaged-smoke:
+    name: Windows unsigned packaged smoke
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Desktop
+        timeout-minutes: 15
+        run: pnpm --dir packages/desktop build
+
+      - name: Package unsigned Windows app
+        timeout-minutes: 20
+        run: pnpm --dir packages/desktop pack:win
+
+      - name: Run packaged Windows startup smoke
+        timeout-minutes: 5
+        env:
+          PLANWEAVE_PACKAGED_PLATFORM: win32
+          PLANWEAVE_CI_REPORT_PATH: reports/windows-packaged-smoke.json
+        run: pnpm --dir packages/desktop smoke:packaged:win
+
+      - name: Ensure packaged smoke failure report exists
+        if: failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path reports | Out-Null
+          if (-not (Test-Path reports/windows-packaged-smoke.json)) {
+            '{"schemaVersion":1,"platform":"win32","status":"failed","failedStage":"build-or-package"}' | Set-Content reports/windows-packaged-smoke.json
+          }
+
+      - name: Redact packaged smoke failure report
+        id: redact-packaged-smoke
+        if: failure()
+        run: node scripts/redact-ci-test-artifacts.mjs reports
+
+      - name: Upload packaged smoke failure report
+        if: failure() && steps.redact-packaged-smoke.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-packaged-smoke-report
+          path: reports
+          if-no-files-found: error
+          retention-days: 7

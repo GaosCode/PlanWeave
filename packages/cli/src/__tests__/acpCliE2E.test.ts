@@ -1,9 +1,9 @@
-import { chmod, cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, copyFile, cp, link, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { spawnManagedProcess } from "@planweave-ai/runtime";
 import { describe, expect, it } from "vitest";
-import { spawn } from "node:child_process";
 import {
   cliWorkflowTimeoutMs,
   repoRoot,
@@ -22,9 +22,40 @@ const acpProfiles = {
   "grok-acp": "grok"
 } as const;
 
-async function fakeAcpEnvironment() {
-  const home = await mkdtemp(join(tmpdir(), "planweave-acp-cli-home-"));
+let fakeAcpBinPromise: Promise<{ bin: string; nodeOptions: string | undefined }> | undefined;
+
+function fakeAcpBin(): Promise<{ bin: string; nodeOptions: string | undefined }> {
+  fakeAcpBinPromise ??= createFakeAcpBin();
+  return fakeAcpBinPromise;
+}
+
+async function createFakeAcpBin(): Promise<{
+  bin: string;
+  nodeOptions: string | undefined;
+}> {
   const bin = await mkdtemp(join(tmpdir(), "planweave-acp-cli-bin-"));
+  if (process.platform === "win32") {
+    const bootstrap = join(bin, "acp-mock-bootstrap.mjs");
+    const executableNames = Object.values(acpProfiles).map((command) => `${command}.exe`);
+    await writeFile(
+      bootstrap,
+      `import { basename } from "node:path";\nconst commands = new Set(${JSON.stringify(executableNames)});\nif (commands.has(basename(process.execPath).toLowerCase())) {\n  process.argv[2] = process.env.PLANWEAVE_ACP_SCENARIO ?? "artifact-implementation";\n  await import(${JSON.stringify(pathToFileURL(mockAgent).href)});\n}\n`,
+      "utf8"
+    );
+    const agentHost = join(bin, "planweave-acp-agent-host.exe");
+    await copyFile(process.execPath, agentHost);
+    for (const executableName of executableNames) {
+      await link(agentHost, join(bin, executableName));
+    }
+    const bootstrapOption = `--import=${pathToFileURL(bootstrap).href}`;
+    return {
+      bin,
+      nodeOptions: process.env.NODE_OPTIONS
+        ? `${process.env.NODE_OPTIONS} ${bootstrapOption}`
+        : bootstrapOption
+    };
+  }
+
   for (const command of Object.values(acpProfiles)) {
     const wrapper = join(bin, command);
     await writeFile(
@@ -34,10 +65,17 @@ async function fakeAcpEnvironment() {
     );
     await chmod(wrapper, 0o755);
   }
+  return { bin, nodeOptions: process.env.NODE_OPTIONS };
+}
+
+async function fakeAcpEnvironment() {
+  const home = await mkdtemp(join(tmpdir(), "planweave-acp-cli-home-"));
+  const { bin, nodeOptions } = await fakeAcpBin();
   return {
     ...process.env,
     PLANWEAVE_HOME: home,
-    PATH: `${bin}:${process.env.PATH ?? ""}`
+    NODE_OPTIONS: nodeOptions,
+    PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`
   };
 }
 
@@ -175,7 +213,7 @@ describe("ACP CLI end-to-end", () => {
     cliWorkflowTimeoutMs
   );
 
-  it.each(["auth-required", "elicitation", "permission"])(
+  it.each(["auth-required", "elicitation"])(
     "fails closed for headless %s without executor fallback",
     async (scenario) => {
       const baseEnv = await fakeAcpEnvironment();
@@ -195,6 +233,47 @@ describe("ACP CLI end-to-end", () => {
         terminalReason: "blocked",
         session: { autoRun: { effectiveExecutor: "codex-acp", runnerKind: "acp" } }
       });
+      expect(JSON.stringify(result)).not.toContain("codex-exec");
+    },
+    cliWorkflowTimeoutMs
+  );
+
+  it(
+    "keeps permission pending until the explicit runtime timeout without executor fallback",
+    async () => {
+      const baseEnv = await fakeAcpEnvironment();
+      await initializePackage(baseEnv, "codex-acp");
+      const failure = await runCliExpectFailure(
+        [
+          "run",
+          "--once",
+          "--timeout",
+          "250",
+          "--scope",
+          "block",
+          "--block",
+          "T-001#B-001",
+          "--json"
+        ],
+        { ...baseEnv, PLANWEAVE_ACP_SCENARIO: "permission" },
+        { hardTimeoutMs: 10_000 }
+      );
+      const result = JSON.parse(failure.stdout) as {
+        terminalReason: string;
+        session: {
+          phase: string;
+          autoRun: { effectiveExecutor: string; runnerKind: string };
+          error: string | null;
+        };
+      };
+      expect(result).toMatchObject({
+        terminalReason: "blocked",
+        session: {
+          phase: "blocked",
+          autoRun: { effectiveExecutor: "codex-acp", runnerKind: "acp" }
+        }
+      });
+      expect(result.session.error).toMatch(/timed out after 250ms/i);
       expect(JSON.stringify(result)).not.toContain("codex-exec");
     },
     cliWorkflowTimeoutMs
@@ -233,15 +312,16 @@ describe("ACP CLI end-to-end", () => {
     cliWorkflowTimeoutMs
   );
 
-  it(
+  it.skipIf(process.platform === "win32")(
     "propagates SIGINT through the ACP cancellation and cleanup chain",
     async () => {
       const baseEnv = await fakeAcpEnvironment();
       const init = await initializePackage(baseEnv, "codex-acp");
       const env = { ...baseEnv, PLANWEAVE_ACP_SCENARIO: "long-prompt" };
-      const child = spawn(
-        join(repoRoot, "node_modules", ".bin", "tsx"),
-        [
+      const managed = spawnManagedProcess({
+        command: process.execPath,
+        args: [
+          join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs"),
           join(repoRoot, "packages", "cli", "src", "index.ts"),
           "run",
           "--once",
@@ -251,8 +331,11 @@ describe("ACP CLI end-to-end", () => {
           "T-001#B-001",
           "--json"
         ],
-        { cwd: repoRoot, env, stdio: ["ignore", "pipe", "pipe"] }
-      );
+        cwd: repoRoot,
+        env
+      });
+      const { child, tree } = managed;
+      child.stdin.end();
       let stdout = "";
       let stderr = "";
       child.stdout.setEncoding("utf8");
@@ -268,22 +351,28 @@ describe("ACP CLI end-to-end", () => {
         "RUN-001",
         "metadata.json"
       );
-      await waitForFileText(metadataPath, /"finishedAt": null/);
-      child.kill("SIGINT");
-      const exitCode = await new Promise<number | null>((resolve, reject) => {
-        child.once("error", reject);
-        child.once("close", resolve);
-      });
-      expect(exitCode).toBe(1);
-      expect(stderr).toBe("");
-      expect(JSON.parse(stdout)).toMatchObject({
-        terminalReason: "cancelled",
-        session: { phase: "stopped", autoRun: { runnerKind: "acp" } }
-      });
-      expect(JSON.parse(await readFile(metadataPath, "utf8"))).toMatchObject({
-        outcome: "cancelled",
-        finishedAt: expect.any(String)
-      });
+      try {
+        await waitForFileText(metadataPath, /"finishedAt": null/);
+        child.kill("SIGINT");
+        const exitCode = await new Promise<number | null>((resolve, reject) => {
+          child.once("error", reject);
+          child.once("close", resolve);
+        });
+        expect(exitCode).toBe(1);
+        expect(stderr).toBe("");
+        expect(JSON.parse(stdout)).toMatchObject({
+          terminalReason: "cancelled",
+          session: { phase: "stopped", autoRun: { runnerKind: "acp" } }
+        });
+        expect(JSON.parse(await readFile(metadataPath, "utf8"))).toMatchObject({
+          outcome: "cancelled",
+          finishedAt: expect.any(String)
+        });
+      } finally {
+        if (tree.isAlive()) {
+          await tree.terminate("ACP SIGINT test cleanup");
+        }
+      }
     },
     cliWorkflowTimeoutMs
   );
