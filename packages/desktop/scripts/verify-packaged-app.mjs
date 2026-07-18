@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { access, mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { listPackage } from "@electron/asar";
 import { spawnManagedProcess } from "@planweave-ai/runtime";
@@ -244,7 +244,7 @@ async function writeCiReport(report) {
   if (!reportPath) {
     return;
   }
-  const resolvedReportPath = resolve(reportPath);
+  const resolvedReportPath = isAbsolute(reportPath) ? reportPath : resolve(repoRoot, reportPath);
   await mkdir(dirname(resolvedReportPath), { recursive: true });
   await writeFile(resolvedReportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 }

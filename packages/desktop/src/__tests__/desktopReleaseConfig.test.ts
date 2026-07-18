@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -321,6 +321,49 @@ describe("desktop release configuration", () => {
       const report = await readFile(reportPath, "utf8");
       expect(report).toContain("<testsuites");
       expect(report).toContain("runtimePackageEntry.test.ts");
+    } finally {
+      await rm(reportDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("anchors relative packaged smoke reports to the repository and preserves absolute paths", async () => {
+    const reportDirectory = await mkdtemp(join(tmpdir(), "planweave-packaged-report-path-"));
+    const verifierPath = resolve(desktopRoot, "scripts/verify-packaged-app.mjs");
+    const relativeReportPath = resolve(reportDirectory, "relative.json");
+    const absoluteReportPath = resolve(reportDirectory, "absolute.json");
+    const invokeVerifier = async (reportPath: string) => {
+      await expect(
+        execFileAsync(process.execPath, [verifierPath], {
+          cwd: desktopRoot,
+          env: {
+            ...process.env,
+            PLANWEAVE_PACKAGED_PLATFORM: "unsupported-test-platform",
+            PLANWEAVE_CI_REPORT_PATH: reportPath
+          }
+        })
+      ).rejects.toMatchObject({
+        stderr: expect.stringContaining("Unsupported packaged app platform")
+      });
+    };
+
+    try {
+      await invokeVerifier(relative(repoRoot, relativeReportPath));
+      await invokeVerifier(absoluteReportPath);
+
+      for (const reportPath of [relativeReportPath, absoluteReportPath]) {
+        expect(JSON.parse(await readFile(reportPath, "utf8"))).toMatchObject({
+          schemaVersion: 1,
+          platform: "unsupported-test-platform",
+          status: "failed",
+          failedStage: "resolve-packaged-app"
+        });
+      }
+
+      const workflow = await readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
+      expect(workflow).toContain(
+        "PLANWEAVE_CI_REPORT_PATH: reports/windows-packaged-smoke.json"
+      );
+      expect(workflow).toContain("path: reports");
     } finally {
       await rm(reportDirectory, { recursive: true, force: true });
     }
