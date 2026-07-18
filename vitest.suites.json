@@ -205,6 +205,7 @@
     {
       "root": "packages/runtime/src/__tests__",
       "unit": [
+        "activeAgentRunRegistry.test.ts",
         "acpAuthentication.test.ts",
         "acpConversationProjection.test.ts",
         "acpConversationTurn.test.ts",
@@ -253,6 +254,7 @@
       ],
       "platform": [
         "acpActions.test.ts",
+        "acpConnectionCleanup.test.ts",
         "acpCrossProcessPermission.test.ts",
         "acpElicitationSettlement.test.ts",
         "acpEventController.test.ts",
