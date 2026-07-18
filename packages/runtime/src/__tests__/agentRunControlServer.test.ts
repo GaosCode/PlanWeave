@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { lstat, mkdtemp, rm } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +11,10 @@ import {
   agentRunControlResponseSchema,
   type AgentRunControlResponse
 } from "../autoRun/agentRunControlContract.js";
-import { readAgentRunControlDescriptor } from "../autoRun/agentRunControlEndpoint.js";
+import {
+  agentRunControlDescriptorPath,
+  readAgentRunControlDescriptor
+} from "../autoRun/agentRunControlEndpoint.js";
 import { AgentRunControlServer } from "../autoRun/agentRunControlServer.js";
 import type { AgentRunControlTarget } from "../autoRun/agentRunControlTarget.js";
 
@@ -273,4 +276,38 @@ describe("agent run control server", () => {
       await expect(lstat(descriptor.address)).rejects.toMatchObject({ code: "ENOENT" });
     }
   });
+
+  it.runIf(process.platform !== "win32")(
+    "retries a real descriptor revocation failure while preserving idempotency",
+    async () => {
+      const runDir = await temporaryRoot("teardown-retry");
+      const server = new AgentRunControlServer({ runDir, leaseId, target: targetFixture() });
+      const descriptor = await server.start();
+      const controlDirectory = join(runDir, "control");
+      let permissionsRestored = false;
+      try {
+        await chmod(controlDirectory, 0o500);
+        const firstAttempt = server.stop();
+        expect(server.stop()).toBe(firstAttempt);
+        await expect(firstAttempt).rejects.toThrow("Agent run control server teardown failed.");
+        expect(server.descriptor).toEqual(descriptor);
+        await expect(readFile(agentRunControlDescriptorPath(runDir), "utf8")).resolves.toContain(
+          descriptor.leaseId
+        );
+        if (descriptor.transport === "unix") {
+          await expect(lstat(descriptor.address)).rejects.toMatchObject({ code: "ENOENT" });
+        }
+
+        await chmod(controlDirectory, 0o700);
+        permissionsRestored = true;
+        await expect(server.stop()).resolves.toBeUndefined();
+        await expect(server.stop()).resolves.toBeUndefined();
+        expect(server.descriptor).toBeNull();
+        await expect(readAgentRunControlDescriptor(runDir)).resolves.toBeNull();
+      } finally {
+        if (!permissionsRestored) await chmod(controlDirectory, 0o700);
+        await server.stop().catch(() => undefined);
+      }
+    }
+  );
 });

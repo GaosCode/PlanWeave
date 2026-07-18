@@ -173,14 +173,23 @@ export class AgentRunControlServer {
       if (failures.length > 0) {
         throw new AggregateError([error, ...failures], "Agent run control server startup failed.");
       }
+      this.nodeServer = null;
+      this.allocation = null;
       throw error;
     }
   }
 
   stop(): Promise<void> {
     if (this.stopPromise) return this.stopPromise;
-    this.stopPromise = this.stopOnce();
-    return this.stopPromise;
+    const attempt = this.stopOnce();
+    this.stopPromise = attempt;
+    void attempt.catch(() => {
+      if (this.stopPromise === attempt) {
+        this.stopPromise = null;
+        this.serverClosePromise = null;
+      }
+    });
+    return attempt;
   }
 
   requestShutdown(): Promise<void> {
@@ -194,12 +203,17 @@ export class AgentRunControlServer {
     }
     this.serverClosePromise = closeServer(server);
     void this.serverClosePromise.catch(() => undefined);
-    this.shutdownPromise = revokeAgentRunControlDescriptor(this.options.runDir, this.leaseId).then(
-      () => {
-        this.publishedDescriptor = null;
+    const attempt = revokeAgentRunControlDescriptor(this.options.runDir, this.leaseId).then(() => {
+      this.publishedDescriptor = null;
+    });
+    this.shutdownPromise = attempt;
+    void attempt.catch(() => {
+      if (this.shutdownPromise === attempt) {
+        this.shutdownPromise = null;
+        this.serverClosePromise = null;
       }
-    );
-    return this.shutdownPromise;
+    });
+    return attempt;
   }
 
   private accept(socket: Socket): void {
@@ -392,7 +406,6 @@ export class AgentRunControlServer {
       this.serverClosePromise ?? closeServer(server)
     ]);
     const release = await Promise.allSettled([releaseAgentRunControlEndpoint(allocation)]);
-    this.publishedDescriptor = null;
     const failures = [...results, ...release].flatMap((result) =>
       result.status === "rejected" ? [result.reason] : []
     );

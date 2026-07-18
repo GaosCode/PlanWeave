@@ -284,7 +284,7 @@ export class AcpSessionController {
     };
     const stopControlEndpoint = (): Promise<void> => {
       if (controlStopPromise) return controlStopPromise;
-      controlStopPromise = (async () => {
+      const attempt = (async () => {
         const results = await Promise.allSettled([
           controlServer?.stop(),
           ownerState.setControlAvailability(unavailableAgentRunControlSummary("owner_terminal"))
@@ -294,7 +294,11 @@ export class AcpSessionController {
         );
         throwAgentRunCleanupFailures(failures, "ACP control endpoint could not stop cleanly.");
       })();
-      return controlStopPromise;
+      controlStopPromise = attempt;
+      void attempt.catch(() => {
+        if (controlStopPromise === attempt) controlStopPromise = null;
+      });
+      return attempt;
     };
     const removeControlHandle = async (
       ownedHandle: ActiveAgentRunHandle,
@@ -690,13 +694,24 @@ export class AcpSessionController {
           await ownerState.setControlAvailability(
             availableAgentRunControlSummary(descriptor.ownerPid)
           );
-        } catch {
-          await controlServer?.stop().catch(() => undefined);
+        } catch (startError) {
+          const cleanup = await Promise.allSettled([
+            controlServer?.stop(),
+            ownerState.setControlAvailability(
+              unavailableAgentRunControlSummary("endpoint_start_failed")
+            )
+          ]);
+          const cleanupFailures = cleanup.flatMap((result) =>
+            result.status === "rejected" ? [result.reason] : []
+          );
+          if (cleanupFailures.length > 0) {
+            throw new AggregateError(
+              [startError, ...cleanupFailures],
+              "ACP control endpoint startup cleanup failed."
+            );
+          }
           controlServer = null;
           handle.beforeRemove = undefined;
-          await ownerState.setControlAvailability(
-            unavailableAgentRunControlSummary("endpoint_start_failed")
-          );
         }
       } else {
         await ownerState.setControlAvailability(
@@ -866,21 +881,37 @@ export class AcpSessionController {
           cleanupError = caught;
         }
       }
+      let controlCleanupRetryError: unknown;
+      try {
+        await stopControlEndpoint();
+      } catch (caught) {
+        controlCleanupRetryError = caught;
+      }
       const executionMessage =
         cleanupAttempted && validatedArtifactReference
           ? "Execution succeeded and artifact was validated."
           : diagnostic(error);
-      const cleanupMessage = validatedArtifactReference
-        ? diagnostic(error)
-        : cleanupError === undefined
-          ? null
-          : diagnostic(cleanupError);
+      const cleanupDiagnostics: unknown[] = [];
+      if (validatedArtifactReference) cleanupDiagnostics.push(error);
+      else if (cleanupError !== undefined) cleanupDiagnostics.push(cleanupError);
+      if (
+        controlCleanupRetryError !== undefined &&
+        controlCleanupRetryError !== error &&
+        controlCleanupRetryError !== cleanupError
+      ) {
+        cleanupDiagnostics.push(controlCleanupRetryError);
+      }
+      const cleanupMessage =
+        cleanupDiagnostics.length > 0 ? cleanupDiagnostics.map(diagnostic).join("; ") : null;
       const message = cleanupMessage
         ? `Execution: ${executionMessage}; cleanup: ${cleanupMessage}`
         : executionMessage;
       const timedOut = error instanceof AcpOperationTimeoutError;
       const cancelled = cancelledBeforeCleanup || handle?.lifecycleState === "cancelled";
-      const cleanupFailed = cleanupError !== undefined || (cleanupAttempted && !cleanupCompleted);
+      const cleanupFailed =
+        cleanupError !== undefined ||
+        controlCleanupRetryError !== undefined ||
+        (cleanupAttempted && !cleanupCompleted);
       const status: TerminalStatus = timedOut ? "timed_out" : cancelled ? "cancelled" : "failed";
       const transportInterrupted =
         !(error instanceof RequestError) &&
@@ -954,6 +985,13 @@ export class AcpSessionController {
       if (cleanupError !== undefined && cleanupError !== error) {
         finalizationErrors.push(cleanupError);
       }
+      if (
+        controlCleanupRetryError !== undefined &&
+        controlCleanupRetryError !== error &&
+        controlCleanupRetryError !== cleanupError
+      ) {
+        finalizationErrors.push(controlCleanupRetryError);
+      }
       finalizationErrors.push(...eventLogErrors.filter((caught) => caught !== error));
       if (finalizationErrors.length > 0) {
         throw new AggregateError([error, ...finalizationErrors], message);
@@ -964,7 +1002,6 @@ export class AcpSessionController {
       throw error;
     } finally {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
-      await stopControlEndpoint().catch(() => undefined);
       options?.signal?.removeEventListener("abort", relayAbort);
     }
   }

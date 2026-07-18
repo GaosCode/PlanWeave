@@ -10,6 +10,7 @@ import {
   agentRunControlFollowUpCommandSchema,
   agentRunControlResponseSchema,
   type AgentRunControlCommand,
+  type AgentRunControlEndpointDescriptor,
   type AgentRunControlResponse
 } from "../autoRun/agentRunControlContract.js";
 import {
@@ -17,6 +18,7 @@ import {
   readAgentRunControlDescriptor
 } from "../autoRun/agentRunControlEndpoint.js";
 import { AcpOwnerStateWriter } from "../autoRun/acpOwnerState.js";
+import { AgentRunControlServer } from "../autoRun/agentRunControlServer.js";
 import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
@@ -239,6 +241,7 @@ describe("agent run control controller lifecycle", () => {
     let terminalWriteAttempts = 0;
     const preparationFailure = new Error("owner-state prepare failed");
     const stopFailure = new Error("owner-state stop failed");
+    const retryFailure = new Error("owner-state retry failed");
     const persistence = vi
       .spyOn(AcpOwnerStateWriter.prototype, "setControlAvailability")
       .mockImplementation(async function (summary) {
@@ -247,7 +250,8 @@ describe("agent run control controller lifecycle", () => {
           if (terminalWriteAttempts === 1) {
             throw preparationFailure;
           }
-          throw stopFailure;
+          if (terminalWriteAttempts === 2) throw stopFailure;
+          throw retryFailure;
         }
         return originalSetControlAvailability.call(this, summary);
       });
@@ -265,13 +269,17 @@ describe("agent run control controller lifecycle", () => {
       expect(failure).toBeInstanceOf(AggregateError);
       expect(messages).toContain("owner-state prepare failed");
       expect(messages).toContain("owner-state stop failed");
+      expect(messages).toContain("owner-state retry failed");
       expect(
         findAggregateError(failure, "Runner terminal cleanup did not complete cleanly.")?.errors
       ).toEqual([preparationFailure, stopFailure]);
-      expect(terminalWriteAttempts).toBe(2);
+      expect(terminalWriteAttempts).toBe(3);
       await expectEndpointClosed(root, descriptor.address);
       expect(registry.size).toBe(0);
       await expect(registry.shutdown()).resolves.toBeUndefined();
+      await expect(readFile(join(root, "metadata.json"), "utf8")).resolves.toContain(
+        "owner-state retry failed"
+      );
       expect(persistence).toHaveBeenCalledWith(
         expect.objectContaining({ controlUnavailableReason: "owner_terminal" })
       );
@@ -308,11 +316,71 @@ describe("agent run control controller lifecycle", () => {
       const descriptor = await liveDescriptor(root);
 
       await expect(execution).rejects.toBe(ownerStateFailure);
-      expect(terminalWriteAttempts).toBe(2);
+      expect(terminalWriteAttempts).toBe(failingAttempt === 2 ? 3 : 2);
       await expectEndpointClosed(root, descriptor.address);
       expect(registry.size).toBe(0);
     } finally {
       persistence.mockRestore();
+    }
+  });
+
+  it("retains cleanup ownership when availability persistence and initial teardown both fail", async () => {
+    const originalSetControlAvailability = AcpOwnerStateWriter.prototype.setControlAvailability;
+    const originalStart = AgentRunControlServer.prototype.start;
+    const originalStop = AgentRunControlServer.prototype.stop;
+    const availabilityFailure = new Error("control availability persistence failed");
+    const teardownFailure = new Error("initial endpoint teardown failed");
+    let capturedServer: AgentRunControlServer | null = null;
+    let stopAttempts = 0;
+    let publishDescriptor!: (descriptor: AgentRunControlEndpointDescriptor) => void;
+    const descriptorPublished = new Promise<AgentRunControlEndpointDescriptor>((resolve) => {
+      publishDescriptor = resolve;
+    });
+    const persistence = vi
+      .spyOn(AcpOwnerStateWriter.prototype, "setControlAvailability")
+      .mockImplementation(async function (summary) {
+        if (summary.controlAvailable) throw availabilityFailure;
+        return originalSetControlAvailability.call(this, summary);
+      });
+    const start = vi
+      .spyOn(AgentRunControlServer.prototype, "start")
+      .mockImplementation(async function () {
+        const descriptor = await originalStart.call(this);
+        publishDescriptor(descriptor);
+        return descriptor;
+      });
+    const stop = vi.spyOn(AgentRunControlServer.prototype, "stop").mockImplementation(function () {
+      capturedServer = this;
+      stopAttempts += 1;
+      if (stopAttempts === 1) return Promise.reject(teardownFailure);
+      return originalStop.call(this);
+    });
+    const root = await mkdtemp(join(tmpdir(), "planweave-control-start-cleanup-failure-"));
+    const registry = new ActiveAgentRunRegistry();
+    try {
+      const execution = new AcpSessionController(registry).execute(
+        controllerRun(root, "delayed-artifact-implementation"),
+        { timeoutMs: 2_000 }
+      );
+      const failurePromise = execution.catch((error: unknown) => error);
+      const descriptor = await descriptorPublished;
+
+      const failure = await failurePromise;
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(nestedErrorMessages(failure)).toEqual(
+        expect.arrayContaining([
+          "control availability persistence failed",
+          "initial endpoint teardown failed"
+        ])
+      );
+      expect(stopAttempts).toBeGreaterThanOrEqual(2);
+      await expectEndpointClosed(root, descriptor.address);
+      expect(registry.size).toBe(0);
+    } finally {
+      persistence.mockRestore();
+      start.mockRestore();
+      stop.mockRestore();
+      if (capturedServer) await originalStop.call(capturedServer).catch(() => undefined);
     }
   });
 
