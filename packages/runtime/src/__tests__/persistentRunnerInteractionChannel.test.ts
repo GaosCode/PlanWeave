@@ -48,6 +48,7 @@ async function fixture() {
     setWaiting: async (_requestId, waiting) => {
       order.push(waiting ? "waiting" : "running");
     },
+    recordFailure: () => undefined,
     notifyRequired: async () => {
       order.push("notified");
     },
@@ -178,6 +179,7 @@ describe("PersistentRunnerInteractionChannel", () => {
         order.push(`result:${decision.kind}`);
       },
       setWaiting: async () => undefined,
+      recordFailure: () => undefined,
       notifyRequired: async () => {
         order.push("notified");
       }
@@ -226,6 +228,7 @@ describe("PersistentRunnerInteractionChannel", () => {
         order.push(waiting ? "waiting" : "running");
         if (failurePoint === "heartbeat" && waiting) throw new Error("heartbeat unavailable");
       },
+      recordFailure: () => undefined,
       notifyRequired: async () => {
         order.push("notified");
       }
@@ -255,6 +258,7 @@ describe("PersistentRunnerInteractionChannel", () => {
       publishPending: async () => undefined,
       publishResult: async () => undefined,
       setWaiting: async () => undefined,
+      recordFailure: () => undefined,
       notifyRequired: async () => {
         throw new Error("broker unavailable");
       },
@@ -274,6 +278,42 @@ describe("PersistentRunnerInteractionChannel", () => {
     await expect(pending).resolves.toMatchObject({ kind: "select" });
   });
 
+  it("records notification diagnostic failures without blocking the mailbox", async () => {
+    const item = await fixture();
+    const failures: RunnerInteractionChannelError[] = [];
+    const channel = new PersistentRunnerInteractionChannel({
+      store: item.store,
+      pollIntervalMs: 5,
+      publishPending: async () => undefined,
+      publishResult: async () => undefined,
+      setWaiting: async () => undefined,
+      recordFailure: (failure) => {
+        failures.push(failure);
+      },
+      notifyRequired: async () => {
+        throw new Error("broker unavailable");
+      },
+      publishDiagnostic: async () => {
+        throw new Error("diagnostic unavailable");
+      }
+    });
+    const pending = channel.requestPermission(item.request, {
+      signal: new AbortController().signal,
+      deadline: null
+    });
+    await vi.waitFor(() => expect(failures).toHaveLength(1));
+    expect(failures[0]).toMatchObject({
+      code: "interaction_persistence_failed",
+      message: "ACP interaction notification and its diagnostic audit both failed."
+    });
+    expect(failures[0]?.cause).toBeInstanceOf(AggregateError);
+    await respond(new PersistentRunnerInteractionStore(item.runDir), item.request, {
+      kind: "select",
+      optionId: "allow"
+    });
+    await expect(pending).resolves.toMatchObject({ kind: "select" });
+  });
+
   it("fails closed on request persistence and invalid canonical responses", async () => {
     const persistence = await fixture();
     const missingStore = new PersistentRunnerInteractionStore(join(persistence.runDir, "missing"));
@@ -282,7 +322,8 @@ describe("PersistentRunnerInteractionChannel", () => {
       pollIntervalMs: 5,
       publishPending: async () => undefined,
       publishResult: async () => undefined,
-      setWaiting: async () => undefined
+      setWaiting: async () => undefined,
+      recordFailure: () => undefined
     });
     await expect(
       unavailable.requestPermission(persistence.request, {

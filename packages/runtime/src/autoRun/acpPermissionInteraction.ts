@@ -131,6 +131,7 @@ export function createPersistentAcpPermissionHandler(context: PermissionInteract
       );
     },
     setWaiting: context.setWaiting,
+    recordFailure: context.recordFailure,
     notifyRequired: async (request) => {
       const pending: LivePendingRequestHandle = {
         requestId: request.identity.requestId,

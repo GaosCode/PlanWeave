@@ -42,6 +42,7 @@ type PersistentRunnerInteractionChannelOptions = {
     decision: RunnerPermissionChannelDecision
   ) => Promise<void>;
   setWaiting: (requestId: string, waiting: boolean) => Promise<void>;
+  recordFailure: (failure: RunnerInteractionChannelError) => void;
   notifyRequired?: (request: RunnerPermissionInteractionRequest) => void | Promise<void>;
   publishDiagnostic?: (code: string, message: string) => void | Promise<void>;
   pollIntervalMs?: number;
@@ -239,13 +240,28 @@ export class PersistentRunnerInteractionChannel implements RunnerInteractionChan
 
   private notifyRequired(request: RunnerPermissionInteractionRequest): void {
     if (!this.options.notifyRequired) return;
-    Promise.resolve()
+    void Promise.resolve()
       .then(() => this.options.notifyRequired?.(request))
       .catch(async (error) => {
-        await this.options.publishDiagnostic?.(
-          "interaction_observer_failed",
-          error instanceof Error ? error.message : "Runner interaction observer failed."
-        );
+        try {
+          await this.options.publishDiagnostic?.(
+            "interaction_observer_failed",
+            error instanceof Error ? error.message : "Runner interaction observer failed."
+          );
+        } catch (diagnosticError) {
+          this.options.recordFailure(
+            new RunnerInteractionChannelError(
+              "interaction_persistence_failed",
+              "ACP interaction notification and its diagnostic audit both failed.",
+              {
+                cause: new AggregateError(
+                  [error, diagnosticError],
+                  "ACP interaction notification and diagnostic audit failed."
+                )
+              }
+            )
+          );
+        }
       });
   }
 }
