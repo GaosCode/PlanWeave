@@ -285,7 +285,24 @@ public static class PlanWeaveWindowsJob
         return quoted.ToString();
     }
 
-    private static string QuoteBatchArgument(string argument)
+    private static void AppendBatchLiteralCharacter(
+        StringBuilder result,
+        char character,
+        string literalPercentVariable)
+    {
+        if (character == '%')
+        {
+            result.Append('%');
+            result.Append(literalPercentVariable);
+            result.Append('%');
+        }
+        else
+        {
+            result.Append(character);
+        }
+    }
+
+    private static string QuoteBatchArgument(string argument, string literalPercentVariable)
     {
         if (argument.IndexOfAny(new[] { '\r', '\n' }) >= 0)
             throw new ArgumentException("Batch file arguments cannot contain newlines.");
@@ -315,8 +332,7 @@ public static class PlanWeaveWindowsJob
             else
             {
                 result.Append('\\', slashes);
-                if (character == '%') result.Append("%%cd:~,%");
-                result.Append(character);
+                AppendBatchLiteralCharacter(result, character, literalPercentVariable);
             }
             slashes = 0;
         }
@@ -336,17 +352,21 @@ public static class PlanWeaveWindowsJob
         return commandLine;
     }
 
-    private static StringBuilder BatchCommandLine(string executable, string[] arguments)
+    private static StringBuilder BatchCommandLine(
+        string executable,
+        string[] arguments,
+        string literalPercentVariable)
     {
         if (executable.IndexOf('"') >= 0 || executable.EndsWith("\\", StringComparison.Ordinal))
             throw new ArgumentException("Invalid batch file path.");
         var commandLine = new StringBuilder("cmd.exe /e:ON /v:OFF /d /c \"\"");
-        commandLine.Append(executable);
+        foreach (char character in executable)
+            AppendBatchLiteralCharacter(commandLine, character, literalPercentVariable);
         commandLine.Append('"');
         foreach (string argument in arguments)
         {
             commandLine.Append(' ');
-            commandLine.Append(QuoteBatchArgument(argument));
+            commandLine.Append(QuoteBatchArgument(argument, literalPercentVariable));
         }
         commandLine.Append('"');
         return commandLine;
@@ -366,8 +386,11 @@ public static class PlanWeaveWindowsJob
         string executable = batch ? commandInterpreter : command;
         if (!System.IO.Path.IsPathRooted(executable) || !System.IO.File.Exists(executable))
             throw new Win32Exception(2, "Resolved launcher does not exist: " + executable);
+        string literalPercentVariable = batch
+            ? "__PLANWEAVE_LITERAL_PERCENT_" + Guid.NewGuid().ToString("N")
+            : null;
         StringBuilder commandLine = batch
-            ? BatchCommandLine(command, arguments)
+            ? BatchCommandLine(command, arguments, literalPercentVariable)
             : NativeCommandLine(command, arguments);
         var startup = new STARTUPINFO();
         startup.cb = (uint)Marshal.SizeOf(startup);
@@ -377,18 +400,30 @@ public static class PlanWeaveWindowsJob
         startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
         startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
         PROCESS_INFORMATION process;
-        if (!CreateProcess(
-            executable,
-            commandLine,
-            IntPtr.Zero,
-            IntPtr.Zero,
-            true,
-            0,
-            IntPtr.Zero,
-            null,
-            ref startup,
-            out process))
-            throw Error("CreateProcess(target)");
+        string previousLiteralPercent = batch
+            ? Environment.GetEnvironmentVariable(literalPercentVariable)
+            : null;
+        try
+        {
+            // cmd expands variables once, so this becomes a literal % without re-expansion.
+            if (batch) Environment.SetEnvironmentVariable(literalPercentVariable, "%");
+            if (!CreateProcess(
+                executable,
+                commandLine,
+                IntPtr.Zero,
+                IntPtr.Zero,
+                true,
+                0,
+                IntPtr.Zero,
+                null,
+                ref startup,
+                out process))
+                throw Error("CreateProcess(target)");
+        }
+        finally
+        {
+            if (batch) Environment.SetEnvironmentVariable(literalPercentVariable, previousLiteralPercent);
+        }
         try
         {
             uint waitResult = WaitForMultipleObjects(

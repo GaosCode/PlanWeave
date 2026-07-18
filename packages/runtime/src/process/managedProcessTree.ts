@@ -214,6 +214,27 @@ function createManagedProcessTree(options: {
     return adapter.isAlive(pid);
   };
 
+  const waitForForcedExit = async (reason: string): Promise<void> => {
+    const didNotExitError = (): Error =>
+      new Error(
+        `Managed process tree pid=${String(pid)} did not exit after force termination (${reason}).`
+      );
+
+    await Promise.race([
+      exited,
+      sleep(graceMs).then(() => {
+        if (isAlive()) {
+          throw didNotExitError();
+        }
+      })
+    ]);
+
+    if (isAlive()) {
+      throw didNotExitError();
+    }
+    await exited;
+  };
+
   const terminate = (reason: string): Promise<ProcessTerminationResult> => {
     if (!terminationPromise) {
       terminationPromise = (async (): Promise<ProcessTerminationResult> => {
@@ -235,14 +256,30 @@ function createManagedProcessTree(options: {
           await adapter.signalGraceful(pid);
         } catch (error) {
           const code = errnoCode(error);
-          if (code !== "ESRCH" && code !== "ECHILD") {
+          const rootExitedBeforeGraceful = code === "ESRCH" || code === "ECHILD";
+          if (!rootExitedBeforeGraceful && adapter.name !== "windows") {
             throw error;
           }
-          // The root may exit between the liveness probe and taskkill. The named Job
-          // remains authoritative, so skip the grace delay and force it immediately.
-          await adapter.signalForce(pid);
-          await exited;
-          return { outcome: "graceful", reason };
+          // A Windows taskkill failure does not invalidate the owner-independent Job.
+          // Force through that authoritative owner; any Job termination failure surfaces.
+          try {
+            await adapter.signalForce(pid);
+          } catch (forceError) {
+            if (adapter.name === "windows" && !rootExitedBeforeGraceful) {
+              const forceDiagnostic =
+                forceError instanceof Error ? forceError.message : String(forceError);
+              throw new AggregateError(
+                [error, forceError],
+                `Windows managed process graceful termination failed and Job force termination also failed for pid=${String(pid)}. Force failure: ${forceDiagnostic}`
+              );
+            }
+            throw forceError;
+          }
+          await waitForForcedExit(reason);
+          return {
+            outcome: rootExitedBeforeGraceful ? "graceful" : "forced",
+            reason
+          };
         }
 
         // Fixed grace window so SIGTERM-resistant descendants can be force-reaped next.
@@ -260,23 +297,7 @@ function createManagedProcessTree(options: {
           }
         }
 
-        await Promise.race([
-          exited,
-          sleep(graceMs).then(() => {
-            if (isAlive()) {
-              throw new Error(
-                `Managed process tree pid=${String(pid)} did not exit after force termination (${reason}).`
-              );
-            }
-          })
-        ]);
-
-        if (isAlive()) {
-          throw new Error(
-            `Managed process tree pid=${String(pid)} did not exit after force termination (${reason}).`
-          );
-        }
-        await exited;
+        await waitForForcedExit(reason);
         return {
           outcome: rootExitedDuringGrace ? "graceful" : "forced",
           reason

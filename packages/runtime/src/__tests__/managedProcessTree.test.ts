@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,7 +13,8 @@ import {
   DEFAULT_PROCESS_TREE_GRACE_MS,
   spawnManagedProcess,
   windowsTaskKillArgs,
-  type ManagedProcessTree
+  type ManagedProcessTree,
+  type ProcessTreePlatformAdapter
 } from "../process/managedProcessTree.js";
 
 function sleep(ms: number): Promise<void> {
@@ -24,7 +25,10 @@ function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "EPERM") {
+      return true;
+    }
     return false;
   }
 }
@@ -223,6 +227,99 @@ describe("managedProcessTree contract (fake adapter)", () => {
     });
 
     await expect(tree.terminate("cancel")).rejects.toMatchObject({ code: "EPERM" });
+  });
+
+  it("uses the Windows Job to force cleanup when graceful taskkill fails", async () => {
+    let forceCalls = 0;
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    if (child.pid === undefined) throw new Error("Expected Windows force test child pid.");
+    const adapter: ProcessTreePlatformAdapter = {
+      name: "windows",
+      configureSpawn: (options) => options,
+      signalGraceful: () => {
+        throw Object.assign(new Error("taskkill failed"), { code: "EPERM" });
+      },
+      signalForce: () => {
+        forceCalls += 1;
+        child.kill("SIGKILL");
+      },
+      isAlive: () => child.exitCode === null && child.signalCode === null
+    };
+    const tree = attachManagedProcessTree({ child, pid: child.pid, adapter, graceMs: 10_000 });
+
+    await expect(tree.terminate("taskkill failed")).resolves.toEqual({
+      outcome: "forced",
+      reason: "taskkill failed"
+    });
+    expect(forceCalls).toBe(1);
+  });
+
+  it("preserves graceful taskkill and Windows Job force failures", async () => {
+    const gracefulError = Object.assign(new Error("taskkill access denied"), { code: "EPERM" });
+    const forceError = Object.assign(new Error("job access denied"), { code: "EPERM" });
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    if (child.pid === undefined) throw new Error("Expected Windows force-failure test child pid.");
+    const adapter: ProcessTreePlatformAdapter = {
+      name: "windows",
+      configureSpawn: (options) => options,
+      signalGraceful: () => {
+        throw gracefulError;
+      },
+      signalForce: () => {
+        throw forceError;
+      },
+      isAlive: () => true
+    };
+    const tree = attachManagedProcessTree({ child, pid: child.pid, adapter, graceMs: 10_000 });
+
+    try {
+      let terminationError: unknown;
+      try {
+        await tree.terminate("taskkill and Job failed");
+      } catch (error) {
+        terminationError = error;
+      }
+
+      expect(terminationError).toBeInstanceOf(AggregateError);
+      if (!(terminationError instanceof AggregateError)) {
+        throw new Error("Expected graceful and force failures to be aggregated.");
+      }
+      expect(terminationError.errors).toEqual([gracefulError, forceError]);
+      expect(terminationError.message).toContain("Force failure: job access denied");
+    } finally {
+      child.kill("SIGKILL");
+      await tree.exited;
+    }
+  });
+
+  it("bounds exit confirmation when Windows Job force reports success", async () => {
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    if (child.pid === undefined) throw new Error("Expected Windows bounded-exit test child pid.");
+    const adapter: ProcessTreePlatformAdapter = {
+      name: "windows",
+      configureSpawn: (options) => options,
+      signalGraceful: () => {
+        throw Object.assign(new Error("taskkill failed"), { code: "EPERM" });
+      },
+      signalForce: () => {},
+      isAlive: () => child.exitCode === null && child.signalCode === null
+    };
+    const tree = attachManagedProcessTree({ child, pid: child.pid, adapter, graceMs: 20 });
+
+    try {
+      await expect(tree.terminate("force did not exit")).rejects.toThrow(
+        "did not exit after force termination"
+      );
+    } finally {
+      child.kill("SIGKILL");
+      await tree.exited;
+    }
   });
 
   it("forces immediately when the root exits between liveness and graceful signaling", async () => {
@@ -424,7 +521,9 @@ describe("host process-tree grandchild termination", () => {
   it.runIf(process.platform === "win32")(
     "preserves Windows PATHEXT batch lookup, arguments, cwd, env, stdio, and exit code",
     async () => {
-      const dir = await mkdtemp(join(tmpdir(), "planweave-windows-owner-contract-"));
+      const baseDir = await mkdtemp(join(tmpdir(), "planweave-windows-owner-contract-"));
+      const dir = join(baseDir, "cwd space %PLANWEAVE_BATCH_PATH%");
+      await mkdir(dir);
       const executable = join(dir, "planweave-path-probe.cmd");
       const source =
         "process.stdout.write(JSON.stringify({cwd:process.cwd(),env:process.env.PLANWEAVE_OWNER_PROBE,args:process.argv.slice(1)}));process.exit(23);";
@@ -433,7 +532,13 @@ describe("host process-tree grandchild termination", () => {
         `@echo off\r\n"${process.execPath}" -e "${source}" %*\r\n`,
         "utf8"
       );
-      const probeArgs = ["plain", "space value", 'amp&pipe|percent%caret^quote"trail\\'];
+      const probeArgs = [
+        "plain",
+        "space value",
+        'amp&pipe|percent%caret^quote"trail\\',
+        "%PATH%",
+        "paired%%percent"
+      ];
       const managed = spawnManagedProcess({
         command: "planweave-path-probe",
         args: probeArgs,
@@ -442,6 +547,7 @@ describe("host process-tree grandchild termination", () => {
           ...process.env,
           PATH: `${dir};${process.env.PATH ?? ""}`,
           PATHEXT: ".CMD;.EXE;.COM;.BAT",
+          PLANWEAVE_BATCH_PATH: "unexpected-expanded-path",
           PLANWEAVE_OWNER_PROBE: "ok"
         }
       });
