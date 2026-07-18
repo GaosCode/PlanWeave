@@ -540,13 +540,30 @@ async function garbageCollect(
   }
 }
 
+async function assertPublishedV5Pointer(
+  runRoot: string,
+  pointer: BlockRunIndexV5Pointer
+): Promise<void> {
+  const publishedPointer = blockRunIndexV5PointerSchema.parse(
+    JSON.parse((await optionalReadFile(pointerPath(runRoot), "utf8")) ?? "null") as unknown
+  );
+  if (
+    publishedPointer.currentGeneration !== pointer.currentGeneration ||
+    publishedPointer.previousGeneration !== pointer.previousGeneration
+  ) {
+    throw indexContractError(runRoot, "pointer changed during locked incremental maintenance");
+  }
+}
+
 async function incrementallyMaintainPublishedGeneration(
   runRoot: string,
   pointer: BlockRunIndexV5Pointer,
   currentManifest: BlockRunIndexV5Manifest,
   previousManifest: BlockRunIndexV5Manifest,
+  retirement: BlockRunIndexV5Retirement,
   options: BlockRunIndexStorageOptions
 ): Promise<void> {
+  await assertPublishedV5Pointer(runRoot, pointer);
   const generationsRoot = join(indexRoot(runRoot), "generations");
   await options.instrumentation?.atFaultPoint?.("generation-gc");
   for (const entry of (await optionalReaddir(generationsRoot, { withFileTypes: true })) ?? []) {
@@ -560,43 +577,55 @@ async function incrementallyMaintainPublishedGeneration(
     await rm(join(generationsRoot, entry.name), { recursive: true, force: true });
   }
 
-  const retirement = await readParsed(
-    retirementPath(runRoot, previousManifest.generation),
-    blockRunIndexV5RetirementSchema
-  );
   await options.instrumentation?.atFaultPoint?.("object-gc");
-  if (retirement) {
-    const cache = new Map<string, BlockRunIndexV5TreeNode>();
-    for (const candidate of retirement.objects) {
-      const referencedByCurrent = await blockRunIndexV5TreeReferencesObject(
-        indexRoot(runRoot),
-        currentManifest.rootNodeId,
-        candidate,
-        cache
-      );
-      const referencedByPrevious = await blockRunIndexV5TreeReferencesObject(
-        indexRoot(runRoot),
-        previousManifest.rootNodeId,
-        candidate,
-        cache
-      );
-      if (referencedByCurrent || referencedByPrevious) continue;
-      const directory = candidate.level === -1 ? "objects" : "nodes";
-      await rm(join(indexRoot(runRoot), directory, `${candidate.objectId}.json`), {
-        force: true
-      });
-    }
+  const cache = new Map<string, BlockRunIndexV5TreeNode>();
+  for (const candidate of retirement.objects) {
+    const referencedByCurrent = await blockRunIndexV5TreeReferencesObject(
+      indexRoot(runRoot),
+      currentManifest.rootNodeId,
+      candidate,
+      cache
+    );
+    const referencedByPrevious = await blockRunIndexV5TreeReferencesObject(
+      indexRoot(runRoot),
+      previousManifest.rootNodeId,
+      candidate,
+      cache
+    );
+    if (referencedByCurrent || referencedByPrevious) continue;
+    const directory = candidate.level === -1 ? "objects" : "nodes";
+    await rm(join(indexRoot(runRoot), directory, `${candidate.objectId}.json`), {
+      force: true
+    });
   }
 
-  const publishedPointer = blockRunIndexV5PointerSchema.parse(
-    JSON.parse((await optionalReadFile(pointerPath(runRoot), "utf8")) ?? "null") as unknown
+  await assertPublishedV5Pointer(runRoot, pointer);
+  await rm(retirementPath(runRoot, previousManifest.generation), { force: true });
+}
+
+async function maintainPendingV5Retirement(
+  runRoot: string,
+  pointer: BlockRunIndexV5Pointer,
+  currentManifest: BlockRunIndexV5Manifest,
+  options: BlockRunIndexStorageOptions,
+  force = false
+): Promise<void> {
+  const previousGeneration = pointer.previousGeneration;
+  if (previousGeneration === null) return;
+  const retirement = await readParsed(
+    retirementPath(runRoot, previousGeneration),
+    blockRunIndexV5RetirementSchema
   );
-  if (
-    publishedPointer.currentGeneration !== pointer.currentGeneration ||
-    publishedPointer.previousGeneration !== pointer.previousGeneration
-  ) {
-    throw indexContractError(runRoot, "pointer changed during locked incremental maintenance");
-  }
+  if (!(retirement || force)) return;
+  const previousManifest = await readV5Manifest(runRoot, previousGeneration);
+  await incrementallyMaintainPublishedGeneration(
+    runRoot,
+    pointer,
+    currentManifest,
+    previousManifest,
+    retirement ?? { version: 1, objects: [] },
+    options
+  );
 }
 
 export async function maintainBlockRunIndex(
@@ -698,13 +727,7 @@ async function publishGeneration(
   await options.afterStage?.("published");
   try {
     if (draft.retirement && previous?.version === 5) {
-      await incrementallyMaintainPublishedGeneration(
-        runRoot,
-        pointer,
-        manifest,
-        previous.manifest,
-        options
-      );
+      await maintainPendingV5Retirement(runRoot, pointer, manifest, options, true);
       return;
     }
     const closure = await verifyV5LiveClosure(runRoot, pointer);
@@ -759,6 +782,7 @@ async function mutateV5(
   mutation: BlockRunIndexMutation,
   options: BlockRunIndexStorageOptions
 ): Promise<boolean> {
+  await maintainPendingV5Retirement(runRoot, snapshot.pointer, snapshot.manifest, options);
   const plan = await planBlockRunIndexV5Mutation(
     {
       indexRoot: indexRoot(runRoot),

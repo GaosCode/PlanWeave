@@ -46,6 +46,87 @@ async function temporaryRunRoot(point: BlockRunIndexStorageFaultPoint): Promise<
 }
 
 describe("block run index v5 crash recovery", () => {
+  it("converges pending retirement through later mutations without explicit maintenance", async () => {
+    const runRoot = await temporaryRunRoot("object-gc");
+    await replaceBlockRunIndexWithV5(runRoot, null, [entry(1)]);
+    const generation0 = await readBlockRunIndexSnapshot(runRoot);
+    if (generation0?.version !== 5 || !generation0.manifest.rootNodeId) {
+      throw new Error("Expected the initial v5 generation.");
+    }
+    const indexRoot = join(runRoot, ".planweave-task-workspace-run-index");
+    const retiredRootNode = generation0.manifest.rootNodeId;
+    const [retiredPageObject] = await readdir(join(indexRoot, "objects"));
+    if (!retiredPageObject) throw new Error("Expected the initial page object.");
+
+    await mutateBlockRunIndex(runRoot, generation0, {
+      kind: "markArtifact",
+      cursor: {
+        orderedAt: entry(1).orderedAt,
+        stableIdentity: entry(1).stableIdentity
+      },
+      runId: entry(1).runId
+    });
+    const generation1 = await readBlockRunIndexSnapshot(runRoot);
+    if (generation1?.version !== 5) throw new Error("Expected the second v5 generation.");
+
+    await expect(
+      mutateBlockRunIndex(
+        runRoot,
+        generation1,
+        {
+          kind: "upsert",
+          entry: {
+            runId: entry(2).runId,
+            orderedAt: entry(2).orderedAt,
+            stableIdentity: entry(2).stableIdentity,
+            hasArtifact: false
+          }
+        },
+        {
+          instrumentation: {
+            atFaultPoint(point) {
+              if (point === "object-gc") throw new Error("injected:object-gc");
+            }
+          }
+        }
+      )
+    ).rejects.toMatchObject({ code: "BLOCK_RUN_INDEX_PARTIAL_MAINTENANCE" });
+    await expect(
+      access(join(indexRoot, "nodes", `${retiredRootNode}.json`))
+    ).resolves.toBeUndefined();
+    await expect(access(join(indexRoot, "objects", retiredPageObject))).resolves.toBeUndefined();
+
+    const generation2 = await readBlockRunIndexSnapshot(runRoot);
+    if (generation2?.version !== 5) throw new Error("Expected the committed third generation.");
+    await expect(
+      mutateBlockRunIndex(runRoot, generation2, {
+        kind: "upsert",
+        entry: {
+          runId: entry(2).runId,
+          orderedAt: entry(2).orderedAt,
+          stableIdentity: entry(2).stableIdentity,
+          hasArtifact: false
+        }
+      })
+    ).resolves.toBe(false);
+
+    const retried = await readBlockRunIndexSnapshot(runRoot);
+    if (retried?.version !== 5) throw new Error("Expected the retried v5 generation.");
+    await mutateBlockRunIndex(runRoot, retried, {
+      kind: "upsert",
+      entry: {
+        runId: entry(3).runId,
+        orderedAt: entry(3).orderedAt,
+        stableIdentity: entry(3).stableIdentity,
+        hasArtifact: false
+      }
+    });
+
+    await expect(access(join(indexRoot, "nodes", `${retiredRootNode}.json`))).rejects.toThrow();
+    await expect(access(join(indexRoot, "objects", retiredPageObject))).rejects.toThrow();
+    expect(await readdir(join(indexRoot, "generations"))).toHaveLength(2);
+  });
+
   it.each(faultPoints)("preserves a readable generation and converges after %s", async (point) => {
     const runRoot = await temporaryRunRoot(point);
     const firstEntries = [entry(1)];

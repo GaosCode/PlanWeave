@@ -27,6 +27,7 @@ const maxIndexBytes = 4 * 1_024 * 1_024;
 const maxFarCursorPageReads = 12;
 const maxPayloadBytesPerRun = 24 * 1_024;
 const testTimeoutMs = 300_000;
+const liveMetadataFileCount = 5;
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -130,7 +131,7 @@ describe("block run index v5 storage performance", () => {
         2 * (Math.ceil(expectedPages / BLOCK_RUN_INDEX_PAGE_SIZE) + BLOCK_RUN_INDEX_TREE_DEPTH)
       );
       const metrics = await directoryMetrics(indexRoot);
-      expect(metrics.files).toBe(expectedPages + liveNodeCount + 6);
+      expect(metrics.files).toBe(expectedPages + liveNodeCount + liveMetadataFileCount);
       expect(metrics.bytes).toBeLessThan(maxIndexBytes);
 
       const beforeAppend = {
