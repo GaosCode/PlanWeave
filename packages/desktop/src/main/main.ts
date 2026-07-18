@@ -64,7 +64,6 @@ startSingleInstanceLifecycle({
         const window = await createWindow({ isDev, isSmoke, isStartupSmoke });
         if (isStartupSmoke) {
           console.log(JSON.stringify(await runPackagedStartupSmoke(window)));
-          app.exit(0);
           return;
         }
         void autoStartMcpTunnel();

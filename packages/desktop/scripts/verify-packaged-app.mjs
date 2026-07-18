@@ -226,12 +226,15 @@ async function smokeLaunch(executablePath, platform) {
   child.stdin.end();
 
   let output = "";
-  let ready = false;
+  let reportReady;
+  const readiness = new Promise((resolveReadiness) => {
+    reportReady = () => resolveReadiness({ kind: "ready" });
+  });
   child.stdout.on("data", (chunk) => {
     const text = chunk.toString();
     output = appendBoundedOutput(output, text);
     if (hasVerifiedStartupMarker(output)) {
-      ready = true;
+      reportReady();
     }
   });
   child.stderr.on("data", (chunk) => {
@@ -244,6 +247,7 @@ async function smokeLaunch(executablePath, platform) {
   });
   let timeout;
   const outcome = await Promise.race([
+    readiness,
     completion,
     new Promise((resolveTimeout) => {
       timeout = setTimeout(() => resolveTimeout({ kind: "timeout" }), 30_000);
@@ -261,7 +265,9 @@ async function smokeLaunch(executablePath, platform) {
         `Packaged app startup timed out and managed process-tree cleanup failed: ${sanitizedDiagnostic(errorMessage(cleanupError), sensitivePaths)}\n${diagnosticOutput()}`
       );
     }
-    throw new Error(`Packaged app did not exit normally before timeout:\n${diagnosticOutput()}`);
+    throw new Error(
+      `Packaged app did not report startup readiness before timeout:\n${diagnosticOutput()}`
+    );
   }
   if (outcome.kind === "error") {
     if (tree.isAlive()) {
@@ -277,21 +283,40 @@ async function smokeLaunch(executablePath, platform) {
       `Packaged app failed to spawn: ${sanitizedDiagnostic(errorMessage(outcome.error), sensitivePaths)}`
     );
   }
+  if (outcome.kind === "close") {
+    throw new Error(
+      `Packaged app exited before reporting startup readiness (code ${String(outcome.code)}${outcome.signal ? `, signal ${outcome.signal}` : ""}):\n${diagnosticOutput()}`
+    );
+  }
 
-  await tree.exited;
+  let termination;
+  try {
+    termination = await tree.terminate("packaged startup smoke complete");
+  } catch (cleanupError) {
+    throw new Error(
+      `Packaged app reported startup readiness but managed process-tree cleanup failed: ${sanitizedDiagnostic(errorMessage(cleanupError), sensitivePaths)}\n${diagnosticOutput()}`
+    );
+  }
+  if (termination.outcome === "already_exited") {
+    throw new Error(
+      `Packaged app root exited before managed process-tree cleanup could be verified:\n${diagnosticOutput()}`
+    );
+  }
+  if (termination.outcome !== "graceful" && termination.outcome !== "forced") {
+    throw new Error(
+      `Packaged app returned an unsupported managed process-tree cleanup outcome: ${String(termination.outcome)}`
+    );
+  }
+  const completionOutcome = await completion;
+  if (completionOutcome.kind === "error") {
+    throw new Error(
+      `Packaged app failed while completing managed process-tree cleanup: ${sanitizedDiagnostic(errorMessage(completionOutcome.error), sensitivePaths)}`
+    );
+  }
   if (startupErrorPattern.test(output)) {
     throw new Error(`Packaged app emitted a startup module error:\n${diagnosticOutput()}`);
   }
-  if (outcome.code !== 0) {
-    throw new Error(
-      `Packaged app exited with code ${String(outcome.code)}${outcome.signal ? ` (${outcome.signal})` : ""}:\n${diagnosticOutput()}`
-    );
-  }
-  if (!ready) {
-    throw new Error(
-      `Packaged app exited before reporting startup readiness:\n${diagnosticOutput()}`
-    );
-  }
+  return termination;
 }
 
 function redactReportValue(value) {
@@ -340,7 +365,7 @@ try {
       asarRuntimeEntries: true,
       strictStartupMarker: true,
       rendererAndRuntimeBridge: true,
-      normalProcessExit: true
+      managedProcessTreeTerminated: true
     }
   });
   console.log("Packaged PlanWeave app smoke passed.");

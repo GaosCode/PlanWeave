@@ -12,10 +12,11 @@ export type ProcessTerminationResult = {
 
 /**
  * Runtime-owned handle for a PlanWeave-managed process tree root.
- * Callers depend only on pid/terminate/exit — not on child_process internals.
+ * Callers depend only on this lifecycle contract, not on child_process internals.
  */
 export type ManagedProcessTree = {
   readonly pid: number;
+  /** Resolves when the root child exits; it does not prove that descendants have exited. */
   readonly exited: Promise<void>;
   isAlive(): boolean;
   /** Graceful-then-force tree termination. Concurrent calls share one promise. */

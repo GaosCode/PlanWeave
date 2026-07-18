@@ -357,7 +357,7 @@ describe("platform adapters", () => {
   });
 });
 
-describe("posix process-group grandchild termination", () => {
+describe("host process-tree grandchild termination", () => {
   const trees: ManagedProcessTree[] = [];
   const pids: number[] = [];
 
@@ -374,15 +374,13 @@ describe("posix process-group grandchild termination", () => {
     }
   });
 
-  it.runIf(process.platform !== "win32")(
-    "kills a SIGTERM-resistant grandchild that direct child.kill would leave behind",
-    async () => {
-      const dir = await mkdtemp(join(tmpdir(), "planweave-process-tree-"));
-      const childPidPath = join(dir, "child.pid");
-      const grandchildPidPath = join(dir, "grandchild.pid");
-      const heartbeatPath = join(dir, "heartbeat.txt");
+  it("kills a grandchild that direct root termination would leave behind", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "planweave-process-tree-"));
+    const childPidPath = join(dir, "child.pid");
+    const grandchildPidPath = join(dir, "grandchild.pid");
+    const heartbeatPath = join(dir, "heartbeat.txt");
 
-      const parentSource = `
+    const parentSource = `
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const childPidPath = ${JSON.stringify(childPidPath)};
@@ -391,7 +389,7 @@ const heartbeatPath = ${JSON.stringify(heartbeatPath)};
 fs.writeFileSync(childPidPath, String(process.pid));
 const g = spawn(process.execPath, ["-e", ${JSON.stringify(`
 const fs = require("node:fs");
-process.on("SIGTERM", () => {});
+if (process.platform !== "win32") process.on("SIGTERM", () => {});
 fs.writeFileSync(${JSON.stringify(grandchildPidPath)}, String(process.pid));
 fs.writeFileSync(${JSON.stringify(heartbeatPath)}, "start");
 setInterval(() => fs.appendFileSync(${JSON.stringify(heartbeatPath)}, "x"), 40);
@@ -400,75 +398,67 @@ g.unref();
 setInterval(() => {}, 100);
 `;
 
-      // Baseline: direct kill of non-group child leaves the grandchild.
-      const baseline = spawn(process.execPath, ["-e", parentSource], {
-        cwd: dir,
-        stdio: ["ignore", "ignore", "ignore"]
-      });
-      await waitUntil(async () => {
-        try {
-          await readFile(grandchildPidPath, "utf8");
-          return true;
-        } catch {
-          return false;
-        }
-      });
-      const baselineChildPid = Number.parseInt(await readFile(childPidPath, "utf8"), 10);
-      const baselineGrandchildPid = Number.parseInt(await readFile(grandchildPidPath, "utf8"), 10);
-      pids.push(baselineChildPid, baselineGrandchildPid);
-      baseline.kill("SIGKILL");
-      await waitUntil(() => !isAlive(baselineChildPid));
-      // Grandchild may still be alive after killing only the direct child.
-      expect(isAlive(baselineGrandchildPid)).toBe(true);
-      await forceReap(baselineGrandchildPid);
-      await forceReap(baselineChildPid);
-      await writeFile(childPidPath, "", "utf8");
-      await writeFile(grandchildPidPath, "", "utf8");
-      await writeFile(heartbeatPath, "", "utf8");
+    // Baseline: direct kill of non-group child leaves the grandchild.
+    const baseline = spawn(process.execPath, ["-e", parentSource], {
+      cwd: dir,
+      stdio: ["ignore", "ignore", "ignore"]
+    });
+    await waitUntil(async () => {
+      try {
+        await readFile(grandchildPidPath, "utf8");
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    const baselineChildPid = Number.parseInt(await readFile(childPidPath, "utf8"), 10);
+    const baselineGrandchildPid = Number.parseInt(await readFile(grandchildPidPath, "utf8"), 10);
+    pids.push(baselineChildPid, baselineGrandchildPid);
+    baseline.kill("SIGKILL");
+    await waitUntil(() => !isAlive(baselineChildPid));
+    // Grandchild may still be alive after killing only the direct child.
+    expect(isAlive(baselineGrandchildPid)).toBe(true);
+    await forceReap(baselineGrandchildPid);
+    await forceReap(baselineChildPid);
+    await writeFile(childPidPath, "", "utf8");
+    await writeFile(grandchildPidPath, "", "utf8");
+    await writeFile(heartbeatPath, "", "utf8");
 
-      // Managed tree: process-group terminate reaps child and grandchild.
-      const managed = spawnManagedProcess({
-        command: process.execPath,
-        args: ["-e", parentSource],
-        cwd: dir,
-        graceMs: 40
-      });
-      trees.push(managed.tree);
-      pids.push(managed.tree.pid);
+    // Managed tree: the host adapter reaps both root and grandchild.
+    const managed = spawnManagedProcess({
+      command: process.execPath,
+      args: ["-e", parentSource],
+      cwd: dir,
+      graceMs: 40
+    });
+    trees.push(managed.tree);
+    pids.push(managed.tree.pid);
 
-      await waitUntil(async () => {
-        try {
-          const text = await readFile(grandchildPidPath, "utf8");
-          return text.trim().length > 0;
-        } catch {
-          return false;
-        }
-      });
-      const managedChildPid = Number.parseInt(await readFile(childPidPath, "utf8"), 10);
-      const managedGrandchildPid = Number.parseInt(await readFile(grandchildPidPath, "utf8"), 10);
-      pids.push(managedChildPid, managedGrandchildPid);
-      expect(managedChildPid).toBe(managed.tree.pid);
-      expect(managedGrandchildPid).not.toBe(managedChildPid);
-      expect(isAlive(managedGrandchildPid)).toBe(true);
+    await waitUntil(async () => {
+      try {
+        const text = await readFile(grandchildPidPath, "utf8");
+        return text.trim().length > 0;
+      } catch {
+        return false;
+      }
+    });
+    const managedChildPid = Number.parseInt(await readFile(childPidPath, "utf8"), 10);
+    const managedGrandchildPid = Number.parseInt(await readFile(grandchildPidPath, "utf8"), 10);
+    pids.push(managedChildPid, managedGrandchildPid);
+    expect(managedChildPid).toBe(managed.tree.pid);
+    expect(managedGrandchildPid).not.toBe(managedChildPid);
+    expect(isAlive(managedGrandchildPid)).toBe(true);
 
-      const result = await managed.tree.terminate("timeout");
-      expect(["graceful", "forced"]).toContain(result.outcome);
+    const result = await managed.tree.terminate("timeout");
+    expect(["graceful", "forced"]).toContain(result.outcome);
 
-      await waitUntil(() => !isAlive(managedChildPid) && !isAlive(managedGrandchildPid));
-      expect(isAlive(managedChildPid)).toBe(false);
-      expect(isAlive(managedGrandchildPid)).toBe(false);
+    await waitUntil(() => !isAlive(managedChildPid) && !isAlive(managedGrandchildPid));
+    expect(isAlive(managedChildPid)).toBe(false);
+    expect(isAlive(managedGrandchildPid)).toBe(false);
 
-      const sizeAfterExit = (await readFile(heartbeatPath)).byteLength;
-      await sleep(120);
-      const sizeAfterQuiet = (await readFile(heartbeatPath)).byteLength;
-      expect(sizeAfterQuiet).toBe(sizeAfterExit);
-    }
-  );
-
-  it.runIf(process.platform === "win32")(
-    "skips posix process-group grandchild integration on Windows",
-    () => {
-      expect(createHostProcessTreeAdapter().name).toBe("windows");
-    }
-  );
+    const sizeAfterExit = (await readFile(heartbeatPath)).byteLength;
+    await sleep(120);
+    const sizeAfterQuiet = (await readFile(heartbeatPath)).byteLength;
+    expect(sizeAfterQuiet).toBe(sizeAfterExit);
+  });
 });

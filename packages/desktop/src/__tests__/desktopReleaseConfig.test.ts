@@ -248,6 +248,7 @@ describe("desktop release configuration", () => {
       packageSource,
       packagedVerifier,
       packagedStartupSmoke,
+      desktopMain,
       redactor
     ] = await Promise.all([
       readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8"),
@@ -255,6 +256,7 @@ describe("desktop release configuration", () => {
       readFile(resolve(desktopRoot, "package.json"), "utf8"),
       readFile(resolve(desktopRoot, "scripts/verify-packaged-app.mjs"), "utf8"),
       readFile(resolve(desktopRoot, "src/main/smoke.ts"), "utf8"),
+      readFile(resolve(desktopRoot, "src/main/main.ts"), "utf8"),
       readFile(resolve(repoRoot, "scripts/redact-ci-test-artifacts.mjs"), "utf8")
     ]);
     const packageJson = JSON.parse(packageSource) as { scripts: Record<string, string> };
@@ -290,8 +292,12 @@ describe("desktop release configuration", () => {
     expect(packageJson.scripts["smoke:packaged:win"]).not.toMatch(/^\s*[A-Z][A-Z0-9_]*=/);
     expect(packagedVerifier).toContain("spawnManagedProcess");
     expect(packagedVerifier).toContain('tree.terminate("packaged startup smoke timeout")');
+    expect(packagedVerifier).toContain('tree.terminate("packaged startup smoke complete")');
+    expect(packagedVerifier).toContain('termination.outcome === "already_exited"');
+    expect(packagedVerifier).toContain("managedProcessTreeTerminated: true");
+    expect(packagedVerifier).not.toContain("normalProcessExit");
     expect(packagedVerifier).toContain('child.once("close"');
-    expect(packagedVerifier).toContain("await tree.exited");
+    expect(packagedVerifier).not.toContain("await tree.exited");
     expect(packagedVerifier).not.toContain('child.kill("SIGTERM")');
     expect(packagedVerifier).toContain("buildSmokeEnvironment(smokeHome, smokeUserData)");
     expect(packagedVerifier).toContain("maxCapturedOutputBytes");
@@ -303,6 +309,9 @@ describe("desktop release configuration", () => {
     expect(packagedStartupSection).toContain('document.getElementById("root")');
     expect(packagedStartupSection).toContain('typeof runtimeBridge.listProjects !== "function"');
     expect(packagedStartupSection).not.toMatch(/[\u3400-\u9fff]/);
+    const startupMainSection = desktopMain.split("if (isStartupSmoke)")[1]?.split("return;")[0];
+    expect(startupMainSection).toContain("runPackagedStartupSmoke(window)");
+    expect(startupMainSection).not.toContain("app.exit(0)");
     expect(redactor).toContain("descriptor|endpoint|hostname|password|secret|token");
     expect(redactor).toContain("<redacted-user-path>");
   });
