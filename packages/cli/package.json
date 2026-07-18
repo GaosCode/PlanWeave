@@ -41,7 +41,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "pnpm build:workspace",
+    "build": "tsx ../../scripts/run-workspace-consumer-build.ts cli",
     "build:workspace": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && chmod +x dist/index.js",
     "planweave": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",

@@ -23,7 +23,8 @@
     "workflow"
   ],
   "scripts": {
-    "build": "pnpm --filter @planweave-ai/runtime build && pnpm --filter @planweave-ai/mcp build && pnpm build:workspace",
+    "build": "tsx ../../scripts/run-workspace-consumer-build.ts desktop",
+    "build:standalone": "pnpm --filter @planweave-ai/runtime build && pnpm --filter @planweave-ai/mcp build && pnpm build:workspace",
     "build:workspace": "tsc -p tsconfig.json && tsc -p tsconfig.main.json --noEmit && node scripts/build-electron.mjs && vite build",
     "dev": "vite --host 127.0.0.1",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit",

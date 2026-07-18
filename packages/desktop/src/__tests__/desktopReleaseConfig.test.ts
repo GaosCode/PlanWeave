@@ -49,6 +49,31 @@ function occurrenceCount(source: string, value: string): number {
 }
 
 describe("desktop release configuration", () => {
+  it("serializes package-level workspace consumer builds without serializing the root build", async () => {
+    const [rootPackage, cliPackage, desktopPackage, coordinator] = await Promise.all([
+      readFile(resolve(repoRoot, "package.json"), "utf8"),
+      readFile(resolve(repoRoot, "packages/cli/package.json"), "utf8"),
+      readFile(resolve(desktopRoot, "package.json"), "utf8"),
+      readFile(resolve(repoRoot, "scripts/run-workspace-consumer-build.ts"), "utf8")
+    ]);
+    const rootScripts = (JSON.parse(rootPackage) as { scripts: Record<string, string> }).scripts;
+    const cliScripts = (JSON.parse(cliPackage) as { scripts: Record<string, string> }).scripts;
+    const desktopScripts = (JSON.parse(desktopPackage) as { scripts: Record<string, string> })
+      .scripts;
+
+    expect(cliScripts.build).toBe("tsx ../../scripts/run-workspace-consumer-build.ts cli");
+    expect(desktopScripts.build).toBe("tsx ../../scripts/run-workspace-consumer-build.ts desktop");
+    expect(desktopScripts["build:standalone"]).toContain(
+      "pnpm --filter @planweave-ai/runtime build"
+    );
+    expect(desktopScripts["build:standalone"]).toContain("pnpm build:workspace");
+    expect(rootScripts.build).toContain(
+      "@planweave-ai/cli --filter @planweave-ai/desktop build:workspace"
+    );
+    expect(coordinator).toContain("withAdvisoryDirectoryLock");
+    expect(coordinator).toContain(".planweave-workspace-consumer-build.lock");
+  });
+
   it("keeps local pack and dist commands explicitly unsigned", async () => {
     const packageJson = JSON.parse(
       await readFile(resolve(desktopRoot, "package.json"), "utf8")
