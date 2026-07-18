@@ -195,5 +195,5 @@ it("accepts the repository manifest with the expected suite counts", () => {
   const result = runClassifier(repositoryRoot);
 
   expect(result.status).toBe(0);
-  expect(result.stdout).toContain("Test suite classification valid: 161 unit, 199 platform.");
+  expect(result.stdout).toContain("Test suite classification valid: 164 unit, 201 platform.");
 });
