@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,10 +13,35 @@ const desktopRoot = resolve(repoRoot, "packages/desktop");
 const preflightPath = resolve(desktopRoot, "scripts/preflight-release-secrets.mjs");
 const junitWorkflowVerificationTimeoutMs = 60_000;
 
-async function loadConfig(name: string) {
-  return (await import(resolve(desktopRoot, name))) as {
-    default: Record<string, unknown>;
+async function loadConfig(name: string): Promise<Record<string, unknown>> {
+  const desktopRequire = createRequire(resolve(desktopRoot, "package.json"));
+  const electronBuilderRequire = createRequire(
+    desktopRequire.resolve("electron-builder/package.json")
+  );
+  const { getConfig } = electronBuilderRequire("app-builder-lib/out/util/config/load.js") as {
+    getConfig: <T>(
+      request: {
+        packageKey: string;
+        configFilename: string;
+        projectDir: string;
+        packageMetadata: null;
+      },
+      configPath: string
+    ) => Promise<{ result: T } | null>;
   };
+  const loaded = await getConfig<Record<string, unknown>>(
+    {
+      packageKey: "build",
+      configFilename: "electron-builder",
+      projectDir: desktopRoot,
+      packageMetadata: null
+    },
+    name
+  );
+  if (loaded === null) {
+    throw new Error(`electron-builder did not load ${name}`);
+  }
+  return loaded.result;
 }
 
 function occurrenceCount(source: string, value: string): number {
@@ -30,7 +56,7 @@ describe("desktop release configuration", () => {
       scripts: Record<string, string>;
       build: { mac: Record<string, unknown>; extraResources: Array<Record<string, unknown>> };
     };
-    const { default: localConfig } = await loadConfig("electron-builder.local.cjs");
+    const localConfig = await loadConfig("electron-builder.local.cjs");
 
     for (const [name, command] of Object.entries(packageJson.scripts)) {
       if (name.startsWith("pack:") || name.startsWith("dist:")) {
@@ -57,14 +83,32 @@ describe("desktop release configuration", () => {
   });
 
   it("uses only the OV PFX Authenticode provider for Windows release signing", async () => {
-    const { default: releaseConfig } = await loadConfig("electron-builder.release.cjs");
+    const releaseConfig = await loadConfig("electron-builder.release.cjs");
     const win = releaseConfig.win as Record<string, unknown>;
 
     expect(win).toMatchObject({
+      target: ["nsis", "zip"],
       forceCodeSigning: true,
       signtoolOptions: {
         rfc3161TimeStampServer: "http://timestamp.digicert.com",
         signingHashAlgorithms: ["sha256"]
+      }
+    });
+    expect(releaseConfig).toMatchObject({
+      appId: "dev.planweave.desktop",
+      productName: "PlanWeave",
+      directories: { output: "release" },
+      files: ["dist/**/*", "package.json"],
+      extraResources: [
+        {
+          from: "build/generated/planweave-build-metadata.json",
+          to: "planweave-build-metadata.json"
+        }
+      ],
+      nsis: {
+        allowToChangeInstallationDirectory: true,
+        oneClick: false,
+        perMachine: false
       }
     });
     expect(win).not.toHaveProperty("azureSignOptions");
@@ -72,9 +116,13 @@ describe("desktop release configuration", () => {
   });
 
   it("enables hardened macOS signing and notarization with explicit entitlements", async () => {
-    const { default: releaseConfig } = await loadConfig("electron-builder.release.cjs");
+    const releaseConfig = await loadConfig("electron-builder.release.cjs");
 
     expect(releaseConfig.mac).toEqual({
+      category: "public.app-category.developer-tools",
+      icon: "build/icon.icns",
+      x64ArchFiles: "**/node_modules/electron-liquid-glass/prebuilds/darwin-*/**/*.node",
+      target: ["dmg", "zip"],
       forceCodeSigning: true,
       hardenedRuntime: true,
       notarize: true,
