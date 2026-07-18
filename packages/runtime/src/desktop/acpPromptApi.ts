@@ -95,7 +95,7 @@ export function resolveAcpPromptContext(options: {
   runDir: string | null;
   metadata: Record<string, unknown>;
 }): AcpPromptContext {
-  if (!options.blockRef || !options.runId || !options.runDir) {
+  if (!(options.blockRef && options.runId && options.runDir)) {
     return {
       available: false,
       reason: "ACP conversation turns are only available for block run records."
@@ -103,7 +103,7 @@ export function resolveAcpPromptContext(options: {
   }
   const completedMetadata = completedAcpMetadataSchema.safeParse(options.metadata);
   const liveMetadata = liveAcpMetadataSchema.safeParse(options.metadata);
-  if (!completedMetadata.success && !liveMetadata.success) {
+  if (!(completedMetadata.success || liveMetadata.success)) {
     return {
       available: false,
       reason: "This record is not a completed ACP run with session/load capability."
@@ -253,7 +253,7 @@ async function verifiedPromptEventStore(options: {
   ) {
     throw new Error("ACP event log is not a successfully completed run with a validated artifact.");
   }
-  return model.store;
+  return model.store.completedConversationWriter(expectedSessionId);
 }
 
 function assertAcpPromptProfile(
@@ -414,7 +414,7 @@ export async function queueLiveAcpPrompt(options: {
   text: string;
 }): Promise<void> {
   const metadata = options.context.metadata;
-  if (!metadata.desktopRunId || !metadata.runSessionId) {
+  if (!(metadata.desktopRunId && metadata.runSessionId)) {
     return Promise.reject(
       new Error("Live ACP prompt requires exact Desktop run/session identity.")
     );

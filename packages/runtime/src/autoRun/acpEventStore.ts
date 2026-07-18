@@ -36,6 +36,12 @@ export type AcpEventStoreOptions = {
   writeGuard?: <T>(operation: () => Promise<T>) => Promise<T>;
 };
 
+export type AcpCompletedConversationWriter = {
+  append: (body: NormalizedRunnerEvent["body"], correlation: AcpCorrelation) => Promise<void>;
+  appendProtocol: (direction: string, payload: unknown) => Promise<void>;
+  drain: () => Promise<void>;
+};
+
 export class AcpEventStoreLimitError extends Error {
   constructor(readonly diagnostic: RunnerEventReplayDiagnostic) {
     super(diagnostic.message);
@@ -175,6 +181,54 @@ export class AcpEventStore {
   }
 
   appendProtocol(direction: string, payload: unknown): Promise<void> {
+    return this.appendProtocolForWriter(direction, payload, false);
+  }
+
+  append(body: NormalizedRunnerEvent["body"], correlation?: AcpCorrelation): Promise<void> {
+    return this.appendForWriter(body, correlation, false);
+  }
+
+  completedConversationWriter(sessionId: string): AcpCompletedConversationWriter {
+    const terminalEvents = this.events.filter((event) => event.body.kind === "terminal");
+    const terminal = terminalEvents[0];
+    if (
+      terminalEvents.length !== 1 ||
+      terminal?.body.kind !== "terminal" ||
+      terminal.body.outcome.state !== "succeeded" ||
+      terminal.body.outcome.artifactValidated !== true ||
+      terminal.correlation?.sessionId !== sessionId
+    ) {
+      throw new Error(
+        "ACP completed conversation writer requires one validated successful terminal and artifact for the exact session."
+      );
+    }
+    return Object.freeze({
+      append: (body: NormalizedRunnerEvent["body"], correlation: AcpCorrelation) => {
+        if (correlation.sessionId !== sessionId) {
+          return Promise.reject(
+            new Error(
+              "ACP conversation event session does not match the verified completed session."
+            )
+          );
+        }
+        if (body.kind === "terminal" || body.kind === "artifact" || body.kind === "lifecycle") {
+          return Promise.reject(
+            new Error("ACP conversation continuation cannot append owner lifecycle evidence.")
+          );
+        }
+        return this.appendForWriter(body, correlation, true);
+      },
+      appendProtocol: (direction: string, payload: unknown) =>
+        this.appendProtocolForWriter(direction, payload, true),
+      drain: () => this.drain()
+    });
+  }
+
+  private appendProtocolForWriter(
+    direction: string,
+    payload: unknown,
+    completedConversation: boolean
+  ): Promise<void> {
     const redacted = redactAcpProtocolPayload({
       timestamp: new Date().toISOString(),
       direction,
@@ -183,7 +237,7 @@ export class AcpEventStore {
     const encoded = `${JSON.stringify(redacted)}\n`;
     const encodedLen = Buffer.byteLength(encoded);
     return this.serial(async () => {
-      if (this.hasTerminal) {
+      if (this.hasTerminal && !completedConversation) {
         throw new Error("ACP owner event log is terminal and rejects further protocol events.");
       }
       const decision = this.policy.decideProtocolAdmission(
@@ -208,9 +262,13 @@ export class AcpEventStore {
     }, true);
   }
 
-  append(body: NormalizedRunnerEvent["body"], correlation?: AcpCorrelation): Promise<void> {
+  private appendForWriter(
+    body: NormalizedRunnerEvent["body"],
+    correlation: AcpCorrelation | undefined,
+    completedConversation: boolean
+  ): Promise<void> {
     return this.serial(async () => {
-      if (this.hasTerminal) {
+      if (this.hasTerminal && !completedConversation) {
         throw new Error("ACP owner event log is terminal and rejects further events.");
       }
       const isOrdinary = this.policy.classify(body) === "ordinary";
@@ -269,7 +327,6 @@ export class AcpEventStore {
       if (candidate.body.kind === "terminal") {
         await this.flushConversationProjection();
       }
-      return;
     }, true);
   }
 

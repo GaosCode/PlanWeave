@@ -244,7 +244,7 @@ describe("ACP permission settlement", () => {
     ["approve", "permission-secret", "token=opaque-action-id"],
     ["deny", "permission-deny", "deny"],
     ["cancel", "permission-secret", null]
-  ] as const)("retries %s after a pre-commit append failure and settles once", async (decision, scenario, optionId) => {
+  ] as const)("reconciles %s after a pre-commit append failure and settles once", async (decision, scenario, optionId) => {
     const root = await mkdtemp(join(tmpdir(), `planweave-acp-permission-${decision}-`));
     let failInteractionResult = true;
     const eventModels = new AcpEventReadModelRegistry(
@@ -270,7 +270,7 @@ describe("ACP permission settlement", () => {
           requestAvailable: async (request) => {
             const act = () =>
               optionId === null ? request.reject("cancelled by test") : request.respond(optionId);
-            await expect(act()).rejects.toThrow("scripted permission append failure");
+            await expect(act()).resolves.toBeUndefined();
             expect(
               registry
                 .lookupDesktopRun("AUTO-RUN-001")
@@ -279,7 +279,6 @@ describe("ACP permission settlement", () => {
             expect(await readFile(join(root, "events.ndjson"), "utf8")).not.toContain(
               '"kind":"interaction_result"'
             );
-            await expect(act()).resolves.toBeUndefined();
             await expect(act()).rejects.toThrow("already answered");
           }
         }

@@ -189,7 +189,7 @@ describe("Desktop ACP prompt continuation", () => {
           projectId: init.workspace.id,
           canvasId: "default"
         },
-        { timeoutMs: 2_000 }
+        { timeoutMs: 2000 }
       )
       .then(
         () => null,
@@ -365,7 +365,7 @@ describe("Desktop ACP prompt continuation", () => {
         adapter: "agent",
         agent: "codex",
         runner: { transport: "acp" },
-        timeoutMs: 1_000
+        timeoutMs: 1000
       }
     });
     await sendAgentPrompt(identityFor(successful), "continue alias");
@@ -424,7 +424,7 @@ describe("Desktop ACP prompt continuation", () => {
       expect(acpConversationTurns.subscriberCount(prepared.runDir)).toBe(1);
       const correlation = prepared.originalEvents[0].correlation;
       if (!correlation) throw new Error("Expected fixture correlation.");
-      await model.store.append(
+      await model.store.completedConversationWriter(correlation.sessionId).append(
         {
           kind: "message",
           role: "assistant",

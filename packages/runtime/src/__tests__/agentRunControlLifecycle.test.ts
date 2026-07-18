@@ -56,6 +56,18 @@ async function liveDescriptor(root: string) {
   return descriptor;
 }
 
+async function liveControlMetadata(root: string): Promise<Record<string, unknown>> {
+  let metadata: Record<string, unknown> = {};
+  await vi.waitFor(async () => {
+    metadata = JSON.parse(await readFile(join(root, "metadata.json"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+    expect(metadata.controlAvailable).toBe(true);
+  });
+  return metadata;
+}
+
 function commandFrame(command: AgentRunControlCommand): Buffer {
   const payload = Buffer.from(JSON.stringify(command), "utf8");
   const result = Buffer.alloc(frameHeaderBytes + payload.byteLength);
@@ -135,9 +147,7 @@ describe("agent run control controller lifecycle", () => {
         { timeoutMs: 2_000 }
       );
       const descriptor = await liveDescriptor(root);
-      const liveMetadata = JSON.parse(
-        await readFile(join(root, "metadata.json"), "utf8")
-      ) as Record<string, unknown>;
+      const liveMetadata = await liveControlMetadata(root);
       expect(liveMetadata).toMatchObject({
         controlAvailable: true,
         controlOwnerPid: process.pid,

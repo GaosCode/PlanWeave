@@ -4,7 +4,7 @@ import type {
   RunnerPermissionOption
 } from "./runnerInteractionContract.js";
 import {
-  PersistentRunnerInteractionStore,
+  type PersistentRunnerInteractionStore,
   RunnerInteractionStoreError
 } from "./runnerInteractionStore.js";
 
@@ -124,7 +124,7 @@ export class PersistentRunnerInteractionChannel implements RunnerInteractionChan
           `Permission request expired because of ${decision.reason}.`
         );
       }
-      await this.options.publishResult(request, decision);
+      await this.publishCanonicalResult(request, decision, wait);
     } catch (error) {
       decisionError =
         error instanceof RunnerInteractionChannelError
@@ -155,6 +155,52 @@ export class PersistentRunnerInteractionChannel implements RunnerInteractionChan
     }
 
     return decision;
+  }
+
+  private async publishCanonicalResult(
+    request: RunnerPermissionInteractionRequest,
+    decision: RunnerPermissionChannelDecision,
+    wait: { signal: AbortSignal; deadline: Date | null }
+  ): Promise<void> {
+    try {
+      await this.options.publishResult(request, decision);
+    } catch (firstError) {
+      if (wait.signal.aborted || this.deadlineReached(wait.deadline)) throw firstError;
+      const snapshot = await this.options.store.readSnapshot(request.identity.requestId);
+      const canonicalDecision = snapshot.response
+        ? this.toDecision(snapshot.response, snapshot.request.options)
+        : snapshot.ownerResult
+          ? { kind: "expired" as const, reason: snapshot.ownerResult.reason }
+          : null;
+      if (!(canonicalDecision && this.sameDecision(decision, canonicalDecision))) {
+        throw new RunnerInteractionChannelError(
+          "interaction_response_invalid",
+          "ACP permission result retry did not match the canonical settlement.",
+          { cause: firstError }
+        );
+      }
+      await this.pause(wait.signal, wait.deadline);
+      if (wait.signal.aborted || this.deadlineReached(wait.deadline)) throw firstError;
+      await this.options.publishResult(request, canonicalDecision);
+    }
+  }
+
+  private sameDecision(
+    left: RunnerPermissionChannelDecision,
+    right: RunnerPermissionChannelDecision
+  ): boolean {
+    if (left.kind !== right.kind) return false;
+    if (left.kind === "select" && right.kind === "select") {
+      return left.option.optionId === right.option.optionId;
+    }
+    if (left.kind === "expired" && right.kind === "expired") {
+      return left.reason === right.reason;
+    }
+    return left.kind === "cancel" && right.kind === "cancel";
+  }
+
+  private deadlineReached(deadline: Date | null): boolean {
+    return deadline !== null && this.now().getTime() >= deadline.getTime();
   }
 
   private async waitForDecision(
@@ -223,7 +269,9 @@ export class PersistentRunnerInteractionChannel implements RunnerInteractionChan
   }
 
   private async pause(signal: AbortSignal, deadline: Date | null): Promise<void> {
-    const remaining = deadline ? Math.max(0, deadline.getTime() - this.now().getTime()) : Infinity;
+    const remaining = deadline
+      ? Math.max(0, deadline.getTime() - this.now().getTime())
+      : Number.POSITIVE_INFINITY;
     const delay = Math.min(this.pollIntervalMs, remaining);
     if (delay === 0 || signal.aborted) return;
     await new Promise<void>((resolve) => {

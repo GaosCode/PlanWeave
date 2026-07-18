@@ -254,6 +254,26 @@ PlanWeave 会把当前进程已有的环境传给所选 Agent，但不会在 aut
 
 ACP run 提供结构化消息、工具更新、产物、usage snapshot 和交互请求。PlanWeave Desktop 会显示当前 run 可用的 follow-up、cancel、permission、elicitation 和 retry 操作。Run record 保存标准化事件和协议诊断，可用于检查与回放。
 
+Headless ACP permission request 是持久化交互，不会再被自动拒绝。让所属 CLI run 通过带版本的 NDJSON event stream 保持运行，在另一个进程中查看 pending request，再使用 PlanWeave 返回的精确 record、request、lease 和已声明 option identity 响应：
+
+```bash
+planweave run --once --executor codex-acp --event-stream
+planweave interaction list --canvas default --json
+planweave interaction respond --canvas default --record <record-id> --request <request-id> --lease <owner-lease-id> --option <option-id> --source <client-label> --json
+```
+
+`interaction_required` event 表示 owner 正在等待持久化 request。响应回执被接受只表示该 decision 赢得了一次性写入，不表示 Agent 已消费响应，也不表示 tool 执行成功；这些结果应以之后带版本的 `interaction_resolved`、tool 和 terminal event 为准。不需要 event stream 时仍可使用原有的人类可读输出或 `--json` run 输出；`--event-stream` 不能与 `--json` 同时使用。Interaction 输出只包含有界且脱敏的摘要与稳定 identity，不暴露原始 prompt、tool arguments、环境变量值或 secret。`--source` 只是审计标签，不是授权 identity。
+
+当持久化 owner lease 当前可用时，Task Workspace 可以响应由 CLI 或 API 进程持有的 permission。可用性判断要求 identity 完全一致并且失败即关闭：stale 或已替换的 lease、terminal 或已回答的 request、identity mismatch 和损坏的持久化状态只显示诊断，不能执行操作。Desktop 只是可选 responder；这不代表自动恢复或原生系统通知。关闭 owner、点击 Stop、使用 `interaction respond --cancel --reason <text>` 取消、到达 timeout 或发送 SIGINT，都会结束等待并清理资源，不会转移 session ownership。
+
+同一次 run 的 permission 响应与中断 run 的恢复是两种不同操作。上面的响应会让仍在运行的 owner 在同一个 ACP session 中继续。对于已中断的 run，recovery 是显式创建的新 attempt，并加载已持久化 session：
+
+```bash
+planweave recover-acp-run --canvas default --record <record-id> --source <client-label> --reason <text> --json
+```
+
+只有满足以下条件才会提供 recovery：来源是最新且已 terminal 的 ACP main attempt，中断原因可恢复，持久化 session identity 有效，Agent/profile/launch 配置未变化，Agent 声明了 `session/load`，block 处于 blocked 且依赖已完成，不存在 active 或 resumable run，不存在更新的 recovery child，并且没有 pending interaction。Recovery 会创建带 lineage 的新 run record 并调用 `session/load`；load 失败会直接报告，绝不会回退到新 session。普通 retry 会启动另一个新 session，而 recovery 会显式保留原 session。两者都不会自动执行，也不会假定中断时正在进行的 tool 已经完成。
+
 Plan Package 自定义 profile 需要对解析后的命令和参数进行精确信任：
 
 ```bash

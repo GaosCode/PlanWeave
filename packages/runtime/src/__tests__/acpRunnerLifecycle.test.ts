@@ -18,7 +18,7 @@ import { getExecutionStatus } from "../taskManager/executionStatus.js";
 import { createLiveOwnership } from "../autoRun/liveControl.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
-import { startAutoRun, stopAutoRun } from "../desktop/runApi.js";
+import { getAutoRunState, startAutoRun, stopAutoRun } from "../desktop/runApi.js";
 import { getTaskWorkspace, listTaskWorkspaceRuns } from "../desktop/taskWorkspaceApi.js";
 import { activeAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { trustCommand } from "../taskManager/hookTrustStore.js";
@@ -133,12 +133,25 @@ function cleanupTestHandle(
   return result;
 }
 
+function registryIndexHandle(
+  scope: string,
+  runId: string,
+  sessionId: string,
+  closed: string[]
+): ActiveAgentRunHandle {
+  const result = cleanupTestHandle(scope, runId, sessionId, closed);
+  result.control.connection.close = async (reason) => {
+    closed.push(reason);
+  };
+  return result;
+}
+
 describe("ActiveAgentRunRegistry", () => {
   it("indexes concurrent identities, rejects collisions and cross-run lookup, and removes exactly once", async () => {
     const registry = new ActiveAgentRunRegistry();
     const closed: string[] = [];
-    const first = handle("/project-a/results/run", "RUN-001", "session-1", closed);
-    const second = handle("/project-b/results/run", "RUN-001", "session-1", closed);
+    const first = registryIndexHandle("/project-a/results/run", "RUN-001", "session-1", closed);
+    const second = registryIndexHandle("/project-b/results/run", "RUN-001", "session-1", closed);
     registry.register(first);
     registry.register(second);
     expect(registry.lookup("sessionId", "/project-a/results/run", "session-1", "RUN-001")).toBe(
@@ -150,7 +163,12 @@ describe("ActiveAgentRunRegistry", () => {
     expect(() =>
       registry.lookup("sessionId", "/project-a/results/run", "session-1", "RUN-002")
     ).toThrow("different executor run");
-    const collision = handle("/project-a/results/run", "RUN-001", "session-1", closed);
+    const collision = registryIndexHandle(
+      "/project-a/results/run",
+      "RUN-001",
+      "session-1",
+      closed
+    );
     expect(() => registry.register(collision)).toThrow("collision");
     await expect(
       Promise.all([registry.remove(first, "done"), registry.remove(first, "again")])
@@ -1161,8 +1179,8 @@ describe("Desktop ACP stop ownership", () => {
   it("cancels an ACP prompt in flight without submitting its block", async () => {
     const { root, init } = await workspace();
     const previousLaunch = codexAgentDefinition.acp.launch;
-    codexAgentDefinition.acp.launch = mockLaunch("late-update");
-    await trustCommand(init.workspace, process.execPath, [fixture, "late-update"]);
+    codexAgentDefinition.acp.launch = mockLaunch("long-prompt");
+    await trustCommand(init.workspace, process.execPath, [fixture, "long-prompt"]);
     try {
       expect(
         (await getExecutionStatus({ projectRoot: init.workspace })).blocks[0]?.effectiveExecutor
@@ -1170,15 +1188,60 @@ describe("Desktop ACP stop ownership", () => {
       const started = await startAutoRun(root, null, { kind: "project" }, 1, {
         tmuxEnabled: false
       });
-      await waitForCondition(
-        async () =>
-          activeAgentRunRegistry.lookupDesktopRun(started.runId)?.identity.sessionId ===
-          "mock-session-1"
-      );
-      expect(activeAgentRunRegistry.lookupDesktopRun(started.runId)?.identity.sessionId).toBe(
-        "mock-session-1"
-      );
-      await stopAutoRun(started.runId);
+      await waitForCondition(async () => {
+        const handle = activeAgentRunRegistry.lookupDesktopRun(started.runId);
+        return [...(handle?.control.pendingOperations.values() ?? [])].some(
+          (operation) => operation.operation === "session/prompt"
+        );
+      });
+      const handle = activeAgentRunRegistry.lookupDesktopRun(started.runId);
+      if (!(handle?.identity.desktopRunId && handle.identity.runSessionId)) {
+        throw new Error("Expected the Desktop ACP run to expose its exact action identity.");
+      }
+      expect(handle.identity.sessionId).toBe("mock-session-1");
+      let markCancelStarted: (() => void) | undefined;
+      const cancelStarted = new Promise<void>((resolve) => {
+        markCancelStarted = resolve;
+      });
+      let releaseCancel: (() => void) | undefined;
+      const cancelGate = new Promise<void>((resolve) => {
+        releaseCancel = resolve;
+      });
+      const originalCancelSession = handle.control.connection.cancelSession;
+      const cancelSession = vi
+        .spyOn(handle.control.connection, "cancelSession")
+        .mockImplementation(async (sessionId) => {
+          markCancelStarted?.();
+          await cancelGate;
+          await originalCancelSession(sessionId);
+        });
+      const stopping = stopAutoRun(started.runId);
+      await cancelStarted;
+      try {
+        expect(await getAutoRunState(started.runId)).toMatchObject({
+          phase: "running",
+          stepCount: 0
+        });
+        expect(activeAgentRunRegistry.lookupDesktopRun(started.runId)).toBeNull();
+        await expect(
+          activeAgentRunRegistry.queuePrompt(
+            {
+              scope: handle.identity.scope,
+              executorRunId: handle.identity.executorRunId,
+              desktopRunId: handle.identity.desktopRunId,
+              runSessionId: handle.identity.runSessionId,
+              claimRef: handle.identity.claimRef,
+              sessionId: handle.identity.sessionId
+            },
+            "must not be accepted"
+          )
+        ).rejects.toThrow("does not exist");
+      } finally {
+        releaseCancel?.();
+      }
+      await stopping;
+      expect(cancelSession).toHaveBeenCalledWith("mock-session-1");
+      expect(handle.abortController.signal.aborted).toBe(true);
       await waitForCondition(async () => {
         const status = await getExecutionStatus({ projectRoot: init.workspace });
         return (

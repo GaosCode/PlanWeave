@@ -462,27 +462,29 @@ export class ActiveAgentRunRegistry {
     artifactValidated: boolean
   ): Promise<boolean> {
     const failures: unknown[] = [];
+    const owned = this.handles.delete(handle);
+    if (owned) {
+      const promptQueue = this.promptQueues.get(handle);
+      if (promptQueue) {
+        const failure = new Error(reason);
+        for (const item of promptQueue.items.splice(0)) item.reject(failure);
+      }
+      for (const kind of identityKinds) {
+        const value = handle.identity[kind];
+        const scopedKey = value ? key(handle.identity.scope, value) : null;
+        if (scopedKey && this.indexes.get(kind)?.get(scopedKey) === handle)
+          this.indexes.get(kind)?.delete(scopedKey);
+      }
+    }
     try {
       await handle.beforeRemove?.();
     } catch (error) {
       failures.push(error);
     }
-    if (!this.handles.delete(handle)) {
+    if (!owned) {
       throwAgentRunCleanupFailures(failures, "Active ACP pre-removal cleanup did not complete.");
       return false;
     }
-    const promptQueue = this.promptQueues.get(handle);
-    if (promptQueue) {
-      const failure = new Error(reason);
-      for (const item of promptQueue.items.splice(0)) item.reject(failure);
-    }
-    for (const kind of identityKinds) {
-      const value = handle.identity[kind];
-      const scopedKey = value ? key(handle.identity.scope, value) : null;
-      if (scopedKey && this.indexes.get(kind)?.get(scopedKey) === handle)
-        this.indexes.get(kind)?.delete(scopedKey);
-    }
-    handle.abortController.abort(new Error(reason));
     if (
       terminalState === "cancelled" &&
       (handle.lifecycleState === "running" || handle.lifecycleState === "waiting_interaction")
@@ -520,6 +522,8 @@ export class ActiveAgentRunRegistry {
       });
     } catch (error) {
       failures.push(error);
+    } finally {
+      handle.abortController.abort(new Error(reason));
     }
     handle.lifecycleState = terminalState;
     throwAgentRunCleanupFailures(failures, "Active ACP run removal did not complete cleanly.");

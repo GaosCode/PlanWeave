@@ -115,6 +115,45 @@ describe("PersistentRunnerInteractionChannel", () => {
     await expect(pending).resolves.toEqual({ kind: "cancel" });
   });
 
+  it("reconciles one pre-commit result append failure from the canonical response", async () => {
+    const item = await fixture();
+    let publishAttempts = 0;
+    const channel = new PersistentRunnerInteractionChannel({
+      store: item.store,
+      pollIntervalMs: 5,
+      publishPending: async () => undefined,
+      publishResult: async () => {
+        publishAttempts += 1;
+        if (publishAttempts === 1) throw new Error("scripted pre-commit append failure");
+      },
+      setWaiting: async () => undefined,
+      recordFailure: () => undefined
+    });
+    const pending = channel.requestPermission(item.request, {
+      signal: new AbortController().signal,
+      deadline: new Date(Date.now() + 1000)
+    });
+    await vi.waitFor(async () => {
+      await expect(item.store.readSnapshot("permission:1")).resolves.toMatchObject({
+        status: "pending"
+      });
+    });
+    await respond(new PersistentRunnerInteractionStore(item.runDir), item.request, {
+      kind: "select",
+      optionId: "allow"
+    });
+
+    await expect(pending).resolves.toMatchObject({
+      kind: "select",
+      option: { optionId: "allow" }
+    });
+    expect(publishAttempts).toBe(2);
+    await expect(item.store.readSnapshot("permission:1")).resolves.toMatchObject({
+      status: "answered",
+      response: { decision: { kind: "select", optionId: "allow" } }
+    });
+  });
+
   it("expires and releases waits on abort and deadline", async () => {
     const aborted = await fixture();
     const abortController = new AbortController();

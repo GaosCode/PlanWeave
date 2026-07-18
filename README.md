@@ -254,6 +254,26 @@ PlanWeave passes the existing process environment to the selected agent but does
 
 ACP runs provide structured messages, tool updates, artifacts, usage snapshots, and interaction requests. PlanWeave Desktop exposes the follow-up, cancellation, permission, elicitation, and retry actions available for the selected run. Run records keep normalized events and protocol diagnostics for inspection and replay.
 
+Headless ACP permission requests are durable interactions, not automatic denials. Keep the owning CLI run alive with the versioned NDJSON event stream, inspect the pending request from another process, and respond with the exact record, request, lease, and advertised option identities returned by PlanWeave:
+
+```bash
+planweave run --once --executor codex-acp --event-stream
+planweave interaction list --canvas default --json
+planweave interaction respond --canvas default --record <record-id> --request <request-id> --lease <owner-lease-id> --option <option-id> --source <client-label> --json
+```
+
+An `interaction_required` event means the owner is waiting on a durable request. An accepted response receipt means only that the decision won the one-time write; it does not mean the Agent consumed it or that the tool succeeded. Use the subsequent versioned `interaction_resolved`, tool, and terminal events for those outcomes. Human and `--json` run output remain available when an event stream is not needed; `--event-stream` and `--json` cannot be combined. Interaction output exposes bounded, redacted summaries and stable identities, not raw prompts, tool arguments, environment values, or secrets. `--source` is an audit label, not an authorization identity.
+
+Task Workspace can answer a permission owned by a CLI or API process when the persisted owner lease is currently available. Availability is exact and fail-closed: stale or replaced leases, terminal or already-answered requests, identity mismatches, and malformed persisted state remain visible as diagnostics but cannot be acted on. Desktop is an optional responder; this does not imply automatic recovery or native system notifications. Closing the owner, pressing Stop, cancelling with `interaction respond --cancel --reason <text>`, reaching the timeout, or sending SIGINT settles the wait and cleans up without transferring session ownership.
+
+Same-run permission response and interrupted-run recovery are different operations. A response above resumes the still-running owner in the same ACP session. For an interrupted run, recovery is an explicit new attempt that loads the persisted session:
+
+```bash
+planweave recover-acp-run --canvas default --record <record-id> --source <client-label> --reason <text> --json
+```
+
+Recovery is offered only for the latest terminal ACP main attempt with a recoverable interruption, valid persisted session identity, unchanged Agent/profile/launch configuration, advertised `session/load`, a blocked and dependency-ready block, no active or resumable run, no newer recovery child, and no pending interaction. It creates lineage-linked run records and calls `session/load`; load failure is reported and never falls back to a new session. A normal retry is another new session, while recovery preserves the prior session explicitly. Neither action is automatic, and neither assumes an in-flight tool completed.
+
 Custom package profiles require exact trust for their resolved command and arguments:
 
 ```bash

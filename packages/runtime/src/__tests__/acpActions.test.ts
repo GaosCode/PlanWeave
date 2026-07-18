@@ -173,18 +173,14 @@ describe("ACP live actions", () => {
                   expect(persisted.body.interaction.requestId).toBe(request.requestId);
                   expect(persisted.body.interaction.requestedAt).toBe(request.requestedAt);
                 }
-                expect(consumer.snapshot?.interaction.activeRequests).toMatchObject([
-                  { requestId: request.requestId, kind: request.kind }
-                ]);
                 if (request.kind === "permission") await request.respond("deny");
                 else await request.reject("test resolution");
-                inactiveSnapshot = await inactive;
-                consumer.subscription?.unsubscribe();
               }
             }
           })
         ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
-        expect(activeSnapshot?.interaction.active).toBe(true);
+        inactiveSnapshot = await inactive;
+        expect(activeSnapshot?.interaction.persisted).toBe(true);
         expect(inactiveSnapshot?.interaction.active).toBe(false);
 
         const reopened = await readRunnerRecordReadModel({
@@ -247,7 +243,7 @@ describe("ACP live actions", () => {
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
     await expect(
       controller.execute(controllerRun(root, "permission-secret"), {
-        timeoutMs: 1_000
+        timeoutMs: 1000
       })
     ).rejects.toThrow("timed out");
     const events = await readFile(join(root, "events.ndjson"), "utf8");

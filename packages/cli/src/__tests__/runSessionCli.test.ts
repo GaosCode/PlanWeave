@@ -255,7 +255,9 @@ describe("STEP-1 CLI contract: run sessions", () => {
 
     const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
     const metadataPath = join(runDir, "metadata.json");
+    const stdoutPath = join(runDir, "stdout.md");
     await waitForText(metadataPath, /"finishedAt": null/);
+    await waitForText(stdoutPath, /.*/);
     child.kill("SIGINT");
     const exitCode = await new Promise<number | null>((resolve, reject) => {
       child.once("error", reject);
@@ -283,6 +285,6 @@ describe("STEP-1 CLI contract: run sessions", () => {
       failureReason: "Executor cancelled.",
       tmuxSessionName: expect.any(String)
     });
-    await expect(readFile(join(runDir, "stdout.md"), "utf8")).resolves.not.toContain("unexpected");
+    await expect(readFile(stdoutPath, "utf8")).resolves.not.toContain("unexpected");
   }, 20_000);
 });

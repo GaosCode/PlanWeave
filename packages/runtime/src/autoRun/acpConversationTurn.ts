@@ -12,7 +12,7 @@ import {
   type AcpAuthenticationHints
 } from "./acpAuthentication.js";
 import { normalizeAcpSessionNotification } from "./acpEventNormalization.js";
-import type { AcpEventStore } from "./acpEventStore.js";
+import type { AcpCompletedConversationWriter } from "./acpEventStore.js";
 import {
   normalizedRedactedContent,
   type NormalizedRunnerEvent
@@ -38,8 +38,6 @@ export type AcpConversationTurnConnectionOptions = Pick<
   | "defaultTimeoutMs"
 >;
 
-type ConversationEventStore = Pick<AcpEventStore, "append" | "appendProtocol" | "drain">;
-
 export type AcpConversationTurnInput = {
   key: string;
   cwd: string;
@@ -49,7 +47,7 @@ export type AcpConversationTurnInput = {
   authenticationHints?: AcpAuthenticationHints;
   text: string;
   timeoutMs: number;
-  eventStore: ConversationEventStore | (() => Promise<ConversationEventStore>);
+  eventStore: AcpCompletedConversationWriter | (() => Promise<AcpCompletedConversationWriter>);
 };
 
 type TurnStateSubscriber = () => void | Promise<void>;

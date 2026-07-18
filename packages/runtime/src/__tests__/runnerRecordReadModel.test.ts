@@ -590,8 +590,8 @@ describe("runner record read model", () => {
       runner: runnerIdentitySchema.parse(event(1, "message").runner)
     });
     try {
-      await model.store.append(event(1, "message").body);
-      await model.store.append(event(2, "terminal").body);
+      await model.store.append(event(1, "message").body, { sessionId: "session-1" });
+      await model.store.append(event(2, "terminal").body, { sessionId: "session-1" });
       const live: number[] = [];
       const consumer = await consumeRunnerRecordReadModel({
         runDir,
@@ -610,7 +610,9 @@ describe("runner record read model", () => {
 
       expect(consumer.snapshot?.terminal).toBe(true);
       expect(consumer.subscription).not.toBeNull();
-      await model.store.append(event(3, "message").body);
+      await model.store
+        .completedConversationWriter("session-1")
+        .append(event(3, "message").body, { sessionId: "session-1" });
       await vi.waitFor(() => expect(live).toEqual([3]));
       consumer.subscription?.unsubscribe();
       await consumer.subscription?.closed;

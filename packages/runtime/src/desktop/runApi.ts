@@ -97,6 +97,7 @@ import {
 const runs = new Map<string, DesktopAutoRunState>();
 const runWorkspaces = new Map<string, ProjectWorkspace>();
 const stopOperations = new Map<string, Promise<DesktopAutoRunState>>();
+const stopIntents = new Set<string>();
 const activeLoops = new Set<string>();
 type DesktopRunLoopOperation = {
   result: Promise<void>;
@@ -273,7 +274,11 @@ async function runLoop(runId: string): Promise<void> {
   try {
     while (true) {
       const current = runs.get(runId);
-      if (!current || (current.phase !== "running" && current.phase !== "pausing")) {
+      if (
+        !current ||
+        stopIntents.has(runId) ||
+        (current.phase !== "running" && current.phase !== "pausing")
+      ) {
         return;
       }
       if (current.phase === "pausing") {
@@ -299,6 +304,7 @@ async function runLoop(runId: string): Promise<void> {
         const operation = runLoopOperations.get(runId);
         if (
           !beforeClaim ||
+          stopIntents.has(runId) ||
           beforeClaim.phase === "stopped" ||
           runAbortControllers.get(runId)?.signal.aborted
         ) {
@@ -323,7 +329,7 @@ async function runLoop(runId: string): Promise<void> {
         const { record, warnings } = await latestStatus(workspace);
         const patch = terminalPatch(step, warnings);
         const afterStep = runs.get(runId);
-        if (!afterStep || afterStep.phase === "stopped") {
+        if (!afterStep || stopIntents.has(runId) || afterStep.phase === "stopped") {
           if (afterStep?.phase === "stopped") {
             await appendAutoRunEvent(afterStep, "stopped_step_ignored", {
               stepKind: step.kind,
@@ -374,7 +380,7 @@ async function runLoop(runId: string): Promise<void> {
         const operation = runLoopOperations.get(runId);
         if (operation) operation.inFlight = false;
         const afterError = runs.get(runId);
-        if (!afterError || afterError.phase === "stopped") {
+        if (!afterError || stopIntents.has(runId) || afterError.phase === "stopped") {
           return;
         }
         await setState(
@@ -569,6 +575,7 @@ function clearAutoRunInitializationMemory(runId: string): void {
   runCliAbortControllers.delete(runId);
   runLoopOperations.delete(runId);
   stopOperations.delete(runId);
+  stopIntents.delete(runId);
 }
 
 async function rollbackAutoRunInitialization(options: {
@@ -781,6 +788,7 @@ export async function stopAutoRun(runId: string): Promise<DesktopAutoRunState> {
   if (current.phase === "stopped") {
     return cloneAutoRunState(current);
   }
+  stopIntents.add(runId);
   const stopOperation = (async () => {
     const latest = runs.get(runId);
     if (!latest) {
@@ -790,9 +798,29 @@ export async function stopAutoRun(runId: string): Promise<DesktopAutoRunState> {
       return latest;
     }
     const loopOperation = runLoopOperations.get(runId);
-    runAbortControllers.get(runId)?.abort(new Error("Desktop Auto Run stopped."));
-    const killed = isInFlightAutoRunPhase(latest.phase) ? await killTmuxSessionsForRun(runId) : [];
-    await shutdownDesktopAgentRun(runId, "Desktop Auto Run stopped.");
+    let killed: string[] = [];
+    let tmuxCleanupError: unknown;
+    try {
+      killed = isInFlightAutoRunPhase(latest.phase) ? await killTmuxSessionsForRun(runId) : [];
+    } catch (error) {
+      tmuxCleanupError = error;
+    }
+    let agentCleanupError: unknown;
+    try {
+      await shutdownDesktopAgentRun(runId, "Desktop Auto Run stopped.");
+    } catch (error) {
+      agentCleanupError = error;
+    } finally {
+      runAbortControllers.get(runId)?.abort(new Error("Desktop Auto Run stopped."));
+    }
+    if (agentCleanupError !== undefined && tmuxCleanupError !== undefined) {
+      throw new AggregateError(
+        [agentCleanupError, tmuxCleanupError],
+        `Auto Run '${runId}' Agent and tmux cleanup did not complete cleanly.`
+      );
+    }
+    if (agentCleanupError !== undefined) throw agentCleanupError;
+    if (tmuxCleanupError !== undefined) throw tmuxCleanupError;
     let stopped: DesktopAutoRunState | undefined;
     let terminalError: unknown;
     try {
@@ -833,6 +861,7 @@ export async function stopAutoRun(runId: string): Promise<DesktopAutoRunState> {
     if (stopOperations.get(runId) === stopOperation) {
       stopOperations.delete(runId);
     }
+    stopIntents.delete(runId);
   }
 }
 
