@@ -119,10 +119,7 @@ function forwardedRequestOrigin(
   ) {
     return { present: true, origin: null };
   }
-  if (
-    forwardedHost === undefined &&
-    (forwardedProto === "http" || forwardedProto === "https")
-  ) {
+  if (forwardedHost === undefined && (forwardedProto === "http" || forwardedProto === "https")) {
     // A trusted tunnel may forward only the original scheme; it cannot replace the authority.
     return { present: false };
   }

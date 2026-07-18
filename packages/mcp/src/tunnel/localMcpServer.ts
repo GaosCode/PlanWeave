@@ -89,8 +89,7 @@ export class LocalMcpServerManager {
         port,
         token: input.token?.trim() || undefined,
         planweaveHomeFromEnv: Boolean(process.env.PLANWEAVE_HOME),
-        trustForwardedHeaders:
-          input.trustForwardedHeaders ?? this.options.trustForwardedHeaders
+        trustForwardedHeaders: input.trustForwardedHeaders ?? this.options.trustForwardedHeaders
       };
       const { listenPlanweaveMcpServer } = await import("../server.js");
       this.server = await listenPlanweaveMcpServer(config);

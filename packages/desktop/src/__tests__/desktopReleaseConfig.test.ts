@@ -379,22 +379,12 @@ describe("desktop release configuration", () => {
       const releaseDirectory = join(temporaryDirectory, "release");
       const runnerTemp = join(temporaryDirectory, "runner");
       const programFiles = join(temporaryDirectory, "program-files-x86");
-      const signToolDirectory = join(
-        programFiles,
-        "Windows Kits",
-        "10",
-        "bin",
-        "10.0.0",
-        "x64"
-      );
+      const signToolDirectory = join(programFiles, "Windows Kits", "10", "bin", "10.0.0", "x64");
       const probeHookPath = join(temporaryDirectory, "release-probe.cjs");
       const packageJson = JSON.parse(
         await readFile(resolve(desktopRoot, "package.json"), "utf8")
       ) as { version: string };
-      const installerPath = join(
-        releaseDirectory,
-        `PlanWeave-${packageJson.version}-win-x64.exe`
-      );
+      const installerPath = join(releaseDirectory, `PlanWeave-${packageJson.version}-win-x64.exe`);
       const signToolPath = join(signToolDirectory, "signtool.exe");
       const reportPath = join(releaseDirectory, "verification-windows.txt");
       const verifierPath = resolve(desktopRoot, "scripts/verify-windows-release.ps1");

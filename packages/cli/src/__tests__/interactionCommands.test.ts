@@ -134,138 +134,156 @@ describe("interaction CLI commands", () => {
     interactionCommandsTimeoutMs
   );
 
-  it("lists only actionable Runtime snapshots and accepts an advertised option", async () => {
-    const fixture = await createPendingInteraction();
-    const listed = JSON.parse(
-      (await runCli(["interaction", "list", "--json"], fixture.env)).stdout
-    ) as Array<{ status: string; request: { identity: { requestId: string } } }>;
-    expect(listed).toMatchObject([
-      { status: "pending", request: { identity: { requestId: "permission:1" } } }
-    ]);
+  it(
+    "lists only actionable Runtime snapshots and accepts an advertised option",
+    async () => {
+      const fixture = await createPendingInteraction();
+      const listed = JSON.parse(
+        (await runCli(["interaction", "list", "--json"], fixture.env)).stdout
+      ) as Array<{ status: string; request: { identity: { requestId: string } } }>;
+      expect(listed).toMatchObject([
+        { status: "pending", request: { identity: { requestId: "permission:1" } } }
+      ]);
 
-    const receipt = JSON.parse(
-      (
-        await runCli(
-          [...respondArgs(fixture.identity), "--option", "allow_once", "--reason", "approved"],
-          fixture.env
-        )
-      ).stdout
-    );
-    expect(receipt).toMatchObject({
-      version: "planweave.runner-interaction-response-receipt/v1",
-      decisionSource: "coordinator-any",
-      selectedOption: { optionId: "allow_once", decision: "approve" }
-    });
+      const receipt = JSON.parse(
+        (
+          await runCli(
+            [...respondArgs(fixture.identity), "--option", "allow_once", "--reason", "approved"],
+            fixture.env
+          )
+        ).stdout
+      );
+      expect(receipt).toMatchObject({
+        version: "planweave.runner-interaction-response-receipt/v1",
+        decisionSource: "coordinator-any",
+        selectedOption: { optionId: "allow_once", decision: "approve" }
+      });
 
-    const answered = await runCliExpectFailure(
-      [...respondArgs(fixture.identity), "--option", "allow_once"],
-      fixture.env
-    );
-    expect(JSON.parse(answered.stdout)).toMatchObject({
-      ok: false,
-      error: { code: "interaction_already_answered" }
-    });
-  }, interactionCommandsTimeoutMs);
+      const answered = await runCliExpectFailure(
+        [...respondArgs(fixture.identity), "--option", "allow_once"],
+        fixture.env
+      );
+      expect(JSON.parse(answered.stdout)).toMatchObject({
+        ok: false,
+        error: { code: "interaction_already_answered" }
+      });
+    },
+    interactionCommandsTimeoutMs
+  );
 
-  it("returns stable codes for invalid options and replaced leases", async () => {
-    const invalid = await createPendingInteraction();
-    const invalidOption = await runCliExpectFailure(
-      [...respondArgs(invalid.identity), "--option", "missing"],
-      invalid.env
-    );
-    expect(JSON.parse(invalidOption.stdout)).toMatchObject({
-      error: { code: "interaction_option_not_advertised" }
-    });
+  it(
+    "returns stable codes for invalid options and replaced leases",
+    async () => {
+      const invalid = await createPendingInteraction();
+      const invalidOption = await runCliExpectFailure(
+        [...respondArgs(invalid.identity), "--option", "missing"],
+        invalid.env
+      );
+      expect(JSON.parse(invalidOption.stdout)).toMatchObject({
+        error: { code: "interaction_option_not_advertised" }
+      });
 
-    const replaced = await createPendingInteraction();
-    const replacedLease = await runCliExpectFailure(
-      [
-        ...respondArgs(replaced.identity).map((value) =>
-          value === replaced.identity.ownerLeaseId ? "22222222-2222-4222-8222-222222222222" : value
-        ),
-        "--cancel",
-        "--reason",
-        "operator cancelled"
-      ],
-      replaced.env
-    );
-    expect(JSON.parse(replacedLease.stdout)).toMatchObject({
-      error: { code: "interaction_owner_replaced" }
-    });
-  }, interactionCommandsTimeoutMs);
+      const replaced = await createPendingInteraction();
+      const replacedLease = await runCliExpectFailure(
+        [
+          ...respondArgs(replaced.identity).map((value) =>
+            value === replaced.identity.ownerLeaseId
+              ? "22222222-2222-4222-8222-222222222222"
+              : value
+          ),
+          "--cancel",
+          "--reason",
+          "operator cancelled"
+        ],
+        replaced.env
+      );
+      expect(JSON.parse(replacedLease.stdout)).toMatchObject({
+        error: { code: "interaction_owner_replaced" }
+      });
+    },
+    interactionCommandsTimeoutMs
+  );
 
-  it("returns stable codes for stale, terminal, and invalid persisted state", async () => {
-    const stale = await createPendingInteraction();
-    const staleAt = new Date(Date.now() - 60_000).toISOString();
-    await writeJsonFile(join(stale.runDir, "heartbeat.json"), {
-      status: "running",
-      pid: process.pid,
-      startedAt: staleAt,
-      lastHeartbeatAt: staleAt,
-      finishedAt: null,
-      ownerLeaseId,
-      ownerGeneration: 1,
-      runnerLifecycle: "waiting_interaction",
-      pendingInteractionIds: [stale.identity.requestId]
-    });
-    const staleFailure = await runCliExpectFailure(
-      [...respondArgs(stale.identity), "--option", "allow_once"],
-      stale.env
-    );
-    expect(staleFailure.code).not.toBe(0);
-    expect(JSON.parse(staleFailure.stdout)).toMatchObject({
-      error: { code: "interaction_owner_unavailable" }
-    });
+  it(
+    "returns stable codes for stale, terminal, and invalid persisted state",
+    async () => {
+      const stale = await createPendingInteraction();
+      const staleAt = new Date(Date.now() - 60_000).toISOString();
+      await writeJsonFile(join(stale.runDir, "heartbeat.json"), {
+        status: "running",
+        pid: process.pid,
+        startedAt: staleAt,
+        lastHeartbeatAt: staleAt,
+        finishedAt: null,
+        ownerLeaseId,
+        ownerGeneration: 1,
+        runnerLifecycle: "waiting_interaction",
+        pendingInteractionIds: [stale.identity.requestId]
+      });
+      const staleFailure = await runCliExpectFailure(
+        [...respondArgs(stale.identity), "--option", "allow_once"],
+        stale.env
+      );
+      expect(staleFailure.code).not.toBe(0);
+      expect(JSON.parse(staleFailure.stdout)).toMatchObject({
+        error: { code: "interaction_owner_unavailable" }
+      });
 
-    const terminal = await createPendingInteraction();
-    await writeJsonFile(join(terminal.runDir, "metadata.json"), {
-      runnerKind: "acp",
-      runId: terminal.identity.executorRunId,
-      executorRunId: terminal.identity.executorRunId,
-      ref: terminal.identity.claimRef,
-      projectId: terminal.identity.projectId,
-      canvasId: terminal.identity.canvasId,
-      sessionId: terminal.identity.sessionId,
-      ownerLeaseId,
-      ownerGeneration: 1,
-      status: "completed",
-      desktopRunId: null,
-      runSessionId: "CLI-SESSION-001",
-      claimRef: terminal.identity.claimRef
-    });
-    const terminalFailure = await runCliExpectFailure(
-      [...respondArgs(terminal.identity), "--cancel", "--reason", "run ended"],
-      terminal.env
-    );
-    expect(terminalFailure.code).not.toBe(0);
-    expect(JSON.parse(terminalFailure.stdout)).toMatchObject({
-      error: { code: "interaction_run_terminal" }
-    });
+      const terminal = await createPendingInteraction();
+      await writeJsonFile(join(terminal.runDir, "metadata.json"), {
+        runnerKind: "acp",
+        runId: terminal.identity.executorRunId,
+        executorRunId: terminal.identity.executorRunId,
+        ref: terminal.identity.claimRef,
+        projectId: terminal.identity.projectId,
+        canvasId: terminal.identity.canvasId,
+        sessionId: terminal.identity.sessionId,
+        ownerLeaseId,
+        ownerGeneration: 1,
+        status: "completed",
+        desktopRunId: null,
+        runSessionId: "CLI-SESSION-001",
+        claimRef: terminal.identity.claimRef
+      });
+      const terminalFailure = await runCliExpectFailure(
+        [...respondArgs(terminal.identity), "--cancel", "--reason", "run ended"],
+        terminal.env
+      );
+      expect(terminalFailure.code).not.toBe(0);
+      expect(JSON.parse(terminalFailure.stdout)).toMatchObject({
+        error: { code: "interaction_run_terminal" }
+      });
 
-    const invalid = await createPendingInteraction();
-    await writeFile(join(invalid.runDir, "heartbeat.json"), "{}", "utf8");
-    const invalidFailure = await runCliExpectFailure(
-      [...respondArgs(invalid.identity), "--option", "allow_once"],
-      invalid.env
-    );
-    expect(invalidFailure.code).not.toBe(0);
-    expect(JSON.parse(invalidFailure.stdout)).toMatchObject({
-      error: { code: "interaction_contract_invalid" }
-    });
-  }, interactionCommandsTimeoutMs);
+      const invalid = await createPendingInteraction();
+      await writeFile(join(invalid.runDir, "heartbeat.json"), "{}", "utf8");
+      const invalidFailure = await runCliExpectFailure(
+        [...respondArgs(invalid.identity), "--option", "allow_once"],
+        invalid.env
+      );
+      expect(invalidFailure.code).not.toBe(0);
+      expect(JSON.parse(invalidFailure.stdout)).toMatchObject({
+        error: { code: "interaction_contract_invalid" }
+      });
+    },
+    interactionCommandsTimeoutMs
+  );
 
-  it("requires exactly one decision and a cancellation reason", async () => {
-    const fixture = await createPendingInteraction();
-    const both = await runCliExpectFailure(
-      [...respondArgs(fixture.identity), "--option", "allow_once", "--cancel", "--reason", "no"],
-      fixture.env
-    );
-    expect(both.stderr).toContain("exactly one of --option or --cancel");
+  it(
+    "requires exactly one decision and a cancellation reason",
+    async () => {
+      const fixture = await createPendingInteraction();
+      const both = await runCliExpectFailure(
+        [...respondArgs(fixture.identity), "--option", "allow_once", "--cancel", "--reason", "no"],
+        fixture.env
+      );
+      expect(both.stderr).toContain("exactly one of --option or --cancel");
 
-    const missingReason = await runCliExpectFailure(
-      [...respondArgs(fixture.identity), "--cancel"],
-      fixture.env
-    );
-    expect(missingReason.stderr).toContain("--cancel requires --reason");
-  }, interactionCommandsTimeoutMs);
+      const missingReason = await runCliExpectFailure(
+        [...respondArgs(fixture.identity), "--cancel"],
+        fixture.env
+      );
+      expect(missingReason.stderr).toContain("--cancel requires --reason");
+    },
+    interactionCommandsTimeoutMs
+  );
 });
