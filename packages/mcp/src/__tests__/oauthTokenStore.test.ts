@@ -2,7 +2,12 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/pr
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createFileOAuthTokenStore, type StoredAccessToken } from "../oauthTokenStore.js";
+import {
+  createFileOAuthTokenStore,
+  type StoredAccessToken,
+  type StoredOAuthToken,
+  type StoredRefreshToken
+} from "../oauthTokenStore.js";
 
 const tempDirs: string[] = [];
 const supportsPosixModeAssertions = process.platform !== "win32";
@@ -19,6 +24,7 @@ async function createTempStorePath(): Promise<string> {
 
 function accessToken(overrides: Partial<StoredAccessToken> = {}): StoredAccessToken {
   return {
+    kind: "access",
     tokenHash: "token-a",
     clientId: "client-a",
     expiresAt: Date.now() + 60_000,
@@ -28,10 +34,20 @@ function accessToken(overrides: Partial<StoredAccessToken> = {}): StoredAccessTo
   };
 }
 
-async function readStoredTokens(
-  path: string
-): Promise<{ version: 1; tokens: StoredAccessToken[] }> {
-  return JSON.parse(await readFile(path, "utf8")) as { version: 1; tokens: StoredAccessToken[] };
+function refreshToken(overrides: Partial<StoredRefreshToken> = {}): StoredRefreshToken {
+  return {
+    kind: "refresh",
+    tokenHash: "refresh-a",
+    clientId: "client-a",
+    expiresAt: Date.now() + 60_000,
+    resource: "http://127.0.0.1:8787/mcp",
+    scope: "planweave:mcp offline_access",
+    ...overrides
+  };
+}
+
+async function readStoredTokens(path: string): Promise<{ version: 2; tokens: StoredOAuthToken[] }> {
+  return JSON.parse(await readFile(path, "utf8")) as { version: 2; tokens: StoredOAuthToken[] };
 }
 
 async function expectPrivateStorePermissions(path: string): Promise<void> {
@@ -51,8 +67,8 @@ describe("file OAuth token store", () => {
 
     expect(await store.get("token-private")).toMatchObject({ clientId: "client-a" });
     expect(await readStoredTokens(storePath)).toMatchObject({
-      version: 1,
-      tokens: [{ tokenHash: "token-private" }]
+      version: 2,
+      tokens: [{ kind: "access", tokenHash: "token-private" }]
     });
     await expectPrivateStorePermissions(storePath);
   });
@@ -70,10 +86,7 @@ describe("file OAuth token store", () => {
       `${JSON.stringify(
         {
           version: 1,
-          tokens: [
-            accessToken({ tokenHash: "expired-token", expiresAt: now - 1 }),
-            accessToken({ tokenHash: "deleted-token", expiresAt: now + 60_000 })
-          ]
+          tokens: [legacyAccessToken("expired-token", now - 1), legacyAccessToken("deleted-token")]
         },
         null,
         2
@@ -87,7 +100,7 @@ describe("file OAuth token store", () => {
 
     await store.delete("deleted-token");
 
-    expect(await readStoredTokens(storePath)).toEqual({ version: 1, tokens: [] });
+    expect(await readStoredTokens(storePath)).toEqual({ version: 2, tokens: [] });
     await expectPrivateStorePermissions(storePath);
   });
 
@@ -100,7 +113,7 @@ describe("file OAuth token store", () => {
     await store.set(accessToken({ tokenHash: "token-b", clientId: "client-b-updated" }));
 
     expect(await readStoredTokens(storePath)).toMatchObject({
-      version: 1,
+      version: 2,
       tokens: [
         { tokenHash: "token-a", clientId: "client-a" },
         { tokenHash: "token-b", clientId: "client-b-updated" }
@@ -108,4 +121,64 @@ describe("file OAuth token store", () => {
     });
     await expectPrivateStorePermissions(storePath);
   });
+
+  it("migrates version 1 access tokens without invalidating them", async () => {
+    const storePath = await createTempStorePath();
+    await mkdir(dirname(storePath), { recursive: true });
+    const legacyToken = accessToken({ tokenHash: "legacy-access-token" });
+    const { kind: _kind, ...legacyRecord } = legacyToken;
+    await writeFile(
+      storePath,
+      `${JSON.stringify({ version: 1, tokens: [legacyRecord] }, null, 2)}\n`,
+      "utf8"
+    );
+    const store = createFileOAuthTokenStore(storePath);
+
+    await expect(store.get("legacy-access-token")).resolves.toMatchObject({
+      kind: "access",
+      clientId: "client-a"
+    });
+    await store.set(accessToken({ tokenHash: "new-access-token" }));
+
+    expect(await readStoredTokens(storePath)).toMatchObject({
+      version: 2,
+      tokens: [
+        { kind: "access", tokenHash: "legacy-access-token" },
+        { kind: "access", tokenHash: "new-access-token" }
+      ]
+    });
+  });
+
+  it("atomically consumes one refresh token and persists its replacements", async () => {
+    const storePath = await createTempStorePath();
+    const store = createFileOAuthTokenStore(storePath);
+    await store.setMany([
+      refreshToken({ tokenHash: "refresh-old" }),
+      accessToken({ tokenHash: "access-old" })
+    ]);
+
+    const first = await store.replace("refresh-old", [
+      refreshToken({ tokenHash: "refresh-new" }),
+      accessToken({ tokenHash: "access-new" })
+    ]);
+    const reused = await store.replace("refresh-old", [
+      refreshToken({ tokenHash: "refresh-unexpected" })
+    ]);
+
+    expect(first).toMatchObject({ kind: "refresh", tokenHash: "refresh-old" });
+    expect(reused).toBeUndefined();
+    expect(await readStoredTokens(storePath)).toMatchObject({
+      version: 2,
+      tokens: [
+        { kind: "access", tokenHash: "access-new" },
+        { kind: "access", tokenHash: "access-old" },
+        { kind: "refresh", tokenHash: "refresh-new" }
+      ]
+    });
+  });
 });
+
+function legacyAccessToken(tokenHash: string, expiresAt = Date.now() + 60_000) {
+  const { kind: _kind, ...legacyToken } = accessToken({ tokenHash, expiresAt });
+  return legacyToken;
+}

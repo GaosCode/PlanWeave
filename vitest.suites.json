@@ -192,6 +192,7 @@
       "platform": [
         "oauth.test.ts",
         "oauthClientStore.test.ts",
+        "oauthRefresh.test.ts",
         "oauthTokenStore.test.ts",
         "requestGuards.test.ts",
         "server.test.ts",

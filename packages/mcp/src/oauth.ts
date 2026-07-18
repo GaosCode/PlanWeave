@@ -5,7 +5,11 @@ import {
   type OAuthClientStore,
   type RegisteredClient
 } from "./oauthClientStore.js";
-import { createMemoryOAuthTokenStore, type OAuthTokenStore } from "./oauthTokenStore.js";
+import {
+  createMemoryOAuthTokenStore,
+  type OAuthTokenStore,
+  type StoredOAuthToken
+} from "./oauthTokenStore.js";
 import {
   validateAuthorizeParams,
   validateAuthorizeSearchParams,
@@ -29,14 +33,18 @@ import { bearerToken, randomToken, tokenHash, verifyPkce } from "./oauthSecurity
 import {
   isAllowedOAuthResource,
   isAllowedRedirectUri,
+  isScopeSubset,
+  normalizeScope,
   optionalString,
   scopeIncludesDefault,
+  scopeIncludesOfflineAccess,
   stringArray
 } from "./oauthValidation.js";
 import { resolveEffectiveRequestOrigin } from "./requestGuards.js";
 
 const defaultAccessTokenTtlMs = 60 * 60 * 1000;
 const defaultAuthorizationCodeTtlMs = 5 * 60 * 1000;
+const defaultRefreshTokenTtlMs = 90 * 24 * 60 * 60 * 1000;
 
 type AuthorizationCode = {
   clientId: string;
@@ -169,6 +177,7 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
         return false;
       }
       return (
+        stored.kind === "access" &&
         isAllowedOAuthResource(stored.resource, context.resource) &&
         scopeIncludesDefault(stored.scope)
       );
@@ -233,7 +242,7 @@ async function handleRegister(
     client_id_issued_at: client.clientIdIssuedAt,
     client_name: client.clientName,
     redirect_uris: client.redirectUris,
-    grant_types: ["authorization_code"],
+    grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],
     token_endpoint_auth_method: "none"
   });
@@ -369,10 +378,33 @@ async function handleToken(
     return;
   }
   const params = new URLSearchParams(body.value);
-  if (params.get("grant_type") !== "authorization_code") {
-    writeJson(res, 400, { error: "unsupported_grant_type" });
+  const grantType = params.get("grant_type");
+  if (grantType === "authorization_code") {
+    await exchangeAuthorizationCode(
+      params,
+      res,
+      authorizationCodes,
+      tokenStore,
+      accessTokenTtlMs,
+      context
+    );
     return;
   }
+  if (grantType === "refresh_token") {
+    await exchangeRefreshToken(params, res, tokenStore, accessTokenTtlMs, context);
+    return;
+  }
+  writeJson(res, 400, { error: "unsupported_grant_type" });
+}
+
+async function exchangeAuthorizationCode(
+  params: URLSearchParams,
+  res: ServerResponse,
+  authorizationCodes: Map<string, AuthorizationCode>,
+  tokenStore: OAuthTokenStore,
+  accessTokenTtlMs: number,
+  context: OAuthRequestContext
+): Promise<void> {
   const code = params.get("code") ?? "";
   const clientId = params.get("client_id") ?? "";
   const redirectUri = params.get("redirect_uri") ?? "";
@@ -396,19 +428,111 @@ async function handleToken(
   }
   authorizationCodes.delete(code);
 
-  const token = randomToken(32);
-  await tokenStore.set({
-    tokenHash: tokenHash(token),
+  const accessToken = issueStoredToken(
+    "access",
     clientId,
-    expiresAt: Date.now() + accessTokenTtlMs,
-    resource: stored.resource,
-    scope: stored.scope
-  });
+    stored.resource,
+    stored.scope,
+    accessTokenTtlMs
+  );
+  const refreshToken = scopeIncludesOfflineAccess(stored.scope)
+    ? issueStoredToken("refresh", clientId, stored.resource, stored.scope, defaultRefreshTokenTtlMs)
+    : undefined;
+  await tokenStore.setMany([accessToken.stored, ...(refreshToken ? [refreshToken.stored] : [])]);
 
   writeJson(res, 200, {
-    access_token: token,
+    access_token: accessToken.value,
     token_type: "Bearer",
     expires_in: Math.floor(accessTokenTtlMs / 1000),
-    scope: stored.scope
+    scope: stored.scope,
+    ...(refreshToken ? { refresh_token: refreshToken.value } : {})
   });
+}
+
+async function exchangeRefreshToken(
+  params: URLSearchParams,
+  res: ServerResponse,
+  tokenStore: OAuthTokenStore,
+  accessTokenTtlMs: number,
+  context: OAuthRequestContext
+): Promise<void> {
+  const presentedToken = params.get("refresh_token") ?? "";
+  const presentedHash = tokenHash(presentedToken);
+  const stored = await tokenStore.get(presentedHash);
+  if (!stored || stored.kind !== "refresh" || stored.expiresAt <= Date.now()) {
+    if (stored?.expiresAt !== undefined && stored.expiresAt <= Date.now()) {
+      await tokenStore.delete(presentedHash);
+    }
+    writeJson(res, 400, { error: "invalid_grant" });
+    return;
+  }
+
+  const clientId = params.get("client_id") ?? "";
+  const requestedResource = params.get("resource") || stored.resource;
+  if (
+    clientId !== stored.clientId ||
+    requestedResource !== stored.resource ||
+    !isAllowedOAuthResource(stored.resource, context.resource)
+  ) {
+    writeJson(res, 400, { error: "invalid_grant" });
+    return;
+  }
+
+  let scope = stored.scope;
+  if (params.has("scope")) {
+    const requestedScope = normalizeScope(params.get("scope"));
+    if (!(requestedScope && isScopeSubset(requestedScope, stored.scope))) {
+      writeJson(res, 400, { error: "invalid_scope" });
+      return;
+    }
+    scope = requestedScope;
+  }
+
+  const accessToken = issueStoredToken(
+    "access",
+    stored.clientId,
+    stored.resource,
+    scope,
+    accessTokenTtlMs
+  );
+  const refreshToken = scopeIncludesOfflineAccess(scope)
+    ? issueStoredToken("refresh", stored.clientId, stored.resource, scope, defaultRefreshTokenTtlMs)
+    : undefined;
+  const consumed = await tokenStore.replace(presentedHash, [
+    accessToken.stored,
+    ...(refreshToken ? [refreshToken.stored] : [])
+  ]);
+  if (!consumed || consumed.kind !== "refresh") {
+    writeJson(res, 400, { error: "invalid_grant" });
+    return;
+  }
+
+  writeJson(res, 200, {
+    access_token: accessToken.value,
+    token_type: "Bearer",
+    expires_in: Math.floor(accessTokenTtlMs / 1000),
+    scope,
+    ...(refreshToken ? { refresh_token: refreshToken.value } : {})
+  });
+}
+
+function issueStoredToken(
+  kind: StoredOAuthToken["kind"],
+  clientId: string,
+  resource: string,
+  scope: string,
+  ttlMs: number
+): { value: string; stored: StoredOAuthToken } {
+  const value = randomToken(32);
+  return {
+    value,
+    stored: {
+      kind,
+      tokenHash: tokenHash(value),
+      clientId,
+      expiresAt: Date.now() + ttlMs,
+      resource,
+      scope
+    }
+  };
 }

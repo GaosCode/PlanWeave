@@ -1,4 +1,6 @@
-import { defaultOAuthScope } from "./oauthMetadata.js";
+import { defaultOAuthScope, offlineAccessScope } from "./oauthMetadata.js";
+
+const scopeSeparator = /\s+/;
 
 export function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
@@ -30,15 +32,31 @@ export function isAllowedRedirectUri(value: string, redirectUriPrefixes?: string
 }
 
 export function normalizeScope(value: string | null): string | null {
-  const scopes = value?.trim() ? value.trim().split(/\s+/) : [defaultOAuthScope];
-  if (scopes.length === 0 || scopes.some((scope) => scope !== defaultOAuthScope)) {
+  const scopes = value?.trim() ? value.trim().split(scopeSeparator) : [defaultOAuthScope];
+  const uniqueScopes = new Set(scopes);
+  if (
+    !uniqueScopes.has(defaultOAuthScope) ||
+    [...uniqueScopes].some((scope) => scope !== defaultOAuthScope && scope !== offlineAccessScope)
+  ) {
     return null;
+  }
+  if (uniqueScopes.has(offlineAccessScope)) {
+    return `${defaultOAuthScope} ${offlineAccessScope}`;
   }
   return defaultOAuthScope;
 }
 
 export function scopeIncludesDefault(value: string): boolean {
-  return value.split(/\s+/).includes(defaultOAuthScope);
+  return value.split(scopeSeparator).includes(defaultOAuthScope);
+}
+
+export function scopeIncludesOfflineAccess(value: string): boolean {
+  return value.split(scopeSeparator).includes(offlineAccessScope);
+}
+
+export function isScopeSubset(value: string, grantedScope: string): boolean {
+  const granted = new Set(grantedScope.split(scopeSeparator));
+  return value.split(scopeSeparator).every((scope) => granted.has(scope));
 }
 
 export function isAllowedOAuthResource(value: string, localResource: string): boolean {
