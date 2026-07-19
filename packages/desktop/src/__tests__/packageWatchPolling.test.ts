@@ -520,18 +520,20 @@ describe("package file watcher: polling SLA and resources", () => {
 
       await advanceAndFlush(1000);
       await flushMicrotasks();
-      expect(warnSpy.mock.calls.length).toBeGreaterThan(0);
+      const probeWarningCount = () =>
+        warnSpy.mock.calls.filter(([message]) => String(message).includes("[probe]")).length;
+      expect(probeWarningCount()).toBeGreaterThan(0);
       expect(webContents.send).not.toHaveBeenCalled();
-      const warningsAfterFirstFailure = warnSpy.mock.calls.length;
+      const probeWarningsAfterFirstFailure = probeWarningCount();
 
       await advanceAndFlush(500);
       await flushMicrotasks();
-      expect(warnSpy.mock.calls.length).toBe(warningsAfterFirstFailure);
+      expect(probeWarningCount()).toBe(probeWarningsAfterFirstFailure);
       expect(webContents.send).not.toHaveBeenCalled();
 
       await advanceAndFlush(1000);
       await flushMicrotasks();
-      expect(warnSpy.mock.calls.length).toBeGreaterThan(warningsAfterFirstFailure);
+      expect(probeWarningCount()).toBeGreaterThan(probeWarningsAfterFirstFailure);
       expect(webContents.send).not.toHaveBeenCalled();
 
       for (let i = 0; i < 6; i += 1) {

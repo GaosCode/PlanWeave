@@ -28,9 +28,15 @@ const INVENTORY_BACKOFF_MAX_MS = 60_000;
 const SWEEP_BACKOFF_BASE_MS = CONTENT_HASH_SWEEP_INTERVAL_MS;
 const SWEEP_BACKOFF_MAX_MS = 120_000;
 
-function warnPollingSnapshotFailure(workspaceRoot: string, caught: unknown): void {
+type PollingLane = "probe" | "inventory" | "hash-sweep";
+
+function warnPollingSnapshotFailure(
+  workspaceRoot: string,
+  lane: PollingLane,
+  caught: unknown
+): void {
   console.warn(
-    `PlanWeave package polling watch failed for '${workspaceRoot}': ${caught instanceof Error ? caught.message : String(caught)}`
+    `PlanWeave package polling watch [${lane}] failed for '${workspaceRoot}': ${caught instanceof Error ? caught.message : String(caught)}`
   );
 }
 
@@ -63,8 +69,8 @@ export async function startPollingPackageWatchBackend(
   const intervalTimers: NodeJS.Timeout[] = [];
   const kickoffTimers: NodeJS.Timeout[] = [];
 
-  function emitError(caught: unknown): void {
-    warnPollingSnapshotFailure(workspace.workspaceRoot, caught);
+  function emitError(lane: PollingLane, caught: unknown): void {
+    warnPollingSnapshotFailure(workspace.workspaceRoot, lane, caught);
     onError?.(caught);
   }
 
@@ -72,7 +78,7 @@ export async function startPollingPackageWatchBackend(
     lastSnapshot = await collectWatchedPackageFingerprints(workspace);
     knownRelativePaths = new Set(lastSnapshot.keys());
   } catch (caught) {
-    emitError(caught);
+    emitError("inventory", caught);
     // Proceed with empty known set; inventory will repopulate when healthy.
   }
 
@@ -127,7 +133,7 @@ export async function startPollingPackageWatchBackend(
       if (closed) {
         return;
       }
-      emitError(caught);
+      emitError("probe", caught);
       probeBackoffMs = nextBackoffMs(probeBackoffMs, PROBE_BACKOFF_BASE_MS, PROBE_BACKOFF_MAX_MS);
       probeNextAllowedAt = Date.now() + probeBackoffMs;
     } finally {
@@ -178,7 +184,7 @@ export async function startPollingPackageWatchBackend(
       if (closed) {
         return;
       }
-      emitError(caught);
+      emitError("inventory", caught);
       inventoryBackoffMs = nextBackoffMs(
         inventoryBackoffMs,
         INVENTORY_BACKOFF_BASE_MS,
@@ -239,7 +245,7 @@ export async function startPollingPackageWatchBackend(
       if (closed) {
         return;
       }
-      emitError(caught);
+      emitError("hash-sweep", caught);
       sweepBackoffMs = nextBackoffMs(sweepBackoffMs, SWEEP_BACKOFF_BASE_MS, SWEEP_BACKOFF_MAX_MS);
       sweepNextAllowedAt = Date.now() + sweepBackoffMs;
     } finally {
