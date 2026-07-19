@@ -13,6 +13,9 @@ import type { PromptSourceSummary } from "../../taskManager/promptContracts.js";
 import type { ProjectPromptPolicy } from "../../projectPromptPolicy.js";
 import type { PendingImportTransaction } from "../../package/importRecovery.js";
 import type { RunnerTransport } from "../../types.js";
+import type { DesktopLayout, DesktopLayoutNode } from "./desktopLayoutSchema.js";
+
+export type { DesktopLayout, DesktopLayoutNode };
 
 export type DesktopTaskException = {
   ref: string;
@@ -251,19 +254,6 @@ export type DesktopBlockDetail = {
   activeFeedbackId: string | null;
   exceptionReason: string | null;
   reviewGate: ReviewGateHint | null;
-};
-
-export type DesktopLayoutNode = {
-  nodeId: string;
-  x: number;
-  y: number;
-};
-
-export type DesktopLayout = {
-  version: "desktop-layout/v1";
-  projectId: string;
-  nodes: DesktopLayoutNode[];
-  updatedAt: string;
 };
 
 export type DesktopTodoGroupName = BlockStatus | "implemented";

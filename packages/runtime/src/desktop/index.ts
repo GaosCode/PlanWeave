@@ -69,7 +69,9 @@ export {
   desktopLayoutNodeSchema
 } from "./types/desktopLayoutSchema.js";
 export type {
+  DesktopLayout,
   DesktopLayoutFileInput,
+  DesktopLayoutNode,
   DesktopLayoutNodeInput
 } from "./types/desktopLayoutSchema.js";
 export {

@@ -1,5 +1,6 @@
-import type { ProjectTaskRef } from "../projectGraph/types.js";
+import type { DesktopLayoutNode } from "../desktop/types/desktopLayoutSchema.js";
 import type { PlanPackageExecutionPolicyFieldEditInput } from "../graph/fieldEditMutation.js";
+import type { ProjectTaskRef } from "../projectGraph/types.js";
 import type {
   ManifestBlock,
   ManifestEdge,
@@ -100,7 +101,7 @@ export type TaskComponentSnapshot = {
   blockPromptMarkdown: Array<{ blockId: string; markdown: string }>;
   insertIndex: number | null;
   affectedTaskEdges: ManifestEdge[];
-  layoutNode?: { nodeId: string; x: number; y: number } | null;
+  layoutNode?: DesktopLayoutNode | null;
 };
 
 export type BlockComponentSnapshot = {
@@ -119,7 +120,7 @@ export type AddTaskCommand = PlanGraphCommandBase & {
 export type RemoveTaskCommand = PlanGraphCommandBase & {
   type: "removeTask";
   taskId: string;
-  layoutNode?: { nodeId: string; x: number; y: number } | null;
+  layoutNode?: DesktopLayoutNode | null;
 };
 
 export type RestoreTaskCommand = PlanGraphCommandBase & {

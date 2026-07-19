@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  desktopLayoutFileSchema,
+  desktopLayoutNodeSchema
+} from "../desktop/types/desktopLayoutSchema.js";
 import { manifestBlockSchema, manifestNodeSchema, reviewBlockSchema } from "../schema/manifest.js";
 import type { PlanGraphCommand, PlanGraphCommandDiagnostic } from "./commands.js";
 
@@ -24,14 +28,6 @@ const manifestEdgeSchema = z
   })
   .strict();
 
-const layoutNodeSchema = z
-  .object({
-    nodeId: z.string(),
-    x: z.number(),
-    y: z.number()
-  })
-  .strict();
-
 const taskComponentSnapshotSchema = z
   .object({
     task: manifestNodeSchema,
@@ -46,7 +42,7 @@ const taskComponentSnapshotSchema = z
     ),
     insertIndex: z.number().int().nullable(),
     affectedTaskEdges: z.array(manifestEdgeSchema),
-    layoutNode: layoutNodeSchema.nullable().optional()
+    layoutNode: desktopLayoutNodeSchema.nullable().optional()
   })
   .strict();
 
@@ -74,15 +70,6 @@ const projectTaskRefSchema = z
   })
   .strict();
 
-const desktopLayoutSchema = z
-  .object({
-    version: z.literal("desktop-layout/v1"),
-    projectId: z.string().min(1),
-    nodes: z.array(layoutNodeSchema),
-    updatedAt: z.string().min(1)
-  })
-  .strict();
-
 const activeCanvasSelectionSchema = z
   .object({
     activeCanvasId: z
@@ -101,7 +88,7 @@ const updateLayoutCommandSchema = z
   .strict()
   .superRefine((command, context) => {
     const result = (
-      command.layoutScope === "desktop" ? desktopLayoutSchema : activeCanvasSelectionSchema
+      command.layoutScope === "desktop" ? desktopLayoutFileSchema : activeCanvasSelectionSchema
     ).safeParse(command.layout);
     if (result.success) {
       return;
@@ -258,7 +245,7 @@ const planGraphCommandSchemaOptions = [
       ...baseCommandShape,
       type: z.literal("removeTask"),
       taskId: z.string(),
-      layoutNode: layoutNodeSchema.nullable().optional()
+      layoutNode: desktopLayoutNodeSchema.nullable().optional()
     })
     .strict(),
   z
