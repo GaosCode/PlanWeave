@@ -18,6 +18,7 @@ const requiredAsarEntries = [
 ];
 const startupErrorPattern = /MODULE_NOT_FOUND|Cannot find module|Uncaught Exception/i;
 const startupReadyEvent = "PLANWEAVE_DESKTOP_STARTUP_SMOKE_READY";
+const startupErrorEvent = "PLANWEAVE_DESKTOP_STARTUP_SMOKE_ERROR";
 const packagedStartupBudgetMs = 45_000;
 const maxCapturedOutputBytes = 64 * 1024;
 const inheritedEnvironmentKeys = new Set([
@@ -117,6 +118,24 @@ function hasVerifiedStartupMarker(output) {
   return false;
 }
 
+function startupReportFailure(output) {
+  for (const line of output.split(/\r?\n/)) {
+    try {
+      const payload = JSON.parse(line);
+      if (
+        payload?.event === startupErrorEvent &&
+        typeof payload.diagnostic === "string" &&
+        payload.diagnostic.length > 0
+      ) {
+        return payload.diagnostic;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 async function readVerifiedStartupReport(reportPath) {
   try {
     return hasVerifiedStartupMarker(await readFile(reportPath, "utf8"));
@@ -139,6 +158,11 @@ function createStartupReportReadiness(reportPath) {
       readInFlight = true;
       void readFile(reportPath, "utf8")
         .then((report) => {
+          const failure = startupReportFailure(report);
+          if (failure) {
+            resolveReadiness({ kind: "report-error", error: new Error(failure) });
+            return;
+          }
           if (hasVerifiedStartupMarker(report)) {
             resolveReadiness({ kind: "ready" });
           }

@@ -574,10 +574,8 @@ describe("package file watcher: polling SLA and resources", () => {
     const releaseProbeStat = createDeferred<void>();
     const probeStatStarted = createDeferred<void>();
     const inventoryCompleted = createDeferred<void>();
-    const probeTailCompleted = createDeferred<void>();
     let probeReleased = false;
     let manifestStatCalls = 0;
-    let probeTailCallId: number | null = null;
 
     try {
       await registerAndWatch(webContents, workspace);
@@ -593,16 +591,10 @@ describe("package file watcher: polling SLA and resources", () => {
             await releaseProbeStat.promise;
           }
         }
-        if (path === workspace.projectPromptFile && probeReleased && probeTailCallId === null) {
-          probeTailCallId = callId;
-        }
       };
-      fsPromisesMock.state.statResultHook = (path, callId) => {
+      fsPromisesMock.state.statResultHook = (path) => {
         if (path === workspace.projectPromptFile && !probeReleased) {
           inventoryCompleted.resolve();
-        }
-        if (callId === probeTailCallId) {
-          probeTailCompleted.resolve();
         }
       };
 
@@ -622,17 +614,16 @@ describe("package file watcher: polling SLA and resources", () => {
 
       probeReleased = true;
       releaseProbeStat.resolve();
-      await probeTailCompleted.promise;
-      await flushMicrotasks();
-      await flushDebounce();
-
-      expect(webContents.send).toHaveBeenCalledWith(
-        packageFileChangedChannel,
-        expect.objectContaining({
-          paths: expect.arrayContaining(["package/manifest.json"]),
-          backendKind: "polling"
-        })
-      );
+      await vi.waitFor(async () => {
+        await flushDebounce();
+        expect(webContents.send).toHaveBeenCalledWith(
+          packageFileChangedChannel,
+          expect.objectContaining({
+            paths: expect.arrayContaining(["package/manifest.json"]),
+            backendKind: "polling"
+          })
+        );
+      });
     } finally {
       fsPromisesMock.state.statHook = null;
       fsPromisesMock.state.statResultHook = null;

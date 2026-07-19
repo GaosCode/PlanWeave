@@ -22,6 +22,15 @@ const isDev = process.env.PLANWEAVE_DESKTOP_DEV_SERVER_URL !== undefined;
 const isSmoke = process.env.PLANWEAVE_DESKTOP_SMOKE === "1";
 const isStartupSmoke = process.env.PLANWEAVE_DESKTOP_STARTUP_SMOKE === "1";
 const isSmokeRun = isSmoke || isStartupSmoke;
+const startupSmokeErrorEvent = "PLANWEAVE_DESKTOP_STARTUP_SMOKE_ERROR";
+
+async function writeStartupSmokeReport(payload: unknown): Promise<void> {
+  const reportPath = process.env.PLANWEAVE_DESKTOP_STARTUP_SMOKE_REPORT_PATH;
+  if (!reportPath) {
+    throw new Error("Packaged startup smoke report path is required.");
+  }
+  await writeFile(reportPath, `${JSON.stringify(payload)}\n`, "utf8");
+}
 
 // Packaged app launches can inherit shell env from development tools; source runs still need PLANWEAVE_HOME for isolated demos and tests.
 if (app.isPackaged && !isDev && !isSmokeRun) {
@@ -65,11 +74,7 @@ startSingleInstanceLifecycle({
         const window = await createWindow({ isDev, isSmoke, isStartupSmoke });
         if (isStartupSmoke) {
           const result = await runPackagedStartupSmoke(window);
-          const reportPath = process.env.PLANWEAVE_DESKTOP_STARTUP_SMOKE_REPORT_PATH;
-          if (!reportPath) {
-            throw new Error("Packaged startup smoke report path is required.");
-          }
-          await writeFile(reportPath, `${JSON.stringify(result)}\n`, "utf8");
+          await writeStartupSmokeReport(result);
           console.log(JSON.stringify(result));
           return;
         }
@@ -77,8 +82,16 @@ startSingleInstanceLifecycle({
         if (app.isPackaged && !isSmokeRun) {
           void checkForAppUpdate();
         }
-      })().catch((error: unknown) => {
-        console.error(error instanceof Error ? error.message : String(error));
+      })().catch(async (error: unknown) => {
+        const diagnostic = error instanceof Error ? error.message : String(error);
+        if (isStartupSmoke) {
+          try {
+            await writeStartupSmokeReport({ event: startupSmokeErrorEvent, diagnostic });
+          } catch (reportError) {
+            console.error(reportError instanceof Error ? reportError.message : String(reportError));
+          }
+        }
+        console.error(diagnostic);
         app.exit(1);
       });
     });
