@@ -345,19 +345,26 @@ describe("desktop release configuration", () => {
     }
   });
 
-  it("keeps the packaged startup budget bounded and exposes timeout timing", async () => {
+  it("keeps platform startup budgets bounded and exposes timeout diagnostics", async () => {
     const packagedVerifier = await readFile(
       resolve(desktopRoot, "scripts/verify-packaged-app.mjs"),
       "utf8"
     );
 
-    expect(packagedVerifier).toContain("const packagedStartupBudgetMs = 45_000;");
+    expect(packagedVerifier).toContain("const defaultPackagedStartupBudgetMs = 45_000;");
+    expect(packagedVerifier).toContain("const windowsPackagedStartupBudgetMs = 90_000;");
+    expect(packagedVerifier).toContain('platform === "win32"');
     expect(packagedVerifier).toContain(
-      'setTimeout(() => resolveTimeout({ kind: "timeout" }), packagedStartupBudgetMs)'
+      'setTimeout(() => resolveTimeout({ kind: "timeout" }), startupBudgetMs)'
     );
     expect(packagedVerifier).toContain(
-      "`Packaged app did not report startup readiness before timeout:\\n${diagnosticOutput()}`"
+      "`Packaged app did not report startup readiness before timeout:\\n${timeoutDiagnostic}\\n${diagnosticOutput()}`"
     );
+    expect(packagedVerifier).toContain("launcherState=${launcherState}");
+    expect(packagedVerifier).toContain(
+      "startupReportState=${await startupReportState(reportPath)}"
+    );
+    expect(packagedVerifier).toContain("capturedOutputBytes=${String(Buffer.byteLength(output))}");
     expect(packagedVerifier).toContain(
       "`${message} (elapsedMs=${startupTiming.elapsedMs}, budgetMs=${startupTiming.budgetMs})`"
     );

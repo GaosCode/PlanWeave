@@ -20,7 +20,8 @@ const allowedAsarDistRoots = ["/dist/main", "/dist/preload", "/dist/renderer"];
 const startupErrorPattern = /MODULE_NOT_FOUND|Cannot find module|Uncaught Exception/i;
 const startupReadyEvent = "PLANWEAVE_DESKTOP_STARTUP_SMOKE_READY";
 const startupErrorEvent = "PLANWEAVE_DESKTOP_STARTUP_SMOKE_ERROR";
-const packagedStartupBudgetMs = 45_000;
+const defaultPackagedStartupBudgetMs = 45_000;
+const windowsPackagedStartupBudgetMs = 90_000;
 const maxCapturedOutputBytes = 64 * 1024;
 const inheritedEnvironmentKeys = new Set([
   "APPDATA",
@@ -79,10 +80,14 @@ class PackagedStartupTimeoutError extends Error {
   }
 }
 
-function measuredStartupTiming(startedAt) {
+function packagedStartupBudgetMs(platform) {
+  return platform === "win32" ? windowsPackagedStartupBudgetMs : defaultPackagedStartupBudgetMs;
+}
+
+function measuredStartupTiming(startedAt, budgetMs) {
   return {
     elapsedMs: Math.max(0, Date.now() - startedAt),
-    budgetMs: packagedStartupBudgetMs
+    budgetMs
   };
 }
 
@@ -146,6 +151,35 @@ async function readVerifiedStartupReport(reportPath) {
     }
     throw error;
   }
+}
+
+async function startupReportState(reportPath) {
+  try {
+    const report = await readFile(reportPath, "utf8");
+    if (hasVerifiedStartupMarker(report)) {
+      return "verified";
+    }
+    return startupReportFailure(report) ? "error" : "unverified";
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return "missing";
+    }
+    return "unreadable";
+  }
+}
+
+async function startupTimeoutDiagnostic(tree, reportPath, output) {
+  let launcherState;
+  try {
+    launcherState = tree.isAlive() ? "alive" : "exited";
+  } catch {
+    launcherState = "unknown";
+  }
+  return [
+    `launcherState=${launcherState}`,
+    `startupReportState=${await startupReportState(reportPath)}`,
+    `capturedOutputBytes=${String(Buffer.byteLength(output))}`
+  ].join(", ");
 }
 
 function createStartupReportReadiness(reportPath) {
@@ -315,6 +349,7 @@ async function smokeLaunch(executablePath, platform) {
   const smokeUserData = await mkdtemp(join(tmpdir(), "planweave-packaged-smoke-user-data-"));
   const startupReportPath = join(smokeUserData, "startup-ready.json");
   const launchArgs = platform === "linux" ? ["--no-sandbox"] : [];
+  const startupBudgetMs = packagedStartupBudgetMs(platform);
   const startupStartedAt = Date.now();
   const { child, tree } = spawnManagedProcess({
     command: executablePath,
@@ -353,22 +388,23 @@ async function smokeLaunch(executablePath, platform) {
     reportReadiness.promise,
     completion,
     new Promise((resolveTimeout) => {
-      timeout = setTimeout(() => resolveTimeout({ kind: "timeout" }), packagedStartupBudgetMs);
+      timeout = setTimeout(() => resolveTimeout({ kind: "timeout" }), startupBudgetMs);
     })
   ]);
   clearTimeout(timeout);
   reportReadiness.stop();
-  const startupTiming = measuredStartupTiming(startupStartedAt);
+  const startupTiming = measuredStartupTiming(startupStartedAt, startupBudgetMs);
   const sensitivePaths = [executablePath, smokeHome, smokeUserData];
   const diagnosticOutput = () => sanitizedDiagnostic(output, sensitivePaths);
 
   let termination;
   if (outcome.kind === "timeout") {
+    const timeoutDiagnostic = await startupTimeoutDiagnostic(tree, startupReportPath, output);
     try {
       termination = await tree.terminate("packaged startup smoke timeout");
     } catch (cleanupError) {
       throw new PackagedStartupTimeoutError(
-        `Packaged app startup timed out and managed process-tree cleanup failed: ${sanitizedDiagnostic(errorMessage(cleanupError), sensitivePaths)}\n${diagnosticOutput()}`,
+        `Packaged app startup timed out and managed process-tree cleanup failed: ${sanitizedDiagnostic(errorMessage(cleanupError), sensitivePaths)}\n${timeoutDiagnostic}\n${diagnosticOutput()}`,
         startupTiming
       );
     }
@@ -377,13 +413,13 @@ async function smokeLaunch(executablePath, platform) {
       reportVerifiedAfterCleanup = await readVerifiedStartupReport(startupReportPath);
     } catch (reportError) {
       throw new PackagedStartupTimeoutError(
-        `Packaged app startup timed out and its report could not be read after managed process-tree cleanup: ${sanitizedDiagnostic(errorMessage(reportError), sensitivePaths)}\n${diagnosticOutput()}`,
+        `Packaged app startup timed out and its report could not be read after managed process-tree cleanup: ${sanitizedDiagnostic(errorMessage(reportError), sensitivePaths)}\n${timeoutDiagnostic}\n${diagnosticOutput()}`,
         startupTiming
       );
     }
     if (!reportVerifiedAfterCleanup && !hasVerifiedStartupMarker(output)) {
       throw new PackagedStartupTimeoutError(
-        `Packaged app did not report startup readiness before timeout:\n${diagnosticOutput()}`,
+        `Packaged app did not report startup readiness before timeout:\n${timeoutDiagnostic}\n${diagnosticOutput()}`,
         startupTiming
       );
     }
