@@ -262,35 +262,6 @@ planweave trust executor <profile>
 
 遇到认证或 provider 错误时，按预检给出的下一步处理，再运行 `executors test`。开发验证命令（包括 opt-in Grok live smoke）见 [Development](../DEVELOPMENT.md#acp-verification)。
 
-## 手动 CLI 工作流
-
-多数用户应该通过 skills 驱动 PlanWeave。手动 CLI loop 更适合调试、演示或自己接入 agent：
-
-```bash
-planweave init --json
-planweave validate --json
-planweave current
-planweave claim-next --dry-run
-planweave prompt T-001#B-001
-planweave submit-result --canvas default T-001#B-001 --report report.md
-```
-
-Review gate 和 feedback loop 也可以手动提交：
-
-```bash
-planweave submit-review --canvas default T-001#R-001 --result review-result.json
-planweave submit-feedback --canvas default --report feedback-report.md
-```
-
-在目标项目 root 中运行命令。如果需要从其他目录操作目标项目，把全局 project 参数放在子命令前：
-
-```bash
-planweave --project-root /path/to/project status --json
-planweave --project-root /path/to/project claim-next --canvas desktop
-```
-
-当调度原因不清楚时，先用 `planweave explain <ref>`、`planweave why-not <ref>` 和 `planweave doctor` 诊断，再考虑修改 package 或 state 文件。
-
 ## 桌面应用
 
 PlanWeave Desktop 提供可视化任务画布、任务工作区、Auto Run 控制、运行历史、搜索与统计视图，以及供 ChatGPT 使用的 MCP tunnel 设置。

@@ -262,35 +262,6 @@ planweave trust executor <profile>
 
 For authentication or provider errors, follow the preflight next step and rerun `executors test`. Contributor verification commands, including the opt-in Grok live smoke, are documented in [Development](DEVELOPMENT.md#acp-verification).
 
-## Manual CLI Workflow
-
-Most users should drive PlanWeave through skills. The manual CLI loop is useful for debugging, demos, or writing your own agent integration:
-
-```bash
-planweave init --json
-planweave validate --json
-planweave current
-planweave claim-next --dry-run
-planweave prompt T-001#B-001
-planweave submit-result --canvas default T-001#B-001 --report report.md
-```
-
-Review gates and feedback loops can be handled manually too:
-
-```bash
-planweave submit-review --canvas default T-001#R-001 --result review-result.json
-planweave submit-feedback --canvas default --report feedback-report.md
-```
-
-Run commands from the target project root. To work from another directory, pass the global project option before the subcommand:
-
-```bash
-planweave --project-root /path/to/project status --json
-planweave --project-root /path/to/project claim-next --canvas desktop
-```
-
-When scheduling is unclear, prefer `planweave explain <ref>`, `planweave why-not <ref>`, and `planweave doctor` before editing package or state files.
-
 ## Desktop App
 
 PlanWeave Desktop provides a visual task canvas, task workspaces, Auto Run controls, run history, search and statistics views, and MCP tunnel settings for ChatGPT.
