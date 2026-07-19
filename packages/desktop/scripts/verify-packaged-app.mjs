@@ -18,6 +18,7 @@ const requiredAsarEntries = [
 ];
 const startupErrorPattern = /MODULE_NOT_FOUND|Cannot find module|Uncaught Exception/i;
 const startupReadyEvent = "PLANWEAVE_DESKTOP_STARTUP_SMOKE_READY";
+const packagedStartupBudgetMs = 45_000;
 const maxCapturedOutputBytes = 64 * 1024;
 const inheritedEnvironmentKeys = new Set([
   "APPDATA",
@@ -66,6 +67,20 @@ function appendBoundedOutput(output, chunk) {
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+class PackagedStartupTimeoutError extends Error {
+  constructor(message, startupTiming) {
+    super(`${message} (elapsedMs=${startupTiming.elapsedMs}, budgetMs=${startupTiming.budgetMs})`);
+    this.startupTiming = startupTiming;
+  }
+}
+
+function measuredStartupTiming(startedAt) {
+  return {
+    elapsedMs: Math.max(0, Date.now() - startedAt),
+    budgetMs: packagedStartupBudgetMs
+  };
 }
 
 function sanitizedDiagnostic(value, sensitivePaths = []) {
@@ -216,6 +231,7 @@ async function smokeLaunch(executablePath, platform) {
   const smokeHome = await mkdtemp(join(tmpdir(), "planweave-packaged-smoke-home-"));
   const smokeUserData = await mkdtemp(join(tmpdir(), "planweave-packaged-smoke-user-data-"));
   const launchArgs = platform === "linux" ? ["--no-sandbox"] : [];
+  const startupStartedAt = Date.now();
   const { child, tree } = spawnManagedProcess({
     command: executablePath,
     args: launchArgs,
@@ -250,10 +266,11 @@ async function smokeLaunch(executablePath, platform) {
     readiness,
     completion,
     new Promise((resolveTimeout) => {
-      timeout = setTimeout(() => resolveTimeout({ kind: "timeout" }), 30_000);
+      timeout = setTimeout(() => resolveTimeout({ kind: "timeout" }), packagedStartupBudgetMs);
     })
   ]);
   clearTimeout(timeout);
+  const startupTiming = measuredStartupTiming(startupStartedAt);
   const sensitivePaths = [executablePath, smokeHome, smokeUserData];
   const diagnosticOutput = () => sanitizedDiagnostic(output, sensitivePaths);
 
@@ -261,12 +278,14 @@ async function smokeLaunch(executablePath, platform) {
     try {
       await tree.terminate("packaged startup smoke timeout");
     } catch (cleanupError) {
-      throw new Error(
-        `Packaged app startup timed out and managed process-tree cleanup failed: ${sanitizedDiagnostic(errorMessage(cleanupError), sensitivePaths)}\n${diagnosticOutput()}`
+      throw new PackagedStartupTimeoutError(
+        `Packaged app startup timed out and managed process-tree cleanup failed: ${sanitizedDiagnostic(errorMessage(cleanupError), sensitivePaths)}\n${diagnosticOutput()}`,
+        startupTiming
       );
     }
-    throw new Error(
-      `Packaged app did not report startup readiness before timeout:\n${diagnosticOutput()}`
+    throw new PackagedStartupTimeoutError(
+      `Packaged app did not report startup readiness before timeout:\n${diagnosticOutput()}`,
+      startupTiming
     );
   }
   if (outcome.kind === "error") {
@@ -324,7 +343,7 @@ async function smokeLaunch(executablePath, platform) {
   if (startupErrorPattern.test(output)) {
     throw new Error(`Packaged app emitted a startup module error:\n${diagnosticOutput()}`);
   }
-  return termination;
+  return startupTiming;
 }
 
 function redactReportValue(value) {
@@ -363,12 +382,13 @@ try {
   stage = "verify-asar";
   await verifyAsarContents(packagedApp.appAsarPath);
   stage = "verify-startup";
-  await smokeLaunch(packagedApp.executablePath, packagedApp.platform);
+  const startupTiming = await smokeLaunch(packagedApp.executablePath, packagedApp.platform);
   stage = "complete";
   await writeCiReport({
     schemaVersion: 1,
     platform: reportPlatform,
     status: "passed",
+    startupTiming,
     checks: {
       asarRuntimeEntries: true,
       strictStartupMarker: true,
@@ -385,6 +405,9 @@ try {
       platform: reportPlatform,
       status: "failed",
       failedStage: stage,
+      ...(error instanceof PackagedStartupTimeoutError
+        ? { startupTiming: error.startupTiming }
+        : {}),
       diagnostic
     });
   } catch (reportError) {

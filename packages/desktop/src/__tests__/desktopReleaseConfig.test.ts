@@ -325,6 +325,29 @@ describe("desktop release configuration", () => {
     }
   });
 
+  it("keeps the packaged startup budget bounded and exposes timeout timing", async () => {
+    const packagedVerifier = await readFile(
+      resolve(desktopRoot, "scripts/verify-packaged-app.mjs"),
+      "utf8"
+    );
+
+    expect(packagedVerifier).toContain("const packagedStartupBudgetMs = 45_000;");
+    expect(packagedVerifier).toContain(
+      'setTimeout(() => resolveTimeout({ kind: "timeout" }), packagedStartupBudgetMs)'
+    );
+    expect(packagedVerifier).toContain(
+      "`Packaged app did not report startup readiness before timeout:\\n${diagnosticOutput()}`"
+    );
+    expect(packagedVerifier).toContain(
+      "`${message} (elapsedMs=${startupTiming.elapsedMs}, budgetMs=${startupTiming.budgetMs})`"
+    );
+    expect(packagedVerifier).toContain('status: "passed",\n    startupTiming,');
+    expect(packagedVerifier).toContain("{ startupTiming: error.startupTiming }");
+    expect(packagedVerifier).not.toContain(
+      'setTimeout(() => resolveTimeout({ kind: "timeout" }), 30_000)'
+    );
+  });
+
   it("requires and verifies the Windows uninstaller before packaged startup", async () => {
     const windowsVerifier = await readFile(
       resolve(desktopRoot, "scripts/verify-windows-release.ps1"),
