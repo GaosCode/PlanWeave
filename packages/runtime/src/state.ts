@@ -8,7 +8,6 @@ import type {
   BlockState,
   BlockStatus,
   CompiledExecutionGraph,
-  FeedbackEnvelopeState,
   PlanPackageManifest,
   RuntimeState,
   TaskState
@@ -135,43 +134,61 @@ function aggregateTaskStatus(
   };
 }
 
+/**
+ * Reconcile a schema-validated RuntimeState to the current package graph.
+ *
+ * Callers must pass trusted state only (`readState` output or `createEmptyState()`).
+ * This function does not re-validate JSON shapes; it only repairs manifest drift:
+ * - prune current/review/feedback refs that left the package
+ * - drop block/task records not in the manifest (by rebuilding from the graph)
+ * - seed missing blocks and re-derive planned/ready status and task aggregates
+ */
 export function ensureStateForManifest(
   manifest: PlanPackageManifest,
   state: RuntimeState
 ): RuntimeState {
   const graph = compileTaskGraph(manifest);
-  const validTaskIds = new Set(graph.taskNodesInManifestOrder);
   const validBlockRefs = new Set(graph.blockRefsInManifestOrder);
-  const currentRefs = Array.isArray(state.currentRefs)
-    ? state.currentRefs.filter((ref) => typeof ref === "string")
-    : [];
-  const feedback = state.feedback ?? {};
-  const currentFeedback = state.currentFeedbackId ? feedback[state.currentFeedbackId] : null;
-  const next: RuntimeState = {
-    currentRefs: currentRefs.filter((ref) => validBlockRefs.has(ref)),
-    currentFeedbackId:
-      state.currentFeedbackId &&
-      currentFeedback &&
-      (currentFeedback.status === "open" || currentFeedback.status === "in_progress")
-        ? state.currentFeedbackId
-        : null,
-    currentReviewBlockRef:
-      state.currentReviewBlockRef && validBlockRefs.has(state.currentReviewBlockRef)
-        ? state.currentReviewBlockRef
-        : null,
-    tasks: {},
-    blocks: {},
-    feedback: {}
-  };
 
-  for (const [feedbackId, feedbackState] of Object.entries(feedback)) {
+  // Manifest-drift: drop current refs that no longer exist in the package graph.
+  const currentRefs = state.currentRefs.filter((ref) => validBlockRefs.has(ref));
+
+  // Manifest-drift: keep only feedback whose source review block still exists.
+  const feedback: RuntimeState["feedback"] = {};
+  for (const [feedbackId, feedbackState] of Object.entries(state.feedback)) {
     if (validBlockRefs.has(feedbackState.sourceReviewBlockRef)) {
-      next.feedback[feedbackId] = feedbackState as FeedbackEnvelopeState;
+      feedback[feedbackId] = feedbackState;
     }
   }
 
+  const currentFeedback =
+    state.currentFeedbackId !== null ? feedback[state.currentFeedbackId] : undefined;
+  // Drop pointer when the feedback envelope was pruned or is no longer active work.
+  const currentFeedbackId =
+    state.currentFeedbackId !== null &&
+    currentFeedback !== undefined &&
+    (currentFeedback.status === "open" || currentFeedback.status === "in_progress")
+      ? state.currentFeedbackId
+      : null;
+
+  // Manifest-drift: drop review pointer when the review block left the package.
+  const currentReviewBlockRef =
+    state.currentReviewBlockRef !== null && validBlockRefs.has(state.currentReviewBlockRef)
+      ? state.currentReviewBlockRef
+      : null;
+
+  const next: RuntimeState = {
+    currentRefs,
+    currentFeedbackId,
+    currentReviewBlockRef,
+    tasks: {},
+    blocks: {},
+    feedback
+  };
+
   for (const ref of graph.blockRefsInManifestOrder) {
-    const existing = state.blocks?.[ref] as BlockState | undefined;
+    // Missing key = block newly added to the manifest (seed defaults).
+    const existing = state.blocks[ref];
     next.blocks[ref] = existing ?? {
       status: defaultBlockStatus(ref, graph, next),
       lastRunId: null
