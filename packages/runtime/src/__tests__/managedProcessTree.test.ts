@@ -753,7 +753,9 @@ setTimeout(() => process.exit(17), 50);
       });
     } else {
       const sizeBeforeTermination = (await readFile(heartbeatPath)).byteLength;
-      await waitUntil(async () => (await readFile(heartbeatPath)).byteLength > sizeBeforeTermination);
+      await waitUntil(
+        async () => (await readFile(heartbeatPath)).byteLength > sizeBeforeTermination
+      );
       expect(isAlive(grandchildPid)).toBe(true);
       await managed.tree.terminate("root exited before readiness");
       await waitUntil(() => !isAlive(grandchildPid));
