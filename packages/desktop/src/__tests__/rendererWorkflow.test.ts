@@ -14,6 +14,8 @@ describe("desktop renderer workflow guardrails", () => {
     ]);
 
     expect(smokeSource).toContain("async function runRendererManualSmoke");
+    expect(smokeSource).toContain("await reloadSmokeRenderer(window)");
+    expect(smokeSource).toContain('data-project-loading="false"');
     expect(smokeSource).toContain("const clickByTestId = async");
     expect(smokeSource).toContain('await clickByTestId("sidebar-statistics")');
     expect(smokeSource).toContain('await clickByTestId("sidebar-search")');
@@ -21,7 +23,8 @@ describe("desktop renderer workflow guardrails", () => {
     expect(smokeSource).toContain(
       'await waitForSelector("[data-auto-run-control]", "Floating Auto Run control")'
     );
-    expect(smokeSource).toContain('await clickByTestId("auto-run-trigger")');
+    expect(smokeSource).toContain('await openContextMenuByTestId("auto-run-trigger")');
+    expect(smokeSource).toContain('await clickByTestId("auto-run-open-panel")');
     expect(smokeSource).toContain(
       'await waitForSelector(\'[data-testid="auto-run-mini-panel"]\', "mini Auto Run panel")'
     );

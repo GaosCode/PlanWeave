@@ -60,7 +60,7 @@ export function AutoRunScopeContextMenu({
         </ContextMenuRadioItem>
       </ContextMenuRadioGroup>
       <ContextMenuSeparator />
-      <ContextMenuItem onSelect={() => setMiniRunPanelOpen(true)}>
+      <ContextMenuItem data-testid="auto-run-open-panel" onSelect={() => setMiniRunPanelOpen(true)}>
         {t("miniRunPanel")}
       </ContextMenuItem>
     </ContextMenuContent>

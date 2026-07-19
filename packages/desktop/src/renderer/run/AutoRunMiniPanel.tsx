@@ -293,6 +293,11 @@ export function AutoRunMiniPanel({
   const displayedStepCount = autoRunRetrospective?.stepCount ?? autoRunState?.stepCount ?? null;
   const displayedRunSessionId =
     autoRunRetrospective?.runSessionId ?? autoRunState?.runSessionId ?? null;
+  const stateRecordPath = autoRunState?.latestRecordPath ?? explanation?.latestRecordPath ?? null;
+  const displayedRecordPath = stateRecordPath ?? autoRunRetrospective?.latestRecordPath ?? null;
+  const displayedRecordRunId = stateRecordPath
+    ? (autoRunState?.runId ?? null)
+    : (autoRunRetrospective?.runId ?? null);
   return (
     <Popover open={miniRunPanelOpen} onOpenChange={setMiniRunPanelOpen}>
       <PopoverTrigger asChild>
@@ -445,14 +450,14 @@ export function AutoRunMiniPanel({
               <RotateCcwIcon data-icon="inline-start" />
               {t("resetRuntimeState")}
             </Button>
-            {explanation?.latestRecordPath ? (
+            {displayedRecordPath ? (
               <Button
-                data-record-path={explanation.latestRecordPath}
-                data-run-id={autoRunState?.runId ?? ""}
+                data-record-path={displayedRecordPath}
+                data-run-id={displayedRecordRunId ?? ""}
                 data-testid="auto-run-open-record"
                 size="sm"
                 variant="outline"
-                onClick={() => void handleRevealPathInFinder(explanation.latestRecordPath)}
+                onClick={() => void handleRevealPathInFinder(displayedRecordPath)}
               >
                 <FolderOpenIcon data-icon="inline-start" />
                 {t("openRecord")}

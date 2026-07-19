@@ -139,16 +139,21 @@ describe("AutoRunMiniPanel", () => {
   });
 
   it("shows the latest effective metrics while preserving a newer no-work outcome", () => {
+    const handleRevealPathInFinder = vi.fn().mockResolvedValue(undefined);
     const noWorkState = createFailedAutoRunState();
     noWorkState.phase = "completed";
     noWorkState.runId = "DESKTOP-RUN-0002";
     noWorkState.runSessionId = "SESSION-0002";
     noWorkState.stepCount = 0;
     noWorkState.elapsedMs = 37;
+    noWorkState.latestRecordId = null;
+    noWorkState.latestRecordPath = null;
     noWorkState.latestOutputSummary = "no_claimable_blocks";
     noWorkState.explanation = {
       ...noWorkState.explanation,
       phase: "completed",
+      latestRecordId: null,
+      latestRecordPath: null,
       latestOutputSummary: "no_claimable_blocks"
     };
     const retrospective: DesktopAutoRunRetrospectiveSummary = {
@@ -187,7 +192,7 @@ describe("AutoRunMiniPanel", () => {
         }}
         handleAutoRunClick={vi.fn().mockResolvedValue(undefined)}
         handleAutoRunNextAction={vi.fn().mockResolvedValue(undefined)}
-        handleRevealPathInFinder={vi.fn().mockResolvedValue(undefined)}
+        handleRevealPathInFinder={handleRevealPathInFinder}
         hasProject={true}
         miniRunPanelOpen={true}
         preflightExecutor={null}
@@ -203,6 +208,14 @@ describe("AutoRunMiniPanel", () => {
     expect(screen.getByTestId("auto-run-step-count")).toHaveTextContent("4");
     expect(screen.getByTestId("auto-run-session-id")).toHaveTextContent("SESSION-0001");
     expect(screen.getByText(/no_claimable_blocks/)).toBeInTheDocument();
+    expect(screen.getByTestId("auto-run-open-record")).toHaveAttribute(
+      "data-run-id",
+      "DESKTOP-RUN-0001"
+    );
+    expect(screen.getByTestId("auto-run-open-record")).toHaveAttribute(
+      "data-record-path",
+      "/tmp/metadata.json"
+    );
   });
 
   it("ticks elapsed time locally while a long-running step has no runtime event", () => {

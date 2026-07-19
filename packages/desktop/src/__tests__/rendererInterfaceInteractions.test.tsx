@@ -1,13 +1,7 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type {
   DesktopCanvasGraphViewModel,
@@ -15,7 +9,6 @@ import type {
   DesktopProjectSummary
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { AppSuccessToast } from "../renderer/components/AppSuccessToast";
 import { buildNotificationItems } from "../renderer/notifications";
 import { ComponentPalette } from "../renderer/palette/ComponentPalette";

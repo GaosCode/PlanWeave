@@ -1,5 +1,5 @@
 import { app, BrowserWindow } from "electron";
-import { writeFile } from "node:fs/promises";
+import { realpath, writeFile } from "node:fs/promises";
 import { z } from "zod";
 
 export const packagedStartupSmokeEvent = "PLANWEAVE_DESKTOP_STARTUP_SMOKE_READY";
@@ -119,11 +119,19 @@ async function runSmokeWorkflow(window: BrowserWindow): Promise<Record<string, u
   if (!projectRoot) {
     throw new Error("PLANWEAVE_DESKTOP_SMOKE_PROJECT_ROOT is required for desktop smoke.");
   }
+  const resolvedProjectRoot = await realpath(projectRoot);
   return window.webContents.executeJavaScript(`
     (async () => {
       const api = window.planweave;
-      const projectRoot = ${JSON.stringify(projectRoot)};
-      const canvasId = null;
+      const smokeSourceRoot = ${JSON.stringify(resolvedProjectRoot)};
+      const project = (await api.listProjects()).find(
+        (item) => item.rootPath === smokeSourceRoot || item.sourceRoot === smokeSourceRoot
+      );
+      if (!project) {
+        throw new Error("Smoke project was not available from the desktop bridge.");
+      }
+      const projectRoot = project.rootPath;
+      const canvasId = project.activeCanvasId ?? project.taskCanvases[0]?.canvasId ?? null;
       const canvas = { projectRoot, canvasId };
       const added = await api.addTaskNode(canvas, {
         title: "Smoke task",
@@ -162,7 +170,7 @@ async function runSmokeWorkflow(window: BrowserWindow): Promise<Record<string, u
       }
       const run = await api.startAutoRun(canvas, { kind: "block", blockRef: "T-001#B-001" }, 1);
       let state = run;
-      for (let attempt = 0; attempt < 20 && state.phase === "running"; attempt += 1) {
+      for (let attempt = 0; attempt < 100 && state.phase === "running"; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 50));
         state = await api.getAutoRunState(run.runId);
       }
@@ -172,8 +180,8 @@ async function runSmokeWorkflow(window: BrowserWindow): Promise<Record<string, u
       if (state.currentExecutor !== "manual") {
         throw new Error("Desktop Auto Run did not expose the current executor.");
       }
-      // Stop the API-started Auto Run so the later renderer UI path can start a clean run
-      // without colliding with an active session, while preserving created run records.
+      // Stop the API-started Auto Run so the reloaded renderer can inspect a terminal state
+      // while preserving the created run records.
       if (state.runId && !["completed", "stopped", "failed"].includes(state.phase)) {
         state = await api.stopAutoRun(state.runId);
         for (let attempt = 0; attempt < 30 && !["completed", "stopped", "failed"].includes(state.phase); attempt += 1) {
@@ -197,10 +205,18 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
   if (!projectRoot) {
     throw new Error("PLANWEAVE_DESKTOP_SMOKE_PROJECT_ROOT is required for renderer desktop smoke.");
   }
+  const resolvedProjectRoot = await realpath(projectRoot);
   return window.webContents.executeJavaScript(`
     (async () => {
-      const projectRoot = ${JSON.stringify(projectRoot)};
-      const canvasId = null;
+      const smokeSourceRoot = ${JSON.stringify(resolvedProjectRoot)};
+      const project = (await window.planweave.listProjects()).find(
+        (item) => item.rootPath === smokeSourceRoot || item.sourceRoot === smokeSourceRoot
+      );
+      if (!project) {
+        throw new Error("Smoke project was not available from the desktop bridge.");
+      }
+      const projectRoot = project.rootPath;
+      const canvasId = project.activeCanvasId ?? project.taskCanvases[0]?.canvasId ?? null;
       const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const textOf = (element) => (element.textContent ?? "").replace(/\\s+/g, " ").trim();
       const visible = (element) => {
@@ -237,6 +253,28 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
           await wait(100);
         }
         throw new Error("Unable to click visible element with data-testid: " + testId);
+      };
+      const openContextMenuByTestId = async (testId) => {
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          const target = document.querySelector('[data-testid="' + testId + '"]');
+          if (target && visible(target)) {
+            target.scrollIntoView({ block: "center", inline: "center" });
+            const bounds = target.getBoundingClientRect();
+            target.dispatchEvent(new MouseEvent("contextmenu", {
+              bubbles: true,
+              cancelable: true,
+              button: 2,
+              buttons: 2,
+              clientX: bounds.left + bounds.width / 2,
+              clientY: bounds.top + bounds.height / 2,
+              view: window
+            }));
+            await wait(120);
+            return testId;
+          }
+          await wait(100);
+        }
+        throw new Error("Unable to open context menu for visible element with data-testid: " + testId);
       };
       const waitForText = async (text) => {
         for (let attempt = 0; attempt < 50; attempt += 1) {
@@ -373,7 +411,8 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       covered.push("return-graph");
       await waitForSelector("[data-auto-run-control]", "Floating Auto Run control");
       covered.push("auto-run-control-visible");
-      await clickByTestId("auto-run-trigger");
+      await openContextMenuByTestId("auto-run-trigger");
+      await clickByTestId("auto-run-open-panel");
       await waitForSelector('[data-testid="auto-run-mini-panel"]', "mini Auto Run panel");
       const autoRunPhase = await waitForAutoRunMiniStatus();
       const recordActionVisible = await waitForSelector('[data-testid="auto-run-open-record"]', "mini Auto Run record action", { required: false });
@@ -396,7 +435,10 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
         throw new Error("Mini Auto Run panel or record action did not expose a run id.");
       }
       if (recordRunId !== statusRunId) {
-        throw new Error("Mini Auto Run record action targeted run " + recordRunId + " instead of panel run " + statusRunId);
+        const latestEffective = await window.planweave.getLatestAutoRunSummary({ projectRoot, canvasId });
+        if (latestEffective?.runId !== recordRunId || latestEffective.latestRecordPath !== recordActionPath) {
+          throw new Error("Mini Auto Run record action targeted run " + recordRunId + " instead of panel run " + statusRunId + " or latest effective run " + (latestEffective?.runId ?? "none"));
+        }
       }
       window.planweaveSmoke.clearLastRevealPath();
       await clickByTestId("auto-run-open-record");
@@ -665,6 +707,32 @@ async function writeExternalPromptSmokeChange(): Promise<void> {
   await writeFile(promptPath, "# Smoke external prompt change\n", "utf8");
 }
 
+async function reloadSmokeRenderer(window: BrowserWindow): Promise<void> {
+  await new Promise<void>((resolve) => {
+    window.webContents.once("did-finish-load", resolve);
+    window.webContents.reload();
+  });
+  await window.webContents.executeJavaScript(`
+    new Promise((resolve, reject) => {
+      let attempt = 0;
+      const checkReady = () => {
+        const graph = document.querySelector('[data-graph-surface][data-project-loading="false"]');
+        if (graph && document.querySelector('[data-auto-run-control]')) {
+          resolve(true);
+          return;
+        }
+        attempt += 1;
+        if (attempt >= 100) {
+          reject(new Error("Reloaded renderer did not finish loading the smoke project."));
+          return;
+        }
+        setTimeout(checkReady, 100);
+      };
+      checkReady();
+    })
+  `);
+}
+
 export async function runSmokeCheck(window: BrowserWindow): Promise<void> {
   const requiredText = ["Implement a tiny example change", "Task Node"];
   for (let attempt = 0; attempt < 50; attempt += 1) {
@@ -680,6 +748,7 @@ export async function runSmokeCheck(window: BrowserWindow): Promise<void> {
       let rendererManual: Record<string, unknown>;
       try {
         workflow = await runSmokeWorkflow(window);
+        await reloadSmokeRenderer(window);
         await writeExternalPromptSmokeChange();
         rendererManual = await runRendererManualSmoke(window);
       } catch (error) {

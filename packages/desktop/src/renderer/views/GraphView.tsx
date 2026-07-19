@@ -274,6 +274,7 @@ export function GraphView({
     <div
       className="relative h-full min-h-0 bg-app-canvas text-text"
       data-graph-surface
+      data-project-loading={projectLoading ? "true" : "false"}
       onDragOver={handleGraphDragOver}
       onDrop={handleGraphDrop}
     >
