@@ -19,6 +19,9 @@ const requiredPlatformTests = [
   "packages/runtime/src/__tests__/blockRunIndexConcurrency.test.ts",
   "packages/runtime/src/__tests__/stateConcurrency.test.ts"
 ];
+const requiredPerformanceTests = [
+  "packages/runtime/src/__tests__/blockRunIndexPerformance.test.ts"
+];
 const suiteRoots = [
   "packages/cli/src/__tests__",
   "packages/desktop/src/__tests__",
@@ -47,6 +50,13 @@ async function createRepositoryFixture(files: FixtureFile[]): Promise<string> {
     })
   );
   await Promise.all(
+    requiredPerformanceTests.map(async (file) => {
+      const target = join(fixtureRoot, file);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, "");
+    })
+  );
+  await Promise.all(
     files.map(async (file) => {
       const target = join(fixtureRoot, file.path);
       await mkdir(dirname(target), { recursive: true });
@@ -68,15 +78,23 @@ function runClassifier(fixtureRoot: string) {
   );
 }
 
-function manifest(unit: string[], integration: string[] = [], platform: string[] = []): string {
+function manifest(
+  unit: string[],
+  integration: string[] = [],
+  platform: string[] = [],
+  performance: string[] = []
+): string {
   return JSON.stringify({
     groups: [
-      { root: "packages/example/src/__tests__", unit, integration, platform },
+      { root: "packages/example/src/__tests__", unit, integration, platform, performance },
       ...suiteRoots.map((root) => ({
         root,
         unit: [],
         integration: [],
         platform: requiredPlatformTests
+          .filter((file) => dirname(file).replaceAll("\\", "/") === root)
+          .map((file) => file.split("/").at(-1)),
+        performance: requiredPerformanceTests
           .filter((file) => dirname(file).replaceAll("\\", "/") === root)
           .map((file) => file.split("/").at(-1))
       }))
@@ -192,7 +210,7 @@ it("accepts filesystem and child-process tests in the integration suite", async 
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain(
-    `Test suite classification valid: 0 unit, 1 integration, ${requiredPlatformTests.length} platform.`
+    `Test suite classification valid: 0 unit, 1 integration, ${requiredPlatformTests.length} platform, ${requiredPerformanceTests.length} performance.`
   );
 });
 
@@ -213,6 +231,26 @@ it("rejects uncurated tests from the platform matrix", async () => {
   expect(result.status).toBe(1);
   expect(result.stderr).toContain(
     "packages/example/src/__tests__/example.test.ts is not curated for the platform matrix"
+  );
+});
+
+it("rejects uncurated tests from the performance job", async () => {
+  const fixtureRoot = await createRepositoryFixture([
+    {
+      path: "vitest.suites.json",
+      content: manifest([], [], [], ["example.test.ts"])
+    },
+    {
+      path: "packages/example/src/__tests__/example.test.ts",
+      content: "export const sampleCount = 10_000;\n"
+    }
+  ]);
+
+  const result = runClassifier(fixtureRoot);
+
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain(
+    "packages/example/src/__tests__/example.test.ts is not curated for the performance job"
   );
 });
 
@@ -244,7 +282,7 @@ it("accepts pure support helpers without traversing production modules", async (
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain(
-    `Test suite classification valid: 1 unit, 0 integration, ${requiredPlatformTests.length} platform.`
+    `Test suite classification valid: 1 unit, 0 integration, ${requiredPlatformTests.length} platform, ${requiredPerformanceTests.length} performance.`
   );
 });
 
@@ -253,6 +291,6 @@ it("accepts the repository manifest with the expected suite counts", () => {
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain(
-    "Test suite classification valid: 165 unit, 194 integration, 10 platform."
+    "Test suite classification valid: 165 unit, 194 integration, 10 platform, 1 performance."
   );
 });

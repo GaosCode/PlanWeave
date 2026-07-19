@@ -35,6 +35,9 @@ const curatedPlatformTests = [
   "packages/runtime/src/__tests__/stateConcurrency.test.ts"
 ];
 const curatedPlatformTestSet = new Set(curatedPlatformTests);
+const curatedPerformanceTests = ["packages/runtime/src/__tests__/blockRunIndexPerformance.test.ts"];
+const curatedPerformanceTestSet = new Set(curatedPerformanceTests);
+const suiteNames = ["unit", "integration", "platform", "performance"];
 
 function trackedTestFiles() {
   return execFileSync("git", ["ls-files", "--cached", "--", "packages"], {
@@ -145,11 +148,14 @@ for (const group of manifest.groups) {
     typeof group.root !== "string" ||
     !Array.isArray(group.unit) ||
     !Array.isArray(group.integration) ||
-    !Array.isArray(group.platform)
+    !Array.isArray(group.platform) ||
+    !Array.isArray(group.performance)
   ) {
-    validationErrors.push("Each group must define root, unit, integration, and platform.");
+    validationErrors.push(
+      "Each group must define root, unit, integration, platform, and performance."
+    );
   } else {
-    for (const suite of ["unit", "integration", "platform"]) {
+    for (const suite of suiteNames) {
       for (const fileName of group[suite]) {
         if (typeof fileName !== "string" || fileName !== posix.basename(fileName)) {
           validationErrors.push(`${group.root}/${String(fileName)} must be a test file basename.`);
@@ -184,10 +190,20 @@ for (const file of curatedPlatformTests) {
     validationErrors.push(`${file} must remain in the platform suite.`);
   }
 }
+for (const file of curatedPerformanceTests) {
+  if (assignments.get(file) !== "performance") {
+    validationErrors.push(`${file} must remain in the performance suite.`);
+  }
+}
 for (const [file, suite] of assignments) {
   if (suite === "platform" && !curatedPlatformTestSet.has(file)) {
     validationErrors.push(
       `${file} is not curated for the platform matrix; assign it to integration instead.`
+    );
+  }
+  if (suite === "performance" && !curatedPerformanceTestSet.has(file)) {
+    validationErrors.push(
+      `${file} is not curated for the performance job; assign it to integration instead.`
     );
   }
   if (suite === "unit" && trackedSet.has(file)) {
@@ -208,7 +224,8 @@ const unitCount = [...assignments.values()].filter((suite) => suite === "unit").
 const integrationCount = [...assignments.values()].filter(
   (suite) => suite === "integration"
 ).length;
-const platformCount = assignments.size - unitCount - integrationCount;
+const platformCount = [...assignments.values()].filter((suite) => suite === "platform").length;
+const performanceCount = assignments.size - unitCount - integrationCount - platformCount;
 process.stdout.write(
-  `Test suite classification valid: ${unitCount} unit, ${integrationCount} integration, ${platformCount} platform.\n`
+  `Test suite classification valid: ${unitCount} unit, ${integrationCount} integration, ${platformCount} platform, ${performanceCount} performance.\n`
 );

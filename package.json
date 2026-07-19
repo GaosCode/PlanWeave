@@ -36,6 +36,9 @@
     "check:test-suites": "node scripts/check-test-suite-classification.mjs",
     "test": "vitest run",
     "test:integration": "pnpm check:test-suites && vitest run --config vitest.integration.config.ts",
+    "test:integration:cli": "pnpm check:test-suites && vitest run --config vitest.integration-cli.config.ts",
+    "test:integration:core": "pnpm check:test-suites && vitest run --config vitest.integration-core.config.ts",
+    "test:performance": "pnpm check:test-suites && vitest run --config vitest.performance.config.ts",
     "test:platform": "pnpm check:test-suites && vitest run --config vitest.platform.config.ts",
     "test:unit": "pnpm check:test-suites && vitest run --config vitest.unit.config.ts"
   },

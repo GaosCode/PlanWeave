@@ -465,7 +465,7 @@ process.exit(2);
     windowsReleaseProbeTimeoutMs
   );
 
-  it("keeps unit, integration, platform-matrix, and unsigned Windows packaged gates explicit", async () => {
+  it("keeps parallel test, performance, platform, and packaged gates explicit", async () => {
     const [
       workflow,
       desktopSmokeWorkflow,
@@ -487,11 +487,15 @@ process.exit(2);
 
     expect(workflow).toContain("group: ci-${{ github.workflow }}-${{ github.ref }}");
     expect(workflow).toContain("cancel-in-progress: true");
-    expect(workflow).toContain("name: Ubuntu build, lint, unit, and integration tests");
+    expect(workflow).toContain("name: Ubuntu build, lint, and unit tests");
     expect(workflow).toContain("pnpm test:unit --maxWorkers=2");
     expect(workflow).not.toContain("pnpm test:unit -- --maxWorkers=2");
-    expect(workflow).toContain("pnpm test:integration --maxWorkers=2");
-    expect(workflow).not.toContain("pnpm test:integration -- --maxWorkers=2");
+    expect(workflow).toContain("name: Integration tests (${{ matrix.label }})");
+    expect(workflow).toContain("pnpm test:integration:${{ matrix.shard }} --maxWorkers=2");
+    expect(workflow).not.toContain("pnpm test:integration --maxWorkers=2");
+    expect(workflow).toContain("name: Block Run Index performance regression");
+    expect(workflow).toContain("pnpm test:performance --maxWorkers=1");
+    expect(workflow).not.toContain("pnpm test:performance --maxWorkers=2");
     expect(workflow).toContain("name: Platform tests (${{ matrix.os }})");
     expect(workflow).toContain("- ubuntu-latest");
     expect(workflow).toContain("- windows-latest");
@@ -505,11 +509,14 @@ process.exit(2);
     expect(workflow).toContain("PLANWEAVE_CI_REPORT_PATH: reports/windows-packaged-smoke.json");
     expect(workflow).not.toContain("secrets.");
     expect(occurrenceCount(workflow, "timeout-minutes:")).toBeGreaterThanOrEqual(7);
-    expect(occurrenceCount(workflow, "cache: pnpm")).toBe(3);
-    expect(occurrenceCount(workflow, "pnpm install --frozen-lockfile")).toBe(3);
-    expect(occurrenceCount(workflow, "node scripts/redact-ci-test-artifacts.mjs reports")).toBe(3);
-    expect(occurrenceCount(workflow, "actions/upload-artifact@v4")).toBe(3);
+    expect(occurrenceCount(workflow, "cache: pnpm")).toBe(5);
+    expect(occurrenceCount(workflow, "pnpm install --frozen-lockfile")).toBe(5);
+    expect(occurrenceCount(workflow, "node scripts/report-slowest-tests.mjs")).toBe(4);
+    expect(occurrenceCount(workflow, "node scripts/redact-ci-test-artifacts.mjs reports")).toBe(5);
+    expect(occurrenceCount(workflow, "actions/upload-artifact@v4")).toBe(5);
     expect(workflow).toContain("if: failure() && steps.redact-unit.outcome == 'success'");
+    expect(workflow).toContain("if: failure() && steps.redact-integration.outcome == 'success'");
+    expect(workflow).toContain("if: failure() && steps.redact-performance.outcome == 'success'");
     expect(workflow).toContain("if: failure() && steps.redact-platform.outcome == 'success'");
     expect(workflow).toContain("if: failure() && steps.redact-packaged-smoke.outcome == 'success'");
     expect(desktopSmokeWorkflow).not.toContain("windows-latest");

@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   ubuntu-gate:
-    name: Ubuntu build, lint, unit, and integration tests
+    name: Ubuntu build, lint, and unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -59,12 +59,13 @@ jobs:
         run: node -e "require('node:fs').mkdirSync('reports',{recursive:true})"
 
       - name: Run unit tests
+        id: unit-tests
         timeout-minutes: 20
         run: pnpm test:unit --maxWorkers=2 --reporter=default --reporter=junit --outputFile.junit=reports/unit.xml
 
-      - name: Run integration tests
-        timeout-minutes: 20
-        run: pnpm test:integration --maxWorkers=2 --reporter=default --reporter=junit --outputFile.junit=reports/integration.xml
+      - name: Report slowest unit tests
+        if: always() && steps.unit-tests.outcome != 'skipped'
+        run: node scripts/report-slowest-tests.mjs reports/unit.xml "Unit tests"
 
       - name: Redact failed Ubuntu test reports
         id: redact-unit
@@ -76,6 +77,120 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-reports-ubuntu
+          path: reports
+          if-no-files-found: error
+          retention-days: 7
+
+  integration-tests:
+    name: Integration tests (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: cli
+            label: CLI
+          - shard: core
+            label: Runtime, Desktop, and MCP
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        timeout-minutes: 15
+        run: pnpm build
+
+      - name: Create test report directory
+        run: node -e "require('node:fs').mkdirSync('reports',{recursive:true})"
+
+      - name: Run integration tests
+        id: integration-tests
+        timeout-minutes: 15
+        run: pnpm test:integration:${{ matrix.shard }} --maxWorkers=2 --reporter=default --reporter=junit --outputFile.junit=reports/integration-${{ matrix.shard }}.xml
+
+      - name: Report slowest integration tests
+        if: always() && steps.integration-tests.outcome != 'skipped'
+        run: node scripts/report-slowest-tests.mjs reports/integration-${{ matrix.shard }}.xml "Integration (${{ matrix.label }})"
+
+      - name: Redact failed integration test report
+        id: redact-integration
+        if: failure()
+        run: node scripts/redact-ci-test-artifacts.mjs reports
+
+      - name: Upload failed integration test report
+        if: failure() && steps.redact-integration.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-report-${{ matrix.shard }}
+          path: reports
+          if-no-files-found: error
+          retention-days: 7
+
+  performance-tests:
+    name: Block Run Index performance regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        timeout-minutes: 15
+        run: pnpm build
+
+      - name: Create test report directory
+        run: node -e "require('node:fs').mkdirSync('reports',{recursive:true})"
+
+      - name: Run performance regression
+        id: performance-tests
+        timeout-minutes: 10
+        run: pnpm test:performance --maxWorkers=1 --reporter=default --reporter=junit --outputFile.junit=reports/performance.xml
+
+      - name: Report slowest performance tests
+        if: always() && steps.performance-tests.outcome != 'skipped'
+        run: node scripts/report-slowest-tests.mjs reports/performance.xml "Performance regression"
+
+      - name: Redact failed performance test report
+        id: redact-performance
+        if: failure()
+        run: node scripts/redact-ci-test-artifacts.mjs reports
+
+      - name: Upload failed performance test report
+        if: failure() && steps.redact-performance.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-test-report
           path: reports
           if-no-files-found: error
           retention-days: 7
@@ -116,8 +231,13 @@ jobs:
         run: node -e "require('node:fs').mkdirSync('reports',{recursive:true})"
 
       - name: Run platform tests
+        id: platform-tests
         timeout-minutes: 20
         run: pnpm test:platform --maxWorkers=2 --reporter=default --reporter=junit --outputFile.junit=reports/platform.xml
+
+      - name: Report slowest platform tests
+        if: always() && steps.platform-tests.outcome != 'skipped'
+        run: node scripts/report-slowest-tests.mjs reports/platform.xml "Platform (${{ matrix.os }})"
 
       - name: Redact failed platform test report
         id: redact-platform
