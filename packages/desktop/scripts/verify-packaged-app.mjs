@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { access, mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,7 +42,7 @@ const inheritedEnvironmentKeys = new Set([
   "XDG_RUNTIME_DIR"
 ]);
 
-function buildSmokeEnvironment(smokeHome, smokeUserData) {
+function buildSmokeEnvironment(smokeHome, smokeUserData, startupReportPath) {
   const environment = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && inheritedEnvironmentKeys.has(key.toUpperCase())) {
@@ -53,7 +53,8 @@ function buildSmokeEnvironment(smokeHome, smokeUserData) {
     ...environment,
     PLANWEAVE_HOME: smokeHome,
     PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR: smokeUserData,
-    PLANWEAVE_DESKTOP_STARTUP_SMOKE: "1"
+    PLANWEAVE_DESKTOP_STARTUP_SMOKE: "1",
+    PLANWEAVE_DESKTOP_STARTUP_SMOKE_REPORT_PATH: startupReportPath
   };
 }
 
@@ -114,6 +115,39 @@ function hasVerifiedStartupMarker(output) {
     }
   }
   return false;
+}
+
+function createStartupReportReadiness(reportPath) {
+  let readInFlight = false;
+  let timer;
+  const promise = new Promise((resolveReadiness) => {
+    timer = setInterval(() => {
+      if (readInFlight) {
+        return;
+      }
+      readInFlight = true;
+      void readFile(reportPath, "utf8")
+        .then((report) => {
+          if (hasVerifiedStartupMarker(report)) {
+            resolveReadiness({ kind: "ready" });
+          }
+        })
+        .catch((error) => {
+          if (error?.code !== "ENOENT") {
+            resolveReadiness({ kind: "report-error", error });
+          }
+        })
+        .finally(() => {
+          readInFlight = false;
+        });
+    }, 50);
+  });
+  return {
+    promise,
+    stop() {
+      clearInterval(timer);
+    }
+  };
 }
 
 async function pathExists(path) {
@@ -230,13 +264,14 @@ async function verifyAsarContents(appAsarPath) {
 async function smokeLaunch(executablePath, platform) {
   const smokeHome = await mkdtemp(join(tmpdir(), "planweave-packaged-smoke-home-"));
   const smokeUserData = await mkdtemp(join(tmpdir(), "planweave-packaged-smoke-user-data-"));
+  const startupReportPath = join(smokeUserData, "startup-ready.json");
   const launchArgs = platform === "linux" ? ["--no-sandbox"] : [];
   const startupStartedAt = Date.now();
   const { child, tree } = spawnManagedProcess({
     command: executablePath,
     args: launchArgs,
     cwd: repoRoot,
-    env: buildSmokeEnvironment(smokeHome, smokeUserData),
+    env: buildSmokeEnvironment(smokeHome, smokeUserData, startupReportPath),
     graceMs: 1_000
   });
   child.stdin.end();
@@ -261,15 +296,18 @@ async function smokeLaunch(executablePath, platform) {
     child.once("error", (error) => resolveCompletion({ kind: "error", error }));
     child.once("close", (code, signal) => resolveCompletion({ kind: "close", code, signal }));
   });
+  const reportReadiness = createStartupReportReadiness(startupReportPath);
   let timeout;
   const outcome = await Promise.race([
     readiness,
+    reportReadiness.promise,
     completion,
     new Promise((resolveTimeout) => {
       timeout = setTimeout(() => resolveTimeout({ kind: "timeout" }), packagedStartupBudgetMs);
     })
   ]);
   clearTimeout(timeout);
+  reportReadiness.stop();
   const startupTiming = measuredStartupTiming(startupStartedAt);
   const sensitivePaths = [executablePath, smokeHome, smokeUserData];
   const diagnosticOutput = () => sanitizedDiagnostic(output, sensitivePaths);
@@ -286,6 +324,18 @@ async function smokeLaunch(executablePath, platform) {
     throw new PackagedStartupTimeoutError(
       `Packaged app did not report startup readiness before timeout:\n${diagnosticOutput()}`,
       startupTiming
+    );
+  }
+  if (outcome.kind === "report-error") {
+    try {
+      await tree.terminate("packaged startup smoke report failure");
+    } catch (cleanupError) {
+      throw new Error(
+        `Packaged startup report read failed and managed process-tree cleanup failed: ${sanitizedDiagnostic(`${errorMessage(outcome.error)}; ${errorMessage(cleanupError)}`, sensitivePaths)}`
+      );
+    }
+    throw new Error(
+      `Packaged startup report read failed: ${sanitizedDiagnostic(errorMessage(outcome.error), sensitivePaths)}`
     );
   }
   if (outcome.kind === "error") {

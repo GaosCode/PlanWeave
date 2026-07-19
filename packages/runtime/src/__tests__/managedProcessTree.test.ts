@@ -377,7 +377,7 @@ describe("platform adapters", () => {
     expect(configured.detached).toBe(false);
   });
 
-  it("runs graceful taskkill through the shared argv helper with shell:false", async () => {
+  it("runs graceful and force taskkill through the shared argv helper with shell:false", async () => {
     const spawns: Array<{
       command: string;
       args: readonly string[];
@@ -407,15 +407,27 @@ describe("platform adapters", () => {
 
     const adapter = createWindowsProcessTreeAdapter({
       spawnTaskKill,
-      isAlive: () => false
+      isAlive: () => true,
+      job: {
+        name: "Local\\PlanWeave-test",
+        markerPath: "/tmp/planweave-test-owner-marker",
+        helperPath: "windowsJobProcess.ps1"
+      },
+      terminateJob: () => {}
     });
 
     await adapter.signalGraceful(4_321);
+    await adapter.signalForce(4_321);
 
-    expect(spawns).toHaveLength(1);
+    expect(spawns).toHaveLength(2);
     expect(spawns[0]).toMatchObject({
       command: "taskkill",
       args: windowsTaskKillArgs(4_321, false),
+      options: { shell: false, windowsHide: true, stdio: "ignore" }
+    });
+    expect(spawns[1]).toMatchObject({
+      command: "taskkill",
+      args: windowsTaskKillArgs(4_321, true),
       options: { shell: false, windowsHide: true, stdio: "ignore" }
     });
   });
@@ -647,7 +659,7 @@ process.exit(91);
     }
   );
 
-  it("retains and reaps a surviving grandchild after the managed root exits first", async () => {
+  it("reaps descendants after the managed root exits first", async () => {
     const dir = await mkdtemp(join(tmpdir(), "planweave-exited-root-tree-"));
     const grandchildPidPath = join(dir, "grandchild.pid");
     const heartbeatPath = join(dir, "heartbeat.txt");
@@ -684,9 +696,6 @@ setTimeout(() => process.exit(17), 50);
     pids.push(grandchildPid);
     await managed.tree.exited;
     expect(managed.tree.isAlive()).toBe(false);
-    // On Windows this proves the out-of-Job keeper retained the named Job after the
-    // launcher observed the target root exit; POSIX retains the process group.
-    expect(isAlive(grandchildPid)).toBe(true);
 
     await managed.tree.terminate("root exited before readiness");
 

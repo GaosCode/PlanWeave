@@ -70,11 +70,12 @@ export function windowsTaskKillArgs(pid: number, force: boolean): string[] {
 
 function runTaskKill(
   pid: number,
+  force: boolean,
   options: { spawnTaskKill: TaskKillSpawnFn; isAlive: (pid: number) => boolean }
 ): Promise<void> {
   assertSafeManagedPid(pid);
   return new Promise((resolvePromise, reject) => {
-    const child = options.spawnTaskKill("taskkill", windowsTaskKillArgs(pid, false), {
+    const child = options.spawnTaskKill("taskkill", windowsTaskKillArgs(pid, force), {
       stdio: "ignore",
       windowsHide: true,
       shell: false
@@ -94,7 +95,9 @@ function runTaskKill(
       }
       reject(
         Object.assign(
-          new Error(`taskkill graceful failed for pid=${String(pid)} (exit ${String(code)}).`),
+          new Error(
+            `taskkill ${force ? "force" : "graceful"} failed for pid=${String(pid)} (exit ${String(code)}).`
+          ),
           { code: stillAlive ? "EPERM" : "ECHILD" }
         )
       );
@@ -114,13 +117,34 @@ export function createWindowsProcessTreeAdapter(
       return { ...spawnOptions, detached: false, shell: false, windowsHide: true };
     },
     signalGraceful(pid) {
-      return runTaskKill(pid, { spawnTaskKill, isAlive });
+      return runTaskKill(pid, false, { spawnTaskKill, isAlive });
     },
-    signalForce() {
+    async signalForce(pid) {
       if (!options.job) {
         throw new Error("Windows managed process is missing named Job ownership.");
       }
-      return terminateJob(options.job);
+      const failures: unknown[] = [];
+      try {
+        await terminateJob(options.job);
+      } catch (error) {
+        failures.push(error);
+      }
+      try {
+        if (isAlive(pid)) {
+          await runTaskKill(pid, true, { spawnTaskKill, isAlive });
+        }
+      } catch (error) {
+        failures.push(error);
+      }
+      if (failures.length === 1) {
+        throw failures[0];
+      }
+      if (failures.length > 1) {
+        throw new AggregateError(
+          failures,
+          `Windows managed Job and launcher force termination failed for pid=${String(pid)}.`
+        );
+      }
     },
     isAlive
   };

@@ -308,6 +308,8 @@ describe("desktop release configuration", () => {
     ]);
 
     expect(packagedVerifier).toContain("hasVerifiedStartupMarker(output)");
+    expect(packagedVerifier).toContain("createStartupReportReadiness(startupReportPath)");
+    expect(packagedVerifier).toContain("PLANWEAVE_DESKTOP_STARTUP_SMOKE_REPORT_PATH");
     expect(packagedVerifier).toContain("payload.runtimeBridgeAvailable === true");
     expect(packagedVerifier).toContain("payload.appUpdateBridgeAvailable === true");
     expect(packagedVerifier).toContain("payload.metadataVerified === true");
@@ -533,7 +535,9 @@ process.exit(2);
     expect(packagedVerifier).toContain('child.once("close"');
     expect(packagedVerifier).not.toContain("await tree.exited");
     expect(packagedVerifier).not.toContain('child.kill("SIGTERM")');
-    expect(packagedVerifier).toContain("buildSmokeEnvironment(smokeHome, smokeUserData)");
+    expect(packagedVerifier).toContain(
+      "buildSmokeEnvironment(smokeHome, smokeUserData, startupReportPath)"
+    );
     expect(packagedVerifier).toContain("maxCapturedOutputBytes");
     expect(packagedVerifier).toContain("redactCiText");
     expect(packagedVerifier).not.toContain("...process.env");
@@ -545,6 +549,8 @@ process.exit(2);
     expect(packagedStartupSection).not.toMatch(/[\u3400-\u9fff]/);
     const startupMainSection = desktopMain.split("if (isStartupSmoke)")[1]?.split("return;")[0];
     expect(startupMainSection).toContain("runPackagedStartupSmoke(window)");
+    expect(startupMainSection).toContain("PLANWEAVE_DESKTOP_STARTUP_SMOKE_REPORT_PATH");
+    expect(startupMainSection).toContain("writeFile(reportPath");
     expect(startupMainSection).not.toContain("app.exit(0)");
     expect(redactor).toContain("descriptor|endpoint|hostname|password|secret|token");
     expect(redactor).toContain("<redacted-user-path>");

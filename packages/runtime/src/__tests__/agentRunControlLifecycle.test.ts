@@ -48,14 +48,59 @@ function controllerRun(root: string, scenario: string): AcpSessionRun {
   };
 }
 
-async function liveDescriptor(root: string) {
-  let descriptor = await readAgentRunControlDescriptor(root);
-  await vi.waitFor(async () => {
-    descriptor = await readAgentRunControlDescriptor(root);
-    expect(descriptor).not.toBeNull();
+async function executeWithPublishedControl(
+  root: string,
+  scenario: string,
+  registry: ActiveAgentRunRegistry,
+  options: { signal?: AbortSignal; timeoutMs: number },
+  holdAfterAvailability = false
+) {
+  const originalStart = AgentRunControlServer.prototype.start;
+  let publishDescriptor!: (descriptor: AgentRunControlEndpointDescriptor) => void;
+  let releaseStartup = () => undefined;
+  const descriptorPublished = new Promise<AgentRunControlEndpointDescriptor>((resolve) => {
+    publishDescriptor = resolve;
   });
-  if (!descriptor) throw new Error("Expected a live agent run control descriptor.");
-  return descriptor;
+  let availabilityPublished = Promise.resolve();
+  let availability: ReturnType<typeof vi.spyOn> | undefined;
+  const start = vi
+    .spyOn(AgentRunControlServer.prototype, "start")
+    .mockImplementation(async function () {
+      const descriptor = await originalStart.call(this);
+      publishDescriptor(descriptor);
+      return descriptor;
+    });
+  if (holdAfterAvailability) {
+    const originalSetControlAvailability = AcpOwnerStateWriter.prototype.setControlAvailability;
+    let publishAvailability!: () => void;
+    availabilityPublished = new Promise<void>((resolve) => {
+      publishAvailability = resolve;
+    });
+    const startupReleased = new Promise<void>((resolve) => {
+      releaseStartup = resolve;
+    });
+    availability = vi
+      .spyOn(AcpOwnerStateWriter.prototype, "setControlAvailability")
+      .mockImplementation(async function (summary) {
+        await originalSetControlAvailability.call(this, summary);
+        if (summary.controlAvailable) {
+          publishAvailability();
+          await startupReleased;
+        }
+      });
+  }
+  const execution = new AcpSessionController(registry).execute(
+    controllerRun(root, scenario),
+    options
+  );
+  void execution.catch(() => undefined);
+  try {
+    const [descriptor] = await Promise.all([descriptorPublished, availabilityPublished]);
+    return { descriptor, execution, releaseStartup };
+  } finally {
+    availability?.mockRestore();
+    start.mockRestore();
+  }
 }
 
 async function liveControlMetadata(root: string): Promise<Record<string, unknown>> {
@@ -144,11 +189,13 @@ describe("agent run control controller lifecycle", () => {
       ["delayed", false]
     ] as const) {
       const root = await mkdtemp(join(tmpdir(), `planweave-control-${scenario}-`));
-      const execution = new AcpSessionController(new ActiveAgentRunRegistry()).execute(
-        controllerRun(root, scenario),
-        { timeoutMs: 2_000 }
+      const { descriptor, execution, releaseStartup } = await executeWithPublishedControl(
+        root,
+        scenario,
+        new ActiveAgentRunRegistry(),
+        { timeoutMs: 2_000 },
+        true
       );
-      const descriptor = await liveDescriptor(root);
       const liveMetadata = await liveControlMetadata(root);
       expect(liveMetadata).toMatchObject({
         controlAvailable: true,
@@ -156,6 +203,7 @@ describe("agent run control controller lifecycle", () => {
         controlUnavailableReason: null
       });
       expect(JSON.stringify(liveMetadata)).not.toContain(descriptor.address);
+      releaseStartup();
       if (succeeds) await expect(execution).resolves.toMatchObject({ exitCode: 0 });
       else await expect(execution).rejects.toThrow("Final artifact marker was not found");
       await expectEndpointClosed(root, descriptor.address);
@@ -168,13 +216,13 @@ describe("agent run control controller lifecycle", () => {
   it("returns a typed cancel receipt before closing the endpoint", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-control-cancel-"));
     const registry = new ActiveAgentRunRegistry();
-    const execution = new AcpSessionController(registry).execute(
-      controllerRun(root, "long-prompt"),
-      {
-        timeoutMs: 2_000
-      }
+    const { descriptor, execution, releaseStartup } = await executeWithPublishedControl(
+      root,
+      "long-prompt",
+      registry,
+      { timeoutMs: 2_000 }
     );
-    const descriptor = await liveDescriptor(root);
+    releaseStartup();
     const response = await sendCommand(
       descriptor.address,
       agentRunControlCancelCommandSchema.parse({
@@ -203,11 +251,13 @@ describe("agent run control controller lifecycle", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-control-fatal-queue-"));
     const registry = new ActiveAgentRunRegistry();
     const shutdown = new AbortController();
-    const execution = new AcpSessionController(registry).execute(
-      controllerRun(root, "long-prompt"),
+    const { descriptor, execution, releaseStartup } = await executeWithPublishedControl(
+      root,
+      "long-prompt",
+      registry,
       { signal: shutdown.signal, timeoutMs: 2_000 }
     );
-    const descriptor = await liveDescriptor(root);
+    releaseStartup();
     const followUp = sendCommand(
       descriptor.address,
       agentRunControlFollowUpCommandSchema.parse({
@@ -258,11 +308,13 @@ describe("agent run control controller lifecycle", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-control-owner-state-failure-"));
     const registry = new ActiveAgentRunRegistry();
     try {
-      const execution = new AcpSessionController(registry).execute(
-        controllerRun(root, "delayed-artifact-implementation"),
+      const { descriptor, execution, releaseStartup } = await executeWithPublishedControl(
+        root,
+        "delayed-artifact-implementation",
+        registry,
         { timeoutMs: 2_000 }
       );
-      const descriptor = await liveDescriptor(root);
+      releaseStartup();
 
       const failure = await execution.catch((error: unknown) => error);
       const messages = nestedErrorMessages(failure);
@@ -309,11 +361,13 @@ describe("agent run control controller lifecycle", () => {
     const root = await mkdtemp(join(tmpdir(), `planweave-control-owner-${phase}-failure-`));
     const registry = new ActiveAgentRunRegistry();
     try {
-      const execution = new AcpSessionController(registry).execute(
-        controllerRun(root, "delayed-artifact-implementation"),
+      const { descriptor, execution, releaseStartup } = await executeWithPublishedControl(
+        root,
+        "delayed-artifact-implementation",
+        registry,
         { timeoutMs: 2_000 }
       );
-      const descriptor = await liveDescriptor(root);
+      releaseStartup();
 
       await expect(execution).rejects.toBe(ownerStateFailure);
       expect(terminalWriteAttempts).toBe(failingAttempt === 2 ? 3 : 2);

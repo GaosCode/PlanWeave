@@ -1,5 +1,6 @@
 import { app, BrowserWindow } from "electron";
 import { shutdownDesktopAutoRuns } from "@planweave-ai/runtime";
+import { writeFile } from "node:fs/promises";
 import { registerApplicationMenu } from "./appMenu.js";
 import { checkForAppUpdate, registerAppUpdateHandlers } from "./appUpdate.js";
 import {
@@ -63,7 +64,13 @@ startSingleInstanceLifecycle({
       void (async () => {
         const window = await createWindow({ isDev, isSmoke, isStartupSmoke });
         if (isStartupSmoke) {
-          console.log(JSON.stringify(await runPackagedStartupSmoke(window)));
+          const result = await runPackagedStartupSmoke(window);
+          const reportPath = process.env.PLANWEAVE_DESKTOP_STARTUP_SMOKE_REPORT_PATH;
+          if (!reportPath) {
+            throw new Error("Packaged startup smoke report path is required.");
+          }
+          await writeFile(reportPath, `${JSON.stringify(result)}\n`, "utf8");
+          console.log(JSON.stringify(result));
           return;
         }
         void autoStartMcpTunnel();

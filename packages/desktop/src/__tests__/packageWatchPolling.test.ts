@@ -575,14 +575,8 @@ describe("package file watcher: polling SLA and resources", () => {
     const probeStatStarted = createDeferred<void>();
     const inventoryCompleted = createDeferred<void>();
     const probeTailCompleted = createDeferred<void>();
-    const inventoryPaths = new Set([
-      join(workspace.packageDir, "nodes", "T-001", "prompt.md"),
-      join(workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md")
-    ]);
-    const completedInventoryPaths = new Set<string>();
     let probeReleased = false;
     let manifestStatCalls = 0;
-    let projectPromptStatCallsAfterRelease = 0;
     let probeTailCallId: number | null = null;
 
     try {
@@ -599,19 +593,13 @@ describe("package file watcher: polling SLA and resources", () => {
             await releaseProbeStat.promise;
           }
         }
-        if (path === workspace.projectPromptFile && probeReleased) {
-          projectPromptStatCallsAfterRelease += 1;
-          if (projectPromptStatCallsAfterRelease === 2) {
-            probeTailCallId = callId;
-          }
+        if (path === workspace.projectPromptFile && probeReleased && probeTailCallId === null) {
+          probeTailCallId = callId;
         }
       };
       fsPromisesMock.state.statResultHook = (path, callId) => {
-        if (inventoryPaths.has(path) && !probeReleased) {
-          completedInventoryPaths.add(path);
-          if (completedInventoryPaths.size === inventoryPaths.size) {
-            inventoryCompleted.resolve();
-          }
+        if (path === workspace.projectPromptFile && !probeReleased) {
+          inventoryCompleted.resolve();
         }
         if (callId === probeTailCallId) {
           probeTailCompleted.resolve();
