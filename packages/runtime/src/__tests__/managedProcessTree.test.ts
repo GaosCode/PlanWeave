@@ -647,7 +647,7 @@ process.exit(91);
     }
   );
 
-  it("reaps a surviving grandchild after the managed root exits first", async () => {
+  it("retains and reaps a surviving grandchild after the managed root exits first", async () => {
     const dir = await mkdtemp(join(tmpdir(), "planweave-exited-root-tree-"));
     const grandchildPidPath = join(dir, "grandchild.pid");
     const heartbeatPath = join(dir, "heartbeat.txt");
@@ -684,6 +684,8 @@ setTimeout(() => process.exit(17), 50);
     pids.push(grandchildPid);
     await managed.tree.exited;
     expect(managed.tree.isAlive()).toBe(false);
+    // On Windows this proves the out-of-Job keeper retained the named Job after the
+    // launcher observed the target root exit; POSIX retains the process group.
     expect(isAlive(grandchildPid)).toBe(true);
 
     await managed.tree.terminate("root exited before readiness");

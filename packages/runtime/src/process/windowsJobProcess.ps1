@@ -27,6 +27,7 @@ public static class PlanWeaveWindowsJob
     private const int JobObjectExtendedLimitInformation = 9;
     private const uint STARTF_USESHOWWINDOW = 0x00000001;
     private const uint STARTF_USESTDHANDLES = 0x00000100;
+    private const uint CREATE_SUSPENDED = 0x00000004;
     private const short SW_HIDE = 0;
     private const int STD_INPUT_HANDLE = -10;
     private const int STD_OUTPUT_HANDLE = -11;
@@ -141,12 +142,6 @@ public static class PlanWeaveWindowsJob
     private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
-
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr GetCurrentProcess();
-
-    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr OpenProcess(uint desiredAccess, bool inheritHandle, uint processId);
 
     [DllImport("kernel32.dll")]
@@ -164,6 +159,12 @@ public static class PlanWeaveWindowsJob
         string currentDirectory,
         ref STARTUPINFO startupInfo,
         out PROCESS_INFORMATION processInformation);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint ResumeThread(IntPtr thread);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateProcess(IntPtr process, uint exitCode);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
@@ -189,6 +190,18 @@ public static class PlanWeaveWindowsJob
         return new Win32Exception(Marshal.GetLastWin32Error(), operation + " failed");
     }
 
+    public sealed class SuspendedTarget
+    {
+        internal IntPtr ProcessHandle;
+        internal IntPtr ThreadHandle;
+
+        internal SuspendedTarget(IntPtr processHandle, IntPtr threadHandle)
+        {
+            ProcessHandle = processHandle;
+            ThreadHandle = threadHandle;
+        }
+    }
+
     public static IntPtr CreateOwnedJob(string name)
     {
         IntPtr job = CreateJobObject(IntPtr.Zero, name);
@@ -203,8 +216,6 @@ public static class PlanWeaveWindowsJob
             Marshal.StructureToPtr(limits, pointer, false);
             if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, pointer, (uint)size))
                 throw Error("SetInformationJobObject");
-            if (!AssignProcessToJobObject(job, GetCurrentProcess()))
-                throw Error("AssignProcessToJobObject(current launcher)");
             return job;
         }
         catch
@@ -257,14 +268,6 @@ public static class PlanWeaveWindowsJob
         {
             Marshal.FreeHGlobal(pointer);
         }
-    }
-
-    public static bool CurrentProcessBelongsToJob(IntPtr job)
-    {
-        bool belongs;
-        if (!IsProcessInJob(GetCurrentProcess(), job, out belongs))
-            throw Error("IsProcessInJob(current keeper)");
-        return belongs;
     }
 
     private static string QuoteArgument(string argument)
@@ -383,12 +386,11 @@ public static class PlanWeaveWindowsJob
         return commandLine;
     }
 
-    public static uint RunTarget(
+    public static SuspendedTarget CreateSuspendedTarget(
         string command,
         string launchMode,
         string commandInterpreter,
         string[] arguments,
-        IntPtr parent,
         IntPtr job)
     {
         if (!System.IO.Path.IsPathRooted(command) || !System.IO.File.Exists(command))
@@ -410,53 +412,123 @@ public static class PlanWeaveWindowsJob
         startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
         startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
         startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
-        PROCESS_INFORMATION process;
+        PROCESS_INFORMATION process = new PROCESS_INFORMATION();
+        bool processCreated = false;
         string previousLiteralPercent = batch
             ? Environment.GetEnvironmentVariable(literalPercentVariable)
             : null;
         try
         {
-            // cmd expands variables once, so this becomes a literal % without re-expansion.
-            if (batch) Environment.SetEnvironmentVariable(literalPercentVariable, "%");
-            if (!CreateProcess(
-                executable,
-                commandLine,
-                IntPtr.Zero,
-                IntPtr.Zero,
-                true,
-                0,
-                IntPtr.Zero,
-                null,
-                ref startup,
-                out process))
-                throw Error("CreateProcess(target)");
+            try
+            {
+                // cmd expands variables once, so this becomes a literal % without re-expansion.
+                if (batch) Environment.SetEnvironmentVariable(literalPercentVariable, "%");
+                if (!CreateProcess(
+                    executable,
+                    commandLine,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    true,
+                    CREATE_SUSPENDED,
+                    IntPtr.Zero,
+                    null,
+                    ref startup,
+                    out process))
+                    throw Error("CreateProcess(target)");
+                processCreated = true;
+            }
+            finally
+            {
+                if (batch) Environment.SetEnvironmentVariable(literalPercentVariable, previousLiteralPercent);
+            }
+            if (!AssignProcessToJobObject(job, process.hProcess))
+                throw Error("AssignProcessToJobObject(target)");
+            return new SuspendedTarget(process.hProcess, process.hThread);
+        }
+        catch
+        {
+            if (processCreated)
+            {
+                try
+                {
+                    if (!TerminateProcess(process.hProcess, 1))
+                        throw Error("TerminateProcess(unassigned target)");
+                }
+                finally
+                {
+                    CloseHandle(process.hThread);
+                    CloseHandle(process.hProcess);
+                }
+            }
+            throw;
+        }
+    }
+
+    private static void CloseTargetHandles(SuspendedTarget target)
+    {
+        if (target.ThreadHandle != IntPtr.Zero)
+        {
+            CloseHandle(target.ThreadHandle);
+            target.ThreadHandle = IntPtr.Zero;
+        }
+        if (target.ProcessHandle != IntPtr.Zero)
+        {
+            CloseHandle(target.ProcessHandle);
+            target.ProcessHandle = IntPtr.Zero;
+        }
+    }
+
+    public static void AbortSuspendedTarget(SuspendedTarget target)
+    {
+        if (target == null) return;
+        try
+        {
+            if (target.ProcessHandle != IntPtr.Zero && !TerminateProcess(target.ProcessHandle, 1))
+                throw Error("TerminateProcess(suspended target)");
         }
         finally
         {
-            if (batch) Environment.SetEnvironmentVariable(literalPercentVariable, previousLiteralPercent);
+            CloseTargetHandles(target);
         }
+    }
+
+    public static uint ResumeAndWaitTarget(
+        SuspendedTarget target,
+        IntPtr parent,
+        IntPtr job)
+    {
+        if (target == null || target.ProcessHandle == IntPtr.Zero || target.ThreadHandle == IntPtr.Zero)
+            throw new InvalidOperationException("Suspended target handles are closed.");
+        bool resumed = false;
         try
         {
+            if (ResumeThread(target.ThreadHandle) == 0xffffffff)
+                throw Error("ResumeThread(target)");
+            resumed = true;
             uint waitResult = WaitForMultipleObjects(
                 2,
-                new[] { process.hProcess, parent },
+                new[] { target.ProcessHandle, parent },
                 false,
                 INFINITE);
             if (waitResult == WAIT_OBJECT_0 + 1)
-            {
-                Terminate(job);
                 throw new InvalidOperationException("PlanWeave parent exited before target.");
-            }
             if (waitResult != WAIT_OBJECT_0) throw Error("WaitForMultipleObjects(target/parent)");
             uint exitCode;
-            if (!GetExitCodeProcess(process.hProcess, out exitCode))
+            if (!GetExitCodeProcess(target.ProcessHandle, out exitCode))
                 throw Error("GetExitCodeProcess(target)");
             return exitCode;
         }
+        catch
+        {
+            if (resumed)
+                Terminate(job);
+            else
+                AbortSuspendedTarget(target);
+            throw;
+        }
         finally
         {
-            CloseHandle(process.hThread);
-            CloseHandle(process.hProcess);
+            CloseTargetHandles(target);
         }
     }
 
@@ -511,8 +583,7 @@ try {
       } finally {
         $readyEvent.Dispose()
       }
-      $ownedProcessFloor = if ([PlanWeaveWindowsJob]::CurrentProcessBelongsToJob($job)) { 1 } else { 0 }
-      while ([PlanWeaveWindowsJob]::ActiveProcesses($job) -gt $ownedProcessFloor) {
+      while ([PlanWeaveWindowsJob]::ActiveProcesses($job) -gt 0) {
         if ([PlanWeaveWindowsJob]::HasExited($parent)) {
           Remove-Item -LiteralPath $MarkerPath -Force -ErrorAction SilentlyContinue
           [PlanWeaveWindowsJob]::Terminate($job)
@@ -541,17 +612,15 @@ try {
   $arguments = @($request.args | ForEach-Object { [string]$_ })
   $job = [PlanWeaveWindowsJob]::CreateOwnedJob($JobName)
   $parent = [PlanWeaveWindowsJob]::OpenParent([uint32]$ParentPid)
-  $exitCode = [PlanWeaveWindowsJob]::RunTarget(
-    [string]$request.command,
-    [string]$request.launchMode,
-    [string]$request.commandInterpreter,
-    $arguments,
-    $parent,
-    $job
-  )
-
-  Start-Sleep -Milliseconds 10
-  if ([PlanWeaveWindowsJob]::ActiveProcesses($job) -gt 1) {
+  $target = $null
+  try {
+    $target = [PlanWeaveWindowsJob]::CreateSuspendedTarget(
+      [string]$request.command,
+      [string]$request.launchMode,
+      [string]$request.commandInterpreter,
+      $arguments,
+      $job
+    )
     $readyName = "Local\PlanWeaveReady-$([Guid]::NewGuid().ToString('N'))"
     $readyEvent = [Threading.EventWaitHandle]::new(
       $false,
@@ -579,9 +648,17 @@ try {
     } finally {
       $readyEvent.Dispose()
     }
+
+    $exitCode = [PlanWeaveWindowsJob]::ResumeAndWaitTarget($target, $parent, $job)
+    [Environment]::Exit([int]$exitCode)
+  } catch {
+    [PlanWeaveWindowsJob]::AbortSuspendedTarget($target)
+    throw
+  } finally {
+    [PlanWeaveWindowsJob]::CloseHandle($parent) | Out-Null
+    [PlanWeaveWindowsJob]::CloseHandle($job) | Out-Null
   }
 
-  [Environment]::Exit([int]$exitCode)
 } catch {
   [Console]::Error.WriteLine("PlanWeave Windows Job helper failed: $($_.Exception.Message)")
   exit 1
