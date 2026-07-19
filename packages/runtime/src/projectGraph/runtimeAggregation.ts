@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { ensureStateForManifest, readState } from "../state.js";
+import { requireTaskState } from "../taskManager/selectors.js";
 import type {
   CompiledExecutionGraph,
   ProjectWorkspace,
@@ -67,14 +68,14 @@ export function runtimeSnapshotFromGraphState(
   const taskStatusById = new Map(
     graph.taskNodesInManifestOrder.map((taskId) => [
       taskId,
-      state.tasks[taskId]?.status ?? "planned"
+      requireTaskState(state, taskId).status
     ])
   );
   return {
     taskCount: graph.taskNodesInManifestOrder.length,
     taskStatusById,
     complete: graph.taskNodesInManifestOrder.every(
-      (taskId) => state.tasks[taskId]?.status === "implemented"
+      (taskId) => requireTaskState(state, taskId).status === "implemented"
     )
   };
 }

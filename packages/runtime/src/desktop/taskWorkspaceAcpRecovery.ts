@@ -14,7 +14,11 @@ import { listExecutorProfiles } from "../autoRun/executors.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { unblockBlock } from "../taskManager/blockStatusMutations.js";
 import { loadRuntimeReadonly } from "../taskManager/runtimeContext.js";
-import { blockDependenciesCompleted, getBlock } from "../taskManager/selectors.js";
+import {
+  blockDependenciesCompleted,
+  getBlock,
+  requireBlockState
+} from "../taskManager/selectors.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import { getRunRecord, listBlockMainRunRecords } from "./recordsApi.js";
 import {
@@ -219,7 +223,8 @@ export async function recoverTaskWorkspaceAcpRun(
       block: {
         ref: identity.claimRef,
         blockId: identity.blockId,
-        status: context.state.blocks[identity.claimRef]?.status ?? "planned",
+        // claimRef is graph-validated above; missing state is corruption, not planned.
+        status: requireBlockState(context.state, identity.claimRef).status,
         effectiveExecutor:
           block.executor ??
           context.graph.tasksById.get(identity.taskId)?.executor ??

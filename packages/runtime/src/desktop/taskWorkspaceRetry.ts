@@ -3,7 +3,11 @@ import { runnerRunIdentitySchema } from "../autoRun/runnerContractSchemas.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { unblockBlock } from "../taskManager/blockStatusMutations.js";
 import { loadRuntimeReadonly } from "../taskManager/runtimeContext.js";
-import { blockDependenciesCompleted, getBlock } from "../taskManager/selectors.js";
+import {
+  blockDependenciesCompleted,
+  getBlock,
+  requireBlockState
+} from "../taskManager/selectors.js";
 import type { BlockStatus, ProjectWorkspace } from "../types.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import { getRunRecord, listBlockMainRunRecords } from "./recordsApi.js";
@@ -171,7 +175,8 @@ export async function executeTaskWorkspaceRetry(identity: TaskWorkspaceRetryIden
       block: {
         ref: identity.claimRef,
         blockId: identity.blockId,
-        status: context.state.blocks[identity.claimRef]?.status ?? "planned"
+        // claimRef is graph-validated above; missing state is corruption, not planned.
+        status: requireBlockState(context.state, identity.claimRef).status
       },
       record,
       selectedRecordId: identity.recordId,

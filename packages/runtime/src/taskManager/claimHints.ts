@@ -16,17 +16,19 @@ import {
 import {
   canDispatchImplementationBlock,
   effectiveBlockExecutor,
+  requireBlockState,
+  requireTaskState,
   requiredImplementationRefs
 } from "./selectors.js";
 
-function statusReasonForBlock(blockState: BlockState | undefined): string | null {
-  if (blockState?.status === "blocked") {
+function statusReasonForBlock(blockState: BlockState): string | null {
+  if (blockState.status === "blocked") {
     return blockState.blockedReason ?? null;
   }
-  if (blockState?.status === "diverged") {
+  if (blockState.status === "diverged") {
     return blockState.divergenceReason ?? null;
   }
-  return blockState?.blockedReason ?? blockState?.divergenceReason ?? null;
+  return blockState.blockedReason ?? blockState.divergenceReason ?? null;
 }
 
 function reviewGateUnlocksTasks(
@@ -37,7 +39,8 @@ function reviewGateUnlocksTasks(
 ): string[] {
   return downstreamTasks.filter((downstreamTaskId) =>
     requireMapValue(graph.taskDependenciesByTask, downstreamTaskId, "taskDependenciesByTask").every(
-      (dependency) => dependency === taskId || state.tasks[dependency]?.status === "implemented"
+      (dependency) =>
+        dependency === taskId || requireTaskState(state, dependency).status === "implemented"
     )
   );
 }
@@ -53,16 +56,16 @@ function dependencyBlockers(
     graph.taskDependenciesByTask,
     taskId,
     "taskDependenciesByTask"
-  ).filter((dependency) => state.tasks[dependency]?.status !== "implemented");
+  ).filter((dependency) => requireTaskState(state, dependency).status !== "implemented");
   const directBlockBlockers = requireMapValue(
     graph.blockDependenciesByRef,
     ref,
     "blockDependenciesByRef"
-  ).filter((dependency) => state.blocks[dependency]?.status !== "completed");
+  ).filter((dependency) => requireBlockState(state, dependency).status !== "completed");
   const reviewWorkBlockers =
     block.type === "review"
       ? requiredImplementationRefs(graph, taskId).filter(
-          (dependency) => state.blocks[dependency]?.status !== "completed"
+          (dependency) => requireBlockState(state, dependency).status !== "completed"
         )
       : [];
   return {
@@ -82,7 +85,7 @@ export function buildClaimHints(
   return graph.blockRefsInManifestOrder.map((ref) => {
     const taskId = requireMapValue(graph.blockTaskByRef, ref, "blockTaskByRef");
     const block = requireMapValue(graph.blocksByRef, ref, "blocksByRef");
-    const blockState = state.blocks[ref];
+    const blockState = requireBlockState(state, ref);
     const { blockId } = parseBlockRef(ref);
     const blockers = dependencyBlockers(graph, state, ref, block, taskId);
     const baseReady = blockReadyWithoutProjectBlockers(graph, state, ref);
@@ -129,7 +132,7 @@ export function buildClaimHints(
       blockId,
       blockType: block.type,
       effectiveExecutor: effectiveBlockExecutor(graph, ref, defaultExecutor),
-      status: blockState?.status ?? "planned",
+      status: blockState.status,
       statusReason,
       ready,
       readyReason,

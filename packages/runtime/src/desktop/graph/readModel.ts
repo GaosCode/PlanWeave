@@ -16,7 +16,12 @@ import { listExecutorProfilesForManifest } from "../../autoRun/executors.js";
 import { resolveAgentDefinition } from "../../autoRun/agentRegistry.js";
 import { selectedDesktopAgentTransport } from "../../autoRun/desktopAgentSettings.js";
 import { buildPlanGraphViewProjection, loadPlanGraphPackage } from "../../plangraph/index.js";
-import type { ClaimResult, PackageWorkspaceRef } from "../../types.js";
+import type {
+  BlockStatus,
+  ClaimResult,
+  PackageWorkspaceRef,
+  TaskStatus
+} from "../../types.js";
 import type {
   DesktopBlockDetail,
   DesktopGraphViewModel,
@@ -30,6 +35,35 @@ import {
 } from "../taskWorkspaceReadContext.js";
 import { getBlock, getTask, sortBlockRefsForTask } from "./graphHelpers.js";
 import { enrichGraphViewModelSharedResources } from "./sharedResourceViewModel.js";
+
+function requireTaskStatusFromExecution(status: ExecutionStatus, taskId: string): TaskStatus {
+  const taskStatus = status.tasks.find((item) => item.taskId === taskId);
+  if (taskStatus === undefined) {
+    throw new Error(
+      `Internal runtime invariant violated: missing task status for '${taskId}' in execution status.`
+    );
+  }
+  return taskStatus.status;
+}
+
+function requireBlockStatusFromExecution(
+  status: ExecutionStatus,
+  ref: string
+): {
+  status: BlockStatus;
+  lastRunId: string | null;
+  latestReviewAttemptId: string | null;
+  activeFeedbackId: string | null;
+  reason: string | null;
+} {
+  const blockStatus = status.blocks.find((item) => item.ref === ref);
+  if (blockStatus === undefined) {
+    throw new Error(
+      `Internal runtime invariant violated: missing block status for '${ref}' in execution status.`
+    );
+  }
+  return blockStatus;
+}
 
 export type DesktopGraphViewModelContext = RuntimeContext & {
   status: ExecutionStatus;
@@ -245,7 +279,7 @@ export async function buildTaskDetail(
     taskId,
     graphVersion: context.planGraphPackage.graph.graphVersion,
     title: task.title,
-    status: context.status.tasks.find((item) => item.taskId === taskId)?.status ?? "planned",
+    status: requireTaskStatusFromExecution(context.status, taskId),
     executor: task.executor ?? null,
     promptMarkdown: prompt.markdown,
     promptHash: planGraphTask.promptRef.contentHash,
@@ -301,7 +335,7 @@ export async function buildBlockDetail(
   const task = getTask(graph, taskId);
   const block = getBlock(graph, ref);
   const planGraphBlock = planGraphBlockForContext(context, ref);
-  const blockStatus = context.status.blocks.find((item) => item.ref === ref);
+  const blockStatus = requireBlockStatusFromExecution(context.status, ref);
   const claimHint = context.status.claimHints.find((item) => item.ref === ref);
   const prompt = await promptBodyFromContext(context, block.prompt);
   const promptSurface = await renderPromptSurfaceFromContext(context, ref);
@@ -312,7 +346,7 @@ export async function buildBlockDetail(
     blockId,
     type: block.type,
     title: block.title,
-    status: blockStatus?.status ?? "planned",
+    status: blockStatus.status,
     executor: block.executor ?? null,
     effectiveExecutor:
       block.executor ?? task.executor ?? manifest.execution.defaultExecutor ?? null,
@@ -322,10 +356,10 @@ export async function buildBlockDetail(
     promptSurfaceMarkdown: promptSurface.markdown,
     promptSources: promptSurface.sources,
     dependencies: requireMapValue(graph.blockDependenciesByRef, ref, "blockDependenciesByRef"),
-    latestRunId: blockStatus?.lastRunId ?? null,
-    latestReviewAttemptId: blockStatus?.latestReviewAttemptId ?? null,
-    activeFeedbackId: blockStatus?.activeFeedbackId ?? null,
-    exceptionReason: blockStatus?.reason ?? null,
+    latestRunId: blockStatus.lastRunId ?? null,
+    latestReviewAttemptId: blockStatus.latestReviewAttemptId ?? null,
+    activeFeedbackId: blockStatus.activeFeedbackId ?? null,
+    exceptionReason: blockStatus.reason ?? null,
     reviewGate: claimHint?.reviewGate ?? null
   };
 }

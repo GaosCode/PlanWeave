@@ -3,6 +3,7 @@ import { compilePackageGraph } from "./compileTaskGraph.js";
 import { requireMapValue } from "./requireMapValue.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { ensureStateForManifest, readState } from "../state.js";
+import { requireBlockState, requireTaskState } from "../taskManager/selectors.js";
 import type {
   CompiledExecutionGraph,
   GraphInspectionBlock,
@@ -89,7 +90,7 @@ function inspectTask(
   return {
     taskId: task.id,
     title: task.title,
-    status: state.tasks[task.id]?.status ?? "planned",
+    status: requireTaskState(state, task.id).status,
     acceptanceCount: task.acceptance.length,
     blockCount: task.blocks.length,
     reviewBlockCount: task.blocks.filter((block) => block.type === "review").length,
@@ -120,7 +121,7 @@ function countsFor(graph: CompiledExecutionGraph, state: RuntimeState): GraphIns
       0
     ),
     readyBlockCount: graph.blockRefsInManifestOrder.filter(
-      (ref) => state.blocks[ref]?.status === "ready"
+      (ref) => requireBlockState(state, ref).status === "ready"
     ).length,
     diagnosticCount: graph.diagnostics.errors.length + graph.diagnostics.warnings.length
   };
@@ -150,7 +151,7 @@ function inspectBlock(
     blockId: block.id,
     type: block.type,
     title: block.title,
-    status: state.blocks[ref]?.status ?? "planned",
+    status: requireBlockState(state, ref).status,
     dependsOn: requireMapValue(graph.blockDependenciesByRef, ref, "blockDependenciesByRef")
   };
 }

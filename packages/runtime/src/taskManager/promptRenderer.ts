@@ -17,7 +17,13 @@ import {
 import { createProjectGraphClaimGuardFromAggregation } from "./projectGraphClaimGuard.js";
 import { createPromptSourceReader, type PromptSourceReader } from "./promptSourceReader.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "./runtimeContext.js";
-import { getBlock, getTask, requiredImplementationRefs } from "./selectors.js";
+import {
+  getBlock,
+  getTask,
+  requireBlockState,
+  requiredImplementationRefs,
+  requireTaskState
+} from "./selectors.js";
 import { REVIEW_RESULT_CONTENT_GUIDANCE } from "./reviewResultContract.js";
 import {
   type PromptSourceKind,
@@ -280,7 +286,7 @@ export async function renderPromptSurfaceFromContext(
     graph.blockDependenciesByRef,
     ref,
     "blockDependenciesByRef"
-  ).map((dependency) => `${dependency}: ${state.blocks[dependency]?.status ?? "planned"}`);
+  ).map((dependency) => `${dependency}: ${requireBlockState(state, dependency).status}`);
   const sharedResourceLines = requireMapValue(
     graph.sharedResourcesByBlockRef,
     ref,
@@ -349,8 +355,8 @@ export async function renderPromptSurfaceFromContext(
     blockPrompt.markdown.trim(),
     renderNodeList("Task Acceptance", task.acceptance),
     renderNodeList("Execution Context", [
-      `Task status: ${state.tasks[taskId]?.status ?? "planned"}`,
-      `Block status: ${state.blocks[ref]?.status ?? "planned"}`,
+      `Task status: ${requireTaskState(state, taskId).status}`,
+      `Block status: ${requireBlockState(state, ref).status}`,
       `Completion policy: ${manifest.review.completionPolicy}`
     ]),
     renderNodeList("Dependency / Block Status", dependencyLines),

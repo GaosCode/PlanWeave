@@ -11,14 +11,31 @@ function lineList(lines: string[]): string {
   return lines.length > 0 ? lines.map((line) => `- ${line}`).join("\n") : "- None.";
 }
 
-function statusByBlockRef(status?: ExecutionStatus): Map<string, string> {
-  return new Map((status?.blocks ?? []).map((block) => [block.ref, block.status]));
+function statusByBlockRef(status?: ExecutionStatus): Map<string, string> | undefined {
+  if (status === undefined) {
+    return undefined;
+  }
+  return new Map(status.blocks.map((block) => [block.ref, block.status]));
 }
 
-function blockLine(block: PlanGraphBlockNode, statuses: Map<string, string>): string {
+function blockStatusLabel(block: PlanGraphBlockNode, statuses: Map<string, string> | undefined): string {
+  if (statuses === undefined) {
+    // Claim markdown may be rendered without an attached execution status projection.
+    return "planned";
+  }
+  const status = statuses.get(block.ref);
+  if (status === undefined) {
+    throw new Error(
+      `Internal runtime invariant violated: missing block status for '${block.ref}' in execution status.`
+    );
+  }
+  return status;
+}
+
+function blockLine(block: PlanGraphBlockNode, statuses: Map<string, string> | undefined): string {
   const dependencyText =
     block.dependsOn.length > 0 ? `; depends on ${block.dependsOn.join(", ")}` : "";
-  return `${block.ref} [${block.type}] ${block.title} (${statuses.get(block.ref) ?? "planned"}${dependencyText})`;
+  return `${block.ref} [${block.type}] ${block.title} (${blockStatusLabel(block, statuses)}${dependencyText})`;
 }
 
 function taskLine(task: PlanGraphTaskNode): string {

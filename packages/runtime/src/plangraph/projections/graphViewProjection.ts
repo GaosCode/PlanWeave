@@ -20,14 +20,25 @@ function blockStatus(
   ref: string
 ): { status: BlockStatus; reason: string | null } {
   const block = status.blocks.find((item) => item.ref === ref);
+  if (block === undefined) {
+    throw new Error(
+      `Internal runtime invariant violated: missing block status for '${ref}' in execution status.`
+    );
+  }
   return {
-    status: block?.status ?? "planned",
-    reason: block?.reason ?? null
+    status: block.status,
+    reason: block.reason ?? null
   };
 }
 
 function taskStatus(status: ExecutionStatus, taskId: string): TaskStatus {
-  return status.tasks.find((item) => item.taskId === taskId)?.status ?? "planned";
+  const task = status.tasks.find((item) => item.taskId === taskId);
+  if (task === undefined) {
+    throw new Error(
+      `Internal runtime invariant violated: missing task status for '${taskId}' in execution status.`
+    );
+  }
+  return task.status;
 }
 
 function exceptionForBlock(

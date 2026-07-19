@@ -1,3 +1,4 @@
+import { requireMapValue } from "../graph/requireMapValue.js";
 import type {
   BlockType,
   ClaimHint,
@@ -26,8 +27,10 @@ import {
   activeOpenFeedback,
   effectiveFeedbackExecutor,
   feedbackInScope,
+  getBlock,
   inProgressImplementationRefs,
   normalizeClaimScope,
+  requireBlockState,
   validateClaimScope
 } from "./selectors.js";
 
@@ -115,17 +118,15 @@ function selectedParallelBatchRefs(
   const retained = inProgressImplementationRefs(graph, state);
   const selected: string[] = [];
   for (const ref of graph.blockRefsInManifestOrder) {
-    const taskId = graph.blockTaskByRef.get(ref);
-    const block = graph.blocksByRef.get(ref);
+    const taskId = requireMapValue(graph.blockTaskByRef, ref, "blockTaskByRef");
+    const block = getBlock(graph, ref);
     if (
       !blockMatchesClaimFilter(ref, graph, scope, blockType) ||
-      !taskId ||
-      !block ||
       block.type === "review"
     ) {
       continue;
     }
-    if (retained.includes(ref) || state.blocks[ref]?.status !== "ready") {
+    if (retained.includes(ref) || requireBlockState(state, ref).status !== "ready") {
       continue;
     }
     if (
@@ -156,17 +157,19 @@ function firstProjectBlockedResult(
     ) {
       return false;
     }
-    return Boolean(projectBlockerReason(projectGuard, graph.blockTaskByRef.get(candidate)));
+    const taskId = requireMapValue(graph.blockTaskByRef, candidate, "blockTaskByRef");
+    return Boolean(projectBlockerReason(projectGuard, taskId));
   });
-  return ref
-    ? {
-        kind: "blocked",
-        ref,
-        reason:
-          projectBlockerReason(projectGuard, graph.blockTaskByRef.get(ref)) ??
-          "Project graph blockers are not complete."
-      }
-    : null;
+  if (!ref) {
+    return null;
+  }
+  const taskId = requireMapValue(graph.blockTaskByRef, ref, "blockTaskByRef");
+  return {
+    kind: "blocked",
+    ref,
+    reason:
+      projectBlockerReason(projectGuard, taskId) ?? "Project graph blockers are not complete."
+  };
 }
 
 function firstBlockedResult(
@@ -176,15 +179,18 @@ function firstBlockedResult(
 ): Extract<ClaimResult, { kind: "blocked" }> | null {
   const ref = graph.blockRefsInManifestOrder.find(
     (candidate) =>
-      blockInScope(candidate, graph, scope) && state.blocks[candidate]?.status === "blocked"
+      blockInScope(candidate, graph, scope) &&
+      requireBlockState(state, candidate).status === "blocked"
   );
-  return ref
-    ? {
-        kind: "blocked",
-        ref,
-        reason: state.blocks[ref]?.blockedReason ?? `Block '${ref}' is blocked.`
-      }
-    : null;
+  if (!ref) {
+    return null;
+  }
+  const blockState = requireBlockState(state, ref);
+  return {
+    kind: "blocked",
+    ref,
+    reason: blockState.blockedReason ?? `Block '${ref}' is blocked.`
+  };
 }
 
 function blockedByClaimType(ref: string, reason: string): ClaimOrder {
@@ -246,8 +252,8 @@ function buildClaimOrder(input: {
   }
 
   const inProgressReview = input.graph.blockRefsInManifestOrder.find((ref) => {
-    const block = input.graph.blocksByRef.get(ref);
-    return block?.type === "review" && input.state.blocks[ref]?.status === "in_progress";
+    const block = getBlock(input.graph, ref);
+    return block.type === "review" && requireBlockState(input.state, ref).status === "in_progress";
   });
   if (inProgressReview && input.state.currentFeedbackId) {
     if (input.blockType && input.blockType !== "review") {
@@ -256,6 +262,7 @@ function buildClaimOrder(input: {
         "A review block is in progress outside the selected claim type."
       );
     }
+    // Feedback map lookup by id is dynamic / may be stale (public probe).
     const currentFeedback = input.state.feedback[input.state.currentFeedbackId];
     if (currentFeedback?.status === "resolved") {
       if (!blockInScope(inProgressReview, input.graph, input.scope)) {
@@ -299,7 +306,7 @@ function buildClaimOrder(input: {
         }
       };
     }
-    const reason = input.state.blocks[inProgressReview]?.pendingFeedbackId
+    const reason = requireBlockState(input.state, inProgressReview).pendingFeedbackId
       ? "feedback_resolved"
       : "current";
     return {
@@ -317,12 +324,12 @@ function buildClaimOrder(input: {
   }
 
   const current = input.graph.blockRefsInManifestOrder.find((ref) => {
-    const block = input.graph.blocksByRef.get(ref);
-    return input.state.blocks[ref]?.status === "in_progress" && block?.type !== "review";
+    const block = getBlock(input.graph, ref);
+    return requireBlockState(input.state, ref).status === "in_progress" && block.type !== "review";
   });
   if (current) {
-    const currentBlock = input.graph.blocksByRef.get(current);
-    if (input.blockType && currentBlock?.type !== input.blockType) {
+    const currentBlock = getBlock(input.graph, current);
+    if (input.blockType && currentBlock.type !== input.blockType) {
       return blockedByClaimType(current, "A block is in progress outside the selected claim type.");
     }
     if (!blockInScope(current, input.graph, input.scope)) {
@@ -363,19 +370,21 @@ export function buildClaimReadiness(input: BuildClaimReadinessInput): ClaimReadi
     input.manifest.execution.parallel.maxConcurrent,
     input.manifest.execution.defaultExecutor
   );
-  const scopedReadyRefs = input.graph.blockRefsInManifestOrder.filter(
-    (ref) =>
+  const scopedReadyRefs = input.graph.blockRefsInManifestOrder.filter((ref) => {
+    const taskId = requireMapValue(input.graph.blockTaskByRef, ref, "blockTaskByRef");
+    return (
       blockMatchesClaimFilter(ref, input.graph, scope, input.blockType) &&
       blockReadyWithoutProjectBlockers(input.graph, input.state, ref) &&
-      !projectBlockerReason(projectGuard, input.graph.blockTaskByRef.get(ref))
-  );
+      !projectBlockerReason(projectGuard, taskId)
+    );
+  });
   const sequentialImplementationCandidates = scopedReadyRefs
-    .filter((ref) => input.graph.blocksByRef.get(ref)?.type !== "review")
+    .filter((ref) => getBlock(input.graph, ref).type !== "review")
     .map((ref) =>
       claimCandidate(ref, input.graph, "claimed", input.manifest.execution.defaultExecutor)
     );
   const sequentialReviewCandidates = scopedReadyRefs
-    .filter((ref) => input.graph.blocksByRef.get(ref)?.type === "review")
+    .filter((ref) => getBlock(input.graph, ref).type === "review")
     .map((ref) =>
       claimCandidate(ref, input.graph, "claimed", input.manifest.execution.defaultExecutor)
     );
@@ -392,10 +401,9 @@ export function buildClaimReadiness(input: BuildClaimReadinessInput): ClaimReadi
   const nextParallelDispatchable = claimHints
     .filter((hint) => hint.dispatchable)
     .map((hint) => hint.ref);
-  const scopedNextSequentialClaimable = scopedReadyRefs.filter((ref) => {
-    const block = input.graph.blocksByRef.get(ref);
-    return block?.type === "review";
-  });
+  const scopedNextSequentialClaimable = scopedReadyRefs.filter(
+    (ref) => getBlock(input.graph, ref).type === "review"
+  );
 
   return {
     scope,

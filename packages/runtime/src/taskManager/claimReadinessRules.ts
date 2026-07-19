@@ -1,3 +1,4 @@
+import { requireMapValue } from "../graph/requireMapValue.js";
 import type {
   BlockType,
   ClaimScope,
@@ -10,7 +11,9 @@ import {
   blockDependenciesCompleted,
   blockInScope,
   canClaimReviewBlock,
+  getBlock,
   isActiveFeedbackStatus,
+  requireBlockState,
   taskDependenciesSatisfied
 } from "./selectors.js";
 
@@ -44,15 +47,15 @@ export function currentClaimBlockedReason(
     return `Default claims are blocked by current feedback '${activeFeedback[0]}'.`;
   }
   const inProgressReview = graph.blockRefsInManifestOrder.find((ref) => {
-    const block = graph.blocksByRef.get(ref);
-    return block?.type === "review" && state.blocks[ref]?.status === "in_progress";
+    const block = getBlock(graph, ref);
+    return block.type === "review" && requireBlockState(state, ref).status === "in_progress";
   });
   if (inProgressReview) {
     return `Default claims are blocked by current review block '${inProgressReview}'.`;
   }
   const inProgressBlock = graph.blockRefsInManifestOrder.find((ref) => {
-    const block = graph.blocksByRef.get(ref);
-    return block?.type !== "review" && state.blocks[ref]?.status === "in_progress";
+    const block = getBlock(graph, ref);
+    return block.type !== "review" && requireBlockState(state, ref).status === "in_progress";
   });
   return inProgressBlock
     ? `Default claims are blocked by current block '${inProgressBlock}'.`
@@ -65,8 +68,9 @@ export function blockMatchesClaimFilter(
   scope: ClaimScope,
   blockType: BlockType | undefined
 ): boolean {
-  const block = graph.blocksByRef.get(ref);
-  return blockInScope(ref, graph, scope) && (!blockType || block?.type === blockType);
+  // Callers walk manifest-order refs; missing graph entity is invariant, not filter miss.
+  const block = getBlock(graph, ref);
+  return blockInScope(ref, graph, scope) && (!blockType || block.type === blockType);
 }
 
 export function blockReadyWithoutProjectBlockers(
@@ -74,12 +78,11 @@ export function blockReadyWithoutProjectBlockers(
   state: RuntimeState,
   ref: string
 ): boolean {
-  const taskId = graph.blockTaskByRef.get(ref);
-  const block = graph.blocksByRef.get(ref);
+  // Manifest-order / known package refs: missing graph or state is internal corruption.
+  const taskId = requireMapValue(graph.blockTaskByRef, ref, "blockTaskByRef");
+  const block = getBlock(graph, ref);
   if (
-    !taskId ||
-    !block ||
-    state.blocks[ref]?.status !== "ready" ||
+    requireBlockState(state, ref).status !== "ready" ||
     !taskDependenciesSatisfied(graph, state, taskId)
   ) {
     return false;
@@ -94,7 +97,7 @@ export function reviewMaxCycleWarnings(
   state: RuntimeState
 ): ValidationIssue[] {
   return graph.blockRefsInManifestOrder
-    .filter((ref) => state.blocks[ref]?.completionReason === "max_cycles_reached")
+    .filter((ref) => requireBlockState(state, ref).completionReason === "max_cycles_reached")
     .map((ref) => ({
       code: "review_max_cycles_reached",
       message: `Review block '${ref}' reached max feedback cycles without passing.`,

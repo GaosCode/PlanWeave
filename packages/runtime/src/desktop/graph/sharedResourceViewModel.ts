@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { requireMapValue } from "../../graph/requireMapValue.js";
+import { requireBlockState } from "../../taskManager/selectors.js";
 import type { CompiledExecutionGraph, RuntimeState } from "../../types.js";
 import type { ClaimHint } from "../../types/taskManager.js";
 import type {
@@ -46,7 +47,7 @@ export function buildSharedResourceGroups(
         memberTaskIds,
         memberBlockRefs,
         activeBlockRefs: memberBlockRefs.filter(
-          (ref) => state.blocks[ref]?.status === "in_progress"
+          (ref) => requireBlockState(state, ref).status === "in_progress"
         )
       };
     });

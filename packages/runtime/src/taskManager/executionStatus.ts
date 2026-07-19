@@ -1,4 +1,5 @@
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
+import { findOrphanResults, findOrphanState } from "../package/orphans.js";
 import type {
   BlockState,
   BlockStatus,
@@ -11,23 +12,29 @@ import {
   type ProjectGraphClaimGuard
 } from "./projectGraphClaimGuard.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "./runtimeContext.js";
-import { effectiveBlockExecutor, getBlock, isActiveFeedbackStatus } from "./selectors.js";
+import {
+  effectiveBlockExecutor,
+  getBlock,
+  isActiveFeedbackStatus,
+  requireBlockState,
+  requireTaskState
+} from "./selectors.js";
 
-function statusReasonForBlock(blockState: BlockState | undefined): string | null {
-  if (blockState?.status === "blocked") {
+function statusReasonForBlock(blockState: BlockState): string | null {
+  if (blockState.status === "blocked") {
     return blockState.blockedReason ?? null;
   }
-  if (blockState?.status === "diverged") {
+  if (blockState.status === "diverged") {
     return blockState.divergenceReason ?? null;
   }
-  return blockState?.blockedReason ?? blockState?.divergenceReason ?? null;
+  return blockState.blockedReason ?? blockState.divergenceReason ?? null;
 }
 
 export async function buildExecutionStatus(
   context: RuntimeContext,
   options: { claimGuard?: ProjectGraphClaimGuard } = {}
 ) {
-  const { workspace, manifest, graph, state } = context;
+  const { workspace, manifest, graph, rawState, state } = context;
   const taskCounts = Object.fromEntries(
     ["planned", "ready", "in_progress", "implemented"].map((status) => [status, 0])
   ) as Record<"planned" | "ready" | "in_progress" | "implemented", number>;
@@ -48,6 +55,7 @@ export async function buildExecutionStatus(
   for (const feedback of Object.values(state.feedback)) {
     feedbackCounts[feedback.status] += 1;
   }
+  // currentFeedbackId may point at a cleaned-up or inactive feedback envelope (O).
   const currentFeedbackId =
     state.currentFeedbackId &&
     isActiveFeedbackStatus(state.feedback[state.currentFeedbackId]?.status)
@@ -59,32 +67,39 @@ export async function buildExecutionStatus(
     state,
     projectGuard: options.claimGuard ?? (await createProjectGraphClaimGuard(context))
   });
+  // Orphans are read from rawState (pre-reconcile). Post-reconcile `state` has already pruned them.
+  const orphanState = findOrphanState(manifest, rawState);
+  const orphanResults = await findOrphanResults(workspace, manifest);
   return {
     projectId: workspace.id,
     projectRoot: workspace.rootPath,
     taskTotal: graph.taskNodesInManifestOrder.length,
     blockTotal: graph.blockRefsInManifestOrder.length,
-    tasks: graph.taskNodesInManifestOrder.map((taskId) => ({
-      taskId,
-      status: state.tasks[taskId]?.status ?? "planned",
-      openFeedbackCount: state.tasks[taskId]?.openFeedbackCount ?? 0
-    })),
+    tasks: graph.taskNodesInManifestOrder.map((taskId) => {
+      const taskState = requireTaskState(state, taskId);
+      return {
+        taskId,
+        status: taskState.status,
+        openFeedbackCount: taskState.openFeedbackCount
+      };
+    }),
     blocks: graph.blockRefsInManifestOrder.map((ref) => {
       const { taskId, blockId } = parseBlockRef(ref);
       const block = getBlock(graph, ref);
-      const blockState = state.blocks[ref];
+      const blockState = requireBlockState(state, ref);
       return {
         ref,
         taskId,
         blockId,
         type: block.type,
         effectiveExecutor: effectiveBlockExecutor(graph, ref, manifest.execution.defaultExecutor),
-        status: blockState?.status ?? "planned",
+        status: blockState.status,
         reason: statusReasonForBlock(blockState),
-        completionReason: blockState?.completionReason ?? null,
-        lastRunId: blockState?.lastRunId ?? null,
-        latestReviewAttemptId: blockState?.latestReviewAttemptId ?? null,
-        activeFeedbackId: blockState?.activeFeedbackId ?? null
+        // Optional historical fields stay null when absent (F).
+        completionReason: blockState.completionReason ?? null,
+        lastRunId: blockState.lastRunId ?? null,
+        latestReviewAttemptId: blockState.latestReviewAttemptId ?? null,
+        activeFeedbackId: blockState.activeFeedbackId ?? null
       };
     }),
     currentRefs: state.currentRefs,
@@ -108,8 +123,8 @@ export async function buildExecutionStatus(
       blocks: blockCounts,
       feedback: feedbackCounts
     },
-    orphanState: [],
-    orphanResults: []
+    orphanState,
+    orphanResults
   };
 }
 
