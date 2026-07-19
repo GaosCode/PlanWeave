@@ -4,6 +4,7 @@ import { join, relative } from "node:path";
 import { performance } from "node:perf_hooks";
 import { optionalReaddir } from "../fs/optionalFile.js";
 import { compilePackageGraph } from "../graph/compileTaskGraph.js";
+import { requireMapValue } from "../graph/requireMapValue.js";
 import { affectedTasksForPackageFileChange, type PackageChangeImpact } from "../graph/editGraph.js";
 import { loadPackage } from "./loadPackage.js";
 import { refreshPrompt } from "../prompt/refreshPrompt.js";
@@ -292,12 +293,9 @@ function dedupedPromptSurfaceRefsForPromptPaths(
   const refs = new Set<string>();
   for (const path of paths) {
     for (const taskId of graph.taskNodesInManifestOrder) {
-      const task = graph.tasksById.get(taskId);
-      if (!task) {
-        continue;
-      }
+      const task = requireMapValue(graph.tasksById, taskId, "tasksById");
       if (task.prompt === path) {
-        for (const blockRef of graph.blocksByTask.get(taskId) ?? []) {
+        for (const blockRef of requireMapValue(graph.blocksByTask, taskId, "blocksByTask")) {
           refs.add(blockRef);
         }
       }

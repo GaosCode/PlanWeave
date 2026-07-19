@@ -1,4 +1,5 @@
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
+import { requireMapValue } from "../graph/requireMapValue.js";
 import type { CompiledExecutionGraph, PlanPackageManifest } from "../types.js";
 
 export function dependencyIds(
@@ -6,7 +7,10 @@ export function dependencyIds(
   taskId: string,
   graph: CompiledExecutionGraph = compileTaskGraph(manifest)
 ): string[] {
-  return graph.taskDependenciesByTask.get(taskId) ?? [];
+  if (!graph.tasksById.has(taskId)) {
+    throw new Error(`Task '${taskId}' does not exist.`);
+  }
+  return requireMapValue(graph.taskDependenciesByTask, taskId, "taskDependenciesByTask");
 }
 
 export function hasDependencyPath(

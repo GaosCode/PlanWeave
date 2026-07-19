@@ -1,4 +1,5 @@
 import type { ExecutionGraphSession, GraphEditOperation, ValidationIssue } from "../../types.js";
+import { requireMapValue } from "../requireMapValue.js";
 import {
   addEdgeIndexes,
   addTaskIndexes,
@@ -40,7 +41,7 @@ export function applyGraphEditOperation(
     graph.nodesById.set(operation.node.id, operation.node);
     if (operation.node.type === "task") {
       addTaskIndexes(graph, operation.node);
-      for (const ref of graph.blocksByTask.get(operation.node.id) ?? []) {
+      for (const ref of requireMapValue(graph.blocksByTask, operation.node.id, "blocksByTask")) {
         session.dirtyPromptRefs.add(ref);
       }
     }
@@ -68,7 +69,7 @@ export function applyGraphEditOperation(
       removeDirtyRefs(session, removedRefs);
       addTaskIndexes(graph, operation.node);
       alignGraphOrder(graph, manifest);
-      for (const ref of graph.blocksByTask.get(operation.node.id) ?? []) {
+      for (const ref of requireMapValue(graph.blocksByTask, operation.node.id, "blocksByTask")) {
         session.dirtyPromptRefs.add(ref);
       }
     }

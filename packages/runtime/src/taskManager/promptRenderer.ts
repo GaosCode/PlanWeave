@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
+import { requireMapValue } from "../graph/requireMapValue.js";
 import {
   loadPlanGraphPackage,
   type LoadedPlanGraphPackage
@@ -275,10 +276,16 @@ export async function renderPromptSurfaceFromContext(
       missing: blockPrompt.missing
     })
   ];
-  const dependencyLines = (graph.blockDependenciesByRef.get(ref) ?? []).map(
-    (dependency) => `${dependency}: ${state.blocks[dependency]?.status ?? "planned"}`
-  );
-  const sharedResourceLines = (graph.sharedResourcesByBlockRef.get(ref) ?? []).map(
+  const dependencyLines = requireMapValue(
+    graph.blockDependenciesByRef,
+    ref,
+    "blockDependenciesByRef"
+  ).map((dependency) => `${dependency}: ${state.blocks[dependency]?.status ?? "planned"}`);
+  const sharedResourceLines = requireMapValue(
+    graph.sharedResourcesByBlockRef,
+    ref,
+    "sharedResourcesByBlockRef"
+  ).map(
     (resource) =>
       `${resource} (coordination hint only; it does not reserve the resource or block parallel work)`
   );

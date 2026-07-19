@@ -9,6 +9,7 @@ import type {
 import type { ValidationIssue } from "../../types.js";
 import type { ProjectCanvasAggregationContext } from "../../desktop/graph/projectCanvasAggregation.js";
 import { getBlock } from "../../desktop/graph/graphHelpers.js";
+import { requireMapValue } from "../../graph/requireMapValue.js";
 import type { PlanGraph } from "../domain/types.js";
 
 export type CanvasTodoRuntimeContext = RuntimeContext & {
@@ -93,7 +94,11 @@ export function buildTodoProjection(input: TodoProjectionInput): TodoProjection 
       status: displayStatus,
       dependencyBlockers,
       dispatchable: claimHint?.dispatchable ?? false,
-      sharedResources: runtime.graph.sharedResourcesByBlockRef.get(blockStatus.ref) ?? [],
+      sharedResources: requireMapValue(
+        runtime.graph.sharedResourcesByBlockRef,
+        blockStatus.ref,
+        "sharedResourcesByBlockRef"
+      ),
       reviewGate: claimHint?.reviewGate ?? null
     };
     groups[groupName].push(item);

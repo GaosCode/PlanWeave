@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { isNodeFileNotFoundError } from "../../fs/optionalFile.js";
 import { parseBlockRef } from "../../graph/compileTaskGraph.js";
+import { requireMapValue } from "../../graph/requireMapValue.js";
 import type {
   BlockStatus,
   CompiledExecutionGraph,
@@ -63,10 +64,13 @@ export function getBlock(graph: CompiledExecutionGraph, ref: string): ManifestBl
 }
 
 export function sortBlockRefsForTask(graph: CompiledExecutionGraph, taskId: string): string[] {
-  const refs = graph.blocksByTask.get(taskId) ?? [];
+  const refs = requireMapValue(graph.blocksByTask, taskId, "blocksByTask");
   const order = new Map(refs.map((ref, index) => [ref, index]));
   const dependencies = new Map(
-    refs.map((ref) => [ref, new Set(graph.blockDependenciesByRef.get(ref) ?? [])])
+    refs.map((ref) => [
+      ref,
+      new Set(requireMapValue(graph.blockDependenciesByRef, ref, "blockDependenciesByRef"))
+    ])
   );
   const sorted: string[] = [];
   const ready = refs.filter((ref) => (dependencies.get(ref)?.size ?? 0) === 0);
@@ -78,7 +82,11 @@ export function sortBlockRefsForTask(graph: CompiledExecutionGraph, taskId: stri
       continue;
     }
     sorted.push(current);
-    for (const dependent of graph.blockDependentsByRef.get(current) ?? []) {
+    for (const dependent of requireMapValue(
+      graph.blockDependentsByRef,
+      current,
+      "blockDependentsByRef"
+    )) {
       const remaining = dependencies.get(dependent);
       if (!remaining) {
         continue;

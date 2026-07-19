@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
+import { requireMapValue } from "../graph/requireMapValue.js";
 import type {
   ClaimResult,
   ClaimScope,
@@ -32,7 +33,7 @@ export function taskDependenciesSatisfied(
   state: RuntimeState,
   taskId: string
 ): boolean {
-  return (graph.taskDependenciesByTask.get(taskId) ?? []).every(
+  return requireMapValue(graph.taskDependenciesByTask, taskId, "taskDependenciesByTask").every(
     (dependency) => state.tasks[dependency]?.status === "implemented"
   );
 }
@@ -42,7 +43,7 @@ export function blockDependenciesCompleted(
   state: RuntimeState,
   ref: string
 ): boolean {
-  return (graph.blockDependenciesByRef.get(ref) ?? []).every(
+  return requireMapValue(graph.blockDependenciesByRef, ref, "blockDependenciesByRef").every(
     (dependency) => state.blocks[dependency]?.status === "completed"
   );
 }
@@ -82,9 +83,9 @@ export function effectiveBlockExecutor(
   defaultExecutor?: string
 ): string {
   const block = getBlock(graph, ref);
-  const taskId = graph.blockTaskByRef.get(ref);
-  const task = taskId ? graph.tasksById.get(taskId) : undefined;
-  return block.executor ?? task?.executor ?? defaultExecutor ?? "default";
+  const taskId = requireMapValue(graph.blockTaskByRef, ref, "blockTaskByRef");
+  const task = requireMapValue(graph.tasksById, taskId, "tasksById");
+  return block.executor ?? task.executor ?? defaultExecutor ?? "default";
 }
 
 export function effectiveFeedbackExecutor(
@@ -152,16 +153,16 @@ export function requiredImplementationRefs(
   graph: CompiledExecutionGraph,
   taskId: string
 ): string[] {
-  return (graph.blocksByTask.get(taskId) ?? []).filter((ref) => {
-    const block = graph.blocksByRef.get(ref);
-    return block?.type === "implementation";
+  return requireMapValue(graph.blocksByTask, taskId, "blocksByTask").filter((ref) => {
+    const block = requireMapValue(graph.blocksByRef, ref, "blocksByRef");
+    return block.type === "implementation";
   });
 }
 
 export function requiredReviewRefs(graph: CompiledExecutionGraph, taskId: string): string[] {
-  return (graph.blocksByTask.get(taskId) ?? []).filter((ref) => {
-    const block = graph.blocksByRef.get(ref);
-    return block?.type === "review" && block.review.required;
+  return requireMapValue(graph.blocksByTask, taskId, "blocksByTask").filter((ref) => {
+    const block = requireMapValue(graph.blocksByRef, ref, "blocksByRef");
+    return block.type === "review" && block.review.required;
   });
 }
 
@@ -170,10 +171,7 @@ export function computeWorkRevision(
   state: RuntimeState,
   reviewBlockRef: string
 ): string {
-  const taskId = graph.blockTaskByRef.get(reviewBlockRef);
-  if (!taskId) {
-    throw new Error(`Review block '${reviewBlockRef}' does not belong to a task.`);
-  }
+  const taskId = requireMapValue(graph.blockTaskByRef, reviewBlockRef, "blockTaskByRef");
   const material = {
     runs: requiredImplementationRefs(graph, taskId).map((ref) => [
       ref,

@@ -1,5 +1,6 @@
 import { sep } from "node:path";
 import { compilePackageGraph } from "./compileTaskGraph.js";
+import { requireMapValue } from "./requireMapValue.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { ensureStateForManifest, readState } from "../state.js";
 import type {
@@ -92,8 +93,8 @@ function inspectTask(
     acceptanceCount: task.acceptance.length,
     blockCount: task.blocks.length,
     reviewBlockCount: task.blocks.filter((block) => block.type === "review").length,
-    dependsOn: graph.taskDependenciesByTask.get(task.id) ?? [],
-    dependents: graph.taskDependentsByTask.get(task.id) ?? [],
+    dependsOn: requireMapValue(graph.taskDependenciesByTask, task.id, "taskDependenciesByTask"),
+    dependents: requireMapValue(graph.taskDependentsByTask, task.id, "taskDependentsByTask"),
     promptMissing: missingPromptPaths.has(task.prompt)
   };
 }
@@ -101,10 +102,7 @@ function inspectTask(
 function inspectTasks(graph: CompiledExecutionGraph, state: RuntimeState): GraphInspectionTask[] {
   const missingPromptPaths = promptMissingPaths(graph);
   return graph.taskNodesInManifestOrder.map((taskId) => {
-    const task = graph.tasksById.get(taskId);
-    if (!task) {
-      throw new Error(`Compiled graph is missing task '${taskId}'.`);
-    }
+    const task = requireMapValue(graph.tasksById, taskId, "tasksById");
     return inspectTask(task, graph, state, missingPromptPaths);
   });
 }
@@ -146,17 +144,14 @@ function inspectBlock(
   graph: CompiledExecutionGraph,
   state: RuntimeState
 ): GraphInspectionBlock {
-  const block = graph.blocksByRef.get(ref);
-  if (!block) {
-    throw new Error(`Compiled graph is missing block '${ref}'.`);
-  }
+  const block = requireMapValue(graph.blocksByRef, ref, "blocksByRef");
   return {
     ref,
     blockId: block.id,
     type: block.type,
     title: block.title,
     status: state.blocks[ref]?.status ?? "planned",
-    dependsOn: graph.blockDependenciesByRef.get(ref) ?? []
+    dependsOn: requireMapValue(graph.blockDependenciesByRef, ref, "blockDependenciesByRef")
   };
 }
 
@@ -227,7 +222,7 @@ export async function inspectGraph(input: InspectGraphInput): Promise<GraphInspe
     ...boundedDependents.items.map((task) => task.taskId)
   ]);
   const edges = taskEdgesFor(visibleTaskIds, manifest);
-  const blocks = (graph.blocksByTask.get(center.taskId) ?? []).map((ref) =>
+  const blocks = requireMapValue(graph.blocksByTask, center.taskId, "blocksByTask").map((ref) =>
     inspectBlock(ref, graph, state)
   );
   return {

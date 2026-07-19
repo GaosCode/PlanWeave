@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireMapValue } from "../../graph/requireMapValue.js";
 import type { CompiledExecutionGraph, RuntimeState } from "../../types.js";
 import type { ClaimHint } from "../../types/taskManager.js";
 import type {
@@ -37,10 +38,7 @@ export function buildSharedResourceGroups(
       const memberBlockRefs = [...members].sort((left, right) => left.localeCompare(right));
       const memberTaskIds = [
         ...new Set(
-          memberBlockRefs.flatMap((ref) => {
-            const taskId = graph.blockTaskByRef.get(ref);
-            return taskId ? [taskId] : [];
-          })
+          memberBlockRefs.map((ref) => requireMapValue(graph.blockTaskByRef, ref, "blockTaskByRef"))
         )
       ].sort((left, right) => left.localeCompare(right));
       return {
@@ -70,7 +68,11 @@ function taskSharedResources(
 ): string[] {
   const resources = new Set<string>();
   for (const block of task.blocks) {
-    for (const resource of graph.sharedResourcesByBlockRef.get(block.ref) ?? []) {
+    for (const resource of requireMapValue(
+      graph.sharedResourcesByBlockRef,
+      block.ref,
+      "sharedResourcesByBlockRef"
+    )) {
       resources.add(resource);
     }
   }

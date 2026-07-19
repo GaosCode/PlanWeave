@@ -7,6 +7,7 @@ import type {
   PlanPackageManifest,
   ValidationIssue
 } from "../../types.js";
+import { requireMapValue } from "../requireMapValue.js";
 import { sharedResourcesForBlock } from "../sharedResources.js";
 
 export function issue(code: string, message: string, path?: string): ValidationIssue {
@@ -18,8 +19,11 @@ export function blockRef(taskId: string, blockId: string): string {
 }
 
 function reachable(adjacency: Map<string, string[]>, from: string, to: string): boolean {
+  if (!adjacency.has(from) || !adjacency.has(to)) {
+    return false;
+  }
   const visited = new Set<string>();
-  const stack = [...(adjacency.get(from) ?? [])];
+  const stack = [...requireMapValue(adjacency, from, "adjacency")];
   while (stack.length > 0) {
     const id = stack.pop();
     if (!id || visited.has(id)) {
@@ -29,7 +33,7 @@ function reachable(adjacency: Map<string, string[]>, from: string, to: string): 
       return true;
     }
     visited.add(id);
-    stack.push(...(adjacency.get(id) ?? []));
+    stack.push(...requireMapValue(adjacency, id, "adjacency"));
   }
   return false;
 }
@@ -40,7 +44,12 @@ export function refreshReachability(graph: CompiledExecutionGraph): void {
     reachable(graph.blockDependenciesByRef, fromRef, toRef);
 }
 
-function addBlockIndexes(
+/**
+ * Insert block primary indexes for a task that already has task-level lists initialized.
+ * Reverse block-dependent edges are wired in a second pass so depends_on may reference
+ * later blocks in the same task.
+ */
+export function addBlockIndexes(
   graph: CompiledExecutionGraph,
   taskId: string,
   block: ManifestBlock
@@ -49,23 +58,35 @@ function addBlockIndexes(
   graph.blockRefsInManifestOrder.push(ref);
   graph.blocksByRef.set(ref, block);
   graph.blockTaskByRef.set(ref, taskId);
-  graph.blocksByTask.get(taskId)?.push(ref);
+  requireMapValue(graph.blocksByTask, taskId, "blocksByTask").push(ref);
   graph.blockDependenciesByRef.set(
     ref,
     block.depends_on.map((dependencyId) => blockRef(taskId, dependencyId))
   );
   graph.blockDependentsByRef.set(ref, []);
-  for (const dependencyRef of graph.blockDependenciesByRef.get(ref) ?? []) {
-    graph.blockDependentsByRef.get(dependencyRef)?.push(ref);
-  }
   if (block.type === "review") {
-    graph.reviewBlocksByTask.get(taskId)?.push(ref);
+    requireMapValue(graph.reviewBlocksByTask, taskId, "reviewBlocksByTask").push(ref);
   }
   graph.sharedResourcesByBlockRef.set(ref, sharedResourcesForBlock(block));
 }
 
+function wireBlockDependencyIndexes(
+  graph: CompiledExecutionGraph,
+  taskId: string,
+  block: ManifestBlock
+): void {
+  const ref = blockRef(taskId, block.id);
+  for (const dependencyRef of requireMapValue(
+    graph.blockDependenciesByRef,
+    ref,
+    "blockDependenciesByRef"
+  )) {
+    requireMapValue(graph.blockDependentsByRef, dependencyRef, "blockDependentsByRef").push(ref);
+  }
+}
+
 export function removeTaskIndexes(graph: CompiledExecutionGraph, taskId: string): string[] {
-  const removedRefs = graph.blocksByTask.get(taskId) ?? [];
+  const removedRefs = requireMapValue(graph.blocksByTask, taskId, "blocksByTask");
   for (const ref of removedRefs) {
     graph.blocksByRef.delete(ref);
     graph.blockTaskByRef.delete(ref);
@@ -112,6 +133,9 @@ export function addTaskIndexes(graph: CompiledExecutionGraph, task: ManifestTask
   for (const block of task.blocks) {
     addBlockIndexes(graph, task.id, block);
   }
+  for (const block of task.blocks) {
+    wireBlockDependencyIndexes(graph, task.id, block);
+  }
 }
 
 export function validateTaskBlocks(task: ManifestTaskNode): ValidationIssue[] {
@@ -153,7 +177,7 @@ export function validateTaskBlocks(task: ManifestTaskNode): ValidationIssue[] {
         );
         continue;
       }
-      adjacency.get(block.id)?.push(dependencyId);
+      requireMapValue(adjacency, block.id, "adjacency").push(dependencyId);
     }
   }
   return diagnostics;
@@ -213,22 +237,22 @@ export function validateEdge(graph: CompiledExecutionGraph, edge: ManifestEdge):
 }
 
 export function addEdgeIndexes(graph: CompiledExecutionGraph, edge: ManifestEdge): void {
-  graph.taskDependenciesByTask.get(edge.from)?.push(edge.to);
-  graph.taskDependentsByTask.get(edge.to)?.push(edge.from);
+  requireMapValue(graph.taskDependenciesByTask, edge.from, "taskDependenciesByTask").push(edge.to);
+  requireMapValue(graph.taskDependentsByTask, edge.to, "taskDependentsByTask").push(edge.from);
 }
 
 export function removeEdgeIndexes(graph: CompiledExecutionGraph, edge: ManifestEdge): void {
-  const remove = (items: string[] | undefined, value: string) => {
-    if (!items) {
-      return;
-    }
+  const remove = (items: string[], value: string) => {
     const index = items.indexOf(value);
     if (index >= 0) {
       items.splice(index, 1);
     }
   };
-  remove(graph.taskDependenciesByTask.get(edge.from), edge.to);
-  remove(graph.taskDependentsByTask.get(edge.to), edge.from);
+  remove(
+    requireMapValue(graph.taskDependenciesByTask, edge.from, "taskDependenciesByTask"),
+    edge.to
+  );
+  remove(requireMapValue(graph.taskDependentsByTask, edge.to, "taskDependentsByTask"), edge.from);
 }
 
 export function rebuildEdgeIndexes(

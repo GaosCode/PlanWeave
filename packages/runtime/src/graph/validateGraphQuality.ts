@@ -1,4 +1,5 @@
 import { compilePackageGraph } from "./compileTaskGraph.js";
+import { requireMapValue } from "./requireMapValue.js";
 import { readFile } from "node:fs/promises";
 import { loadPackage } from "../package/loadPackage.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
@@ -153,8 +154,9 @@ function orphanedTasks(graph: CompiledExecutionGraph): GraphQualityDiagnostic | 
   }
   const affectedIds = graph.taskNodesInManifestOrder.filter(
     (taskId) =>
-      (graph.taskDependenciesByTask.get(taskId) ?? []).length === 0 &&
-      (graph.taskDependentsByTask.get(taskId) ?? []).length === 0
+      requireMapValue(graph.taskDependenciesByTask, taskId, "taskDependenciesByTask").length ===
+        0 &&
+      requireMapValue(graph.taskDependentsByTask, taskId, "taskDependentsByTask").length === 0
   );
   if (affectedIds.length === 0) {
     return null;
@@ -250,7 +252,9 @@ function gateIncompleteDependencies(
 
   const affectedIds: string[] = [];
   for (const gateTaskId of gateTaskIds) {
-    const dependencies = new Set(graph.taskDependenciesByTask.get(gateTaskId) ?? []);
+    const dependencies = new Set(
+      requireMapValue(graph.taskDependenciesByTask, gateTaskId, "taskDependenciesByTask")
+    );
     for (const requiredTaskId of requiredTaskIds) {
       if (!dependencies.has(requiredTaskId)) {
         affectedIds.push(`${gateTaskId}->${requiredTaskId}`);
@@ -462,8 +466,9 @@ function orphanTaskCount(graph: CompiledExecutionGraph): number {
   }
   return graph.taskNodesInManifestOrder.filter(
     (taskId) =>
-      (graph.taskDependenciesByTask.get(taskId) ?? []).length === 0 &&
-      (graph.taskDependentsByTask.get(taskId) ?? []).length === 0
+      requireMapValue(graph.taskDependenciesByTask, taskId, "taskDependenciesByTask").length ===
+        0 &&
+      requireMapValue(graph.taskDependentsByTask, taskId, "taskDependentsByTask").length === 0
   ).length;
 }
 

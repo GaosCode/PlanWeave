@@ -14,6 +14,7 @@ import type {
   ValidationIssue
 } from "../types.js";
 import { parseBlockRef } from "./blockRef.js";
+import { requireMapValue } from "./requireMapValue.js";
 import { sharedResourcesForBlock } from "./sharedResources.js";
 
 export { parseBlockRef } from "./blockRef.js";
@@ -87,8 +88,9 @@ function findCycle(adjacency: Map<string, string[]>): string[] | null {
     visiting.add(id);
     while (stack.length > 0) {
       const frame = stack[stack.length - 1];
-      const next = adjacency.get(frame.id)?.[frame.nextIndex];
-      if (!next) {
+      const neighbors = requireMapValue(adjacency, frame.id, "adjacency");
+      const next = neighbors[frame.nextIndex];
+      if (next === undefined) {
         visiting.delete(frame.id);
         visited.add(frame.id);
         stack.pop();
@@ -119,7 +121,7 @@ function reachable(adjacency: Map<string, string[]>, from: string, to: string): 
     return false;
   }
   const visited = new Set<string>();
-  const stack = [...(adjacency.get(from) ?? [])];
+  const stack = [...requireMapValue(adjacency, from, "adjacency")];
   while (stack.length > 0) {
     const id = stack.pop();
     if (!id || visited.has(id)) {
@@ -129,7 +131,7 @@ function reachable(adjacency: Map<string, string[]>, from: string, to: string): 
       return true;
     }
     visited.add(id);
-    stack.push(...(adjacency.get(id) ?? []));
+    stack.push(...requireMapValue(adjacency, id, "adjacency"));
   }
   return false;
 }
@@ -188,9 +190,9 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
     blocksByTask.set(taskId, []);
     reviewBlocksByTask.set(taskId, []);
 
-    const task = tasksById.get(taskId);
+    const task = requireMapValue(tasksById, taskId, "tasksById");
     const blockIds = new Set<string>();
-    for (const block of task?.blocks ?? []) {
+    for (const block of task.blocks) {
       const ref = blockRef(taskId, block.id);
       if (blockIds.has(block.id)) {
         errors.push(
@@ -205,11 +207,11 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
       blockRefsInManifestOrder.push(ref);
       blocksByRef.set(ref, block);
       blockTaskByRef.set(ref, taskId);
-      blocksByTask.get(taskId)?.push(ref);
+      requireMapValue(blocksByTask, taskId, "blocksByTask").push(ref);
       blockDependenciesByRef.set(ref, []);
       blockDependentsByRef.set(ref, []);
       if (block.type === "review") {
-        reviewBlocksByTask.get(taskId)?.push(ref);
+        requireMapValue(reviewBlocksByTask, taskId, "reviewBlocksByTask").push(ref);
       }
       sharedResourcesByBlockRef.set(ref, sharedResourcesForBlock(block));
     }
@@ -217,9 +219,9 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
 
   for (const taskId of taskNodesInManifestOrder) {
     const knownBlockIds = new Set(
-      (blocksByTask.get(taskId) ?? []).map((ref) => parseBlockRef(ref).blockId)
+      requireMapValue(blocksByTask, taskId, "blocksByTask").map((ref) => parseBlockRef(ref).blockId)
     );
-    for (const block of tasksById.get(taskId)?.blocks ?? []) {
+    for (const block of requireMapValue(tasksById, taskId, "tasksById").blocks) {
       const ref = blockRef(taskId, block.id);
       for (const dependencyBlockId of block.depends_on) {
         if (!knownBlockIds.has(dependencyBlockId)) {
@@ -233,8 +235,8 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
           continue;
         }
         const dependencyRef = blockRef(taskId, dependencyBlockId);
-        blockDependenciesByRef.get(ref)?.push(dependencyRef);
-        blockDependentsByRef.get(dependencyRef)?.push(ref);
+        requireMapValue(blockDependenciesByRef, ref, "blockDependenciesByRef").push(dependencyRef);
+        requireMapValue(blockDependentsByRef, dependencyRef, "blockDependentsByRef").push(ref);
       }
     }
   }
@@ -262,7 +264,9 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
       );
     }
     seenEdges.add(key);
-    edgesByType.get(edge.type)?.push(edge);
+    if (edgesByType.has(edge.type)) {
+      requireMapValue(edgesByType, edge.type, "edgesByType").push(edge);
+    }
     const from = nodesById.get(edge.from);
     const to = nodesById.get(edge.to);
     if (!from) {
@@ -278,16 +282,16 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
     if (!from || !to) {
       continue;
     }
-    outgoingEdgesByNode.get(edge.from)?.push(edge);
-    incomingEdgesByNode.get(edge.to)?.push(edge);
+    requireMapValue(outgoingEdgesByNode, edge.from, "outgoingEdgesByNode").push(edge);
+    requireMapValue(incomingEdgesByNode, edge.to, "incomingEdgesByNode").push(edge);
     const endpointIssues = validateEdgeEndpointTypes(edge, from, to);
     if (endpointIssues.length > 0) {
       errors.push(...endpointIssues);
       continue;
     }
-    taskDependenciesByTask.get(edge.from)?.push(edge.to);
-    taskDependentsByTask.get(edge.to)?.push(edge.from);
-    taskAdjacency.get(edge.from)?.push(edge.to);
+    requireMapValue(taskDependenciesByTask, edge.from, "taskDependenciesByTask").push(edge.to);
+    requireMapValue(taskDependentsByTask, edge.to, "taskDependentsByTask").push(edge.from);
+    requireMapValue(taskAdjacency, edge.from, "taskAdjacency").push(edge.to);
   }
 
   const taskCycle = findCycle(taskAdjacency);
@@ -312,8 +316,12 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
   }
 
   for (const taskId of taskNodesInManifestOrder) {
-    const blocks = blocksByTask.get(taskId) ?? [];
-    if (!blocks.some((ref) => blocksByRef.get(ref)?.type === "implementation")) {
+    const blocks = requireMapValue(blocksByTask, taskId, "blocksByTask");
+    if (
+      !blocks.some(
+        (ref) => requireMapValue(blocksByRef, ref, "blocksByRef").type === "implementation"
+      )
+    ) {
       errors.push(
         issue(
           "task_without_implementation_block",
@@ -380,10 +388,7 @@ export async function compilePackageGraph(
   const referencedPrompts = new Set<string>();
 
   for (const taskId of graph.taskNodesInManifestOrder) {
-    const task = graph.tasksById.get(taskId);
-    if (!task) {
-      continue;
-    }
+    const task = requireMapValue(graph.tasksById, taskId, "tasksById");
     referencedPrompts.add(task.prompt);
     await validatePromptReference(packageDir, task.prompt, graph.diagnostics.errors);
     for (const block of task.blocks) {

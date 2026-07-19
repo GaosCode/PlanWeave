@@ -1,6 +1,7 @@
 import { dirname } from "node:path";
 import { parseBlockRef } from "../../graph/compileTaskGraph.js";
 import { compileTaskGraph } from "../../graph/compileTaskGraph.js";
+import { requireMapValue } from "../../graph/requireMapValue.js";
 import { loadPackage } from "../../package/loadPackage.js";
 import { resolvePackagePath } from "../../package/resolvePackagePath.js";
 import { renderPromptSurfaceFromContext as renderPromptSurfaceWithContext } from "../../taskManager/promptRenderer.js";
@@ -320,7 +321,7 @@ export async function buildBlockDetail(
     promptMissing: prompt.missing,
     promptSurfaceMarkdown: promptSurface.markdown,
     promptSources: promptSurface.sources,
-    dependencies: graph.blockDependenciesByRef.get(ref) ?? [],
+    dependencies: requireMapValue(graph.blockDependenciesByRef, ref, "blockDependenciesByRef"),
     latestRunId: blockStatus?.lastRunId ?? null,
     latestReviewAttemptId: blockStatus?.latestReviewAttemptId ?? null,
     activeFeedbackId: blockStatus?.activeFeedbackId ?? null,

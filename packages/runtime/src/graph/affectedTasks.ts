@@ -1,4 +1,5 @@
 import { compileTaskGraph } from "./compileTaskGraph.js";
+import { requireMapValue } from "./requireMapValue.js";
 import type {
   CompiledTaskGraph,
   ManifestEdge,
@@ -18,7 +19,9 @@ function addTaskDependents(graph: CompiledTaskGraph, taskId: string, affected: S
       continue;
     }
     affected.add(current);
-    stack.push(...(graph.taskDependentsByTask.get(current) ?? []));
+    stack.push(
+      ...requireMapValue(graph.taskDependentsByTask, current, "taskDependentsByTask")
+    );
   }
 }
 

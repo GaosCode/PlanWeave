@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { optionalStat } from "./fs/optionalFile.js";
 import { compileTaskGraph } from "./graph/compileTaskGraph.js";
+import { requireMapValue } from "./graph/requireMapValue.js";
 import { readJsonFile, writeJsonFile } from "./json.js";
 import { runtimeStateSchema } from "./schema/runtimeState.js";
 import type {
@@ -51,11 +52,11 @@ function defaultBlockStatus(
   graph: CompiledExecutionGraph,
   state: RuntimeState
 ): BlockStatus {
-  const taskId = graph.blockTaskByRef.get(ref);
-  if (!taskId || !taskDependenciesSatisfied(taskId, graph, state)) {
+  const taskId = requireMapValue(graph.blockTaskByRef, ref, "blockTaskByRef");
+  if (!taskDependenciesSatisfied(taskId, graph, state)) {
     return "planned";
   }
-  const dependencies = graph.blockDependenciesByRef.get(ref) ?? [];
+  const dependencies = requireMapValue(graph.blockDependenciesByRef, ref, "blockDependenciesByRef");
   return dependencies.every((dependency) => state.blocks[dependency]?.status === "completed")
     ? "ready"
     : "planned";
@@ -66,7 +67,7 @@ function taskDependenciesSatisfied(
   graph: CompiledExecutionGraph,
   state: RuntimeState
 ): boolean {
-  return (graph.taskDependenciesByTask.get(taskId) ?? []).every(
+  return requireMapValue(graph.taskDependenciesByTask, taskId, "taskDependenciesByTask").every(
     (dependency) => state.tasks[dependency]?.status === "implemented"
   );
 }
@@ -94,7 +95,7 @@ function aggregateTaskStatus(
   graph: CompiledExecutionGraph,
   state: RuntimeState
 ): TaskState {
-  const refs = graph.blocksByTask.get(taskId) ?? [];
+  const refs = requireMapValue(graph.blocksByTask, taskId, "blocksByTask");
   const blocks = refs.map((ref) => state.blocks[ref]).filter(Boolean);
   const openFeedbackCount = Object.values(state.feedback).filter((feedback) => {
     const sourceTask = graph.blockTaskByRef.get(feedback.sourceReviewBlockRef);
@@ -110,17 +111,14 @@ function aggregateTaskStatus(
     return { status: "in_progress", openFeedbackCount };
   }
   const requiredNonReviewComplete = refs
-    .filter((ref) => {
-      const block = graph.blocksByRef.get(ref);
-      return block?.type === "implementation";
-    })
+    .filter((ref) => requireMapValue(graph.blocksByRef, ref, "blocksByRef").type === "implementation")
     .every((ref) => state.blocks[ref]?.status === "completed");
   const requiredReviewsPassed = refs
-    .filter((ref) => graph.blocksByRef.get(ref)?.type === "review")
+    .filter((ref) => requireMapValue(graph.blocksByRef, ref, "blocksByRef").type === "review")
     .every((ref) => {
-      const block = graph.blocksByRef.get(ref);
+      const block = requireMapValue(graph.blocksByRef, ref, "blocksByRef");
       return (
-        block?.type !== "review" ||
+        block.type !== "review" ||
         !block.review.required ||
         state.blocks[ref]?.completionReason === "passed"
       );
@@ -215,14 +213,14 @@ export function ensureStateForManifest(
       if (!taskDependenciesSatisfied(taskId, graph, next)) {
         continue;
       }
-      for (const ref of graph.blocksByTask.get(taskId) ?? []) {
-        const block = graph.blocksByRef.get(ref);
+      for (const ref of requireMapValue(graph.blocksByTask, taskId, "blocksByTask")) {
+        const block = requireMapValue(graph.blocksByRef, ref, "blocksByRef");
         const blockState = next.blocks[ref];
-        if (!block || blockState.status !== "planned") {
+        if (blockState.status !== "planned") {
           continue;
         }
         if (
-          (graph.blockDependenciesByRef.get(ref) ?? []).every(
+          requireMapValue(graph.blockDependenciesByRef, ref, "blockDependenciesByRef").every(
             (dependency) => next.blocks[dependency]?.status === "completed"
           )
         ) {

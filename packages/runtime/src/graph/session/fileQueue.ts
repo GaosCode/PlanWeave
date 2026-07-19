@@ -4,16 +4,14 @@ import type {
   ExecutionGraphSession,
   PackageFileChange
 } from "../../types.js";
+import { requireMapValue } from "../requireMapValue.js";
 
 export function promptPathToRefs(graph: CompiledExecutionGraph, path: string): string[] {
   const refs: string[] = [];
   for (const taskId of graph.taskNodesInManifestOrder) {
-    const task = graph.tasksById.get(taskId);
-    if (!task) {
-      continue;
-    }
+    const task = requireMapValue(graph.tasksById, taskId, "tasksById");
     if (task.prompt === path) {
-      refs.push(...(graph.blocksByTask.get(taskId) ?? []));
+      refs.push(...requireMapValue(graph.blocksByTask, taskId, "blocksByTask"));
     }
     for (const block of task.blocks) {
       if (block.prompt === path) {
