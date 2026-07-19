@@ -8,7 +8,7 @@ import {
   SelectValue
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { executorOptionName, executorOptionNames } from "../executors/executorOptionViewModel";
+import { buildExecutorOptionViews, executorOptionName } from "../executors/executorOptionViewModel";
 
 const inheritExecutorValue = "__inherit";
 
@@ -31,7 +31,7 @@ export function TaskWorkspaceExecutorSelect({
   executorOptions: readonly string[];
   inheritLabel?: string;
   label: string;
-  labels: { saved: string; saving: string };
+  labels: { custom: string; saved: string; saving: string };
   onSave: (executorName: string | null) => Promise<void>;
   packageExecutorNames: readonly string[];
 }) {
@@ -44,7 +44,7 @@ export function TaskWorkspaceExecutorSelect({
   const [displayedValue, setDisplayedValue] = useState(selectedValue);
   const options = useMemo(
     () =>
-      executorOptionNames({
+      buildExecutorOptionViews({
         currentExecutorNames: executorName ? [executorName] : inheritLabel ? [] : ["manual"],
         executorOptions,
         literalExecutorNames: packageExecutorNames
@@ -98,8 +98,13 @@ export function TaskWorkspaceExecutorSelect({
               <SelectItem value={inheritExecutorValue}>{inheritLabel}</SelectItem>
             ) : null}
             {options.map((executor) => (
-              <SelectItem key={executor} value={executor}>
-                {executor}
+              <SelectItem key={executor.name} value={executor.name}>
+                <span className="flex min-w-0 items-center gap-2">
+                  <span>{executor.label}</span>
+                  {executor.custom ? (
+                    <span className="text-xs text-muted-foreground">{labels.custom}</span>
+                  ) : null}
+                </span>
               </SelectItem>
             ))}
           </SelectGroup>

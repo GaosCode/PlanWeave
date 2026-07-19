@@ -22,7 +22,8 @@ describe("executor option view model", () => {
         }
       ],
       currentExecutorNames: ["legacy-executor"],
-      executorOptions: ["manual", "custom-shell", "codex", "custom-shell"]
+      executorOptions: ["manual", "custom-shell", "codex", "custom-shell"],
+      literalExecutorNames: ["custom-shell"]
     });
 
     expect(options).toEqual([
@@ -32,7 +33,8 @@ describe("executor option view model", () => {
         name: "legacy-executor",
         source: "current-value",
         detected: null,
-        detectionMessage: null
+        detectionMessage: null,
+        custom: false
       },
       {
         disabled: false,
@@ -40,7 +42,8 @@ describe("executor option view model", () => {
         name: "manual",
         source: "manifest",
         detected: null,
-        detectionMessage: null
+        detectionMessage: null,
+        custom: false
       },
       {
         disabled: false,
@@ -48,7 +51,8 @@ describe("executor option view model", () => {
         name: "custom-shell",
         source: "manifest",
         detected: null,
-        detectionMessage: null
+        detectionMessage: null,
+        custom: true
       },
       {
         disabled: true,
@@ -56,7 +60,8 @@ describe("executor option view model", () => {
         name: "codex",
         source: "manifest",
         detected: false,
-        detectionMessage: "not found"
+        detectionMessage: "not found",
+        custom: false
       }
     ]);
   });
@@ -207,7 +212,7 @@ describe("executor option view model", () => {
     ).toMatchObject({ name: "grok", detected: true, disabled: false });
   });
 
-  it("preserves package executor names that overlap builtin transport aliases", () => {
+  it("folds reserved aliases even when a package declares the same name", () => {
     expect(
       buildExecutorOptionViews({
         agentDetections: [],
@@ -215,8 +220,8 @@ describe("executor option view model", () => {
         literalExecutorNames: ["codex-acp"]
       })
     ).toEqual([
-      expect.objectContaining({ name: "manual", detected: null, disabled: false }),
-      expect.objectContaining({ name: "codex-acp", detected: null, disabled: false })
+      expect.objectContaining({ name: "manual", custom: false }),
+      expect.objectContaining({ name: "codex", custom: false })
     ]);
   });
 });

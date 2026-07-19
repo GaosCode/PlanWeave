@@ -96,10 +96,9 @@ describe("desktop graph read API", () => {
 
     const graph = await getGraphViewModel(root);
 
-    expect(graph.executorOptions).toEqual(
-      expect.arrayContaining(["manual", "custom-shell", "codex-acp"])
-    );
-    expect(graph.packageExecutorNames).toEqual(["codex-acp", "custom-shell"]);
+    expect(graph.executorOptions).toEqual(expect.arrayContaining(["manual", "custom-shell"]));
+    expect(graph.executorOptions).not.toContain("codex-acp");
+    expect(graph.packageExecutorNames).toEqual(["custom-shell"]);
     expect(graph.executorOptions.length).toBeGreaterThan(1);
     expect(graph.autoRunPreflightExecutorHint).toBe("custom-shell");
   });

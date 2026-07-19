@@ -15,11 +15,6 @@
     "maxFeedbackCycles": 1,
     "completionPolicy": "strict"
   },
-  "executors": {
-    "manual": {
-      "adapter": "manual"
-    }
-  },
   "nodes": [
     {
       "id": "T-001",

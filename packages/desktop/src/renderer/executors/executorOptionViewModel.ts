@@ -3,6 +3,7 @@ import type {
   DesktopAgentKind,
   RunnerTransport
 } from "@planweave-ai/runtime";
+import { canonicalBuiltinExecutorName, isBuiltinExecutorName } from "@planweave-ai/runtime/browser";
 
 export type ExecutorOptionView = {
   name: string;
@@ -11,6 +12,7 @@ export type ExecutorOptionView = {
   detected: boolean | null;
   detectionMessage: string | null;
   disabled: boolean;
+  custom: boolean;
 };
 
 type ExecutorOptionViewModelInput = {
@@ -19,18 +21,6 @@ type ExecutorOptionViewModelInput = {
   currentExecutorNames?: readonly string[];
   executorOptions: readonly string[];
   literalExecutorNames?: readonly string[];
-};
-
-const executorAliases: Record<string, string> = {
-  default: "manual",
-  "codex-auto": "codex",
-  "codex-acp": "codex",
-  "claude-code-auto": "claude-code",
-  "claude-code-acp": "claude-code",
-  "opencode-acp": "opencode",
-  "pi-auto": "pi",
-  "pi-acp": "pi",
-  "grok-acp": "grok"
 };
 
 interface ExecutorAgentDetectionBinding {
@@ -47,18 +37,22 @@ const executorAgentDetectionBindings: Record<string, ExecutorAgentDetectionBindi
 };
 
 export function canonicalExecutorName(name: string): string {
-  return executorAliases[name] ?? name;
+  return canonicalBuiltinExecutorName(name);
 }
 
 export function executorOptionName(
   name: string,
   literalExecutorNames: readonly string[] = []
 ): string {
-  return literalExecutorNames.includes(name) ? name : canonicalExecutorName(name);
+  return literalExecutorNames.includes(name) && !isBuiltinExecutorName(name)
+    ? name
+    : canonicalExecutorName(name);
 }
 
 function optionExecutorName(name: string, literalExecutorNames: ReadonlySet<string>): string {
-  return literalExecutorNames.has(name) ? name : canonicalExecutorName(name);
+  return literalExecutorNames.has(name) && !isBuiltinExecutorName(name)
+    ? name
+    : canonicalExecutorName(name);
 }
 
 function uniqueCanonicalNames(
@@ -84,7 +78,7 @@ function detectionForName(
   agentTransport: RunnerTransport,
   literalExecutorNames: ReadonlySet<string>
 ) {
-  if (literalExecutorNames.has(name)) {
+  if (literalExecutorNames.has(name) && !isBuiltinExecutorName(name)) {
     return null;
   }
   const binding = executorAgentDetectionBindings[canonicalExecutorName(name)];
@@ -114,7 +108,8 @@ function viewForName(
     source,
     detected: detection ? detection.installed : null,
     detectionMessage: detection ? (detection.version ?? detection.unavailableReason) : null,
-    disabled: detection?.installed === false
+    disabled: detection?.installed === false,
+    custom: literalExecutorNames.has(name) && !isBuiltinExecutorName(name)
   };
 }
 

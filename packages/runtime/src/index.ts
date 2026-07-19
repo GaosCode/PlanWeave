@@ -13,6 +13,11 @@ export type {
 export { readProjectPaths, resolvePlanweaveHome } from "./paths.js";
 export { createManagedProjectId, createProjectId } from "./projectId.js";
 export {
+  builtinExecutorNames,
+  canonicalBuiltinExecutorName,
+  isBuiltinExecutorName
+} from "./executorNames.js";
+export {
   shutdownActiveAgentRuns,
   shutdownDesktopAgentRun
 } from "./autoRun/activeAgentRunRegistry.js";

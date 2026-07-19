@@ -36,6 +36,7 @@ import {
 import type { ExecutorRuntimeOptions } from "./executorIntegration.js";
 import {
   builtinExecutorProfiles,
+  isBuiltinExecutorProfileName,
   isSupportedExecutionIntegration,
   runProfileBlock,
   runProfileFeedback
@@ -72,13 +73,13 @@ function resolveBlockExecutorName(
 
 function profilesByName(manifest: PlanPackageManifest): Record<string, ExecutorProfile> {
   return {
-    ...applyDesktopAgentSettingsToBuiltinProfiles(builtinExecutorProfiles),
-    ...(manifest.executors ?? {})
+    ...(manifest.executors ?? {}),
+    ...applyDesktopAgentSettingsToBuiltinProfiles(builtinExecutorProfiles)
   };
 }
 
 function profileSource(manifest: PlanPackageManifest, name: string): "builtin" | "package" {
-  return manifest.executors?.[name] ? "package" : "builtin";
+  return manifest.executors?.[name] && !isBuiltinExecutorProfileName(name) ? "package" : "builtin";
 }
 
 async function resolveProfileForClaim(options: {
@@ -235,6 +236,9 @@ export function listExecutorProfilesForManifest(
     applyDesktopAgentSettingsToBuiltinProfiles(builtinExecutorProfiles)
   ).map(([name, profile]) => summarizeExecutorProfile(name, "builtin", profile));
   for (const [name, profile] of Object.entries(packageProfiles)) {
+    if (isBuiltinExecutorProfileName(name)) {
+      continue;
+    }
     const existing = summaries.findIndex((summary) => summary.name === name);
     const summary = summarizeExecutorProfile(name, "package", profile);
     if (existing >= 0) {

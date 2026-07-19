@@ -61,6 +61,7 @@ const labels: TaskWorkspaceLabels = {
   booleanTrue: "True",
   composer: "Composer",
   conversation: "Conversation",
+  customExecutor: "Custom",
   dependencies: "Dependencies",
   dependencyProgress: (completed, total, percent) => `${completed}/${total} (${percent}%)`,
   elapsed: "Elapsed",

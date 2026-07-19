@@ -24,6 +24,10 @@ export const builtinExecutorProfiles: Record<string, ExecutorProfile> = {
   ...builtinAgentProfiles()
 };
 
+export function isBuiltinExecutorProfileName(name: string): boolean {
+  return Object.hasOwn(builtinExecutorProfiles, name);
+}
+
 export function isSupportedExecutionIntegration(name: ExecutorIntegrationName): boolean {
   if (name === "manual" || name === "local-review") {
     return true;

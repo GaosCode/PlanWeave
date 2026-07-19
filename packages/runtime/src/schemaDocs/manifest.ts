@@ -98,7 +98,10 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
       parallel: { enabled: "boolean", maxConcurrent: "positive integer" }
     },
     review: { maxFeedbackCycles: "non-negative integer, default: 1", completionPolicy: "strict" },
-    executors: { "[executorName]": executorProfileSchema },
+    executors: {
+      "[customExecutorName]": executorProfileSchema,
+      note: "Custom names only. Built-in executor names and aliases are reserved and cannot be overridden."
+    },
     nodes: [
       {
         id: "task id string, non-empty",

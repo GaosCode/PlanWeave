@@ -57,6 +57,7 @@ export type TaskWorkspaceLabels = {
   booleanTrue: string;
   composer: string;
   conversation: string;
+  customExecutor: string;
   dependencies: string;
   dependencyProgress: (completed: number, total: number, percent: number) => string;
   elapsed: string;

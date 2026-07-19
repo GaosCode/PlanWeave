@@ -14,6 +14,7 @@ import {
   projectCanvasWorkspace
 } from "./projectGraph/index.js";
 import { manifestSchema } from "./schema/manifest.js";
+import { isBuiltinExecutorName } from "./executorNames.js";
 import { readState } from "./state.js";
 import type {
   PackageWorkspaceRef,
@@ -264,6 +265,17 @@ async function validateWorkspacePackage(
       prefixIssue(projectWorkspace, workspace, manifest, item)
     )
   );
+  for (const name of Object.keys(manifest.executors ?? {})) {
+    if (isBuiltinExecutorName(name)) {
+      warnings.push(
+        issue(
+          "builtin_executor_override_ignored",
+          `Package executor '${name}' cannot override the built-in executor and is ignored.`,
+          `${workspaceRelative(projectWorkspace, workspace.manifestFile)}:executors.${name}`
+        )
+      );
+    }
+  }
   const layoutReport = await validateDesktopLayout(workspace, manifest);
   errors.push(
     ...layoutReport.errors.map((item) => prefixIssue(projectWorkspace, workspace, manifest, item))

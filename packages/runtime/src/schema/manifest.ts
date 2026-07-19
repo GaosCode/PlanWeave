@@ -5,6 +5,7 @@ import {
   reviewTriggerConditions,
   supportedManifestVersion
 } from "../types.js";
+import { builtinExecutorNames } from "../executorNames.js";
 
 const blockParallelPolicySchema = z
   .object({
@@ -144,21 +145,7 @@ export const manifestSchema = z
       });
     }
     const knownExecutors = new Set([
-      "default",
-      "manual",
-      "codex",
-      "codex-auto",
-      "opencode",
-      "claude-code",
-      "claude-code-auto",
-      "codex-acp",
-      "opencode-acp",
-      "claude-code-acp",
-      "pi",
-      "pi-auto",
-      "pi-acp",
-      "grok",
-      "grok-acp",
+      ...builtinExecutorNames,
       ...Object.keys(manifest.executors ?? {})
     ]);
     if (

@@ -3,14 +3,20 @@ import { access, chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listExecutorProfiles, testExecutorProfile } from "../index.js";
+import { builtinExecutorNames } from "../executorNames.js";
 import { writeJsonFile } from "../json.js";
 import { manifestSchema } from "../schema/manifest.js";
 import { validatePackage } from "../validatePackage.js";
+import { builtinExecutorProfiles } from "../autoRun/profileExecutor.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 import { createContractCodexExecAdapter, runContractAutoRunStep } from "./autoRunTestBuilders.js";
 
 describe("Auto Run executor profiles", () => {
+  it("keeps the reserved executor names aligned with the built-in profile registry", () => {
+    expect([...builtinExecutorNames].sort()).toEqual(Object.keys(builtinExecutorProfiles).sort());
+  });
+
   it("accepts executor profiles and task/block executor inheritance in Plan Package manifests", () => {
     const parsed = manifestSchema.parse({
       version: "plan-package/v1",
@@ -269,25 +275,28 @@ describe("Auto Run executor profiles", () => {
     ).toThrow(/does not reference a known executor profile/);
   });
 
-  it("requires trust for a package ACP profile that overrides a canonical built-in name", async () => {
+  it("ignores a package profile that overrides a canonical built-in name", async () => {
     const manifest = manifestTestBuilder()
-      .withExecutor("codex-acp", {
-        adapter: "agent",
-        agent: "codex",
-        runner: { transport: "acp" }
-      })
-      .withDefaultExecutor("codex-acp")
+      .withExecutor("codex", { adapter: "manual" })
+      .withDefaultExecutor("codex")
       .build();
     const { root } = await createTestWorkspace(manifest);
 
-    await expect(
-      testExecutorProfile({ projectRoot: root, executorName: "codex-acp" })
-    ).resolves.toMatchObject({
+    const profiles = await listExecutorProfiles({ projectRoot: root });
+    expect(profiles.find((profile) => profile.name === "codex")).toMatchObject({
       adapter: "agent",
       profileAdapter: "agent",
-      executionIntegration: null,
-      ok: false,
-      message: expect.stringContaining("Executor command is not trusted")
+      runnerKind: "acp",
+      source: "builtin"
+    });
+    await expect(validatePackage({ projectRoot: root })).resolves.toMatchObject({
+      ok: true,
+      warnings: [
+        expect.objectContaining({
+          code: "builtin_executor_override_ignored",
+          path: expect.stringContaining("executors.codex")
+        })
+      ]
     });
   });
 

@@ -984,7 +984,7 @@ describe("executor preflight desktop UI", () => {
     expect(bridgeMock.api.testExecutorProfile).toHaveBeenCalledWith(canvasRef, "codex-acp");
   });
 
-  it("keeps a package executor literal when its name overlaps a builtin ACP alias", () => {
+  it("folds a reserved package executor name into its built-in agent", () => {
     render(
       <BlockInspector
         blockFeedbackRecords={[]}
@@ -1010,7 +1010,8 @@ describe("executor preflight desktop UI", () => {
       />
     );
 
-    expect(screen.getByRole("combobox")).toHaveTextContent("codex-acp");
+    expect(screen.getByRole("combobox")).toHaveTextContent("codex");
+    expect(screen.getByRole("combobox")).not.toHaveTextContent("Custom");
   });
 
   it("preflights an explicit legacy ACP task profile without changing its identity", async () => {

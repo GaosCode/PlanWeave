@@ -202,6 +202,11 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
                       >
                         <span className="flex min-w-0 items-center gap-2">
                           <span>{executor.label}</span>
+                          {executor.custom ? (
+                            <span className="text-xs text-muted-foreground">
+                              {labels.customExecutor}
+                            </span>
+                          ) : null}
                           {executor.disabled ? (
                             <span className="text-xs text-muted-foreground">
                               {labels.unavailable}

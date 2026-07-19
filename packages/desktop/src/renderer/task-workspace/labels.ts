@@ -112,6 +112,7 @@ export function taskWorkspaceLabels(t: Translator): TaskWorkspaceLabels {
     booleanTrue: t("taskWorkspaceTrue"),
     composer: t("taskWorkspaceComposer"),
     conversation: t("taskWorkspaceConversation"),
+    customExecutor: t("customExecutor"),
     dependencies: t("dependencies"),
     dependencyProgress: (completed, total, percent) =>
       interpolate(t("taskWorkspaceDependencyProgress"), { completed, percent, total }),

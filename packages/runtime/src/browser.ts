@@ -24,3 +24,8 @@ export {
 } from "./desktop/taskWorkspaceLiveProjection.js";
 export { composeTaskWorkspaceRuns } from "./desktop/taskWorkspaceCompose.js";
 export { taskWorkspaceInputSchema } from "./desktop/types/taskWorkspaceAggregateTypes.js";
+export {
+  builtinExecutorNames,
+  canonicalBuiltinExecutorName,
+  isBuiltinExecutorName
+} from "./executorNames.js";

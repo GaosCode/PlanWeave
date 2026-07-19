@@ -77,7 +77,11 @@ function BlockPromptDisclosure({
           executorOptions={executorOptions}
           inheritLabel={labels.inheritTaskExecutor}
           label={labels.blockExecutor}
-          labels={{ saved: labels.executorSaved, saving: labels.executorSaving }}
+          labels={{
+            custom: labels.customExecutor,
+            saved: labels.executorSaved,
+            saving: labels.executorSaving
+          }}
           onSave={onSaveExecutor}
           packageExecutorNames={packageExecutorNames}
         />
@@ -203,7 +207,11 @@ export function TaskWorkspaceOverviewPanel({
             executorName={workspace.task.executor}
             executorOptions={executorOptions}
             label={labels.taskExecutor}
-            labels={{ saved: labels.executorSaved, saving: labels.executorSaving }}
+            labels={{
+              custom: labels.customExecutor,
+              saved: labels.executorSaved,
+              saving: labels.executorSaving
+            }}
             onSave={onSaveTaskExecutor}
             packageExecutorNames={packageExecutorNames}
           />
