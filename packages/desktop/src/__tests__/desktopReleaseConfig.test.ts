@@ -511,6 +511,7 @@ process.exit(2);
     expect(workflow).not.toContain("pnpm test:performance --maxWorkers=2");
     expect(workflow).toContain("name: Platform tests (${{ matrix.os }})");
     expect(workflow).toContain("- ubuntu-latest");
+    expect(workflow).toContain("- macos-latest");
     expect(workflow).toContain("- windows-latest");
     expect(workflow).toContain("pnpm test:platform --maxWorkers=2");
     expect(workflow).not.toContain("pnpm test:platform -- --maxWorkers=2");
@@ -533,6 +534,18 @@ process.exit(2);
     expect(workflow).toContain("if: failure() && steps.redact-platform.outcome == 'success'");
     expect(workflow).toContain("if: failure() && steps.redact-packaged-smoke.outcome == 'success'");
     expect(desktopSmokeWorkflow).not.toContain("windows-latest");
+    expect(desktopSmokeWorkflow).toContain("push:");
+    expect(desktopSmokeWorkflow).toContain(
+      "group: desktop-smoke-${{ github.workflow }}-${{ github.ref }}"
+    );
+    expect(desktopSmokeWorkflow).toContain("cancel-in-progress: true");
+    expect(desktopSmokeWorkflow).toContain("name: macOS packaged smoke");
+    expect(desktopSmokeWorkflow).toContain("name: Linux packaged smoke and Debian install");
+    expect(desktopSmokeWorkflow).toContain("debian:13-slim");
+    expect(desktopSmokeWorkflow).toContain('dpkg-query -W -f="\\${Status}\\n"');
+    expect(desktopSmokeWorkflow).toContain(
+      "xvfb-run -a node packages/desktop/scripts/verify-packaged-app.mjs"
+    );
 
     expect(packageJson.scripts["smoke:packaged:win"]).toBe("node scripts/verify-packaged-app.mjs");
     expect(packageJson.scripts["smoke:packaged:win"]).not.toMatch(/^\s*[A-Z][A-Z0-9_]*=/);

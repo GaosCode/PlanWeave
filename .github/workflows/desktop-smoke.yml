@@ -2,6 +2,17 @@ name: Desktop Smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/desktop-smoke.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "packages/desktop/**"
+      - "packages/mcp/**"
+      - "packages/runtime/**"
+      - "scripts/sync-version-metadata.mjs"
   pull_request:
     paths:
       - ".github/workflows/desktop-smoke.yml"
@@ -15,9 +26,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: desktop-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   desktop-smoke:
+    name: macOS packaged smoke
     runs-on: macos-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -42,3 +59,63 @@ jobs:
 
       - name: Run desktop UI smoke
         run: pnpm --dir packages/desktop smoke:packaged:mac
+
+  linux-packaged-smoke:
+    name: Linux packaged smoke and Debian install
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Linux package
+        timeout-minutes: 20
+        run: |
+          pnpm --dir packages/desktop build
+          pnpm --dir packages/desktop build:metadata:local
+          pnpm --dir packages/desktop exec electron-builder --config electron-builder.local.cjs --linux deb --x64 --publish never
+
+      - name: Run packaged Linux startup smoke
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          xvfb-run -a node packages/desktop/scripts/verify-packaged-app.mjs
+
+      - name: Verify Debian 13 installation
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          deb_path="$(find packages/desktop/release -maxdepth 1 -name '*.deb' -type f -print -quit)"
+          test -n "${deb_path}"
+          deb_name="$(basename "${deb_path}")"
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}" \
+            --workdir "${GITHUB_WORKSPACE}" \
+            debian:13-slim \
+            bash -euxo pipefail -c '
+              deb_path="./packages/desktop/release/$1"
+              apt-get update
+              apt-get install -y "${deb_path}"
+              package_name="$(dpkg-deb -f "${deb_path}" Package)"
+              dpkg-query -W -f="\${Status}\n" "${package_name}" | grep -qx "install ok installed"
+              app_asar="$(dpkg-query -L "${package_name}" | grep "/resources/app.asar$" | head -n 1)"
+              test -n "${app_asar}"
+              test -x "${app_asar%/resources/app.asar}/PlanWeave"
+            ' bash "${deb_name}"
