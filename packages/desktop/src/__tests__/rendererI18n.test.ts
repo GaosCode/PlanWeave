@@ -18,7 +18,7 @@ describe("desktop renderer i18n", () => {
     const i18nSource = await readFile(resolve(sourceDir, "renderer", "i18n.ts"), "utf8");
 
     expect(i18nSource).not.toContain("export const resources");
-    expect(i18nSource).not.toContain('newTask: "');
+    expect(i18nSource).not.toContain('statistics: "');
     expect(i18nSource).toContain("createTranslator");
     expect(i18nSource).toContain("resolveLanguage");
   });

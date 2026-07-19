@@ -15,9 +15,6 @@ vi.mock("../renderer/views/GraphView", () => ({
 vi.mock("../renderer/views/CanvasMapView", () => ({
   CanvasMapView: () => <div data-testid="canvas-map-route">Canvas map route</div>
 }));
-vi.mock("../renderer/views/NewTaskView", () => ({
-  NewTaskView: () => <div data-testid="new-task-route">New task route</div>
-}));
 vi.mock("../renderer/views/NotificationsView", () => ({
   NotificationsView: () => <div data-testid="notifications-route">Notifications route</div>
 }));
@@ -43,7 +40,6 @@ describe("WorkspaceTabs lazy routes", () => {
   it.each([
     ["graph", "graph-route"],
     ["canvas-map", "canvas-map-route"],
-    ["new-task", "new-task-route"],
     ["notifications", "notifications-route"],
     ["review-pipeline", "review-pipeline-route"],
     ["search", "search-route"],
@@ -55,7 +51,6 @@ describe("WorkspaceTabs lazy routes", () => {
       autoRun: {},
       fileSync: {},
       graphWorkspace: {},
-      newTask: {},
       notifications: {},
       planning: {},
       review: {},

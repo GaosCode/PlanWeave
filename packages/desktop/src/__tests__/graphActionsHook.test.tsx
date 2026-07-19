@@ -37,7 +37,6 @@ describe("desktop renderer hook interfaces", () => {
       selectedTaskPanelId: null,
       setError: vi.fn(),
       setLayout: vi.fn(),
-      setNewTaskTargetId: vi.fn(),
       selectTaskPanel: vi.fn(),
       settings: {
         defaultExecutor: "",
@@ -108,7 +107,6 @@ describe("desktop renderer hook interfaces", () => {
         selectedTaskPanelId: null,
         setError: vi.fn(),
         setLayout: vi.fn(),
-        setNewTaskTargetId: vi.fn(),
         selectTaskPanel: vi.fn(),
         settings: {
           defaultExecutor: "",
@@ -163,7 +161,6 @@ describe("desktop renderer hook interfaces", () => {
         selectedTaskPanelId: null,
         setError: vi.fn(),
         setLayout: vi.fn(),
-        setNewTaskTargetId: vi.fn(),
         selectTaskPanel: vi.fn(),
         settings: {
           defaultExecutor: "",
@@ -216,7 +213,6 @@ describe("desktop renderer hook interfaces", () => {
     const { useGraphPaletteActions } = await import("../renderer/hooks/useGraphPaletteActions");
     const loadProject = vi.fn().mockResolvedValue(undefined);
     const selectTaskPanel = vi.fn();
-    const setNewTaskTargetId = vi.fn();
     const { result } = renderHook(() =>
       useGraphPaletteActions({
         flowInstance: null,
@@ -231,7 +227,6 @@ describe("desktop renderer hook interfaces", () => {
         selectedTaskPanelId: null,
         setError: vi.fn(),
         setLayout: vi.fn(),
-        setNewTaskTargetId,
         selectTaskPanel,
         settings: {
           defaultExecutor: "",
@@ -256,7 +251,6 @@ describe("desktop renderer hook interfaces", () => {
     expect(bridge.saveDesktopLayout).not.toHaveBeenCalled();
     expect(loadProject).toHaveBeenCalledWith(project, "canvas-main");
     expect(selectTaskPanel).toHaveBeenCalledWith("T-NEW");
-    expect(setNewTaskTargetId).toHaveBeenCalledWith("T-NEW");
   });
 
   it("clears stale review task selection after deleting a task", async () => {

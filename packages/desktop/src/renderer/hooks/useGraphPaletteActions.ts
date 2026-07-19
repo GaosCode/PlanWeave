@@ -36,7 +36,6 @@ type UseGraphPaletteActionsArgs = {
   selectedTaskPanelId: string | null;
   setError: (message: string | null) => void;
   setLayout: (layout: DesktopLayout | null) => void;
-  setNewTaskTargetId: (taskId: string | null) => void;
   selectTaskPanel: (taskId: string | null) => void;
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
@@ -76,7 +75,6 @@ export function useGraphPaletteActions({
   selectedTaskPanelId,
   setError,
   setLayout,
-  setNewTaskTargetId,
   selectTaskPanel,
   settings,
   t
@@ -257,7 +255,6 @@ export function useGraphPaletteActions({
             null;
           if (createdTaskId) {
             selectTaskPanel(createdTaskId);
-            setNewTaskTargetId(createdTaskId);
           }
           await loadProject(selectedProject, selectedCanvasId);
           return;
@@ -292,7 +289,6 @@ export function useGraphPaletteActions({
       selectedProject,
       selectedTaskPanelId,
       setError,
-      setNewTaskTargetId,
       selectTaskPanel,
       settings,
       t

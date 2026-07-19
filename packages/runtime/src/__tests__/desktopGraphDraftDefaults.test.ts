@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { addBlock, addTaskNode, createTaskDraft } from "../desktop/index.js";
+import { addBlock, addTaskNode } from "../desktop/index.js";
 import { readJsonFile } from "../json.js";
 import type { PlanPackageManifest } from "../types.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
@@ -10,51 +10,18 @@ afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
 });
 
-describe("desktop graph draft defaults", () => {
-  it("creates task drafts with default implementation and review block types", async () => {
-    const { root } = await createTestWorkspace();
-
-    const taskDraft = await createTaskDraft(root, {
-      mode: "task",
-      text: "# Add export flow\n\nUsers can export the current plan."
-    });
-    expect(taskDraft).toMatchObject({
-      mode: "task",
-      tasks: [
-        {
-          title: "Add export flow",
-          blockTypes: ["implementation", "review"]
-        }
-      ]
-    });
-
-    const documentDraft = await createTaskDraft(root, {
-      mode: "document",
-      text: "# First generated task\n\nDo first work.\n# Second generated task\n\nDo second work."
-    });
-    expect(documentDraft.tasks.map((task) => task.blockTypes)).toEqual([
-      ["implementation", "review"],
-      ["implementation", "review"]
-    ]);
-
-    const appendDraft = await createTaskDraft(root, {
-      mode: "blocks",
-      targetTaskId: "T-001",
-      text: "Add a follow-up validation block."
-    });
-    expect(appendDraft.blocks).toMatchObject([
-      { taskId: "T-001", type: "implementation", title: "Add a follow-up validation block." }
-    ]);
-  });
-
+describe("desktop graph creation default behavior", () => {
   it("writes default task block templates through package files", async () => {
     const { root, init } = await createTestWorkspace();
 
-    const draft = await createTaskDraft(root, {
-      mode: "task",
-      text: "# Add export flow\n\nUsers can export the current plan."
-    });
-    await expect(addTaskNode(root, draft.tasks[0])).resolves.toMatchObject({ ok: true });
+    await expect(
+      addTaskNode(root, {
+        title: "Add export flow",
+        promptMarkdown: "# Add export flow\n\nUsers can export the current plan.",
+        acceptance: ["Users can export the current plan."],
+        blockTypes: ["implementation", "review"]
+      })
+    ).resolves.toMatchObject({ ok: true });
 
     let manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     const createdTask = manifest.nodes.find(
@@ -64,10 +31,7 @@ describe("desktop graph draft defaults", () => {
       throw new Error("Created task missing.");
     }
     expect(createdTask.id).toBe("T-ADD-EXPORT-FLOW");
-    expect(createdTask.acceptance).toEqual([
-      "# Add export flow",
-      "Users can export the current plan."
-    ]);
+    expect(createdTask.acceptance).toEqual(["Users can export the current plan."]);
     expect(createdTask.blocks.map((block) => block.type)).toEqual(["implementation", "review"]);
     expect(createdTask.blocks.map((block) => block.depends_on)).toEqual([[], ["B-001"]]);
     expect(await readFile(join(init.workspace.packageDir, createdTask.prompt), "utf8")).toContain(

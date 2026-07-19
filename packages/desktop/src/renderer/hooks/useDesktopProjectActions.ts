@@ -51,7 +51,7 @@ export function useDesktopProjectActions({
       }
       try {
         await createTaskCanvas(project);
-        setActiveView("new-task");
+        setActiveView("graph");
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : String(caught));
       }

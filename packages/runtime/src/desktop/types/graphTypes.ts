@@ -366,25 +366,6 @@ export type DesktopSearchProjection = {
   diagnostics: ValidationIssue[];
 };
 
-export type DesktopTaskDraftMode = "task" | "blocks" | "document";
-
-export type DesktopTaskDraft = {
-  mode: DesktopTaskDraftMode;
-  targetTaskId: string | null;
-  tasks: Array<{
-    title: string;
-    promptMarkdown: string;
-    acceptance: string[];
-    blockTypes: BlockType[];
-  }>;
-  blocks: Array<{
-    taskId: string;
-    type: BlockType;
-    title: string;
-    promptMarkdown: string;
-  }>;
-};
-
 export type DesktopAddTaskInput = {
   title: string;
   promptMarkdown: string;

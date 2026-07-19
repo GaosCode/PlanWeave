@@ -5,9 +5,9 @@
  * - desktopProject refresh family + graph/layout/selection/diagnostics/planning
  * - selected block + session (task panel, auto-run state, canvas CRUD)
  * - auto-run / file-sync / search / notification controllers
- * - review pipeline, new-task draft, prompt drafts, graph flow/palette/history
+ * - review pipeline, prompt drafts, graph flow/palette/history
  * - WorkspaceTabs groups: shell, graphWorkspace, autoRun, fileSync, search,
- *   review, newTask, notifications, planning
+ *   review, notifications, planning
  * - ProjectSidebar action handlers + ordered project list
  * - Right palette add/drag handlers
  * - settingsRouteProps derived from project + shell agents/tools
@@ -50,7 +50,6 @@ import type {
 import { useReviewPipeline } from "./hooks/useReviewPipeline";
 import { useGraphPaletteActions } from "./hooks/useGraphPaletteActions";
 import { useSelectedBlock } from "./hooks/useSelectedBlock";
-import { useTaskDraft } from "./hooks/useTaskDraft";
 import { useDesktopProject } from "./hooks/useDesktopProject";
 import { useDesktopProjectSession } from "./hooks/useDesktopProjectSession";
 import { usePromptDrafts } from "./hooks/usePromptDrafts";
@@ -73,7 +72,6 @@ import type {
   WorkspaceTabsAutoRunProps,
   WorkspaceTabsFileSyncProps,
   WorkspaceTabsGraphWorkspaceProps,
-  WorkspaceTabsNewTaskProps,
   WorkspaceTabsNotificationsProps,
   WorkspaceTabsPlanningProps,
   WorkspaceTabsReviewProps,
@@ -141,7 +139,6 @@ export type ProjectWorkspaceValue = {
   autoRun: WorkspaceTabsAutoRunProps;
   fileSync: WorkspaceTabsFileSyncProps;
   graphWorkspace: WorkspaceTabsGraphWorkspaceProps;
-  newTask: WorkspaceTabsNewTaskProps;
   notifications: WorkspaceTabsNotificationsProps;
   palette: {
     addPaletteComponent: ReturnType<typeof useGraphPaletteActions>["addPaletteComponent"];
@@ -407,25 +404,6 @@ export function ProjectWorkspaceProvider({
     nodes,
     selectedTaskPanelId,
     taskFocusRequest
-  });
-
-  const {
-    confirmTaskDraft,
-    generateTaskDraft,
-    newTaskMode,
-    newTaskTargetId,
-    newTaskText,
-    setNewTaskMode,
-    setNewTaskTargetId,
-    setNewTaskText,
-    setTaskDraft,
-    taskDraft
-  } = useTaskDraft({
-    loadProject: openProjectInSession,
-    selectedCanvasId,
-    selectedProject,
-    setActiveView,
-    setError
   });
 
   const searchController = useSearchController({
@@ -820,7 +798,6 @@ export function ProjectWorkspaceProvider({
     selectedTaskPanelId,
     setError,
     setLayout,
-    setNewTaskTargetId,
     selectTaskPanel: handleTaskPanelSelect,
     settings,
     t
@@ -971,32 +948,6 @@ export function ProjectWorkspaceProvider({
       updateReviewStep
     ]
   );
-  const newTask = useMemo<WorkspaceTabsNewTaskProps>(
-    () => ({
-      confirmTaskDraft,
-      generateTaskDraft,
-      newTaskMode,
-      newTaskTargetId,
-      newTaskText,
-      setNewTaskMode,
-      setNewTaskTargetId,
-      setNewTaskText,
-      setTaskDraft,
-      taskDraft
-    }),
-    [
-      confirmTaskDraft,
-      generateTaskDraft,
-      newTaskMode,
-      newTaskTargetId,
-      newTaskText,
-      setNewTaskMode,
-      setNewTaskTargetId,
-      setNewTaskText,
-      setTaskDraft,
-      taskDraft
-    ]
-  );
   const planning = useMemo<WorkspaceTabsPlanningProps>(
     () => ({
       statistics,
@@ -1104,7 +1055,6 @@ export function ProjectWorkspaceProvider({
       autoRun,
       fileSync,
       graphWorkspace: graphWorkspaceController,
-      newTask,
       notifications: notificationController,
       palette: {
         addPaletteComponent,
@@ -1124,7 +1074,6 @@ export function ProjectWorkspaceProvider({
       fileSync,
       graphWorkspaceController,
       handlePaletteDragStart,
-      newTask,
       notificationController,
       planning,
       projectSidebar,

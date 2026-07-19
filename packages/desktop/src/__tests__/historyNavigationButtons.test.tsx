@@ -40,7 +40,7 @@ describe("desktop renderer component interactions", () => {
     );
 
     window.history.pushState(
-      { planweaveAppView: "new-task", planweaveHistoryIndex: 1, planweaveHistoryMaxIndex: 1 },
+      { planweaveAppView: "statistics", planweaveHistoryIndex: 1, planweaveHistoryMaxIndex: 1 },
       ""
     );
     window.dispatchEvent(new Event(appViewHistoryChangedEvent));

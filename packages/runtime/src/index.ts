@@ -485,7 +485,6 @@ export {
   createDesktopPackageFileSnapshot,
   createProjectFromTaskCanvas,
   createTaskCanvas,
-  createTaskDraft,
   detectDesktopPackageFileChanges,
   duplicateTaskCanvas,
   getBlockDetail,

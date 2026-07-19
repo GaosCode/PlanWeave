@@ -30,8 +30,6 @@ import type {
   DesktopSearchResult,
   DesktopSearchResultKind,
   DesktopStatistics,
-  DesktopTaskDraft,
-  DesktopTaskDraftMode,
   DesktopTodoGroups,
   ValidationIssue
 } from "@planweave-ai/runtime";
@@ -47,9 +45,6 @@ const CanvasMapView = lazy(() =>
 );
 const GraphView = lazy(() =>
   import("./GraphView").then((module) => ({ default: module.GraphView }))
-);
-const NewTaskView = lazy(() =>
-  import("./NewTaskView").then((module) => ({ default: module.NewTaskView }))
 );
 const NotificationsView = lazy(() =>
   import("./NotificationsView").then((module) => ({ default: module.NotificationsView }))
@@ -179,19 +174,6 @@ export type WorkspaceTabsReviewProps = {
   updateReviewStep: (index: number, patch: Partial<DesktopReviewPipelineStepInput>) => void;
 };
 
-export type WorkspaceTabsNewTaskProps = {
-  confirmTaskDraft: () => Promise<void>;
-  generateTaskDraft: () => Promise<void>;
-  newTaskMode: DesktopTaskDraftMode;
-  newTaskTargetId: string | null;
-  newTaskText: string;
-  setNewTaskMode: Dispatch<SetStateAction<DesktopTaskDraftMode>>;
-  setNewTaskTargetId: Dispatch<SetStateAction<string | null>>;
-  setNewTaskText: Dispatch<SetStateAction<string>>;
-  setTaskDraft: Dispatch<SetStateAction<DesktopTaskDraft | null>>;
-  taskDraft: DesktopTaskDraft | null;
-};
-
 export type WorkspaceTabsNotificationsProps = {
   notificationItems: NotificationItem[];
   onApplyLocalPromptConflicts: () => Promise<void>;
@@ -264,21 +246,6 @@ function StatisticsRoute() {
   );
 }
 
-function NewTaskRoute() {
-  const { graphWorkspace, newTask, shell } = useProjectWorkspace();
-  return (
-    <NewTaskView
-      {...newTask}
-      graph={graphWorkspace.graph}
-      handleOpenProject={shell.handleOpenProject}
-      selectedCanvasId={shell.selectedCanvasId}
-      selectedProject={shell.selectedProject}
-      setActiveView={shell.setActiveView}
-      t={shell.t}
-    />
-  );
-}
-
 function ReviewPipelineRoute() {
   const { graphWorkspace, review, shell } = useProjectWorkspace();
   return <ReviewPipelineView {...review} graph={graphWorkspace.graph} t={shell.t} />;
@@ -322,8 +289,6 @@ export function WorkspaceTabs() {
   const activeView = shell.activeView;
   const content = (() => {
     switch (activeView) {
-      case "new-task":
-        return <NewTaskRoute />;
       case "review-pipeline":
         return <ReviewPipelineRoute />;
       case "todo":

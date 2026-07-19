@@ -15,9 +15,6 @@ describe("desktop renderer workflow guardrails", () => {
 
     expect(smokeSource).toContain("async function runRendererManualSmoke");
     expect(smokeSource).toContain("const clickByTestId = async");
-    expect(smokeSource).toContain('await clickByTestId("sidebar-new-task")');
-    expect(smokeSource).toContain('await clickByTestId("new-task-generate-draft")');
-    expect(smokeSource).toContain('await clickByTestId("new-task-confirm-write")');
     expect(smokeSource).toContain('await clickByTestId("sidebar-statistics")');
     expect(smokeSource).toContain('await clickByTestId("sidebar-search")');
     expect(smokeSource).toContain('await clickByTestId("sidebar-settings")');

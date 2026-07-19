@@ -207,7 +207,7 @@ describe("Task Workspace selected run controller", () => {
     api.getTaskDetail.mockResolvedValueOnce({
       ...(await api.getTaskDetail()),
       promptMarkdown: "# Changed elsewhere",
-      promptHash: "new-task-prompt-hash"
+      promptHash: "externally-updated-task-prompt-hash"
     });
     api.getTaskDetail.mockClear();
     const { result } = renderHook(() => useControllerHarness(api));

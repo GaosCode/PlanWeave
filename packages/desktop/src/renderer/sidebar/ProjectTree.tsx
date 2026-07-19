@@ -1,4 +1,4 @@
-import { FolderOpenIcon, RefreshCwIcon } from "lucide-react";
+import { PlusIcon, RefreshCwIcon } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { Button } from "@/components/ui/button";
@@ -130,8 +130,9 @@ export function ProjectTree({
             variant="ghost"
             onClick={handleOpenProject}
             aria-label={t("chooseProjectFolder")}
+            title={t("chooseProjectFolderHint")}
           >
-            <FolderOpenIcon data-icon="inline-start" />
+            <PlusIcon data-icon="inline-start" />
           </Button>
         </div>
       </div>

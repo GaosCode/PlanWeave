@@ -1,7 +1,6 @@
 import {
   BellIcon,
   ChartNoAxesColumnIncreasingIcon,
-  FilePlus2Icon,
   ListTodoIcon,
   NetworkIcon,
   SearchIcon,
@@ -34,22 +33,14 @@ export function SidebarNav({
   return (
     <nav className="flex flex-col gap-1 border-b border-border/60 p-3 pt-2">
       <Button
-        data-testid="sidebar-new-task"
+        data-testid="sidebar-canvas-map"
         className={navButtonClass}
-        variant={activeView === "new-task" ? "secondary" : "ghost"}
-        onClick={() => onSelectView("new-task")}
+        disabled={!canOpenCanvasMap}
+        variant={activeView === "canvas-map" ? "secondary" : "ghost"}
+        onClick={() => onSelectView("canvas-map")}
       >
-        <FilePlus2Icon data-icon="inline-start" />
-        {t("newTask")}
-      </Button>
-      <Button
-        data-testid="sidebar-statistics"
-        className={navButtonClass}
-        variant={activeView === "statistics" ? "secondary" : "ghost"}
-        onClick={() => onSelectView("statistics")}
-      >
-        <ChartNoAxesColumnIncreasingIcon data-icon="inline-start" />
-        {t("statistics")}
+        <NetworkIcon data-icon="inline-start" />
+        {t("canvasMap")}
       </Button>
       <Button
         data-testid="sidebar-todo"
@@ -61,14 +52,13 @@ export function SidebarNav({
         {t("todo")}
       </Button>
       <Button
-        data-testid="sidebar-canvas-map"
+        data-testid="sidebar-statistics"
         className={navButtonClass}
-        disabled={!canOpenCanvasMap}
-        variant={activeView === "canvas-map" ? "secondary" : "ghost"}
-        onClick={() => onSelectView("canvas-map")}
+        variant={activeView === "statistics" ? "secondary" : "ghost"}
+        onClick={() => onSelectView("statistics")}
       >
-        <NetworkIcon data-icon="inline-start" />
-        {t("canvasMap")}
+        <ChartNoAxesColumnIncreasingIcon data-icon="inline-start" />
+        {t("statistics")}
       </Button>
       <Button
         data-testid="sidebar-search"

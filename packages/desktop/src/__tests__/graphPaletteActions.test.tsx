@@ -134,7 +134,6 @@ describe("useGraphPaletteActions layout snapshots", () => {
         selectedTaskPanelId: null,
         setError: vi.fn(),
         setLayout,
-        setNewTaskTargetId: vi.fn(),
         selectTaskPanel: vi.fn(),
         settings: graphPaletteSettings,
         t: createTranslator("en")
@@ -201,7 +200,6 @@ describe("useGraphPaletteActions layout snapshots", () => {
         selectedTaskPanelId: null,
         setError: vi.fn(),
         setLayout: vi.fn(),
-        setNewTaskTargetId: vi.fn(),
         selectTaskPanel: vi.fn(),
         settings: graphPaletteSettings,
         t: createTranslator("en")

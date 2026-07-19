@@ -1,13 +1,10 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { useState } from "react";
 import {
-  act,
   cleanup,
   fireEvent,
   render,
-  renderHook,
   screen,
   waitFor
 } from "@testing-library/react";
@@ -15,8 +12,7 @@ import userEvent from "@testing-library/user-event";
 import type {
   DesktopCanvasGraphViewModel,
   DesktopGraphViewModel,
-  DesktopProjectSummary,
-  DesktopTaskDraft
+  DesktopProjectSummary
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
@@ -27,7 +23,6 @@ import { ProjectSidebar } from "../renderer/sidebar/ProjectSidebar";
 import { createTranslator } from "../renderer/i18n";
 import type { DesktopUiSettings } from "../renderer/types";
 import { CanvasMapInspector } from "../renderer/views/CanvasMapInspector";
-import { NewTaskView } from "../renderer/views/NewTaskView";
 
 const t = createTranslator("en");
 
@@ -262,6 +257,20 @@ describe("desktop renderer interface interactions", () => {
       />
     );
 
+    const sidebarNav = screen.getByTestId("sidebar-canvas-map").closest("nav");
+    expect(
+      Array.from(sidebarNav?.querySelectorAll("[data-testid]") ?? []).map((item) =>
+        item.getAttribute("data-testid")
+      )
+    ).toEqual([
+      "sidebar-canvas-map",
+      "sidebar-todo",
+      "sidebar-statistics",
+      "sidebar-search",
+      "sidebar-notifications",
+      "sidebar-settings"
+    ]);
+
     await userEvent.click(screen.getByTestId("sidebar-todo"));
     await userEvent.click(screen.getByTestId("sidebar-canvas-map"));
     await userEvent.click(screen.getByTestId("sidebar-settings"));
@@ -477,160 +486,6 @@ describe("desktop renderer interface interactions", () => {
     expect(
       screen.queryByRole("button", { name: /Implement runtime bridge\s*T-001/ })
     ).not.toBeInTheDocument();
-  });
-
-  it("allows editing generated New Task drafts before confirmation", async () => {
-    class ResizeObserverMock {
-      disconnect = vi.fn();
-      observe = vi.fn();
-      unobserve = vi.fn();
-    }
-    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
-    const confirmTaskDraft = vi.fn().mockResolvedValue(undefined);
-
-    function Harness() {
-      const [taskDraft, setTaskDraft] = useState<DesktopTaskDraft | null>({
-        mode: "document",
-        targetTaskId: null,
-        tasks: [
-          {
-            title: "Generated task",
-            promptMarkdown: "# Generated prompt",
-            acceptance: ["Generated acceptance"],
-            blockTypes: ["implementation"]
-          }
-        ],
-        blocks: []
-      });
-      const [newTaskText, setNewTaskText] = useState("Source document");
-      return (
-        <NewTaskView
-          confirmTaskDraft={confirmTaskDraft}
-          generateTaskDraft={vi.fn().mockResolvedValue(undefined)}
-          graph={graph}
-          handleOpenProject={vi.fn().mockResolvedValue(undefined)}
-          newTaskMode="document"
-          newTaskTargetId={null}
-          newTaskText={newTaskText}
-          selectedCanvasId="canvas-main"
-          selectedProject={project}
-          setActiveView={vi.fn()}
-          setNewTaskMode={vi.fn()}
-          setNewTaskTargetId={vi.fn()}
-          setNewTaskText={setNewTaskText}
-          setTaskDraft={setTaskDraft}
-          t={t}
-          taskDraft={taskDraft}
-        />
-      );
-    }
-
-    render(<Harness />);
-
-    const titleInput = screen.getByDisplayValue("Generated task");
-    fireEvent.change(titleInput, { target: { value: "Edited task" } });
-    const acceptanceInput = screen.getByDisplayValue("Generated acceptance");
-    fireEvent.change(acceptanceInput, { target: { value: "Edited acceptance" } });
-    await userEvent.click(screen.getByRole("button", { name: "Review Block" }));
-    await userEvent.click(screen.getByRole("button", { name: "Confirm write" }));
-
-    expect(screen.getByDisplayValue("Edited task")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Edited acceptance")).toBeInTheDocument();
-    expect(confirmTaskDraft).toHaveBeenCalledTimes(1);
-  });
-
-  it("writes edited New Task draft payload through the draft hook", async () => {
-    const addTaskNode = vi.fn().mockResolvedValue({ ok: true, diagnostics: [] });
-    const bridge = createDesktopBridgeMock({ addTaskNode });
-    vi.stubGlobal("planweave", bridge);
-    vi.resetModules();
-    const { useTaskDraft } = await import("../renderer/hooks/useTaskDraft");
-    const loadProject = vi.fn().mockResolvedValue(undefined);
-    const setActiveView = vi.fn();
-    const setError = vi.fn();
-
-    const { result } = renderHook(() =>
-      useTaskDraft({
-        loadProject,
-        selectedCanvasId: "canvas-main",
-        selectedProject: project,
-        setActiveView,
-        setError
-      })
-    );
-
-    act(() => {
-      result.current.setTaskDraft({
-        mode: "document",
-        targetTaskId: null,
-        tasks: [
-          {
-            title: "Edited task",
-            promptMarkdown: "# Edited prompt",
-            acceptance: ["Edited acceptance"],
-            blockTypes: ["implementation", "review"]
-          }
-        ],
-        blocks: []
-      });
-    });
-    await act(async () => {
-      await result.current.confirmTaskDraft();
-    });
-
-    expect(addTaskNode).toHaveBeenCalledWith(
-      { projectRoot: project.rootPath, canvasId: "canvas-main" },
-      {
-        title: "Edited task",
-        promptMarkdown: "# Edited prompt",
-        acceptance: ["Edited acceptance"],
-        blockTypes: ["implementation", "review"]
-      }
-    );
-    expect(setError).not.toHaveBeenCalled();
-    expect(loadProject).toHaveBeenCalledWith(project, "canvas-main");
-    expect(setActiveView).toHaveBeenCalledWith("graph");
-  });
-
-  it("prevents New Task draft writes when acceptance is empty", async () => {
-    const addTaskNode = vi.fn().mockResolvedValue({ ok: true, diagnostics: [] });
-    const bridge = createDesktopBridgeMock({ addTaskNode });
-    vi.stubGlobal("planweave", bridge);
-    vi.resetModules();
-    const { useTaskDraft } = await import("../renderer/hooks/useTaskDraft");
-    const setError = vi.fn();
-
-    const { result } = renderHook(() =>
-      useTaskDraft({
-        loadProject: vi.fn().mockResolvedValue(undefined),
-        selectedCanvasId: "canvas-main",
-        selectedProject: project,
-        setActiveView: vi.fn(),
-        setError
-      })
-    );
-
-    act(() => {
-      result.current.setTaskDraft({
-        mode: "document",
-        targetTaskId: null,
-        tasks: [
-          {
-            title: "Edited task",
-            promptMarkdown: "# Edited prompt",
-            acceptance: [],
-            blockTypes: ["implementation"]
-          }
-        ],
-        blocks: []
-      });
-    });
-    await act(async () => {
-      await result.current.confirmTaskDraft();
-    });
-
-    expect(addTaskNode).not.toHaveBeenCalled();
-    expect(setError).toHaveBeenCalledWith("Task 1 needs at least one acceptance item.");
   });
 
   it("keeps project collapse control visible and opens project selection in the canvas map view", async () => {

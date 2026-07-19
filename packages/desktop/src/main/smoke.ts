@@ -326,22 +326,8 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       };
 
       const covered = [];
-      await clickByTestId("sidebar-new-task");
-      covered.push("open-new-task-view");
-      await waitForSelector('[data-testid="new-task-input"]', "new task input");
-      const taskInput = document.querySelector('[data-testid="new-task-input"]');
-      if (!taskInput) {
-        throw new Error("New Task textarea was not visible.");
-      }
-      dispatchTextInput(taskInput, "# UI Smoke Task\\n\\nCreate a task through renderer controls.");
-      covered.push("enter-task-brief");
-      await clickByTestId("new-task-generate-draft");
-      await waitForText("UI Smoke Task");
-      covered.push("generate-draft");
-      await clickByTestId("new-task-confirm-write");
-      await waitForSelector("[data-graph-surface]", "graph surface after task confirmation");
-      await waitForText("UI Smoke Task");
-      covered.push("confirm-write-plan-package");
+      await waitForSelector("[data-graph-surface]", "graph surface");
+      await waitForText("Smoke task");
       await clickByTestId("sidebar-statistics");
       await wait(250);
       covered.push("open-statistics");
@@ -351,9 +337,9 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       if (!(searchInput instanceof HTMLElement)) {
         throw new Error("Search input was not visible.");
       }
-      dispatchTextInput(searchInput, "UI Smoke Task");
-      await waitForText("UI Smoke Task");
-      covered.push("search-created-task");
+      dispatchTextInput(searchInput, "Smoke task");
+      await waitForText("Smoke task");
+      covered.push("search-smoke-task");
       await clickByTestId("sidebar-notifications");
       await waitForSelector('[data-testid="notifications-view"]', "notifications view");
       await waitForAnyText(["检测到外部文件变更", "External file changes detected"]);
@@ -382,7 +368,7 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       await waitForSelector('[data-testid="settings-section-agents"]', "agent settings section");
       covered.push("open-settings-sections");
       await clickByTestId("settings-back-to-app");
-      await waitForText("UI Smoke Task");
+      await waitForText("Smoke task");
       await waitForSelector("[data-graph-surface]", "graph surface");
       covered.push("return-graph");
       await waitForSelector("[data-auto-run-control]", "Floating Auto Run control");
@@ -665,7 +651,7 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
           runStatus: selectedRunStatus,
           detailTestId: detail.getAttribute("data-testid")
         },
-        uiSmokeTaskVisible: (document.body.textContent ?? "").includes("UI Smoke Task")
+        smokeTaskVisible: (document.body.textContent ?? "").includes("Smoke task")
       };
     })()
   `) as Promise<Record<string, unknown>>;

@@ -110,7 +110,6 @@ export {
   bulkCreateTasks,
   bulkRemoveGraphItems,
   bulkUpdateBlocks,
-  createTaskDraft,
   bulkUpdateTasks,
   getBlockDetail,
   getDesktopProjectSnapshot,

@@ -16,8 +16,6 @@ import type {
   DesktopSearchResult,
   DesktopStatistics,
   DesktopTaskDetail,
-  DesktopTaskDraft,
-  DesktopTaskDraftMode,
   DesktopTaskExecutionOrder,
   DesktopTodoGroups
 } from "./graphTypes.js";
@@ -358,10 +356,6 @@ export type DesktopBridgeApi = {
     ref: DesktopCanvasReference,
     input: CanvasExecutionPolicyInput
   ): Promise<DesktopGraphEditResult>;
-  createTaskDraft(
-    ref: DesktopCanvasReference,
-    input: { mode: DesktopTaskDraftMode; text: string; targetTaskId?: string | null }
-  ): Promise<DesktopTaskDraft>;
   addTaskNode(
     ref: DesktopCanvasReference,
     input: DesktopAddTaskInput

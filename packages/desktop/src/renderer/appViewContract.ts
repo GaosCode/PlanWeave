@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 export const appViewSchema = z.enum([
-  "new-task",
   "graph",
   "canvas-map",
   "review-pipeline",

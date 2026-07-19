@@ -15,7 +15,6 @@ import {
   createDesktopPackageFileSnapshot,
   createProjectFromTaskCanvas,
   createTaskCanvas,
-  createTaskDraft,
   cloneDesktopGraphEditResult,
   detectDesktopPackageFileChanges,
   duplicateTaskCanvas,
@@ -727,8 +726,6 @@ export const runtimeBridgeHandlers = {
     searchProject(projectRoot, query, filters),
   searchProjectWithDiagnostics: (_event, projectRoot, query, filters) =>
     searchProjectWithDiagnostics(projectRoot, query, filters),
-  createTaskDraft: async (_event, ref, input) =>
-    createTaskDraft(await resolveDesktopCanvasReference(ref), input),
   addTaskNode: async (_event, ref, input) =>
     invokeGraphEdit(
       addTaskNode(
