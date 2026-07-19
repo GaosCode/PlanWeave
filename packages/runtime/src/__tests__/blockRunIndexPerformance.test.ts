@@ -14,7 +14,6 @@ import {
   type BlockRunIndexStorageInstrumentation,
   type BlockRunIndexStorageWriteKind
 } from "../autoRun/blockRunIndexStorage.js";
-// biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the module export used by the reader.
 import * as optionalFile from "../fs/optionalFile.js";
 
 const temporaryRoots: string[] = [];
@@ -81,11 +80,9 @@ describe("block run index v5 storage performance", () => {
       let firstHalfPageBytes = 0;
       let firstHalfTotalBytes = 0;
       for (let index = 1; index <= runCount; index += 1) {
-        // biome-ignore lint/performance/noAwaitInLoops: Sequential writes are the performance contract under test.
         const snapshot = await readBlockRunIndexSnapshot(runRoot);
         if (!snapshot) throw new Error("Expected block run index during performance write.");
         const runId = `RUN-${String(index).padStart(runIdWidth, "0")}`;
-        // biome-ignore lint/performance/noAwaitInLoops: Sequential writes are the performance contract under test.
         await mutateBlockRunIndex(
           runRoot,
           snapshot,

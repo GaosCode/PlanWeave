@@ -7,8 +7,6 @@ import {
 } from "./runnerInteractionContract.js";
 import { PersistentRunnerInteractionStore } from "./runnerInteractionStore.js";
 import {
-  runnerInteractionAvailabilityReasonSchema,
-  runnerInteractionContractDiagnosticIssueSchema,
   runnerInteractionContractDiagnosticSchema,
   type RunnerInteractionAvailabilityReason,
   type RunnerInteractionContractDiagnostic

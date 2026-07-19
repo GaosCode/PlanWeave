@@ -126,6 +126,8 @@ export function useTaskWorkspaceGraphNavigation(options: {
   );
 
   useEffect(() => {
+    void history.historyIndex;
+    void restoreDriveVersion;
     const snapshot = history.graphSnapshot;
     if (!snapshot) {
       return;

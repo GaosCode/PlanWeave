@@ -52,9 +52,7 @@ describe("graph index internal invariants", () => {
     const graph = compileTaskGraph(basicManifest({ includeSecondTask: true }));
     graph.taskDependenciesByTask.delete("T-001");
 
-    expect(() =>
-      addEdgeIndexes(graph, { from: "T-001", to: "T-002", type: "depends_on" })
-    ).toThrow(
+    expect(() => addEdgeIndexes(graph, { from: "T-001", to: "T-002", type: "depends_on" })).toThrow(
       "Internal graph invariant violated: missing key 'T-001' in taskDependenciesByTask."
     );
   });
@@ -63,9 +61,9 @@ describe("graph index internal invariants", () => {
     const graph = compileTaskGraph(basicManifest({ includeSecondTask: true }));
     graph.taskDependentsByTask.delete("T-002");
 
-    expect(() =>
-      addEdgeIndexes(graph, { from: "T-001", to: "T-002", type: "depends_on" })
-    ).toThrow("Internal graph invariant violated: missing key 'T-002' in taskDependentsByTask.");
+    expect(() => addEdgeIndexes(graph, { from: "T-001", to: "T-002", type: "depends_on" })).toThrow(
+      "Internal graph invariant violated: missing key 'T-002' in taskDependentsByTask."
+    );
   });
 
   it("throws when addBlockIndexes runs without blocksByTask for the task (I7)", () => {

@@ -271,18 +271,21 @@ export function AutoRunMiniPanel({
   t
 }: AutoRunMiniPanelProps) {
   const [clockMs, setClockMs] = useState(() => Date.now());
+  const liveRun = isLiveRun(autoRunState);
+  const liveRunId = autoRunState?.runId;
   useEffect(() => {
-    if (!isLiveRun(autoRunState)) {
+    void liveRunId;
+    if (!liveRun) {
       return;
     }
     setClockMs(Date.now());
     const timer = window.setInterval(() => setClockMs(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, [autoRunState?.phase, autoRunState?.runId]);
+  }, [liveRun, liveRunId]);
 
   const explanation = autoRunState?.explanation ?? null;
   const showFailureDetails = isFailureState(autoRunState);
-  const liveElapsedMs = isLiveRun(autoRunState)
+  const liveElapsedMs = liveRun
     ? Math.max(autoRunState.elapsedMs, clockMs - Date.parse(autoRunState.startedAt))
     : null;
   const displayedElapsedMs =

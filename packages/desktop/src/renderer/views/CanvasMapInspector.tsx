@@ -128,6 +128,7 @@ function CanvasExecutionPolicyEditor({
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    void canvas.canvasId;
     setParallelEnabled(policy?.parallelEnabled ?? false);
     setMaxConcurrentDraft(policy ? String(policy.maxConcurrent) : "");
     setSaving(false);
@@ -179,9 +180,13 @@ function CanvasExecutionPolicyEditor({
               onCheckedChange={setParallelEnabled}
             />
           </div>
-          <label className="flex min-w-0 flex-col gap-1">
+          <label
+            className="flex min-w-0 flex-col gap-1"
+            htmlFor={`canvas-max-concurrent-${canvas.canvasId}`}
+          >
             <span className="text-xs text-muted-foreground">{t("maxConcurrentBlocks")}</span>
             <Input
+              id={`canvas-max-concurrent-${canvas.canvasId}`}
               aria-invalid={validationMessage ? true : undefined}
               aria-label={t("maxConcurrentBlocks")}
               disabled={saving}

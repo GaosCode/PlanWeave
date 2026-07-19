@@ -54,7 +54,6 @@ import {
 } from "./runStateRepository.js";
 import {
   mutateAutoRunTransition,
-  inspectPendingTransitionsForWorkspace,
   recoverAllPendingTransitions,
   recoverPendingTransition,
   type SessionSummaryBuilder,

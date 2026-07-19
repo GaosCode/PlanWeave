@@ -72,9 +72,9 @@ describe("trusted task-manager access pattern", () => {
     const state = ensureStateForManifest(manifest, createEmptyState());
 
     expect(canClaimReviewBlock(graph, state, "T-404#R-001")).toBe(false);
-    expect(
-      canDispatchImplementationBlock(graph, state, "T-404#B-001", { maxConcurrent: 2 })
-    ).toBe(false);
+    expect(canDispatchImplementationBlock(graph, state, "T-404#B-001", { maxConcurrent: 2 })).toBe(
+      false
+    );
   });
 });
 
@@ -91,9 +91,9 @@ describe("claim readiness/hints refuse missing guaranteed state as unready", () 
     expect(() =>
       canDispatchImplementationBlock(graph, state, "T-001#B-001", { maxConcurrent: 2 })
     ).toThrow(missingBlockStateMessage);
-    expect(() =>
-      buildClaimHints(graph, state, noProjectGraphBlockers, null, 2, "default")
-    ).toThrow(missingBlockStateMessage);
+    expect(() => buildClaimHints(graph, state, noProjectGraphBlockers, null, 2, "default")).toThrow(
+      missingBlockStateMessage
+    );
     expect(() =>
       buildClaimReadiness({
         graph,
@@ -188,7 +188,9 @@ describe("execution status and projections refuse missing guaranteed state as pl
     expect(status.blocks.find((block) => block.ref === "T-001#B-001")?.status).toBe("ready");
     // Optional historical fields remain null when absent.
     expect(status.blocks.find((block) => block.ref === "T-001#B-001")?.lastRunId).toBeNull();
-    expect(status.blocks.find((block) => block.ref === "T-001#B-001")?.latestReviewAttemptId).toBeNull();
+    expect(
+      status.blocks.find((block) => block.ref === "T-001#B-001")?.latestReviewAttemptId
+    ).toBeNull();
     expect(status.orphanState).toEqual([]);
     expect(status.orphanResults).toEqual([]);
   });

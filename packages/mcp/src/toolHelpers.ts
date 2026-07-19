@@ -289,7 +289,7 @@ function sanitizeWindowsLocalPaths(value: string): string {
 function sanitizeUnixLocalPaths(value: string): string {
   const unixLocalPathPattern =
     /(^|[\s"'`(])((?:\/Users|\/home|\/tmp|\/var\/folders|\/private\/tmp|\/sensitive)\/[^"'`,;)]+)/g;
-  return value.replace(unixLocalPathPattern, (match, prefix: string, path: string) => {
+  return value.replace(unixLocalPathPattern, (_match, prefix: string, path: string) => {
     const trailingWhitespace = path.match(/\s+$/)?.[0] ?? "";
     return `${prefix}${summarizeLocalPath(path.trimEnd())}${trailingWhitespace}`;
   });

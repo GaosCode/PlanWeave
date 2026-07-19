@@ -7,7 +7,7 @@ import {
 } from "../../shared/desktopSettings";
 import { settingsBridge } from "../bridge";
 import { mergeDesktopSettings } from "../settings";
-import type { DesktopSettingsPatch, DesktopSettingsUpdate, DesktopUiSettings } from "../types";
+import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
 
 type LayoutSettingsPatch = {
   leftSidebar?: Partial<DesktopUiSettings["layout"]["leftSidebar"]>;

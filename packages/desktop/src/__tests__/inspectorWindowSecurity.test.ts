@@ -16,7 +16,6 @@ const electronMock = vi.hoisted(() => {
       focus: ReturnType<typeof vi.fn>;
       isDestroyed: ReturnType<typeof vi.fn>;
       loadFile: ReturnType<typeof vi.fn>;
-      // biome-ignore lint/style/useNamingConvention: Electron exposes this method as loadURL.
       loadURL: ReturnType<typeof vi.fn>;
       on: ReturnType<typeof vi.fn>;
       show: ReturnType<typeof vi.fn>;
@@ -31,7 +30,6 @@ const electronMock = vi.hoisted(() => {
       focus: vi.fn(),
       isDestroyed: vi.fn(() => false),
       loadFile: vi.fn(async () => undefined),
-      // biome-ignore lint/style/useNamingConvention: Electron exposes this method as loadURL.
       loadURL: vi.fn(async () => undefined),
       on: vi.fn(),
       show: vi.fn(),
@@ -54,7 +52,6 @@ const electronMock = vi.hoisted(() => {
 
 vi.mock("electron", () => ({
   app: electronMock.app,
-  // biome-ignore lint/style/useNamingConvention: This mock must match Electron's named export.
   BrowserWindow: electronMock.browserWindow,
   shell: electronMock.shell
 }));

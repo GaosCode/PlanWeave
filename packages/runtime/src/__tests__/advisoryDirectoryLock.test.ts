@@ -114,7 +114,7 @@ function createMemoryFs(seed: Map<string, string | "dir"> = new Map()): {
 
 function fastClock(overrides: Partial<AdvisoryLockClock> = {}): AdvisoryLockClock {
   let perf = 0;
-  let wall = 1_000_000;
+  const wall = 1_000_000;
   return {
     nowMs: () => wall,
     performanceNow: () => {
@@ -317,7 +317,7 @@ describe("advisory directory lock", () => {
     mem.fs.optionalStat = async () => ({ mtimeMs: 1_000_000 });
 
     let wall = 1_000_000 + 120_000;
-    let order: string[] = [];
+    const order: string[] = [];
 
     await withAdvisoryDirectoryLock(
       {

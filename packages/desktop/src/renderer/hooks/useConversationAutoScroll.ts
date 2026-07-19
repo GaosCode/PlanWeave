@@ -18,6 +18,7 @@ export function useConversationAutoScroll(changeKey: number) {
   }, []);
 
   useEffect(() => {
+    void changeKey;
     if (following) scrollToBottom("auto");
   }, [changeKey, following, scrollToBottom]);
 

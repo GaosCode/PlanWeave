@@ -97,6 +97,12 @@ export function SearchResultList({
     <div className="flex flex-col gap-2 pr-2">
       {results.map((result) => {
         const target = searchNavigationTarget(result);
+        let excerptOffset = 0;
+        const highlightedExcerpt = highlightedSearchExcerpt(result).map((part) => {
+          const offset = excerptOffset;
+          excerptOffset += part.text.length;
+          return { ...part, offset };
+        });
         const resultContent = (
           <>
             <div className="flex items-center justify-between gap-2">
@@ -126,16 +132,16 @@ export function SearchResultList({
               </div>
             </div>
             <div className="line-clamp-2 text-xs leading-5 text-muted-foreground">
-              {highlightedSearchExcerpt(result).map((part, index) =>
+              {highlightedExcerpt.map((part) =>
                 part.highlighted ? (
                   <mark
                     className="rounded-sm bg-state-warning-surface px-0.5 text-text-strong"
-                    key={index}
+                    key={`highlight-${part.offset}`}
                   >
                     {part.text}
                   </mark>
                 ) : (
-                  <span key={index}>{part.text}</span>
+                  <span key={`text-${part.offset}`}>{part.text}</span>
                 )
               )}
             </div>

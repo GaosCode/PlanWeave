@@ -35,3 +35,11 @@ const producedPreflightAgentName: string | null = producedPreflightResult.agentI
 const producedSummaryAdapter: ExecutorProfileAdapter = producedProfileSummary.profileAdapter;
 const producedSummaryIntegration: ExecutorIntegrationName | null =
   producedProfileSummary.executionIntegration;
+
+void legacyPreflightResult;
+void legacyProfileSummary;
+void producedPreflightAdapter;
+void producedPreflightIntegration;
+void producedPreflightAgentName;
+void producedSummaryAdapter;
+void producedSummaryIntegration;

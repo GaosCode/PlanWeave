@@ -335,6 +335,7 @@ const planGraphCommandSchemaTypeCoverage: Record<
   MissingPlanGraphCommandSchemaType | ExtraPlanGraphCommandSchemaType,
   never
 > = {};
+void planGraphCommandSchemaTypeCoverage;
 
 export const planGraphCommandSchema = z.discriminatedUnion("type", planGraphCommandSchemaOptions);
 

@@ -180,7 +180,7 @@ describe("final artifact envelope codec", () => {
       `${encodeFinalArtifactEnvelope(implementationArtifactEnvelope({ ref: expected.ref, taskId: expected.taskId, reportMarkdown: "a" }))}${encodeFinalArtifactEnvelope(implementationArtifactEnvelope({ ref: expected.ref, taskId: expected.taskId, reportMarkdown: "b" }))}`
     ],
     ["malformed", `${FINAL_ARTIFACT_MARKER}{bad}\n`],
-    ["truncated", `${FINAL_ARTIFACT_MARKER}{\"version\":`],
+    ["truncated", `${FINAL_ARTIFACT_MARKER}{"version":`],
     [
       "malformed",
       `${encodeFinalArtifactEnvelope(implementationArtifactEnvelope({ ref: expected.ref, taskId: expected.taskId, reportMarkdown: "valid" })).trimEnd()} trailing text\n`

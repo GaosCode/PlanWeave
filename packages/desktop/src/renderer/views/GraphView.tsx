@@ -270,6 +270,7 @@ export function GraphView({
   }, [graphScopeId, localFlowInstance, selectedTaskPanelId, visibleNodes.length]);
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: This div is a pointer drop target; keyboard graph interaction is owned by React Flow.
     <div
       className="relative h-full min-h-0 bg-app-canvas text-text"
       data-graph-surface

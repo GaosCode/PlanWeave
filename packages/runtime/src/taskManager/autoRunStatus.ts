@@ -14,7 +14,6 @@ import type {
   AutoRunLatestRunSummary,
   AutoRunStatus,
   ExecutionGraphSession,
-  ExecutorProfile,
   FeedbackStatus,
   PlanPackageManifest,
   RuntimeState,

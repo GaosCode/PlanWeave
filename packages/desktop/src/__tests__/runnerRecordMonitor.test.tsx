@@ -11,7 +11,6 @@ import {
   desktopAgentPromptIdentitySchema,
   projectAcpConversation,
   projectAcpTimeline,
-  runnerRecordReadModelSchema,
   type DesktopBridgeApi,
   type DesktopRunRecord,
   type NormalizedRunnerEvent,

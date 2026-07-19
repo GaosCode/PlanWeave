@@ -7,7 +7,7 @@
   "packageManager": "pnpm@10.32.1",
   "scripts": {
     "build": "pnpm --filter @planweave-ai/runtime build && pnpm --filter @planweave-ai/mcp build && pnpm --parallel --filter @planweave-ai/cli --filter @planweave-ai/desktop build:workspace",
-    "biome:check": "biome check .",
+    "biome:check": "biome check . --error-on-warnings",
     "biome:format": "biome format --write .",
     "check:dom-boundaries": "node scripts/check-renderer-dom-boundaries.mjs",
     "check:runtime-browser-boundary": "node scripts/check-runtime-browser-boundary.mjs",

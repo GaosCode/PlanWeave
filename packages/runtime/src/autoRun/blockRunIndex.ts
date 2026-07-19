@@ -43,7 +43,9 @@ function blockRefFromRunRoot(runRoot: string): string {
   return `${taskId}#${blockId}`;
 }
 
-function chronologyCandidates(metadata: ImplementationRunMetadata | null): Array<string | null | undefined> {
+function chronologyCandidates(
+  metadata: ImplementationRunMetadata | null
+): Array<string | null | undefined> {
   return [metadata?.startedAt, metadata?.submittedAt, metadata?.finishedAt];
 }
 

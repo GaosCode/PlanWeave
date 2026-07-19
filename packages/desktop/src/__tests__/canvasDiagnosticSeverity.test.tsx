@@ -10,13 +10,9 @@ import { CanvasTreeItem } from "../renderer/sidebar/CanvasTreeItem";
 import { CanvasMapInspector } from "../renderer/views/CanvasMapInspector";
 
 vi.mock("@xyflow/react", () => ({
-  // biome-ignore lint/style/useNamingConvention: Matches the external module export.
   Handle: () => <div data-testid="react-flow-handle" />,
-  // biome-ignore lint/style/useNamingConvention: Matches the external module export.
   Position: {
-    // biome-ignore lint/style/useNamingConvention: Matches the external module enum keys.
     Left: "left",
-    // biome-ignore lint/style/useNamingConvention: Matches the external module enum keys.
     Right: "right"
   }
 }));

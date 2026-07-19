@@ -87,6 +87,7 @@ export function BlockInspectorWindow() {
   }, []);
 
   useEffect(() => {
+    void terminalAvailabilityRefreshKey;
     if (!bridge || !projectRoot) {
       setTerminalAvailabilityByRecordId({});
       return undefined;

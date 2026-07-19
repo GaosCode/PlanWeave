@@ -8,7 +8,6 @@ type GetTaskWorkspaceResult = Awaited<ReturnType<GetTaskWorkspace>>;
 type RegisteredHandler = (event: unknown, ...args: unknown[]) => unknown;
 type AutoRunEventListener = (event: unknown) => void;
 type RunnerRecordEventListener = (event: unknown) => void;
-type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
 
 export function registeredHandler(channel: string): RegisteredHandler {
   const handler = electronMock.handlers.get(channel);
@@ -396,12 +395,14 @@ const runtimeMock = vi.hoisted(() => {
       diagnostics: [],
       graph: { workspace, input }
     })),
-    updateTaskPrompt: vi.fn(async (workspace: unknown, taskId: string, markdown: string, options?: unknown) => ({
-      ok: true,
-      affectedTasks: [taskId],
-      diagnostics: [],
-      graph: { workspace, markdown, options }
-    })),
+    updateTaskPrompt: vi.fn(
+      async (workspace: unknown, taskId: string, markdown: string, options?: unknown) => ({
+        ok: true,
+        affectedTasks: [taskId],
+        diagnostics: [],
+        graph: { workspace, markdown, options }
+      })
+    ),
     updateBlockPrompt: vi.fn(
       async (workspace: unknown, blockRef: string, markdown: string, options?: unknown) => ({
         ok: true,
@@ -454,7 +455,7 @@ const runtimeMock = vi.hoisted(() => {
         graph: { workspace, baseGraphVersion, layoutSnapshot }
       })
     ),
-    saveDesktopLayout: vi.fn(async (workspace: unknown, layout: unknown) => layout),
+    saveDesktopLayout: vi.fn(async (_workspace: unknown, layout: unknown) => layout),
     startAutoRun: vi.fn(
       async (
         projectRoot: string,

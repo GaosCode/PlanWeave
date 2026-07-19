@@ -72,7 +72,7 @@ const fsPromisesMock = vi.hoisted(() => {
     holdReadFilePromise: null as Promise<Buffer> | null,
     activeReadFiles: 0,
     maxActiveReadFiles: 0,
-    readFileHook: null as null | ((path: string) => Promise<Buffer> | Buffer | void)
+    readFileHook: null as null | ((path: string) => Promise<Buffer> | Buffer | undefined)
   };
   return {
     state,

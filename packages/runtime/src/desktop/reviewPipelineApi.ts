@@ -12,7 +12,6 @@ import { resolvePackagePath } from "../package/resolvePackagePath.js";
 import { invalidateDesktopProjectProjection } from "./graph/projectProjectionModel.js";
 import type {
   GraphEditResult,
-  ManifestBlock,
   ManifestReviewBlock,
   ManifestTaskNode,
   PackageWorkspaceRef,

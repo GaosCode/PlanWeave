@@ -2,7 +2,6 @@ import { layoutSchemaDocument } from "./layout.js";
 import { manifestSchemaDocument } from "./manifest.js";
 import { projectSchemaDocument } from "./project.js";
 import { stateSchemaDocument } from "./state.js";
-import { runtimeSchemaTopicOrder } from "./types.js";
 import type { RuntimeSchemaTopicName, SchemaDocument } from "./types.js";
 
 export const runtimeSchemaDocuments: Record<RuntimeSchemaTopicName, SchemaDocument> = {

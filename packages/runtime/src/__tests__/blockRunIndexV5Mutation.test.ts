@@ -18,7 +18,6 @@ import {
   replaceBlockRunIndexWithV5
 } from "../autoRun/blockRunIndexStorage.js";
 import { buildBlockRunIndexV5Tree } from "../autoRun/blockRunIndexV5Tree.js";
-// biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the module export used by the tree reader.
 import * as optionalFile from "../fs/optionalFile.js";
 import { writeJsonFile } from "../json.js";
 
@@ -126,10 +125,8 @@ describe("block run index v5 mutation planning", () => {
   it("keeps 5k and 10k tail append reads fixed by tree depth", async () => {
     const measurements: Array<{ nodes: number; pages: number }> = [];
     for (const runCount of [5_000, 10_000]) {
-      // biome-ignore lint/performance/noAwaitInLoops: The two index sizes are independent I/O bounds.
       const context = await fixture(runCount);
       const readSpy = vi.spyOn(optionalFile, "optionalReadFile");
-      // biome-ignore lint/performance/noAwaitInLoops: The two index sizes are independent I/O bounds.
       const plan = await planBlockRunIndexV5Mutation(context, {
         kind: "upsert",
         entry: mutationEntryFor(runCount + 1)
@@ -150,21 +147,16 @@ describe("block run index v5 mutation planning", () => {
       const runRoot = await mkdtemp(join(tmpdir(), "planweave-index-v5-append-"));
       temporaryRoots.push(runRoot);
       const entries = Array.from({ length: runCount }, (_, index) => entryFor(index + 1));
-      // biome-ignore lint/performance/noAwaitInLoops: The two index sizes are independent I/O bounds.
       await replaceBlockRunIndexWithV5(runRoot, null, entries);
-      // biome-ignore lint/performance/noAwaitInLoops: The two index sizes are independent I/O bounds.
       const snapshot = await readBlockRunIndexSnapshot(runRoot);
       if (snapshot?.version !== 5) throw new Error("Expected a populated v5 index.");
-      // biome-ignore lint/performance/noAwaitInLoops: This first append establishes the persisted retirement delta.
       await mutateBlockRunIndex(runRoot, snapshot, {
         kind: "upsert",
         entry: mutationEntryFor(runCount + 1)
       });
-      // biome-ignore lint/performance/noAwaitInLoops: The two index sizes are independent I/O bounds.
       const nextSnapshot = await readBlockRunIndexSnapshot(runRoot);
       if (nextSnapshot?.version !== 5) throw new Error("Expected a next v5 index generation.");
       const readSpy = vi.spyOn(optionalFile, "optionalReadFile");
-      // biome-ignore lint/performance/noAwaitInLoops: The two index sizes are independent I/O bounds.
       await mutateBlockRunIndex(runRoot, nextSnapshot, {
         kind: "upsert",
         entry: mutationEntryFor(runCount + 2)

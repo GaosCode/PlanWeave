@@ -2,27 +2,34 @@ import { createElement, Fragment, type ReactNode } from "react";
 
 function inlineMarkdown(text: string): ReactNode[] {
   const parts = text.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/g);
-  return parts.map((part, index) => {
+  let offset = 0;
+  return parts.filter(Boolean).map((part) => {
+    const partOffset = offset;
+    offset += part.length;
     if (part.startsWith("`") && part.endsWith("`")) {
       return (
-        <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.92em]" key={index}>
+        <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.92em]" key={partOffset}>
           {part.slice(1, -1)}
         </code>
       );
     }
     if (part.startsWith("**") && part.endsWith("**")) {
-      return <strong key={index}>{part.slice(2, -2)}</strong>;
+      return <strong key={partOffset}>{part.slice(2, -2)}</strong>;
     }
-    return <Fragment key={index}>{part}</Fragment>;
+    return <Fragment key={partOffset}>{part}</Fragment>;
   });
 }
 
-function tableRow(line: string): string[] {
-  return line
-    .trim()
-    .replace(/^\||\|$/g, "")
-    .split("|")
-    .map((cell) => cell.trim());
+type TableCell = { offset: number; text: string };
+
+function tableRow(line: string): TableCell[] {
+  const content = line.trim().replace(/^\||\|$/g, "");
+  let offset = 0;
+  return content.split("|").map((cell) => {
+    const result = { offset, text: cell.trim() };
+    offset += cell.length + 1;
+    return result;
+  });
 }
 
 export function SafeMarkdown({ markdown }: { markdown: string }) {
@@ -79,12 +86,15 @@ export function SafeMarkdown({ markdown }: { markdown: string }) {
     }
     if (/^[-*]\s+/.test(line) || /^\d+\.\s+/.test(line)) {
       const ordered = /^\d+\.\s+/.test(line);
-      const items: string[] = [];
+      const items: Array<{ lineNumber: number; text: string }> = [];
       while (
         index < lines.length &&
         (ordered ? /^\d+\.\s+/.test(lines[index] ?? "") : /^[-*]\s+/.test(lines[index] ?? ""))
       ) {
-        items.push((lines[index] ?? "").replace(ordered ? /^\d+\.\s+/ : /^[-*]\s+/, ""));
+        items.push({
+          lineNumber: index,
+          text: (lines[index] ?? "").replace(ordered ? /^\d+\.\s+/ : /^[-*]\s+/, "")
+        });
         index += 1;
       }
       const List = ordered ? "ol" : "ul";
@@ -93,19 +103,20 @@ export function SafeMarkdown({ markdown }: { markdown: string }) {
           className={`${ordered ? "list-decimal" : "list-disc"} space-y-1 pl-5`}
           key={`list-${index}`}
         >
-          {items.map((item, itemIndex) => (
-            <li key={itemIndex}>{inlineMarkdown(item)}</li>
+          {items.map((item) => (
+            <li key={item.lineNumber}>{inlineMarkdown(item.text)}</li>
           ))}
         </List>
       );
       continue;
     }
     if (line.includes("|") && /^\s*\|?\s*:?-+/.test(lines[index + 1] ?? "")) {
+      const headerLineNumber = index;
       const headers = tableRow(line);
       index += 2;
-      const rows: string[][] = [];
+      const rows: Array<{ cells: TableCell[]; lineNumber: number }> = [];
       while (index < lines.length && (lines[index] ?? "").includes("|")) {
-        rows.push(tableRow(lines[index] ?? ""));
+        rows.push({ cells: tableRow(lines[index] ?? ""), lineNumber: index });
         index += 1;
       }
       blocks.push(
@@ -113,19 +124,22 @@ export function SafeMarkdown({ markdown }: { markdown: string }) {
           <table className="w-full border-collapse text-left text-xs">
             <thead className="bg-muted/70">
               <tr>
-                {headers.map((header, cell) => (
-                  <th className="border-b px-3 py-2 font-medium" key={cell}>
-                    {inlineMarkdown(header)}
+                {headers.map((header) => (
+                  <th
+                    className="border-b px-3 py-2 font-medium"
+                    key={`${headerLineNumber}:${header.offset}`}
+                  >
+                    {inlineMarkdown(header.text)}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, rowIndex) => (
-                <tr className="border-b last:border-0" key={rowIndex}>
-                  {row.map((cell, cellIndex) => (
-                    <td className="px-3 py-2 align-top" key={cellIndex}>
-                      {inlineMarkdown(cell)}
+              {rows.map((row) => (
+                <tr className="border-b last:border-0" key={row.lineNumber}>
+                  {row.cells.map((cell) => (
+                    <td className="px-3 py-2 align-top" key={`${row.lineNumber}:${cell.offset}`}>
+                      {inlineMarkdown(cell.text)}
                     </td>
                   ))}
                 </tr>

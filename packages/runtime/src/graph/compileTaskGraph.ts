@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
@@ -39,7 +40,7 @@ async function listMarkdownFiles(
   errors: ValidationIssue[]
 ): Promise<string[]> {
   const promptPath = relative(packageDir, root) || ".";
-  let entries;
+  let entries: Dirent[] | null;
   try {
     entries = await optionalReaddir(root, { withFileTypes: true });
   } catch (error) {

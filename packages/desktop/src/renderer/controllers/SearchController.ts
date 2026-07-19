@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { DesktopProjectSummary } from "@planweave-ai/runtime";
 import { useDesktopSearch } from "../hooks/useDesktopSearch";
 import type { TaskWorkspaceNavigationTarget } from "../taskWorkspaceNavigation";
@@ -55,21 +56,34 @@ export function useSearchController({
     selectedProject,
     setError
   });
-  const search = createSearchController({
-    handleSearchResultOpen,
-    searchCanvasScope,
-    searchQuery,
-    searchResultKinds,
-    searchResults,
-    searchStatus,
-    selectedSearchResultKinds,
-    setSearchCanvasScope,
-    setSearchQuery,
-    setSearchResultKindEnabled
-  });
-
-  return {
-    ...search,
-    diagnostics: searchDiagnostics
-  };
+  return useMemo(
+    () => ({
+      ...createSearchController({
+        handleSearchResultOpen,
+        searchCanvasScope,
+        searchQuery,
+        searchResultKinds,
+        searchResults,
+        searchStatus,
+        selectedSearchResultKinds,
+        setSearchCanvasScope,
+        setSearchQuery,
+        setSearchResultKindEnabled
+      }),
+      diagnostics: searchDiagnostics
+    }),
+    [
+      handleSearchResultOpen,
+      searchCanvasScope,
+      searchDiagnostics,
+      searchQuery,
+      searchResultKinds,
+      searchResults,
+      searchStatus,
+      selectedSearchResultKinds,
+      setSearchCanvasScope,
+      setSearchQuery,
+      setSearchResultKindEnabled
+    ]
+  );
 }

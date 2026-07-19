@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as z from "zod/v4";
-import { createGateway, project, readJson } from "./toolTestHelpers.js";
+import { createGateway, readJson } from "./toolTestHelpers.js";
 import { planweaveToolDefinitions } from "../toolDefinitions.js";
 import { handlePlanweaveTool } from "../tools.js";
 

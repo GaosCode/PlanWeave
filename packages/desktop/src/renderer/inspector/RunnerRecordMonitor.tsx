@@ -237,10 +237,10 @@ export function RunnerRecordMonitor({
           data-testid="runner-record-diagnostics"
         >
           <div className="font-medium">{t("acpDiagnostics")}</div>
-          {diagnostics.map((diagnostic, index) => (
+          {diagnostics.map((diagnostic) => (
             <div
               className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
-              key={`${diagnostic.code}-${diagnostic.line ?? "stream"}-${index}`}
+              key={`${diagnostic.code}-${diagnostic.line ?? "stream"}-${diagnostic.message}`}
             >
               <span className="font-mono">{diagnostic.code}</span>: {diagnostic.message}
             </div>

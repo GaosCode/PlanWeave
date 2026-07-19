@@ -20,6 +20,7 @@ export function useTaskWorkspaceLayout(sessionKey: string) {
   const [inspectorWidth, setInspectorWidthState] = useState(defaultInspectorWidth);
 
   useEffect(() => {
+    void sessionKey;
     setTimelineCollapsed(false);
     setInspectorCollapsed(true);
     setTimelineWidthState(defaultTimelineWidth);

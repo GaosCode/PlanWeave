@@ -54,12 +54,12 @@ describe("parseTaskResultIndex", () => {
   });
 
   it("rejects invalid, negative, and non-integer counts", () => {
-    expect(() =>
-      parseTaskResultIndex({ counts: { runs: -1 } }, "/tmp/index.json")
-    ).toThrow(/Task result index at \/tmp\/index\.json is invalid:.*counts\.runs/);
-    expect(() =>
-      parseTaskResultIndex({ counts: { runs: 1.5 } }, "/tmp/index.json")
-    ).toThrow(/Task result index at \/tmp\/index\.json is invalid:.*counts\.runs/);
+    expect(() => parseTaskResultIndex({ counts: { runs: -1 } }, "/tmp/index.json")).toThrow(
+      /Task result index at \/tmp\/index\.json is invalid:.*counts\.runs/
+    );
+    expect(() => parseTaskResultIndex({ counts: { runs: 1.5 } }, "/tmp/index.json")).toThrow(
+      /Task result index at \/tmp\/index\.json is invalid:.*counts\.runs/
+    );
     expect(() =>
       parseTaskResultIndex({ counts: { reviewAttempts: "1" } }, "/tmp/index.json")
     ).toThrow(/Task result index at \/tmp\/index\.json is invalid:.*counts\.reviewAttempts/);
@@ -73,10 +73,7 @@ describe("parseTaskResultIndex", () => {
       )
     ).toThrow(/reviewCompletionReasonByBlock/);
     expect(() =>
-      parseTaskResultIndex(
-        { feedbackStatusById: { "FE-001": "pending" } },
-        "/tmp/index.json"
-      )
+      parseTaskResultIndex({ feedbackStatusById: { "FE-001": "pending" } }, "/tmp/index.json")
     ).toThrow(/feedbackStatusById/);
     expect(() =>
       parseTaskResultIndex(
@@ -85,17 +82,11 @@ describe("parseTaskResultIndex", () => {
       )
     ).toThrow(/latestReviewVerdictByBlock/);
     expect(() =>
-      parseTaskResultIndex(
-        { latestRunByBlock: { "T-001#B-001": 12 } },
-        "/tmp/index.json"
-      )
+      parseTaskResultIndex({ latestRunByBlock: { "T-001#B-001": 12 } }, "/tmp/index.json")
     ).toThrow(/latestRunByBlock/);
-    expect(() =>
-      parseTaskResultIndex(
-        { warnings: [{ code: "x" }] },
-        "/tmp/index.json"
-      )
-    ).toThrow(/warnings/);
+    expect(() => parseTaskResultIndex({ warnings: [{ code: "x" }] }, "/tmp/index.json")).toThrow(
+      /warnings/
+    );
     expect(() =>
       parseTaskResultIndex({ ...validIndex(), unexpected: true }, "/tmp/index.json")
     ).toThrow(/Task result index at \/tmp\/index\.json is invalid/);
@@ -210,10 +201,7 @@ describe("task result index merge and locking behavior", () => {
     expect(index.reviewCompletionReasonByBlock).toEqual({
       "T-001#R-002": "max_cycles_reached"
     });
-    expect(index.warnings?.map((warning) => warning.path)).toEqual([
-      undefined,
-      "T-001#R-002"
-    ]);
+    expect(index.warnings?.map((warning) => warning.path)).toEqual([undefined, "T-001#R-002"]);
   });
 
   it("does not lose concurrent updateTaskIndex increments", async () => {

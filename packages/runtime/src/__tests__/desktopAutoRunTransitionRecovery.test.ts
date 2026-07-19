@@ -80,7 +80,6 @@ function makeIntent(
 }
 
 async function writeCommittedState(
-  workspace: ProjectWorkspace,
   run: DesktopAutoRunState,
   phase: DesktopAutoRunState["phase"],
   extra: Partial<DesktopAutoRunState> = {}
@@ -152,7 +151,7 @@ describe("Auto Run transition coordinator recovery", () => {
   it("concurrent recoverPendingTransition yields exactly one Auto Run and session event", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
     const run = await startRun(root);
-    const committed = await writeCommittedState(init.workspace, run, "stopped");
+    const committed = await writeCommittedState(run, "stopped");
     const intent = makeIntent(run, "stopped", "run_stopped", {
       expectedAuthority: buildExpectedAuthority(committed)
     });
@@ -193,7 +192,7 @@ describe("Auto Run transition coordinator recovery", () => {
     await stopAutoRun(run.runId).catch(() => undefined);
     startedRunIds.delete(run.runId);
 
-    const runningState = await writeCommittedState(init.workspace, run, "running", {
+    const runningState = await writeCommittedState(run, "running", {
       stepCount: 1,
       error: null
     });
@@ -456,7 +455,7 @@ describe("Auto Run transition coordinator recovery", () => {
     await stopAutoRun(run.runId).catch(() => undefined);
     startedRunIds.delete(run.runId);
 
-    const committed = await writeCommittedState(init.workspace, run, "stopped");
+    const committed = await writeCommittedState(run, "stopped");
     const intent = makeIntent(run, "stopped", "run_stopped", {
       expectedAuthority: buildExpectedAuthority(committed)
     });
@@ -698,7 +697,7 @@ describe("Auto Run transition coordinator recovery", () => {
     const { rm } = await import("node:fs/promises");
     await rm(path, { force: true });
 
-    const paused = await writeCommittedState(init.workspace, run, "paused");
+    const paused = await writeCommittedState(run, "paused");
     const healable = makeIntent(run, "paused", "pause_completed", {
       expectedAuthority: buildExpectedAuthority(paused)
     });
@@ -756,7 +755,7 @@ describe("Auto Run transition coordinator recovery", () => {
   it("publishes verified authority to memory after a projection failure is recovered", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
     const run = await startRun(root);
-    const authority = await writeCommittedState(init.workspace, run, "paused");
+    const authority = await writeCommittedState(run, "paused");
     const intent = makeIntent(run, "paused", "pause_completed", {
       expectedAuthority: buildExpectedAuthority(authority)
     });
@@ -797,7 +796,7 @@ describe("Auto Run transition coordinator recovery", () => {
   it("pause derives its guard from recovered durable authority instead of stale memory", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
     const run = await startRun(root);
-    const paused = await writeCommittedState(init.workspace, run, "paused");
+    const paused = await writeCommittedState(run, "paused");
     const intent = makeIntent(run, "paused", "pause_completed", {
       expectedAuthority: buildExpectedAuthority(paused)
     });
@@ -814,7 +813,7 @@ describe("Auto Run transition coordinator recovery", () => {
   it("resume recovers durable paused authority before deciding to resume", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
     const run = await startRun(root);
-    const paused = await writeCommittedState(init.workspace, run, "paused");
+    const paused = await writeCommittedState(run, "paused");
     const intent = makeIntent(run, "paused", "pause_completed", {
       expectedAuthority: buildExpectedAuthority(paused)
     });
@@ -847,7 +846,7 @@ describe("Auto Run transition coordinator recovery", () => {
     expect(pending.status).toBe("ok");
     if (pending.status !== "ok") throw new Error("Expected pending transition.");
 
-    const stopped = await writeCommittedState(init.workspace, paused, "stopped");
+    const stopped = await writeCommittedState(paused, "stopped");
     const recovered = await recoverPendingTransition(init.workspace, run.runId, () => run, {
       buildSessionSummary: sessionSummaryBuilder()
     });

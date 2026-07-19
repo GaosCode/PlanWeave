@@ -1,7 +1,6 @@
 import { access, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTaskCanvas } from "../desktop/index.js";
 import { writeJsonFile } from "../json.js";
 import {
   canonicalCanvasWorkspacePaths,

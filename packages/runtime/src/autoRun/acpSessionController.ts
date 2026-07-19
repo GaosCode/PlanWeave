@@ -50,7 +50,6 @@ import {
 import { normalizedRedactedContent } from "./normalizedEventContract.js";
 import {
   createLiveOwnership,
-  type JsonRpcValue,
   type LivePendingRequestHandle,
   type RunnerInteractionBroker
 } from "./liveControl.js";
@@ -81,10 +80,7 @@ import { createActiveAgentRunControlTarget } from "./agentRunControlTarget.js";
 import { RunnerInteractionChannelError } from "./persistentRunnerInteractionChannel.js";
 import type { RunnerInteractionObserver } from "./runnerInteractionObserver.js";
 import type { DesktopAcpSessionDefaults } from "./desktopAgentSettings.js";
-import {
-  sessionConfigurationFromNewSession,
-  type AcpSessionConfiguration
-} from "./acpSessionConfiguration.js";
+import { sessionConfigurationFromNewSession } from "./acpSessionConfiguration.js";
 import { acpSessionStartSchema, type AcpSessionStart } from "./acpRunRecovery.js";
 import { startAcpSession } from "./acpSessionStart.js";
 import { projectRunnerNextActions } from "./runnerNextActions.js";

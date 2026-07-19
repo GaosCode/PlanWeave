@@ -7,7 +7,6 @@ import {
   type ActiveAgentRunHandle
 } from "../autoRun/activeAgentRunRegistry.js";
 import {
-  AGENT_RUN_CONTROL_PROTOCOL_VERSION,
   agentRunControlEndpointDescriptorSchema,
   agentRunControlLeaseIdSchema
 } from "../autoRun/agentRunControlContract.js";

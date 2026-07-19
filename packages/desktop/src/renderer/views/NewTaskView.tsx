@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useRef, type Dispatch, type SetStateAction } from "react";
 import type {
   BlockType,
   DesktopGraphViewModel,
@@ -22,6 +22,26 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import type { createTranslator } from "../i18n";
 import type { AppView } from "../types";
+
+let nextDraftItemKey = 0;
+
+function syncDraftItemKeys(keys: string[], length: number, prefix: string): void {
+  while (keys.length < length) {
+    nextDraftItemKey += 1;
+    keys.push(`${prefix}-${nextDraftItemKey}`);
+  }
+  keys.length = length;
+}
+
+function pairDraftItems<T>(items: T[], keys: string[]): Array<{ item: T; key: string }> {
+  return items.map((item, position) => {
+    const key = keys[position];
+    if (!key) {
+      throw new Error("Draft item key synchronization failed.");
+    }
+    return { item, key };
+  });
+}
 
 type NewTaskViewProps = {
   confirmTaskDraft: () => Promise<void>;
@@ -74,6 +94,12 @@ export function NewTaskView({
   taskDraft
 }: NewTaskViewProps) {
   const hasProject = Boolean(selectedProject);
+  const draftTaskKeys = useRef<string[]>([]);
+  const draftBlockKeys = useRef<string[]>([]);
+  syncDraftItemKeys(draftTaskKeys.current, taskDraft?.tasks.length ?? 0, "draft-task");
+  syncDraftItemKeys(draftBlockKeys.current, taskDraft?.blocks.length ?? 0, "draft-block");
+  const keyedDraftTasks = pairDraftItems(taskDraft?.tasks ?? [], draftTaskKeys.current);
+  const keyedDraftBlocks = pairDraftItems(taskDraft?.blocks ?? [], draftBlockKeys.current);
   const updateTaskDraftTask = (
     taskIndex: number,
     patch: Partial<DesktopTaskDraft["tasks"][number]>
@@ -203,11 +229,8 @@ export function NewTaskView({
         <CardContent className="flex min-h-0 flex-col gap-3">
           <ScrollArea className="min-h-0 flex-1">
             <div className="flex flex-col gap-3 pr-2">
-              {taskDraft?.tasks.map((task, index) => (
-                <div
-                  className="flex flex-col gap-2 rounded-lg border p-3"
-                  key={`${task.title}-${index}`}
-                >
+              {keyedDraftTasks.map(({ item: task, key }, index) => (
+                <div className="flex flex-col gap-2 rounded-lg border p-3" key={key}>
                   <Field>
                     <FieldLabel>{t("taskTitle")}</FieldLabel>
                     <Input
@@ -263,11 +286,8 @@ export function NewTaskView({
                   </Field>
                 </div>
               ))}
-              {taskDraft?.blocks.map((block, index) => (
-                <div
-                  className="flex flex-col gap-2 rounded-lg border p-3"
-                  key={`${block.taskId}-${block.title}-${index}`}
-                >
+              {keyedDraftBlocks.map(({ item: block, key }, index) => (
+                <div className="flex flex-col gap-2 rounded-lg border p-3" key={key}>
                   <Field>
                     <FieldLabel>{t("blockTitle")}</FieldLabel>
                     <Input

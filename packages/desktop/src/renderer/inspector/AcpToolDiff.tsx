@@ -211,7 +211,10 @@ function highlightedLine(text: string): ReactNode[] {
   const tokens = text.split(
     /(\/\/.*$|#[^"'`]*$|\/\*[\s\S]*?\*\/|`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?\b|\b[A-Za-z_$][\w$]*\b)/g
   );
-  return tokens.filter(Boolean).map((token, index) => {
+  let offset = 0;
+  return tokens.filter(Boolean).map((token) => {
+    const tokenOffset = offset;
+    offset += token.length;
     let className = "";
     if (token.startsWith("//") || token.startsWith("/*") || token.startsWith("#")) {
       className = "text-text-muted italic";
@@ -225,7 +228,7 @@ function highlightedLine(text: string): ReactNode[] {
       className = "text-sky-700 dark:text-sky-300";
     }
     return className ? (
-      <span className={className} key={index}>
+      <span className={className} key={tokenOffset}>
         {token}
       </span>
     ) : (
@@ -235,16 +238,19 @@ function highlightedLine(text: string): ReactNode[] {
 }
 
 export function AcpToolDiff({ diffs }: { diffs: readonly AcpToolFileDiff[] }) {
+  const pathOccurrences = new Map<string, number>();
   return (
     <div className="space-y-3" data-testid="acp-tool-diff">
-      {diffs.map((diff, diffIndex) => {
+      {diffs.map((diff) => {
+        const pathOccurrence = pathOccurrences.get(diff.path) ?? 0;
+        pathOccurrences.set(diff.path, pathOccurrence + 1);
         const rows = diffRows(diff);
         const additions = rows.filter((row) => row.kind === "addition").length;
         const deletions = rows.filter((row) => row.kind === "deletion").length;
         return (
           <section
             className="overflow-hidden rounded-lg border border-border/80 bg-app-canvas"
-            key={`${diff.path}-${diffIndex}`}
+            key={`${diff.path}:${pathOccurrence}`}
           >
             <header className="flex items-center gap-2 border-b border-border/80 bg-surface-muted/60 px-3 py-2">
               <span
@@ -262,7 +268,7 @@ export function AcpToolDiff({ diffs }: { diffs: readonly AcpToolFileDiff[] }) {
             </header>
             <div className="max-h-96 overflow-auto [scrollbar-gutter:stable]">
               <div className="min-w-max font-mono text-[11px] leading-5">
-                {rows.map((row, rowIndex) => (
+                {rows.map((row) => (
                   <div
                     className={
                       row.kind === "addition"
@@ -272,7 +278,7 @@ export function AcpToolDiff({ diffs }: { diffs: readonly AcpToolFileDiff[] }) {
                           : "grid grid-cols-[3.25rem_3.25rem_1.5rem_minmax(0,1fr)]"
                     }
                     data-diff-line={row.kind}
-                    key={rowIndex}
+                    key={`${row.kind}:${row.oldLine ?? "-"}:${row.newLine ?? "-"}`}
                   >
                     <span className="select-none border-r border-border/60 px-2 text-right tabular-nums text-text-muted/70">
                       {row.oldLine ?? ""}

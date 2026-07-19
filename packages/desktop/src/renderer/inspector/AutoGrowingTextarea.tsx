@@ -21,6 +21,7 @@ export function AutoGrowingTextarea({
   }, []);
 
   useLayoutEffect(() => {
+    void value;
     resizeTextarea();
     const animationFrame = window.requestAnimationFrame(resizeTextarea);
     return () => window.cancelAnimationFrame(animationFrame);

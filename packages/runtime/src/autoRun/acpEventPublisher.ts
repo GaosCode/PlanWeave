@@ -103,6 +103,7 @@ export function createAcpEventSubscriptionCloseResult(
 
 function sanitizeCloseMessage(message: string): string {
   const withoutControl = message
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: ACP close messages must remove the C0 control range and DEL before transport.
     .replace(/[\u0000-\u001f\u007f]/g, " ")
     .replace(/\s+/g, " ")
     .trim();

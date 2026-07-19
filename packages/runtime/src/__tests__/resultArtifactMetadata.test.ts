@@ -89,9 +89,9 @@ describe("implementation run metadata contract", () => {
 
   it("rejects wrong-typed present fields and accepts incomplete empty objects", () => {
     expect(parseImplementationRunMetadata({}, "/tmp/metadata.json")).toEqual({});
-    expect(() =>
-      parseImplementationRunMetadata({ ref: 1 }, "/tmp/metadata.json")
-    ).toThrow(/Implementation run metadata at \/tmp\/metadata\.json is invalid:.*ref/);
+    expect(() => parseImplementationRunMetadata({ ref: 1 }, "/tmp/metadata.json")).toThrow(
+      /Implementation run metadata at \/tmp\/metadata\.json is invalid:.*ref/
+    );
     expect(() =>
       parseImplementationRunMetadata(
         {
@@ -161,9 +161,9 @@ describe("review attempt metadata contract", () => {
   });
 
   it("rejects wrong-typed metadata and invalid review results", () => {
-    expect(() =>
-      parseReviewAttemptMetadata({ attemptId: 1 }, "/tmp/meta.json")
-    ).toThrow(/Review attempt metadata at \/tmp\/meta\.json is invalid:.*attemptId/);
+    expect(() => parseReviewAttemptMetadata({ attemptId: 1 }, "/tmp/meta.json")).toThrow(
+      /Review attempt metadata at \/tmp\/meta\.json is invalid:.*attemptId/
+    );
     expect(() =>
       parseReviewResultArtifact(
         {
@@ -206,9 +206,9 @@ describe("feedback submission metadata contract", () => {
   });
 
   it("rejects wrong-typed present fields and malformed JSON", async () => {
-    expect(() =>
-      parseFeedbackSubmissionMetadata({ feedbackId: 1 }, "/tmp/meta.json")
-    ).toThrow(/Feedback submission metadata at \/tmp\/meta\.json is invalid:.*feedbackId/);
+    expect(() => parseFeedbackSubmissionMetadata({ feedbackId: 1 }, "/tmp/meta.json")).toThrow(
+      /Feedback submission metadata at \/tmp\/meta\.json is invalid:.*feedbackId/
+    );
     const dir = await mkdtemp(join(tmpdir(), "pw-fs-meta-"));
     const path = join(dir, "metadata.json");
     await writeFile(path, "not-json", "utf8");
@@ -246,14 +246,7 @@ describe("persisted artifact reuse via trusted contracts", () => {
   it("fails closed when present implementation metadata is malformed during reuse scan", async () => {
     const { root, init } = await createTestWorkspace();
     await claimNext({ projectRoot: root });
-    const runDir = join(
-      init.workspace.resultsDir,
-      "T-001",
-      "blocks",
-      "B-001",
-      "runs",
-      "RUN-001"
-    );
+    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001");
     await mkdir(runDir, { recursive: true });
     await writeFile(join(runDir, "report.md"), "report\n", "utf8");
     await writeFile(join(runDir, "metadata.json"), '{"ref":1,"runId":"RUN-001"}', "utf8");

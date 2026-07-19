@@ -111,7 +111,9 @@ function aggregateTaskStatus(
     return { status: "in_progress", openFeedbackCount };
   }
   const requiredNonReviewComplete = refs
-    .filter((ref) => requireMapValue(graph.blocksByRef, ref, "blocksByRef").type === "implementation")
+    .filter(
+      (ref) => requireMapValue(graph.blocksByRef, ref, "blocksByRef").type === "implementation"
+    )
     .every((ref) => state.blocks[ref]?.status === "completed");
   const requiredReviewsPassed = refs
     .filter((ref) => requireMapValue(graph.blocksByRef, ref, "blocksByRef").type === "review")

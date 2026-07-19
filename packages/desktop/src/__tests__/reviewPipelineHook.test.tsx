@@ -1,7 +1,12 @@
 /* @vitest-environment jsdom */
 
-import { act, renderHook, waitFor } from "@testing-library/react";
-import type { DesktopGraphViewModel, DesktopReviewPipeline } from "@planweave-ai/runtime";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import type {
+  DesktopGraphViewModel,
+  DesktopReviewPipeline,
+  DesktopReviewPipelineStepInput
+} from "@planweave-ai/runtime";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { project } from "./helpers/desktopProjectFixtures";
@@ -11,6 +16,60 @@ import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironmen
 afterEach(cleanupRendererTestEnvironment);
 
 describe("desktop renderer hook interfaces", () => {
+  it("keeps focus while editing a later review hook argument", async () => {
+    const [{ ReviewPipelineView }, { createTranslator }] = await Promise.all([
+      import("../renderer/views/ReviewPipelineView"),
+      import("../renderer/i18n")
+    ]);
+
+    function ReviewPipelineHarness() {
+      const [draft, setDraft] = useState<DesktopReviewPipelineStepInput[]>([
+        {
+          ...reviewPipeline.steps[0],
+          hook: {
+            id: "review-hook",
+            type: "executable",
+            command: "node",
+            args: ["--message", "initial"],
+            executionPolicy: "trusted-local"
+          }
+        }
+      ]);
+      return (
+        <ReviewPipelineView
+          addReviewStep={vi.fn()}
+          graph={graph}
+          moveReviewStep={vi.fn()}
+          removeReviewStep={vi.fn()}
+          reviewDefaultCyclesDraft={1}
+          reviewDraft={draft}
+          reviewPipeline={reviewPipeline}
+          reviewTaskId="T-ALPHA"
+          saveReviewPipeline={vi.fn().mockResolvedValue(undefined)}
+          setReviewDefaultCyclesDraft={vi.fn()}
+          setReviewTaskId={vi.fn()}
+          t={createTranslator("en")}
+          updateReviewStep={(index, patch) =>
+            setDraft((current) =>
+              current.map((step, currentIndex) =>
+                currentIndex === index ? { ...step, ...patch } : step
+              )
+            )
+          }
+        />
+      );
+    }
+
+    render(<ReviewPipelineHarness />);
+    const secondArgument = screen.getByLabelText("Hook arg 2");
+    secondArgument.focus();
+    fireEvent.change(secondArgument, { target: { value: "edited" } });
+
+    const editedArgument = screen.getByLabelText("Hook arg 2") as HTMLInputElement;
+    expect(editedArgument.value).toBe("edited");
+    expect(document.activeElement).toBe(editedArgument);
+  });
+
   it("reloads the current Desktop Project Session after saving a review pipeline", async () => {
     const bridge = createDesktopBridgeMock({
       getLatestAutoRunSummary: vi.fn().mockResolvedValue(null),

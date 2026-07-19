@@ -702,8 +702,7 @@ export async function listTaskWorkspaceRuns(
   });
   const { workspace } = readContext.runtime;
   const executionStatus = readContext.status;
-  const [taskDetail, blockDetails, hasActiveAutoRun] = await Promise.all([
-    buildTaskDetail(readContext, input.taskId),
+  const [blockDetails, hasActiveAutoRun] = await Promise.all([
     buildBlockDetailsForTask(readContext, input.taskId),
     hasNonTerminalAutoRunForTarget(input.projectRoot, input.canvasId)
   ]);

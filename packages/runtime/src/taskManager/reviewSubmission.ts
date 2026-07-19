@@ -237,7 +237,6 @@ async function findFeedbackForReviewAttempt(options: {
       if (isNonMissingNodeFileError(error)) {
         throw error;
       }
-      continue;
     }
   }
   return null;
@@ -263,7 +262,7 @@ async function nextFeedbackId(options: {
 }): Promise<string> {
   const feedbackRoot = join(options.workspace.resultsDir, options.taskId, "feedback");
   await mkdir(feedbackRoot, { recursive: true });
-  let count = Math.max(
+  const count = Math.max(
     Object.keys(options.state.feedback).length,
     await listDirCount(feedbackRoot)
   );

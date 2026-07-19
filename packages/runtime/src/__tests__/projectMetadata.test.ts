@@ -3,15 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { writeJsonFile } from "../json.js";
-import {
-  initManagedWorkspace,
-  initWorkspace
-} from "../initWorkspace.js";
-import {
-  normalizeProjectMetadata,
-  readProject,
-  resolveProjectWorkspace
-} from "../project.js";
+import { initManagedWorkspace, initWorkspace } from "../initWorkspace.js";
+import { normalizeProjectMetadata, readProject, resolveProjectWorkspace } from "../project.js";
 import {
   parseProjectMetadata,
   readProjectMetadataFile,
@@ -83,27 +76,27 @@ describe("projectMetadataSchema / parseProjectMetadata", () => {
       rootPath: "/tmp/planweave-home/projects/demo"
     });
 
-    expect(() =>
-      parseProjectMetadata({ ...base, id: undefined }, "/tmp/p.json")
-    ).toThrow(/Project metadata at \/tmp\/p\.json is invalid:.*id/);
+    expect(() => parseProjectMetadata({ ...base, id: undefined }, "/tmp/p.json")).toThrow(
+      /Project metadata at \/tmp\/p\.json is invalid:.*id/
+    );
     expect(() => parseProjectMetadata({ ...base, id: "" }, "/tmp/p.json")).toThrow(
       /Project metadata at \/tmp\/p\.json is invalid:.*id/
     );
-    expect(() =>
-      parseProjectMetadata({ ...base, kind: "workspace" }, "/tmp/p.json")
-    ).toThrow(/Project metadata at \/tmp\/p\.json is invalid:.*kind/);
+    expect(() => parseProjectMetadata({ ...base, kind: "workspace" }, "/tmp/p.json")).toThrow(
+      /Project metadata at \/tmp\/p\.json is invalid:.*kind/
+    );
     expect(() =>
       parseProjectMetadata({ ...base, rootPath: "relative/path" }, "/tmp/p.json")
     ).toThrow(/Project metadata at \/tmp\/p\.json is invalid:.*rootPath/);
-    expect(() =>
-      parseProjectMetadata({ ...base, rootPath: "" }, "/tmp/p.json")
-    ).toThrow(/Project metadata at \/tmp\/p\.json is invalid:.*rootPath/);
-    expect(() =>
-      parseProjectMetadata({ ...base, sourceRoot: "relative" }, "/tmp/p.json")
-    ).toThrow(/Project metadata at \/tmp\/p\.json is invalid:.*sourceRoot/);
-    expect(() =>
-      parseProjectMetadata({ ...base, sourceRoot: "" }, "/tmp/p.json")
-    ).toThrow(/Project metadata at \/tmp\/p\.json is invalid:.*sourceRoot/);
+    expect(() => parseProjectMetadata({ ...base, rootPath: "" }, "/tmp/p.json")).toThrow(
+      /Project metadata at \/tmp\/p\.json is invalid:.*rootPath/
+    );
+    expect(() => parseProjectMetadata({ ...base, sourceRoot: "relative" }, "/tmp/p.json")).toThrow(
+      /Project metadata at \/tmp\/p\.json is invalid:.*sourceRoot/
+    );
+    expect(() => parseProjectMetadata({ ...base, sourceRoot: "" }, "/tmp/p.json")).toThrow(
+      /Project metadata at \/tmp\/p\.json is invalid:.*sourceRoot/
+    );
   });
 
   it("rejects malformed field types and unknown properties", () => {
@@ -112,15 +105,15 @@ describe("projectMetadataSchema / parseProjectMetadata", () => {
       rootPath: "/tmp/planweave-home/projects/demo"
     });
 
-    expect(() =>
-      parseProjectMetadata({ ...base, name: 12 }, "/tmp/p.json")
-    ).toThrow(/Project metadata at \/tmp\/p\.json is invalid:.*name/);
-    expect(() =>
-      parseProjectMetadata({ ...base, createdAt: "not-a-date" }, "/tmp/p.json")
-    ).toThrow(/Project metadata at \/tmp\/p\.json is invalid:.*createdAt/);
-    expect(() =>
-      parseProjectMetadata({ ...base, extra: true }, "/tmp/p.json")
-    ).toThrow(/Project metadata at \/tmp\/p\.json is invalid/);
+    expect(() => parseProjectMetadata({ ...base, name: 12 }, "/tmp/p.json")).toThrow(
+      /Project metadata at \/tmp\/p\.json is invalid:.*name/
+    );
+    expect(() => parseProjectMetadata({ ...base, createdAt: "not-a-date" }, "/tmp/p.json")).toThrow(
+      /Project metadata at \/tmp\/p\.json is invalid:.*createdAt/
+    );
+    expect(() => parseProjectMetadata({ ...base, extra: true }, "/tmp/p.json")).toThrow(
+      /Project metadata at \/tmp\/p\.json is invalid/
+    );
   });
 });
 
@@ -150,10 +143,7 @@ describe("readProjectMetadataFile", () => {
     const blockedDir = join(dir, "blocked");
     const projectFile = join(blockedDir, "project.json");
     await mkdir(blockedDir, { recursive: true });
-    await writeJsonFile(
-      projectFile,
-      managedMetadata({ id: "demo", rootPath: blockedDir })
-    );
+    await writeJsonFile(projectFile, managedMetadata({ id: "demo", rootPath: blockedDir }));
     await chmod(blockedDir, 0o000);
     try {
       await expect(readProjectMetadataFile(projectFile)).rejects.toMatchObject({

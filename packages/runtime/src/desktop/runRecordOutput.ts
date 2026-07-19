@@ -3,10 +3,13 @@ import type { ExecutorIntegrationName } from "../types.js";
 import type { DesktopRunRecord } from "./types.js";
 
 export function cleanOutputSummary(value: string): string {
-  return value
-    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
-    .trim()
-    .slice(0, 400);
+  return (
+    value
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: Persisted runner output may contain ECMA-48 CSI terminal escapes.
+      .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+      .trim()
+      .slice(0, 400)
+  );
 }
 
 export function outputSummaryForRecord(

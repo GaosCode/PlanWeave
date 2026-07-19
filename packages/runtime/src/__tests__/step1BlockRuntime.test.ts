@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, readFile, writeFile } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -319,7 +319,7 @@ describe("STEP-1 block runtime", () => {
 
   it("drains graph read queue and exposes the auto-run executor boundary", async () => {
     const { home, root, packageDir } = await createWorkspaceFromExample();
-    let session = await createExecutionGraphSession(root);
+    const session = await createExecutionGraphSession(root);
     expect(session.graph.blocksByRef.has("T-001#B-001")).toBe(true);
 
     const blockPromptPath = join(packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md");
@@ -351,7 +351,7 @@ describe("STEP-1 block runtime", () => {
   });
 
   it("runs one auto-run step with a configured codex-exec profile and records executor artifacts", async () => {
-    const { home, root, packageDir, resultsDir } = await createWorkspaceFromExample();
+    const { root, packageDir, resultsDir } = await createWorkspaceFromExample();
     const manifestPath = join(packageDir, "manifest.json");
     const manifest = await readJsonFile<PlanPackageManifest>(manifestPath);
     manifest.execution.defaultExecutor = "fake-codex";
@@ -389,7 +389,7 @@ describe("STEP-1 block runtime", () => {
   });
 
   it("stops a manual auto-run step after writing a prompt artifact without submitting the block", async () => {
-    const { home, root, packageDir, resultsDir } = await createWorkspaceFromExample();
+    const { root, packageDir, resultsDir } = await createWorkspaceFromExample();
     const manifestPath = join(packageDir, "manifest.json");
     const manifest = await readJsonFile<PlanPackageManifest>(manifestPath);
     manifest.execution.defaultExecutor = "manual";

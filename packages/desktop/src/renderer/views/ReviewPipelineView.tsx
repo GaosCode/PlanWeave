@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useRef, type Dispatch, type SetStateAction } from "react";
 import type {
   DesktopGraphViewModel,
   DesktopReviewPipeline,
@@ -46,6 +46,36 @@ export type ReviewPipelineViewProps = {
   updateReviewStep: (index: number, patch: Partial<DesktopReviewPipelineStepInput>) => void;
 };
 
+type KeyedDraftValue<T> = { key: string; value: T };
+
+let nextReviewDraftKey = 0;
+
+function reconcileDraftKeys<T>(
+  values: readonly T[],
+  previous: readonly KeyedDraftValue<T>[],
+  identity: (value: T) => string | null
+): KeyedDraftValue<T>[] {
+  const remaining = [...previous];
+  return values.map((value) => {
+    const stableIdentity = identity(value);
+    let matchIndex = remaining.findIndex((entry) => Object.is(entry.value, value));
+    if (matchIndex < 0 && stableIdentity) {
+      matchIndex = remaining.findIndex((entry) => identity(entry.value) === stableIdentity);
+    }
+    if (matchIndex < 0 && remaining[0]) {
+      matchIndex = 0;
+    }
+    if (matchIndex >= 0) {
+      const [match] = remaining.splice(matchIndex, 1);
+      if (match) {
+        return { key: match.key, value };
+      }
+    }
+    nextReviewDraftKey += 1;
+    return { key: `review-draft-${nextReviewDraftKey}`, value };
+  });
+}
+
 export function ReviewPipelineView({
   addReviewStep,
   graph,
@@ -61,6 +91,12 @@ export function ReviewPipelineView({
   t,
   updateReviewStep
 }: ReviewPipelineViewProps) {
+  const keyedStepsRef = useRef<KeyedDraftValue<DesktopReviewPipelineStepInput>[]>([]);
+  const keyedHookArgsRef = useRef(new Map<string, KeyedDraftValue<string>[]>());
+  const keyedReviewDraft = reconcileDraftKeys(reviewDraft, keyedStepsRef.current, (step) =>
+    step.blockId ? `block:${step.blockId}` : null
+  );
+  keyedStepsRef.current = keyedReviewDraft;
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -123,13 +159,19 @@ export function ReviewPipelineView({
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-3 pr-3">
-          {reviewDraft.map((step, index) => {
+          {keyedReviewDraft.map(({ key: stepKey, value: step }, index) => {
             const hook = step.hook;
             const hookArgs = hook?.args ?? [];
+            const keyedHookArgs = reconcileDraftKeys(
+              hookArgs,
+              keyedHookArgsRef.current.get(stepKey) ?? [],
+              () => null
+            );
+            keyedHookArgsRef.current.set(stepKey, keyedHookArgs);
             return (
               <Card
                 className="rounded-md border-border/80 bg-surface-raised shadow-sm"
-                key={`${step.blockId || "new"}-${index}`}
+                key={stepKey}
               >
                 <CardHeader>
                   <CardTitle className="flex min-w-0 items-center gap-2 text-base">
@@ -318,8 +360,8 @@ export function ReviewPipelineView({
                             </Button>
                           </div>
                           <div className="flex min-w-0 flex-col gap-2">
-                            {hookArgs.map((arg, argIndex) => (
-                              <div className="flex min-w-0 items-center gap-2" key={argIndex}>
+                            {keyedHookArgs.map(({ key: argKey, value: arg }, argIndex) => (
+                              <div className="flex min-w-0 items-center gap-2" key={argKey}>
                                 <Input
                                   className="min-w-0 flex-1"
                                   aria-label={`${t("hookArg")} ${argIndex + 1}`}

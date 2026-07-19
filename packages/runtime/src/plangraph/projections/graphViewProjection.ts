@@ -124,7 +124,6 @@ function sortedBlockRefsForTask(graph: PlanGraph, task: PlanGraphTaskNode): stri
 }
 
 function blockPreview(
-  graph: PlanGraph,
   runtime: RuntimeContext,
   task: PlanGraphTaskNode,
   block: PlanGraphBlockNode,
@@ -157,7 +156,7 @@ export function buildPlanGraphViewProjection(options: {
     const blocks = orderedRefs
       .map((ref) => options.graph.blocks.get(ref))
       .filter((block): block is PlanGraphBlockNode => block !== undefined)
-      .map((block) => blockPreview(options.graph, options.runtime, task, block, options.status));
+      .map((block) => blockPreview(options.runtime, task, block, options.status));
     const visibleBlocks = blocks.slice(0, 4);
     const exceptions = blocks
       .map((block) => exceptionForBlock(block.ref, block.status, block.exceptionReason))

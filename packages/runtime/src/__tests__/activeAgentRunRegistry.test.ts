@@ -82,7 +82,6 @@ function createLifecycle(closed: string[]): InMemoryLifecycle {
   return { closed, cancelledSessions: [], terminated: [] };
 }
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: Registry cases share one in-memory handle contract.
 describe("ActiveAgentRunRegistry", () => {
   it("indexes concurrent identities, rejects collisions and cross-run lookup, and removes exactly once", async () => {
     const registry = new ActiveAgentRunRegistry();

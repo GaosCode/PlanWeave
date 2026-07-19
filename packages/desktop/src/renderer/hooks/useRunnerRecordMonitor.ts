@@ -164,11 +164,13 @@ export function useRunnerRecordMonitor(options: RunnerRecordMonitorOptions) {
 
   // Clear sticky lifecycle error only when the subscription identity changes (record/cursor/gates).
   useEffect(() => {
+    void subscriptionLifetimeKey;
     setSubscriptionError(null);
     updateSequence.current = 0;
   }, [subscriptionLifetimeKey]);
 
   useEffect(() => {
+    void subscriptionLifetimeKey;
     const seedModel = initialModelRef.current;
     if (
       !api ||
@@ -341,14 +343,7 @@ export function useRunnerRecordMonitor(options: RunnerRecordMonitorOptions) {
       unsubscribe = null;
       void activeUnsubscribe?.();
     };
-  }, [
-    api?.subscribeRunnerRecord,
-    canvasId,
-    canvasProjectRoot,
-    promptCapable,
-    recordId,
-    subscriptionLifetimeKey
-  ]);
+  }, [api, canvasId, canvasProjectRoot, promptCapable, recordId, subscriptionLifetimeKey]);
 
   return useMemo(() => ({ model, subscriptionError }), [model, subscriptionError]);
 }

@@ -320,7 +320,7 @@ describe("filesystem I/O failure visibility", () => {
   });
 
   it("reports canvas workspace stat failures as workspace_read_failed instead of workspace_missing", async () => {
-    const { root, init } = await createTestWorkspace();
+    const { init } = await createTestWorkspace();
     const canvasWorkspace = projectCanvasWorkspace(
       init.workspace,
       canonicalProjectCanvasNode({ id: "default", title: "Default" })

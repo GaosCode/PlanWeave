@@ -179,7 +179,6 @@ const cancelledSession = readSession(planweave, cancelledSessionId);
 const cancelledReplay = readSession(planweave, cancelledSessionId);
 const cancelledRunner = runnerFrom(cancelledSession);
 const replayedCancelledRunner = runnerFrom(cancelledReplay);
-const cancelledEvents = events(cancelledRunner);
 const cancellationTerminal = terminalOutcome(cancelledRunner);
 const cancelledRunTerminal =
   cancelledValue?.ok === false && ["blocked", "cancelled"].includes(cancelledValue?.terminalReason);

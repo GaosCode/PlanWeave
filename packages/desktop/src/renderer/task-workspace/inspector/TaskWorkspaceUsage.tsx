@@ -273,7 +273,7 @@ export function TaskWorkspaceUsageDetails({
 export function TaskWorkspaceUsage({
   labels,
   selectedRun,
-  workspace
+  workspace: _workspace
 }: {
   labels: TaskWorkspaceUsageLabels;
   selectedRun: TaskWorkspaceSelectedRun | null;

@@ -585,7 +585,7 @@ describe("package file watcher: polling SLA and resources", () => {
       await flushDebounce();
       webContents.send.mockClear();
 
-      fsPromisesMock.state.statHook = async (path, callId) => {
+      fsPromisesMock.state.statHook = async (path) => {
         if (path === workspace.manifestFile) {
           manifestStatCalls += 1;
           if (manifestStatCalls === 1) {

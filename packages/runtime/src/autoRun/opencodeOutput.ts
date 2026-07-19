@@ -34,6 +34,7 @@ function extractSessionIdFromObject(value: unknown): string | null {
   );
 }
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: OpenCode emits ECMA-48 CSI escape sequences in terminal output.
 const ansiEscapePattern = /\x1B\[[0-?]*[ -/]*[@-~]/g;
 const sessionLabels = new Set(["opencodesessionid", "sessionid", "threadid"]);
 

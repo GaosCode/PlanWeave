@@ -2,7 +2,7 @@ import type { CliAgentRunner } from "./agentRunner.js";
 import { runnerProfileMismatch } from "./agentRunner.js";
 import { executeCliProcess, type CliProcessExecutor } from "./cliProcess.js";
 import { executorSpawnFailureCode } from "./executorPreflightTypes.js";
-import { execWithStdin, executorRuntimeLimits } from "./executorShared.js";
+import { execWithStdin, executorRuntimeLimits, type StdinCommandResult } from "./executorShared.js";
 
 export function createCliRunner(options?: { executeProcess?: CliProcessExecutor }): CliAgentRunner {
   const executionContext = { executeProcess: options?.executeProcess ?? executeCliProcess };
@@ -45,7 +45,7 @@ export function createCliRunner(options?: { executeProcess?: CliProcessExecutor 
           ]
         };
       }
-      let result;
+      let result: StdinCommandResult;
       try {
         const limits = executorRuntimeLimits({ ...profile, timeoutMs });
         result = await execWithStdin({

@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import {
   collectWorkspaceRunDurationInputs,
   needsLiveDurationClock,
@@ -56,10 +56,7 @@ export function LiveRunElapsedText({
   const input: LiveRunDurationInput = { active, finishedAt, startedAt, wallClockMs };
   const live = needsLiveDurationClock(input);
   const nowMs = useTaskWorkspaceClock(live);
-  const elapsedMs = useMemo(
-    () => selectRunWallClockMs(input, nowMs),
-    [active, finishedAt, nowMs, startedAt, wallClockMs]
-  );
+  const elapsedMs = selectRunWallClockMs(input, nowMs);
   if (elapsedMs === null) {
     return unavailable;
   }

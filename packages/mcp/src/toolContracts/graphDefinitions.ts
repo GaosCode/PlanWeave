@@ -280,9 +280,7 @@ export const graphToolDefinitions = {
     inputSchema: {
       ...projectCanvasInput,
       tasks: z.array(z.string().min(1)).optional(),
-      blocks: z
-        .array(z.union([z.string().min(1), z.object(blockRefInput).strict()]))
-        .optional(),
+      blocks: z.array(z.union([z.string().min(1), z.object(blockRefInput).strict()])).optional(),
       taskDependencyEdges: z.array(taskDependencyEdgeSchema).optional(),
       blockDependencyRefs: z.array(blockDependencyRefSchema).optional()
     },

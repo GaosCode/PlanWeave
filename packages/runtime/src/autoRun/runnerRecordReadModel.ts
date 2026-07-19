@@ -36,7 +36,6 @@ import {
   type RunnerInteractionAvailability
 } from "./runnerInteractionAvailability.js";
 import {
-  desktopAgentPromptIdentitySchema,
   runnerRecordReadModelSchema,
   type DesktopAgentPromptIdentity,
   type RunnerRecordReadModel
@@ -65,17 +64,6 @@ function diagnostic(
   message: string
 ): RunnerEventReplayDiagnostic {
   return { code, line: null, message };
-}
-
-function mergeReplayDiagnostics(
-  existing: readonly RunnerEventReplayDiagnostic[],
-  incoming: readonly RunnerEventReplayDiagnostic[]
-): RunnerEventReplayDiagnostic[] {
-  const merged = new Map<string, RunnerEventReplayDiagnostic>();
-  for (const item of [...existing, ...incoming]) {
-    merged.set(`${item.code}\0${item.line ?? ""}\0${item.message}`, item);
-  }
-  return [...merged.values()];
 }
 
 function visibleEvents(events: readonly NormalizedRunnerEvent[]): NormalizedRunnerEvent[] {

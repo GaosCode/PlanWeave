@@ -6,7 +6,7 @@ import type {
   RunnerRecordReadModel
 } from "@planweave-ai/runtime";
 import { isRunnerRecordLiveActionIdentity } from "@planweave-ai/runtime/browser";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -256,6 +256,7 @@ function StructuredElicitation({
   t: ReturnType<typeof createTranslator>;
 }) {
   const fields = useMemo(() => elicitationFields(schema), [schema]);
+  const formId = useId();
   const [values, setValues] = useState<Record<string, string | boolean>>({});
   const [error, setError] = useState<string | null>(null);
   if (!fields) {
@@ -296,13 +297,14 @@ function StructuredElicitation({
   return (
     <div className="space-y-3">
       {fields.map((field) => (
-        <label className="grid gap-1 text-xs" key={field.name}>
+        <label className="grid gap-1 text-xs" htmlFor={`${formId}-${field.name}`} key={field.name}>
           <span className="font-medium">
             {field.label}
             {field.required ? " *" : ""}
           </span>
           {field.kind === "boolean" ? (
             <input
+              id={`${formId}-${field.name}`}
               checked={values[field.name] === true}
               className="size-4"
               disabled={disabled}
@@ -313,6 +315,7 @@ function StructuredElicitation({
             />
           ) : (
             <Input
+              id={`${formId}-${field.name}`}
               disabled={disabled}
               onChange={(event) =>
                 setValues((current) => ({ ...current, [field.name]: event.target.value }))

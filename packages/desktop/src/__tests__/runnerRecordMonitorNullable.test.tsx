@@ -199,7 +199,7 @@ describe("nullable runner record monitoring", () => {
     it("reconnects from the last merged cursor with fixed backoff and a fresh updateSequence generation", async () => {
       const callbacks: Array<(update: DesktopRunnerRecordSubscriptionUpdate) => void> = [];
       const subscribeRunnerRecord = vi.fn<DesktopBridgeApi["subscribeRunnerRecord"]>(
-        async (input, callback) => {
+        async (_input, callback) => {
           callbacks.push(callback);
           return {
             subscriptionId: `subscription-${callbacks.length}`,

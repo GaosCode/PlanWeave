@@ -60,10 +60,6 @@ function pageFor(
   };
 }
 
-function pageItems<T>(items: T[], limit: number, offset: number): T[] {
-  return items.slice(offset, offset + limit);
-}
-
 function boundedSection<T>(items: T[], limit: number): GraphInspectionBoundedSection<T> {
   return {
     limit,

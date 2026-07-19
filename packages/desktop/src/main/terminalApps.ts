@@ -322,7 +322,7 @@ function validateTerminalPreferencesPatch(
     }
   }
   if (
-    Object.prototype.hasOwnProperty.call(patch, "defaultTerminalAppId") &&
+    Object.hasOwn(patch, "defaultTerminalAppId") &&
     patch.defaultTerminalAppId !== null &&
     !isDesktopTerminalAppId(patch.defaultTerminalAppId)
   ) {

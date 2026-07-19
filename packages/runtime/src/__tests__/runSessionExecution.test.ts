@@ -382,7 +382,7 @@ describe("runWithSession", () => {
   });
 
   it("links the active run record before a slow step finishes", async () => {
-    const { root, init } = await createTestWorkspace(slowImplementationManifest());
+    const { root } = await createTestWorkspace(slowImplementationManifest());
 
     const running = runWithSession({ projectRoot: root, once: true, ...noTmux });
     await waitForSessionRecord(root, "SESSION-0001", "T-001#B-001::RUN-001");

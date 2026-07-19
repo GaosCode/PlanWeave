@@ -4,7 +4,6 @@ import type {
   DesktopLayout,
   DesktopProjectExecutionPlan,
   DesktopProjectSnapshot,
-  DesktopProjectSummary,
   DesktopRuntimeRefreshSnapshot,
   DesktopStatistics,
   DesktopTodoGroups,

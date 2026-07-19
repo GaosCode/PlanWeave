@@ -94,12 +94,7 @@ export function useDesktopProjectSession({
       setAutoRunDiagnostics(summary.diagnostics);
       return summary.state;
     },
-    [
-      projectState.selectedCanvasId,
-      projectState.selectedProject?.rootPath,
-      setAutoRunState,
-      setAutoRunDiagnostics
-    ]
+    [projectState.selectedCanvasId, projectState.selectedProject?.rootPath]
   );
 
   const selectTaskPanel = useCallback(
@@ -282,6 +277,8 @@ export function useDesktopProjectSession({
   );
 
   useEffect(() => {
+    void projectState.selectedCanvasId;
+    void projectState.selectedProject?.projectId;
     if (!initialSelectionEffectSkipped.current) {
       initialSelectionEffectSkipped.current = true;
       return;

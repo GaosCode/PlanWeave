@@ -118,11 +118,11 @@ function FileSyncDiagnosticsList({
       <div className="text-xs font-semibold text-text-strong">{label}</div>
       {diagnostics.length > 0 ? (
         <div className="flex max-h-28 flex-col gap-1 overflow-y-auto">
-          {diagnostics.map((diagnostic, index) => (
+          {diagnostics.map((diagnostic) => (
             <div
               className="rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-xs"
               data-testid="file-sync-diagnostic"
-              key={`${diagnostic.code}:${diagnostic.path ?? ""}:${index}`}
+              key={`${diagnostic.code}:${diagnostic.path ?? ""}:${diagnostic.message}`}
             >
               <div className="font-medium text-destructive">{diagnostic.code}</div>
               <div className="break-words text-muted-foreground">{diagnostic.message}</div>

@@ -118,6 +118,7 @@ export function useRunnerInterventions(options: {
   contextKeyRef.current = contextKey;
 
   useEffect(() => {
+    void contextKey;
     setSettledPersistedRequests(new Set());
     setTransientPersistedFailures(new Map());
   }, [contextKey]);

@@ -1,6 +1,6 @@
-import { createWriteStream, constants } from "node:fs";
+import { createWriteStream } from "node:fs";
 import type { WriteStream } from "node:fs";
-import { access, mkdir, open, readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";

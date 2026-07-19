@@ -1,6 +1,5 @@
 import { commitPlanPackageGraphMutation } from "../../graph/editGraph.js";
 import {
-  buildPlanPackageBlockFieldEditMutation,
   buildPlanPackageExecutionPolicyFieldEditManifest,
   buildPlanPackageTaskFieldEditMutation
 } from "../../graph/fieldEditMutation.js";
@@ -10,12 +9,7 @@ import {
 } from "../../graph/mutation.js";
 import { writeJsonFile } from "../../json.js";
 import { loadPackage } from "../../package/loadPackage.js";
-import type {
-  GraphEditResult,
-  PackageWorkspaceRef,
-  PlanPackageManifest,
-  ReviewHookDefinition
-} from "../../types.js";
+import type { GraphEditResult, PackageWorkspaceRef, ReviewHookDefinition } from "../../types.js";
 import type { DesktopPromptSaveOptions } from "../types.js";
 import { invalidateDesktopProjectProjection } from "./projectProjectionModel.js";
 import { executeDesktopPlanGraphCommand } from "./editModelCommand.js";

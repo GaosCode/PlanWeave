@@ -61,9 +61,7 @@ export async function readProjectMetadataFile(projectFile: string): Promise<Proj
     raw = await readJsonFile<unknown>(projectFile);
   } catch (error) {
     if (error instanceof SyntaxError) {
-      throw new Error(
-        `Project metadata at ${projectFile} is malformed JSON: ${error.message}`
-      );
+      throw new Error(`Project metadata at ${projectFile} is malformed JSON: ${error.message}`);
     }
     throw error;
   }

@@ -108,9 +108,10 @@ async function readExecutorSubmissionArtifact(options: {
   // Executor attempt metadata for block/review/feedback runs reuses the implementation-run
   // family contract (typed identity + artifactReference; adapter/outcome via passthrough).
   const metadataPath = join(dirname(options.artifactPath), "metadata.json");
-  const metadata = (await readImplementationRunMetadataFile(
-    metadataPath
-  )) as Record<string, unknown>;
+  const metadata = (await readImplementationRunMetadataFile(metadataPath)) as Record<
+    string,
+    unknown
+  >;
   if (
     (!isAcp && metadata.adapter !== options.adapter) ||
     (isAcp &&

@@ -292,6 +292,8 @@ export function TaskWorkspaceTimeline({
   const visibleRuns = projection.runs.slice(timelineWindow.start, timelineWindow.end);
 
   useEffect(() => {
+    void timelineWindow.end;
+    void timelineWindow.start;
     const pending = pendingFocusRecordId.current;
     if (!pending) return;
     const option = optionRefs.current.get(pending);

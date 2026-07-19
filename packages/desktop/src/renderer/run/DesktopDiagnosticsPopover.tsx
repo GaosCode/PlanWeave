@@ -127,14 +127,14 @@ function DesktopDiagnosticsList({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex max-h-28 flex-col overflow-y-auto">
-        {diagnostics.map((diagnostic, index) => {
+        {diagnostics.map((diagnostic) => {
           const action = actionContext ? diagnosticFixActionFor(diagnostic, actionContext) : null;
-          const actionKey = `${diagnostic.code}:${diagnostic.path ?? ""}:${diagnostic.fixId ?? ""}:${index}`;
+          const actionKey = `${diagnostic.code}:${diagnostic.path ?? ""}:${diagnostic.fixId ?? ""}:${diagnostic.message}`;
           return (
             <div
               className="border-b border-border/70 px-2 py-1.5 text-xs last:border-b-0"
               data-testid={itemTestId}
-              key={`${diagnostic.code}:${diagnostic.path ?? ""}:${index}`}
+              key={actionKey}
             >
               <div className="font-medium text-text-strong">{diagnostic.code}</div>
               <div className="break-words text-muted-foreground">{diagnostic.message}</div>

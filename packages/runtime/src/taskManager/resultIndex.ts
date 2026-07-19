@@ -76,9 +76,7 @@ export const taskResultIndexSchema = z
     latestFeedbackByReviewBlock: stringIdMapSchema.optional(),
     latestFeedbackSubmissionByFeedback: stringIdMapSchema.optional(),
     feedbackStatusById: z.record(z.string(), z.enum(feedbackStatuses)).optional(),
-    reviewCompletionReasonByBlock: z
-      .record(z.string(), z.enum(reviewCompletionReasons))
-      .optional(),
+    reviewCompletionReasonByBlock: z.record(z.string(), z.enum(reviewCompletionReasons)).optional(),
     counts: z
       .object({
         runs: nonNegativeIntSchema.optional(),
@@ -136,9 +134,7 @@ export async function readTaskIndex(
     raw = await readJsonFile<unknown>(path);
   } catch (error) {
     if (error instanceof SyntaxError) {
-      throw new Error(
-        `Task result index at ${path} is malformed JSON: ${error.message}`
-      );
+      throw new Error(`Task result index at ${path} is malformed JSON: ${error.message}`);
     }
     throw error;
   }

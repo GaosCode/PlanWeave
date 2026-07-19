@@ -1,4 +1,4 @@
-import { createConnection, type Socket } from "node:net";
+import { createConnection } from "node:net";
 import {
   AGENT_RUN_CONTROL_MAX_FRAME_BYTES,
   agentRunControlEndpointDescriptorSchema,

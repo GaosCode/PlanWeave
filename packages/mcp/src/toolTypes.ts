@@ -7,7 +7,6 @@ import type {
   DesktopReviewPipeline,
   DesktopSearchFilters,
   DesktopSearchResult,
-  DesktopSearchResultKind,
   DesktopTodoItem,
   DesktopUpdateReviewPipelineInput,
   DesktopTaskDetail,

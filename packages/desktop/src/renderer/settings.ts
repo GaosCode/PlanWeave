@@ -1,4 +1,4 @@
-import { defaultDesktopSettings, desktopSettingsKey } from "../shared/desktopSettings";
+import { defaultDesktopSettings } from "../shared/desktopSettings";
 import type { DesktopUiSettings } from "./types";
 
 export {

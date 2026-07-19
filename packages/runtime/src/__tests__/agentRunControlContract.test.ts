@@ -1,4 +1,3 @@
-// biome-ignore lint/style/noExcessiveLinesPerFile: One suite keeps the versioned control contract reviewable as a whole.
 import { describe, expect, it } from "vitest";
 import {
   AGENT_RUN_CONTROL_MAX_FOLLOW_UP_BYTES,
@@ -54,7 +53,6 @@ function commandEnvelope() {
   };
 }
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: Contract cases share exact identity and envelope fixtures.
 describe("agent run control contract", () => {
   it("reuses the canonical action identities for every command", () => {
     expect(agentRunControlCancelCommandSchema.shape.identity).toBe(

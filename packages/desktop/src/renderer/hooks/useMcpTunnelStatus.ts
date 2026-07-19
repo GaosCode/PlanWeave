@@ -79,7 +79,7 @@ export function useMcpTunnelStatus({ setError }: { setError: (message: string | 
       cancelled = true;
       unsubscribe();
     };
-  }, [api]);
+  }, [api, setError]);
 
   const invoke = useCallback(
     async (action: () => Promise<McpTunnelStatus>) => {

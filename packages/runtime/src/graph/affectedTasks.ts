@@ -19,9 +19,7 @@ function addTaskDependents(graph: CompiledTaskGraph, taskId: string, affected: S
       continue;
     }
     affected.add(current);
-    stack.push(
-      ...requireMapValue(graph.taskDependentsByTask, current, "taskDependentsByTask")
-    );
+    stack.push(...requireMapValue(graph.taskDependentsByTask, current, "taskDependentsByTask"));
   }
 }
 

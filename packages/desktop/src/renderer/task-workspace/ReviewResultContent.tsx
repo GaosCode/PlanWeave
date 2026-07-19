@@ -43,9 +43,14 @@ export function parseReviewContent(content: string): ReviewContentSection[] {
 
 export function ReviewResultContent({ content }: { content: string }) {
   const sections = parseReviewContent(content);
+  const sectionOccurrences = new Map<string, number>();
   return (
     <div className="space-y-3 text-[13px] leading-6 text-text">
-      {sections.map((section, index) => {
+      {sections.map((section) => {
+        const sectionIdentity = `${section.kind}:${section.body}`;
+        const sectionOccurrence = sectionOccurrences.get(sectionIdentity) ?? 0;
+        sectionOccurrences.set(sectionIdentity, sectionOccurrence + 1);
+        const sectionKey = `${sectionIdentity}:${sectionOccurrence}`;
         if (section.kind === "finding") {
           return (
             <section
@@ -54,7 +59,7 @@ export function ReviewResultContent({ content }: { content: string }) {
                 priorityClasses[section.priority]
               )}
               data-review-priority={section.priority}
-              key={`finding-${section.priority}-${index}`}
+              key={`${sectionKey}:${section.priority}`}
             >
               <Badge className="mt-0.5 h-5 px-1.5 text-[10px]" variant="outline">
                 {section.priority}
@@ -70,7 +75,7 @@ export function ReviewResultContent({ content }: { content: string }) {
             <section
               className="rounded-lg border border-border/70 bg-surface-muted/35 px-3.5 py-3"
               data-review-section="verification"
-              key={`verification-${index}`}
+              key={`${sectionKey}:${section.label}`}
             >
               <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
                 {section.label}
@@ -80,7 +85,7 @@ export function ReviewResultContent({ content }: { content: string }) {
           );
         }
         return (
-          <div className="px-0.5 text-text-muted" key={`prose-${index}`}>
+          <div className="px-0.5 text-text-muted" key={sectionKey}>
             <SafeMarkdown markdown={section.body} />
           </div>
         );

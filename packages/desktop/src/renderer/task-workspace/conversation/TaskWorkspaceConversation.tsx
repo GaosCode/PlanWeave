@@ -215,6 +215,7 @@ function AcpRunConversation({
   }, [props.getRunScrollTop, recordId, scrollToBottom, selectedRun.item.active]);
 
   useLayoutEffect(() => {
+    void model.cursor.afterSequence;
     if (selectedRun.item.active && following) scrollToBottom("auto");
   }, [following, model.cursor.afterSequence, scrollToBottom, selectedRun.item.active]);
 
@@ -254,7 +255,7 @@ function AcpRunConversation({
         ) : null}
       </div>
       <div className="relative min-h-0 flex-1">
-        <div
+        <section
           aria-label={`${t("acpConversation")} · ${selectedRun.block.title}`}
           className="h-full overflow-y-auto px-5 pt-5 pb-[calc(var(--task-workspace-composer-height,0px)+1.25rem)] [scrollbar-gutter:stable_both-edges]"
           data-testid="task-workspace-conversation-viewport"
@@ -268,8 +269,6 @@ function AcpRunConversation({
             );
           }}
           ref={viewportRef}
-          role="region"
-          tabIndex={0}
         >
           <div
             className="mx-auto w-full max-w-3xl space-y-4"
@@ -302,7 +301,7 @@ function AcpRunConversation({
               t={t}
             />
           </div>
-        </div>
+        </section>
         {!following && selectedRun.item.active ? (
           <Button
             className="absolute bottom-4 left-1/2 -translate-x-1/2 shadow-md"

@@ -217,7 +217,7 @@ export async function renderPromptSurfaceFromContext(
     projectCanvasContextRenderer,
     canvasCommandFlag
   } = context;
-  const { workspace, graph, manifest, state } = runtime;
+  const { graph, manifest, state } = runtime;
   const { taskId } = parseBlockRef(ref);
   const task = getTask(graph, taskId);
   const block = getBlock(graph, ref);

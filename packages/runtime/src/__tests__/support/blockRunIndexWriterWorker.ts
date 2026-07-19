@@ -12,6 +12,5 @@ if (!(Number.isInteger(first) && Number.isInteger(last)) || first > last) {
 }
 
 for (let index = first; index <= last; index += 1) {
-  // biome-ignore lint/performance/noAwaitInLoops: Each writer intentionally preserves mutation order.
   await recordBlockRunInIndex(runRoot, `RUN-${String(index).padStart(runIdWidth, "0")}`);
 }

@@ -66,10 +66,7 @@ export function runtimeSnapshotFromGraphState(
   state: RuntimeState
 ): ProjectCanvasRuntimeSnapshot {
   const taskStatusById = new Map(
-    graph.taskNodesInManifestOrder.map((taskId) => [
-      taskId,
-      requireTaskState(state, taskId).status
-    ])
+    graph.taskNodesInManifestOrder.map((taskId) => [taskId, requireTaskState(state, taskId).status])
   );
   return {
     taskCount: graph.taskNodesInManifestOrder.length,

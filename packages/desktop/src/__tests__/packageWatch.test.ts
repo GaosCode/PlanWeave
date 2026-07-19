@@ -15,7 +15,6 @@ import {
   registerAndWatch,
   resetPackageWatchTestState,
   unwatch,
-  wait,
   waitForPollAndDebounce
 } from "./support/packageWatchTestHarness";
 

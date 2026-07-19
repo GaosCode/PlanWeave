@@ -27,7 +27,8 @@ vi.mock("@xyflow/react", () => ({
     style?: CSSProperties;
     type?: string;
   }) => (
-    <div
+    <button
+      type="button"
       className={className}
       data-graph-interaction={graphInteraction}
       data-testid={`handle-${type ?? "unknown"}`}
@@ -201,9 +202,9 @@ describe("TaskNodeCard context menu", () => {
     const data = nodeData({ onTaskWorkspaceOpen });
 
     render(
-      <div onClick={onParentClick}>
+      <form onClick={onParentClick} onKeyDown={onParentClick}>
         <TaskNodeCard {...({ data, selected: false } as Parameters<typeof TaskNodeCard>[0])} />
-      </div>
+      </form>
     );
 
     fireEvent.click(screen.getByTestId("task-node-card"));
@@ -238,9 +239,9 @@ describe("TaskNodeCard context menu", () => {
     });
 
     render(
-      <div onClick={onParentClick}>
+      <form onClick={onParentClick} onKeyDown={onParentClick}>
         <TaskNodeCard {...({ data, selected: false } as Parameters<typeof TaskNodeCard>[0])} />
-      </div>
+      </form>
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Implement workspace/ }));

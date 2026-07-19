@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type {
   DesktopAutoRunState,
   DesktopBlockDetail,
@@ -10,7 +10,7 @@ import type {
 } from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
 import type { createTranslator } from "../i18n";
-import type { AutoRunScopeMode, FloatingControlPosition } from "../types";
+import type { FloatingControlPosition } from "../types";
 import { useAutoRunControl } from "../hooks/useAutoRunControl";
 import { usePackageFileSync } from "../hooks/usePackageFileSync";
 import type { WorkspaceTabsAutoRunProps, WorkspaceTabsFileSyncProps } from "../views/WorkspaceTabs";
@@ -98,25 +98,47 @@ export function useAutoRunController({
     onPositionCommit
   });
 
-  return createAutoRunController({
-    autoRunControlRef,
-    autoRunControlStyle,
-    autoRunNextAction,
-    autoRunRetrospective,
-    autoRunScopeMode,
-    autoRunState: currentAutoRunState,
-    handleAutoRunClick,
-    handleAutoRunNextAction,
-    miniRunPanelOpen,
-    moveAutoRunControl,
-    resetRuntimeStateClick,
-    setAutoRunScopeMode,
-    setMiniRunPanelOpen,
-    startAutoRunControlDrag,
-    startAutoRunWithScope,
-    stopAutoRunClick,
-    stopAutoRunControlDrag
-  });
+  return useMemo(
+    () =>
+      createAutoRunController({
+        autoRunControlRef,
+        autoRunControlStyle,
+        autoRunNextAction,
+        autoRunRetrospective,
+        autoRunScopeMode,
+        autoRunState: currentAutoRunState,
+        handleAutoRunClick,
+        handleAutoRunNextAction,
+        miniRunPanelOpen,
+        moveAutoRunControl,
+        resetRuntimeStateClick,
+        setAutoRunScopeMode,
+        setMiniRunPanelOpen,
+        startAutoRunControlDrag,
+        startAutoRunWithScope,
+        stopAutoRunClick,
+        stopAutoRunControlDrag
+      }),
+    [
+      autoRunControlRef,
+      autoRunControlStyle,
+      autoRunNextAction,
+      autoRunRetrospective,
+      autoRunScopeMode,
+      currentAutoRunState,
+      handleAutoRunClick,
+      handleAutoRunNextAction,
+      miniRunPanelOpen,
+      moveAutoRunControl,
+      resetRuntimeStateClick,
+      setAutoRunScopeMode,
+      setMiniRunPanelOpen,
+      startAutoRunControlDrag,
+      startAutoRunWithScope,
+      stopAutoRunClick,
+      stopAutoRunControlDrag
+    ]
+  );
 }
 
 export function useFileSyncController({
@@ -150,25 +172,38 @@ export function useFileSyncController({
     setLastFileChange
   });
 
-  return createFileSyncController({
-    applyCanvasLaneLayout: async (ref: DesktopCanvasReference) => {
-      if (!bridge) {
-        throw new Error(t("bridgeUnavailable"));
-      }
-      await bridge.applyCanvasLaneLayout(ref);
-    },
-    copyText: async (text: string) => {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error(t("manualCommandUnavailable"));
-      }
-      await navigator.clipboard.writeText(text);
-    },
-    fileSyncDiagnostics,
-    fileSyncResult,
-    lastFileChange,
-    projectDiagnostics,
-    refreshPackageFiles,
-    refreshProjectDerivedState: async () => refreshProjectDerivedState({ includeLayout: true }),
-    setError
-  });
+  return useMemo(
+    () =>
+      createFileSyncController({
+        applyCanvasLaneLayout: async (ref: DesktopCanvasReference) => {
+          if (!bridge) {
+            throw new Error(t("bridgeUnavailable"));
+          }
+          await bridge.applyCanvasLaneLayout(ref);
+        },
+        copyText: async (text: string) => {
+          if (!navigator.clipboard?.writeText) {
+            throw new Error(t("manualCommandUnavailable"));
+          }
+          await navigator.clipboard.writeText(text);
+        },
+        fileSyncDiagnostics,
+        fileSyncResult,
+        lastFileChange,
+        projectDiagnostics,
+        refreshPackageFiles,
+        refreshProjectDerivedState: async () => refreshProjectDerivedState({ includeLayout: true }),
+        setError
+      }),
+    [
+      fileSyncDiagnostics,
+      fileSyncResult,
+      lastFileChange,
+      projectDiagnostics,
+      refreshPackageFiles,
+      refreshProjectDerivedState,
+      setError,
+      t
+    ]
+  );
 }

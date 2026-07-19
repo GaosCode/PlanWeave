@@ -531,7 +531,7 @@ describe("desktop graph read API", () => {
   });
 
   it("keeps snapshot fields when one first-screen part fails", async () => {
-    const { root, init } = await createTestWorkspace();
+    const { root } = await createTestWorkspace();
     const workspace = await resolveTaskCanvasWorkspace(root, "default");
     await mkdir(join(workspace.workspaceRoot, "desktop"), { recursive: true });
     await writeFile(join(workspace.workspaceRoot, "desktop", "layout.json"), "{", "utf8");

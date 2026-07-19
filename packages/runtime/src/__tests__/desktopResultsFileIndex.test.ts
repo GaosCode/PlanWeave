@@ -10,7 +10,6 @@ import {
   getResultsFingerprintFullScanCount,
   hydrateResultsFileIndexBodies,
   maxCachedResultsDirectories,
-  maxIndexedResultFileCount,
   maxIndexedResultTotalBodyBytes,
   resetResultsFingerprintFullScanCount,
   resultsDirSignature,

@@ -38,9 +38,7 @@ type FirstLaunchExampleResult =
   | { outcome: "example_loaded"; projectId: string };
 
 function isMissingFile(error: unknown): boolean {
-  return (
-    error instanceof Error && "code" in error && error.code === "ENOENT"
-  );
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 function firstLaunchExampleMarkerPath(userDataDir: string): string {

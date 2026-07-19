@@ -187,6 +187,7 @@ export function TaskWorkspaceOverviewPanel({
 }) {
   const runs = activeRuns(workspace);
   const latestArtifact = artifactPath(workspace);
+  const acceptanceOccurrences = new Map<string, number>();
 
   return (
     <article
@@ -270,12 +271,16 @@ export function TaskWorkspaceOverviewPanel({
             <p className="mt-3 text-sm text-text-muted">{labels.unavailable}</p>
           ) : (
             <ol className="mt-3 space-y-2">
-              {workspace.task.acceptance.map((criterion, index) => (
-                <li className="flex gap-3 text-sm" key={`${index}:${criterion}`}>
-                  <span className="font-mono text-xs text-text-muted">{index + 1}.</span>
-                  <span>{criterion}</span>
-                </li>
-              ))}
+              {workspace.task.acceptance.map((criterion, index) => {
+                const occurrence = acceptanceOccurrences.get(criterion) ?? 0;
+                acceptanceOccurrences.set(criterion, occurrence + 1);
+                return (
+                  <li className="flex gap-3 text-sm" key={`${criterion}:${occurrence}`}>
+                    <span className="font-mono text-xs text-text-muted">{index + 1}.</span>
+                    <span>{criterion}</span>
+                  </li>
+                );
+              })}
             </ol>
           )}
         </section>

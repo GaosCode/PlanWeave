@@ -8,8 +8,6 @@ import { defaultCanvasProjectGraph, projectGraphFromLegacyRegistry } from "./mig
 import { projectGraphManifestSchema } from "./schema.js";
 import type { LoadedProjectGraph, ProjectGraphManifest } from "./types.js";
 
-const defaultCanvasId = "default";
-
 function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
 }

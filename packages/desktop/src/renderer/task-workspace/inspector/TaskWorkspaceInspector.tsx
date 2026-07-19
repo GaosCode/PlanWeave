@@ -468,10 +468,10 @@ export function TaskWorkspaceInspector({
                   </p>
                 ) : null}
                 <ul className="space-y-2">
-                  {visibleDiagnostics.map((diagnostic, index) => (
+                  {visibleDiagnostics.map((diagnostic) => (
                     <li
                       className="border-l-2 border-destructive/60 pl-2"
-                      key={`${diagnostic.code}:${diagnostic.line ?? "none"}:${index}`}
+                      key={`${diagnostic.code}:${diagnostic.line ?? "none"}:${diagnostic.message}`}
                     >
                       <div className="font-mono text-[10px] text-destructive">
                         {diagnostic.code}

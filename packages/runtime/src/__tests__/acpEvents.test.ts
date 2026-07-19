@@ -1111,7 +1111,7 @@ describe("ACP event store and projection", () => {
   });
 
   it.each([
-    ["partial", (line: string) => `${line}{\"partial\"`],
+    ["partial", (line: string) => `${line}{"partial"`],
     ["corrupt", (line: string) => `${line}not-json\n`],
     [
       "identity drift",
@@ -1145,7 +1145,7 @@ describe("ACP replay diagnostics", () => {
     const oversized = "x".repeat(256 * 1_024 + 1);
     const replay = replayNormalizedRunnerEvents({
       runId: "RUN-001",
-      content: `${first}\nnot-json\n${third}\n${duplicate}\n${oversized}\n{\"partial\"`
+      content: `${first}\nnot-json\n${third}\n${duplicate}\n${oversized}\n{"partial"`
     });
     expect(replay.events.map((item) => item.sequence)).toEqual([1, 3]);
     expect(replay.diagnostics.map((item) => item.code)).toEqual(

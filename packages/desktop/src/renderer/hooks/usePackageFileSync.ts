@@ -214,6 +214,7 @@ export function usePackageFileSync({
   );
 
   useEffect(() => {
+    void targetKey;
     const target = latestTargetRef.current;
     const pending = pendingWatcherRefreshRef.current;
     if (!pending || (target && isSameRefreshTarget(pending.target, target))) {
@@ -368,6 +369,7 @@ export function usePackageFileSync({
   );
 
   useEffect(() => {
+    void selectedCanvasId;
     if (!bridge || !selectedProject) {
       return undefined;
     }

@@ -120,10 +120,7 @@ function selectedParallelBatchRefs(
   for (const ref of graph.blockRefsInManifestOrder) {
     const taskId = requireMapValue(graph.blockTaskByRef, ref, "blockTaskByRef");
     const block = getBlock(graph, ref);
-    if (
-      !blockMatchesClaimFilter(ref, graph, scope, blockType) ||
-      block.type === "review"
-    ) {
+    if (!blockMatchesClaimFilter(ref, graph, scope, blockType) || block.type === "review") {
       continue;
     }
     if (retained.includes(ref) || requireBlockState(state, ref).status !== "ready") {
@@ -167,8 +164,7 @@ function firstProjectBlockedResult(
   return {
     kind: "blocked",
     ref,
-    reason:
-      projectBlockerReason(projectGuard, taskId) ?? "Project graph blockers are not complete."
+    reason: projectBlockerReason(projectGuard, taskId) ?? "Project graph blockers are not complete."
   };
 }
 

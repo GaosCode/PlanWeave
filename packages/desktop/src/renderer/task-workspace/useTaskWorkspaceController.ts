@@ -160,20 +160,27 @@ export function useTaskWorkspaceController(options: {
   const navigationRef = useRef(navigation);
   navigationRef.current = navigation;
   const key = navigation ? taskWorkspaceAuthorityKey(navigation) : "";
+  const navigationProjectRoot = navigation?.projectRoot ?? null;
+  const navigationCanvasId = navigation?.canvasId ?? null;
+  const navigationTaskId = navigation?.taskId ?? null;
 
   useEffect(() => {
+    void key;
     overviewSelectedRef.current = false;
     setOverviewSelected(false);
     setSelectedAnnotationIdentity(null);
   }, [key]);
 
   useEffect(() => {
+    void navigation?.blockRef;
+    void navigation?.recordId;
     overviewSelectedRef.current = false;
     setOverviewSelected(false);
     setSelectedAnnotationIdentity(null);
   }, [navigation?.blockRef, navigation?.recordId]);
 
   useEffect(() => {
+    void refreshVersion;
     const request = ++workspaceRequest.current;
     const requestedNavigation = navigationRef.current;
     if (!requestedNavigation) {
@@ -355,7 +362,14 @@ export function useTaskWorkspaceController(options: {
 
   useEffect(() => {
     const request = ++recordRequest.current;
-    if (!api || !navigation || !selectedRecordKey || overviewSelected) {
+    if (
+      !api ||
+      navigationProjectRoot === null ||
+      navigationCanvasId === null ||
+      navigationTaskId === null ||
+      !selectedRecordKey ||
+      overviewSelected
+    ) {
       setRecordLoad(idleRecordLoad);
       return;
     }
@@ -373,9 +387,9 @@ export function useTaskWorkspaceController(options: {
     );
     void api
       .getTaskWorkspaceRunDetail({
-        projectRoot: navigation.projectRoot,
-        canvasId: navigation.canvasId,
-        taskId: navigation.taskId,
+        projectRoot: navigationProjectRoot,
+        canvasId: navigationCanvasId,
+        taskId: navigationTaskId,
         recordId: selectedRecordKey
       })
       .then((detail) => {
@@ -386,8 +400,8 @@ export function useTaskWorkspaceController(options: {
         if (
           record.recordId !== selectedRecordKey ||
           record.ref !== (selectedBlockRef || record.ref) ||
-          record.taskId !== navigation.taskId ||
-          detail.taskId !== navigation.taskId
+          record.taskId !== navigationTaskId ||
+          detail.taskId !== navigationTaskId
         ) {
           recordLoads.current.delete(cacheKey);
           setRecordLoad({
@@ -448,9 +462,9 @@ export function useTaskWorkspaceController(options: {
   }, [
     api,
     key,
-    navigation?.canvasId,
-    navigation?.projectRoot,
-    navigation?.taskId,
+    navigationCanvasId,
+    navigationProjectRoot,
+    navigationTaskId,
     overviewSelected,
     selectedBlockRef,
     selectedRecordKey
@@ -461,8 +475,10 @@ export function useTaskWorkspaceController(options: {
   const initialModel = selectedRecord?.runnerReadModel ?? null;
   const canvasRef = useMemo(
     () =>
-      navigation ? { projectRoot: navigation.projectRoot, canvasId: navigation.canvasId } : null,
-    [navigation?.canvasId, navigation?.projectRoot]
+      navigationProjectRoot === null || navigationCanvasId === null
+        ? null
+        : { projectRoot: navigationProjectRoot, canvasId: navigationCanvasId },
+    [navigationCanvasId, navigationProjectRoot]
   );
   const monitor = useRunnerRecordMonitor({
     api,

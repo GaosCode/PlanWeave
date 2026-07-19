@@ -18,7 +18,10 @@ function statusByBlockRef(status?: ExecutionStatus): Map<string, string> | undef
   return new Map(status.blocks.map((block) => [block.ref, block.status]));
 }
 
-function blockStatusLabel(block: PlanGraphBlockNode, statuses: Map<string, string> | undefined): string {
+function blockStatusLabel(
+  block: PlanGraphBlockNode,
+  statuses: Map<string, string> | undefined
+): string {
   if (statuses === undefined) {
     // Claim markdown may be rendered without an attached execution status projection.
     return "planned";

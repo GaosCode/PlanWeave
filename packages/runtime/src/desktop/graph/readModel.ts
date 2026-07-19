@@ -16,12 +16,7 @@ import { listExecutorProfilesForManifest } from "../../autoRun/executors.js";
 import { resolveAgentDefinition } from "../../autoRun/agentRegistry.js";
 import { selectedDesktopAgentTransport } from "../../autoRun/desktopAgentSettings.js";
 import { buildPlanGraphViewProjection, loadPlanGraphPackage } from "../../plangraph/index.js";
-import type {
-  BlockStatus,
-  ClaimResult,
-  PackageWorkspaceRef,
-  TaskStatus
-} from "../../types.js";
+import type { BlockStatus, ClaimResult, PackageWorkspaceRef, TaskStatus } from "../../types.js";
 import type {
   DesktopBlockDetail,
   DesktopGraphViewModel,

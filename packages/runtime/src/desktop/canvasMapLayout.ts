@@ -69,12 +69,7 @@ export function reconcileCanvasMapLayoutWithProject(
 }
 
 async function readCanvasMapLayoutJson(path: string): Promise<unknown> {
-  let raw: string;
-  try {
-    raw = await readFile(path, "utf8");
-  } catch (error) {
-    throw error;
-  }
+  const raw = await readFile(path, "utf8");
   try {
     return JSON.parse(raw) as unknown;
   } catch (error) {

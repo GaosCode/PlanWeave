@@ -6,7 +6,6 @@ import {
   acpRunRecoveryExecutionSchema,
   acpRunRecoveryLineageSchema,
   evaluateAcpRunRecovery,
-  type AcpLaunchIdentity,
   type AcpRunRecoveryUnavailableReason
 } from "../autoRun/acpRunRecovery.js";
 import { projectAcpRecoveryToolSummary } from "../autoRun/acpRecoveryToolSummary.js";

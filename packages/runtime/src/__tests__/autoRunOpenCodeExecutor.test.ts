@@ -94,7 +94,7 @@ describe("Auto Run OpenCode executor", () => {
           "-e",
           [
             "process.stdin.resume();",
-            `process.stderr.write('\\u001b[91m\\u001b[1mError: \\u001b[0m' + ${JSON.stringify(opencodeErrorPayload + "\n")});`,
+            `process.stderr.write('\\u001b[91m\\u001b[1mError: \\u001b[0m' + ${JSON.stringify(`${opencodeErrorPayload}\n`)});`,
             "process.exit(1);"
           ].join("")
         ]

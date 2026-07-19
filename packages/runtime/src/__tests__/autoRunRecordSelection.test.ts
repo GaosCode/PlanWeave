@@ -1,10 +1,10 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { getAutoRunStatus, claimNext } from "../index.js";
 import { consumeAutoRunClaim } from "../autoRun/contract.js";
 import type { AutoRunExecutorAdapter } from "../autoRun/contract.js";
-import { readJsonFile, writeJsonFile } from "../json.js";
+import { writeJsonFile } from "../json.js";
 import { createAutoRunExplanation } from "../taskManager/autoRun.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";

@@ -221,7 +221,7 @@ export function useAutoRunControl({
   }, [autoRunControlElement]);
 
   useEffect(() => {
-    if (!bridge || !selectedProject || isActiveAutoRunState(autoRunState)) {
+    if (!bridge || !selectedProject || activeRunId) {
       setAutoRunRetrospective(null);
       return;
     }
@@ -254,8 +254,10 @@ export function useAutoRunControl({
       cancelled = true;
     };
   }, [
+    activeRunId,
     autoRunRunId,
     autoRunState?.phase,
+    autoRunState?.stepCount,
     selectedCanvasId,
     selectedProject,
     setAutoRunState,

@@ -158,10 +158,6 @@ export function SettingsAgentsSection({
   );
   const resultBadgeVariant = preflight.result?.ok ? "secondary" : "destructive";
   const selectedExecutorLabel = selectedExecutor || t("none");
-  const selectableExecutorOptionsKey = useMemo(
-    () => selectableExecutorOptions.map((option) => option.name).join("\n"),
-    [selectableExecutorOptions]
-  );
   useEffect(() => {
     if (
       selectedExecutor &&
@@ -170,7 +166,7 @@ export function SettingsAgentsSection({
       return;
     }
     setSelectedExecutor(selectableExecutorOptions[0]?.name ?? "");
-  }, [selectableExecutorOptions, selectableExecutorOptionsKey, selectedExecutor]);
+  }, [selectableExecutorOptions, selectedExecutor]);
 
   return (
     <section data-testid="settings-section-agents" className="flex flex-col gap-6">

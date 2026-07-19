@@ -798,9 +798,7 @@ export const runtimeBridgeHandlers = {
         fromTaskId,
         toTaskId,
         baseGraphVersion,
-        layoutSnapshot === undefined
-          ? undefined
-          : desktopLayoutFileSchema.parse(layoutSnapshot)
+        layoutSnapshot === undefined ? undefined : desktopLayoutFileSchema.parse(layoutSnapshot)
       )
     ),
   removeDependencyEdge: async (
@@ -817,9 +815,7 @@ export const runtimeBridgeHandlers = {
         fromTaskId,
         toTaskId,
         baseGraphVersion,
-        layoutSnapshot === undefined
-          ? undefined
-          : desktopLayoutFileSchema.parse(layoutSnapshot)
+        layoutSnapshot === undefined ? undefined : desktopLayoutFileSchema.parse(layoutSnapshot)
       )
     ),
   reconnectDependencyEdge: async (
@@ -840,9 +836,7 @@ export const runtimeBridgeHandlers = {
         newFromTaskId,
         newToTaskId,
         baseGraphVersion,
-        layoutSnapshot === undefined
-          ? undefined
-          : desktopLayoutFileSchema.parse(layoutSnapshot)
+        layoutSnapshot === undefined ? undefined : desktopLayoutFileSchema.parse(layoutSnapshot)
       )
     ),
   undoPlanGraphCommand: async (_event, ref) =>

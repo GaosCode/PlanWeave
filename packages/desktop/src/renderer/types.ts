@@ -11,11 +11,7 @@ import type {
   DesktopTaskNodeViewModel,
   RunnerTransport
 } from "@planweave-ai/runtime";
-import type {
-  DesktopSettingsPatch,
-  DesktopUiSettings,
-  FloatingControlPosition
-} from "../shared/desktopSettings";
+import type { DesktopSettingsPatch, DesktopUiSettings } from "../shared/desktopSettings";
 import type { TaskWorkspaceNavigationTarget } from "./taskWorkspaceNavigation";
 export type {
   AppearanceMode,

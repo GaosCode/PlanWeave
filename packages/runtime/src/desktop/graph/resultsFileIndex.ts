@@ -357,11 +357,7 @@ function parseMetadataWithArtifactContract(
     return {
       value: null,
       diagnostics: [
-        desktopDiagnostic(
-          "desktop_result_metadata_invalid",
-          errorMessage(caught),
-          displayPath
-        )
+        desktopDiagnostic("desktop_result_metadata_invalid", errorMessage(caught), displayPath)
       ]
     };
   }

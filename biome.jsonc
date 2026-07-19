@@ -60,22 +60,23 @@
     "enabled": true,
     "rules": {
       "preset": "recommended",
-      // Adoption posture: noisy groups start as warn so biome:check can exit 0
-      // without a mass rewrite. Promote incrementally in follow-ups.
-      "style": "warn",
-      "a11y": "warn",
-      "complexity": "warn",
-      "performance": "warn",
-      // Existing React lists/hooks and intentional regex control chars are common.
-      "suspicious": "warn",
+      "style": {
+        "noNonNullAssertion": "off",
+        "useImportType": "off"
+      },
+      "complexity": {
+        "noImportantStyles": "off",
+        "useOptionalChain": "off"
+      },
+      "suspicious": {
+        "noTemplateCurlyInString": "off"
+      },
       "correctness": {
-        // Existing codebase has many intentional unused params/locals; promote later.
-        "noUnusedVariables": "warn",
-        "noUnusedFunctionParameters": "warn",
-        "noUnusedImports": "warn",
-        // React hook dependency lists are often intentionally incomplete/extra.
-        "useExhaustiveDependencies": "warn",
-        "useHookAtTopLevel": "warn"
+        "noUnusedVariables": "error",
+        "noUnusedFunctionParameters": "error",
+        "noUnusedImports": "error",
+        "useExhaustiveDependencies": "error",
+        "useHookAtTopLevel": "error"
       }
     }
   },

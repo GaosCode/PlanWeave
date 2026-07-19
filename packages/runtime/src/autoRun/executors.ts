@@ -31,7 +31,8 @@ import {
   executorLimitFailureMessage,
   executorRuntimeLimits,
   workspaceExecutionCwd,
-  type BlockClaim
+  type BlockClaim,
+  type StdinCommandResult
 } from "./executorShared.js";
 import type { ExecutorRuntimeOptions } from "./executorIntegration.js";
 import {
@@ -612,7 +613,7 @@ export async function testExecutorProfile(options: {
     });
   }
 
-  let result;
+  let result: StdinCommandResult;
   const versionTimeoutMs = options.versionTimeoutMs ?? executorPreflightVersionTimeoutMs;
   const limits = executorRuntimeLimits({ ...profile, timeoutMs: versionTimeoutMs });
   const executionCwd = workspaceExecutionCwd(workspace);

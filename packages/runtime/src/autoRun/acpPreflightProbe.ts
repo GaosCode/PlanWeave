@@ -1,7 +1,11 @@
 import { ACP_SDK_AUTHORITY, createAcpConnection } from "./acpConnection.js";
 import type { AcpPreflightProbe } from "./acpRunner.js";
 import type { RunnerAuthenticationState, RunnerCapability } from "./runnerContractSchemas.js";
-import { RequestError, type InitializeResponse } from "@agentclientprotocol/sdk";
+import {
+  RequestError,
+  type InitializeResponse,
+  type NewSessionResponse
+} from "@agentclientprotocol/sdk";
 import {
   executorAgentInfoSchema,
   invalidExecutorAgentInfoMessage
@@ -151,7 +155,7 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({ definition, cw
           capabilities
         };
       }
-      let session;
+      let session: NewSessionResponse;
       try {
         session = await connection.newSession({ cwd, mcpServers: [] }, { signal });
       } catch (error) {

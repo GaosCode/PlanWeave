@@ -98,9 +98,7 @@ describe("desktop mutation IPC transport schemas", () => {
       expect(runtimeMock.addBlock).toHaveBeenCalledWith(resolvedWorkspace, input);
 
       runtimeMock.addBlock.mockClear();
-      await expect(
-        handler({}, validRef, { ...input, type: "review-gate" })
-      ).rejects.toThrow();
+      await expect(handler({}, validRef, { ...input, type: "review-gate" })).rejects.toThrow();
       await expect(handler({}, validRef, { ...input, extra: 1 })).rejects.toThrow();
       expect(runtimeMock.addBlock).not.toHaveBeenCalled();
     });
@@ -200,9 +198,7 @@ describe("desktop mutation IPC transport schemas", () => {
       expect(runtimeMock.saveDesktopLayout).toHaveBeenCalledWith(resolvedWorkspace, validLayout);
 
       runtimeMock.saveDesktopLayout.mockClear();
-      await expect(
-        handler({}, validRef, { ...validLayout, extra: true })
-      ).rejects.toThrow();
+      await expect(handler({}, validRef, { ...validLayout, extra: true })).rejects.toThrow();
       await expect(handler({}, validRef, null)).rejects.toThrow();
       await expect(
         handler({}, validRef, {
@@ -267,9 +263,7 @@ describe("desktop mutation IPC transport schemas", () => {
       );
 
       runtimeMock.updateCanvasExecutionPolicy.mockClear();
-      await expect(
-        handler({}, validRef, { parallelEnabled: true, extra: 1 })
-      ).rejects.toThrow();
+      await expect(handler({}, validRef, { parallelEnabled: true, extra: 1 })).rejects.toThrow();
       await expect(handler({}, validRef, { maxConcurrent: 0 })).rejects.toThrow();
       await expect(handler({}, validRef, { maxConcurrent: 1.5 })).rejects.toThrow();
       expect(runtimeMock.updateCanvasExecutionPolicy).not.toHaveBeenCalled();
@@ -336,9 +330,7 @@ describe("desktop mutation IPC transport schemas", () => {
       );
 
       runtimeMock.resetDesktopRuntimeState.mockClear();
-      await expect(
-        handler({}, validRef, { force: true, extra: true })
-      ).rejects.toThrow();
+      await expect(handler({}, validRef, { force: true, extra: true })).rejects.toThrow();
       expect(runtimeMock.resetDesktopRuntimeState).not.toHaveBeenCalled();
     });
   });

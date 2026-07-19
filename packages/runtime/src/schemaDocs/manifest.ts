@@ -134,10 +134,9 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
               required: "boolean, default: true",
               maxFeedbackCycles: "non-negative integer, default: 1",
               preset: "string, optional",
-              triggerCondition:
-                Object.values(reviewTriggerConditionSchema)
-                  .map((condition) => `"${condition}"`)
-                  .join(" | ") + ", optional",
+              triggerCondition: `${Object.values(reviewTriggerConditionSchema)
+                .map((condition) => `"${condition}"`)
+                .join(" | ")}, optional`,
               inputContext: "string, optional",
               passCriteria: "string, optional",
               feedbackFormat: "string, optional",

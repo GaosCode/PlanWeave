@@ -4,7 +4,7 @@ import type {
   DesktopProjectSummary,
   DesktopRuntimeStateChangeEvent
 } from "@planweave-ai/runtime";
-import { bridge, desktopCanvasReference } from "../bridge";
+import { bridge } from "../bridge";
 
 const externalRuntimeRefreshIntervalMs = 30_000;
 
@@ -42,6 +42,8 @@ export function useDesktopRuntimeSubscriptions({
   setError
 }: UseDesktopRuntimeSubscriptionsArgs) {
   const externalRefreshInFlightRef = useRef(false);
+  const selectedProjectRoot = selectedProject?.rootPath;
+  const graphAvailable = graph !== null;
 
   const runExternalRuntimeRefresh = useCallback(() => {
     if (!documentIsVisible() || externalRefreshInFlightRef.current) {
@@ -56,7 +58,7 @@ export function useDesktopRuntimeSubscriptions({
   }, [refreshRuntimeState, setError]);
 
   useEffect(() => {
-    const projectRoot = selectedProject?.rootPath;
+    const projectRoot = selectedProjectRoot;
     const canvasId = selectedCanvasId;
     return () => {
       if (bridge && projectRoot) {
@@ -64,7 +66,7 @@ export function useDesktopRuntimeSubscriptions({
         void bridge.unwatchRuntimeState({ projectRoot, canvasId });
       }
     };
-  }, [selectedCanvasId, selectedProject?.rootPath]);
+  }, [selectedCanvasId, selectedProjectRoot]);
 
   useEffect(() => {
     if (!bridge || !selectedProject) {
@@ -75,18 +77,18 @@ export function useDesktopRuntimeSubscriptions({
   }, [runExternalRuntimeRefresh, selectedProject]);
 
   useEffect(() => {
-    if (!bridge || !selectedProject || !graph) {
+    if (!bridge || !selectedProjectRoot || !graphAvailable) {
       return undefined;
     }
     const runtimeBridge = bridge;
-    const ref = desktopCanvasReference(selectedProject, selectedCanvasId);
+    const ref = { projectRoot: selectedProjectRoot, canvasId: selectedCanvasId };
     void runtimeBridge
       .watchRuntimeState(ref)
       .catch((caught: unknown) => setError(errorMessage(caught)));
     return () => {
       void runtimeBridge.unwatchRuntimeState(ref);
     };
-  }, [Boolean(graph), selectedCanvasId, selectedProject?.rootPath, setError]);
+  }, [graphAvailable, selectedCanvasId, selectedProjectRoot, setError]);
 
   useEffect(() => {
     if (!bridge || !selectedProject) {

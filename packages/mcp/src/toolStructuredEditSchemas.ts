@@ -178,13 +178,9 @@ export const bulkUpdateTaskSchema = z
     executor: optionalNullableTrimmedStringSchema,
     acceptance: optionalStringArraySchema
   })
-  .refine(
-    (input) =>
-      hasUpdateField(input) || input.acceptance !== undefined,
-    {
-      message: "At least one task field must be provided."
-    }
-  );
+  .refine((input) => hasUpdateField(input) || input.acceptance !== undefined, {
+    message: "At least one task field must be provided."
+  });
 
 export const bulkUpdateBlockSchema = z
   .strictObject({
@@ -202,10 +198,7 @@ export const bulkUpdateBlockSchema = z
     message: "blockRef is required unless taskId and blockId are provided."
   })
   .refine(
-    (input) =>
-      hasUpdateField(input) ||
-      input.dependsOn !== undefined ||
-      hasPlanningField(input),
+    (input) => hasUpdateField(input) || input.dependsOn !== undefined || hasPlanningField(input),
     {
       message: "At least one block field must be provided."
     }
@@ -278,8 +271,7 @@ const bulkParallelPolicyFieldsSchema = z
     if (input.canvasPolicy === undefined && blocks.length === 0) {
       context.addIssue({
         code: "custom",
-        message:
-          "bulk_update_parallel_policy requires canvasPolicy or at least one block update."
+        message: "bulk_update_parallel_policy requires canvasPolicy or at least one block update."
       });
     }
   });
@@ -461,9 +453,7 @@ export function parseBlockDependencyUpdates(
   }));
 }
 
-export function parseBulkCreateTasks(
-  record: Record<string, unknown>
-): Array<{
+export function parseBulkCreateTasks(record: Record<string, unknown>): Array<{
   title: string;
   promptMarkdown: string;
   acceptance?: string[];
@@ -610,10 +600,7 @@ export function parseRequiredStringArray(value: unknown, field: string): string[
     .parse(value);
 }
 
-export function parseOptionalPositiveNumber(
-  value: unknown,
-  field: string
-): number | undefined {
+export function parseOptionalPositiveNumber(value: unknown, field: string): number | undefined {
   if (value === undefined || value === null) {
     return undefined;
   }

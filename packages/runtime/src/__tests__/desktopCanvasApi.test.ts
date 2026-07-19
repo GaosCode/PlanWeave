@@ -329,7 +329,7 @@ describe("desktop task canvas API", () => {
   });
 
   it("duplicates formal project graph canvases with package prompts and fresh runtime state", async () => {
-    const { root, init } = await createTestWorkspace();
+    const { root } = await createTestWorkspace();
     const sourceWorkspace = await resolveTaskCanvasWorkspace(root, "default");
     await saveDesktopLayout(sourceWorkspace, {
       version: "desktop-layout/v1",
@@ -385,7 +385,7 @@ describe("desktop task canvas API", () => {
   });
 
   it("copies a task canvas into a new managed project with fresh runtime state", async () => {
-    const { root, init, home } = await createTestWorkspace();
+    const { root, home } = await createTestWorkspace();
     const sourceWorkspace = await resolveTaskCanvasWorkspace(root, "default");
     await saveDesktopLayout(sourceWorkspace, {
       version: "desktop-layout/v1",

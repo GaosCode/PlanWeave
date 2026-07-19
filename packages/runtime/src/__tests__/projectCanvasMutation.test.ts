@@ -209,7 +209,7 @@ describe("project canvas mutation coordinator", () => {
     let stagingPath: string | null = null;
     const ports: ProjectCanvasMutationPorts = {
       writeEmpty: failingPort("empty workspace write boom"),
-      removeStaging: async (projectWorkspace, path) => {
+      removeStaging: async (_projectWorkspace, path) => {
         stagingPath = path;
         throw new Error("staging cleanup boom");
       }

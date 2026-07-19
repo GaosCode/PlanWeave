@@ -41,7 +41,7 @@ export const codexProtocol: ProtocolAdapter<CodexExecExecutorProfile> = {
       stdin: ""
     };
   },
-  finishMetadata({ kind, profile, agentSessionId, resumed }) {
+  finishMetadata({ kind, profile, resumed }) {
     if (kind === "feedback") {
       return {};
     }

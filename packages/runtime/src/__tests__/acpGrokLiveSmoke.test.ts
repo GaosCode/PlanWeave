@@ -20,7 +20,6 @@ import type { AgentDefinition, AcpLaunchMetadata } from "../autoRun/agentRunner.
 import { createGrokLiveSmokeAuthGuard } from "./acpGrokLiveSmokeAuthGuard.js";
 
 const execFileAsync = promisify(execFile);
-// biome-ignore lint/style/noProcessEnv: This live integration test is explicitly environment-gated.
 const liveSmokeEnabled = process.env.PLANWEAVE_LIVE_GROK_ACP === "1";
 const operationTimeoutMs = 120_000;
 const liveTestTimeoutMs = 180_000;
@@ -129,7 +128,6 @@ async function runStage<T>(stage: LiveSmokeStage, operation: () => Promise<T>): 
 
 function inheritedEnvironment(): Record<string, string> {
   return Object.fromEntries(
-    // biome-ignore lint/style/noProcessEnv: The child must inherit the user's existing login environment.
     Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
   );
 }

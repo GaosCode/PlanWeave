@@ -7,7 +7,6 @@ const concurrentConnectionsPerWave = 4;
 
 function environment(): Record<string, string> {
   return Object.fromEntries(
-    // biome-ignore lint/style/noProcessEnv: The real child must inherit the test process environment.
     Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
   );
 }
@@ -43,7 +42,6 @@ describe("ACP connection process cleanup", () => {
         connections.push(connection);
         return connection;
       });
-      // biome-ignore lint/performance/noAwaitInLoops: Each completed wave is a separate cleanup repetition.
       await Promise.all(current.map((connection) => connection.initialize()));
       const processIds = current.map((connection) => connection.processId);
       expect(processIds).toEqual(processIds.map(() => expect.any(Number)));

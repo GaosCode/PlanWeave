@@ -1005,13 +1005,22 @@ export function ProjectWorkspaceProvider({
     [statistics, todoGroups]
   );
 
-  const { startAutoRunWithScope: _startAutoRunWithScope, ...autoRun } = autoRunController;
-  const {
-    fileSyncDiagnostics: _fileSyncDiagnostics,
-    lastFileChange: _lastFileChange,
-    ...fileSync
-  } = fileSyncController;
-  const { diagnostics: _searchDiagnostics, ...search } = searchController;
+  const autoRun = useMemo(() => {
+    const { startAutoRunWithScope: _startAutoRunWithScope, ...props } = autoRunController;
+    return props;
+  }, [autoRunController]);
+  const fileSync = useMemo(() => {
+    const {
+      fileSyncDiagnostics: _fileSyncDiagnostics,
+      lastFileChange: _lastFileChange,
+      ...props
+    } = fileSyncController;
+    return props;
+  }, [fileSyncController]);
+  const search = useMemo(() => {
+    const { diagnostics: _searchDiagnostics, ...props } = searchController;
+    return props;
+  }, [searchController]);
 
   const projectSidebar = useMemo(
     () => ({

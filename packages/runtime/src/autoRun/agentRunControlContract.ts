@@ -18,7 +18,6 @@ export const AGENT_RUN_CONTROL_MAX_FOLLOW_UP_BYTES = 65_536;
 export const AGENT_RUN_CONTROL_MAX_UNIX_ADDRESS_BYTES = 100;
 export const AGENT_RUN_CONTROL_MAX_NAMED_PIPE_ADDRESS_BYTES = 512;
 
-// biome-ignore lint/style/useExportsLast: Public schemas stay beside their version constant and dependent schemas.
 export const agentRunControlProtocolVersionSchema = z.literal(AGENT_RUN_CONTROL_PROTOCOL_VERSION);
 
 const UUID_V4_LENGTH = 36;
