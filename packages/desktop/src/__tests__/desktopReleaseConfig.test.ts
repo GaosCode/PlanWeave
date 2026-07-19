@@ -96,7 +96,7 @@ describe("desktop release configuration", () => {
       appId: "dev.planweave.desktop",
       productName: "PlanWeave",
       directories: { output: "release" },
-      files: ["dist/**/*", "package.json"],
+      files: ["dist/main/**/*", "dist/preload/**/*", "dist/renderer/**/*", "package.json"],
       artifactName: expect.stringContaining("development-unsigned"),
       mac: { identity: null, forceCodeSigning: false, hardenedRuntime: false },
       win: { forceCodeSigning: false, signExecutable: false }
@@ -133,7 +133,7 @@ describe("desktop release configuration", () => {
       appId: "dev.planweave.desktop",
       productName: "PlanWeave",
       directories: { output: "release" },
-      files: ["dist/**/*", "package.json"],
+      files: ["dist/main/**/*", "dist/preload/**/*", "dist/renderer/**/*", "package.json"],
       extraResources: [
         {
           from: "build/generated/planweave-build-metadata.json",
@@ -328,6 +328,8 @@ describe("desktop release configuration", () => {
     expect(packagedVerifier).toContain("payload.runtimeBridgeAvailable === true");
     expect(packagedVerifier).toContain("payload.appUpdateBridgeAvailable === true");
     expect(packagedVerifier).toContain("payload.metadataVerified === true");
+    expect(packagedVerifier).toContain("allowedAsarDistRoots");
+    expect(packagedVerifier).toContain("Packaged app.asar contains an unexpected build output");
     expect(packagedVerifier).toContain('windowsJobLaunchStrategy: "launcher-job-inheritance"');
     expect(packagedVerifier).not.toContain(
       'output.includes("PLANWEAVE_DESKTOP_STARTUP_SMOKE_READY")'

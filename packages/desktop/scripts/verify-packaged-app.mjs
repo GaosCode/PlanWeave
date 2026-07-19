@@ -16,6 +16,7 @@ const requiredAsarEntries = [
   "/node_modules/builder-util-runtime",
   "/node_modules/ms"
 ];
+const allowedAsarDistRoots = ["/dist/main", "/dist/preload", "/dist/renderer"];
 const startupErrorPattern = /MODULE_NOT_FOUND|Cannot find module|Uncaught Exception/i;
 const startupReadyEvent = "PLANWEAVE_DESKTOP_STARTUP_SMOKE_READY";
 const startupErrorEvent = "PLANWEAVE_DESKTOP_STARTUP_SMOKE_ERROR";
@@ -286,12 +287,25 @@ function hasEntry(entries, requiredEntry) {
   return entries.some((entry) => entry === requiredEntry || entry.startsWith(`${requiredEntry}/`));
 }
 
+function isWithinEntry(entry, root) {
+  return entry === root || entry.startsWith(`${root}/`);
+}
+
 async function verifyAsarContents(appAsarPath) {
   const entries = (await listPackage(appAsarPath)).map(normalizeAsarEntry);
   const missing = requiredAsarEntries.filter((entry) => !hasEntry(entries, entry));
   if (missing.length > 0) {
     throw new Error(
       `Packaged app.asar is missing runtime entries:\n${missing.map((entry) => `- ${entry}`).join("\n")}`
+    );
+  }
+  const unexpectedDistEntry = entries.find(
+    (entry) =>
+      entry.startsWith("/dist/") && !allowedAsarDistRoots.some((root) => isWithinEntry(entry, root))
+  );
+  if (unexpectedDistEntry) {
+    throw new Error(
+      `Packaged app.asar contains an unexpected build output: ${unexpectedDistEntry}`
     );
   }
 }
