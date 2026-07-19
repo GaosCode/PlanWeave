@@ -196,6 +196,7 @@ export type DoctorIssue = {
     | "stale_current_ref"
     | "orphan_result"
     | "index_state_mismatch"
+    | "task_result_index_invalid"
     | "retention_threshold_exceeded"
     | "auto_run_pending_transition_unreadable"
     | "auto_run_pending_transition_incomplete";

@@ -10,7 +10,6 @@ import { ExecutorCancelledError, isExecutorCancelledError } from "../autoRun/exe
 import { createExecutionWaveId, type ExecutionWaveId } from "../autoRun/runnerContractSchemas.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
-import { readJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
 import type {
@@ -36,6 +35,7 @@ import {
   submitFeedback,
   submitReviewResult
 } from "./index.js";
+import { readImplementationRunMetadataFile } from "./implementationRunMetadata.js";
 import { updateTaskIndex } from "./resultIndex.js";
 import { reviewResultSchema } from "./reviewResultContract.js";
 import { submitReviewResultValue } from "./reviewSubmission.js";
@@ -105,9 +105,12 @@ async function readExecutorSubmissionArtifact(options: {
   if (!isAcp && (options.adapter === undefined || options.adapter === "manual")) {
     return null;
   }
-  const metadata = await readJsonFile<Record<string, unknown>>(
-    join(dirname(options.artifactPath), "metadata.json")
-  );
+  // Executor attempt metadata for block/review/feedback runs reuses the implementation-run
+  // family contract (typed identity + artifactReference; adapter/outcome via passthrough).
+  const metadataPath = join(dirname(options.artifactPath), "metadata.json");
+  const metadata = (await readImplementationRunMetadataFile(
+    metadataPath
+  )) as Record<string, unknown>;
   if (
     (!isAcp && metadata.adapter !== options.adapter) ||
     (isAcp &&

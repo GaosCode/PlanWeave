@@ -3,7 +3,7 @@ import { inspectPendingTransitionsForWorkspace } from "../autoRun/pendingTransit
 import { optionalStat } from "../fs/optionalFile.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
-import { readJsonFile } from "../json.js";
+import { requireMapValue } from "../graph/requireMapValue.js";
 import { findOrphanResults } from "../package/orphans.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { RETENTION_DOCTOR_THRESHOLD, countRetentionArtifacts } from "../runSessions/retention.js";
@@ -13,9 +13,11 @@ import type {
   DoctorReport,
   PackageWorkspaceRef,
   ProjectWorkspace,
-  RuntimeState
+  RuntimeState,
+  TaskResultIndex
 } from "../types.js";
 import { isDoctorErrorIssue } from "../types.js";
+import { readImplementationRunMetadataFile } from "./implementationRunMetadata.js";
 import { readTaskIndex, updateTaskIndex } from "./resultIndex.js";
 
 async function exists(path: string): Promise<boolean> {
@@ -37,7 +39,8 @@ async function resultRunMatchesIndex(
   if (!(await exists(metadataPath)) || !(await exists(join(runDir, "report.md")))) {
     return false;
   }
-  const metadata = await readJsonFile<Record<string, unknown>>(metadataPath);
+  // Present metadata must parse under the implementation-run contract; invalid/malformed fails visibly.
+  const metadata = await readImplementationRunMetadataFile(metadataPath);
   return (
     metadata.ref === ref &&
     metadata.taskId === taskId &&
@@ -142,7 +145,20 @@ export async function runDoctor(options: {
     }
 
     for (const taskId of graph.taskNodesInManifestOrder) {
-      const index = await readTaskIndex(workspace, taskId);
+      const indexPath = join(workspace.resultsDir, taskId, "index.json");
+      let index: TaskResultIndex;
+      try {
+        index = await readTaskIndex(workspace, taskId);
+      } catch (error) {
+        issues.push({
+          code: "task_result_index_invalid",
+          taskId,
+          path: indexPath,
+          repaired: false,
+          message: error instanceof Error ? error.message : String(error)
+        });
+        continue;
+      }
       const checkedRefs = new Set<string>();
       for (const [ref, indexRunId] of Object.entries(index.latestRunByBlock ?? {})) {
         checkedRefs.add(ref);
@@ -156,7 +172,7 @@ export async function runDoctor(options: {
             code: "index_state_mismatch",
             ref,
             taskId,
-            path: join(workspace.resultsDir, taskId, "index.json"),
+            path: indexPath,
             stateRunId,
             indexRunId,
             repaired,
@@ -164,7 +180,7 @@ export async function runDoctor(options: {
           });
         }
       }
-      for (const ref of graph.blocksByTask.get(taskId) ?? []) {
+      for (const ref of requireMapValue(graph.blocksByTask, taskId, "blocksByTask")) {
         if (checkedRefs.has(ref)) {
           continue;
         }
@@ -179,7 +195,7 @@ export async function runDoctor(options: {
           code: "index_state_mismatch",
           ref,
           taskId,
-          path: join(workspace.resultsDir, taskId, "index.json"),
+          path: indexPath,
           stateRunId,
           indexRunId: null,
           repaired,
@@ -193,18 +209,22 @@ export async function runDoctor(options: {
       await writeState(workspace.stateFile, state);
     }
 
-    const retention = await countRetentionArtifacts(workspace);
-    if (retention.total > RETENTION_DOCTOR_THRESHOLD) {
-      issues.push({
-        code: "retention_threshold_exceeded",
-        severity: "warning",
-        path: workspace.resultsDir,
-        count: retention.total,
-        threshold: RETENTION_DOCTOR_THRESHOLD,
-        message:
-          `Results/run-session artifact count is ${retention.total} (threshold ${RETENTION_DOCTOR_THRESHOLD}). ` +
-          `Preview with \`planweave run-sessions prune --older-than 30d --dry-run\` then delete with \`--force --reason <text>\`.`
-      });
+    // Retention candidate collection also reads task indexes for protection; skip when an
+    // index is already known invalid so doctor can report the index issue without a second throw.
+    if (!issues.some((issue) => issue.code === "task_result_index_invalid")) {
+      const retention = await countRetentionArtifacts(workspace);
+      if (retention.total > RETENTION_DOCTOR_THRESHOLD) {
+        issues.push({
+          code: "retention_threshold_exceeded",
+          severity: "warning",
+          path: workspace.resultsDir,
+          count: retention.total,
+          threshold: RETENTION_DOCTOR_THRESHOLD,
+          message:
+            `Results/run-session artifact count is ${retention.total} (threshold ${RETENTION_DOCTOR_THRESHOLD}). ` +
+            `Preview with \`planweave run-sessions prune --older-than 30d --dry-run\` then delete with \`--force --reason <text>\`.`
+        });
+      }
     }
 
     // Auto Run pending-transition fail-closed checks (shared inspect path with latest/start gate).

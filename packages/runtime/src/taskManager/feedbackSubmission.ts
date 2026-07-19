@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isNodeFileNotFoundError, optionalReaddir } from "../fs/optionalFile.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
-import { readJsonFile, writeJsonFile } from "../json.js";
+import { writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
 import type {
@@ -13,6 +13,7 @@ import type {
   SubmitFeedbackResult
 } from "../types.js";
 import { patchFeedbackArtifact } from "./feedbackArtifacts.js";
+import { readFeedbackSubmissionMetadataFile } from "./feedbackSubmissionMetadata.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { allocatePrefixedId, incrementTaskIndexCount, updateTaskIndex } from "./resultIndex.js";
 
@@ -40,7 +41,7 @@ async function feedbackSubmissionMatches(options: {
   reportHash: string;
 }): Promise<boolean> {
   try {
-    const metadata = await readJsonFile<Record<string, unknown>>(
+    const metadata = await readFeedbackSubmissionMetadataFile(
       join(options.submissionDir, "metadata.json")
     );
     if (
@@ -52,6 +53,9 @@ async function feedbackSubmissionMatches(options: {
     }
     return (await fileHash(join(options.submissionDir, "report.md"))) === options.reportHash;
   } catch (error) {
+    if (error instanceof Error && /is (invalid|malformed JSON):/.test(error.message)) {
+      throw error;
+    }
     if (isNonMissingNodeFileError(error)) {
       throw error;
     }

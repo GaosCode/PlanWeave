@@ -1,13 +1,6 @@
-export type ProjectKind = "external" | "managed";
+export type { ProjectKind, ProjectMetadata } from "../projectMetadata.js";
 
-export type ProjectMetadata = {
-  id: string;
-  name: string;
-  rootPath: string;
-  kind?: ProjectKind;
-  sourceRoot?: string | null;
-  createdAt: string;
-};
+import type { ProjectKind, ProjectMetadata } from "../projectMetadata.js";
 
 export type ProjectWorkspace = {
   id: string;

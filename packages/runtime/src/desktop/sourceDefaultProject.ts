@@ -4,6 +4,7 @@ import { isNodeFileNotFoundError, optionalReaddir, optionalStat } from "../fs/op
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
 import { normalizeProjectMetadata } from "../project.js";
+import { readProjectMetadataFile } from "../projectMetadata.js";
 import type { ProjectMetadata } from "../types.js";
 
 const sourceDefaultProjectVersion = "planweave-source-defaults/v1";
@@ -60,7 +61,7 @@ async function registeredProject(
   if (!(await optionalStat(projectFile))) {
     return null;
   }
-  const project = normalizeProjectMetadata(await readJsonFile<ProjectMetadata>(projectFile), {
+  const project = normalizeProjectMetadata(await readProjectMetadataFile(projectFile), {
     planweaveHome,
     workspaceRoot
   });

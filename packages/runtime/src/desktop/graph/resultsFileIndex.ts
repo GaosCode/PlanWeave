@@ -1,6 +1,9 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { optionalStat } from "../../fs/optionalFile.js";
+import { parseFeedbackSubmissionMetadata } from "../../taskManager/feedbackSubmissionMetadata.js";
+import { parseImplementationRunMetadata } from "../../taskManager/implementationRunMetadata.js";
+import { parseReviewAttemptMetadata } from "../../taskManager/reviewAttemptMetadata.js";
 import type { ProjectWorkspace, ValidationIssue } from "../../types.js";
 import { appendDesktopDiagnostic, desktopDiagnostic, errorMessage } from "./desktopDiagnostics.js";
 import {
@@ -288,9 +291,86 @@ function isMetadataPath(relativePath: string): boolean {
   return relativePath.endsWith("/metadata.json");
 }
 
+type ResultMetadataContract =
+  | "implementation_run"
+  | "review_attempt"
+  | "feedback_submission"
+  | "generic_object";
+
+/**
+ * Map result-relative metadata paths onto the shared taskManager artifact contracts.
+ * Unknown layouts stay generic-object-only so non-result metadata files do not force a schema.
+ */
+function resultMetadataContractForRelativePath(relativePath: string): ResultMetadataContract {
+  if (/^[^/]+\/blocks\/[^/]+\/runs\/[^/]+\/metadata\.json$/.test(relativePath)) {
+    return "implementation_run";
+  }
+  if (/^[^/]+\/reviews\/[^/]+\/attempts\/[^/]+\/metadata\.json$/.test(relativePath)) {
+    return "review_attempt";
+  }
+  if (/^[^/]+\/feedback\/[^/]+\/submissions\/[^/]+\/metadata\.json$/.test(relativePath)) {
+    return "feedback_submission";
+  }
+  return "generic_object";
+}
+
+function parseMetadataWithArtifactContract(
+  raw: unknown,
+  relativePath: string,
+  displayPath: string
+): { value: Record<string, unknown> | null; diagnostics: ValidationIssue[] } {
+  const contract = resultMetadataContractForRelativePath(relativePath);
+  try {
+    switch (contract) {
+      case "implementation_run":
+        return {
+          value: parseImplementationRunMetadata(raw, displayPath) as Record<string, unknown>,
+          diagnostics: []
+        };
+      case "review_attempt":
+        return {
+          value: parseReviewAttemptMetadata(raw, displayPath) as Record<string, unknown>,
+          diagnostics: []
+        };
+      case "feedback_submission":
+        return {
+          value: parseFeedbackSubmissionMetadata(raw, displayPath) as Record<string, unknown>,
+          diagnostics: []
+        };
+      case "generic_object":
+        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+          return { value: raw as Record<string, unknown>, diagnostics: [] };
+        }
+        return {
+          value: null,
+          diagnostics: [
+            desktopDiagnostic(
+              "desktop_result_metadata_invalid",
+              "Result metadata must be a JSON object.",
+              displayPath
+            )
+          ]
+        };
+    }
+  } catch (caught) {
+    // Present malformed/invalid artifact metadata is a diagnostic, never an empty valid object.
+    return {
+      value: null,
+      diagnostics: [
+        desktopDiagnostic(
+          "desktop_result_metadata_invalid",
+          errorMessage(caught),
+          displayPath
+        )
+      ]
+    };
+  }
+}
+
 function parseMetadata(
   body: string,
-  path: string
+  displayPath: string,
+  relativePath: string
 ): { value: Record<string, unknown> | null; diagnostics: ValidationIssue[] } {
   let parsed: unknown;
   try {
@@ -302,26 +382,13 @@ function parseMetadata(
         desktopDiagnostic(
           "desktop_result_metadata_read_failed",
           `Result metadata could not be read or parsed: ${errorMessage(caught)}`,
-          path
+          displayPath
         )
       ]
     };
   }
 
-  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-    return { value: parsed as Record<string, unknown>, diagnostics: [] };
-  }
-
-  return {
-    value: null,
-    diagnostics: [
-      desktopDiagnostic(
-        "desktop_result_metadata_invalid",
-        "Result metadata must be a JSON object.",
-        path
-      )
-    ]
-  };
+  return parseMetadataWithArtifactContract(parsed, relativePath, displayPath);
 }
 
 function sameResultsFingerprint(
@@ -572,7 +639,7 @@ async function readResultIndexEntry(
             )
           ]
         }
-      : parseMetadata(metadataBody?.body ?? "", resultDisplayPath)
+      : parseMetadata(metadataBody?.body ?? "", resultDisplayPath, fingerprint.path)
     : { value: null, diagnostics: [] };
   for (const diagnostic of parsedMetadata.diagnostics) {
     appendDesktopDiagnostic(diagnostics, diagnostic);

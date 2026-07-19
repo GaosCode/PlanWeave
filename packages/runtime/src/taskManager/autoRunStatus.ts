@@ -22,6 +22,7 @@ import type {
 } from "../types.js";
 import type { PackageWorkspaceRef } from "../types.js";
 import { getExecutionStatus } from "./index.js";
+import { readImplementationRunMetadataFile } from "./implementationRunMetadata.js";
 import { effectiveFeedbackExecutor } from "./selectors.js";
 
 type AutoRunExplanationFacts = Omit<AutoRunExplanation, "nextAction"> & {
@@ -532,8 +533,9 @@ export async function getAutoRunStatus(options: {
     }
     const runDir = join(runRoot, runId);
     const metadataPath = join(runDir, "metadata.json");
-    const metadata = (await exists(metadataPath))
-      ? await readJsonFile<Record<string, unknown>>(metadataPath)
+    // Missing metadata stays incomplete empty product state; present files use B-003 contract.
+    const metadata: Record<string, unknown> = (await exists(metadataPath))
+      ? ((await readImplementationRunMetadataFile(metadataPath)) as Record<string, unknown>)
       : {};
     const exitCode = typeof metadata.exitCode === "number" ? metadata.exitCode : null;
     const stderrSummary = await readSummary(join(runDir, "stderr.log"));

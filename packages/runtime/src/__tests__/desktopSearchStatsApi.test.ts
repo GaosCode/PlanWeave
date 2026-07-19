@@ -213,6 +213,41 @@ describe("desktop search and statistics API", () => {
     );
   });
 
+  it("reports schema-invalid present result metadata as diagnostics, not empty trusted history", async () => {
+    const { root, init } = await createTestWorkspace();
+    const runDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-SCHEMA-BAD"
+    );
+    await mkdir(runDir, { recursive: true });
+    await writeFile(
+      join(runDir, "metadata.json"),
+      JSON.stringify({
+        ref: 1,
+        startedAt: "2026-05-25T00:00:00.000Z",
+        finishedAt: "2026-05-25T01:00:00.000Z"
+      }),
+      "utf8"
+    );
+
+    const projection = await getStatisticsProjection(root);
+
+    expect(projection.statistics.averageImplementationTimeMs).toBeNull();
+    expect(projection.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "desktop_result_metadata_invalid",
+          path: "results/T-001/blocks/B-001/runs/RUN-SCHEMA-BAD/metadata.json",
+          message: expect.stringMatching(/Implementation run metadata .* is invalid/)
+        })
+      ])
+    );
+  });
+
   it("reports empty and oversized result metadata through statistics diagnostics", async () => {
     const { root, init } = await createTestWorkspace();
     const emptyRunDir = join(

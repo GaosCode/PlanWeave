@@ -10,6 +10,7 @@ import {
   readProject,
   resolveProjectWorkspace
 } from "../project.js";
+import { readProjectMetadataFile } from "../projectMetadata.js";
 import { createManagedProjectId } from "../projectId.js";
 import {
   detectDefaultCanvasWorkspaceMigration,
@@ -138,7 +139,7 @@ async function readRegisteredProject(
   if (!(await optionalStat(projectFile))) {
     return null;
   }
-  const project = normalizeProjectMetadata(await readJsonFile<ProjectMetadata>(projectFile), {
+  const project = normalizeProjectMetadata(await readProjectMetadataFile(projectFile), {
     planweaveHome,
     workspaceRoot
   });

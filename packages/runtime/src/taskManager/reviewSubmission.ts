@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { z } from "zod";
 import { isNodeFileNotFoundError, optionalReaddir } from "../fs/optionalFile.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
@@ -14,18 +15,26 @@ import type {
   ProjectWorkspace,
   ReviewResult,
   SubmitReviewResult,
-  TaskResultIndex,
   ValidationIssue
 } from "../types.js";
-import { writeFeedbackArtifact, type FeedbackArtifact } from "./feedbackArtifacts.js";
+import {
+  readFeedbackArtifact,
+  writeFeedbackArtifact,
+  type FeedbackArtifact
+} from "./feedbackArtifacts.js";
 import { executeReviewHook } from "./reviewHook.js";
 import { reviewResultSchema } from "./reviewResultContract.js";
+import {
+  readReviewAttemptMetadataFile,
+  readReviewResultArtifactFile
+} from "./reviewAttemptMetadata.js";
 import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import {
   allocatePrefixedId,
   incrementTaskIndexCount,
   listDirCount,
   nextId,
+  readTaskIndex,
   recordReviewCompletionReason,
   updateTaskIndex
 } from "./resultIndex.js";
@@ -113,33 +122,28 @@ async function readMatchingReviewAttempt(options: {
   attemptId: string;
   resultHash: string;
 }): Promise<PersistedReviewAttempt | null> {
+  const metadataPath = join(options.attemptDir, "metadata.json");
+  const resultPath = join(options.attemptDir, "review-result.json");
   try {
-    const metadata = await readJsonFile<Record<string, unknown>>(
-      join(options.attemptDir, "metadata.json")
-    );
+    const metadata = await readReviewAttemptMetadataFile(metadataPath);
     if (
       metadata.reviewBlockRef !== options.reviewBlockRef ||
       metadata.attemptId !== options.attemptId
     ) {
       return null;
     }
-    if (
-      reviewResultHash(
-        reviewResultSchema.parse(
-          await readJsonFile<unknown>(join(options.attemptDir, "review-result.json"))
-        )
-      ) !== options.resultHash
-    ) {
+    if (reviewResultHash(await readReviewResultArtifactFile(resultPath)) !== options.resultHash) {
       return null;
     }
     return {
       attemptId: options.attemptId,
-      reviewedWorkRevision:
-        typeof metadata.reviewedWorkRevision === "string" ? metadata.reviewedWorkRevision : null,
-      sourceResultPath:
-        typeof metadata.sourceResultPath === "string" ? metadata.sourceResultPath : null
+      reviewedWorkRevision: metadata.reviewedWorkRevision ?? null,
+      sourceResultPath: metadata.sourceResultPath ?? null
     };
   } catch (error) {
+    if (error instanceof Error && /is (invalid|malformed JSON):/.test(error.message)) {
+      throw error;
+    }
     if (isNonMissingNodeFileError(error)) {
       throw error;
     }
@@ -218,9 +222,7 @@ async function findFeedbackForReviewAttempt(options: {
     .sort();
   for (const feedbackId of feedbackIds) {
     try {
-      const artifact = await readJsonFile<FeedbackArtifact>(
-        join(feedbackRoot, feedbackId, "feedback.json")
-      );
+      const artifact = await readFeedbackArtifact(options.workspace, options.taskId, feedbackId);
       if (
         artifact.feedbackId === feedbackId &&
         artifact.sourceReviewBlockRef === options.reviewBlockRef &&
@@ -229,6 +231,9 @@ async function findFeedbackForReviewAttempt(options: {
         return artifact;
       }
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        throw error;
+      }
       if (isNonMissingNodeFileError(error)) {
         throw error;
       }
@@ -244,20 +249,11 @@ async function reviewCompletionReasonForAttempt(options: {
   reviewBlockRef: string;
   attemptId: string;
 }): Promise<"passed" | "max_cycles_reached" | null> {
-  try {
-    const index = await readJsonFile<TaskResultIndex>(
-      join(options.workspace.resultsDir, options.taskId, "index.json")
-    );
-    if (index.latestReviewAttemptByBlock?.[options.reviewBlockRef] !== options.attemptId) {
-      return null;
-    }
-    return index.reviewCompletionReasonByBlock?.[options.reviewBlockRef] ?? null;
-  } catch (error) {
-    if (isNodeFileNotFoundError(error)) {
-      return null;
-    }
-    throw error;
+  const index = await readTaskIndex(options.workspace, options.taskId);
+  if (index.latestReviewAttemptByBlock?.[options.reviewBlockRef] !== options.attemptId) {
+    return null;
   }
+  return index.reviewCompletionReasonByBlock?.[options.reviewBlockRef] ?? null;
 }
 
 async function nextFeedbackId(options: {

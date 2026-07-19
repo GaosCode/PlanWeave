@@ -26,8 +26,13 @@ import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { readState } from "../state.js";
-import { reviewResultSchema } from "../taskManager/reviewResultContract.js";
 import { readFeedbackArtifact } from "../taskManager/feedbackArtifacts.js";
+import { readImplementationRunMetadataFile } from "../taskManager/implementationRunMetadata.js";
+import {
+  parseReviewResultArtifact,
+  readReviewAttemptMetadataFile,
+  readReviewResultArtifactFile
+} from "../taskManager/reviewAttemptMetadata.js";
 import type {
   ExecutorIntegrationName,
   PackageWorkspaceRef,
@@ -71,9 +76,28 @@ async function readOptionalFile(path: string): Promise<string> {
   return (await optionalReadFile(path, "utf8")) ?? "";
 }
 
-const reviewAttemptMetadataSchema = z
-  .object({ reviewedAt: z.string().datetime().optional() })
-  .passthrough();
+/**
+ * Present artifact metadata is validated once via taskManager contracts.
+ * Missing optional history stays `{}` (incomplete / empty projection).
+ * Malformed present files throw and must not become empty valid history.
+ */
+async function readPresentImplementationRunMetadata(
+  metadataPath: string
+): Promise<Record<string, unknown>> {
+  if (!(await exists(metadataPath))) {
+    return {};
+  }
+  return (await readImplementationRunMetadataFile(metadataPath)) as Record<string, unknown>;
+}
+
+async function readPresentReviewAttemptMetadata(
+  metadataPath: string
+): Promise<Record<string, unknown>> {
+  if (!(await exists(metadataPath))) {
+    return {};
+  }
+  return (await readReviewAttemptMetadataFile(metadataPath)) as Record<string, unknown>;
+}
 
 async function verifyRunArtifactMetadata(
   runDir: string,
@@ -305,10 +329,6 @@ function compareIdsNewestFirst(left: string, right: string): number {
   return right.localeCompare(left, undefined, { numeric: true });
 }
 
-function verdictField(value: unknown): ReviewVerdict | null {
-  return value === "passed" || value === "needs_changes" ? value : null;
-}
-
 export type DesktopRunRecordIndexEntry = {
   summary: DesktopBlockRunRecordSummary;
   metadata: Record<string, unknown>;
@@ -326,9 +346,7 @@ async function runRecordIndex(options: {
   const { taskId, blockId } = parseBlockRef(options.blockRef);
   const runDir = join(blockRunRoot(options.resultsDir, options.blockRef), options.runId);
   const metadataPath = join(runDir, "metadata.json");
-  const metadata = (await exists(metadataPath))
-    ? await readJsonFile<Record<string, unknown>>(metadataPath)
-    : {};
+  const metadata = await readPresentImplementationRunMetadata(metadataPath);
   const adapter = adapterField(metadata);
   const promptPath = join(runDir, "prompt.md");
   const reportPath = join(runDir, finalArtifactRelativePath("implementation"));
@@ -478,6 +496,54 @@ export function runIndexAsProjectionRecord(entry: DesktopRunRecordIndexEntry): D
   };
 }
 
+const taskFeedbackRunMetadataSchema = z
+  .object({
+    runId: z.string().min(1).max(256),
+    feedbackId: z.string().min(1).max(256),
+    sourceReviewBlockRef: claimRefSchema,
+    taskId: taskIdSchema.optional(),
+    canvasId: canvasIdSchema.optional()
+  })
+  .passthrough();
+
+type TaskFeedbackRunMetadata = z.infer<typeof taskFeedbackRunMetadataSchema>;
+
+/**
+ * Present feedback-run metadata is validated; missing file is incomplete (null).
+ * Malformed present files throw and must not become empty valid history.
+ */
+async function readPresentFeedbackRunMetadata(
+  metadataPath: string,
+  runId: string
+): Promise<TaskFeedbackRunMetadata | null> {
+  if (!(await exists(metadataPath))) {
+    return null;
+  }
+  let raw: unknown;
+  try {
+    raw = await readJsonFile<unknown>(metadataPath);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(
+        `Feedback run metadata at ${metadataPath} is malformed JSON: ${error.message}`
+      );
+    }
+    throw error;
+  }
+  const parsed = taskFeedbackRunMetadataSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(
+      `Feedback run '${runId}' metadata is invalid: ${z.prettifyError(parsed.error)}`
+    );
+  }
+  if (parsed.data.runId !== runId) {
+    throw new Error(
+      `Feedback run directory '${runId}' does not match metadata runId '${parsed.data.runId}'.`
+    );
+  }
+  return parsed.data;
+}
+
 async function feedbackRunRecordIndex(options: {
   resultsDir: string;
   feedbackId: string;
@@ -485,9 +551,8 @@ async function feedbackRunRecordIndex(options: {
 }): Promise<DesktopRunRecordIndexEntry> {
   const runDir = join(feedbackRunRoot(options.resultsDir), options.runId);
   const metadataPath = join(runDir, "metadata.json");
-  const metadata = (await exists(metadataPath))
-    ? await readJsonFile<Record<string, unknown>>(metadataPath)
-    : {};
+  const present = await readPresentFeedbackRunMetadata(metadataPath, options.runId);
+  const metadata = (present ?? {}) as Record<string, unknown>;
   const feedbackId = stringField(metadata, "feedbackId") ?? options.feedbackId;
   if (feedbackId !== options.feedbackId) {
     throw new Error(
@@ -581,28 +646,19 @@ async function feedbackRunRecordSummariesForBlock(
   const records = await Promise.all(
     runIds.map(async (runId) => {
       const metadataPath = join(feedbackRunRoot(resultsDir), runId, "metadata.json");
-      const metadata = (await exists(metadataPath))
-        ? await readJsonFile<Record<string, unknown>>(metadataPath)
-        : {};
-      if (stringField(metadata, "sourceReviewBlockRef") !== blockRef) {
+      const metadata = await readPresentFeedbackRunMetadata(metadataPath, runId);
+      if (!metadata || metadata.sourceReviewBlockRef !== blockRef) {
         return null;
       }
-      const feedbackId = stringField(metadata, "feedbackId");
-      return feedbackId ? feedbackRunRecordSummary({ resultsDir, feedbackId, runId }) : null;
+      return feedbackRunRecordSummary({
+        resultsDir,
+        feedbackId: metadata.feedbackId,
+        runId
+      });
     })
   );
   return records.filter((record): record is DesktopBlockRunRecordSummary => record !== null);
 }
-
-const taskFeedbackRunMetadataSchema = z
-  .object({
-    runId: z.string().min(1).max(256),
-    feedbackId: z.string().min(1).max(256),
-    sourceReviewBlockRef: claimRefSchema,
-    taskId: taskIdSchema.optional(),
-    canvasId: canvasIdSchema.optional()
-  })
-  .passthrough();
 
 type TaskFeedbackPackageSnapshot = Pick<RuntimeContext, "workspace" | "manifest">;
 
@@ -660,19 +716,10 @@ export async function listTaskFeedbackRunRecordsFromSnapshot(
   const records = await Promise.all(
     runIds.map(async (runId) => {
       const metadataPath = join(feedbackRunRoot(workspace.resultsDir), runId, "metadata.json");
-      const rawMetadata = (await exists(metadataPath))
-        ? await readJsonFile<Record<string, unknown>>(metadataPath)
-        : {};
-      const parsed = taskFeedbackRunMetadataSchema.safeParse(rawMetadata);
-      if (!parsed.success) {
+      const metadata = await readPresentFeedbackRunMetadata(metadataPath, runId);
+      if (!metadata) {
         throw new Error(
-          `Feedback run '${runId}' metadata is invalid: ${z.prettifyError(parsed.error)}`
-        );
-      }
-      const metadata = parsed.data;
-      if (metadata.runId !== runId) {
-        throw new Error(
-          `Feedback run directory '${runId}' does not match metadata runId '${metadata.runId}'.`
+          `Feedback run '${runId}' metadata is invalid: required identity fields are missing.`
         );
       }
       const sourceTaskId = parseBlockRef(metadata.sourceReviewBlockRef).taskId;
@@ -801,25 +848,32 @@ export async function getRunRecordFromWorkspace(
   recordId: string
 ): Promise<DesktopRunRecord> {
   const parsed = parseRunRecordId(recordId);
-  const summary =
+  const indexEntry =
     parsed.kind === "block"
-      ? await runRecordSummary({
+      ? await runRecordIndex({
           resultsDir: workspace.resultsDir,
           blockRef: parsed.blockRef,
           runId: parsed.runId
         })
-      : await feedbackRunRecordSummary({
+      : await feedbackRunRecordIndex({
           resultsDir: workspace.resultsDir,
           feedbackId: parsed.feedbackId,
           runId: parsed.runId
         });
+  const { metadata } = indexEntry;
   const runDir =
     parsed.kind === "block"
       ? join(blockRunRoot(workspace.resultsDir, parsed.blockRef), parsed.runId)
       : join(feedbackRunRoot(workspace.resultsDir), parsed.runId);
-  const metadata = (await exists(summary.metadataPath))
-    ? await readJsonFile<Record<string, unknown>>(summary.metadataPath)
-    : {};
+  const stdout = await readOptionalFile(join(runDir, "stdout.md"));
+  const stderr = await readOptionalFile(join(runDir, "stderr.log"));
+  const updateTimes = await runFileUpdateTimes(runDir, indexEntry.summary.metadataPath);
+  const summary: DesktopBlockRunRecordSummary = {
+    ...indexEntry.summary,
+    ...updateTimes,
+    stdoutSummary: outputSummaryForRecord(adapterField(metadata), stdout, ""),
+    stderrSummary: cleanOutputSummary(stderr)
+  };
   const artifact = await verifyRunArtifactMetadata(
     runDir,
     metadata,
@@ -834,8 +888,6 @@ export async function getRunRecordFromWorkspace(
             finalArtifactRelativePath(parsed.kind === "feedback" ? "feedback" : "implementation")
           )
         );
-  const stdout = await readOptionalFile(join(runDir, "stdout.md"));
-  const stderr = await readOptionalFile(join(runDir, "stderr.log"));
   const promptMarkdown = summary.promptPath ? await readOptionalFile(summary.promptPath) : "";
   const display = displayMarkdownForRecord({
     adapter: adapterField({ adapter: summary.adapter }),
@@ -877,10 +929,19 @@ export async function subscribeRunRecord(
     parsed.kind === "block"
       ? join(blockRunRoot(workspace.resultsDir, parsed.blockRef), parsed.runId)
       : join(feedbackRunRoot(workspace.resultsDir), parsed.runId);
-  const metadataPath = join(runDir, "metadata.json");
-  const metadata = (await exists(metadataPath))
-    ? await readJsonFile<Record<string, unknown>>(metadataPath)
-    : {};
+  const indexEntry =
+    parsed.kind === "block"
+      ? await runRecordIndex({
+          resultsDir: workspace.resultsDir,
+          blockRef: parsed.blockRef,
+          runId: parsed.runId
+        })
+      : await feedbackRunRecordIndex({
+          resultsDir: workspace.resultsDir,
+          feedbackId: parsed.feedbackId,
+          runId: parsed.runId
+        });
+  const metadata = indexEntry.metadata;
   const conversation = resolveAcpPromptContext({
     workspace,
     recordId,
@@ -914,10 +975,13 @@ export async function sendAgentPrompt(
   }
   const runDir = blockRunDirectory(workspace, parsed);
   await assertRealRunDirectory(workspace.resultsDir, runDir);
-  const metadataPath = join(runDir, "metadata.json");
-  const metadata = (await exists(metadataPath))
-    ? await readJsonFile<Record<string, unknown>>(metadataPath)
-    : {};
+  const metadata = (
+    await runRecordIndex({
+      resultsDir: workspace.resultsDir,
+      blockRef: parsed.blockRef,
+      runId: parsed.runId
+    })
+  ).metadata;
   const context = resolveAcpPromptContext({
     workspace,
     recordId: identity.recordId,
@@ -975,37 +1039,39 @@ export async function getReviewAttempts(
       const attemptDir = join(reviewAttemptRoot(workspace.resultsDir, blockRef), attemptId);
       const resultPath = join(attemptDir, "review-result.json");
       const metadataPath = join(attemptDir, "metadata.json");
-      const metadata = (await exists(metadataPath))
-        ? await readJsonFile<Record<string, unknown>>(metadataPath)
-        : {};
-      const parsedMetadata = reviewAttemptMetadataSchema.parse(metadata);
+      const metadata = await readPresentReviewAttemptMetadata(metadataPath);
       const artifact = await verifyRunArtifactMetadata(attemptDir, metadata, ["review"]);
-      let result: Record<string, unknown>;
+      let content = "";
+      let verdict: ReviewVerdict | null = null;
       if (artifact.kind === "verified") {
         try {
-          result = reviewResultSchema.parse(JSON.parse(artifact.bytes.toString("utf8")));
+          const result = parseReviewResultArtifact(
+            JSON.parse(artifact.bytes.toString("utf8")) as unknown,
+            resultPath
+          );
+          content = result.content;
+          verdict = result.verdict;
         } catch {
           throw new ArtifactReferenceVerificationError(
             "Persisted runner artifact is corrupt or no longer matches its verified bytes."
           );
         }
-      } else {
-        result = (await exists(resultPath))
-          ? await readJsonFile<Record<string, unknown>>(resultPath)
-          : {};
+      } else if (await exists(resultPath)) {
+        const result = await readReviewResultArtifactFile(resultPath);
+        content = result.content;
+        verdict = result.verdict;
       }
-      const content = typeof result.content === "string" ? result.content : "";
       return {
         ref: blockRef,
         taskId,
         blockId,
         attemptId,
-        verdict: verdictField(result.verdict),
+        verdict,
         resultPath,
         metadataPath,
         content,
         contentPreview: content.trim().slice(0, 400),
-        reviewedAt: parsedMetadata.reviewedAt ?? null
+        reviewedAt: typeof metadata.reviewedAt === "string" ? metadata.reviewedAt : null
       };
     })
   );

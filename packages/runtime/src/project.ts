@@ -4,7 +4,7 @@ import { PlanWeaveWorkspaceNotInitializedError } from "./errors.js";
 import { optionalStat } from "./fs/optionalFile.js";
 import { createProjectId } from "./projectId.js";
 import { resolvePlanweaveHome } from "./paths.js";
-import { readJsonFile } from "./json.js";
+import { readProjectMetadataFile } from "./projectMetadata.js";
 import { canonicalCanvasWorkspacePaths } from "./projectGraph/canonicalWorkspace.js";
 import type { ProjectKind, ProjectMetadata, ProjectWorkspace } from "./types.js";
 
@@ -118,7 +118,7 @@ async function workspaceFromRegisteredRoot(
       workspaceRoot: rootPath
     });
   }
-  const project = await readJsonFile<ProjectMetadata>(projectFile);
+  const project = await readProjectMetadataFile(projectFile);
   if (project.id !== basename(rootPath)) {
     throw new Error(
       `PlanWeave workspace metadata id '${project.id}' does not match workspace directory '${basename(rootPath)}'.`
@@ -161,7 +161,7 @@ export async function readProject(projectRoot: string): Promise<ProjectMetadata 
   if (!(await optionalStat(workspace.projectFile))) {
     return null;
   }
-  const project = await readJsonFile<ProjectMetadata>(workspace.projectFile);
+  const project = await readProjectMetadataFile(workspace.projectFile);
   return normalizeProjectMetadata(project, {
     planweaveHome: workspace.planweaveHome,
     workspaceRoot: workspace.workspaceRoot

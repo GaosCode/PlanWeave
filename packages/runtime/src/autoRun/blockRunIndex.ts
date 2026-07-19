@@ -1,9 +1,12 @@
 import { mkdir } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { z } from "zod";
 import { withAdvisoryDirectoryLock } from "../fs/advisoryDirectoryLock.js";
-import { optionalReadFile, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
+import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { loadPackage } from "../package/loadPackage.js";
+import {
+  readImplementationRunMetadataFile,
+  type ImplementationRunMetadata
+} from "../taskManager/implementationRunMetadata.js";
 import type { PackageWorkspaceRef } from "../types.js";
 import {
   compareBlockRunChronology,
@@ -40,6 +43,10 @@ function blockRefFromRunRoot(runRoot: string): string {
   return `${taskId}#${blockId}`;
 }
 
+function chronologyCandidates(metadata: ImplementationRunMetadata | null): Array<string | null | undefined> {
+  return [metadata?.startedAt, metadata?.submittedAt, metadata?.finishedAt];
+}
+
 async function readRunFacts(
   runRoot: string,
   runId: string
@@ -49,14 +56,13 @@ async function readRunFacts(
   hasArtifact: boolean;
 }> {
   const runDir = join(runRoot, runId);
-  const metadataText = await optionalReadFile(join(runDir, "metadata.json"), "utf8");
-  const metadata =
-    metadataText === null
-      ? null
-      : z.record(z.string(), z.unknown()).parse(JSON.parse(metadataText) as unknown);
-  const candidates = [metadata?.startedAt, metadata?.submittedAt, metadata?.finishedAt];
+  const metadataPath = join(runDir, "metadata.json");
+  // Missing metadata is incomplete; present metadata uses the shared artifact contract.
+  const metadata = (await optionalStat(metadataPath))
+    ? await readImplementationRunMetadataFile(metadataPath)
+    : null;
   let orderedAt: string | null = null;
-  for (const candidate of candidates) {
+  for (const candidate of chronologyCandidates(metadata)) {
     if (typeof candidate !== "string" || !Number.isFinite(Date.parse(candidate))) continue;
     orderedAt = new Date(candidate).toISOString();
     break;
@@ -71,13 +77,10 @@ async function readRunFacts(
       orderedAt = new Date(stat.mtimeMs).toISOString();
     }
   }
-  const ref =
-    typeof metadata?.ref === "string" && metadata.ref !== ""
-      ? metadata.ref
-      : blockRefFromRunRoot(runRoot);
+  const ref = metadata?.ref && metadata.ref !== "" ? metadata.ref : blockRefFromRunRoot(runRoot);
   const hasArtifact =
     Boolean(await optionalStat(join(runDir, "report.md"))) ||
-    Boolean(metadata?.artifactReference && typeof metadata.artifactReference === "object");
+    metadata?.artifactReference !== undefined;
   return { orderedAt, stableIdentity: `${ref}::${runId}`, hasArtifact };
 }
 

@@ -12,7 +12,7 @@ import { upsertBlockRunInIndex } from "../autoRun/blockRunIndex.js";
 import { optionalReaddir } from "../fs/optionalFile.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
-import { readJsonFile, writeJsonFile } from "../json.js";
+import { writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
 import type {
@@ -21,6 +21,10 @@ import type {
   ProjectWorkspace,
   SubmitResult
 } from "../types.js";
+import {
+  readImplementationRunMetadataFile,
+  type ImplementationRunMetadata
+} from "./implementationRunMetadata.js";
 import { exists, loadRuntime, refreshDerivedState } from "./runtimeContext.js";
 import { getBlock } from "./selectors.js";
 import { incrementTaskIndexCount, readTaskIndex, updateTaskIndex } from "./resultIndex.js";
@@ -40,7 +44,7 @@ async function runHasSubmittedResult(
   if (!((await exists(metadataPath)) && (await exists(reportPath)))) {
     return false;
   }
-  const metadata = await readJsonFile<Record<string, unknown>>(metadataPath);
+  const metadata = await readImplementationRunMetadataFile(metadataPath);
   if (metadata.ref !== ref || metadata.runId !== runId) {
     return false;
   }
@@ -236,8 +240,8 @@ async function submitBlockResultArtifact(
     if (artifact.mode === "legacy") {
       await writeFile(reportDestination, artifact.bytes);
     }
-    const previousMetadata = (await exists(metadataPath))
-      ? await readJsonFile<Record<string, unknown>>(metadataPath)
+    const previousMetadata: ImplementationRunMetadata = (await exists(metadataPath))
+      ? await readImplementationRunMetadataFile(metadataPath)
       : {};
     await writeJsonFile(metadataPath, {
       ...previousMetadata,

@@ -510,4 +510,84 @@ describe("desktop records API", () => {
       resolveRunRecordArtifactPath(root, "T-001#B-001::RUN-001", reference)
     ).rejects.toThrow();
   });
+
+  it("fails closed when present implementation run metadata is schema-invalid", async () => {
+    const { root, init } = await createTestWorkspace();
+    const runDir = join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-BAD");
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "metadata.json"), '{"ref":1,"runId":"RUN-BAD"}', "utf8");
+
+    await expect(listBlockRunRecords(root, "T-001#B-001")).rejects.toThrow(
+      /Implementation run metadata at .* is invalid/
+    );
+    await expect(getRunRecord(root, "T-001#B-001::RUN-BAD")).rejects.toThrow(
+      /Implementation run metadata at .* is invalid/
+    );
+  });
+
+  it("fails closed when present review attempt metadata or result is schema-invalid", async () => {
+    const { root, init } = await createTestWorkspace();
+    const attemptDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "reviews",
+      "R-001",
+      "attempts",
+      "REV-BAD"
+    );
+    await mkdir(attemptDir, { recursive: true });
+    await writeFile(join(attemptDir, "metadata.json"), '{"reviewBlockRef":1}', "utf8");
+    await writeJsonFile(join(attemptDir, "review-result.json"), {
+      reviewBlockRef: "T-001#R-001",
+      taskId: "T-001",
+      verdict: "passed",
+      content: "ok"
+    });
+
+    await expect(getReviewAttempts(root, "T-001#R-001")).rejects.toThrow(
+      /Review attempt metadata at .* is invalid/
+    );
+
+    await writeJsonFile(join(attemptDir, "metadata.json"), {
+      reviewBlockRef: "T-001#R-001",
+      attemptId: "REV-BAD",
+      reviewedAt: "2026-05-25T00:00:00.000Z"
+    });
+    await writeFile(join(attemptDir, "review-result.json"), '{"verdict":"passed"}', "utf8");
+
+    await expect(getReviewAttempts(root, "T-001#R-001")).rejects.toThrow(
+      /Review result at .* is invalid/
+    );
+  });
+
+  it("keeps missing optional run history as empty product state", async () => {
+    const { root } = await createTestWorkspace();
+    await expect(listBlockRunRecords(root, "T-001#B-001")).resolves.toEqual([]);
+    await expect(getReviewAttempts(root, "T-001#R-001")).resolves.toEqual([]);
+    await expect(getFeedbackRecords(root, "T-001#R-001")).resolves.toEqual([]);
+  });
+
+  it("projects incomplete block runs without metadata as empty trusted fields, not invented history", async () => {
+    const { root, init } = await createTestWorkspace();
+    const runDir = join(
+      init.workspace.resultsDir,
+      "T-001",
+      "blocks",
+      "B-001",
+      "runs",
+      "RUN-INCOMPLETE"
+    );
+    await mkdir(runDir, { recursive: true });
+
+    await expect(listBlockRunRecords(root, "T-001#B-001")).resolves.toEqual([
+      expect.objectContaining({
+        runId: "RUN-INCOMPLETE",
+        executor: null,
+        adapter: null,
+        startedAt: null,
+        finishedAt: null,
+        reportPath: null
+      })
+    ]);
+  });
 });
