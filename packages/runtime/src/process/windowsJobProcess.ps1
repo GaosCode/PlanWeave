@@ -140,6 +140,9 @@ public static class PlanWeaveWindowsJob
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
+
     [DllImport("kernel32.dll")]
     private static extern IntPtr GetCurrentProcess();
 
@@ -254,6 +257,14 @@ public static class PlanWeaveWindowsJob
         {
             Marshal.FreeHGlobal(pointer);
         }
+    }
+
+    public static bool CurrentProcessBelongsToJob(IntPtr job)
+    {
+        bool belongs;
+        if (!IsProcessInJob(GetCurrentProcess(), job, out belongs))
+            throw Error("IsProcessInJob(current keeper)");
+        return belongs;
     }
 
     private static string QuoteArgument(string argument)
@@ -500,14 +511,15 @@ try {
       } finally {
         $readyEvent.Dispose()
       }
-      while ([PlanWeaveWindowsJob]::ActiveProcesses($job) -gt 1) {
+      $ownedProcessFloor = if ([PlanWeaveWindowsJob]::CurrentProcessBelongsToJob($job)) { 1 } else { 0 }
+      while ([PlanWeaveWindowsJob]::ActiveProcesses($job) -gt $ownedProcessFloor) {
         if ([PlanWeaveWindowsJob]::HasExited($parent)) {
-          Remove-Item -LiteralPath $MarkerPath -Force
+          Remove-Item -LiteralPath $MarkerPath -Force -ErrorAction SilentlyContinue
           [PlanWeaveWindowsJob]::Terminate($job)
         }
         Start-Sleep -Milliseconds 20
       }
-      Remove-Item -LiteralPath $MarkerPath -Force
+      Remove-Item -LiteralPath $MarkerPath -Force -ErrorAction SilentlyContinue
     } finally {
       [PlanWeaveWindowsJob]::CloseHandle($parent) | Out-Null
       [PlanWeaveWindowsJob]::CloseHandle($job) | Out-Null

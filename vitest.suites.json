@@ -391,7 +391,8 @@
         "terminalAgentExecutor.test.ts",
         "tmuxExecutor.test.ts",
         "tmuxRunnerScript.test.ts",
-        "validatePackage.test.ts"
+        "validatePackage.test.ts",
+        "windowsJobProcessContract.test.ts"
       ],
       "platform": [
         "agentRunControlServer.test.ts",
