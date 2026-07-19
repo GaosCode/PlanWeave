@@ -34,6 +34,11 @@ export type ResolvedWindowsCommand = {
   launchMode: "native" | "batch";
 };
 
+export type WindowsJobLaunchStrategy = "suspended-target-assignment" | "launcher-job-inheritance";
+
+export const DEFAULT_WINDOWS_JOB_LAUNCH_STRATEGY: WindowsJobLaunchStrategy =
+  "suspended-target-assignment";
+
 function errnoCode(error: unknown): string | undefined {
   if (error && typeof error === "object" && "code" in error) {
     const code = (error as { code?: unknown }).code;
@@ -266,13 +271,15 @@ export function resolveWindowsCommand(
 export function windowsLauncherArgs(
   job: WindowsJobOwnership,
   target: ResolvedWindowsCommand,
-  args: readonly string[]
+  args: readonly string[],
+  strategy: WindowsJobLaunchStrategy = DEFAULT_WINDOWS_JOB_LAUNCH_STRATEGY
 ): string[] {
   const payload = Buffer.from(
     JSON.stringify({
       command: target.executable,
       launchMode: target.launchMode,
       commandInterpreter: target.launchMode === "batch" ? windowsCommandPromptPath() : undefined,
+      jobLaunchStrategy: strategy,
       args: [...args]
     }),
     "utf8"

@@ -16,9 +16,21 @@ import {
   type ManagedProcessTree,
   type ProcessTreePlatformAdapter
 } from "../process/managedProcessTree.js";
+import {
+  DEFAULT_WINDOWS_JOB_LAUNCH_STRATEGY,
+  windowsLauncherArgs
+} from "../process/windowsManagedProcess.js";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function decodeWindowsLauncherPayload(args: readonly string[]): Record<string, unknown> {
+  const payloadIndex = args.indexOf("-Payload");
+  if (payloadIndex < 0 || payloadIndex + 1 >= args.length) {
+    throw new Error("Windows launcher args are missing -Payload.");
+  }
+  return JSON.parse(Buffer.from(args[payloadIndex + 1], "base64").toString("utf8"));
 }
 
 function isAlive(pid: number): boolean {
@@ -64,6 +76,35 @@ async function forceReap(pid: number | null | undefined): Promise<void> {
 }
 
 describe("managedProcessTree contract (fake adapter)", () => {
+  it("defaults Windows Job launch payloads to explicit suspended target assignment", () => {
+    const payload = decodeWindowsLauncherPayload(
+      windowsLauncherArgs(
+        { name: "Local\\test", markerPath: "marker", helperPath: "helper.ps1" },
+        { executable: "C:\\probe.exe", launchMode: "native" },
+        ["value"]
+      )
+    );
+
+    expect(DEFAULT_WINDOWS_JOB_LAUNCH_STRATEGY).toBe("suspended-target-assignment");
+    expect(payload).toMatchObject({
+      jobLaunchStrategy: "suspended-target-assignment",
+      args: ["value"]
+    });
+  });
+
+  it("encodes the explicit launcher Job inheritance strategy", () => {
+    const payload = decodeWindowsLauncherPayload(
+      windowsLauncherArgs(
+        { name: "Local\\test", markerPath: "marker", helperPath: "helper.ps1" },
+        { executable: "C:\\probe.exe", launchMode: "native" },
+        [],
+        "launcher-job-inheritance"
+      )
+    );
+
+    expect(payload).toMatchObject({ jobLaunchStrategy: "launcher-job-inheritance" });
+  });
+
   it("shares one terminate promise across concurrent callers", async () => {
     let alive = true;
     let gracefulCalls = 0;
@@ -561,7 +602,8 @@ describe("host process-tree grandchild termination", () => {
           PATHEXT: ".CMD;.EXE;.COM;.BAT",
           PLANWEAVE_BATCH_PATH: "unexpected-expanded-path",
           PLANWEAVE_OWNER_PROBE: "ok"
-        }
+        },
+        windowsJobLaunchStrategy: "launcher-job-inheritance"
       });
       trees.push(managed.tree);
       let stdout = "";
@@ -681,7 +723,10 @@ setTimeout(() => process.exit(17), 50);
       command: process.execPath,
       args: ["-e", rootSource],
       cwd: dir,
-      graceMs: 40
+      graceMs: 40,
+      ...(process.platform === "win32"
+        ? { windowsJobLaunchStrategy: "launcher-job-inheritance" as const }
+        : {})
     });
     trees.push(managed.tree);
     pids.push(managed.tree.pid);
@@ -697,6 +742,9 @@ setTimeout(() => process.exit(17), 50);
     pids.push(grandchildPid);
     await managed.tree.exited;
     expect(managed.tree.isAlive()).toBe(false);
+    const sizeBeforeTermination = (await readFile(heartbeatPath)).byteLength;
+    await waitUntil(async () => (await readFile(heartbeatPath)).byteLength > sizeBeforeTermination);
+    expect(isAlive(grandchildPid)).toBe(true);
 
     await managed.tree.terminate("root exited before readiness");
 

@@ -3,6 +3,7 @@ import {
   createWindowsJobOwnership,
   createWindowsProcessTreeAdapter,
   resolveWindowsCommand,
+  type WindowsJobLaunchStrategy,
   windowsLauncherArgs,
   windowsPowerShellPath
 } from "./windowsManagedProcess.js";
@@ -13,6 +14,7 @@ export {
 } from "./windowsManagedProcess.js";
 export type {
   TaskKillSpawnFn,
+  WindowsJobLaunchStrategy,
   WindowsProcessTreeAdapterOptions
 } from "./windowsManagedProcess.js";
 
@@ -55,6 +57,8 @@ export type SpawnManagedProcessOptions = {
   graceMs?: number;
   /** Optional platform adapter override (tests). Default: host platform adapter. */
   adapter?: ProcessTreePlatformAdapter;
+  /** Windows-only Job launch behavior. Default: suspended target with explicit Job assignment. */
+  windowsJobLaunchStrategy?: WindowsJobLaunchStrategy;
 };
 
 export type ProcessTreePlatformAdapter = {
@@ -336,7 +340,7 @@ export function spawnManagedProcess(options: SpawnManagedProcessOptions): Manage
       const job = createWindowsJobOwnership();
       adapter = createWindowsProcessTreeAdapter({ job });
       command = windowsPowerShellPath();
-      args = windowsLauncherArgs(job, target, options.args);
+      args = windowsLauncherArgs(job, target, options.args, options.windowsJobLaunchStrategy);
     }
   }
 

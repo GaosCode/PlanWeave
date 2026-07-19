@@ -307,7 +307,8 @@ async function smokeLaunch(executablePath, platform) {
     args: launchArgs,
     cwd: repoRoot,
     env: buildSmokeEnvironment(smokeHome, smokeUserData, startupReportPath),
-    graceMs: 1_000
+    graceMs: 1_000,
+    ...(platform === "win32" ? { windowsJobLaunchStrategy: "launcher-job-inheritance" } : {})
   });
   child.stdin.end();
 

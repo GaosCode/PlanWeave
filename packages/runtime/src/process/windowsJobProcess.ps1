@@ -142,6 +142,12 @@ public static class PlanWeaveWindowsJob
     private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool belongs);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr OpenProcess(uint desiredAccess, bool inheritHandle, uint processId);
 
     [DllImport("kernel32.dll")]
@@ -190,19 +196,21 @@ public static class PlanWeaveWindowsJob
         return new Win32Exception(Marshal.GetLastWin32Error(), operation + " failed");
     }
 
-    public sealed class SuspendedTarget
+    public sealed class ManagedTarget
     {
         internal IntPtr ProcessHandle;
         internal IntPtr ThreadHandle;
+        internal bool RequiresResume;
 
-        internal SuspendedTarget(IntPtr processHandle, IntPtr threadHandle)
+        internal ManagedTarget(IntPtr processHandle, IntPtr threadHandle, bool requiresResume)
         {
             ProcessHandle = processHandle;
             ThreadHandle = threadHandle;
+            RequiresResume = requiresResume;
         }
     }
 
-    public static IntPtr CreateOwnedJob(string name)
+    public static IntPtr CreateOwnedJob(string name, bool assignCurrentProcess)
     {
         IntPtr job = CreateJobObject(IntPtr.Zero, name);
         if (job == IntPtr.Zero) throw Error("CreateJobObject");
@@ -216,6 +224,8 @@ public static class PlanWeaveWindowsJob
             Marshal.StructureToPtr(limits, pointer, false);
             if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, pointer, (uint)size))
                 throw Error("SetInformationJobObject");
+            if (assignCurrentProcess && !AssignProcessToJobObject(job, GetCurrentProcess()))
+                throw Error("AssignProcessToJobObject(current launcher)");
             return job;
         }
         catch
@@ -268,6 +278,14 @@ public static class PlanWeaveWindowsJob
         {
             Marshal.FreeHGlobal(pointer);
         }
+    }
+
+    public static bool CurrentProcessBelongsToJob(IntPtr job)
+    {
+        bool belongs;
+        if (!IsProcessInJob(GetCurrentProcess(), job, out belongs))
+            throw Error("IsProcessInJob(current keeper)");
+        return belongs;
     }
 
     private static string QuoteArgument(string argument)
@@ -386,12 +404,13 @@ public static class PlanWeaveWindowsJob
         return commandLine;
     }
 
-    public static SuspendedTarget CreateSuspendedTarget(
+    private static ManagedTarget CreateTarget(
         string command,
         string launchMode,
         string commandInterpreter,
         string[] arguments,
-        IntPtr job)
+        IntPtr job,
+        bool suspendAndAssign)
     {
         if (!System.IO.Path.IsPathRooted(command) || !System.IO.File.Exists(command))
             throw new Win32Exception(2, "Resolved target does not exist: " + command);
@@ -429,7 +448,7 @@ public static class PlanWeaveWindowsJob
                     IntPtr.Zero,
                     IntPtr.Zero,
                     true,
-                    CREATE_SUSPENDED,
+                    suspendAndAssign ? CREATE_SUSPENDED : 0,
                     IntPtr.Zero,
                     null,
                     ref startup,
@@ -441,9 +460,9 @@ public static class PlanWeaveWindowsJob
             {
                 if (batch) Environment.SetEnvironmentVariable(literalPercentVariable, previousLiteralPercent);
             }
-            if (!AssignProcessToJobObject(job, process.hProcess))
+            if (suspendAndAssign && !AssignProcessToJobObject(job, process.hProcess))
                 throw Error("AssignProcessToJobObject(target)");
-            return new SuspendedTarget(process.hProcess, process.hThread);
+            return new ManagedTarget(process.hProcess, process.hThread, suspendAndAssign);
         }
         catch
         {
@@ -452,7 +471,7 @@ public static class PlanWeaveWindowsJob
                 try
                 {
                     if (!TerminateProcess(process.hProcess, 1))
-                        throw Error("TerminateProcess(unassigned target)");
+                        throw Error("TerminateProcess(unmanaged target)");
                 }
                 finally
                 {
@@ -464,7 +483,27 @@ public static class PlanWeaveWindowsJob
         }
     }
 
-    private static void CloseTargetHandles(SuspendedTarget target)
+    public static ManagedTarget CreateSuspendedTarget(
+        string command,
+        string launchMode,
+        string commandInterpreter,
+        string[] arguments,
+        IntPtr job)
+    {
+        return CreateTarget(command, launchMode, commandInterpreter, arguments, job, true);
+    }
+
+    public static ManagedTarget CreateInheritedTarget(
+        string command,
+        string launchMode,
+        string commandInterpreter,
+        string[] arguments,
+        IntPtr job)
+    {
+        return CreateTarget(command, launchMode, commandInterpreter, arguments, job, false);
+    }
+
+    private static void CloseTargetHandles(ManagedTarget target)
     {
         if (target.ThreadHandle != IntPtr.Zero)
         {
@@ -478,13 +517,13 @@ public static class PlanWeaveWindowsJob
         }
     }
 
-    public static void AbortSuspendedTarget(SuspendedTarget target)
+    public static void AbortTarget(ManagedTarget target)
     {
         if (target == null) return;
         try
         {
             if (target.ProcessHandle != IntPtr.Zero && !TerminateProcess(target.ProcessHandle, 1))
-                throw Error("TerminateProcess(suspended target)");
+                throw Error("TerminateProcess(target)");
         }
         finally
         {
@@ -492,19 +531,22 @@ public static class PlanWeaveWindowsJob
         }
     }
 
-    public static uint ResumeAndWaitTarget(
-        SuspendedTarget target,
+    public static uint StartAndWaitTarget(
+        ManagedTarget target,
         IntPtr parent,
         IntPtr job)
     {
         if (target == null || target.ProcessHandle == IntPtr.Zero || target.ThreadHandle == IntPtr.Zero)
-            throw new InvalidOperationException("Suspended target handles are closed.");
+            throw new InvalidOperationException("Target handles are closed.");
         bool resumed = false;
         try
         {
-            if (ResumeThread(target.ThreadHandle) == 0xffffffff)
-                throw Error("ResumeThread(target)");
-            resumed = true;
+            if (target.RequiresResume)
+            {
+                if (ResumeThread(target.ThreadHandle) == 0xffffffff)
+                    throw Error("ResumeThread(target)");
+                resumed = true;
+            }
             uint waitResult = WaitForMultipleObjects(
                 2,
                 new[] { target.ProcessHandle, parent },
@@ -520,10 +562,10 @@ public static class PlanWeaveWindowsJob
         }
         catch
         {
-            if (resumed)
+            if (resumed || !target.RequiresResume)
                 Terminate(job);
             else
-                AbortSuspendedTarget(target);
+                AbortTarget(target);
             throw;
         }
         finally
@@ -538,6 +580,43 @@ public static class PlanWeaveWindowsJob
     }
 }
 '@
+
+function Start-JobKeeper {
+  param(
+    [Parameter(Mandatory = $true)]
+    [IntPtr]$Job,
+    [Parameter(Mandatory = $true)]
+    [IntPtr]$Parent
+  )
+
+  $readyName = "Local\PlanWeaveReady-$([Guid]::NewGuid().ToString('N'))"
+  $readyEvent = [Threading.EventWaitHandle]::new(
+    $false,
+    [Threading.EventResetMode]::ManualReset,
+    $readyName
+  )
+  try {
+    $powershell = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+    $keeperArgs = @(
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+      "-File", "`"$PSCommandPath`"", "-Mode", "keep", "-JobName", $JobName,
+      "-MarkerPath", "`"$MarkerPath`"", "-Payload", $readyName,
+      "-ParentPid", [string]$ParentPid
+    )
+    Start-Process -FilePath $powershell -ArgumentList $keeperArgs -WindowStyle Hidden | Out-Null
+    $keeperDeadline = [DateTime]::UtcNow.AddSeconds(30)
+    while (-not $readyEvent.WaitOne(20)) {
+      if ([PlanWeaveWindowsJob]::HasExited($Parent)) {
+        [PlanWeaveWindowsJob]::Terminate($Job)
+      }
+      if ([DateTime]::UtcNow -ge $keeperDeadline) {
+        throw "Timed out waiting for Windows Job keeper ownership."
+      }
+    }
+  } finally {
+    $readyEvent.Dispose()
+  }
+}
 
 try {
   if ($Mode -eq "terminate") {
@@ -583,7 +662,8 @@ try {
       } finally {
         $readyEvent.Dispose()
       }
-      while ([PlanWeaveWindowsJob]::ActiveProcesses($job) -gt 0) {
+      $ownedProcessFloor = if ([PlanWeaveWindowsJob]::CurrentProcessBelongsToJob($job)) { 1 } else { 0 }
+      while ([PlanWeaveWindowsJob]::ActiveProcesses($job) -gt $ownedProcessFloor) {
         if ([PlanWeaveWindowsJob]::HasExited($parent)) {
           Remove-Item -LiteralPath $MarkerPath -Force -ErrorAction SilentlyContinue
           [PlanWeaveWindowsJob]::Terminate($job)
@@ -609,50 +689,46 @@ try {
   if ([string]::IsNullOrWhiteSpace([string]$request.command)) {
     throw "launch payload requires a command"
   }
+  $jobLaunchStrategy = [string]$request.jobLaunchStrategy
+  if ($jobLaunchStrategy -ne "suspended-target-assignment" -and
+      $jobLaunchStrategy -ne "launcher-job-inheritance") {
+    throw "launch payload requires a supported jobLaunchStrategy"
+  }
+  $launcherJobInheritance = $jobLaunchStrategy -eq "launcher-job-inheritance"
   $arguments = @($request.args | ForEach-Object { [string]$_ })
-  $job = [PlanWeaveWindowsJob]::CreateOwnedJob($JobName)
+  $job = [PlanWeaveWindowsJob]::CreateOwnedJob($JobName, $launcherJobInheritance)
   $parent = [PlanWeaveWindowsJob]::OpenParent([uint32]$ParentPid)
   $target = $null
   try {
-    $target = [PlanWeaveWindowsJob]::CreateSuspendedTarget(
-      [string]$request.command,
-      [string]$request.launchMode,
-      [string]$request.commandInterpreter,
-      $arguments,
-      $job
-    )
-    $readyName = "Local\PlanWeaveReady-$([Guid]::NewGuid().ToString('N'))"
-    $readyEvent = [Threading.EventWaitHandle]::new(
-      $false,
-      [Threading.EventResetMode]::ManualReset,
-      $readyName
-    )
-    try {
-      $powershell = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
-      $keeperArgs = @(
-        "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-        "-File", "`"$PSCommandPath`"", "-Mode", "keep", "-JobName", $JobName,
-        "-MarkerPath", "`"$MarkerPath`"", "-Payload", $readyName,
-        "-ParentPid", [string]$ParentPid
+    if ($launcherJobInheritance) {
+      $target = [PlanWeaveWindowsJob]::CreateInheritedTarget(
+        [string]$request.command,
+        [string]$request.launchMode,
+        [string]$request.commandInterpreter,
+        $arguments,
+        $job
       )
-      Start-Process -FilePath $powershell -ArgumentList $keeperArgs -WindowStyle Hidden | Out-Null
-      $keeperDeadline = [DateTime]::UtcNow.AddSeconds(30)
-      while (-not $readyEvent.WaitOne(20)) {
-        if ([PlanWeaveWindowsJob]::HasExited($parent)) {
-          [PlanWeaveWindowsJob]::Terminate($job)
-        }
-        if ([DateTime]::UtcNow -ge $keeperDeadline) {
-          throw "Timed out waiting for Windows Job keeper ownership."
-        }
+      $exitCode = [PlanWeaveWindowsJob]::StartAndWaitTarget($target, $parent, $job)
+      $target = $null
+      Start-Sleep -Milliseconds 10
+      if ([PlanWeaveWindowsJob]::ActiveProcesses($job) -gt 1) {
+        Start-JobKeeper -Job $job -Parent $parent
       }
-    } finally {
-      $readyEvent.Dispose()
+    } else {
+      $target = [PlanWeaveWindowsJob]::CreateSuspendedTarget(
+        [string]$request.command,
+        [string]$request.launchMode,
+        [string]$request.commandInterpreter,
+        $arguments,
+        $job
+      )
+      Start-JobKeeper -Job $job -Parent $parent
+      $exitCode = [PlanWeaveWindowsJob]::StartAndWaitTarget($target, $parent, $job)
+      $target = $null
     }
-
-    $exitCode = [PlanWeaveWindowsJob]::ResumeAndWaitTarget($target, $parent, $job)
     [Environment]::Exit([int]$exitCode)
   } catch {
-    [PlanWeaveWindowsJob]::AbortSuspendedTarget($target)
+    [PlanWeaveWindowsJob]::AbortTarget($target)
     throw
   } finally {
     [PlanWeaveWindowsJob]::CloseHandle($parent) | Out-Null

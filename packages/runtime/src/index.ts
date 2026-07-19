@@ -7,7 +7,8 @@ export type {
   ManagedChildProcess,
   ManagedProcessTree,
   ProcessTerminationResult,
-  SpawnManagedProcessOptions
+  SpawnManagedProcessOptions,
+  WindowsJobLaunchStrategy
 } from "./process/managedProcessTree.js";
 export { readProjectPaths, resolvePlanweaveHome } from "./paths.js";
 export { createManagedProjectId, createProjectId } from "./projectId.js";

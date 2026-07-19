@@ -15,45 +15,48 @@ function sourceBetween(start: string, end: string): string {
   return helperSource.slice(startIndex, endIndex);
 }
 
-describe("Windows Job process helper contract", () => {
-  beforeAll(async () => {
-    helperSource = await readFile(
-      join(import.meta.dirname, "../process/windowsJobProcess.ps1"),
-      "utf8"
-    );
-  });
+beforeAll(async () => {
+  helperSource = await readFile(
+    join(import.meta.dirname, "../process/windowsJobProcess.ps1"),
+    "utf8"
+  );
+});
 
-  it("keeps the launcher outside the managed Job and explicitly assigns a suspended target", () => {
+describe("Windows Job target creation contract", () => {
+  it("supports launcher inheritance and explicit suspended assignment through one target creator", () => {
     const createJob = sourceBetween(
       "public static IntPtr CreateOwnedJob",
       "public static IntPtr OpenOwnedJob"
     );
     const createTarget = sourceBetween(
-      "public static SuspendedTarget CreateSuspendedTarget",
-      "private static void CloseTargetHandles"
+      "private static ManagedTarget CreateTarget",
+      "public static ManagedTarget CreateSuspendedTarget"
     );
 
-    expect(createJob).not.toContain("AssignProcessToJobObject");
-    expect(helperSource).not.toContain("private static extern IntPtr GetCurrentProcess");
-    expect(helperSource).not.toContain("AssignProcessToJobObject(job, GetCurrentProcess())");
-    expect(createTarget).toContain("CREATE_SUSPENDED");
-    expect(createTarget).toContain("AssignProcessToJobObject(job, process.hProcess)");
+    expect(createJob).toContain(
+      "assignCurrentProcess && !AssignProcessToJobObject(job, GetCurrentProcess())"
+    );
+    expect(createTarget).toContain("suspendAndAssign ? CREATE_SUSPENDED : 0");
+    expect(createTarget).toContain(
+      "suspendAndAssign && !AssignProcessToJobObject(job, process.hProcess)"
+    );
     expect(createTarget.indexOf("CreateProcess(")).toBeLessThan(
       createTarget.indexOf("AssignProcessToJobObject(job, process.hProcess)")
     );
+    expect(helperSource.match(/private static ManagedTarget CreateTarget/g)).toHaveLength(1);
   });
 
-  it("terminates the suspended target and closes both handles when setup or resume fails", () => {
+  it("fails closed for target setup, resume, and inherited target wait failures", () => {
     const createTarget = sourceBetween(
-      "public static SuspendedTarget CreateSuspendedTarget",
-      "private static void CloseTargetHandles"
+      "private static ManagedTarget CreateTarget",
+      "public static ManagedTarget CreateSuspendedTarget"
     );
     const abortTarget = sourceBetween(
-      "public static void AbortSuspendedTarget",
-      "public static uint ResumeAndWaitTarget"
+      "public static void AbortTarget",
+      "public static uint StartAndWaitTarget"
     );
-    const resumeTarget = sourceBetween(
-      "public static uint ResumeAndWaitTarget",
+    const waitTarget = sourceBetween(
+      "public static uint StartAndWaitTarget",
       "public static void Terminate"
     );
 
@@ -61,35 +64,63 @@ describe("Windows Job process helper contract", () => {
     expect(createTarget).toContain("CloseHandle(process.hThread)");
     expect(createTarget).toContain("CloseHandle(process.hProcess)");
     expect(abortTarget).toContain("TerminateProcess(target.ProcessHandle, 1)");
-    expect(abortTarget).toContain("CloseTargetHandles(target)");
-    expect(resumeTarget).toContain("ResumeThread(target.ThreadHandle)");
-    expect(resumeTarget).toContain("AbortSuspendedTarget(target)");
+    expect(waitTarget).toContain("ResumeThread(target.ThreadHandle)");
+    expect(waitTarget).toContain("if (resumed || !target.RequiresResume)");
+    expect(waitTarget).toContain("Terminate(job)");
+    expect(waitTarget).toContain("AbortTarget(target)");
   });
+});
 
-  it("hands ownership to an out-of-Job keeper before resuming the target", () => {
-    const launchMode = sourceBetween(
-      "$target = [PlanWeaveWindowsJob]::CreateSuspendedTarget(",
-      "} catch {\n  [Console]::Error.WriteLine"
+describe("Windows Job ownership handoff contract", () => {
+  it("starts the keeper before the default suspended target is resumed", () => {
+    const defaultLaunch = sourceBetween(
+      "} else {\n      $target = [PlanWeaveWindowsJob]::CreateSuspendedTarget(",
+      "    }\n    [Environment]::Exit"
     );
 
-    const createTargetIndex = launchMode.indexOf("CreateSuspendedTarget(");
-    const startKeeperIndex = launchMode.indexOf("Start-Process -FilePath $powershell");
-    const keeperReadyIndex = launchMode.indexOf("$readyEvent.WaitOne(20)");
-    const resumeTargetIndex = launchMode.indexOf("ResumeAndWaitTarget(");
-    expect(createTargetIndex).toBeLessThan(startKeeperIndex);
-    expect(startKeeperIndex).toBeLessThan(keeperReadyIndex);
-    expect(keeperReadyIndex).toBeLessThan(resumeTargetIndex);
+    expect(defaultLaunch.indexOf("CreateSuspendedTarget(")).toBeLessThan(
+      defaultLaunch.indexOf("Start-JobKeeper")
+    );
+    expect(defaultLaunch.indexOf("Start-JobKeeper")).toBeLessThan(
+      defaultLaunch.indexOf("StartAndWaitTarget(")
+    );
   });
 
-  it("keeps the named Job alive exactly while it has active managed processes", () => {
+  it("joins the launcher first and hands inherited descendants to a keeper after root exit", () => {
+    const launchMode = sourceBetween(
+      "$launcherJobInheritance = $jobLaunchStrategy -eq",
+      "} catch {\n  [Console]::Error.WriteLine"
+    );
+    const inheritedLaunch = sourceBetween(
+      "if ($launcherJobInheritance) {",
+      "} else {\n      $target = [PlanWeaveWindowsJob]::CreateSuspendedTarget("
+    );
+
+    expect(launchMode.indexOf("CreateOwnedJob($JobName, $launcherJobInheritance)")).toBeLessThan(
+      launchMode.indexOf("CreateInheritedTarget(")
+    );
+    expect(inheritedLaunch.indexOf("CreateInheritedTarget(")).toBeLessThan(
+      inheritedLaunch.indexOf("StartAndWaitTarget(")
+    );
+    expect(inheritedLaunch.indexOf("StartAndWaitTarget(")).toBeLessThan(
+      inheritedLaunch.indexOf("ActiveProcesses($job) -gt 1")
+    );
+    expect(inheritedLaunch.indexOf("ActiveProcesses($job) -gt 1")).toBeLessThan(
+      inheritedLaunch.indexOf("Start-JobKeeper")
+    );
+  });
+
+  it("keeps the named Job alive while excluding an in-Job keeper from the active floor", () => {
     const keepMode = sourceBetween(
       'if ($Mode -eq "keep")',
       "if ([string]::IsNullOrWhiteSpace($Payload))"
     );
 
     expect(keepMode).toContain("[PlanWeaveWindowsJob]::OpenOwnedJob($JobName)");
-    expect(keepMode).toContain("while ([PlanWeaveWindowsJob]::ActiveProcesses($job) -gt 0)");
-    expect(keepMode).not.toContain("ownedProcessFloor");
+    expect(keepMode).toContain("CurrentProcessBelongsToJob($job)");
+    expect(keepMode).toContain(
+      "while ([PlanWeaveWindowsJob]::ActiveProcesses($job) -gt $ownedProcessFloor)"
+    );
     expect(keepMode.indexOf("OpenOwnedJob($JobName)")).toBeLessThan(
       keepMode.indexOf("$readyEvent.Set()")
     );
