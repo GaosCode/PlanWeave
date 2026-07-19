@@ -115,16 +115,12 @@ import {
   openProjectInDevelopmentTool
 } from "./codeEditors.js";
 import type {
-  DesktopAutoRunOptions,
-  DesktopAutoRunScope,
   DesktopBridgeApi,
   DesktopCanvasReference,
   DesktopGraphEditResult,
-  DesktopLayout,
   DesktopOpenRunTerminalInput,
   DesktopOpenTerminalInput,
   DesktopRunTerminalAvailabilityInput,
-  DesktopRuntimeResetOptions,
   GraphEditResult,
   TaskWorkspace,
   TaskWorkspaceInput,
@@ -132,11 +128,23 @@ import type {
   TaskWorkspaceRunsPage
 } from "@planweave-ai/runtime";
 import {
+  canvasExecutionPolicyInputSchema,
+  desktopAddBlockInputSchema,
+  desktopAddTaskInputSchema,
   desktopAgentActionIdentitySchema,
   desktopAgentPromptIdentitySchema,
   desktopAgentPromptTextSchema,
   desktopAgentSessionActionIdentitySchema,
   desktopAgentActionValueSchema,
+  desktopAutoRunOptionsSchema,
+  desktopAutoRunScopeSchema,
+  desktopAutoRunStepLimitSchema,
+  desktopCanvasReferenceSchema,
+  desktopGraphEditValidationInputSchema,
+  desktopLayoutFileSchema,
+  desktopPromptSaveOptionsSchema,
+  desktopRuntimeResetOptionsSchema,
+  desktopUpdateReviewPipelineInputSchema,
   agentRunControlRespondOutcomeSchema,
   runnerInteractionActionIdentitySchema,
   runnerInteractionAuditSchema,
@@ -707,7 +715,13 @@ export const runtimeBridgeHandlers = {
   getReviewPipeline: async (_event, ref, taskId) =>
     getReviewPipeline(await resolveDesktopCanvasReference(ref), taskId),
   updateReviewPipeline: async (_event, ref, taskId, input) =>
-    invokeGraphEdit(updateReviewPipeline(await resolveDesktopCanvasReference(ref), taskId, input)),
+    invokeGraphEdit(
+      updateReviewPipeline(
+        await resolveDesktopCanvasReference(desktopCanvasReferenceSchema.parse(ref)),
+        taskId,
+        desktopUpdateReviewPipelineInputSchema.parse(input)
+      )
+    ),
   getStatistics: (_event, projectRoot) => getStatistics(projectRoot),
   searchProject: (_event, projectRoot, query, filters) =>
     searchProject(projectRoot, query, filters),
@@ -716,26 +730,51 @@ export const runtimeBridgeHandlers = {
   createTaskDraft: async (_event, ref, input) =>
     createTaskDraft(await resolveDesktopCanvasReference(ref), input),
   addTaskNode: async (_event, ref, input) =>
-    invokeGraphEdit(addTaskNode(await resolveDesktopCanvasReference(ref), input)),
+    invokeGraphEdit(
+      addTaskNode(
+        await resolveDesktopCanvasReference(desktopCanvasReferenceSchema.parse(ref)),
+        desktopAddTaskInputSchema.parse(input)
+      )
+    ),
   addBlock: async (_event, ref, input) =>
-    invokeGraphEdit(addBlock(await resolveDesktopCanvasReference(ref), input)),
+    invokeGraphEdit(
+      addBlock(
+        await resolveDesktopCanvasReference(desktopCanvasReferenceSchema.parse(ref)),
+        desktopAddBlockInputSchema.parse(input)
+      )
+    ),
   removeTaskNode: async (_event, ref, taskId) =>
     invokeGraphEdit(removeTaskNode(await resolveDesktopCanvasReference(ref), taskId)),
   removeBlock: async (_event, ref, blockRef) =>
     invokeGraphEdit(removeBlock(await resolveDesktopCanvasReference(ref), blockRef)),
   validateGraphEdit: async (_event, ref, input) =>
-    invokeGraphEdit(validateGraphEdit(await resolveDesktopCanvasReference(ref), input)),
+    invokeGraphEdit(
+      validateGraphEdit(
+        await resolveDesktopCanvasReference(desktopCanvasReferenceSchema.parse(ref)),
+        desktopGraphEditValidationInputSchema.parse(input)
+      )
+    ),
   updateTaskTitle: async (_event, ref, taskId, title) =>
     invokeGraphEdit(updateTaskTitle(await resolveDesktopCanvasReference(ref), taskId, title)),
   updateTaskPrompt: async (_event, ref, taskId, markdown, options) =>
     invokeGraphEdit(
-      updateTaskPrompt(await resolveDesktopCanvasReference(ref), taskId, markdown, options)
+      updateTaskPrompt(
+        await resolveDesktopCanvasReference(desktopCanvasReferenceSchema.parse(ref)),
+        taskId,
+        markdown,
+        options === undefined ? undefined : desktopPromptSaveOptionsSchema.parse(options)
+      )
     ),
   updateBlockTitle: async (_event, ref, blockRef, title) =>
     invokeGraphEdit(updateBlockTitle(await resolveDesktopCanvasReference(ref), blockRef, title)),
   updateBlockPrompt: async (_event, ref, blockRef, markdown, options) =>
     invokeGraphEdit(
-      updateBlockPrompt(await resolveDesktopCanvasReference(ref), blockRef, markdown, options)
+      updateBlockPrompt(
+        await resolveDesktopCanvasReference(desktopCanvasReferenceSchema.parse(ref)),
+        blockRef,
+        markdown,
+        options === undefined ? undefined : desktopPromptSaveOptionsSchema.parse(options)
+      )
     ),
   updateTaskExecutor: async (_event, ref, taskId, executorName) =>
     invokeGraphEdit(
@@ -746,15 +785,22 @@ export const runtimeBridgeHandlers = {
       updateBlockExecutor(await resolveDesktopCanvasReference(ref), blockRef, executorName)
     ),
   updateCanvasExecutionPolicy: async (_event, ref, input) =>
-    invokeGraphEdit(updateCanvasExecutionPolicy(await resolveDesktopCanvasReference(ref), input)),
+    invokeGraphEdit(
+      updateCanvasExecutionPolicy(
+        await resolveDesktopCanvasReference(desktopCanvasReferenceSchema.parse(ref)),
+        canvasExecutionPolicyInputSchema.parse(input)
+      )
+    ),
   addDependencyEdge: async (_event, ref, fromTaskId, toTaskId, baseGraphVersion, layoutSnapshot) =>
     invokeGraphEdit(
       addDependencyEdge(
-        await resolveDesktopCanvasReference(ref),
+        await resolveDesktopCanvasReference(desktopCanvasReferenceSchema.parse(ref)),
         fromTaskId,
         toTaskId,
         baseGraphVersion,
-        layoutSnapshot
+        layoutSnapshot === undefined
+          ? undefined
+          : desktopLayoutFileSchema.parse(layoutSnapshot)
       )
     ),
   removeDependencyEdge: async (
@@ -767,11 +813,13 @@ export const runtimeBridgeHandlers = {
   ) =>
     invokeGraphEdit(
       removeDependencyEdge(
-        await resolveDesktopCanvasReference(ref),
+        await resolveDesktopCanvasReference(desktopCanvasReferenceSchema.parse(ref)),
         fromTaskId,
         toTaskId,
         baseGraphVersion,
-        layoutSnapshot
+        layoutSnapshot === undefined
+          ? undefined
+          : desktopLayoutFileSchema.parse(layoutSnapshot)
       )
     ),
   reconnectDependencyEdge: async (
@@ -786,13 +834,15 @@ export const runtimeBridgeHandlers = {
   ) =>
     invokeGraphEdit(
       reconnectDependencyEdge(
-        await resolveDesktopCanvasReference(ref),
+        await resolveDesktopCanvasReference(desktopCanvasReferenceSchema.parse(ref)),
         fromTaskId,
         oldToTaskId,
         newFromTaskId,
         newToTaskId,
         baseGraphVersion,
-        layoutSnapshot
+        layoutSnapshot === undefined
+          ? undefined
+          : desktopLayoutFileSchema.parse(layoutSnapshot)
       )
     ),
   undoPlanGraphCommand: async (_event, ref) =>
@@ -801,8 +851,11 @@ export const runtimeBridgeHandlers = {
     invokeGraphEdit(redoDesktopPlanGraphCommand(await resolveDesktopCanvasReference(ref))),
   getDesktopLayout: async (_event, ref) =>
     getDesktopLayout(await resolveDesktopCanvasReference(ref)),
-  saveDesktopLayout: async (_event, ref, layout: DesktopLayout) =>
-    saveDesktopLayout(await resolveDesktopCanvasReference(ref), layout),
+  saveDesktopLayout: async (_event, ref, layout) =>
+    saveDesktopLayout(
+      await resolveDesktopCanvasReference(desktopCanvasReferenceSchema.parse(ref)),
+      desktopLayoutFileSchema.parse(layout)
+    ),
   resetDesktopLayout: async (_event, ref) =>
     resetDesktopLayout(await resolveDesktopCanvasReference(ref)),
   applyCanvasLaneLayout: async (_event, ref) =>
@@ -817,15 +870,24 @@ export const runtimeBridgeHandlers = {
     refreshPackageFileChanges(await resolveDesktopCanvasReference(ref), options),
   getDirtyPromptRefs: async (_event, ref) =>
     getDirtyPromptRefs(await resolveDesktopCanvasReference(ref)),
-  startAutoRun: (
-    _event,
-    ref,
-    scope: DesktopAutoRunScope,
-    stepLimit,
-    options?: DesktopAutoRunOptions
-  ) => startAutoRun(ref.projectRoot, ref.canvasId, scope, stepLimit, options),
-  resetRuntimeState: (_event, ref, options?: DesktopRuntimeResetOptions) =>
-    resetDesktopRuntimeState(ref.projectRoot, ref.canvasId, options),
+  startAutoRun: async (_event, ref, scope, stepLimit, options) => {
+    const parsedRef = desktopCanvasReferenceSchema.parse(ref);
+    return startAutoRun(
+      parsedRef.projectRoot,
+      parsedRef.canvasId,
+      desktopAutoRunScopeSchema.parse(scope),
+      stepLimit === undefined ? undefined : desktopAutoRunStepLimitSchema.parse(stepLimit),
+      options === undefined ? undefined : desktopAutoRunOptionsSchema.parse(options)
+    );
+  },
+  resetRuntimeState: async (_event, ref, options) => {
+    const parsedRef = desktopCanvasReferenceSchema.parse(ref);
+    return resetDesktopRuntimeState(
+      parsedRef.projectRoot,
+      parsedRef.canvasId,
+      options === undefined ? undefined : desktopRuntimeResetOptionsSchema.parse(options)
+    );
+  },
   unblockBlock: async (_event, ref, blockRef, reason) => {
     await unblockBlock({
       projectRoot: await resolveDesktopCanvasReference(ref),

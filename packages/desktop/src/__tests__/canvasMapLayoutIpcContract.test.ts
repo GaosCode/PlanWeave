@@ -45,4 +45,24 @@ describe("canvas map layout IPC contract", () => {
 
     await expect(handler({}, project.rootPath, null)).rejects.toThrow();
   });
+
+  it("keeps RUNTIME-SOLE ownership: main does not pre-parse canvas map layout with desktop layout schema", async () => {
+    const project = await initManagedProject("IPC Layout Sole Boundary");
+    const handler = registeredHandler(desktopBridgeInvokeChannels.saveCanvasMapLayout);
+
+    // A payload that would pass a wrong main-side desktop-layout schema must still be rejected
+    // by the runtime canvas-map schema (version / shape), proving sole structural authority.
+    await expect(
+      handler(
+        {},
+        project.rootPath,
+        {
+          version: "desktop-layout/v1",
+          projectId: project.projectId,
+          nodes: [{ nodeId: "T-001", x: 0, y: 0 }],
+          updatedAt: "2026-07-19T00:00:00.000Z"
+        }
+      )
+    ).rejects.toThrow(/canvas map layout/i);
+  });
 });

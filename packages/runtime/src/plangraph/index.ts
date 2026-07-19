@@ -30,6 +30,8 @@ export type {
 } from "./commands.js";
 export { emptyAffectedRefs } from "./commands.js";
 export {
+  canvasExecutionPolicyFieldEditSchema,
+  canvasExecutionPolicyInputSchema,
   parsePlanGraphCommand,
   parsePlanGraphCommandArrayOrSingle,
   planGraphCommandParseDiagnostic,

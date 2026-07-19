@@ -57,6 +57,50 @@ export type {
   DesktopCanvasMapLayoutNode
 } from "./types/canvasMapLayoutSchema.js";
 export {
+  desktopCanvasReferenceSchema,
+  desktopPromptSaveOptionsSchema
+} from "./types/desktopBridgeInputSchemas.js";
+export type {
+  DesktopCanvasReferenceInput,
+  DesktopPromptSaveOptionsInput
+} from "./types/desktopBridgeInputSchemas.js";
+export {
+  desktopLayoutFileSchema,
+  desktopLayoutNodeSchema
+} from "./types/desktopLayoutSchema.js";
+export type {
+  DesktopLayoutFileInput,
+  DesktopLayoutNodeInput
+} from "./types/desktopLayoutSchema.js";
+export {
+  desktopAddBlockInputSchema,
+  desktopAddTaskInputSchema,
+  desktopGraphEditValidationInputSchema
+} from "./types/desktopGraphEditInputSchemas.js";
+export type {
+  DesktopAddBlockInputParsed,
+  DesktopAddTaskInputParsed,
+  DesktopGraphEditValidationInputParsed
+} from "./types/desktopGraphEditInputSchemas.js";
+export {
+  desktopReviewHookSchema,
+  desktopReviewPipelinePackageDefaultsSchema,
+  desktopReviewPipelineStepInputSchema,
+  desktopUpdateReviewPipelineInputSchema
+} from "./types/desktopReviewPipelineInputSchemas.js";
+export type { DesktopUpdateReviewPipelineInputParsed } from "./types/desktopReviewPipelineInputSchemas.js";
+export {
+  desktopAutoRunOptionsSchema,
+  desktopAutoRunScopeSchema,
+  desktopAutoRunStepLimitSchema,
+  desktopRuntimeResetOptionsSchema
+} from "./types/desktopRunInputSchemas.js";
+export type {
+  DesktopAutoRunOptionsInput,
+  DesktopAutoRunScopeInput,
+  DesktopRuntimeResetOptionsInput
+} from "./types/desktopRunInputSchemas.js";
+export {
   addBlock,
   addDependencyEdge,
   addTaskNode,

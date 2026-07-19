@@ -616,6 +616,27 @@ export {
   reconcileCanvasMapLayoutWithProject
 } from "./desktop/index.js";
 export {
+  desktopCanvasReferenceSchema,
+  desktopPromptSaveOptionsSchema,
+  desktopLayoutFileSchema,
+  desktopLayoutNodeSchema,
+  desktopAddBlockInputSchema,
+  desktopAddTaskInputSchema,
+  desktopGraphEditValidationInputSchema,
+  desktopReviewHookSchema,
+  desktopReviewPipelinePackageDefaultsSchema,
+  desktopReviewPipelineStepInputSchema,
+  desktopUpdateReviewPipelineInputSchema,
+  desktopAutoRunOptionsSchema,
+  desktopAutoRunScopeSchema,
+  desktopAutoRunStepLimitSchema,
+  desktopRuntimeResetOptionsSchema
+} from "./desktop/index.js";
+export {
+  canvasExecutionPolicyFieldEditSchema,
+  canvasExecutionPolicyInputSchema
+} from "./plangraph/index.js";
+export {
   desktopAgentActionIdentitySchema,
   desktopAgentPromptIdentitySchema,
   desktopAgentPromptTextSchema,

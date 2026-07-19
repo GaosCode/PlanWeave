@@ -372,6 +372,105 @@ const runtimeMock = vi.hoisted(() => {
       diagnostics: [],
       graph: { workspace, input }
     })),
+    addTaskNode: vi.fn(async (workspace: unknown, input: unknown) => ({
+      ok: true,
+      affectedTasks: ["T-new"],
+      diagnostics: [],
+      graph: { workspace, input }
+    })),
+    addBlock: vi.fn(async (workspace: unknown, input: unknown) => ({
+      ok: true,
+      affectedTasks: ["T-001"],
+      diagnostics: [],
+      graph: { workspace, input }
+    })),
+    validateGraphEdit: vi.fn(async (workspace: unknown, input: unknown) => ({
+      ok: true,
+      affectedTasks: [],
+      diagnostics: [],
+      graph: { workspace, input }
+    })),
+    updateReviewPipeline: vi.fn(async (workspace: unknown, taskId: string, input: unknown) => ({
+      ok: true,
+      affectedTasks: [taskId],
+      diagnostics: [],
+      graph: { workspace, input }
+    })),
+    updateTaskPrompt: vi.fn(async (workspace: unknown, taskId: string, markdown: string, options?: unknown) => ({
+      ok: true,
+      affectedTasks: [taskId],
+      diagnostics: [],
+      graph: { workspace, markdown, options }
+    })),
+    updateBlockPrompt: vi.fn(
+      async (workspace: unknown, blockRef: string, markdown: string, options?: unknown) => ({
+        ok: true,
+        affectedTasks: [blockRef.split("#")[0] ?? "T-001"],
+        diagnostics: [],
+        graph: { workspace, markdown, options }
+      })
+    ),
+    addDependencyEdge: vi.fn(
+      async (
+        workspace: unknown,
+        fromTaskId: string,
+        toTaskId: string,
+        baseGraphVersion?: string,
+        layoutSnapshot?: unknown
+      ) => ({
+        ok: true,
+        affectedTasks: [fromTaskId, toTaskId],
+        diagnostics: [],
+        graph: { workspace, baseGraphVersion, layoutSnapshot }
+      })
+    ),
+    removeDependencyEdge: vi.fn(
+      async (
+        workspace: unknown,
+        fromTaskId: string,
+        toTaskId: string,
+        baseGraphVersion?: string,
+        layoutSnapshot?: unknown
+      ) => ({
+        ok: true,
+        affectedTasks: [fromTaskId, toTaskId],
+        diagnostics: [],
+        graph: { workspace, baseGraphVersion, layoutSnapshot }
+      })
+    ),
+    reconnectDependencyEdge: vi.fn(
+      async (
+        workspace: unknown,
+        fromTaskId: string,
+        oldToTaskId: string,
+        newFromTaskId: string,
+        newToTaskId: string,
+        baseGraphVersion?: string,
+        layoutSnapshot?: unknown
+      ) => ({
+        ok: true,
+        affectedTasks: [fromTaskId, oldToTaskId, newFromTaskId, newToTaskId],
+        diagnostics: [],
+        graph: { workspace, baseGraphVersion, layoutSnapshot }
+      })
+    ),
+    saveDesktopLayout: vi.fn(async (workspace: unknown, layout: unknown) => layout),
+    startAutoRun: vi.fn(
+      async (
+        projectRoot: string,
+        canvasId: string | null | undefined,
+        scope: unknown,
+        stepLimit?: number,
+        options?: unknown
+      ) => ({
+        runId: "RUN-001",
+        projectRoot,
+        canvasId: canvasId ?? null,
+        scope,
+        stepLimit,
+        options
+      })
+    ),
     subscribeAutoRunEvents: vi.fn((listener: AutoRunEventListener) => {
       autoRunEventListeners.add(listener);
       return () => autoRunEventListeners.delete(listener);
@@ -439,6 +538,17 @@ vi.mock("@planweave-ai/runtime", async () => {
     probeDesktopAgentCapabilities: runtimeMock.probeDesktopAgentCapabilities,
     testExecutorProfile: runtimeMock.testExecutorProfile,
     updateCanvasExecutionPolicy: runtimeMock.updateCanvasExecutionPolicy,
+    addTaskNode: runtimeMock.addTaskNode,
+    addBlock: runtimeMock.addBlock,
+    validateGraphEdit: runtimeMock.validateGraphEdit,
+    updateReviewPipeline: runtimeMock.updateReviewPipeline,
+    updateTaskPrompt: runtimeMock.updateTaskPrompt,
+    updateBlockPrompt: runtimeMock.updateBlockPrompt,
+    addDependencyEdge: runtimeMock.addDependencyEdge,
+    removeDependencyEdge: runtimeMock.removeDependencyEdge,
+    reconnectDependencyEdge: runtimeMock.reconnectDependencyEdge,
+    saveDesktopLayout: runtimeMock.saveDesktopLayout,
+    startAutoRun: runtimeMock.startAutoRun,
     subscribeAutoRunEvents: runtimeMock.subscribeAutoRunEvents,
     subscribeRunRecord: runtimeMock.subscribeRunRecord
   };
@@ -506,6 +616,17 @@ export async function resetRuntimeBridgeMocks(): Promise<void> {
   runtimeMock.probeDesktopAgentCapabilities.mockClear();
   runtimeMock.testExecutorProfile.mockClear();
   runtimeMock.updateCanvasExecutionPolicy.mockClear();
+  runtimeMock.addTaskNode.mockClear();
+  runtimeMock.addBlock.mockClear();
+  runtimeMock.validateGraphEdit.mockClear();
+  runtimeMock.updateReviewPipeline.mockClear();
+  runtimeMock.updateTaskPrompt.mockClear();
+  runtimeMock.updateBlockPrompt.mockClear();
+  runtimeMock.addDependencyEdge.mockClear();
+  runtimeMock.removeDependencyEdge.mockClear();
+  runtimeMock.reconnectDependencyEdge.mockClear();
+  runtimeMock.saveDesktopLayout.mockClear();
+  runtimeMock.startAutoRun.mockClear();
   runtimeMock.subscribeAutoRunEvents.mockClear();
   runtimeMock.subscribeRunRecord.mockReset();
   runtimeMock.subscribeRunRecord.mockImplementation(async () => ({

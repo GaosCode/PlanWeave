@@ -130,13 +130,17 @@ const blockFieldEditSchema = z
 
 const bulkBlockFieldEditSchema = blockFieldEditSchema.omit({ basePromptHash: true });
 
-const canvasExecutionPolicyFieldEditSchema = z
+/** Shared canvas execution policy field shape (PlanGraph bulk update + desktop IPC). */
+export const canvasExecutionPolicyFieldEditSchema = z
   .object({
     defaultExecutor: z.string().nullable().optional(),
     parallelEnabled: z.boolean().optional(),
     maxConcurrent: z.number().int().positive().optional()
   })
   .strict();
+
+/** Alias for desktop bridge transport parsing of updateCanvasExecutionPolicy. */
+export const canvasExecutionPolicyInputSchema = canvasExecutionPolicyFieldEditSchema;
 
 const planGraphCommandSchemaOptions = [
   z
