@@ -86,7 +86,7 @@ describe("Windows Job ownership handoff contract", () => {
     );
   });
 
-  it("joins the launcher first and hands inherited descendants to a keeper after root exit", () => {
+  it("uses the launcher as the inherited Job owner until the target root exits", () => {
     const launchMode = sourceBetween(
       "$launcherJobInheritance = $jobLaunchStrategy -eq",
       "} catch {\n  [Console]::Error.WriteLine"
@@ -102,12 +102,8 @@ describe("Windows Job ownership handoff contract", () => {
     expect(inheritedLaunch.indexOf("CreateInheritedTarget(")).toBeLessThan(
       inheritedLaunch.indexOf("StartAndWaitTarget(")
     );
-    expect(inheritedLaunch.indexOf("StartAndWaitTarget(")).toBeLessThan(
-      inheritedLaunch.indexOf("ActiveProcesses($job) -gt 1")
-    );
-    expect(inheritedLaunch.indexOf("ActiveProcesses($job) -gt 1")).toBeLessThan(
-      inheritedLaunch.indexOf("Start-JobKeeper")
-    );
+    expect(inheritedLaunch).not.toContain("Start-JobKeeper");
+    expect(inheritedLaunch).not.toContain("ActiveProcesses($job)");
   });
 
   it("keeps the named Job alive while excluding an in-Job keeper from the active floor", () => {

@@ -710,10 +710,6 @@ try {
       )
       $exitCode = [PlanWeaveWindowsJob]::StartAndWaitTarget($target, $parent, $job)
       $target = $null
-      Start-Sleep -Milliseconds 10
-      if ([PlanWeaveWindowsJob]::ActiveProcesses($job) -gt 1) {
-        Start-JobKeeper -Job $job -Parent $parent
-      }
     } else {
       $target = [PlanWeaveWindowsJob]::CreateSuspendedTarget(
         [string]$request.command,

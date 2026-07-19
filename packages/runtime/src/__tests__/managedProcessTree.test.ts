@@ -742,16 +742,22 @@ setTimeout(() => process.exit(17), 50);
     pids.push(grandchildPid);
     await managed.tree.exited;
     expect(managed.tree.isAlive()).toBe(false);
-    const sizeBeforeTermination = (await readFile(heartbeatPath)).byteLength;
-    await waitUntil(async () => (await readFile(heartbeatPath)).byteLength > sizeBeforeTermination);
-    expect(isAlive(grandchildPid)).toBe(true);
-
-    await managed.tree.terminate("root exited before readiness");
-
-    await waitUntil(() => !isAlive(grandchildPid));
-    const sizeAfterExit = (await readFile(heartbeatPath)).byteLength;
-    await sleep(120);
-    expect((await readFile(heartbeatPath)).byteLength).toBe(sizeAfterExit);
+    if (process.platform === "win32") {
+      await waitUntil(() => !isAlive(grandchildPid));
+      const sizeAfterRootExit = (await readFile(heartbeatPath)).byteLength;
+      await sleep(120);
+      expect((await readFile(heartbeatPath)).byteLength).toBe(sizeAfterRootExit);
+      await expect(managed.tree.terminate("root exited before readiness")).resolves.toEqual({
+        outcome: "already_exited",
+        reason: "root exited before readiness"
+      });
+    } else {
+      const sizeBeforeTermination = (await readFile(heartbeatPath)).byteLength;
+      await waitUntil(async () => (await readFile(heartbeatPath)).byteLength > sizeBeforeTermination);
+      expect(isAlive(grandchildPid)).toBe(true);
+      await managed.tree.terminate("root exited before readiness");
+      await waitUntil(() => !isAlive(grandchildPid));
+    }
   });
 
   it("kills a grandchild that direct root termination would leave behind", async () => {
