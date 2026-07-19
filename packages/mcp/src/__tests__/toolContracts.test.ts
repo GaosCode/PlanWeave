@@ -15,6 +15,11 @@ import {
   updateReviewPipelineInputShape,
   updateTaskInputShape
 } from "../toolInputSchemas.js";
+import {
+  createBlockInputShape,
+  updateBlockPlanningInputShape,
+  updateCanvasExecutionPolicyInputShape
+} from "../toolStructuredEditSchemas.js";
 import { planweaveToolHandlerRegistries, planweaveToolHandlers } from "../toolDispatcher.js";
 import { planweaveToolOutputSchemaRegistries, planweaveToolOutputSchemas } from "../toolSchemas.js";
 
@@ -68,6 +73,15 @@ const parserBackedInputShapes = {
   set_review_pipeline: {
     parser: "parseUpdateReviewPipelineToolArgs",
     shape: updateReviewPipelineInputShape
+  },
+  create_block: { parser: "parseCreateBlockInput", shape: createBlockInputShape },
+  update_canvas_execution_policy: {
+    parser: "parseCanvasExecutionPolicyInput",
+    shape: updateCanvasExecutionPolicyInputShape
+  },
+  update_block_planning: {
+    parser: "parseBlockPlanningInput",
+    shape: updateBlockPlanningInputShape
   }
 } satisfies Partial<
   Record<PlanweaveToolName, { parser: string; shape: NonNullable<ToolDefinition["inputSchema"]> }>

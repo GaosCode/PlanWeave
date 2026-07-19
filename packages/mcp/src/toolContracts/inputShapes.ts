@@ -5,6 +5,19 @@ import {
   updateReviewPipelineInputShape,
   updateTaskInputShape
 } from "../toolInputSchemas.js";
+import {
+  blockDependencyRefSchema,
+  blockDependencyUpdateSchema,
+  bulkCreateBlockSchema,
+  bulkCreateTaskSchema,
+  bulkUpdateBlockSchema,
+  bulkUpdateTaskSchema,
+  parallelBlockPolicySchema,
+  reviewHookSchema,
+  reviewPipelineBulkUpdateSchema,
+  taskDependencyEdgeSchema,
+  taskDependencyUpdateSchema
+} from "../toolStructuredEditSchemas.js";
 
 export const blockTypeSchema = z.enum(["implementation", "review"]);
 export const graphReviewPolicySchema = z.enum(["none", "risk-based", "required"]);
@@ -19,13 +32,19 @@ export const searchResultKindSchema = z.enum([
   "feedback"
 ]);
 
-export const reviewHookSchema = z.object({
-  id: z.string().min(1),
-  type: z.literal("executable"),
-  command: z.string().min(1),
-  args: z.array(z.string()).optional(),
-  executionPolicy: z.literal("trusted-local")
-});
+export {
+  blockDependencyRefSchema,
+  blockDependencyUpdateSchema,
+  bulkCreateBlockSchema,
+  bulkCreateTaskSchema,
+  bulkUpdateBlockSchema,
+  bulkUpdateTaskSchema,
+  parallelBlockPolicySchema,
+  reviewHookSchema,
+  reviewPipelineBulkUpdateSchema,
+  taskDependencyEdgeSchema,
+  taskDependencyUpdateSchema
+};
 
 export const packageFileSchema = z.object({
   path: z.string().min(1),
@@ -70,78 +89,6 @@ export const semanticTaskDependencyInput = {
   dependentTaskId: z.string().min(1),
   dependsOnTaskId: z.string().min(1)
 };
-
-export const taskDependencyEdgeSchema = z.object({
-  dependentTaskId: z.string().min(1),
-  dependsOnTaskId: z.string().min(1)
-});
-
-export const taskDependencyUpdateSchema = z.object({
-  taskId: z.string().min(1),
-  dependsOn: z.array(z.string().min(1))
-});
-
-export const bulkCreateTaskSchema = z.object({
-  title: z.string().min(1),
-  promptMarkdown: z.string(),
-  acceptance: z.array(z.string().min(1)).optional(),
-  blockTypes: z.array(blockTypeSchema).optional(),
-  executor: z.string().min(1).nullable().optional()
-});
-
-export const bulkCreateBlockSchema = z.object({
-  taskId: z.string().min(1),
-  type: blockTypeSchema,
-  title: z.string().min(1),
-  promptMarkdown: z.string(),
-  executor: z.string().min(1).nullable().optional(),
-  dependsOn: z.array(z.string().min(1)).optional()
-});
-
-export const bulkUpdateTaskSchema = z.object({
-  taskId: z.string().min(1),
-  title: z.string().min(1).optional(),
-  promptMarkdown: z.string().optional(),
-  executor: z.string().min(1).nullable().optional(),
-  acceptance: z.array(z.string().min(1)).optional()
-});
-
-export const bulkUpdateBlockSchema = z.strictObject({
-  ...blockRefInput,
-  title: z.string().min(1).optional(),
-  promptMarkdown: z.string().optional(),
-  executor: z.string().min(1).nullable().optional(),
-  dependsOn: z.array(z.string().min(1)).optional(),
-  sharedResources: z.array(z.string().min(1)).optional(),
-  reviewRequired: z.boolean().optional(),
-  maxFeedbackCycles: z.number().int().nonnegative().optional(),
-  reviewHook: reviewHookSchema.nullable().optional()
-});
-
-export const blockDependencyRefSchema = z.object({
-  ...blockRefInput,
-  dependsOnBlockId: z.string().min(1)
-});
-
-export const blockDependencyUpdateSchema = z.object({
-  blockRef: z.string().min(1).optional(),
-  taskId: z.string().min(1).optional(),
-  blockId: z.string().min(1).optional(),
-  dependsOn: z.array(z.string().min(1))
-});
-
-export const reviewPipelineBulkUpdateSchema = z.object({
-  taskId: z.string().min(1),
-  packageDefaults: updateReviewPipelineInputShape.packageDefaults.optional(),
-  steps: updateReviewPipelineInputShape.steps
-});
-
-export const parallelBlockPolicySchema = z.strictObject({
-  blockRef: z.string().min(1).optional(),
-  taskId: z.string().min(1).optional(),
-  blockId: z.string().min(1).optional(),
-  sharedResources: z.array(z.string().min(1)).optional()
-});
 
 export const graphReadInput = {
   ...projectCanvasInput,

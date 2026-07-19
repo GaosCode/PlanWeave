@@ -1,39 +1,40 @@
 import type { BlockType, DesktopUpdateReviewPipelineInput } from "@planweave-ai/runtime";
 import * as z from "zod/v4";
 
-const blockTypeSchema = z.enum(["implementation", "review"]);
+export const blockTypeSchema = z.enum(["implementation", "review"]);
 const reviewTriggerConditionSchema = z.enum(["after_required_work_completed", "manual"]);
 
-const requiredTrimmedStringSchema = z.string().trim().min(1);
-const optionalTrimmedStringSchema = z.preprocess(
+export const requiredTrimmedStringSchema = z.string().trim().min(1);
+export const optionalTrimmedStringSchema = z.preprocess(
   (value) => (value === undefined || value === null || value === "" ? undefined : value),
   requiredTrimmedStringSchema.optional()
 );
-const optionalNullableTrimmedStringSchema = z.preprocess(
+export const optionalNullableTrimmedStringSchema = z.preprocess(
   (value) => (value === undefined ? undefined : value === null || value === "" ? null : value),
   requiredTrimmedStringSchema.nullable().optional()
 );
-const optionalStringArraySchema = z.preprocess(
+export const optionalStringArraySchema = z.preprocess(
   (value) => (value === undefined || value === null ? undefined : value),
   z.array(requiredTrimmedStringSchema).optional()
 );
+export const requiredStringArraySchema = z.array(requiredTrimmedStringSchema);
 
-const blockTypesSchema = z.preprocess(
+export const blockTypesSchema = z.preprocess(
   (value) => (value === undefined || value === null ? undefined : value),
   z.array(blockTypeSchema).optional()
 );
 
-const updateFieldSchema = z.preprocess(
+export const updateFieldSchema = z.preprocess(
   (value) => (value === undefined || value === null || value === "" ? undefined : value),
   requiredTrimmedStringSchema.optional()
 );
 
-const blockRefSchema = z.preprocess(
+export const blockRefSchema = z.preprocess(
   (value) => (value === undefined || value === null || value === "" ? undefined : value),
   requiredTrimmedStringSchema.optional()
 );
 
-const reviewHookSchema = z.object({
+export const reviewHookSchema = z.object({
   id: requiredTrimmedStringSchema,
   type: z.literal("executable"),
   command: requiredTrimmedStringSchema,
@@ -41,7 +42,7 @@ const reviewHookSchema = z.object({
   executionPolicy: z.literal("trusted-local")
 });
 
-const optionalReviewHookSchema = z.preprocess(
+export const optionalReviewHookSchema = z.preprocess(
   (value) => (value === undefined ? undefined : value),
   reviewHookSchema.nullable().optional()
 );
@@ -209,7 +210,7 @@ export function parseUpdateBlockToolArgs(
   return {
     projectId: parsed.projectId,
     canvasId: parsed.canvasId,
-    blockRef: parsed.blockRef ?? `${parsed.taskId}#${parsed.blockId}`,
+    blockRef: resolveBlockRef(parsed),
     input: updateFields(parsed)
   };
 }
@@ -229,7 +230,7 @@ export function parseUpdateReviewPipelineToolArgs(
   };
 }
 
-function hasUpdateField(input: {
+export function hasUpdateField(input: {
   title?: string;
   promptMarkdown?: string;
   executor?: string | null;
@@ -239,10 +240,22 @@ function hasUpdateField(input: {
   );
 }
 
-function hasBlockTarget(input: { blockRef?: string; taskId?: string; blockId?: string }): boolean {
+export function hasBlockTarget(input: {
+  blockRef?: string;
+  taskId?: string;
+  blockId?: string;
+}): boolean {
   return (
     input.blockRef !== undefined || (input.taskId !== undefined && input.blockId !== undefined)
   );
+}
+
+export function resolveBlockRef(input: {
+  blockRef?: string;
+  taskId?: string;
+  blockId?: string;
+}): string {
+  return input.blockRef ?? `${input.taskId}#${input.blockId}`;
 }
 
 function updateFields(input: {
@@ -257,7 +270,7 @@ function updateFields(input: {
   };
 }
 
-function blockIdFromStepRef(blockRef: string | null): string | undefined {
+export function blockIdFromStepRef(blockRef: string | null): string | undefined {
   if (blockRef === null) {
     return undefined;
   }

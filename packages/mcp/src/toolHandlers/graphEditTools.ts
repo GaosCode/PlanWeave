@@ -18,7 +18,6 @@ import {
   blockRefFromArgs,
   jsonToolResult,
   nonEmptyString,
-  optionalStringArray,
   parseProjectArgs,
   parseProjectCanvasArgs,
   readObjectArgs,
@@ -36,6 +35,11 @@ import {
   parseUpdateReviewPipelineToolArgs,
   parseUpdateTaskToolArgs
 } from "../toolParsers.js";
+import {
+  parseOptionalNumber,
+  parseOptionalPositiveNumber,
+  parseRequiredStringArray
+} from "../toolStructuredEditSchemas.js";
 import type { PlanweavePartialToolHandlerRegistry } from "../toolDispatcher.js";
 import type { RuntimeGateway } from "../toolTypes.js";
 
@@ -50,7 +54,7 @@ export const graphEditToolHandlers = {
   bulk_create_tasks: async (args, gateway) => {
     const record = readObjectArgs(args);
     const { projectId, canvasId } = parseProjectCanvasArgs(record);
-    const tasks = parseBulkCreateTasks(record, projectId, canvasId);
+    const tasks = parseBulkCreateTasks(record);
     const result = await gateway.bulkCreateTasks(projectId, canvasId, tasks);
     return bulkGraphEditResult(result, {
       affectedBlocks: affectedBlockRefsForTasks(result, result.affectedTasks)
@@ -168,7 +172,7 @@ export const graphEditToolHandlers = {
         projectId,
         canvasId,
         nonEmptyString(record.taskId, "taskId"),
-        requiredStringArrayValue(record.dependsOn, "dependsOn")
+        parseRequiredStringArray(record.dependsOn, "dependsOn")
       )
     );
   },
@@ -208,7 +212,7 @@ export const graphEditToolHandlers = {
   bulk_apply_review_pipeline: async (args, gateway) => {
     const record = readObjectArgs(args);
     const { projectId, canvasId } = parseProjectCanvasArgs(record);
-    const updates = parseBulkReviewPipelineUpdates(record, projectId, canvasId);
+    const updates = parseBulkReviewPipelineUpdates(record);
     const result = await gateway.bulkApplyReviewPipeline(projectId, canvasId, updates);
     return bulkGraphEditResult(result, {
       affectedBlocks: reviewBlockRefsForPipelineUpdates(result, updates)
@@ -392,28 +396,4 @@ function projectGraphEditResult(
   });
 }
 
-function parseOptionalNumber(value: unknown, field: string): number | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error(`${field} must be a finite number.`);
-  }
-  return value;
-}
 
-function parseOptionalPositiveNumber(value: unknown, field: string): number | undefined {
-  const parsed = parseOptionalNumber(value, field);
-  if (parsed !== undefined && parsed <= 0) {
-    throw new Error(`${field} must be a positive number.`);
-  }
-  return parsed;
-}
-
-function requiredStringArrayValue(value: unknown, field: string): string[] {
-  const parsed = optionalStringArray(value, field);
-  if (!parsed) {
-    throw new Error(`${field} must be an array of strings.`);
-  }
-  return parsed;
-}

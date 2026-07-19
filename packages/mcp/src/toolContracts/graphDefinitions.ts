@@ -1,9 +1,14 @@
 import * as z from "zod/v4";
 import {
+  canvasExecutionPolicyFieldsShape,
+  createBlockInputShape,
+  updateBlockPlanningInputShape,
+  updateCanvasExecutionPolicyInputShape
+} from "../toolStructuredEditSchemas.js";
+import {
   blockDependencyRefSchema,
   blockDependencyUpdateSchema,
   blockRefInput,
-  blockTypeSchema,
   bulkCreateBlockSchema,
   bulkCreateTaskSchema,
   bulkUpdateBlockSchema,
@@ -16,7 +21,6 @@ import {
   graphSliceInput,
   parallelBlockPolicySchema,
   projectCanvasInput,
-  reviewHookSchema,
   reviewPipelineBulkUpdateSchema,
   semanticTaskDependencyInput,
   taskDependencyEdgeSchema,
@@ -154,15 +158,7 @@ export const graphToolDefinitions = {
   create_block: {
     title: "Create PlanWeave Block",
     description: "Create an implementation or review block under a task.",
-    inputSchema: {
-      ...projectCanvasInput,
-      taskId: z.string().min(1),
-      type: blockTypeSchema,
-      title: z.string().min(1),
-      promptMarkdown: z.string(),
-      executor: z.string().min(1).nullable().optional(),
-      dependsOn: z.array(z.string().min(1)).optional()
-    },
+    inputSchema: createBlockInputShape,
     annotations: writeAnnotations
   },
   update_block: {
@@ -176,26 +172,14 @@ export const graphToolDefinitions = {
     title: "Update PlanWeave Canvas Execution Policy",
     description:
       "Update selected top-level manifest execution policy fields for one canvas. Use update_block_planning for per-block shared resource coordination hints.",
-    inputSchema: {
-      ...projectCanvasInput,
-      defaultExecutor: z.string().min(1).nullable().optional(),
-      parallelEnabled: z.boolean().optional(),
-      maxConcurrent: z.number().int().positive().optional()
-    },
+    inputSchema: updateCanvasExecutionPolicyInputShape,
     annotations: writeAnnotations
   },
   update_block_planning: {
     title: "Update PlanWeave Block Planning",
     description:
       "Update per-block shared resource coordination hints or review block planning fields. Shared resources do not affect readiness or dispatchability.",
-    inputSchema: {
-      ...projectCanvasInput,
-      ...blockRefInput,
-      sharedResources: z.array(z.string().min(1)).optional(),
-      reviewRequired: z.boolean().optional(),
-      maxFeedbackCycles: z.number().int().nonnegative().optional(),
-      reviewHook: reviewHookSchema.nullable().optional()
-    },
+    inputSchema: updateBlockPlanningInputShape,
     annotations: writeAnnotations
   },
   update_block_dependencies: {
@@ -296,7 +280,9 @@ export const graphToolDefinitions = {
     inputSchema: {
       ...projectCanvasInput,
       tasks: z.array(z.string().min(1)).optional(),
-      blocks: z.array(z.union([z.string().min(1), z.object(blockRefInput)])).optional(),
+      blocks: z
+        .array(z.union([z.string().min(1), z.object(blockRefInput).strict()]))
+        .optional(),
       taskDependencyEdges: z.array(taskDependencyEdgeSchema).optional(),
       blockDependencyRefs: z.array(blockDependencyRefSchema).optional()
     },
@@ -333,13 +319,7 @@ export const graphToolDefinitions = {
       "Update canvas-level parallel settings and per-block shared resource hints after validating all inputs.",
     inputSchema: {
       ...projectCanvasInput,
-      canvasPolicy: z
-        .object({
-          defaultExecutor: z.string().min(1).nullable().optional(),
-          parallelEnabled: z.boolean().optional(),
-          maxConcurrent: z.number().int().positive().optional()
-        })
-        .optional(),
+      canvasPolicy: z.object(canvasExecutionPolicyFieldsShape).optional(),
       blocks: z.array(parallelBlockPolicySchema).optional()
     },
     annotations: writeAnnotations

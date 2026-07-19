@@ -484,6 +484,100 @@ describe("dependency MCP tools", () => {
     expect(gateway.bulkUpdateParallelPolicy).not.toHaveBeenCalled();
   });
 
+  it("rejects invalid nested structured edit inputs before gateway dispatch", async () => {
+    const gateway = createGateway();
+
+    await expect(
+      handlePlanweaveTool(
+        "bulk_add_task_dependencies",
+        { projectId: "project-1", canvasId: "default", edges: [] },
+        gateway
+      )
+    ).rejects.toThrow("edges must contain at least one dependency.");
+
+    await expect(
+      handlePlanweaveTool(
+        "bulk_set_task_dependencies",
+        {
+          projectId: "project-1",
+          canvasId: "default",
+          updates: [{ taskId: "T-001", dependsOn: "B-001" }]
+        },
+        gateway
+      )
+    ).rejects.toThrow();
+
+    await expect(
+      handlePlanweaveTool(
+        "bulk_update_blocks",
+        {
+          projectId: "project-1",
+          canvasId: "default",
+          updates: [{ blockRef: "T-001#B-001", parallelSafe: true, sharedResources: ["api"] }]
+        },
+        gateway
+      )
+    ).rejects.toThrow("Unrecognized key");
+
+    await expect(
+      handlePlanweaveTool(
+        "bulk_update_blocks",
+        {
+          projectId: "project-1",
+          canvasId: "default",
+          updates: [
+            {
+              blockRef: "T-001#B-001",
+              reviewHook: {
+                id: "hook-1",
+                type: "shell",
+                command: "echo",
+                args: [],
+                executionPolicy: "trusted-local"
+              }
+            }
+          ]
+        },
+        gateway
+      )
+    ).rejects.toThrow();
+
+    await expect(
+      handlePlanweaveTool(
+        "update_canvas_execution_policy",
+        { projectId: "project-1", canvasId: "default" },
+        gateway
+      )
+    ).rejects.toThrow("At least one execution policy field must be provided.");
+
+    await expect(
+      handlePlanweaveTool(
+        "bulk_remove_graph_items",
+        { projectId: "project-1", canvasId: "default" },
+        gateway
+      )
+    ).rejects.toThrow("bulk_remove_graph_items requires at least one item to remove.");
+
+    await expect(
+      handlePlanweaveTool(
+        "bulk_set_block_dependencies",
+        {
+          projectId: "project-1",
+          canvasId: "default",
+          updates: [{ dependsOn: [] }]
+        },
+        gateway
+      )
+    ).rejects.toThrow("blockRef is required unless taskId and blockId are provided.");
+
+    expect(gateway.bulkAddTaskDependencies).not.toHaveBeenCalled();
+    expect(gateway.bulkSetTaskDependencies).not.toHaveBeenCalled();
+    expect(gateway.bulkUpdateBlocks).not.toHaveBeenCalled();
+    expect(gateway.updateCanvasExecutionPolicy).not.toHaveBeenCalled();
+    expect(gateway.bulkRemoveGraphItems).not.toHaveBeenCalled();
+    expect(gateway.bulkSetBlockDependencies).not.toHaveBeenCalled();
+  });
+
   it("applies canvas lane layout through the runtime gateway", async () => {
     const gateway = createGateway();
 
