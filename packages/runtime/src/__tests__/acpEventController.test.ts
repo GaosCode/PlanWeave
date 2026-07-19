@@ -204,20 +204,42 @@ describe("ACP event controller durability and producers", () => {
     expect(events).toContain('"id":"reasoning_effort"');
   });
 
-  it("does not write a defaults-applied snapshot when a configured setter fails", async () => {
+  it("does not apply defaults when a configured option was not advertised", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-acp-session-config-failure-"));
+    const setSessionConfigOption = vi.fn(async () => ({ configOptions: [] }));
+    const connection: AcpConnection = {
+      processId: null,
+      pendingOperationCount: 0,
+      pendingOperations: new Map(),
+      stderr: [],
+      closed: Promise.resolve(),
+      initialize: vi.fn(async () => ({
+        protocolVersion: 1,
+        agentCapabilities: {},
+        agentInfo: { name: "session-config-agent", version: "1.0.0" }
+      })),
+      authenticate: vi.fn(async () => ({})),
+      newSession: vi.fn(async () => ({ sessionId: "session-config-failure", configOptions: [] })),
+      loadSession: vi.fn(async () => ({})),
+      prompt: vi.fn(async () => ({ stopReason: "end_turn" })),
+      cancel: vi.fn(async () => undefined),
+      closeSession: vi.fn(async () => ({})),
+      setSessionMode: vi.fn(async () => ({})),
+      setSessionConfigOption,
+      dispose: vi.fn(async () => undefined)
+    };
     const controller = new AcpSessionController(
       new ActiveAgentRunRegistry(),
-      createAcpConnection,
+      () => connection,
       new AcpEventReadModelRegistry()
     );
 
     await expect(
       controller.execute(run(root, "artifact-session-config"), {
-        timeoutMs: 1_000,
         sessionDefaults: { modeId: null, configOptions: { missing: "value" } }
       })
     ).rejects.toThrow("did not advertise configured option 'missing'");
+    expect(setSessionConfigOption).not.toHaveBeenCalled();
     const events = await readFile(join(root, "events.ndjson"), "utf8");
     expect(events).toContain('"kind":"session_configuration_snapshot","phase":"initial"');
     expect(events).not.toContain('"phase":"defaults_applied"');
