@@ -138,6 +138,32 @@ jobs:
         if: matrix.artifactName == 'linux-x64'
         run: xvfb-run -a node packages/desktop/scripts/verify-packaged-app.mjs
 
+      - name: Verify Linux release package metadata
+        if: matrix.artifactName == 'linux-x64'
+        shell: bash
+        env:
+          DESKTOP_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          debs=(packages/desktop/release/*.deb)
+          if [[ ${#debs[@]} -ne 1 ]]; then
+            echo "Expected exactly one Debian package; found ${#debs[@]}." >&2
+            exit 1
+          fi
+          package_name="$(dpkg-deb -f "${debs[0]}" Package)"
+          package_version="$(dpkg-deb -f "${debs[0]}" Version)"
+          package_architecture="$(dpkg-deb -f "${debs[0]}" Architecture)"
+          test -n "${package_name}"
+          if [[ "${package_version}" != "${DESKTOP_VERSION}" ]]; then
+            echo "Debian package version '${package_version}' does not match '${DESKTOP_VERSION}'." >&2
+            exit 1
+          fi
+          if [[ "${package_architecture}" != "amd64" ]]; then
+            echo "Debian package architecture '${package_architecture}' is not 'amd64'." >&2
+            exit 1
+          fi
+
       - name: Verify macOS universal binary
         if: matrix.artifactName == 'macos-universal'
         run: |

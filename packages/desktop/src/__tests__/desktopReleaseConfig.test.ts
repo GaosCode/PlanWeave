@@ -288,6 +288,7 @@ describe("desktop release configuration", () => {
     );
     const macVerification = workflow.indexOf("verify-macos-release.mjs");
     const windowsVerification = workflow.indexOf("verify-windows-release.ps1");
+    const linuxVerification = workflow.indexOf("name: Verify Linux release package metadata");
     const upload = workflow.indexOf("name: Upload desktop artifacts");
     const publishJob = workflow.indexOf("\n  publish:");
 
@@ -302,8 +303,12 @@ describe("desktop release configuration", () => {
     expect(workflow).toContain("packages/desktop/release/verification-*.txt");
     expect(macVerification).toBeGreaterThan(-1);
     expect(windowsVerification).toBeGreaterThan(-1);
+    expect(linuxVerification).toBeGreaterThan(-1);
     expect(macVerification).toBeLessThan(upload);
     expect(windowsVerification).toBeLessThan(upload);
+    expect(linuxVerification).toBeLessThan(upload);
+    expect(workflow).toContain('dpkg-deb -f "${debs[0]}" Version');
+    expect(workflow).toContain('dpkg-deb -f "${debs[0]}" Architecture');
     expect(workflow).toContain("needs: build");
     expect(workflow.slice(publishJob)).toContain("needs: verify-assets");
   });
@@ -540,12 +545,7 @@ process.exit(2);
     );
     expect(desktopSmokeWorkflow).toContain("cancel-in-progress: true");
     expect(desktopSmokeWorkflow).toContain("name: macOS packaged smoke");
-    expect(desktopSmokeWorkflow).toContain("name: Linux packaged smoke and Debian install");
-    expect(desktopSmokeWorkflow).toContain("debian:13-slim");
-    expect(desktopSmokeWorkflow).toContain('dpkg-query -W -f="\\${Status}\\n"');
-    expect(desktopSmokeWorkflow).toContain(
-      "xvfb-run -a node packages/desktop/scripts/verify-packaged-app.mjs"
-    );
+    expect(desktopSmokeWorkflow).not.toContain("docker run");
 
     expect(packageJson.scripts["smoke:packaged:win"]).toBe("node scripts/verify-packaged-app.mjs");
     expect(packageJson.scripts["smoke:packaged:win"]).not.toMatch(/^\s*[A-Z][A-Z0-9_]*=/);
