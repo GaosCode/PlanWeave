@@ -18,12 +18,6 @@
   "executors": {
     "manual": {
       "adapter": "manual"
-    },
-    "codex-auto": {
-      "adapter": "codex-exec",
-      "command": "codex",
-      "args": ["exec", "-"],
-      "timeoutMs": 1800000
     }
   },
   "nodes": [
