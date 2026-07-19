@@ -542,9 +542,22 @@ describe("package file watcher: polling SLA and resources", () => {
       }
       expect(webContents.send).not.toHaveBeenCalled();
 
+      const recoveredProbeFinalStat = createDeferred<void>();
+      let recoveredProjectPromptStatCount = 0;
+      fsPromisesMock.state.statResultHook = (path) => {
+        if (path !== workspace.projectPromptFile) {
+          return;
+        }
+        recoveredProjectPromptStatCount += 1;
+        if (recoveredProjectPromptStatCount === 2) {
+          recoveredProbeFinalStat.resolve();
+        }
+      };
       fsPromisesMock.state.failStat = false;
       await advanceAndFlush(16_000);
+      await recoveredProbeFinalStat.promise;
       await flushMicrotasks();
+      fsPromisesMock.state.statResultHook = null;
       webContents.send.mockClear();
       warnSpy.mockClear();
 
@@ -565,6 +578,7 @@ describe("package file watcher: polling SLA and resources", () => {
       );
     } finally {
       fsPromisesMock.state.failStat = false;
+      fsPromisesMock.state.statResultHook = null;
       warnSpy.mockRestore();
     }
   });
