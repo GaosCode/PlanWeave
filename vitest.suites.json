@@ -139,6 +139,7 @@
         "useCanvasMapHook.test.tsx",
         "verticalResizeHandle.test.tsx",
         "windowAppearanceHandlers.test.ts",
+        "windowChrome.test.ts",
         "windowExternalLinks.test.ts",
         "workspaceTabsLazyRoutes.test.tsx"
       ],
