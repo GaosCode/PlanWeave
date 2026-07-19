@@ -4,7 +4,7 @@ import { optionalStat } from "../fs/optionalFile.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { requireMapValue } from "../graph/requireMapValue.js";
-import { findOrphanResults } from "../package/orphans.js";
+import { findOrphanResultsFromGraph } from "../package/orphans.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { RETENTION_DOCTOR_THRESHOLD, countRetentionArtifacts } from "../runSessions/retention.js";
 import { ensureStateForManifest, readState, writeState } from "../state.js";
@@ -135,7 +135,7 @@ export async function runDoctor(options: {
       }
     }
 
-    for (const orphan of await findOrphanResults(workspace, manifest)) {
+    for (const orphan of await findOrphanResultsFromGraph(workspace, graph)) {
       issues.push({
         code: "orphan_result",
         taskId: orphan.taskId,

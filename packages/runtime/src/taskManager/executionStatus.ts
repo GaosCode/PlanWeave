@@ -1,5 +1,5 @@
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
-import { findOrphanResults, findOrphanState } from "../package/orphans.js";
+import { findOrphanResultsFromGraph, findOrphanStateFromGraph } from "../package/orphans.js";
 import type {
   BlockState,
   BlockStatus,
@@ -68,8 +68,9 @@ export async function buildExecutionStatus(
     projectGuard: options.claimGuard ?? (await createProjectGraphClaimGuard(context))
   });
   // Orphans are read from rawState (pre-reconcile). Post-reconcile `state` has already pruned them.
-  const orphanState = findOrphanState(manifest, rawState);
-  const orphanResults = await findOrphanResults(workspace, manifest);
+  // Project from context.graph — never re-compile on this hot path.
+  const orphanState = findOrphanStateFromGraph(graph, rawState);
+  const orphanResults = await findOrphanResultsFromGraph(workspace, graph);
   return {
     projectId: workspace.id,
     projectRoot: workspace.rootPath,

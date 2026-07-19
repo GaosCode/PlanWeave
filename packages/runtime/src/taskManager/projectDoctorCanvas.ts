@@ -3,7 +3,7 @@ import { ZodError } from "zod";
 import { optionalStat } from "../fs/optionalFile.js";
 import { compilePackageGraph } from "../graph/compileTaskGraph.js";
 import { readJsonFile } from "../json.js";
-import { findOrphanState } from "../package/orphans.js";
+import { findOrphanStateFromGraph } from "../package/orphans.js";
 import { manifestSchema } from "../schema/manifest.js";
 import { readState } from "../state.js";
 import type {
@@ -233,7 +233,7 @@ export async function validateCanvasPackageForDoctor(options: {
 
   try {
     const rawState = await readState(workspace.stateFile);
-    for (const orphan of findOrphanState(manifest, rawState)) {
+    for (const orphan of findOrphanStateFromGraph(graph, rawState)) {
       warnings.push({
         code: "orphan_state",
         message: "Runtime state exists outside the current manifest.",

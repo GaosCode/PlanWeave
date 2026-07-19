@@ -3,7 +3,7 @@ import { ZodError } from "zod";
 import { optionalStat } from "./fs/optionalFile.js";
 import { compilePackageGraph } from "./graph/compileTaskGraph.js";
 import { readJsonFile } from "./json.js";
-import { findOrphanResults, findOrphanState } from "./package/orphans.js";
+import { findOrphanResultsFromGraph, findOrphanStateFromGraph } from "./package/orphans.js";
 import { resolveProjectWorkspace } from "./project.js";
 import {
   canonicalDefaultCanvasWorkspacePaths,
@@ -286,7 +286,7 @@ async function validateWorkspacePackage(
 
   try {
     const rawState = await readState(workspace.stateFile);
-    for (const orphan of findOrphanState(manifest, rawState)) {
+    for (const orphan of findOrphanStateFromGraph(graph, rawState)) {
       warnings.push(
         issue(
           "orphan_state",
@@ -305,7 +305,7 @@ async function validateWorkspacePackage(
     );
   }
   try {
-    for (const orphan of await findOrphanResults(workspace, manifest)) {
+    for (const orphan of await findOrphanResultsFromGraph(workspace, graph)) {
       warnings.push(
         issue(
           "orphan_result",

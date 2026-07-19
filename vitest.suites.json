@@ -365,6 +365,7 @@
         "manifestEdit.test.ts",
         "opencodeExecutor.test.ts",
         "opencodeSessionCapture.test.ts",
+        "orphanGraphReuse.test.ts",
         "packageDraftImport.test.ts",
         "packageFileChanges.test.ts",
         "packageFiles.test.ts",
