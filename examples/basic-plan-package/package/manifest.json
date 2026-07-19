@@ -2,13 +2,13 @@
   "version": "plan-package/v1",
   "project": {
     "title": "Basic PlanWeave Example",
-    "description": "A single-task block package for STEP-1 smoke testing."
+    "description": "A six-task example with parallel branches and review."
   },
   "execution": {
     "defaultExecutor": "manual",
     "parallel": {
-      "enabled": false,
-      "maxConcurrent": 1
+      "enabled": true,
+      "maxConcurrent": 2
     }
   },
   "review": {
@@ -60,7 +60,94 @@
           }
         }
       ]
+    },
+    {
+      "id": "T-002",
+      "type": "task",
+      "title": "Outline the user journey",
+      "prompt": "nodes/T-002/prompt.md",
+      "acceptance": ["The main steps and expected outcome are clear."],
+      "blocks": [
+        {
+          "id": "B-002",
+          "type": "implementation",
+          "title": "Draft the user journey",
+          "prompt": "nodes/T-002/blocks/B-002.prompt.md",
+          "depends_on": []
+        }
+      ]
+    },
+    {
+      "id": "T-003",
+      "type": "task",
+      "title": "Define the visual direction",
+      "prompt": "nodes/T-003/prompt.md",
+      "acceptance": ["The visual direction includes color, typography, and layout guidance."],
+      "blocks": [
+        {
+          "id": "B-003",
+          "type": "implementation",
+          "title": "Create a visual direction note",
+          "prompt": "nodes/T-003/blocks/B-003.prompt.md",
+          "depends_on": []
+        }
+      ]
+    },
+    {
+      "id": "T-004",
+      "type": "task",
+      "title": "Assemble the prototype",
+      "prompt": "nodes/T-004/prompt.md",
+      "acceptance": ["The prototype combines the journey and visual direction."],
+      "blocks": [
+        {
+          "id": "B-004",
+          "type": "implementation",
+          "title": "Assemble a prototype plan",
+          "prompt": "nodes/T-004/blocks/B-004.prompt.md",
+          "depends_on": []
+        }
+      ]
+    },
+    {
+      "id": "T-005",
+      "type": "task",
+      "title": "Check usability",
+      "prompt": "nodes/T-005/prompt.md",
+      "acceptance": ["The check identifies strengths and concrete usability improvements."],
+      "blocks": [
+        {
+          "id": "B-005",
+          "type": "implementation",
+          "title": "Review prototype usability",
+          "prompt": "nodes/T-005/blocks/B-005.prompt.md",
+          "depends_on": []
+        }
+      ]
+    },
+    {
+      "id": "T-006",
+      "type": "task",
+      "title": "Prepare the demo summary",
+      "prompt": "nodes/T-006/prompt.md",
+      "acceptance": ["The summary explains the result and the next step."],
+      "blocks": [
+        {
+          "id": "B-006",
+          "type": "implementation",
+          "title": "Write the demo summary",
+          "prompt": "nodes/T-006/blocks/B-006.prompt.md",
+          "depends_on": []
+        }
+      ]
     }
   ],
-  "edges": []
+  "edges": [
+    { "from": "T-002", "to": "T-001", "type": "depends_on" },
+    { "from": "T-003", "to": "T-001", "type": "depends_on" },
+    { "from": "T-004", "to": "T-002", "type": "depends_on" },
+    { "from": "T-004", "to": "T-003", "type": "depends_on" },
+    { "from": "T-005", "to": "T-004", "type": "depends_on" },
+    { "from": "T-006", "to": "T-004", "type": "depends_on" }
+  ]
 }

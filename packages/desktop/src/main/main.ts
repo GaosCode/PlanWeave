@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from "electron";
 import { shutdownDesktopAutoRuns } from "@planweave-ai/runtime";
 import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { registerApplicationMenu } from "./appMenu.js";
 import { checkForAppUpdate, registerAppUpdateHandlers } from "./appUpdate.js";
 import {
@@ -10,6 +11,7 @@ import {
 } from "./mcpTunnel/mcpTunnelHandlers.js";
 import { registerDesktopSettingsHandlers } from "./desktopSettingsHandlers.js";
 import { applyPersistedPlanweaveHomeSetting } from "./desktopSettingsStore.js";
+import { initializeFirstLaunchExample } from "./firstLaunchExample.js";
 import { registerPackageWatchHandlers } from "./packageWatch.js";
 import { registerRuntimeBridgeHandlers } from "./runtimeBridgeHandlers.js";
 import { registerRuntimeStateWatchHandlers } from "./runtimeStateWatch.js";
@@ -30,6 +32,21 @@ async function writeStartupSmokeReport(payload: unknown): Promise<void> {
     throw new Error("Packaged startup smoke report path is required.");
   }
   await writeFile(reportPath, `${JSON.stringify(payload)}\n`, "utf8");
+}
+
+async function loadFirstLaunchExample(): Promise<void> {
+  if (!app.isPackaged || isSmokeRun) {
+    return;
+  }
+  try {
+    await initializeFirstLaunchExample({
+      userDataDir: app.getPath("userData"),
+      examplePackageDir: join(process.resourcesPath, "planweave-example-package")
+    });
+  } catch (error) {
+    const diagnostic = error instanceof Error ? error.message : String(error);
+    console.error(`Could not load the first-launch example: ${diagnostic}`);
+  }
 }
 
 // Packaged app launches can inherit shell env from development tools; source runs still need PLANWEAVE_HOME for isolated demos and tests.
@@ -71,6 +88,7 @@ startSingleInstanceLifecycle({
 
     app.whenReady().then(() => {
       void (async () => {
+        await loadFirstLaunchExample();
         const window = await createWindow({ isDev, isSmoke, isStartupSmoke });
         if (isStartupSmoke) {
           const result = await runPackagedStartupSmoke(window);

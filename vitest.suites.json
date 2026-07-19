@@ -152,6 +152,7 @@
         "desktopSettingsHandlers.test.ts",
         "desktopSettingsStore.test.ts",
         "developmentToolDetectionCache.test.ts",
+        "firstLaunchExample.test.ts",
         "importRecoveryNotifications.test.tsx",
         "mcpTunnel.test.ts",
         "packageWatch.test.ts",

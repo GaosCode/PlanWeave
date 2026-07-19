@@ -109,6 +109,10 @@ describe("desktop release configuration", () => {
       {
         from: "../runtime/src/process/windowsJobProcess.ps1",
         to: "planweave-windows-job-process.ps1"
+      },
+      {
+        from: "../../examples/basic-plan-package/package",
+        to: "planweave-example-package"
       }
     ]);
   });
@@ -138,6 +142,10 @@ describe("desktop release configuration", () => {
         {
           from: "../runtime/src/process/windowsJobProcess.ps1",
           to: "planweave-windows-job-process.ps1"
+        },
+        {
+          from: "../../examples/basic-plan-package/package",
+          to: "planweave-example-package"
         }
       ],
       nsis: {
