@@ -65,7 +65,9 @@ const fsPromisesMock = vi.hoisted(() => {
     readdirPaths: [] as string[],
     failStat: false,
     holdStatPromise: null as Promise<unknown> | null,
-    statHook: null as null | ((path: string) => Promise<void> | void),
+    nextStatCallId: 1,
+    statHook: null as null | ((path: string, callId: number) => Promise<void> | void),
+    statResultHook: null as null | ((path: string, callId: number) => Promise<void> | void),
     failReadFile: false,
     holdReadFilePromise: null as Promise<Buffer> | null,
     activeReadFiles: 0,
@@ -79,7 +81,9 @@ const fsPromisesMock = vi.hoisted(() => {
       state.readdirPaths = [];
       state.failStat = false;
       state.holdStatPromise = null;
+      state.nextStatCallId = 1;
       state.statHook = null;
+      state.statResultHook = null;
       state.failReadFile = false;
       state.holdReadFilePromise = null;
       state.activeReadFiles = 0;
@@ -175,14 +179,18 @@ vi.mock("node:fs/promises", async () => {
           : Buffer.isBuffer(target)
             ? target.toString("utf8")
             : String(target);
+      const callId = fsPromisesMock.state.nextStatCallId;
+      fsPromisesMock.state.nextStatCallId += 1;
       if (fsPromisesMock.state.failStat) {
         throw new Error("simulated probe failure");
       }
       if (fsPromisesMock.state.holdStatPromise) {
         await fsPromisesMock.state.holdStatPromise;
       }
-      await fsPromisesMock.state.statHook?.(pathText);
-      return actual.stat(...args);
+      await fsPromisesMock.state.statHook?.(pathText, callId);
+      const result = await actual.stat(...args);
+      await fsPromisesMock.state.statResultHook?.(pathText, callId);
+      return result;
     }),
     readFile: vi.fn(async (...args: Parameters<typeof actual.readFile>) => {
       const target = args[0];

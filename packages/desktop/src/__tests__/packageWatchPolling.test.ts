@@ -433,22 +433,49 @@ describe("package file watcher: polling SLA and resources", () => {
     const webContents = createWebContents();
     const target = join(workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md");
     const releaseHashRead = createDeferred<Buffer>();
-    let targetReadStarted = false;
+    const hashReadStarted = createDeferred<void>();
+    const releaseProbeStat = createDeferred<void>();
+    const probeStatStarted = createDeferred<void>();
+    const probeTailCompleted = createDeferred<void>();
+    let probeReleased = false;
+    let probeTailCallId: number | null = null;
 
     try {
       await registerAndWatch(webContents, workspace);
       fsPromisesMock.state.readFileHook = (path) => {
         if (path === target) {
-          targetReadStarted = true;
+          hashReadStarted.resolve();
           return releaseHashRead.promise;
         }
       };
 
       await advanceAndFlush(25_000);
-      expect(targetReadStarted).toBe(true);
+      await hashReadStarted.promise;
+
+      fsPromisesMock.state.statHook = async (path, callId) => {
+        if (path === target && !probeReleased) {
+          probeStatStarted.resolve();
+          await releaseProbeStat.promise;
+          return;
+        }
+        if (path === workspace.projectPromptFile && probeReleased && probeTailCallId === null) {
+          probeTailCallId = callId;
+        }
+      };
+      fsPromisesMock.state.statResultHook = (_path, callId) => {
+        if (callId === probeTailCallId) {
+          probeTailCompleted.resolve();
+        }
+      };
+
+      await advanceAndFlush(1000);
+      await probeStatStarted.promise;
 
       await writeFile(target, "changed while hash read is in flight\n", "utf8");
-      await advanceAndFlush(1000);
+      probeReleased = true;
+      releaseProbeStat.resolve();
+      await probeTailCompleted.promise;
+      await flushMicrotasks();
       await flushDebounce();
       expect(webContents.send).toHaveBeenCalledWith(
         packageFileChangedChannel,
@@ -468,7 +495,10 @@ describe("package file watcher: polling SLA and resources", () => {
       await flushDebounce();
       expect(webContents.send).not.toHaveBeenCalled();
     } finally {
+      fsPromisesMock.state.statHook = null;
+      fsPromisesMock.state.statResultHook = null;
       fsPromisesMock.state.readFileHook = null;
+      releaseProbeStat.resolve();
       releaseHashRead.resolve(Buffer.from("block prompt\n"));
     }
   });
@@ -542,6 +572,18 @@ describe("package file watcher: polling SLA and resources", () => {
     const workspace = await createWorkspace();
     const webContents = createWebContents();
     const releaseProbeStat = createDeferred<void>();
+    const probeStatStarted = createDeferred<void>();
+    const inventoryCompleted = createDeferred<void>();
+    const probeTailCompleted = createDeferred<void>();
+    const inventoryPaths = new Set([
+      join(workspace.packageDir, "nodes", "T-001", "prompt.md"),
+      join(workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md")
+    ]);
+    const completedInventoryPaths = new Set<string>();
+    let probeReleased = false;
+    let manifestStatCalls = 0;
+    let projectPromptStatCallsAfterRelease = 0;
+    let probeTailCallId: number | null = null;
 
     try {
       await registerAndWatch(webContents, workspace);
@@ -549,14 +591,30 @@ describe("package file watcher: polling SLA and resources", () => {
       await flushDebounce();
       webContents.send.mockClear();
 
-      let manifestStatCalls = 0;
-      fsPromisesMock.state.statHook = async (path) => {
-        if (path !== workspace.manifestFile) {
-          return;
+      fsPromisesMock.state.statHook = async (path, callId) => {
+        if (path === workspace.manifestFile) {
+          manifestStatCalls += 1;
+          if (manifestStatCalls === 1) {
+            probeStatStarted.resolve();
+            await releaseProbeStat.promise;
+          }
         }
-        manifestStatCalls += 1;
-        if (manifestStatCalls === 1) {
-          await releaseProbeStat.promise;
+        if (path === workspace.projectPromptFile && probeReleased) {
+          projectPromptStatCallsAfterRelease += 1;
+          if (projectPromptStatCallsAfterRelease === 2) {
+            probeTailCallId = callId;
+          }
+        }
+      };
+      fsPromisesMock.state.statResultHook = (path, callId) => {
+        if (inventoryPaths.has(path) && !probeReleased) {
+          completedInventoryPaths.add(path);
+          if (completedInventoryPaths.size === inventoryPaths.size) {
+            inventoryCompleted.resolve();
+          }
+        }
+        if (callId === probeTailCallId) {
+          probeTailCompleted.resolve();
         }
       };
 
@@ -566,12 +624,17 @@ describe("package file watcher: polling SLA and resources", () => {
         "utf8"
       );
 
-      await advanceAndFlush(8800);
+      await advanceAndFlush(800);
+      await probeStatStarted.promise;
+      await advanceAndFlush(8000);
+      await inventoryCompleted.promise;
+      await flushMicrotasks();
       expect(manifestStatCalls).toBeGreaterThanOrEqual(2);
       expect(webContents.send).not.toHaveBeenCalled();
 
-      fsPromisesMock.state.statHook = null;
+      probeReleased = true;
       releaseProbeStat.resolve();
+      await probeTailCompleted.promise;
       await flushMicrotasks();
       await flushDebounce();
 
@@ -584,6 +647,7 @@ describe("package file watcher: polling SLA and resources", () => {
       );
     } finally {
       fsPromisesMock.state.statHook = null;
+      fsPromisesMock.state.statResultHook = null;
       releaseProbeStat.resolve();
     }
   });
