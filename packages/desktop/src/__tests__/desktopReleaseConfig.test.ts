@@ -309,6 +309,7 @@ describe("desktop release configuration", () => {
 
     expect(packagedVerifier).toContain("hasVerifiedStartupMarker(output)");
     expect(packagedVerifier).toContain("createStartupReportReadiness(startupReportPath)");
+    expect(packagedVerifier).toContain("readVerifiedStartupReport(startupReportPath)");
     expect(packagedVerifier).toContain("PLANWEAVE_DESKTOP_STARTUP_SMOKE_REPORT_PATH");
     expect(packagedVerifier).toContain("payload.runtimeBridgeAvailable === true");
     expect(packagedVerifier).toContain("payload.appUpdateBridgeAvailable === true");

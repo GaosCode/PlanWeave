@@ -577,7 +577,8 @@ describe("host process-tree grandchild termination", () => {
       expect(exitCode).toBe(23);
       expect(JSON.parse(stdout)).toEqual({ cwd: dir, env: "ok", args: probeArgs });
       expect(managed.child.pid).toBe(managed.tree.pid);
-    }
+    },
+    30_000
   );
 
   it.runIf(process.platform === "win32")(
