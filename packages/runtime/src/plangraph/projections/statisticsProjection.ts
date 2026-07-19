@@ -50,6 +50,10 @@ function statisticsPartsFromStatus(
   status: ExecutionStatus,
   implementationDurations: number[]
 ): StatisticsParts {
+  const totalImplementationTimeMs = implementationDurations.reduce(
+    (sum, duration) => sum + duration,
+    0
+  );
   const reviewBlockCount = status.blocks.filter((block) => block.type === "review").length;
   const reviewPassedCount = status.blocks.filter(
     (block) => block.type === "review" && block.completionReason === "passed"
@@ -72,10 +76,10 @@ function statisticsPartsFromStatus(
       averageImplementationTimeMs:
         implementationDurations.length === 0
           ? null
-          : Math.round(
-              implementationDurations.reduce((sum, duration) => sum + duration) /
-                implementationDurations.length
-            ),
+          : Math.round(totalImplementationTimeMs / implementationDurations.length),
+      totalImplementationTimeMs:
+        implementationDurations.length === 0 ? null : totalImplementationTimeMs,
+      timedImplementationRunCount: implementationDurations.length,
       reviewPassedCount,
       reviewPassedRatio: reviewBlockCount === 0 ? 0 : reviewPassedCount / reviewBlockCount,
       feedbackEnvelopeCount,
@@ -114,6 +118,10 @@ function mergeStatisticsParts(parts: StatisticsParts[]): DesktopStatistics {
       implementationDurations: [] as number[]
     }
   );
+  const totalImplementationTimeMs = totals.implementationDurations.reduce(
+    (sum, duration) => sum + duration,
+    0
+  );
   return {
     taskTotal: totals.taskTotal,
     implementedTaskCount: totals.implementedTaskCount,
@@ -124,10 +132,10 @@ function mergeStatisticsParts(parts: StatisticsParts[]): DesktopStatistics {
     averageImplementationTimeMs:
       totals.implementationDurations.length === 0
         ? null
-        : Math.round(
-            totals.implementationDurations.reduce((sum, duration) => sum + duration) /
-              totals.implementationDurations.length
-          ),
+        : Math.round(totalImplementationTimeMs / totals.implementationDurations.length),
+    totalImplementationTimeMs:
+      totals.implementationDurations.length === 0 ? null : totalImplementationTimeMs,
+    timedImplementationRunCount: totals.implementationDurations.length,
     reviewPassedCount: totals.reviewPassedCount,
     reviewPassedRatio:
       totals.reviewBlockCount === 0 ? 0 : totals.reviewPassedCount / totals.reviewBlockCount,

@@ -31,6 +31,36 @@ describe("desktop renderer component interactions", () => {
     expect(handleOpenProject).toHaveBeenCalledTimes(1);
   });
 
+  it("shows total recorded implementation time with its timing coverage", () => {
+    render(
+      <StatisticsView
+        handleOpenProject={vi.fn().mockResolvedValue(undefined)}
+        selectedProject={{}}
+        statistics={{
+          taskTotal: 80,
+          implementedTaskCount: 80,
+          implementedRatio: 1,
+          taskThroughput: 80,
+          blockTotal: 156,
+          completedBlockCount: 156,
+          averageImplementationTimeMs: 508_000,
+          totalImplementationTimeMs: 6_608_000,
+          timedImplementationRunCount: 13,
+          reviewPassedCount: 67,
+          reviewPassedRatio: 1,
+          feedbackEnvelopeCount: 45,
+          reworkCount: 45,
+          estimatedRemainingBlocks: 0
+        }}
+        t={createTranslator("en")}
+      />
+    );
+
+    expect(screen.getByText("Total Recorded Time")).toBeInTheDocument();
+    expect(screen.getByText("1h 50m 08s")).toBeInTheDocument();
+    expect(screen.getByText("13 timed runs")).toBeInTheDocument();
+  });
+
   it("renders settings rows as switch controls", async () => {
     const onCheckedChange = vi.fn();
 

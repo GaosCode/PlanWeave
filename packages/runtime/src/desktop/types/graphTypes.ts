@@ -301,6 +301,8 @@ export type DesktopStatistics = {
   blockTotal: number;
   completedBlockCount: number;
   averageImplementationTimeMs: number | null;
+  totalImplementationTimeMs: number | null;
+  timedImplementationRunCount: number;
   reviewPassedCount: number;
   reviewPassedRatio: number;
   feedbackEnvelopeCount: number;

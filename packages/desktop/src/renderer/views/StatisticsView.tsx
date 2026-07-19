@@ -109,7 +109,7 @@ export function StatisticsView({
           </div>
         </section>
 
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <MetricTile
             delay={60}
             hint={formatPercent(statistics.reviewPassedRatio)}
@@ -130,12 +130,27 @@ export function StatisticsView({
           />
           <MetricTile
             delay={180}
+            hint={`${statistics.timedImplementationRunCount} ${t(
+              statistics.timedImplementationRunCount === 1
+                ? "timedImplementationRun"
+                : "timedImplementationRuns"
+            )}`}
+            label={t("totalImplementationTime")}
+            tone="neutral"
+            value={
+              statistics.totalImplementationTimeMs === null
+                ? "—"
+                : formatTotalElapsed(statistics.totalImplementationTimeMs)
+            }
+          />
+          <MetricTile
+            delay={240}
             label={t("feedback")}
             tone="amber"
             value={String(statistics.feedbackEnvelopeCount)}
           />
           <MetricTile
-            delay={240}
+            delay={300}
             label={t("reworkCount")}
             tone="rose"
             value={String(statistics.reworkCount)}
@@ -144,6 +159,17 @@ export function StatisticsView({
       </div>
     </ScrollArea>
   );
+}
+
+function formatTotalElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours === 0) {
+    return formatElapsed(ms);
+  }
+  return `${hours}h ${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 
 function HeroStat({ label, value }: { label: string; value: string }) {

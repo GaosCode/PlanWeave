@@ -99,6 +99,8 @@ describe("desktop search and statistics API", () => {
       taskThroughput: 0,
       implementedRatio: 0,
       averageImplementationTimeMs: null,
+      totalImplementationTimeMs: null,
+      timedImplementationRunCount: 0,
       reviewPassedRatio: 0,
       reworkCount: 0
     });
@@ -173,6 +175,44 @@ describe("desktop search and statistics API", () => {
         expect.objectContaining({ code: "desktop_results_read_failed", path: "results" })
       ])
     );
+  });
+
+  it("aggregates total and average duration across timed implementation runs", async () => {
+    const { root, init } = await createTestWorkspace();
+    const secondCanvas = await createTaskCanvas(root, { name: "Timed follow-up canvas" });
+    const secondWorkspace = await resolveTaskCanvasWorkspace(root, secondCanvas.canvasId);
+    await writeJsonFile(secondWorkspace.manifestFile, basicManifest());
+    await writePromptFiles(secondWorkspace.packageDir, basicManifest());
+
+    const durations = [
+      { workspace: init.workspace, runId: "RUN-001", start: 0, finish: 60_000 },
+      { workspace: secondWorkspace, runId: "RUN-002", start: 0, finish: 180_000 }
+    ];
+    for (const duration of durations) {
+      const runDir = join(
+        duration.workspace.resultsDir,
+        "T-001",
+        "blocks",
+        "B-001",
+        "runs",
+        duration.runId
+      );
+      await mkdir(runDir, { recursive: true });
+      await writeJsonFile(join(runDir, "metadata.json"), {
+        ref: "T-001#B-001",
+        taskId: "T-001",
+        blockId: "B-001",
+        runId: duration.runId,
+        startedAt: new Date(duration.start).toISOString(),
+        finishedAt: new Date(duration.finish).toISOString()
+      });
+    }
+
+    await expect(getStatistics(root)).resolves.toMatchObject({
+      averageImplementationTimeMs: 120_000,
+      totalImplementationTimeMs: 240_000,
+      timedImplementationRunCount: 2
+    });
   });
 
   it("reports malformed result metadata through snapshot diagnostics", async () => {

@@ -183,6 +183,8 @@ describe("desktop project loader hook", () => {
     };
     const nextStatistics: DesktopStatistics = {
       averageImplementationTimeMs: null,
+      totalImplementationTimeMs: null,
+      timedImplementationRunCount: 0,
       blockTotal: 1,
       completedBlockCount: 0,
       estimatedRemainingBlocks: 1,
