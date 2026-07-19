@@ -482,13 +482,16 @@ describe("runWithSession", () => {
 
   it("retains ACP executor identity when fail-closed execution blocks before a run record", async () => {
     const manifest = manifestTestBuilder()
-      .withExecutor("codex-acp", {
+      .withExecutor("package-codex-acp", {
         adapter: "agent",
         agent: "codex",
         runner: { transport: "acp" }
       })
-      .withDefaultExecutor("codex-acp")
-      .withBlock("T-001", "B-001", (block) => ({ ...block, executor: "codex-acp" }))
+      .withDefaultExecutor("package-codex-acp")
+      .withBlock("T-001", "B-001", (block) => ({
+        ...block,
+        executor: "package-codex-acp"
+      }))
       .build();
     const { root } = await createTestWorkspace(manifest);
 
@@ -501,7 +504,7 @@ describe("runWithSession", () => {
         {
           kind: "blocked",
           runnerEvidence: {
-            effectiveExecutor: "codex-acp",
+            effectiveExecutor: "package-codex-acp",
             agentId: "codex",
             runnerKind: "acp"
           }
@@ -511,7 +514,7 @@ describe("runWithSession", () => {
         phase: "blocked",
         latestRecordId: null,
         autoRun: {
-          effectiveExecutor: "codex-acp",
+          effectiveExecutor: "package-codex-acp",
           agentId: "codex",
           runnerKind: "acp"
         }

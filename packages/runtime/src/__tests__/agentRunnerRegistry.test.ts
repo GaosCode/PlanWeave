@@ -641,9 +641,9 @@ describe("AgentRunner registries", () => {
     );
   });
 
-  it("keeps package profile precedence and compatibility list output", () => {
+  it("keeps custom package profiles in compatibility list output", () => {
     const manifest = manifestTestBuilder()
-      .withExecutor("codex", {
+      .withExecutor("custom-opencode", {
         adapter: "agent",
         agent: "opencode",
         runner: { transport: "cli" },
@@ -655,7 +655,7 @@ describe("AgentRunner registries", () => {
     expect(listExecutorProfilesForManifest(manifest)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          name: "codex",
+          name: "custom-opencode",
           source: "package",
           adapter: "opencode-exec",
           profileAdapter: "agent",

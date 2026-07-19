@@ -394,12 +394,12 @@ describe("OpenCode executor", () => {
 
   it("does not apply desktop full-access settings to package-defined OpenCode profiles", async () => {
     const manifest = manifestTestBuilder()
-      .withExecutor("opencode", {
+      .withExecutor("package-opencode", {
         adapter: "opencode-exec",
         command: "./opencode",
         args: ["run", "-"]
       })
-      .withDefaultExecutor("opencode")
+      .withDefaultExecutor("package-opencode")
       .build();
     const { root, init } = await createTestWorkspace(manifest);
     const oldSettingsFile = process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
@@ -435,7 +435,7 @@ describe("OpenCode executor", () => {
         projectRoot: init.workspace,
         executor: createOpencodeExecAdapter({
           projectRoot: init.workspace,
-          executorName: "opencode",
+          executorName: "package-opencode",
           runtime: { tmuxEnabled: false }
         })
       });
@@ -465,7 +465,7 @@ describe("OpenCode executor", () => {
           )
         )
       ).resolves.toMatchObject({
-        executor: "opencode",
+        executor: "package-opencode",
         adapter: "opencode-exec",
         sandbox: null,
         exitCode: 0

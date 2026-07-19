@@ -181,13 +181,16 @@ async function latestResetSession(projectRoot: string): Promise<RunSessionState>
 describe("desktop auto run API", () => {
   it("preserves ACP profile identity when a Desktop run fails closed before a record", async () => {
     const manifest = manifestTestBuilder()
-      .withExecutor("codex-acp", {
+      .withExecutor("package-codex-acp", {
         adapter: "agent",
         agent: "codex",
         runner: { transport: "acp" }
       })
-      .withDefaultExecutor("codex-acp")
-      .withBlock("T-001", "B-001", (block) => ({ ...block, executor: "codex-acp" }))
+      .withDefaultExecutor("package-codex-acp")
+      .withBlock("T-001", "B-001", (block) => ({
+        ...block,
+        executor: "package-codex-acp"
+      }))
       .build();
     const { root } = await createTestWorkspace(manifest);
 
@@ -202,14 +205,14 @@ describe("desktop auto run API", () => {
 
     expect(blocked).toMatchObject({
       phase: "blocked",
-      currentExecutor: "codex-acp",
+      currentExecutor: "package-codex-acp",
       latestRecordId: null
     });
     await expect(getRunSession(root, runSessionIdFor(blocked))).resolves.toMatchObject({
       session: {
         phase: "blocked",
         autoRun: {
-          effectiveExecutor: "codex-acp",
+          effectiveExecutor: "package-codex-acp",
           agentId: "codex",
           runnerKind: "acp"
         }
