@@ -30,7 +30,7 @@ export function SettingsNav({ section, setSection, onBackToApp, t }: SettingsNav
 
   return (
     <aside className="flex w-[260px] shrink-0 flex-col text-text">
-      <div className="app-drag-region flex h-11 shrink-0 items-center border-b border-border/80 px-3 pl-[124px]">
+      <div className="app-drag-region window-titlebar-leading flex h-11 shrink-0 items-center border-b border-border/80 px-3">
         <div className="app-no-drag flex items-center gap-1">
           <HistoryNavigationButtons t={t} />
         </div>

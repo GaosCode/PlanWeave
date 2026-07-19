@@ -356,6 +356,18 @@ html[data-reduced-motion="true"] *::after {
   -webkit-app-region: no-drag;
 }
 
+[data-window-platform] {
+  --window-titlebar-leading-space: 0.75rem;
+}
+
+[data-window-platform="darwin"] {
+  --window-titlebar-leading-space: 124px;
+}
+
+.window-titlebar-leading {
+  padding-left: var(--window-titlebar-leading-space);
+}
+
 .react-flow {
   background: var(--app-canvas);
 }

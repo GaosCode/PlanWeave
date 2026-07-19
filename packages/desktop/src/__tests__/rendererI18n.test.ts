@@ -2,12 +2,10 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import {
-  detectRendererFileManagerPlatform,
-  fileManagerLabelKey
-} from "../renderer/fileManagerLabels";
+import { fileManagerLabelKey } from "../renderer/fileManagerLabels";
 import { createTranslator, resolveLanguage } from "../renderer/i18n";
 import { resources } from "../renderer/i18nCatalog";
+import { detectRendererPlatform } from "../renderer/rendererPlatform";
 
 const sourceDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -86,14 +84,10 @@ describe("desktop renderer i18n", () => {
   });
 
   it("resolves file manager labels from renderer platform data", () => {
-    expect(detectRendererFileManagerPlatform({ platform: "MacIntel", userAgent: "Mac OS X" })).toBe(
-      "darwin"
-    );
-    expect(detectRendererFileManagerPlatform({ platform: "Win32", userAgent: "Windows NT" })).toBe(
-      "win32"
-    );
+    expect(detectRendererPlatform({ platform: "MacIntel", userAgent: "Mac OS X" })).toBe("darwin");
+    expect(detectRendererPlatform({ platform: "Win32", userAgent: "Windows NT" })).toBe("win32");
     expect(
-      detectRendererFileManagerPlatform({
+      detectRendererPlatform({
         platform: "Linux x86_64",
         userAgent: "X11; Linux x86_64"
       })

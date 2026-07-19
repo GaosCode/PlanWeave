@@ -27,7 +27,11 @@ describe("app sidebar separator ownership", () => {
     const [leftButton, rightButton] = screen.getAllByRole("button", {
       name: t("expandSidebar")
     });
-    expect(leftButton?.closest(".app-drag-region")).toHaveClass("border-b", "border-border/80");
+    expect(leftButton?.closest(".app-drag-region")).toHaveClass(
+      "border-b",
+      "border-border/80",
+      "window-titlebar-leading"
+    );
     expect(rightButton?.closest(".app-drag-region")).toHaveClass("border-b", "border-border/80");
     expect(rightButton?.closest(".app-drag-region")).not.toHaveClass("border-l");
   });

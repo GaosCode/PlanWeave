@@ -98,7 +98,7 @@ export function TaskWorkspaceStateShell({
       data-testid="task-workspace-shell"
       data-workspace-status={status}
     >
-      <header className="app-drag-region flex min-h-11 shrink-0 items-center border-b border-border/80 bg-app-topbar py-1.5 pr-3 pl-[124px]">
+      <header className="app-drag-region window-titlebar-leading flex min-h-11 shrink-0 items-center border-b border-border/80 bg-app-topbar py-1.5 pr-3">
         <Button
           className="app-no-drag"
           data-testid="task-workspace-back"

@@ -97,7 +97,7 @@ export function CollapsedSidebarControls({
   return (
     <>
       {leftSidebarCollapsed ? (
-        <div className="app-drag-region absolute left-0 top-0 z-20 flex h-11 w-[280px] items-center border-b border-border/80 bg-app-topbar px-3 pl-[124px] text-text">
+        <div className="app-drag-region window-titlebar-leading absolute left-0 top-0 z-20 flex h-11 w-[280px] items-center border-b border-border/80 bg-app-topbar px-3 text-text">
           <div className="app-no-drag flex items-center gap-1">
             <Button
               size="icon-sm"

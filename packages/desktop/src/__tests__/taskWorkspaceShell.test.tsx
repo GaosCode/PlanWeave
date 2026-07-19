@@ -770,7 +770,7 @@ describe("Task Workspace shell", () => {
     expect(titleBlock).not.toHaveClass("border-l");
     expect(backToCanvas.parentElement?.nextElementSibling).toBe(headerMain);
     expect(headerMain.firstElementChild).toBe(titleBlock);
-    expect(backToCanvas.parentElement).toHaveClass("pl-[124px]", "justify-end");
+    expect(backToCanvas.parentElement).toHaveClass("window-titlebar-leading", "justify-end");
     const headerAction = within(header).getByRole("button", { name: "Repository action" });
     const inspectorToggle = within(header).getByRole("button", { name: "Inspector" });
     expect(titleBlock.nextElementSibling).toContainElement(headerAction);

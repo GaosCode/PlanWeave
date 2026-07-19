@@ -1,17 +1,9 @@
 import type { createTranslator, TranslationKey } from "./i18n";
+import { detectRendererPlatform, type RendererPlatform } from "./rendererPlatform";
 
-type RendererNavigator = {
-  platform?: string;
-  userAgent?: string;
-  userAgentData?: {
-    platform?: string;
-  };
-};
-
-type FileManagerPlatform = "darwin" | "win32" | "generic";
 type FileManagerLabelTarget = "open" | "planWorkspace" | "sourceRoot" | "taskCanvas" | "task";
 
-const labelKeys: Record<FileManagerPlatform, Record<FileManagerLabelTarget, TranslationKey>> = {
+const labelKeys: Record<RendererPlatform, Record<FileManagerLabelTarget, TranslationKey>> = {
   darwin: {
     open: "openInFinder",
     planWorkspace: "openPlanWorkspaceInFinder",
@@ -35,30 +27,9 @@ const labelKeys: Record<FileManagerPlatform, Record<FileManagerLabelTarget, Tran
   }
 };
 
-export function detectRendererFileManagerPlatform(
-  navigatorLike: RendererNavigator | undefined = globalThis.navigator
-): FileManagerPlatform {
-  const platformText = [
-    navigatorLike?.userAgentData?.platform,
-    navigatorLike?.platform,
-    navigatorLike?.userAgent
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  if (platformText.includes("mac") || platformText.includes("darwin")) {
-    return "darwin";
-  }
-  if (platformText.includes("win")) {
-    return "win32";
-  }
-  return "generic";
-}
-
 export function fileManagerLabelKey(
   target: FileManagerLabelTarget,
-  platform = detectRendererFileManagerPlatform()
+  platform = detectRendererPlatform()
 ): TranslationKey {
   return labelKeys[platform][target];
 }

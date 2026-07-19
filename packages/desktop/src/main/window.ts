@@ -8,6 +8,7 @@ import {
   rendererUncaughtSmokeEvent
 } from "./smokeFailureGate.js";
 import { applyLiquidGlassToWindow, windowBackgroundColor } from "./windowAppearance.js";
+import { windowChromeOptions } from "./windowChrome.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const allowedExternalUrls = new Set([
@@ -84,8 +85,7 @@ export async function createWindow(options: {
     minHeight: 720,
     show: !options.isSmoke && !options.isStartupSmoke,
     title: "PlanWeave Desktop",
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 14, y: 14 },
+    ...windowChromeOptions(process.platform),
     transparent: isMac,
     backgroundColor: isMac ? "#00000000" : windowBackgroundColor("system"),
     webPreferences: {

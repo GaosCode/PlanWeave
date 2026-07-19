@@ -12,6 +12,7 @@ import { useResizableSidebarLayout } from "./hooks/useResizableSidebarLayout";
 import { CollapsedSidebarControls, RightPaletteSidebar } from "./AppSidebars";
 import { AppSettingsRoute } from "./AppSettingsRoute";
 import { AppOverlays } from "./components/AppOverlays";
+import { detectRendererPlatform } from "./rendererPlatform";
 import {
   ProjectWorkspaceProvider,
   useProjectWorkspace,
@@ -116,6 +117,7 @@ function AppSettingsChrome({
 }
 
 export function App() {
+  const rendererPlatform = detectRendererPlatform();
   const [error, setError] = useState<string | null>(null);
   const { settings, updateLayoutSettings, updateSettings, updateSettingsAndWait } =
     useDesktopSettingsBridge({ setError });
@@ -192,7 +194,10 @@ export function App() {
 
   return (
     <ProjectWorkspaceProvider shell={shellInput}>
-      <div className="glass-surface relative h-screen min-h-0 overflow-hidden text-foreground">
+      <div
+        className="glass-surface relative h-screen min-h-0 overflow-hidden text-foreground"
+        data-window-platform={rendererPlatform}
+      >
         {activeView === "settings" ? (
           <AppSettingsChrome
             error={error}

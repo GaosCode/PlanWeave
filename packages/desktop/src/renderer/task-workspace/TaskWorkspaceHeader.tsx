@@ -33,7 +33,7 @@ export function TaskWorkspaceHeader({
       }}
     >
       <div
-        className="app-no-drag flex h-full min-w-0 items-center justify-end gap-1 overflow-hidden border-r border-b border-border/80 pr-2 pl-[124px]"
+        className="app-no-drag window-titlebar-leading flex h-full min-w-0 items-center justify-end gap-1 overflow-hidden border-r border-b border-border/80 pr-2"
         data-testid="task-workspace-header-timeline"
       >
         <Button
