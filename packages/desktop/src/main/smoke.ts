@@ -669,6 +669,11 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       await clickByTestId("task-workspace-back");
       await waitForSelector("[data-graph-surface]", "graph surface after Task Workspace return");
       await waitForSelector("[data-auto-run-control]", "Floating Auto Run control after Task Workspace return");
+      await waitForFixtureBlock();
+      await waitForSelector(
+        '[data-testid="task-node-card"][data-task-id="' + fixtureTaskId + '"]',
+        "fixture task card after Task Workspace return"
+      );
       const returnedTaskCard = document.querySelector(
         '[data-testid="task-node-card"][data-task-id="' + fixtureTaskId + '"]'
       );

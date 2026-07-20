@@ -37,6 +37,7 @@ describe("desktop renderer workflow guardrails", () => {
     expect(smokeSource).toContain('const fixtureTaskId = "T-001"');
     expect(smokeSource).toContain('const fixtureBlockRef = "T-001#B-001"');
     expect(smokeSource).toContain('[data-testid="task-node-block"][data-block-ref="');
+    expect(smokeSource.match(/await waitForFixtureBlock\(\)/g)).toHaveLength(2);
     expect(smokeSource).toContain('data-workspace-status="ready"');
     expect(smokeSource).toContain('[data-testid="task-workspace-title-block"]');
     expect(smokeSource).toContain('[data-testid="task-workspace-run-summary"]');
