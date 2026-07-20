@@ -1,6 +1,6 @@
 {
   "name": "@planweave-ai/mcp",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Local HTTP MCP server for PlanWeave.",
   "license": "MIT",
   "type": "module",
