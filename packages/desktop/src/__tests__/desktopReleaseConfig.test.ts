@@ -252,7 +252,7 @@ describe("desktop release configuration", () => {
     expect(result.stdout).not.toContain(passwordMarker);
   });
 
-  it("runs platform preflight before release-only builder config", async () => {
+  it("supports explicit signed and unsigned releases without weakening signed preflight", async () => {
     const workflow = await readFile(
       resolve(repoRoot, ".github/workflows/desktop-release.yml"),
       "utf8"
@@ -261,21 +261,29 @@ describe("desktop release configuration", () => {
     const winPreflight = workflow.indexOf("preflight-release-secrets.mjs --platform win");
     const macBuild = workflow.indexOf("Build signed macOS installers");
     const winBuild = workflow.indexOf("Build signed Windows installers with OV PFX");
+    const unsignedBuild = workflow.indexOf("Build unsigned installers");
     const metadata = workflow.indexOf("Generate release build metadata");
 
     expect(workflow).toContain("environment: desktop-release");
+    expect(workflow).toContain("signed:");
+    expect(workflow).toContain("Build signed installers and require release credentials.");
     expect(macPreflight).toBeGreaterThan(-1);
     expect(winPreflight).toBeGreaterThan(-1);
+    expect(unsignedBuild).toBeGreaterThan(-1);
     expect(macPreflight).toBeLessThan(macBuild);
     expect(winPreflight).toBeLessThan(winBuild);
     expect(metadata).toBeGreaterThan(-1);
     expect(metadata).toBeLessThan(macBuild);
     expect(metadata).toBeLessThan(winBuild);
     expect(workflow).toContain(
-      "--channel release --signed-distribution ${{ matrix.signedDistribution }}"
+      "--channel release --signed-distribution ${{ inputs.signed == 'true' && matrix.artifactName != 'linux-x64' }}"
     );
-    expect(workflow).toContain('signedDistribution: "true"');
-    expect(workflow).toContain('signedDistribution: "false"');
+    expect(workflow).toContain(
+      "if: inputs.signed == 'false' || matrix.artifactName == 'linux-x64'"
+    );
+    expect(workflow).toContain('CSC_IDENTITY_AUTO_DISCOVERY: "false"');
+    expect(workflow).toContain("if: inputs.signed == 'true' && matrix.releasePlatform == 'mac'");
+    expect(workflow).toContain("if: inputs.signed == 'true' && matrix.releasePlatform == 'win'");
     expect(workflow).toContain("--config electron-builder.release.cjs");
     expect(workflow).toContain("secrets.WINDOWS_OV_PFX");
     expect(workflow).not.toContain("azureSignOptions");
@@ -288,6 +296,10 @@ describe("desktop release configuration", () => {
     );
     const macVerification = workflow.indexOf("verify-macos-release.mjs");
     const windowsVerification = workflow.indexOf("verify-windows-release.ps1");
+    const unsignedMacVerification = workflow.indexOf("Verify unsigned macOS packaged startup");
+    const unsignedWindowsVerification = workflow.indexOf(
+      "Verify unsigned Windows packaged startup"
+    );
     const linuxVerification = workflow.indexOf("name: Verify Linux release package metadata");
     const upload = workflow.indexOf("name: Upload desktop artifacts");
     const publishJob = workflow.indexOf("\n  publish:");
@@ -298,14 +310,20 @@ describe("desktop release configuration", () => {
     expect(workflow).toContain('chmod 600 "${key_path}"');
     expect(workflow).toContain("printf 'APPLE_API_KEY=%s\\n'");
     expect(workflow).not.toMatch(/APPLE_API_KEY:\s*\$\{\{\s*secrets\./);
-    expect(workflow).toContain("if: always() && matrix.releasePlatform == 'mac'");
+    expect(workflow).toContain(
+      "if: always() && inputs.signed == 'true' && matrix.releasePlatform == 'mac'"
+    );
     expect(workflow).toContain('rm -f -- "${RUNNER_TEMP}/planweave-notarization-key.p8"');
     expect(workflow).toContain("packages/desktop/release/verification-*.txt");
     expect(macVerification).toBeGreaterThan(-1);
     expect(windowsVerification).toBeGreaterThan(-1);
+    expect(unsignedMacVerification).toBeGreaterThan(-1);
+    expect(unsignedWindowsVerification).toBeGreaterThan(-1);
     expect(linuxVerification).toBeGreaterThan(-1);
     expect(macVerification).toBeLessThan(upload);
     expect(windowsVerification).toBeLessThan(upload);
+    expect(unsignedMacVerification).toBeLessThan(upload);
+    expect(unsignedWindowsVerification).toBeLessThan(upload);
     expect(linuxVerification).toBeLessThan(upload);
     expect(workflow).toContain('dpkg-deb -f "${debs[0]}" Version');
     expect(workflow).toContain('dpkg-deb -f "${debs[0]}" Architecture');

@@ -7,6 +7,14 @@ on:
         description: Desktop package version to release, without the leading v.
         required: true
         type: string
+      signed:
+        description: Build signed installers and require release credentials.
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
       publish:
         description: Upload artifacts to the GitHub Release after all builds pass.
         required: true
@@ -33,18 +41,15 @@ jobs:
             builderArgs: --mac dmg zip --universal
             artifactName: macos-universal
             releasePlatform: mac
-            signedDistribution: "true"
           - name: Linux x64
             runner: ubuntu-latest
             builderArgs: --linux AppImage deb tar.gz --x64
             artifactName: linux-x64
-            signedDistribution: "false"
           - name: Windows x64
             runner: windows-latest
             builderArgs: --win nsis zip --x64
             artifactName: windows-x64
             releasePlatform: win
-            signedDistribution: "true"
 
     steps:
       - name: Checkout
@@ -73,10 +78,10 @@ jobs:
         run: pnpm --dir packages/desktop build
 
       - name: Generate release build metadata
-        run: pnpm --dir packages/desktop exec tsx scripts/generate-build-metadata.ts --channel release --signed-distribution ${{ matrix.signedDistribution }}
+        run: pnpm --dir packages/desktop exec tsx scripts/generate-build-metadata.ts --channel release --signed-distribution ${{ inputs.signed == 'true' && matrix.artifactName != 'linux-x64' }}
 
       - name: Materialize macOS notarization API key
-        if: matrix.releasePlatform == 'mac'
+        if: inputs.signed == 'true' && matrix.releasePlatform == 'mac'
         shell: bash
         env:
           APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY }}
@@ -90,7 +95,7 @@ jobs:
           printf 'APPLE_API_KEY=%s\n' "${key_path}" >> "${GITHUB_ENV}"
 
       - name: Preflight macOS release secrets
-        if: matrix.releasePlatform == 'mac'
+        if: inputs.signed == 'true' && matrix.releasePlatform == 'mac'
         env:
           CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
@@ -99,18 +104,20 @@ jobs:
         run: node packages/desktop/scripts/preflight-release-secrets.mjs --platform mac
 
       - name: Preflight Windows release secrets
-        if: matrix.releasePlatform == 'win'
+        if: inputs.signed == 'true' && matrix.releasePlatform == 'win'
         env:
           WIN_CSC_LINK: ${{ secrets.WINDOWS_OV_PFX }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_OV_PFX_PASSWORD }}
         run: node packages/desktop/scripts/preflight-release-secrets.mjs --platform win
 
-      - name: Build unsigned Linux installers
-        if: matrix.artifactName == 'linux-x64'
+      - name: Build unsigned installers
+        if: inputs.signed == 'false' || matrix.artifactName == 'linux-x64'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: pnpm --dir packages/desktop exec electron-builder ${{ matrix.builderArgs }} --publish never
 
       - name: Build signed macOS installers
-        if: matrix.releasePlatform == 'mac'
+        if: inputs.signed == 'true' && matrix.releasePlatform == 'mac'
         env:
           CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
@@ -119,12 +126,12 @@ jobs:
         run: pnpm --dir packages/desktop exec electron-builder --config electron-builder.release.cjs ${{ matrix.builderArgs }} --publish never
 
       - name: Remove macOS notarization API key
-        if: always() && matrix.releasePlatform == 'mac'
+        if: always() && inputs.signed == 'true' && matrix.releasePlatform == 'mac'
         shell: bash
         run: rm -f -- "${RUNNER_TEMP}/planweave-notarization-key.p8"
 
       - name: Build signed Windows installers with OV PFX
-        if: matrix.releasePlatform == 'win'
+        if: inputs.signed == 'true' && matrix.releasePlatform == 'win'
         env:
           WIN_CSC_LINK: ${{ secrets.WINDOWS_OV_PFX }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_OV_PFX_PASSWORD }}
@@ -174,12 +181,20 @@ jobs:
           grep -Eq 'x86_64|x64' /tmp/planweave-lipo.txt
           grep -q 'arm64' /tmp/planweave-lipo.txt
 
+      - name: Verify unsigned macOS packaged startup
+        if: inputs.signed == 'false' && matrix.releasePlatform == 'mac'
+        run: node packages/desktop/scripts/verify-packaged-app.mjs
+
       - name: Verify notarized macOS release and installed startup
-        if: matrix.releasePlatform == 'mac'
+        if: inputs.signed == 'true' && matrix.releasePlatform == 'mac'
         run: node packages/desktop/scripts/verify-macos-release.mjs
 
+      - name: Verify unsigned Windows packaged startup
+        if: inputs.signed == 'false' && matrix.releasePlatform == 'win'
+        run: node packages/desktop/scripts/verify-packaged-app.mjs
+
       - name: Verify signed Windows release and installed startup
-        if: matrix.releasePlatform == 'win'
+        if: inputs.signed == 'true' && matrix.releasePlatform == 'win'
         shell: pwsh
         run: ./packages/desktop/scripts/verify-windows-release.ps1
 
