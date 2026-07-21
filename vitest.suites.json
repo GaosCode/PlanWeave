@@ -264,6 +264,7 @@
         "taskManagerTrustedAccess.test.ts",
         "taskStatus.test.ts",
         "validationSummary.test.ts",
+        "agentProcessEnv.test.ts",
         "windowsProcessInvocation.test.ts"
       ],
       "integration": [

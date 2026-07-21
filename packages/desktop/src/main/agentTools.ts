@@ -3,12 +3,13 @@ import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import {
+  agentProcessEnv,
+  agentProcessPath,
   resolveWindowsProcessInvocation,
   type DesktopAgentDetection,
   type DesktopAgentToolProfile
 } from "@planweave-ai/runtime";
 
-const posixAgentPathEntries = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
 const agentVersionDetectionTimeoutMs = 5_000;
 const agentAcpDetectionTimeoutMs = 15_000;
 
@@ -103,7 +104,8 @@ const agentProfiles: DesktopAgentToolProfile[] = [
     versionArgs: [],
     execArgs: [],
     fullAccessArgs: [],
-    installCommand: "npm install -g pi-acp"
+    installCommand: "npm install -g pi-acp",
+    loginCommands: ["pi"]
   },
   {
     kind: "grok",
@@ -118,76 +120,26 @@ const agentProfiles: DesktopAgentToolProfile[] = [
   }
 ];
 
-function environmentValue(
-  env: NodeJS.ProcessEnv | undefined,
-  name: string
-): string | undefined {
-  if (!env) {
-    return undefined;
-  }
-  return Object.entries(env).find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1];
-}
-
-function pathDelimiterFor(platform: NodeJS.Platform): string {
-  return platform === "win32" ? ";" : ":";
-}
-
 export type AgentDetectionPathOptions = {
   envPath?: string | undefined;
   platform?: NodeJS.Platform;
   env?: NodeJS.ProcessEnv;
 };
 
-/**
- * Build the PATH used for agent CLI/ACP detection.
- * Uses the platform path delimiter. POSIX hosts may append common shell fallbacks;
- * Windows relies only on the process environment PATH (no guessed install locations).
- */
+/** @see agentProcessPath — desktop alias kept for existing imports/tests. */
 export function agentDetectionPath(
   envPathOrOptions?: string | AgentDetectionPathOptions,
   platformArg: NodeJS.Platform = process.platform
 ): string {
-  const options: AgentDetectionPathOptions =
-    typeof envPathOrOptions === "string" || envPathOrOptions === undefined
-      ? { envPath: envPathOrOptions, platform: platformArg }
-      : envPathOrOptions;
-  const platform = options.platform ?? process.platform;
-  const env = options.env ?? process.env;
-  const pathDelimiter = pathDelimiterFor(platform);
-  const source =
-    options.envPath ?? environmentValue(env, "PATH") ?? environmentValue(process.env, "PATH");
-  const existingEntries = source?.split(pathDelimiter).filter(Boolean) ?? [];
-  const fallbackEntries = platform === "win32" ? [] : posixAgentPathEntries;
-  return [...new Set([...existingEntries, ...fallbackEntries])].join(pathDelimiter);
+  return agentProcessPath(envPathOrOptions, platformArg);
 }
 
-/**
- * Build a process env for agent detection with a single, correctly cased PATH entry.
- * On Windows this avoids leaving both `Path` and a broken `PATH` in the child environment.
- */
+/** @see agentProcessEnv — desktop alias kept for existing imports/tests. */
 export function agentDetectionEnv(options?: {
   platform?: NodeJS.Platform;
   env?: NodeJS.ProcessEnv;
 }): NodeJS.ProcessEnv {
-  const platform = options?.platform ?? process.platform;
-  const baseEnv = options?.env ?? process.env;
-  const pathValue = agentDetectionPath({
-    platform,
-    env: baseEnv,
-    envPath: environmentValue(baseEnv, "PATH")
-  });
-  const nextEnv: NodeJS.ProcessEnv = { ...baseEnv };
-  for (const key of Object.keys(nextEnv)) {
-    if (key.toLowerCase() === "path") {
-      delete nextEnv[key];
-    }
-  }
-  if (platform === "win32") {
-    nextEnv.Path = pathValue;
-  } else {
-    nextEnv.PATH = pathValue;
-  }
-  return nextEnv;
+  return agentProcessEnv(options);
 }
 
 function execFileText(
@@ -217,7 +169,7 @@ async function executableAvailable(
   const candidates = isAbsolute(command)
     ? [command]
     : agentDetectionPath({ env, platform })
-        .split(pathDelimiterFor(platform))
+        .split(":")
         .map((entry) => join(entry, command));
   for (const candidate of candidates) {
     try {

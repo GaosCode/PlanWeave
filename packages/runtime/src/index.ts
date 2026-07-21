@@ -20,6 +20,12 @@ export type {
   ResolvedWindowsCommand,
   WindowsProcessInvocation
 } from "./process/windowsManagedProcess.js";
+export {
+  agentProcessEnv,
+  agentProcessEnvRecord,
+  agentProcessPath
+} from "./process/agentProcessEnv.js";
+export type { AgentProcessPathOptions } from "./process/agentProcessEnv.js";
 export { readProjectPaths, resolvePlanweaveHome } from "./paths.js";
 export { createManagedProjectId, createProjectId } from "./projectId.js";
 export {

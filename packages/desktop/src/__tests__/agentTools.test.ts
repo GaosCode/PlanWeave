@@ -10,13 +10,21 @@ vi.mock("node:child_process", () => ({
   execFile: execFileMock
 }));
 
-vi.mock("node:fs/promises", () => ({
-  access: accessMock
-}));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    access: accessMock
+  };
+});
 
-vi.mock("@planweave-ai/runtime", () => ({
-  resolveWindowsProcessInvocation: resolveWindowsProcessInvocationMock
-}));
+vi.mock("@planweave-ai/runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@planweave-ai/runtime")>();
+  return {
+    ...actual,
+    resolveWindowsProcessInvocation: resolveWindowsProcessInvocationMock
+  };
+});
 
 describe("desktop agent tool detection", () => {
   beforeEach(() => {
