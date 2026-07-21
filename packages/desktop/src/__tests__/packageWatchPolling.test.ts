@@ -86,26 +86,44 @@ describe("package file watcher: polling SLA and resources", () => {
     await registerAndWatch(webContents, workspace);
     await flushMicrotasks();
 
-    // Baseline inventory may readdir; reset counters after startup settles.
+    // Inventory kickoff (~500ms) walks the nodes tree. Wait until that readdir has been
+    // observed and fully drained so late async work cannot pollute the probe-only window.
     await advanceAndFlush(600);
+    for (
+      let attempt = 0;
+      attempt < 20 && fsPromisesMock.state.readdirPaths.length === 0;
+      attempt++
+    ) {
+      await flushMicrotasks();
+      await advanceAndFlush(50);
+    }
+    expect(fsPromisesMock.state.readdirPaths.length).toBeGreaterThan(0);
+    await flushMicrotasks();
     await flushMicrotasks();
     fsPromisesMock.state.readdirPaths = [];
     fsPromisesMock.state.readFilePaths = [];
 
     // Several high-frequency probe intervals (~1s). Probe only stats known paths — no recursive walk.
+    // Stay well under the 10s inventory interval so this window is probe-only.
     await advanceAndFlush(4000);
     await flushMicrotasks();
-
     expect(fsPromisesMock.state.readdirPaths).toHaveLength(0);
 
     // Inventory interval at 10s performs recursive membership scan (readdir of nodes tree).
     await advanceAndFlush(6000);
     await flushMicrotasks();
+    for (
+      let attempt = 0;
+      attempt < 20 && fsPromisesMock.state.readdirPaths.length === 0;
+      attempt++
+    ) {
+      await flushMicrotasks();
+      await advanceAndFlush(50);
+    }
     const inventoryReaddirs = fsPromisesMock.state.readdirPaths.length;
     expect(inventoryReaddirs).toBeGreaterThan(0);
 
-    // Drain in-flight inventory readdir work before measuring the probe-only window;
-    // otherwise a late readdir from the inventory tick can land after the counter reset.
+    // Drain in-flight inventory readdir work before measuring the next probe-only window.
     await flushMicrotasks();
     await flushMicrotasks();
     fsPromisesMock.state.readdirPaths = [];

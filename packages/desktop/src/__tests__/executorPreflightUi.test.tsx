@@ -664,16 +664,16 @@ describe("executor preflight desktop UI", () => {
 
     const optionsButton = screen.getByRole("button", { name: "Codex ACP options" });
     await userEvent.click(optionsButton);
-    expect(await screen.findByText("Action required")).toBeInTheDocument();
+    expect(await screen.findByText("Login required before runs")).toBeInTheDocument();
     expect(
-      screen.getByText("After login or configuration is complete, test again.")
+      screen.getByText("After login or configuration is complete, click Refresh.")
     ).toBeInTheDocument();
     expect(screen.queryByText("Authentication required.")).not.toBeInTheDocument();
     expect(screen.queryByText(t("acpPermissionsManaged"))).not.toBeInTheDocument();
     await userEvent.click(optionsButton);
     await userEvent.click(optionsButton);
 
-    expect(screen.getByText("Action required")).toBeInTheDocument();
+    expect(screen.getByText("Login required before runs")).toBeInTheDocument();
     expect(screen.queryByText(t("preflightRunning"))).not.toBeInTheDocument();
     expect(bridgeMock.api.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(1);
   });
