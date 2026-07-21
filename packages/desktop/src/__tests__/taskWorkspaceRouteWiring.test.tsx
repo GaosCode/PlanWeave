@@ -152,7 +152,7 @@ describe("Task Workspace route wiring", () => {
     expect(returnToCanvas).toHaveBeenCalledTimes(1);
   });
 
-  it("shows Stop in the topbar only for an exact available ACP cancel identity", async () => {
+  it("shows Cancel run in the composer only for an exact available ACP cancel identity", async () => {
     const model = readModel();
     const selectedRun = selection({ model });
     const fixture = taskWorkspaceInspectorFixture();
@@ -168,10 +168,15 @@ describe("Task Workspace route wiring", () => {
 
     render(<WorkspaceTabs />);
 
-    const stop = within(await screen.findByTestId("task-workspace-header")).getByRole("button", {
-      name: "Stop"
+    expect(
+      within(await screen.findByTestId("task-workspace-header")).queryByRole("button", {
+        name: "Stop"
+      })
+    ).not.toBeInTheDocument();
+    const cancel = within(screen.getByTestId("task-workspace-composer")).getByRole("button", {
+      name: "Cancel run"
     });
-    await userEvent.click(stop);
+    await userEvent.click(cancel);
     await waitFor(() =>
       expect(cancelAgentRun).toHaveBeenCalledWith(
         { projectRoot: "/projects/demo", canvasId: "canvas-main" },
@@ -181,7 +186,7 @@ describe("Task Workspace route wiring", () => {
     );
   });
 
-  it("shares cancellation in-flight state and deduplication across both Stop controls", async () => {
+  it("deduplicates Cancel run while a cancel is in flight", async () => {
     const pendingCancel = deferred<void>();
     const model = readModel();
     const selectedRun = selection({ model });
@@ -199,14 +204,17 @@ describe("Task Workspace route wiring", () => {
 
     render(<WorkspaceTabs />);
 
-    const headerStop = await screen.findByRole("button", { name: "Stop" });
+    expect(
+      within(screen.getByTestId("task-workspace-header")).queryByRole("button", {
+        name: "Stop"
+      })
+    ).not.toBeInTheDocument();
     const composerStop = screen.getByRole("button", { name: "Cancel run" });
-    fireEvent.click(headerStop);
+    fireEvent.click(composerStop);
     fireEvent.click(composerStop);
 
     expect(cancelAgentRun).toHaveBeenCalledTimes(1);
     await waitFor(() => {
-      expect(headerStop).toBeDisabled();
       expect(composerStop).toBeDisabled();
     });
 
@@ -215,7 +223,7 @@ describe("Task Workspace route wiring", () => {
     cancelAgentRun.mockResolvedValue(undefined);
   });
 
-  it("hides Stop when the live and selected ACP cancel identities differ", async () => {
+  it("hides Cancel run when the live and selected ACP cancel identities differ", async () => {
     const selectedModel = readModel();
     const selectedRun = selection({ model: selectedModel });
     const liveModel = runnerRecordReadModelSchema.parse({
@@ -249,6 +257,7 @@ describe("Task Workspace route wiring", () => {
         name: "Stop"
       })
     ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
     expect(cancelAgentRun).not.toHaveBeenCalled();
   });
 });

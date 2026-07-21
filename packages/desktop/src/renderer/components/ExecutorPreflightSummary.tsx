@@ -4,6 +4,7 @@ import type { createTranslator } from "../i18n";
 interface ExecutorPreflightSummaryProps {
   result: Pick<ExecutorPreflightResult, "agentInfo" | "authentication" | "checks">;
   t: ReturnType<typeof createTranslator>;
+  loginCommands?: string[] | null;
 }
 
 function initializeLabel(
@@ -20,10 +21,29 @@ function initializeLabel(
   return t("preflightNotAvailable");
 }
 
-export function ExecutorPreflightSummary({ result, t }: ExecutorPreflightSummaryProps) {
+function CommandList({ commands }: { commands: string[] }) {
+  return (
+    <ul className="mt-2 flex flex-col gap-1.5" data-testid="authentication-login-commands">
+      {commands.map((command) => (
+        <li key={command}>
+          <code className="select-all break-all rounded bg-muted/50 px-1.5 py-0.5 font-mono text-[11px] text-text-strong">
+            {command}
+          </code>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function ExecutorPreflightSummary({
+  result,
+  t,
+  loginCommands = null
+}: ExecutorPreflightSummaryProps) {
   const initialize = result.checks?.find((check) => check.check === "acp_initialized");
   const authentication = result.authentication ?? null;
   const agentInfo = result.agentInfo ?? null;
+  const resolvedLoginCommands = (loginCommands ?? []).filter(Boolean);
   if (!initialize && !authentication && !agentInfo) {
     return null;
   }
@@ -54,6 +74,18 @@ export function ExecutorPreflightSummary({ result, t }: ExecutorPreflightSummary
         </dd>
       </dl>
 
+      {authentication?.status === "not_advertised" ? (
+        <div className="mt-3 border-t border-border/70 pt-3 text-text-faint">
+          <div>{t("authenticationNotAdvertisedHint")}</div>
+          {resolvedLoginCommands.length > 0 ? (
+            <>
+              <div className="mt-2 font-medium text-text-strong">{t("agentLoginCommandLabel")}</div>
+              <CommandList commands={resolvedLoginCommands} />
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
       {authentication?.status === "action_required" ? (
         <div className="mt-3 border-t border-border/70 pt-3">
           <div className="font-medium text-text-strong">
@@ -63,6 +95,13 @@ export function ExecutorPreflightSummary({ result, t }: ExecutorPreflightSummary
                 ? t("authenticationInteractiveRequired")
                 : t("authenticationNoSafeMethod")}
           </div>
+          <div className="mt-2 text-text-faint">{t("agentLoginCommandsHint")}</div>
+          {resolvedLoginCommands.length > 0 ? (
+            <>
+              <div className="mt-2 font-medium text-text-strong">{t("agentLoginCommandLabel")}</div>
+              <CommandList commands={resolvedLoginCommands} />
+            </>
+          ) : null}
           {authentication.methods.length > 0 ? (
             <ul className="mt-2 flex flex-col gap-2" data-testid="authentication-methods">
               {authentication.methods.map((method) => (

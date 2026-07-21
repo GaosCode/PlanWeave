@@ -499,7 +499,10 @@ export function useTaskWorkspaceController(options: {
         workspace: null
       };
     }
-    if (!selectedRun || !monitor.model) {
+    // Prefer the live monitor model; fall back to the disk snapshot so completed ACP
+    // conversations remain visible when live projection cannot re-match the run list.
+    const model = monitor.model ?? selectedRecord?.runnerReadModel ?? null;
+    if (!selectedRun || !model) {
       return {
         error: null as string | null,
         runnerModel: null,
@@ -510,7 +513,7 @@ export function useTaskWorkspaceController(options: {
     if (selectedRun.item.run.kind === "feedback") {
       return {
         error: null,
-        runnerModel: monitor.model,
+        runnerModel: model,
         selectedRun,
         workspace
       };
@@ -519,7 +522,7 @@ export function useTaskWorkspaceController(options: {
       const projectedWorkspace = projectTaskWorkspaceLiveSnapshot({
         workspace,
         recordId: selectedRun.item.run.record.recordId,
-        model: monitor.model,
+        model,
         now: new Date()
       });
       const projectedSelectedRun = findRun(
@@ -534,19 +537,21 @@ export function useTaskWorkspaceController(options: {
       }
       return {
         error: null,
-        runnerModel: monitor.model,
+        runnerModel: model,
         selectedRun: projectedSelectedRun,
         workspace: projectedWorkspace
       };
-    } catch (error: unknown) {
+    } catch {
+      // Keep the conversation model even when live list projection fails (common right
+      // after a run finishes and before the run list is recomposed).
       return {
-        error: errorMessage(error),
-        runnerModel: null,
+        error: null,
+        runnerModel: model,
         selectedRun,
         workspace
       };
     }
-  }, [monitor.model, selectedRun, workspace]);
+  }, [monitor.model, selectedRecord?.runnerReadModel, selectedRun, workspace]);
 
   useEffect(() => {
     if (!api || !canvasRef) {

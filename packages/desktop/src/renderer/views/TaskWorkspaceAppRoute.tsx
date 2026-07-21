@@ -3,7 +3,6 @@ import { useProjectWorkspace } from "../ProjectWorkspaceProvider";
 import { TaskWorkspaceRepositoryActions } from "../task-workspace/TaskWorkspaceRepositoryActions";
 import { TaskWorkspaceRoute } from "../task-workspace/TaskWorkspaceRoute";
 import {
-  TaskWorkspaceCancelRunAction,
   TaskWorkspaceCancelRunControllerScope,
   TaskWorkspaceComposer,
   TaskWorkspaceConversation
@@ -70,22 +69,14 @@ export function TaskWorkspaceAppRoute() {
                 />
               ),
               headerAction: () => (
-                <>
-                  <TaskWorkspaceRepositoryActions
-                    api={bridge}
-                    labels={{
-                      repositoryActions: shell.t("repositoryActions")
-                    }}
-                    onError={shell.setError}
-                    repositoryRoot={repositoryRoot}
-                  />
-                  <TaskWorkspaceCancelRunAction
-                    buttonLabel={shell.t("stop")}
-                    controller={cancelController}
-                    errorLabel={shell.t("acpActionError")}
-                    showText
-                  />
-                </>
+                <TaskWorkspaceRepositoryActions
+                  api={bridge}
+                  labels={{
+                    repositoryActions: shell.t("repositoryActions")
+                  }}
+                  onError={shell.setError}
+                  repositoryRoot={repositoryRoot}
+                />
               ),
               inspector: (props: TaskWorkspaceInspectorSlotProps) => (
                 <TaskWorkspaceInspector {...props} labels={taskWorkspaceInspectorLabels(shell.t)} />

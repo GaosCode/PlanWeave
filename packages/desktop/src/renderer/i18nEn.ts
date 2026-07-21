@@ -308,7 +308,7 @@ export const enCatalog = {
   planweaveHome: "PlanWeave Home",
   planweaveHomeHint:
     "Directory that stores managed projects and PlanWeave runtime files. Refresh projects after changing it.",
-  planweaveHomePlaceholder: "Default: ~/.planweave",
+  planweaveHomePlaceholder: "Default: ~/.planweave (Windows: %USERPROFILE%\\.planweave)",
   defaultExecutor: "Default executor",
   executionSettings: "Execution",
   tmuxMonitoring: "tmux monitoring",
@@ -521,9 +521,16 @@ export const enCatalog = {
     "These settings affect the current project's Review Pipeline behavior.",
   reviewSettingsNoProject: "Open a project to apply these settings to its Review Pipeline.",
   agentDetected: "Available",
-  agentMissing: "Unavailable, cannot enable",
+  agentMissing: "Unavailable — not found on PATH",
+  agentMissingCannotEnable: "Cannot enable until this command is installed.",
   agentEnableDescription:
     "When enabled, PlanWeave invokes `{command}` as the common execution entry.",
+  agentAcpAdapterHint:
+    "ACP uses a separate adapter from the CLI. Install the adapter, then click Refresh.",
+  agentInstallCommandLabel: "Install command",
+  agentLoginCommandLabel: "Login command (run in a terminal outside PlanWeave)",
+  agentLoginCommandsHint:
+    "Complete login with the agent CLI first. PlanWeave reuses that session and does not open a browser login flow itself.",
   agentFullAccess: "Full access permission",
   agentFullAccessDescription:
     "When enabled, task execution uses `{command}` and lets this agent access a wider local scope.",
@@ -551,13 +558,17 @@ export const enCatalog = {
   preflightAgentInfo: "Agent information",
   preflightAgentInfoNotProvided: "Not provided by the agent",
   authenticationStatus: "Authentication",
-  authenticationNotAdvertised: "Not advertised; protocol authentication was not invoked",
+  authenticationNotAdvertised:
+    "No ACP login step required — the adapter did not advertise protocol auth methods",
+  authenticationNotAdvertisedHint:
+    "This is usually fine. The adapter reuses the agent CLI login (or needs none). If runs fail with auth errors, log in with the agent CLI in a terminal, then click Refresh.",
   authenticationAuthenticated: "Authenticated with method {methodId}",
-  authenticationActionRequired: "Action required",
+  authenticationActionRequired: "Login required before runs",
   authenticationMissingCredentials: "Required credentials are missing.",
   authenticationInteractiveRequired:
     "This authentication method requires terminal or interactive user action.",
-  authenticationNoSafeMethod: "The agent did not advertise a headless-safe authentication method.",
+  authenticationNoSafeMethod:
+    "This agent only supports interactive login. PlanWeave will not auto-login for you.",
   authenticationMethodId: "Method ID",
   authenticationMethodType: "Method type",
   authenticationMissingVariables: "Missing environment variables",
@@ -566,7 +577,7 @@ export const enCatalog = {
     "Complete this terminal login outside PlanWeave; PlanWeave will not run it automatically.",
   authenticationAgentHint:
     "Complete login with the agent outside PlanWeave; PlanWeave will not start it automatically.",
-  authenticationRetryHint: "After login or configuration is complete, test again.",
+  authenticationRetryHint: "After login or configuration is complete, click Refresh.",
   authenticationRestartHint:
     "If environment variables were added after PlanWeave started, restart PlanWeave before testing again.",
   adapter: "Adapter",

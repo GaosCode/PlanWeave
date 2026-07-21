@@ -43,7 +43,7 @@ describe("executor preflight authentication UI", () => {
       reason: "no_safe_method" as const,
       methods: [{ id: "agent-login", name: "Agent login", type: "agent" as const }],
       expected: [
-        "headless-safe authentication method",
+        "only supports interactive login",
         "Agent login",
         "PlanWeave will not start it automatically"
       ]
@@ -69,7 +69,7 @@ describe("executor preflight authentication UI", () => {
     const summary = screen.getByTestId("executor-preflight-summary");
     expect(summary).toHaveTextContent("Initialized successfully");
     expect(summary).toHaveTextContent("Not provided by the agent");
-    expect(summary).toHaveTextContent("After login or configuration is complete, test again.");
+    expect(summary).toHaveTextContent("After login or configuration is complete, click Refresh.");
     for (const fragment of expected) {
       expect(summary).toHaveTextContent(fragment);
     }
@@ -114,7 +114,37 @@ describe("executor preflight authentication UI", () => {
       />
     );
     expect(screen.getByTestId("executor-preflight-summary")).toHaveTextContent(
-      "Not advertised; protocol authentication was not invoked"
+      "No ACP login step required"
+    );
+    expect(screen.getByTestId("executor-preflight-summary")).toHaveTextContent(
+      "This is usually fine"
+    );
+  });
+
+  it("shows explicit login commands for action_required authentication", () => {
+    render(
+      <ExecutorPreflightSummary
+        result={{
+          agentInfo: null,
+          authentication: {
+            status: "action_required",
+            reason: "interactive_method",
+            methods: [{ id: "grok.com", name: "Grok", type: "agent" }]
+          },
+          checks: [
+            { check: "acp_initialized", status: "passed", message: "ACP initialize completed." }
+          ]
+        }}
+        t={t}
+        loginCommands={["grok auth login"]}
+      />
+    );
+
+    expect(screen.getByTestId("authentication-login-commands")).toHaveTextContent(
+      "grok auth login"
+    );
+    expect(screen.getByTestId("executor-preflight-summary")).toHaveTextContent(
+      "Login required before runs"
     );
   });
 });

@@ -33,7 +33,11 @@ type AgentSettingsPanelProps = {
   labels: {
     agentDetected: string;
     agentMissing: string;
+    agentMissingCannotEnable: string;
     agentEnableDescription: string;
+    agentAcpAdapterHint: string;
+    agentInstallCommandLabel: string;
+    agentLoginCommandLabel: string;
     agentFullAccessDescription: string;
     agentFullAccess: string;
     agentInstallStatus: string;
@@ -224,7 +228,25 @@ export function AgentSettingsPanel({
                     {agent.installed ? labels.agentDetected : labels.agentMissing}
                     {agent.version ? `: ${agent.version}` : ""}
                   </span>
+                  {!agent.installed ? (
+                    <span>{labels.agentMissingCannotEnable}</span>
+                  ) : null}
                   <span>{labels.agentEnableDescription.replace("{command}", command)}</span>
+                  {!agent.installed && agent.runnerKind === "acp" && agent.installCommand ? (
+                    <div
+                      className="mt-2 rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs"
+                      data-testid={`agent-install-hint-${agent.kind}`}
+                    >
+                      <div className="text-text-strong">{labels.agentAcpAdapterHint}</div>
+                      <div className="mt-2 text-text-faint">{labels.agentInstallCommandLabel}</div>
+                      <code className="mt-1 block select-all break-all rounded bg-background px-2 py-1.5 font-mono text-[11px] text-text-strong">
+                        {agent.installCommand}
+                      </code>
+                    </div>
+                  ) : null}
+                  {!agent.installed && agent.unavailableReason ? (
+                    <span className="text-xs text-muted-foreground/90">{agent.unavailableReason}</span>
+                  ) : null}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -298,7 +320,11 @@ export function AgentSettingsPanel({
                   <div className="text-xs text-muted-foreground">{labels.acpNotProbed}</div>
                 ) : null}
                 {acpProbe?.result ? (
-                  <ExecutorPreflightSummary result={acpProbe.result} t={t} />
+                  <ExecutorPreflightSummary
+                    result={acpProbe.result}
+                    t={t}
+                    loginCommands={agent.loginCommands ?? null}
+                  />
                 ) : null}
                 {sessionConfig?.configOptions.map((option) => (
                   <div className="flex items-center justify-between gap-4" key={option.id}>
